@@ -102,7 +102,7 @@ impl GroupedBudgetObservability {
 /// Build one default grouped execution hard-limit policy.
 /// Defaults remain conservative and bounded until planner-owned policy tuning.
 #[must_use]
-pub(in crate::db::executor) const fn default_grouped_execution_config() -> ExecutionConfig {
+const fn default_grouped_execution_config() -> ExecutionConfig {
     ExecutionConfig::with_hard_limits(GROUPED_DEFAULT_MAX_GROUPS, GROUPED_DEFAULT_MAX_GROUP_BYTES)
 }
 

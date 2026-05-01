@@ -13,18 +13,18 @@ use crate::{db::query::builder::aggregate::AggregateExpr, value::Value};
 ///
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) struct FieldId(String);
+pub(in crate::db) struct FieldId(String);
 
 impl FieldId {
     /// Build one field-id token from a field name.
     #[must_use]
-    pub(crate) fn new(field: impl Into<String>) -> Self {
+    pub(in crate::db) fn new(field: impl Into<String>) -> Self {
         Self(field.into())
     }
 
     /// Borrow the canonical field name.
     #[must_use]
-    pub(crate) const fn as_str(&self) -> &str {
+    pub(in crate::db) const fn as_str(&self) -> &str {
         self.0.as_str()
     }
 }
@@ -51,7 +51,7 @@ impl From<String> for FieldId {
 ///
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) struct PathSpec {
+pub(in crate::db) struct PathSpec {
     root: FieldId,
     path: Vec<String>,
 }
@@ -59,7 +59,7 @@ pub(crate) struct PathSpec {
 impl PathSpec {
     /// Build one nested field path from a root field and non-empty path tail.
     #[must_use]
-    pub(crate) fn new(root: impl Into<FieldId>, segments: Vec<String>) -> Self {
+    pub(in crate::db) fn new(root: impl Into<FieldId>, segments: Vec<String>) -> Self {
         debug_assert!(
             !segments.is_empty(),
             "field paths must contain at least one nested segment"
@@ -73,19 +73,19 @@ impl PathSpec {
 
     /// Borrow the top-level model field that owns this nested path.
     #[must_use]
-    pub(crate) const fn root(&self) -> &FieldId {
+    pub(in crate::db) const fn root(&self) -> &FieldId {
         &self.root
     }
 
     /// Borrow the nested path segments below the root field.
     #[must_use]
-    pub(crate) const fn segments(&self) -> &[String] {
+    pub(in crate::db) const fn segments(&self) -> &[String] {
         self.path.as_slice()
     }
 
     /// Return whether this path is expected to resolve to a scalar leaf.
     #[must_use]
-    pub(crate) const fn is_scalar_leaf(&self) -> bool {
+    pub(in crate::db) const fn is_scalar_leaf(&self) -> bool {
         !self.path.is_empty()
     }
 }
@@ -100,14 +100,14 @@ impl PathSpec {
 ///
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) struct FieldPath {
+pub(in crate::db) struct FieldPath {
     path: PathSpec,
 }
 
 impl FieldPath {
     /// Build one nested field path from a root field and non-empty path tail.
     #[must_use]
-    pub(crate) fn new(root: impl Into<FieldId>, segments: Vec<String>) -> Self {
+    pub(in crate::db) fn new(root: impl Into<FieldId>, segments: Vec<String>) -> Self {
         Self {
             path: PathSpec::new(root, segments),
         }
@@ -115,19 +115,19 @@ impl FieldPath {
 
     /// Borrow the path capability descriptor.
     #[must_use]
-    pub(crate) const fn path_spec(&self) -> &PathSpec {
+    pub(in crate::db) const fn path_spec(&self) -> &PathSpec {
         &self.path
     }
 
     /// Borrow the top-level model field that owns this nested path.
     #[must_use]
-    pub(crate) const fn root(&self) -> &FieldId {
+    pub(in crate::db) const fn root(&self) -> &FieldId {
         self.path.root()
     }
 
     /// Borrow the nested path segments below the root field.
     #[must_use]
-    pub(crate) const fn segments(&self) -> &[String] {
+    pub(in crate::db) const fn segments(&self) -> &[String] {
         self.path.segments()
     }
 }
@@ -140,18 +140,18 @@ impl FieldPath {
 ///
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) struct Alias(String);
+pub(in crate::db) struct Alias(String);
 
 impl Alias {
     /// Build one alias token from owned/borrowed text.
     #[must_use]
-    pub(crate) fn new(name: impl Into<String>) -> Self {
+    pub(in crate::db) fn new(name: impl Into<String>) -> Self {
         Self(name.into())
     }
 
     /// Borrow the alias as text.
     #[must_use]
-    pub(crate) const fn as_str(&self) -> &str {
+    pub(in crate::db) const fn as_str(&self) -> &str {
         self.0.as_str()
     }
 }
@@ -175,7 +175,7 @@ impl From<String> for Alias {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum UnaryOp {
+pub(in crate::db) enum UnaryOp {
     Not,
 }
 
@@ -186,7 +186,7 @@ pub(crate) enum UnaryOp {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum BinaryOp {
+pub(in crate::db) enum BinaryOp {
     Or,
     And,
     Eq,
@@ -204,7 +204,7 @@ pub(crate) enum BinaryOp {
 impl BinaryOp {
     /// Return the stable planner-owned lowercase label for this binary operator.
     #[must_use]
-    pub(crate) const fn canonical_label(self) -> &'static str {
+    pub(in crate::db) const fn canonical_label(self) -> &'static str {
         match self {
             Self::Or => "or",
             Self::And => "and",
@@ -223,7 +223,7 @@ impl BinaryOp {
 
     /// Report whether this operator belongs to the numeric arithmetic family.
     #[must_use]
-    pub(crate) const fn is_numeric_arithmetic(self) -> bool {
+    pub(in crate::db) const fn is_numeric_arithmetic(self) -> bool {
         matches!(self, Self::Add | Self::Sub | Self::Mul | Self::Div)
     }
 }
@@ -238,7 +238,7 @@ impl BinaryOp {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[remain::sorted]
-pub(crate) enum Function {
+pub(in crate::db) enum Function {
     Abs,
     Cbrt,
     Ceiling,
@@ -282,7 +282,7 @@ pub(crate) enum Function {
 impl Function {
     /// Return the stable uppercase canonical label for this bounded function.
     #[must_use]
-    pub(crate) const fn canonical_label(self) -> &'static str {
+    pub(in crate::db) const fn canonical_label(self) -> &'static str {
         match self {
             Self::Abs => "ABS",
             Self::Cbrt => "CBRT",
@@ -336,7 +336,7 @@ impl Function {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct CaseWhenArm {
+pub(in crate::db) struct CaseWhenArm {
     condition: Expr,
     result: Expr,
 }
@@ -344,19 +344,19 @@ pub(crate) struct CaseWhenArm {
 impl CaseWhenArm {
     /// Build one planner-owned searched-CASE arm.
     #[must_use]
-    pub(crate) const fn new(condition: Expr, result: Expr) -> Self {
+    pub(in crate::db) const fn new(condition: Expr, result: Expr) -> Self {
         Self { condition, result }
     }
 
     /// Borrow the boolean branch condition.
     #[must_use]
-    pub(crate) const fn condition(&self) -> &Expr {
+    pub(in crate::db) const fn condition(&self) -> &Expr {
         &self.condition
     }
 
     /// Borrow the scalar branch result expression.
     #[must_use]
-    pub(crate) const fn result(&self) -> &Expr {
+    pub(in crate::db) const fn result(&self) -> &Expr {
         &self.result
     }
 }
@@ -687,7 +687,7 @@ const fn supported_order_function_shape(function: Function) -> Option<SupportedO
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum Expr {
+pub(in crate::db) enum Expr {
     Field(FieldId),
     FieldPath(FieldPath),
     Literal(Value),

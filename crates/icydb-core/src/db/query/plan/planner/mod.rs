@@ -115,7 +115,7 @@ impl From<InternalError> for PlannerError {
 /// CONTRACT: the caller is responsible for predicate validation and
 /// predicate canonicalization before planner entry.
 #[cfg(test)]
-pub(crate) fn plan_access(
+pub(in crate::db) fn plan_access(
     model: &EntityModel,
     visible_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
@@ -126,7 +126,7 @@ pub(crate) fn plan_access(
 
 /// Planner entrypoint that also considers a pre-canonicalized ORDER BY
 /// fallback when predicate planning alone would full-scan.
-pub(crate) fn plan_access_with_order(
+pub(in crate::db::query) fn plan_access_with_order(
     model: &EntityModel,
     visible_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,

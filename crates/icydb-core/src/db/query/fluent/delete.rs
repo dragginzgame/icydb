@@ -39,7 +39,7 @@ impl<'a, E> FluentDeleteQuery<'a, E>
 where
     E: PersistedRow,
 {
-    pub(crate) const fn new(session: &'a DbSession<E::Canister>, query: Query<E>) -> Self {
+    pub(in crate::db) const fn new(session: &'a DbSession<E::Canister>, query: Query<E>) -> Self {
         Self { session, query }
     }
 

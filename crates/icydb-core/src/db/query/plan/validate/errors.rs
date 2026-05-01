@@ -114,21 +114,21 @@ pub enum OrderPlanError {
 
 impl OrderPlanError {
     /// Construct one unorderable-field validation error.
-    pub(crate) fn unorderable_field(field: impl Into<String>) -> Self {
+    pub(in crate::db::query) fn unorderable_field(field: impl Into<String>) -> Self {
         Self::UnorderableField {
             field: field.into(),
         }
     }
 
     /// Construct one duplicate non-primary-key ORDER BY field validation error.
-    pub(crate) fn duplicate_order_field(field: impl Into<String>) -> Self {
+    pub(in crate::db::query) fn duplicate_order_field(field: impl Into<String>) -> Self {
         Self::DuplicateOrderField {
             field: field.into(),
         }
     }
 
     /// Construct one missing primary-key tie-break validation error.
-    pub(crate) fn missing_primary_key_tie_break(field: impl Into<String>) -> Self {
+    pub(in crate::db::query) fn missing_primary_key_tie_break(field: impl Into<String>) -> Self {
         Self::MissingPrimaryKeyTieBreak {
             field: field.into(),
         }
@@ -178,37 +178,37 @@ pub enum PolicyPlanError {
 
 impl PolicyPlanError {
     /// Construct one empty-order-spec policy error.
-    pub(crate) const fn empty_order_spec() -> Self {
+    pub(in crate::db::query) const fn empty_order_spec() -> Self {
         Self::EmptyOrderSpec
     }
 
     /// Construct one delete-plan-with-grouping policy error.
-    pub(crate) const fn delete_plan_with_grouping() -> Self {
+    pub(in crate::db::query) const fn delete_plan_with_grouping() -> Self {
         Self::DeletePlanWithGrouping
     }
 
     /// Construct one delete-plan-with-pagination policy error.
-    pub(crate) const fn delete_plan_with_pagination() -> Self {
+    pub(in crate::db::query) const fn delete_plan_with_pagination() -> Self {
         Self::DeletePlanWithPagination
     }
 
     /// Construct one load-plan-with-delete-limit policy error.
-    pub(crate) const fn load_plan_with_delete_limit() -> Self {
+    pub(in crate::db::query) const fn load_plan_with_delete_limit() -> Self {
         Self::LoadPlanWithDeleteLimit
     }
 
     /// Construct one ordered-delete-window-requires-order policy error.
-    pub(crate) const fn delete_window_requires_order() -> Self {
+    pub(in crate::db::query) const fn delete_window_requires_order() -> Self {
         Self::DeleteWindowRequiresOrder
     }
 
     /// Construct one unordered-pagination policy error.
-    pub(crate) const fn unordered_pagination() -> Self {
+    pub(in crate::db::query) const fn unordered_pagination() -> Self {
         Self::UnorderedPagination
     }
 
     /// Construct one expression-order-requires-index-access policy error.
-    pub(crate) const fn expression_order_requires_index_satisfied_access() -> Self {
+    pub(in crate::db::query) const fn expression_order_requires_index_satisfied_access() -> Self {
         Self::ExpressionOrderRequiresIndexSatisfiedAccess
     }
 }
@@ -236,12 +236,12 @@ pub enum CursorPagingPolicyError {
 
 impl CursorPagingPolicyError {
     /// Construct one cursor-requires-order policy error.
-    pub(crate) const fn cursor_requires_order() -> Self {
+    pub(in crate::db::query) const fn cursor_requires_order() -> Self {
         Self::CursorRequiresOrder
     }
 
     /// Construct one cursor-requires-limit policy error.
-    pub(crate) const fn cursor_requires_limit() -> Self {
+    pub(in crate::db::query) const fn cursor_requires_limit() -> Self {
         Self::CursorRequiresLimit
     }
 }
@@ -359,62 +359,65 @@ pub enum GroupPlanError {
 
 impl GroupPlanError {
     /// Construct one grouped-logical-plan-required validation error.
-    pub(crate) const fn grouped_logical_plan_required() -> Self {
+    pub(in crate::db::query) const fn grouped_logical_plan_required() -> Self {
         Self::GroupedLogicalPlanRequired
     }
 
     /// Construct one unsupported global-DISTINCT aggregate shape validation error.
-    pub(crate) const fn global_distinct_aggregate_shape_unsupported() -> Self {
+    pub(in crate::db::query) const fn global_distinct_aggregate_shape_unsupported() -> Self {
         Self::GlobalDistinctAggregateShapeUnsupported
     }
 
     /// Construct one grouped DISTINCT adjacency-eligibility-required policy error.
-    pub(crate) const fn distinct_adjacency_eligibility_required() -> Self {
+    pub(in crate::db::query) const fn distinct_adjacency_eligibility_required() -> Self {
         Self::DistinctAdjacencyEligibilityRequired
     }
 
     /// Construct one grouped DISTINCT HAVING unsupported policy error.
-    pub(crate) const fn distinct_having_unsupported() -> Self {
+    pub(in crate::db::query) const fn distinct_having_unsupported() -> Self {
         Self::DistinctHavingUnsupported
     }
 
     /// Construct one unknown grouped-field validation error.
-    pub(crate) fn unknown_group_field(field: impl Into<String>) -> Self {
+    pub(in crate::db::query) fn unknown_group_field(field: impl Into<String>) -> Self {
         Self::UnknownGroupField {
             field: field.into(),
         }
     }
 
     /// Construct one duplicate grouped-field validation error.
-    pub(crate) fn duplicate_group_field(field: impl Into<String>) -> Self {
+    pub(in crate::db::query) fn duplicate_group_field(field: impl Into<String>) -> Self {
         Self::DuplicateGroupField {
             field: field.into(),
         }
     }
 
     /// Construct one aggregate ORDER BY requires LIMIT validation error.
-    pub(crate) const fn order_requires_limit() -> Self {
+    pub(in crate::db::query) const fn order_requires_limit() -> Self {
         Self::OrderRequiresLimit
     }
 
     /// Construct one grouped ORDER BY prefix-alignment validation error.
-    pub(crate) const fn order_prefix_not_aligned_with_group_keys() -> Self {
+    pub(in crate::db::query) const fn order_prefix_not_aligned_with_group_keys() -> Self {
         Self::OrderPrefixNotAlignedWithGroupKeys
     }
 
     /// Construct one grouped ORDER BY expression admission validation error.
-    pub(crate) fn order_expression_not_admissible(term: impl Into<String>) -> Self {
+    pub(in crate::db::query) fn order_expression_not_admissible(term: impl Into<String>) -> Self {
         Self::OrderExpressionNotAdmissible { term: term.into() }
     }
 
     /// Construct one empty grouped-field-set validation error.
     /// Construct one empty grouped-aggregate-set validation error.
-    pub(crate) const fn empty_aggregates() -> Self {
+    pub(in crate::db::query) const fn empty_aggregates() -> Self {
         Self::EmptyAggregates
     }
 
     /// Construct one grouped HAVING non-group-field reference validation error.
-    pub(crate) fn having_non_group_field_reference(index: usize, field: impl Into<String>) -> Self {
+    pub(in crate::db::query) fn having_non_group_field_reference(
+        index: usize,
+        field: impl Into<String>,
+    ) -> Self {
         Self::HavingNonGroupFieldReference {
             index,
             field: field.into(),
@@ -422,7 +425,7 @@ impl GroupPlanError {
     }
 
     /// Construct one grouped HAVING aggregate-index-out-of-bounds validation error.
-    pub(crate) const fn having_aggregate_index_out_of_bounds(
+    pub(in crate::db::query) const fn having_aggregate_index_out_of_bounds(
         index: usize,
         aggregate_index: usize,
         aggregate_count: usize,
@@ -435,7 +438,10 @@ impl GroupPlanError {
     }
 
     /// Construct one grouped HAVING unsupported-operator policy error.
-    pub(crate) fn having_unsupported_compare_op(index: usize, op: impl Into<String>) -> Self {
+    pub(in crate::db::query) fn having_unsupported_compare_op(
+        index: usize,
+        op: impl Into<String>,
+    ) -> Self {
         Self::HavingUnsupportedCompareOp {
             index,
             op: op.into(),
@@ -443,7 +449,7 @@ impl GroupPlanError {
     }
 
     /// Construct one grouped DISTINCT aggregate-kind unsupported policy error.
-    pub(crate) fn distinct_aggregate_kind_unsupported(
+    pub(in crate::db::query) fn distinct_aggregate_kind_unsupported(
         index: usize,
         kind: impl Into<String>,
     ) -> Self {
@@ -454,7 +460,7 @@ impl GroupPlanError {
     }
 
     /// Construct one grouped DISTINCT field-target unsupported policy error.
-    pub(crate) fn distinct_aggregate_field_target_unsupported(
+    pub(in crate::db::query) fn distinct_aggregate_field_target_unsupported(
         index: usize,
         kind: impl Into<String>,
         field: impl Into<String>,
@@ -467,7 +473,7 @@ impl GroupPlanError {
     }
 
     /// Construct one grouped field-target aggregate unsupported policy error.
-    pub(crate) fn field_target_aggregates_unsupported(
+    pub(in crate::db::query) fn field_target_aggregates_unsupported(
         index: usize,
         kind: impl Into<String>,
         field: impl Into<String>,
@@ -480,7 +486,7 @@ impl GroupPlanError {
     }
 
     /// Construct one global DISTINCT SUM non-numeric-target policy error.
-    pub(crate) fn global_distinct_sum_target_not_numeric(
+    pub(in crate::db::query) fn global_distinct_sum_target_not_numeric(
         index: usize,
         field: impl Into<String>,
     ) -> Self {
@@ -491,7 +497,10 @@ impl GroupPlanError {
     }
 
     /// Construct one unknown grouped aggregate-target-field validation error.
-    pub(crate) fn unknown_aggregate_target_field(index: usize, field: impl Into<String>) -> Self {
+    pub(in crate::db::query) fn unknown_aggregate_target_field(
+        index: usize,
+        field: impl Into<String>,
+    ) -> Self {
         Self::UnknownAggregateTargetField {
             index,
             field: field.into(),
@@ -556,19 +565,19 @@ pub enum ExprPlanError {
 
 impl ExprPlanError {
     /// Construct one unknown-expression-field planner error.
-    pub(crate) fn unknown_expr_field(field: impl Into<String>) -> Self {
+    pub(in crate::db::query) fn unknown_expr_field(field: impl Into<String>) -> Self {
         Self::UnknownExprField {
             field: field.into(),
         }
     }
 
     /// Construct one aggregate-target-required planner error.
-    pub(crate) fn aggregate_target_required(kind: impl Into<String>) -> Self {
+    pub(in crate::db::query) fn aggregate_target_required(kind: impl Into<String>) -> Self {
         Self::AggregateTargetRequired { kind: kind.into() }
     }
 
     /// Construct one non-numeric aggregate-target planner error.
-    pub(crate) fn non_numeric_aggregate_target(
+    pub(in crate::db::query) fn non_numeric_aggregate_target(
         kind: impl Into<String>,
         field: impl Into<String>,
     ) -> Self {
@@ -579,7 +588,7 @@ impl ExprPlanError {
     }
 
     /// Construct one invalid function-argument planner error.
-    pub(crate) fn invalid_function_argument(
+    pub(in crate::db::query) fn invalid_function_argument(
         function: impl Into<String>,
         index: usize,
         found: impl Into<String>,
@@ -592,7 +601,10 @@ impl ExprPlanError {
     }
 
     /// Construct one invalid unary-operand planner error.
-    pub(crate) fn invalid_unary_operand(op: impl Into<String>, found: impl Into<String>) -> Self {
+    pub(in crate::db::query) fn invalid_unary_operand(
+        op: impl Into<String>,
+        found: impl Into<String>,
+    ) -> Self {
         Self::InvalidUnaryOperand {
             op: op.into(),
             found: found.into(),
@@ -600,14 +612,14 @@ impl ExprPlanError {
     }
 
     /// Construct one invalid CASE-condition planner error.
-    pub(crate) fn invalid_case_condition_type(found: impl Into<String>) -> Self {
+    pub(in crate::db::query) fn invalid_case_condition_type(found: impl Into<String>) -> Self {
         Self::InvalidCaseConditionType {
             found: found.into(),
         }
     }
 
     /// Construct one incompatible CASE-branch-types planner error.
-    pub(crate) fn incompatible_case_branch_types(
+    pub(in crate::db::query) fn incompatible_case_branch_types(
         left: impl Into<String>,
         right: impl Into<String>,
     ) -> Self {
@@ -618,7 +630,7 @@ impl ExprPlanError {
     }
 
     /// Construct one invalid binary-operands planner error.
-    pub(crate) fn invalid_binary_operands(
+    pub(in crate::db::query) fn invalid_binary_operands(
         op: impl Into<String>,
         left: impl Into<String>,
         right: impl Into<String>,
@@ -631,7 +643,9 @@ impl ExprPlanError {
     }
 
     /// Construct one grouped projection non-group-field reference planner error.
-    pub(crate) const fn grouped_projection_references_non_group_field(index: usize) -> Self {
+    pub(in crate::db::query) const fn grouped_projection_references_non_group_field(
+        index: usize,
+    ) -> Self {
         Self::GroupedProjectionReferencesNonGroupField { index }
     }
 }
@@ -643,25 +657,25 @@ impl ExprPlanError {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum CursorOrderPlanShapeError {
+pub(in crate::db) enum CursorOrderPlanShapeError {
     MissingExplicitOrder,
     EmptyOrderSpec,
 }
 
 impl CursorOrderPlanShapeError {
     /// Construct one missing-explicit-order shape error.
-    pub(crate) const fn missing_explicit_order() -> Self {
+    pub(in crate::db) const fn missing_explicit_order() -> Self {
         Self::MissingExplicitOrder
     }
 
     /// Construct one empty-order-spec shape error.
-    pub(crate) const fn empty_order_spec() -> Self {
+    pub(in crate::db) const fn empty_order_spec() -> Self {
         Self::EmptyOrderSpec
     }
 
     /// Map one cursor-order shape error into one cursor plan error using the
     /// caller-owned missing-order contract message.
-    pub(crate) fn to_cursor_plan_error(
+    pub(in crate::db) fn to_cursor_plan_error(
         self,
         missing_order_message: &'static str,
     ) -> CursorPlanError {
@@ -681,7 +695,7 @@ impl CursorOrderPlanShapeError {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum IntentKeyAccessKind {
+pub(in crate::db::query) enum IntentKeyAccessKind {
     Single,
     Many,
     Only,
@@ -693,7 +707,7 @@ pub(crate) enum IntentKeyAccessKind {
 /// Logical key-access policy violations at query-intent boundaries.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum IntentKeyAccessPolicyViolation {
+pub(in crate::db::query) enum IntentKeyAccessPolicyViolation {
     KeyAccessConflict,
     ByIdsWithPredicate,
     OnlyWithPredicate,
@@ -701,17 +715,17 @@ pub(crate) enum IntentKeyAccessPolicyViolation {
 
 impl IntentKeyAccessPolicyViolation {
     /// Construct one conflicting-key-access policy violation.
-    pub(crate) const fn key_access_conflict() -> Self {
+    pub(in crate::db::query) const fn key_access_conflict() -> Self {
         Self::KeyAccessConflict
     }
 
     /// Construct one by-ids-with-predicate policy violation.
-    pub(crate) const fn by_ids_with_predicate() -> Self {
+    pub(in crate::db::query) const fn by_ids_with_predicate() -> Self {
         Self::ByIdsWithPredicate
     }
 
     /// Construct one only-with-predicate policy violation.
-    pub(crate) const fn only_with_predicate() -> Self {
+    pub(in crate::db::query) const fn only_with_predicate() -> Self {
         Self::OnlyWithPredicate
     }
 }
@@ -723,7 +737,7 @@ impl IntentKeyAccessPolicyViolation {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FluentLoadPolicyViolation {
+pub(in crate::db::query) enum FluentLoadPolicyViolation {
     CursorRequiresPagedExecution,
     GroupedRequiresDirectExecute,
     CursorRequiresOrder,
@@ -732,22 +746,22 @@ pub(crate) enum FluentLoadPolicyViolation {
 
 impl FluentLoadPolicyViolation {
     /// Construct one cursor-requires-paged-execution fluent policy violation.
-    pub(crate) const fn cursor_requires_paged_execution() -> Self {
+    pub(in crate::db::query) const fn cursor_requires_paged_execution() -> Self {
         Self::CursorRequiresPagedExecution
     }
 
     /// Construct one grouped-requires-direct-execute fluent policy violation.
-    pub(crate) const fn grouped_requires_direct_execute() -> Self {
+    pub(in crate::db::query) const fn grouped_requires_direct_execute() -> Self {
         Self::GroupedRequiresDirectExecute
     }
 
     /// Construct one cursor-requires-order fluent policy violation.
-    pub(crate) const fn cursor_requires_order() -> Self {
+    pub(in crate::db::query) const fn cursor_requires_order() -> Self {
         Self::CursorRequiresOrder
     }
 
     /// Construct one cursor-requires-limit fluent policy violation.
-    pub(crate) const fn cursor_requires_limit() -> Self {
+    pub(in crate::db::query) const fn cursor_requires_limit() -> Self {
         Self::CursorRequiresLimit
     }
 }

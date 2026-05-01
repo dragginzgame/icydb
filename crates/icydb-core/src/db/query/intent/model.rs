@@ -40,7 +40,7 @@ use crate::{
 ///
 
 #[derive(Clone, Debug)]
-pub(crate) struct QueryModel<'m, K> {
+pub(in crate::db::query) struct QueryModel<'m, K> {
     model: &'m EntityModel,
     intent: QueryIntent<K>,
     consistency: MissingRowPolicy,
@@ -48,7 +48,10 @@ pub(crate) struct QueryModel<'m, K> {
 
 impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     #[must_use]
-    pub(crate) const fn new(model: &'m EntityModel, consistency: MissingRowPolicy) -> Self {
+    pub(in crate::db::query) const fn new(
+        model: &'m EntityModel,
+        consistency: MissingRowPolicy,
+    ) -> Self {
         Self {
             model,
             intent: QueryIntent::new(),
@@ -56,7 +59,7 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
         }
     }
 
-    pub(in crate::db) fn structural_cache_key_with_normalized_predicate_fingerprint(
+    pub(in crate::db::query) fn structural_cache_key_with_normalized_predicate_fingerprint(
         &self,
         predicate_fingerprint: Option<[u8; 32]>,
     ) -> StructuralQueryCacheKey {
@@ -68,7 +71,7 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
 
     /// Return the intent mode (load vs delete).
     #[must_use]
-    pub(crate) const fn mode(&self) -> QueryMode {
+    pub(in crate::db::query) const fn mode(&self) -> QueryMode {
         self.intent.mode()
     }
 
@@ -173,20 +176,20 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     }
 
     #[must_use]
-    pub(crate) fn filter_predicate(mut self, predicate: Predicate) -> Self {
+    pub(in crate::db::query) fn filter_predicate(mut self, predicate: Predicate) -> Self {
         self.intent.append_predicate(normalize(&predicate));
         self
     }
 
     #[must_use]
-    pub(crate) fn filter(self, expr: impl Into<FilterExpr>) -> Self {
+    pub(in crate::db::query) fn filter(self, expr: impl Into<FilterExpr>) -> Self {
         let model = self.model;
 
         self.filter_expr(expr.into().lower_bool_expr_for_model(model))
     }
 
     #[must_use]
-    pub(crate) fn filter_expr(mut self, expr: Expr) -> Self {
+    pub(in crate::db::query) fn filter_expr(mut self, expr: Expr) -> Self {
         let expr = normalize_bool_expr(expr);
 
         debug_assert!(is_normalized_bool_expr(&expr));
@@ -210,20 +213,20 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
 
     /// Append one typed fluent ORDER BY term.
     #[must_use]
-    pub(crate) fn order_term(mut self, term: FluentOrderTerm) -> Self {
+    pub(in crate::db::query) fn order_term(mut self, term: FluentOrderTerm) -> Self {
         self.intent.push_order_term(term.lower());
         self
     }
 
     /// Set a fully-specified order spec (validated before reaching this boundary).
-    pub(crate) fn order_spec(mut self, order: OrderSpec) -> Self {
+    pub(in crate::db::query) fn order_spec(mut self, order: OrderSpec) -> Self {
         self.intent.set_order_spec(order);
         self
     }
 
     /// Enable DISTINCT semantics for this query intent.
     #[must_use]
-    pub(crate) const fn distinct(mut self) -> Self {
+    pub(in crate::db::query) const fn distinct(mut self) -> Self {
         self.intent.set_distinct();
         self
     }
@@ -232,7 +235,7 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     /// planning tests that compare fluent and structural query shapes.
     #[cfg(all(test, feature = "sql"))]
     #[must_use]
-    pub(crate) fn select_fields<I, S>(mut self, fields: I) -> Self
+    pub(in crate::db::query) fn select_fields<I, S>(mut self, fields: I) -> Self
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
@@ -370,13 +373,13 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     }
 
     /// Set the access path to a single primary key lookup.
-    pub(crate) fn by_id(mut self, id: K) -> Self {
+    pub(in crate::db::query) fn by_id(mut self, id: K) -> Self {
         self.intent.set_by_id(id);
         self
     }
 
     /// Set the access path to a primary key batch lookup.
-    pub(crate) fn by_ids<I>(mut self, ids: I) -> Self
+    pub(in crate::db::query) fn by_ids<I>(mut self, ids: I) -> Self
     where
         I: IntoIterator<Item = K>,
     {
@@ -385,14 +388,14 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     }
 
     /// Set the access path to the singleton primary key.
-    pub(crate) fn only(mut self, id: K) -> Self {
+    pub(in crate::db::query) fn only(mut self, id: K) -> Self {
         self.intent.set_only(id);
         self
     }
 
     /// Mark this intent as a delete query.
     #[must_use]
-    pub(crate) fn delete(mut self) -> Self {
+    pub(in crate::db::query) fn delete(mut self) -> Self {
         self.intent = self.intent.set_delete_mode();
         self
     }
@@ -401,7 +404,7 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     ///
     /// Load limits bound result size; delete limits bound mutation size.
     #[must_use]
-    pub(crate) fn limit(mut self, limit: u32) -> Self {
+    pub(in crate::db::query) fn limit(mut self, limit: u32) -> Self {
         self.intent = self.intent.apply_limit(limit);
         self
     }
@@ -411,7 +414,7 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     /// Load mode uses this as a pagination offset. Delete mode uses this as an
     /// ordered delete window offset.
     #[must_use]
-    pub(crate) fn offset(mut self, offset: u32) -> Self {
+    pub(in crate::db::query) fn offset(mut self, offset: u32) -> Self {
         self.intent = self.intent.apply_offset(offset);
         self
     }

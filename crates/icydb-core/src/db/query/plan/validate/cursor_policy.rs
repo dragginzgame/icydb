@@ -9,7 +9,7 @@ use crate::db::query::plan::{
 };
 
 /// Validate cursor-pagination readiness for a load-spec + ordering pair.
-pub(crate) const fn validate_cursor_paging_requirements(
+pub(in crate::db::query) const fn validate_cursor_paging_requirements(
     has_order: bool,
     spec: LoadSpec,
 ) -> Result<(), CursorPagingPolicyError> {
@@ -21,7 +21,7 @@ pub(crate) const fn validate_cursor_paging_requirements(
 }
 
 /// Validate cursor-order shape and return the logical order contract when present.
-pub(crate) fn validate_cursor_order_plan_shape(
+pub(in crate::db) fn validate_cursor_order_plan_shape(
     order: Option<&OrderSpec>,
     require_explicit_order: bool,
 ) -> Result<Option<&OrderSpec>, CursorOrderPlanShapeError> {

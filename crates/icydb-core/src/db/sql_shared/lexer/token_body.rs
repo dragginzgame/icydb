@@ -6,6 +6,8 @@ use crate::db::sql_shared::{
     },
 };
 
+const MAX_SQL_BLOB_LITERAL_BYTES: usize = 1_048_576;
+
 impl Lexer<'_> {
     pub(super) fn lex_blob_literal(
         &mut self,
@@ -105,6 +107,11 @@ fn decode_hex_blob_literal(hex: &[u8]) -> Result<Vec<u8>, crate::db::sql_shared:
     if !hex.len().is_multiple_of(2) {
         return Err(crate::db::sql_shared::SqlParseError::invalid_syntax(
             "blob literal must contain an even number of hex digits",
+        ));
+    }
+    if hex.len() / 2 > MAX_SQL_BLOB_LITERAL_BYTES {
+        return Err(crate::db::sql_shared::SqlParseError::invalid_syntax(
+            "blob literal exceeds maximum decoded byte length of 1048576",
         ));
     }
 

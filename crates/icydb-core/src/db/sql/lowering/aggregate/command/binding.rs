@@ -56,14 +56,14 @@ impl<E: EntityKind> SqlGlobalAggregateCommand<E> {
     /// Borrow the canonical output projection contract for this global aggregate command.
     #[must_use]
     #[cfg(test)]
-    pub(crate) const fn projection(&self) -> &ProjectionSpec {
+    pub(in crate::db) const fn projection(&self) -> &ProjectionSpec {
         &self.projection
     }
 
     /// Borrow the optional global aggregate HAVING expression.
     #[must_use]
     #[cfg(test)]
-    pub(crate) const fn having(&self) -> Option<&Expr> {
+    pub(in crate::db) const fn having(&self) -> Option<&Expr> {
         self.having.as_ref()
     }
 

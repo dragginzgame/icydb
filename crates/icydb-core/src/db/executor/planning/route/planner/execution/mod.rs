@@ -20,7 +20,7 @@ use crate::db::executor::planning::route::planner::execution::{
     load_scalar::build_execution_stage_for_load,
 };
 
-pub(in crate::db::executor::planning::route::planner) const fn index_range_limit_spec_for_execution_mode(
+pub(super) const fn index_range_limit_spec_for_execution_mode(
     feasibility_stage: &RouteFeasibilityStage,
     execution_mode: RouteExecutionMode,
 ) -> Option<IndexRangeLimitSpec> {
@@ -54,7 +54,7 @@ fn debug_assert_probe_hint_contract(feasibility_stage: &RouteFeasibilityStage) {
     );
 }
 
-pub(in crate::db::executor::planning::route::planner) fn derive_route_execution_stage(
+pub(super) fn derive_route_execution_stage(
     intent_stage: &RouteIntentStage<'_>,
     feasibility_stage: &RouteFeasibilityStage,
 ) -> RouteExecutionStage {

@@ -13,7 +13,7 @@ use crate::db::{
 };
 
 // Validate GROUP BY expression compatibility over canonical projection semantics.
-pub(crate) fn validate_group_projection_expr_compatibility(
+pub(in crate::db::query) fn validate_group_projection_expr_compatibility(
     group: &GroupSpec,
     projection: &ProjectionSpec,
 ) -> Result<(), PlanError> {
@@ -44,7 +44,7 @@ pub(crate) fn validate_group_projection_expr_compatibility(
 }
 
 // Validate deterministic planner expression typing over one canonical projection shape.
-pub(crate) fn validate_projection_expr_types(
+pub(in crate::db::query) fn validate_projection_expr_types(
     schema: &SchemaInfo,
     projection: &ProjectionSpec,
 ) -> Result<(), PlanError> {

@@ -257,14 +257,14 @@ impl ExplainExecutionNodeDescriptor {
 impl FinalizedQueryDiagnostics {
     /// Render the frozen verbose diagnostics artifact as deterministic text.
     #[must_use]
-    pub(crate) fn render_text_verbose(&self) -> String {
+    pub(in crate::db) fn render_text_verbose(&self) -> String {
         self.render_text_verbose_with_tree_indent("")
     }
 
     /// Render the frozen verbose diagnostics artifact with one caller-owned
     /// indent prefix applied to the execution tree only.
     #[must_use]
-    pub(crate) fn render_text_verbose_with_tree_indent(&self, tree_indent: &str) -> String {
+    pub(in crate::db) fn render_text_verbose_with_tree_indent(&self, tree_indent: &str) -> String {
         let mut lines = vec![
             self.execution()
                 .render_text_tree_verbose_with_indent(tree_indent),

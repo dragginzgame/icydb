@@ -51,41 +51,41 @@ pub enum QueryError {
 
 impl QueryError {
     /// Construct one validation-domain query error.
-    pub(crate) fn validate(err: ValidateError) -> Self {
+    pub(in crate::db) fn validate(err: ValidateError) -> Self {
         Self::Validate(Box::new(err))
     }
 
     /// Construct an execution-domain query error from one classified runtime error.
-    pub(crate) fn execute(err: InternalError) -> Self {
+    pub(in crate::db) fn execute(err: InternalError) -> Self {
         Self::Execute(QueryExecutionError::from(err))
     }
 
     /// Construct one query-origin invariant-violation execution error.
-    pub(crate) fn invariant(message: impl Into<String>) -> Self {
+    pub(in crate::db) fn invariant(message: impl Into<String>) -> Self {
         Self::execute(InternalError::query_executor_invariant(message))
     }
 
     /// Construct one invariant for prepared SELECT lowering that lost SELECT shape.
     #[cfg(feature = "sql")]
-    pub(crate) fn prepared_sql_select_lane_mismatch() -> Self {
+    pub(in crate::db) fn prepared_sql_select_lane_mismatch() -> Self {
         Self::invariant("compiled SQL SELECT lane must lower to lowered SQL SELECT")
     }
 
     /// Construct one invariant for prepared DELETE lowering that lost DELETE shape.
     #[cfg(feature = "sql")]
-    pub(crate) fn prepared_sql_delete_lane_mismatch() -> Self {
+    pub(in crate::db) fn prepared_sql_delete_lane_mismatch() -> Self {
         Self::invariant("compiled SQL DELETE lane must lower to lowered SQL DELETE")
     }
 
     /// Construct one invariant for prepared INSERT extraction that lost INSERT shape.
     #[cfg(feature = "sql")]
-    pub(crate) fn prepared_sql_insert_lane_mismatch() -> Self {
+    pub(in crate::db) fn prepared_sql_insert_lane_mismatch() -> Self {
         Self::invariant("prepared SQL INSERT compilation must preserve INSERT statement ownership")
     }
 
     /// Construct one invariant for prepared INSERT SELECT extraction that lost SELECT source shape.
     #[cfg(feature = "sql")]
-    pub(crate) fn prepared_sql_insert_select_source_mismatch() -> Self {
+    pub(in crate::db) fn prepared_sql_insert_select_source_mismatch() -> Self {
         Self::invariant(
             "prepared SQL INSERT SELECT compilation must preserve SELECT source ownership",
         )
@@ -93,17 +93,17 @@ impl QueryError {
 
     /// Construct one invariant for prepared UPDATE extraction that lost UPDATE shape.
     #[cfg(feature = "sql")]
-    pub(crate) fn prepared_sql_update_lane_mismatch() -> Self {
+    pub(in crate::db) fn prepared_sql_update_lane_mismatch() -> Self {
         Self::invariant("prepared SQL UPDATE compilation must preserve UPDATE statement ownership")
     }
 
     /// Construct one intent-domain query error.
-    pub(crate) const fn intent(err: IntentError) -> Self {
+    pub(in crate::db) const fn intent(err: IntentError) -> Self {
         Self::Intent(err)
     }
 
     /// Construct one query-origin unsupported execution error.
-    pub(crate) fn unsupported_query(message: impl Into<String>) -> Self {
+    pub(in crate::db) fn unsupported_query(message: impl Into<String>) -> Self {
         Self::execute(InternalError::query_unsupported(message))
     }
 
@@ -117,12 +117,12 @@ impl QueryError {
         dead_code,
         reason = "kept as the named query constructor for the numeric overflow contract"
     )]
-    pub(crate) fn numeric_overflow() -> Self {
+    pub(in crate::db) fn numeric_overflow() -> Self {
         Self::from_numeric_eval_error(NumericEvalError::Overflow)
     }
 
     /// Construct one serialize-origin internal execution error.
-    pub(crate) fn serialize_internal(message: impl Into<String>) -> Self {
+    pub(in crate::db) fn serialize_internal(message: impl Into<String>) -> Self {
         Self::execute(InternalError::serialize_internal(message))
     }
 
@@ -133,7 +133,7 @@ impl QueryError {
 
     /// Construct one query-origin unsupported SQL-feature execution error.
     #[cfg(feature = "sql")]
-    pub(crate) fn unsupported_sql_feature(feature: &'static str) -> Self {
+    pub(in crate::db) fn unsupported_sql_feature(feature: &'static str) -> Self {
         Self::execute(InternalError::query_unsupported_sql_feature(feature))
     }
 
@@ -162,24 +162,24 @@ impl QueryError {
 
     /// Construct one unsupported query-lane SQL statement error.
     #[cfg(feature = "sql")]
-    pub(crate) fn unsupported_query_lane_sql_statement() -> Self {
+    pub(in crate::db) fn unsupported_query_lane_sql_statement() -> Self {
         Self::unsupported_query(
             "query-lane SQL execution only accepts SELECT, DELETE, and EXPLAIN statements",
         )
     }
 
     /// Construct one unsupported aggregate target-field query error.
-    pub(crate) fn unknown_aggregate_target_field(field: &str) -> Self {
+    pub(in crate::db) fn unknown_aggregate_target_field(field: &str) -> Self {
         Self::unsupported_query(format!("unknown aggregate target field: {field}"))
     }
 
     /// Construct one invariant violation for scalar pagination emitting the wrong cursor kind.
-    pub(crate) fn scalar_paged_emitted_grouped_continuation() -> Self {
+    pub(in crate::db) fn scalar_paged_emitted_grouped_continuation() -> Self {
         Self::invariant("scalar load pagination emitted grouped continuation token")
     }
 
     /// Construct one invariant violation for grouped pagination emitting the wrong cursor kind.
-    pub(crate) fn grouped_paged_emitted_scalar_continuation() -> Self {
+    pub(in crate::db) fn grouped_paged_emitted_scalar_continuation() -> Self {
         Self::invariant("grouped pagination emitted scalar continuation token")
     }
 }
@@ -296,52 +296,52 @@ pub enum IntentError {
 
 impl IntentError {
     /// Construct one by-ids-with-predicate intent error.
-    pub(crate) const fn by_ids_with_predicate() -> Self {
+    pub(in crate::db::query) const fn by_ids_with_predicate() -> Self {
         Self::ByIdsWithPredicate
     }
 
     /// Construct one only-with-predicate intent error.
-    pub(crate) const fn only_with_predicate() -> Self {
+    pub(in crate::db::query) const fn only_with_predicate() -> Self {
         Self::OnlyWithPredicate
     }
 
     /// Construct one key-access-conflict intent error.
-    pub(crate) const fn key_access_conflict() -> Self {
+    pub(in crate::db::query) const fn key_access_conflict() -> Self {
         Self::KeyAccessConflict
     }
 
     /// Construct one invalid-paging-shape intent error.
-    pub(crate) const fn invalid_paging_shape(err: PagingIntentError) -> Self {
+    pub(in crate::db::query) const fn invalid_paging_shape(err: PagingIntentError) -> Self {
         Self::InvalidPagingShape(err)
     }
 
     /// Construct one cursor-requires-order intent error.
-    pub(crate) const fn cursor_requires_order() -> Self {
+    pub(in crate::db::query) const fn cursor_requires_order() -> Self {
         Self::invalid_paging_shape(PagingIntentError::cursor_requires_order())
     }
 
     /// Construct one cursor-requires-limit intent error.
-    pub(crate) const fn cursor_requires_limit() -> Self {
+    pub(in crate::db::query) const fn cursor_requires_limit() -> Self {
         Self::invalid_paging_shape(PagingIntentError::cursor_requires_limit())
     }
 
     /// Construct one cursor-requires-paged-execution intent error.
-    pub(crate) const fn cursor_requires_paged_execution() -> Self {
+    pub(in crate::db::query) const fn cursor_requires_paged_execution() -> Self {
         Self::invalid_paging_shape(PagingIntentError::cursor_requires_paged_execution())
     }
 
     /// Construct one grouped-requires-direct-execute intent error.
-    pub(crate) const fn grouped_requires_direct_execute() -> Self {
+    pub(in crate::db::query) const fn grouped_requires_direct_execute() -> Self {
         Self::GroupedRequiresDirectExecute
     }
 
     /// Construct one HAVING-requires-GROUP-BY intent error.
-    pub(crate) const fn having_requires_group_by() -> Self {
+    pub(in crate::db::query) const fn having_requires_group_by() -> Self {
         Self::HavingRequiresGroupBy
     }
 
     /// Construct one unknown-grouped-aggregate HAVING intent error.
-    pub(crate) const fn having_references_unknown_aggregate() -> Self {
+    pub(in crate::db::query) const fn having_references_unknown_aggregate() -> Self {
         Self::HavingReferencesUnknownAggregate
     }
 }
@@ -374,17 +374,17 @@ pub enum PagingIntentError {
 
 impl PagingIntentError {
     /// Construct one cursor-requires-order paging intent error.
-    pub(crate) const fn cursor_requires_order() -> Self {
+    const fn cursor_requires_order() -> Self {
         Self::CursorRequiresOrder
     }
 
     /// Construct one cursor-requires-limit paging intent error.
-    pub(crate) const fn cursor_requires_limit() -> Self {
+    const fn cursor_requires_limit() -> Self {
         Self::CursorRequiresLimit
     }
 
     /// Construct one cursor-requires-paged-execution paging intent error.
-    pub(crate) const fn cursor_requires_paged_execution() -> Self {
+    const fn cursor_requires_paged_execution() -> Self {
         Self::CursorRequiresPagedExecution
     }
 }

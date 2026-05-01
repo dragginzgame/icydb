@@ -14,20 +14,20 @@ mod render;
 mod writer;
 
 pub(in crate::db) use access_projection::explain_access_plan;
-pub(crate) use execution::ExplainPropertyMap;
+pub(in crate::db) use execution::ExplainPropertyMap;
 pub(in crate::db) use execution::FinalizedQueryDiagnostics;
 pub use execution::{
     ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
     ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
 };
 pub use plan::ExplainPlan;
-pub(crate) use plan::{
+pub(in crate::db) use plan::{
     ExplainAccessPath, ExplainDeleteLimit, ExplainGroupAggregate, ExplainGroupField,
     ExplainGrouping, ExplainOrderBy, ExplainOrderPushdown, ExplainPagination, ExplainPredicate,
     SecondaryOrderPushdownRejection,
 };
 #[cfg(test)]
-pub(crate) use plan::{ExplainGroupHaving, ExplainOrder};
+pub(in crate::db) use plan::{ExplainGroupHaving, ExplainOrder};
 pub(in crate::db) use predicate::explain_predicate_from_expr;
 pub(in crate::db) use projection::explain_projection_field_name;
 

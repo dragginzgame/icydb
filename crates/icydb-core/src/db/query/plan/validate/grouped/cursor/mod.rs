@@ -28,7 +28,7 @@ enum GroupedOrderCursorLane {
 }
 
 // Validate grouped cursor-order constraints in one dedicated gate.
-pub(crate) fn validate_group_cursor_constraints(
+pub(in crate::db::query) fn validate_group_cursor_constraints(
     logical: &ScalarPlan,
     group: &GroupSpec,
 ) -> Result<(), PlanError> {

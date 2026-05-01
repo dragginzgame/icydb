@@ -16,7 +16,7 @@ mod tests;
 
 pub(in crate::db) use cache_key::StructuralQueryCacheKey;
 pub use errors::{IntentError, QueryError, QueryExecutionError};
-pub(crate) use key_access::{
+pub(in crate::db::query) use key_access::{
     KeyAccess, KeyAccessKind, KeyAccessState, build_access_plan_from_keys,
 };
 pub(in crate::db::query) use model::QueryModel;

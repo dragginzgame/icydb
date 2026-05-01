@@ -15,12 +15,12 @@ use crate::db::{
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct MinIdTerminal;
+pub(in crate::db) struct MinIdTerminal;
 
 impl MinIdTerminal {
     /// Prepare one fluent `min()` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new() -> Self {
+    pub(in crate::db) const fn new() -> Self {
         Self
     }
 
@@ -50,12 +50,12 @@ impl AggregateExplain for MinIdTerminal {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct MaxIdTerminal;
+pub(in crate::db) struct MaxIdTerminal;
 
 impl MaxIdTerminal {
     /// Prepare one fluent `max()` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new() -> Self {
+    pub(in crate::db) const fn new() -> Self {
         Self
     }
 
@@ -85,14 +85,14 @@ impl AggregateExplain for MaxIdTerminal {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct MinIdBySlotTerminal {
+pub(in crate::db) struct MinIdBySlotTerminal {
     target_field: FieldSlot,
 }
 
 impl MinIdBySlotTerminal {
     /// Prepare one fluent `min_by(field)` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new(target_field: FieldSlot) -> Self {
+    pub(in crate::db) const fn new(target_field: FieldSlot) -> Self {
         Self { target_field }
     }
 
@@ -125,14 +125,14 @@ impl AggregateExplain for MinIdBySlotTerminal {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct MaxIdBySlotTerminal {
+pub(in crate::db) struct MaxIdBySlotTerminal {
     target_field: FieldSlot,
 }
 
 impl MaxIdBySlotTerminal {
     /// Prepare one fluent `max_by(field)` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new(target_field: FieldSlot) -> Self {
+    pub(in crate::db) const fn new(target_field: FieldSlot) -> Self {
         Self { target_field }
     }
 

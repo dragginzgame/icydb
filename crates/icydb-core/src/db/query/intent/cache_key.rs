@@ -297,7 +297,9 @@ enum ConsistencyCacheKey {
 
 impl StructuralQueryCacheKey {
     #[cfg(test)]
-    pub(in crate::db) fn from_query_model<K: KeyValueCodec>(model: &QueryModel<'_, K>) -> Self {
+    pub(in crate::db::query) fn from_query_model<K: KeyValueCodec>(
+        model: &QueryModel<'_, K>,
+    ) -> Self {
         Self::from_query_model_with_predicate(
             model,
             model
@@ -309,7 +311,7 @@ impl StructuralQueryCacheKey {
     }
 
     #[cfg(test)]
-    pub(in crate::db) fn from_query_model_with_predicate<K: KeyValueCodec>(
+    pub(in crate::db::query) fn from_query_model_with_predicate<K: KeyValueCodec>(
         model: &QueryModel<'_, K>,
         predicate: Option<&Predicate>,
     ) -> Self {
@@ -319,7 +321,7 @@ impl StructuralQueryCacheKey {
         )
     }
 
-    pub(in crate::db) fn from_query_model_with_normalized_predicate_fingerprint<
+    pub(in crate::db::query) fn from_query_model_with_normalized_predicate_fingerprint<
         K: KeyValueCodec,
     >(
         model: &QueryModel<'_, K>,

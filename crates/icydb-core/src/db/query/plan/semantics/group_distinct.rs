@@ -23,7 +23,7 @@ use crate::error::InternalError;
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum GroupDistinctPolicyReason {
+pub(in crate::db) enum GroupDistinctPolicyReason {
     DistinctHavingUnsupported,
     DistinctAdjacencyEligibilityRequired,
     GlobalDistinctHavingUnsupported,
@@ -41,7 +41,7 @@ pub(crate) enum GroupDistinctPolicyReason {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum GroupDistinctAdmissibility {
+pub(in crate::db) enum GroupDistinctAdmissibility {
     Allowed,
     Disallowed(GroupDistinctPolicyReason),
 }
@@ -54,7 +54,7 @@ pub(crate) enum GroupDistinctAdmissibility {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct GlobalDistinctFieldAggregate<'a> {
+pub(in crate::db) struct GlobalDistinctFieldAggregate<'a> {
     kind: AggregateKind,
     target_field: &'a str,
 }
@@ -62,13 +62,13 @@ pub(crate) struct GlobalDistinctFieldAggregate<'a> {
 impl<'a> GlobalDistinctFieldAggregate<'a> {
     /// Borrow grouped aggregate kind.
     #[must_use]
-    pub(crate) const fn kind(self) -> AggregateKind {
+    pub(in crate::db) const fn kind(self) -> AggregateKind {
         self.kind
     }
 
     /// Borrow grouped aggregate target field.
     #[must_use]
-    pub(crate) const fn target_field(self) -> &'a str {
+    pub(in crate::db) const fn target_field(self) -> &'a str {
         self.target_field
     }
 }
@@ -91,43 +91,43 @@ impl GlobalDistinctAggregateKind {
 impl GroupDistinctPolicyReason {
     /// Construct one grouped DISTINCT HAVING-unsupported reason.
     #[must_use]
-    pub(crate) const fn distinct_having_unsupported() -> Self {
+    pub(in crate::db) const fn distinct_having_unsupported() -> Self {
         Self::DistinctHavingUnsupported
     }
 
     /// Construct one grouped DISTINCT adjacency-eligibility-required reason.
     #[must_use]
-    pub(crate) const fn distinct_adjacency_eligibility_required() -> Self {
+    pub(in crate::db) const fn distinct_adjacency_eligibility_required() -> Self {
         Self::DistinctAdjacencyEligibilityRequired
     }
 
     /// Construct one global DISTINCT HAVING-unsupported reason.
     #[must_use]
-    pub(crate) const fn global_distinct_having_unsupported() -> Self {
+    pub(in crate::db) const fn global_distinct_having_unsupported() -> Self {
         Self::GlobalDistinctHavingUnsupported
     }
 
     /// Construct one global DISTINCT requires-single-aggregate reason.
     #[must_use]
-    pub(crate) const fn global_distinct_requires_single_aggregate() -> Self {
+    pub(in crate::db) const fn global_distinct_requires_single_aggregate() -> Self {
         Self::GlobalDistinctRequiresSingleAggregate
     }
 
     /// Construct one global DISTINCT requires-field-target-aggregate reason.
     #[must_use]
-    pub(crate) const fn global_distinct_requires_field_target_aggregate() -> Self {
+    pub(in crate::db) const fn global_distinct_requires_field_target_aggregate() -> Self {
         Self::GlobalDistinctRequiresFieldTargetAggregate
     }
 
     /// Construct one global DISTINCT requires-DISTINCT-terminal reason.
     #[must_use]
-    pub(crate) const fn global_distinct_requires_distinct_aggregate_terminal() -> Self {
+    pub(in crate::db) const fn global_distinct_requires_distinct_aggregate_terminal() -> Self {
         Self::GlobalDistinctRequiresDistinctAggregateTerminal
     }
 
     /// Construct one global DISTINCT unsupported-aggregate-kind reason.
     #[must_use]
-    pub(crate) const fn global_distinct_unsupported_aggregate_kind() -> Self {
+    pub(in crate::db) const fn global_distinct_unsupported_aggregate_kind() -> Self {
         Self::GlobalDistinctUnsupportedAggregateKind
     }
 
@@ -185,7 +185,7 @@ impl GroupDistinctPolicyReason {
     /// invariant used when grouped route resolution reaches an executor-only
     /// grouped DISTINCT rejection path.
     #[must_use]
-    pub(crate) fn into_grouped_route_internal_error(self) -> InternalError {
+    pub(in crate::db) fn into_grouped_route_internal_error(self) -> InternalError {
         InternalError::query_executor_invariant(self.invariant_message())
     }
 
@@ -221,7 +221,7 @@ impl GroupDistinctPolicyReason {
 
 /// Return grouped DISTINCT admissibility for scalar DISTINCT/HAVING policy flags.
 #[must_use]
-pub(crate) const fn grouped_distinct_admissibility(
+pub(in crate::db) const fn grouped_distinct_admissibility(
     distinct: bool,
     has_having: bool,
 ) -> GroupDistinctAdmissibility {
@@ -242,7 +242,7 @@ pub(crate) const fn grouped_distinct_admissibility(
 /// Return whether this grouped shape is a candidate for global DISTINCT
 /// field-target aggregate handling.
 #[must_use]
-pub(crate) fn is_global_distinct_field_aggregate_candidate(
+pub(in crate::db) fn is_global_distinct_field_aggregate_candidate(
     group_fields: &[FieldSlot],
     aggregates: &[GroupAggregateSpec],
 ) -> bool {
@@ -257,7 +257,7 @@ pub(crate) fn is_global_distinct_field_aggregate_candidate(
 /// shape candidate.
 #[must_use]
 #[cfg(test)]
-pub(crate) fn global_distinct_field_aggregate_admissibility(
+pub(in crate::db) fn global_distinct_field_aggregate_admissibility(
     aggregates: &[GroupAggregateSpec],
     having_expr: Option<&Expr>,
 ) -> GroupDistinctAdmissibility {
@@ -268,7 +268,7 @@ pub(crate) fn global_distinct_field_aggregate_admissibility(
 }
 
 /// Resolve one supported global DISTINCT field-target grouped aggregate shape.
-pub(crate) fn resolve_global_distinct_field_aggregate<'a>(
+pub(in crate::db) fn resolve_global_distinct_field_aggregate<'a>(
     group_fields: &'a [FieldSlot],
     aggregates: &'a [GroupAggregateSpec],
     having_expr: Option<&'a Expr>,

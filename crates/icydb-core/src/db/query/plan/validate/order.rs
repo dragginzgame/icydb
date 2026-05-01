@@ -17,7 +17,10 @@ use crate::{
 };
 
 /// Validate ORDER BY fields against the schema.
-pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(), PlanError> {
+pub(in crate::db::query::plan::validate) fn validate_order(
+    schema: &SchemaInfo,
+    order: &OrderSpec,
+) -> Result<(), PlanError> {
     for term in &order.fields {
         validate_order_term(schema, term)?;
     }
@@ -72,7 +75,7 @@ fn order_expr_contains_field_path(expr: &Expr) -> bool {
 }
 
 /// Reject duplicate non-primary-key fields in ORDER BY.
-pub(crate) fn validate_no_duplicate_non_pk_order_fields(
+pub(in crate::db::query::plan::validate) fn validate_no_duplicate_non_pk_order_fields(
     model: &EntityModel,
     order: &OrderSpec,
 ) -> Result<(), PlanError> {
@@ -100,7 +103,7 @@ pub(crate) fn validate_no_duplicate_non_pk_order_fields(
 
 // Ordered plans must include exactly one terminal primary-key field so ordering is total and
 // deterministic across explain, fingerprint, and executor comparison paths.
-pub(crate) fn validate_primary_key_tie_break(
+pub(in crate::db::query::plan::validate) fn validate_primary_key_tie_break(
     model: &EntityModel,
     order: &OrderSpec,
 ) -> Result<(), PlanError> {

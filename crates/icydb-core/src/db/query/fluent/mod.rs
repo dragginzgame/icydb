@@ -3,5 +3,5 @@
 //! Does not own: query planning internals or predicate semantics.
 //! Boundary: ergonomic API layer over query intent/planned execution.
 
-pub(crate) mod delete;
-pub(crate) mod load;
+pub(in crate::db) mod delete;
+pub(in crate::db) mod load;

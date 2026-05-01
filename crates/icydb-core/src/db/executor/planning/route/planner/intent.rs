@@ -87,8 +87,7 @@ fn route_intent_stage<'a>(
 
 // Derive the canonical staged load intent at route entrypoints that only need
 // the load shape contract.
-pub(in crate::db::executor::planning::route::planner) fn derive_load_route_intent_stage()
--> RouteIntentStage<'static> {
+pub(super) fn derive_load_route_intent_stage() -> RouteIntentStage<'static> {
     route_intent_stage(
         None,
         None,
@@ -100,7 +99,7 @@ pub(in crate::db::executor::planning::route::planner) fn derive_load_route_inten
 
 // Derive the canonical staged aggregate intent, including the one
 // preparation-owned materialization forcing policy input.
-pub(in crate::db::executor::planning::route::planner) fn derive_aggregate_route_intent_stage<'a>(
+pub(super) fn derive_aggregate_route_intent_stage<'a>(
     aggregate: AggregateRouteShape<'a>,
     execution_preparation: &ExecutionPreparation,
 ) -> RouteIntentStage<'a> {
@@ -117,7 +116,7 @@ pub(in crate::db::executor::planning::route::planner) fn derive_aggregate_route_
 
 // Derive the canonical staged grouped-aggregate intent from planner strategy
 // plus the same preparation-owned materialization forcing policy contract.
-pub(in crate::db::executor::planning::route::planner) fn derive_grouped_route_intent_stage(
+pub(super) fn derive_grouped_route_intent_stage(
     grouped_plan_strategy: GroupedPlanStrategy,
     execution_preparation: &ExecutionPreparation,
 ) -> RouteIntentStage<'static> {
@@ -134,7 +133,7 @@ pub(in crate::db::executor::planning::route::planner) fn derive_grouped_route_in
 
 // Derive the canonical staged mutation intent once delete-only admission has
 // been validated at the route-intent boundary.
-pub(in crate::db::executor::planning::route::planner) fn derive_mutation_route_intent_stage(
+pub(super) fn derive_mutation_route_intent_stage(
     plan: &AccessPlannedQuery,
 ) -> Result<RouteIntentStage<'static>, InternalError> {
     if !plan.scalar_plan().mode.is_delete() {

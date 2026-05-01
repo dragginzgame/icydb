@@ -18,7 +18,7 @@ use crate::db::query::{
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum AggregateIdentity {
+pub(in crate::db) enum AggregateIdentity {
     Count {
         input_expr: Option<Expr>,
         distinct: bool,
@@ -54,7 +54,7 @@ pub(crate) enum AggregateIdentity {
 impl AggregateIdentity {
     /// Build aggregate identity from raw planner aggregate parts.
     #[must_use]
-    pub(crate) const fn from_parts(
+    pub(in crate::db) const fn from_parts(
         kind: AggregateKind,
         input_expr: Option<Expr>,
         distinct: bool,
@@ -91,7 +91,7 @@ impl AggregateIdentity {
 
     /// Build aggregate identity from one raw aggregate expression.
     #[must_use]
-    pub(crate) fn from_aggregate_expr(aggregate: &AggregateExpr) -> Self {
+    pub(in crate::db) fn from_aggregate_expr(aggregate: &AggregateExpr) -> Self {
         Self::from_parts(
             aggregate.kind(),
             aggregate.input_expr().cloned(),
@@ -101,7 +101,10 @@ impl AggregateIdentity {
 
     /// Return whether raw DISTINCT is observable in aggregate identity.
     #[must_use]
-    pub(crate) const fn normalize_distinct_for_kind(kind: AggregateKind, distinct: bool) -> bool {
+    pub(in crate::db) const fn normalize_distinct_for_kind(
+        kind: AggregateKind,
+        distinct: bool,
+    ) -> bool {
         match kind {
             AggregateKind::Min | AggregateKind::Max => false,
             AggregateKind::Count
@@ -115,7 +118,7 @@ impl AggregateIdentity {
 
     /// Return the aggregate kind represented by this identity.
     #[must_use]
-    pub(crate) const fn kind(&self) -> AggregateKind {
+    pub(in crate::db) const fn kind(&self) -> AggregateKind {
         match self {
             Self::Count { .. } => AggregateKind::Count,
             Self::Sum { .. } => AggregateKind::Sum,
@@ -130,7 +133,7 @@ impl AggregateIdentity {
 
     /// Borrow the identity aggregate input expression, if any.
     #[must_use]
-    pub(crate) const fn input_expr(&self) -> Option<&Expr> {
+    pub(in crate::db) const fn input_expr(&self) -> Option<&Expr> {
         match self {
             Self::Count { input_expr, .. }
             | Self::Sum { input_expr, .. }
@@ -145,7 +148,7 @@ impl AggregateIdentity {
 
     /// Move the identity aggregate input expression out of this identity.
     #[must_use]
-    pub(crate) fn into_input_expr(self) -> Option<Expr> {
+    pub(in crate::db) fn into_input_expr(self) -> Option<Expr> {
         match self {
             Self::Count { input_expr, .. }
             | Self::Sum { input_expr, .. }
@@ -160,7 +163,7 @@ impl AggregateIdentity {
 
     /// Return whether DISTINCT changes observable aggregate behavior.
     #[must_use]
-    pub(crate) const fn distinct(&self) -> bool {
+    pub(in crate::db) const fn distinct(&self) -> bool {
         match self {
             Self::Count { distinct, .. }
             | Self::Sum { distinct, .. }
@@ -174,7 +177,7 @@ impl AggregateIdentity {
 
     /// Borrow the direct field input label when this aggregate is field-backed.
     #[must_use]
-    pub(crate) const fn target_field(&self) -> Option<&str> {
+    pub(in crate::db) const fn target_field(&self) -> Option<&str> {
         let Some(Expr::Field(field)) = self.input_expr() else {
             return None;
         };
@@ -184,7 +187,7 @@ impl AggregateIdentity {
 
     /// Return whether this aggregate is the optimized `COUNT(*)` identity shape.
     #[must_use]
-    pub(crate) const fn is_count_rows_only(&self) -> bool {
+    pub(in crate::db) const fn is_count_rows_only(&self) -> bool {
         matches!(
             self,
             Self::Count {
@@ -196,7 +199,7 @@ impl AggregateIdentity {
 
     /// Return whether grouped DISTINCT needs per-value deduplication.
     #[must_use]
-    pub(crate) const fn uses_grouped_distinct_value_dedup(&self) -> bool {
+    pub(in crate::db) const fn uses_grouped_distinct_value_dedup(&self) -> bool {
         matches!(
             self,
             Self::Count { distinct: true, .. }
@@ -215,7 +218,7 @@ impl AggregateIdentity {
 /// keeps aggregate-local filters as a separate semantic dimension.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct AggregateSemanticKey {
+pub(in crate::db) struct AggregateSemanticKey {
     identity: AggregateIdentity,
     filter_expr: Option<Expr>,
 }
@@ -223,7 +226,7 @@ pub(crate) struct AggregateSemanticKey {
 impl AggregateSemanticKey {
     /// Build one semantic key from one raw aggregate expression.
     #[must_use]
-    pub(crate) fn from_aggregate_expr(aggregate: &AggregateExpr) -> Self {
+    pub(in crate::db) fn from_aggregate_expr(aggregate: &AggregateExpr) -> Self {
         Self {
             identity: AggregateIdentity::from_aggregate_expr(aggregate),
             filter_expr: aggregate.filter_expr().cloned(),
@@ -232,7 +235,7 @@ impl AggregateSemanticKey {
 
     /// Build one semantic key from one aggregate identity plus filter.
     #[must_use]
-    pub(crate) const fn from_identity(
+    pub(in crate::db) const fn from_identity(
         identity: AggregateIdentity,
         filter_expr: Option<Expr>,
     ) -> Self {
@@ -244,7 +247,7 @@ impl AggregateSemanticKey {
 
     /// Move this key into its identity and filter components.
     #[must_use]
-    pub(crate) fn into_parts(self) -> (AggregateIdentity, Option<Expr>) {
+    pub(in crate::db) fn into_parts(self) -> (AggregateIdentity, Option<Expr>) {
         (self.identity, self.filter_expr)
     }
 }

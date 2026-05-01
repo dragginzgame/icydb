@@ -139,4 +139,19 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn tokenize_sql_rejects_oversized_hex_blob_literals() {
+        let oversized_hex = "00".repeat(1_048_577);
+        let sql = format!("X'{oversized_hex}'");
+
+        let err = tokenize_sql(sql.as_str()).expect_err("oversized blob literal should fail");
+
+        assert_eq!(
+            err,
+            crate::db::sql_shared::SqlParseError::InvalidSyntax {
+                message: "blob literal exceeds maximum decoded byte length of 1048576".to_string()
+            }
+        );
+    }
 }

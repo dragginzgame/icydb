@@ -203,7 +203,7 @@ pub(in crate::db::executor) fn derive_aggregate_execution_policy(
 }
 
 /// Derive aggregate-policy field-extrema fast-path eligibility for one plan.
-pub(in crate::db::executor) fn assess_field_extrema_fast_path_eligibility(
+fn assess_field_extrema_fast_path_eligibility(
     plan: &AccessPlannedQuery,
     direction: Direction,
     aggregate_shape: Option<AggregateRouteShape<'_>>,
@@ -309,9 +309,7 @@ fn field_extrema_target_has_matching_index(
 
 /// Return whether one aggregate field target is the entity primary key.
 #[must_use]
-pub(in crate::db::executor) const fn field_target_is_primary_key(
-    aggregate: AggregateRouteShape<'_>,
-) -> bool {
+const fn field_target_is_primary_key(aggregate: AggregateRouteShape<'_>) -> bool {
     aggregate.target_field_is_primary_key()
 }
 

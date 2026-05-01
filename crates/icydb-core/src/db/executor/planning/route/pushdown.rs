@@ -135,7 +135,7 @@ fn secondary_order_pushdown_applicability(
 /// Return true when this access shape supports index-range limit pushdown for
 /// the supplied planner-owned deterministic ORDER BY contract.
 #[must_use]
-pub(in crate::db::executor::planning::route) fn index_range_limit_pushdown_shape_supported_for_order_contract(
+pub(super) fn index_range_limit_pushdown_shape_supported_for_order_contract(
     access_capabilities: &AccessCapabilities,
     order_contract: Option<&DeterministicSecondaryOrderContract>,
     order_present: bool,
@@ -161,7 +161,7 @@ pub(in crate::db::executor::planning::route) fn index_range_limit_pushdown_shape
 
 /// Return whether planner logical pushdown eligibility allows route-level
 /// secondary-order contracts to remain active.
-pub(in crate::db::executor) const fn secondary_order_contract_active(
+pub(super) const fn secondary_order_contract_active(
     logical_pushdown_eligibility: LogicalPushdownEligibility,
 ) -> bool {
     logical_pushdown_eligibility.secondary_order_allowed()
@@ -178,7 +178,7 @@ pub(in crate::db::executor) fn access_order_satisfied_by_route_contract(
     access_order_satisfied_by_route_contract_with_capabilities(plan, &access_capabilities)
 }
 
-pub(in crate::db::executor::planning::route) fn access_order_satisfied_by_route_contract_with_capabilities(
+pub(super) fn access_order_satisfied_by_route_contract_with_capabilities(
     plan: &AccessPlannedQuery,
     access_capabilities: &AccessCapabilities,
 ) -> bool {

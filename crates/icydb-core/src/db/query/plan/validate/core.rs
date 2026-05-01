@@ -48,7 +48,7 @@ fn validate_access_structure_for_plan(
 ///
 /// New user-facing validation rules must be introduced here first, then mirrored
 /// defensively in downstream layers without changing semantics.
-pub(crate) fn validate_query_semantics(
+pub(in crate::db::query) fn validate_query_semantics(
     schema: &SchemaInfo,
     model: &EntityModel,
     plan: &AccessPlannedQuery,
@@ -75,7 +75,7 @@ pub(crate) fn validate_query_semantics(
 /// Ownership:
 /// - semantic owner for GROUP BY wrapper validation
 /// - failures here are user-visible planning failures (`PlanError`)
-pub(crate) fn validate_group_query_semantics(
+pub(in crate::db::query) fn validate_group_query_semantics(
     schema: &SchemaInfo,
     model: &EntityModel,
     plan: &AccessPlannedQuery,

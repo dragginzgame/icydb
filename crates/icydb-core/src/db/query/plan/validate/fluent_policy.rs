@@ -9,7 +9,7 @@ use crate::db::query::plan::{
 };
 
 /// Validate fluent non-paged load entry policy.
-pub(crate) const fn validate_fluent_non_paged_mode(
+pub(in crate::db::query) const fn validate_fluent_non_paged_mode(
     has_cursor_token: bool,
     has_grouping: bool,
 ) -> Result<(), FluentLoadPolicyViolation> {
@@ -21,7 +21,7 @@ pub(crate) const fn validate_fluent_non_paged_mode(
 }
 
 /// Validate fluent paged load entry policy.
-pub(crate) fn validate_fluent_paged_mode(
+pub(in crate::db::query) fn validate_fluent_paged_mode(
     has_grouping: bool,
     has_explicit_order: bool,
     spec: Option<LoadSpec>,

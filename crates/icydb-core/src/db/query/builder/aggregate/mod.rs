@@ -6,9 +6,9 @@
 //! Boundary: fluent aggregate intent construction and terminal descriptors
 //! lowered into query/session-owned execution contracts.
 
-pub(crate) mod explain;
-pub(crate) mod expr;
-pub(crate) mod strategy;
+mod explain;
+mod expr;
+mod strategy;
 
 ///
 /// TESTS
@@ -17,8 +17,8 @@ pub(crate) mod strategy;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use explain::*;
+pub(in crate::db) use explain::*;
 pub use expr::{
     AggregateExpr, avg, count, count_by, exists, first, last, max, max_by, min, min_by, sum,
 };
-pub(crate) use strategy::*;
+pub(in crate::db) use strategy::*;

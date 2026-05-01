@@ -10,12 +10,12 @@ mod intent;
 mod stages;
 
 pub(in crate::db::executor) use entrypoints::{RoutePlanRequest, build_execution_route_plan};
-pub(in crate::db::executor::planning::route::planner) use feasibility::derive_execution_feasibility_stage_for_model;
-pub(in crate::db::executor::planning::route::planner) use intent::{
+use feasibility::derive_execution_feasibility_stage_for_model;
+use intent::{
     derive_aggregate_route_intent_stage, derive_grouped_route_intent_stage,
     derive_load_route_intent_stage, derive_mutation_route_intent_stage,
 };
-pub(in crate::db::executor::planning::route::planner) use stages::{
+use stages::{
     RouteDerivationContext, RouteExecutionStage, RouteFeasibilityStage, RouteIntentStage,
     build_execution_route_plan_from_stages,
 };

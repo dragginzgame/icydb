@@ -13,7 +13,7 @@ use crate::db::executor::planning::route::{AggregateRouteShape, RouteCapabilitie
 // Route-owned aggregate non-count streaming gate.
 // Field-target extrema uses route capability flags directly; non-target
 // terminals use the shared streaming-safe/pushdown/index-range route gates.
-pub(in crate::db::executor) const fn aggregate_non_count_streaming_allowed(
+pub(super) const fn aggregate_non_count_streaming_allowed(
     aggregate_shape: Option<AggregateRouteShape<'_>>,
     capabilities: RouteCapabilities,
     secondary_pushdown_eligible: bool,
@@ -52,7 +52,7 @@ pub(in crate::db::executor) const fn aggregate_non_count_streaming_allowed(
 // Route-owned load streaming gate.
 // Load execution remains streaming when canonical streaming-safe shapes
 // apply or when route enabled index-range limit pushdown.
-pub(in crate::db::executor) const fn load_streaming_allowed(
+pub(super) const fn load_streaming_allowed(
     capabilities: RouteCapabilities,
     index_range_limit_enabled: bool,
 ) -> bool {
@@ -62,9 +62,7 @@ pub(in crate::db::executor) const fn load_streaming_allowed(
         || index_range_limit_enabled
 }
 
-pub(in crate::db::executor::planning::route) fn derive_load_route_direction(
-    plan: &AccessPlannedQuery,
-) -> Direction {
+pub(super) fn derive_load_route_direction(plan: &AccessPlannedQuery) -> Direction {
     ExecutionOrderContract::from_plan(
         plan.grouped_plan().is_some(),
         plan.scalar_plan().order.as_ref(),
@@ -72,7 +70,7 @@ pub(in crate::db::executor::planning::route) fn derive_load_route_direction(
     .primary_scan_direction()
 }
 
-pub(in crate::db::executor::planning::route) fn derive_aggregate_route_direction(
+pub(super) fn derive_aggregate_route_direction(
     plan: &AccessPlannedQuery,
     aggregate: AggregateRouteShape<'_>,
 ) -> Direction {

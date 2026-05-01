@@ -437,10 +437,10 @@ impl CompiledPredicate for EffectiveRuntimeFilterProgram {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct AccessPlannedQuery {
-    pub(crate) logical: LogicalPlan,
-    pub(crate) access: AccessPlan<Value>,
-    pub(crate) projection_selection: ProjectionSelection,
+pub(in crate::db) struct AccessPlannedQuery {
+    pub(in crate::db) logical: LogicalPlan,
+    pub(in crate::db) access: AccessPlan<Value>,
+    pub(in crate::db) projection_selection: ProjectionSelection,
     pub(in crate::db) access_choice: AccessChoiceExplainSnapshot,
     pub(in crate::db) planner_route_profile: PlannerRouteProfile,
     pub(in crate::db) static_planning_shape: Option<StaticPlanningShape>,
@@ -452,7 +452,7 @@ impl AccessPlannedQuery {
     /// Predicates, ordering, and pagination may be attached later.
     #[must_use]
     #[cfg(test)]
-    pub(crate) fn new(access: AccessPath<Value>, consistency: MissingRowPolicy) -> Self {
+    pub(in crate::db) fn new(access: AccessPath<Value>, consistency: MissingRowPolicy) -> Self {
         let access = AccessPlan::path(access);
         let logical = LogicalPlan::Scalar(ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
@@ -482,7 +482,7 @@ impl AccessPlannedQuery {
     /// boundary for runtime tests that only need grouped execution shells.
     #[must_use]
     #[cfg(test)]
-    pub(crate) fn full_scan_for_test(consistency: MissingRowPolicy) -> Self {
+    pub(in crate::db) fn full_scan_for_test(consistency: MissingRowPolicy) -> Self {
         Self::new(AccessPath::<Value>::FullScan, consistency)
     }
 
@@ -530,7 +530,7 @@ impl AccessPlannedQuery {
     /// Construct an access-planned query from logical + access stages.
     #[must_use]
     #[cfg(test)]
-    pub(crate) fn from_parts<K>(logical: LogicalPlan, access: AccessPlan<K>) -> Self
+    pub(in crate::db) fn from_parts<K>(logical: LogicalPlan, access: AccessPlan<K>) -> Self
     where
         K: KeyValueCodec,
     {
@@ -550,7 +550,7 @@ impl AccessPlannedQuery {
 
     /// Construct an access-planned query from logical + access + projection stages.
     #[must_use]
-    pub(crate) fn from_parts_with_projection<K>(
+    pub(in crate::db) fn from_parts_with_projection<K>(
         logical: LogicalPlan,
         access: AccessPlan<K>,
         projection_selection: ProjectionSelection,

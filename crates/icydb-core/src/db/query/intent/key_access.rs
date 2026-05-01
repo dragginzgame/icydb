@@ -16,7 +16,7 @@ use crate::{
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum KeyAccess<K> {
+pub(in crate::db::query) enum KeyAccess<K> {
     Single(K),
     Many(Vec<K>),
 }
@@ -28,7 +28,7 @@ pub(crate) enum KeyAccess<K> {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum KeyAccessKind {
+pub(in crate::db::query) enum KeyAccessKind {
     Single,
     Many,
     Only,
@@ -41,13 +41,15 @@ pub(crate) enum KeyAccessKind {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct KeyAccessState<K> {
+pub(in crate::db::query) struct KeyAccessState<K> {
     pub(in crate::db::query::intent) kind: KeyAccessKind,
     pub(in crate::db::query::intent) access: KeyAccess<K>,
 }
 
 /// Build a model-level access plan for key-only intents.
-pub(crate) fn build_access_plan_from_keys<K>(access: &KeyAccess<K>) -> AccessPlan<Value>
+pub(in crate::db::query) fn build_access_plan_from_keys<K>(
+    access: &KeyAccess<K>,
+) -> AccessPlan<Value>
 where
     K: KeyValueCodec,
 {

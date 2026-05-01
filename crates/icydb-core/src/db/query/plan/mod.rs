@@ -8,7 +8,7 @@ mod access_plan;
 mod access_planner;
 mod continuation;
 mod covering;
-pub(crate) mod expr;
+pub(in crate::db) mod expr;
 mod group;
 mod grouped_layout;
 mod key_item_match;
@@ -35,7 +35,7 @@ pub(in crate::db::query) use access_choice::rerank_access_plan_by_residual_burde
 pub(in crate::db) use access_choice::{
     AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot, AccessChoiceResidualBurden,
 };
-pub(crate) use access_plan::AccessPlannedQuery;
+pub(in crate::db) use access_plan::AccessPlannedQuery;
 pub(in crate::db) use access_plan::{
     EffectiveRuntimeFilterProgram, PlannedNonIndexAccessReason, ResolvedOrder, ResolvedOrderField,
     ResolvedOrderValueSource, StaticPlanningShape,
@@ -66,11 +66,11 @@ pub(in crate::db::query) use logical_builder::{
     logical_query_from_logical_inputs,
 };
 pub use model::OrderDirection;
-pub(crate) use model::OrderTerm;
+pub(in crate::db) use model::OrderTerm;
 pub(in crate::db) use model::render_scalar_filter_expr_plan_label;
-pub(crate) use model::{AggregateKind, DistinctExecutionStrategy};
+pub(in crate::db) use model::{AggregateKind, DistinctExecutionStrategy};
 pub(in crate::db) use model::{ContinuationPolicy, ExecutionShapeSignature, PlannerRouteProfile};
-pub(crate) use model::{
+pub(in crate::db) use model::{
     DeleteLimitSpec, FieldSlot, GlobalDistinctAggregateKind, GroupAggregateSpec, GroupPlan,
     GroupSpec, GroupedExecutionConfig, GroupedPlanAggregateFamily, LogicalPlan, OrderSpec,
     PageSpec, ScalarPlan,
@@ -93,20 +93,20 @@ pub(in crate::db::query) use pipeline::{
     prepare_query_model_scalar_planning_state, try_build_trivial_scalar_load_plan,
 };
 #[cfg(test)]
-pub(crate) use planner::plan_access;
+pub(in crate::db) use planner::plan_access;
 pub(in crate::db::query) use planner::{PlannedAccessSelection, plan_access_selection_with_order};
-pub(crate) use planner::{PlannerError, plan_access_with_order};
+pub(in crate::db::query) use planner::{PlannerError, plan_access_with_order};
 pub(in crate::db) use planner::{
     residual_query_predicate_after_access_path_bounds,
     residual_query_predicate_after_filtered_access,
 };
-pub(crate) use projection::{
-    lower_direct_projection_slots, lower_global_aggregate_projection, lower_projection_identity,
-    lower_projection_intent,
+pub(in crate::db) use projection::lower_global_aggregate_projection;
+pub(in crate::db::query) use projection::{
+    lower_direct_projection_slots, lower_projection_identity, lower_projection_intent,
 };
 pub(in crate::db) use semantics::global_distinct_group_spec_for_aggregate_identity;
 pub(in crate::db) use semantics::group_aggregate_spec_expr;
-pub(crate) use semantics::{
+pub(in crate::db) use semantics::{
     AccessPlanProjection, AggregateIdentity, AggregateSemanticKey, GroupDistinctAdmissibility,
     GroupDistinctPolicyReason, GroupedCursorPolicyViolation, GroupedPlanFallbackReason,
     GroupedPlanStrategy, access_plan_label, explain_access_kind_label,
@@ -119,19 +119,21 @@ pub(in crate::db) use semantics::{
     grouped_cursor_policy_violation, grouped_having_compare_expr, grouped_plan_strategy,
 };
 #[cfg(test)]
-pub(crate) use semantics::{
+pub(in crate::db) use semantics::{
     global_distinct_field_aggregate_admissibility, is_global_distinct_field_aggregate_candidate,
 };
 #[cfg(test)]
 pub(crate) use validate::GroupPlanError;
 pub use validate::PlanError;
-pub(crate) use validate::{
+pub(crate) use validate::PolicyPlanError;
+pub(in crate::db::query) use validate::{
     CursorPagingPolicyError, FluentLoadPolicyViolation, IntentKeyAccessKind,
-    IntentKeyAccessPolicyViolation, PolicyPlanError, has_explicit_order,
-    resolve_aggregate_target_field_slot, resolve_group_field_slot,
-    validate_cursor_order_plan_shape, validate_fluent_non_paged_mode, validate_fluent_paged_mode,
-    validate_group_query_semantics, validate_intent_key_access_policy, validate_intent_plan_shape,
-    validate_query_semantics,
+    IntentKeyAccessPolicyViolation, has_explicit_order, validate_fluent_non_paged_mode,
+    validate_fluent_paged_mode, validate_group_query_semantics, validate_intent_key_access_policy,
+    validate_intent_plan_shape, validate_query_semantics,
+};
+pub(in crate::db) use validate::{
+    resolve_aggregate_target_field_slot, resolve_group_field_slot, validate_cursor_order_plan_shape,
 };
 
 /// Return true when a query mode declares an explicit load `LIMIT 0` window.

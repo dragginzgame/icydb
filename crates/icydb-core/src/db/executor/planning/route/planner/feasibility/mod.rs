@@ -38,7 +38,7 @@ use crate::db::executor::planning::route::planner::feasibility::gates::{
     index_range_limit_pushdown_allowed_for_grouped, load_scan_hints_allowed_for_intent,
 };
 
-pub(in crate::db::executor::planning::route::planner) fn derive_execution_feasibility_stage_for_model(
+pub(super) fn derive_execution_feasibility_stage_for_model(
     plan: &AccessPlannedQuery,
     continuation: &ScalarContinuationContext,
     probe_fetch_hint: Option<usize>,
@@ -126,7 +126,7 @@ pub(in crate::db::executor::planning::route::planner) fn derive_execution_feasib
     }
 }
 
-pub(in crate::db::executor::planning::route::planner) fn derive_route_derivation_context_for_model(
+pub(super) fn derive_route_derivation_context_for_model(
     plan: &AccessPlannedQuery,
     intent_stage: &RouteIntentStage<'_>,
     planner_route_profile: &PlannerRouteProfile,

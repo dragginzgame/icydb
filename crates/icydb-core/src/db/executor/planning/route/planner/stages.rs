@@ -26,21 +26,17 @@ use crate::db::{
 /// pushdown applicability aligned under one boundary.
 ///
 
-pub(in crate::db::executor::planning::route::planner) struct RouteDerivationContext {
-    pub(in crate::db::executor::planning::route::planner) direction: Direction,
-    pub(in crate::db::executor::planning::route::planner) capabilities: RouteCapabilities,
-    pub(in crate::db::executor::planning::route::planner) support: RouteDerivationSupport,
-    pub(in crate::db::executor::planning::route::planner) count_pushdown: RouteCountPushdownState,
-    pub(in crate::db::executor::planning::route::planner) secondary_pushdown_applicability:
-        PushdownApplicability,
-    pub(in crate::db::executor::planning::route::planner) scan_hints: ScanHintPlan,
-    pub(in crate::db::executor::planning::route::planner) top_n_seek_spec: Option<TopNSeekSpec>,
-    pub(in crate::db::executor::planning::route::planner) aggregate_physical_fetch_hint:
-        Option<usize>,
-    pub(in crate::db::executor::planning::route::planner) aggregate_seek_spec:
-        Option<AggregateSeekSpec>,
-    pub(in crate::db::executor::planning::route::planner) grouped_execution_mode:
-        Option<GroupedExecutionMode>,
+pub(super) struct RouteDerivationContext {
+    pub(super) direction: Direction,
+    pub(super) capabilities: RouteCapabilities,
+    pub(super) support: RouteDerivationSupport,
+    pub(super) count_pushdown: RouteCountPushdownState,
+    pub(super) secondary_pushdown_applicability: PushdownApplicability,
+    pub(super) scan_hints: ScanHintPlan,
+    pub(super) top_n_seek_spec: Option<TopNSeekSpec>,
+    pub(super) aggregate_physical_fetch_hint: Option<usize>,
+    pub(super) aggregate_seek_spec: Option<AggregateSeekSpec>,
+    pub(super) grouped_execution_mode: Option<GroupedExecutionMode>,
 }
 
 ///
@@ -51,10 +47,9 @@ pub(in crate::db::executor::planning::route::planner) struct RouteDerivationCont
 /// several unrelated free-floating booleans.
 ///
 
-pub(in crate::db::executor::planning::route::planner) struct RouteDerivationSupport {
-    pub(in crate::db::executor::planning::route::planner) desc_physical_reverse_supported: bool,
-    pub(in crate::db::executor::planning::route::planner) index_range_limit_pushdown_shape_supported:
-        bool,
+pub(super) struct RouteDerivationSupport {
+    pub(super) desc_physical_reverse_supported: bool,
+    pub(super) index_range_limit_pushdown_shape_supported: bool,
 }
 
 ///
@@ -65,9 +60,9 @@ pub(in crate::db::executor::planning::route::planner) struct RouteDerivationSupp
 /// boolean fields.
 ///
 
-pub(in crate::db::executor::planning::route::planner) struct RouteCountPushdownState {
-    pub(in crate::db::executor::planning::route::planner) existing_rows_shape_supported: bool,
-    pub(in crate::db::executor::planning::route::planner) eligible: bool,
+pub(super) struct RouteCountPushdownState {
+    pub(super) existing_rows_shape_supported: bool,
+    pub(super) eligible: bool,
 }
 
 ///
@@ -78,22 +73,18 @@ pub(in crate::db::executor::planning::route::planner) struct RouteCountPushdownS
 /// forcing policy in one typed boundary.
 ///
 
-pub(in crate::db::executor::planning::route::planner) struct RouteIntentStage<'a> {
-    pub(in crate::db::executor::planning::route::planner) aggregate_shape:
-        Option<AggregateRouteShape<'a>>,
-    pub(in crate::db::executor::planning::route::planner) grouped: bool,
-    pub(in crate::db::executor::planning::route::planner) route_shape_kind: RouteShapeKind,
-    pub(in crate::db::executor::planning::route::planner) grouped_plan_strategy:
-        Option<GroupedPlanStrategy>,
-    pub(in crate::db::executor::planning::route::planner) fast_path_order:
-        &'static [FastPathOrder],
-    pub(in crate::db::executor::planning::route::planner) aggregate_force_materialized_due_to_predicate_uncertainty:
-        bool,
+pub(super) struct RouteIntentStage<'a> {
+    pub(super) aggregate_shape: Option<AggregateRouteShape<'a>>,
+    pub(super) grouped: bool,
+    pub(super) route_shape_kind: RouteShapeKind,
+    pub(super) grouped_plan_strategy: Option<GroupedPlanStrategy>,
+    pub(super) fast_path_order: &'static [FastPathOrder],
+    pub(super) aggregate_force_materialized_due_to_predicate_uncertainty: bool,
 }
 
 impl RouteIntentStage<'_> {
     /// Return aggregate kind carried by this intent stage, if any.
-    pub(in crate::db::executor::planning::route::planner) fn kind(&self) -> Option<AggregateKind> {
+    pub(super) fn kind(&self) -> Option<AggregateKind> {
         self.aggregate_shape.map(AggregateRouteShape::kind)
     }
 }
@@ -106,11 +97,10 @@ impl RouteIntentStage<'_> {
 /// index-range limit feasibility before execution-mode resolution.
 ///
 
-pub(in crate::db::executor::planning::route::planner) struct RouteFeasibilityStage {
-    pub(in crate::db::executor::planning::route::planner) continuation: RouteContinuationPlan,
-    pub(in crate::db::executor::planning::route::planner) derivation: RouteDerivationContext,
-    pub(in crate::db::executor::planning::route::planner) index_range_limit_spec:
-        Option<IndexRangeLimitSpec>,
+pub(super) struct RouteFeasibilityStage {
+    pub(super) continuation: RouteContinuationPlan,
+    pub(super) derivation: RouteDerivationContext,
+    pub(super) index_range_limit_spec: Option<IndexRangeLimitSpec>,
 }
 
 ///
@@ -121,12 +111,11 @@ pub(in crate::db::executor::planning::route::planner) struct RouteFeasibilitySta
 /// index-range limit routing.
 ///
 
-pub(in crate::db::executor::planning::route::planner) struct RouteExecutionStage {
-    pub(in crate::db::executor::planning::route::planner) route_shape_kind: RouteShapeKind,
-    pub(in crate::db::executor::planning::route::planner) execution_mode: RouteExecutionMode,
-    pub(in crate::db::executor::planning::route::planner) aggregate_fold_mode: AggregateFoldMode,
-    pub(in crate::db::executor::planning::route::planner) index_range_limit_spec:
-        Option<IndexRangeLimitSpec>,
+pub(super) struct RouteExecutionStage {
+    pub(super) route_shape_kind: RouteShapeKind,
+    pub(super) execution_mode: RouteExecutionMode,
+    pub(super) aggregate_fold_mode: AggregateFoldMode,
+    pub(super) index_range_limit_spec: Option<IndexRangeLimitSpec>,
 }
 
 // Keep grouped route-plan assembly invariants local to the route stage owner
@@ -161,7 +150,7 @@ fn debug_assert_grouped_route_plan_alignment(
 // Assemble one immutable route plan from already-derived intent, feasibility,
 // and execution stages. This owner only wires the decided stage contracts
 // together; it does not select execution modes or route variants.
-pub(in crate::db::executor::planning::route::planner) fn assemble_execution_route_plan(
+pub(super) fn assemble_execution_route_plan(
     intent_stage: RouteIntentStage<'_>,
     feasibility_stage: RouteFeasibilityStage,
     execution_stage: RouteExecutionStage,
@@ -197,7 +186,7 @@ pub(in crate::db::executor::planning::route::planner) fn assemble_execution_rout
 // Build one immutable route plan from already-derived intent and feasibility
 // stages. Execution-stage selection remains execution-owned; this helper only
 // sequences that stage handoff and then assembles the final route contract.
-pub(in crate::db::executor::planning::route::planner) fn build_execution_route_plan_from_stages(
+pub(super) fn build_execution_route_plan_from_stages(
     intent_stage: RouteIntentStage<'_>,
     feasibility_stage: RouteFeasibilityStage,
     load_terminal_fast_path: Option<LoadTerminalFastPathContract>,

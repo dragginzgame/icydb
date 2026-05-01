@@ -36,7 +36,7 @@ enum GroupedPlanFamily {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum GroupedPlanFallbackReason {
+pub(in crate::db) enum GroupedPlanFallbackReason {
     DistinctGroupingNotAdmitted,
     ResidualFilterBlocksGroupedOrder,
     AggregateStreamingNotSupported,
@@ -74,7 +74,7 @@ impl GroupedPlanFallbackReason {
 /// re-deriving grouped admission semantics downstream.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct GroupedPlanStrategy {
+pub(in crate::db) struct GroupedPlanStrategy {
     family: GroupedPlanFamily,
     aggregate_family: GroupedPlanAggregateFamily,
     fallback_reason: Option<GroupedPlanFallbackReason>,
@@ -83,7 +83,7 @@ pub(crate) struct GroupedPlanStrategy {
 impl GroupedPlanStrategy {
     /// Return the stable planner-owned grouped strategy code.
     #[must_use]
-    pub(crate) const fn code(self) -> &'static str {
+    pub(in crate::db) const fn code(self) -> &'static str {
         match self.family {
             GroupedPlanFamily::Hash => "hash_group",
             GroupedPlanFamily::Ordered => "ordered_group",
@@ -94,13 +94,13 @@ impl GroupedPlanStrategy {
     /// Construct one hash-group planner strategy artifact with one planner-authored fallback reason.
     #[cfg(test)]
     #[must_use]
-    pub(crate) const fn hash_group(reason: GroupedPlanFallbackReason) -> Self {
+    pub(in crate::db) const fn hash_group(reason: GroupedPlanFallbackReason) -> Self {
         Self::hash_group_with_aggregate_family(reason, GroupedPlanAggregateFamily::CountRowsOnly)
     }
 
     /// Construct one hash-group planner strategy artifact with one explicit grouped aggregate-family profile.
     #[must_use]
-    pub(crate) const fn hash_group_with_aggregate_family(
+    pub(in crate::db) const fn hash_group_with_aggregate_family(
         reason: GroupedPlanFallbackReason,
         aggregate_family: GroupedPlanAggregateFamily,
     ) -> Self {
@@ -114,13 +114,13 @@ impl GroupedPlanStrategy {
     /// Construct one ordered-group planner strategy artifact.
     #[cfg(test)]
     #[must_use]
-    pub(crate) const fn ordered_group() -> Self {
+    pub(in crate::db) const fn ordered_group() -> Self {
         Self::ordered_group_with_aggregate_family(GroupedPlanAggregateFamily::CountRowsOnly)
     }
 
     /// Construct one ordered-group planner strategy artifact with one explicit grouped aggregate-family profile.
     #[must_use]
-    pub(crate) const fn ordered_group_with_aggregate_family(
+    pub(in crate::db) const fn ordered_group_with_aggregate_family(
         aggregate_family: GroupedPlanAggregateFamily,
     ) -> Self {
         Self {
@@ -132,7 +132,7 @@ impl GroupedPlanStrategy {
 
     /// Construct one bounded grouped Top-K planner strategy artifact with one explicit grouped aggregate-family profile.
     #[must_use]
-    pub(crate) const fn top_k_group_with_aggregate_family(
+    pub(in crate::db) const fn top_k_group_with_aggregate_family(
         aggregate_family: GroupedPlanAggregateFamily,
     ) -> Self {
         Self {
@@ -144,31 +144,31 @@ impl GroupedPlanStrategy {
 
     /// Return whether the planner selected the ordered grouped family.
     #[must_use]
-    pub(crate) const fn is_ordered_group(self) -> bool {
+    pub(in crate::db) const fn is_ordered_group(self) -> bool {
         matches!(self.family, GroupedPlanFamily::Ordered)
     }
 
     /// Return whether the planner selected the bounded grouped Top-K family.
     #[must_use]
-    pub(crate) const fn is_top_k_group(self) -> bool {
+    pub(in crate::db) const fn is_top_k_group(self) -> bool {
         matches!(self.family, GroupedPlanFamily::TopK)
     }
 
     /// Return whether the planner admitted the ordered grouped family.
     #[must_use]
-    pub(crate) const fn ordered_group_admitted(self) -> bool {
+    pub(in crate::db) const fn ordered_group_admitted(self) -> bool {
         self.is_ordered_group()
     }
 
     /// Return the planner-owned grouped aggregate-family profile.
     #[must_use]
-    pub(crate) const fn aggregate_family(self) -> GroupedPlanAggregateFamily {
+    pub(in crate::db) const fn aggregate_family(self) -> GroupedPlanAggregateFamily {
         self.aggregate_family
     }
 
     /// Return whether the planner admitted the dedicated grouped `COUNT(*)` family.
     #[must_use]
-    pub(crate) const fn is_single_count_rows(self) -> bool {
+    pub(in crate::db) const fn is_single_count_rows(self) -> bool {
         matches!(
             self.aggregate_family,
             GroupedPlanAggregateFamily::CountRowsOnly
@@ -177,7 +177,7 @@ impl GroupedPlanStrategy {
 
     /// Return the stable planner-authored fallback reason when ordered grouped execution was not admitted.
     #[must_use]
-    pub(crate) const fn fallback_reason(self) -> Option<GroupedPlanFallbackReason> {
+    pub(in crate::db) const fn fallback_reason(self) -> Option<GroupedPlanFallbackReason> {
         self.fallback_reason
     }
 }

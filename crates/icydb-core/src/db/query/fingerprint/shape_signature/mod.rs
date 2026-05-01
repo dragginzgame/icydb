@@ -23,7 +23,7 @@ impl AccessPlannedQuery {
     /// This is used to validate that a continuation token belongs to the
     /// same canonical query shape.
     #[must_use]
-    pub(crate) fn continuation_signature(
+    pub(in crate::db) fn continuation_signature(
         &self,
         entity_path: &'static str,
     ) -> ContinuationSignature {

@@ -117,13 +117,13 @@ impl PreparedSqlScalarAggregateStrategy {
     /// Borrow the aggregate input expression when this prepared SQL scalar strategy is expression-backed.
     #[cfg(test)]
     #[must_use]
-    pub(crate) const fn input_expr(&self) -> Option<&Expr> {
+    pub(in crate::db) const fn input_expr(&self) -> Option<&Expr> {
         self.semantics.input_expr()
     }
 
     /// Borrow the aggregate filter expression when this prepared SQL scalar strategy is filtered.
     #[must_use]
-    pub(crate) const fn filter_expr(&self) -> Option<&Expr> {
+    pub(in crate::db) const fn filter_expr(&self) -> Option<&Expr> {
         self.filter_expr.as_ref()
     }
 

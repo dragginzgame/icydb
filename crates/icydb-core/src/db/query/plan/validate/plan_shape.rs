@@ -125,18 +125,20 @@ fn validate_plan_shape_policy_rules(ctx: PlanShapePolicyContext) -> Result<(), P
 
 /// Return true when an ORDER BY exists and contains at least one field.
 #[must_use]
-pub(crate) fn has_explicit_order(order: Option<&OrderSpec>) -> bool {
+pub(in crate::db::query) fn has_explicit_order(order: Option<&OrderSpec>) -> bool {
     order.is_some_and(|order| !order.fields.is_empty())
 }
 
 /// Return true when an ORDER BY exists but is empty.
 #[must_use]
-pub(crate) fn has_empty_order(order: Option<&OrderSpec>) -> bool {
+fn has_empty_order(order: Option<&OrderSpec>) -> bool {
     order.is_some_and(|order| order.fields.is_empty())
 }
 
 /// Validate order-shape rules shared across intent and logical plan boundaries.
-pub(crate) fn validate_order_shape(order: Option<&OrderSpec>) -> Result<(), PolicyPlanError> {
+pub(in crate::db::query::plan::validate) fn validate_order_shape(
+    order: Option<&OrderSpec>,
+) -> Result<(), PolicyPlanError> {
     if has_empty_order(order) {
         return Err(PolicyPlanError::empty_order_spec());
     }
@@ -145,7 +147,7 @@ pub(crate) fn validate_order_shape(order: Option<&OrderSpec>) -> Result<(), Poli
 }
 
 /// Validate mode/order/pagination invariants for one logical plan.
-pub(crate) fn validate_plan_shape(plan: &LogicalPlan) -> Result<(), PolicyPlanError> {
+pub(in crate::db::query) fn validate_plan_shape(plan: &LogicalPlan) -> Result<(), PolicyPlanError> {
     let grouped = matches!(plan, LogicalPlan::Grouped(_));
     let plan = match plan {
         LogicalPlan::Scalar(plan) => plan,

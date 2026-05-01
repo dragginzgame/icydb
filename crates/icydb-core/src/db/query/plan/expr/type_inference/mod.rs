@@ -34,7 +34,7 @@ use crate::{
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum ExprType {
+pub(in crate::db) enum ExprType {
     Blob,
     Bool,
     Numeric(NumericSubtype),
@@ -56,7 +56,7 @@ pub(crate) enum ExprType {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ExprCoarseTypeFamily {
+pub(in crate::db::query::plan::expr) enum ExprCoarseTypeFamily {
     #[cfg(test)]
     Bool,
     Numeric,
@@ -72,7 +72,7 @@ pub(crate) enum ExprCoarseTypeFamily {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct TypedExpr {
+pub(in crate::db::query::plan::expr) struct TypedExpr {
     expr_type: ExprType,
 }
 
@@ -84,7 +84,7 @@ impl TypedExpr {
 
     /// Return the inferred planner type for callers that consume the
     /// type-inference stage as a plain `ExprType`.
-    pub(crate) const fn into_expr_type(self) -> ExprType {
+    pub(in crate::db::query::plan::expr) const fn into_expr_type(self) -> ExprType {
         self.expr_type
     }
 }
@@ -106,12 +106,18 @@ impl ExprType {
 
 /// Infer one typed expression artifact deterministically from canonical
 /// expression shape without rewriting that shape.
-pub(crate) fn infer_typed_expr(expr: &Expr, schema: &SchemaInfo) -> Result<TypedExpr, PlanError> {
+pub(in crate::db::query::plan::expr) fn infer_typed_expr(
+    expr: &Expr,
+    schema: &SchemaInfo,
+) -> Result<TypedExpr, PlanError> {
     infer_expr_type_impl(expr, schema).map(TypedExpr::new)
 }
 
 /// Infer expression type deterministically from canonical expression shape.
-pub(crate) fn infer_expr_type(expr: &Expr, schema: &SchemaInfo) -> Result<ExprType, PlanError> {
+pub(in crate::db) fn infer_expr_type(
+    expr: &Expr,
+    schema: &SchemaInfo,
+) -> Result<ExprType, PlanError> {
     infer_typed_expr(expr, schema).map(TypedExpr::into_expr_type)
 }
 
@@ -156,7 +162,7 @@ fn infer_expr_type_impl(expr: &Expr, schema: &SchemaInfo) -> Result<ExprType, Pl
 /// family without reinterpreting the underlying typing semantics.
 #[must_use]
 #[cfg(test)]
-pub(crate) const fn coarse_family_for_expr_type(
+pub(in crate::db::query::plan::expr) const fn coarse_family_for_expr_type(
     expr_type: &ExprType,
 ) -> Option<ExprCoarseTypeFamily> {
     match expr_type {
@@ -175,7 +181,7 @@ pub(crate) const fn coarse_family_for_expr_type(
 
 /// Infer one planner-owned coarse family directly from one expression subtree.
 #[cfg(test)]
-pub(crate) fn infer_expr_coarse_family(
+pub(in crate::db::query::plan::expr) fn infer_expr_coarse_family(
     expr: &Expr,
     schema: &SchemaInfo,
 ) -> Result<Option<ExprCoarseTypeFamily>, PlanError> {
@@ -187,7 +193,7 @@ pub(crate) fn infer_expr_coarse_family(
 /// Infer one planner-owned coarse family from the lowerable searched `CASE`
 /// result branches that are already visible at a caller boundary.
 #[cfg(test)]
-pub(crate) fn infer_case_result_exprs_coarse_family<'a>(
+pub(in crate::db::query::plan::expr) fn infer_case_result_exprs_coarse_family<'a>(
     result_exprs: impl IntoIterator<Item = &'a Expr>,
     schema: &SchemaInfo,
 ) -> Result<Option<ExprCoarseTypeFamily>, PlanError> {
@@ -200,7 +206,7 @@ pub(crate) fn infer_case_result_exprs_coarse_family<'a>(
 /// dynamic-result scalar function whose result family depends on shared
 /// argument unification instead of a fixed signature table.
 #[cfg(test)]
-pub(crate) fn infer_dynamic_function_result_exprs_coarse_family(
+pub(in crate::db::query::plan::expr) fn infer_dynamic_function_result_exprs_coarse_family(
     function: Function,
     args: &[Expr],
     schema: &SchemaInfo,
@@ -373,7 +379,7 @@ impl FunctionTypeInferenceShape {
 /// function argument when planner typing defines that contract explicitly.
 #[must_use]
 #[cfg(test)]
-pub(crate) fn function_arg_coarse_family(
+pub(in crate::db::query::plan::expr) fn function_arg_coarse_family(
     function: Function,
     index: usize,
 ) -> Option<ExprCoarseTypeFamily> {
@@ -384,7 +390,7 @@ pub(crate) fn function_arg_coarse_family(
 /// typing fixes that family independently of argument-specific unification.
 #[must_use]
 #[cfg(test)]
-pub(crate) const fn function_result_coarse_family(
+pub(in crate::db::query::plan::expr) const fn function_result_coarse_family(
     function: Function,
 ) -> Option<ExprCoarseTypeFamily> {
     function.type_inference_shape().result_coarse_family()
@@ -393,7 +399,9 @@ pub(crate) const fn function_result_coarse_family(
 /// Report whether planner typing classifies one scalar function as part of the
 /// text/numeric compare-operand family consumed by canonicalization.
 #[must_use]
-pub(crate) const fn function_is_compare_operand_coarse_family(function: Function) -> bool {
+pub(in crate::db::query::plan::expr) const fn function_is_compare_operand_coarse_family(
+    function: Function,
+) -> bool {
     function.is_compare_operand_coarse_family()
 }
 
@@ -401,7 +409,7 @@ pub(crate) const fn function_is_compare_operand_coarse_family(function: Function
 /// planner typing has already resolved their result family.
 #[must_use]
 #[cfg(test)]
-pub(crate) const fn dynamic_function_arg_coarse_family(
+pub(in crate::db::query::plan::expr) const fn dynamic_function_arg_coarse_family(
     function: Function,
     result_family: ExprCoarseTypeFamily,
 ) -> Option<ExprCoarseTypeFamily> {

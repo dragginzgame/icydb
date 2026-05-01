@@ -12,7 +12,7 @@ use crate::db::executor::{
     },
 };
 
-pub(in crate::db::executor::planning::route::planner) const fn derive_execution_mode_for_load(
+pub(super) const fn derive_execution_mode_for_load(
     feasibility_stage: &RouteFeasibilityStage,
 ) -> RouteExecutionMode {
     if load_streaming_allowed(
@@ -25,7 +25,7 @@ pub(in crate::db::executor::planning::route::planner) const fn derive_execution_
     }
 }
 
-pub(in crate::db::executor::planning::route::planner) const fn build_execution_stage_for_load(
+pub(super) const fn build_execution_stage_for_load(
     feasibility_stage: &RouteFeasibilityStage,
 ) -> RouteExecutionStage {
     // Load routes keep index-range limit contracts intact.

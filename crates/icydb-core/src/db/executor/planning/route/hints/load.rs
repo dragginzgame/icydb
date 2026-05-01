@@ -92,9 +92,7 @@ pub(in crate::db::executor::planning::route) fn bounded_probe_hint_is_safe(
 }
 
 /// Return whether one bounded fetch remains safe under residual-predicate filtering.
-pub(in crate::db::executor::planning::route) const fn residual_filter_predicate_pushdown_fetch_is_safe(
-    fetch: usize,
-) -> bool {
+const fn residual_filter_predicate_pushdown_fetch_is_safe(fetch: usize) -> bool {
     fetch <= residual_filter_predicate_pushdown_fetch_cap()
 }
 
@@ -140,9 +138,7 @@ pub(in crate::db::executor) const fn residual_filter_predicate_pushdown_fetch_ca
 }
 
 /// Resolve one bounded fetch hint from one access window contract.
-pub(in crate::db::executor::planning::route) const fn bounded_window_fetch_hint(
-    access_window: AccessWindow,
-) -> Option<usize> {
+pub(super) const fn bounded_window_fetch_hint(access_window: AccessWindow) -> Option<usize> {
     if access_window.is_zero_window() {
         return Some(0);
     }

@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.144.x] 🧱 - 2026-04-30 - Structural Ownership Audit
 
-- `0.144.8` makes SQL blob workflows more practical by accepting hex blob literals, reporting blob byte lengths with `OCTET_LENGTH(...)`, rejecting direct blob sorting clearly, adding blob-focused perf coverage, and continuing internal data-layer visibility cleanup.
+- `0.144.9` hides more implementation-only database internals, especially executor route-planning helpers, without changing query behavior.
+- `0.144.8` makes SQL blob workflows more practical by accepting bounded hex blob literals, supporting exact blob equality checks, reporting blob byte lengths with `OCTET_LENGTH(...)`, rejecting direct blob sorting clearly, adding blob-focused perf coverage, and continuing internal data-layer visibility cleanup.
 
 ```sql
 INSERT INTO SessionSqlBlobEntity (label, bucket, thumbnail, chunk)

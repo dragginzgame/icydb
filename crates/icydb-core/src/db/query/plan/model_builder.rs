@@ -31,7 +31,7 @@ impl FieldSlot {
     /// Build one field slot directly for tests that need invalid slot shapes.
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn from_parts_for_test(index: usize, field: impl Into<String>) -> Self {
+    pub(in crate::db) fn from_parts_for_test(index: usize, field: impl Into<String>) -> Self {
         Self {
             index,
             field: field.into(),
@@ -43,7 +43,7 @@ impl FieldSlot {
 impl GroupedExecutionConfig {
     /// Build one grouped execution config with explicit hard limits.
     #[must_use]
-    pub(crate) const fn with_hard_limits(max_groups: u64, max_group_bytes: u64) -> Self {
+    pub(in crate::db) const fn with_hard_limits(max_groups: u64, max_group_bytes: u64) -> Self {
         Self {
             max_groups,
             max_group_bytes,
@@ -52,19 +52,19 @@ impl GroupedExecutionConfig {
 
     /// Build one unbounded grouped execution config.
     #[must_use]
-    pub(crate) const fn unbounded() -> Self {
+    pub(in crate::db) const fn unbounded() -> Self {
         Self::with_hard_limits(u64::MAX, u64::MAX)
     }
 
     /// Return grouped hard limit for maximum groups.
     #[must_use]
-    pub(crate) const fn max_groups(&self) -> u64 {
+    pub(in crate::db) const fn max_groups(&self) -> u64 {
         self.max_groups
     }
 
     /// Return grouped hard limit for estimated grouped bytes.
     #[must_use]
-    pub(crate) const fn max_group_bytes(&self) -> u64 {
+    pub(in crate::db) const fn max_group_bytes(&self) -> u64 {
         self.max_group_bytes
     }
 }

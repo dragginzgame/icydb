@@ -478,6 +478,54 @@ fn sql_octet_length_reports_blob_byte_lengths() {
 }
 
 #[test]
+fn sql_blob_equality_predicates_compare_bytes() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let seeded = seed_blob_rows(&session);
+    let matching_thumbnail = seeded[0].thumbnail.to_vec();
+    let matching_literal = hex_blob_literal(matching_thumbnail.as_slice());
+
+    let equal_rows = statement_projection_rows::<SessionSqlBlobEntity>(
+        &session,
+        format!(
+            "SELECT label \
+             FROM SessionSqlBlobEntity \
+             WHERE thumbnail = {matching_literal} \
+             ORDER BY label ASC"
+        )
+        .as_str(),
+    )
+    .expect("blob equality predicate should compare exact bytes");
+
+    assert_eq!(
+        equal_rows,
+        vec![vec![Value::Text("hero-thumb-a".to_string())]],
+        "blob equality should return only the row with matching bytes",
+    );
+
+    let not_equal_rows = statement_projection_rows::<SessionSqlBlobEntity>(
+        &session,
+        format!(
+            "SELECT label \
+             FROM SessionSqlBlobEntity \
+             WHERE thumbnail <> {matching_literal} \
+             ORDER BY label ASC"
+        )
+        .as_str(),
+    )
+    .expect("blob inequality predicate should compare exact bytes");
+
+    assert_eq!(
+        not_equal_rows,
+        vec![
+            vec![Value::Text("archive-thumb".to_string())],
+            vec![Value::Text("hero-thumb-b".to_string())],
+        ],
+        "blob inequality should exclude only the row with matching bytes",
+    );
+}
+
+#[test]
 fn sql_order_by_blob_field_is_rejected() {
     reset_session_sql_store();
     let session = sql_session();

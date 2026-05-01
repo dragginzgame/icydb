@@ -17,7 +17,7 @@ use crate::{
 };
 
 // Validate grouped structural invariants before policy/cursor gates.
-pub(crate) fn validate_group_structure(
+pub(in crate::db::query) fn validate_group_structure(
     schema: &SchemaInfo,
     model: &EntityModel,
     group: &GroupSpec,

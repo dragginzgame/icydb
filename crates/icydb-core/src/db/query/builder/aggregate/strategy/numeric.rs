@@ -15,14 +15,14 @@ use crate::db::{
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct SumBySlotTerminal {
+pub(in crate::db) struct SumBySlotTerminal {
     target_field: FieldSlot,
 }
 
 impl SumBySlotTerminal {
     /// Prepare one fluent `sum(field)` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new(target_field: FieldSlot) -> Self {
+    pub(in crate::db) const fn new(target_field: FieldSlot) -> Self {
         Self { target_field }
     }
 
@@ -54,14 +54,14 @@ impl AggregateExplain for SumBySlotTerminal {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct SumDistinctBySlotTerminal {
+pub(in crate::db) struct SumDistinctBySlotTerminal {
     target_field: FieldSlot,
 }
 
 impl SumDistinctBySlotTerminal {
     /// Prepare one fluent `sum(distinct field)` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new(target_field: FieldSlot) -> Self {
+    pub(in crate::db) const fn new(target_field: FieldSlot) -> Self {
         Self { target_field }
     }
 
@@ -96,14 +96,14 @@ impl AggregateExplain for SumDistinctBySlotTerminal {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct AvgBySlotTerminal {
+pub(in crate::db) struct AvgBySlotTerminal {
     target_field: FieldSlot,
 }
 
 impl AvgBySlotTerminal {
     /// Prepare one fluent `avg(field)` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new(target_field: FieldSlot) -> Self {
+    pub(in crate::db) const fn new(target_field: FieldSlot) -> Self {
         Self { target_field }
     }
 
@@ -135,14 +135,14 @@ impl AggregateExplain for AvgBySlotTerminal {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct AvgDistinctBySlotTerminal {
+pub(in crate::db) struct AvgDistinctBySlotTerminal {
     target_field: FieldSlot,
 }
 
 impl AvgDistinctBySlotTerminal {
     /// Prepare one fluent `avg(distinct field)` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new(target_field: FieldSlot) -> Self {
+    pub(in crate::db) const fn new(target_field: FieldSlot) -> Self {
         Self { target_field }
     }
 

@@ -17,7 +17,7 @@ use crate::{
 };
 
 /// Resolve one grouped field into a stable field slot.
-pub(crate) fn resolve_group_field_slot(
+pub(in crate::db) fn resolve_group_field_slot(
     model: &EntityModel,
     field: &str,
 ) -> Result<FieldSlot, PlanError> {
@@ -26,7 +26,7 @@ pub(crate) fn resolve_group_field_slot(
 }
 
 /// Resolve one aggregate target field into a stable field slot.
-pub(crate) fn resolve_aggregate_target_field_slot(
+pub(in crate::db) fn resolve_aggregate_target_field_slot(
     model: &EntityModel,
     field: &str,
 ) -> Result<FieldSlot, QueryError> {

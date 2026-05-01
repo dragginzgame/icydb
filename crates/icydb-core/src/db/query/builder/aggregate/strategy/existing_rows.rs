@@ -15,19 +15,19 @@ use crate::db::query::builder::aggregate::{AggregateExpr, count, exists};
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct CountRowsTerminal;
+pub(in crate::db) struct CountRowsTerminal;
 
 impl CountRowsTerminal {
     /// Prepare one fluent `count(*)` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new() -> Self {
+    pub(in crate::db) const fn new() -> Self {
         Self
     }
 
     /// Build the explain-visible aggregate expression projected by this descriptor.
     #[cfg(test)]
     #[must_use]
-    pub(crate) const fn aggregate() -> AggregateExpr {
+    pub(in crate::db::query) const fn aggregate() -> AggregateExpr {
         count()
     }
 
@@ -55,19 +55,19 @@ impl AggregateExplain for CountRowsTerminal {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct ExistsRowsTerminal;
+pub(in crate::db) struct ExistsRowsTerminal;
 
 impl ExistsRowsTerminal {
     /// Prepare one fluent `exists()` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new() -> Self {
+    pub(in crate::db) const fn new() -> Self {
         Self
     }
 
     /// Build the explain-visible aggregate expression projected by this descriptor.
     #[cfg(test)]
     #[must_use]
-    pub(crate) const fn aggregate() -> AggregateExpr {
+    pub(in crate::db::query) const fn aggregate() -> AggregateExpr {
         exists()
     }
 

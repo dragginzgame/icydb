@@ -81,7 +81,7 @@ pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
 
 /// Return whether aggregate routing must force materialized mode due to predicate uncertainty.
 #[must_use]
-pub(in crate::db::executor::planning::route) const fn aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
+pub(super) const fn aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
     execution_preparation: &ExecutionPreparation,
 ) -> bool {
     execution_preparation.compiled_predicate().is_some()
@@ -93,9 +93,7 @@ pub(in crate::db::executor::planning::route) const fn aggregate_force_materializ
 
 /// Return whether one plan shape supports primary-key ordered stream execution.
 #[must_use]
-pub(in crate::db::executor::planning::route) fn pk_order_stream_fast_path_shape_supported(
-    plan: &AccessPlannedQuery,
-) -> bool {
+pub(super) fn pk_order_stream_fast_path_shape_supported(plan: &AccessPlannedQuery) -> bool {
     let logical = plan.scalar_plan();
     let access_capabilities = plan.access_capabilities();
     let has_primary_key_stream_window = match access_capabilities.single_path_capabilities() {

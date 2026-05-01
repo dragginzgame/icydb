@@ -26,7 +26,7 @@ use crate::{
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum NumericSubtype {
+pub(in crate::db) enum NumericSubtype {
     Integer,
     Float,
     Decimal,
@@ -43,7 +43,7 @@ pub(crate) enum NumericSubtype {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[remain::sorted]
-pub(crate) enum FunctionCategory {
+pub(in crate::db::query::plan::expr) enum FunctionCategory {
     BooleanPredicate,
     Collection,
     NullHandling,
@@ -60,7 +60,7 @@ pub(crate) enum FunctionCategory {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FunctionNullBehavior {
+pub(in crate::db::query::plan::expr) enum FunctionNullBehavior {
     NullIgnoring,
     NullObserving,
     Strict,
@@ -75,7 +75,7 @@ pub(crate) enum FunctionNullBehavior {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FunctionDeterminism {
+pub(in crate::db::query::plan::expr) enum FunctionDeterminism {
     Deterministic,
 }
 
@@ -88,7 +88,7 @@ pub(crate) enum FunctionDeterminism {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FunctionTypeInferenceShape {
+pub(in crate::db::query::plan::expr) enum FunctionTypeInferenceShape {
     ByteLengthResult,
     BoolResult {
         text_positions: &'static [usize],
@@ -119,7 +119,7 @@ pub(crate) enum FunctionTypeInferenceShape {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FunctionSurface {
+pub(in crate::db) enum FunctionSurface {
     AggregateInput,
     AggregateInputCondition,
     HavingCondition,
@@ -139,7 +139,7 @@ pub(crate) enum FunctionSurface {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum BooleanFunctionShape {
+pub(in crate::db::query::plan::expr) enum BooleanFunctionShape {
     CollectionContains,
     FieldPredicate,
     NullTest,
@@ -156,7 +156,7 @@ pub(crate) enum BooleanFunctionShape {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum NullTestFunctionKind {
+pub(in crate::db::query::plan::expr) enum NullTestFunctionKind {
     IsNotNull,
     IsNull,
 }
@@ -164,13 +164,13 @@ pub(crate) enum NullTestFunctionKind {
 impl NullTestFunctionKind {
     /// Return whether the null branch is the truthy branch for this null-test kind.
     #[must_use]
-    pub(crate) const fn null_matches_true(self) -> bool {
+    pub(in crate::db::query::plan::expr) const fn null_matches_true(self) -> bool {
         matches!(self, Self::IsNull)
     }
 
     /// Evaluate one admitted null test against one value.
     #[must_use]
-    pub(crate) const fn eval_value(self, value: &Value) -> Value {
+    pub(in crate::db::query::plan::expr) const fn eval_value(self, value: &Value) -> Value {
         Value::Bool(self.null_matches_true() == matches!(value, Value::Null))
     }
 }
@@ -184,7 +184,7 @@ impl NullTestFunctionKind {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum TextPredicateFunctionKind {
+pub(in crate::db) enum TextPredicateFunctionKind {
     Contains,
     EndsWith,
     StartsWith,
@@ -193,7 +193,7 @@ pub(crate) enum TextPredicateFunctionKind {
 impl TextPredicateFunctionKind {
     /// Evaluate one admitted text predicate against one text input and needle.
     #[must_use]
-    pub(crate) fn eval_text(self, text: &str, needle: &str) -> Value {
+    pub(in crate::db::query::plan::expr) fn eval_text(self, text: &str, needle: &str) -> Value {
         Value::Bool(match self {
             Self::Contains => text.contains(needle),
             Self::EndsWith => text.ends_with(needle),
@@ -211,7 +211,7 @@ impl TextPredicateFunctionKind {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum UnaryTextFunctionKind {
+pub(in crate::db::query::plan::expr) enum UnaryTextFunctionKind {
     Length,
     Lower,
     Ltrim,
@@ -223,7 +223,7 @@ pub(crate) enum UnaryTextFunctionKind {
 impl UnaryTextFunctionKind {
     /// Evaluate one admitted unary text transform against one text input.
     #[must_use]
-    pub(crate) fn eval_text(self, text: &str) -> Value {
+    pub(in crate::db::query::plan::expr) fn eval_text(self, text: &str) -> Value {
         match self {
             Self::Trim => Value::Text(text.trim().to_string()),
             Self::Ltrim => Value::Text(text.trim_start().to_string()),
@@ -244,7 +244,7 @@ impl UnaryTextFunctionKind {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum UnaryNumericFunctionKind {
+pub(in crate::db::query::plan::expr) enum UnaryNumericFunctionKind {
     Abs,
     Cbrt,
     Ceiling,
@@ -259,7 +259,10 @@ pub(crate) enum UnaryNumericFunctionKind {
 
 impl UnaryNumericFunctionKind {
     /// Evaluate one admitted unary numeric transform against one decimal input.
-    pub(crate) fn eval_decimal(self, decimal: Decimal) -> Result<Value, NumericEvalError> {
+    pub(in crate::db::query::plan::expr) fn eval_decimal(
+        self,
+        decimal: Decimal,
+    ) -> Result<Value, NumericEvalError> {
         let result = match self {
             Self::Abs => decimal.checked_abs().ok_or(NumericEvalError::Overflow)?,
             Self::Cbrt => decimal_cbrt_checked(decimal)?,
@@ -286,7 +289,7 @@ impl UnaryNumericFunctionKind {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum BinaryNumericFunctionKind {
+pub(in crate::db::query::plan::expr) enum BinaryNumericFunctionKind {
     Log,
     Mod,
     Power,
@@ -294,7 +297,7 @@ pub(crate) enum BinaryNumericFunctionKind {
 
 impl BinaryNumericFunctionKind {
     /// Evaluate one admitted binary numeric transform against decimal inputs.
-    pub(crate) fn eval_decimal(
+    pub(in crate::db::query::plan::expr) fn eval_decimal(
         self,
         left: Decimal,
         right: Decimal,
@@ -318,7 +321,7 @@ impl BinaryNumericFunctionKind {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum NumericScaleFunctionKind {
+pub(in crate::db::query::plan::expr) enum NumericScaleFunctionKind {
     Round,
     Trunc,
 }
@@ -326,7 +329,11 @@ pub(crate) enum NumericScaleFunctionKind {
 impl NumericScaleFunctionKind {
     /// Evaluate one admitted scale-taking numeric transform.
     #[must_use]
-    pub(crate) const fn eval_decimal(self, decimal: Decimal, scale: u32) -> Value {
+    pub(in crate::db::query::plan::expr) const fn eval_decimal(
+        self,
+        decimal: Decimal,
+        scale: u32,
+    ) -> Value {
         let result = match self {
             Self::Round => decimal.round_dp(scale),
             Self::Trunc => decimal.trunc_dp(scale),
@@ -345,7 +352,7 @@ impl NumericScaleFunctionKind {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum LeftRightTextFunctionKind {
+pub(in crate::db::query::plan::expr) enum LeftRightTextFunctionKind {
     Left,
     Right,
 }
@@ -353,7 +360,7 @@ pub(crate) enum LeftRightTextFunctionKind {
 impl LeftRightTextFunctionKind {
     /// Evaluate one admitted LEFT/RIGHT transform against one text input.
     #[must_use]
-    pub(crate) fn eval_text(self, text: &str, count: i64) -> Value {
+    pub(in crate::db::query::plan::expr) fn eval_text(self, text: &str, count: i64) -> Value {
         Value::Text(match self {
             Self::Left => Self::left_chars(text, count),
             Self::Right => Self::right_chars(text, count),
@@ -396,7 +403,7 @@ impl LeftRightTextFunctionKind {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FieldPredicateFunctionKind {
+pub(in crate::db::query::plan::expr) enum FieldPredicateFunctionKind {
     Empty,
     Missing,
     NotEmpty,
@@ -413,7 +420,7 @@ pub(crate) enum FieldPredicateFunctionKind {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum AggregateInputConstantFoldShape {
+pub(in crate::db::query::plan::expr) enum AggregateInputConstantFoldShape {
     DynamicCoalesce,
     DynamicNullIf,
     BinaryNumeric,
@@ -431,7 +438,7 @@ pub(crate) enum AggregateInputConstantFoldShape {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ScalarEvalFunctionShape {
+pub(in crate::db::query::plan::expr) enum ScalarEvalFunctionShape {
     DynamicCoalesce,
     DynamicNullIf,
     BinaryNumeric,
@@ -457,12 +464,12 @@ pub(crate) enum ScalarEvalFunctionShape {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct FunctionSpec {
-    pub(crate) category: FunctionCategory,
-    pub(crate) null_behavior: FunctionNullBehavior,
-    pub(crate) determinism: FunctionDeterminism,
-    pub(crate) type_inference_shape: FunctionTypeInferenceShape,
-    pub(crate) allowed_surfaces: &'static [FunctionSurface],
+pub(in crate::db::query::plan::expr) struct FunctionSpec {
+    pub(in crate::db::query::plan::expr) category: FunctionCategory,
+    pub(in crate::db::query::plan::expr) null_behavior: FunctionNullBehavior,
+    pub(in crate::db::query::plan::expr) determinism: FunctionDeterminism,
+    pub(in crate::db::query::plan::expr) type_inference_shape: FunctionTypeInferenceShape,
+    pub(in crate::db::query::plan::expr) allowed_surfaces: &'static [FunctionSurface],
 }
 
 const BOOLEAN_FUNCTION_SURFACES: &[FunctionSurface] = &[
@@ -492,7 +499,7 @@ const ROUND_FUNCTION_SURFACES: &[FunctionSurface] = &[
 impl FunctionSpec {
     /// Build one planner-owned scalar function specification.
     #[must_use]
-    pub(crate) const fn new(
+    pub(in crate::db::query::plan::expr) const fn new(
         category: FunctionCategory,
         null_behavior: FunctionNullBehavior,
         determinism: FunctionDeterminism,
@@ -589,7 +596,10 @@ impl FunctionSpec {
     /// Return whether this function specification is admitted on the given
     /// planner-owned expression surface.
     #[must_use]
-    pub(crate) fn supports_surface(self, surface: FunctionSurface) -> bool {
+    pub(in crate::db::query::plan::expr) fn supports_surface(
+        self,
+        surface: FunctionSurface,
+    ) -> bool {
         let mut index = 0usize;
         while index < self.allowed_surfaces.len() {
             if matches!(self.allowed_surfaces[index], current if current == surface) {
@@ -605,7 +615,7 @@ impl FunctionSpec {
 impl Function {
     /// Return the canonical planner-owned scalar function specification.
     #[must_use]
-    pub(crate) const fn spec(self) -> FunctionSpec {
+    pub(in crate::db::query::plan::expr) const fn spec(self) -> FunctionSpec {
         match self {
             Self::Abs
             | Self::Cbrt
@@ -694,21 +704,23 @@ impl Function {
 
     /// Return the planner-owned typing shape for this function.
     #[must_use]
-    pub(crate) const fn type_inference_shape(self) -> FunctionTypeInferenceShape {
+    pub(in crate::db::query::plan::expr) const fn type_inference_shape(
+        self,
+    ) -> FunctionTypeInferenceShape {
         self.spec().type_inference_shape
     }
 
     /// Return whether this canonical scalar function is admitted on the given
     /// planner-owned expression surface.
     #[must_use]
-    pub(crate) fn supports_surface(self, surface: FunctionSurface) -> bool {
+    pub(in crate::db) fn supports_surface(self, surface: FunctionSurface) -> bool {
         self.spec().supports_surface(surface)
     }
 
     /// Report whether planner typing classifies this scalar function as part
     /// of the text/numeric compare-operand family consumed by canonicalization.
     #[must_use]
-    pub(crate) const fn is_compare_operand_coarse_family(self) -> bool {
+    pub(in crate::db::query::plan::expr) const fn is_compare_operand_coarse_family(self) -> bool {
         matches!(
             self.type_inference_shape(),
             FunctionTypeInferenceShape::TextResult { .. }
@@ -723,7 +735,7 @@ impl Function {
     /// Return one fixed decimal display scale implied by this scalar function
     /// and its planner-frozen arguments, if the function family carries one.
     #[must_use]
-    pub(crate) fn fixed_decimal_scale(self, args: &[Expr]) -> Option<u32> {
+    pub(in crate::db) fn fixed_decimal_scale(self, args: &[Expr]) -> Option<u32> {
         if !matches!(self, Self::Round | Self::Trunc) {
             return None;
         }
@@ -739,7 +751,9 @@ impl Function {
     /// admission, normalization, and predicate compilation, if this function
     /// participates in that bounded boolean surface.
     #[must_use]
-    pub(crate) const fn boolean_function_shape(self) -> Option<BooleanFunctionShape> {
+    pub(in crate::db::query::plan::expr) const fn boolean_function_shape(
+        self,
+    ) -> Option<BooleanFunctionShape> {
         match self {
             Self::Coalesce => Some(BooleanFunctionShape::TruthCoalesce),
             Self::IsNull | Self::IsNotNull => Some(BooleanFunctionShape::NullTest),
@@ -784,7 +798,9 @@ impl Function {
     /// Return the finer null-test kind once this function has already been
     /// admitted onto the bounded boolean null-test surface.
     #[must_use]
-    pub(crate) const fn boolean_null_test_kind(self) -> Option<NullTestFunctionKind> {
+    pub(in crate::db::query::plan::expr) const fn boolean_null_test_kind(
+        self,
+    ) -> Option<NullTestFunctionKind> {
         match self {
             Self::IsNull => Some(NullTestFunctionKind::IsNull),
             Self::IsNotNull => Some(NullTestFunctionKind::IsNotNull),
@@ -795,7 +811,9 @@ impl Function {
     /// Return the finer text-predicate kind once this function has already
     /// been admitted onto the bounded boolean text-predicate surface.
     #[must_use]
-    pub(crate) const fn boolean_text_predicate_kind(self) -> Option<TextPredicateFunctionKind> {
+    pub(in crate::db) const fn boolean_text_predicate_kind(
+        self,
+    ) -> Option<TextPredicateFunctionKind> {
         match self {
             Self::StartsWith => Some(TextPredicateFunctionKind::StartsWith),
             Self::EndsWith => Some(TextPredicateFunctionKind::EndsWith),
@@ -807,7 +825,9 @@ impl Function {
     /// Return the finer field-predicate kind once this function has already
     /// been admitted onto the bounded boolean field-predicate surface.
     #[must_use]
-    pub(crate) const fn boolean_field_predicate_kind(self) -> Option<FieldPredicateFunctionKind> {
+    pub(in crate::db::query::plan::expr) const fn boolean_field_predicate_kind(
+        self,
+    ) -> Option<FieldPredicateFunctionKind> {
         match self {
             Self::IsMissing => Some(FieldPredicateFunctionKind::Missing),
             Self::IsEmpty => Some(FieldPredicateFunctionKind::Empty),
@@ -820,14 +840,16 @@ impl Function {
     /// text casefold transforms that preserve shared LOWER/UPPER wrapper
     /// semantics across planner expression surfaces.
     #[must_use]
-    pub(crate) const fn is_casefold_transform(self) -> bool {
+    pub(in crate::db::query::plan::expr) const fn is_casefold_transform(self) -> bool {
         matches!(self, Self::Lower | Self::Upper)
     }
 
     /// Return the finer unary text transform kind once scalar-evaluation
     /// dispatch has already proven this function belongs to that family.
     #[must_use]
-    pub(crate) const fn unary_text_function_kind(self) -> Option<UnaryTextFunctionKind> {
+    pub(in crate::db::query::plan::expr) const fn unary_text_function_kind(
+        self,
+    ) -> Option<UnaryTextFunctionKind> {
         match self {
             Self::Trim => Some(UnaryTextFunctionKind::Trim),
             Self::Ltrim => Some(UnaryTextFunctionKind::Ltrim),
@@ -842,7 +864,9 @@ impl Function {
     /// Return the finer unary numeric transform kind once scalar-evaluation
     /// dispatch has already proven this function belongs to that family.
     #[must_use]
-    pub(crate) const fn unary_numeric_function_kind(self) -> Option<UnaryNumericFunctionKind> {
+    pub(in crate::db::query::plan::expr) const fn unary_numeric_function_kind(
+        self,
+    ) -> Option<UnaryNumericFunctionKind> {
         match self {
             Self::Abs => Some(UnaryNumericFunctionKind::Abs),
             Self::Cbrt => Some(UnaryNumericFunctionKind::Cbrt),
@@ -861,7 +885,9 @@ impl Function {
     /// Return the finer binary numeric transform kind once scalar-evaluation
     /// dispatch has already proven this function belongs to that family.
     #[must_use]
-    pub(crate) const fn binary_numeric_function_kind(self) -> Option<BinaryNumericFunctionKind> {
+    pub(in crate::db::query::plan::expr) const fn binary_numeric_function_kind(
+        self,
+    ) -> Option<BinaryNumericFunctionKind> {
         match self {
             Self::Log => Some(BinaryNumericFunctionKind::Log),
             Self::Mod => Some(BinaryNumericFunctionKind::Mod),
@@ -873,7 +899,9 @@ impl Function {
     /// Return the finer scale-taking numeric transform kind once scalar
     /// evaluation has already proven this function belongs to that family.
     #[must_use]
-    pub(crate) const fn numeric_scale_function_kind(self) -> Option<NumericScaleFunctionKind> {
+    pub(in crate::db::query::plan::expr) const fn numeric_scale_function_kind(
+        self,
+    ) -> Option<NumericScaleFunctionKind> {
         match self {
             Self::Round => Some(NumericScaleFunctionKind::Round),
             Self::Trunc => Some(NumericScaleFunctionKind::Trunc),
@@ -884,7 +912,9 @@ impl Function {
     /// Return the LEFT versus RIGHT distinction once scalar-evaluation
     /// dispatch has already proven this function belongs to that family.
     #[must_use]
-    pub(crate) const fn left_right_text_function_kind(self) -> Option<LeftRightTextFunctionKind> {
+    pub(in crate::db::query::plan::expr) const fn left_right_text_function_kind(
+        self,
+    ) -> Option<LeftRightTextFunctionKind> {
         match self {
             Self::Left => Some(LeftRightTextFunctionKind::Left),
             Self::Right => Some(LeftRightTextFunctionKind::Right),
@@ -895,7 +925,9 @@ impl Function {
     /// Return the bounded scalar-evaluation behavior family shared by
     /// planner literal preview and executor scalar projection evaluation.
     #[must_use]
-    pub(crate) const fn scalar_eval_shape(self) -> ScalarEvalFunctionShape {
+    pub(in crate::db::query::plan::expr) const fn scalar_eval_shape(
+        self,
+    ) -> ScalarEvalFunctionShape {
         match self {
             Self::IsNull | Self::IsNotNull => ScalarEvalFunctionShape::NullTest,
             Self::IsMissing | Self::IsEmpty | Self::IsNotEmpty | Self::CollectionContains => {
@@ -932,7 +964,7 @@ impl Function {
     /// Return the stable executor-facing projection function name used by
     /// scalar projection evaluation diagnostics and invariant messages.
     #[must_use]
-    pub(crate) const fn projection_eval_name(self) -> &'static str {
+    pub(in crate::db::query::plan::expr) const fn projection_eval_name(self) -> &'static str {
         match self {
             Self::IsNull => "is_null",
             Self::IsNotNull => "is_not_null",
@@ -979,7 +1011,7 @@ impl Function {
     /// function when a literal-only aggregate input can collapse
     /// deterministically.
     #[must_use]
-    pub(crate) const fn aggregate_input_constant_fold_shape(
+    pub(in crate::db::query::plan::expr) const fn aggregate_input_constant_fold_shape(
         self,
     ) -> Option<AggregateInputConstantFoldShape> {
         match self {
@@ -1025,7 +1057,7 @@ impl Function {
 
     /// Evaluate one admitted COALESCE call after caller-side arity validation.
     #[must_use]
-    pub(crate) fn eval_coalesce_values(self, args: &[Value]) -> Value {
+    pub(in crate::db::query::plan::expr) fn eval_coalesce_values(self, args: &[Value]) -> Value {
         debug_assert!(matches!(self, Self::Coalesce));
 
         args.iter()
@@ -1037,7 +1069,12 @@ impl Function {
     /// Evaluate one admitted NULLIF result once the caller has already computed
     /// its equality outcome through the layer-owned comparison boundary.
     #[must_use]
-    pub(crate) fn eval_nullif_values(self, left: &Value, right: &Value, equals: bool) -> Value {
+    pub(in crate::db::query::plan::expr) fn eval_nullif_values(
+        self,
+        left: &Value,
+        right: &Value,
+        equals: bool,
+    ) -> Value {
         debug_assert!(matches!(self, Self::NullIf));
 
         if matches!(left, Value::Null) || matches!(right, Value::Null) {
@@ -1050,7 +1087,11 @@ impl Function {
     /// Evaluate one admitted POSITION call after the caller has already
     /// validated both text operands.
     #[must_use]
-    pub(crate) fn eval_position_text(self, text: &str, needle: &str) -> Value {
+    pub(in crate::db::query::plan::expr) fn eval_position_text(
+        self,
+        text: &str,
+        needle: &str,
+    ) -> Value {
         debug_assert!(matches!(self, Self::Position));
 
         Value::Uint(Self::text_position_1_based(text, needle))
@@ -1059,7 +1100,12 @@ impl Function {
     /// Evaluate one admitted REPLACE call after the caller has already
     /// validated all text operands.
     #[must_use]
-    pub(crate) fn eval_replace_text(self, text: &str, from: &str, to: &str) -> Value {
+    pub(in crate::db::query::plan::expr) fn eval_replace_text(
+        self,
+        text: &str,
+        from: &str,
+        to: &str,
+    ) -> Value {
         debug_assert!(matches!(self, Self::Replace));
 
         Value::Text(text.replace(from, to))
@@ -1068,7 +1114,12 @@ impl Function {
     /// Evaluate one admitted SUBSTRING call after the caller has already
     /// validated the text and integer operands.
     #[must_use]
-    pub(crate) fn eval_substring_text(self, text: &str, start: i64, length: Option<i64>) -> Value {
+    pub(in crate::db::query::plan::expr) fn eval_substring_text(
+        self,
+        text: &str,
+        start: i64,
+        length: Option<i64>,
+    ) -> Value {
         debug_assert!(matches!(self, Self::Substring));
 
         Value::Text(Self::substring_1_based(text, start, length))
@@ -1077,7 +1128,11 @@ impl Function {
     /// Evaluate one admitted scale-taking numeric call after the caller has
     /// already validated the non-negative scale boundary.
     #[must_use]
-    pub(crate) fn eval_numeric_scale(self, value: &Value, scale: u32) -> Option<Value> {
+    pub(in crate::db::query::plan::expr) fn eval_numeric_scale(
+        self,
+        value: &Value,
+        scale: u32,
+    ) -> Option<Value> {
         debug_assert!(matches!(self, Self::Round | Self::Trunc));
 
         let decimal = coerce_numeric_decimal(value)?;

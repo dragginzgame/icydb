@@ -3,13 +3,13 @@
 //! Does not own: query intent compilation or planner validation.
 //! Boundary: user-facing ergonomic builder layer.
 
-pub(crate) mod aggregate;
-pub(crate) mod field;
-pub(crate) mod numeric_projection;
-pub(crate) mod scalar_projection;
-pub(crate) mod text_projection;
+pub(in crate::db) mod aggregate;
+pub(in crate::db) mod field;
+pub(in crate::db) mod numeric_projection;
+pub(in crate::db) mod scalar_projection;
+pub(in crate::db) mod text_projection;
 
-pub(crate) use aggregate::{
+pub(in crate::db) use aggregate::{
     AggregateExplain, AvgBySlotTerminal, AvgDistinctBySlotTerminal, CountDistinctBySlotTerminal,
     CountRowsTerminal, DistinctValuesBySlotTerminal, ExistsRowsTerminal, FirstIdTerminal,
     FirstValueBySlotTerminal, LastIdTerminal, LastValueBySlotTerminal, MaxIdBySlotTerminal,

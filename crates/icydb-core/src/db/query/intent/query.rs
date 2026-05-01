@@ -536,7 +536,7 @@ impl<E: EntityKind> Query<E> {
     }
 
     #[must_use]
-    pub(crate) fn has_explicit_order(&self) -> bool {
+    pub(in crate::db::query) fn has_explicit_order(&self) -> bool {
         self.inner.has_explicit_order()
     }
 
@@ -551,7 +551,7 @@ impl<E: EntityKind> Query<E> {
     }
 
     #[must_use]
-    pub(crate) const fn load_spec(&self) -> Option<LoadSpec> {
+    pub(in crate::db::query) const fn load_spec(&self) -> Option<LoadSpec> {
         self.inner.load_spec()
     }
 
@@ -682,14 +682,14 @@ impl<E: EntityKind> Query<E> {
     }
 
     /// Set the access path to a single primary key lookup.
-    pub(crate) fn by_id(self, id: E::Key) -> Self {
+    pub(in crate::db) fn by_id(self, id: E::Key) -> Self {
         let Self { inner, .. } = self;
 
         Self::from_inner(inner.by_id(id.to_key_value()))
     }
 
     /// Set the access path to a primary key batch lookup.
-    pub(crate) fn by_ids<I>(self, ids: I) -> Self
+    pub(in crate::db) fn by_ids<I>(self, ids: I) -> Self
     where
         I: IntoIterator<Item = E::Key>,
     {
@@ -772,7 +772,7 @@ where
     E::Key: Default,
 {
     /// Set the access path to the singleton primary key.
-    pub(crate) fn only(self) -> Self {
+    pub(in crate::db) fn only(self) -> Self {
         let Self { inner, .. } = self;
 
         Self::from_inner(inner.only(E::Key::default().to_key_value()))

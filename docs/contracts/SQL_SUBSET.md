@@ -140,6 +140,30 @@ Public SQL ownership is split deliberately:
 - `execute_sql_query::<E>(...)` owns read, explain, and introspection SQL
 - `execute_sql_update::<E>(...)` owns state-changing SQL
 
+## Blob Literals and Blob Values
+
+SQL accepts hex blob literals in the `X'...'` / `x'...'` form. The hex body
+must contain only hexadecimal digits and must have an even number of digits.
+The decoded payload is capped at 1,048,576 bytes per literal so oversized SQL
+text fails before allocating unbounded blob buffers.
+
+Supported blob behavior:
+
+- `INSERT` / `UPDATE` can write blob fields from hex blob literals.
+- `SELECT` and `DELETE ... RETURNING` can return blob fields.
+- `WHERE blob_field = X'...'` and `WHERE blob_field <> X'...'` compare blob
+  bytes exactly.
+- `OCTET_LENGTH(blob_field)` returns the blob byte length without changing
+  `LENGTH(text)` character-count behavior.
+
+Unsupported blob behavior:
+
+- `ORDER BY blob_field` is rejected because raw blob values are not orderable
+  through the public SQL surface.
+- SQL does not provide streaming blob reads or chunked blob writes; large
+  payload transport remains better suited to typed APIs that can expose
+  chunk-oriented application boundaries.
+
 ## Entity Naming And Aliases
 
 The admitted single-entity naming surface is:

@@ -9,7 +9,7 @@ use crate::db::query::plan::AggregateKind;
 /// execution domain boundaries that still stay family-specific.
 ///
 
-pub(crate) trait AggregateExplain {
+pub(in crate::db) trait AggregateExplain {
     /// Return the explain-visible aggregate kind when this strategy family can
     /// project one aggregate terminal plan shape.
     fn explain_aggregate_kind(&self) -> Option<AggregateKind>;
@@ -29,7 +29,7 @@ pub(crate) trait AggregateExplain {
 /// reintroducing a projection strategy enum.
 ///
 
-pub(crate) trait ProjectionExplain {
+pub(in crate::db) trait ProjectionExplain {
     /// Return the stable projection explain descriptor for this terminal.
     fn explain_projection_descriptor(&self) -> ProjectionExplainDescriptor<'_>;
 }
@@ -44,7 +44,7 @@ pub(crate) trait ProjectionExplain {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct ProjectionExplainDescriptor<'a> {
+pub(in crate::db) struct ProjectionExplainDescriptor<'a> {
     pub(in crate::db::query::builder::aggregate) terminal: &'static str,
     pub(in crate::db::query::builder::aggregate) field: &'a str,
     pub(in crate::db::query::builder::aggregate) output: &'static str,
@@ -53,19 +53,19 @@ pub(crate) struct ProjectionExplainDescriptor<'a> {
 impl<'a> ProjectionExplainDescriptor<'a> {
     /// Return the stable explain terminal label.
     #[must_use]
-    pub(crate) const fn terminal_label(self) -> &'static str {
+    pub(in crate::db) const fn terminal_label(self) -> &'static str {
         self.terminal
     }
 
     /// Return the stable explain field label.
     #[must_use]
-    pub(crate) const fn field_label(self) -> &'a str {
+    pub(in crate::db) const fn field_label(self) -> &'a str {
         self.field
     }
 
     /// Return the stable explain output-shape label.
     #[must_use]
-    pub(crate) const fn output_label(self) -> &'static str {
+    pub(in crate::db) const fn output_label(self) -> &'static str {
         self.output
     }
 }

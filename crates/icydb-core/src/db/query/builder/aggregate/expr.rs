@@ -69,25 +69,25 @@ impl AggregateExpr {
 
     /// Borrow aggregate kind.
     #[must_use]
-    pub(crate) const fn kind(&self) -> AggregateKind {
+    pub(in crate::db) const fn kind(&self) -> AggregateKind {
         self.kind
     }
 
     /// Borrow the aggregate input expression, if any.
     #[must_use]
-    pub(crate) fn input_expr(&self) -> Option<&Expr> {
+    pub(in crate::db) fn input_expr(&self) -> Option<&Expr> {
         self.input_expr.as_deref()
     }
 
     /// Borrow the aggregate filter expression, if any.
     #[must_use]
-    pub(crate) fn filter_expr(&self) -> Option<&Expr> {
+    pub(in crate::db) fn filter_expr(&self) -> Option<&Expr> {
         self.filter_expr.as_deref()
     }
 
     /// Borrow the optional target field when this aggregate input stays a plain field leaf.
     #[must_use]
-    pub(crate) fn target_field(&self) -> Option<&str> {
+    pub(in crate::db) fn target_field(&self) -> Option<&str> {
         match self.input_expr() {
             Some(Expr::Field(field)) => Some(field.as_str()),
             _ => None,
@@ -96,7 +96,7 @@ impl AggregateExpr {
 
     /// Return true when DISTINCT is enabled.
     #[must_use]
-    pub(crate) const fn is_distinct(&self) -> bool {
+    pub(in crate::db) const fn is_distinct(&self) -> bool {
         self.distinct
     }
 

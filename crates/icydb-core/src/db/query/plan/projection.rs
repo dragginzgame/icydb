@@ -20,7 +20,7 @@ use crate::{
 
 /// Lower one logical plan into the canonical planner-owned projection semantic shape.
 #[must_use]
-pub(crate) fn lower_projection_intent(
+pub(in crate::db::query) fn lower_projection_intent(
     model: &EntityModel,
     logical: &LogicalPlan,
     selection: &ProjectionSelection,
@@ -40,7 +40,7 @@ pub(crate) fn lower_projection_intent(
 /// Lower one already-validated global aggregate output field list into the
 /// canonical planner-owned projection semantic shape.
 #[must_use]
-pub(crate) const fn lower_global_aggregate_projection(
+pub(in crate::db) const fn lower_global_aggregate_projection(
     fields: Vec<ProjectionField>,
 ) -> ProjectionSpec {
     ProjectionSpec::new(fields)
@@ -68,7 +68,7 @@ fn lower_scalar_projection(model: &EntityModel, selection: &ProjectionSelection)
 /// Lower one logical plan into one direct slot projection layout when every
 /// output remains a unique canonical field reference.
 #[must_use]
-pub(crate) fn lower_direct_projection_slots(
+pub(in crate::db::query) fn lower_direct_projection_slots(
     model: &EntityModel,
     logical: &LogicalPlan,
     selection: &ProjectionSelection,
@@ -94,7 +94,7 @@ pub(crate) fn lower_direct_projection_slots(
 /// Lower one logical plan into the identity projection used by hash/fingerprint
 /// surfaces when a full schema model is not available at the call boundary.
 #[must_use]
-pub(crate) fn lower_projection_identity(
+pub(in crate::db::query) fn lower_projection_identity(
     logical: &LogicalPlan,
     selection: &ProjectionSelection,
 ) -> ProjectionSpec {

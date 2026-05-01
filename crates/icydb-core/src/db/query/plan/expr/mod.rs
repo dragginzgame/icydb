@@ -84,19 +84,23 @@ mod truth_value;
 mod type_inference;
 
 pub(in crate::db) use aggregate_input::*;
-pub(crate) use ast::*;
+pub(in crate::db) use ast::*;
 pub(in crate::db) use canonicalize::*;
 pub(in crate::db) use compiled_expr::*;
 pub(in crate::db) use compiled_expr_compile::*;
 #[allow(unused_imports)]
 pub(in crate::db) use compiled_predicate::*;
-pub(crate) use function_semantics::*;
+pub(in crate::db::query::plan::expr) use function_semantics::*;
+pub(in crate::db) use function_semantics::{
+    FunctionSurface, NumericSubtype, TextPredicateFunctionKind,
+};
 pub(in crate::db) use predicate_bridge::*;
 pub(in crate::db) use predicate_compile::*;
 pub(in crate::db) use preview::*;
-pub(crate) use projection::*;
+pub(in crate::db) use projection::*;
 pub(in crate::db) use projection_eval::*;
 pub(in crate::db) use rewrite::*;
 pub(in crate::db) use scalar::*;
 pub(in crate::db) use truth_value::*;
-pub(crate) use type_inference::*;
+pub(in crate::db::query::plan::expr) use type_inference::*;
+pub(in crate::db) use type_inference::{ExprType, infer_expr_type};

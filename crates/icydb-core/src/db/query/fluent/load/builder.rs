@@ -41,7 +41,7 @@ impl<'a, E> FluentLoadQuery<'a, E>
 where
     E: EntityKind,
 {
-    pub(crate) const fn new(session: &'a DbSession<E::Canister>, query: Query<E>) -> Self {
+    pub(in crate::db) const fn new(session: &'a DbSession<E::Canister>, query: Query<E>) -> Self {
         Self {
             session,
             query,

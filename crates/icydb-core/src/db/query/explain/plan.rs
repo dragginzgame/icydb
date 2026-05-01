@@ -33,19 +33,19 @@ use std::ops::Bound;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainPlan {
-    pub(crate) mode: QueryMode,
-    pub(crate) access: ExplainAccessPath,
-    pub(crate) filter_expr: Option<String>,
+    pub(in crate::db) mode: QueryMode,
+    pub(in crate::db) access: ExplainAccessPath,
+    pub(in crate::db) filter_expr: Option<String>,
     filter_expr_model: Option<Expr>,
-    pub(crate) predicate: ExplainPredicate,
+    pub(in crate::db) predicate: ExplainPredicate,
     predicate_model: Option<Predicate>,
-    pub(crate) order_by: ExplainOrderBy,
-    pub(crate) distinct: bool,
-    pub(crate) grouping: ExplainGrouping,
-    pub(crate) order_pushdown: ExplainOrderPushdown,
-    pub(crate) page: ExplainPagination,
-    pub(crate) delete_limit: ExplainDeleteLimit,
-    pub(crate) consistency: MissingRowPolicy,
+    pub(in crate::db) order_by: ExplainOrderBy,
+    pub(in crate::db) distinct: bool,
+    pub(in crate::db) grouping: ExplainGrouping,
+    pub(in crate::db) order_pushdown: ExplainOrderPushdown,
+    pub(in crate::db) page: ExplainPagination,
+    pub(in crate::db) delete_limit: ExplainDeleteLimit,
+    pub(in crate::db) consistency: MissingRowPolicy,
 }
 
 impl ExplainPlan {
@@ -69,7 +69,7 @@ impl ExplainPlan {
 
     /// Borrow the canonical scalar filter model used for identity hashing.
     #[must_use]
-    pub(crate) fn filter_expr_model_for_hash(&self) -> Option<&Expr> {
+    pub(in crate::db::query) fn filter_expr_model_for_hash(&self) -> Option<&Expr> {
         if let Some(filter_expr_model) = &self.filter_expr_model {
             debug_assert_eq!(
                 self.filter_expr(),
@@ -142,7 +142,7 @@ impl ExplainPlan {
     /// canonical filter surface instead. The explain predicate projection must
     /// still remain a faithful rendering of this fallback model.
     #[must_use]
-    pub(crate) fn predicate_model_for_hash(&self) -> Option<&Predicate> {
+    pub(in crate::db::query) fn predicate_model_for_hash(&self) -> Option<&Predicate> {
         if let Some(predicate) = &self.predicate_model {
             debug_assert_eq!(
                 self.predicate,
@@ -231,8 +231,8 @@ pub enum ExplainGrouping {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainGroupField {
-    pub(crate) slot_index: usize,
-    pub(crate) field: String,
+    pub(in crate::db) slot_index: usize,
+    pub(in crate::db) field: String,
 }
 
 impl ExplainGroupField {
@@ -257,11 +257,11 @@ impl ExplainGroupField {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainGroupAggregate {
-    pub(crate) kind: AggregateKind,
-    pub(crate) target_field: Option<String>,
-    pub(crate) input_expr: Option<String>,
-    pub(crate) filter_expr: Option<String>,
-    pub(crate) distinct: bool,
+    pub(in crate::db) kind: AggregateKind,
+    pub(in crate::db) target_field: Option<String>,
+    pub(in crate::db) input_expr: Option<String>,
+    pub(in crate::db) filter_expr: Option<String>,
+    pub(in crate::db) distinct: bool,
 }
 
 impl ExplainGroupAggregate {
@@ -306,7 +306,7 @@ impl ExplainGroupAggregate {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainGroupHaving {
-    pub(crate) expr: Expr,
+    pub(in crate::db) expr: Expr,
 }
 
 impl ExplainGroupHaving {
@@ -485,8 +485,8 @@ pub enum ExplainOrderBy {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainOrder {
-    pub(crate) field: String,
-    pub(crate) direction: OrderDirection,
+    pub(in crate::db) field: String,
+    pub(in crate::db) direction: OrderDirection,
 }
 
 impl ExplainOrder {
@@ -531,7 +531,7 @@ pub enum ExplainDeleteLimit {
 impl AccessPlannedQuery {
     /// Produce a stable, deterministic explanation of this logical plan.
     #[must_use]
-    pub(crate) fn explain(&self) -> ExplainPlan {
+    pub(in crate::db) fn explain(&self) -> ExplainPlan {
         self.explain_inner()
     }
 

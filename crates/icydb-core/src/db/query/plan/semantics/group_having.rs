@@ -34,7 +34,7 @@ use crate::{
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum GroupedCursorPolicyViolation {
+pub(in crate::db) enum GroupedCursorPolicyViolation {
     ContinuationRequiresLimit,
     GlobalDistinctContinuationUnsupported,
 }
@@ -63,13 +63,13 @@ impl GroupedCursorPolicyViolation {
 
 /// Return whether grouped HAVING supports this compare operator.
 #[must_use]
-pub(crate) const fn grouped_having_compare_op_supported(op: CompareOp) -> bool {
+pub(in crate::db) const fn grouped_having_compare_op_supported(op: CompareOp) -> bool {
     grouped_having_compare_kind(op).is_some()
 }
 
 /// Resolve one grouped HAVING binary compare operator onto the shared grouped compare family.
 #[must_use]
-pub(crate) const fn grouped_having_binary_compare_op(op: BinaryOp) -> Option<CompareOp> {
+pub(in crate::db) const fn grouped_having_binary_compare_op(op: BinaryOp) -> Option<CompareOp> {
     truth_condition_binary_compare_op(op)
 }
 
@@ -110,7 +110,7 @@ pub(in crate::db) fn grouped_having_compare_expr(left: Expr, op: CompareOp, valu
 /// Evaluate one grouped HAVING comparison under the canonical grouped planner semantics.
 #[must_use]
 #[cfg(test)]
-pub(crate) fn evaluate_grouped_having_compare(
+pub(in crate::db::query) fn evaluate_grouped_having_compare(
     actual: &Value,
     op: CompareOp,
     expected: &Value,

@@ -1,11 +1,11 @@
-pub(crate) mod existing_rows;
-pub(crate) mod numeric;
-pub(crate) mod order_sensitive;
-pub(crate) mod projection;
-pub(crate) mod scalar_terminal;
+mod existing_rows;
+mod numeric;
+mod order_sensitive;
+mod projection;
+mod scalar_terminal;
 
-pub(crate) use existing_rows::*;
-pub(crate) use numeric::*;
-pub(crate) use order_sensitive::*;
-pub(crate) use projection::*;
-pub(crate) use scalar_terminal::*;
+pub(in crate::db) use existing_rows::*;
+pub(in crate::db) use numeric::*;
+pub(in crate::db) use order_sensitive::*;
+pub(in crate::db) use projection::*;
+pub(in crate::db) use scalar_terminal::*;

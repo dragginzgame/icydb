@@ -12,7 +12,7 @@ use crate::db::executor::{
     },
 };
 
-pub(in crate::db::executor::planning::route::planner) const fn derive_execution_mode_for_aggregate_non_count(
+pub(super) const fn derive_execution_mode_for_aggregate_non_count(
     intent_stage: &RouteIntentStage<'_>,
     feasibility_stage: &RouteFeasibilityStage,
     aggregate_force_materialized_due_to_predicate_uncertainty: bool,
@@ -36,7 +36,7 @@ pub(in crate::db::executor::planning::route::planner) const fn derive_execution_
     }
 }
 
-pub(in crate::db::executor::planning::route::planner) fn build_execution_stage_for_aggregate_non_count(
+pub(super) fn build_execution_stage_for_aggregate_non_count(
     intent_stage: &RouteIntentStage<'_>,
     feasibility_stage: &RouteFeasibilityStage,
     aggregate_force_materialized_due_to_predicate_uncertainty: bool,

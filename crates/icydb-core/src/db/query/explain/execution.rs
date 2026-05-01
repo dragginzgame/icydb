@@ -89,9 +89,9 @@ impl Debug for ExplainPropertyMap {
 )]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainAggregateTerminalPlan {
-    pub(crate) query: ExplainPlan,
-    pub(crate) terminal: AggregateKind,
-    pub(crate) execution: ExplainExecutionDescriptor,
+    pub(in crate::db) query: ExplainPlan,
+    pub(in crate::db) terminal: AggregateKind,
+    pub(in crate::db) execution: ExplainExecutionDescriptor,
 }
 
 #[cfg_attr(
@@ -122,14 +122,14 @@ pub enum ExplainExecutionMode {
 )]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainExecutionDescriptor {
-    pub(crate) access_strategy: ExplainAccessPath,
-    pub(crate) covering_projection: bool,
-    pub(crate) aggregation: AggregateKind,
-    pub(crate) execution_mode: ExplainExecutionMode,
-    pub(crate) ordering_source: ExplainExecutionOrderingSource,
-    pub(crate) limit: Option<u32>,
-    pub(crate) cursor: bool,
-    pub(crate) node_properties: ExplainPropertyMap,
+    pub(in crate::db) access_strategy: ExplainAccessPath,
+    pub(in crate::db) covering_projection: bool,
+    pub(in crate::db) aggregation: AggregateKind,
+    pub(in crate::db) execution_mode: ExplainExecutionMode,
+    pub(in crate::db) ordering_source: ExplainExecutionOrderingSource,
+    pub(in crate::db) limit: Option<u32>,
+    pub(in crate::db) cursor: bool,
+    pub(in crate::db) node_properties: ExplainPropertyMap,
 }
 
 #[cfg_attr(
@@ -179,21 +179,21 @@ pub enum ExplainExecutionNodeType {
 )]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainExecutionNodeDescriptor {
-    pub(crate) node_type: ExplainExecutionNodeType,
-    pub(crate) execution_mode: ExplainExecutionMode,
-    pub(crate) access_strategy: Option<ExplainAccessPath>,
-    pub(crate) predicate_pushdown: Option<String>,
-    pub(crate) filter_expr: Option<String>,
-    pub(crate) residual_filter_expr: Option<String>,
-    pub(crate) residual_filter_predicate: Option<ExplainPredicate>,
-    pub(crate) projection: Option<String>,
-    pub(crate) ordering_source: Option<ExplainExecutionOrderingSource>,
-    pub(crate) limit: Option<u32>,
-    pub(crate) cursor: Option<bool>,
-    pub(crate) covering_scan: Option<bool>,
-    pub(crate) rows_expected: Option<u64>,
-    pub(crate) children: Vec<Self>,
-    pub(crate) node_properties: ExplainPropertyMap,
+    pub(in crate::db) node_type: ExplainExecutionNodeType,
+    pub(in crate::db) execution_mode: ExplainExecutionMode,
+    pub(in crate::db) access_strategy: Option<ExplainAccessPath>,
+    pub(in crate::db) predicate_pushdown: Option<String>,
+    pub(in crate::db) filter_expr: Option<String>,
+    pub(in crate::db) residual_filter_expr: Option<String>,
+    pub(in crate::db) residual_filter_predicate: Option<ExplainPredicate>,
+    pub(in crate::db) projection: Option<String>,
+    pub(in crate::db) ordering_source: Option<ExplainExecutionOrderingSource>,
+    pub(in crate::db) limit: Option<u32>,
+    pub(in crate::db) cursor: Option<bool>,
+    pub(in crate::db) covering_scan: Option<bool>,
+    pub(in crate::db) rows_expected: Option<u64>,
+    pub(in crate::db) children: Vec<Self>,
+    pub(in crate::db) node_properties: ExplainPropertyMap,
 }
 
 ///
@@ -208,10 +208,10 @@ pub struct ExplainExecutionNodeDescriptor {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct FinalizedQueryDiagnostics {
-    pub(crate) execution: ExplainExecutionNodeDescriptor,
-    pub(crate) route_diagnostics: Vec<String>,
-    pub(crate) logical_diagnostics: Vec<String>,
-    pub(crate) reuse: Option<TraceReuseEvent>,
+    pub(in crate::db) execution: ExplainExecutionNodeDescriptor,
+    pub(in crate::db) route_diagnostics: Vec<String>,
+    pub(in crate::db) logical_diagnostics: Vec<String>,
+    pub(in crate::db) reuse: Option<TraceReuseEvent>,
 }
 
 impl ExplainAggregateTerminalPlan {

@@ -18,19 +18,19 @@ use crate::db::query::builder::aggregate::AggregateExpr;
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct FirstIdTerminal;
+pub(in crate::db) struct FirstIdTerminal;
 
 impl FirstIdTerminal {
     /// Prepare one fluent `first()` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new() -> Self {
+    pub(in crate::db) const fn new() -> Self {
         Self
     }
 
     /// Build the explain-visible aggregate expression projected by this descriptor.
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn explain_aggregate() -> AggregateExpr {
+    pub(in crate::db::query) fn explain_aggregate() -> AggregateExpr {
         AggregateExpr::terminal_for_kind(AggregateKind::First)
     }
 
@@ -60,19 +60,19 @@ impl AggregateExplain for FirstIdTerminal {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct LastIdTerminal;
+pub(in crate::db) struct LastIdTerminal;
 
 impl LastIdTerminal {
     /// Prepare one fluent `last()` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new() -> Self {
+    pub(in crate::db) const fn new() -> Self {
         Self
     }
 
     /// Build the explain-visible aggregate expression projected by this descriptor.
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn explain_aggregate() -> AggregateExpr {
+    pub(in crate::db::query) fn explain_aggregate() -> AggregateExpr {
         AggregateExpr::terminal_for_kind(AggregateKind::Last)
     }
 
@@ -102,7 +102,7 @@ impl AggregateExplain for LastIdTerminal {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct NthIdBySlotTerminal {
+pub(in crate::db) struct NthIdBySlotTerminal {
     target_field: FieldSlot,
     nth: usize,
 }
@@ -110,7 +110,7 @@ pub(crate) struct NthIdBySlotTerminal {
 impl NthIdBySlotTerminal {
     /// Prepare one fluent `nth_by(field, nth)` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new(target_field: FieldSlot, nth: usize) -> Self {
+    pub(in crate::db) const fn new(target_field: FieldSlot, nth: usize) -> Self {
         Self { target_field, nth }
     }
 
@@ -139,14 +139,14 @@ impl AggregateExplain for NthIdBySlotTerminal {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct MedianIdBySlotTerminal {
+pub(in crate::db) struct MedianIdBySlotTerminal {
     target_field: FieldSlot,
 }
 
 impl MedianIdBySlotTerminal {
     /// Prepare one fluent `median_by(field)` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new(target_field: FieldSlot) -> Self {
+    pub(in crate::db) const fn new(target_field: FieldSlot) -> Self {
         Self { target_field }
     }
 
@@ -174,14 +174,14 @@ impl AggregateExplain for MedianIdBySlotTerminal {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct MinMaxIdBySlotTerminal {
+pub(in crate::db) struct MinMaxIdBySlotTerminal {
     target_field: FieldSlot,
 }
 
 impl MinMaxIdBySlotTerminal {
     /// Prepare one fluent `min_max_by(field)` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new(target_field: FieldSlot) -> Self {
+    pub(in crate::db) const fn new(target_field: FieldSlot) -> Self {
         Self { target_field }
     }
 

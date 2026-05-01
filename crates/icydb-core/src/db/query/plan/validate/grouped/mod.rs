@@ -8,9 +8,9 @@ mod policy;
 mod projection_expr;
 mod structure;
 
-pub(crate) use cursor::validate_group_cursor_constraints;
-pub(crate) use policy::validate_group_policy;
+pub(in crate::db::query) use cursor::validate_group_cursor_constraints;
+pub(in crate::db::query) use policy::validate_group_policy;
 #[cfg(test)]
-pub(crate) use projection_expr::validate_group_projection_expr_compatibility;
-pub(crate) use projection_expr::validate_projection_expr_types;
-pub(crate) use structure::validate_group_structure;
+pub(in crate::db::query) use projection_expr::validate_group_projection_expr_compatibility;
+pub(in crate::db::query) use projection_expr::validate_projection_expr_types;
+pub(in crate::db::query) use structure::validate_group_structure;

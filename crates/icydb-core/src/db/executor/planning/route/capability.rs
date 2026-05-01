@@ -131,7 +131,7 @@ pub(in crate::db::executor) const fn paged_primary_key_numeric_fold_shape_suppor
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor::planning::route) struct LoadRouteCapabilityFacts {
+struct LoadRouteCapabilityFacts {
     residual_filter_present: bool,
     requires_post_access_sort: bool,
     load_order_route_decision: LoadOrderRouteDecision,
@@ -292,7 +292,7 @@ pub(in crate::db::executor) fn explain_access_order_satisfied_for_model(
 }
 
 /// Return true when bounded physical fetch hints are valid for this direction.
-pub(in crate::db::executor::planning::route) const fn direction_allows_physical_fetch_hint(
+pub(super) const fn direction_allows_physical_fetch_hint(
     direction: Direction,
     desc_physical_reverse_supported: bool,
 ) -> bool {
@@ -314,7 +314,7 @@ impl ExecutionRoutePlan {
     }
 }
 
-pub(in crate::db::executor::planning::route) fn derive_execution_capabilities_for_model(
+pub(super) fn derive_execution_capabilities_for_model(
     plan: &AccessPlannedQuery,
     direction: Direction,
     aggregate_shape: Option<AggregateRouteShape<'_>>,
@@ -349,7 +349,7 @@ pub(in crate::db::executor::planning::route) fn derive_execution_capabilities_fo
     }
 }
 
-pub(in crate::db::executor::planning::route) const fn desc_physical_reverse_traversal_supported(
+pub(super) const fn desc_physical_reverse_traversal_supported(
     access_capabilities: &AccessCapabilities,
     direction: Direction,
 ) -> bool {
@@ -357,7 +357,7 @@ pub(in crate::db::executor::planning::route) const fn desc_physical_reverse_trav
         && access_capabilities.all_paths_support_reverse_traversal()
 }
 
-pub(in crate::db::executor::planning::route) const fn count_pushdown_existing_rows_shape_supported(
+pub(super) const fn count_pushdown_existing_rows_shape_supported(
     access_capabilities: &crate::db::access::AccessCapabilities,
 ) -> bool {
     access_capabilities
@@ -368,7 +368,7 @@ pub(in crate::db::executor::planning::route) const fn count_pushdown_existing_ro
             .is_some()
 }
 
-pub(in crate::db::executor::planning::route) fn index_range_limit_pushdown_shape_supported_for_model(
+pub(super) fn index_range_limit_pushdown_shape_supported_for_model(
     plan: &AccessPlannedQuery,
     planner_route_profile: &PlannerRouteProfile,
     access_capabilities: &AccessCapabilities,

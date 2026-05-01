@@ -20,7 +20,7 @@ use crate::{
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum ProjectionSelection {
+pub(in crate::db) enum ProjectionSelection {
     All,
     Fields(Vec<FieldId>),
     Exprs(Vec<ProjectionField>),
@@ -34,7 +34,7 @@ pub(crate) enum ProjectionSelection {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum ProjectionField {
+pub(in crate::db) enum ProjectionField {
     Scalar { expr: Expr, alias: Option<Alias> },
 }
 
@@ -48,7 +48,7 @@ pub(crate) enum ProjectionField {
 ///
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) struct ProjectionSpec {
+pub(in crate::db) struct ProjectionSpec {
     fields: Vec<ProjectionField>,
 }
 
@@ -68,12 +68,12 @@ impl ProjectionSpec {
 
     /// Return the declared output field count.
     #[must_use]
-    pub(crate) const fn len(&self) -> usize {
+    pub(in crate::db) const fn len(&self) -> usize {
         self.fields.len()
     }
 
     /// Borrow declared projection fields in canonical order.
-    pub(crate) fn fields(&self) -> std::slice::Iter<'_, ProjectionField> {
+    pub(in crate::db) fn fields(&self) -> std::slice::Iter<'_, ProjectionField> {
         self.fields.iter()
     }
 
@@ -117,7 +117,7 @@ impl ProjectionSpec {
 impl ProjectionField {
     /// Borrow the canonical expression owned by this projection field.
     #[must_use]
-    pub(crate) const fn expr(&self) -> &Expr {
+    pub(in crate::db) const fn expr(&self) -> &Expr {
         match self {
             Self::Scalar { expr, .. } => expr,
         }
@@ -208,7 +208,7 @@ pub(in crate::db) fn direct_projection_expr_field_name(expr: &Expr) -> Option<&s
 /// and no source slot may be repeated because retained-slot readers consume
 /// values with `Option::take()`.
 #[must_use]
-pub(crate) fn collect_unique_direct_projection_slots<'a>(
+pub(in crate::db::query) fn collect_unique_direct_projection_slots<'a>(
     model: &EntityModel,
     field_names: impl IntoIterator<Item = &'a str>,
 ) -> Option<Vec<usize>> {
@@ -237,7 +237,7 @@ pub(crate) fn collect_unique_direct_projection_slots<'a>(
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum GroupedOrderExprClass {
+pub(in crate::db) enum GroupedOrderExprClass {
     CanonicalGroupField,
     GroupFieldPlusConstant,
     GroupFieldMinusConstant,
@@ -252,7 +252,7 @@ pub(crate) enum GroupedOrderExprClass {
 /// still are not order-admissible under the grouped boundedness contract.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum GroupedOrderTermAdmissibility {
+pub(in crate::db) enum GroupedOrderTermAdmissibility {
     Preserves(GroupedOrderExprClass),
     PrefixMismatch,
     UnsupportedExpression,
@@ -267,7 +267,7 @@ pub(crate) enum GroupedOrderTermAdmissibility {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum GroupedTopKOrderTermAdmissibility {
+pub(in crate::db) enum GroupedTopKOrderTermAdmissibility {
     Admissible,
     NonGroupFieldReference,
     UnsupportedExpression,
@@ -486,7 +486,7 @@ fn classify_grouped_canonical_order_shape(
 // so grouped validation can distinguish prefix mismatch from unsupported-but-
 // evaluable grouped order expressions.
 #[must_use]
-pub(crate) fn classify_grouped_order_term_for_field(
+pub(in crate::db) fn classify_grouped_order_term_for_field(
     expr: &Expr,
     expected_group_field: &str,
 ) -> GroupedOrderTermAdmissibility {
@@ -517,7 +517,7 @@ const fn is_numeric_order_offset_literal(expr: &Expr) -> bool {
 /// Return true when one grouped `ORDER BY` term is admissible for the
 /// aggregate/post-aggregate Top-K lane over the declared grouped key set.
 #[must_use]
-pub(crate) fn classify_grouped_top_k_order_term(
+pub(in crate::db) fn classify_grouped_top_k_order_term(
     expr: &Expr,
     group_fields: &[&str],
 ) -> GroupedTopKOrderTermAdmissibility {
@@ -538,6 +538,6 @@ pub(crate) fn classify_grouped_top_k_order_term(
 /// least one aggregate leaf and therefore cannot stay on the canonical grouped-
 /// key ordered lane.
 #[must_use]
-pub(crate) fn grouped_top_k_order_term_requires_heap(expr: &Expr) -> bool {
+pub(in crate::db) fn grouped_top_k_order_term_requires_heap(expr: &Expr) -> bool {
     GroupedOrderExprAnalysis::from_expr(expr, &[], None).contains_aggregate
 }

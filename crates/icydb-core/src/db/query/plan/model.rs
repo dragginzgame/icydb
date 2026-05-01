@@ -42,8 +42,8 @@ pub enum QueryMode {
 ///
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct LoadSpec {
-    pub(crate) limit: Option<u32>,
-    pub(crate) offset: u32,
+    pub(in crate::db) limit: Option<u32>,
+    pub(in crate::db) offset: u32,
 }
 
 impl LoadSpec {
@@ -69,8 +69,8 @@ impl LoadSpec {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DeleteSpec {
-    pub(crate) limit: Option<u32>,
-    pub(crate) offset: u32,
+    pub(in crate::db) limit: Option<u32>,
+    pub(in crate::db) offset: u32,
 }
 
 impl DeleteSpec {
@@ -107,33 +107,33 @@ pub enum OrderDirection {
 ///
 
 #[derive(Clone, Eq, PartialEq)]
-pub(crate) struct OrderTerm {
-    pub(crate) expr: Expr,
-    pub(crate) direction: OrderDirection,
+pub(in crate::db) struct OrderTerm {
+    pub(in crate::db) expr: Expr,
+    pub(in crate::db) direction: OrderDirection,
 }
 
 impl OrderTerm {
     /// Construct one planner-owned ORDER BY term from one semantic expression.
     #[must_use]
-    pub(crate) const fn new(expr: Expr, direction: OrderDirection) -> Self {
+    pub(in crate::db) const fn new(expr: Expr, direction: OrderDirection) -> Self {
         Self { expr, direction }
     }
 
     /// Construct one direct field ORDER BY term.
     #[must_use]
-    pub(crate) fn field(field: impl Into<String>, direction: OrderDirection) -> Self {
+    pub(in crate::db) fn field(field: impl Into<String>, direction: OrderDirection) -> Self {
         Self::new(Expr::Field(FieldId::new(field.into())), direction)
     }
 
     /// Borrow the semantic ORDER BY expression.
     #[must_use]
-    pub(crate) const fn expr(&self) -> &Expr {
+    pub(in crate::db) const fn expr(&self) -> &Expr {
         &self.expr
     }
 
     /// Return the direct field name when this ORDER BY term is field-backed.
     #[must_use]
-    pub(crate) const fn direct_field(&self) -> Option<&str> {
+    pub(in crate::db) const fn direct_field(&self) -> Option<&str> {
         let Expr::Field(field) = &self.expr else {
             return None;
         };
@@ -143,13 +143,13 @@ impl OrderTerm {
 
     /// Render the stable ORDER BY display label for diagnostics and hashing.
     #[must_use]
-    pub(crate) fn rendered_label(&self) -> String {
+    pub(in crate::db) fn rendered_label(&self) -> String {
         render_scalar_projection_expr_plan_label(&self.expr)
     }
 
     /// Return the executor-facing direction for this ORDER BY term.
     #[must_use]
-    pub(crate) const fn direction(&self) -> OrderDirection {
+    pub(in crate::db) const fn direction(&self) -> OrderDirection {
         self.direction
     }
 }
@@ -190,8 +190,8 @@ pub(in crate::db) fn render_scalar_filter_expr_plan_label(expr: &Expr) -> String
 /// Carries the canonical ordered term list after planner expression lowering.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct OrderSpec {
-    pub(crate) fields: Vec<OrderTerm>,
+pub(in crate::db) struct OrderSpec {
+    pub(in crate::db) fields: Vec<OrderTerm>,
 }
 
 ///
@@ -200,9 +200,9 @@ pub(crate) struct OrderSpec {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct DeleteLimitSpec {
-    pub(crate) limit: Option<u32>,
-    pub(crate) offset: u32,
+pub(in crate::db) struct DeleteLimitSpec {
+    pub(in crate::db) limit: Option<u32>,
+    pub(in crate::db) offset: u32,
 }
 
 ///
@@ -214,7 +214,7 @@ pub(crate) struct DeleteLimitSpec {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum DistinctExecutionStrategy {
+pub(in crate::db) enum DistinctExecutionStrategy {
     None,
     PreOrdered,
     HashMaterialize,
@@ -223,7 +223,7 @@ pub(crate) enum DistinctExecutionStrategy {
 impl DistinctExecutionStrategy {
     /// Return true when scalar DISTINCT execution is enabled.
     #[must_use]
-    pub(crate) const fn is_enabled(self) -> bool {
+    pub(in crate::db) const fn is_enabled(self) -> bool {
         !matches!(self, Self::None)
     }
 }
@@ -374,9 +374,9 @@ impl ExecutionShapeSignature {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct PageSpec {
-    pub(crate) limit: Option<u32>,
-    pub(crate) offset: u32,
+pub(in crate::db) struct PageSpec {
+    pub(in crate::db) limit: Option<u32>,
+    pub(in crate::db) offset: u32,
 }
 
 ///
@@ -410,7 +410,7 @@ pub enum AggregateKind {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum GlobalDistinctAggregateKind {
+pub(in crate::db) enum GlobalDistinctAggregateKind {
     Count,
     Sum,
     Avg,
@@ -429,7 +429,7 @@ impl GlobalDistinctAggregateKind {}
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum GroupedPlanAggregateFamily {
+pub(in crate::db) enum GroupedPlanAggregateFamily {
     CountRowsOnly,
     FieldTargetRows,
     GenericRows,
@@ -438,7 +438,7 @@ pub(crate) enum GroupedPlanAggregateFamily {
 impl GroupedPlanAggregateFamily {
     /// Return the stable planner-owned aggregate-family code.
     #[must_use]
-    pub(crate) const fn code(self) -> &'static str {
+    pub(in crate::db) const fn code(self) -> &'static str {
         match self {
             Self::CountRowsOnly => "count_rows_only",
             Self::FieldTargetRows => "field_target_rows",
@@ -465,7 +465,7 @@ impl AggregateKind {
 
     /// Return whether this terminal kind is `COUNT`.
     #[must_use]
-    pub(crate) const fn is_count(self) -> bool {
+    pub(in crate::db) const fn is_count(self) -> bool {
         matches!(self, Self::Count)
     }
 
@@ -564,7 +564,7 @@ impl AggregateKind {
 
     /// Return the canonical extrema traversal direction for this kind.
     #[must_use]
-    pub(crate) const fn extrema_direction(self) -> Option<Direction> {
+    pub(in crate::db) const fn extrema_direction(self) -> Option<Direction> {
         match self {
             Self::Min => Some(Direction::Asc),
             Self::Max => Some(Direction::Desc),
@@ -574,7 +574,7 @@ impl AggregateKind {
 
     /// Return the canonical materialized fold direction for this kind.
     #[must_use]
-    pub(crate) const fn materialized_fold_direction(self) -> Direction {
+    pub(in crate::db) const fn materialized_fold_direction(self) -> Direction {
         match self {
             Self::Min => Direction::Desc,
             Self::Count
@@ -589,13 +589,13 @@ impl AggregateKind {
 
     /// Return true when this kind can use bounded aggregate probe hints.
     #[must_use]
-    pub(crate) const fn supports_bounded_probe_hint(self) -> bool {
+    pub(in crate::db) const fn supports_bounded_probe_hint(self) -> bool {
         !self.is_count() && !self.is_sum()
     }
 
     /// Derive a bounded aggregate probe fetch hint for this kind.
     #[must_use]
-    pub(crate) fn bounded_probe_fetch_hint(
+    pub(in crate::db) fn bounded_probe_fetch_hint(
         self,
         direction: Direction,
         offset: usize,
@@ -648,11 +648,11 @@ impl AggregateKind {
 ///
 
 #[derive(Clone, Debug)]
-pub(crate) struct GroupAggregateSpec {
-    pub(crate) kind: AggregateKind,
-    pub(crate) input_expr: Option<Box<Expr>>,
-    pub(crate) filter_expr: Option<Box<Expr>>,
-    pub(crate) distinct: bool,
+pub(in crate::db) struct GroupAggregateSpec {
+    pub(in crate::db) kind: AggregateKind,
+    pub(in crate::db) input_expr: Option<Box<Expr>>,
+    pub(in crate::db) filter_expr: Option<Box<Expr>>,
+    pub(in crate::db) distinct: bool,
 }
 
 impl PartialEq for GroupAggregateSpec {
@@ -696,9 +696,9 @@ impl GroupedPlanAggregateFamily {
 
 #[derive(Clone, Debug)]
 pub(crate) struct FieldSlot {
-    pub(crate) index: usize,
-    pub(crate) field: String,
-    pub(crate) kind: Option<FieldKind>,
+    pub(in crate::db) index: usize,
+    pub(in crate::db) field: String,
+    pub(in crate::db) kind: Option<FieldKind>,
 }
 
 impl PartialEq for FieldSlot {
@@ -718,9 +718,9 @@ impl Eq for FieldSlot {}
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct GroupedExecutionConfig {
-    pub(crate) max_groups: u64,
-    pub(crate) max_group_bytes: u64,
+pub(in crate::db) struct GroupedExecutionConfig {
+    pub(in crate::db) max_groups: u64,
+    pub(in crate::db) max_group_bytes: u64,
 }
 
 ///
@@ -732,10 +732,10 @@ pub(crate) struct GroupedExecutionConfig {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct GroupSpec {
-    pub(crate) group_fields: Vec<FieldSlot>,
-    pub(crate) aggregates: Vec<GroupAggregateSpec>,
-    pub(crate) execution: GroupedExecutionConfig,
+pub(in crate::db) struct GroupSpec {
+    pub(in crate::db) group_fields: Vec<FieldSlot>,
+    pub(in crate::db) aggregates: Vec<GroupAggregateSpec>,
+    pub(in crate::db) execution: GroupedExecutionConfig,
 }
 
 ///
@@ -759,33 +759,33 @@ pub(crate) struct GroupSpec {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ScalarPlan {
+pub(in crate::db) struct ScalarPlan {
     /// Load vs delete intent.
-    pub(crate) mode: QueryMode,
+    pub(in crate::db) mode: QueryMode,
 
     /// Optional planner-owned scalar filter expression.
-    pub(crate) filter_expr: Option<Expr>,
+    pub(in crate::db) filter_expr: Option<Expr>,
 
     /// Whether the predicate fully covers the scalar filter expression.
-    pub(crate) predicate_covers_filter_expr: bool,
+    pub(in crate::db) predicate_covers_filter_expr: bool,
 
     /// Optional residual predicate applied after access.
-    pub(crate) predicate: Option<Predicate>,
+    pub(in crate::db) predicate: Option<Predicate>,
 
     /// Optional ordering specification.
-    pub(crate) order: Option<OrderSpec>,
+    pub(in crate::db) order: Option<OrderSpec>,
 
     /// Optional distinct semantics over ordered rows.
-    pub(crate) distinct: bool,
+    pub(in crate::db) distinct: bool,
 
     /// Optional ordered delete window (delete intents only).
-    pub(crate) delete_limit: Option<DeleteLimitSpec>,
+    pub(in crate::db) delete_limit: Option<DeleteLimitSpec>,
 
     /// Optional pagination specification.
-    pub(crate) page: Option<PageSpec>,
+    pub(in crate::db) page: Option<PageSpec>,
 
     /// Missing-row policy for execution.
-    pub(crate) consistency: MissingRowPolicy,
+    pub(in crate::db) consistency: MissingRowPolicy,
 }
 
 ///
@@ -796,10 +796,10 @@ pub(crate) struct ScalarPlan {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct GroupPlan {
-    pub(crate) scalar: ScalarPlan,
-    pub(crate) group: GroupSpec,
-    pub(crate) having_expr: Option<Expr>,
+pub(in crate::db) struct GroupPlan {
+    pub(in crate::db) scalar: ScalarPlan,
+    pub(in crate::db) group: GroupSpec,
+    pub(in crate::db) having_expr: Option<Expr>,
 }
 
 ///
@@ -812,7 +812,7 @@ pub(crate) struct GroupPlan {
 // Logical plans keep scalar and grouped shapes inline because planner/executor handoff
 // passes these variants by ownership and boxing would widen that boundary for little benefit.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum LogicalPlan {
+pub(in crate::db) enum LogicalPlan {
     Scalar(ScalarPlan),
     Grouped(GroupPlan),
 }

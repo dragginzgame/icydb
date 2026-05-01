@@ -15,14 +15,14 @@ use crate::db::{
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ValuesBySlotTerminal {
+pub(in crate::db) struct ValuesBySlotTerminal {
     target_field: FieldSlot,
 }
 
 impl ValuesBySlotTerminal {
     /// Prepare one fluent `values_by(field)` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new(target_field: FieldSlot) -> Self {
+    pub(in crate::db) const fn new(target_field: FieldSlot) -> Self {
         Self { target_field }
     }
 
@@ -36,7 +36,9 @@ impl ValuesBySlotTerminal {
 
     /// Return the stable projection explain descriptor for this descriptor.
     #[must_use]
-    pub(crate) fn explain_descriptor(&self) -> ProjectionExplainDescriptor<'_> {
+    pub(in crate::db::query::builder::aggregate) fn explain_descriptor(
+        &self,
+    ) -> ProjectionExplainDescriptor<'_> {
         ProjectionExplainDescriptor {
             terminal: "values_by",
             field: self.target_field.field(),
@@ -60,14 +62,14 @@ impl ProjectionExplain for ValuesBySlotTerminal {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct DistinctValuesBySlotTerminal {
+pub(in crate::db) struct DistinctValuesBySlotTerminal {
     target_field: FieldSlot,
 }
 
 impl DistinctValuesBySlotTerminal {
     /// Prepare one fluent `distinct_values_by(field)` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new(target_field: FieldSlot) -> Self {
+    pub(in crate::db) const fn new(target_field: FieldSlot) -> Self {
         Self { target_field }
     }
 
@@ -84,7 +86,9 @@ impl DistinctValuesBySlotTerminal {
 
     /// Return the stable projection explain descriptor for this descriptor.
     #[must_use]
-    pub(crate) fn explain_descriptor(&self) -> ProjectionExplainDescriptor<'_> {
+    pub(in crate::db::query::builder::aggregate) fn explain_descriptor(
+        &self,
+    ) -> ProjectionExplainDescriptor<'_> {
         ProjectionExplainDescriptor {
             terminal: "distinct_values_by",
             field: self.target_field.field(),
@@ -108,14 +112,14 @@ impl ProjectionExplain for DistinctValuesBySlotTerminal {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct CountDistinctBySlotTerminal {
+pub(in crate::db) struct CountDistinctBySlotTerminal {
     target_field: FieldSlot,
 }
 
 impl CountDistinctBySlotTerminal {
     /// Prepare one fluent `count_distinct_by(field)` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new(target_field: FieldSlot) -> Self {
+    pub(in crate::db) const fn new(target_field: FieldSlot) -> Self {
         Self { target_field }
     }
 
@@ -132,7 +136,9 @@ impl CountDistinctBySlotTerminal {
 
     /// Return the stable projection explain descriptor for this descriptor.
     #[must_use]
-    pub(crate) fn explain_descriptor(&self) -> ProjectionExplainDescriptor<'_> {
+    pub(in crate::db::query::builder::aggregate) fn explain_descriptor(
+        &self,
+    ) -> ProjectionExplainDescriptor<'_> {
         ProjectionExplainDescriptor {
             terminal: "count_distinct_by",
             field: self.target_field.field(),
@@ -155,14 +161,14 @@ impl ProjectionExplain for CountDistinctBySlotTerminal {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ValuesBySlotWithIdsTerminal {
+pub(in crate::db) struct ValuesBySlotWithIdsTerminal {
     target_field: FieldSlot,
 }
 
 impl ValuesBySlotWithIdsTerminal {
     /// Prepare one fluent `values_by_with_ids(field)` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new(target_field: FieldSlot) -> Self {
+    pub(in crate::db) const fn new(target_field: FieldSlot) -> Self {
         Self { target_field }
     }
 
@@ -179,7 +185,9 @@ impl ValuesBySlotWithIdsTerminal {
 
     /// Return the stable projection explain descriptor for this descriptor.
     #[must_use]
-    pub(crate) fn explain_descriptor(&self) -> ProjectionExplainDescriptor<'_> {
+    pub(in crate::db::query::builder::aggregate) fn explain_descriptor(
+        &self,
+    ) -> ProjectionExplainDescriptor<'_> {
         ProjectionExplainDescriptor {
             terminal: "values_by_with_ids",
             field: self.target_field.field(),
@@ -203,14 +211,14 @@ impl ProjectionExplain for ValuesBySlotWithIdsTerminal {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct FirstValueBySlotTerminal {
+pub(in crate::db) struct FirstValueBySlotTerminal {
     target_field: FieldSlot,
 }
 
 impl FirstValueBySlotTerminal {
     /// Prepare one fluent `first_value_by(field)` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new(target_field: FieldSlot) -> Self {
+    pub(in crate::db) const fn new(target_field: FieldSlot) -> Self {
         Self { target_field }
     }
 
@@ -229,7 +237,9 @@ impl FirstValueBySlotTerminal {
 
     /// Return the stable projection explain descriptor for this descriptor.
     #[must_use]
-    pub(crate) fn explain_descriptor(&self) -> ProjectionExplainDescriptor<'_> {
+    pub(in crate::db::query::builder::aggregate) fn explain_descriptor(
+        &self,
+    ) -> ProjectionExplainDescriptor<'_> {
         ProjectionExplainDescriptor {
             terminal: "first_value_by",
             field: self.target_field.field(),
@@ -253,14 +263,14 @@ impl ProjectionExplain for FirstValueBySlotTerminal {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct LastValueBySlotTerminal {
+pub(in crate::db) struct LastValueBySlotTerminal {
     target_field: FieldSlot,
 }
 
 impl LastValueBySlotTerminal {
     /// Prepare one fluent `last_value_by(field)` terminal descriptor.
     #[must_use]
-    pub(crate) const fn new(target_field: FieldSlot) -> Self {
+    pub(in crate::db) const fn new(target_field: FieldSlot) -> Self {
         Self { target_field }
     }
 
@@ -279,7 +289,9 @@ impl LastValueBySlotTerminal {
 
     /// Return the stable projection explain descriptor for this descriptor.
     #[must_use]
-    pub(crate) fn explain_descriptor(&self) -> ProjectionExplainDescriptor<'_> {
+    pub(in crate::db::query::builder::aggregate) fn explain_descriptor(
+        &self,
+    ) -> ProjectionExplainDescriptor<'_> {
         ProjectionExplainDescriptor {
             terminal: "last_value_by",
             field: self.target_field.field(),

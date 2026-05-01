@@ -19,7 +19,7 @@ use std::{fmt::Write, ops::Bound};
 /// diagnostics-specific representations.
 ///
 
-pub(crate) trait AccessPlanProjection<K> {
+pub(in crate::db) trait AccessPlanProjection<K> {
     type Output;
 
     fn by_key(&mut self, key: &K) -> Self::Output;
@@ -53,7 +53,10 @@ pub(crate) trait AccessPlanProjection<K> {
 }
 
 /// Project an access plan by exhaustively walking canonical access variants.
-pub(crate) fn project_access_plan<K, P>(plan: &AccessPlan<K>, projection: &mut P) -> P::Output
+pub(in crate::db) fn project_access_plan<K, P>(
+    plan: &AccessPlan<K>,
+    projection: &mut P,
+) -> P::Output
 where
     P: AccessPlanProjection<K>,
 {
@@ -113,7 +116,7 @@ impl<K> AccessPath<K> {
     }
 }
 
-pub(crate) fn project_explain_access_path<P>(
+pub(in crate::db) fn project_explain_access_path<P>(
     access: &ExplainAccessPath,
     projection: &mut P,
 ) -> P::Output
@@ -251,12 +254,12 @@ impl<K> AccessPlanProjection<K> for AccessStrategyLabelProjection {
 }
 
 /// Render one stable planner-owned access label without routing through explain transport.
-pub(crate) fn access_plan_label<K>(plan: &AccessPlan<K>) -> String {
+pub(in crate::db) fn access_plan_label<K>(plan: &AccessPlan<K>) -> String {
     project_access_plan(plan, &mut AccessStrategyLabelProjection)
 }
 
 /// Render one stable explain access label from the canonical explain-access DTO.
-pub(crate) fn explain_access_strategy_label(access: &ExplainAccessPath) -> String {
+pub(in crate::db) fn explain_access_strategy_label(access: &ExplainAccessPath) -> String {
     project_explain_access_path(access, &mut AccessStrategyLabelProjection)
 }
 
@@ -334,7 +337,7 @@ impl AccessPlanProjection<Value> for ExplainAccessKindProjection {
 
 /// Classify one explain access DTO into the stable access-kind code used by
 /// intent/debug labels without rebuilding a local branch ladder elsewhere.
-pub(crate) fn explain_access_kind_label(access: &ExplainAccessPath) -> &'static str {
+pub(in crate::db) fn explain_access_kind_label(access: &ExplainAccessPath) -> &'static str {
     project_explain_access_path(access, &mut ExplainAccessKindProjection)
 }
 

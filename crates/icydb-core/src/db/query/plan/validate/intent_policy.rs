@@ -11,7 +11,7 @@ use crate::db::query::plan::{
 };
 
 /// Validate intent-level plan-shape rules derived from query mode + modifiers.
-pub(crate) fn validate_intent_plan_shape(
+pub(in crate::db::query) fn validate_intent_plan_shape(
     mode: QueryMode,
     order: Option<&OrderSpec>,
     grouped: bool,
@@ -38,7 +38,7 @@ pub(crate) fn validate_intent_plan_shape(
 }
 
 /// Validate intent key-access policy before planning.
-pub(crate) const fn validate_intent_key_access_policy(
+pub(in crate::db::query) const fn validate_intent_key_access_policy(
     key_access_conflict: bool,
     key_access_kind: Option<IntentKeyAccessKind>,
     has_predicate: bool,
