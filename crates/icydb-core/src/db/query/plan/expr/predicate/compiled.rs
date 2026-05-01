@@ -1,4 +1,4 @@
-//! Module: query::plan::expr::compiled_predicate
+//! Module: query::plan::expr::predicate::compiled
 //! Responsibility: compiled predicate evaluation interface.
 //! Does not own: predicate planning, slot loading, or scan mechanics.
 //! Boundary: expression-layer predicate programs expose one boolean evaluation

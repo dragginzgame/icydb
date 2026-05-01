@@ -135,7 +135,7 @@ pub(crate) struct IndexEntry {
 ///
 /// Narrow storage-owned row-existence witness carried per raw index-entry
 /// membership. `Present` is the normal encoded state; `Missing` exists so the
-/// stale single-component prototype can preserve the secondary entry while
+/// stale-entry repair path can preserve the secondary entry while
 /// still exposing one explicit storage-level missing-row witness.
 ///
 

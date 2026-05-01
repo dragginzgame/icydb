@@ -468,15 +468,15 @@ fn sql_expr_is_grouped_post_aggregate_projection(expr: &SqlExpr) -> bool {
     expr.contains_aggregate() && !sql_expr_has_direct_field_outside_aggregate(expr)
 }
 
-// Keep the old grouped helper additive-key path working for computed grouped
-// projections that depend only on grouped key fields and avoid text wrappers.
+// Keep computed grouped-key projections on the additive-key lane when they
+// depend only on grouped key fields and avoid text wrappers.
 fn sql_expr_is_grouped_key_projection(expr: &SqlExpr, group_by: &[String]) -> bool {
     !sql_expr_contains_text_specific_computed_projection(expr)
         && sql_expr_references_only_group_fields(expr, group_by)
 }
 
 // Detect whether one expression stays entirely on grouped key field access so
-// the grouped helper can keep its pre-existing additive-key projection lane.
+// the grouped helper can keep the additive-key projection lane.
 fn sql_expr_references_only_group_fields(expr: &SqlExpr, group_by: &[String]) -> bool {
     match expr {
         SqlExpr::Field(field) => group_by.iter().any(|group_field| group_field == field),
@@ -505,7 +505,8 @@ fn sql_expr_references_only_group_fields(expr: &SqlExpr, group_by: &[String]) ->
 }
 
 // Detect raw grouped field access that escapes aggregate ownership so the
-// grouped helper keeps field-derived computed projections on the old boundary.
+// grouped helper keeps field-derived computed projections on the grouped-field
+// boundary.
 fn sql_expr_has_direct_field_outside_aggregate(expr: &SqlExpr) -> bool {
     match expr {
         SqlExpr::Field(_) | SqlExpr::FieldPath { .. } => true,
@@ -995,8 +996,8 @@ struct ExpressionIndexedSessionSqlEntity {
 ///
 /// SessionAggregateEntity
 ///
-/// Session-facing aggregate fixture used to revive the old session projection
-/// and ranked terminal contracts under the live `db::session` owner.
+/// Session-facing aggregate fixture covering projection and ranked terminal
+/// contracts under the live `db::session` owner.
 ///
 
 #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
@@ -2837,7 +2838,7 @@ fn inspect_filtered_expression_order_only_raw_scan(
     (entries_in_range, scanned_ids)
 }
 
-// Seed one deterministic aggregate fixture dataset used by revived session aggregate tests.
+// Seed one deterministic aggregate fixture dataset used by session aggregate tests.
 fn seed_session_aggregate_entities(
     session: &DbSession<SessionSqlCanister>,
     rows: &[(u128, u64, u64)],
@@ -3230,7 +3231,7 @@ enum SessionAggregateRankOutput {
 /// SessionAggregateResult
 ///
 /// Small session-local result carrier used to compare aggregate terminal forms
-/// without depending on the old executor aggregate harness types.
+/// without depending on executor aggregate harness internals.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]

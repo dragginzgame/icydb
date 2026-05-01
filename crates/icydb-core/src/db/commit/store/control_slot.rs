@@ -68,7 +68,7 @@ pub(super) fn decode_commit_control_slot(bytes: &[u8]) -> Result<Vec<u8>, Intern
 }
 
 // Inspect commit control-slot bytes under the canonical envelope without
-// allocating owned marker or migration buffers.
+// allocating an owned marker payload.
 pub(super) fn inspect_commit_control_slot(
     bytes: &[u8],
 ) -> Result<CommitControlSlotRef<'_>, InternalError> {

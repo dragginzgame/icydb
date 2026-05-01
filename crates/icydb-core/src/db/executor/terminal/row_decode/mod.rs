@@ -13,12 +13,15 @@ use crate::types::Ulid;
 use crate::{
     db::{
         data::{
-            DataRow, RawRow, StorageKey, StructuralRowContract, StructuralSlotReader,
-            decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,
-            decode_sparse_raw_row_with_contract, decode_sparse_required_slot_with_contract,
+            CanonicalSlotReader, DataRow, RawRow, ScalarSlotValueRef, ScalarValueRef, StorageKey,
+            StructuralRowContract, StructuralSlotReader, decode_dense_raw_row_with_contract,
+            decode_sparse_indexed_raw_row_with_contract, decode_sparse_raw_row_with_contract,
+            decode_sparse_required_slot_with_contract,
             decode_sparse_required_slot_with_contract_and_fields,
         },
-        executor::terminal::{RetainedSlotLayout, RetainedSlotRow, page::KernelRow},
+        executor::terminal::{
+            RetainedSlotLayout, RetainedSlotRow, RetainedSlotValueMode, page::KernelRow,
+        },
     },
     error::InternalError,
     model::{entity::EntityModel, field::FieldModel},
@@ -256,6 +259,15 @@ impl RowDecoder {
         row: &RawRow,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Vec<Option<Value>>, InternalError> {
+        if retained_slot_layout.has_value_mode_overrides() {
+            return decode_indexed_slot_values_with_value_modes(
+                layout,
+                expected_key,
+                row,
+                retained_slot_layout,
+            );
+        }
+
         // Phase 1: let dense callers stay on the dedicated direct full-row
         // decode path so compact retained layouts do not regress all-slot reads.
         if required_slots_match_full_layout(layout, retained_slot_layout.required_slots()) {
@@ -272,6 +284,83 @@ impl RowDecoder {
             retained_slot_layout.required_slots(),
         )
     }
+}
+
+// Decode retained slots that mix normal value materialization with specialized
+// scalar byte-length slots. Normal slots keep the canonical sparse decoder;
+// byte-length slots use the row reader's scalar borrowed view so blob/text bytes
+// do not become owned `Value::Blob` or `Value::Text` instances.
+fn decode_indexed_slot_values_with_value_modes(
+    layout: &RowLayout,
+    expected_key: StorageKey,
+    row: &RawRow,
+    retained_slot_layout: &RetainedSlotLayout,
+) -> Result<Vec<Option<Value>>, InternalError> {
+    let required_slots = retained_slot_layout.required_slots();
+    let value_modes = retained_slot_layout.value_modes();
+    let mut values = vec![None; retained_slot_layout.retained_value_count()];
+    let mut normal_slots = Vec::new();
+    let mut normal_value_indexes = Vec::new();
+
+    // Phase 1: decode all regular retained slots through the existing sparse
+    // structural decoder so non-optimized projection paths keep identical
+    // error taxonomy and value materialization.
+    for (value_index, (&slot, mode)) in required_slots.iter().zip(value_modes).enumerate() {
+        if *mode == RetainedSlotValueMode::Normal {
+            normal_slots.push(slot);
+            normal_value_indexes.push(value_index);
+        }
+    }
+    if normal_slots.is_empty() {
+        decode_sparse_indexed_raw_row_with_contract(row, layout.contract, expected_key, &[])?;
+    } else {
+        let decoded_normal_values = decode_sparse_indexed_raw_row_with_contract(
+            row,
+            layout.contract,
+            expected_key,
+            normal_slots.as_slice(),
+        )?;
+        for (value_index, value) in normal_value_indexes
+            .into_iter()
+            .zip(decoded_normal_values.into_iter())
+        {
+            values[value_index] = value;
+        }
+    }
+
+    // Phase 2: fill byte-length-only retained slots from the borrowed scalar
+    // payload view. Phase 1 already validated the row storage key through the
+    // direct structural decoder, even when there were no regular slots.
+    let row_fields = layout.open_raw_row(row)?;
+    for (value_index, (&slot, mode)) in required_slots.iter().zip(value_modes).enumerate() {
+        if *mode == RetainedSlotValueMode::ScalarOctetLength {
+            values[value_index] = Some(decode_scalar_octet_length_value(&row_fields, slot)?);
+        }
+    }
+
+    Ok(values)
+}
+
+fn decode_scalar_octet_length_value(
+    row_fields: &StructuralSlotReader<'_>,
+    slot: usize,
+) -> Result<Value, InternalError> {
+    let value = match row_fields.required_scalar(slot)? {
+        ScalarSlotValueRef::Null => Value::Null,
+        ScalarSlotValueRef::Value(ScalarValueRef::Blob(bytes)) => {
+            Value::Uint(u64::try_from(bytes.len()).unwrap_or(u64::MAX))
+        }
+        ScalarSlotValueRef::Value(ScalarValueRef::Text(text)) => {
+            Value::Uint(u64::try_from(text.len()).unwrap_or(u64::MAX))
+        }
+        ScalarSlotValueRef::Value(_) => {
+            return Err(InternalError::query_executor_invariant(
+                "retained-slot OCTET_LENGTH optimization requires text or blob scalar slots",
+            ));
+        }
+    };
+
+    Ok(value)
 }
 
 // Decode one persisted data row into one structural kernel row using the

@@ -26,13 +26,44 @@ pub(in crate::db::executor) struct RetainedSlotLayout {
 #[derive(Debug)]
 struct RetainedSlotLayoutData {
     required_slots: Box<[usize]>,
+    value_modes: Box<[RetainedSlotValueMode]>,
     slot_to_value_index: Box<[Option<usize>]>,
+}
+
+///
+/// RetainedSlotValueMode
+///
+/// RetainedSlotValueMode describes how one retained slot value should be
+/// materialized from raw row storage.
+/// It lets projection-owned retained rows keep byte-length-only blob/text
+/// projections cheap without changing the logical projection expression or
+/// leaking expression details into retained-row consumers.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) enum RetainedSlotValueMode {
+    Normal,
+    ScalarOctetLength,
 }
 
 impl RetainedSlotLayout {
     /// Compile one retained-slot layout from one stable retained-slot list.
     #[must_use]
     pub(in crate::db::executor) fn compile(slot_count: usize, required_slots: Vec<usize>) -> Self {
+        let value_modes = vec![RetainedSlotValueMode::Normal; required_slots.len()];
+
+        Self::compile_with_value_modes(slot_count, required_slots, value_modes)
+    }
+
+    /// Compile one retained-slot layout from slots plus per-slot decode modes.
+    #[must_use]
+    pub(in crate::db::executor) fn compile_with_value_modes(
+        slot_count: usize,
+        required_slots: Vec<usize>,
+        value_modes: Vec<RetainedSlotValueMode>,
+    ) -> Self {
+        debug_assert_eq!(required_slots.len(), value_modes.len());
+
         let mut slot_to_value_index = vec![None; slot_count];
         for (value_index, &slot) in required_slots.iter().enumerate() {
             if let Some(entry) = slot_to_value_index.get_mut(slot) {
@@ -43,6 +74,7 @@ impl RetainedSlotLayout {
         Self {
             data: Arc::new(RetainedSlotLayoutData {
                 required_slots: required_slots.into_boxed_slice(),
+                value_modes: value_modes.into_boxed_slice(),
                 slot_to_value_index: slot_to_value_index.into_boxed_slice(),
             }),
         }
@@ -52,6 +84,21 @@ impl RetainedSlotLayout {
     #[must_use]
     pub(in crate::db::executor) fn required_slots(&self) -> &[usize] {
         self.data.required_slots.as_ref()
+    }
+
+    /// Borrow the per-retained-slot materialization modes in layout order.
+    #[must_use]
+    pub(in crate::db::executor) fn value_modes(&self) -> &[RetainedSlotValueMode] {
+        self.data.value_modes.as_ref()
+    }
+
+    /// Return whether any retained slot uses a non-standard materialization mode.
+    #[must_use]
+    pub(in crate::db::executor) fn has_value_mode_overrides(&self) -> bool {
+        self.data
+            .value_modes
+            .iter()
+            .any(|mode| *mode != RetainedSlotValueMode::Normal)
     }
 
     /// Resolve one global slot index to one retained-row value index.

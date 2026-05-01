@@ -15,7 +15,7 @@ use std::{cell::RefCell, collections::HashMap};
 use crate::db::session::sql::compiled::CompiledSqlCommand;
 
 // Bump these when SQL cache-key meaning changes in a way that must force
-// existing in-heap entries to miss instead of aliasing old semantics.
+// existing in-heap entries to miss instead of aliasing superseded cache semantics.
 // This cache deliberately stays on syntax-bound SQL statement identity for the
 // front-end prepared/template lane. Grouped semantic canonicalization and
 // grouped structural/cache identity do not flow into this key.

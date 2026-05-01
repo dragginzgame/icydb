@@ -71,8 +71,8 @@ impl CommitRowOp {
 
     /// Construct one row-level commit operation from raw key bytes.
     ///
-    /// This is the decode and migration boundary for callers that still own
-    /// opaque key bytes rather than a typed `RawDataKey`.
+    /// This is the raw-key decode boundary for callers that still own opaque
+    /// key bytes rather than a typed `RawDataKey`.
     pub(crate) fn try_new_bytes(
         entity_path: impl Into<Cow<'static, str>>,
         key: &[u8],

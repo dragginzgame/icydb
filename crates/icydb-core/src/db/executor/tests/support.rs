@@ -181,7 +181,7 @@ crate::test_entity_schema! {
 /// SingletonUnitEntity
 ///
 /// Executor-lifecycle singleton fixture used to keep runtime `only()` load
-/// behavior covered after the old semantics harness was pruned.
+/// behavior covered on the current executor harness.
 ///
 
 #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
@@ -288,8 +288,7 @@ crate::test_entity_schema! {
 /// UniqueIndexRangeEntity
 ///
 /// Executor snapshot fixture for unique secondary range access. This keeps the
-/// index-range execution snapshot coverage local to the revived executor test
-/// harness instead of depending on pruned pagination backlogs.
+/// index-range execution snapshot coverage local to the executor test harness.
 ///
 
 #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]

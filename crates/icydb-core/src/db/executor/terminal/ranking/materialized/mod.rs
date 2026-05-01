@@ -5,6 +5,8 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 mod projections;
+#[cfg(test)]
+mod tests;
 
 use crate::{
     db::{
@@ -254,77 +256,4 @@ where
     });
 
     Ok(())
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use super::{RankedFieldDirection, apply_ranked_take_window, compare_ranked_keys_and_values};
-    use crate::db::executor::aggregate::field::FieldSlot;
-    use crate::{model::field::FieldKind, value::Value};
-    use std::cmp::Ordering;
-
-    fn uint_field_slot() -> FieldSlot {
-        FieldSlot {
-            index: 0,
-            kind: FieldKind::Uint,
-        }
-    }
-
-    #[test]
-    fn compare_ranked_keys_and_values_desc_uses_value_then_key_order() {
-        let ordering = compare_ranked_keys_and_values(
-            "score",
-            uint_field_slot(),
-            &2_u64,
-            &Value::Uint(9),
-            &1_u64,
-            &Value::Uint(7),
-            RankedFieldDirection::Descending,
-        )
-        .expect("comparison");
-        assert_eq!(ordering, Ordering::Less);
-
-        let tie_break_ordering = compare_ranked_keys_and_values(
-            "score",
-            uint_field_slot(),
-            &1_u64,
-            &Value::Uint(7),
-            &2_u64,
-            &Value::Uint(7),
-            RankedFieldDirection::Descending,
-        )
-        .expect("comparison");
-        assert_eq!(tie_break_ordering, Ordering::Less);
-    }
-
-    #[test]
-    fn apply_ranked_take_window_keeps_smallest_bottom_k_in_final_order() {
-        let mut ranked_rows = vec![
-            ((4_u64, ()), Value::Uint(40)),
-            ((2_u64, ()), Value::Uint(20)),
-            ((3_u64, ()), Value::Uint(30)),
-            ((1_u64, ()), Value::Uint(10)),
-        ];
-
-        apply_ranked_take_window(
-            "score",
-            uint_field_slot(),
-            &mut ranked_rows,
-            2,
-            RankedFieldDirection::Ascending,
-        )
-        .expect("bounded ranking");
-
-        assert_eq!(
-            ranked_rows,
-            vec![
-                ((1_u64, ()), Value::Uint(10)),
-                ((2_u64, ()), Value::Uint(20))
-            ],
-        );
-    }
 }

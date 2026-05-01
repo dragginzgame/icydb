@@ -70,11 +70,8 @@ mod aggregate_input;
 mod ast;
 mod canonicalize;
 mod compiled_expr;
-mod compiled_expr_compile;
-mod compiled_predicate;
 mod function_semantics;
-mod predicate_bridge;
-mod predicate_compile;
+mod predicate;
 mod preview;
 mod projection;
 mod projection_eval;
@@ -83,24 +80,68 @@ mod scalar;
 mod truth_value;
 mod type_inference;
 
-pub(in crate::db) use aggregate_input::*;
-pub(in crate::db) use ast::*;
-pub(in crate::db) use canonicalize::*;
-pub(in crate::db) use compiled_expr::*;
-pub(in crate::db) use compiled_expr_compile::*;
-#[allow(unused_imports)]
-pub(in crate::db) use compiled_predicate::*;
-pub(in crate::db::query::plan::expr) use function_semantics::*;
+pub(in crate::db) use aggregate_input::canonicalize_aggregate_input_expr;
+pub(in crate::db) use ast::{
+    Alias, BinaryOp, CaseWhenArm, Expr, FieldId, FieldPath, Function, PathSpec, UnaryOp,
+    supported_order_expr_requires_index_satisfied_access,
+};
+#[cfg(test)]
+pub(in crate::db) use ast::{
+    render_supported_order_expr, supported_order_expr_field, supported_order_expr_is_plain_field,
+};
+#[cfg(test)]
+pub(in crate::db) use canonicalize::normalize_bool_expr_artifact;
+pub(in crate::db) use canonicalize::{
+    CanonicalExpr, canonicalize_grouped_having_bool_expr, canonicalize_scalar_where_bool_expr,
+    is_normalized_bool_expr, normalize_bool_expr, scalar_where_truth_condition_is_admitted,
+    simplify_bool_expr_constants, truth_condition_binary_compare_op,
+    truth_condition_compare_binary_op,
+};
+pub(in crate::db) use compiled_expr::{
+    CompiledExpr, CompiledExprCaseArm, CompiledExprValueReader, ProjectionEvalError,
+    compile_grouped_projection_expr, compile_grouped_projection_plan, evaluate_grouped_having_expr,
+};
+pub(in crate::db::query::plan::expr) use function_semantics::{
+    AggregateInputConstantFoldShape, BooleanFunctionShape, FieldPredicateFunctionKind,
+    FunctionDeterminism, FunctionTypeInferenceShape, NullTestFunctionKind, ScalarEvalFunctionShape,
+};
 pub(in crate::db) use function_semantics::{
     FunctionSurface, NumericSubtype, TextPredicateFunctionKind,
 };
-pub(in crate::db) use predicate_bridge::*;
-pub(in crate::db) use predicate_compile::*;
-pub(in crate::db) use preview::*;
-pub(in crate::db) use projection::*;
-pub(in crate::db) use projection_eval::*;
-pub(in crate::db) use rewrite::*;
-pub(in crate::db) use scalar::*;
-pub(in crate::db) use truth_value::*;
-pub(in crate::db::query::plan::expr) use type_inference::*;
+pub(in crate::db) use predicate::{
+    CompiledPredicate, derive_normalized_bool_expr_predicate_subset,
+    normalized_bool_expr_from_predicate,
+};
+#[cfg(test)]
+pub(in crate::db) use predicate::{
+    canonicalize_runtime_predicate_via_bool_expr, predicate_to_runtime_bool_expr_for_test,
+};
+#[cfg(test)]
+pub(in crate::db) use predicate::{
+    compile_canonical_bool_expr_to_compiled_predicate, compile_normalized_bool_expr_to_predicate,
+};
+pub(in crate::db) use preview::eval_literal_only_expr_value;
+#[cfg(test)]
+pub(in crate::db) use projection::GroupedOrderExprClass;
+pub(in crate::db::query) use projection::collect_unique_direct_projection_slots;
+pub(in crate::db) use projection::{
+    GroupedOrderTermAdmissibility, GroupedTopKOrderTermAdmissibility, ProjectionField,
+    ProjectionSelection, ProjectionSpec, classify_grouped_order_term_for_field,
+    classify_grouped_top_k_order_term, grouped_top_k_order_term_requires_heap,
+};
+pub(in crate::db) use projection_eval::{
+    ProjectionFunctionEvalError, eval_builder_expr_for_value_preview,
+    eval_projection_function_call_checked,
+};
+pub(in crate::db) use rewrite::rewrite_affine_numeric_compare_expr;
+pub(in crate::db) use scalar::{
+    ScalarProjectionCaseArm, ScalarProjectionExpr, compile_scalar_projection_expr,
+    compile_scalar_projection_plan,
+};
+pub(in crate::db) use truth_value::{
+    admit_true_only_boolean_value, collapse_true_only_boolean_admission,
+};
+pub(in crate::db::query::plan::expr) use type_inference::{
+    ExprCoarseTypeFamily, function_is_compare_operand_coarse_family,
+};
 pub(in crate::db) use type_inference::{ExprType, infer_expr_type};

@@ -14,7 +14,10 @@ use crate::{
         },
     },
     error::InternalError,
-    model::entity::EntityModel,
+    model::{
+        entity::EntityModel,
+        field::{LeafCodec, ScalarCodec},
+    },
     value::Value,
 };
 
@@ -48,6 +51,7 @@ pub(in crate::db) struct PreparedProjectionShape {
     prepared: PreparedProjectionPlan,
     projection_is_model_identity: bool,
     retained_slot_direct_projection_field_slots: Option<Vec<(String, usize)>>,
+    retained_slot_direct_octet_length_projection_slots: Vec<Option<usize>>,
     data_row_direct_projection_field_slots: Option<Vec<(String, usize)>>,
     #[cfg(any(test, feature = "diagnostics"))]
     projected_slot_mask: Vec<bool>,
@@ -84,6 +88,14 @@ impl PreparedProjectionShape {
     }
 
     #[must_use]
+    pub(in crate::db) fn retained_slot_direct_octet_length_projection_slots(
+        &self,
+    ) -> &[Option<usize>] {
+        self.retained_slot_direct_octet_length_projection_slots
+            .as_slice()
+    }
+
+    #[must_use]
     pub(in crate::db) fn data_row_direct_projection_field_slots(
         &self,
     ) -> Option<&[(String, usize)]> {
@@ -112,6 +124,7 @@ impl PreparedProjectionShape {
             prepared,
             projection_is_model_identity,
             retained_slot_direct_projection_field_slots,
+            retained_slot_direct_octet_length_projection_slots: Vec::new(),
             data_row_direct_projection_field_slots,
             projected_slot_mask,
         }
@@ -155,17 +168,19 @@ pub(in crate::db) fn prepare_projection_shape_from_plan(
     plan: &AccessPlannedQuery,
 ) -> PreparedProjectionShape {
     let projection = plan.frozen_projection_spec().clone();
-    let prepared = PreparedProjectionPlan::Scalar(
-        plan.scalar_projection_plan()
-            .expect(
-                "scalar execution projection shapes must carry one planner-compiled scalar program",
-            )
-            .to_vec(),
-    );
+    let compiled_projection = plan
+        .scalar_projection_plan()
+        .expect("scalar execution projection shapes must carry one planner-compiled scalar program")
+        .to_vec();
     let retained_slot_direct_projection_field_slots =
         retained_slot_direct_projection_field_slots_from_projection(
             &projection,
             plan.frozen_direct_projection_slots(),
+        );
+    let retained_slot_direct_octet_length_projection_slots =
+        retained_slot_direct_octet_length_projection_slots_from_compiled(
+            model,
+            &compiled_projection,
         );
     let data_row_direct_projection_field_slots =
         data_row_direct_projection_field_slots_from_projection(model, &projection);
@@ -175,9 +190,10 @@ pub(in crate::db) fn prepare_projection_shape_from_plan(
 
     PreparedProjectionShape {
         projection,
-        prepared,
+        prepared: PreparedProjectionPlan::Scalar(compiled_projection),
         projection_is_model_identity: plan.projection_is_model_identity(),
         retained_slot_direct_projection_field_slots,
+        retained_slot_direct_octet_length_projection_slots,
         data_row_direct_projection_field_slots,
         #[cfg(any(test, feature = "diagnostics"))]
         projected_slot_mask,
@@ -241,6 +257,37 @@ fn data_row_direct_projection_field_slots_from_projection(
     }
 
     Some(field_slots)
+}
+
+fn retained_slot_direct_octet_length_projection_slots_from_compiled(
+    model: &EntityModel,
+    compiled_projection: &[CompiledExpr],
+) -> Vec<Option<usize>> {
+    let mut slots = Vec::with_capacity(compiled_projection.len());
+    let mut has_direct_octet_length = false;
+
+    for expr in compiled_projection {
+        let slot = expr.direct_octet_length_slot().and_then(|(slot, _field)| {
+            slot_uses_scalar_byte_length_codec(model, slot).then_some(slot)
+        });
+        has_direct_octet_length |= slot.is_some();
+        slots.push(slot);
+    }
+
+    if has_direct_octet_length {
+        slots
+    } else {
+        Vec::new()
+    }
+}
+
+fn slot_uses_scalar_byte_length_codec(model: &EntityModel, slot: usize) -> bool {
+    model.fields().get(slot).is_some_and(|field| {
+        matches!(
+            field.leaf_codec(),
+            LeafCodec::Scalar(ScalarCodec::Blob | ScalarCodec::Text)
+        )
+    })
 }
 
 #[cfg(any(test, feature = "diagnostics"))]

@@ -406,7 +406,7 @@ fn planner_expr_type_inference_does_not_call_predicate_compile() {
 #[test]
 fn planner_expr_predicate_compile_does_not_rerun_type_inference() {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let source_path = crate_root.join("src/db/query/plan/expr/predicate_compile.rs");
+    let source_path = crate_root.join("src/db/query/plan/expr/predicate/compile.rs");
     let source = fs::read_to_string(&source_path)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
     let runtime_source = strip_cfg_test_items(source.as_str());
@@ -451,7 +451,7 @@ fn planner_expr_predicate_compile_does_not_rerun_type_inference() {
 #[test]
 fn planner_expr_predicate_artifact_requires_canonical_expr() {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let source_path = crate_root.join("src/db/query/plan/expr/predicate_compile.rs");
+    let source_path = crate_root.join("src/db/query/plan/expr/predicate/compile.rs");
     let source = fs::read_to_string(&source_path)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
 

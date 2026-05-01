@@ -1,7 +1,7 @@
 //! Module: db::executor::tests::aggregate_numeric
 //! Responsibility: live numeric aggregate semantics and fast-path contracts.
 //! Does not own: generic aggregate parity helpers or non-numeric projection behavior.
-//! Boundary: keeps numeric aggregate execution checks local to the revived executor harness.
+//! Boundary: keeps numeric aggregate execution checks local to the executor harness.
 
 use super::support::*;
 use crate::{

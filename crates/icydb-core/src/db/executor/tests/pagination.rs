@@ -1,6 +1,6 @@
 //! Module: db::executor::tests::pagination
-//! Responsibility: executor-owned pagination contracts for the revived live test harness.
-//! Does not own: old matrix wrappers or query-intent paging policy tests.
+//! Responsibility: executor-owned pagination contracts for the live test harness.
+//! Does not own: matrix wrappers or query-intent paging policy tests.
 //! Boundary: covers small runtime pagination behaviors that are easiest to validate end-to-end.
 
 use super::support::*;
@@ -2017,8 +2017,7 @@ fn build_mixed_direction_resume_plan(
 /// MixedDirectionResumeCase
 ///
 /// Small owner-local fixture describing one mixed-direction ordering/resume
-/// contract in the pagination matrix without reintroducing the old wrapper
-/// harness.
+/// contract in the pagination matrix without introducing a wrapper harness.
 ///
 
 struct MixedDirectionResumeCase {
@@ -8880,7 +8879,7 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_desc_el
 }
 
 #[test]
-// This migrated matrix case keeps both directions in one runtime contract.
+// This runtime matrix case keeps both directions in one contract.
 #[expect(clippy::too_many_lines)]
 fn load_index_range_limit_pushdown_continuation_replay_matches_fallback_for_asc_and_desc() {
     setup_pagination_test();
@@ -9028,7 +9027,7 @@ fn load_index_range_limit_pushdown_continuation_replay_matches_fallback_for_asc_
 }
 
 #[test]
-// This migrated matrix case keeps replay, decode, and cross-shape rejection together.
+// This runtime matrix case keeps replay, decode, and cross-shape rejection together.
 #[expect(clippy::too_many_lines)]
 fn load_index_range_limit_pushdown_token_replay_matches_fallback_for_asc_and_desc() {
     setup_pagination_test();
@@ -9775,7 +9774,7 @@ fn load_index_only_predicate_reduces_access_rows_vs_fallback() {
 }
 
 #[test]
-// This migrated DISTINCT continuation contract is intentionally kept end-to-end in one test.
+// This DISTINCT continuation contract is intentionally kept end-to-end in one test.
 #[expect(clippy::too_many_lines)]
 fn load_index_only_predicate_distinct_continuation_matches_fallback() {
     setup_pagination_test();
@@ -9942,7 +9941,7 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
 }
 
 #[test]
-// This migrated DESC DISTINCT continuation contract is intentionally kept end-to-end in one test.
+// This DESC DISTINCT continuation contract is intentionally kept end-to-end in one test.
 #[expect(clippy::too_many_lines)]
 fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
     setup_pagination_test();
@@ -10187,7 +10186,7 @@ fn load_index_only_predicate_in_constants_reduces_access_rows_vs_fallback() {
 }
 
 #[test]
-// This migrated bounded-range DISTINCT matrix keeps asc/desc parity in one runtime test.
+// This bounded-range DISTINCT matrix keeps asc/desc parity in one runtime test.
 #[expect(clippy::similar_names)]
 #[expect(clippy::too_many_lines)]
 fn load_index_only_predicate_bounded_range_distinct_continuation_matches_fallback_for_asc_and_desc()

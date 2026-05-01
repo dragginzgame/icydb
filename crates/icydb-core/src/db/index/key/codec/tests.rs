@@ -547,7 +547,7 @@ fn index_key_golden_snapshot_system_two_component_text_and_identifier() {
 fn index_key_golden_snapshot_user_max_cardinality_mixed_components() {
     assert_eq!(
         MAX_INDEX_FIELDS, 4,
-        "golden snapshot freezes the v0.10 max-cardinality contract"
+        "golden snapshot freezes the current max-cardinality contract"
     );
 
     let key = key_with(

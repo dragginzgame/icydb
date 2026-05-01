@@ -1,4 +1,4 @@
-//! Module: query::plan::expr::predicate_bridge
+//! Module: query::plan::expr::predicate::bridge
 //! Responsibility: convert runtime predicates into planner-owned boolean
 //! expressions before routing them through canonicalization.
 //! Does not own: predicate compilation, type inference, projection evaluation,

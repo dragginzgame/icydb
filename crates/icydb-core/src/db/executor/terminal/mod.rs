@@ -18,10 +18,10 @@ use crate::{
 };
 
 pub(in crate::db) use page::KernelRow;
-pub(in crate::db::executor) use page::RetainedSlotLayout;
 pub(in crate::db) use page::RetainedSlotRow;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db::executor) use page::with_direct_data_row_phase_attribution;
+pub(in crate::db::executor) use page::{RetainedSlotLayout, RetainedSlotValueMode};
 #[cfg(feature = "diagnostics")]
 pub use page::{ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics};
 #[cfg(all(test, not(feature = "diagnostics")))]

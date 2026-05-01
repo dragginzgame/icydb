@@ -1,4 +1,4 @@
-//! Module: query::plan::expr::compiled_expr_compile
+//! Module: query::plan::expr::compiled_expr::compile
 //! Responsibility: one-way compilation from planner expression surfaces into
 //! the unified compiled expression IR.
 //! Does not own: compiled expression evaluation or executor row access.

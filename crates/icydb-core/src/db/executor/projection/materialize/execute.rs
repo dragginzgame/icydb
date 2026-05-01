@@ -21,7 +21,10 @@ use crate::{
         data::DataRow,
         executor::{
             projection::{
-                eval::{ProjectionEvalError, eval_compiled_expr_with_required_slot_reader_cow},
+                eval::{
+                    ProjectionEvalError, eval_compiled_expr_with_required_slot_reader_cow,
+                    eval_compiled_expr_with_value_ref_reader,
+                },
                 materialize::{
                     metrics::ProjectionMaterializationMetricsRecorder,
                     plan::{PreparedProjectionPlan, PreparedProjectionShape},
@@ -278,6 +281,10 @@ fn project_slot_row_dense_into(
     shaped.clear();
     shaped.reserve(projection.len());
 
+    if project_slot_row_direct_octet_lengths_into(prepared_projection, row, shaped)? {
+        return Ok(());
+    }
+
     let mut read_slot = |slot: usize| row.slot_ref(slot);
     visit_prepared_projection_values_with_required_value_reader_cow(
         prepared_projection.prepared(),
@@ -286,6 +293,69 @@ fn project_slot_row_dense_into(
     )?;
 
     Ok(())
+}
+
+#[cfg(feature = "sql")]
+fn project_slot_row_direct_octet_lengths_into(
+    prepared_projection: &PreparedProjectionShape,
+    row: &RetainedSlotRow,
+    shaped: &mut Vec<Value>,
+) -> Result<bool, InternalError> {
+    let octet_length_slots =
+        prepared_projection.retained_slot_direct_octet_length_projection_slots();
+    if octet_length_slots.is_empty() {
+        return Ok(false);
+    }
+
+    let compiled_fields = prepared_projection.scalar_projection_exprs();
+    if octet_length_slots.len() != compiled_fields.len() {
+        return Ok(false);
+    }
+
+    for (compiled, octet_length_slot) in compiled_fields.iter().zip(octet_length_slots) {
+        let Some(slot) = octet_length_slot else {
+            let mut read_slot = |slot: usize| row.slot_ref(slot);
+            let value = eval_compiled_expr_with_value_ref_reader(compiled, &mut read_slot)
+                .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
+            shaped.push(value);
+            continue;
+        };
+
+        let (_slot, field) = compiled.direct_octet_length_slot().ok_or_else(|| {
+            ProjectionEvalError::MissingFieldValue {
+                field: String::new(),
+                index: *slot,
+            }
+            .into_invalid_logical_plan_internal_error()
+        })?;
+        let value = row
+            .slot_ref(*slot)
+            .ok_or_else(|| ProjectionEvalError::MissingFieldValue {
+                field: field.to_string(),
+                index: *slot,
+            })
+            .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
+        shaped.push(retained_slot_octet_length_value(value)?);
+    }
+
+    Ok(true)
+}
+
+#[cfg(feature = "sql")]
+fn retained_slot_octet_length_value(value: &Value) -> Result<Value, InternalError> {
+    let value = match value {
+        Value::Null => Value::Null,
+        Value::Blob(bytes) => Value::Uint(u64::try_from(bytes.len()).unwrap_or(u64::MAX)),
+        Value::Text(text) => Value::Uint(u64::try_from(text.len()).unwrap_or(u64::MAX)),
+        Value::Uint(length) => Value::Uint(*length),
+        _ => {
+            return Err(InternalError::query_executor_invariant(
+                "retained-slot OCTET_LENGTH optimization requires text, blob, or precomputed length values",
+            ));
+        }
+    };
+
+    Ok(value)
 }
 
 #[cfg(feature = "sql")]

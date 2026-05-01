@@ -1,10 +1,10 @@
 //! Module: db::executor::tests::aggregate_optimizations
-//! Responsibility: live aggregate optimization-adjacent contracts that still
-//! matter on the current executor surface.
-//! Does not own: removed internal hit-counter seams from the old aggregate
-//! matrix backlog.
-//! Boundary: keeps only the current observable behaviors that replaced the
-//! stale counter-driven matrix family.
+//! Responsibility: live aggregate optimization-adjacent contracts on the
+//! current executor surface.
+//! Does not own: historical hit-counter seams or broad aggregate matrix
+//! coverage.
+//! Boundary: keeps observable aggregate optimization behavior near executor
+//! support fixtures.
 
 use super::support::*;
 use crate::{

@@ -1,4 +1,4 @@
-//! Module: query::plan::expr::predicate_compile
+//! Module: query::plan::expr::predicate::compile
 //! Responsibility: compile already-normalized planner boolean expressions into
 //! runtime predicate shells and predicate subsets.
 //! Does not own: schema type inference, boolean canonicalization, projection

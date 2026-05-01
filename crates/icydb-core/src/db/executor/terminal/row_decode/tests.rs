@@ -165,6 +165,43 @@ fn selective_slot_decode_can_skip_unused_non_scalar_materialization() {
 }
 
 #[test]
+fn retained_slot_decode_can_materialize_scalar_octet_lengths_without_blob_values() {
+    let entity = RowDecodeEntity {
+        id: Ulid::from_u128(29),
+        title: "alpha".to_string(),
+        tags: vec!["one".to_string(), "two".to_string()],
+        portrait: Blob::from(vec![0x10, 0x20, 0x30, 0x40]),
+    };
+    let key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(entity.id)
+        .expect("test key construction should succeed");
+    let row = CanonicalRow::from_entity(&entity)
+        .expect("test row serialization should succeed")
+        .into_raw_row();
+    let layout = RetainedSlotLayout::compile_with_value_modes(
+        RowDecodeEntity::MODEL.fields().len(),
+        vec![1, 3],
+        vec![
+            RetainedSlotValueMode::ScalarOctetLength,
+            RetainedSlotValueMode::ScalarOctetLength,
+        ],
+    );
+
+    let values = RowDecoder::decode_indexed_slot_values(
+        &RowLayout::from_model(RowDecodeEntity::MODEL),
+        key.storage_key(),
+        &row,
+        &layout,
+    )
+    .expect("retained scalar length decode should succeed");
+
+    assert_eq!(
+        values,
+        vec![Some(Value::Uint(5)), Some(Value::Uint(4))],
+        "retained scalar byte-length slots should store lengths instead of text/blob payloads",
+    );
+}
+
+#[test]
 fn structural_row_decoder_rejects_primary_key_mismatch() {
     let entity = RowDecodeEntity {
         id: Ulid::from_u128(9),

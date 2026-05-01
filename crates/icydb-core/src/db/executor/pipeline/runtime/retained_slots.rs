@@ -8,11 +8,15 @@ use crate::{
         executor::{
             pipeline::contracts::{CursorEmissionMode, ProjectionMaterializationMode},
             route::access_order_satisfied_by_route_contract,
-            terminal::RetainedSlotLayout,
+            terminal::{RetainedSlotLayout, RetainedSlotValueMode},
         },
         query::plan::AccessPlannedQuery,
     },
-    model::{entity::EntityModel, index::IndexKeyItemsRef},
+    model::{
+        entity::EntityModel,
+        field::{LeafCodec, ScalarCodec},
+        index::IndexKeyItemsRef,
+    },
 };
 
 /// Compile the canonical retained-slot layout for one explicit scalar
@@ -70,10 +74,13 @@ fn compile_retained_slot_layout(
 ) -> Option<RetainedSlotLayout> {
     let mut required_slots = RetainedSlotRequirements::new(model.fields().len());
 
-    // Phase 1: projection validation and retained-slot materialization both
-    // need one stable slot set for later structural slot reads.
-    if projection_validation_enabled || retain_slot_rows {
+    // Phase 1: projection validation needs complete values for diagnostics.
+    // Retained-slot projection materialization can keep exact
+    // `OCTET_LENGTH(text/blob)` expressions as length-only retained values.
+    if projection_validation_enabled {
         required_slots.mark_slots(plan.projection_referenced_slots().iter().copied());
+    } else if retain_slot_rows {
+        mark_projection_retained_slots(model, plan, &mut required_slots);
     }
 
     // Terminal-owned consumers such as scalar aggregate reduction can require
@@ -110,16 +117,54 @@ fn compile_retained_slot_layout(
         required_slots.mark_index_key_item_slots(model, spec.index().key_items());
     }
 
-    let required_slots = required_slots.into_slots();
+    let (required_slots, value_modes) = required_slots.into_slots_and_value_modes();
 
     if required_slots.is_empty() && !retain_slot_rows {
         return None;
     }
 
-    Some(RetainedSlotLayout::compile(
+    Some(RetainedSlotLayout::compile_with_value_modes(
         model.fields().len(),
         required_slots,
+        value_modes,
     ))
+}
+
+// Mark projection-driven retained slots while preserving byte-length-only
+// scalar blob/text fields as length values instead of full blob/text values.
+// Non-direct expressions keep normal value materialization so diagnostics and
+// fallback expression semantics stay unchanged.
+fn mark_projection_retained_slots(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery,
+    required_slots: &mut RetainedSlotRequirements,
+) {
+    let Some(compiled_projection) = plan.scalar_projection_plan() else {
+        required_slots.mark_slots(plan.projection_referenced_slots().iter().copied());
+        return;
+    };
+
+    for expr in compiled_projection {
+        let Some((slot, _field)) = expr.direct_octet_length_slot() else {
+            expr.for_each_referenced_slot(&mut |slot| required_slots.mark_slot(slot));
+            continue;
+        };
+
+        if slot_uses_scalar_byte_length_codec(model, slot) {
+            required_slots.mark_slot_octet_length(slot);
+        } else {
+            required_slots.mark_slot(slot);
+        }
+    }
+}
+
+fn slot_uses_scalar_byte_length_codec(model: &EntityModel, slot: usize) -> bool {
+    model.fields().get(slot).is_some_and(|field| {
+        matches!(
+            field.leaf_codec(),
+            LeafCodec::Scalar(ScalarCodec::Blob | ScalarCodec::Text)
+        )
+    })
 }
 
 ///
@@ -134,6 +179,7 @@ fn compile_retained_slot_layout(
 
 struct RetainedSlotRequirements {
     flags: Vec<bool>,
+    octet_length_flags: Vec<bool>,
 }
 
 impl RetainedSlotRequirements {
@@ -142,6 +188,7 @@ impl RetainedSlotRequirements {
     fn new(field_count: usize) -> Self {
         Self {
             flags: vec![false; field_count],
+            octet_length_flags: vec![false; field_count],
         }
     }
 
@@ -154,7 +201,33 @@ impl RetainedSlotRequirements {
     // Mark one iterator of already-resolved field slots as required.
     fn mark_slots(&mut self, slots: impl IntoIterator<Item = usize>) {
         for slot in slots {
-            self.flags[slot] = true;
+            self.mark_slot(slot);
+        }
+    }
+
+    // Mark one slot as requiring normal value materialization. Normal wins
+    // over length-only materialization when another phase needs the real
+    // scalar value for filtering, ordering, cursor emission, or validation.
+    fn mark_slot(&mut self, slot: usize) {
+        if let Some(required) = self.flags.get_mut(slot) {
+            *required = true;
+        }
+        if let Some(octet_length) = self.octet_length_flags.get_mut(slot) {
+            *octet_length = false;
+        }
+    }
+
+    // Mark one slot as requiring only scalar byte length unless another phase
+    // has already requested normal value materialization.
+    fn mark_slot_octet_length(&mut self, slot: usize) {
+        let Some(required) = self.flags.get(slot) else {
+            return;
+        };
+        if *required {
+            return;
+        }
+        if let Some(octet_length) = self.octet_length_flags.get_mut(slot) {
+            *octet_length = true;
         }
     }
 
@@ -165,14 +238,14 @@ impl RetainedSlotRequirements {
             IndexKeyItemsRef::Fields(fields) => {
                 for field in fields {
                     if let Some(slot) = model.resolve_field_slot(field) {
-                        self.flags[slot] = true;
+                        self.mark_slot(slot);
                     }
                 }
             }
             IndexKeyItemsRef::Items(items) => {
                 for key_item in items {
                     if let Some(slot) = model.resolve_field_slot(key_item.field()) {
-                        self.flags[slot] = true;
+                        self.mark_slot(slot);
                     }
                 }
             }
@@ -181,11 +254,20 @@ impl RetainedSlotRequirements {
 
     // Consume the requirement set into the final sorted retained-slot vector
     // used by the compiled layout contract.
-    fn into_slots(self) -> Vec<usize> {
-        self.flags
-            .into_iter()
-            .enumerate()
-            .filter_map(|(slot, required)| required.then_some(slot))
-            .collect()
+    fn into_slots_and_value_modes(self) -> (Vec<usize>, Vec<RetainedSlotValueMode>) {
+        let mut slots = Vec::new();
+        let mut value_modes = Vec::new();
+
+        for slot in 0..self.flags.len() {
+            if self.flags[slot] {
+                slots.push(slot);
+                value_modes.push(RetainedSlotValueMode::Normal);
+            } else if self.octet_length_flags[slot] {
+                slots.push(slot);
+                value_modes.push(RetainedSlotValueMode::ScalarOctetLength);
+            }
+        }
+
+        (slots, value_modes)
     }
 }

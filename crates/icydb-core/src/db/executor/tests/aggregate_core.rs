@@ -2915,7 +2915,7 @@ fn aggregate_core_take_and_rank_terminals_k_zero_return_empty_with_execute_scan_
         "bottom_k_by_with_ids(rank, 0) should return an empty response"
     );
 
-    // Phase 3: preserve the old matrix contract that k=0 truncation does not
+    // Phase 3: preserve the ranked-terminal matrix contract that k=0 truncation does not
     // alter the underlying execute() scan budget for any ranked terminal shape.
     assert_eq!(
         scanned_take_zero, scanned_execute,
