@@ -75,7 +75,7 @@ pub(in crate::db) use value_storage::{
     encode_structural_value_storage_subaccount_bytes,
     encode_structural_value_storage_timestamp_bytes, encode_structural_value_storage_u64_bytes,
     encode_structural_value_storage_ulid_bytes, encode_structural_value_storage_unit_bytes,
-    encode_text, structural_value_storage_bytes_are_null, validate_structural_value_storage_bytes,
+    encode_text, validate_structural_value_storage_bytes, value_storage_payload_is_null,
 };
 
 ///

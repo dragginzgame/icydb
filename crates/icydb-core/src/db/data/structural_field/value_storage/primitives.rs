@@ -13,22 +13,35 @@ type BinarySkipFn = fn(&[u8], usize) -> Result<usize, FieldDecodeError>;
 
 // === Scalar Decode Helpers (non-parsed) ===
 
-// Decode one required binary bytes payload.
-pub(super) fn decode_binary_required_bytes<'a>(
-    raw_bytes: &'a [u8],
+// Validate one complete generic Structural Binary scalar payload and return the
+// byte range metadata needed by the concrete scalar decoder.
+fn parse_required_binary_payload(
+    raw_bytes: &[u8],
+    expected_tag: u8,
+    expected_len: Option<u32>,
     label: &'static str,
-) -> Result<&'a [u8], FieldDecodeError> {
+) -> Result<(u32, usize), FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(format!(
             "structural binary: truncated {label}"
         )));
     };
     let end = skip_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() || tag != TAG_BYTES {
+    if end != raw_bytes.len() || tag != expected_tag || expected_len.is_some_and(|v| len != v) {
         return Err(FieldDecodeError::new(format!(
             "structural binary: expected {label}"
         )));
     }
+
+    Ok((len, payload_start))
+}
+
+// Decode one required binary bytes payload.
+pub(super) fn decode_binary_required_bytes<'a>(
+    raw_bytes: &'a [u8],
+    label: &'static str,
+) -> Result<&'a [u8], FieldDecodeError> {
+    let (len, payload_start) = parse_required_binary_payload(raw_bytes, TAG_BYTES, None, label)?;
 
     binary_payload_bytes(raw_bytes, len, payload_start, label)
 }
@@ -38,17 +51,7 @@ pub(super) fn decode_binary_required_text<'a>(
     raw_bytes: &'a [u8],
     label: &'static str,
 ) -> Result<&'a str, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: truncated {label}"
-        )));
-    };
-    let end = skip_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() || tag != TAG_TEXT {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: expected {label}"
-        )));
-    }
+    let (len, payload_start) = parse_required_binary_payload(raw_bytes, TAG_TEXT, None, label)?;
 
     decode_binary_text_scalar_bytes(raw_bytes, len, payload_start)
 }
@@ -58,17 +61,7 @@ pub(super) fn decode_binary_required_i64(
     raw_bytes: &[u8],
     label: &'static str,
 ) -> Result<i64, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: truncated {label}"
-        )));
-    };
-    let end = skip_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() || tag != TAG_INT64 || len != 8 {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: expected {label}"
-        )));
-    }
+    let (len, payload_start) = parse_required_binary_payload(raw_bytes, TAG_INT64, Some(8), label)?;
 
     decode_i64_payload_bytes(
         binary_payload_bytes(raw_bytes, len, payload_start, label)?,
@@ -81,17 +74,8 @@ pub(super) fn decode_binary_required_u64(
     raw_bytes: &[u8],
     label: &'static str,
 ) -> Result<u64, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: truncated {label}"
-        )));
-    };
-    let end = skip_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() || tag != TAG_UINT64 || len != 8 {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: expected {label}"
-        )));
-    }
+    let (len, payload_start) =
+        parse_required_binary_payload(raw_bytes, TAG_UINT64, Some(8), label)?;
 
     decode_u64_payload_bytes(
         binary_payload_bytes(raw_bytes, len, payload_start, label)?,
@@ -101,71 +85,6 @@ pub(super) fn decode_binary_required_u64(
 
 // === Tuple Splitting Helpers ===
 
-// Split a fixed-length binary tuple into borrowed item slices. The caller
-// supplies the skip function so generic Structural Binary tuples and nested
-// value-storage tuples share one traversal implementation without changing
-// which authority validates each item.
-pub(super) fn split_binary_tuple_items<'a>(
-    raw_bytes: &'a [u8],
-    expected_len: u32,
-    label: &'static str,
-    skip_item: BinarySkipFn,
-) -> Result<Vec<&'a [u8]>, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: truncated {label}"
-        )));
-    };
-    if tag != TAG_LIST || len != expected_len {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: expected {label}"
-        )));
-    }
-
-    // TODO(value-storage zero-copy): fixed tuples currently allocate a Vec of
-    // borrowed slices. Future tuple-specific decoders can return stack-shaped
-    // arrays for known arities without changing the wire contract.
-    let mut cursor = payload_start;
-    let mut items = Vec::with_capacity(expected_len as usize);
-    for _ in 0..expected_len {
-        let item_start = cursor;
-        cursor = skip_item(raw_bytes, cursor)?;
-        items.push(&raw_bytes[item_start..cursor]);
-    }
-    if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new(format!(
-            "structural binary: trailing bytes after {label}"
-        )));
-    }
-
-    Ok(items)
-}
-
-// Split a fixed-length tuple whose items are generic Structural Binary values.
-#[expect(dead_code, reason = "kept for variable-length tuple follow-up work")]
-pub(super) fn split_binary_generic_tuple_items<'a>(
-    raw_bytes: &'a [u8],
-    expected_len: u32,
-    label: &'static str,
-) -> Result<Vec<&'a [u8]>, FieldDecodeError> {
-    split_binary_tuple_items(raw_bytes, expected_len, label, skip_binary_value)
-}
-
-// Split a fixed-length tuple whose items are nested `Value` envelopes.
-#[expect(dead_code, reason = "kept for variable-length tuple follow-up work")]
-pub(super) fn split_binary_value_storage_tuple_items<'a>(
-    raw_bytes: &'a [u8],
-    expected_len: u32,
-    label: &'static str,
-) -> Result<Vec<&'a [u8]>, FieldDecodeError> {
-    split_binary_tuple_items(
-        raw_bytes,
-        expected_len,
-        label,
-        skip_value_storage_binary_value,
-    )
-}
-
 // Split a two-item tuple whose items are generic Structural Binary values
 // without staging borrowed item slices in a heap-backed Vec.
 pub(super) fn split_binary_tuple_2<'a>(
@@ -173,26 +92,6 @@ pub(super) fn split_binary_tuple_2<'a>(
     label: &'static str,
 ) -> Result<[&'a [u8]; 2], FieldDecodeError> {
     split_tuple_2(raw_bytes, label, skip_binary_value)
-}
-
-// Split a three-item tuple whose items are generic Structural Binary values
-// without staging borrowed item slices in a heap-backed Vec.
-#[expect(dead_code, reason = "kept for fixed-arity generic tuple symmetry")]
-pub(super) fn split_binary_tuple_3<'a>(
-    raw_bytes: &'a [u8],
-    label: &'static str,
-) -> Result<[&'a [u8]; 3], FieldDecodeError> {
-    split_tuple_3(raw_bytes, label, skip_binary_value)
-}
-
-// Split a two-item tuple whose items are nested `Value` envelopes without
-// staging borrowed item slices in a heap-backed Vec.
-#[expect(dead_code, reason = "kept for fixed-arity value tuple symmetry")]
-pub(super) fn split_value_storage_tuple_2<'a>(
-    raw_bytes: &'a [u8],
-    label: &'static str,
-) -> Result<[&'a [u8]; 2], FieldDecodeError> {
-    split_tuple_2(raw_bytes, label, skip_value_storage_binary_value)
 }
 
 // Split a three-item tuple whose items are nested `Value` envelopes without

@@ -28,7 +28,7 @@ std::thread_local! {
 ///
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct ExecutionProfileStats {
+pub(in crate::db::executor) struct ExecutionProfileStats {
     rows_scanned_pre_filter: u64,
     rows_after_predicate: u64,
     rows_after_projection: u64,

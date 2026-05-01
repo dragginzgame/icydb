@@ -17,7 +17,7 @@ use crate::db::data::{FieldDecodeError, ValueStorageView};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct CompiledPath {
     /// Owned nested map-key sequence traversed below the resolved root slot.
-    pub(in crate::db) segments: Vec<String>,
+    segments: Vec<String>,
 }
 
 impl CompiledPath {
@@ -39,7 +39,7 @@ pub(in crate::db::executor::projection) fn resolve_path_segments<'a>(
     raw_bytes: &'a [u8],
     segment_bytes: &[Box<[u8]>],
 ) -> Result<Option<&'a [u8]>, FieldDecodeError> {
-    let mut current = ValueStorageView::from_raw(raw_bytes)?;
+    let mut current = ValueStorageView::from_raw_validated(raw_bytes)?;
 
     // The caller has already resolved the root field to a persisted slot
     // payload. Traversal therefore starts at the first nested segment rather

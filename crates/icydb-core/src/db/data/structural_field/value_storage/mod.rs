@@ -23,7 +23,7 @@ pub(in crate::db) use decode::{
     decode_structural_value_storage_subaccount_bytes,
     decode_structural_value_storage_timestamp_bytes, decode_structural_value_storage_u64_bytes,
     decode_structural_value_storage_ulid_bytes, decode_structural_value_storage_unit_bytes,
-    decode_text, structural_value_storage_bytes_are_null, validate_structural_value_storage_bytes,
+    decode_text, validate_structural_value_storage_bytes, value_storage_payload_is_null,
 };
 pub(in crate::db) use encode::{
     encode_account, encode_decimal, encode_enum, encode_int, encode_int128, encode_list_item,
@@ -333,7 +333,8 @@ mod tests {
         encoded.extend_from_slice(&second);
         encoded.extend_from_slice(&third);
 
-        let view = ValueStorageView::from_raw(&encoded).expect("list view should validate");
+        let view =
+            ValueStorageView::from_raw_validated(&encoded).expect("list view should validate");
         let mut items = Vec::new();
         view.visit_list_items(|item| {
             items.push(item);
@@ -364,7 +365,8 @@ mod tests {
         encoded.extend_from_slice(&second_key);
         encoded.extend_from_slice(&second_value);
 
-        let view = ValueStorageView::from_raw(&encoded).expect("map view should validate");
+        let view =
+            ValueStorageView::from_raw_validated(&encoded).expect("map view should validate");
         let mut entries = Vec::new();
         view.visit_map_entries(|key, value| {
             entries.push((key, value));
@@ -393,17 +395,18 @@ mod tests {
         let encoded = encode_structural_value_storage_binary_bytes(&value)
             .expect("map value bytes should encode");
 
-        let view = ValueStorageView::from_raw(&encoded).expect("map view should validate");
+        let view =
+            ValueStorageView::from_raw_validated(&encoded).expect("map view should validate");
         let name = view
-            .map_text_key("name")
+            .map_text_key_bytes(b"name")
             .expect("text-key lookup should walk map")
             .expect("name entry should exist");
         let rank = view
-            .map_text_key("rank")
+            .map_text_key_bytes(b"rank")
             .expect("text-key lookup should walk map")
             .expect("rank entry should exist");
         let missing = view
-            .map_text_key("missing")
+            .map_text_key_bytes(b"missing")
             .expect("text-key lookup should walk map");
 
         assert_eq!(name.as_text().expect("name should be text"), "Ada");

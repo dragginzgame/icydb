@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.144.x] 🧱 - 2026-04-30 - Structural Ownership Audit
 
+- `0.144.5` tightens executor visibility and value-storage codec ownership, including a regression fix for optional ULIDs inside persisted structured records.
 - `0.144.4` removes stale migration infrastructure and the unused commit migration-state channel before the new schema-migration design starts.
 - `0.144.3` removes an abandoned schema-evolution prototype before the new schema-migration design starts.
 - `0.144.2` finishes expression-evaluation and session/grouped route cleanup without changing query results.

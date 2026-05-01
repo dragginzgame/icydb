@@ -21,14 +21,14 @@ use crate::db::{
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct PageWindow {
-    pub(in crate::db) fetch_count: usize,
-    pub(in crate::db) keep_count: usize,
+struct PageWindow {
+    fetch_count: usize,
+    keep_count: usize,
 }
 
 /// Compute canonical keep-count from logical pagination inputs.
 #[must_use]
-pub(in crate::db) fn compute_page_keep_count(offset: u32, limit: u32) -> usize {
+fn compute_page_keep_count(offset: u32, limit: u32) -> usize {
     let offset = usize::try_from(offset).unwrap_or(usize::MAX);
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
     offset.saturating_add(limit)
@@ -36,7 +36,7 @@ pub(in crate::db) fn compute_page_keep_count(offset: u32, limit: u32) -> usize {
 
 /// Compute canonical page window counts from logical pagination inputs.
 #[must_use]
-pub(in crate::db) fn compute_page_window(offset: u32, limit: u32) -> PageWindow {
+fn compute_page_window(offset: u32, limit: u32) -> PageWindow {
     let keep_count = compute_page_keep_count(offset, limit);
     let fetch_count = keep_count.saturating_add(1);
 

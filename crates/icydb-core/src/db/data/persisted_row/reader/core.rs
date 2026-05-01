@@ -435,7 +435,7 @@ impl CanonicalSlotReader for StructuralSlotReader<'_> {
         }
 
         let raw_value = self.required_field_bytes(slot, field.name())?;
-        let view = ValueStorageView::from_raw(raw_value).map_err(|err| {
+        let view = ValueStorageView::from_raw_validated(raw_value).map_err(|err| {
             InternalError::persisted_row_field_kind_decode_failed(field.name(), field.kind(), err)
         })?;
 

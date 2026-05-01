@@ -21,7 +21,7 @@ pub(in crate::db) mod decode {
         decode_structural_value_storage_u64_bytes as u64,
         decode_structural_value_storage_ulid_bytes as ulid,
         decode_structural_value_storage_unit_bytes as unit, decode_text as text,
-        structural_value_storage_bytes_are_null as is_null,
+        value_storage_payload_is_null as is_null,
     };
 }
 

@@ -68,7 +68,7 @@ fn match_secondary_order_pushdown_core(
 /// Derive secondary ORDER BY pushdown applicability from route-owned access
 /// capabilities and one planner-owned deterministic ORDER BY contract.
 #[must_use]
-pub(in crate::db) fn secondary_order_pushdown_applicability(
+fn secondary_order_pushdown_applicability(
     access_capabilities: &AccessCapabilities,
     order_contract: &DeterministicSecondaryOrderContract,
 ) -> PushdownApplicability {

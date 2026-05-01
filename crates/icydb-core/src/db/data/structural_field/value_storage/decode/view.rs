@@ -33,7 +33,7 @@ pub(in crate::db) struct ValueStorageView<'a> {
 
 impl<'a> ValueStorageView<'a> {
     /// Validate raw bytes as one value-storage envelope and expose a view.
-    pub(in crate::db) fn from_raw(raw: &'a [u8]) -> Result<Self, FieldDecodeError> {
+    pub(in crate::db) fn from_raw_validated(raw: &'a [u8]) -> Result<Self, FieldDecodeError> {
         let slice = ValueStorageSlice::from_raw(raw)?;
 
         Ok(Self {
@@ -41,19 +41,15 @@ impl<'a> ValueStorageView<'a> {
         })
     }
 
-    /// Wrap bytes that a collection visitor will validate before yielding.
-    pub(in crate::db::data::structural_field::value_storage::decode) const fn from_collection_walker_input(
+    /// Wrap collection root bytes that a walker will validate before yielding.
+    pub(in crate::db::data::structural_field::value_storage::decode) const fn from_unvalidated_collection_root(
         bytes: &'a [u8],
     ) -> Self {
         Self { bytes }
     }
 
     /// Wrap bytes whose exact boundary was already returned by skip traversal.
-    #[allow(
-        dead_code,
-        reason = "nested borrowed view access is staged before query AST integration"
-    )]
-    pub(in crate::db) const fn from_bounded_unchecked(bytes: &'a [u8]) -> Self {
+    pub(in crate::db) const fn from_skip_bounded_unchecked(bytes: &'a [u8]) -> Self {
         Self { bytes }
     }
 
@@ -157,33 +153,6 @@ impl<'a> ValueStorageView<'a> {
         )
     }
 
-    /// Return the value slice for one text-keyed map entry without materializing the map.
-    #[allow(
-        dead_code,
-        reason = "nested borrowed view access is staged before query AST integration"
-    )]
-    pub(in crate::db) fn map_text_key(&self, key: &str) -> Result<Option<Self>, FieldDecodeError> {
-        let mut found = None;
-
-        // Each key/value slice yielded here is already bounded by the map
-        // walker. Building child views from those slices must therefore avoid
-        // re-running root validation.
-        self.visit_map_entries(|entry_key, entry_value| {
-            if found.is_some() {
-                return Ok(());
-            }
-
-            let key_view = Self::from_bounded_unchecked(entry_key);
-            if key_view.is_text() && key_view.as_text()? == key {
-                found = Some(Self::from_bounded_unchecked(entry_value));
-            }
-
-            Ok(())
-        })?;
-
-        Ok(found)
-    }
-
     /// Return the value slice for one text-keyed map entry using byte equality.
     pub(in crate::db) fn map_text_key_bytes(
         &self,
@@ -202,7 +171,7 @@ impl<'a> ValueStorageView<'a> {
             if decode_binary_text_payload_bytes_if_text(entry_key)?
                 .is_some_and(|found| found == key)
             {
-                found = Some(Self::from_bounded_unchecked(entry_value));
+                found = Some(Self::from_skip_bounded_unchecked(entry_value));
             }
 
             Ok(())

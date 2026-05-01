@@ -32,7 +32,7 @@ pub(in crate::db) use value::{
     decode_structural_value_storage_subaccount_bytes,
     decode_structural_value_storage_timestamp_bytes, decode_structural_value_storage_u64_bytes,
     decode_structural_value_storage_ulid_bytes, decode_structural_value_storage_unit_bytes,
-    decode_text, structural_value_storage_bytes_are_null, validate_structural_value_storage_bytes,
+    decode_text, validate_structural_value_storage_bytes, value_storage_payload_is_null,
 };
 pub(in crate::db) use view::ValueStorageView;
 
@@ -70,7 +70,7 @@ impl<'a> ValueStorageSlice<'a> {
     ///
     /// Callers must only use this when `bytes` came from a cursor range whose
     /// end was returned by `skip_value_storage_binary_value`.
-    pub(in crate::db::data::structural_field::value_storage::decode) const fn from_bounded_unchecked(
+    pub(in crate::db::data::structural_field::value_storage::decode) const fn from_skip_bounded_unchecked(
         bytes: &'a [u8],
     ) -> Self {
         Self { bytes }

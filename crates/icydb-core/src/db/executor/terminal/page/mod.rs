@@ -47,9 +47,7 @@ pub(crate) use metrics::{
 };
 pub(in crate::db::executor) use plan::{KernelRowScanStrategy, resolve_cursorless_short_path_plan};
 #[cfg(test)]
-pub(crate) use post_access::{
-    apply_load_cursor_and_pagination_window, compact_kernel_rows_in_place,
-};
+use post_access::{apply_load_cursor_and_pagination_window, compact_kernel_rows_in_place};
 pub(in crate::db::executor) use retained::RetainedSlotLayout;
 pub(in crate::db) use retained::RetainedSlotRow;
 pub(in crate::db::executor) use row_runtime::{

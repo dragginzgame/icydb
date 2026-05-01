@@ -231,6 +231,21 @@ mod tests {
     ))]
     pub struct StructuredSelectedPartHarness {}
 
+    ///
+    /// StructuredAssetSelectionHarness
+    ///
+    /// StructuredAssetSelectionHarness mirrors app records that store a list of
+    /// asset ids alongside an optional default id. It specifically protects the
+    /// persisted structured codec path for `Option<Ulid>` nested inside a
+    /// record, where null probing must accept local value-storage tags.
+    ///
+
+    #[record(fields(
+        field(ident = "asset_ids", value(many, item(prim = "Ulid"))),
+        field(ident = "default_asset_id", value(opt, item(prim = "Ulid")))
+    ))]
+    pub struct StructuredAssetSelectionHarness {}
+
     #[entity(
         store = "TestStore",
         pk(field = "id"),
@@ -288,6 +303,27 @@ mod tests {
     )]
     pub struct StructuredSelectedPartEntityHarness {}
 
+    ///
+    /// StructuredAssetSelectionEntityHarness
+    ///
+    /// StructuredAssetSelectionEntityHarness persists the asset-selection record
+    /// through generated row slots so tests exercise the same materialization
+    /// path as application reads from stable storage.
+    ///
+
+    #[entity(
+        store = "TestStore",
+        pk(field = "id"),
+        fields(
+            field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+            field(
+                ident = "asset_selection",
+                value(item(is = "StructuredAssetSelectionHarness"))
+            )
+        )
+    )]
+    pub struct StructuredAssetSelectionEntityHarness {}
+
     #[entity(
         store = "TestStore",
         pk(field = "id"),
@@ -322,6 +358,16 @@ mod tests {
 
     fn selected_part_with(layer_id: Ulid, part_id: Ulid) -> StructuredSelectedPartHarness {
         StructuredSelectedPartHarness { layer_id, part_id }
+    }
+
+    fn asset_selection_with(
+        asset_ids: Vec<Ulid>,
+        default_asset_id: Option<Ulid>,
+    ) -> StructuredAssetSelectionHarness {
+        StructuredAssetSelectionHarness {
+            asset_ids,
+            default_asset_id,
+        }
     }
 
     fn record_with_enum(label: &str, city: &str, zip: u32) -> StructuredRecordWithEnumHarness {
@@ -385,6 +431,27 @@ mod tests {
             ),
         ])
         .expect("selected part map should be canonical")
+    }
+
+    fn asset_selection_value(selection: &StructuredAssetSelectionHarness) -> Value {
+        Value::from_map(vec![
+            (
+                Value::Text("asset_ids".to_string()),
+                Value::List(
+                    selection
+                        .asset_ids
+                        .iter()
+                        .copied()
+                        .map(Value::Ulid)
+                        .collect(),
+                ),
+            ),
+            (
+                Value::Text("default_asset_id".to_string()),
+                selection.default_asset_id.map_or(Value::Null, Value::Ulid),
+            ),
+        ])
+        .expect("asset selection map should be canonical")
     }
 
     fn assert_custom_slot_payload_roundtrip_is_canonical<T>(value: &T, field_name: &'static str)
@@ -679,6 +746,36 @@ mod tests {
             runtime_value_from_value::<StructuredSelectedPartHarness>(&value),
             Some(selected),
         );
+    }
+
+    #[test]
+    fn record_with_optional_ulid_roundtrips_through_generated_persisted_row() {
+        let cases = [
+            asset_selection_with(vec![], None),
+            asset_selection_with(vec![Ulid::from_parts(740, 1)], None),
+            asset_selection_with(
+                vec![Ulid::from_parts(741, 1), Ulid::from_parts(741, 2)],
+                Some(Ulid::from_parts(741, 2)),
+            ),
+        ];
+
+        for (case_index, asset_selection) in cases.into_iter().enumerate() {
+            let entity = StructuredAssetSelectionEntityHarness {
+                id: Ulid::from_parts(740, u128::try_from(case_index + 1).expect("case id fits")),
+                asset_selection,
+                ..Default::default()
+            };
+            let slots = roundtrip_entity_through_captured_slots(&entity);
+
+            assert_eq!(
+                decode_persisted_custom_slot_payload::<Value>(
+                    required_slot_payload(&slots, 1),
+                    "asset_selection",
+                )
+                .expect("decode asset-selection payload"),
+                asset_selection_value(&entity.asset_selection),
+            );
+        }
     }
 
     #[test]

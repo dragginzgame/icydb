@@ -19,7 +19,7 @@ use crate::db::query::explain::{
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum PushdownApplicability {
+pub(in crate::db) enum PushdownApplicability {
     NotApplicable,
     Eligible {
         index: &'static str,
@@ -31,13 +31,13 @@ pub(crate) enum PushdownApplicability {
 impl PushdownApplicability {
     /// Return true when this applicability state is eligible for secondary-order pushdown.
     #[must_use]
-    pub(crate) const fn is_eligible(&self) -> bool {
+    pub(in crate::db::executor) const fn is_eligible(&self) -> bool {
         matches!(self, Self::Eligible { .. })
     }
 
     /// Render the route diagnostic value used by explain and trace surfaces.
     #[must_use]
-    pub(crate) fn diagnostic_label(&self) -> String {
+    pub(in crate::db::executor) fn diagnostic_label(&self) -> String {
         match self {
             Self::NotApplicable => "not_applicable".to_string(),
             Self::Eligible { index, prefix_len } => {
@@ -49,7 +49,9 @@ impl PushdownApplicability {
 
     /// Return eligible secondary-index details for descriptor projection.
     #[must_use]
-    pub(crate) const fn eligible_secondary_index(&self) -> Option<(&'static str, usize)> {
+    pub(in crate::db::executor) const fn eligible_secondary_index(
+        &self,
+    ) -> Option<(&'static str, usize)> {
         match self {
             Self::Eligible { index, prefix_len } => Some((index, *prefix_len)),
             Self::NotApplicable | Self::Rejected(_) => None,
@@ -76,9 +78,7 @@ impl From<PushdownApplicability> for ExplainOrderPushdown {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum SecondaryOrderPushdownRejection {
-    NoOrderBy,
-    AccessPathNotSingleIndexPrefix,
+pub(in crate::db) enum SecondaryOrderPushdownRejection {
     AccessPathIndexRangeUnsupported {
         index: &'static str,
         prefix_len: usize,
@@ -86,15 +86,6 @@ pub enum SecondaryOrderPushdownRejection {
     InvalidIndexPrefixBounds {
         prefix_len: usize,
         index_field_len: usize,
-    },
-    MissingPrimaryKeyTieBreak {
-        field: String,
-    },
-    PrimaryKeyDirectionNotAscending {
-        field: String,
-    },
-    MixedDirectionNotEligible {
-        field: String,
     },
     OrderFieldsDoNotMatchIndex {
         index: &'static str,
@@ -108,10 +99,6 @@ pub enum SecondaryOrderPushdownRejection {
 impl From<SecondaryOrderPushdownRejection> for ExplainSecondaryOrderPushdownRejection {
     fn from(value: SecondaryOrderPushdownRejection) -> Self {
         match value {
-            SecondaryOrderPushdownRejection::NoOrderBy => Self::NoOrderBy,
-            SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix => {
-                Self::AccessPathNotSingleIndexPrefix
-            }
             SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
                 index,
                 prefix_len,
@@ -123,15 +110,6 @@ impl From<SecondaryOrderPushdownRejection> for ExplainSecondaryOrderPushdownReje
                 prefix_len,
                 index_field_len,
             },
-            SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak { field } => {
-                Self::MissingPrimaryKeyTieBreak { field }
-            }
-            SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending { field } => {
-                Self::PrimaryKeyDirectionNotAscending { field }
-            }
-            SecondaryOrderPushdownRejection::MixedDirectionNotEligible { field } => {
-                Self::MixedDirectionNotEligible { field }
-            }
             SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
                 index,
                 prefix_len,
@@ -152,7 +130,7 @@ impl From<SecondaryOrderPushdownRejection> for ExplainSecondaryOrderPushdownReje
 impl SecondaryOrderPushdownRejection {
     /// Render a stable diagnostic label for this rejection reason.
     #[must_use]
-    pub(crate) fn label(&self) -> String {
+    fn label(&self) -> String {
         let mut out = String::new();
         self.write_label(&mut out);
 
@@ -163,10 +141,6 @@ impl SecondaryOrderPushdownRejection {
     // every rejection-variant match at projection sites.
     fn write_label(&self, out: &mut String) {
         match self {
-            Self::NoOrderBy => out.push_str("NoOrderBy"),
-            Self::AccessPathNotSingleIndexPrefix => {
-                out.push_str("AccessPathNotSingleIndexPrefix");
-            }
             Self::AccessPathIndexRangeUnsupported { index, prefix_len } => {
                 let _ = write!(
                     out,
@@ -181,15 +155,6 @@ impl SecondaryOrderPushdownRejection {
                     out,
                     "InvalidIndexPrefixBounds(prefix_len={prefix_len},index_field_len={index_field_len})",
                 );
-            }
-            Self::MissingPrimaryKeyTieBreak { field } => {
-                let _ = write!(out, "MissingPrimaryKeyTieBreak(field={field})");
-            }
-            Self::PrimaryKeyDirectionNotAscending { field } => {
-                let _ = write!(out, "PrimaryKeyDirectionNotAscending(field={field})");
-            }
-            Self::MixedDirectionNotEligible { field } => {
-                let _ = write!(out, "MixedDirectionNotEligible(field={field})");
             }
             Self::OrderFieldsDoNotMatchIndex {
                 index,

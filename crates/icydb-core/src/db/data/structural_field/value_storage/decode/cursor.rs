@@ -95,7 +95,7 @@ pub(in crate::db::data::structural_field::value_storage::decode) fn decode_value
         | VALUE_BINARY_TAG_UINT_BIG
         | VALUE_BINARY_TAG_ULID => {
             let cursor = skip_value_storage_binary_value(raw_bytes, offset)?;
-            let slice = ValueStorageSlice::from_bounded_unchecked(&raw_bytes[offset..cursor]);
+            let slice = ValueStorageSlice::from_skip_bounded_unchecked(&raw_bytes[offset..cursor]);
             let value = decode_structural_value_storage_binary_bytes(slice)?;
 
             Ok((value, cursor))

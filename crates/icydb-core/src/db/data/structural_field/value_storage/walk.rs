@@ -18,10 +18,6 @@ use crate::db::data::structural_field::{
 };
 use crate::value::Value;
 
-// Alias the callback shape for binary value-map walkers.
-pub(super) type ValueBinaryMapEntryFn =
-    unsafe fn(&[u8], &[u8], *mut ()) -> Result<(), FieldDecodeError>;
-
 // Alias the cursor-returning decoder used by single-pass recursive collection
 // materialization.
 pub(super) type ValueBinaryDecodeFn = fn(&[u8], usize) -> Result<(Value, usize), FieldDecodeError>;
@@ -60,40 +56,6 @@ where
     }
 
     Ok(state)
-}
-
-// Walk one binary value list and yield each nested `Value` item slice.
-#[expect(
-    dead_code,
-    reason = "existing borrowed-slice walker API is intentionally retained"
-)]
-pub(super) fn walk_value_storage_binary_list_items(
-    raw_bytes: &[u8],
-    shape_label: &'static str,
-    trailing_label: &'static str,
-    context: *mut (),
-    on_item: unsafe fn(&[u8], *mut ()) -> Result<(), FieldDecodeError>,
-) -> Result<(), FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated value list payload",
-        ));
-    };
-    if tag != TAG_LIST {
-        return Err(FieldDecodeError::new(shape_label));
-    }
-
-    let mut cursor = payload_start;
-    for _ in 0..len {
-        let item_start = cursor;
-        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
-        unsafe { on_item(&raw_bytes[item_start..cursor], context)? };
-    }
-    if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new(trailing_label));
-    }
-
-    Ok(())
 }
 
 // Decode one binary value list directly into runtime `Value` items while
@@ -170,48 +132,6 @@ where
     }
 
     Ok(state)
-}
-
-// Walk one binary value map and yield each nested key/value slice pair.
-#[expect(
-    dead_code,
-    reason = "existing borrowed-slice walker API is intentionally retained"
-)]
-pub(super) fn walk_value_storage_binary_map_entries(
-    raw_bytes: &[u8],
-    shape_label: &'static str,
-    trailing_label: &'static str,
-    context: *mut (),
-    on_entry: ValueBinaryMapEntryFn,
-) -> Result<(), FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated value map payload",
-        ));
-    };
-    if tag != TAG_MAP {
-        return Err(FieldDecodeError::new(shape_label));
-    }
-
-    let mut cursor = payload_start;
-    for _ in 0..len {
-        let key_start = cursor;
-        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
-        let value_start = cursor;
-        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
-        unsafe {
-            on_entry(
-                &raw_bytes[key_start..value_start],
-                &raw_bytes[value_start..cursor],
-                context,
-            )?;
-        };
-    }
-    if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new(trailing_label));
-    }
-
-    Ok(())
 }
 
 // Decode one binary value map directly into runtime entry pairs while

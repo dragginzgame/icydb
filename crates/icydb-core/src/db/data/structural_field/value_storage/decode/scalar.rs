@@ -73,24 +73,6 @@ pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binar
     Ok((Value::Blob(value.to_vec()), cursor))
 }
 
-// Decode one top-level i64 generic binary value.
-pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binary_i64_value(
-    raw_bytes: &[u8],
-) -> Result<Value, FieldDecodeError> {
-    let value = decode_binary_i64_scalar(raw_bytes)?;
-
-    Ok(Value::Int(value))
-}
-
-// Decode one top-level u64 generic binary value.
-pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binary_u64_value(
-    raw_bytes: &[u8],
-) -> Result<Value, FieldDecodeError> {
-    let value = decode_binary_u64_scalar(raw_bytes)?;
-
-    Ok(Value::Uint(value))
-}
-
 // Decode one top-level i64 scalar without wrapping it in a runtime `Value`.
 pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binary_i64_scalar(
     raw_bytes: &[u8],
@@ -129,15 +111,6 @@ pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binar
     )?;
 
     Ok(value)
-}
-
-// Decode one top-level text generic binary value.
-pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binary_text_value(
-    raw_bytes: &[u8],
-) -> Result<Value, FieldDecodeError> {
-    let value = decode_binary_text_scalar(raw_bytes)?;
-
-    Ok(Value::Text(value.to_owned()))
 }
 
 // Decode one top-level text scalar without allocating an owned `String`.
@@ -190,26 +163,6 @@ pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binar
         .ok_or_else(|| FieldDecodeError::new("structural binary: truncated text payload"))?;
 
     Ok(Some(payload))
-}
-
-// Decode one top-level bytes generic binary value.
-pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binary_blob_value(
-    raw_bytes: &[u8],
-) -> Result<Value, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated byte payload",
-        ));
-    };
-    let (value, _) = decode_binary_blob_from_parsed(
-        raw_bytes,
-        tag,
-        len,
-        payload_start,
-        Some("structural binary: trailing bytes after byte payload"),
-    )?;
-
-    Ok(Value::Blob(value.to_vec()))
 }
 
 // Decode one parsed i64 scalar after the caller has already read the structural

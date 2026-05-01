@@ -193,7 +193,7 @@ pub enum RouteExecutionMode {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum GroupedExecutionMode {
+pub(in crate::db::executor) enum GroupedExecutionMode {
     HashMaterialized,
     OrderedMaterialized,
 }

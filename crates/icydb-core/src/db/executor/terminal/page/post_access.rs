@@ -197,7 +197,7 @@ fn compact_kernel_rows_in_place_result(
 // can still pin the straight-line compaction behavior independently from the
 // deferred residual-filter error path.
 #[cfg(test)]
-pub(crate) fn compact_kernel_rows_in_place(
+pub(super) fn compact_kernel_rows_in_place(
     rows: &mut Vec<KernelRow>,
     mut keep_row: impl FnMut(&KernelRow) -> bool,
 ) -> usize {
@@ -222,7 +222,7 @@ pub(crate) fn compact_kernel_rows_in_place(
 // Apply the ordered-load continuation boundary and page window in one in-place
 // compaction pass so rows do not go through separate retain, drain, and
 // truncate passes after materialization.
-pub(crate) fn apply_load_cursor_and_pagination_window(
+pub(super) fn apply_load_cursor_and_pagination_window(
     rows: &mut Vec<KernelRow>,
     cursor: Option<(&ResolvedOrder, &CursorBoundary)>,
     offset: u32,

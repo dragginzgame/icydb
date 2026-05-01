@@ -47,9 +47,9 @@ pub(in crate::db) use structural_field::{
     decode_structural_value_storage_bytes, decode_text, encode_enum, encode_list_item,
     encode_map_entry, encode_storage_key_binary_value_bytes, encode_structural_field_by_kind_bytes,
     encode_structural_value_storage_bytes, encode_structural_value_storage_null_bytes, encode_text,
-    structural_value_storage_bytes_are_null, supports_storage_key_binary_kind,
-    validate_storage_key_binary_value_bytes, validate_structural_field_by_kind_bytes,
-    validate_structural_value_storage_bytes,
+    supports_storage_key_binary_kind, validate_storage_key_binary_value_bytes,
+    validate_structural_field_by_kind_bytes, validate_structural_value_storage_bytes,
+    value_storage_payload_is_null,
 };
 pub(in crate::db) use structural_row::{
     SparseRequiredRowFieldBytes, StructuralRowContract, StructuralRowDecodeError,
