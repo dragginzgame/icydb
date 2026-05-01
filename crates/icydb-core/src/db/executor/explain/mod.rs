@@ -197,7 +197,6 @@ impl StructuralQuery {
 
     /// Explain one load execution shape using a caller-visible index slice.
     #[inline(never)]
-    #[allow(dead_code)]
     pub(in crate::db) fn explain_execution_with_visible_indexes(
         &self,
         visible_indexes: &VisibleIndexes<'_>,
@@ -387,7 +386,7 @@ where
     }
 
     /// Explain executor-selected load execution shape with caller-visible indexes.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(in crate::db) fn explain_execution_with_visible_indexes(
         &self,
         visible_indexes: &VisibleIndexes<'_>,

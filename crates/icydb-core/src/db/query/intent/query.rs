@@ -573,9 +573,9 @@ impl<E: EntityKind> Query<E> {
     }
 
     // Keep the internal predicate-owned filter hook available for convergence
-    // tests and lower-level crate callers without forcing production callsites
-    // to retain a fake use after SQL UPDATE moved to structural lowering.
-    #[allow(dead_code)]
+    // tests without retaining the typed adapter in normal builds after SQL
+    // UPDATE moved to structural lowering.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn filter_predicate(mut self, predicate: Predicate) -> Self {
         self.inner = self.inner.filter_predicate(predicate);

@@ -459,7 +459,6 @@ pub(in crate::db) fn bind_sql_update_selector_query_structural(
 
 // Test-only typed SQL lowering still uses this adapter to compare the
 // generic-free structural SQL lane with public typed query behavior.
-#[allow(dead_code)]
 #[cfg(test)]
 pub(in crate::db) fn bind_lowered_sql_query<E: EntityKind>(
     lowered: crate::db::sql::lowering::LoweredSqlQuery,
