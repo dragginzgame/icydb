@@ -29,6 +29,7 @@ mod prefix_offsets;
 mod query_lowering;
 mod range_choice_offsets;
 mod sql_aggregate;
+mod sql_blob;
 mod sql_delete;
 mod sql_explain;
 mod sql_grouped;
@@ -782,6 +783,24 @@ struct SessionSqlWriteEntity {
 }
 
 ///
+/// SessionSqlBlobEntity
+///
+/// SessionSqlBlobEntity gives SQL write/read tests a focused large-payload
+/// fixture with ordinary metadata columns next to thumbnail and chunk blobs.
+/// Tests use it to exercise row-wide mutation paths without overloading the
+/// small scalar write fixture.
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct SessionSqlBlobEntity {
+    id: u64,
+    label: String,
+    bucket: u64,
+    thumbnail: Vec<u8>,
+    chunk: Vec<u8>,
+}
+
+///
 /// SessionSqlGeneratedFieldEntity
 ///
 /// SQL write fixture used to prove schema-owned insert generation is not
@@ -1412,6 +1431,25 @@ crate::test_entity_schema! {
         ("id", FieldKind::Uint),
         ("name", FieldKind::Text { max_len: None }),
         ("age", FieldKind::Uint),
+    ],
+    indexes = [],
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_entity_schema! {
+    ident = SessionSqlBlobEntity,
+    id = u64,
+    id_field = id,
+    entity_name = "SessionSqlBlobEntity",
+    entity_tag = EntityTag::new(0x1058),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Uint),
+        ("label", FieldKind::Text { max_len: None }),
+        ("bucket", FieldKind::Uint),
+        ("thumbnail", FieldKind::Blob),
+        ("chunk", FieldKind::Blob),
     ],
     indexes = [],
     store = SessionSqlStore,
