@@ -1,31 +1,24 @@
-//! Module: query::expr
-//! Responsibility: schema-agnostic filter/order expression wrappers and lowering.
-//! Does not own: planner route selection or executor evaluation.
-//! Boundary: intent boundary lowers these to validated predicate/order forms.
+//! Module: query::expr::filter
+//! Responsibility: frontend-safe filter expression DTOs and planner lowering.
+//! Does not own: query route planning or executor predicate evaluation.
+//! Boundary: converts serialized filter input into planner-owned boolean expressions.
 
-use crate::db::query::{
-    builder::FieldRef,
-    builder::{AggregateExpr, NumericProjectionExpr, RoundProjectionExpr, TextProjectionExpr},
-    plan::canonicalize_filter_literal_for_kind,
-    plan::{
-        OrderDirection, OrderTerm as PlannedOrderTerm,
+use crate::{
+    db::query::plan::{
+        canonicalize_filter_literal_for_kind,
         expr::{BinaryOp, Expr, FieldId, Function, UnaryOp},
     },
-};
-use crate::{
     model::EntityModel,
     value::{InputValue, Value},
 };
 use candid::CandidType;
 use serde::Deserialize;
 
-///
-/// FilterValue
-///
-/// Serialized frontend-safe filter literal payload.
-/// This keeps the public filter wire surface narrow and string-backed while
-/// the intent boundary still rehydrates typed runtime values from schema.
-///
+// FilterValue
+//
+// Serialized frontend-safe filter literal payload.
+// This keeps the public filter wire surface narrow and string-backed while
+// the intent boundary still rehydrates typed runtime values from schema.
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub enum FilterValue {
@@ -94,13 +87,11 @@ where
     }
 }
 
-///
-/// FilterExpr
-///
-/// Serialized, planner-agnostic filter language.
-/// This is the shared frontend-facing filter input model for fluent callers
-/// and lowers onto planner-owned boolean expressions at the intent boundary.
-///
+// FilterExpr
+//
+// Serialized, planner-agnostic filter language.
+// This is the shared frontend-facing filter input model for fluent callers
+// and lowers onto planner-owned boolean expressions at the intent boundary.
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub enum FilterExpr {
@@ -739,152 +730,16 @@ fn casefold_field_expr(field: &str) -> Expr {
 }
 
 ///
-/// OrderExpr
-///
-/// Typed fluent ORDER BY expression wrapper.
-/// This exists so fluent code can construct planner-owned ORDER BY
-/// semantics directly at the query boundary.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct OrderExpr {
-    expr: Expr,
-}
-
-impl OrderExpr {
-    /// Build one direct field ORDER BY expression.
-    #[must_use]
-    pub fn field(field: impl Into<String>) -> Self {
-        let field = field.into();
-
-        Self {
-            expr: Expr::Field(FieldId::new(field)),
-        }
-    }
-
-    // Freeze one typed fluent order expression onto the planner-owned
-    // semantic expression now that labels are derived only at explain/hash
-    // edges instead of being stored in fluent order shells.
-    const fn new(expr: Expr) -> Self {
-        Self { expr }
-    }
-
-    // Lower one typed fluent order expression into the planner-owned order
-    // contract now that ordering is expression-based end to end.
-    pub(in crate::db) fn lower(&self, direction: OrderDirection) -> PlannedOrderTerm {
-        PlannedOrderTerm::new(self.expr.clone(), direction)
-    }
-}
-
-impl From<&str> for OrderExpr {
-    fn from(value: &str) -> Self {
-        Self::field(value)
-    }
-}
-
-impl From<String> for OrderExpr {
-    fn from(value: String) -> Self {
-        Self::field(value)
-    }
-}
-
-impl From<FieldRef> for OrderExpr {
-    fn from(value: FieldRef) -> Self {
-        Self::field(value.as_str())
-    }
-}
-
-impl From<TextProjectionExpr> for OrderExpr {
-    fn from(value: TextProjectionExpr) -> Self {
-        Self::new(value.expr().clone())
-    }
-}
-
-impl From<NumericProjectionExpr> for OrderExpr {
-    fn from(value: NumericProjectionExpr) -> Self {
-        Self::new(value.expr().clone())
-    }
-}
-
-impl From<RoundProjectionExpr> for OrderExpr {
-    fn from(value: RoundProjectionExpr) -> Self {
-        Self::new(value.expr().clone())
-    }
-}
-
-impl From<AggregateExpr> for OrderExpr {
-    fn from(value: AggregateExpr) -> Self {
-        Self::new(Expr::Aggregate(value))
-    }
-}
-
-///
-/// OrderTerm
-///
-/// Typed fluent ORDER BY term.
-/// Carries one typed ORDER BY expression plus direction so fluent builders can
-/// express deterministic ordering directly at the query boundary.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct OrderTerm {
-    expr: OrderExpr,
-    direction: OrderDirection,
-}
-
-impl OrderTerm {
-    /// Build one ascending ORDER BY term from one typed expression.
-    #[must_use]
-    pub fn asc(expr: impl Into<OrderExpr>) -> Self {
-        Self {
-            expr: expr.into(),
-            direction: OrderDirection::Asc,
-        }
-    }
-
-    /// Build one descending ORDER BY term from one typed expression.
-    #[must_use]
-    pub fn desc(expr: impl Into<OrderExpr>) -> Self {
-        Self {
-            expr: expr.into(),
-            direction: OrderDirection::Desc,
-        }
-    }
-
-    // Lower one typed fluent order term directly into the planner-owned
-    // `OrderTerm` contract.
-    pub(in crate::db) fn lower(&self) -> PlannedOrderTerm {
-        self.expr.lower(self.direction)
-    }
-}
-
-/// Build one typed direct-field ORDER BY expression.
-#[must_use]
-pub fn field(field: impl Into<String>) -> OrderExpr {
-    OrderExpr::field(field)
-}
-
-/// Build one ascending typed ORDER BY term.
-#[must_use]
-pub fn asc(expr: impl Into<OrderExpr>) -> OrderTerm {
-    OrderTerm::asc(expr)
-}
-
-/// Build one descending typed ORDER BY term.
-#[must_use]
-pub fn desc(expr: impl Into<OrderExpr>) -> OrderTerm {
-    OrderTerm::desc(expr)
-}
-
-///
 /// TESTS
 ///
 
 #[cfg(test)]
 mod tests {
-    use super::{FilterExpr, FilterValue};
     use crate::{
-        db::query::plan::expr::{BinaryOp, Expr, FieldId},
+        db::query::{
+            expr::{FilterExpr, FilterValue},
+            plan::expr::{BinaryOp, Expr, FieldId},
+        },
         model::{EntityModel, field::FieldKind, field::FieldModel},
         types::Ulid,
         value::Value,
@@ -986,7 +841,7 @@ mod tests {
         for field in ["field", "value"] {
             assert!(
                 fields.iter().any(|candidate| candidate == field),
-                "TextContainsCi payload must keep `{field}` field key in Candid shape",
+                "TextContainsCi payload must keep `{field}` field key",
             );
         }
     }

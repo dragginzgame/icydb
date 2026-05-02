@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.144.x] 🧱 - 2026-04-30 - Structural Ownership Audit
 
+- `0.144.13` keeps delete and query behavior unchanged while splitting delete execution and query expression code into smaller, clearer owners.
 - `0.144.12` keeps SQL and aggregate behavior unchanged while making database internals easier to maintain by moving compile, cache, attribution, path, and aggregate-boundary code into clearer owners.
 - `0.144.11` makes SQL blob length projections cheaper by avoiding full blob/text value materialization when `OCTET_LENGTH(...)` only needs byte counts.
 - `0.144.10` simplifies database internals by folding trivial one-call helper functions across query planning, SQL lowering, schema description, predicates, aggregation, and projection without changing behavior.
