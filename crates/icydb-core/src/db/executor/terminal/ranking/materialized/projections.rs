@@ -51,14 +51,13 @@ where
         field_slot: FieldSlot,
         take_count: u32,
     ) -> Result<Vec<Value>, InternalError> {
-        let ordered_rows = Self::top_k_ranked_rows_from_materialized(
+        Self::top_k_ranked_values_from_materialized(
             row_layout,
             rows,
             target_field,
             field_slot,
             take_count,
-        )?;
-        Ok(field_values_from_ranked_rows(ordered_rows))
+        )
     }
 
     // Reduce one materialized response into top-k projected field values with
@@ -110,14 +109,13 @@ where
         field_slot: FieldSlot,
         take_count: u32,
     ) -> Result<Vec<Value>, InternalError> {
-        let ordered_rows = Self::bottom_k_ranked_rows_from_materialized(
+        Self::bottom_k_ranked_values_from_materialized(
             row_layout,
             rows,
             target_field,
             field_slot,
             take_count,
-        )?;
-        Ok(field_values_from_ranked_rows(ordered_rows))
+        )
     }
 
     // Reduce one materialized response into bottom-k projected field values
@@ -157,16 +155,6 @@ where
     }
 
     decode_data_rows_into_entity_response::<E>(output_rows)
-}
-
-// Drop row-index metadata once callers only need the ranked values.
-fn field_values_from_ranked_rows(ordered_rows: Vec<(usize, Value)>) -> Vec<Value> {
-    let mut projected_values = Vec::with_capacity(ordered_rows.len());
-    for (_, value) in ordered_rows {
-        projected_values.push(value);
-    }
-
-    projected_values
 }
 
 fn field_values_with_data_keys_from_ranked_rows(

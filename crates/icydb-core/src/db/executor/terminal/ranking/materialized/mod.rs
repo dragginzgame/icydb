@@ -56,6 +56,26 @@ where
         )
     }
 
+    // Reduce one materialized response into deterministic top-k ranked values
+    // ordered by `(field_value_desc, primary_key_asc)` without retaining row
+    // indices that the value-only projection boundary will never consume.
+    pub(super) fn top_k_ranked_values_from_materialized(
+        row_layout: RowLayout,
+        rows: &[DataRow],
+        target_field: &str,
+        field_slot: FieldSlot,
+        take_count: u32,
+    ) -> Result<Vec<Value>, InternalError> {
+        rank_k_values_from_materialized_structural(
+            row_layout,
+            rows,
+            target_field,
+            field_slot,
+            take_count,
+            RankedFieldDirection::Descending,
+        )
+    }
+
     // Reduce one materialized response into deterministic bottom-k ranked rows
     // ordered by `(field_value_asc, primary_key_asc)`.
     pub(super) fn bottom_k_ranked_rows_from_materialized(
@@ -66,6 +86,26 @@ where
         take_count: u32,
     ) -> Result<Vec<(usize, Value)>, InternalError> {
         rank_k_rows_from_materialized_structural(
+            row_layout,
+            rows,
+            target_field,
+            field_slot,
+            take_count,
+            RankedFieldDirection::Ascending,
+        )
+    }
+
+    // Reduce one materialized response into deterministic bottom-k ranked
+    // values ordered by `(field_value_asc, primary_key_asc)` without retaining
+    // row indices that the value-only projection boundary will never consume.
+    pub(super) fn bottom_k_ranked_values_from_materialized(
+        row_layout: RowLayout,
+        rows: &[DataRow],
+        target_field: &str,
+        field_slot: FieldSlot,
+        take_count: u32,
+    ) -> Result<Vec<Value>, InternalError> {
+        rank_k_values_from_materialized_structural(
             row_layout,
             rows,
             target_field,
@@ -124,6 +164,48 @@ fn rank_k_rows_from_materialized_structural(
     }
 
     Ok(output_rows)
+}
+
+// Shared ranked-value helper for value-only top/bottom k terminal families.
+// The primary key is retained only as the deterministic tie-break key; row
+// indices are intentionally omitted because callers never need to recover the
+// source row after ranking.
+fn rank_k_values_from_materialized_structural(
+    row_layout: RowLayout,
+    rows: &[DataRow],
+    target_field: &str,
+    field_slot: FieldSlot,
+    take_count: u32,
+    direction: RankedFieldDirection,
+) -> Result<Vec<Value>, InternalError> {
+    let mut ranked_rows = Vec::with_capacity(rows.len());
+
+    // Phase 1: decode only the ranked target slot and retain primary-key
+    // tie-break data plus the projected value.
+    for (data_key, raw_row) in rows {
+        let storage_key = data_key.storage_key();
+        let value = decode_ranked_field_value_from_materialized_row(
+            &row_layout,
+            storage_key,
+            raw_row,
+            target_field,
+            field_slot,
+        )?;
+        ranked_rows.push(((storage_key, ()), value));
+    }
+
+    // Phase 2: apply the same bounded ranking window and final deterministic
+    // ordering as row-returning ranked terminals.
+    apply_ranked_take_window(
+        target_field,
+        field_slot,
+        &mut ranked_rows,
+        take_count,
+        direction,
+    )
+    .map_err(AggregateFieldValueError::into_internal_error)?;
+
+    Ok(ranked_rows.into_iter().map(|(_, value)| value).collect())
 }
 
 // Decode the ranked target field directly from the borrowed persisted row so

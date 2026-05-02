@@ -382,7 +382,7 @@ where
         return Ok(None);
     }
 
-    let Some(mut stream) = primary_store_covering_key_stream(db, authority, plan, covering)? else {
+    let Some(stream) = primary_store_covering_key_stream(db, authority, plan, covering)? else {
         return Ok(None);
     };
 
@@ -399,24 +399,11 @@ where
         plan.scalar_plan().distinct,
         page,
     );
-    let mut projected_keys = Vec::new();
-    let mut matched_keys = 0usize;
-    while let Some(data_key) = stream.next_key()? {
-        if matched_keys >= scan_time_page_skip_count {
-            projected_keys.push(data_key);
-        }
-        matched_keys = matched_keys.saturating_add(1);
-    }
-
-    let mut projected_rows =
-        assemble_covering_rows_in_index_order(projected_keys, 0, |data_key| {
-            project_covering_row_from_decoded_values(
-                &data_key,
-                covering.fields.as_slice(),
-                &[],
-                &[],
-            )
-        })?;
+    let mut projected_rows = assemble_primary_store_covering_rows_in_stream_order(
+        stream,
+        scan_time_page_skip_count,
+        covering,
+    )?;
     apply_pure_covering_page_window(
         plan.scalar_plan().distinct,
         page,
@@ -425,6 +412,59 @@ where
     );
 
     Ok(Some(projected_rows))
+}
+
+// Assemble primary-store covering projection rows directly from the ordered key
+// stream. This route is admitted only for planner-proven row-present scans over
+// primary-key and constant fields, so there is no row-presence check or reorder
+// step that would require retaining a temporary key vector.
+#[cfg(feature = "sql")]
+fn assemble_primary_store_covering_rows_in_stream_order(
+    stream: OrderedKeyStreamBox,
+    skip_count: usize,
+    covering: &CoveringReadExecutionPlan,
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    let (row_assembly_local_instructions, projected_rows) = measure_structural_result(|| {
+        collect_primary_store_covering_rows_in_stream_order(stream, skip_count, covering)
+    });
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    let projected_rows = projected_rows?;
+
+    #[cfg(not(all(feature = "sql", feature = "diagnostics")))]
+    let projected_rows =
+        collect_primary_store_covering_rows_in_stream_order(stream, skip_count, covering)?;
+
+    Ok(projected_rows)
+}
+
+// Walk the primary-store key stream once and materialize only the final output
+// rows that survive the scan-time offset. The helper keeps the fallible stream
+// traversal outside the diagnostics wrapper call site while preserving the same
+// projection assembly accounting as other pure covering lanes.
+#[cfg(feature = "sql")]
+fn collect_primary_store_covering_rows_in_stream_order(
+    mut stream: OrderedKeyStreamBox,
+    skip_count: usize,
+    covering: &CoveringReadExecutionPlan,
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    let mut projected_rows = Vec::new();
+    let mut matched_keys = 0usize;
+    while let Some(data_key) = stream.next_key()? {
+        if matched_keys >= skip_count {
+            projected_rows.push(project_covering_row_from_decoded_values(
+                &data_key,
+                covering.fields.as_slice(),
+                &[],
+                &[],
+            )?);
+        }
+        matched_keys = matched_keys.saturating_add(1);
+    }
+
+    Ok(projected_rows)
 }
 
 #[cfg(feature = "sql")]
