@@ -195,39 +195,49 @@ where
     ) -> Result<Option<(StorageKey, StorageKey)>, InternalError> {
         let mut min_candidate: Option<(StorageKey, Value)> = None;
         let mut max_candidate: Option<(StorageKey, Value)> = None;
-        for (key, value) in
-            Self::field_projection_from_materialized(rows, row_layout, target_field, field_slot)?
-        {
-            let replace_min = match min_candidate.as_ref() {
-                Some((current_key, current_value)) => Self::field_projection_candidate_precedes(
-                    target_field,
-                    &key,
-                    &value,
-                    current_key,
-                    current_value,
-                    Ordering::Less,
-                )?,
-                None => true,
-            };
-            if replace_min {
-                min_candidate = Some((key, value.clone()));
-            }
+        Self::for_each_projected_field_from_materialized(
+            rows,
+            row_layout,
+            target_field,
+            field_slot,
+            |key, value| {
+                let replace_min = match min_candidate.as_ref() {
+                    Some((current_key, current_value)) => {
+                        Self::field_projection_candidate_precedes(
+                            target_field,
+                            &key,
+                            &value,
+                            current_key,
+                            current_value,
+                            Ordering::Less,
+                        )?
+                    }
+                    None => true,
+                };
+                if replace_min {
+                    min_candidate = Some((key, value.clone()));
+                }
 
-            let replace_max = match max_candidate.as_ref() {
-                Some((current_key, current_value)) => Self::field_projection_candidate_precedes(
-                    target_field,
-                    &key,
-                    &value,
-                    current_key,
-                    current_value,
-                    Ordering::Greater,
-                )?,
-                None => true,
-            };
-            if replace_max {
-                max_candidate = Some((key, value));
-            }
-        }
+                let replace_max = match max_candidate.as_ref() {
+                    Some((current_key, current_value)) => {
+                        Self::field_projection_candidate_precedes(
+                            target_field,
+                            &key,
+                            &value,
+                            current_key,
+                            current_value,
+                            Ordering::Greater,
+                        )?
+                    }
+                    None => true,
+                };
+                if replace_max {
+                    max_candidate = Some((key, value));
+                }
+
+                Ok(())
+            },
+        )?;
 
         let Some((min_key, _)) = min_candidate else {
             return Ok(None);
@@ -285,6 +295,30 @@ where
     ) -> Result<Vec<(StorageKey, Value)>, InternalError> {
         let mut projected = Vec::with_capacity(rows.len());
 
+        Self::for_each_projected_field_from_materialized(
+            rows,
+            row_layout,
+            target_field,
+            field_slot,
+            |storage_key, value| {
+                projected.push((storage_key, value));
+                Ok(())
+            },
+        )?;
+
+        Ok(projected)
+    }
+
+    // Project materialized scalar rows into `(id, field_value)` pairs through
+    // a caller-owned fold, so one-pass reducers do not need a second projected
+    // vector after the materialized row boundary.
+    fn for_each_projected_field_from_materialized(
+        rows: Vec<DataRow>,
+        row_layout: &RowLayout,
+        target_field: &str,
+        field_slot: FieldSlot,
+        mut visit_projected: impl FnMut(StorageKey, Value) -> Result<(), InternalError>,
+    ) -> Result<(), InternalError> {
         for (data_key, raw_row) in rows {
             let storage_key = data_key.storage_key();
             let value = Self::decode_projected_field_value(
@@ -294,10 +328,10 @@ where
                 target_field,
                 field_slot,
             )?;
-            projected.push((storage_key, value));
+            visit_projected(storage_key, value)?;
         }
 
-        Ok(projected)
+        Ok(())
     }
 
     // Load one structural row for field aggregates while preserving read

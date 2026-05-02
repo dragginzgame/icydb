@@ -169,15 +169,18 @@ impl<'a> GroupedCountWindowSelection<'a> {
         grouped_counts: Vec<(GroupKey, u32)>,
         selection_bound: usize,
     ) -> Result<Vec<(GroupKey, u32)>, InternalError> {
-        let mut qualifying = Vec::new();
+        let mut retained = BinaryHeap::<BoundedGroupedCountCandidate>::new();
+
+        // Stream HAVING/resume-qualified groups directly into the bounded heap
+        // instead of staging every qualifying candidate in a second vector.
         for (group_key, count) in grouped_counts {
             if !self.row_matches_window(&group_key, count)? {
                 continue;
             }
-            qualifying.push((group_key, count));
+            self.retain_bounded_candidate(&mut retained, group_key, count, selection_bound);
         }
 
-        Ok(self.retain_smallest_candidates(qualifying, selection_bound))
+        Ok(self.finish_retained_bounded_candidates(retained))
     }
 
     // Select every qualifying grouped-count row and restore canonical order
@@ -249,6 +252,7 @@ impl<'a> GroupedCountWindowSelection<'a> {
     // Retain only the smallest canonical grouped-count rows needed for one
     // bounded grouped page window so selection does not sort every qualifying
     // group.
+    #[cfg(test)]
     pub(super) fn retain_smallest_candidates(
         &self,
         grouped_counts: Vec<(GroupKey, u32)>,
@@ -261,27 +265,49 @@ impl<'a> GroupedCountWindowSelection<'a> {
         // instead of sorting every qualifying group when pagination bounds
         // are active.
         for (group_key, count) in grouped_counts {
-            metrics::record_bounded_selection_candidate_seen();
-            let candidate = BoundedGroupedCountCandidate {
-                group_key,
-                count,
-                direction: self.route.direction(),
-            };
-            if retained.len() < selection_bound {
-                retained.push(candidate);
-                continue;
-            }
-
-            if retained
-                .peek()
-                .is_some_and(|largest_retained| candidate.cmp(largest_retained).is_lt())
-            {
-                retained.pop();
-                retained.push(candidate);
-                metrics::record_bounded_selection_heap_replacement();
-            }
+            self.retain_bounded_candidate(&mut retained, group_key, count, selection_bound);
         }
 
+        self.finish_retained_bounded_candidates(retained)
+    }
+
+    // Insert one already-qualified grouped-count candidate into the retained
+    // bounded heap, preserving the old max-heap replacement semantics while
+    // allowing callers to avoid staging all qualifying rows first.
+    fn retain_bounded_candidate(
+        &self,
+        retained: &mut BinaryHeap<BoundedGroupedCountCandidate>,
+        group_key: GroupKey,
+        count: u32,
+        selection_bound: usize,
+    ) {
+        metrics::record_bounded_selection_candidate_seen();
+        let candidate = BoundedGroupedCountCandidate {
+            group_key,
+            count,
+            direction: self.route.direction(),
+        };
+        if retained.len() < selection_bound {
+            retained.push(candidate);
+            return;
+        }
+
+        if retained
+            .peek()
+            .is_some_and(|largest_retained| candidate.cmp(largest_retained).is_lt())
+        {
+            retained.pop();
+            retained.push(candidate);
+            metrics::record_bounded_selection_heap_replacement();
+        }
+    }
+
+    // Convert the retained bounded heap back to canonical grouped-key order so
+    // downstream pagination and projection see the same row order as before.
+    fn finish_retained_bounded_candidates(
+        &self,
+        retained: BinaryHeap<BoundedGroupedCountCandidate>,
+    ) -> Vec<(GroupKey, u32)> {
         // Phase 2: restore grouped-key order across the retained window only,
         // respecting the active grouped execution direction.
         let mut out: Vec<(GroupKey, u32)> = retained

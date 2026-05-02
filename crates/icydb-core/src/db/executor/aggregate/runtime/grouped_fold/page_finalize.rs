@@ -234,35 +234,60 @@ pub(super) fn finalize_grouped_page(
 // Build one finalized grouped candidate iterator from the grouped bundle
 // without changing the single-aggregate versus multi-aggregate execution
 // contract.
-fn into_grouped_page_candidates(
+fn for_each_grouped_page_candidate(
+    grouped_bundle: GroupedAggregateBundle,
+    sorted: bool,
+    direction: Direction,
+    compiled_top_k_order: Option<&CompiledGroupedTopKOrder>,
+    group_fields: &[crate::db::query::plan::FieldSlot],
+    mut visit_candidate: impl FnMut(GroupedPageCandidate) -> Result<(), InternalError>,
+) -> Result<(), InternalError> {
+    let aggregate_count = grouped_bundle.aggregate_count();
+
+    for finalized_group in into_finalize_groups(grouped_bundle, sorted) {
+        let mut candidate = GroupedPageCandidate::from_finalized(
+            finalized_group,
+            aggregate_count,
+            GroupedPageCandidateRanking::Canonical { direction },
+        )?;
+
+        if let Some(compiled_order) = compiled_top_k_order {
+            candidate.ranking = compile_grouped_page_candidate_top_k_ranking(
+                &candidate,
+                compiled_order,
+                group_fields,
+            )
+            .expect("grouped Top-K order values must compile from finalized groups");
+        }
+
+        visit_candidate(candidate)?;
+    }
+
+    Ok(())
+}
+
+// Materialize finalized grouped page candidates only for execution modes that
+// genuinely require a full ordered candidate set.
+fn collect_grouped_page_candidates(
     grouped_bundle: GroupedAggregateBundle,
     sorted: bool,
     direction: Direction,
     compiled_top_k_order: Option<&CompiledGroupedTopKOrder>,
     group_fields: &[crate::db::query::plan::FieldSlot],
 ) -> Result<Vec<GroupedPageCandidate>, InternalError> {
-    let aggregate_count = grouped_bundle.aggregate_count();
-    let candidates = into_finalize_groups(grouped_bundle, sorted)
-        .into_iter()
-        .map(|finalized_group| {
-            let mut candidate = GroupedPageCandidate::from_finalized(
-                finalized_group,
-                aggregate_count,
-                GroupedPageCandidateRanking::Canonical { direction },
-            )?;
+    let mut candidates = Vec::new();
 
-            if let Some(compiled_order) = compiled_top_k_order {
-                candidate.ranking = compile_grouped_page_candidate_top_k_ranking(
-                    &candidate,
-                    compiled_order,
-                    group_fields,
-                )
-                .expect("grouped Top-K order values must compile from finalized groups");
-            }
-
-            Ok(candidate)
-        })
-        .collect::<Result<Vec<_>, InternalError>>()?;
+    for_each_grouped_page_candidate(
+        grouped_bundle,
+        sorted,
+        direction,
+        compiled_top_k_order,
+        group_fields,
+        |candidate| {
+            candidates.push(candidate);
+            Ok(())
+        },
+    )?;
 
     Ok(candidates)
 }
@@ -406,17 +431,8 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
         grouped_bundle: GroupedAggregateBundle,
         selection_bound: usize,
     ) -> Result<(Vec<RuntimeGroupedRow>, Option<Vec<Value>>), InternalError> {
-        let selected_candidates = self.retain_smallest_candidates(
-            into_grouped_page_candidates(
-                grouped_bundle,
-                false,
-                self.direction,
-                self.compiled_top_k_order.as_ref(),
-                self.group_fields,
-            )?
-            .into_iter(),
-            selection_bound,
-        )?;
+        let selected_candidates =
+            self.retain_smallest_candidates_from_bundle(grouped_bundle, selection_bound)?;
 
         self.finalize_rows_from_candidates(selected_candidates.into_iter(), |_| Ok(true))
     }
@@ -428,7 +444,7 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
         grouped_bundle: GroupedAggregateBundle,
     ) -> Result<(Vec<RuntimeGroupedRow>, Option<Vec<Value>>), InternalError> {
         self.finalize_rows_from_candidates(
-            into_grouped_page_candidates(
+            collect_grouped_page_candidates(
                 grouped_bundle,
                 true,
                 self.direction,
@@ -452,35 +468,41 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
 
     // Retain only the smallest canonical grouped rows needed for one bounded
     // page window after grouped HAVING and resume filtering.
-    fn retain_smallest_candidates<I>(
+    fn retain_smallest_candidates_from_bundle(
         &self,
-        finalized_candidates: I,
+        grouped_bundle: GroupedAggregateBundle,
         selection_bound: usize,
-    ) -> Result<Vec<GroupedPageCandidate>, InternalError>
-    where
-        I: Iterator<Item = GroupedPageCandidate>,
-    {
+    ) -> Result<Vec<GroupedPageCandidate>, InternalError> {
         let mut retained = BinaryHeap::<GroupedPageCandidate>::new();
 
         // Phase 1: keep only the smallest `selection_bound` qualifying groups
         // so bounded grouped pages do not sort every finalized group up front.
-        for candidate in finalized_candidates {
-            if !self.matches_window(&candidate)? {
-                continue;
-            }
-            if retained.len() < selection_bound {
-                retained.push(candidate);
-                continue;
-            }
+        for_each_grouped_page_candidate(
+            grouped_bundle,
+            false,
+            self.direction,
+            self.compiled_top_k_order.as_ref(),
+            self.group_fields,
+            |candidate| {
+                if !self.matches_window(&candidate)? {
+                    return Ok(());
+                }
+                if retained.len() < selection_bound {
+                    retained.push(candidate);
+                    return Ok(());
+                }
 
-            if retained
-                .peek()
-                .is_some_and(|largest_retained| candidate.cmp(largest_retained).is_lt())
-            {
-                retained.pop();
-                retained.push(candidate);
-            }
-        }
+                if retained
+                    .peek()
+                    .is_some_and(|largest_retained| candidate.cmp(largest_retained).is_lt())
+                {
+                    retained.pop();
+                    retained.push(candidate);
+                }
+
+                Ok(())
+            },
+        )?;
 
         // Phase 2: restore grouped-key order across the retained bounded
         // window only, respecting the active grouped execution direction.

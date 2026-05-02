@@ -33,20 +33,37 @@ where
 
     match returning {
         None => Ok(SqlStatementResult::Count { row_count }),
-        Some(returning) => {
-            // Rebuild returning rows directly here so insert/update stop
-            // bouncing through one projection wrapper and one row wrapper
-            // before they reach the real RETURNING shaper.
+        Some(SqlReturningProjection::All) => {
             let columns = projection_labels_from_fields(E::MODEL.fields());
             let mut rows = Vec::with_capacity(entities.len());
 
             for entity in entities {
-                let mut row = Vec::with_capacity(E::MODEL.fields().len());
+                rows.push(sql_returning_all_values(&entity, E::MODEL.fields().len())?);
+            }
 
-                for index in 0..E::MODEL.fields().len() {
-                    let value = entity.get_value_by_index(index).ok_or_else(|| {
+            Ok(SqlProjectionPayload::new(
+                columns,
+                vec![None; E::MODEL.fields().len()],
+                rows,
+                row_count,
+            )
+            .into_statement_result())
+        }
+        Some(SqlReturningProjection::Fields(fields)) => {
+            let columns = projection_labels_from_fields(E::MODEL.fields());
+            let indices = sql_returning_field_indices(&columns, fields)?;
+            let mut rows = Vec::with_capacity(entities.len());
+
+            // Project field-list RETURNING rows directly from typed mutation
+            // outputs. This avoids constructing full rows for blob-heavy
+            // entities when callers return only a small subset of fields.
+            for entity in entities {
+                let mut row = Vec::with_capacity(indices.len());
+
+                for index in &indices {
+                    let value = entity.get_value_by_index(*index).ok_or_else(|| {
                         QueryError::invariant(
-                            "SQL write statement projection row must include every declared field",
+                            "SQL write statement projection row must include every returned field",
                         )
                     })?;
                     row.push(value);
@@ -55,9 +72,60 @@ where
                 rows.push(row);
             }
 
-            sql_returning_statement_projection(columns, rows, row_count, returning)
+            Ok(
+                SqlProjectionPayload::new(
+                    fields.clone(),
+                    vec![None; fields.len()],
+                    rows,
+                    row_count,
+                )
+                .into_statement_result(),
+            )
         }
     }
+}
+
+// Materialize every field from one typed write result for `RETURNING *`.
+fn sql_returning_all_values<E>(entity: &E, field_count: usize) -> Result<Vec<Value>, QueryError>
+where
+    E: EntityValue,
+{
+    let mut row = Vec::with_capacity(field_count);
+
+    for index in 0..field_count {
+        let value = entity.get_value_by_index(index).ok_or_else(|| {
+            QueryError::invariant(
+                "SQL write statement projection row must include every declared field",
+            )
+        })?;
+        row.push(value);
+    }
+
+    Ok(row)
+}
+
+// Resolve a SQL RETURNING field list against the target entity columns once so
+// per-row projection can move or read values by slot without redoing label
+// lookups.
+fn sql_returning_field_indices(
+    columns: &[String],
+    fields: &[String],
+) -> Result<Vec<usize>, QueryError> {
+    let mut indices = Vec::with_capacity(fields.len());
+
+    for field in fields {
+        let index = columns
+            .iter()
+            .position(|column| column == field)
+            .ok_or_else(|| {
+                QueryError::unsupported_query(format!(
+                    "SQL RETURNING field '{field}' does not exist on the target entity"
+                ))
+            })?;
+        indices.push(index);
+    }
+
+    Ok(indices)
 }
 
 /// Apply one SQL `RETURNING` projection to materialized mutation rows.
@@ -80,30 +148,22 @@ pub(in crate::db::session::sql::execute) fn sql_returning_statement_projection(
         )
         .into_statement_result()),
         SqlReturningProjection::Fields(fields) => {
-            let mut indices = Vec::with_capacity(fields.len());
-
-            for field in fields {
-                let index = columns
-                    .iter()
-                    .position(|column| column == field)
-                    .ok_or_else(|| {
-                        QueryError::unsupported_query(format!(
-                            "SQL RETURNING field '{field}' does not exist on the target entity"
-                        ))
-                    })?;
-                indices.push(index);
-            }
+            let indices = sql_returning_field_indices(&columns, fields)?;
 
             let mut projected_rows = Vec::with_capacity(rows.len());
             for row in rows {
+                let mut owned_values = row.into_iter().map(Some).collect::<Vec<_>>();
                 let mut projected = Vec::with_capacity(indices.len());
                 for index in &indices {
-                    let value = row.get(*index).ok_or_else(|| {
-                        QueryError::invariant(
-                            "SQL RETURNING projection row must align with declared columns",
-                        )
-                    })?;
-                    projected.push(value.clone());
+                    let value = owned_values
+                        .get_mut(*index)
+                        .and_then(Option::take)
+                        .ok_or_else(|| {
+                            QueryError::invariant(
+                                "SQL RETURNING projection row must align with declared columns",
+                            )
+                        })?;
+                    projected.push(value);
                 }
                 projected_rows.push(projected);
             }
