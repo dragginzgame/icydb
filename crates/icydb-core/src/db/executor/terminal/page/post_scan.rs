@@ -65,10 +65,22 @@ impl<'a> StructuralPostScanTailStrategy<'a> {
         plan: &AccessPlannedQuery,
         rows: &mut Vec<KernelRow>,
     ) -> Result<(), InternalError> {
+        self.apply_with_pre_applied_page_window(plan, rows, false)
+    }
+
+    // Apply the resolved structural post-scan tail when an upstream scan may
+    // have already applied the cursorless page offset during collection.
+    pub(super) fn apply_with_pre_applied_page_window(
+        &self,
+        plan: &AccessPlannedQuery,
+        rows: &mut Vec<KernelRow>,
+        page_window_already_applied: bool,
+    ) -> Result<(), InternalError> {
         if matches!(
             self.page_window_strategy,
             StructuralPostScanPageWindowStrategy::CursorlessRetainedWindow
-        ) && self.final_payload_strategy.retains_slot_rows()
+        ) && !page_window_already_applied
+            && self.final_payload_strategy.retains_slot_rows()
             && !cursorless_short_path_page_window_is_redundant(plan, rows.len())
         {
             apply_cursorless_short_path_page_window(plan, rows);

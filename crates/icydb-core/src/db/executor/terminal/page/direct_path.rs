@@ -16,7 +16,10 @@ use super::{
     plan::DirectDataRowPath,
     post_access::apply_data_row_page_window,
     row_runtime::{ResidualFilterScanMode, ScalarRowRuntimeHandle},
-    scan::{scan_direct_data_rows_with_residual_policy, scan_materialized_order_direct_data_rows},
+    scan::{
+        DirectDataRowScanResult, scan_direct_data_rows_with_residual_policy,
+        scan_materialized_order_direct_data_rows,
+    },
 };
 
 #[cfg(feature = "diagnostics")]
@@ -66,6 +69,7 @@ pub(super) fn execute_direct_data_row_path(
     }
 
     // Phase 2: run the direct scan through the shared residual-policy helper.
+    let row_skip_count = direct_data_row_page_skip_count(plan);
     #[cfg(feature = "diagnostics")]
     let (scan_local_instructions, scan_result) =
         measure_direct_data_row_phase(|| match direct_data_row_path {
@@ -74,6 +78,7 @@ pub(super) fn execute_direct_data_row_path(
                     key_stream,
                     scan_budget_hint,
                     row_keep_cap,
+                    row_skip_count,
                     consistency,
                     ResidualFilterScanMode::Absent,
                     row_runtime,
@@ -90,6 +95,7 @@ pub(super) fn execute_direct_data_row_path(
                 key_stream,
                 scan_budget_hint,
                 row_keep_cap,
+                row_skip_count,
                 consistency,
                 ResidualFilterScanMode::AppliedDuringScan,
                 row_runtime,
@@ -118,6 +124,7 @@ pub(super) fn execute_direct_data_row_path(
             key_stream,
             scan_budget_hint,
             row_keep_cap,
+            row_skip_count,
             consistency,
             ResidualFilterScanMode::Absent,
             row_runtime,
@@ -133,6 +140,7 @@ pub(super) fn execute_direct_data_row_path(
             key_stream,
             scan_budget_hint,
             row_keep_cap,
+            row_skip_count,
             consistency,
             ResidualFilterScanMode::AppliedDuringScan,
             row_runtime,
@@ -155,7 +163,11 @@ pub(super) fn execute_direct_data_row_path(
             retained_slot_layout,
         ),
     };
-    let (mut data_rows, rows_scanned) = scan_result?;
+    let DirectDataRowScanResult {
+        rows: mut data_rows,
+        rows_scanned,
+        rows_matched,
+    } = scan_result?;
     #[cfg(feature = "diagnostics")]
     record_direct_data_row_scan_local_instructions(scan_local_instructions);
 
@@ -189,16 +201,28 @@ pub(super) fn execute_direct_data_row_path(
 
     // Phase 4: direct-lane accounting matches the shared kernel path, then
     // the final offset/limit window runs once on canonical data rows.
-    let post_access_rows = data_rows.len();
+    let page_window_already_applied = !matches!(
+        direct_data_row_path,
+        DirectDataRowPath::MaterializedOrder { .. }
+    );
+    let post_access_rows = if page_window_already_applied {
+        rows_matched
+    } else {
+        data_rows.len()
+    };
     #[cfg(feature = "diagnostics")]
     let (page_window_local_instructions, page_window_result) =
         measure_direct_data_row_phase(|| {
-            apply_data_row_page_window(plan, &mut data_rows);
+            if !page_window_already_applied {
+                apply_data_row_page_window(plan, &mut data_rows);
+            }
 
             Ok::<(), InternalError>(())
         });
     #[cfg(not(feature = "diagnostics"))]
-    apply_data_row_page_window(plan, &mut data_rows);
+    if !page_window_already_applied {
+        apply_data_row_page_window(plan, &mut data_rows);
+    }
     #[cfg(feature = "diagnostics")]
     page_window_result?;
     #[cfg(feature = "diagnostics")]
@@ -209,4 +233,14 @@ pub(super) fn execute_direct_data_row_path(
         rows_scanned,
         post_access_rows,
     ))
+}
+
+// Return the cursorless scalar page offset that route-satisfied direct raw-row
+// scans can skip during collection. Materialized-order direct lanes pass
+// through the same value but ignore it because ordering must run before paging.
+fn direct_data_row_page_skip_count(plan: &AccessPlannedQuery) -> usize {
+    plan.scalar_plan()
+        .page
+        .as_ref()
+        .map_or(0, |page| usize::try_from(page.offset).unwrap_or(usize::MAX))
 }

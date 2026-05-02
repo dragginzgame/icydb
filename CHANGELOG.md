@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.145.x] 🌊 - 2026-05-02 - Streaming Boundaries
+
+- `0.145.0` lowers memory pressure in grouped queries, SQL write results, paged loads, SQL covering projections, and field aggregates by streaming bounded candidates, returning only requested fields, skipping discarded offset rows earlier, and avoiding extra row/key staging.
+
+See detailed breakdown:
+[docs/changelog/0.145.md](docs/changelog/0.145.md)
+
+---
+
 ## [0.144.x] 🧱 - 2026-04-30 - Structural Ownership Audit
 
 - `0.144.13` keeps delete and query behavior unchanged while splitting delete execution and query expression code into smaller, clearer owners.

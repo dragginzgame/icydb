@@ -232,7 +232,8 @@ fn fluent_route_ordered_direct_data_row_loads_cap_rows_scanned_to_offset_plus_li
     // Phase 2: capture executor scan metrics for one cursorless ordered page.
     // This direct lane now owns the same `offset + limit` early-stop contract
     // the retained-slot collector already used, so route-ordered loads should
-    // stop after staging the final page window.
+    // stop after reading the final needed candidate while returning only the
+    // post-offset page.
     let (rows, rows_scanned) =
         capture_rows_scanned_for_entity(FilteredIndexedSessionSqlEntity::PATH, || {
             session
@@ -241,19 +242,24 @@ fn fluent_route_ordered_direct_data_row_loads_cap_rows_scanned_to_offset_plus_li
                 .filter(crate::db::FieldRef::new("tier").eq("gold"))
                 .order_term(crate::db::asc("handle"))
                 .order_term(crate::db::asc("id"))
+                .offset(1)
                 .limit(2)
                 .execute()
                 .and_then(crate::db::LoadQueryResult::into_rows)
         });
     let rows = rows.expect("route-ordered filtered handle load should execute");
+    let handles = rows
+        .iter()
+        .map(|row| row.entity_ref().handle.clone())
+        .collect::<Vec<_>>();
 
     assert_eq!(
-        rows.len(),
-        2,
-        "route-ordered filtered handle load should still return the bounded page",
+        handles,
+        vec!["bravo-handle".to_string(), "echo-handle".to_string()],
+        "route-ordered filtered handle load should still return the post-offset bounded page",
     );
     assert_eq!(
-        rows_scanned, 2,
+        rows_scanned, 3,
         "route-ordered direct data-row loads should stop scanning at offset+limit",
     );
 }

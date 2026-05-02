@@ -318,10 +318,8 @@ impl ScalarAggregateReducerRuntime {
 
     // Finalize reducer states in original terminal order.
     pub(super) fn finalize(self) -> Result<Vec<Value>, InternalError> {
-        let mut values = (0..self.terminal_count)
-            .map(|_| None)
-            .collect::<Vec<Option<Value>>>();
-        for (index, value) in self
+        let mut values = vec![None; self.terminal_count];
+        let finalized = self
             .row_reducers
             .into_iter()
             .map(|reducer| reducer.state.finalize())
@@ -334,9 +332,9 @@ impl ScalarAggregateReducerRuntime {
                 self.expr_reducers
                     .into_iter()
                     .map(|reducer| reducer.state.finalize()),
-            )
-            .collect::<Result<Vec<_>, _>>()?
-        {
+            );
+        for finalized in finalized {
+            let (index, value) = finalized?;
             values[index] = Some(value);
         }
 

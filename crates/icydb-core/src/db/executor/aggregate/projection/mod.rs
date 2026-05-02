@@ -363,38 +363,33 @@ where
 
         match op {
             PreparedScalarProjectionOp::Values => {
-                let projected_values = Self::project_field_values_from_materialized_structural(
+                let projected_values = Self::project_values_from_materialized_structural(
                     rows,
                     &row_layout,
                     target_field_name,
                     field_slot,
                 )?;
 
-                Ok(ScalarProjectionBoundaryOutput::Values(
-                    projected_values
-                        .into_iter()
-                        .map(|(_, value)| value)
-                        .collect(),
-                ))
+                Ok(ScalarProjectionBoundaryOutput::Values(projected_values))
             }
             PreparedScalarProjectionOp::DistinctValues => {
-                Self::project_field_values_from_materialized_structural(
+                Self::project_values_from_materialized_structural(
                     rows,
                     &row_layout,
                     target_field_name,
                     field_slot,
                 )
-                .and_then(project_distinct_field_values_from_structural_projection)
+                .and_then(project_distinct_values_from_materialized_values)
                 .map(ScalarProjectionBoundaryOutput::Values)
             }
             PreparedScalarProjectionOp::CountDistinct => {
-                Self::project_field_values_from_materialized_structural(
+                Self::project_values_from_materialized_structural(
                     rows,
                     &row_layout,
                     target_field_name,
                     field_slot,
                 )
-                .and_then(project_distinct_field_values_from_structural_projection)
+                .and_then(project_distinct_values_from_materialized_values)
                 .map(|values| {
                     ScalarProjectionBoundaryOutput::Count(saturating_u32_len(values.len()))
                 })
@@ -510,6 +505,29 @@ where
             .collect()
     }
 
+    // Project materialized structural rows into field values only for terminal
+    // families that do not need to expose row ids in their public output.
+    fn project_values_from_materialized_structural(
+        rows: Vec<DataRow>,
+        row_layout: &RowLayout,
+        target_field: &str,
+        field_slot: FieldSlot,
+    ) -> Result<Vec<Value>, InternalError> {
+        rows.into_iter()
+            .map(|(data_key, raw_row)| {
+                let value = RowDecoder::decode_required_slot_value(
+                    row_layout,
+                    data_key.storage_key(),
+                    &raw_row,
+                    field_slot.index,
+                )?;
+
+                extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
+                    .map_err(AggregateFieldValueError::into_internal_error)
+            })
+            .collect()
+    }
+
     // Resolve one constant field projection value when access shape guarantees
     // that target-field value is fixed by index-prefix equality bindings.
     //
@@ -613,15 +631,15 @@ where
     }
 }
 
-fn project_distinct_field_values_from_structural_projection(
-    projected_values: ValueProjection,
+fn project_distinct_values_from_materialized_values(
+    projected_values: Vec<Value>,
 ) -> Result<Vec<Value>, InternalError> {
     let mut distinct_values = GroupKeySet::default();
     let mut distinct_projected_values = Vec::with_capacity(projected_values.len());
 
     // Phase 1: preserve first-observed order while deduplicating on canonical
     // group-key equality over structural projection values.
-    for (_, value) in projected_values {
+    for value in projected_values {
         if !insert_materialized_distinct_value(&mut distinct_values, &value)? {
             continue;
         }

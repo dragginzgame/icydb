@@ -104,6 +104,18 @@ where
     let page = plan.scalar_plan().page.as_ref();
     let order_contract = covering.order_contract;
     let index_order = matches!(order_contract, CoveringProjectionOrder::IndexOrder(_));
+    let scan_time_page_skip_count = pure_covering_scan_time_page_skip_count(
+        order_contract,
+        covering.existing_row_mode,
+        plan.scalar_plan().distinct,
+        page,
+    );
+    let scan_time_page_window_applied = pure_covering_scan_time_page_window_applied(
+        order_contract,
+        covering.existing_row_mode,
+        plan.scalar_plan().distinct,
+        page,
+    );
 
     if component_indices.is_empty() {
         #[cfg(all(feature = "sql", feature = "diagnostics"))]
@@ -136,16 +148,24 @@ where
         };
 
         if index_order {
-            let mut projected_rows =
-                assemble_covering_rows_in_index_order(projected_keys, |(data_key, ())| {
+            let mut projected_rows = assemble_covering_rows_in_index_order(
+                projected_keys,
+                scan_time_page_skip_count,
+                |(data_key, ())| {
                     project_covering_row_from_decoded_values(
                         &data_key,
                         covering.fields.as_slice(),
                         &[],
                         &[],
                     )
-                })?;
-            apply_pure_covering_page_window(plan.scalar_plan().distinct, page, &mut projected_rows);
+                },
+            )?;
+            apply_pure_covering_page_window(
+                plan.scalar_plan().distinct,
+                page,
+                scan_time_page_window_applied,
+                &mut projected_rows,
+            );
 
             return Ok(Some(projected_rows));
         }
@@ -164,7 +184,12 @@ where
                 Ok::<(DataKey, Vec<Value>), InternalError>((data_key, projected_row))
             },
         )?;
-        apply_pure_covering_page_window(plan.scalar_plan().distinct, page, &mut projected_rows);
+        apply_pure_covering_page_window(
+            plan.scalar_plan().distinct,
+            page,
+            false,
+            &mut projected_rows,
+        );
 
         return Ok(Some(projected_rows));
     }
@@ -209,6 +234,7 @@ where
         if index_order {
             let mut projected_rows = assemble_covering_rows_in_index_order(
                 decoded_rows,
+                scan_time_page_skip_count,
                 |(data_key, decoded_value)| {
                     project_covering_row_from_single_decoded_value(
                         &data_key,
@@ -218,7 +244,12 @@ where
                     )
                 },
             )?;
-            apply_pure_covering_page_window(plan.scalar_plan().distinct, page, &mut projected_rows);
+            apply_pure_covering_page_window(
+                plan.scalar_plan().distinct,
+                page,
+                scan_time_page_window_applied,
+                &mut projected_rows,
+            );
 
             return Ok(Some(projected_rows));
         }
@@ -237,7 +268,12 @@ where
                 Ok::<(DataKey, Vec<Value>), InternalError>((data_key, projected_row))
             },
         )?;
-        apply_pure_covering_page_window(plan.scalar_plan().distinct, page, &mut projected_rows);
+        apply_pure_covering_page_window(
+            plan.scalar_plan().distinct,
+            page,
+            false,
+            &mut projected_rows,
+        );
 
         return Ok(Some(projected_rows));
     }
@@ -275,16 +311,24 @@ where
     };
 
     if index_order {
-        let mut projected_rows =
-            assemble_covering_rows_in_index_order(decoded_rows, |(data_key, decoded_values)| {
+        let mut projected_rows = assemble_covering_rows_in_index_order(
+            decoded_rows,
+            scan_time_page_skip_count,
+            |(data_key, decoded_values)| {
                 project_covering_row_from_decoded_values(
                     &data_key,
                     covering.fields.as_slice(),
                     component_indices.as_slice(),
                     decoded_values.as_slice(),
                 )
-            })?;
-        apply_pure_covering_page_window(plan.scalar_plan().distinct, page, &mut projected_rows);
+            },
+        )?;
+        apply_pure_covering_page_window(
+            plan.scalar_plan().distinct,
+            page,
+            scan_time_page_window_applied,
+            &mut projected_rows,
+        );
 
         return Ok(Some(projected_rows));
     }
@@ -303,7 +347,12 @@ where
             Ok::<(DataKey, Vec<Value>), InternalError>((data_key, projected_row))
         },
     )?;
-    apply_pure_covering_page_window(plan.scalar_plan().distinct, page, &mut projected_rows);
+    apply_pure_covering_page_window(
+        plan.scalar_plan().distinct,
+        page,
+        false,
+        &mut projected_rows,
+    );
 
     Ok(Some(projected_rows))
 }
@@ -337,17 +386,41 @@ where
         return Ok(None);
     };
 
+    let page = plan.scalar_plan().page.as_ref();
+    let scan_time_page_skip_count = pure_covering_scan_time_page_skip_count(
+        covering.order_contract,
+        covering.existing_row_mode,
+        plan.scalar_plan().distinct,
+        page,
+    );
+    let scan_time_page_window_applied = pure_covering_scan_time_page_window_applied(
+        covering.order_contract,
+        covering.existing_row_mode,
+        plan.scalar_plan().distinct,
+        page,
+    );
     let mut projected_keys = Vec::new();
+    let mut matched_keys = 0usize;
     while let Some(data_key) = stream.next_key()? {
-        projected_keys.push(data_key);
+        if matched_keys >= scan_time_page_skip_count {
+            projected_keys.push(data_key);
+        }
+        matched_keys = matched_keys.saturating_add(1);
     }
 
-    let mut projected_rows = assemble_covering_rows_in_index_order(projected_keys, |data_key| {
-        project_covering_row_from_decoded_values(&data_key, covering.fields.as_slice(), &[], &[])
-    })?;
+    let mut projected_rows =
+        assemble_covering_rows_in_index_order(projected_keys, 0, |data_key| {
+            project_covering_row_from_decoded_values(
+                &data_key,
+                covering.fields.as_slice(),
+                &[],
+                &[],
+            )
+        })?;
     apply_pure_covering_page_window(
         plan.scalar_plan().distinct,
-        plan.scalar_plan().page.as_ref(),
+        page,
+        scan_time_page_window_applied,
         &mut projected_rows,
     );
 
@@ -434,10 +507,62 @@ fn pure_covering_scan_limit(
 }
 
 #[cfg(feature = "sql")]
-fn apply_pure_covering_page_window<T>(distinct: bool, page: Option<&PageSpec>, rows: &mut Vec<T>) {
+fn pure_covering_scan_time_page_skip_count(
+    order_contract: CoveringProjectionOrder,
+    existing_row_mode: CoveringExistingRowMode,
+    distinct: bool,
+    page: Option<&PageSpec>,
+) -> usize {
+    if !pure_covering_route_can_apply_page_during_scan(order_contract, existing_row_mode, distinct)
+    {
+        return 0;
+    }
+
+    page.map_or(0, |page| usize::try_from(page.offset).unwrap_or(usize::MAX))
+}
+
+#[cfg(feature = "sql")]
+fn pure_covering_scan_time_page_window_applied(
+    order_contract: CoveringProjectionOrder,
+    existing_row_mode: CoveringExistingRowMode,
+    distinct: bool,
+    page: Option<&PageSpec>,
+) -> bool {
+    if !pure_covering_route_can_apply_page_during_scan(order_contract, existing_row_mode, distinct)
+    {
+        return false;
+    }
+
+    page.is_some_and(|page| page.offset != 0 || page.limit.is_some())
+}
+
+#[cfg(feature = "sql")]
+fn pure_covering_route_can_apply_page_during_scan(
+    order_contract: CoveringProjectionOrder,
+    existing_row_mode: CoveringExistingRowMode,
+    distinct: bool,
+) -> bool {
+    !distinct
+        && existing_row_mode == CoveringExistingRowMode::ProvenByPlanner
+        && matches!(
+            order_contract,
+            CoveringProjectionOrder::IndexOrder(_) | CoveringProjectionOrder::PrimaryKeyOrder(_)
+        )
+}
+
+#[cfg(feature = "sql")]
+fn apply_pure_covering_page_window<T>(
+    distinct: bool,
+    page: Option<&PageSpec>,
+    page_window_already_applied: bool,
+    rows: &mut Vec<T>,
+) {
     if distinct {
         // DISTINCT paging is deferred to the projection materializer after
         // projected-row deduplication over the ordered stream.
+        return;
+    }
+    if page_window_already_applied {
         return;
     }
 
@@ -451,6 +576,7 @@ fn apply_pure_covering_page_window<T>(distinct: bool, page: Option<&PageSpec>, r
 #[cfg(feature = "sql")]
 fn assemble_covering_rows_in_index_order<I>(
     items: Vec<I>,
+    skip_count: usize,
     build_row: impl FnMut(I) -> Result<Vec<Value>, InternalError>,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
@@ -459,6 +585,7 @@ fn assemble_covering_rows_in_index_order<I>(
     let (row_assembly_local_instructions, projected_rows) = measure_structural_result(|| {
         items
             .into_iter()
+            .skip(skip_count)
             .map(&mut build_row)
             .collect::<Result<Vec<_>, _>>()
     });
@@ -470,6 +597,7 @@ fn assemble_covering_rows_in_index_order<I>(
     #[cfg(not(all(feature = "sql", feature = "diagnostics")))]
     let projected_rows = items
         .into_iter()
+        .skip(skip_count)
         .map(build_row)
         .collect::<Result<Vec<_>, _>>()?;
 

@@ -115,6 +115,7 @@ impl<'a> ScalarMaterializationPlan<'a> {
 pub(in crate::db::executor) struct CursorlessShortPathPlan<'a> {
     scan_strategy: KernelRowScanStrategy<'a>,
     row_keep_cap: Option<usize>,
+    row_skip_count: usize,
     post_scan_tail: StructuralPostScanTailStrategy<'a>,
 }
 
@@ -135,6 +136,7 @@ impl<'a> CursorlessShortPathPlan<'a> {
             consistency,
             scan_strategy: self.scan_strategy,
             row_keep_cap: self.row_keep_cap,
+            row_skip_count: self.row_skip_count,
             row_runtime,
         }
     }
@@ -146,7 +148,11 @@ impl<'a> CursorlessShortPathPlan<'a> {
         plan: &AccessPlannedQuery,
         mut rows: Vec<KernelRow>,
     ) -> Result<(MaterializedExecutionPayload, usize), InternalError> {
-        self.post_scan_tail.apply(plan, &mut rows)?;
+        self.post_scan_tail.apply_with_pre_applied_page_window(
+            plan,
+            &mut rows,
+            self.row_skip_count != 0,
+        )?;
 
         let post_access_rows = rows.len();
         let payload = self.post_scan_tail.finalize_payload(rows, None)?;
@@ -275,6 +281,11 @@ pub(in crate::db::executor) fn resolve_cursorless_short_path_plan<'a>(
     Ok(Some(CursorlessShortPathPlan {
         scan_strategy: structural_policy.kernel_row_scan_strategy(),
         row_keep_cap: cursorless_short_path_keep_cap(
+            plan,
+            cursor_boundary,
+            capabilities.retain_slot_rows,
+        ),
+        row_skip_count: cursorless_short_path_skip_count(
             plan,
             cursor_boundary,
             capabilities.retain_slot_rows,
@@ -638,6 +649,23 @@ fn cursorless_short_path_keep_cap(
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
 
     Some(offset.saturating_add(limit))
+}
+
+// Return the number of matched retained-slot rows the cursorless short path can
+// skip during collection because the route already satisfies final ordering.
+fn cursorless_short_path_skip_count(
+    plan: &AccessPlannedQuery,
+    cursor_boundary: Option<&CursorBoundary>,
+    retain_slot_rows: bool,
+) -> usize {
+    if !retain_slot_rows || cursor_boundary.is_some() {
+        return 0;
+    }
+
+    plan.scalar_plan()
+        .page
+        .as_ref()
+        .map_or(0, |page| usize::try_from(page.offset).unwrap_or(usize::MAX))
 }
 
 // Select one row payload mode before cursorless row collection so the scan
