@@ -5,35 +5,6 @@
 
 use crate::db::data::{FieldDecodeError, ValueStorageView};
 
-///
-/// CompiledPath
-///
-/// Executor-owned nested path program used by projection and predicate
-/// evaluation.
-/// The string form is retained for labels and compile-time transfer into
-/// `CompiledExpr` field-path leaves.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct CompiledPath {
-    /// Owned nested map-key sequence traversed below the resolved root slot.
-    segments: Vec<String>,
-}
-
-impl CompiledPath {
-    /// Build a compiled path from already-normalized nested map segments.
-    #[must_use]
-    pub(in crate::db) const fn new(segments: Vec<String>) -> Self {
-        Self { segments }
-    }
-
-    /// Borrow the nested map-key sequence used by the value-storage walker.
-    #[must_use]
-    pub(in crate::db) const fn segments(&self) -> &[String] {
-        self.segments.as_slice()
-    }
-}
-
 /// Resolve one nested map path using already-encoded segment bytes.
 pub(in crate::db::executor::projection) fn resolve_path_segments<'a>(
     raw_bytes: &'a [u8],

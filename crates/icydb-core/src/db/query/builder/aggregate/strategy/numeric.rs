@@ -1,9 +1,6 @@
-use crate::db::{
-    executor::ScalarNumericFieldBoundaryRequest,
-    query::{
-        builder::aggregate::AggregateExplain,
-        plan::{AggregateKind, FieldSlot},
-    },
+use crate::db::query::{
+    builder::aggregate::{AggregateExplain, ScalarNumericFieldBoundaryRequest},
+    plan::{AggregateKind, FieldSlot},
 };
 
 ///

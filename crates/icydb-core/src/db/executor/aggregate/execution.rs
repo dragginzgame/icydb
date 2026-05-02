@@ -10,17 +10,17 @@ use crate::{
         executor::{
             EntityAuthority, ExecutionPlan, ExecutionPreparation, ExecutorPlanError,
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, StoreResolver,
-            aggregate::{
-                AggregateKind, ScalarTerminalKind, field::FieldSlot,
-                projection::ScalarProjectionBoundaryRequest,
-            },
+            aggregate::{AggregateKind, ScalarTerminalKind, field::FieldSlot},
             pipeline::contracts::GroupedRouteStage,
             route::AggregateRouteShape,
             traversal::row_read_consistency_for_plan,
         },
         index::IndexPredicateProgram,
         predicate::MissingRowPolicy,
-        query::plan::{AccessPlannedQuery, CoveringProjectionContext, OrderSpec, PageSpec},
+        query::{
+            builder::aggregate::ScalarProjectionBoundaryRequest,
+            plan::{AccessPlannedQuery, CoveringProjectionContext, OrderSpec, PageSpec},
+        },
         registry::StoreHandle,
     },
     error::InternalError,

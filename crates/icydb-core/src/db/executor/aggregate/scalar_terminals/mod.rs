@@ -11,25 +11,27 @@ mod request;
 mod terminal;
 
 use crate::{
-    db::executor::{
-        PreparedExecutionPlan, SharedPreparedExecutionPlan,
-        aggregate::{
-            reducer_core::finalize_count,
-            scalar_terminals::{
-                reducer::ScalarAggregateReducerRuntime,
-                request::CompiledStructuralAggregateRequest,
-                terminal::{
-                    PreparedScalarAggregateTerminalSet,
-                    compile_structural_scalar_aggregate_terminal,
+    db::{
+        executor::{
+            PreparedExecutionPlan, SharedPreparedExecutionPlan,
+            aggregate::{
+                reducer_core::finalize_count,
+                scalar_terminals::{
+                    reducer::ScalarAggregateReducerRuntime,
+                    request::CompiledStructuralAggregateRequest,
+                    terminal::{
+                        PreparedScalarAggregateTerminalSet,
+                        compile_structural_scalar_aggregate_terminal,
+                    },
                 },
             },
-            terminals::ScalarTerminalBoundaryRequest,
+            pipeline::{
+                contracts::LoadExecutor,
+                entrypoints::execute_prepared_scalar_aggregate_kernel_row_sink_for_canister,
+            },
+            projection::{GroupedRowView, evaluate_grouped_having_expr},
         },
-        pipeline::{
-            contracts::LoadExecutor,
-            entrypoints::execute_prepared_scalar_aggregate_kernel_row_sink_for_canister,
-        },
-        projection::{GroupedRowView, evaluate_grouped_having_expr},
+        query::builder::aggregate::ScalarTerminalBoundaryRequest,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

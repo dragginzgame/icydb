@@ -43,6 +43,10 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 
+pub(in crate::db) use crate::db::query::builder::aggregate::{
+    ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryOutput,
+    ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest,
+};
 pub(in crate::db::executor) use capability::{
     AggregateExecutionPolicyInputs, derive_aggregate_execution_policy,
     field_target_is_tie_free_probe_target,
@@ -62,10 +66,6 @@ pub(in crate::db::executor) use execution::{
     PreparedScalarProjectionStrategy, PreparedScalarTerminalBoundary, PreparedScalarTerminalOp,
     PreparedScalarTerminalStrategy, ScalarProjectionWindow,
 };
-pub(in crate::db) use numeric::ScalarNumericFieldBoundaryRequest;
-pub(in crate::db) use projection::{
-    ScalarProjectionBoundaryOutput, ScalarProjectionBoundaryRequest,
-};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use scalar_terminals::{
     ScalarAggregateTerminalAttribution, with_scalar_aggregate_terminal_attribution,
@@ -74,7 +74,6 @@ pub(in crate::db) use scalar_terminals::{
 pub(in crate::db) use scalar_terminals::{
     StructuralAggregateRequest, StructuralAggregateTerminal, StructuralAggregateTerminalKind,
 };
-pub(in crate::db) use terminals::{ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest};
 
 impl<E> LoadExecutor<E>
 where

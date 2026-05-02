@@ -32,17 +32,18 @@ use crate::{
             },
         },
         index::predicate::IndexPredicateExecution,
-        query::plan::{FieldSlot as PlannedFieldSlot, PageSpec},
+        query::{
+            builder::aggregate::{ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest},
+            plan::{FieldSlot as PlannedFieldSlot, PageSpec},
+        },
         registry::StoreHandle,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue, KeyValueCodec},
-    types::{EntityTag, Id},
-    value::{StorageKey, Value, storage_key_as_runtime_value},
+    traits::{EntityKind, EntityValue},
+    types::EntityTag,
+    value::Value,
 };
 use std::ops::Bound;
-
-type IdPairTerminalOutput<E> = Option<(Id<E>, Id<E>)>;
 
 ///
 /// ExistingRowsTerminalRuntime
@@ -60,97 +61,6 @@ struct ExistingRowsTerminalRuntime<'a> {
     strict_mode: Option<&'a crate::db::index::IndexPredicateProgram>,
     index_prefix_specs: &'a [crate::db::executor::LoweredIndexPrefixSpec],
     index_range_specs: &'a [crate::db::executor::LoweredIndexRangeSpec],
-}
-
-// Typed boundary request for one public scalar aggregate terminal family call.
-pub(in crate::db) enum ScalarTerminalBoundaryRequest {
-    Count,
-    Exists,
-    IdTerminal {
-        kind: AggregateKind,
-    },
-    IdBySlot {
-        kind: AggregateKind,
-        target_field: PlannedFieldSlot,
-    },
-    NthBySlot {
-        target_field: PlannedFieldSlot,
-        nth: usize,
-    },
-    MedianBySlot {
-        target_field: PlannedFieldSlot,
-    },
-    MinMaxBySlot {
-        target_field: PlannedFieldSlot,
-    },
-}
-
-// Typed boundary output for one public scalar aggregate terminal family call.
-pub(in crate::db) enum ScalarTerminalBoundaryOutput {
-    Count(u32),
-    Exists(bool),
-    Id(Option<StorageKey>),
-    IdPair(Option<(StorageKey, StorageKey)>),
-}
-
-impl ScalarTerminalBoundaryOutput {
-    // Build one canonical scalar terminal boundary mismatch on the owner type.
-    fn output_kind_mismatch(message: &'static str) -> InternalError {
-        InternalError::query_executor_invariant(message)
-    }
-
-    // Decode COUNT boundary output while preserving request/output mismatch context.
-    pub(in crate::db) fn into_count(self) -> Result<u32, InternalError> {
-        match self {
-            Self::Count(value) => Ok(value),
-            _ => Err(Self::output_kind_mismatch(
-                "scalar terminal boundary COUNT output kind mismatch",
-            )),
-        }
-    }
-
-    // Decode EXISTS boundary output while preserving request/output mismatch context.
-    pub(in crate::db) fn into_exists(self) -> Result<bool, InternalError> {
-        match self {
-            Self::Exists(value) => Ok(value),
-            _ => Err(Self::output_kind_mismatch(
-                "scalar terminal boundary EXISTS output kind mismatch",
-            )),
-        }
-    }
-
-    // Decode id-returning boundary output while preserving request/output mismatch context.
-    pub(in crate::db) fn into_id<E>(self) -> Result<Option<Id<E>>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        match self {
-            Self::Id(value) => value.map(decode_storage_key_to_id::<E>).transpose(),
-            _ => Err(Self::output_kind_mismatch(
-                "scalar terminal boundary id output kind mismatch",
-            )),
-        }
-    }
-
-    // Decode paired-id boundary output while preserving request/output mismatch context.
-    pub(in crate::db) fn into_id_pair<E>(self) -> Result<IdPairTerminalOutput<E>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        match self {
-            Self::IdPair(value) => value
-                .map(|(left, right)| {
-                    Ok((
-                        decode_storage_key_to_id::<E>(left)?,
-                        decode_storage_key_to_id::<E>(right)?,
-                    ))
-                })
-                .transpose(),
-            _ => Err(Self::output_kind_mismatch(
-                "scalar terminal boundary id-pair output kind mismatch",
-            )),
-        }
-    }
 }
 
 // Execute one prepared scalar terminal boundary through one shared
@@ -688,21 +598,6 @@ where
                 .map(ScalarTerminalBoundaryOutput::Id),
         }
     }
-}
-
-// Re-enter typed identity only at the terminal API boundary.
-fn decode_storage_key_to_id<E>(key: StorageKey) -> Result<Id<E>, InternalError>
-where
-    E: EntityKind + EntityValue,
-{
-    let value = storage_key_as_runtime_value(&key);
-    let decoded = <E::Key as KeyValueCodec>::from_key_value(&value).ok_or_else(|| {
-        InternalError::store_corruption(format!(
-            "scalar aggregate output primary key decode failed: {value:?}"
-        ))
-    })?;
-
-    Ok(Id::from_key(decoded))
 }
 
 // Map one candidate cardinality and optional page contract to canonical COUNT

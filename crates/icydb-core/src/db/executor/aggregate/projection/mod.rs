@@ -41,6 +41,9 @@ use crate::{
             terminal::{RowDecoder, RowLayout},
         },
         predicate::MissingRowPolicy,
+        query::builder::aggregate::{
+            ScalarProjectionBoundaryOutput, ScalarProjectionBoundaryRequest,
+        },
         query::plan::{
             CoveringProjectionContext, FieldSlot as PlannedFieldSlot,
             constant_covering_projection_value_from_access,
@@ -48,83 +51,12 @@ use crate::{
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
-    types::Id,
     value::Value,
 };
 
 type ValueProjection = Vec<(DataKey, Value)>;
 type CoveringProjectionPairRows = Vec<(DataKey, Value)>;
 type CoveringProjectionPairsResolution = Result<Option<CoveringProjectionPairRows>, InternalError>;
-
-// Typed boundary request for one scalar field-projection terminal family call.
-pub(in crate::db) enum ScalarProjectionBoundaryRequest {
-    Values,
-    DistinctValues,
-    CountDistinct,
-    ValuesWithIds,
-    TerminalValue { terminal_kind: AggregateKind },
-}
-
-// Typed boundary output for one scalar field-projection terminal family call.
-pub(in crate::db) enum ScalarProjectionBoundaryOutput {
-    Count(u32),
-    Values(Vec<Value>),
-    ValuesWithDataKeys(ValueProjection),
-    TerminalValue(Option<Value>),
-}
-
-impl ScalarProjectionBoundaryOutput {
-    // Build the canonical boundary mismatch for projection output decoding.
-    fn output_kind_mismatch(message: &'static str) -> InternalError {
-        InternalError::query_executor_invariant(message)
-    }
-
-    // Decode one plain-value projection boundary output.
-    pub(in crate::db) fn into_values(self) -> Result<Vec<Value>, InternalError> {
-        match self {
-            Self::Values(values) => Ok(values),
-            _ => Err(Self::output_kind_mismatch(
-                "scalar projection boundary values output kind mismatch",
-            )),
-        }
-    }
-
-    // Decode one count-distinct projection boundary output.
-    pub(in crate::db) fn into_count(self) -> Result<u32, InternalError> {
-        match self {
-            Self::Count(value) => Ok(value),
-            _ => Err(Self::output_kind_mismatch(
-                "scalar projection boundary count output kind mismatch",
-            )),
-        }
-    }
-
-    // Decode one `(id, value)` projection boundary output.
-    pub(in crate::db) fn into_values_with_ids<E>(self) -> Result<Vec<(Id<E>, Value)>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        match self {
-            Self::ValuesWithDataKeys(values) => values
-                .into_iter()
-                .map(|(data_key, value)| Ok((Id::from_key(data_key.try_key::<E>()?), value)))
-                .collect(),
-            _ => Err(Self::output_kind_mismatch(
-                "scalar projection boundary values-with-ids output kind mismatch",
-            )),
-        }
-    }
-
-    // Decode one terminal-value projection boundary output.
-    pub(in crate::db) fn into_terminal_value(self) -> Result<Option<Value>, InternalError> {
-        match self {
-            Self::TerminalValue(value) => Ok(value),
-            _ => Err(Self::output_kind_mismatch(
-                "scalar projection boundary terminal-value output kind mismatch",
-            )),
-        }
-    }
-}
 
 impl<E> LoadExecutor<E>
 where

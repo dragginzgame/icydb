@@ -1,16 +1,11 @@
-use crate::db::{
-    executor::{
-        ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryRequest,
-        ScalarTerminalBoundaryRequest,
+use crate::db::query::{
+    builder::aggregate::{
+        AggregateExplain, AvgBySlotTerminal, CountDistinctBySlotTerminal, CountRowsTerminal,
+        ExistsRowsTerminal, FirstIdTerminal, LastIdTerminal, LastValueBySlotTerminal,
+        NthIdBySlotTerminal, ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryRequest,
+        ScalarTerminalBoundaryRequest, SumDistinctBySlotTerminal,
     },
-    query::{
-        builder::{
-            AggregateExplain, AvgBySlotTerminal, CountDistinctBySlotTerminal, CountRowsTerminal,
-            ExistsRowsTerminal, FirstIdTerminal, LastIdTerminal, LastValueBySlotTerminal,
-            NthIdBySlotTerminal, SumDistinctBySlotTerminal,
-        },
-        plan::{AggregateKind, FieldSlot},
-    },
+    plan::{AggregateKind, FieldSlot},
 };
 
 #[test]

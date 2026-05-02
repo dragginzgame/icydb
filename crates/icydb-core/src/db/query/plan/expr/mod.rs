@@ -71,6 +71,7 @@ mod ast;
 mod canonicalize;
 mod compiled_expr;
 mod function_semantics;
+mod path;
 mod predicate;
 mod preview;
 mod projection;
@@ -108,6 +109,7 @@ pub(in crate::db::query::plan::expr) use function_semantics::{
 pub(in crate::db) use function_semantics::{
     FunctionSurface, NumericSubtype, TextPredicateFunctionKind,
 };
+pub(in crate::db) use path::CompiledPath;
 pub(in crate::db) use predicate::{
     CompiledPredicate, derive_normalized_bool_expr_predicate_subset,
     normalized_bool_expr_from_predicate,

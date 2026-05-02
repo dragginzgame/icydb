@@ -10,9 +10,8 @@ use crate::db::scalar_expr::{ScalarValueProgram, compile_scalar_field_program};
 use crate::db::scalar_expr::{compile_scalar_literal_expr_value, scalar_expr_value_into_value};
 use crate::value::Value;
 use crate::{
-    db::{
-        executor::projection::CompiledPath,
-        query::plan::expr::{BinaryOp, Expr, FieldPath, ProjectionField, ProjectionSpec},
+    db::query::plan::expr::{
+        BinaryOp, CompiledPath, Expr, FieldPath, ProjectionField, ProjectionSpec,
     },
     model::entity::EntityModel,
 };

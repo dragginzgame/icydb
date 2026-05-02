@@ -1,6 +1,6 @@
-use crate::db::{
-    executor::ScalarTerminalBoundaryRequest,
-    query::{builder::aggregate::AggregateExplain, plan::AggregateKind},
+use crate::db::query::{
+    builder::aggregate::{AggregateExplain, ScalarTerminalBoundaryRequest},
+    plan::AggregateKind,
 };
 
 #[cfg(test)]

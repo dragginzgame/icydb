@@ -1,9 +1,6 @@
-use crate::db::{
-    executor::ScalarTerminalBoundaryRequest,
-    query::{
-        builder::aggregate::AggregateExplain,
-        plan::{AggregateKind, FieldSlot},
-    },
+use crate::db::query::{
+    builder::aggregate::{AggregateExplain, ScalarTerminalBoundaryRequest},
+    plan::{AggregateKind, FieldSlot},
 };
 
 #[cfg(test)]

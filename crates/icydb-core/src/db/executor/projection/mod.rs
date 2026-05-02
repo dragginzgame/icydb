@@ -22,11 +22,7 @@ pub(in crate::db) use covering::{
     current_pure_covering_decode_local_instructions,
     current_pure_covering_row_assembly_local_instructions,
 };
-pub(in crate::db) use eval::{
-    ProjectionEvalError, eval_compiled_filter_expr_with_required_slot_reader,
-    eval_compiled_filter_expr_with_value_cow_reader,
-    eval_compiled_filter_expr_with_value_ref_reader,
-};
+pub(in crate::db) use eval::ProjectionEvalError;
 pub(in crate::db::executor) use eval::{
     eval_compiled_expr_with_value_reader, eval_compiled_expr_with_value_ref_reader,
     eval_effective_runtime_filter_program_with_slot_reader,
@@ -63,7 +59,6 @@ pub(in crate::db::executor::projection) use materialize::{
 };
 #[cfg(all(feature = "sql", not(test)))]
 pub(in crate::db::executor) use materialize::{project, project_distinct};
-pub(in crate::db) use path::CompiledPath;
 #[cfg(test)]
 pub(in crate::db) use tests::projection_eval_data_row_for_materialize_tests;
 #[cfg(test)]

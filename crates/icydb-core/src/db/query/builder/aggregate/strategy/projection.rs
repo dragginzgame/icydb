@@ -1,9 +1,8 @@
-use crate::db::{
-    executor::ScalarProjectionBoundaryRequest,
-    query::{
-        builder::aggregate::{ProjectionExplain, ProjectionExplainDescriptor},
-        plan::{AggregateKind, FieldSlot},
+use crate::db::query::{
+    builder::aggregate::{
+        ProjectionExplain, ProjectionExplainDescriptor, ScalarProjectionBoundaryRequest,
     },
+    plan::{AggregateKind, FieldSlot},
 };
 
 ///

@@ -36,22 +36,16 @@ use crate::{
             terminal::{RowDecoder, RowLayout},
         },
         numeric::{NumericEvalError, add_decimal_terms_checked, average_decimal_terms_checked},
-        query::plan::{ExecutionOrderContract, FieldSlot as PlannedFieldSlot},
+        query::{
+            builder::aggregate::ScalarNumericFieldBoundaryRequest,
+            plan::{ExecutionOrderContract, FieldSlot as PlannedFieldSlot},
+        },
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
     types::Decimal,
     value::{StorageKey, Value},
 };
-
-// Typed boundary request for one numeric field aggregate terminal family call.
-#[derive(Clone, Copy)]
-pub(in crate::db) enum ScalarNumericFieldBoundaryRequest {
-    Sum,
-    SumDistinct,
-    Avg,
-    AvgDistinct,
-}
 
 impl ScalarNumericFieldBoundaryRequest {
     // Resolve one public numeric request into the non-generic numeric operation.
