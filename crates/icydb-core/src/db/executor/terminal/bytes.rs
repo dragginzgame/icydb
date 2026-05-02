@@ -9,8 +9,8 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, BytesByProjectionMode,
-            CoveringProjectionComponentRows, ExecutableAccess, PreparedExecutionPlan,
-            PreparedLoadPlan, TraversalRuntime,
+            CoveringComponentValues, CoveringProjectionComponentRows, ExecutableAccess,
+            PreparedExecutionPlan, PreparedLoadPlan, TraversalRuntime,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot,
                 extract_orderable_field_value_from_decoded_slot,
@@ -18,8 +18,10 @@ use crate::{
             },
             classify_bytes_by_projection_mode, covering_projection_scan_direction,
             covering_requires_row_presence_check, decode_single_covering_projection_pairs,
-            page_window_state,
+            decode_single_covering_projection_value, page_window_state,
             pipeline::{contracts::LoadExecutor, entrypoints::PreparedScalarMaterializedBoundary},
+            read_row_presence_with_consistency_from_data_store,
+            record_row_check_covering_candidate_seen, record_row_check_row_emitted,
             reorder_covering_projection_pairs,
             resolve_covering_projection_components_from_lowered_specs,
             route::{
@@ -32,7 +34,7 @@ use crate::{
             terminal::{RowDecoder, RowLayout},
         },
         query::plan::{
-            FieldSlot as PlannedFieldSlot, OrderDirection,
+            CoveringProjectionOrder, FieldSlot as PlannedFieldSlot, OrderDirection,
             constant_covering_projection_value_from_access, covering_index_projection_context,
         },
     },
@@ -58,6 +60,21 @@ where
             saturating_add_payload_len(total, value_len)
         }),
     }
+}
+
+// Decode exactly one covering component into its serialized runtime payload
+// length. Returning `Ok(None)` preserves the existing covering fast-path
+// fallback behavior for unsupported component encodings.
+fn bytes_by_single_covering_component_len(
+    components: CoveringComponentValues,
+    invariant_message: &'static str,
+) -> Result<Option<usize>, InternalError> {
+    let Some(value) = decode_single_covering_projection_value(components, invariant_message)?
+    else {
+        return Ok(None);
+    };
+
+    Ok(Some(serialized_value_len(&value)?))
 }
 
 impl<E> LoadExecutor<E>
@@ -270,6 +287,13 @@ where
             context.component_index,
             scan_direction,
         )?;
+        if matches!(
+            context.order_contract,
+            CoveringProjectionOrder::IndexOrder(_)
+        ) && prepared.page_spec().is_some()
+        {
+            return Self::bytes_by_index_order_covering_pairs(prepared, raw_pairs);
+        }
 
         // Phase 2: enforce existing-row policy and decode component payloads.
         let Some(mut projected_rows) = decode_single_covering_projection_pairs(
@@ -293,6 +317,62 @@ where
             offset,
             limit,
         );
+
+        Ok(Some(total))
+    }
+
+    // Fold one index-ordered covering component stream through the page window
+    // while preserving the existing row-presence checks. Primary-key reordered
+    // covering paths stay on the materialized decoder because they must compare
+    // the full candidate set before page-window folding.
+    fn bytes_by_index_order_covering_pairs(
+        prepared: &PreparedScalarMaterializedBoundary<'_>,
+        raw_pairs: CoveringProjectionComponentRows,
+    ) -> Result<Option<u64>, InternalError> {
+        let (offset, limit) = page_window_state(prepared.page_spec());
+        let mut present_rows = 0usize;
+        let mut emitted_rows = 0usize;
+        let mut total = 0u64;
+
+        // Phase 1: retain the fail-closed row-presence policy for every raw
+        // candidate while decoding payload bytes only inside the output page
+        // window.
+        for (data_key, _existence_witness, components) in raw_pairs {
+            record_row_check_covering_candidate_seen();
+            let row_present = prepared.store.with_data(|data| {
+                read_row_presence_with_consistency_from_data_store(
+                    data,
+                    &data_key,
+                    prepared.consistency(),
+                )
+            })?;
+            if !row_present {
+                continue;
+            }
+
+            if present_rows < offset {
+                present_rows = present_rows.saturating_add(1);
+                record_row_check_row_emitted();
+                continue;
+            }
+            if limit.is_some_and(|limit| emitted_rows >= limit) {
+                present_rows = present_rows.saturating_add(1);
+                record_row_check_row_emitted();
+                continue;
+            }
+
+            let Some(value_len) = bytes_by_single_covering_component_len(
+                components,
+                "bytes covering projection expected one decoded component",
+            )?
+            else {
+                return Ok(None);
+            };
+            total = saturating_add_payload_len(total, value_len);
+            present_rows = present_rows.saturating_add(1);
+            emitted_rows = emitted_rows.saturating_add(1);
+            record_row_check_row_emitted();
+        }
 
         Ok(Some(total))
     }

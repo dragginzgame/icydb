@@ -11,7 +11,7 @@ use crate::{
         executor::{
             delete::{
                 apply_delete_post_access_rows, prepare_delete_commit,
-                resolve_delete_candidate_rows,
+                resolve_delete_candidate_rows_as,
                 types::{
                     DeleteRow, PreparedDeleteExecutionState, PreparedTypedDelete, TypedDeleteLeaf,
                 },
@@ -31,32 +31,33 @@ use crate::{
 // and then let the caller package the surviving rows.
 fn prepare_typed_delete_leaf<E, T>(
     prepared: &PreparedDeleteExecutionState,
-    data_rows: Vec<DataRow>,
+    mut rows: Vec<DeleteRow<E>>,
     package_rows: impl FnOnce(Vec<DeleteRow<E>>) -> Result<T, InternalError>,
 ) -> Result<T, InternalError>
 where
     E: PersistedRow + EntityValue,
 {
-    // Phase 1: decode structural access rows into typed delete candidates.
-    let mut rows = data_rows
-        .into_iter()
-        .map(|row| {
-            let (key, raw) = row;
-            let (_, entity) = decode_raw_row_for_entity_key::<E>(&key, &raw)?;
-
-            Ok(DeleteRow {
-                key,
-                raw: Some(raw),
-                entity,
-            })
-        })
-        .collect::<Result<Vec<DeleteRow<E>>, InternalError>>()?;
-
-    // Phase 2: apply typed delete post-access filtering and ordering once.
+    // Phase 1: apply typed delete post-access filtering and ordering once.
     apply_delete_post_access_rows(prepared, &mut rows)?;
 
-    // Phase 3: package the already-filtered typed delete rows for the caller.
+    // Phase 2: package the already-filtered typed delete rows for the caller.
     package_rows(rows)
+}
+
+impl<E> DeleteRow<E>
+where
+    E: PersistedRow + EntityValue,
+{
+    fn from_delete_data_row(row: DataRow) -> Result<Self, InternalError> {
+        let (key, raw) = row;
+        let (_, entity) = decode_raw_row_for_entity_key::<E>(&key, &raw)?;
+
+        Ok(Self {
+            key,
+            raw: Some(raw),
+            entity,
+        })
+    }
 }
 
 // Package surviving typed delete rows into outward response rows plus
@@ -131,12 +132,13 @@ where
 {
     // Phase 1: resolve structural access rows once through the shared executor
     // key-stream seam and record the real candidate count for metrics.
-    let data_rows = resolve_delete_candidate_rows(store, prepared)?;
-    record_rows_scanned_for_path(prepared.authority.entity.entity_path(), data_rows.len());
+    let (rows, rows_scanned) =
+        resolve_delete_candidate_rows_as(store, prepared, DeleteRow::<E>::from_delete_data_row)?;
+    record_rows_scanned_for_path(prepared.authority.entity.entity_path(), rows_scanned);
 
     // Phase 2: run typed delete post-access selection and package the caller's
     // desired output shape alongside rollback rows.
-    let typed = prepare_typed_delete_leaf(prepared, data_rows, package_rows)?;
+    let typed = prepare_typed_delete_leaf(prepared, rows, package_rows)?;
     if typed.row_count == 0 {
         return Ok(None);
     }

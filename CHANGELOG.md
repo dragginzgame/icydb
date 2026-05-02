@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.145.x] 🌊 - 2026-05-02 - Streaming Boundaries
 
+- `0.145.6` reduces DELETE and covering-projection staging by mapping delete rows directly into their execution shape and folding route-ordered covering page windows before decoding skipped values.
 - `0.145.5` reduces SQL `INSERT` and hybrid covering-projection staging by building mutation patches directly from source rows and by skipping OFFSET-discarded hybrid projection work earlier.
 - `0.145.4` removes extra scalar projection, aggregate reducer, and SQL `RETURNING` buffers so those paths consume or move decoded candidates directly.
 - `0.145.3` reduces memory in value-only ranked field terminals and primary-key covering projections by avoiding temporary row-index/key buffers that are not needed for the final result.

@@ -921,6 +921,78 @@ fn aggregate_path_bytes_by_path_parity_index_prefix_and_full_scan_equivalent_row
 }
 
 #[test]
+fn aggregate_path_bytes_by_index_order_page_window_matches_full_scan() {
+    seed_pushdown_entities(&[
+        (8_986, 7, 5),
+        (8_987, 7, 10),
+        (8_988, 7, 20),
+        (8_989, 8, 40),
+        (8_990, 7, 30),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let build_index_plan = || {
+        let mut logical = AccessPlannedQuery::new(
+            AccessPath::IndexPrefix {
+                index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+                values: vec![Value::Uint(7)],
+            },
+            MissingRowPolicy::Ignore,
+        );
+        logical.scalar_plan_mut().order = Some(OrderSpec {
+            fields: vec![
+                crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+                crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
+            ],
+        });
+        logical.scalar_plan_mut().page = Some(PageSpec {
+            limit: Some(2),
+            offset: 1,
+        });
+
+        PreparedExecutionPlan::<PushdownParityEntity>::new(logical)
+    };
+    let build_full_scan_plan = || {
+        let mut logical = AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
+        logical.scalar_plan_mut().predicate = Some(u32_eq_predicate("group", 7));
+        logical.scalar_plan_mut().order = Some(OrderSpec {
+            fields: vec![
+                crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+                crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
+            ],
+        });
+        logical.scalar_plan_mut().page = Some(PageSpec {
+            limit: Some(2),
+            offset: 1,
+        });
+
+        PreparedExecutionPlan::<PushdownParityEntity>::new(logical)
+    };
+
+    let index_bytes = load
+        .bytes_by_slot(
+            build_index_plan(),
+            planned_slot::<PushdownParityEntity>("rank"),
+        )
+        .expect("paged index-prefix bytes_by(rank) terminal should succeed");
+    let full_scan_bytes = load
+        .bytes_by_slot(
+            build_full_scan_plan(),
+            planned_slot::<PushdownParityEntity>("rank"),
+        )
+        .expect("paged full-scan bytes_by(rank) terminal should succeed");
+    let expected_bytes = serialized_field_payload_bytes_for_pushdown_rows(
+        &load
+            .execute(build_full_scan_plan())
+            .expect("paged bytes_by expected-baseline execute should succeed"),
+        "rank",
+    );
+
+    assert_eq!(index_bytes, full_scan_bytes);
+    assert_eq!(index_bytes, expected_bytes);
+}
+
+#[test]
 fn aggregate_path_by_ids_strict_missing_surfaces_corruption_error() {
     seed_simple_entities(&[8_661]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);

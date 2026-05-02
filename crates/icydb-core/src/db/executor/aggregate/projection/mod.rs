@@ -32,10 +32,12 @@ use crate::{
                 },
             },
             covering_projection_scan_direction, covering_requires_row_presence_check,
-            decode_single_covering_projection_pairs,
+            decode_single_covering_projection_pairs, decode_single_covering_projection_value,
             group::GroupKeySet,
             page_window_state,
             pipeline::contracts::LoadExecutor,
+            read_row_presence_with_consistency_from_data_store,
+            record_row_check_covering_candidate_seen, record_row_check_row_emitted,
             reorder_covering_projection_pairs,
             resolve_covering_projection_components_from_lowered_specs, saturating_u32_len,
             terminal::{RowDecoder, RowLayout},
@@ -45,7 +47,7 @@ use crate::{
             ScalarProjectionBoundaryOutput, ScalarProjectionBoundaryRequest,
         },
         query::plan::{
-            CoveringProjectionContext, FieldSlot as PlannedFieldSlot,
+            CoveringProjectionContext, CoveringProjectionOrder, FieldSlot as PlannedFieldSlot,
             constant_covering_projection_value_from_access,
         },
     },
@@ -620,6 +622,15 @@ where
             context.component_index,
             scan_direction,
         )?;
+        if matches!(
+            context.order_contract,
+            CoveringProjectionOrder::IndexOrder(_)
+        ) && (window.offset != 0 || window.limit.is_some())
+        {
+            return Self::covering_index_projection_pairs_in_index_order_window(
+                prepared, raw_pairs, window,
+            );
+        }
 
         // Phase 2: enforce missing-row policy and decode projection components.
         let Some(mut projected_pairs) = decode_single_covering_projection_pairs(
@@ -637,6 +648,62 @@ where
         // Phase 3: realign to post-access order and apply prepared effective window.
         reorder_covering_projection_pairs(context.order_contract, projected_pairs.as_mut_slice());
         apply_scalar_projection_window_in_place(&mut projected_pairs, window);
+
+        Ok(Some(projected_pairs))
+    }
+
+    // Decode only the effective page-window rows for covering projections whose
+    // output order is already index traversal order. Reordered covering paths
+    // stay on the materialized decoder because they need the full candidate set
+    // before applying the scalar projection window.
+    fn covering_index_projection_pairs_in_index_order_window(
+        prepared: &PreparedAggregateStreamingInputs<'_>,
+        raw_pairs: CoveringProjectionComponentRows,
+        window: ScalarProjectionWindow,
+    ) -> CoveringProjectionPairsResolution {
+        let mut projected_pairs = Vec::with_capacity(window.limit.unwrap_or(raw_pairs.len()));
+        let mut present_rows = 0usize;
+        let mut emitted_rows = 0usize;
+
+        // Phase 1: preserve row-presence accounting over every covering
+        // candidate, but decode only rows that survive the effective
+        // OFFSET/LIMIT window.
+        for (data_key, _existence_witness, components) in raw_pairs {
+            record_row_check_covering_candidate_seen();
+            let row_present = prepared.store.with_data(|data| {
+                read_row_presence_with_consistency_from_data_store(
+                    data,
+                    &data_key,
+                    prepared.consistency(),
+                )
+            })?;
+            if !row_present {
+                continue;
+            }
+
+            if present_rows < window.offset {
+                present_rows = present_rows.saturating_add(1);
+                record_row_check_row_emitted();
+                continue;
+            }
+            if window.limit.is_some_and(|limit| emitted_rows >= limit) {
+                present_rows = present_rows.saturating_add(1);
+                record_row_check_row_emitted();
+                continue;
+            }
+
+            let Some(value) = decode_single_covering_projection_value(
+                components,
+                "aggregate covering projection expected one decoded component",
+            )?
+            else {
+                return Ok(None);
+            };
+            projected_pairs.push((data_key, value));
+            present_rows = present_rows.saturating_add(1);
+            emitted_rows = emitted_rows.saturating_add(1);
+            record_row_check_row_emitted();
+        }
 
         Ok(Some(projected_pairs))
     }

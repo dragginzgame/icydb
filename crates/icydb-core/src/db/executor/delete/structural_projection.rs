@@ -10,7 +10,7 @@ use crate::{
         executor::{
             delete::{
                 apply_delete_post_access_rows, prepare_delete_commit,
-                resolve_delete_candidate_rows,
+                resolve_delete_candidate_rows_as,
                 types::{
                     DeleteCommitApplyFn, DeletePreparation, DeleteProjection, PreparedDeleteCommit,
                     PreparedDeleteExecutionState, PreparedDeleteProjection,
@@ -31,21 +31,13 @@ use crate::{
 // and then let the caller package the surviving kernel rows.
 fn prepare_structural_delete_leaf<T>(
     prepared: &PreparedDeleteExecutionState,
-    data_rows: Vec<crate::db::data::DataRow>,
+    mut rows: Vec<KernelRow>,
     package_rows: impl FnOnce(Vec<KernelRow>) -> Result<T, InternalError>,
 ) -> Result<T, InternalError> {
-    // Phase 1: decode structural access rows directly into slot-indexed kernel rows.
-    let row_layout = prepared.authority.entity.row_layout();
-    let row_decoder = RowDecoder::structural();
-    let mut rows = data_rows
-        .into_iter()
-        .map(|data_row| row_decoder.decode(&row_layout, data_row))
-        .collect::<Result<Vec<KernelRow>, InternalError>>()?;
-
-    // Phase 2: apply delete-only post-access semantics on the structural row shape.
+    // Phase 1: apply delete-only post-access semantics on the structural row shape.
     apply_delete_post_access_rows(prepared, &mut rows)?;
 
-    // Phase 3: package the already-filtered structural delete rows for the caller.
+    // Phase 2: package the already-filtered structural delete rows for the caller.
     package_rows(rows)
 }
 
@@ -93,13 +85,17 @@ where
 {
     // Phase 1: resolve structural access rows once and record the scanned
     // count against the real authority path.
-    let data_rows = resolve_delete_candidate_rows(store, prepared)?;
-    record_rows_scanned_for_path(prepared.authority.entity.entity_path(), data_rows.len());
+    let row_layout = prepared.authority.entity.row_layout();
+    let row_decoder = RowDecoder::structural();
+    let (rows, rows_scanned) = resolve_delete_candidate_rows_as(store, prepared, |data_row| {
+        row_decoder.decode(&row_layout, data_row)
+    })?;
+    record_rows_scanned_for_path(prepared.authority.entity.entity_path(), rows_scanned);
 
     // Phase 2: keep delete filtering, ordering, and rollback packaging on the
     // structural kernel-row boundary.
     let structural =
-        prepare_structural_delete_leaf(prepared, data_rows, package_structural_delete_rows)?;
+        prepare_structural_delete_leaf(prepared, rows, package_structural_delete_rows)?;
     if structural.response_rows.len() == 0 {
         return Ok(PreparedDeleteProjection {
             projection: DeleteProjection::new(MaterializedProjectionRows::empty()),

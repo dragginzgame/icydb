@@ -89,10 +89,11 @@ where
 
 // Resolve structural access rows for one delete execution through the shared
 // scalar key-stream resolver, then keep delete-owned row collection local.
-pub(in crate::db::executor::delete) fn resolve_delete_candidate_rows(
+pub(in crate::db::executor::delete) fn resolve_delete_candidate_rows_as<T>(
     store: StoreHandle,
     prepared: &PreparedDeleteExecutionState,
-) -> Result<Vec<DataRow>, InternalError> {
+    mut map_row: impl FnMut(DataRow) -> Result<T, InternalError>,
+) -> Result<(Vec<T>, usize), InternalError> {
     // Phase 1: assemble the same execution-input snapshot consumed by scalar
     // runtime key-stream resolution, but suppress row materialization concerns.
     let runtime = ExecutionRuntimeAdapter::from_stream_runtime_parts(TraversalRuntime::new(
@@ -123,27 +124,36 @@ pub(in crate::db::executor::delete) fn resolve_delete_candidate_rows(
         )?;
 
     // Phase 3: materialize rows through the structural consistency boundary.
-    collect_delete_rows_from_key_stream(store, resolved.key_stream_mut(), prepared.consistency())
+    collect_delete_rows_from_key_stream::<_, T>(
+        store,
+        resolved.key_stream_mut(),
+        prepared.consistency(),
+        &mut map_row,
+    )
 }
 
-// Materialize ordered delete rows from one structural key stream.
-fn collect_delete_rows_from_key_stream<S>(
+// Materialize ordered delete rows from one structural key stream directly into
+// the caller's post-access row representation.
+fn collect_delete_rows_from_key_stream<S, T>(
     store: StoreHandle,
     key_stream: &mut S,
     consistency: MissingRowPolicy,
-) -> Result<Vec<DataRow>, InternalError>
+    map_row: &mut impl FnMut(DataRow) -> Result<T, InternalError>,
+) -> Result<(Vec<T>, usize), InternalError>
 where
     S: crate::db::executor::OrderedKeyStream + ?Sized,
 {
     let mut rows = Vec::with_capacity(key_stream.exact_key_count_hint().unwrap_or(0));
+    let mut rows_loaded = 0usize;
 
     while let Some(key) = key_stream.next_key()? {
         if let Some(row) = read_data_row_with_consistency_from_store(store, &key, consistency)? {
-            rows.push(row);
+            rows.push(map_row(row)?);
+            rows_loaded = rows_loaded.saturating_add(1);
         }
     }
 
-    Ok(rows)
+    Ok((rows, rows_loaded))
 }
 
 // Apply the shared delete-only post-access contract once after the caller has

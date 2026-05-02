@@ -34,7 +34,7 @@ const COVERING_TEXT_TERMINATOR: u8 = 0x00;
 const COVERING_TEXT_ESCAPED_ZERO: u8 = 0xFF;
 const COVERING_I64_SIGN_BIT_BIAS: u64 = 1u64 << 63;
 
-type CoveringComponentValues = Arc<[Vec<u8>]>;
+pub(in crate::db::executor) type CoveringComponentValues = Arc<[Vec<u8>]>;
 
 pub(in crate::db::executor) type CoveringProjectionComponentRows =
     Vec<(DataKey, IndexEntryExistenceWitness, CoveringComponentValues)>;
@@ -247,7 +247,7 @@ fn decode_covering_projection_components(
 
 // Decode one single-component vector under the executor invariant that the
 // covering route promised exactly one projection payload per row.
-fn decode_single_covering_projection_value(
+pub(in crate::db::executor) fn decode_single_covering_projection_value(
     components: CoveringComponentValues,
     invariant_message: &'static str,
 ) -> Result<Option<Value>, InternalError> {

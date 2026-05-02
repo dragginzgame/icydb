@@ -16,10 +16,10 @@ use crate::{
             project_covering_row_from_single_decoded_value,
         },
         executor::{
-            EntityAuthority, OrderedKeyStreamBox, PrimaryRangeKeyStream, apply_offset_limit_window,
-            covering_projection_scan_direction, decode_covering_projection_pairs,
-            decode_single_covering_projection_pairs, map_covering_projection_pairs,
-            reorder_covering_projection_pairs,
+            CoveringProjectionComponentRows, EntityAuthority, OrderedKeyStreamBox,
+            PrimaryRangeKeyStream, apply_offset_limit_window, covering_projection_scan_direction,
+            decode_covering_projection_pairs, decode_single_covering_projection_pairs,
+            map_covering_projection_pairs, reorder_covering_projection_pairs,
             resolve_covering_projection_components_from_lowered_specs,
         },
         query::plan::{
@@ -200,6 +200,13 @@ where
     if component_indices.len() == 1 {
         let component_index = component_indices[0];
 
+        let decoded_scan_time_skip_count = if index_order {
+            scan_time_page_skip_count
+        } else {
+            0
+        };
+        let raw_pairs = drop_scan_time_covering_offset(raw_pairs, decoded_scan_time_skip_count);
+
         #[cfg(all(feature = "sql", feature = "diagnostics"))]
         let (decode_local_instructions, decoded_rows) = measure_structural_result(|| {
             decode_single_covering_projection_pairs(
@@ -234,7 +241,7 @@ where
         if index_order {
             let mut projected_rows = assemble_covering_rows_in_index_order(
                 decoded_rows,
-                scan_time_page_skip_count,
+                0,
                 |(data_key, decoded_value)| {
                     project_covering_row_from_single_decoded_value(
                         &data_key,
@@ -281,6 +288,13 @@ where
     // Phase 3: reuse the executor-owned covering decode contract so planner-
     // proven routes avoid row-store reads entirely while row-check-required
     // routes still preserve missing-row consistency rules.
+    let decoded_scan_time_skip_count = if index_order {
+        scan_time_page_skip_count
+    } else {
+        0
+    };
+    let raw_pairs = drop_scan_time_covering_offset(raw_pairs, decoded_scan_time_skip_count);
+
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     let (decode_local_instructions, decoded_rows) = measure_structural_result(|| {
         decode_covering_projection_pairs(
@@ -313,7 +327,7 @@ where
     if index_order {
         let mut projected_rows = assemble_covering_rows_in_index_order(
             decoded_rows,
-            scan_time_page_skip_count,
+            0,
             |(data_key, decoded_values)| {
                 project_covering_row_from_decoded_values(
                     &data_key,
@@ -611,6 +625,19 @@ fn apply_pure_covering_page_window<T>(
     };
 
     apply_offset_limit_window(rows, page.offset, page.limit);
+}
+
+#[cfg(feature = "sql")]
+fn drop_scan_time_covering_offset(
+    mut raw_pairs: CoveringProjectionComponentRows,
+    skip_count: usize,
+) -> CoveringProjectionComponentRows {
+    let skip_count = skip_count.min(raw_pairs.len());
+    if skip_count != 0 {
+        raw_pairs.drain(..skip_count);
+    }
+
+    raw_pairs
 }
 
 #[cfg(feature = "sql")]
