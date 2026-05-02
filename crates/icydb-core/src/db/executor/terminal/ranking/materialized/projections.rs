@@ -183,11 +183,10 @@ fn move_selected_ranked_rows(
     ordered_rows: Vec<(usize, Value)>,
     invalid_index_message: &'static str,
 ) -> Result<Vec<(DataRow, Value)>, InternalError> {
-    let mut selected_indices = ordered_rows
-        .into_iter()
-        .enumerate()
-        .map(|(output_index, (row_index, value))| (row_index, output_index, value))
-        .collect::<Vec<_>>();
+    let mut selected_indices = Vec::with_capacity(ordered_rows.len());
+    for (output_index, (row_index, value)) in ordered_rows.into_iter().enumerate() {
+        selected_indices.push((row_index, output_index, value));
+    }
     selected_indices.sort_unstable_by_key(|(row_index, _, _)| Reverse(*row_index));
 
     let mut output_rows = Vec::with_capacity(selected_indices.len());
@@ -204,10 +203,12 @@ fn move_selected_ranked_rows(
         output_rows[output_index] = Some((rows.swap_remove(row_index), value));
     }
 
-    output_rows
-        .into_iter()
-        .map(|row| {
-            row.ok_or_else(|| InternalError::query_executor_invariant(invalid_index_message))
-        })
-        .collect()
+    let mut ranked_rows = Vec::with_capacity(output_rows.len());
+    for row in output_rows {
+        let row =
+            row.ok_or_else(|| InternalError::query_executor_invariant(invalid_index_message))?;
+        ranked_rows.push(row);
+    }
+
+    Ok(ranked_rows)
 }

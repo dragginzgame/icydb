@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.145.x] 🌊 - 2026-05-02 - Streaming Boundaries
 
+- `0.145.12` trims projection and ranked-terminal vector growth by reserving final row, reorder, and winner buffers from known input sizes.
 - `0.145.11` narrows SQL `INSERT ... SELECT` write staging by consuming projected source rows directly into the mutation batch.
 - `0.145.10` reduces SQL `RETURNING field, ...`, SQL `DISTINCT`, and hybrid covering projection staging by moving only the small artifacts each path needs.
 - `0.145.9` reduces key-stream row materialization copying by preserving owned keys directly when delete and aggregate helper paths read rows from storage.

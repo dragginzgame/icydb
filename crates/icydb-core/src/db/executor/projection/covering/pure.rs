@@ -651,11 +651,7 @@ fn assemble_covering_rows_in_index_order<I>(
     let mut build_row = build_row;
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     let (row_assembly_local_instructions, projected_rows) = measure_structural_result(|| {
-        items
-            .into_iter()
-            .skip(skip_count)
-            .map(&mut build_row)
-            .collect::<Result<Vec<_>, _>>()
+        collect_covering_rows_in_index_order(items, skip_count, &mut build_row)
     });
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
@@ -663,11 +659,7 @@ fn assemble_covering_rows_in_index_order<I>(
     let projected_rows = projected_rows?;
 
     #[cfg(not(all(feature = "sql", feature = "diagnostics")))]
-    let projected_rows = items
-        .into_iter()
-        .skip(skip_count)
-        .map(build_row)
-        .collect::<Result<Vec<_>, _>>()?;
+    let projected_rows = collect_covering_rows_in_index_order(items, skip_count, build_row)?;
 
     Ok(projected_rows)
 }
@@ -681,27 +673,64 @@ fn assemble_covering_rows_with_reorder<I>(
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     let mut build_row = build_row;
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
-    let (row_assembly_local_instructions, projected_rows) = measure_structural_result(|| {
-        items
-            .into_iter()
-            .map(&mut build_row)
-            .collect::<Result<Vec<_>, _>>()
-    });
+    let (row_assembly_local_instructions, projected_rows) =
+        measure_structural_result(|| collect_covering_row_pairs_for_reorder(items, &mut build_row));
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     let mut projected_rows = projected_rows?;
 
     #[cfg(not(all(feature = "sql", feature = "diagnostics")))]
-    let mut projected_rows = items
-        .into_iter()
-        .map(build_row)
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut projected_rows = collect_covering_row_pairs_for_reorder(items, build_row)?;
 
     reorder_covering_projection_pairs(order_contract, projected_rows.as_mut_slice());
 
-    Ok(projected_rows
-        .into_iter()
-        .map(|(_data_key, row)| row)
-        .collect())
+    Ok(strip_covering_projection_keys(projected_rows))
+}
+
+#[cfg(feature = "sql")]
+fn collect_covering_rows_in_index_order<I>(
+    items: Vec<I>,
+    skip_count: usize,
+    mut build_row: impl FnMut(I) -> Result<Vec<Value>, InternalError>,
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    let capacity = items.len().saturating_sub(skip_count);
+    let mut projected_rows = Vec::with_capacity(capacity);
+
+    // Phase 1: preserve the existing index-order skip point while reserving
+    // exactly the surviving row count known at the covering assembly boundary.
+    for item in items.into_iter().skip(skip_count) {
+        projected_rows.push(build_row(item)?);
+    }
+
+    Ok(projected_rows)
+}
+
+#[cfg(feature = "sql")]
+fn collect_covering_row_pairs_for_reorder<I>(
+    items: Vec<I>,
+    mut build_row: impl FnMut(I) -> Result<(DataKey, Vec<Value>), InternalError>,
+) -> Result<Vec<(DataKey, Vec<Value>)>, InternalError> {
+    let mut projected_rows = Vec::with_capacity(items.len());
+
+    // Phase 1: reordered covering projections must retain keys until the
+    // planner-owned order contract has been applied.
+    for item in items {
+        projected_rows.push(build_row(item)?);
+    }
+
+    Ok(projected_rows)
+}
+
+#[cfg(feature = "sql")]
+fn strip_covering_projection_keys(projected_rows: Vec<(DataKey, Vec<Value>)>) -> Vec<Vec<Value>> {
+    let mut rows = Vec::with_capacity(projected_rows.len());
+
+    // Phase 1: after reordering, keys are no longer part of the public
+    // projection payload, so move each row into the final matrix directly.
+    for (_data_key, row) in projected_rows {
+        rows.push(row);
+    }
+
+    rows
 }
