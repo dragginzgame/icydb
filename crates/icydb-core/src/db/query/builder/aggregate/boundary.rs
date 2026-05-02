@@ -15,6 +15,9 @@ use crate::{
     value::{StorageKey, Value, storage_key_as_runtime_value},
 };
 
+/// Typed optional `(min_id, max_id)` style aggregate terminal output.
+pub(in crate::db) type ScalarTerminalIdPair<E> = Option<(Id<E>, Id<E>)>;
+
 ///
 /// ScalarTerminalBoundaryRequest
 ///
@@ -100,7 +103,7 @@ impl ScalarTerminalBoundaryOutput {
     }
 
     // Decode paired-id boundary output while preserving request/output mismatch context.
-    pub(in crate::db) fn into_id_pair<E>(self) -> Result<Option<(Id<E>, Id<E>)>, InternalError>
+    pub(in crate::db) fn into_id_pair<E>(self) -> Result<ScalarTerminalIdPair<E>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
