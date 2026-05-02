@@ -214,10 +214,6 @@ where
                     }
                     None => true,
                 };
-                if replace_min {
-                    min_candidate = Some((key, value.clone()));
-                }
-
                 let replace_max = match max_candidate.as_ref() {
                     Some((current_key, current_value)) => {
                         Self::field_projection_candidate_precedes(
@@ -231,8 +227,19 @@ where
                     }
                     None => true,
                 };
-                if replace_max {
-                    max_candidate = Some((key, value));
+
+                match (replace_min, replace_max) {
+                    (true, true) => {
+                        min_candidate = Some((key, value.clone()));
+                        max_candidate = Some((key, value));
+                    }
+                    (true, false) => {
+                        min_candidate = Some((key, value));
+                    }
+                    (false, true) => {
+                        max_candidate = Some((key, value));
+                    }
+                    (false, false) => {}
                 }
 
                 Ok(())

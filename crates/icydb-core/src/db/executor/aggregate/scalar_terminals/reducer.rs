@@ -94,7 +94,7 @@ impl ScalarAggregateReducerState {
             return Ok(());
         }
         if matches!(value, Value::Null) {
-            self.distinct_values.push(value.clone());
+            self.distinct_values.push(Value::Null);
             return Ok(());
         }
 
@@ -116,7 +116,7 @@ impl ScalarAggregateReducerState {
     }
 
     fn finalize(self) -> Result<(usize, Value), InternalError> {
-        Ok((self.output_index, self.reducer.finalize()?))
+        Ok((self.output_index, self.reducer.into_final_value()?))
     }
 }
 

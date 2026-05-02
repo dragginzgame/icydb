@@ -263,6 +263,28 @@ impl ValueReducerState {
             }
         }
     }
+
+    /// Consume this reducer into the canonical structural aggregate value.
+    /// This avoids cloning selected extrema when the caller no longer needs
+    /// the reducer state after finalization.
+    pub(in crate::db::executor::aggregate) fn into_final_value(
+        self,
+    ) -> Result<Value, InternalError> {
+        match self {
+            Self::Count { count } => Ok(finalize_count(count)),
+            Self::Sum { sum, .. } => Ok(sum.map_or(Value::Null, Value::Decimal)),
+            Self::Avg { sum, count } => {
+                if count == 0 {
+                    return Ok(Value::Null);
+                }
+
+                average_decimal_terms_checked(sum, count)
+                    .map(Value::Decimal)
+                    .map_err(NumericEvalError::into_internal_error)
+            }
+            Self::Min { selected } | Self::Max { selected } => Ok(selected.unwrap_or(Value::Null)),
+        }
+    }
 }
 
 /// Finalize one COUNT reducer payload through the shared aggregate policy.
