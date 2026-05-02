@@ -504,17 +504,19 @@ fn probe_row_presence(
     Ok(row_exists)
 }
 
-// Read one persisted row under one consistency contract and preserve the source data key.
-pub(in crate::db::executor) fn read_data_row_with_consistency_from_store(
+// Read one persisted row while consuming an already-owned key stream item.
+// Key-stream loops use this path so materialization can preserve the source
+// key without cloning after the raw row read.
+pub(in crate::db::executor) fn read_owned_data_row_with_consistency_from_store(
     store: StoreHandle,
-    key: &DataKey,
+    key: DataKey,
     consistency: MissingRowPolicy,
 ) -> Result<Option<DataRow>, InternalError> {
-    let Some(row) = read_row_with_consistency_from_store(store, key, consistency)? else {
+    let Some(row) = read_row_with_consistency_from_store(store, &key, consistency)? else {
         return Ok(None);
     };
 
-    Ok(Some((key.clone(), row)))
+    Ok(Some((key, row)))
 }
 
 /// Fold persisted row payload bytes over one full-scan page window through structural store authority.

@@ -19,7 +19,7 @@ use crate::{
             },
             pipeline::runtime::ExecutionAttemptKernel,
             planning::preparation::slot_map_for_model_plan,
-            read_data_row_with_consistency_from_store,
+            read_owned_data_row_with_consistency_from_store,
             route::{RoutePlanRequest, build_execution_route_plan},
         },
         index::IndexCompilePolicy,
@@ -147,7 +147,8 @@ where
     let mut rows_loaded = 0usize;
 
     while let Some(key) = key_stream.next_key()? {
-        if let Some(row) = read_data_row_with_consistency_from_store(store, &key, consistency)? {
+        if let Some(row) = read_owned_data_row_with_consistency_from_store(store, key, consistency)?
+        {
             rows.push(map_row(row)?);
             rows_loaded = rows_loaded.saturating_add(1);
         }

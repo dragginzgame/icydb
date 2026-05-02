@@ -133,9 +133,9 @@ pub use runtime_context::{RowCheckMetrics, with_row_check_metrics};
 #[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use runtime_context::{RowCheckMetrics, with_row_check_metrics};
 pub(in crate::db::executor) use runtime_context::{
-    read_data_row_with_consistency_from_store, read_row_presence_with_consistency_from_data_store,
-    record_row_check_covering_candidate_seen, record_row_check_index_entry_scanned,
-    record_row_check_index_membership_key_decoded,
+    read_owned_data_row_with_consistency_from_store,
+    read_row_presence_with_consistency_from_data_store, record_row_check_covering_candidate_seen,
+    record_row_check_index_entry_scanned, record_row_check_index_membership_key_decoded,
     record_row_check_index_membership_multi_key_entry,
     record_row_check_index_membership_single_key_entry, record_row_check_row_emitted,
     sum_row_payload_bytes_from_ordered_key_stream_with_store,

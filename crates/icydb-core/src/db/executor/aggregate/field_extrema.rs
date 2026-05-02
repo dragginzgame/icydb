@@ -24,7 +24,7 @@ use crate::{
             },
             pipeline::runtime::ExecutionAttemptKernel,
             plan_metrics::record_rows_scanned_for_path,
-            read_data_row_with_consistency_from_store,
+            read_owned_data_row_with_consistency_from_store,
             terminal::{RowDecoder, RowLayout},
         },
         index::IndexCompilePolicy,
@@ -343,12 +343,13 @@ impl ExecutionKernel {
         selected: &mut Option<(StorageKey, Value)>,
     ) -> Result<KeyStreamLoopControl, InternalError> {
         *keys_scanned = keys_scanned.saturating_add(1);
-        let Some(row) = read_data_row_with_consistency_from_store(store, &data_key, consistency)?
+        let key = data_key.storage_key();
+        let Some(row) =
+            read_owned_data_row_with_consistency_from_store(store, data_key, consistency)?
         else {
             return Ok(KeyStreamLoopControl::Emit);
         };
 
-        let key = data_key.storage_key();
         let value =
             RowDecoder::decode_required_slot_value(row_layout, key, &row.1, spec.field_slot.index)?;
         let value = extract_orderable_field_value_from_decoded_slot(

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.145.x] 🌊 - 2026-05-02 - Streaming Boundaries
 
+- `0.145.9` reduces key-stream row materialization copying by preserving owned keys directly when delete and aggregate helper paths read rows from storage.
 - `0.145.8` reduces SQL projection copying by moving discarded `DISTINCT` rows directly into the key set and moving decoded covering values into projected rows at their final use.
 - `0.145.7` reduces ranked and paired-extrema terminal copying by moving selected rows and aggregate candidates instead of cloning them after the winner set is known.
 - `0.145.6` reduces DELETE and covering-projection staging by mapping delete rows directly into their execution shape and folding route-ordered covering page windows before decoding skipped values.

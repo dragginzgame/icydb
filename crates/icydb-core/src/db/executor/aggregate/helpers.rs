@@ -18,7 +18,7 @@ use crate::{
             },
             pipeline::contracts::LoadExecutor,
             plan_metrics::record_rows_scanned_for_path,
-            read_data_row_with_consistency_from_store,
+            read_owned_data_row_with_consistency_from_store,
             terminal::{RowDecoder, RowLayout, page::KernelRow},
         },
         index::predicate::IndexPredicateExecution,
@@ -334,9 +334,10 @@ where
         row_layout: &RowLayout,
         row_decoder: RowDecoder,
         consistency: MissingRowPolicy,
-        key: &DataKey,
+        key: DataKey,
     ) -> Result<Option<KernelRow>, InternalError> {
-        let Some(row) = read_data_row_with_consistency_from_store(store, key, consistency)? else {
+        let Some(row) = read_owned_data_row_with_consistency_from_store(store, key, consistency)?
+        else {
             return Ok(None);
         };
 
@@ -349,16 +350,18 @@ where
         store: StoreHandle,
         row_layout: &RowLayout,
         consistency: MissingRowPolicy,
-        key: &DataKey,
+        key: DataKey,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Option<Value>, InternalError> {
-        let Some(row) = read_data_row_with_consistency_from_store(store, key, consistency)? else {
+        let storage_key = key.storage_key();
+        let Some(row) = read_owned_data_row_with_consistency_from_store(store, key, consistency)?
+        else {
             return Ok(None);
         };
         let value = Self::decode_projected_field_value(
             row_layout,
-            key.storage_key(),
+            storage_key,
             &row.1,
             target_field,
             field_slot,
@@ -431,7 +434,7 @@ where
                 &row_layout,
                 row_decoder,
                 consistency,
-                &data_key,
+                data_key,
             )?
             else {
                 continue;

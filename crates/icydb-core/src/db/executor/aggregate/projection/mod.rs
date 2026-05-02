@@ -450,7 +450,7 @@ where
             store,
             &row_layout,
             consistency,
-            &key,
+            key,
             target_field,
             field_slot,
         )?
