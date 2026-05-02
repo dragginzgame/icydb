@@ -74,25 +74,26 @@ impl GlobalDistinctGroupedOutputContract {
         if page.next_cursor.is_some() {
             return Err(Self::continuation_cursor_forbidden());
         }
-        if page.rows.len() > 1 {
-            return Err(Self::grouped_row_count_invalid(page.rows.len()));
+        let mut rows = page.rows;
+        if rows.len() > 1 {
+            return Err(Self::grouped_row_count_invalid(rows.len()));
         }
-        let Some(row) = page.rows.first() else {
+        let Some(row) = rows.pop() else {
             return Ok(None);
         };
 
         // Decode the single grouped zero-key DISTINCT aggregate row into one
-        // scalar value while preserving grouped-output invariants explicitly.
-        if !row.group_key().is_empty() {
+        // scalar value while preserving grouped-output invariants explicitly
+        // and moving the selected aggregate value out of the owned page row.
+        let (group_key, mut aggregate_values) = row.into_parts();
+        if !group_key.is_empty() {
             return Err(Self::grouped_key_must_be_empty());
         }
-        if row.aggregate_values().len() != 1 {
-            return Err(Self::aggregate_value_count_invalid(
-                row.aggregate_values().len(),
-            ));
+        if aggregate_values.len() != 1 {
+            return Err(Self::aggregate_value_count_invalid(aggregate_values.len()));
         }
 
-        Ok(row.aggregate_values().first().cloned())
+        Ok(aggregate_values.pop())
     }
 }
 

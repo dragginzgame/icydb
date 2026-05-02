@@ -149,23 +149,11 @@ pub(in crate::db::session::sql::execute) fn sql_returning_statement_projection(
         .into_statement_result()),
         SqlReturningProjection::Fields(fields) => {
             let indices = sql_returning_field_indices(&columns, fields)?;
+            let selection = sql_returning_field_selection(&indices)?;
 
             let mut projected_rows = Vec::with_capacity(rows.len());
             for row in rows {
-                let mut owned_values = row.into_iter().map(Some).collect::<Vec<_>>();
-                let mut projected = Vec::with_capacity(indices.len());
-                for index in &indices {
-                    let value = owned_values
-                        .get_mut(*index)
-                        .and_then(Option::take)
-                        .ok_or_else(|| {
-                            QueryError::invariant(
-                                "SQL RETURNING projection row must align with declared columns",
-                            )
-                        })?;
-                    projected.push(value);
-                }
-                projected_rows.push(projected);
+                projected_rows.push(sql_returning_project_owned_row(row, selection.as_slice())?);
             }
 
             Ok(SqlProjectionPayload::new(
@@ -177,4 +165,63 @@ pub(in crate::db::session::sql::execute) fn sql_returning_statement_projection(
             .into_statement_result())
         }
     }
+}
+
+// Build an input-index ordered projection plan for owned SQL RETURNING rows.
+// The output position keeps caller-requested field order, while the input index
+// order lets each row be consumed once without allocating a full-row
+// `Vec<Option<Value>>` just to move selected values out.
+fn sql_returning_field_selection(indices: &[usize]) -> Result<Vec<(usize, usize)>, QueryError> {
+    let mut selection = Vec::with_capacity(indices.len());
+
+    for (output_index, input_index) in indices.iter().copied().enumerate() {
+        if selection
+            .iter()
+            .any(|(existing_index, _)| *existing_index == input_index)
+        {
+            return Err(sql_returning_projection_alignment_error());
+        }
+        selection.push((input_index, output_index));
+    }
+    selection.sort_unstable_by_key(|(input_index, _)| *input_index);
+
+    Ok(selection)
+}
+
+// Project one owned SQL RETURNING row by moving only selected values into a
+// field-count-sized output buffer. This keeps duplicate-field rejection and
+// missing-column failures aligned with the previous take-from-Option behavior.
+fn sql_returning_project_owned_row(
+    row: Vec<Value>,
+    selection: &[(usize, usize)],
+) -> Result<Vec<Value>, QueryError> {
+    let mut projected = (0..selection.len()).map(|_| None).collect::<Vec<_>>();
+    let mut selection_position = 0usize;
+
+    // Phase 1: consume the row once, moving selected values into their
+    // caller-requested output positions.
+    for (input_index, value) in row.into_iter().enumerate() {
+        if selection_position >= selection.len() {
+            break;
+        }
+        let (selected_input_index, output_index) = selection[selection_position];
+        if input_index == selected_input_index {
+            projected[output_index] = Some(value);
+            selection_position = selection_position.saturating_add(1);
+        }
+    }
+
+    if selection_position != selection.len() {
+        return Err(sql_returning_projection_alignment_error());
+    }
+
+    projected
+        .into_iter()
+        .map(|value| value.ok_or_else(sql_returning_projection_alignment_error))
+        .collect()
+}
+
+// Build the shared invariant for owned SQL RETURNING row/column mismatches.
+fn sql_returning_projection_alignment_error() -> QueryError {
+    QueryError::invariant("SQL RETURNING projection row must align with declared columns")
 }

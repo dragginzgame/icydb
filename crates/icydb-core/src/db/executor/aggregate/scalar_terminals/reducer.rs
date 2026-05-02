@@ -63,14 +63,13 @@ impl ScalarAggregateReducerState {
         Ok(())
     }
 
-    fn ingest_value(&mut self, value: Value) -> Result<(), InternalError> {
+    // Ingest one borrowed field or expression value when the source row/cache
+    // already owns the payload. Non-DISTINCT reducers inspect the value without
+    // cloning; extrema clone only if the value becomes the selected candidate.
+    fn ingest_borrowed_value(&mut self, value: &Value) -> Result<(), InternalError> {
         if self.distinct {
-            if self.distinct_values.iter().any(|current| current == &value) {
-                return Ok(());
-            }
-            self.distinct_values.push(value.clone());
+            return self.ingest_distinct_borrowed_value(value);
         }
-
         if matches!(value, Value::Null) {
             return Ok(());
         }
@@ -78,9 +77,37 @@ impl ScalarAggregateReducerState {
         match self.kind {
             ScalarAggregateTerminalKind::CountValues
             | ScalarAggregateTerminalKind::Sum
-            | ScalarAggregateTerminalKind::Avg => self.reducer.ingest(&value),
-            ScalarAggregateTerminalKind::Min | ScalarAggregateTerminalKind::Max => {
-                self.reducer.ingest_owned(value)
+            | ScalarAggregateTerminalKind::Avg
+            | ScalarAggregateTerminalKind::Min
+            | ScalarAggregateTerminalKind::Max => self.reducer.ingest(value),
+            ScalarAggregateTerminalKind::CountRows => Err(InternalError::query_executor_invariant(
+                "COUNT(*) scalar aggregate terminal cannot consume projected values",
+            )),
+        }
+    }
+
+    // Admit one borrowed DISTINCT value. Accepted values are cloned only at the
+    // ownership boundary where the retained DISTINCT admission set must store
+    // them beyond the source row/cache lifetime.
+    fn ingest_distinct_borrowed_value(&mut self, value: &Value) -> Result<(), InternalError> {
+        if self.distinct_values.iter().any(|current| current == value) {
+            return Ok(());
+        }
+        if matches!(value, Value::Null) {
+            self.distinct_values.push(value.clone());
+            return Ok(());
+        }
+
+        match self.kind {
+            ScalarAggregateTerminalKind::CountValues
+            | ScalarAggregateTerminalKind::Sum
+            | ScalarAggregateTerminalKind::Avg
+            | ScalarAggregateTerminalKind::Min
+            | ScalarAggregateTerminalKind::Max => {
+                self.reducer.ingest(value)?;
+                self.distinct_values.push(value.clone());
+
+                Ok(())
             }
             ScalarAggregateTerminalKind::CountRows => Err(InternalError::query_executor_invariant(
                 "COUNT(*) scalar aggregate terminal cannot consume projected values",
@@ -278,14 +305,14 @@ impl ScalarAggregateReducerRuntime {
             )? {
                 continue;
             }
-            let value = row.slot_ref(reducer.slot).cloned().ok_or_else(|| {
+            let value = row.slot_ref(reducer.slot).ok_or_else(|| {
                 ProjectionEvalError::MissingFieldValue {
                     field: reducer.field.clone(),
                     index: reducer.slot,
                 }
                 .into_invalid_logical_plan_internal_error()
             })?;
-            reducer.state.ingest_value(value)?;
+            reducer.state.ingest_borrowed_value(value)?;
         }
 
         Ok(())
@@ -301,16 +328,13 @@ impl ScalarAggregateReducerRuntime {
             )? {
                 continue;
             }
-            let value = self
-                .expr_cache
-                .input_value(
-                    row,
-                    reducer.expr_index,
-                    #[cfg(feature = "diagnostics")]
-                    &mut self.attribution.expression_evaluations,
-                )?
-                .clone();
-            reducer.state.ingest_value(value)?;
+            let value = self.expr_cache.input_value(
+                row,
+                reducer.expr_index,
+                #[cfg(feature = "diagnostics")]
+                &mut self.attribution.expression_evaluations,
+            )?;
+            reducer.state.ingest_borrowed_value(value)?;
         }
 
         Ok(())

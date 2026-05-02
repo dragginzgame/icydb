@@ -27,7 +27,6 @@ use crate::{
                 },
                 materialized_distinct::insert_materialized_distinct_value,
                 projection::covering::{
-                    count_adjacent_values, count_values_preserving_first,
                     covering_index_adjacent_distinct_eligible, covering_index_projection_context,
                     dedup_adjacent_values, dedup_values_preserving_first,
                 },
@@ -244,12 +243,13 @@ where
                 }
             }
             PreparedScalarProjectionOp::CountDistinct => {
-                if let Some(values) =
-                    Self::covering_index_projection_values_with_context_from_prepared(
+                if let Some(projected_pairs) =
+                    Self::covering_index_projection_values_from_context_structural(
                         &prepared, context, window,
                     )?
                 {
-                    let count = count_covering_distinct_projection_values(values, distinct, op)?;
+                    let count =
+                        count_covering_distinct_projection_pairs(projected_pairs, distinct, op)?;
 
                     return Ok(ScalarProjectionBoundaryOutput::Count(count));
                 }
@@ -264,18 +264,17 @@ where
                 }
             }
             PreparedScalarProjectionOp::TerminalValue { terminal_kind } => {
-                if let Some(values) =
-                    Self::covering_index_projection_values_with_context_from_prepared(
+                if let Some(projected_pairs) =
+                    Self::covering_index_projection_values_from_context_structural(
                         &prepared, context, window,
                     )?
                 {
                     PreparedScalarProjectionOp::TerminalValue { terminal_kind }
                         .validate_terminal_value_kind()?;
-                    let value = match terminal_kind {
-                        AggregateKind::First => values.first().cloned(),
-                        AggregateKind::Last => values.last().cloned(),
-                        _ => unreachable!(),
-                    };
+                    let value = terminal_value_from_covering_projection_pairs(
+                        projected_pairs,
+                        terminal_kind,
+                    );
 
                     return Ok(ScalarProjectionBoundaryOutput::TerminalValue(value));
                 }
@@ -382,13 +381,12 @@ where
                 .map(ScalarProjectionBoundaryOutput::Values)
             }
             PreparedScalarProjectionOp::CountDistinct => {
-                Self::project_values_from_materialized_structural(
+                Self::count_distinct_values_from_materialized_structural(
                     rows,
                     &row_layout,
                     target_field_name,
                     field_slot,
                 )
-                .and_then(count_distinct_values_from_materialized_values)
                 .map(ScalarProjectionBoundaryOutput::Count)
             }
             PreparedScalarProjectionOp::ValuesWithIds => {
@@ -525,6 +523,40 @@ where
             .collect()
     }
 
+    // Count DISTINCT materialized structural values without first retaining
+    // the decoded projection vector. `distinct_values(field)` keeps the
+    // value-retaining path because those accepted values are its public output.
+    fn count_distinct_values_from_materialized_structural(
+        rows: Vec<DataRow>,
+        row_layout: &RowLayout,
+        target_field: &str,
+        field_slot: FieldSlot,
+    ) -> Result<u32, InternalError> {
+        let mut distinct_values = GroupKeySet::default();
+        let mut distinct_count = 0usize;
+
+        // Phase 1: decode each projected field value and count canonical
+        // DISTINCT admissions in response order.
+        for (data_key, raw_row) in rows {
+            let value = RowDecoder::decode_required_slot_value(
+                row_layout,
+                data_key.storage_key(),
+                &raw_row,
+                field_slot.index,
+            )?;
+            let value =
+                extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
+                    .map_err(AggregateFieldValueError::into_internal_error)?;
+
+            if !insert_materialized_distinct_value(&mut distinct_values, &value)? {
+                continue;
+            }
+            distinct_count = distinct_count.saturating_add(1);
+        }
+
+        Ok(saturating_u32_len(distinct_count))
+    }
+
     // Resolve one constant field projection value when access shape guarantees
     // that target-field value is fixed by index-prefix equality bindings.
     //
@@ -646,24 +678,6 @@ fn project_distinct_values_from_materialized_values(
     Ok(distinct_projected_values)
 }
 
-fn count_distinct_values_from_materialized_values(
-    projected_values: Vec<Value>,
-) -> Result<u32, InternalError> {
-    let mut distinct_values = GroupKeySet::default();
-    let mut distinct_count = 0usize;
-
-    // Phase 1: count canonical DISTINCT admissions without retaining an output
-    // vector because `COUNT(DISTINCT field)` only needs the accepted cardinality.
-    for value in projected_values {
-        if !insert_materialized_distinct_value(&mut distinct_values, &value)? {
-            continue;
-        }
-        distinct_count = distinct_count.saturating_add(1);
-    }
-
-    Ok(saturating_u32_len(distinct_count))
-}
-
 // Apply the prepared covering DISTINCT strategy to one already-windowed
 // projection vector so covering projection terminals share one dedup contract.
 fn apply_covering_distinct_projection_values(
@@ -680,22 +694,75 @@ fn apply_covering_distinct_projection_values(
     }
 }
 
-// Count the prepared covering DISTINCT strategy without retaining the accepted
-// output vector for `COUNT(DISTINCT field)` projection terminals.
-fn count_covering_distinct_projection_values(
-    values: Vec<Value>,
+// Count the prepared covering DISTINCT strategy from already-windowed
+// structural pairs without materializing a second value-only vector.
+fn count_covering_distinct_projection_pairs(
+    projected_pairs: ValueProjection,
     distinct: Option<PreparedCoveringDistinctStrategy>,
     op: PreparedScalarProjectionOp,
 ) -> Result<u32, InternalError> {
     let count = match distinct {
-        Some(PreparedCoveringDistinctStrategy::Adjacent) => count_adjacent_values(values),
+        Some(PreparedCoveringDistinctStrategy::Adjacent) => {
+            count_adjacent_projection_pairs(projected_pairs)
+        }
         Some(PreparedCoveringDistinctStrategy::PreserveFirst) => {
-            count_values_preserving_first(values)?
+            count_projection_pairs_preserving_first(projected_pairs)?
         }
         None => return Err(op.covering_distinct_strategy_required()),
     };
 
     Ok(saturating_u32_len(count))
+}
+
+// Count adjacent-deduplicable covering pairs while ignoring the ordering key
+// once the prepared window has already been applied.
+fn count_adjacent_projection_pairs(projected_pairs: ValueProjection) -> usize {
+    let mut previous = None::<Value>;
+    let mut count = 0usize;
+    for (_, value) in projected_pairs {
+        if previous.as_ref().is_some_and(|previous| previous == &value) {
+            continue;
+        }
+        previous = Some(value);
+        count = count.saturating_add(1);
+    }
+
+    count
+}
+
+// Count first-observed canonical DISTINCT covering values without retaining an
+// accepted value vector for count-only projection terminals.
+fn count_projection_pairs_preserving_first(
+    projected_pairs: ValueProjection,
+) -> Result<usize, InternalError> {
+    let mut seen = GroupKeySet::default();
+    let mut count = 0usize;
+    for (_, value) in projected_pairs {
+        if !insert_materialized_distinct_value(&mut seen, &value)? {
+            continue;
+        }
+        count = count.saturating_add(1);
+    }
+
+    Ok(count)
+}
+
+// Select the first/last value directly from the already-windowed covering pair
+// vector. The key component exists only for ordering and row-presence policy,
+// so terminal-value projection can move the selected value without allocating a
+// separate value vector or cloning from it.
+fn terminal_value_from_covering_projection_pairs(
+    projected_pairs: ValueProjection,
+    terminal_kind: AggregateKind,
+) -> Option<Value> {
+    match terminal_kind {
+        AggregateKind::First => projected_pairs.into_iter().next().map(|(_, value)| value),
+        AggregateKind::Last => projected_pairs
+            .into_iter()
+            .next_back()
+            .map(|(_, value)| value),
+        _ => unreachable!(),
+    }
 }
 
 // Apply one prepared scalar projection page window in place so covering

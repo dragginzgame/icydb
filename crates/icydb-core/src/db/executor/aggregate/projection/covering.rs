@@ -51,21 +51,6 @@ pub(super) fn dedup_values_preserving_first(
     Ok(out)
 }
 
-// Count first-observed canonical DISTINCT values without retaining the
-// accepted output vector when the caller only needs `COUNT(DISTINCT field)`.
-pub(super) fn count_values_preserving_first(values: Vec<Value>) -> Result<usize, InternalError> {
-    let mut seen = GroupKeySet::default();
-    let mut count = 0usize;
-    for value in values {
-        if !insert_materialized_distinct_value(&mut seen, &value)? {
-            continue;
-        }
-        count = count.saturating_add(1);
-    }
-
-    Ok(count)
-}
-
 pub(super) fn dedup_adjacent_values(values: Vec<Value>) -> Vec<Value> {
     let mut out = Vec::with_capacity(values.len());
     for value in values {
@@ -76,20 +61,4 @@ pub(super) fn dedup_adjacent_values(values: Vec<Value>) -> Vec<Value> {
     }
 
     out
-}
-
-// Count an already adjacent-deduplicable value stream without retaining the
-// accepted output vector for count-only covering projection terminals.
-pub(super) fn count_adjacent_values(values: Vec<Value>) -> usize {
-    let mut previous = None::<Value>;
-    let mut count = 0usize;
-    for value in values {
-        if previous.as_ref().is_some_and(|previous| previous == &value) {
-            continue;
-        }
-        previous = Some(value);
-        count = count.saturating_add(1);
-    }
-
-    count
 }
