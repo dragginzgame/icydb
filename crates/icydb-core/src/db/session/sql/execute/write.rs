@@ -333,10 +333,16 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(select)
     }
 
-    fn execute_sql_insert_select_source_rows<E>(
+    // Execute the SELECT source for `INSERT ... SELECT` and consume the
+    // projected rows directly into the structural mutation batch. SQL
+    // projection still owns row materialization, but write execution no longer
+    // exposes that materialized source as a separate helper result.
+    fn execute_sql_insert_select_source_patches<E>(
         &self,
         source: &SqlSelectStatement,
-    ) -> Result<Vec<Vec<Value>>, QueryError>
+        columns: &[String],
+        rows: &mut Vec<(E::Key, StructuralPatch)>,
+    ) -> Result<(), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -354,9 +360,19 @@ impl<C: CanisterKind> DbSession<C> {
             .execute_sql_projection_from_structural_query_without_sql_compiled_cache(
                 query, authority,
             )?;
-        let (_, _, rows, _) = payload.into_parts();
+        let (_, _, projected_rows, _) = payload.into_parts();
+        rows.reserve(projected_rows.len());
+        for row in projected_rows {
+            if row.len() != columns.len() {
+                return Err(QueryError::unsupported_query(
+                    "SQL INSERT SELECT projection width must match the target INSERT column list in this release",
+                ));
+            }
 
-        Ok(rows)
+            Self::sql_insert_push_patch_row::<E>(rows, columns, row.as_slice())?;
+        }
+
+        Ok(())
     }
 
     // Convert one already-validated INSERT source row into the structural
@@ -410,23 +426,11 @@ impl<C: CanisterKind> DbSession<C> {
             }
             SqlInsertSource::Select(_) => {
                 let source = Self::sql_insert_select_source_statement::<E>(statement)?;
-                let source_rows = self.execute_sql_insert_select_source_rows::<E>(&source)?;
-                let mut patches = Vec::with_capacity(source_rows.len());
-                for row in source_rows {
-                    if row.len() != columns.len() {
-                        return Err(QueryError::unsupported_query(
-                            "SQL INSERT SELECT projection width must match the target INSERT column list in this release",
-                        ));
-                    }
-
-                    Self::sql_insert_push_patch_row::<E>(
-                        &mut patches,
-                        columns.as_slice(),
-                        row.as_slice(),
-                    )?;
-                }
-
-                rows = patches;
+                self.execute_sql_insert_select_source_patches::<E>(
+                    &source,
+                    columns.as_slice(),
+                    &mut rows,
+                )?;
             }
         }
         let entities = self
