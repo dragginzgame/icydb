@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.145.x] 🌊 - 2026-05-02 - Streaming Boundaries
 
+- `0.145.2` reduces temporary allocation in aggregate projection terminals by inserting decoded `nth(field)` and `median(field)` values directly into their ordered candidate set and by counting `COUNT(DISTINCT field)` admissions without building an output vector.
 - `0.145.1` lowers memory pressure in paged loads, SQL covering projections, and field aggregate terminals by skipping discarded offset rows earlier and avoiding extra row/key/finalization staging.
 - `0.145.0` starts the streaming-boundary cleanup by reducing temporary buffers in bounded grouped queries, SQL write results, and field aggregate helpers.
 

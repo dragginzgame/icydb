@@ -260,53 +260,39 @@ where
         field_slot: FieldSlot,
     ) -> Result<Vec<(StorageKey, Value)>, InternalError> {
         let mut ordered_rows: Vec<(StorageKey, Value)> = Vec::new();
-        for (key, value) in
-            Self::field_projection_from_materialized(rows, row_layout, target_field, field_slot)?
-        {
-            let mut insert_index = ordered_rows.len();
-            for (index, (current_key, current_value)) in ordered_rows.iter().enumerate() {
-                let candidate_precedes = Self::field_projection_candidate_precedes(
-                    target_field,
-                    &key,
-                    &value,
-                    current_key,
-                    current_value,
-                    Ordering::Less,
-                )?;
-                if candidate_precedes {
-                    insert_index = index;
-                    break;
-                }
-            }
 
-            ordered_rows.insert(insert_index, (key, value));
-        }
-
-        Ok(ordered_rows)
-    }
-
-    // Project materialized scalar rows into `(id, field_value)` pairs through
-    // structural row decoding rather than full entity reconstruction.
-    fn field_projection_from_materialized(
-        rows: Vec<DataRow>,
-        row_layout: &RowLayout,
-        target_field: &str,
-        field_slot: FieldSlot,
-    ) -> Result<Vec<(StorageKey, Value)>, InternalError> {
-        let mut projected = Vec::with_capacity(rows.len());
-
+        // Decode each projected field value directly into the ordered
+        // candidate set. `nth(field)` and `median(field)` still need the
+        // ordered vector, but they do not need a separate projected-pair vector
+        // before insertion.
         Self::for_each_projected_field_from_materialized(
             rows,
             row_layout,
             target_field,
             field_slot,
-            |storage_key, value| {
-                projected.push((storage_key, value));
+            |key, value| {
+                let mut insert_index = ordered_rows.len();
+                for (index, (current_key, current_value)) in ordered_rows.iter().enumerate() {
+                    let candidate_precedes = Self::field_projection_candidate_precedes(
+                        target_field,
+                        &key,
+                        &value,
+                        current_key,
+                        current_value,
+                        Ordering::Less,
+                    )?;
+                    if candidate_precedes {
+                        insert_index = index;
+                        break;
+                    }
+                }
+
+                ordered_rows.insert(insert_index, (key, value));
                 Ok(())
             },
         )?;
 
-        Ok(projected)
+        Ok(ordered_rows)
     }
 
     // Project materialized scalar rows into `(id, field_value)` pairs through

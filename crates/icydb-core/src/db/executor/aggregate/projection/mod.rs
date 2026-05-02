@@ -27,6 +27,7 @@ use crate::{
                 },
                 materialized_distinct::insert_materialized_distinct_value,
                 projection::covering::{
+                    count_adjacent_values, count_values_preserving_first,
                     covering_index_adjacent_distinct_eligible, covering_index_projection_context,
                     dedup_adjacent_values, dedup_values_preserving_first,
                 },
@@ -248,11 +249,9 @@ where
                         &prepared, context, window,
                     )?
                 {
-                    let values = apply_covering_distinct_projection_values(values, distinct, op)?;
+                    let count = count_covering_distinct_projection_values(values, distinct, op)?;
 
-                    return Ok(ScalarProjectionBoundaryOutput::Count(saturating_u32_len(
-                        values.len(),
-                    )));
+                    return Ok(ScalarProjectionBoundaryOutput::Count(count));
                 }
             }
             PreparedScalarProjectionOp::ValuesWithIds => {
@@ -389,10 +388,8 @@ where
                     target_field_name,
                     field_slot,
                 )
-                .and_then(project_distinct_values_from_materialized_values)
-                .map(|values| {
-                    ScalarProjectionBoundaryOutput::Count(saturating_u32_len(values.len()))
-                })
+                .and_then(count_distinct_values_from_materialized_values)
+                .map(ScalarProjectionBoundaryOutput::Count)
             }
             PreparedScalarProjectionOp::ValuesWithIds => {
                 Self::project_field_values_from_materialized_structural(
@@ -649,6 +646,24 @@ fn project_distinct_values_from_materialized_values(
     Ok(distinct_projected_values)
 }
 
+fn count_distinct_values_from_materialized_values(
+    projected_values: Vec<Value>,
+) -> Result<u32, InternalError> {
+    let mut distinct_values = GroupKeySet::default();
+    let mut distinct_count = 0usize;
+
+    // Phase 1: count canonical DISTINCT admissions without retaining an output
+    // vector because `COUNT(DISTINCT field)` only needs the accepted cardinality.
+    for value in projected_values {
+        if !insert_materialized_distinct_value(&mut distinct_values, &value)? {
+            continue;
+        }
+        distinct_count = distinct_count.saturating_add(1);
+    }
+
+    Ok(saturating_u32_len(distinct_count))
+}
+
 // Apply the prepared covering DISTINCT strategy to one already-windowed
 // projection vector so covering projection terminals share one dedup contract.
 fn apply_covering_distinct_projection_values(
@@ -663,6 +678,24 @@ fn apply_covering_distinct_projection_values(
         }
         None => Err(op.covering_distinct_strategy_required()),
     }
+}
+
+// Count the prepared covering DISTINCT strategy without retaining the accepted
+// output vector for `COUNT(DISTINCT field)` projection terminals.
+fn count_covering_distinct_projection_values(
+    values: Vec<Value>,
+    distinct: Option<PreparedCoveringDistinctStrategy>,
+    op: PreparedScalarProjectionOp,
+) -> Result<u32, InternalError> {
+    let count = match distinct {
+        Some(PreparedCoveringDistinctStrategy::Adjacent) => count_adjacent_values(values),
+        Some(PreparedCoveringDistinctStrategy::PreserveFirst) => {
+            count_values_preserving_first(values)?
+        }
+        None => return Err(op.covering_distinct_strategy_required()),
+    };
+
+    Ok(saturating_u32_len(count))
 }
 
 // Apply one prepared scalar projection page window in place so covering
