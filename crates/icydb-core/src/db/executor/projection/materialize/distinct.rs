@@ -25,14 +25,14 @@ use std::collections::HashMap;
 
 #[cfg(feature = "sql")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct ProjectionDistinctWindow {
+pub(in crate::db::executor::projection) struct ProjectionDistinctWindow {
     offset: usize,
     limit: Option<usize>,
 }
 
 #[cfg(feature = "sql")]
 impl ProjectionDistinctWindow {
-    pub(super) fn from_page(page: Option<&PageSpec>) -> Self {
+    pub(in crate::db::executor::projection) fn from_page(page: Option<&PageSpec>) -> Self {
         Self {
             offset: page.map_or(0, |page| usize::try_from(page.offset).unwrap_or(usize::MAX)),
             limit: page.and_then(|page| {

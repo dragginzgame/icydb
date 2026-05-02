@@ -4,33 +4,29 @@
 //! Boundary: adapts structural pages into bounded DISTINCT row collection.
 
 use crate::{
-    db::{
-        executor::{
-            StructuralCursorPage,
-            projection::materialize::{
-                distinct::{ProjectionDistinctWindow, collect_bounded_distinct_projected_rows},
-                execute::{project_data_row, project_slot_row},
-                metrics::ProjectionMaterializationMetricsRecorder,
-                plan::PreparedProjectionShape,
-                structural::MaterializedProjectionRows,
-            },
-            terminal::RowLayout,
+    db::executor::{
+        StructuralCursorPage,
+        projection::materialize::{
+            ProjectionDistinctWindow,
+            distinct::collect_bounded_distinct_projected_rows,
+            execute::{project_data_row, project_slot_row},
+            metrics::ProjectionMaterializationMetricsRecorder,
+            plan::PreparedProjectionShape,
+            structural::MaterializedProjectionRows,
         },
-        query::plan::AccessPlannedQuery,
+        terminal::RowLayout,
     },
     error::InternalError,
 };
 
 #[cfg(feature = "sql")]
-pub(in crate::db::executor) fn project_distinct(
+pub(in crate::db::executor::projection) fn project_distinct(
     row_layout: RowLayout,
     prepared_projection: &PreparedProjectionShape,
-    plan: &AccessPlannedQuery,
+    window: ProjectionDistinctWindow,
     page: StructuralCursorPage,
     metrics: ProjectionMaterializationMetricsRecorder,
 ) -> Result<MaterializedProjectionRows, InternalError> {
-    let window = ProjectionDistinctWindow::from_page(plan.scalar_plan().page.as_ref());
-
     // Phase 1: choose the structural payload once, then run a bounded
     // DISTINCT projector over that shape. The projector owns the
     // post-projection window so it can stop when LIMIT has been satisfied.

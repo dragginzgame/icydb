@@ -152,8 +152,18 @@ pub(in crate::db::session::sql::execute) fn sql_returning_statement_projection(
             let selection = sql_returning_field_selection(&indices)?;
 
             let mut projected_rows = Vec::with_capacity(rows.len());
-            for row in rows {
-                projected_rows.push(sql_returning_project_owned_row(row, selection.as_slice())?);
+            if sql_returning_selection_is_output_ordered(selection.as_slice()) {
+                for row in rows {
+                    projected_rows.push(sql_returning_project_owned_row_in_output_order(
+                        row,
+                        selection.as_slice(),
+                    )?);
+                }
+            } else {
+                for row in rows {
+                    projected_rows
+                        .push(sql_returning_project_owned_row(row, selection.as_slice())?);
+                }
             }
 
             Ok(SqlProjectionPayload::new(
@@ -186,6 +196,47 @@ fn sql_returning_field_selection(indices: &[usize]) -> Result<Vec<(usize, usize)
     selection.sort_unstable_by_key(|(input_index, _)| *input_index);
 
     Ok(selection)
+}
+
+// Detect the common `RETURNING a, b, c` case where caller-requested output
+// order matches input-column order. That lane can move selected values directly
+// into the result row without routing them through an optional output buffer.
+fn sql_returning_selection_is_output_ordered(selection: &[(usize, usize)]) -> bool {
+    selection
+        .iter()
+        .enumerate()
+        .all(|(output_index, (_, selected_output_index))| *selected_output_index == output_index)
+}
+
+// Project one owned SQL RETURNING row by moving schema-ordered selected values
+// directly into output order. This fast lane is only used after duplicate
+// fields have been rejected and the selection is known to be output ordered.
+fn sql_returning_project_owned_row_in_output_order(
+    row: Vec<Value>,
+    selection: &[(usize, usize)],
+) -> Result<Vec<Value>, QueryError> {
+    let mut projected = Vec::with_capacity(selection.len());
+    let mut selection_position = 0usize;
+
+    // Phase 1: consume the row once and move each selected input directly into
+    // the caller-visible output row.
+    for (input_index, value) in row.into_iter().enumerate() {
+        if selection_position >= selection.len() {
+            break;
+        }
+        let (selected_input_index, output_index) = selection[selection_position];
+        debug_assert_eq!(selection_position, output_index);
+        if input_index == selected_input_index {
+            projected.push(value);
+            selection_position = selection_position.saturating_add(1);
+        }
+    }
+
+    if selection_position != selection.len() {
+        return Err(sql_returning_projection_alignment_error());
+    }
+
+    Ok(projected)
 }
 
 // Project one owned SQL RETURNING row by moving only selected values into a

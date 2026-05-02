@@ -10,6 +10,8 @@ mod plan;
 mod row_view;
 mod structural;
 
+#[cfg(feature = "sql")]
+pub(in crate::db::executor::projection) use distinct::ProjectionDistinctWindow;
 #[cfg(test)]
 pub(in crate::db::executor::projection) use execute::project_rows_from_projection;
 #[cfg(all(feature = "sql", test))]
@@ -26,4 +28,4 @@ pub(in crate::db::executor) use plan::{
 };
 pub(in crate::db::executor) use structural::MaterializedProjectionRows;
 pub(in crate::db) use structural::project;
-pub(in crate::db::executor) use structural::project_distinct;
+pub(in crate::db::executor::projection) use structural::project_distinct;

@@ -39,10 +39,16 @@ pub(in crate::db::executor) use grouped::{
 pub(in crate::db::executor) use materialize::MaterializedProjectionRows;
 #[cfg(test)]
 pub(in crate::db) use materialize::PreparedProjectionPlan;
+#[cfg(feature = "sql")]
+pub(in crate::db::executor::projection) use materialize::ProjectionDistinctWindow;
 #[cfg(test)]
 pub(in crate::db) use materialize::project;
+#[cfg(all(feature = "sql", not(test)))]
+pub(in crate::db::executor) use materialize::project;
 #[cfg(all(feature = "sql", test))]
-pub(in crate::db::executor) use materialize::project_distinct;
+pub(in crate::db::executor::projection) use materialize::project_distinct;
+#[cfg(all(feature = "sql", not(test)))]
+pub(in crate::db::executor::projection) use materialize::project_distinct;
 #[cfg(test)]
 pub(in crate::db::executor::projection) use materialize::project_rows_from_projection;
 pub(in crate::db) use materialize::{
@@ -57,8 +63,6 @@ pub(in crate::db::executor::projection) use materialize::{
     count_borrowed_data_row_views_for_test, count_borrowed_identity_data_row_views_for_test,
     count_borrowed_slot_row_views_for_test,
 };
-#[cfg(all(feature = "sql", not(test)))]
-pub(in crate::db::executor) use materialize::{project, project_distinct};
 #[cfg(test)]
 pub(in crate::db) use tests::projection_eval_data_row_for_materialize_tests;
 #[cfg(test)]

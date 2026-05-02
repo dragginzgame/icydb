@@ -11,7 +11,7 @@ use crate::{
             SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeParts,
             pipeline::execute_initial_scalar_retained_slot_page_from_runtime_parts_for_canister,
             projection::{
-                MaterializedProjectionRows, project, project_distinct,
+                MaterializedProjectionRows, ProjectionDistinctWindow, project, project_distinct,
                 try_execute_covering_projection_rows_for_canister,
             },
             saturating_u32_len,
@@ -114,7 +114,11 @@ where
         scalar_runtime,
     } = prepared_plan.into_projection_runtime_parts()?;
     let distinct = scalar_runtime.plan_core.plan().scalar_plan().distinct;
-    let distinct_plan = distinct.then(|| scalar_runtime.plan_core.plan().clone());
+    let distinct_window = distinct.then(|| {
+        ProjectionDistinctWindow::from_page(
+            scalar_runtime.plan_core.plan().scalar_plan().page.as_ref(),
+        )
+    });
     let scalar_runtime = if distinct {
         scalar_runtime.into_scalar_page_suppressed()
     } else {
@@ -158,9 +162,9 @@ where
         project_distinct(
             row_layout,
             prepared_projection,
-            distinct_plan.as_ref().ok_or_else(|| {
+            distinct_window.ok_or_else(|| {
                 InternalError::query_executor_invariant(
-                    "distinct projection materialization requires logical plan metadata",
+                    "distinct projection materialization requires a prepared page window",
                 )
             })?,
             page,

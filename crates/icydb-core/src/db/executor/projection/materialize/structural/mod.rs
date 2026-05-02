@@ -10,7 +10,7 @@ mod identity;
 use crate::{db::executor::projection::materialize::row_view::RowView, value::Value};
 
 pub(in crate::db) use dispatch::project;
-pub(in crate::db::executor) use distinct_entrypoints::project_distinct;
+pub(in crate::db::executor::projection) use distinct_entrypoints::project_distinct;
 
 ///
 /// MaterializedProjectionRows
