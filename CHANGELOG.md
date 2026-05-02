@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.145.x] 🌊 - 2026-05-02 - Streaming Boundaries
 
-- `0.145.0` lowers memory pressure in grouped queries, SQL write results, paged loads, SQL covering projections, and field aggregates by streaming bounded candidates, returning only requested fields, skipping discarded offset rows earlier, and avoiding extra row/key staging.
+- `0.145.1` lowers memory pressure in paged loads, SQL covering projections, and field aggregate terminals by skipping discarded offset rows earlier and avoiding extra row/key/finalization staging.
+- `0.145.0` starts the streaming-boundary cleanup by reducing temporary buffers in bounded grouped queries, SQL write results, and field aggregate helpers.
 
 See detailed breakdown:
 [docs/changelog/0.145.md](docs/changelog/0.145.md)
