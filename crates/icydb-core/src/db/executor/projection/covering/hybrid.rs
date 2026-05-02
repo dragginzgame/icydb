@@ -65,6 +65,16 @@ where
         plan.scalar_plan().distinct,
         plan.scalar_plan().page.as_ref(),
     );
+    let scan_time_page_skip_count = hybrid_covering_scan_time_page_skip_count(
+        hybrid.order_contract,
+        plan.scalar_plan().distinct,
+        plan.scalar_plan().page.as_ref(),
+    );
+    let scan_time_page_window_applied = hybrid_covering_scan_time_page_window_applied(
+        hybrid.order_contract,
+        plan.scalar_plan().distinct,
+        plan.scalar_plan().page.as_ref(),
+    );
     let raw_pairs = resolve_covering_projection_components_from_lowered_specs(
         authority.entity_tag(),
         index_prefix_specs,
@@ -79,11 +89,11 @@ where
     // values with sparse row-backed field reads for uncovered slots.
     metrics.record_hybrid_path_hit();
     let mut projected_rows = store.with_data(|data_store| {
-        let mut projected_rows = Vec::with_capacity(raw_pairs.len());
+        let mut projected_rows =
+            Vec::with_capacity(raw_pairs.len().saturating_sub(scan_time_page_skip_count));
+        let mut projected_row_count = 0usize;
 
         for (data_key, _existence_witness, components) in raw_pairs {
-            let decoded_components =
-                decode_hybrid_covering_components(component_indices.as_slice(), components)?;
             let sparse_row_fields = read_hybrid_projection_row_fields_from_store(
                 authority.row_layout(),
                 data_store,
@@ -93,6 +103,13 @@ where
             let Some(sparse_row_fields) = sparse_row_fields else {
                 continue;
             };
+            if projected_row_count < scan_time_page_skip_count {
+                projected_row_count = projected_row_count.saturating_add(1);
+                continue;
+            }
+
+            let decoded_components =
+                decode_hybrid_covering_components(component_indices.as_slice(), components)?;
             let projected_row = project_hybrid_covering_row(
                 &data_key,
                 hybrid.fields.as_slice(),
@@ -102,6 +119,7 @@ where
             )?;
 
             projected_rows.push((data_key, projected_row));
+            projected_row_count = projected_row_count.saturating_add(1);
         }
 
         Ok::<Vec<(DataKey, Vec<Value>)>, InternalError>(projected_rows)
@@ -111,6 +129,7 @@ where
         projected_rows.as_mut_slice(),
     );
     if !plan.scalar_plan().distinct
+        && !scan_time_page_window_applied
         && let Some(page) = plan.scalar_plan().page.as_ref()
     {
         apply_offset_limit_window(&mut projected_rows, page.offset, page.limit);
@@ -151,6 +170,40 @@ fn hybrid_covering_scan_limit(
         .max(1)
         .try_into()
         .unwrap_or(usize::MAX)
+}
+
+#[cfg(feature = "sql")]
+fn hybrid_covering_scan_time_page_skip_count(
+    order_contract: CoveringProjectionOrder,
+    distinct: bool,
+    page: Option<&PageSpec>,
+) -> usize {
+    if !hybrid_covering_route_can_apply_page_during_scan(order_contract, distinct) {
+        return 0;
+    }
+
+    page.map_or(0, |page| usize::try_from(page.offset).unwrap_or(usize::MAX))
+}
+
+#[cfg(feature = "sql")]
+fn hybrid_covering_scan_time_page_window_applied(
+    order_contract: CoveringProjectionOrder,
+    distinct: bool,
+    page: Option<&PageSpec>,
+) -> bool {
+    if !hybrid_covering_route_can_apply_page_during_scan(order_contract, distinct) {
+        return false;
+    }
+
+    page.is_some_and(|page| page.offset != 0 || page.limit.is_some())
+}
+
+#[cfg(feature = "sql")]
+const fn hybrid_covering_route_can_apply_page_during_scan(
+    order_contract: CoveringProjectionOrder,
+    distinct: bool,
+) -> bool {
+    !distinct && matches!(order_contract, CoveringProjectionOrder::IndexOrder(_))
 }
 
 #[cfg(feature = "sql")]

@@ -359,6 +359,24 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(rows)
     }
 
+    // Convert one already-validated INSERT source row into the structural
+    // mutation batch. Keeping this helper at the row boundary lets VALUES and
+    // INSERT SELECT feed patches directly without first cloning/staging the
+    // whole source row set behind a shared temporary vector.
+    fn sql_insert_push_patch_row<E>(
+        rows: &mut Vec<(E::Key, StructuralPatch)>,
+        columns: &[String],
+        values: &[Value],
+    ) -> Result<(), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (key, patch) = Self::sql_insert_patch_and_key::<E>(columns, values)?;
+        rows.push((key, patch));
+
+        Ok(())
+    }
+
     pub(in crate::db::session::sql::execute) fn execute_sql_insert_statement<E>(
         &self,
         statement: &SqlInsertStatement,
@@ -369,8 +387,11 @@ impl<C: CanisterKind> DbSession<C> {
         let columns = sql_insert_columns::<E>(statement);
         ensure_sql_insert_required_fields::<E>(columns.as_slice())?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Insert, Timestamp::now());
-        let source_rows = match &statement.source {
+        let mut rows = Vec::new();
+
+        match &statement.source {
             SqlInsertSource::Values(values) => {
+                rows.reserve(values.len());
                 for tuple in values {
                     if tuple.len() != columns.len() {
                         return Err(QueryError::from_sql_parse_error(
@@ -379,29 +400,34 @@ impl<C: CanisterKind> DbSession<C> {
                             ),
                         ));
                     }
-                }
 
-                values.clone()
+                    Self::sql_insert_push_patch_row::<E>(
+                        &mut rows,
+                        columns.as_slice(),
+                        tuple.as_slice(),
+                    )?;
+                }
             }
             SqlInsertSource::Select(_) => {
                 let source = Self::sql_insert_select_source_statement::<E>(statement)?;
-                let rows = self.execute_sql_insert_select_source_rows::<E>(&source)?;
-                for row in &rows {
+                let source_rows = self.execute_sql_insert_select_source_rows::<E>(&source)?;
+                let mut patches = Vec::with_capacity(source_rows.len());
+                for row in source_rows {
                     if row.len() != columns.len() {
                         return Err(QueryError::unsupported_query(
                             "SQL INSERT SELECT projection width must match the target INSERT column list in this release",
                         ));
                     }
+
+                    Self::sql_insert_push_patch_row::<E>(
+                        &mut patches,
+                        columns.as_slice(),
+                        row.as_slice(),
+                    )?;
                 }
 
-                rows
+                rows = patches;
             }
-        };
-        let mut rows = Vec::with_capacity(source_rows.len());
-
-        for values in &source_rows {
-            let (key, patch) = Self::sql_insert_patch_and_key::<E>(columns.as_slice(), values)?;
-            rows.push((key, patch));
         }
         let entities = self
             .execute_save_with::<E, _, _>(

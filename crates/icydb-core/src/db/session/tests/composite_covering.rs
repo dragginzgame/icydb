@@ -177,6 +177,60 @@ fn execute_sql_projection_hybrid_covering_projection_mixes_covering_and_row_fiel
 }
 
 #[test]
+fn execute_sql_projection_hybrid_covering_projection_skips_offset_before_index_projection() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed one deterministic composite-index dataset where the query
+    // has to skip the first index-ordered row before emitting the LIMIT window.
+    seed_composite_indexed_session_sql_entities(
+        &session,
+        &[
+            (9_321_u128, "alpha", 2),
+            (9_322, "alpha", 1),
+            (9_323, "beta", 1),
+        ],
+    );
+
+    // Phase 2: require row parity with the entity path while proving the
+    // hybrid covering projector does not decode/project index components for
+    // rows discarded by OFFSET after row-presence filtering.
+    let sql = "SELECT id, code, serial, note FROM CompositeIndexedSessionSqlEntity ORDER BY code ASC, serial ASC, id ASC LIMIT 1 OFFSET 1";
+    let (projected_rows, metrics) = with_sql_projection_materialization_metrics(|| {
+        statement_projection_rows::<CompositeIndexedSessionSqlEntity>(&session, sql)
+            .expect("offset hybrid composite covering projection query should execute")
+    });
+    let entity_rows =
+        execute_scalar_select_for_tests::<CompositeIndexedSessionSqlEntity>(&session, sql)
+            .expect("offset hybrid composite covering entity query should execute");
+    let entity_projected_rows = entity_rows
+        .iter()
+        .map(|row| {
+            vec![
+                Value::Ulid(row.entity_ref().id),
+                Value::Text(row.entity_ref().code.clone()),
+                Value::Uint(row.entity_ref().serial),
+                Value::Text(row.entity_ref().note.clone()),
+            ]
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(entity_projected_rows, projected_rows);
+    assert_eq!(
+        metrics.hybrid_covering_path_hits, 1,
+        "offset hybrid covering projection should use the SQL-side mixed covering path",
+    );
+    assert_eq!(
+        metrics.hybrid_covering_row_field_accesses, 1,
+        "offset hybrid covering projection should materialize row-backed projected field values only for retained output rows",
+    );
+    assert_eq!(
+        metrics.hybrid_covering_index_field_accesses, 2,
+        "offset hybrid covering projection should decode projected index fields only for retained output rows",
+    );
+}
+
+#[test]
 fn execute_sql_projection_hybrid_covering_projection_admits_pk_plus_row_field_only() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
