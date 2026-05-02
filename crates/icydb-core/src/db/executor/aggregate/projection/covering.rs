@@ -3,19 +3,13 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::{
-    db::{
-        access::AccessPlan,
-        executor::aggregate::materialized_distinct::insert_materialized_distinct_value,
-        executor::group::GroupKeySet,
-        query::plan::{
-            CoveringProjectionContext, OrderSpec,
-            covering_index_adjacent_distinct_eligible as plan_adjacent,
-            covering_index_projection_context as plan_covering_context,
-        },
+use crate::db::{
+    access::AccessPlan,
+    query::plan::{
+        CoveringProjectionContext, OrderSpec,
+        covering_index_adjacent_distinct_eligible as plan_adjacent,
+        covering_index_projection_context as plan_covering_context,
     },
-    error::InternalError,
-    value::Value,
 };
 
 // Derive one planner-owned covering projection context from executor plan
@@ -34,31 +28,4 @@ pub(super) const fn covering_index_adjacent_distinct_eligible(
     context: CoveringProjectionContext,
 ) -> bool {
     plan_adjacent(context)
-}
-
-pub(super) fn dedup_values_preserving_first(
-    values: Vec<Value>,
-) -> Result<Vec<Value>, InternalError> {
-    let mut seen = GroupKeySet::default();
-    let mut out = Vec::with_capacity(values.len());
-    for value in values {
-        if !insert_materialized_distinct_value(&mut seen, &value)? {
-            continue;
-        }
-        out.push(value);
-    }
-
-    Ok(out)
-}
-
-pub(super) fn dedup_adjacent_values(values: Vec<Value>) -> Vec<Value> {
-    let mut out = Vec::with_capacity(values.len());
-    for value in values {
-        if out.last().is_some_and(|previous| previous == &value) {
-            continue;
-        }
-        out.push(value);
-    }
-
-    out
 }

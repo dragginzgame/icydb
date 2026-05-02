@@ -200,9 +200,28 @@ impl ScalarAggregateReducerRuntime {
     pub(super) fn new(terminals: PreparedScalarAggregateTerminalSet) -> Self {
         let (terminals, input_exprs, filter_exprs) = terminals.into_runtime_parts();
         let terminal_count = terminals.len();
-        let mut row_reducers = Vec::new();
-        let mut field_reducers = Vec::new();
-        let mut expr_reducers = Vec::new();
+        // Count reducer buckets before consuming the terminal vector so each
+        // hot-loop list reserves only its own input class, not the full
+        // terminal set size three times.
+        let mut row_reducer_capacity = 0;
+        let mut field_reducer_capacity = 0;
+        let mut expr_reducer_capacity = 0;
+        for terminal in &terminals {
+            match &terminal.input {
+                InternedScalarAggregateInput::Rows => {
+                    row_reducer_capacity += 1;
+                }
+                InternedScalarAggregateInput::Field { .. } => {
+                    field_reducer_capacity += 1;
+                }
+                InternedScalarAggregateInput::Expr(_) => {
+                    expr_reducer_capacity += 1;
+                }
+            }
+        }
+        let mut row_reducers = Vec::with_capacity(row_reducer_capacity);
+        let mut field_reducers = Vec::with_capacity(field_reducer_capacity);
+        let mut expr_reducers = Vec::with_capacity(expr_reducer_capacity);
 
         // Classify terminal input strategy once, before row ingestion. The row
         // loop then runs three concrete reducer lists instead of matching on
@@ -362,16 +381,17 @@ impl ScalarAggregateReducerRuntime {
             values[index] = Some(value);
         }
 
-        values
-            .into_iter()
-            .map(|value| {
-                value.ok_or_else(|| {
-                    InternalError::query_executor_invariant(
-                        "scalar aggregate reducer did not finalize every terminal",
-                    )
-                })
-            })
-            .collect()
+        let mut ordered_values = Vec::with_capacity(values.len());
+        for value in values {
+            let value = value.ok_or_else(|| {
+                InternalError::query_executor_invariant(
+                    "scalar aggregate reducer did not finalize every terminal",
+                )
+            })?;
+            ordered_values.push(value);
+        }
+
+        Ok(ordered_values)
     }
 
     #[cfg(feature = "diagnostics")]

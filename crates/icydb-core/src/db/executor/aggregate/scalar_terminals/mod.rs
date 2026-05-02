@@ -57,9 +57,10 @@ where
         request: StructuralAggregateRequest,
     ) -> Result<StructuralAggregateResult, InternalError> {
         let compiled = CompiledStructuralAggregateRequest::compile(&request)?;
-        let mut unique_values = vec![None; request.terminals().len()];
-        let mut scalar_aggregate_terminals = Vec::new();
-        let mut scalar_aggregate_terminal_positions = Vec::new();
+        let terminal_count = request.terminals().len();
+        let mut unique_values = vec![None; terminal_count];
+        let mut scalar_aggregate_terminals = Vec::with_capacity(terminal_count);
+        let mut scalar_aggregate_terminal_positions = Vec::with_capacity(terminal_count);
 
         // Phase 1: route count-equivalent terminals through the shared scalar
         // count boundary and stage all remaining terminals for the aggregate
@@ -104,23 +105,22 @@ where
                 unique_values[terminal_index] = Some(value);
             }
         }
-        let unique_values = unique_values
-            .into_iter()
-            .map(|value| {
-                value.ok_or_else(|| {
-                    InternalError::query_executor_invariant(
-                        "structural aggregate terminal did not produce a reduced value",
-                    )
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut ordered_values = Vec::with_capacity(unique_values.len());
+        for value in unique_values {
+            let value = value.ok_or_else(|| {
+                InternalError::query_executor_invariant(
+                    "structural aggregate terminal did not produce a reduced value",
+                )
+            })?;
+            ordered_values.push(value);
+        }
 
         // Phase 3: evaluate global aggregate HAVING and final projection
         // against the implicit single aggregate row. Adapter layers only see
         // the completed structural row payload.
         let grouped_row = GroupedRowView::new(
             &[],
-            unique_values.as_slice(),
+            ordered_values.as_slice(),
             &[],
             compiled.aggregate_execution_specs(),
         );

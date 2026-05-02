@@ -28,7 +28,6 @@ use crate::{
                 materialized_distinct::insert_materialized_distinct_value,
                 projection::covering::{
                     covering_index_adjacent_distinct_eligible, covering_index_projection_context,
-                    dedup_adjacent_values, dedup_values_preserving_first,
                 },
             },
             covering_projection_scan_direction, covering_requires_row_presence_check,
@@ -234,12 +233,16 @@ where
                 }
             }
             PreparedScalarProjectionOp::DistinctValues => {
-                if let Some(values) =
-                    Self::covering_index_projection_values_with_context_from_prepared(
+                if let Some(projected_pairs) =
+                    Self::covering_index_projection_values_from_context_structural(
                         &prepared, context, window,
                     )?
                 {
-                    let values = apply_covering_distinct_projection_values(values, distinct, op)?;
+                    let values = distinct_values_from_covering_projection_pairs(
+                        projected_pairs,
+                        distinct,
+                        op,
+                    )?;
 
                     return Ok(ScalarProjectionBoundaryOutput::Values(values));
                 }
@@ -373,13 +376,12 @@ where
                 Ok(ScalarProjectionBoundaryOutput::Values(projected_values))
             }
             PreparedScalarProjectionOp::DistinctValues => {
-                Self::project_values_from_materialized_structural(
+                Self::project_distinct_values_from_materialized_structural(
                     rows,
                     &row_layout,
                     target_field_name,
                     field_slot,
                 )
-                .and_then(project_distinct_values_from_materialized_values)
                 .map(ScalarProjectionBoundaryOutput::Values)
             }
             PreparedScalarProjectionOp::CountDistinct => {
@@ -523,6 +525,41 @@ where
                     .map_err(AggregateFieldValueError::into_internal_error)
             })
             .collect()
+    }
+
+    // Project DISTINCT materialized structural values in one decode/admission
+    // pass. Accepted values are still owned because they are the public output,
+    // but rejected candidates no longer pass through a full projected-values
+    // staging vector first.
+    fn project_distinct_values_from_materialized_structural(
+        rows: Vec<DataRow>,
+        row_layout: &RowLayout,
+        target_field: &str,
+        field_slot: FieldSlot,
+    ) -> Result<Vec<Value>, InternalError> {
+        let mut distinct_values = GroupKeySet::default();
+        let mut projected_values = Vec::with_capacity(rows.len());
+
+        // Phase 1: decode each projected field value and retain only the
+        // first canonical DISTINCT admission in response order.
+        for (data_key, raw_row) in rows {
+            let value = RowDecoder::decode_required_slot_value(
+                row_layout,
+                data_key.storage_key(),
+                &raw_row,
+                field_slot.index,
+            )?;
+            let value =
+                extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
+                    .map_err(AggregateFieldValueError::into_internal_error)?;
+
+            if !insert_materialized_distinct_value(&mut distinct_values, &value)? {
+                continue;
+            }
+            projected_values.push(value);
+        }
+
+        Ok(projected_values)
     }
 
     // Count DISTINCT materialized structural values without first retaining
@@ -727,38 +764,55 @@ where
     }
 }
 
-fn project_distinct_values_from_materialized_values(
-    projected_values: Vec<Value>,
-) -> Result<Vec<Value>, InternalError> {
-    let mut distinct_values = GroupKeySet::default();
-    let mut distinct_projected_values = Vec::with_capacity(projected_values.len());
-
-    // Phase 1: preserve first-observed order while deduplicating on canonical
-    // group-key equality over structural projection values.
-    for value in projected_values {
-        if !insert_materialized_distinct_value(&mut distinct_values, &value)? {
-            continue;
-        }
-        distinct_projected_values.push(value);
-    }
-
-    Ok(distinct_projected_values)
-}
-
-// Apply the prepared covering DISTINCT strategy to one already-windowed
-// projection vector so covering projection terminals share one dedup contract.
-fn apply_covering_distinct_projection_values(
-    values: Vec<Value>,
+// Apply the prepared covering DISTINCT strategy to already-windowed structural
+// pairs, moving accepted values directly into the output vector instead of
+// first materializing every value-only candidate.
+fn distinct_values_from_covering_projection_pairs(
+    projected_pairs: ValueProjection,
     distinct: Option<PreparedCoveringDistinctStrategy>,
     op: PreparedScalarProjectionOp,
 ) -> Result<Vec<Value>, InternalError> {
     match distinct {
-        Some(PreparedCoveringDistinctStrategy::Adjacent) => Ok(dedup_adjacent_values(values)),
+        Some(PreparedCoveringDistinctStrategy::Adjacent) => Ok(
+            adjacent_distinct_values_from_projection_pairs(projected_pairs),
+        ),
         Some(PreparedCoveringDistinctStrategy::PreserveFirst) => {
-            dedup_values_preserving_first(values)
+            distinct_values_preserving_first_from_projection_pairs(projected_pairs)
         }
         None => Err(op.covering_distinct_strategy_required()),
     }
+}
+
+// Deduplicate adjacent covering values while discarding the ordering key at
+// the same boundary. Adjacent mode is used only when the prepared covering
+// order makes equal values contiguous.
+fn adjacent_distinct_values_from_projection_pairs(projected_pairs: ValueProjection) -> Vec<Value> {
+    let mut out = Vec::with_capacity(projected_pairs.len());
+    for (_, value) in projected_pairs {
+        if out.last().is_some_and(|previous| previous == &value) {
+            continue;
+        }
+        out.push(value);
+    }
+
+    out
+}
+
+// Deduplicate covering values by canonical first-observed identity while
+// discarding the ordering key at the same boundary.
+fn distinct_values_preserving_first_from_projection_pairs(
+    projected_pairs: ValueProjection,
+) -> Result<Vec<Value>, InternalError> {
+    let mut seen = GroupKeySet::default();
+    let mut out = Vec::with_capacity(projected_pairs.len());
+    for (_, value) in projected_pairs {
+        if !insert_materialized_distinct_value(&mut seen, &value)? {
+            continue;
+        }
+        out.push(value);
+    }
+
+    Ok(out)
 }
 
 // Count the prepared covering DISTINCT strategy from already-windowed

@@ -121,8 +121,19 @@ impl PreparedScalarAggregateTerminalSet {
     /// Build one terminal set from caller-prepared scalar aggregate terminals.
     #[must_use]
     pub(super) fn new(terminals: Vec<PreparedScalarAggregateTerminal>) -> Self {
-        let mut input_exprs = Vec::new();
-        let mut filter_exprs = Vec::new();
+        // Size expression tables from terminals that actually intern payloads.
+        // Row and field inputs stay inline and should not reserve expression
+        // table slots just because they share the same terminal set.
+        let input_expr_capacity = terminals
+            .iter()
+            .filter(|terminal| matches!(terminal.input, ScalarAggregateInput::Expr(_)))
+            .count();
+        let filter_expr_capacity = terminals
+            .iter()
+            .filter(|terminal| terminal.filter.is_some())
+            .count();
+        let mut input_exprs = Vec::with_capacity(input_expr_capacity);
+        let mut filter_exprs = Vec::with_capacity(filter_expr_capacity);
         let terminals = terminals
             .into_iter()
             .map(|terminal| terminal.into_interned(&mut input_exprs, &mut filter_exprs))
@@ -159,7 +170,7 @@ impl PreparedScalarAggregateTerminalSet {
         model: &EntityModel,
         plan: &AccessPlannedQuery,
     ) -> Result<RetainedSlotLayout, InternalError> {
-        let mut extra_slots = Vec::new();
+        let mut extra_slots = Vec::with_capacity(self.terminals.len());
 
         // Phase 1: collect only terminal-local slot requirements. The scalar
         // runtime helper will add access, residual filter, ordering, and other
