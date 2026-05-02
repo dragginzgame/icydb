@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 #[cfg(feature = "sql")]
 pub(super) fn covering_projection_component_indices(fields: &[CoveringReadField]) -> Vec<usize> {
-    let mut component_indices = Vec::new();
+    let mut component_indices = Vec::with_capacity(fields.len());
 
     for field in fields {
         let CoveringReadFieldSource::IndexComponent { component_index } = &field.source else {

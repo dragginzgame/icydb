@@ -417,6 +417,7 @@ where
     let mut projected_rows = assemble_primary_store_covering_rows_in_stream_order(
         stream,
         scan_time_page_skip_count,
+        pure_covering_output_capacity_hint(page, scan_time_page_window_applied),
         covering,
     )?;
     apply_pure_covering_page_window(
@@ -437,11 +438,17 @@ where
 fn assemble_primary_store_covering_rows_in_stream_order(
     stream: OrderedKeyStreamBox,
     skip_count: usize,
+    output_capacity_hint: usize,
     covering: &CoveringReadExecutionPlan,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     let (row_assembly_local_instructions, projected_rows) = measure_structural_result(|| {
-        collect_primary_store_covering_rows_in_stream_order(stream, skip_count, covering)
+        collect_primary_store_covering_rows_in_stream_order(
+            stream,
+            skip_count,
+            output_capacity_hint,
+            covering,
+        )
     });
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
@@ -449,8 +456,12 @@ fn assemble_primary_store_covering_rows_in_stream_order(
     let projected_rows = projected_rows?;
 
     #[cfg(not(all(feature = "sql", feature = "diagnostics")))]
-    let projected_rows =
-        collect_primary_store_covering_rows_in_stream_order(stream, skip_count, covering)?;
+    let projected_rows = collect_primary_store_covering_rows_in_stream_order(
+        stream,
+        skip_count,
+        output_capacity_hint,
+        covering,
+    )?;
 
     Ok(projected_rows)
 }
@@ -463,9 +474,10 @@ fn assemble_primary_store_covering_rows_in_stream_order(
 fn collect_primary_store_covering_rows_in_stream_order(
     mut stream: OrderedKeyStreamBox,
     skip_count: usize,
+    output_capacity_hint: usize,
     covering: &CoveringReadExecutionPlan,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
-    let mut projected_rows = Vec::new();
+    let mut projected_rows = Vec::with_capacity(output_capacity_hint);
     let mut matched_keys = 0usize;
     while let Some(data_key) = stream.next_key()? {
         if matched_keys >= skip_count {
@@ -480,6 +492,19 @@ fn collect_primary_store_covering_rows_in_stream_order(
     }
 
     Ok(projected_rows)
+}
+
+#[cfg(feature = "sql")]
+fn pure_covering_output_capacity_hint(
+    page: Option<&PageSpec>,
+    page_window_already_applied: bool,
+) -> usize {
+    if !page_window_already_applied {
+        return 0;
+    }
+
+    page.and_then(|page| page.limit)
+        .map_or(0, |limit| usize::try_from(limit).unwrap_or(usize::MAX))
 }
 
 #[cfg(feature = "sql")]

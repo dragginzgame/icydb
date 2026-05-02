@@ -208,7 +208,7 @@ const fn hybrid_covering_route_can_apply_page_during_scan(
 
 #[cfg(feature = "sql")]
 fn hybrid_projection_row_field_slots(fields: &[CoveringReadField]) -> Vec<usize> {
-    let mut row_field_slots = Vec::new();
+    let mut row_field_slots = Vec::with_capacity(fields.len());
 
     for field in fields {
         if !matches!(field.source, CoveringReadFieldSource::RowField) {
