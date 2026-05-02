@@ -96,6 +96,36 @@ impl DistinctProjectionRowSet {
         Ok(true)
     }
 
+    // Insert one projected row that the caller does not need to keep for
+    // output. Accepted owned rows can move directly into the canonical key;
+    // duplicates are still checked through the borrowed row before ownership
+    // transfer.
+    fn insert_owned_row(&mut self, row: RowView<'static>) -> Result<bool, KeyCanonicalError> {
+        if row
+            .values()
+            .iter()
+            .any(value_requires_owned_canonical_lookup)
+        {
+            return self.insert_owned_row_with_owned_canonicalization(row);
+        }
+
+        let hash = stable_hash_projected_row(&row)?;
+        if self.buckets.get(&hash).is_some_and(|bucket| {
+            bucket
+                .iter()
+                .any(|key| projected_row_matches_key(&row, key))
+        }) {
+            return Ok(false);
+        }
+
+        self.buckets
+            .entry(hash)
+            .or_default()
+            .push(GroupKey::from_group_values(row.into_owned())?.into_canonical_value());
+
+        Ok(true)
+    }
+
     // Preserve the previous fully-owned canonicalization path for map-valued
     // rows, where malformed duplicate map keys must still surface through the
     // existing grouped-key canonicalization error path.
@@ -104,6 +134,26 @@ impl DistinctProjectionRowSet {
         row: &RowView<'_>,
     ) -> Result<bool, KeyCanonicalError> {
         let key = GroupKey::from_group_values(row.values().to_vec())?;
+        let hash = key.hash();
+        let canonical = key.into_canonical_value();
+        let bucket = self.buckets.entry(hash).or_default();
+        if bucket.iter().any(|existing| existing == &canonical) {
+            return Ok(false);
+        }
+
+        bucket.push(canonical);
+
+        Ok(true)
+    }
+
+    // Preserve map-valued canonicalization for a row that can be consumed into
+    // the stored key. This keeps the same malformed-map validation surface
+    // while avoiding an extra row clone when the row is not emitted.
+    fn insert_owned_row_with_owned_canonicalization(
+        &mut self,
+        row: RowView<'static>,
+    ) -> Result<bool, KeyCanonicalError> {
+        let key = GroupKey::from_group_values(row.into_owned())?;
         let hash = key.hash();
         let canonical = key.into_canonical_value();
         let bucket = self.buckets.entry(hash).or_default();
@@ -213,6 +263,19 @@ impl DistinctProjectionAccumulator {
         row: RowView<'static>,
         mut record_bounded_stop: impl FnMut(),
     ) -> Result<bool, InternalError> {
+        let output_candidate = self.distinct_seen >= self.window.offset;
+        if !output_candidate {
+            let inserted = self
+                .distinct_rows
+                .insert_owned_row(row)
+                .map_err(KeyCanonicalError::into_internal_error)?;
+            if inserted {
+                self.distinct_seen = self.distinct_seen.saturating_add(1);
+            }
+
+            return Ok(true);
+        }
+
         let inserted = self
             .distinct_rows
             .insert_row(&row)
@@ -221,11 +284,8 @@ impl DistinctProjectionAccumulator {
             return Ok(true);
         }
 
-        let distinct_index = self.distinct_seen;
         self.distinct_seen = self.distinct_seen.saturating_add(1);
-        if distinct_index >= self.window.offset {
-            self.output_rows.push(row);
-        }
+        self.output_rows.push(row);
 
         let Some(stop_after) = self
             .window

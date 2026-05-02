@@ -113,8 +113,8 @@ where
             let projected_row = project_hybrid_covering_row(
                 &data_key,
                 hybrid.fields.as_slice(),
-                &decoded_components,
-                &sparse_row_fields,
+                decoded_components,
+                sparse_row_fields,
                 metrics,
             )?;
 
@@ -273,25 +273,25 @@ fn read_hybrid_projection_row_fields_from_store(
 fn project_hybrid_covering_row(
     data_key: &DataKey,
     fields: &[CoveringReadField],
-    decoded_components: &BTreeMap<usize, Value>,
-    row_fields: &BTreeMap<usize, Value>,
+    mut decoded_components: BTreeMap<usize, Value>,
+    mut row_fields: BTreeMap<usize, Value>,
     metrics: CoveringProjectionMetricsRecorder,
 ) -> Result<Vec<Value>, InternalError> {
     let mut projected = Vec::with_capacity(fields.len());
+    let mut remaining_index_component_uses = covering_index_component_use_counts(fields);
+    let mut remaining_row_field_uses = covering_row_field_use_counts(fields);
 
     for field in fields {
         let value = match &field.source {
             CoveringReadFieldSource::IndexComponent { component_index } => {
                 metrics.record_hybrid_index_field_access();
 
-                decoded_components
-                    .get(component_index)
-                    .cloned()
-                    .ok_or_else(|| {
-                        InternalError::query_executor_invariant(
-                            "hybrid projection missing decoded covering component",
-                        )
-                    })?
+                take_or_clone_last_covering_value(
+                    &mut decoded_components,
+                    &mut remaining_index_component_uses,
+                    *component_index,
+                    "hybrid projection missing decoded covering component",
+                )?
             }
             CoveringReadFieldSource::PrimaryKey => {
                 storage_key_as_runtime_value(&data_key.storage_key())
@@ -300,18 +300,68 @@ fn project_hybrid_covering_row(
             CoveringReadFieldSource::RowField => {
                 metrics.record_hybrid_row_field_access();
 
-                row_fields
-                    .get(&field.field_slot.index())
-                    .cloned()
-                    .ok_or_else(|| {
-                        InternalError::query_executor_invariant(
-                            "hybrid projection missing sparse row-backed field value",
-                        )
-                    })?
+                take_or_clone_last_covering_value(
+                    &mut row_fields,
+                    &mut remaining_row_field_uses,
+                    field.field_slot.index(),
+                    "hybrid projection missing sparse row-backed field value",
+                )?
             }
         };
         projected.push(value);
     }
 
     Ok(projected)
+}
+
+#[cfg(feature = "sql")]
+fn covering_index_component_use_counts(fields: &[CoveringReadField]) -> BTreeMap<usize, usize> {
+    let mut counts = BTreeMap::new();
+    for field in fields {
+        let CoveringReadFieldSource::IndexComponent { component_index } = &field.source else {
+            continue;
+        };
+        *counts.entry(*component_index).or_insert(0) += 1;
+    }
+
+    counts
+}
+
+#[cfg(feature = "sql")]
+fn covering_row_field_use_counts(fields: &[CoveringReadField]) -> BTreeMap<usize, usize> {
+    let mut counts = BTreeMap::new();
+    for field in fields {
+        if !matches!(field.source, CoveringReadFieldSource::RowField) {
+            continue;
+        }
+        *counts.entry(field.field_slot.index()).or_insert(0) += 1;
+    }
+
+    counts
+}
+
+#[cfg(feature = "sql")]
+fn take_or_clone_last_covering_value(
+    values: &mut BTreeMap<usize, Value>,
+    remaining_uses: &mut BTreeMap<usize, usize>,
+    slot: usize,
+    missing_message: &'static str,
+) -> Result<Value, InternalError> {
+    let Some(remaining) = remaining_uses.get_mut(&slot) else {
+        return Err(InternalError::query_executor_invariant(missing_message));
+    };
+
+    // Projected columns are independently owned. Duplicate references clone
+    // from the per-row sparse map until the final projected use can consume it.
+    *remaining = remaining.saturating_sub(1);
+    if *remaining == 0 {
+        return values
+            .remove(&slot)
+            .ok_or_else(|| InternalError::query_executor_invariant(missing_message));
+    }
+
+    values
+        .get(&slot)
+        .cloned()
+        .ok_or_else(|| InternalError::query_executor_invariant(missing_message))
 }

@@ -13,6 +13,7 @@ use crate::{
         data::DataKey,
         executor::projection::covering::shared::{
             covering_projection_component_indices, project_covering_row_from_decoded_values,
+            project_covering_row_from_owned_decoded_values,
             project_covering_row_from_single_decoded_value,
         },
         executor::{
@@ -247,7 +248,7 @@ where
                         &data_key,
                         covering.fields.as_slice(),
                         component_index,
-                        &decoded_value,
+                        decoded_value,
                     )
                 },
             )?;
@@ -269,7 +270,7 @@ where
                     &data_key,
                     covering.fields.as_slice(),
                     component_index,
-                    &decoded_value,
+                    decoded_value,
                 )?;
 
                 Ok::<(DataKey, Vec<Value>), InternalError>((data_key, projected_row))
@@ -329,11 +330,11 @@ where
             decoded_rows,
             0,
             |(data_key, decoded_values)| {
-                project_covering_row_from_decoded_values(
+                project_covering_row_from_owned_decoded_values(
                     &data_key,
                     covering.fields.as_slice(),
                     component_indices.as_slice(),
-                    decoded_values.as_slice(),
+                    decoded_values,
                 )
             },
         )?;
@@ -351,11 +352,11 @@ where
         decoded_rows,
         order_contract,
         |(data_key, decoded_values)| {
-            let projected_row = project_covering_row_from_decoded_values(
+            let projected_row = project_covering_row_from_owned_decoded_values(
                 &data_key,
                 covering.fields.as_slice(),
                 component_indices.as_slice(),
-                decoded_values.as_slice(),
+                decoded_values,
             )?;
 
             Ok::<(DataKey, Vec<Value>), InternalError>((data_key, projected_row))
