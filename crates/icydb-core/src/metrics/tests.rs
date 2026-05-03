@@ -194,6 +194,17 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
         "load_candidate_rows_scanned",
         "load_candidate_rows_filtered",
         "load_result_rows_emitted",
+        "sql_insert_calls",
+        "sql_insert_select_calls",
+        "sql_update_calls",
+        "sql_delete_calls",
+        "sql_write_matched_rows",
+        "sql_write_mutated_rows",
+        "sql_write_returning_rows",
+        "write_rows_touched",
+        "write_index_entries_changed",
+        "write_reverse_index_entries_changed",
+        "write_relation_checks",
     ] {
         assert!(
             fields.iter().any(|candidate| candidate == field),
@@ -308,6 +319,13 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         load_candidate_rows_scanned: 61,
         load_candidate_rows_filtered: 62,
         load_result_rows_emitted: 63,
+        sql_insert_calls: 68,
+        sql_insert_select_calls: 69,
+        sql_update_calls: 70,
+        sql_delete_calls: 71,
+        sql_write_matched_rows: 72,
+        sql_write_mutated_rows: 73,
+        sql_write_returning_rows: 74,
         rows_deleted: 10,
         index_inserts: 11,
         index_removes: 12,
@@ -315,6 +333,10 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         reverse_index_removes: 14,
         relation_reverse_lookups: 15,
         relation_delete_blocks: 16,
+        write_rows_touched: 64,
+        write_index_entries_changed: 65,
+        write_reverse_index_entries_changed: 66,
+        write_relation_checks: 67,
         unique_violations: 17,
         non_atomic_partial_commits: 18,
         non_atomic_partial_rows_committed: 19,
@@ -374,6 +396,13 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "load_candidate_rows_scanned",
         "load_candidate_rows_filtered",
         "load_result_rows_emitted",
+        "sql_insert_calls",
+        "sql_insert_select_calls",
+        "sql_update_calls",
+        "sql_delete_calls",
+        "sql_write_matched_rows",
+        "sql_write_mutated_rows",
+        "sql_write_returning_rows",
         "rows_deleted",
         "index_inserts",
         "index_removes",
@@ -381,6 +410,10 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "reverse_index_removes",
         "relation_reverse_lookups",
         "relation_delete_blocks",
+        "write_rows_touched",
+        "write_index_entries_changed",
+        "write_reverse_index_entries_changed",
+        "write_relation_checks",
         "unique_violations",
         "non_atomic_partial_commits",
         "non_atomic_partial_rows_committed",
@@ -453,12 +486,23 @@ fn entity_summary_candid_shape_is_stable() {
     assert_eq!(summary.load_candidate_rows_scanned(), 61);
     assert_eq!(summary.load_candidate_rows_filtered(), 62);
     assert_eq!(summary.load_result_rows_emitted(), 63);
+    assert_eq!(summary.sql_insert_calls(), 68);
+    assert_eq!(summary.sql_insert_select_calls(), 69);
+    assert_eq!(summary.sql_update_calls(), 70);
+    assert_eq!(summary.sql_delete_calls(), 71);
+    assert_eq!(summary.sql_write_matched_rows(), 72);
+    assert_eq!(summary.sql_write_mutated_rows(), 73);
+    assert_eq!(summary.sql_write_returning_rows(), 74);
     assert_eq!(summary.index_inserts(), 11);
     assert_eq!(summary.index_removes(), 12);
     assert_eq!(summary.reverse_index_inserts(), 13);
     assert_eq!(summary.reverse_index_removes(), 14);
     assert_eq!(summary.relation_reverse_lookups(), 15);
     assert_eq!(summary.relation_delete_blocks(), 16);
+    assert_eq!(summary.write_rows_touched(), 64);
+    assert_eq!(summary.write_index_entries_changed(), 65);
+    assert_eq!(summary.write_reverse_index_entries_changed(), 66);
+    assert_eq!(summary.write_relation_checks(), 67);
     assert_eq!(summary.unique_violations(), 17);
     assert_eq!(summary.non_atomic_partial_commits(), 18);
     assert_eq!(summary.non_atomic_partial_rows_committed(), 19);

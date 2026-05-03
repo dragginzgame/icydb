@@ -21,7 +21,6 @@ pub use field::{
     FieldStorageDecode, FieldWriteManagement, RelationStrength,
 };
 pub(crate) use field_kind_semantics::{
-    FieldKindCategory, FieldKindNumericClass, FieldKindScalarClass,
     canonicalize_filter_literal_for_kind,
     canonicalize_grouped_having_numeric_literal_for_field_kind,
     canonicalize_strict_sql_literal_for_kind, classify_field_kind,

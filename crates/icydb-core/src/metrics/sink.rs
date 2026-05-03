@@ -92,6 +92,18 @@ pub enum SaveMutationKind {
 }
 
 ///
+/// SqlWriteKind
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SqlWriteKind {
+    Insert,
+    InsertSelect,
+    Update,
+    Delete,
+}
+
+///
 /// PlanKind
 ///
 
@@ -201,6 +213,13 @@ pub enum MetricsEvent {
         kind: SaveMutationKind,
         rows_touched: u64,
     },
+    SqlWrite {
+        entity_path: &'static str,
+        kind: SqlWriteKind,
+        matched_rows: u64,
+        mutated_rows: u64,
+        returning_rows: u64,
+    },
     Plan {
         entity_path: &'static str,
         kind: PlanKind,
@@ -256,6 +275,8 @@ impl MetricsSink for GlobalMetricsSink {
                         }
                         ExecKind::Save => {
                             m.ops.rows_saved = m.ops.rows_saved.saturating_add(rows_touched);
+                            m.ops.write_rows_touched =
+                                m.ops.write_rows_touched.saturating_add(rows_touched);
                             metrics::add_instructions(
                                 &mut m.perf.save_inst_total,
                                 &mut m.perf.save_inst_max,
@@ -264,6 +285,8 @@ impl MetricsSink for GlobalMetricsSink {
                         }
                         ExecKind::Delete => {
                             m.ops.rows_deleted = m.ops.rows_deleted.saturating_add(rows_touched);
+                            m.ops.write_rows_touched =
+                                m.ops.write_rows_touched.saturating_add(rows_touched);
                             metrics::add_instructions(
                                 &mut m.perf.delete_inst_total,
                                 &mut m.perf.delete_inst_max,
@@ -280,9 +303,13 @@ impl MetricsSink for GlobalMetricsSink {
                         }
                         ExecKind::Delete => {
                             entry.rows_deleted = entry.rows_deleted.saturating_add(rows_touched);
+                            entry.write_rows_touched =
+                                entry.write_rows_touched.saturating_add(rows_touched);
                         }
                         ExecKind::Save => {
                             entry.rows_saved = entry.rows_saved.saturating_add(rows_touched);
+                            entry.write_rows_touched =
+                                entry.write_rows_touched.saturating_add(rows_touched);
                         }
                     }
                 });
@@ -415,9 +442,14 @@ impl MetricsSink for GlobalMetricsSink {
                 metrics::with_state_mut(|m| {
                     m.ops.index_inserts = m.ops.index_inserts.saturating_add(inserts);
                     m.ops.index_removes = m.ops.index_removes.saturating_add(removes);
+                    let changed = inserts.saturating_add(removes);
+                    m.ops.write_index_entries_changed =
+                        m.ops.write_index_entries_changed.saturating_add(changed);
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
                     entry.index_inserts = entry.index_inserts.saturating_add(inserts);
                     entry.index_removes = entry.index_removes.saturating_add(removes);
+                    entry.write_index_entries_changed =
+                        entry.write_index_entries_changed.saturating_add(changed);
                 });
             }
 
@@ -431,11 +463,19 @@ impl MetricsSink for GlobalMetricsSink {
                         m.ops.reverse_index_inserts.saturating_add(inserts);
                     m.ops.reverse_index_removes =
                         m.ops.reverse_index_removes.saturating_add(removes);
+                    let changed = inserts.saturating_add(removes);
+                    m.ops.write_reverse_index_entries_changed = m
+                        .ops
+                        .write_reverse_index_entries_changed
+                        .saturating_add(changed);
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
                     entry.reverse_index_inserts =
                         entry.reverse_index_inserts.saturating_add(inserts);
                     entry.reverse_index_removes =
                         entry.reverse_index_removes.saturating_add(removes);
+                    entry.write_reverse_index_entries_changed = entry
+                        .write_reverse_index_entries_changed
+                        .saturating_add(changed);
                 });
             }
 
@@ -451,6 +491,8 @@ impl MetricsSink for GlobalMetricsSink {
                         .saturating_add(reverse_lookups);
                     m.ops.relation_delete_blocks =
                         m.ops.relation_delete_blocks.saturating_add(blocked_deletes);
+                    m.ops.write_relation_checks =
+                        m.ops.write_relation_checks.saturating_add(reverse_lookups);
 
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
                     entry.relation_reverse_lookups = entry
@@ -458,6 +500,8 @@ impl MetricsSink for GlobalMetricsSink {
                         .saturating_add(reverse_lookups);
                     entry.relation_delete_blocks =
                         entry.relation_delete_blocks.saturating_add(blocked_deletes);
+                    entry.write_relation_checks =
+                        entry.write_relation_checks.saturating_add(reverse_lookups);
                 });
             }
 
@@ -518,6 +562,36 @@ impl MetricsSink for GlobalMetricsSink {
                             entry.rows_replaced = entry.rows_replaced.saturating_add(rows_touched);
                         }
                     }
+                });
+            }
+
+            MetricsEvent::SqlWrite {
+                entity_path,
+                kind,
+                matched_rows,
+                mutated_rows,
+                returning_rows,
+            } => {
+                metrics::with_state_mut(|m| {
+                    record_global_sql_write_kind(&mut m.ops, kind);
+                    m.ops.sql_write_matched_rows =
+                        m.ops.sql_write_matched_rows.saturating_add(matched_rows);
+                    m.ops.sql_write_mutated_rows =
+                        m.ops.sql_write_mutated_rows.saturating_add(mutated_rows);
+                    m.ops.sql_write_returning_rows = m
+                        .ops
+                        .sql_write_returning_rows
+                        .saturating_add(returning_rows);
+
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    record_entity_sql_write_kind(entry, kind);
+                    entry.sql_write_matched_rows =
+                        entry.sql_write_matched_rows.saturating_add(matched_rows);
+                    entry.sql_write_mutated_rows =
+                        entry.sql_write_mutated_rows.saturating_add(mutated_rows);
+                    entry.sql_write_returning_rows = entry
+                        .sql_write_returning_rows
+                        .saturating_add(returning_rows);
                 });
             }
 
@@ -666,6 +740,40 @@ const fn record_entity_exec_outcome(ops: &mut metrics::EntityCounters, outcome: 
         }
         ExecOutcome::Aborted => {
             ops.exec_aborted = ops.exec_aborted.saturating_add(1);
+        }
+    }
+}
+
+const fn record_global_sql_write_kind(ops: &mut metrics::EventOps, kind: SqlWriteKind) {
+    match kind {
+        SqlWriteKind::Insert => {
+            ops.sql_insert_calls = ops.sql_insert_calls.saturating_add(1);
+        }
+        SqlWriteKind::InsertSelect => {
+            ops.sql_insert_select_calls = ops.sql_insert_select_calls.saturating_add(1);
+        }
+        SqlWriteKind::Update => {
+            ops.sql_update_calls = ops.sql_update_calls.saturating_add(1);
+        }
+        SqlWriteKind::Delete => {
+            ops.sql_delete_calls = ops.sql_delete_calls.saturating_add(1);
+        }
+    }
+}
+
+const fn record_entity_sql_write_kind(ops: &mut metrics::EntityCounters, kind: SqlWriteKind) {
+    match kind {
+        SqlWriteKind::Insert => {
+            ops.sql_insert_calls = ops.sql_insert_calls.saturating_add(1);
+        }
+        SqlWriteKind::InsertSelect => {
+            ops.sql_insert_select_calls = ops.sql_insert_select_calls.saturating_add(1);
+        }
+        SqlWriteKind::Update => {
+            ops.sql_update_calls = ops.sql_update_calls.saturating_add(1);
+        }
+        SqlWriteKind::Delete => {
+            ops.sql_delete_calls = ops.sql_delete_calls.saturating_add(1);
         }
     }
 }
@@ -1364,6 +1472,7 @@ mod tests {
             .counters()
             .expect("metrics report should include counters");
         assert_eq!(counters.ops.rows_saved, 4);
+        assert_eq!(counters.ops.write_rows_touched, 4);
         assert_eq!(counters.perf.save_inst_total, 11);
 
         let entity = report
@@ -1371,6 +1480,7 @@ mod tests {
             .first()
             .expect("save finish should retain per-entity counters");
         assert_eq!(entity.rows_saved(), 4);
+        assert_eq!(entity.write_rows_touched(), 4);
     }
 
     #[test]
@@ -1478,9 +1588,58 @@ mod tests {
     }
 
     #[test]
+    fn sql_write_metrics_accumulate_by_command_shape() {
+        metrics_reset_all();
+
+        for (kind, matched_rows, mutated_rows, returning_rows) in [
+            (SqlWriteKind::Insert, 2, 2, 0),
+            (SqlWriteKind::InsertSelect, 3, 3, 3),
+            (SqlWriteKind::Update, 5, 4, 4),
+            (SqlWriteKind::Delete, 2, 2, 1),
+        ] {
+            record(MetricsEvent::SqlWrite {
+                entity_path: "metrics::tests::Entity",
+                kind,
+                matched_rows,
+                mutated_rows,
+                returning_rows,
+            });
+        }
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("metrics report should include counters");
+        assert_eq!(counters.ops.sql_insert_calls(), 1);
+        assert_eq!(counters.ops.sql_insert_select_calls(), 1);
+        assert_eq!(counters.ops.sql_update_calls(), 1);
+        assert_eq!(counters.ops.sql_delete_calls(), 1);
+        assert_eq!(counters.ops.sql_write_matched_rows(), 12);
+        assert_eq!(counters.ops.sql_write_mutated_rows(), 11);
+        assert_eq!(counters.ops.sql_write_returning_rows(), 8);
+
+        let entity = report
+            .entity_counters()
+            .first()
+            .expect("sql write metrics should retain per-entity counters");
+        assert_eq!(entity.sql_insert_calls(), 1);
+        assert_eq!(entity.sql_insert_select_calls(), 1);
+        assert_eq!(entity.sql_update_calls(), 1);
+        assert_eq!(entity.sql_delete_calls(), 1);
+        assert_eq!(entity.sql_write_matched_rows(), 12);
+        assert_eq!(entity.sql_write_mutated_rows(), 11);
+        assert_eq!(entity.sql_write_returning_rows(), 8);
+    }
+
+    #[test]
     fn reverse_and_relation_metrics_events_accumulate() {
         metrics_reset_all();
 
+        record(MetricsEvent::IndexDelta {
+            entity_path: "metrics::tests::Entity",
+            inserts: 4,
+            removes: 1,
+        });
         record(MetricsEvent::ReverseIndexDelta {
             entity_path: "metrics::tests::Entity",
             inserts: 3,
@@ -1496,10 +1655,29 @@ mod tests {
         let counters = report
             .counters()
             .expect("metrics report should include counters");
+        assert_eq!(counters.ops.index_inserts, 4);
+        assert_eq!(counters.ops.index_removes, 1);
+        assert_eq!(counters.ops.write_index_entries_changed, 5);
         assert_eq!(counters.ops.reverse_index_inserts, 3);
         assert_eq!(counters.ops.reverse_index_removes, 2);
+        assert_eq!(counters.ops.write_reverse_index_entries_changed, 5);
         assert_eq!(counters.ops.relation_reverse_lookups, 5);
         assert_eq!(counters.ops.relation_delete_blocks, 1);
+        assert_eq!(counters.ops.write_relation_checks, 5);
+
+        let entity = report
+            .entity_counters()
+            .first()
+            .expect("maintenance events should retain per-entity counters");
+        assert_eq!(entity.index_inserts(), 4);
+        assert_eq!(entity.index_removes(), 1);
+        assert_eq!(entity.write_index_entries_changed(), 5);
+        assert_eq!(entity.reverse_index_inserts(), 3);
+        assert_eq!(entity.reverse_index_removes(), 2);
+        assert_eq!(entity.write_reverse_index_entries_changed(), 5);
+        assert_eq!(entity.relation_reverse_lookups(), 5);
+        assert_eq!(entity.relation_delete_blocks(), 1);
+        assert_eq!(entity.write_relation_checks(), 5);
     }
 
     #[test]

@@ -6,8 +6,8 @@
 use crate::{
     db::schema::{
         FieldId, PersistedEnumVariant, PersistedFieldKind, PersistedFieldSnapshot,
-        PersistedRelationStrength, PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot,
-        SchemaRowLayout, SchemaVersion,
+        PersistedNestedLeafSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,
+        SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
     },
     error::InternalError,
     model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
@@ -47,8 +47,19 @@ struct PersistedFieldSnapshotWire {
     name: String,
     slot: u16,
     kind: PersistedFieldKindWire,
+    nested_leaves: Vec<PersistedNestedLeafSnapshotWire>,
     nullable: bool,
     default: SchemaFieldDefaultWire,
+    storage_decode: FieldStorageDecodeWire,
+    leaf_codec: LeafCodecWire,
+}
+
+// Candid wire container for one nested leaf rooted at a top-level field.
+#[derive(CandidType, Deserialize)]
+struct PersistedNestedLeafSnapshotWire {
+    path: Vec<String>,
+    kind: PersistedFieldKindWire,
+    nullable: bool,
     storage_decode: FieldStorageDecodeWire,
     leaf_codec: LeafCodecWire,
 }
@@ -252,6 +263,11 @@ impl PersistedFieldSnapshotWire {
             name: field.name().to_string(),
             slot: field.slot().get(),
             kind: PersistedFieldKindWire::from_kind(field.kind()),
+            nested_leaves: field
+                .nested_leaves()
+                .iter()
+                .map(PersistedNestedLeafSnapshotWire::from_leaf)
+                .collect(),
             nullable: field.nullable(),
             default: SchemaFieldDefaultWire::from_default(field.default()),
             storage_decode: FieldStorageDecodeWire::from_storage_decode(field.storage_decode()),
@@ -265,8 +281,34 @@ impl PersistedFieldSnapshotWire {
             self.name,
             SchemaFieldSlot::new(self.slot),
             self.kind.into_kind()?,
+            self.nested_leaves
+                .into_iter()
+                .map(PersistedNestedLeafSnapshotWire::into_leaf)
+                .collect::<Result<Vec<_>, _>>()?,
             self.nullable,
             self.default.into_default(),
+            self.storage_decode.into_storage_decode(),
+            self.leaf_codec.into_leaf_codec(),
+        ))
+    }
+}
+
+impl PersistedNestedLeafSnapshotWire {
+    fn from_leaf(leaf: &PersistedNestedLeafSnapshot) -> Self {
+        Self {
+            path: leaf.path().to_vec(),
+            kind: PersistedFieldKindWire::from_kind(leaf.kind()),
+            nullable: leaf.nullable(),
+            storage_decode: FieldStorageDecodeWire::from_storage_decode(leaf.storage_decode()),
+            leaf_codec: LeafCodecWire::from_leaf_codec(leaf.leaf_codec()),
+        }
+    }
+
+    fn into_leaf(self) -> Result<PersistedNestedLeafSnapshot, InternalError> {
+        Ok(PersistedNestedLeafSnapshot::new(
+            self.path,
+            self.kind.into_kind()?,
+            self.nullable,
             self.storage_decode.into_storage_decode(),
             self.leaf_codec.into_leaf_codec(),
         ))

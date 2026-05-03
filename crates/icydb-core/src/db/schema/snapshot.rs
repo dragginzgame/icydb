@@ -167,6 +167,7 @@ pub(in crate::db) struct PersistedFieldSnapshot {
     name: String,
     slot: SchemaFieldSlot,
     kind: PersistedFieldKind,
+    nested_leaves: Vec<PersistedNestedLeafSnapshot>,
     nullable: bool,
     default: SchemaFieldDefault,
     storage_decode: FieldStorageDecode,
@@ -185,6 +186,7 @@ impl PersistedFieldSnapshot {
         name: String,
         slot: SchemaFieldSlot,
         kind: PersistedFieldKind,
+        nested_leaves: Vec<PersistedNestedLeafSnapshot>,
         nullable: bool,
         default: SchemaFieldDefault,
         storage_decode: FieldStorageDecode,
@@ -195,6 +197,7 @@ impl PersistedFieldSnapshot {
             name,
             slot,
             kind,
+            nested_leaves,
             nullable,
             default,
             storage_decode,
@@ -226,6 +229,12 @@ impl PersistedFieldSnapshot {
         &self.kind
     }
 
+    /// Borrow persisted nested leaf descriptors rooted at this top-level field.
+    #[must_use]
+    pub(in crate::db) const fn nested_leaves(&self) -> &[PersistedNestedLeafSnapshot] {
+        self.nested_leaves.as_slice()
+    }
+
     /// Return whether this field permits explicit persisted `NULL`.
     #[must_use]
     pub(in crate::db) const fn nullable(&self) -> bool {
@@ -245,6 +254,74 @@ impl PersistedFieldSnapshot {
     }
 
     /// Return the stored leaf codec contract.
+    #[must_use]
+    pub(in crate::db) const fn leaf_codec(&self) -> LeafCodec {
+        self.leaf_codec
+    }
+}
+
+///
+/// PersistedNestedLeafSnapshot
+///
+/// Accepted schema metadata for one queryable nested leaf rooted at a
+/// top-level field. The path is relative to the owning persisted field, so
+/// nested leaves can describe field-path planning facts without claiming their
+/// own physical row slots.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct PersistedNestedLeafSnapshot {
+    path: Vec<String>,
+    kind: PersistedFieldKind,
+    nullable: bool,
+    storage_decode: FieldStorageDecode,
+    leaf_codec: LeafCodec,
+}
+
+impl PersistedNestedLeafSnapshot {
+    /// Build one nested leaf snapshot from already-validated pieces.
+    #[must_use]
+    pub(in crate::db) const fn new(
+        path: Vec<String>,
+        kind: PersistedFieldKind,
+        nullable: bool,
+        storage_decode: FieldStorageDecode,
+        leaf_codec: LeafCodec,
+    ) -> Self {
+        Self {
+            path,
+            kind,
+            nullable,
+            storage_decode,
+            leaf_codec,
+        }
+    }
+
+    /// Borrow the path relative to the owning top-level field.
+    #[must_use]
+    pub(in crate::db) const fn path(&self) -> &[String] {
+        self.path.as_slice()
+    }
+
+    /// Borrow the persisted field kind for this nested leaf.
+    #[must_use]
+    pub(in crate::db) const fn kind(&self) -> &PersistedFieldKind {
+        &self.kind
+    }
+
+    /// Return whether this nested leaf permits explicit persisted `NULL`.
+    #[must_use]
+    pub(in crate::db) const fn nullable(&self) -> bool {
+        self.nullable
+    }
+
+    /// Return the nested leaf payload decode contract.
+    #[must_use]
+    pub(in crate::db) const fn storage_decode(&self) -> FieldStorageDecode {
+        self.storage_decode
+    }
+
+    /// Return the nested leaf payload codec contract.
     #[must_use]
     pub(in crate::db) const fn leaf_codec(&self) -> LeafCodec {
         self.leaf_codec

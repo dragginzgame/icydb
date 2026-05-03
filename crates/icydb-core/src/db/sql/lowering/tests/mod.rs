@@ -17,8 +17,8 @@ use crate::{
         query::{builder::FieldRef, expr::FilterExpr, intent::Query},
         schema::{
             AcceptedSchemaSnapshot, FieldId as SchemaFieldId, PersistedFieldKind,
-            PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot,
-            SchemaInfo, SchemaRowLayout, SchemaVersion,
+            PersistedFieldSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
+            SchemaFieldDefault, SchemaFieldSlot, SchemaInfo, SchemaRowLayout, SchemaVersion,
         },
         sql::{
             lowering::{
@@ -342,6 +342,7 @@ fn accepted_sql_lower_schema_with_name_kind(kind: PersistedFieldKind) -> SchemaI
                 "id".to_string(),
                 SchemaFieldSlot::new(0),
                 PersistedFieldKind::Ulid,
+                Vec::new(),
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
@@ -352,6 +353,7 @@ fn accepted_sql_lower_schema_with_name_kind(kind: PersistedFieldKind) -> SchemaI
                 "name".to_string(),
                 SchemaFieldSlot::new(1),
                 kind,
+                Vec::new(),
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
@@ -362,6 +364,69 @@ fn accepted_sql_lower_schema_with_name_kind(kind: PersistedFieldKind) -> SchemaI
                 "age".to_string(),
                 SchemaFieldSlot::new(2),
                 PersistedFieldKind::Uint,
+                Vec::new(),
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::StructuralFallback,
+            ),
+        ],
+    ));
+
+    SchemaInfo::from_accepted_snapshot_for_model(SqlLowerEntity::MODEL, &snapshot)
+}
+
+// Build an accepted schema variant where the `name` field exposes one nested
+// leaf whose capability facts deliberately differ from generated metadata.
+fn accepted_sql_lower_schema_with_name_nested_leaf_kind(kind: PersistedFieldKind) -> SchemaInfo {
+    let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        SqlLowerEntity::MODEL.path().to_string(),
+        SqlLowerEntity::MODEL.name().to_string(),
+        SchemaFieldId::new(1),
+        SchemaRowLayout::new(
+            SchemaVersion::initial(),
+            vec![
+                (SchemaFieldId::new(1), SchemaFieldSlot::new(0)),
+                (SchemaFieldId::new(2), SchemaFieldSlot::new(1)),
+                (SchemaFieldId::new(3), SchemaFieldSlot::new(2)),
+            ],
+        ),
+        vec![
+            PersistedFieldSnapshot::new(
+                SchemaFieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                PersistedFieldKind::Ulid,
+                Vec::new(),
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::StructuralFallback,
+            ),
+            PersistedFieldSnapshot::new(
+                SchemaFieldId::new(2),
+                "name".to_string(),
+                SchemaFieldSlot::new(1),
+                PersistedFieldKind::Structured { queryable: true },
+                vec![PersistedNestedLeafSnapshot::new(
+                    vec!["leaf".to_string()],
+                    kind,
+                    false,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                )],
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::Value,
+                LeafCodec::StructuralFallback,
+            ),
+            PersistedFieldSnapshot::new(
+                SchemaFieldId::new(3),
+                "age".to_string(),
+                SchemaFieldSlot::new(2),
+                PersistedFieldKind::Uint,
+                Vec::new(),
                 false,
                 SchemaFieldDefault::None,
                 FieldStorageDecode::ByKind,
@@ -3313,6 +3378,28 @@ fn bind_sql_select_with_schema_rejects_non_selectable_accepted_field() {
         &schema,
     )
     .expect_err("accepted non-queryable structured field should not be selectable");
+
+    assert!(matches!(err, SqlLoweringError::UnsupportedSelectProjection));
+}
+
+#[test]
+fn bind_sql_select_with_schema_rejects_non_selectable_accepted_nested_leaf() {
+    let select = lower_sql_select_shape_for_test(
+        "SELECT name.leaf FROM SqlLowerEntity",
+        "accepted non-selectable nested projection",
+    );
+    let schema =
+        accepted_sql_lower_schema_with_name_nested_leaf_kind(PersistedFieldKind::Structured {
+            queryable: false,
+        });
+
+    let err = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
+        SqlLowerEntity::MODEL,
+        select,
+        MissingRowPolicy::Ignore,
+        &schema,
+    )
+    .expect_err("accepted non-queryable nested field should not be selectable");
 
     assert!(matches!(err, SqlLoweringError::UnsupportedSelectProjection));
 }

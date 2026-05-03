@@ -20,7 +20,9 @@ use crate::{
         predicate::{MissingRowPolicy, Predicate},
         query::{
             intent::{QueryError, StructuralQuery},
-            plan::expr::{Expr, ProjectionSelection, derive_normalized_bool_expr_predicate_subset},
+            plan::expr::{
+                Expr, FieldPath, ProjectionSelection, derive_normalized_bool_expr_predicate_subset,
+            },
         },
         schema::SchemaInfo,
         sql::parser::{
@@ -353,9 +355,9 @@ fn apply_lowered_select_shape_with_schema(
     ))
 }
 
-// Validate the top-level SQL field-capability rules that can safely use the
-// accepted schema snapshot today. Nested field-path planning intentionally
-// remains generated-model based until persisted snapshots carry nested leaves.
+// Validate SQL field-capability rules that can safely use the accepted schema
+// snapshot today. Runtime row-layout and path execution still stay generated
+// until live layout authority exists.
 fn validate_lowered_select_sql_capabilities(
     schema: &SchemaInfo,
     lowered: &LoweredSelectShape,
@@ -395,15 +397,16 @@ fn validate_projection_sql_capabilities(
     Ok(())
 }
 
-// Walk projection expressions only for top-level source-field admission. The
-// expression engine still owns type inference, coercion, and nested leaf rules.
+// Walk projection expressions for source-field admission. The expression
+// engine still owns type inference and coercion; this pass only rejects fields
+// whose schema-owned SQL capabilities cannot support result projection.
 fn validate_projection_expr_sql_capabilities(
     schema: &SchemaInfo,
     expr: &Expr,
 ) -> Result<(), SqlLoweringError> {
     expr.try_for_each_tree_expr(&mut |node| match node {
         Expr::Field(field) => ensure_sql_selectable_field(schema, field.as_str()),
-        Expr::FieldPath(_) => Ok(()),
+        Expr::FieldPath(path) => ensure_sql_selectable_field_path(schema, path),
         Expr::Literal(_)
         | Expr::FunctionCall { .. }
         | Expr::Unary { .. }
@@ -413,6 +416,23 @@ fn validate_projection_expr_sql_capabilities(
         #[cfg(test)]
         Expr::Alias { .. } => Ok(()),
     })
+}
+
+// Apply one nested SELECT/source-field capability check and keep unknown-field
+// reporting on the planner-owned unknown-field path.
+fn ensure_sql_selectable_field_path(
+    schema: &SchemaInfo,
+    path: &FieldPath,
+) -> Result<(), SqlLoweringError> {
+    let Some(capabilities) = schema.nested_sql_capabilities(path.root().as_str(), path.segments())
+    else {
+        return Ok(());
+    };
+    if !capabilities.selectable() {
+        return Err(SqlLoweringError::unsupported_select_projection());
+    }
+
+    Ok(())
 }
 
 // GROUP BY identity must use the schema-owned groupable capability instead of

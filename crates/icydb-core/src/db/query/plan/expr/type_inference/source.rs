@@ -7,10 +7,6 @@ use crate::{
         },
         schema::{FieldType, ScalarType, SchemaInfo},
     },
-    model::{
-        FieldKindCategory, FieldKindNumericClass, FieldKindScalarClass, classify_field_kind,
-        field::{FieldKind, FieldModel},
-    },
     value::Value,
 };
 
@@ -31,33 +27,24 @@ pub(super) fn infer_field_path_expr_type(
     schema: &SchemaInfo,
 ) -> Result<ExprType, PlanError> {
     let root = path.root().as_str();
-    let nested_fields = schema
-        .field_nested_fields(root)
-        .ok_or_else(|| PlanError::from(ExprPlanError::unknown_expr_field(root)))?;
+    if schema.field(root).is_none() {
+        return Err(PlanError::from(ExprPlanError::unknown_expr_field(root)));
+    }
 
-    if nested_fields.is_empty() {
+    if !schema.field_has_nested_paths(root) {
         return Ok(ExprType::Unknown);
     }
 
-    let field_kind =
-        resolve_nested_field_path_kind(nested_fields, path.segments()).ok_or_else(|| {
-            PlanError::from(ExprPlanError::unknown_expr_field(render_field_path(path)))
-        })?;
+    let field_type = schema.nested_field_type(root, path.segments());
 
-    Ok(expr_type_from_field_kind(&field_kind))
-}
-
-fn resolve_nested_field_path_kind(fields: &[FieldModel], segments: &[String]) -> Option<FieldKind> {
-    let (segment, rest) = segments.split_first()?;
-    let field = fields
-        .iter()
-        .find(|field| field.name() == segment.as_str())?;
-
-    if rest.is_empty() {
-        return Some(field.kind());
-    }
-
-    resolve_nested_field_path_kind(field.nested_fields(), rest)
+    field_type.map_or_else(
+        || {
+            Err(PlanError::from(ExprPlanError::unknown_expr_field(
+                render_field_path(path),
+            )))
+        },
+        |field_type| Ok(expr_type_from_field_type(&field_type)),
+    )
 }
 
 pub(super) fn render_field_path(path: &FieldPath) -> String {
@@ -102,55 +89,6 @@ pub(super) const fn infer_literal_type(value: &Value) -> ExprType {
         | Value::Subaccount(_)
         | Value::Ulid(_)
         | Value::Unit => ExprType::Opaque,
-    }
-}
-
-pub(super) const fn expr_type_from_field_kind(kind: &FieldKind) -> ExprType {
-    if matches!(kind, FieldKind::Blob) {
-        return ExprType::Blob;
-    }
-
-    match classify_field_kind(kind).category() {
-        FieldKindCategory::Scalar(FieldKindScalarClass::Boolean)
-        | FieldKindCategory::Relation(FieldKindScalarClass::Boolean) => ExprType::Bool,
-        FieldKindCategory::Scalar(FieldKindScalarClass::Numeric(
-            FieldKindNumericClass::Signed64
-            | FieldKindNumericClass::Unsigned64
-            | FieldKindNumericClass::SignedWide
-            | FieldKindNumericClass::UnsignedWide
-            | FieldKindNumericClass::DurationLike
-            | FieldKindNumericClass::TimestampLike,
-        ))
-        | FieldKindCategory::Relation(FieldKindScalarClass::Numeric(
-            FieldKindNumericClass::Signed64
-            | FieldKindNumericClass::Unsigned64
-            | FieldKindNumericClass::SignedWide
-            | FieldKindNumericClass::UnsignedWide
-            | FieldKindNumericClass::DurationLike
-            | FieldKindNumericClass::TimestampLike,
-        )) => ExprType::Numeric(NumericSubtype::Integer),
-        FieldKindCategory::Scalar(FieldKindScalarClass::Numeric(
-            FieldKindNumericClass::FloatLike,
-        ))
-        | FieldKindCategory::Relation(FieldKindScalarClass::Numeric(
-            FieldKindNumericClass::FloatLike,
-        )) => ExprType::Numeric(NumericSubtype::Float),
-        FieldKindCategory::Scalar(FieldKindScalarClass::Numeric(
-            FieldKindNumericClass::DecimalLike,
-        ))
-        | FieldKindCategory::Relation(FieldKindScalarClass::Numeric(
-            FieldKindNumericClass::DecimalLike,
-        )) => ExprType::Numeric(NumericSubtype::Decimal),
-        FieldKindCategory::Scalar(FieldKindScalarClass::Text)
-        | FieldKindCategory::Relation(FieldKindScalarClass::Text) => ExprType::Text,
-        FieldKindCategory::Collection => ExprType::Collection,
-        FieldKindCategory::Structured { .. } => ExprType::Structured,
-        FieldKindCategory::Scalar(
-            FieldKindScalarClass::OrderedOpaque | FieldKindScalarClass::Opaque,
-        )
-        | FieldKindCategory::Relation(
-            FieldKindScalarClass::OrderedOpaque | FieldKindScalarClass::Opaque,
-        ) => ExprType::Opaque,
     }
 }
 

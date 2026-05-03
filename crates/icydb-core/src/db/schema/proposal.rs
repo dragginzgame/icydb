@@ -5,8 +5,9 @@
 
 use crate::{
     db::schema::{
-        FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedSchemaSnapshot,
-        SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaVersion, sql_capabilities,
+        FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedNestedLeafSnapshot,
+        PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout,
+        SchemaVersion, sql_capabilities,
     },
     model::{
         entity::EntityModel,
@@ -116,6 +117,7 @@ pub(in crate::db) struct CompiledFieldProposal {
     name: &'static str,
     slot: SchemaFieldSlot,
     kind: FieldKind,
+    nested_leaves: Vec<PersistedNestedLeafSnapshot>,
     nullable: bool,
     database_default: FieldDatabaseDefault,
     storage_decode: FieldStorageDecode,
@@ -145,6 +147,12 @@ impl CompiledFieldProposal {
     #[must_use]
     pub(in crate::db) const fn kind(&self) -> FieldKind {
         self.kind
+    }
+
+    /// Borrow the nested leaf snapshots generated under this top-level field.
+    #[must_use]
+    pub(in crate::db) const fn nested_leaves(&self) -> &[PersistedNestedLeafSnapshot] {
+        self.nested_leaves.as_slice()
     }
 
     /// Return whether the generated contract permits explicit `NULL`.
@@ -183,6 +191,7 @@ impl CompiledFieldProposal {
             self.name().to_string(),
             self.slot(),
             PersistedFieldKind::from_model_kind(self.kind()),
+            self.nested_leaves().to_vec(),
             self.nullable(),
             SchemaFieldDefault::from_model_default(self.database_default()),
             self.storage_decode(),
@@ -249,6 +258,7 @@ fn debug_assert_compiled_schema_proposal_invariants(
             field.name(),
             field.slot(),
             field.kind(),
+            field.nested_leaves(),
             field.nullable(),
             field.default(),
             field.storage_decode(),
@@ -282,6 +292,7 @@ fn debug_assert_compiled_schema_proposal_invariants(
             field.database_default(),
             field.storage_decode(),
             field.leaf_codec(),
+            field.nested_leaves(),
             field.initial_persisted_field_snapshot(),
         );
     }
@@ -300,10 +311,47 @@ fn compiled_field_proposal_from_model_field(
         name: field.name(),
         slot,
         kind: field.kind(),
+        nested_leaves: persisted_nested_leaf_snapshots_from_model_fields(field.nested_fields()),
         nullable: field.nullable(),
         database_default: field.database_default(),
         storage_decode: field.storage_decode(),
         leaf_codec: field.leaf_codec(),
+    }
+}
+
+// Flatten generated nested field metadata into path-addressed persisted leaf
+// descriptors rooted at one top-level field. The top-level field owns the
+// physical slot; nested entries only carry planning metadata for field paths.
+fn persisted_nested_leaf_snapshots_from_model_fields(
+    fields: &[FieldModel],
+) -> Vec<PersistedNestedLeafSnapshot> {
+    let mut leaves = Vec::new();
+
+    for field in fields {
+        push_persisted_nested_leaf_snapshots(field, Vec::new(), &mut leaves);
+    }
+
+    leaves
+}
+
+// Record one nested field itself, then recurse through its children so every
+// queryable path segment chain has an accepted-schema descriptor.
+fn push_persisted_nested_leaf_snapshots(
+    field: &FieldModel,
+    mut path: Vec<String>,
+    leaves: &mut Vec<PersistedNestedLeafSnapshot>,
+) {
+    path.push(field.name().to_string());
+    leaves.push(PersistedNestedLeafSnapshot::new(
+        path.clone(),
+        PersistedFieldKind::from_model_kind(field.kind()),
+        field.nullable(),
+        field.storage_decode(),
+        field.leaf_codec(),
+    ));
+
+    for nested in field.nested_fields() {
+        push_persisted_nested_leaf_snapshots(nested, path.clone(), leaves);
     }
 }
 
@@ -329,7 +377,11 @@ mod tests {
         testing::entity_model_from_static,
     };
 
-    static FIELDS: [FieldModel; 3] = [
+    static PROFILE_FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("nickname", FieldKind::Text { max_len: None }),
+        FieldModel::generated("score", FieldKind::Uint),
+    ];
+    static FIELDS: [FieldModel; 4] = [
         FieldModel::generated("id", FieldKind::Ulid),
         FieldModel::generated_with_storage_decode_and_nullability(
             "name",
@@ -338,6 +390,15 @@ mod tests {
             true,
         ),
         FieldModel::generated("rank", FieldKind::Uint),
+        FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
+            "profile",
+            FieldKind::Structured { queryable: true },
+            FieldStorageDecode::Value,
+            false,
+            None,
+            None,
+            &PROFILE_FIELDS,
+        ),
     ];
     static INDEXES: [&IndexModel; 0] = [];
     static MODEL: EntityModel = entity_model_from_static(
@@ -356,14 +417,22 @@ mod tests {
         assert_eq!(proposal.entity_path(), "schema::proposal::tests::Entity");
         assert_eq!(proposal.entity_name(), "Entity");
         assert_eq!(proposal.primary_key_field_id(), FieldId::new(1));
-        assert_eq!(proposal.fields().len(), 3);
+        assert_eq!(proposal.fields().len(), 4);
 
         let ids = proposal
             .fields()
             .iter()
             .map(super::CompiledFieldProposal::id)
             .collect::<Vec<_>>();
-        assert_eq!(ids, vec![FieldId::new(1), FieldId::new(2), FieldId::new(3)]);
+        assert_eq!(
+            ids,
+            vec![
+                FieldId::new(1),
+                FieldId::new(2),
+                FieldId::new(3),
+                FieldId::new(4),
+            ],
+        );
     }
 
     #[test]
@@ -392,6 +461,7 @@ mod tests {
                 (FieldId::new(1), SchemaFieldSlot::from_generated_index(0)),
                 (FieldId::new(2), SchemaFieldSlot::from_generated_index(1)),
                 (FieldId::new(3), SchemaFieldSlot::from_generated_index(2)),
+                (FieldId::new(4), SchemaFieldSlot::from_generated_index(3)),
             ]
         );
     }
@@ -405,7 +475,7 @@ mod tests {
         assert_eq!(snapshot.entity_path(), "schema::proposal::tests::Entity");
         assert_eq!(snapshot.entity_name(), "Entity");
         assert_eq!(snapshot.primary_key_field_id(), FieldId::new(1));
-        assert_eq!(snapshot.fields().len(), 3);
+        assert_eq!(snapshot.fields().len(), 4);
 
         let name = &snapshot.fields()[1];
         assert_eq!(name.id(), FieldId::new(2));
@@ -419,5 +489,19 @@ mod tests {
         assert_eq!(name.default(), SchemaFieldDefault::None);
         assert_eq!(name.storage_decode(), FieldStorageDecode::ByKind);
         assert_eq!(name.leaf_codec(), LeafCodec::Scalar(ScalarCodec::Text));
+
+        let profile = &snapshot.fields()[3];
+        assert_eq!(profile.name(), "profile");
+        assert_eq!(profile.nested_leaves().len(), 2);
+        assert_eq!(profile.nested_leaves()[0].path(), &["nickname".to_string()],);
+        assert!(matches!(
+            profile.nested_leaves()[0].kind(),
+            PersistedFieldKind::Text { max_len: None }
+        ));
+        assert_eq!(profile.nested_leaves()[1].path(), &["score".to_string()]);
+        assert!(matches!(
+            profile.nested_leaves()[1].kind(),
+            PersistedFieldKind::Uint
+        ));
     }
 }

@@ -223,6 +223,14 @@ fn field_snapshot_contract_mismatch_detail(
         ));
     }
 
+    if actual.nested_leaves() != expected.nested_leaves() {
+        return Some(format!(
+            "field[{index}] nested leaf metadata changed: stored={} generated={}",
+            actual.nested_leaves().len(),
+            expected.nested_leaves().len(),
+        ));
+    }
+
     field_snapshot_storage_mismatch_detail(index, actual, expected)
 }
 

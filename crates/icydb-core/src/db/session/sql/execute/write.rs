@@ -26,6 +26,7 @@ use crate::{
             SqlUpdateStatement,
         },
     },
+    metrics::sink::{MetricsEvent, SqlWriteKind, record},
     model::field::{FieldInsertGeneration, FieldModel},
     sanitize::{SanitizeWriteContext, SanitizeWriteMode},
     traits::{CanisterKind, EntityKind, EntityValue, KeyValueCodec},
@@ -224,6 +225,30 @@ where
     }
 
     full_columns
+}
+
+fn usize_to_u64_saturating(value: usize) -> u64 {
+    u64::try_from(value).unwrap_or(u64::MAX)
+}
+
+const fn sql_returning_rows(returning: Option<&SqlReturningProjection>, mutated_rows: u64) -> u64 {
+    if returning.is_some() { mutated_rows } else { 0 }
+}
+
+fn record_sql_write_metrics(
+    entity_path: &'static str,
+    kind: SqlWriteKind,
+    matched_rows: u64,
+    mutated_rows: u64,
+    returning_rows: u64,
+) {
+    record(MetricsEvent::SqlWrite {
+        entity_path,
+        kind,
+        matched_rows,
+        mutated_rows,
+        returning_rows,
+    });
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -466,6 +491,11 @@ impl<C: CanisterKind> DbSession<C> {
                 )?;
             }
         }
+        let source_rows = usize_to_u64_saturating(rows.len());
+        let kind = match &statement.source {
+            SqlInsertSource::Values(_) => SqlWriteKind::Insert,
+            SqlInsertSource::Select(_) => SqlWriteKind::InsertSelect,
+        };
         let entities = self
             .execute_save_with::<E, _, _>(
                 |save| {
@@ -478,6 +508,14 @@ impl<C: CanisterKind> DbSession<C> {
                 std::convert::identity,
             )
             .map_err(QueryError::execute)?;
+        let mutated_rows = usize_to_u64_saturating(entities.len());
+        record_sql_write_metrics(
+            E::PATH,
+            kind,
+            source_rows,
+            mutated_rows,
+            sql_returning_rows(statement.returning.as_ref(), mutated_rows),
+        );
 
         sql_write_statement_result::<C, E>(entities, statement.returning.as_ref())
     }
@@ -496,6 +534,7 @@ impl<C: CanisterKind> DbSession<C> {
         let patch = Self::sql_structural_patch::<E>(&schema, statement)?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());
         let matched = self.execute_query(&selector)?;
+        let matched_rows = usize_to_u64_saturating(matched.len());
         let mut rows = Vec::with_capacity(matched.len());
 
         for entity in matched.entities() {
@@ -513,6 +552,14 @@ impl<C: CanisterKind> DbSession<C> {
                 std::convert::identity,
             )
             .map_err(QueryError::execute)?;
+        let mutated_rows = usize_to_u64_saturating(entities.len());
+        record_sql_write_metrics(
+            E::PATH,
+            SqlWriteKind::Update,
+            matched_rows,
+            mutated_rows,
+            sql_returning_rows(statement.returning.as_ref(), mutated_rows),
+        );
 
         sql_write_statement_result::<C, E>(entities, statement.returning.as_ref())
     }
@@ -530,9 +577,13 @@ impl<C: CanisterKind> DbSession<C> {
         // Phase 1: keep pure count deletes on the direct terminal so the
         // delete lane does not hop through projection shaping it will discard.
         match returning {
-            None => self
-                .execute_delete_count(&typed_query)
-                .map(|row_count| SqlStatementResult::Count { row_count }),
+            None => {
+                let row_count = self.execute_delete_count(&typed_query)?;
+                let rows = u64::from(row_count);
+                record_sql_write_metrics(E::PATH, SqlWriteKind::Delete, rows, rows, 0);
+
+                Ok(SqlStatementResult::Count { row_count })
+            }
             Some(returning) => {
                 // Phase 2: returning deletes reuse the structural projection
                 // terminal once, then shape the requested outbound row contract
@@ -546,6 +597,14 @@ impl<C: CanisterKind> DbSession<C> {
                     .map_err(QueryError::execute)?;
                 let (rows, row_count) = deleted.into_parts();
                 let rows = rows.into_value_rows();
+                let metric_rows = u64::from(row_count);
+                record_sql_write_metrics(
+                    E::PATH,
+                    SqlWriteKind::Delete,
+                    metric_rows,
+                    metric_rows,
+                    metric_rows,
+                );
 
                 sql_returning_statement_projection(
                     projection_labels_from_fields(E::MODEL.fields()),

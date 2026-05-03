@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.146.x] 🪪 - 2026-05-02 - Schema Identity
 
-- `0.146.6` makes SQL projection, grouping, direct ordering, and global aggregate field checks use accepted schema capability metadata, and keeps metrics reporting current for load row efficiency.
+- `0.146.7` adds accepted nested field metadata for schema snapshots, uses it for field-path type checks, and makes metrics show SQL write shape, matched rows, mutated rows, and `RETURNING` rows.
+- `0.146.6` makes SQL projection, grouping, direct ordering, and global aggregate field checks use accepted schema capability metadata, and keeps metrics reporting current for load row efficiency and write amplification.
 - `0.146.5` makes more SQL read planning use accepted schema field metadata and makes metrics show cache reuse, cache size, and load row efficiency from actual query and SQL activity.
 - `0.146.4` makes cached query planning and SQL cache identity follow accepted schema snapshots after startup reconciliation, and makes per-entity metrics show save modes, query plan routes, and executor outcomes.
 - `0.146.3` keeps schema introspection and SQL write literal validation tied to accepted live schema snapshots, and makes `icydb_metrics()` show saved rows, detailed plan routes, richer per-entity counters, and clearer window filtering.

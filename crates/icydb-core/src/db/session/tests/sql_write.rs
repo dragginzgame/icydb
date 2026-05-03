@@ -2,6 +2,7 @@ use super::*;
 use crate::{
     db::{MutationMode, StructuralPatch},
     error::InternalError,
+    metrics::sink::SqlWriteKind,
 };
 
 // Execute one write statement through the statement SQL boundary and assert it
@@ -99,6 +100,30 @@ fn seed_write_entities(session: &DbSession<SessionSqlCanister>, rows: &[(u64, &s
             })
             .expect("typed setup insert should succeed");
     }
+}
+
+fn captured_sql_write_events(
+    events: &[MetricsEvent],
+) -> Vec<(&'static str, SqlWriteKind, u64, u64, u64)> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            MetricsEvent::SqlWrite {
+                entity_path,
+                kind,
+                matched_rows,
+                mutated_rows,
+                returning_rows,
+            } => Some((
+                *entity_path,
+                *kind,
+                *matched_rows,
+                *mutated_rows,
+                *returning_rows,
+            )),
+            _ => None,
+        })
+        .collect()
 }
 
 // Read back the canonical `SessionSqlWriteEntity` ordered row surface used by
@@ -773,6 +798,48 @@ fn execute_sql_statement_single_row_update_matrix_returns_count_without_returnin
             );
         }
     }
+}
+
+#[test]
+fn execute_sql_statement_write_metrics_capture_sql_boundary_shape() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21), (2, "Bea", 30)]);
+    seed_session_sql_entities(&session, &[("Ada", 21)]);
+
+    let sink = SessionMetricsCaptureSink::default();
+    with_metrics_sink(&sink, || {
+        execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+            &session,
+            "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (3, 'Cid', 31)",
+        )
+        .expect("SQL INSERT should succeed");
+        execute_sql_statement_for_tests::<SessionSqlEntity>(
+            &session,
+            "INSERT INTO SessionSqlEntity (name, age) SELECT name, age FROM SessionSqlEntity WHERE name = 'Ada' RETURNING *",
+        )
+        .expect("SQL INSERT SELECT RETURNING should succeed");
+        execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+            &session,
+            "UPDATE SessionSqlWriteEntity SET age = 22 WHERE age >= 21 RETURNING id",
+        )
+        .expect("SQL UPDATE RETURNING should succeed");
+        execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+            &session,
+            "DELETE FROM SessionSqlWriteEntity WHERE id = 1 RETURNING id",
+        )
+        .expect("SQL DELETE RETURNING should succeed");
+    });
+
+    assert_eq!(
+        captured_sql_write_events(&sink.into_events()),
+        vec![
+            (SessionSqlWriteEntity::PATH, SqlWriteKind::Insert, 1, 1, 0),
+            (SessionSqlEntity::PATH, SqlWriteKind::InsertSelect, 1, 1, 1,),
+            (SessionSqlWriteEntity::PATH, SqlWriteKind::Update, 3, 3, 3),
+            (SessionSqlWriteEntity::PATH, SqlWriteKind::Delete, 1, 1, 1),
+        ],
+    );
 }
 
 #[test]

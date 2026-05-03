@@ -10,7 +10,8 @@ use crate::{
         },
         schema::{
             AcceptedSchemaSnapshot, PersistedFieldKind, PersistedFieldSnapshot,
-            PersistedRelationStrength, SchemaFieldSlot, field_type_from_persisted_kind,
+            PersistedNestedLeafSnapshot, PersistedRelationStrength, SchemaFieldSlot,
+            field_type_from_persisted_kind,
         },
     },
     model::{
@@ -411,15 +412,28 @@ pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
                     .is_queryable(),
             )
         });
-        describe_field_recursive(
+
+        push_described_field_row(
             &mut fields,
             field.name,
             slot,
-            field,
             primary_key,
             None,
-            metadata,
+            metadata.unwrap_or_else(|| {
+                DescribeFieldMetadata::new(
+                    summarize_field_kind(&field.kind),
+                    field.kind.value_kind().is_queryable(),
+                )
+            }),
         );
+
+        if let Some(accepted_field) = accepted_field
+            && !accepted_field.nested_leaves().is_empty()
+        {
+            describe_persisted_nested_leaves(&mut fields, accepted_field.nested_leaves());
+        } else {
+            describe_generated_nested_fields(&mut fields, field.nested_fields());
+        }
     }
 
     fields
@@ -454,8 +468,8 @@ fn describe_entity_fields_with_slot_lookup(
 /// DescribeFieldMetadata
 ///
 /// Field-description metadata selected before recursive field rendering.
-/// Top-level live-schema metadata can override generated model facts while
-/// nested generated leaves continue to use their `FieldModel` metadata.
+/// Accepted-schema metadata can override generated model facts for top-level
+/// fields and, when available, nested leaf rows.
 ///
 
 struct DescribeFieldMetadata {
@@ -470,9 +484,8 @@ impl DescribeFieldMetadata {
     }
 }
 
-// Add one top-level field and any generated structured-record leaves under
-// dotted names so DESCRIBE/SHOW COLUMNS expose the same field paths SQL can
-// project and filter.
+// Add one generated field and any generated structured-record leaves so
+// DESCRIBE/SHOW COLUMNS expose the same nested rows SQL can project and filter.
 fn describe_field_recursive(
     fields: &mut Vec<EntityFieldDescription>,
     name: &str,
@@ -489,8 +502,22 @@ fn describe_field_recursive(
         )
     });
 
-    // Generated nested field rows keep a compact tree marker so
-    // table-oriented describe output scans as a hierarchy.
+    push_described_field_row(fields, name, slot, primary_key, tree_prefix, metadata);
+    describe_generated_nested_fields(fields, field.nested_fields());
+}
+
+// Add one already-resolved field row to the stable describe DTO list. The
+// caller owns where metadata came from: generated model or accepted schema.
+fn push_described_field_row(
+    fields: &mut Vec<EntityFieldDescription>,
+    name: &str,
+    slot: Option<u16>,
+    primary_key: bool,
+    tree_prefix: Option<&'static str>,
+    metadata: DescribeFieldMetadata,
+) {
+    // Nested field rows keep a compact tree marker so table-oriented describe
+    // output scans as a hierarchy without assigning nested leaves row slots.
     let display_name = if let Some(prefix) = tree_prefix {
         format!("{prefix}{name}")
     } else {
@@ -504,8 +531,15 @@ fn describe_field_recursive(
         primary_key,
         metadata.queryable,
     ));
+}
 
-    let nested_fields = field.nested_fields();
+// Render generated nested field metadata recursively. Generated and accepted
+// top-level describe paths both use this fallback when no accepted nested leaf
+// descriptors are available yet.
+fn describe_generated_nested_fields(
+    fields: &mut Vec<EntityFieldDescription>,
+    nested_fields: &[FieldModel],
+) {
     for (index, nested) in nested_fields.iter().enumerate() {
         let prefix = if index + 1 == nested_fields.len() {
             "└─ "
@@ -521,6 +555,30 @@ fn describe_field_recursive(
             Some(prefix),
             None,
         );
+    }
+}
+
+// Render accepted nested leaf descriptors. Nested leaves do not own physical
+// row slots, so they always appear with the no-slot sentinel in the Candid DTO.
+fn describe_persisted_nested_leaves(
+    fields: &mut Vec<EntityFieldDescription>,
+    nested_leaves: &[PersistedNestedLeafSnapshot],
+) {
+    for (index, leaf) in nested_leaves.iter().enumerate() {
+        let prefix = if index + 1 == nested_leaves.len() {
+            "└─ "
+        } else {
+            "├─ "
+        };
+        let name = leaf.path().last().map_or("", String::as_str);
+        let metadata = DescribeFieldMetadata::new(
+            summarize_persisted_field_kind(leaf.kind()),
+            field_type_from_persisted_kind(leaf.kind())
+                .value_kind()
+                .is_queryable(),
+        );
+
+        push_described_field_row(fields, name, None, false, Some(prefix), metadata);
     }
 }
 
@@ -752,14 +810,16 @@ mod tests {
             relation::{RelationDescriptorCardinality, relation_descriptors_for_model_iter},
             schema::{
                 AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
-                PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout,
-                SchemaVersion,
+                PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
+                SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
                 describe::{describe_entity_fields_with_persisted_schema, describe_entity_model},
             },
         },
         model::{
             entity::EntityModel,
-            field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec, RelationStrength},
+            field::{
+                FieldKind, FieldModel, FieldStorageDecode, LeafCodec, RelationStrength, ScalarCodec,
+            },
         },
         types::EntityTag,
     };
@@ -1061,6 +1121,7 @@ mod tests {
                     "id".to_string(),
                     id_slot,
                     PersistedFieldKind::Ulid,
+                    Vec::new(),
                     false,
                     SchemaFieldDefault::None,
                     FieldStorageDecode::ByKind,
@@ -1071,6 +1132,7 @@ mod tests {
                     "payload".to_string(),
                     payload_slot,
                     PersistedFieldKind::Blob,
+                    Vec::new(),
                     false,
                     SchemaFieldDefault::None,
                     FieldStorageDecode::ByKind,
@@ -1097,6 +1159,85 @@ mod tests {
                 ("payload".to_string(), Some(7), "blob".to_string()),
             ],
         );
+    }
+
+    #[test]
+    fn schema_describe_uses_accepted_nested_leaf_metadata() {
+        static NESTED_FIELDS: [FieldModel; 1] = [FieldModel::generated("rank", FieldKind::Uint)];
+        static FIELDS: [FieldModel; 2] = [
+            FieldModel::generated("id", FieldKind::Ulid),
+            FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
+                "profile",
+                FieldKind::Structured { queryable: true },
+                FieldStorageDecode::Value,
+                false,
+                None,
+                None,
+                &NESTED_FIELDS,
+            ),
+        ];
+        static INDEXES: [&crate::model::index::IndexModel; 0] = [];
+        static MODEL: EntityModel = EntityModel::generated(
+            "entities::AcceptedProfile",
+            "AcceptedProfile",
+            &FIELDS[0],
+            0,
+            &FIELDS,
+            &INDEXES,
+        );
+        let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "entities::AcceptedProfile".to_string(),
+            "AcceptedProfile".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "profile".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Structured { queryable: true },
+                    vec![PersistedNestedLeafSnapshot::new(
+                        vec!["rank".to_string()],
+                        PersistedFieldKind::Blob,
+                        false,
+                        FieldStorageDecode::ByKind,
+                        LeafCodec::Scalar(ScalarCodec::Blob),
+                    )],
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::Value,
+                    LeafCodec::StructuralFallback,
+                ),
+            ],
+        ));
+
+        let described = describe_entity_fields_with_persisted_schema(&MODEL, &snapshot);
+        let rank = described
+            .iter()
+            .find(|field| field.name() == "└─ rank")
+            .expect("accepted nested leaf should be described");
+
+        assert_eq!(rank.slot(), None);
+        assert_eq!(rank.kind(), "blob");
+        assert!(rank.queryable());
     }
 
     #[test]

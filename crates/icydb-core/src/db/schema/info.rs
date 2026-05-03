@@ -5,9 +5,9 @@
 
 use crate::{
     db::schema::{
-        AcceptedSchemaSnapshot, FieldType, PersistedFieldKind, SqlCapabilities,
-        canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_model_kind,
-        field_type_from_persisted_kind, sql_capabilities,
+        AcceptedSchemaSnapshot, FieldType, PersistedFieldKind, PersistedNestedLeafSnapshot,
+        SqlCapabilities, canonicalize_strict_sql_literal_for_persisted_kind,
+        field_type_from_model_kind, field_type_from_persisted_kind, sql_capabilities,
     },
     model::{
         canonicalize_strict_sql_literal_for_kind,
@@ -52,6 +52,7 @@ struct SchemaFieldInfo {
     kind: FieldKind,
     sql_capabilities: SqlCapabilities,
     persisted_kind: Option<PersistedFieldKind>,
+    nested_leaves: Option<Vec<PersistedNestedLeafSnapshot>>,
     nested_fields: &'static [FieldModel],
 }
 
@@ -75,6 +76,7 @@ impl SchemaInfo {
                             field.kind(),
                         )),
                         persisted_kind: None,
+                        nested_leaves: None,
                         nested_fields: field.nested_fields(),
                     },
                 )
@@ -112,6 +114,30 @@ impl SchemaInfo {
         schema_field_info(self.fields.as_slice(), name).map(|field| field.sql_capabilities)
     }
 
+    /// Return SQL operation capabilities for one nested field path.
+    ///
+    /// Accepted schema views resolve nested paths from persisted nested leaf
+    /// metadata. Generated schema views derive the same facts from generated
+    /// nested `FieldModel` metadata until live row-layout authority exists.
+    #[must_use]
+    pub(in crate::db) fn nested_sql_capabilities(
+        &self,
+        name: &str,
+        segments: &[String],
+    ) -> Option<SqlCapabilities> {
+        let field = schema_field_info(self.fields.as_slice(), name)?;
+
+        if let Some(nested_leaves) = field.nested_leaves.as_ref() {
+            return nested_leaves
+                .iter()
+                .find(|leaf| leaf.path() == segments)
+                .map(|leaf| sql_capabilities(leaf.kind()));
+        }
+
+        resolve_nested_field_path_kind(field.nested_fields, segments)
+            .map(|kind| sql_capabilities(&PersistedFieldKind::from_model_kind(kind)))
+    }
+
     /// Return the first top-level field that SQL cannot project directly.
     #[must_use]
     pub(in crate::db) fn first_non_sql_selectable_field(&self) -> Option<&'static str> {
@@ -121,9 +147,35 @@ impl SchemaInfo {
             .map(|(field_name, _)| *field_name)
     }
 
+    /// Return the type for one nested field path rooted at a top-level field.
+    ///
+    /// Accepted schema views resolve nested paths from persisted nested leaf
+    /// metadata. Generated schema views retain generated nested `FieldModel`
+    /// traversal for compile-time-only callers.
     #[must_use]
-    pub(crate) fn field_nested_fields(&self, name: &str) -> Option<&'static [FieldModel]> {
-        schema_field_info(self.fields.as_slice(), name).map(|field| field.nested_fields)
+    pub(crate) fn nested_field_type(&self, name: &str, segments: &[String]) -> Option<FieldType> {
+        let field = schema_field_info(self.fields.as_slice(), name)?;
+
+        if let Some(nested_leaves) = field.nested_leaves.as_ref() {
+            return nested_leaves
+                .iter()
+                .find(|leaf| leaf.path() == segments)
+                .map(|leaf| field_type_from_persisted_kind(leaf.kind()));
+        }
+
+        resolve_nested_field_path_kind(field.nested_fields, segments)
+            .map(|kind| field_type_from_model_kind(&kind))
+    }
+
+    /// Return whether one top-level field exposes any nested path metadata.
+    #[must_use]
+    pub(crate) fn field_has_nested_paths(&self, name: &str) -> bool {
+        schema_field_info(self.fields.as_slice(), name).is_some_and(|field| {
+            field.nested_leaves.as_ref().map_or_else(
+                || !field.nested_fields.is_empty(),
+                |leaves| !leaves.is_empty(),
+            )
+        })
     }
 
     /// Canonicalize one strict SQL literal against this schema's field authority.
@@ -185,6 +237,8 @@ impl SchemaInfo {
                         kind: field.kind(),
                         sql_capabilities,
                         persisted_kind: accepted_field.map(|persisted| persisted.kind().clone()),
+                        nested_leaves: accepted_field
+                            .map(|persisted| persisted.nested_leaves().to_vec()),
                         nested_fields: field.nested_fields(),
                     },
                 )
@@ -216,6 +270,22 @@ impl SchemaInfo {
     }
 }
 
+// Resolve generated nested metadata for compile-time-only schema views. Accepted
+// schema views use persisted nested leaf descriptors before this fallback is
+// considered.
+fn resolve_nested_field_path_kind(fields: &[FieldModel], segments: &[String]) -> Option<FieldKind> {
+    let (segment, rest) = segments.split_first()?;
+    let field = fields
+        .iter()
+        .find(|field| field.name() == segment.as_str())?;
+
+    if rest.is_empty() {
+        return Some(field.kind());
+    }
+
+    resolve_nested_field_path_kind(field.nested_fields(), rest)
+}
+
 ///
 /// TESTS
 ///
@@ -225,12 +295,12 @@ mod tests {
     use crate::{
         db::schema::{
             AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
-            PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaInfo,
-            SchemaRowLayout, SchemaVersion, literal_matches_type,
+            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
+            SchemaFieldSlot, SchemaInfo, SchemaRowLayout, SchemaVersion, literal_matches_type,
         },
         model::{
             entity::EntityModel,
-            field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
+            field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec},
             index::IndexModel,
         },
         testing::entity_model_from_static,
@@ -241,6 +311,20 @@ mod tests {
         FieldModel::generated("name", FieldKind::Text { max_len: None }),
         FieldModel::generated("id", FieldKind::Ulid),
     ];
+    static PROFILE_NESTED_FIELDS: [FieldModel; 1] =
+        [FieldModel::generated("rank", FieldKind::Uint)];
+    static PROFILE_FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
+            "profile",
+            FieldKind::Structured { queryable: true },
+            FieldStorageDecode::Value,
+            false,
+            None,
+            None,
+            &PROFILE_NESTED_FIELDS,
+        ),
+    ];
     static INDEXES: [&IndexModel; 0] = [];
     static MODEL: EntityModel = entity_model_from_static(
         "schema::info::tests::Entity",
@@ -248,6 +332,14 @@ mod tests {
         &FIELDS[1],
         1,
         &FIELDS,
+        &INDEXES,
+    );
+    static PROFILE_MODEL: EntityModel = entity_model_from_static(
+        "schema::info::tests::ProfileEntity",
+        "ProfileEntity",
+        &PROFILE_FIELDS[0],
+        0,
+        &PROFILE_FIELDS,
         &INDEXES,
     );
 
@@ -273,6 +365,7 @@ mod tests {
                     "id".to_string(),
                     SchemaFieldSlot::new(0),
                     PersistedFieldKind::Ulid,
+                    Vec::new(),
                     false,
                     SchemaFieldDefault::None,
                     FieldStorageDecode::ByKind,
@@ -283,6 +376,7 @@ mod tests {
                     "name".to_string(),
                     SchemaFieldSlot::new(1),
                     kind,
+                    Vec::new(),
                     false,
                     SchemaFieldDefault::None,
                     FieldStorageDecode::ByKind,
@@ -349,5 +443,60 @@ mod tests {
         assert!(accepted_name.selectable());
         assert!(accepted_name.comparable());
         assert!(!accepted_name.orderable());
+    }
+
+    #[test]
+    fn accepted_snapshot_schema_info_uses_persisted_nested_leaf_type() {
+        let accepted = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "schema::info::tests::ProfileEntity".to_string(),
+            "ProfileEntity".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "profile".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Structured { queryable: true },
+                    vec![PersistedNestedLeafSnapshot::new(
+                        vec!["rank".to_string()],
+                        PersistedFieldKind::Blob,
+                        false,
+                        FieldStorageDecode::ByKind,
+                        LeafCodec::Scalar(ScalarCodec::Blob),
+                    )],
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::Value,
+                    LeafCodec::StructuralFallback,
+                ),
+            ],
+        ));
+        let schema = SchemaInfo::from_accepted_snapshot_for_model(&PROFILE_MODEL, &accepted);
+        let path = vec!["rank".to_string()];
+        let nested_type = schema
+            .nested_field_type("profile", path.as_slice())
+            .expect("accepted nested leaf should resolve");
+
+        assert!(literal_matches_type(&Value::Blob(vec![1]), &nested_type));
+        assert!(!literal_matches_type(&Value::Uint(1), &nested_type));
     }
 }

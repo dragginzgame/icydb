@@ -453,10 +453,13 @@ fn canonicalize_strict_sql_literal_for_kind_impl(kind: FieldKind, value: &Value)
 mod tests {
     use crate::{
         model::{
-            FieldKindCategory, FieldKindNumericClass, FieldKindScalarClass,
             canonicalize_grouped_having_numeric_literal_for_field_kind,
-            canonicalize_strict_sql_literal_for_kind, classify_field_kind, field::FieldKind,
+            canonicalize_strict_sql_literal_for_kind, classify_field_kind,
+            field::FieldKind,
             field_kind_has_identity_group_canonical_form,
+            field_kind_semantics::{
+                FieldKindCategory, FieldKindNumericClass, FieldKindScalarClass,
+            },
         },
         value::Value,
     };

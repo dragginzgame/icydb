@@ -42,7 +42,8 @@ pub(in crate::db) use proposal::compiled_schema_proposal_for_model;
 pub(in crate::db) use reconcile::{ensure_initial_schema_snapshot, reconcile_runtime_schemas};
 pub(in crate::db) use snapshot::{
     AcceptedSchemaSnapshot, PersistedEnumVariant, PersistedFieldKind, PersistedFieldSnapshot,
-    PersistedRelationStrength, PersistedSchemaSnapshot, SchemaFieldDefault,
+    PersistedNestedLeafSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,
+    SchemaFieldDefault,
 };
 pub use store::SchemaStore;
 pub(crate) use types::{FieldType, ScalarType, field_type_from_model_kind, literal_matches_type};

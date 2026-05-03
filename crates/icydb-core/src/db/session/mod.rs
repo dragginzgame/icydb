@@ -255,7 +255,11 @@ impl<C: CanisterKind> DbSession<C> {
         show_indexes_for_model_with_runtime_state(model, runtime_state)
     }
 
-    /// Return one stable list of field descriptors for the entity schema.
+    /// Return one stable generated-model list of field descriptors.
+    ///
+    /// This infallible Rust metadata helper intentionally reports the compiled
+    /// schema model. Use `try_show_columns` for the accepted persisted-schema
+    /// view used by SQL and diagnostics surfaces.
     #[must_use]
     pub fn show_columns<E>(&self) -> Vec<EntityFieldDescription>
     where
@@ -264,7 +268,7 @@ impl<C: CanisterKind> DbSession<C> {
         self.show_columns_for_model(E::MODEL)
     }
 
-    /// Return one stable list of field descriptors for one schema model.
+    /// Return one stable generated-model list of field descriptors.
     #[must_use]
     pub fn show_columns_for_model(
         &self,
@@ -329,10 +333,11 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(VisibleIndexes::planner_visible(model.indexes()))
     }
 
-    /// Return one structured schema description for the entity.
+    /// Return one generated-model schema description for the entity.
     ///
     /// This is a typed `DESCRIBE`-style introspection surface consumed by
-    /// developer tooling and pre-EXPLAIN debugging.
+    /// developer tooling and pre-EXPLAIN debugging when a non-failing compiled
+    /// schema view is required.
     #[must_use]
     pub fn describe_entity<E>(&self) -> EntitySchemaDescription
     where
@@ -341,7 +346,7 @@ impl<C: CanisterKind> DbSession<C> {
         self.describe_entity_model(E::MODEL)
     }
 
-    /// Return one structured schema description for one schema model.
+    /// Return one generated-model schema description for one schema model.
     #[must_use]
     pub fn describe_entity_model(&self, model: &'static EntityModel) -> EntitySchemaDescription {
         describe_entity_model(model)

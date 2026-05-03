@@ -9,21 +9,22 @@ use crate::{
             builder::aggregate::{AggregateExpr, min, min_by, sum},
             plan::{
                 AggregateKind, PlanError, PlanUserError,
-                expr::{BinaryOp, CaseWhenArm, Expr, FieldId, Function},
+                expr::{BinaryOp, CaseWhenArm, Expr, FieldId, FieldPath, Function},
                 validate::ExprPlanError,
             },
         },
         schema::{
             AcceptedSchemaSnapshot, FieldId as SchemaFieldId, PersistedFieldKind,
-            PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot,
-            SchemaInfo, SchemaRowLayout, SchemaVersion,
+            PersistedFieldSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
+            SchemaFieldDefault, SchemaFieldSlot, SchemaInfo, SchemaRowLayout, SchemaVersion,
         },
     },
     model::{
         entity::EntityModel,
-        field::{FieldKind, FieldStorageDecode, LeafCodec},
+        field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec},
         index::IndexModel,
     },
+    testing::entity_model_from_static,
     value::Value,
 };
 
@@ -57,9 +58,79 @@ crate::test_entity! {
     indexes = [&EMPTY_INDEX],
 }
 
+static PROFILE_NESTED_FIELDS: [FieldModel; 1] = [FieldModel::generated("rank", FieldKind::Uint)];
+static PROFILE_FIELDS: [FieldModel; 2] = [
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
+        "profile",
+        FieldKind::Structured { queryable: true },
+        FieldStorageDecode::Value,
+        false,
+        None,
+        None,
+        &PROFILE_NESTED_FIELDS,
+    ),
+];
+static PROFILE_MODEL: EntityModel = entity_model_from_static(
+    "query::plan::expr::type_inference::tests::ProfileEntity",
+    "ProfileEntity",
+    &PROFILE_FIELDS[0],
+    0,
+    &PROFILE_FIELDS,
+    &[],
+);
+
 fn schema() -> &'static SchemaInfo {
     let model: &'static EntityModel = <ExprInferenceEntity as crate::traits::EntitySchema>::MODEL;
     SchemaInfo::cached_for_entity_model(model)
+}
+
+fn accepted_profile_schema_with_nested_rank(kind: PersistedFieldKind) -> SchemaInfo {
+    let accepted = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        PROFILE_MODEL.path().to_string(),
+        PROFILE_MODEL.name().to_string(),
+        SchemaFieldId::new(1),
+        SchemaRowLayout::new(
+            SchemaVersion::initial(),
+            vec![
+                (SchemaFieldId::new(1), SchemaFieldSlot::new(0)),
+                (SchemaFieldId::new(2), SchemaFieldSlot::new(1)),
+            ],
+        ),
+        vec![
+            PersistedFieldSnapshot::new(
+                SchemaFieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                PersistedFieldKind::Ulid,
+                Vec::new(),
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::StructuralFallback,
+            ),
+            PersistedFieldSnapshot::new(
+                SchemaFieldId::new(2),
+                "profile".to_string(),
+                SchemaFieldSlot::new(1),
+                PersistedFieldKind::Structured { queryable: true },
+                vec![PersistedNestedLeafSnapshot::new(
+                    vec!["rank".to_string()],
+                    kind,
+                    false,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Blob),
+                )],
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::Value,
+                LeafCodec::StructuralFallback,
+            ),
+        ],
+    ));
+
+    SchemaInfo::from_accepted_snapshot_for_model(&PROFILE_MODEL, &accepted)
 }
 
 fn is_expr_plan_error(err: &PlanError, predicate: impl FnOnce(&ExprPlanError) -> bool) -> bool {
@@ -100,6 +171,7 @@ fn infer_field_type_uses_accepted_schema_field_type() {
             "rank".to_string(),
             SchemaFieldSlot::new(1),
             PersistedFieldKind::Blob,
+            Vec::new(),
             false,
             SchemaFieldDefault::None,
             FieldStorageDecode::ByKind,
@@ -110,6 +182,19 @@ fn infer_field_type_uses_accepted_schema_field_type() {
     let expr = Expr::Field(FieldId::new("rank"));
 
     let inferred = infer_expr_type(&expr, &schema).expect("field should infer");
+
+    assert_eq!(inferred, ExprType::Blob);
+}
+
+#[test]
+fn infer_field_path_type_uses_accepted_nested_leaf_type() {
+    let schema = accepted_profile_schema_with_nested_rank(PersistedFieldKind::Blob);
+    let expr = Expr::FieldPath(FieldPath::new(
+        FieldId::new("profile"),
+        vec!["rank".to_string()],
+    ));
+
+    let inferred = infer_expr_type(&expr, &schema).expect("field path should infer");
 
     assert_eq!(inferred, ExprType::Blob);
 }

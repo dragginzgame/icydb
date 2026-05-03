@@ -256,8 +256,9 @@ mod tests {
     use super::{RawSchemaKey, RawSchemaSnapshot, SchemaStore};
     use crate::{
         db::schema::{
-            FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedSchemaSnapshot,
-            SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
+            FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedNestedLeafSnapshot,
+            PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout,
+            SchemaVersion,
         },
         model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
         testing::test_memory,
@@ -332,6 +333,7 @@ mod tests {
                     "id".to_string(),
                     SchemaFieldSlot::new(0),
                     PersistedFieldKind::Ulid,
+                    Vec::new(),
                     false,
                     SchemaFieldDefault::None,
                     FieldStorageDecode::ByKind,
@@ -347,6 +349,13 @@ mod tests {
                             PersistedFieldKind::Uint,
                         ))),
                     },
+                    vec![PersistedNestedLeafSnapshot::new(
+                        vec!["bytes".to_string()],
+                        PersistedFieldKind::Blob,
+                        false,
+                        FieldStorageDecode::ByKind,
+                        LeafCodec::Scalar(ScalarCodec::Blob),
+                    )],
                     false,
                     SchemaFieldDefault::None,
                     FieldStorageDecode::ByKind,

@@ -90,6 +90,13 @@ pub struct EventOps {
     pub(crate) load_candidate_rows_filtered: u64,
     pub(crate) load_result_rows_emitted: u64,
     pub(crate) rows_deleted: u64,
+    pub(crate) sql_insert_calls: u64,
+    pub(crate) sql_insert_select_calls: u64,
+    pub(crate) sql_update_calls: u64,
+    pub(crate) sql_delete_calls: u64,
+    pub(crate) sql_write_matched_rows: u64,
+    pub(crate) sql_write_mutated_rows: u64,
+    pub(crate) sql_write_returning_rows: u64,
 
     // Index maintenance
     pub(crate) index_inserts: u64,
@@ -98,6 +105,10 @@ pub struct EventOps {
     pub(crate) reverse_index_removes: u64,
     pub(crate) relation_reverse_lookups: u64,
     pub(crate) relation_delete_blocks: u64,
+    pub(crate) write_rows_touched: u64,
+    pub(crate) write_index_entries_changed: u64,
+    pub(crate) write_reverse_index_entries_changed: u64,
+    pub(crate) write_relation_checks: u64,
     pub(crate) unique_violations: u64,
     pub(crate) non_atomic_partial_commits: u64,
     pub(crate) non_atomic_partial_rows_committed: u64,
@@ -360,6 +371,41 @@ impl EventOps {
     }
 
     #[must_use]
+    pub const fn sql_insert_calls(&self) -> u64 {
+        self.sql_insert_calls
+    }
+
+    #[must_use]
+    pub const fn sql_insert_select_calls(&self) -> u64 {
+        self.sql_insert_select_calls
+    }
+
+    #[must_use]
+    pub const fn sql_update_calls(&self) -> u64 {
+        self.sql_update_calls
+    }
+
+    #[must_use]
+    pub const fn sql_delete_calls(&self) -> u64 {
+        self.sql_delete_calls
+    }
+
+    #[must_use]
+    pub const fn sql_write_matched_rows(&self) -> u64 {
+        self.sql_write_matched_rows
+    }
+
+    #[must_use]
+    pub const fn sql_write_mutated_rows(&self) -> u64 {
+        self.sql_write_mutated_rows
+    }
+
+    #[must_use]
+    pub const fn sql_write_returning_rows(&self) -> u64 {
+        self.sql_write_returning_rows
+    }
+
+    #[must_use]
     pub const fn index_inserts(&self) -> u64 {
         self.index_inserts
     }
@@ -387,6 +433,26 @@ impl EventOps {
     #[must_use]
     pub const fn relation_delete_blocks(&self) -> u64 {
         self.relation_delete_blocks
+    }
+
+    #[must_use]
+    pub const fn write_rows_touched(&self) -> u64 {
+        self.write_rows_touched
+    }
+
+    #[must_use]
+    pub const fn write_index_entries_changed(&self) -> u64 {
+        self.write_index_entries_changed
+    }
+
+    #[must_use]
+    pub const fn write_reverse_index_entries_changed(&self) -> u64 {
+        self.write_reverse_index_entries_changed
+    }
+
+    #[must_use]
+    pub const fn write_relation_checks(&self) -> u64 {
+        self.write_relation_checks
     }
 
     #[must_use]
@@ -456,12 +522,23 @@ pub(crate) struct EntityCounters {
     pub(crate) load_candidate_rows_filtered: u64,
     pub(crate) load_result_rows_emitted: u64,
     pub(crate) rows_deleted: u64,
+    pub(crate) sql_insert_calls: u64,
+    pub(crate) sql_insert_select_calls: u64,
+    pub(crate) sql_update_calls: u64,
+    pub(crate) sql_delete_calls: u64,
+    pub(crate) sql_write_matched_rows: u64,
+    pub(crate) sql_write_mutated_rows: u64,
+    pub(crate) sql_write_returning_rows: u64,
     pub(crate) index_inserts: u64,
     pub(crate) index_removes: u64,
     pub(crate) reverse_index_inserts: u64,
     pub(crate) reverse_index_removes: u64,
     pub(crate) relation_reverse_lookups: u64,
     pub(crate) relation_delete_blocks: u64,
+    pub(crate) write_rows_touched: u64,
+    pub(crate) write_index_entries_changed: u64,
+    pub(crate) write_reverse_index_entries_changed: u64,
+    pub(crate) write_relation_checks: u64,
     pub(crate) unique_violations: u64,
     pub(crate) non_atomic_partial_commits: u64,
     pub(crate) non_atomic_partial_rows_committed: u64,
@@ -741,12 +818,23 @@ pub struct EntitySummary {
     load_candidate_rows_filtered: u64,
     load_result_rows_emitted: u64,
     rows_deleted: u64,
+    sql_insert_calls: u64,
+    sql_insert_select_calls: u64,
+    sql_update_calls: u64,
+    sql_delete_calls: u64,
+    sql_write_matched_rows: u64,
+    sql_write_mutated_rows: u64,
+    sql_write_returning_rows: u64,
     index_inserts: u64,
     index_removes: u64,
     reverse_index_inserts: u64,
     reverse_index_removes: u64,
     relation_reverse_lookups: u64,
     relation_delete_blocks: u64,
+    write_rows_touched: u64,
+    write_index_entries_changed: u64,
+    write_reverse_index_entries_changed: u64,
+    write_relation_checks: u64,
     unique_violations: u64,
     non_atomic_partial_commits: u64,
     non_atomic_partial_rows_committed: u64,
@@ -1004,6 +1092,41 @@ impl EntitySummary {
     }
 
     #[must_use]
+    pub const fn sql_insert_calls(&self) -> u64 {
+        self.sql_insert_calls
+    }
+
+    #[must_use]
+    pub const fn sql_insert_select_calls(&self) -> u64 {
+        self.sql_insert_select_calls
+    }
+
+    #[must_use]
+    pub const fn sql_update_calls(&self) -> u64 {
+        self.sql_update_calls
+    }
+
+    #[must_use]
+    pub const fn sql_delete_calls(&self) -> u64 {
+        self.sql_delete_calls
+    }
+
+    #[must_use]
+    pub const fn sql_write_matched_rows(&self) -> u64 {
+        self.sql_write_matched_rows
+    }
+
+    #[must_use]
+    pub const fn sql_write_mutated_rows(&self) -> u64 {
+        self.sql_write_mutated_rows
+    }
+
+    #[must_use]
+    pub const fn sql_write_returning_rows(&self) -> u64 {
+        self.sql_write_returning_rows
+    }
+
+    #[must_use]
     pub const fn index_inserts(&self) -> u64 {
         self.index_inserts
     }
@@ -1031,6 +1154,26 @@ impl EntitySummary {
     #[must_use]
     pub const fn relation_delete_blocks(&self) -> u64 {
         self.relation_delete_blocks
+    }
+
+    #[must_use]
+    pub const fn write_rows_touched(&self) -> u64 {
+        self.write_rows_touched
+    }
+
+    #[must_use]
+    pub const fn write_index_entries_changed(&self) -> u64 {
+        self.write_index_entries_changed
+    }
+
+    #[must_use]
+    pub const fn write_reverse_index_entries_changed(&self) -> u64 {
+        self.write_reverse_index_entries_changed
+    }
+
+    #[must_use]
+    pub const fn write_relation_checks(&self) -> u64 {
+        self.write_relation_checks
     }
 
     #[must_use]
@@ -1100,15 +1243,105 @@ impl EntitySummary {
             .saturating_add(self.load_candidate_rows_filtered)
             .saturating_add(self.load_result_rows_emitted)
             .saturating_add(self.rows_deleted)
+            .saturating_add(self.sql_insert_calls)
+            .saturating_add(self.sql_insert_select_calls)
+            .saturating_add(self.sql_update_calls)
+            .saturating_add(self.sql_delete_calls)
+            .saturating_add(self.sql_write_matched_rows)
+            .saturating_add(self.sql_write_mutated_rows)
+            .saturating_add(self.sql_write_returning_rows)
             .saturating_add(self.index_inserts)
             .saturating_add(self.index_removes)
             .saturating_add(self.reverse_index_inserts)
             .saturating_add(self.reverse_index_removes)
             .saturating_add(self.relation_reverse_lookups)
             .saturating_add(self.relation_delete_blocks)
+            .saturating_add(self.write_rows_touched)
+            .saturating_add(self.write_index_entries_changed)
+            .saturating_add(self.write_reverse_index_entries_changed)
+            .saturating_add(self.write_relation_checks)
             .saturating_add(self.unique_violations)
             .saturating_add(self.non_atomic_partial_commits)
             .saturating_add(self.non_atomic_partial_rows_committed)
+    }
+}
+
+// Project mutable per-entity counters into the stable report DTO.
+//
+// Keeping this projection out of `report_window_start` leaves the window
+// filtering logic readable while still making every report field explicit.
+fn entity_summary_from_counters(path: &str, ops: &EntityCounters) -> EntitySummary {
+    EntitySummary {
+        path: path.to_string(),
+        load_calls: ops.load_calls,
+        save_calls: ops.save_calls,
+        delete_calls: ops.delete_calls,
+        save_insert_calls: ops.save_insert_calls,
+        save_update_calls: ops.save_update_calls,
+        save_replace_calls: ops.save_replace_calls,
+        exec_success: ops.exec_success,
+        exec_error_corruption: ops.exec_error_corruption,
+        exec_error_incompatible_persisted_format: ops.exec_error_incompatible_persisted_format,
+        exec_error_not_found: ops.exec_error_not_found,
+        exec_error_internal: ops.exec_error_internal,
+        exec_error_conflict: ops.exec_error_conflict,
+        exec_error_unsupported: ops.exec_error_unsupported,
+        exec_error_invariant_violation: ops.exec_error_invariant_violation,
+        exec_aborted: ops.exec_aborted,
+        cache_shared_query_plan_hits: ops.cache_shared_query_plan_hits,
+        cache_shared_query_plan_misses: ops.cache_shared_query_plan_misses,
+        cache_shared_query_plan_inserts: ops.cache_shared_query_plan_inserts,
+        cache_sql_compiled_command_hits: ops.cache_sql_compiled_command_hits,
+        cache_sql_compiled_command_misses: ops.cache_sql_compiled_command_misses,
+        cache_sql_compiled_command_inserts: ops.cache_sql_compiled_command_inserts,
+        plan_index: ops.plan_index,
+        plan_keys: ops.plan_keys,
+        plan_range: ops.plan_range,
+        plan_full_scan: ops.plan_full_scan,
+        plan_by_key: ops.plan_by_key,
+        plan_by_keys: ops.plan_by_keys,
+        plan_key_range: ops.plan_key_range,
+        plan_index_prefix: ops.plan_index_prefix,
+        plan_index_multi_lookup: ops.plan_index_multi_lookup,
+        plan_index_range: ops.plan_index_range,
+        plan_explicit_full_scan: ops.plan_explicit_full_scan,
+        plan_union: ops.plan_union,
+        plan_intersection: ops.plan_intersection,
+        plan_grouped_hash_materialized: ops.plan_grouped_hash_materialized,
+        plan_grouped_ordered_materialized: ops.plan_grouped_ordered_materialized,
+        rows_loaded: ops.rows_loaded,
+        rows_saved: ops.rows_saved,
+        rows_inserted: ops.rows_inserted,
+        rows_updated: ops.rows_updated,
+        rows_replaced: ops.rows_replaced,
+        rows_scanned: ops.rows_scanned,
+        rows_filtered: ops.rows_filtered,
+        rows_aggregated: ops.rows_aggregated,
+        rows_emitted: ops.rows_emitted,
+        load_candidate_rows_scanned: ops.load_candidate_rows_scanned,
+        load_candidate_rows_filtered: ops.load_candidate_rows_filtered,
+        load_result_rows_emitted: ops.load_result_rows_emitted,
+        rows_deleted: ops.rows_deleted,
+        sql_insert_calls: ops.sql_insert_calls,
+        sql_insert_select_calls: ops.sql_insert_select_calls,
+        sql_update_calls: ops.sql_update_calls,
+        sql_delete_calls: ops.sql_delete_calls,
+        sql_write_matched_rows: ops.sql_write_matched_rows,
+        sql_write_mutated_rows: ops.sql_write_mutated_rows,
+        sql_write_returning_rows: ops.sql_write_returning_rows,
+        index_inserts: ops.index_inserts,
+        index_removes: ops.index_removes,
+        reverse_index_inserts: ops.reverse_index_inserts,
+        reverse_index_removes: ops.reverse_index_removes,
+        relation_reverse_lookups: ops.relation_reverse_lookups,
+        relation_delete_blocks: ops.relation_delete_blocks,
+        write_rows_touched: ops.write_rows_touched,
+        write_index_entries_changed: ops.write_index_entries_changed,
+        write_reverse_index_entries_changed: ops.write_reverse_index_entries_changed,
+        write_relation_checks: ops.write_relation_checks,
+        unique_violations: ops.unique_violations,
+        non_atomic_partial_commits: ops.non_atomic_partial_commits,
+        non_atomic_partial_rows_committed: ops.non_atomic_partial_rows_committed,
     }
 }
 
@@ -1138,67 +1371,7 @@ pub(super) fn report_window_start(window_start_ms: Option<u64>) -> EventReport {
 
     let mut entity_counters: Vec<EntitySummary> = Vec::new();
     for (path, ops) in &snap.entities {
-        entity_counters.push(EntitySummary {
-            path: path.clone(),
-            load_calls: ops.load_calls,
-            save_calls: ops.save_calls,
-            delete_calls: ops.delete_calls,
-            save_insert_calls: ops.save_insert_calls,
-            save_update_calls: ops.save_update_calls,
-            save_replace_calls: ops.save_replace_calls,
-            exec_success: ops.exec_success,
-            exec_error_corruption: ops.exec_error_corruption,
-            exec_error_incompatible_persisted_format: ops.exec_error_incompatible_persisted_format,
-            exec_error_not_found: ops.exec_error_not_found,
-            exec_error_internal: ops.exec_error_internal,
-            exec_error_conflict: ops.exec_error_conflict,
-            exec_error_unsupported: ops.exec_error_unsupported,
-            exec_error_invariant_violation: ops.exec_error_invariant_violation,
-            exec_aborted: ops.exec_aborted,
-            cache_shared_query_plan_hits: ops.cache_shared_query_plan_hits,
-            cache_shared_query_plan_misses: ops.cache_shared_query_plan_misses,
-            cache_shared_query_plan_inserts: ops.cache_shared_query_plan_inserts,
-            cache_sql_compiled_command_hits: ops.cache_sql_compiled_command_hits,
-            cache_sql_compiled_command_misses: ops.cache_sql_compiled_command_misses,
-            cache_sql_compiled_command_inserts: ops.cache_sql_compiled_command_inserts,
-            plan_index: ops.plan_index,
-            plan_keys: ops.plan_keys,
-            plan_range: ops.plan_range,
-            plan_full_scan: ops.plan_full_scan,
-            plan_by_key: ops.plan_by_key,
-            plan_by_keys: ops.plan_by_keys,
-            plan_key_range: ops.plan_key_range,
-            plan_index_prefix: ops.plan_index_prefix,
-            plan_index_multi_lookup: ops.plan_index_multi_lookup,
-            plan_index_range: ops.plan_index_range,
-            plan_explicit_full_scan: ops.plan_explicit_full_scan,
-            plan_union: ops.plan_union,
-            plan_intersection: ops.plan_intersection,
-            plan_grouped_hash_materialized: ops.plan_grouped_hash_materialized,
-            plan_grouped_ordered_materialized: ops.plan_grouped_ordered_materialized,
-            rows_loaded: ops.rows_loaded,
-            rows_saved: ops.rows_saved,
-            rows_inserted: ops.rows_inserted,
-            rows_updated: ops.rows_updated,
-            rows_replaced: ops.rows_replaced,
-            rows_scanned: ops.rows_scanned,
-            rows_filtered: ops.rows_filtered,
-            rows_aggregated: ops.rows_aggregated,
-            rows_emitted: ops.rows_emitted,
-            load_candidate_rows_scanned: ops.load_candidate_rows_scanned,
-            load_candidate_rows_filtered: ops.load_candidate_rows_filtered,
-            load_result_rows_emitted: ops.load_result_rows_emitted,
-            rows_deleted: ops.rows_deleted,
-            index_inserts: ops.index_inserts,
-            index_removes: ops.index_removes,
-            reverse_index_inserts: ops.reverse_index_inserts,
-            reverse_index_removes: ops.reverse_index_removes,
-            relation_reverse_lookups: ops.relation_reverse_lookups,
-            relation_delete_blocks: ops.relation_delete_blocks,
-            unique_violations: ops.unique_violations,
-            non_atomic_partial_commits: ops.non_atomic_partial_commits,
-            non_atomic_partial_rows_committed: ops.non_atomic_partial_rows_committed,
-        });
+        entity_counters.push(entity_summary_from_counters(path, ops));
     }
 
     entity_counters.sort_by(|a, b| {
