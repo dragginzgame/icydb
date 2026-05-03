@@ -31,10 +31,42 @@ impl AcceptedSchemaSnapshot {
         Self { snapshot }
     }
 
-    /// Borrow the accepted persisted snapshot.
+    /// Borrow the accepted entity path.
     #[must_use]
-    pub(in crate::db) const fn snapshot(&self) -> &PersistedSchemaSnapshot {
-        &self.snapshot
+    pub(in crate::db) const fn entity_path(&self) -> &str {
+        self.snapshot.entity_path()
+    }
+
+    /// Borrow the accepted entity name.
+    #[must_use]
+    pub(in crate::db) const fn entity_name(&self) -> &str {
+        self.snapshot.entity_name()
+    }
+
+    /// Borrow the accepted primary-key field snapshot, when present.
+    #[must_use]
+    pub(in crate::db) fn primary_key_field(&self) -> Option<&PersistedFieldSnapshot> {
+        let primary_key_field_id = self.snapshot.primary_key_field_id();
+
+        self.snapshot
+            .fields()
+            .iter()
+            .find(|field| field.id() == primary_key_field_id)
+    }
+
+    /// Borrow the accepted primary-key field name, when present.
+    #[must_use]
+    pub(in crate::db) fn primary_key_field_name(&self) -> Option<&str> {
+        self.primary_key_field().map(PersistedFieldSnapshot::name)
+    }
+
+    /// Borrow one accepted field snapshot by its persisted field name.
+    #[must_use]
+    pub(in crate::db) fn field_by_name(&self, name: &str) -> Option<&PersistedFieldSnapshot> {
+        self.snapshot
+            .fields()
+            .iter()
+            .find(|field| field.name() == name)
     }
 }
 

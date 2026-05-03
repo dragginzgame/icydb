@@ -39,18 +39,21 @@ pub(super) fn record_grouped_plan_metrics<K>(
     });
 }
 
-// This metric is intentionally coarse and only reflects the top-level access shape.
+// Project the exact top-level access shape while the metrics sink keeps the
+// older coarse counter groups populated for existing dashboards.
 fn access_plan_kind<K>(access: &AccessPlan<K>) -> PlanKind {
     match access {
         AccessPlan::Path(path) => match path.kind() {
-            AccessPathKind::ByKey | AccessPathKind::ByKeys => PlanKind::Keys,
-            AccessPathKind::KeyRange => PlanKind::Range,
-            AccessPathKind::IndexPrefix
-            | AccessPathKind::IndexMultiLookup
-            | AccessPathKind::IndexRange => PlanKind::Index,
+            AccessPathKind::ByKey => PlanKind::ByKey,
+            AccessPathKind::ByKeys => PlanKind::ByKeys,
+            AccessPathKind::KeyRange => PlanKind::KeyRange,
+            AccessPathKind::IndexPrefix => PlanKind::IndexPrefix,
+            AccessPathKind::IndexMultiLookup => PlanKind::IndexMultiLookup,
+            AccessPathKind::IndexRange => PlanKind::IndexRange,
             AccessPathKind::FullScan => PlanKind::FullScan,
         },
-        AccessPlan::Union(_) | AccessPlan::Intersection(_) => PlanKind::FullScan,
+        AccessPlan::Union(_) => PlanKind::Union,
+        AccessPlan::Intersection(_) => PlanKind::Intersection,
     }
 }
 

@@ -47,7 +47,7 @@ fn reset_all_clears_state() {
 }
 
 #[test]
-fn report_sorts_entities_by_raw_row_counters() {
+fn report_sorts_entities_by_visible_activity() {
     reset_all();
     with_state_mut(|m| {
         m.entities.insert(
@@ -61,8 +61,8 @@ fn report_sorts_entities_by_raw_row_counters() {
         m.entities.insert(
             "beta".to_string(),
             EntityCounters {
-                load_calls: 1,
-                rows_loaded: 5,
+                save_calls: 1,
+                rows_saved: 9,
                 ..Default::default()
             },
         );
@@ -83,8 +83,8 @@ fn report_sorts_entities_by_raw_row_counters() {
         .map(super::state::EntitySummary::path)
         .collect();
 
-    // Order by rows_loaded desc, then rows_scanned desc, then rows_deleted desc, then path asc.
-    assert_eq!(paths, ["alpha", "gamma", "beta"]);
+    // Order by total visible activity desc, then row counters, then path asc.
+    assert_eq!(paths, ["beta", "alpha", "gamma"]);
 }
 
 #[test]
@@ -110,7 +110,13 @@ fn event_report_candid_shape_is_stable() {
     let report = report_window_start(None);
 
     let report_fields = expect_record_fields(crate::metrics::state::EventReport::ty());
-    for field in ["counters", "entity_counters"] {
+    for field in [
+        "counters",
+        "entity_counters",
+        "window_filter_matched",
+        "requested_window_start_ms",
+        "active_window_start_ms",
+    ] {
         assert!(
             report_fields.iter().any(|candidate| candidate == field),
             "EventReport must keep `{field}` as Candid field key",
@@ -118,17 +124,55 @@ fn event_report_candid_shape_is_stable() {
     }
 
     let counters_fields = expect_record_fields(crate::metrics::state::EventCounters::ty());
-    for field in ["ops", "perf", "window_start_ms"] {
+    for field in [
+        "ops",
+        "perf",
+        "window_start_ms",
+        "window_end_ms",
+        "window_duration_ms",
+    ] {
         assert!(
             counters_fields.iter().any(|candidate| candidate == field),
             "EventCounters must keep `{field}` as Candid field key",
         );
     }
 
-    assert!(
-        report.counters().is_some(),
-        "event report fixture should retain counters for populated state",
+    let counters = report
+        .counters()
+        .expect("event report fixture should retain counters for populated state");
+    assert!(report.window_filter_matched());
+    assert_eq!(report.requested_window_start_ms(), None);
+    assert_eq!(report.active_window_start_ms(), 99);
+    assert_eq!(counters.window_start_ms(), 99);
+    assert!(counters.window_end_ms() >= counters.window_start_ms());
+    assert_eq!(
+        counters.window_duration_ms(),
+        counters
+            .window_end_ms()
+            .saturating_sub(counters.window_start_ms()),
     );
+}
+
+#[test]
+fn event_ops_candid_shape_exposes_detailed_plan_counters() {
+    let fields = expect_record_fields(crate::metrics::state::EventOps::ty());
+
+    for field in [
+        "plan_by_key",
+        "plan_by_keys",
+        "plan_key_range",
+        "plan_index_prefix",
+        "plan_index_multi_lookup",
+        "plan_index_range",
+        "plan_explicit_full_scan",
+        "plan_union",
+        "plan_intersection",
+    ] {
+        assert!(
+            fields.iter().any(|candidate| candidate == field),
+            "EventOps must keep `{field}` as Candid field key",
+        );
+    }
 }
 
 #[test]
@@ -142,6 +186,7 @@ fn entity_summary_candid_shape_is_stable() {
                 save_calls: 7,
                 delete_calls: 6,
                 rows_loaded: 8,
+                rows_saved: 23,
                 rows_scanned: 9,
                 rows_filtered: 20,
                 rows_aggregated: 21,
@@ -169,10 +214,24 @@ fn entity_summary_candid_shape_is_stable() {
     for field in [
         "path",
         "load_calls",
+        "save_calls",
         "delete_calls",
         "rows_loaded",
+        "rows_saved",
         "rows_scanned",
+        "rows_filtered",
+        "rows_aggregated",
+        "rows_emitted",
         "rows_deleted",
+        "index_inserts",
+        "index_removes",
+        "reverse_index_inserts",
+        "reverse_index_removes",
+        "relation_reverse_lookups",
+        "relation_delete_blocks",
+        "unique_violations",
+        "non_atomic_partial_commits",
+        "non_atomic_partial_rows_committed",
     ] {
         assert!(
             fields.iter().any(|candidate| candidate == field),
@@ -181,4 +240,18 @@ fn entity_summary_candid_shape_is_stable() {
     }
 
     assert_eq!(summary.path(), "alpha");
+    assert_eq!(summary.save_calls(), 7);
+    assert_eq!(summary.rows_saved(), 23);
+    assert_eq!(summary.rows_filtered(), 20);
+    assert_eq!(summary.rows_aggregated(), 21);
+    assert_eq!(summary.rows_emitted(), 22);
+    assert_eq!(summary.index_inserts(), 11);
+    assert_eq!(summary.index_removes(), 12);
+    assert_eq!(summary.reverse_index_inserts(), 13);
+    assert_eq!(summary.reverse_index_removes(), 14);
+    assert_eq!(summary.relation_reverse_lookups(), 15);
+    assert_eq!(summary.relation_delete_blocks(), 16);
+    assert_eq!(summary.unique_violations(), 17);
+    assert_eq!(summary.non_atomic_partial_commits(), 18);
+    assert_eq!(summary.non_atomic_partial_rows_committed(), 19);
 }

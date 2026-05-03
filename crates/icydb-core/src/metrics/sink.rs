@@ -29,10 +29,15 @@ pub enum ExecKind {
 
 #[derive(Clone, Copy, Debug)]
 pub enum PlanKind {
-    Keys,
-    Index,
-    Range,
+    ByKey,
+    ByKeys,
+    KeyRange,
+    IndexPrefix,
+    IndexMultiLookup,
+    IndexRange,
     FullScan,
+    Union,
+    Intersection,
 }
 
 ///
@@ -168,6 +173,7 @@ impl MetricsSink for GlobalMetricsSink {
                             );
                         }
                         ExecKind::Save => {
+                            m.ops.rows_saved = m.ops.rows_saved.saturating_add(rows_touched);
                             metrics::add_instructions(
                                 &mut m.perf.save_inst_total,
                                 &mut m.perf.save_inst_max,
@@ -192,7 +198,9 @@ impl MetricsSink for GlobalMetricsSink {
                         ExecKind::Delete => {
                             entry.rows_deleted = entry.rows_deleted.saturating_add(rows_touched);
                         }
-                        ExecKind::Save => {}
+                        ExecKind::Save => {
+                            entry.rows_saved = entry.rows_saved.saturating_add(rows_touched);
+                        }
                     }
                 });
             }
@@ -330,11 +338,43 @@ impl MetricsSink for GlobalMetricsSink {
             } => {
                 metrics::with_state_mut(|m| {
                     match kind {
-                        PlanKind::Keys => m.ops.plan_keys = m.ops.plan_keys.saturating_add(1),
-                        PlanKind::Index => m.ops.plan_index = m.ops.plan_index.saturating_add(1),
-                        PlanKind::Range => m.ops.plan_range = m.ops.plan_range.saturating_add(1),
+                        PlanKind::ByKey => {
+                            m.ops.plan_keys = m.ops.plan_keys.saturating_add(1);
+                            m.ops.plan_by_key = m.ops.plan_by_key.saturating_add(1);
+                        }
+                        PlanKind::ByKeys => {
+                            m.ops.plan_keys = m.ops.plan_keys.saturating_add(1);
+                            m.ops.plan_by_keys = m.ops.plan_by_keys.saturating_add(1);
+                        }
+                        PlanKind::KeyRange => {
+                            m.ops.plan_range = m.ops.plan_range.saturating_add(1);
+                            m.ops.plan_key_range = m.ops.plan_key_range.saturating_add(1);
+                        }
+                        PlanKind::IndexPrefix => {
+                            m.ops.plan_index = m.ops.plan_index.saturating_add(1);
+                            m.ops.plan_index_prefix = m.ops.plan_index_prefix.saturating_add(1);
+                        }
+                        PlanKind::IndexMultiLookup => {
+                            m.ops.plan_index = m.ops.plan_index.saturating_add(1);
+                            m.ops.plan_index_multi_lookup =
+                                m.ops.plan_index_multi_lookup.saturating_add(1);
+                        }
+                        PlanKind::IndexRange => {
+                            m.ops.plan_index = m.ops.plan_index.saturating_add(1);
+                            m.ops.plan_index_range = m.ops.plan_index_range.saturating_add(1);
+                        }
                         PlanKind::FullScan => {
                             m.ops.plan_full_scan = m.ops.plan_full_scan.saturating_add(1);
+                            m.ops.plan_explicit_full_scan =
+                                m.ops.plan_explicit_full_scan.saturating_add(1);
+                        }
+                        PlanKind::Union => {
+                            m.ops.plan_full_scan = m.ops.plan_full_scan.saturating_add(1);
+                            m.ops.plan_union = m.ops.plan_union.saturating_add(1);
+                        }
+                        PlanKind::Intersection => {
+                            m.ops.plan_full_scan = m.ops.plan_full_scan.saturating_add(1);
+                            m.ops.plan_intersection = m.ops.plan_intersection.saturating_add(1);
                         }
                     }
 
@@ -569,7 +609,7 @@ mod tests {
 
         // No override installed yet.
         record(MetricsEvent::Plan {
-            kind: PlanKind::Keys,
+            kind: PlanKind::ByKey,
             grouped_execution_mode: None,
         });
         assert_eq!(outer_calls.load(Ordering::SeqCst), 0);
@@ -577,7 +617,7 @@ mod tests {
 
         with_metrics_sink(&outer, || {
             record(MetricsEvent::Plan {
-                kind: PlanKind::Index,
+                kind: PlanKind::IndexPrefix,
                 grouped_execution_mode: None,
             });
             assert_eq!(outer_calls.load(Ordering::SeqCst), 1);
@@ -585,7 +625,7 @@ mod tests {
 
             with_metrics_sink(&inner, || {
                 record(MetricsEvent::Plan {
-                    kind: PlanKind::Range,
+                    kind: PlanKind::KeyRange,
                     grouped_execution_mode: None,
                 });
             });
@@ -606,7 +646,7 @@ mod tests {
         });
 
         record(MetricsEvent::Plan {
-            kind: PlanKind::Keys,
+            kind: PlanKind::ByKey,
             grouped_execution_mode: None,
         });
         assert_eq!(outer_calls.load(Ordering::SeqCst), 2);
@@ -625,7 +665,7 @@ mod tests {
         let panicked = catch_unwind(AssertUnwindSafe(|| {
             with_metrics_sink(&sink, || {
                 record(MetricsEvent::Plan {
-                    kind: PlanKind::Index,
+                    kind: PlanKind::IndexPrefix,
                     grouped_execution_mode: None,
                 });
                 panic!("intentional panic for guard test");
@@ -641,7 +681,7 @@ mod tests {
         });
 
         record(MetricsEvent::Plan {
-            kind: PlanKind::Range,
+            kind: PlanKind::KeyRange,
             grouped_execution_mode: None,
         });
         assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -651,11 +691,12 @@ mod tests {
     fn metrics_report_without_window_start_returns_counters() {
         metrics_reset_all();
         record(MetricsEvent::Plan {
-            kind: PlanKind::Index,
+            kind: PlanKind::IndexPrefix,
             grouped_execution_mode: None,
         });
 
         let report = metrics_report(None);
+        assert!(report.window_filter_matched());
         let counters = report
             .counters()
             .expect("metrics report should include counters without since filter");
@@ -667,11 +708,17 @@ mod tests {
         metrics_reset_all();
         let window_start = metrics::with_state(|m| m.window_start_ms);
         record(MetricsEvent::Plan {
-            kind: PlanKind::Keys,
+            kind: PlanKind::ByKey,
             grouped_execution_mode: None,
         });
 
         let report = metrics_report(Some(window_start.saturating_sub(1)));
+        assert!(report.window_filter_matched());
+        assert_eq!(
+            report.requested_window_start_ms(),
+            Some(window_start.saturating_sub(1)),
+        );
+        assert_eq!(report.active_window_start_ms(), window_start);
         let counters = report
             .counters()
             .expect("metrics report should include counters when window_start_ms is before window");
@@ -688,6 +735,12 @@ mod tests {
         });
 
         let report = metrics_report(Some(window_start.saturating_add(1)));
+        assert!(!report.window_filter_matched());
+        assert_eq!(
+            report.requested_window_start_ms(),
+            Some(window_start.saturating_add(1)),
+        );
+        assert_eq!(report.active_window_start_ms(), window_start);
         assert!(report.counters().is_none());
         assert!(report.entity_counters().is_empty());
     }
@@ -696,11 +749,11 @@ mod tests {
     fn metrics_report_grouped_execution_mode_counters_accumulate() {
         metrics_reset_all();
         record(MetricsEvent::Plan {
-            kind: PlanKind::Index,
+            kind: PlanKind::IndexPrefix,
             grouped_execution_mode: Some(GroupedPlanExecutionMode::HashMaterialized),
         });
         record(MetricsEvent::Plan {
-            kind: PlanKind::Range,
+            kind: PlanKind::KeyRange,
             grouped_execution_mode: Some(GroupedPlanExecutionMode::OrderedMaterialized),
         });
 
@@ -712,6 +765,71 @@ mod tests {
         assert_eq!(counters.ops.plan_range, 1);
         assert_eq!(counters.ops.plan_grouped_hash_materialized, 1);
         assert_eq!(counters.ops.plan_grouped_ordered_materialized, 1);
+    }
+
+    #[test]
+    fn detailed_plan_metrics_accumulate_alongside_coarse_groups() {
+        metrics_reset_all();
+
+        for kind in [
+            PlanKind::ByKey,
+            PlanKind::ByKeys,
+            PlanKind::KeyRange,
+            PlanKind::IndexPrefix,
+            PlanKind::IndexMultiLookup,
+            PlanKind::IndexRange,
+            PlanKind::FullScan,
+            PlanKind::Union,
+            PlanKind::Intersection,
+        ] {
+            record(MetricsEvent::Plan {
+                kind,
+                grouped_execution_mode: None,
+            });
+        }
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("metrics report should include counters");
+        assert_eq!(counters.ops.plan_keys, 2);
+        assert_eq!(counters.ops.plan_range, 1);
+        assert_eq!(counters.ops.plan_index, 3);
+        assert_eq!(counters.ops.plan_full_scan, 3);
+        assert_eq!(counters.ops.plan_by_key, 1);
+        assert_eq!(counters.ops.plan_by_keys, 1);
+        assert_eq!(counters.ops.plan_key_range, 1);
+        assert_eq!(counters.ops.plan_index_prefix, 1);
+        assert_eq!(counters.ops.plan_index_multi_lookup, 1);
+        assert_eq!(counters.ops.plan_index_range, 1);
+        assert_eq!(counters.ops.plan_explicit_full_scan, 1);
+        assert_eq!(counters.ops.plan_union, 1);
+        assert_eq!(counters.ops.plan_intersection, 1);
+    }
+
+    #[test]
+    fn save_finish_metrics_accumulate_saved_rows() {
+        metrics_reset_all();
+
+        record(MetricsEvent::ExecFinish {
+            kind: ExecKind::Save,
+            entity_path: "metrics::tests::Entity",
+            rows_touched: 4,
+            inst_delta: 11,
+        });
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("metrics report should include counters");
+        assert_eq!(counters.ops.rows_saved, 4);
+        assert_eq!(counters.perf.save_inst_total, 11);
+
+        let entity = report
+            .entity_counters()
+            .first()
+            .expect("save finish should retain per-entity counters");
+        assert_eq!(entity.rows_saved(), 4);
     }
 
     #[test]

@@ -8,7 +8,10 @@ use crate::{
         relation::{
             RelationDescriptor, RelationDescriptorCardinality, relation_descriptors_for_model_iter,
         },
-        schema::AcceptedSchemaSnapshot,
+        schema::{
+            AcceptedSchemaSnapshot, PersistedFieldKind, PersistedFieldSnapshot,
+            PersistedRelationStrength, SchemaFieldSlot, field_type_from_persisted_kind,
+        },
     },
     model::{
         entity::EntityModel,
@@ -17,7 +20,7 @@ use crate::{
 };
 use candid::CandidType;
 use serde::Deserialize;
-use std::{collections::BTreeMap, fmt::Write};
+use std::fmt::Write;
 
 const ENTITY_FIELD_DESCRIPTION_NO_SLOT: u16 = u16::MAX;
 
@@ -304,7 +307,13 @@ pub enum EntityRelationCardinality {
 pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaDescription {
     let fields = describe_entity_fields(model);
 
-    describe_entity_model_with_fields(model, fields)
+    describe_entity_model_with_parts(
+        model.path,
+        model.entity_name,
+        model.primary_key.name,
+        fields,
+        model,
+    )
 }
 
 #[cfg_attr(
@@ -317,16 +326,28 @@ pub(in crate::db) fn describe_entity_model_with_persisted_schema(
     schema: &AcceptedSchemaSnapshot,
 ) -> EntitySchemaDescription {
     let fields = describe_entity_fields_with_persisted_schema(model, schema);
+    let primary_key = schema
+        .primary_key_field_name()
+        .unwrap_or(model.primary_key.name);
 
-    describe_entity_model_with_fields(model, fields)
+    describe_entity_model_with_parts(
+        schema.entity_path(),
+        schema.entity_name(),
+        primary_key,
+        fields,
+        model,
+    )
 }
 
 // Assemble the common DESCRIBE payload once field rows have already been built.
-// This keeps live-schema slot overlays local to field description while index
-// and relation description remain generated-model owned for this phase.
-fn describe_entity_model_with_fields(
-    model: &EntityModel,
+// This lets accepted-schema metadata own the entity header while index and
+// relation description remain generated-model owned for this phase.
+fn describe_entity_model_with_parts(
+    entity_path: &str,
+    entity_name: &str,
+    primary_key: &str,
     fields: Vec<EntityFieldDescription>,
+    model: &EntityModel,
 ) -> EntitySchemaDescription {
     let relations = relation_descriptors_for_model_iter(model)
         .map(relation_description_from_descriptor)
@@ -346,9 +367,9 @@ fn describe_entity_model_with_fields(
     }
 
     EntitySchemaDescription::new(
-        model.path.to_string(),
-        model.entity_name.to_string(),
-        model.primary_key.name.to_string(),
+        entity_path.to_string(),
+        entity_name.to_string(),
+        primary_key.to_string(),
         fields,
         indexes,
         relations,
@@ -374,16 +395,34 @@ pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
     model: &EntityModel,
     schema: &AcceptedSchemaSnapshot,
 ) -> Vec<EntityFieldDescription> {
-    let slots_by_name = schema
-        .snapshot()
-        .fields()
-        .iter()
-        .map(|field| (field.name(), field.slot().get()))
-        .collect::<BTreeMap<_, _>>();
+    let mut fields = Vec::with_capacity(model.fields.len());
 
-    describe_entity_fields_with_slot_lookup(model, |_slot, field| {
-        slots_by_name.get(field.name()).copied()
-    })
+    for field in model.fields {
+        let primary_key = field.name == model.primary_key.name;
+        let accepted_field = schema.field_by_name(field.name());
+        let slot = accepted_field
+            .map(PersistedFieldSnapshot::slot)
+            .map(SchemaFieldSlot::get);
+        let metadata = accepted_field.map(|field| {
+            DescribeFieldMetadata::new(
+                summarize_persisted_field_kind(field.kind()),
+                field_type_from_persisted_kind(field.kind())
+                    .value_kind()
+                    .is_queryable(),
+            )
+        });
+        describe_field_recursive(
+            &mut fields,
+            field.name,
+            slot,
+            field,
+            primary_key,
+            None,
+            metadata,
+        );
+    }
+
+    fields
 }
 
 // Build field descriptors with an injected top-level slot lookup. Generated
@@ -404,10 +443,31 @@ fn describe_entity_fields_with_slot_lookup(
             field,
             primary_key,
             None,
+            None,
         );
     }
 
     fields
+}
+
+///
+/// DescribeFieldMetadata
+///
+/// Field-description metadata selected before recursive field rendering.
+/// Top-level live-schema metadata can override generated model facts while
+/// nested generated leaves continue to use their `FieldModel` metadata.
+///
+
+struct DescribeFieldMetadata {
+    kind: String,
+    queryable: bool,
+}
+
+impl DescribeFieldMetadata {
+    // Build one metadata bundle from already-rendered field facts.
+    const fn new(kind: String, queryable: bool) -> Self {
+        Self { kind, queryable }
+    }
 }
 
 // Add one top-level field and any generated structured-record leaves under
@@ -420,9 +480,14 @@ fn describe_field_recursive(
     field: &FieldModel,
     primary_key: bool,
     tree_prefix: Option<&'static str>,
+    metadata_override: Option<DescribeFieldMetadata>,
 ) {
-    let field_kind = summarize_field_kind(&field.kind);
-    let queryable = field.kind.value_kind().is_queryable();
+    let metadata = metadata_override.unwrap_or_else(|| {
+        DescribeFieldMetadata::new(
+            summarize_field_kind(&field.kind),
+            field.kind.value_kind().is_queryable(),
+        )
+    });
 
     // Generated nested field rows keep a compact tree marker so
     // table-oriented describe output scans as a hierarchy.
@@ -435,9 +500,9 @@ fn describe_field_recursive(
     fields.push(EntityFieldDescription::new(
         display_name,
         slot,
-        field_kind,
+        metadata.kind,
         primary_key,
-        queryable,
+        metadata.queryable,
     ));
 
     let nested_fields = field.nested_fields();
@@ -447,7 +512,15 @@ fn describe_field_recursive(
         } else {
             "├─ "
         };
-        describe_field_recursive(fields, nested.name(), None, nested, false, Some(prefix));
+        describe_field_recursive(
+            fields,
+            nested.name(),
+            None,
+            nested,
+            false,
+            Some(prefix),
+            None,
+        );
     }
 }
 
@@ -559,6 +632,104 @@ fn write_field_kind_summary(out: &mut String, kind: &FieldKind) {
 
 #[cfg_attr(
     doc,
+    doc = "Render one stable field-kind label from accepted persisted schema metadata."
+)]
+fn summarize_persisted_field_kind(kind: &PersistedFieldKind) -> String {
+    let mut out = String::new();
+    write_persisted_field_kind_summary(&mut out, kind);
+
+    out
+}
+
+// Stream the accepted persisted field-kind label in the same public format as
+// generated `FieldKind` summaries. Top-level live-schema metadata can then
+// drive DESCRIBE output without converting back into generated static types.
+fn write_persisted_field_kind_summary(out: &mut String, kind: &PersistedFieldKind) {
+    match kind {
+        PersistedFieldKind::Account => out.push_str("account"),
+        PersistedFieldKind::Blob => out.push_str("blob"),
+        PersistedFieldKind::Bool => out.push_str("bool"),
+        PersistedFieldKind::Date => out.push_str("date"),
+        PersistedFieldKind::Decimal { scale } => {
+            let _ = write!(out, "decimal(scale={scale})");
+        }
+        PersistedFieldKind::Duration => out.push_str("duration"),
+        PersistedFieldKind::Enum { path, .. } => {
+            out.push_str("enum(");
+            out.push_str(path);
+            out.push(')');
+        }
+        PersistedFieldKind::Float32 => out.push_str("float32"),
+        PersistedFieldKind::Float64 => out.push_str("float64"),
+        PersistedFieldKind::Int => out.push_str("int"),
+        PersistedFieldKind::Int128 => out.push_str("int128"),
+        PersistedFieldKind::IntBig => out.push_str("int_big"),
+        PersistedFieldKind::Principal => out.push_str("principal"),
+        PersistedFieldKind::Subaccount => out.push_str("subaccount"),
+        PersistedFieldKind::Text { max_len } => match max_len {
+            Some(max_len) => {
+                let _ = write!(out, "text(max_len={max_len})");
+            }
+            None => out.push_str("text"),
+        },
+        PersistedFieldKind::Timestamp => out.push_str("timestamp"),
+        PersistedFieldKind::Uint => out.push_str("uint"),
+        PersistedFieldKind::Uint128 => out.push_str("uint128"),
+        PersistedFieldKind::UintBig => out.push_str("uint_big"),
+        PersistedFieldKind::Ulid => out.push_str("ulid"),
+        PersistedFieldKind::Unit => out.push_str("unit"),
+        PersistedFieldKind::Relation {
+            target_entity_name,
+            key_kind,
+            strength,
+            ..
+        } => {
+            out.push_str("relation(target=");
+            out.push_str(target_entity_name);
+            out.push_str(", key=");
+            write_persisted_field_kind_summary(out, key_kind);
+            out.push_str(", strength=");
+            out.push_str(summarize_persisted_relation_strength(*strength));
+            out.push(')');
+        }
+        PersistedFieldKind::List(inner) => {
+            out.push_str("list<");
+            write_persisted_field_kind_summary(out, inner);
+            out.push('>');
+        }
+        PersistedFieldKind::Set(inner) => {
+            out.push_str("set<");
+            write_persisted_field_kind_summary(out, inner);
+            out.push('>');
+        }
+        PersistedFieldKind::Map { key, value } => {
+            out.push_str("map<");
+            write_persisted_field_kind_summary(out, key);
+            out.push_str(", ");
+            write_persisted_field_kind_summary(out, value);
+            out.push('>');
+        }
+        PersistedFieldKind::Structured { .. } => {
+            out.push_str("structured");
+        }
+    }
+}
+
+#[cfg_attr(
+    doc,
+    doc = "Render one stable relation-strength label from persisted schema metadata."
+)]
+const fn summarize_persisted_relation_strength(
+    strength: PersistedRelationStrength,
+) -> &'static str {
+    match strength {
+        PersistedRelationStrength::Strong => "strong",
+        PersistedRelationStrength::Weak => "weak",
+    }
+}
+
+#[cfg_attr(
+    doc,
     doc = "Render one stable relation-strength label for field-kind summaries."
 )]
 const fn summarize_relation_strength(strength: RelationStrength) -> &'static str {
@@ -579,11 +750,16 @@ mod tests {
             EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
             EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription,
             relation::{RelationDescriptorCardinality, relation_descriptors_for_model_iter},
-            schema::describe::describe_entity_model,
+            schema::{
+                AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
+                PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout,
+                SchemaVersion,
+                describe::{describe_entity_fields_with_persisted_schema, describe_entity_model},
+            },
         },
         model::{
             entity::EntityModel,
-            field::{FieldKind, FieldModel, FieldStorageDecode, RelationStrength},
+            field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec, RelationStrength},
         },
         types::EntityTag,
     };
@@ -851,6 +1027,76 @@ mod tests {
             .expect("bounded text field should be described");
 
         assert_eq!(name_field.kind(), "text(max_len=16)");
+    }
+
+    #[test]
+    fn schema_describe_uses_accepted_top_level_field_metadata() {
+        static FIELDS: [FieldModel; 2] = [
+            FieldModel::generated("id", FieldKind::Ulid),
+            FieldModel::generated("payload", FieldKind::Text { max_len: None }),
+        ];
+        static INDEXES: [&crate::model::index::IndexModel; 0] = [];
+        static MODEL: EntityModel = EntityModel::generated(
+            "entities::BlobEvent",
+            "BlobEvent",
+            &FIELDS[0],
+            0,
+            &FIELDS,
+            &INDEXES,
+        );
+        let id_slot = SchemaFieldSlot::new(0);
+        let payload_slot = SchemaFieldSlot::new(7);
+        let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "entities::BlobEvent".to_string(),
+            "BlobEvent".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![(FieldId::new(1), id_slot), (FieldId::new(2), payload_slot)],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    id_slot,
+                    PersistedFieldKind::Ulid,
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "payload".to_string(),
+                    payload_slot,
+                    PersistedFieldKind::Blob,
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+            ],
+        ));
+
+        let described = describe_entity_fields_with_persisted_schema(&MODEL, &snapshot)
+            .into_iter()
+            .map(|field| {
+                (
+                    field.name().to_string(),
+                    field.slot(),
+                    field.kind().to_string(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            described,
+            vec![
+                ("id".to_string(), Some(0), "ulid".to_string()),
+                ("payload".to_string(), Some(7), "blob".to_string()),
+            ],
+        );
     }
 
     #[test]

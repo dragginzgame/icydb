@@ -4,8 +4,10 @@
 //! Boundary: defines scalar/field type compatibility surfaces used by predicate validation.
 
 use crate::{
+    db::schema::PersistedFieldKind,
     model::field::FieldKind,
     traits::RuntimeValueKind,
+    types::Ulid,
     value::{CoercionFamily, Value},
 };
 use std::fmt;
@@ -265,6 +267,99 @@ pub(crate) fn field_type_from_model_kind(kind: &FieldKind) -> FieldType {
             value: Box::new(field_type_from_model_kind(value)),
         },
         FieldKind::Structured { queryable } => FieldType::Structured {
+            queryable: *queryable,
+        },
+    }
+}
+
+/// Canonicalize one strict SQL literal against accepted persisted field metadata.
+#[must_use]
+pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
+    kind: &PersistedFieldKind,
+    value: &Value,
+) -> Option<Value> {
+    match kind {
+        PersistedFieldKind::Relation { key_kind, .. } => {
+            canonicalize_strict_sql_literal_for_persisted_kind(key_kind, value)
+        }
+        PersistedFieldKind::Int => match value {
+            Value::Uint(inner) => i64::try_from(*inner).ok().map(Value::Int),
+            _ => None,
+        },
+        PersistedFieldKind::Uint => match value {
+            Value::Int(inner) => u64::try_from(*inner).ok().map(Value::Uint),
+            _ => None,
+        },
+        PersistedFieldKind::Ulid => match value {
+            Value::Text(inner) => Ulid::from_str(inner).ok().map(Value::Ulid),
+            _ => None,
+        },
+        PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner) => match value {
+            Value::List(values) => values
+                .iter()
+                .map(|item| canonicalize_strict_sql_literal_for_persisted_kind(inner, item))
+                .collect::<Option<Vec<_>>>()
+                .map(Value::List),
+            _ => None,
+        },
+        PersistedFieldKind::Account
+        | PersistedFieldKind::Blob
+        | PersistedFieldKind::Bool
+        | PersistedFieldKind::Date
+        | PersistedFieldKind::Decimal { .. }
+        | PersistedFieldKind::Duration
+        | PersistedFieldKind::Enum { .. }
+        | PersistedFieldKind::Float32
+        | PersistedFieldKind::Float64
+        | PersistedFieldKind::Int128
+        | PersistedFieldKind::IntBig
+        | PersistedFieldKind::Principal
+        | PersistedFieldKind::Subaccount
+        | PersistedFieldKind::Text { .. }
+        | PersistedFieldKind::Timestamp
+        | PersistedFieldKind::Uint128
+        | PersistedFieldKind::UintBig
+        | PersistedFieldKind::Unit
+        | PersistedFieldKind::Map { .. }
+        | PersistedFieldKind::Structured { .. } => None,
+    }
+}
+
+pub(in crate::db) fn field_type_from_persisted_kind(kind: &PersistedFieldKind) -> FieldType {
+    match kind {
+        PersistedFieldKind::Account => FieldType::Scalar(ScalarType::Account),
+        PersistedFieldKind::Blob => FieldType::Scalar(ScalarType::Blob),
+        PersistedFieldKind::Bool => FieldType::Scalar(ScalarType::Bool),
+        PersistedFieldKind::Date => FieldType::Scalar(ScalarType::Date),
+        PersistedFieldKind::Decimal { .. } => FieldType::Scalar(ScalarType::Decimal),
+        PersistedFieldKind::Duration => FieldType::Scalar(ScalarType::Duration),
+        PersistedFieldKind::Enum { .. } => FieldType::Scalar(ScalarType::Enum),
+        PersistedFieldKind::Float32 => FieldType::Scalar(ScalarType::Float32),
+        PersistedFieldKind::Float64 => FieldType::Scalar(ScalarType::Float64),
+        PersistedFieldKind::Int => FieldType::Scalar(ScalarType::Int),
+        PersistedFieldKind::Int128 => FieldType::Scalar(ScalarType::Int128),
+        PersistedFieldKind::IntBig => FieldType::Scalar(ScalarType::IntBig),
+        PersistedFieldKind::Principal => FieldType::Scalar(ScalarType::Principal),
+        PersistedFieldKind::Subaccount => FieldType::Scalar(ScalarType::Subaccount),
+        PersistedFieldKind::Text { .. } => FieldType::Scalar(ScalarType::Text),
+        PersistedFieldKind::Timestamp => FieldType::Scalar(ScalarType::Timestamp),
+        PersistedFieldKind::Uint => FieldType::Scalar(ScalarType::Uint),
+        PersistedFieldKind::Uint128 => FieldType::Scalar(ScalarType::Uint128),
+        PersistedFieldKind::UintBig => FieldType::Scalar(ScalarType::UintBig),
+        PersistedFieldKind::Ulid => FieldType::Scalar(ScalarType::Ulid),
+        PersistedFieldKind::Unit => FieldType::Scalar(ScalarType::Unit),
+        PersistedFieldKind::Relation { key_kind, .. } => field_type_from_persisted_kind(key_kind),
+        PersistedFieldKind::List(inner) => {
+            FieldType::List(Box::new(field_type_from_persisted_kind(inner)))
+        }
+        PersistedFieldKind::Set(inner) => {
+            FieldType::Set(Box::new(field_type_from_persisted_kind(inner)))
+        }
+        PersistedFieldKind::Map { key, value } => FieldType::Map {
+            key: Box::new(field_type_from_persisted_kind(key)),
+            value: Box::new(field_type_from_persisted_kind(value)),
+        },
+        PersistedFieldKind::Structured { queryable } => FieldType::Structured {
             queryable: *queryable,
         },
     }

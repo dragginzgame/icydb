@@ -67,7 +67,6 @@ pub(crate) use select::{LoweredBaseQueryShape, LoweredSelectShape};
 pub(in crate::db) use select::{
     bind_lowered_sql_delete_query_structural, bind_lowered_sql_query_structural,
     bind_lowered_sql_select_query_structural, bind_sql_update_selector_query_structural,
-    canonicalize_strict_sql_literal_for_kind,
 };
 
 ///

@@ -44,11 +44,21 @@ pub struct EventOps {
     pub(crate) plan_keys: u64,
     pub(crate) plan_range: u64,
     pub(crate) plan_full_scan: u64,
+    pub(crate) plan_by_key: u64,
+    pub(crate) plan_by_keys: u64,
+    pub(crate) plan_key_range: u64,
+    pub(crate) plan_index_prefix: u64,
+    pub(crate) plan_index_multi_lookup: u64,
+    pub(crate) plan_index_range: u64,
+    pub(crate) plan_explicit_full_scan: u64,
+    pub(crate) plan_union: u64,
+    pub(crate) plan_intersection: u64,
     pub(crate) plan_grouped_hash_materialized: u64,
     pub(crate) plan_grouped_ordered_materialized: u64,
 
     // Rows touched
     pub(crate) rows_loaded: u64,
+    pub(crate) rows_saved: u64,
     pub(crate) rows_scanned: u64,
     pub(crate) rows_filtered: u64,
     pub(crate) rows_aggregated: u64,
@@ -104,6 +114,51 @@ impl EventOps {
     }
 
     #[must_use]
+    pub const fn plan_by_key(&self) -> u64 {
+        self.plan_by_key
+    }
+
+    #[must_use]
+    pub const fn plan_by_keys(&self) -> u64 {
+        self.plan_by_keys
+    }
+
+    #[must_use]
+    pub const fn plan_key_range(&self) -> u64 {
+        self.plan_key_range
+    }
+
+    #[must_use]
+    pub const fn plan_index_prefix(&self) -> u64 {
+        self.plan_index_prefix
+    }
+
+    #[must_use]
+    pub const fn plan_index_multi_lookup(&self) -> u64 {
+        self.plan_index_multi_lookup
+    }
+
+    #[must_use]
+    pub const fn plan_index_range(&self) -> u64 {
+        self.plan_index_range
+    }
+
+    #[must_use]
+    pub const fn plan_explicit_full_scan(&self) -> u64 {
+        self.plan_explicit_full_scan
+    }
+
+    #[must_use]
+    pub const fn plan_union(&self) -> u64 {
+        self.plan_union
+    }
+
+    #[must_use]
+    pub const fn plan_intersection(&self) -> u64 {
+        self.plan_intersection
+    }
+
+    #[must_use]
     pub const fn plan_grouped_hash_materialized(&self) -> u64 {
         self.plan_grouped_hash_materialized
     }
@@ -116,6 +171,11 @@ impl EventOps {
     #[must_use]
     pub const fn rows_loaded(&self) -> u64 {
         self.rows_loaded
+    }
+
+    #[must_use]
+    pub const fn rows_saved(&self) -> u64 {
+        self.rows_saved
     }
 
     #[must_use]
@@ -195,6 +255,7 @@ pub(crate) struct EntityCounters {
     pub(crate) save_calls: u64,
     pub(crate) delete_calls: u64,
     pub(crate) rows_loaded: u64,
+    pub(crate) rows_saved: u64,
     pub(crate) rows_scanned: u64,
     pub(crate) rows_filtered: u64,
     pub(crate) rows_aggregated: u64,
@@ -313,6 +374,9 @@ pub(super) fn add_instructions(total: &mut u128, max: &mut u64, delta_inst: u64)
 pub struct EventReport {
     counters: Option<EventCounters>,
     entity_counters: Vec<EntitySummary>,
+    window_filter_matched: bool,
+    requested_window_start_ms: Option<u64>,
+    active_window_start_ms: u64,
 }
 
 impl EventReport {
@@ -320,10 +384,16 @@ impl EventReport {
     pub(crate) const fn new(
         counters: Option<EventCounters>,
         entity_counters: Vec<EntitySummary>,
+        window_filter_matched: bool,
+        requested_window_start_ms: Option<u64>,
+        active_window_start_ms: u64,
     ) -> Self {
         Self {
             counters,
             entity_counters,
+            window_filter_matched,
+            requested_window_start_ms,
+            active_window_start_ms,
         }
     }
 
@@ -335,6 +405,21 @@ impl EventReport {
     #[must_use]
     pub fn entity_counters(&self) -> &[EntitySummary] {
         &self.entity_counters
+    }
+
+    #[must_use]
+    pub const fn window_filter_matched(&self) -> bool {
+        self.window_filter_matched
+    }
+
+    #[must_use]
+    pub const fn requested_window_start_ms(&self) -> Option<u64> {
+        self.requested_window_start_ms
+    }
+
+    #[must_use]
+    pub const fn active_window_start_ms(&self) -> u64 {
+        self.active_window_start_ms
     }
 
     #[must_use]
@@ -361,15 +446,24 @@ pub struct EventCounters {
     pub(crate) ops: EventOps,
     pub(crate) perf: EventPerf,
     pub(crate) window_start_ms: u64,
+    pub(crate) window_end_ms: u64,
+    pub(crate) window_duration_ms: u64,
 }
 
 impl EventCounters {
     #[must_use]
-    pub(crate) const fn new(ops: EventOps, perf: EventPerf, window_start_ms: u64) -> Self {
+    pub(crate) const fn new(
+        ops: EventOps,
+        perf: EventPerf,
+        window_start_ms: u64,
+        window_end_ms: u64,
+    ) -> Self {
         Self {
             ops,
             perf,
             window_start_ms,
+            window_end_ms,
+            window_duration_ms: window_end_ms.saturating_sub(window_start_ms),
         }
     }
 
@@ -387,6 +481,16 @@ impl EventCounters {
     pub const fn window_start_ms(&self) -> u64 {
         self.window_start_ms
     }
+
+    #[must_use]
+    pub const fn window_end_ms(&self) -> u64 {
+        self.window_end_ms
+    }
+
+    #[must_use]
+    pub const fn window_duration_ms(&self) -> u64 {
+        self.window_duration_ms
+    }
 }
 
 #[cfg_attr(doc, doc = "EntitySummary\n\nPer-entity metrics summary.")]
@@ -394,10 +498,24 @@ impl EventCounters {
 pub struct EntitySummary {
     path: String,
     load_calls: u64,
+    save_calls: u64,
     delete_calls: u64,
     rows_loaded: u64,
+    rows_saved: u64,
     rows_scanned: u64,
+    rows_filtered: u64,
+    rows_aggregated: u64,
+    rows_emitted: u64,
     rows_deleted: u64,
+    index_inserts: u64,
+    index_removes: u64,
+    reverse_index_inserts: u64,
+    reverse_index_removes: u64,
+    relation_reverse_lookups: u64,
+    relation_delete_blocks: u64,
+    unique_violations: u64,
+    non_atomic_partial_commits: u64,
+    non_atomic_partial_rows_committed: u64,
 }
 
 impl EntitySummary {
@@ -412,6 +530,11 @@ impl EntitySummary {
     }
 
     #[must_use]
+    pub const fn save_calls(&self) -> u64 {
+        self.save_calls
+    }
+
+    #[must_use]
     pub const fn delete_calls(&self) -> u64 {
         self.delete_calls
     }
@@ -422,13 +545,102 @@ impl EntitySummary {
     }
 
     #[must_use]
+    pub const fn rows_saved(&self) -> u64 {
+        self.rows_saved
+    }
+
+    #[must_use]
     pub const fn rows_scanned(&self) -> u64 {
         self.rows_scanned
     }
 
     #[must_use]
+    pub const fn rows_filtered(&self) -> u64 {
+        self.rows_filtered
+    }
+
+    #[must_use]
+    pub const fn rows_aggregated(&self) -> u64 {
+        self.rows_aggregated
+    }
+
+    #[must_use]
+    pub const fn rows_emitted(&self) -> u64 {
+        self.rows_emitted
+    }
+
+    #[must_use]
     pub const fn rows_deleted(&self) -> u64 {
         self.rows_deleted
+    }
+
+    #[must_use]
+    pub const fn index_inserts(&self) -> u64 {
+        self.index_inserts
+    }
+
+    #[must_use]
+    pub const fn index_removes(&self) -> u64 {
+        self.index_removes
+    }
+
+    #[must_use]
+    pub const fn reverse_index_inserts(&self) -> u64 {
+        self.reverse_index_inserts
+    }
+
+    #[must_use]
+    pub const fn reverse_index_removes(&self) -> u64 {
+        self.reverse_index_removes
+    }
+
+    #[must_use]
+    pub const fn relation_reverse_lookups(&self) -> u64 {
+        self.relation_reverse_lookups
+    }
+
+    #[must_use]
+    pub const fn relation_delete_blocks(&self) -> u64 {
+        self.relation_delete_blocks
+    }
+
+    #[must_use]
+    pub const fn unique_violations(&self) -> u64 {
+        self.unique_violations
+    }
+
+    #[must_use]
+    pub const fn non_atomic_partial_commits(&self) -> u64 {
+        self.non_atomic_partial_commits
+    }
+
+    #[must_use]
+    pub const fn non_atomic_partial_rows_committed(&self) -> u64 {
+        self.non_atomic_partial_rows_committed
+    }
+
+    // Rank entity summaries by all visible activity so write-heavy or
+    // maintenance-heavy entities are not hidden below read-heavy entities.
+    fn activity_score(&self) -> u64 {
+        self.load_calls
+            .saturating_add(self.save_calls)
+            .saturating_add(self.delete_calls)
+            .saturating_add(self.rows_loaded)
+            .saturating_add(self.rows_saved)
+            .saturating_add(self.rows_scanned)
+            .saturating_add(self.rows_filtered)
+            .saturating_add(self.rows_aggregated)
+            .saturating_add(self.rows_emitted)
+            .saturating_add(self.rows_deleted)
+            .saturating_add(self.index_inserts)
+            .saturating_add(self.index_removes)
+            .saturating_add(self.reverse_index_inserts)
+            .saturating_add(self.reverse_index_removes)
+            .saturating_add(self.relation_reverse_lookups)
+            .saturating_add(self.relation_delete_blocks)
+            .saturating_add(self.unique_violations)
+            .saturating_add(self.non_atomic_partial_commits)
+            .saturating_add(self.non_atomic_partial_rows_committed)
     }
 }
 
@@ -447,7 +659,13 @@ pub(super) fn report_window_start(window_start_ms: Option<u64>) -> EventReport {
     if let Some(requested_window_start_ms) = window_start_ms
         && requested_window_start_ms > snap.window_start_ms
     {
-        return EventReport::default();
+        return EventReport::new(
+            None,
+            Vec::new(),
+            false,
+            window_start_ms,
+            snap.window_start_ms,
+        );
     }
 
     let mut entity_counters: Vec<EntitySummary> = Vec::new();
@@ -455,16 +673,32 @@ pub(super) fn report_window_start(window_start_ms: Option<u64>) -> EventReport {
         entity_counters.push(EntitySummary {
             path: path.clone(),
             load_calls: ops.load_calls,
+            save_calls: ops.save_calls,
             delete_calls: ops.delete_calls,
             rows_loaded: ops.rows_loaded,
+            rows_saved: ops.rows_saved,
             rows_scanned: ops.rows_scanned,
+            rows_filtered: ops.rows_filtered,
+            rows_aggregated: ops.rows_aggregated,
+            rows_emitted: ops.rows_emitted,
             rows_deleted: ops.rows_deleted,
+            index_inserts: ops.index_inserts,
+            index_removes: ops.index_removes,
+            reverse_index_inserts: ops.reverse_index_inserts,
+            reverse_index_removes: ops.reverse_index_removes,
+            relation_reverse_lookups: ops.relation_reverse_lookups,
+            relation_delete_blocks: ops.relation_delete_blocks,
+            unique_violations: ops.unique_violations,
+            non_atomic_partial_commits: ops.non_atomic_partial_commits,
+            non_atomic_partial_rows_committed: ops.non_atomic_partial_rows_committed,
         });
     }
 
     entity_counters.sort_by(|a, b| {
-        b.rows_loaded
-            .cmp(&a.rows_loaded)
+        b.activity_score()
+            .cmp(&a.activity_score())
+            .then_with(|| b.rows_loaded.cmp(&a.rows_loaded))
+            .then_with(|| b.rows_saved.cmp(&a.rows_saved))
             .then_with(|| b.rows_scanned.cmp(&a.rows_scanned))
             .then_with(|| b.rows_deleted.cmp(&a.rows_deleted))
             .then_with(|| a.path.cmp(&b.path))
@@ -475,7 +709,11 @@ pub(super) fn report_window_start(window_start_ms: Option<u64>) -> EventReport {
             snap.ops.clone(),
             snap.perf.clone(),
             snap.window_start_ms,
+            now_millis(),
         )),
         entity_counters,
+        true,
+        window_start_ms,
+        snap.window_start_ms,
     )
 }

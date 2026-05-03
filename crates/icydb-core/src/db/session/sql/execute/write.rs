@@ -3,7 +3,11 @@ use crate::{
         DbSession, MissingRowPolicy, PersistedRow, Query, QueryError,
         data::StructuralPatch,
         executor::{EntityAuthority, MutationMode},
-        schema::{ValidateError, field_type_from_model_kind, literal_matches_type},
+        schema::{
+            AcceptedSchemaSnapshot, ValidateError,
+            canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_persisted_kind,
+            literal_matches_type,
+        },
         session::sql::{
             SqlStatementResult,
             execute::write_returning::{
@@ -13,8 +17,8 @@ use crate::{
         },
         sql::lowering::{
             bind_prepared_sql_select_statement_structural,
-            bind_sql_update_selector_query_structural, canonicalize_strict_sql_literal_for_kind,
-            extract_prepared_sql_insert_select_source, prepare_sql_statement,
+            bind_sql_update_selector_query_structural, extract_prepared_sql_insert_select_source,
+            prepare_sql_statement,
         },
         sql::parser::{
             SqlExpr, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
@@ -29,7 +33,11 @@ use crate::{
     value::Value,
 };
 
-fn sql_write_key_from_literal<E>(value: &Value, pk_name: &str) -> Result<E::Key, QueryError>
+fn sql_write_key_from_literal<E>(
+    schema: &AcceptedSchemaSnapshot,
+    value: &Value,
+    pk_name: &str,
+) -> Result<E::Key, QueryError>
 where
     E: EntityKind,
 {
@@ -37,8 +45,13 @@ where
         return Ok(key);
     }
 
+    let Some(primary_key) = schema.primary_key_field() else {
+        return Err(QueryError::invariant(
+            "accepted schema snapshot must contain primary key field metadata",
+        ));
+    };
     let Some(normalized) =
-        canonicalize_strict_sql_literal_for_kind(&E::MODEL.primary_key().kind(), value)
+        canonicalize_strict_sql_literal_for_persisted_kind(primary_key.kind(), value)
     else {
         return Err(QueryError::unsupported_query(format!(
             "SQL write primary key literal for '{pk_name}' is not compatible with entity key type"
@@ -61,18 +74,19 @@ fn sql_write_generated_field_value(field: &FieldModel) -> Option<Value> {
         })
 }
 
-fn sql_write_value_for_field<E>(field_name: &str, value: &Value) -> Result<Value, QueryError>
-where
-    E: EntityKind,
-{
-    let field_slot = E::MODEL.resolve_field_slot(field_name).ok_or_else(|| {
-        QueryError::invariant("SQL write field must resolve against the target entity model")
+fn sql_write_value_for_accepted_field(
+    schema: &AcceptedSchemaSnapshot,
+    field_name: &str,
+    value: &Value,
+) -> Result<Value, QueryError> {
+    let accepted_field = schema.field_by_name(field_name).ok_or_else(|| {
+        QueryError::invariant("SQL write field must resolve against accepted schema metadata")
     })?;
-    let field_kind = E::MODEL.fields()[field_slot].kind();
-    let normalized = canonicalize_strict_sql_literal_for_kind(&field_kind, value)
-        .unwrap_or_else(|| value.clone());
+    let normalized =
+        canonicalize_strict_sql_literal_for_persisted_kind(accepted_field.kind(), value)
+            .unwrap_or_else(|| value.clone());
 
-    let field_type = field_type_from_model_kind(&field_kind);
+    let field_type = field_type_from_persisted_kind(accepted_field.kind());
     if !literal_matches_type(&normalized, &field_type) {
         return Err(QueryError::unsupported_query(
             ValidateError::invalid_literal(field_name, "literal type does not match field type")
@@ -214,6 +228,7 @@ where
 
 impl<C: CanisterKind> DbSession<C> {
     fn sql_insert_patch_and_key<E>(
+        schema: &AcceptedSchemaSnapshot,
         columns: &[String],
         values: &[Value],
     ) -> Result<(E::Key, StructuralPatch), QueryError>
@@ -235,12 +250,12 @@ impl<C: CanisterKind> DbSession<C> {
                     "INSERT primary key column must align with one VALUES literal",
                 )
             })?;
-            sql_write_key_from_literal::<E>(pk_value, pk_name)?
+            sql_write_key_from_literal::<E>(schema, pk_value, pk_name)?
         } else if let Some((_, pk_value)) = generated_fields
             .iter()
             .find(|(field_name, _)| *field_name == pk_name)
         {
-            sql_write_key_from_literal::<E>(pk_value, pk_name)?
+            sql_write_key_from_literal::<E>(schema, pk_value, pk_name)?
         } else {
             return Err(QueryError::unsupported_query(format!(
                 "SQL INSERT requires primary key column '{pk_name}' in this release"
@@ -256,7 +271,7 @@ impl<C: CanisterKind> DbSession<C> {
         for (field, value) in columns.iter().zip(values.iter()) {
             reject_explicit_sql_write_to_generated_field::<E>(field, "INSERT")?;
             reject_explicit_sql_write_to_managed_field::<E>(field, "INSERT")?;
-            let normalized = sql_write_value_for_field::<E>(field, value)?;
+            let normalized = sql_write_value_for_accepted_field(schema, field, value)?;
             patch = patch
                 .set_field(E::MODEL, field, normalized)
                 .map_err(QueryError::execute)?;
@@ -266,6 +281,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     fn sql_structural_patch<E>(
+        schema: &AcceptedSchemaSnapshot,
         statement: &SqlUpdateStatement,
     ) -> Result<StructuralPatch, QueryError>
     where
@@ -281,8 +297,11 @@ impl<C: CanisterKind> DbSession<C> {
             }
             reject_explicit_sql_write_to_generated_field::<E>(assignment.field.as_str(), "UPDATE")?;
             reject_explicit_sql_write_to_managed_field::<E>(assignment.field.as_str(), "UPDATE")?;
-            let normalized =
-                sql_write_value_for_field::<E>(assignment.field.as_str(), &assignment.value)?;
+            let normalized = sql_write_value_for_accepted_field(
+                schema,
+                assignment.field.as_str(),
+                &assignment.value,
+            )?;
 
             patch = patch
                 .set_field(E::MODEL, assignment.field.as_str(), normalized)
@@ -339,6 +358,7 @@ impl<C: CanisterKind> DbSession<C> {
     // exposes that materialized source as a separate helper result.
     fn execute_sql_insert_select_source_patches<E>(
         &self,
+        schema: &AcceptedSchemaSnapshot,
         source: &SqlSelectStatement,
         columns: &[String],
         rows: &mut Vec<(E::Key, StructuralPatch)>,
@@ -369,7 +389,7 @@ impl<C: CanisterKind> DbSession<C> {
                 ));
             }
 
-            Self::sql_insert_push_patch_row::<E>(rows, columns, row.as_slice())?;
+            Self::sql_insert_push_patch_row::<E>(schema, rows, columns, row.as_slice())?;
         }
 
         Ok(())
@@ -380,6 +400,7 @@ impl<C: CanisterKind> DbSession<C> {
     // INSERT SELECT feed patches directly without first cloning/staging the
     // whole source row set behind a shared temporary vector.
     fn sql_insert_push_patch_row<E>(
+        schema: &AcceptedSchemaSnapshot,
         rows: &mut Vec<(E::Key, StructuralPatch)>,
         columns: &[String],
         values: &[Value],
@@ -387,7 +408,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (key, patch) = Self::sql_insert_patch_and_key::<E>(columns, values)?;
+        let (key, patch) = Self::sql_insert_patch_and_key::<E>(schema, columns, values)?;
         rows.push((key, patch));
 
         Ok(())
@@ -402,6 +423,9 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let columns = sql_insert_columns::<E>(statement);
         ensure_sql_insert_required_fields::<E>(columns.as_slice())?;
+        let schema = self
+            .accepted_initial_schema_snapshot::<E>()
+            .map_err(QueryError::execute)?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Insert, Timestamp::now());
         let mut rows = Vec::new();
 
@@ -418,6 +442,7 @@ impl<C: CanisterKind> DbSession<C> {
                     }
 
                     Self::sql_insert_push_patch_row::<E>(
+                        &schema,
                         &mut rows,
                         columns.as_slice(),
                         tuple.as_slice(),
@@ -427,6 +452,7 @@ impl<C: CanisterKind> DbSession<C> {
             SqlInsertSource::Select(_) => {
                 let source = Self::sql_insert_select_source_statement::<E>(statement)?;
                 self.execute_sql_insert_select_source_patches::<E>(
+                    &schema,
                     &source,
                     columns.as_slice(),
                     &mut rows,
@@ -457,7 +483,10 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let selector = Self::sql_update_selector_query::<E>(statement)?;
-        let patch = Self::sql_structural_patch::<E>(statement)?;
+        let schema = self
+            .accepted_initial_schema_snapshot::<E>()
+            .map_err(QueryError::execute)?;
+        let patch = Self::sql_structural_patch::<E>(&schema, statement)?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());
         let matched = self.execute_query(&selector)?;
         let mut rows = Vec::with_capacity(matched.len());
