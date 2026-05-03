@@ -621,7 +621,7 @@ impl EntitySummary {
 
     // Rank entity summaries by all visible activity so write-heavy or
     // maintenance-heavy entities are not hidden below read-heavy entities.
-    fn activity_score(&self) -> u64 {
+    const fn activity_score(&self) -> u64 {
         self.load_calls
             .saturating_add(self.save_calls)
             .saturating_add(self.delete_calls)
