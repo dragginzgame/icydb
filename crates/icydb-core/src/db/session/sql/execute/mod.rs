@@ -152,6 +152,25 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
+    // Execute one SQL projection and immediately shape it into the public
+    // statement-result envelope. Diagnostics keeps using the payload-returning
+    // sibling so it can measure response finalization separately.
+    fn execute_sql_statement_from_structural_prepared_plan(
+        &self,
+        prepared_plan: SharedPreparedExecutionPlan,
+        projection: crate::db::session::sql::SqlProjectionContract,
+        cache_attribution: SqlCacheAttribution,
+    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
+        let (payload, cache_attribution) = self
+            .execute_sql_projection_from_structural_prepared_plan(
+                prepared_plan,
+                projection,
+                cache_attribution,
+            )?;
+
+        Ok((payload.into_statement_result(), cache_attribution))
+    }
+
     // Execute one grouped SQL statement from one shared lowered prepared plan
     // plus one thin SQL projection contract. Normal and diagnostics surfaces
     // share this plan-to-statement shell; diagnostics only swaps response
@@ -500,14 +519,12 @@ impl<C: CanisterKind> DbSession<C> {
             authority,
             compiled_cache_key.schema_fingerprint(),
         )?;
-        let (payload, cache_attribution) = self
-            .execute_sql_projection_from_structural_prepared_plan(
-                prepared_plan,
-                projection,
-                cache_attribution,
-            )?;
 
-        Ok((payload.into_statement_result(), cache_attribution))
+        self.execute_sql_statement_from_structural_prepared_plan(
+            prepared_plan,
+            projection,
+            cache_attribution,
+        )
     }
 
     #[cfg(any(test, feature = "diagnostics"))]
@@ -555,7 +572,10 @@ impl<C: CanisterKind> DbSession<C> {
                 .execute_sql_update_statement::<E>(statement)
                 .map(|result| (result, SqlCacheAttribution::default())),
             CompiledSqlCommand::DescribeEntity => Ok((
-                SqlStatementResult::Describe(self.describe_entity::<E>()),
+                SqlStatementResult::Describe(
+                    self.try_describe_entity::<E>()
+                        .map_err(QueryError::execute)?,
+                ),
                 SqlCacheAttribution::default(),
             )),
             CompiledSqlCommand::ShowIndexesEntity => Ok((
@@ -563,7 +583,9 @@ impl<C: CanisterKind> DbSession<C> {
                 SqlCacheAttribution::default(),
             )),
             CompiledSqlCommand::ShowColumnsEntity => Ok((
-                SqlStatementResult::ShowColumns(self.show_columns::<E>()),
+                SqlStatementResult::ShowColumns(
+                    self.try_show_columns::<E>().map_err(QueryError::execute)?,
+                ),
                 SqlCacheAttribution::default(),
             )),
             CompiledSqlCommand::ShowEntities => Ok((
@@ -618,7 +640,10 @@ impl<C: CanisterKind> DbSession<C> {
                 .execute_sql_update_statement::<E>(&statement)
                 .map(|result| (result, SqlCacheAttribution::default())),
             CompiledSqlCommand::DescribeEntity => Ok((
-                SqlStatementResult::Describe(self.describe_entity::<E>()),
+                SqlStatementResult::Describe(
+                    self.try_describe_entity::<E>()
+                        .map_err(QueryError::execute)?,
+                ),
                 SqlCacheAttribution::default(),
             )),
             CompiledSqlCommand::ShowIndexesEntity => Ok((
@@ -626,7 +651,9 @@ impl<C: CanisterKind> DbSession<C> {
                 SqlCacheAttribution::default(),
             )),
             CompiledSqlCommand::ShowColumnsEntity => Ok((
-                SqlStatementResult::ShowColumns(self.show_columns::<E>()),
+                SqlStatementResult::ShowColumns(
+                    self.try_show_columns::<E>().map_err(QueryError::execute)?,
+                ),
                 SqlCacheAttribution::default(),
             )),
             CompiledSqlCommand::ShowEntities => Ok((

@@ -8,7 +8,11 @@ use crate::{
         PersistedRow, QueryError,
         session::sql::{
             SqlStatementResult,
-            projection::{SqlProjectionPayload, projection_labels_from_fields},
+            projection::{
+                projection_labels_from_fields,
+                sql_projection_statement_result_from_fallible_value_rows,
+                sql_projection_statement_result_from_value_rows,
+            },
         },
         sql::parser::SqlReturningProjection,
     },
@@ -35,51 +39,30 @@ where
         None => Ok(SqlStatementResult::Count { row_count }),
         Some(SqlReturningProjection::All) => {
             let columns = projection_labels_from_fields(E::MODEL.fields());
-            let mut rows = Vec::with_capacity(entities.len());
 
-            for entity in entities {
-                rows.push(sql_returning_all_values(&entity, E::MODEL.fields().len())?);
-            }
-
-            Ok(SqlProjectionPayload::new(
+            sql_projection_statement_result_from_fallible_value_rows(
                 columns,
                 vec![None; E::MODEL.fields().len()],
-                rows,
+                entities
+                    .into_iter()
+                    .map(|entity| sql_returning_all_values(&entity, E::MODEL.fields().len())),
                 row_count,
             )
-            .into_statement_result())
         }
         Some(SqlReturningProjection::Fields(fields)) => {
             let columns = projection_labels_from_fields(E::MODEL.fields());
             let indices = sql_returning_field_indices(&columns, fields)?;
-            let mut rows = Vec::with_capacity(entities.len());
 
             // Project field-list RETURNING rows directly from typed mutation
             // outputs. This avoids constructing full rows for blob-heavy
             // entities when callers return only a small subset of fields.
-            for entity in entities {
-                let mut row = Vec::with_capacity(indices.len());
-
-                for index in &indices {
-                    let value = entity.get_value_by_index(*index).ok_or_else(|| {
-                        QueryError::invariant(
-                            "SQL write statement projection row must include every returned field",
-                        )
-                    })?;
-                    row.push(value);
-                }
-
-                rows.push(row);
-            }
-
-            Ok(
-                SqlProjectionPayload::new(
-                    fields.clone(),
-                    vec![None; fields.len()],
-                    rows,
-                    row_count,
-                )
-                .into_statement_result(),
+            sql_projection_statement_result_from_fallible_value_rows(
+                fields.clone(),
+                vec![None; fields.len()],
+                entities
+                    .into_iter()
+                    .map(|entity| sql_returning_selected_values(&entity, indices.as_slice())),
+                row_count,
             )
         }
     }
@@ -96,6 +79,26 @@ where
         let value = entity.get_value_by_index(index).ok_or_else(|| {
             QueryError::invariant(
                 "SQL write statement projection row must include every declared field",
+            )
+        })?;
+        row.push(value);
+    }
+
+    Ok(row)
+}
+
+// Project a typed write result into the caller-requested RETURNING field list
+// without first materializing the full entity row.
+fn sql_returning_selected_values<E>(entity: &E, indices: &[usize]) -> Result<Vec<Value>, QueryError>
+where
+    E: EntityValue,
+{
+    let mut row = Vec::with_capacity(indices.len());
+
+    for index in indices {
+        let value = entity.get_value_by_index(*index).ok_or_else(|| {
+            QueryError::invariant(
+                "SQL write statement projection row must include every returned field",
             )
         })?;
         row.push(value);
@@ -140,39 +143,29 @@ pub(in crate::db::session::sql::execute) fn sql_returning_statement_projection(
     returning: &SqlReturningProjection,
 ) -> Result<SqlStatementResult, QueryError> {
     match returning {
-        SqlReturningProjection::All => Ok(SqlProjectionPayload::new(
+        SqlReturningProjection::All => Ok(sql_projection_statement_result_from_value_rows(
             columns,
             vec![None; rows.first().map_or(0, Vec::len)],
             rows,
             row_count,
-        )
-        .into_statement_result()),
+        )),
         SqlReturningProjection::Fields(fields) => {
             let indices = sql_returning_field_indices(&columns, fields)?;
             let selection = sql_returning_field_selection(&indices)?;
+            let output_ordered = sql_returning_selection_is_output_ordered(selection.as_slice());
 
-            let mut projected_rows = Vec::with_capacity(rows.len());
-            if sql_returning_selection_is_output_ordered(selection.as_slice()) {
-                for row in rows {
-                    projected_rows.push(sql_returning_project_owned_row_in_output_order(
-                        row,
-                        selection.as_slice(),
-                    )?);
-                }
-            } else {
-                for row in rows {
-                    projected_rows
-                        .push(sql_returning_project_owned_row(row, selection.as_slice())?);
-                }
-            }
-
-            Ok(SqlProjectionPayload::new(
+            sql_projection_statement_result_from_fallible_value_rows(
                 fields.clone(),
                 vec![None; fields.len()],
-                projected_rows,
+                rows.into_iter().map(|row| {
+                    sql_returning_project_owned_row_for_selection(
+                        row,
+                        selection.as_slice(),
+                        output_ordered,
+                    )
+                }),
                 row_count,
             )
-            .into_statement_result())
         }
     }
 }
@@ -206,6 +199,21 @@ fn sql_returning_selection_is_output_ordered(selection: &[(usize, usize)]) -> bo
         .iter()
         .enumerate()
         .all(|(output_index, (_, selected_output_index))| *selected_output_index == output_index)
+}
+
+// Dispatch one owned projection row through the selected row-move lane. Keeping
+// this as a row-level helper lets callers stream projection into final response
+// encoding instead of staging a second page of projected `Value` rows.
+fn sql_returning_project_owned_row_for_selection(
+    row: Vec<Value>,
+    selection: &[(usize, usize)],
+    output_ordered: bool,
+) -> Result<Vec<Value>, QueryError> {
+    if output_ordered {
+        sql_returning_project_owned_row_in_output_order(row, selection)
+    } else {
+        sql_returning_project_owned_row(row, selection)
+    }
 }
 
 // Project one owned SQL RETURNING row by moving schema-ordered selected values

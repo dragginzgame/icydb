@@ -17,6 +17,12 @@ use crate::db::schema::FieldId;
 pub(in crate::db) struct SchemaVersion(u32);
 
 impl SchemaVersion {
+    /// Build one schema version from trusted persisted metadata.
+    #[must_use]
+    pub(in crate::db) const fn new(raw: u32) -> Self {
+        Self(raw)
+    }
+
     /// Return the first live schema version for a newly initialized entity.
     #[must_use]
     pub(in crate::db) const fn initial() -> Self {
@@ -42,6 +48,12 @@ impl SchemaVersion {
 pub(in crate::db) struct SchemaFieldSlot(u16);
 
 impl SchemaFieldSlot {
+    /// Build one schema field slot from trusted persisted metadata.
+    #[must_use]
+    pub(in crate::db) const fn new(raw: u16) -> Self {
+        Self(raw)
+    }
+
     /// Build one schema field slot from a generated field index.
     #[must_use]
     pub(in crate::db) fn from_generated_index(index: usize) -> Self {

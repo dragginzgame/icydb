@@ -19,7 +19,9 @@ use crate::{
         predicate::MissingRowPolicy,
         query::{
             builder::aggregate::ScalarProjectionBoundaryRequest,
-            plan::{AccessPlannedQuery, CoveringProjectionContext, OrderSpec, PageSpec},
+            plan::{
+                AccessPlannedQuery, CoveringProjectionContext, OrderSpec, PageSpec, expr::Expr,
+            },
         },
         registry::StoreHandle,
     },
@@ -413,13 +415,20 @@ pub(in crate::db::executor) enum PreparedCoveringDistinctStrategy {
 /// boundary before runtime execution begins.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum PreparedScalarProjectionOp {
-    Values,
+    Values {
+        projection: Option<Expr>,
+    },
     DistinctValues,
     CountDistinct,
-    ValuesWithIds,
-    TerminalValue { terminal_kind: AggregateKind },
+    ValuesWithIds {
+        projection: Option<Expr>,
+    },
+    TerminalValue {
+        terminal_kind: AggregateKind,
+        projection: Option<Expr>,
+    },
 }
 
 impl PreparedScalarProjectionOp {
@@ -431,7 +440,7 @@ impl PreparedScalarProjectionOp {
     }
 
     // Build the canonical prepared-op invariant for missing covering DISTINCT strategy.
-    pub(in crate::db::executor) fn covering_distinct_strategy_required(self) -> InternalError {
+    pub(in crate::db::executor) fn covering_distinct_strategy_required(&self) -> InternalError {
         let message = match self {
             Self::DistinctValues => {
                 "covering DISTINCT projection requires prepared distinct strategy"
@@ -439,7 +448,7 @@ impl PreparedScalarProjectionOp {
             Self::CountDistinct => {
                 "covering COUNT DISTINCT projection requires prepared distinct strategy"
             }
-            Self::Values | Self::ValuesWithIds | Self::TerminalValue { .. } => {
+            Self::Values { .. } | Self::ValuesWithIds { .. } | Self::TerminalValue { .. } => {
                 "covering DISTINCT strategy requirement is only valid for DISTINCT projection ops"
             }
         };
@@ -448,12 +457,12 @@ impl PreparedScalarProjectionOp {
     }
 
     // Build the canonical prepared-op invariant for unsupported constant covering values-with-ids.
-    pub(in crate::db::executor) fn constant_covering_strategy_unsupported(self) -> InternalError {
+    pub(in crate::db::executor) fn constant_covering_strategy_unsupported(&self) -> InternalError {
         let message = match self {
-            Self::ValuesWithIds => {
+            Self::ValuesWithIds { .. } => {
                 "values-with-ids projection cannot execute constant covering strategy"
             }
-            Self::Values
+            Self::Values { .. }
             | Self::DistinctValues
             | Self::CountDistinct
             | Self::TerminalValue { .. } => {
@@ -465,12 +474,15 @@ impl PreparedScalarProjectionOp {
     }
 
     // Build the canonical prepared-op invariant for terminal-value late materialization.
-    pub(in crate::db::executor) fn materialized_branch_unreachable(self) -> InternalError {
+    pub(in crate::db::executor) fn materialized_branch_unreachable(&self) -> InternalError {
         let message = match self {
             Self::TerminalValue { .. } => {
                 "terminal value projection materialized branch must execute before row materialization"
             }
-            Self::Values | Self::DistinctValues | Self::CountDistinct | Self::ValuesWithIds => {
+            Self::Values { .. }
+            | Self::DistinctValues
+            | Self::CountDistinct
+            | Self::ValuesWithIds { .. } => {
                 "materialized branch terminal-value invariant is only valid for terminal-value projection ops"
             }
         };
@@ -479,20 +491,31 @@ impl PreparedScalarProjectionOp {
     }
 
     // Validate that one terminal-value projection op only carries FIRST/LAST kinds.
-    pub(in crate::db::executor) fn validate_terminal_value_kind(self) -> Result<(), InternalError> {
+    pub(in crate::db::executor) fn validate_terminal_value_kind(
+        &self,
+    ) -> Result<(), InternalError> {
         match self {
-            Self::TerminalValue { terminal_kind }
+            Self::TerminalValue { terminal_kind, .. }
                 if !matches!(terminal_kind, AggregateKind::First | AggregateKind::Last) =>
             {
                 Err(Self::invariant(
                     "terminal value projection requires FIRST/LAST aggregate kind",
                 ))
             }
-            Self::Values
+            Self::Values { .. }
             | Self::DistinctValues
             | Self::CountDistinct
-            | Self::ValuesWithIds
+            | Self::ValuesWithIds { .. }
             | Self::TerminalValue { .. } => Ok(()),
+        }
+    }
+
+    pub(in crate::db::executor) const fn projection(&self) -> Option<&Expr> {
+        match self {
+            Self::Values { projection }
+            | Self::ValuesWithIds { projection }
+            | Self::TerminalValue { projection, .. } => projection.as_ref(),
+            Self::DistinctValues | Self::CountDistinct => None,
         }
     }
 }
@@ -711,17 +734,35 @@ pub(in crate::db::executor) enum PreparedFieldOrderSensitiveTerminalOp {
 impl PreparedScalarProjectionOp {
     /// Resolve one public projection boundary request into the non-generic
     /// prepared projection operation used by execution.
-    pub(in crate::db::executor) const fn from_request(
-        request: ScalarProjectionBoundaryRequest,
-    ) -> Self {
+    pub(in crate::db::executor) fn from_request(request: ScalarProjectionBoundaryRequest) -> Self {
         match request {
-            ScalarProjectionBoundaryRequest::Values => Self::Values,
+            ScalarProjectionBoundaryRequest::Values => Self::Values { projection: None },
+            ScalarProjectionBoundaryRequest::ProjectedValues { projection } => Self::Values {
+                projection: Some(projection),
+            },
             ScalarProjectionBoundaryRequest::DistinctValues => Self::DistinctValues,
             ScalarProjectionBoundaryRequest::CountDistinct => Self::CountDistinct,
-            ScalarProjectionBoundaryRequest::ValuesWithIds => Self::ValuesWithIds,
-            ScalarProjectionBoundaryRequest::TerminalValue { terminal_kind } => {
-                Self::TerminalValue { terminal_kind }
+            ScalarProjectionBoundaryRequest::ValuesWithIds => {
+                Self::ValuesWithIds { projection: None }
             }
+            ScalarProjectionBoundaryRequest::ProjectedValuesWithIds { projection } => {
+                Self::ValuesWithIds {
+                    projection: Some(projection),
+                }
+            }
+            ScalarProjectionBoundaryRequest::TerminalValue { terminal_kind } => {
+                Self::TerminalValue {
+                    terminal_kind,
+                    projection: None,
+                }
+            }
+            ScalarProjectionBoundaryRequest::ProjectedTerminalValue {
+                terminal_kind,
+                projection,
+            } => Self::TerminalValue {
+                terminal_kind,
+                projection: Some(projection),
+            },
         }
     }
 }

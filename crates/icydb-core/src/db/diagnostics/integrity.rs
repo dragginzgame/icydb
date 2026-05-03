@@ -145,7 +145,7 @@ fn scan_store_forward_integrity<C: CanisterKind>(
                 };
 
                 let actual = index_op
-                    .store
+                    .index_store
                     .with_borrow(|index_store| index_store.get(&index_op.key));
                 match actual {
                     Some(actual_value) if actual_value == expected_value => {}

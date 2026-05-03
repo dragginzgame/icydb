@@ -17,9 +17,11 @@ impl PreparedRowCommitOp {
         // Phase 1: snapshot all index keys touched by the prepared operation.
         let mut index_ops = Vec::with_capacity(self.index_ops.len());
         for index_op in &self.index_ops {
-            let existing = index_op.store.with_borrow(|store| store.get(&index_op.key));
+            let existing = index_op
+                .index_store
+                .with_borrow(|store| store.get(&index_op.key));
             index_ops.push(PreparedIndexMutation::rollback_snapshot(
-                index_op.store,
+                index_op.index_store,
                 index_op.key.clone(),
                 existing,
             ));

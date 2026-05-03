@@ -463,12 +463,19 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
 ];
 
 thread_local! {
-    static DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(19)));
-    static INDEX_STORE: RefCell<IndexStore> = RefCell::new(IndexStore::init(test_memory(20)));
-    static SCHEMA_STORE: RefCell<SchemaStore> = RefCell::new(SchemaStore::init(test_memory(21)));
+    static RECOVERY_DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(19)));
+    static RECOVERY_INDEX_STORE: RefCell<IndexStore> =
+        RefCell::new(IndexStore::init(test_memory(20)));
+    static RECOVERY_SCHEMA_STORE: RefCell<SchemaStore> =
+        RefCell::new(SchemaStore::init(test_memory(21)));
     static STORE_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
-        reg.register_store(RecoveryTestDataStore::PATH, &DATA_STORE, &INDEX_STORE, &SCHEMA_STORE)
+        reg.register_store(
+            RecoveryTestDataStore::PATH,
+            &RECOVERY_DATA_STORE,
+            &RECOVERY_INDEX_STORE,
+            &RECOVERY_SCHEMA_STORE,
+        )
             .expect("test store registration should succeed");
         reg
     };
@@ -1556,7 +1563,7 @@ fn finish_commit_mixed_state_failure_rolls_back_index_prefix_without_row_visibil
         >(&DB, &row_op, &context, &context)?;
         let rollback = prepared.snapshot_rollback();
         for index_op in prepared.index_ops {
-            index_op.store.with_borrow_mut(|store| {
+            index_op.index_store.with_borrow_mut(|store| {
                 if let Some(value) = index_op.value {
                     store.insert(index_op.key, value);
                 } else {

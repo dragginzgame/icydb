@@ -148,9 +148,10 @@ where
         index: &crate::model::index::IndexModel,
         key: &RawIndexKey,
     ) -> Result<Option<RawIndexEntry>, InternalError> {
-        let store = self.index_store(index)?;
+        let index_store = self.index_store(index)?;
 
-        self.index_reader.read_index_entry_structural(store, key)
+        self.index_reader
+            .read_index_entry_structural(index_store, key)
     }
 
     fn read_index_keys_in_raw_range(
@@ -161,12 +162,12 @@ where
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
-        let store = self.index_store(index)?;
+        let index_store = self.index_store(index)?;
 
         self.index_reader.read_index_keys_in_raw_range_structural(
             entity_path,
             entity_tag,
-            store,
+            index_store,
             index,
             bounds,
             limit,
@@ -528,7 +529,7 @@ where
 {
     let mut remove_delta = None;
     let mut insert_delta = None;
-    let store = db
+    let index_store = db
         .with_store_registry(|registry| registry.try_get_store(group.index_store))
         .map(|store| store.index_store())?;
 
@@ -541,7 +542,7 @@ where
 
     let old_entry = load_existing_index_entry_for_commit(
         index_reader,
-        store,
+        index_store,
         &group.index_fields,
         remove_delta.as_ref(),
         entity_path,
@@ -556,7 +557,7 @@ where
     } else {
         load_existing_index_entry_for_commit(
             index_reader,
-            store,
+            index_store,
             &group.index_fields,
             insert_delta.as_ref(),
             entity_path,
@@ -565,7 +566,7 @@ where
 
     build_commit_ops_for_index_delta_pair(
         commit_ops,
-        store,
+        index_store,
         entity_path,
         &group.index_fields,
         remove_delta,

@@ -48,6 +48,7 @@ use crate::{
         query::plan::{
             CoveringProjectionContext, CoveringProjectionOrder, FieldSlot as PlannedFieldSlot,
             constant_covering_projection_value_from_access,
+            expr::{Expr, eval_builder_expr_for_value_preview},
         },
     },
     error::InternalError,
@@ -98,7 +99,7 @@ where
         let op = PreparedScalarProjectionOp::from_request(request);
         op.validate_terminal_value_kind()?;
 
-        let strategy = Self::prepare_scalar_projection_strategy(&prepared, &target_field_name, op);
+        let strategy = Self::prepare_scalar_projection_strategy(&prepared, &target_field_name, &op);
 
         Ok(
             crate::db::executor::aggregate::PreparedScalarProjectionBoundary {
@@ -146,9 +147,13 @@ where
                 window,
                 distinct,
             ),
-            PreparedScalarProjectionStrategy::CoveringConstant { value } => {
-                self.execute_constant_scalar_projection_boundary(op, prepared, value)
-            }
+            PreparedScalarProjectionStrategy::CoveringConstant { value } => self
+                .execute_constant_scalar_projection_boundary(
+                    op,
+                    prepared,
+                    &target_field_name,
+                    value,
+                ),
         }
     }
 
@@ -157,7 +162,7 @@ where
     fn prepare_scalar_projection_strategy(
         prepared: &PreparedAggregateStreamingInputs<'_>,
         target_field: &str,
-        op: PreparedScalarProjectionOp,
+        op: &PreparedScalarProjectionOp,
     ) -> PreparedScalarProjectionStrategy {
         if !prepared.has_predicate()
             && let Some(context) = covering_index_projection_context(
@@ -189,7 +194,7 @@ where
         }
 
         match op {
-            PreparedScalarProjectionOp::Values
+            PreparedScalarProjectionOp::Values { .. }
             | PreparedScalarProjectionOp::DistinctValues
             | PreparedScalarProjectionOp::CountDistinct
             | PreparedScalarProjectionOp::TerminalValue { .. } => {
@@ -199,7 +204,7 @@ where
                     return PreparedScalarProjectionStrategy::CoveringConstant { value };
                 }
             }
-            PreparedScalarProjectionOp::ValuesWithIds => {}
+            PreparedScalarProjectionOp::ValuesWithIds { .. } => {}
         }
 
         PreparedScalarProjectionStrategy::Materialized
@@ -223,12 +228,14 @@ where
         distinct: Option<PreparedCoveringDistinctStrategy>,
     ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
         match op {
-            PreparedScalarProjectionOp::Values => {
+            PreparedScalarProjectionOp::Values { .. } => {
                 if let Some(values) =
                     Self::covering_index_projection_values_with_context_from_prepared(
                         &prepared, context, window,
                     )?
                 {
+                    let values = project_scalar_values(values, target_field_name, op.projection())?;
+
                     return Ok(ScalarProjectionBoundaryOutput::Values(values));
                 }
             }
@@ -259,27 +266,31 @@ where
                     return Ok(ScalarProjectionBoundaryOutput::Count(count));
                 }
             }
-            PreparedScalarProjectionOp::ValuesWithIds => {
+            PreparedScalarProjectionOp::ValuesWithIds { .. } => {
                 if let Some(values) =
                     Self::covering_index_projection_values_from_context_structural(
                         &prepared, context, window,
                     )?
                 {
+                    let values =
+                        project_scalar_value_pairs(values, target_field_name, op.projection())?;
+
                     return Ok(ScalarProjectionBoundaryOutput::ValuesWithDataKeys(values));
                 }
             }
-            PreparedScalarProjectionOp::TerminalValue { terminal_kind } => {
+            PreparedScalarProjectionOp::TerminalValue { terminal_kind, .. } => {
                 if let Some(projected_pairs) =
                     Self::covering_index_projection_values_from_context_structural(
                         &prepared, context, window,
                     )?
                 {
-                    PreparedScalarProjectionOp::TerminalValue { terminal_kind }
-                        .validate_terminal_value_kind()?;
+                    op.validate_terminal_value_kind()?;
                     let value = terminal_value_from_covering_projection_pairs(
                         projected_pairs,
                         terminal_kind,
-                    );
+                    )
+                    .map(|value| project_scalar_value(target_field_name, op.projection(), value))
+                    .transpose()?;
 
                     return Ok(ScalarProjectionBoundaryOutput::TerminalValue(value));
                 }
@@ -300,10 +311,12 @@ where
         &self,
         op: PreparedScalarProjectionOp,
         prepared: PreparedAggregateStreamingInputs<'_>,
+        target_field_name: &str,
         value: Value,
     ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
         match op {
-            PreparedScalarProjectionOp::Values => {
+            PreparedScalarProjectionOp::Values { .. } => {
+                let value = project_scalar_value(target_field_name, op.projection(), value)?;
                 let row_count = ExecutionKernel::execute_prepared_aggregate_state(
                     self,
                     ExecutionKernel::prepare_aggregate_execution_state_from_prepared(
@@ -333,11 +346,12 @@ where
             }
             PreparedScalarProjectionOp::TerminalValue { .. } => {
                 let has_rows = self.constant_projection_has_rows(prepared)?;
+                let value = project_scalar_value(target_field_name, op.projection(), value)?;
                 Ok(ScalarProjectionBoundaryOutput::TerminalValue(
                     has_rows.then_some(value),
                 ))
             }
-            PreparedScalarProjectionOp::ValuesWithIds => {
+            PreparedScalarProjectionOp::ValuesWithIds { .. } => {
                 Err(op.constant_covering_strategy_unsupported())
             }
         }
@@ -351,26 +365,34 @@ where
         field_slot: FieldSlot,
         op: PreparedScalarProjectionOp,
     ) -> Result<ScalarProjectionBoundaryOutput, InternalError> {
-        if let PreparedScalarProjectionOp::TerminalValue { terminal_kind } = op {
+        if let PreparedScalarProjectionOp::TerminalValue { terminal_kind, .. } = &op {
             return self
                 .execute_selected_value_field_projection_with_slot(
                     prepared,
                     target_field_name,
                     field_slot,
-                    terminal_kind,
+                    *terminal_kind,
                 )
+                .and_then(|value| {
+                    value
+                        .map(|value| {
+                            project_scalar_value(target_field_name, op.projection(), value)
+                        })
+                        .transpose()
+                })
                 .map(ScalarProjectionBoundaryOutput::TerminalValue);
         }
 
         let (rows, row_layout) = self.load_materialized_aggregate_rows(prepared)?;
 
         match op {
-            PreparedScalarProjectionOp::Values => {
+            PreparedScalarProjectionOp::Values { .. } => {
                 let projected_values = Self::project_values_from_materialized_structural(
                     rows,
                     &row_layout,
                     target_field_name,
                     field_slot,
+                    op.projection(),
                 )?;
 
                 Ok(ScalarProjectionBoundaryOutput::Values(projected_values))
@@ -393,12 +415,13 @@ where
                 )
                 .map(ScalarProjectionBoundaryOutput::Count)
             }
-            PreparedScalarProjectionOp::ValuesWithIds => {
+            PreparedScalarProjectionOp::ValuesWithIds { .. } => {
                 Self::project_field_values_from_materialized_structural(
                     rows,
                     &row_layout,
                     target_field_name,
                     field_slot,
+                    op.projection(),
                 )
                 .map(ScalarProjectionBoundaryOutput::ValuesWithDataKeys)
             }
@@ -487,6 +510,7 @@ where
         row_layout: &RowLayout,
         target_field: &str,
         field_slot: FieldSlot,
+        projection: Option<&Expr>,
     ) -> Result<ValueProjection, InternalError> {
         rows.into_iter()
             .map(|(data_key, raw_row)| {
@@ -497,9 +521,15 @@ where
                     field_slot.index,
                 )?;
 
-                extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
-                    .map(|value| (data_key, value))
-                    .map_err(AggregateFieldValueError::into_internal_error)
+                let value = extract_orderable_field_value_from_decoded_slot(
+                    target_field,
+                    field_slot,
+                    value,
+                )
+                .map_err(AggregateFieldValueError::into_internal_error)?;
+                let value = project_scalar_value(target_field, projection, value)?;
+
+                Ok((data_key, value))
             })
             .collect()
     }
@@ -511,6 +541,7 @@ where
         row_layout: &RowLayout,
         target_field: &str,
         field_slot: FieldSlot,
+        projection: Option<&Expr>,
     ) -> Result<Vec<Value>, InternalError> {
         rows.into_iter()
             .map(|(data_key, raw_row)| {
@@ -521,8 +552,14 @@ where
                     field_slot.index,
                 )?;
 
-                extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
-                    .map_err(AggregateFieldValueError::into_internal_error)
+                let value = extract_orderable_field_value_from_decoded_slot(
+                    target_field,
+                    field_slot,
+                    value,
+                )
+                .map_err(AggregateFieldValueError::into_internal_error)?;
+
+                project_scalar_value(target_field, projection, value)
             })
             .collect()
     }
@@ -762,6 +799,50 @@ where
             |index| prepared.store_resolver.try_get_store(index.store()),
         )
     }
+}
+
+// Apply an optional bounded fluent projection expression at the executor
+// projection boundary. This keeps `project_values*` from re-projecting a
+// materialized value page in the terminal layer.
+fn project_scalar_value(
+    target_field: &str,
+    projection: Option<&Expr>,
+    value: Value,
+) -> Result<Value, InternalError> {
+    let Some(projection) = projection else {
+        return Ok(value);
+    };
+
+    eval_builder_expr_for_value_preview(projection, target_field, &value)
+        .map_err(|err| InternalError::query_unsupported(err.to_string()))
+}
+
+// Project a value-only terminal page in the same pass that consumes executor
+// projection output.
+fn project_scalar_values(
+    values: Vec<Value>,
+    target_field: &str,
+    projection: Option<&Expr>,
+) -> Result<Vec<Value>, InternalError> {
+    values
+        .into_iter()
+        .map(|value| project_scalar_value(target_field, projection, value))
+        .collect()
+}
+
+// Project an id/value terminal page while preserving row identifiers and
+// output order.
+fn project_scalar_value_pairs(
+    values: ValueProjection,
+    target_field: &str,
+    projection: Option<&Expr>,
+) -> Result<ValueProjection, InternalError> {
+    values
+        .into_iter()
+        .map(|(data_key, value)| {
+            project_scalar_value(target_field, projection, value).map(|value| (data_key, value))
+        })
+        .collect()
 }
 
 // Apply the prepared covering DISTINCT strategy to already-windowed structural

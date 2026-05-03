@@ -29,6 +29,7 @@ use crate::{
             explain::{ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor},
             fluent::load::{FluentLoadQuery, LoadQueryResult},
             intent::QueryError,
+            plan::AggregateKind,
         },
         response::EntityResponse,
     },
@@ -312,22 +313,6 @@ where
         S: TerminalStrategyDriver<E>,
     {
         self.with_non_paged(|session, query| strategy.explain(session, query))
-    }
-
-    // Apply one shared bounded value projection to iterator-like terminal
-    // output while preserving source order and cardinality.
-    fn project_terminal_items<P, T, U>(
-        projection: &P,
-        values: impl IntoIterator<Item = T>,
-        mut map: impl FnMut(&P, T) -> Result<U, QueryError>,
-    ) -> Result<Vec<U>, QueryError>
-    where
-        P: ValueProjectionExpr,
-    {
-        values
-            .into_iter()
-            .map(|value| map(projection, value))
-            .collect()
     }
 
     // ------------------------------------------------------------------
@@ -680,10 +665,13 @@ where
         P: ValueProjectionExpr,
     {
         let target_slot = self.resolve_non_paged_slot(projection.field())?;
-        let values = self.execute_terminal(ValuesBySlotTerminal::new(target_slot))?;
 
-        Self::project_terminal_items(projection, values, |projection, value| {
-            projection.apply_value(value)
+        self.with_non_paged(|session, query| {
+            session.execute_fluent_project_values_by_slot(
+                query,
+                target_slot,
+                projection.projection_plan().into_expr(),
+            )
         })
         .map(output_values)
     }
@@ -914,10 +902,13 @@ where
         P: ValueProjectionExpr,
     {
         let target_slot = self.resolve_non_paged_slot(projection.field())?;
-        let values = self.execute_terminal(ValuesBySlotWithIdsTerminal::new(target_slot))?;
 
-        Self::project_terminal_items(projection, values, |projection, (id, value)| {
-            Ok((id, projection.apply_value(value)?))
+        self.with_non_paged(|session, query| {
+            session.execute_fluent_project_values_with_ids_by_slot(
+                query,
+                target_slot,
+                projection.projection_plan().into_expr(),
+            )
         })
         .map(output_values_with_ids)
     }
@@ -955,14 +946,16 @@ where
         P: ValueProjectionExpr,
     {
         let target_slot = self.resolve_non_paged_slot(projection.field())?;
-        let value = self.execute_terminal(FirstValueBySlotTerminal::new(target_slot))?;
 
-        let mut projected =
-            Self::project_terminal_items(projection, value, |projection, value| {
-                projection.apply_value(value)
-            })?;
-
-        Ok(projected.pop().map(output))
+        self.with_non_paged(|session, query| {
+            session.execute_fluent_project_terminal_value_by_slot(
+                query,
+                target_slot,
+                AggregateKind::First,
+                projection.projection_plan().into_expr(),
+            )
+        })
+        .map(|value| value.map(output))
     }
 
     /// Explain `first_value_by(field)` routing without executing the terminal.
@@ -998,14 +991,16 @@ where
         P: ValueProjectionExpr,
     {
         let target_slot = self.resolve_non_paged_slot(projection.field())?;
-        let value = self.execute_terminal(LastValueBySlotTerminal::new(target_slot))?;
 
-        let mut projected =
-            Self::project_terminal_items(projection, value, |projection, value| {
-                projection.apply_value(value)
-            })?;
-
-        Ok(projected.pop().map(output))
+        self.with_non_paged(|session, query| {
+            session.execute_fluent_project_terminal_value_by_slot(
+                query,
+                target_slot,
+                AggregateKind::Last,
+                projection.projection_plan().into_expr(),
+            )
+        })
+        .map(|value| value.map(output))
     }
 
     /// Explain `last_value_by(field)` routing without executing the terminal.

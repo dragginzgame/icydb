@@ -44,8 +44,20 @@ mod tests {
             "ExampleEntity".to_string(),
             "id".to_string(),
             vec![
-                EntityFieldDescription::new("id".to_string(), "Ulid".to_string(), true, true),
-                EntityFieldDescription::new("name".to_string(), "Text".to_string(), false, true),
+                EntityFieldDescription::new(
+                    "id".to_string(),
+                    Some(0),
+                    "Ulid".to_string(),
+                    true,
+                    true,
+                ),
+                EntityFieldDescription::new(
+                    "name".to_string(),
+                    Some(1),
+                    "Text".to_string(),
+                    false,
+                    true,
+                ),
             ],
             vec![
                 EntityIndexDescription::new(
@@ -76,12 +88,12 @@ mod tests {
                 "path: schema.public.ExampleEntity".to_string(),
                 String::new(),
                 "fields:".to_string(),
-                "+------+------+-----+-----------+".to_string(),
-                "| name | type | pk  | queryable |".to_string(),
-                "+------+------+-----+-----------+".to_string(),
-                "| id   | Ulid | yes | yes       |".to_string(),
-                "| name | Text | no  | yes       |".to_string(),
-                "+------+------+-----+-----------+".to_string(),
+                "+------+------+------+-----+-----------+".to_string(),
+                "| name | slot | type | pk  | queryable |".to_string(),
+                "+------+------+------+-----+-----------+".to_string(),
+                "| id   | 0    | Ulid | yes | yes       |".to_string(),
+                "| name | 1    | Text | no  | yes       |".to_string(),
+                "+------+------+------+-----+-----------+".to_string(),
                 String::new(),
                 "indexes:".to_string(),
                 "+-------------------------+--------+--------+".to_string(),
@@ -123,16 +135,22 @@ mod tests {
     #[test]
     fn render_show_columns_lines_output_contract_vector_is_stable() {
         let columns = vec![
-            EntityFieldDescription::new("id".to_string(), "Ulid".to_string(), true, true),
-            EntityFieldDescription::new("name".to_string(), "Text".to_string(), false, true),
+            EntityFieldDescription::new("id".to_string(), Some(0), "Ulid".to_string(), true, true),
+            EntityFieldDescription::new(
+                "name".to_string(),
+                Some(1),
+                "Text".to_string(),
+                false,
+                true,
+            ),
         ];
 
         assert_eq!(
             render_show_columns_lines("ExampleEntity", columns.as_slice()),
             vec![
                 "surface=columns entity=ExampleEntity column_count=2".to_string(),
-                "id: Ulid (primary_key=true, queryable=true)".to_string(),
-                "name: Text (primary_key=false, queryable=true)".to_string(),
+                "id: Ulid (slot=0, primary_key=true, queryable=true)".to_string(),
+                "name: Text (slot=1, primary_key=false, queryable=true)".to_string(),
             ],
             "show-columns shell output must remain contract-stable across release lines",
         );

@@ -42,12 +42,12 @@ pub(in crate::db::executor::planning::route) fn load_scan_budget_hint(
     bounded_streaming_load_window_fetch_hint(continuation, capabilities)
 }
 
-/// Build an explicit top-N seek contract for ordered load windows when route eligibility permits bounded access traversal.
+/// Build an explicit top-N seek contract from the already-derived load scan budget.
 pub(in crate::db::executor::planning::route) fn top_n_seek_spec_for_model(
     plan: &AccessPlannedQuery,
     planner_route_profile: &PlannerRouteProfile,
-    continuation: RouteContinuationPlan,
     capabilities: RouteCapabilities,
+    load_scan_budget_hint: Option<usize>,
 ) -> Option<TopNSeekSpec> {
     let logical = plan.scalar_plan();
     let has_order = logical
@@ -58,15 +58,17 @@ pub(in crate::db::executor::planning::route) fn top_n_seek_spec_for_model(
     secondary_order_contract_active(planner_route_profile.logical_pushdown_eligibility())
         .then_some(())?;
     planner_route_profile.secondary_order_contract()?;
-    bounded_streaming_load_window_fetch_hint(continuation, capabilities)
-        .filter(|_| capabilities.load_order_route_contract().allows_top_n_seek())
-        .map(TopNSeekSpec::new)
+    capabilities
+        .load_order_route_contract()
+        .allows_top_n_seek()
+        .then_some(())?;
+
+    load_scan_budget_hint.map(TopNSeekSpec::new)
 }
 
-// Resolve one bounded fetch hint for streaming-safe load windows. This keeps
-// the continuation/window gate shared between scan-budget hinting and Top-N
-// seek derivation so those load-hint surfaces do not re-derive the same
-// bounded streaming window facts independently.
+// Resolve one bounded fetch hint for streaming-safe load windows. The planner
+// derives this once as the scan budget, then passes that result into any
+// bounded seek shell that needs the same fetch.
 fn bounded_streaming_load_window_fetch_hint(
     continuation: RouteContinuationPlan,
     capabilities: RouteCapabilities,

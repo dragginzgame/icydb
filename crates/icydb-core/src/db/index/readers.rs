@@ -85,18 +85,18 @@ pub(in crate::db) trait StructuralPrimaryRowReader:
 pub(in crate::db) trait IndexEntryReader<E: EntityKind + EntityValue>:
     SealedIndexEntryReader<E>
 {
-    /// Return the index entry for `(store, key)`, or `None` when no entry exists.
+    /// Return the index entry for `(index_store, key)`, or `None` when no entry exists.
     fn read_index_entry(
         &self,
-        store: &'static LocalKey<RefCell<IndexStore>>,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
         key: &RawIndexKey,
     ) -> Result<Option<RawIndexEntry>, InternalError>;
 
-    /// Return up to `limit` structural primary-key values resolved from `store`
-    /// in raw key range.
+    /// Return up to `limit` structural primary-key values resolved from
+    /// `index_store` in raw key range.
     fn read_index_keys_in_raw_range(
         &self,
-        store: &'static LocalKey<RefCell<IndexStore>>,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
         index: &IndexModel,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
@@ -113,20 +113,20 @@ pub(in crate::db) trait IndexEntryReader<E: EntityKind + EntityValue>:
 pub(in crate::db) trait StructuralIndexEntryReader:
     SealedStructuralIndexEntryReader
 {
-    /// Return the index entry for `(store, key)`, or `None` when no entry exists.
+    /// Return the index entry for `(index_store, key)`, or `None` when no entry exists.
     fn read_index_entry_structural(
         &self,
-        store: &'static LocalKey<RefCell<IndexStore>>,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
         key: &RawIndexKey,
     ) -> Result<Option<RawIndexEntry>, InternalError>;
 
-    /// Return up to `limit` structural primary-key values resolved from `store`
-    /// in raw key range.
+    /// Return up to `limit` structural primary-key values resolved from
+    /// `index_store` in raw key range.
     fn read_index_keys_in_raw_range_structural(
         &self,
         entity_path: &'static str,
         entity_tag: EntityTag,
-        store: &'static LocalKey<RefCell<IndexStore>>,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
         index: &IndexModel,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
@@ -139,22 +139,22 @@ where
 {
     fn read_index_entry_structural(
         &self,
-        store: &'static LocalKey<RefCell<IndexStore>>,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
         key: &RawIndexKey,
     ) -> Result<Option<RawIndexEntry>, InternalError> {
-        self.read_index_entry(store, key)
+        self.read_index_entry(index_store, key)
     }
 
     fn read_index_keys_in_raw_range_structural(
         &self,
         _entity_path: &'static str,
         _entity_tag: EntityTag,
-        store: &'static LocalKey<RefCell<IndexStore>>,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
         index: &IndexModel,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
-        self.read_index_keys_in_raw_range(store, index, bounds, limit)
+        self.read_index_keys_in_raw_range(index_store, index, bounds, limit)
     }
 }
 

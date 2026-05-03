@@ -59,7 +59,7 @@ fn persisted_payload_bytes_for_simple_ids(ids: impl IntoIterator<Item = Id<Simpl
             .expect("simple data key should build")
             .to_raw()
             .expect("simple data key should encode");
-        let row = DATA_STORE.with(|store| {
+        let row = TEST_DATA_STORE.with(|store| {
             store
                 .borrow()
                 .get(&raw_key)
@@ -78,7 +78,7 @@ fn persisted_payload_bytes_for_pushdown_ids(
             .expect("pushdown data key should build")
             .to_raw()
             .expect("pushdown data key should encode");
-        let row = DATA_STORE.with(|store| {
+        let row = TEST_DATA_STORE.with(|store| {
             store
                 .borrow()
                 .get(&raw_key)
@@ -236,7 +236,7 @@ fn remove_pushdown_row_data(id: u128) {
         .to_raw()
         .expect("pushdown data key should encode");
 
-    DATA_STORE.with(|store| {
+    TEST_DATA_STORE.with(|store| {
         let removed = store.borrow_mut().remove(&raw_key);
         assert!(
             removed.is_some(),

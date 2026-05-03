@@ -14,7 +14,7 @@ use crate::db::{
         route::{
             AggregateRouteShape, AggregateSeekSpec, GroupedExecutionMode,
             GroupedExecutionModeProjection, RouteCapabilities, RouteContinuationPlan, ScanHintPlan,
-            TopNSeekSpec, aggregate_probe_fetch_hint, aggregate_seek_spec,
+            TopNSeekSpec, aggregate_probe_fetch_hint, aggregate_seek_spec_from_probe_fetch,
             assess_index_range_limit_pushdown_for_model,
             capability::{
                 count_pushdown_existing_rows_shape_supported,
@@ -270,25 +270,26 @@ fn derive_route_scan_hints_for_model(
         )
     });
     let aggregate_seek_spec = inputs.aggregate_shape.and_then(|aggregate| {
-        aggregate_seek_spec(
-            inputs.plan,
+        aggregate_seek_spec_from_probe_fetch(
             aggregate,
             inputs.direction,
-            inputs.support.desc_physical_reverse_supported,
-            inputs.capabilities,
-            inputs.access_window,
+            aggregate_terminal_probe_fetch_hint,
         )
     });
     let aggregate_physical_fetch_hint =
         count_pushdown_probe_fetch_hint.or(aggregate_terminal_probe_fetch_hint);
+    let load_scan_budget_hint = inputs
+        .load_scan_hints_enabled
+        .then(|| load_scan_budget_hint(inputs.continuation, inputs.capabilities))
+        .flatten();
     let top_n_seek_spec = inputs
         .load_scan_hints_enabled
         .then(|| {
             top_n_seek_spec_for_model(
                 inputs.plan,
                 inputs.planner_route_profile,
-                inputs.continuation,
                 inputs.capabilities,
+                load_scan_budget_hint,
             )
         })
         .flatten();
@@ -299,11 +300,6 @@ fn derive_route_scan_hints_for_model(
     let physical_fetch_hint = inputs
         .kind
         .map_or(load_physical_fetch_hint, |_| aggregate_physical_fetch_hint);
-    let load_scan_budget_hint = inputs
-        .load_scan_hints_enabled
-        .then(|| load_scan_budget_hint(inputs.continuation, inputs.capabilities))
-        .flatten();
-
     (
         ScanHintPlan {
             physical_fetch_hint,

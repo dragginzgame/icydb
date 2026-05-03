@@ -14,8 +14,9 @@ use crate::{
         session::sql::{
             SqlCacheAttribution, SqlStatementResult,
             projection::{
-                SqlProjectionPayload, projection_fixed_scales_from_projection_spec,
+                projection_fixed_scales_from_projection_spec,
                 projection_labels_from_projection_spec,
+                sql_projection_statement_result_from_value_rows,
             },
         },
         sql::lowering::{
@@ -106,8 +107,7 @@ impl<C: CanisterKind> DbSession<C> {
         let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
 
         Ok((
-            SqlProjectionPayload::new(columns, fixed_scales, rows, row_count)
-                .into_statement_result(),
+            sql_projection_statement_result_from_value_rows(columns, fixed_scales, rows, row_count),
             SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
         ))
     }

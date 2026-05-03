@@ -326,7 +326,7 @@ fn insert_integrity_expected_indexes(entity: &IntegrityIndexedEntity) {
         let Some(raw_entry) = index_op.value else {
             continue;
         };
-        index_op.store.with_borrow_mut(|store| {
+        index_op.index_store.with_borrow_mut(|store| {
             store.insert(index_op.key.clone(), raw_entry);
         });
     }

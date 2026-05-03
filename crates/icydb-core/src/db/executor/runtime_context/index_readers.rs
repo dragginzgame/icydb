@@ -54,20 +54,20 @@ where
 {
     fn read_index_entry(
         &self,
-        store: &'static LocalKey<RefCell<IndexStore>>,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
         key: &RawIndexKey,
     ) -> Result<Option<RawIndexEntry>, InternalError> {
-        Ok(store.with_borrow(|index_store| index_store.get(key)))
+        Ok(index_store.with_borrow(|store| store.get(key)))
     }
 
     fn read_index_keys_in_raw_range(
         &self,
-        store: &'static LocalKey<RefCell<IndexStore>>,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
         index: &IndexModel,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
-        read_index_storage_keys_in_raw_range(E::ENTITY_TAG, store, index, bounds, limit)
+        read_index_storage_keys_in_raw_range(E::ENTITY_TAG, index_store, index, bounds, limit)
     }
 }
 
@@ -79,22 +79,22 @@ where
 {
     fn read_index_entry_structural(
         &self,
-        store: &'static LocalKey<RefCell<IndexStore>>,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
         key: &RawIndexKey,
     ) -> Result<Option<RawIndexEntry>, InternalError> {
-        IndexEntryReader::<E>::read_index_entry(self, store, key)
+        IndexEntryReader::<E>::read_index_entry(self, index_store, key)
     }
 
     fn read_index_keys_in_raw_range_structural(
         &self,
         _entity_path: &'static str,
         entity_tag: EntityTag,
-        store: &'static LocalKey<RefCell<IndexStore>>,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
         index: &IndexModel,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
-        read_index_storage_keys_in_raw_range(entity_tag, store, index, bounds, limit)
+        read_index_storage_keys_in_raw_range(entity_tag, index_store, index, bounds, limit)
     }
 }
 
@@ -104,14 +104,14 @@ impl<E> SealedStructuralIndexEntryReader for Context<'_, E> where E: EntityKind 
 // context-backed index-store reader path.
 fn read_index_storage_keys_in_raw_range(
     _entity_tag: EntityTag,
-    store: &'static LocalKey<RefCell<IndexStore>>,
+    index_store: &'static LocalKey<RefCell<IndexStore>>,
     index: &IndexModel,
     bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
     limit: usize,
 ) -> Result<Vec<StorageKey>, InternalError> {
     let mut out = Vec::with_capacity(limit.min(32));
-    store.with_borrow(|index_store| {
-        index_store.visit_raw_entries_in_range(bounds, Direction::Asc, |_, raw_entry| {
+    index_store.with_borrow(|store| {
+        store.visit_raw_entries_in_range(bounds, Direction::Asc, |_, raw_entry| {
             push_index_entry_storage_keys(index, raw_entry, &mut out, limit)
         })
     })?;

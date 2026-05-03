@@ -333,6 +333,43 @@ pub(in crate::db) struct PersistedEnumVariant {
     payload_storage_decode: FieldStorageDecode,
 }
 
+impl PersistedEnumVariant {
+    /// Build one persisted enum variant from trusted schema metadata.
+    #[must_use]
+    pub(in crate::db) const fn new(
+        ident: String,
+        payload_kind: Option<Box<PersistedFieldKind>>,
+        payload_storage_decode: FieldStorageDecode,
+    ) -> Self {
+        Self {
+            ident,
+            payload_kind,
+            payload_storage_decode,
+        }
+    }
+
+    /// Borrow the stable enum variant identifier.
+    #[must_use]
+    pub(in crate::db) const fn ident(&self) -> &str {
+        self.ident.as_str()
+    }
+
+    /// Borrow the persisted payload kind, when this variant stores data.
+    #[must_use]
+    pub(in crate::db) fn payload_kind(&self) -> Option<&PersistedFieldKind> {
+        match self.payload_kind.as_ref() {
+            Some(kind) => Some(kind.as_ref()),
+            None => None,
+        }
+    }
+
+    /// Return the payload storage-decode contract.
+    #[must_use]
+    pub(in crate::db) const fn payload_storage_decode(&self) -> FieldStorageDecode {
+        self.payload_storage_decode
+    }
+}
+
 ///
 /// PersistedRelationStrength
 ///

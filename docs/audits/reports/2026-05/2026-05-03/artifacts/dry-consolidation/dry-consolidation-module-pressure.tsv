@@ -1,0 +1,16 @@
+module	size	duplication_families	pressure_type	risk
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/mod.rs	554	1	boundary-owned-growth	medium
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs	701	1	boundary-owned-growth	medium
+crates/icydb-core/src/db/query/plan/expr/compiled_expr/compile.rs	465	1	boundary-owned-growth	medium
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs	494	0	contraction-complete	low
+crates/icydb-core/src/db/query/fluent/load/terminals.rs	1073	1	partially-compressed	low-medium
+crates/icydb-core/src/db/session/sql/execute/mod.rs	668	1	safety-neutral	low-medium
+crates/icydb-core/src/db/predicate/runtime/mod.rs	1034	1	safety-neutral	low-medium
+crates/icydb-core/src/db/commit/store/mod.rs	363	1	safety-neutral	low-medium
+crates/icydb-core/src/db/commit/marker.rs	574	1	safety-neutral	low-medium
+crates/icydb-core/src/db/executor/mutation/commit_window.rs	1027	2	boundary-bridge-growth	medium-low
+crates/icydb-core/src/db/index/readers.rs	178	1	boundary-bridge	low-medium
+crates/icydb-core/src/db/executor/runtime_context/index_readers.rs	121	1	boundary-bridge	low-medium
+crates/icydb-core/src/db/registry/readers.rs	61	1	boundary-bridge	low-medium
+crates/icydb-core/src/db/executor/planning/route/hints/load.rs	170	1	safety-neutral	low-medium
+crates/icydb-core/src/db/executor/planning/route/hints/aggregate.rs	122	1	safety-neutral	low-medium

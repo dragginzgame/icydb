@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.146.x] 🪪 - 2026-05-02 - Schema Identity
 
+- `0.146.1` gives schema memory a real metadata map, persists and checks initial schema snapshots at startup, and shows current field slot numbers in schema introspection output.
 - `0.146.0` starts schema identity work by separating generated schema proposals from future live database schema authority and reserving a generated schema-memory store for each database store.
 
 See detailed breakdown:

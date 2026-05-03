@@ -22,8 +22,10 @@ use crate::{
         executor::{DeleteExecutor, LoadExecutor, SaveExecutor},
         query::plan::VisibleIndexes,
         schema::{
-            describe_entity_fields, describe_entity_model, show_indexes_for_model,
-            show_indexes_for_model_with_runtime_state,
+            PersistedSchemaSnapshot, describe_entity_fields,
+            describe_entity_fields_with_persisted_schema, describe_entity_model,
+            describe_entity_model_with_persisted_schema, ensure_initial_schema_snapshot,
+            show_indexes_for_model, show_indexes_for_model_with_runtime_state,
         },
     },
     error::InternalError,
@@ -271,6 +273,23 @@ impl<C: CanisterKind> DbSession<C> {
         describe_entity_fields(model)
     }
 
+    /// Return field descriptors using the accepted persisted schema snapshot.
+    ///
+    /// This fallible variant is intended for SQL and diagnostics surfaces that
+    /// can report schema reconciliation failures. The infallible
+    /// `show_columns` helper remains generated-model based.
+    pub fn try_show_columns<E>(&self) -> Result<Vec<EntityFieldDescription>, InternalError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let snapshot = self.accepted_initial_schema_snapshot::<E>()?;
+
+        Ok(describe_entity_fields_with_persisted_schema(
+            E::MODEL,
+            &snapshot,
+        ))
+    }
+
     /// Return one stable list of runtime-registered entity names.
     #[must_use]
     pub fn show_entities(&self) -> Vec<String> {
@@ -326,6 +345,37 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub fn describe_entity_model(&self, model: &'static EntityModel) -> EntitySchemaDescription {
         describe_entity_model(model)
+    }
+
+    /// Return a schema description using the accepted persisted schema snapshot.
+    ///
+    /// This is the live-schema counterpart to `describe_entity`. It is fallible
+    /// because loading accepted schema authority can fail if startup
+    /// reconciliation rejects the stored metadata.
+    pub fn try_describe_entity<E>(&self) -> Result<EntitySchemaDescription, InternalError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let snapshot = self.accepted_initial_schema_snapshot::<E>()?;
+
+        Ok(describe_entity_model_with_persisted_schema(
+            E::MODEL,
+            &snapshot,
+        ))
+    }
+
+    // Load the accepted initial schema snapshot for one generated entity after
+    // enforcing recovery/reconciliation. Later schema-evolution work will
+    // replace the initial-version lookup with accepted live-version authority.
+    fn accepted_initial_schema_snapshot<E>(&self) -> Result<PersistedSchemaSnapshot, InternalError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let store = self.db.recovered_store(E::Store::PATH)?;
+
+        store.with_schema_mut(|schema_store| {
+            ensure_initial_schema_snapshot(schema_store, E::ENTITY_TAG, E::PATH, E::MODEL)
+        })
     }
 
     /// Build one point-in-time storage report for observability endpoints.

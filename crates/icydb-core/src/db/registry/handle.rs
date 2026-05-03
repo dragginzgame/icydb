@@ -76,6 +76,16 @@ impl StoreHandle {
         self.index.with_borrow_mut(f)
     }
 
+    /// Borrow the schema store immutably.
+    pub fn with_schema<R>(&self, f: impl FnOnce(&SchemaStore) -> R) -> R {
+        self.schema.with_borrow(f)
+    }
+
+    /// Borrow the schema store mutably.
+    pub fn with_schema_mut<R>(&self, f: impl FnOnce(&mut SchemaStore) -> R) -> R {
+        self.schema.with_borrow_mut(f)
+    }
+
     /// Return the explicit lifecycle state of the bound index store.
     #[must_use]
     pub(in crate::db) fn index_state(&self) -> IndexState {

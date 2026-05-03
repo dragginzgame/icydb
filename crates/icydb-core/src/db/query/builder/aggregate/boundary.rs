@@ -7,7 +7,7 @@
 use crate::{
     db::{
         data::DataKey,
-        query::plan::{AggregateKind, FieldSlot},
+        query::plan::{AggregateKind, FieldSlot, expr::Expr},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue, KeyValueCodec},
@@ -164,10 +164,22 @@ pub(in crate::db) enum ScalarNumericFieldBoundaryRequest {
 
 pub(in crate::db) enum ScalarProjectionBoundaryRequest {
     Values,
+    ProjectedValues {
+        projection: Expr,
+    },
     DistinctValues,
     CountDistinct,
     ValuesWithIds,
-    TerminalValue { terminal_kind: AggregateKind },
+    ProjectedValuesWithIds {
+        projection: Expr,
+    },
+    TerminalValue {
+        terminal_kind: AggregateKind,
+    },
+    ProjectedTerminalValue {
+        terminal_kind: AggregateKind,
+        projection: Expr,
+    },
 }
 
 ///

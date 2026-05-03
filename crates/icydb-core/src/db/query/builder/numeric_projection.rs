@@ -11,7 +11,8 @@ use crate::{
         QueryError,
         query::{
             builder::{
-                ValueProjectionExpr, scalar_projection::render_scalar_projection_expr_plan_label,
+                ScalarProjectionPlan, ValueProjectionExpr,
+                scalar_projection::render_scalar_projection_expr_plan_label,
             },
             plan::expr::{BinaryOp, Expr, FieldId, Function, eval_builder_expr_for_value_preview},
         },
@@ -181,6 +182,10 @@ impl ValueProjectionExpr for NumericProjectionExpr {
         self.field.as_str()
     }
 
+    fn projection_plan(&self) -> ScalarProjectionPlan {
+        ScalarProjectionPlan::new(self.expr.clone())
+    }
+
     fn projection_label(&self) -> String {
         render_scalar_projection_expr_plan_label(&self.expr)
     }
@@ -257,6 +262,10 @@ impl RoundProjectionExpr {
 impl ValueProjectionExpr for RoundProjectionExpr {
     fn field(&self) -> &str {
         self.field.as_str()
+    }
+
+    fn projection_plan(&self) -> ScalarProjectionPlan {
+        ScalarProjectionPlan::new(self.expr.clone())
     }
 
     fn projection_label(&self) -> String {

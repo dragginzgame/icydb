@@ -101,7 +101,7 @@ impl CommitRowOp {
 
 #[derive(Clone, Debug)]
 pub(crate) struct CommitIndexOp {
-    pub(crate) store: &'static LocalKey<RefCell<IndexStore>>,
+    pub(crate) index_store: &'static LocalKey<RefCell<IndexStore>>,
     pub(crate) key: RawIndexKey,
     pub(crate) value: Option<RawIndexEntry>,
     pub(crate) delta_kind: PreparedIndexDeltaKind,
@@ -110,12 +110,12 @@ pub(crate) struct CommitIndexOp {
 impl CommitIndexOp {
     /// Build one index commit op without delta counter attribution.
     pub(crate) const fn unchanged(
-        store: &'static LocalKey<RefCell<IndexStore>>,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
         key: RawIndexKey,
         value: Option<RawIndexEntry>,
     ) -> Self {
         Self {
-            store,
+            index_store,
             key,
             value,
             delta_kind: PreparedIndexDeltaKind::None,
@@ -124,12 +124,12 @@ impl CommitIndexOp {
 
     /// Build one index commit op that contributes to insert counters.
     pub(crate) const fn index_insert(
-        store: &'static LocalKey<RefCell<IndexStore>>,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
         key: RawIndexKey,
         value: Option<RawIndexEntry>,
     ) -> Self {
         Self {
-            store,
+            index_store,
             key,
             value,
             delta_kind: PreparedIndexDeltaKind::IndexInsert,
@@ -138,12 +138,12 @@ impl CommitIndexOp {
 
     /// Build one index commit op that contributes to remove counters.
     pub(crate) const fn index_remove(
-        store: &'static LocalKey<RefCell<IndexStore>>,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
         key: RawIndexKey,
         value: Option<RawIndexEntry>,
     ) -> Self {
         Self {
-            store,
+            index_store,
             key,
             value,
             delta_kind: PreparedIndexDeltaKind::IndexRemove,

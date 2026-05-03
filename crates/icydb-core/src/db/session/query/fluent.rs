@@ -19,7 +19,7 @@ use crate::{
             MinMaxIdBySlotTerminal, NthIdBySlotTerminal, SumBySlotTerminal,
             SumDistinctBySlotTerminal, ValuesBySlotTerminal, ValuesBySlotWithIdsTerminal,
         },
-        query::plan::FieldSlot,
+        query::plan::{FieldSlot, expr::Expr},
     },
     traits::{CanisterKind, EntityValue},
     types::{Decimal, Id},
@@ -318,6 +318,26 @@ impl<C: CanisterKind> DbSession<C> {
         output.into_values().map_err(QueryError::execute)
     }
 
+    // Execute one fluent `project_values(projection)` terminal with the bounded
+    // projection expression carried into the executor projection boundary.
+    pub(in crate::db) fn execute_fluent_project_values_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        target_field: FieldSlot,
+        projection: Expr,
+    ) -> Result<Vec<Value>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let output = self.execute_scalar_projection_boundary(
+            query,
+            target_field,
+            ScalarProjectionBoundaryRequest::ProjectedValues { projection },
+        )?;
+
+        output.into_values().map_err(QueryError::execute)
+    }
+
     // Execute one fluent `distinct_values_by(field)` terminal through its
     // concrete session boundary.
     pub(in crate::db) fn execute_fluent_distinct_values_by_slot<E>(
@@ -368,6 +388,28 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::execute)
     }
 
+    // Execute one fluent `project_values_with_ids(projection)` terminal with
+    // projection fused into executor-side value extraction.
+    pub(in crate::db) fn execute_fluent_project_values_with_ids_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        target_field: FieldSlot,
+        projection: Expr,
+    ) -> Result<Vec<(Id<E>, Value)>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let output = self.execute_scalar_projection_boundary(
+            query,
+            target_field,
+            ScalarProjectionBoundaryRequest::ProjectedValuesWithIds { projection },
+        )?;
+
+        output
+            .into_values_with_ids::<E>()
+            .map_err(QueryError::execute)
+    }
+
     // Execute one fluent `first_value_by(field)` terminal through its concrete
     // session boundary.
     pub(in crate::db) fn execute_fluent_first_value_by_slot<E>(
@@ -396,6 +438,31 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let (target_field, request) = strategy.into_executor_request();
         let output = self.execute_scalar_projection_boundary(query, target_field, request)?;
+
+        output.into_terminal_value().map_err(QueryError::execute)
+    }
+
+    // Execute one fluent first/last projected-value terminal with projection
+    // applied after selected-row resolution but before the value leaves the
+    // executor boundary.
+    pub(in crate::db) fn execute_fluent_project_terminal_value_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        target_field: FieldSlot,
+        terminal_kind: crate::db::query::plan::AggregateKind,
+        projection: Expr,
+    ) -> Result<Option<Value>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let output = self.execute_scalar_projection_boundary(
+            query,
+            target_field,
+            ScalarProjectionBoundaryRequest::ProjectedTerminalValue {
+                terminal_kind,
+                projection,
+            },
+        )?;
 
         output.into_terminal_value().map_err(QueryError::execute)
     }

@@ -15,6 +15,30 @@ use crate::{
 };
 
 ///
+/// ScalarProjectionPlan
+///
+/// Public opaque projection-plan token carried by bounded fluent projection
+/// helpers.
+/// The expression stays private to the query/executor boundary, while the token
+/// lets fluent terminals move projection work below the public terminal layer.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScalarProjectionPlan {
+    expr: Expr,
+}
+
+impl ScalarProjectionPlan {
+    pub(in crate::db) const fn new(expr: Expr) -> Self {
+        Self { expr }
+    }
+
+    pub(in crate::db) fn into_expr(self) -> Expr {
+        self.expr
+    }
+}
+
+///
 /// ValueProjectionExpr
 ///
 /// Shared bounded scalar projection helper contract used by fluent
@@ -26,6 +50,9 @@ use crate::{
 pub trait ValueProjectionExpr {
     /// Borrow the single source field used by this bounded helper.
     fn field(&self) -> &str;
+
+    /// Borrow the canonical planner expression carried by this helper.
+    fn projection_plan(&self) -> ScalarProjectionPlan;
 
     /// Render the stable canonical output label for this projection.
     fn projection_label(&self) -> String;

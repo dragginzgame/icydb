@@ -100,7 +100,7 @@ fn remove_pushdown_row_data(id: u128) {
         .to_raw()
         .expect("pushdown data key should encode");
 
-    DATA_STORE.with(|store| {
+    TEST_DATA_STORE.with(|store| {
         let removed = store.borrow_mut().remove(&raw_key);
         assert!(
             removed.is_some(),
@@ -165,7 +165,7 @@ fn remove_indexed_metrics_row_data(id: u128) {
         .to_raw()
         .expect("indexed-metrics data key should encode");
 
-    DATA_STORE.with(|store| {
+    TEST_DATA_STORE.with(|store| {
         let removed = store.borrow_mut().remove(&raw_key);
         assert!(
             removed.is_some(),

@@ -97,22 +97,22 @@ pub(in crate::db::executor) struct OpenCommitWindow {
 ///
 
 pub(in crate::db::executor) struct IndexStoreGenerationGuard {
-    store: &'static LocalKey<RefCell<IndexStore>>,
+    index_store: &'static LocalKey<RefCell<IndexStore>>,
     expected_generation: u64,
 }
 
 impl IndexStoreGenerationGuard {
     // Capture one index store generation at preflight time.
-    fn capture(store: &'static LocalKey<RefCell<IndexStore>>) -> Self {
+    fn capture(index_store: &'static LocalKey<RefCell<IndexStore>>) -> Self {
         Self {
-            store,
-            expected_generation: store.with_borrow(IndexStore::generation),
+            index_store,
+            expected_generation: index_store.with_borrow(IndexStore::generation),
         }
     }
 
     // Verify one touched index store still matches its preflight generation.
     fn verify(&self) -> Result<(), InternalError> {
-        let observed_generation = self.store.with_borrow(IndexStore::generation);
+        let observed_generation = self.index_store.with_borrow(IndexStore::generation);
         if observed_generation != self.expected_generation {
             return Err(InternalError::mutation_index_store_generation_changed(
                 self.expected_generation,
@@ -122,25 +122,40 @@ impl IndexStoreGenerationGuard {
 
         Ok(())
     }
+}
 
-    // Capture one deduplicated batch of touched index stores after preflight.
-    fn capture_batch(prepared_row_ops: &[PreparedRowCommitOp]) -> Vec<Self> {
-        let mut guards = Vec::<Self>::new();
+///
+/// PreparedRowOpBatch
+///
+/// Streaming preflight output for one commit window.
+/// The batch keeps prepared row operations, generation guards, and delta
+/// metrics together so preflight can produce all apply metadata in one pass.
+///
 
-        for row_op in prepared_row_ops {
-            for index_op in &row_op.index_ops {
-                if guards
-                    .iter()
-                    .any(|existing| ptr::eq(existing.store, index_op.store))
-                {
-                    continue;
-                }
+struct PreparedRowOpBatch {
+    prepared_row_ops: Vec<PreparedRowCommitOp>,
+    index_store_guards: Vec<IndexStoreGenerationGuard>,
+    delta: PreparedRowOpDelta,
+}
 
-                guards.push(Self::capture(index_op.store));
-            }
+impl PreparedRowOpBatch {
+    // Allocate one preflight batch with enough room for the expected row count.
+    fn with_row_capacity(row_count: usize) -> Self {
+        Self {
+            prepared_row_ops: Vec::with_capacity(row_count),
+            index_store_guards: Vec::new(),
+            delta: PreparedRowOpDelta::zero(),
+        }
+    }
+
+    // Add one prepared row op and update all derived apply metadata immediately.
+    fn push(&mut self, row_op: PreparedRowCommitOp) {
+        for index_op in &row_op.index_ops {
+            record_prepared_index_delta(&mut self.delta, index_op);
+            record_index_store_generation_guard(&mut self.index_store_guards, index_op.index_store);
         }
 
-        guards
+        self.prepared_row_ops.push(row_op);
     }
 }
 
@@ -161,26 +176,29 @@ enum SingleRowIndexStoreGuards {
 
 impl SingleRowIndexStoreGuards {
     // Record one unique touched index store under the single-row guard shape.
-    fn record(&mut self, store: &'static LocalKey<RefCell<IndexStore>>) {
+    fn record(&mut self, index_store: &'static LocalKey<RefCell<IndexStore>>) {
         match self {
             Self::Empty => {
-                *self = Self::One(IndexStoreGenerationGuard::capture(store));
+                *self = Self::One(IndexStoreGenerationGuard::capture(index_store));
             }
             Self::One(existing) => {
-                if ptr::eq(existing.store, store) {
+                if ptr::eq(existing.index_store, index_store) {
                     return;
                 }
 
-                let first = IndexStoreGenerationGuard::capture(existing.store);
-                let second = IndexStoreGenerationGuard::capture(store);
+                let first = IndexStoreGenerationGuard::capture(existing.index_store);
+                let second = IndexStoreGenerationGuard::capture(index_store);
                 *self = Self::Many(vec![first, second]);
             }
             Self::Many(guards) => {
-                if guards.iter().any(|existing| ptr::eq(existing.store, store)) {
+                if guards
+                    .iter()
+                    .any(|existing| ptr::eq(existing.index_store, index_store))
+                {
                     return;
                 }
 
-                guards.push(IndexStoreGenerationGuard::capture(store));
+                guards.push(IndexStoreGenerationGuard::capture(index_store));
             }
         }
     }
@@ -241,7 +259,7 @@ impl<'a, C: CanisterKind> PreflightStoreOverlay<'a, C> {
     // Stage one prepared row-op into overlay data/index maps.
     fn stage_prepared_row_op(&mut self, row_op: &PreparedRowCommitOp) {
         for index_op in &row_op.index_ops {
-            let store_id = index_store_id(index_op.store);
+            let store_id = index_store_id(index_op.index_store);
             self.index_overrides
                 .entry(store_id)
                 .or_default()
@@ -297,35 +315,35 @@ impl<E> SealedPrimaryRowReader<E> for PreflightStoreOverlay<'_, E::Canister> whe
 impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C> {
     fn read_index_entry_structural(
         &self,
-        store: &'static LocalKey<RefCell<IndexStore>>,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
         key: &RawIndexKey,
     ) -> Result<Option<RawIndexEntry>, InternalError> {
-        let store_id = index_store_id(store);
+        let store_id = index_store_id(index_store);
         if let Some(store_overrides) = self.index_overrides.get(&store_id)
             && let Some(override_entry) = store_overrides.get(key)
         {
             return Ok(override_entry.clone());
         }
 
-        Ok(store.with_borrow(|index_store| index_store.get(key)))
+        Ok(index_store.with_borrow(|store| store.get(key)))
     }
 
     fn read_index_keys_in_raw_range_structural(
         &self,
         entity_path: &'static str,
         _entity_tag: crate::types::EntityTag,
-        store: &'static LocalKey<RefCell<IndexStore>>,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
         index: &IndexModel,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
         // Phase 1: untouched stores can use the canonical index-store range
         // reader directly instead of materializing one merged entry map first.
-        let store_id = index_store_id(store);
+        let store_id = index_store_id(index_store);
         let Some(store_overrides) = self.index_overrides.get(&store_id) else {
             let mut out = Vec::with_capacity(limit.min(32));
-            store.with_borrow(|index_store| {
-                index_store.visit_raw_entries_in_range(bounds, Direction::Asc, |_, raw_entry| {
+            index_store.with_borrow(|store| {
+                store.visit_raw_entries_in_range(bounds, Direction::Asc, |_, raw_entry| {
                     push_index_entry_storage_keys(index, raw_entry, &mut out, limit, entity_path)
                 })
             })?;
@@ -333,30 +351,83 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
             return Ok(out);
         };
 
-        // Phase 2: staged stores still need one merged view so later row ops
-        // observe earlier preflight effects before marker persistence.
-        let mut effective_entries = store
-            .with_borrow(IndexStore::entries)
-            .into_iter()
-            .filter(|(raw_key, _)| key_within_bounds(raw_key, bounds))
-            .collect::<BTreeMap<RawIndexKey, RawIndexEntry>>();
-
-        for (raw_key, raw_entry) in store_overrides {
-            if !key_within_bounds(raw_key, bounds) {
-                continue;
-            }
-
-            if let Some(raw_entry) = raw_entry {
-                effective_entries.insert(raw_key.clone(), raw_entry.clone());
-            } else {
-                effective_entries.remove(raw_key);
-            }
-        }
-
+        // Phase 2: staged stores stream a sorted merge of committed entries and
+        // staged overrides. Only the small override set is sorted here; the
+        // committed store still streams through its canonical range visitor.
         let mut out = Vec::new();
-        for (_, raw_entry) in effective_entries {
-            if push_index_entry_storage_keys(index, &raw_entry, &mut out, limit, entity_path)? {
-                return Ok(out);
+        let bounded_overrides = store_overrides
+            .iter()
+            .filter(|(raw_key, _)| key_within_bounds(raw_key, bounds))
+            .collect::<BTreeMap<&RawIndexKey, &Option<RawIndexEntry>>>();
+        let mut overrides = bounded_overrides.into_iter().peekable();
+        let mut limit_reached = false;
+
+        index_store.with_borrow(|index_store| {
+            index_store.visit_raw_entries_in_range(bounds, Direction::Asc, |raw_key, raw_entry| {
+                while let Some((override_key, _)) = overrides.peek() {
+                    match (*override_key).cmp(raw_key) {
+                        std::cmp::Ordering::Less => {
+                            let (_, override_entry) = overrides
+                                .next()
+                                .expect("peeked override entry must be present");
+                            if let Some(override_entry) = override_entry
+                                && push_index_entry_storage_keys(
+                                    index,
+                                    override_entry,
+                                    &mut out,
+                                    limit,
+                                    entity_path,
+                                )?
+                            {
+                                limit_reached = true;
+                                return Ok(true);
+                            }
+                        }
+                        std::cmp::Ordering::Equal => {
+                            let (_, override_entry) = overrides
+                                .next()
+                                .expect("peeked override entry must be present");
+                            if let Some(override_entry) = override_entry
+                                && push_index_entry_storage_keys(
+                                    index,
+                                    override_entry,
+                                    &mut out,
+                                    limit,
+                                    entity_path,
+                                )?
+                            {
+                                limit_reached = true;
+                                return Ok(true);
+                            }
+
+                            return Ok(false);
+                        }
+                        std::cmp::Ordering::Greater => break,
+                    }
+                }
+
+                if push_index_entry_storage_keys(index, raw_entry, &mut out, limit, entity_path)? {
+                    limit_reached = true;
+                    return Ok(true);
+                }
+
+                Ok(false)
+            })
+        })?;
+
+        if !limit_reached {
+            for (_, override_entry) in overrides {
+                if let Some(override_entry) = override_entry
+                    && push_index_entry_storage_keys(
+                        index,
+                        override_entry,
+                        &mut out,
+                        limit,
+                        entity_path,
+                    )?
+                {
+                    break;
+                }
             }
         }
 
@@ -372,15 +443,15 @@ where
 {
     fn read_index_entry(
         &self,
-        store: &'static LocalKey<RefCell<IndexStore>>,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
         key: &RawIndexKey,
     ) -> Result<Option<RawIndexEntry>, InternalError> {
-        self.read_index_entry_structural(store, key)
+        self.read_index_entry_structural(index_store, key)
     }
 
     fn read_index_keys_in_raw_range(
         &self,
-        store: &'static LocalKey<RefCell<IndexStore>>,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
         index: &IndexModel,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
@@ -388,7 +459,7 @@ where
         self.read_index_keys_in_raw_range_structural(
             E::PATH,
             E::ENTITY_TAG,
-            store,
+            index_store,
             index,
             bounds,
             limit,
@@ -444,19 +515,34 @@ const fn record_prepared_index_delta(
         .saturating_add(reverse_index_removes);
 }
 
+// Capture one unique index-store guard while preflight streams prepared row
+// operations. This replaces the old post-preflight guard collection pass.
+fn record_index_store_generation_guard(
+    guards: &mut Vec<IndexStoreGenerationGuard>,
+    index_store: &'static LocalKey<RefCell<IndexStore>>,
+) {
+    if guards
+        .iter()
+        .any(|existing| ptr::eq(existing.index_store, index_store))
+    {
+        return;
+    }
+
+    guards.push(IndexStoreGenerationGuard::capture(index_store));
+}
+
 /// Emit index and reverse-index delta metrics with saturated diagnostics counts.
 pub(in crate::db::executor) fn emit_index_delta_metrics<E: EntityKind>(delta: &PreparedRowOpDelta) {
     emit_index_delta_metrics_for_path(E::PATH, delta);
 }
 
-/// Prepare row ops for commit-time apply by simulating sequential execution.
-///
-/// This preflight ensures later row ops are prepared against the state produced
-/// by earlier row ops without mutating real stores before marker persistence.
-pub(in crate::db::executor) fn preflight_prepare_row_ops<E: EntityKind + EntityValue>(
+// Preflight row ops while streaming all apply metadata needed by the commit
+// window. The prepared rows still must be retained until the commit marker is
+// durably opened, but guard and metric derivation no longer need later passes.
+fn preflight_prepare_row_op_batch<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     row_ops: &[CommitRowOp],
-) -> Result<Vec<PreparedRowCommitOp>, InternalError> {
+) -> Result<PreparedRowOpBatch, InternalError> {
     let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
 
     // Single-row writes do not need staged overlay simulation because no later
@@ -471,7 +557,11 @@ pub(in crate::db::executor) fn preflight_prepare_row_ops<E: EntityKind + EntityV
             &context,
             schema_fingerprint,
         )
-        .map(|prepared| vec![prepared]);
+        .map(|prepared| {
+            let mut batch = PreparedRowOpBatch::with_row_capacity(1);
+            batch.push(prepared);
+            batch
+        });
     }
 
     preflight_prepare_row_ops_with_overlay(db, row_ops, |overlay, row_op| {
@@ -485,17 +575,20 @@ pub(in crate::db::executor) fn preflight_prepare_row_ops<E: EntityKind + EntityV
     })
 }
 
-/// Prepare delete row ops for commit-time apply through nongeneric runtime hooks.
-pub(in crate::db::executor) fn preflight_prepare_row_ops_structural<C: CanisterKind>(
+// Structural preflight variant used by nongeneric delete paths. It shares the
+// same streaming batch accumulator as the typed save/delete path.
+fn preflight_prepare_row_op_batch_structural<C: CanisterKind>(
     db: &Db<C>,
     row_ops: &[CommitRowOp],
-) -> Result<Vec<PreparedRowCommitOp>, InternalError> {
+) -> Result<PreparedRowOpBatch, InternalError> {
     // The structural runtime-hook path can also bypass overlay simulation for
     // one-row commits because there is no staged cross-row state to read.
     if let [row_op] = row_ops {
-        return db
-            .prepare_row_commit_op(row_op)
-            .map(|prepared| vec![prepared]);
+        return db.prepare_row_commit_op(row_op).map(|prepared| {
+            let mut batch = PreparedRowOpBatch::with_row_capacity(1);
+            batch.push(prepared);
+            batch
+        });
     }
 
     preflight_prepare_row_ops_with_overlay(db, row_ops, |overlay, row_op| {
@@ -513,17 +606,17 @@ fn preflight_prepare_row_ops_with_overlay<C: CanisterKind>(
         &PreflightStoreOverlay<'_, C>,
         &CommitRowOp,
     ) -> Result<PreparedRowCommitOp, InternalError>,
-) -> Result<Vec<PreparedRowCommitOp>, InternalError> {
-    let mut prepared = Vec::with_capacity(row_ops.len());
+) -> Result<PreparedRowOpBatch, InternalError> {
+    let mut batch = PreparedRowOpBatch::with_row_capacity(row_ops.len());
     let mut overlay = PreflightStoreOverlay::<C>::with_row_capacity(db, row_ops.len());
 
     for row_op in row_ops {
         let row = prepare_one(&overlay, row_op)?;
         overlay.stage_prepared_row_op(&row);
-        prepared.push(row);
+        batch.push(row);
     }
 
-    Ok(prepared)
+    Ok(batch)
 }
 
 /// Preflight row ops, build marker, and persist the commit window.
@@ -534,9 +627,11 @@ pub(in crate::db::executor) fn open_commit_window<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     row_ops: Vec<CommitRowOp>,
 ) -> Result<OpenCommitWindow, InternalError> {
-    let prepared_row_ops = preflight_prepare_row_ops::<E>(db, &row_ops)?;
-    let index_store_guards = IndexStoreGenerationGuard::capture_batch(&prepared_row_ops);
-    let delta = summarize_prepared_row_ops(&prepared_row_ops);
+    let PreparedRowOpBatch {
+        prepared_row_ops,
+        index_store_guards,
+        delta,
+    } = preflight_prepare_row_op_batch::<E>(db, &row_ops)?;
     let marker = CommitMarker::new(row_ops)?;
     let commit = begin_commit(marker)?;
 
@@ -553,9 +648,11 @@ pub(in crate::db::executor) fn open_commit_window_structural<C: CanisterKind>(
     db: &Db<C>,
     row_ops: Vec<CommitRowOp>,
 ) -> Result<OpenCommitWindow, InternalError> {
-    let prepared_row_ops = preflight_prepare_row_ops_structural(db, &row_ops)?;
-    let index_store_guards = IndexStoreGenerationGuard::capture_batch(&prepared_row_ops);
-    let delta = summarize_prepared_row_ops(&prepared_row_ops);
+    let PreparedRowOpBatch {
+        prepared_row_ops,
+        index_store_guards,
+        delta,
+    } = preflight_prepare_row_op_batch_structural(db, &row_ops)?;
     let marker = CommitMarker::new(row_ops)?;
     let commit = begin_commit(marker)?;
 
@@ -933,26 +1030,10 @@ fn prepare_single_row_apply(prepared_row_op: &PreparedRowCommitOp) -> SingleRowA
 
     for index_op in &prepared_row_op.index_ops {
         record_prepared_index_delta(&mut delta, index_op);
-        guards.record(index_op.store);
+        guards.record(index_op.index_store);
     }
 
     SingleRowApplyPrep { guards, delta }
-}
-
-/// Aggregate index and reverse-index deltas across prepared row operations.
-#[must_use]
-pub(in crate::db::executor) fn summarize_prepared_row_ops(
-    prepared_row_ops: &[PreparedRowCommitOp],
-) -> PreparedRowOpDelta {
-    let mut summary = PreparedRowOpDelta::zero();
-
-    for row_op in prepared_row_ops {
-        for index_op in &row_op.index_ops {
-            record_prepared_index_delta(&mut summary, index_op);
-        }
-    }
-
-    summary
 }
 
 /// Resolve the exact registered store pairs that one prepared-op batch
@@ -977,7 +1058,7 @@ pub(in crate::db::executor) fn synchronized_store_handles_for_prepared_row_ops<C
                     && row_op
                         .index_ops
                         .iter()
-                        .any(|index_op| ptr::eq(handle.index_store(), index_op.store))
+                        .any(|index_op| ptr::eq(handle.index_store(), index_op.index_store))
             })
         })
         .collect()
@@ -991,8 +1072,8 @@ fn mark_store_handles_index_ready(handles: &[StoreHandle]) {
     }
 }
 
-fn index_store_id(store: &'static LocalKey<RefCell<IndexStore>>) -> usize {
-    std::ptr::from_ref::<LocalKey<RefCell<IndexStore>>>(store) as usize
+fn index_store_id(index_store: &'static LocalKey<RefCell<IndexStore>>) -> usize {
+    std::ptr::from_ref::<LocalKey<RefCell<IndexStore>>>(index_store) as usize
 }
 
 fn emit_index_delta_metrics_for_path(entity_path: &'static str, delta: &PreparedRowOpDelta) {

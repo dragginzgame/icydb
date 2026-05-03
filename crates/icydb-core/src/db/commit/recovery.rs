@@ -29,6 +29,7 @@ use crate::{
             },
         },
         diagnostics::integrity_report_after_recovery,
+        schema::reconcile_runtime_schemas,
     },
     error::{ErrorOrigin, InternalError},
     traits::CanisterKind,
@@ -56,19 +57,23 @@ pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
 
     if RECOVERED.get().is_none() {
-        return perform_recovery(db);
+        perform_recovery(db)?;
+
+        return ensure_schema_reconciled(db);
     }
 
     if !commit_marker_may_be_present() {
-        return Ok(());
+        return ensure_schema_reconciled(db);
     }
 
     if commit_marker_present_fast().map_err(|err| err.with_origin(ErrorOrigin::Recovery))? {
-        return perform_recovery(db);
+        perform_recovery(db)?;
+
+        return ensure_schema_reconciled(db);
     }
     mark_commit_marker_verified_absent();
 
-    Ok(())
+    ensure_schema_reconciled(db)
 }
 
 fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
@@ -102,6 +107,19 @@ fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
     let _ = RECOVERED.set(());
 
     Ok(())
+}
+
+// Reconcile generated entity metadata with the schema store once per generated
+// store registry. This keeps the fast recovery path cheap while still allowing
+// independent test registries and canister domains to initialize their own
+// schema metadata.
+fn ensure_schema_reconciled<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
+    if !db.has_runtime_hooks() {
+        return Ok(());
+    }
+
+    reconcile_runtime_schemas(db, db.entity_runtime_hooks)
+        .map_err(|err| err.with_origin(ErrorOrigin::Recovery))
 }
 // Fail closed if recovery leaves any index/data divergence findings.
 fn validate_recovery_integrity<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {

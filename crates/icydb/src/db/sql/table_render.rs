@@ -37,6 +37,9 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
         .map(|field| {
             vec![
                 field.name().to_string(),
+                field
+                    .slot()
+                    .map_or_else(|| "-".to_string(), |slot| slot.to_string()),
                 field.kind().to_string(),
                 if field.primary_key() {
                     "yes".to_string()
@@ -55,6 +58,7 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
         &mut lines,
         &[
             "name".to_string(),
+            "slot".to_string(),
             "type".to_string(),
             "pk".to_string(),
             "queryable".to_string(),
@@ -191,9 +195,12 @@ pub fn render_show_columns_lines(entity: &str, columns: &[EntityFieldDescription
     )];
     lines.extend(columns.iter().map(|column| {
         format!(
-            "{}: {} (primary_key={}, queryable={})",
+            "{}: {} (slot={}, primary_key={}, queryable={})",
             column.name(),
             column.kind(),
+            column
+                .slot()
+                .map_or_else(|| "-".to_string(), |slot| slot.to_string()),
             column.primary_key(),
             column.queryable(),
         )

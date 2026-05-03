@@ -18,9 +18,14 @@ pub(in crate::db) struct FieldId(u32);
 impl FieldId {
     /// Build one field ID from a trusted persisted value.
     #[must_use]
-    #[cfg(test)]
     pub(in crate::db) const fn new(raw: u32) -> Self {
         Self(raw)
+    }
+
+    /// Return the raw persisted field identity.
+    #[must_use]
+    pub(in crate::db) const fn get(self) -> u32 {
+        self.0
     }
 
     /// Assign the initial schema ID for a generated field slot.

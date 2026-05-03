@@ -47,23 +47,14 @@ pub(in crate::db::executor::planning::route) fn aggregate_probe_fetch_hint(
     aggregate_probe_window_fetch_hint(kind, direction, access_window)
 }
 
-pub(in crate::db::executor::planning::route) fn aggregate_seek_spec(
-    plan: &AccessPlannedQuery,
+/// Build an aggregate seek spec from the already-derived bounded probe fetch.
+pub(in crate::db::executor::planning::route) fn aggregate_seek_spec_from_probe_fetch(
     aggregate: AggregateRouteShape<'_>,
     direction: Direction,
-    desc_physical_reverse_supported: bool,
-    capabilities: RouteCapabilities,
-    access_window: AccessWindow,
+    probe_fetch_hint: Option<usize>,
 ) -> Option<AggregateSeekSpec> {
     aggregate.kind().is_extrema().then_some(())?;
-    let fetch = aggregate_probe_fetch_hint(
-        plan,
-        aggregate,
-        direction,
-        desc_physical_reverse_supported,
-        capabilities,
-        access_window,
-    )?;
+    let fetch = probe_fetch_hint?;
 
     Some(match direction {
         Direction::Asc => AggregateSeekSpec::First { fetch },

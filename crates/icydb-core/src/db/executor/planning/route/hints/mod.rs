@@ -7,7 +7,7 @@ mod aggregate;
 mod load;
 
 pub(in crate::db::executor::planning::route) use aggregate::{
-    aggregate_probe_fetch_hint, aggregate_seek_spec, count_pushdown_fetch_hint,
+    aggregate_probe_fetch_hint, aggregate_seek_spec_from_probe_fetch, count_pushdown_fetch_hint,
 };
 pub(in crate::db::executor) use load::widened_residual_filter_predicate_pushdown_fetch;
 pub(in crate::db::executor::planning::route) use load::{

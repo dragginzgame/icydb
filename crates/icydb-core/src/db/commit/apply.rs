@@ -8,7 +8,7 @@ use crate::db::commit::{PreparedIndexMutation, PreparedRowCommitOp};
 impl PreparedIndexMutation {
     /// Apply one precomputed index mutation infallibly.
     pub(crate) fn apply(self) {
-        self.store.with_borrow_mut(|store| {
+        self.index_store.with_borrow_mut(|store| {
             if let Some(value) = self.value {
                 store.insert(self.key, value);
             } else {

@@ -4,8 +4,11 @@
 //! Boundary: projects `EntityModel`/`FieldKind` into stable describe surfaces.
 
 use crate::{
-    db::relation::{
-        RelationDescriptor, RelationDescriptorCardinality, relation_descriptors_for_model_iter,
+    db::{
+        relation::{
+            RelationDescriptor, RelationDescriptorCardinality, relation_descriptors_for_model_iter,
+        },
+        schema::PersistedSchemaSnapshot,
     },
     model::{
         entity::EntityModel,
@@ -14,7 +17,7 @@ use crate::{
 };
 use candid::CandidType;
 use serde::Deserialize;
-use std::fmt::Write;
+use std::{collections::BTreeMap, fmt::Write};
 
 #[cfg_attr(
     doc,
@@ -95,6 +98,7 @@ impl EntitySchemaDescription {
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct EntityFieldDescription {
     pub(crate) name: String,
+    pub(crate) slot: Option<u16>,
     pub(crate) kind: String,
     pub(crate) primary_key: bool,
     pub(crate) queryable: bool,
@@ -103,9 +107,16 @@ pub struct EntityFieldDescription {
 impl EntityFieldDescription {
     /// Construct one field description entry.
     #[must_use]
-    pub const fn new(name: String, kind: String, primary_key: bool, queryable: bool) -> Self {
+    pub const fn new(
+        name: String,
+        slot: Option<u16>,
+        kind: String,
+        primary_key: bool,
+        queryable: bool,
+    ) -> Self {
         Self {
             name,
+            slot,
             kind,
             primary_key,
             queryable,
@@ -116,6 +127,12 @@ impl EntityFieldDescription {
     #[must_use]
     pub const fn name(&self) -> &str {
         self.name.as_str()
+    }
+
+    /// Return the physical row slot for top-level fields.
+    #[must_use]
+    pub const fn slot(&self) -> Option<u16> {
+        self.slot
     }
 
     /// Borrow the rendered field kind label.
@@ -275,6 +292,31 @@ pub enum EntityRelationCardinality {
 #[must_use]
 pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaDescription {
     let fields = describe_entity_fields(model);
+
+    describe_entity_model_with_fields(model, fields)
+}
+
+#[cfg_attr(
+    doc,
+    doc = "Build one entity-schema description using accepted persisted schema slot metadata."
+)]
+#[must_use]
+pub(in crate::db) fn describe_entity_model_with_persisted_schema(
+    model: &EntityModel,
+    schema: &PersistedSchemaSnapshot,
+) -> EntitySchemaDescription {
+    let fields = describe_entity_fields_with_persisted_schema(model, schema);
+
+    describe_entity_model_with_fields(model, fields)
+}
+
+// Assemble the common DESCRIBE payload once field rows have already been built.
+// This keeps live-schema slot overlays local to field description while index
+// and relation description remain generated-model owned for this phase.
+fn describe_entity_model_with_fields(
+    model: &EntityModel,
+    fields: Vec<EntityFieldDescription>,
+) -> EntitySchemaDescription {
     let relations = relation_descriptors_for_model_iter(model)
         .map(relation_description_from_descriptor)
         .collect();
@@ -307,11 +349,50 @@ pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaD
 // relations through the heavier DESCRIBE payload path.
 #[must_use]
 pub(in crate::db) fn describe_entity_fields(model: &EntityModel) -> Vec<EntityFieldDescription> {
+    describe_entity_fields_with_slot_lookup(model, |slot, _field| {
+        Some(u16::try_from(slot).expect("generated field slot should fit in u16"))
+    })
+}
+
+#[cfg_attr(
+    doc,
+    doc = "Build field descriptors using accepted persisted schema slot metadata."
+)]
+#[must_use]
+pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
+    model: &EntityModel,
+    schema: &PersistedSchemaSnapshot,
+) -> Vec<EntityFieldDescription> {
+    let slots_by_name = schema
+        .fields()
+        .iter()
+        .map(|field| (field.name(), field.slot().get()))
+        .collect::<BTreeMap<_, _>>();
+
+    describe_entity_fields_with_slot_lookup(model, |_slot, field| {
+        slots_by_name.get(field.name()).copied()
+    })
+}
+
+// Build field descriptors with an injected top-level slot lookup. Generated
+// model introspection uses generated positions; live-schema introspection uses
+// accepted persisted row layout metadata while preserving nested-field behavior.
+fn describe_entity_fields_with_slot_lookup(
+    model: &EntityModel,
+    mut slot_for_field: impl FnMut(usize, &FieldModel) -> Option<u16>,
+) -> Vec<EntityFieldDescription> {
     let mut fields = Vec::with_capacity(model.fields.len());
 
-    for field in model.fields {
+    for (slot, field) in model.fields.iter().enumerate() {
         let primary_key = field.name == model.primary_key.name;
-        describe_field_recursive(&mut fields, field.name, field, primary_key, None);
+        describe_field_recursive(
+            &mut fields,
+            field.name,
+            slot_for_field(slot, field),
+            field,
+            primary_key,
+            None,
+        );
     }
 
     fields
@@ -323,6 +404,7 @@ pub(in crate::db) fn describe_entity_fields(model: &EntityModel) -> Vec<EntityFi
 fn describe_field_recursive(
     fields: &mut Vec<EntityFieldDescription>,
     name: &str,
+    slot: Option<u16>,
     field: &FieldModel,
     primary_key: bool,
     tree_prefix: Option<&'static str>,
@@ -340,6 +422,7 @@ fn describe_field_recursive(
 
     fields.push(EntityFieldDescription::new(
         display_name,
+        slot,
         field_kind,
         primary_key,
         queryable,
@@ -352,7 +435,7 @@ fn describe_field_recursive(
         } else {
             "├─ "
         };
-        describe_field_recursive(fields, nested.name(), nested, false, Some(prefix));
+        describe_field_recursive(fields, nested.name(), None, nested, false, Some(prefix));
     }
 }
 
@@ -586,7 +669,7 @@ mod tests {
     fn entity_field_description_candid_shape_is_stable() {
         let fields = expect_record_fields(EntityFieldDescription::ty());
 
-        for field in ["name", "kind", "primary_key", "queryable"] {
+        for field in ["name", "slot", "kind", "primary_key", "queryable"] {
             assert!(
                 fields.iter().any(|candidate| candidate == field),
                 "EntityFieldDescription must keep `{field}` field key",
@@ -650,6 +733,7 @@ mod tests {
             "id".to_string(),
             vec![EntityFieldDescription::new(
                 "id".to_string(),
+                Some(0),
                 "ulid".to_string(),
                 true,
                 true,
@@ -769,17 +853,17 @@ mod tests {
         let described_fields = described
             .fields()
             .iter()
-            .map(|field| (field.name(), field.kind(), field.queryable()))
+            .map(|field| (field.name(), field.slot(), field.kind(), field.queryable()))
             .collect::<Vec<_>>();
 
         assert_eq!(
             described_fields,
             vec![
-                ("id", "ulid", true),
-                ("mentor", "structured", false),
-                ("├─ name", "text", true),
-                ("├─ level", "uint", true),
-                ("└─ pid", "principal", true),
+                ("id", Some(0), "ulid", true),
+                ("mentor", Some(1), "structured", false),
+                ("├─ name", None, "text", true),
+                ("├─ level", None, "uint", true),
+                ("└─ pid", None, "principal", true),
             ],
         );
     }

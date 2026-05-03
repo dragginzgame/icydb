@@ -19,7 +19,7 @@ use std::{cell::RefCell, thread::LocalKey};
 
 #[derive(Clone)]
 pub(crate) struct PreparedIndexMutation {
-    pub(crate) store: &'static LocalKey<RefCell<IndexStore>>,
+    pub(crate) index_store: &'static LocalKey<RefCell<IndexStore>>,
     pub(crate) key: RawIndexKey,
     pub(crate) value: Option<RawIndexEntry>,
     pub(crate) delta_kind: PreparedIndexDeltaKind,
@@ -28,7 +28,7 @@ pub(crate) struct PreparedIndexMutation {
 impl From<CommitIndexOp> for PreparedIndexMutation {
     fn from(value: CommitIndexOp) -> Self {
         Self {
-            store: value.store,
+            index_store: value.index_store,
             key: value.key,
             value: value.value,
             delta_kind: value.delta_kind,
@@ -39,12 +39,12 @@ impl From<CommitIndexOp> for PreparedIndexMutation {
 impl PreparedIndexMutation {
     /// Build one rollback index mutation without delta counter attribution.
     pub(crate) const fn rollback_snapshot(
-        store: &'static LocalKey<RefCell<IndexStore>>,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
         key: RawIndexKey,
         value: Option<RawIndexEntry>,
     ) -> Self {
         Self {
-            store,
+            index_store,
             key,
             value,
             delta_kind: PreparedIndexDeltaKind::None,
@@ -53,14 +53,14 @@ impl PreparedIndexMutation {
 
     /// Build one reverse-index mutation with derived delta attribution.
     pub(crate) const fn from_reverse_index_membership(
-        store: &'static LocalKey<RefCell<IndexStore>>,
+        index_store: &'static LocalKey<RefCell<IndexStore>>,
         key: RawIndexKey,
         value: Option<RawIndexEntry>,
         old_contains: bool,
         new_contains: bool,
     ) -> Self {
         Self {
-            store,
+            index_store,
             key,
             value,
             delta_kind: PreparedIndexDeltaKind::from_reverse_index_membership(

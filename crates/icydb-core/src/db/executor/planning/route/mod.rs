@@ -40,9 +40,9 @@ pub(in crate::db::executor) use fast_path::verify_pk_stream_fast_path_access;
 pub(in crate::db::executor) use guard::*;
 pub(in crate::db::executor) use hints::widened_residual_filter_predicate_pushdown_fetch;
 use hints::{
-    aggregate_probe_fetch_hint, aggregate_seek_spec, assess_index_range_limit_pushdown_for_model,
-    bounded_probe_hint_is_safe, count_pushdown_fetch_hint, load_scan_budget_hint,
-    top_n_seek_spec_for_model,
+    aggregate_probe_fetch_hint, aggregate_seek_spec_from_probe_fetch,
+    assess_index_range_limit_pushdown_for_model, bounded_probe_hint_is_safe,
+    count_pushdown_fetch_hint, load_scan_budget_hint, top_n_seek_spec_for_model,
 };
 use mode::{aggregate_non_count_streaming_allowed, load_streaming_allowed};
 use mode::{derive_aggregate_route_direction, derive_load_route_direction};

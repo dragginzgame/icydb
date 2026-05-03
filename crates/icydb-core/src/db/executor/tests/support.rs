@@ -142,15 +142,20 @@ impl crate::traits::StoreKind for TestDataStore {
 }
 
 thread_local! {
-    pub(in crate::db::executor::tests) static DATA_STORE: RefCell<DataStore> =
+    pub(in crate::db::executor::tests) static TEST_DATA_STORE: RefCell<DataStore> =
         RefCell::new(DataStore::init(test_memory(0)));
-    pub(in crate::db::executor::tests) static INDEX_STORE: RefCell<IndexStore> =
+    pub(in crate::db::executor::tests) static TEST_INDEX_STORE: RefCell<IndexStore> =
         RefCell::new(IndexStore::init(test_memory(1)));
-    pub(in crate::db::executor::tests) static SCHEMA_STORE: RefCell<SchemaStore> =
+    pub(in crate::db::executor::tests) static TEST_SCHEMA_STORE: RefCell<SchemaStore> =
         RefCell::new(SchemaStore::init(test_memory(2)));
     pub(in crate::db::executor::tests) static STORE_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
-        reg.register_store(TestDataStore::PATH, &DATA_STORE, &INDEX_STORE, &SCHEMA_STORE)
+        reg.register_store(
+            TestDataStore::PATH,
+            &TEST_DATA_STORE,
+            &TEST_INDEX_STORE,
+            &TEST_SCHEMA_STORE,
+        )
             .expect("test store registration should succeed");
         reg
     };
@@ -384,8 +389,8 @@ impl crate::traits::EntityValue for PhaseEntity {
 pub(in crate::db::executor::tests) fn reset_store() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     ensure_recovered(&DB).expect("write-side recovery should succeed");
-    DATA_STORE.with(|store| store.borrow_mut().clear());
-    INDEX_STORE.with(|store| store.borrow_mut().clear());
+    TEST_DATA_STORE.with(|store| store.borrow_mut().clear());
+    TEST_INDEX_STORE.with(|store| store.borrow_mut().clear());
 }
 
 // RelationTestCanister
@@ -425,9 +430,9 @@ impl crate::traits::StoreKind for RelationTargetStore {
 }
 
 thread_local! {
-    pub(in crate::db::executor::tests) static REL_SOURCE_STORE: RefCell<DataStore> =
+    pub(in crate::db::executor::tests) static REL_SOURCE_DATA_STORE: RefCell<DataStore> =
         RefCell::new(DataStore::init(test_memory(40)));
-    pub(in crate::db::executor::tests) static REL_TARGET_STORE: RefCell<DataStore> =
+    pub(in crate::db::executor::tests) static REL_TARGET_DATA_STORE: RefCell<DataStore> =
         RefCell::new(DataStore::init(test_memory(41)));
     pub(in crate::db::executor::tests) static REL_SOURCE_INDEX_STORE: RefCell<IndexStore> =
         RefCell::new(IndexStore::init(test_memory(42)));
@@ -441,14 +446,14 @@ thread_local! {
         let mut reg = StoreRegistry::new();
         reg.register_store(
             RelationSourceStore::PATH,
-            &REL_SOURCE_STORE,
+            &REL_SOURCE_DATA_STORE,
             &REL_SOURCE_INDEX_STORE,
             &REL_SOURCE_SCHEMA_STORE,
         )
         .expect("relation source store registration should succeed");
         reg.register_store(
             RelationTargetStore::PATH,
-            &REL_TARGET_STORE,
+            &REL_TARGET_DATA_STORE,
             &REL_TARGET_INDEX_STORE,
             &REL_TARGET_SCHEMA_STORE,
         )
