@@ -5,7 +5,7 @@ use crate::{
             expr::{FieldId, FieldPath, NumericSubtype, type_inference::ExprType},
             validate::ExprPlanError,
         },
-        schema::SchemaInfo,
+        schema::{FieldType, ScalarType, SchemaInfo},
     },
     model::{
         FieldKindCategory, FieldKindNumericClass, FieldKindScalarClass, classify_field_kind,
@@ -14,23 +14,16 @@ use crate::{
     value::Value,
 };
 
-pub(super) fn resolve_expr_field_kind<'a>(
-    field_name: &str,
-    schema: &'a SchemaInfo,
-) -> Result<&'a FieldKind, PlanError> {
-    schema
-        .field_kind(field_name)
-        .ok_or_else(|| PlanError::from(ExprPlanError::unknown_expr_field(field_name)))
-}
-
 pub(super) fn infer_field_expr_type(
     field: &FieldId,
     schema: &SchemaInfo,
 ) -> Result<ExprType, PlanError> {
     let field_name = field.as_str();
-    let field_kind = resolve_expr_field_kind(field_name, schema)?;
+    let field_type = schema
+        .field(field_name)
+        .ok_or_else(|| PlanError::from(ExprPlanError::unknown_expr_field(field_name)))?;
 
-    Ok(expr_type_from_field_kind(field_kind))
+    Ok(expr_type_from_field_type(field_type))
 }
 
 pub(super) fn infer_field_path_expr_type(
@@ -157,6 +150,38 @@ pub(super) const fn expr_type_from_field_kind(kind: &FieldKind) -> ExprType {
         )
         | FieldKindCategory::Relation(
             FieldKindScalarClass::OrderedOpaque | FieldKindScalarClass::Opaque,
+        ) => ExprType::Opaque,
+    }
+}
+
+pub(super) const fn expr_type_from_field_type(field_type: &FieldType) -> ExprType {
+    match field_type {
+        FieldType::Scalar(ScalarType::Blob) => ExprType::Blob,
+        FieldType::Scalar(ScalarType::Bool) => ExprType::Bool,
+        FieldType::Scalar(
+            ScalarType::Duration
+            | ScalarType::Int
+            | ScalarType::Int128
+            | ScalarType::IntBig
+            | ScalarType::Timestamp
+            | ScalarType::Uint
+            | ScalarType::Uint128
+            | ScalarType::UintBig,
+        ) => ExprType::Numeric(NumericSubtype::Integer),
+        FieldType::Scalar(ScalarType::Float32 | ScalarType::Float64) => {
+            ExprType::Numeric(NumericSubtype::Float)
+        }
+        FieldType::Scalar(ScalarType::Decimal) => ExprType::Numeric(NumericSubtype::Decimal),
+        FieldType::Scalar(ScalarType::Enum | ScalarType::Text) => ExprType::Text,
+        FieldType::List(_) | FieldType::Set(_) | FieldType::Map { .. } => ExprType::Collection,
+        FieldType::Structured { .. } => ExprType::Structured,
+        FieldType::Scalar(
+            ScalarType::Account
+            | ScalarType::Date
+            | ScalarType::Principal
+            | ScalarType::Subaccount
+            | ScalarType::Ulid
+            | ScalarType::Unit,
         ) => ExprType::Opaque,
     }
 }

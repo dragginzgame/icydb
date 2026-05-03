@@ -5,16 +5,12 @@ use crate::{
             AggregateKind, PlanError,
             expr::{
                 BinaryOp, Expr, NumericSubtype,
-                type_inference::{
-                    ExprType, infer_expr_type,
-                    source::{render_field_path, resolve_expr_field_kind},
-                },
+                type_inference::{ExprType, infer_expr_type, source::render_field_path},
             },
             validate::ExprPlanError,
         },
     },
     db::schema::SchemaInfo,
-    model::classify_field_kind,
 };
 
 pub(super) fn infer_aggregate_expr_type(
@@ -48,16 +44,15 @@ fn infer_sum_aggregate_type(
 
     let inferred = infer_expr_type(input_expr, schema)?;
 
-    match input_expr {
-        Expr::Field(field) => {
-            let field_kind = resolve_expr_field_kind(field.as_str(), schema)?;
-            if !classify_field_kind(field_kind).supports_expr_numeric() {
-                return Err(PlanError::from(
-                    ExprPlanError::non_numeric_aggregate_target(aggregate_name, field.as_str()),
-                ));
-            }
+    match (input_expr, &inferred) {
+        (Expr::Field(_), ExprType::Numeric(_)) => {}
+        (Expr::Field(field), _) => {
+            return Err(PlanError::from(
+                ExprPlanError::non_numeric_aggregate_target(aggregate_name, field.as_str()),
+            ));
         }
-        _ if !matches!(inferred, ExprType::Numeric(_)) => {
+        (_, ExprType::Numeric(_)) => {}
+        _ => {
             return Err(PlanError::from(
                 ExprPlanError::non_numeric_aggregate_target(
                     aggregate_name,
@@ -65,7 +60,6 @@ fn infer_sum_aggregate_type(
                 ),
             ));
         }
-        _ => {}
     }
 
     Ok(inferred)

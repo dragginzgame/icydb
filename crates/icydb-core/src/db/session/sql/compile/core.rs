@@ -10,6 +10,7 @@ use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
         executor::EntityAuthority,
+        schema::SchemaInfo,
         session::sql::{
             CompiledSqlCommand, SqlCompiledCommandSurface,
             compile::{SqlCompileArtifacts, SqlCompilePhaseAttribution, SqlQueryShape},
@@ -17,8 +18,8 @@ use crate::{
         },
         sql::{
             lowering::{
-                PreparedSqlStatement, bind_lowered_sql_delete_query_structural,
-                bind_lowered_sql_select_query_structural,
+                PreparedSqlStatement, bind_lowered_sql_delete_query_structural_with_schema,
+                bind_lowered_sql_select_query_structural_with_schema,
                 compile_sql_global_aggregate_command_core_from_prepared,
                 extract_prepared_sql_insert_statement, extract_prepared_sql_update_statement,
                 lower_prepared_sql_delete_statement, lower_prepared_sql_select_statement,
@@ -37,12 +38,13 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_sql_statement_core(
         statement: &SqlStatement,
         authority: EntityAuthority,
+        schema: &SchemaInfo,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         let model = authority.model();
 
         match statement {
-            SqlStatement::Select(_) => Self::compile_select(statement, model),
-            SqlStatement::Delete(_) => Self::compile_delete(statement, model),
+            SqlStatement::Select(_) => Self::compile_select(statement, model, schema),
+            SqlStatement::Delete(_) => Self::compile_delete(statement, model, schema),
             SqlStatement::Insert(_) => Self::compile_insert(statement, model),
             SqlStatement::Update(_) => Self::compile_update(statement, model),
             SqlStatement::Explain(_) => Self::compile_explain(statement, model),
@@ -71,6 +73,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_select(
         statement: &SqlStatement,
         model: &'static EntityModel,
+        schema: &SchemaInfo,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         let (prepare_local_instructions, prepared) =
             Self::prepare_statement_for_model(statement, model)?;
@@ -88,6 +91,7 @@ impl<C: CanisterKind> DbSession<C> {
             Self::compile_select_non_aggregate(
                 prepared,
                 model,
+                schema,
                 aggregate_lane_check_local_instructions,
                 prepare_local_instructions,
             )
@@ -131,6 +135,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_select_non_aggregate(
         prepared: PreparedSqlStatement,
         model: &'static EntityModel,
+        schema: &SchemaInfo,
         aggregate_lane_check_local_instructions: u64,
         prepare_local_instructions: u64,
     ) -> Result<SqlCompileArtifacts, QueryError> {
@@ -139,8 +144,13 @@ impl<C: CanisterKind> DbSession<C> {
                 .map_err(QueryError::from_sql_lowering_error)
         })?;
         let (bind_local_instructions, query) = measured(|| {
-            bind_lowered_sql_select_query_structural(model, select, MissingRowPolicy::Ignore)
-                .map_err(QueryError::from_sql_lowering_error)
+            bind_lowered_sql_select_query_structural_with_schema(
+                model,
+                select,
+                MissingRowPolicy::Ignore,
+                schema,
+            )
+            .map_err(QueryError::from_sql_lowering_error)
         })?;
 
         Ok(SqlCompileArtifacts::new(
@@ -160,6 +170,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_delete(
         statement: &SqlStatement,
         model: &'static EntityModel,
+        schema: &SchemaInfo,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         let (prepare_local_instructions, prepared) =
             Self::prepare_statement_for_model(statement, model)?;
@@ -170,10 +181,11 @@ impl<C: CanisterKind> DbSession<C> {
         let returning = delete.returning().cloned();
         let query = delete.into_base_query();
         let (bind_local_instructions, query) = measured(|| {
-            Ok(bind_lowered_sql_delete_query_structural(
+            Ok(bind_lowered_sql_delete_query_structural_with_schema(
                 model,
                 query,
                 MissingRowPolicy::Ignore,
+                schema,
             ))
         })?;
 
@@ -340,10 +352,11 @@ impl<C: CanisterKind> DbSession<C> {
         statement: &SqlStatement,
         surface: SqlCompiledCommandSurface,
         authority: EntityAuthority,
+        schema: &SchemaInfo,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         Self::ensure_sql_statement_supported_for_surface(statement, surface)?;
 
-        Self::compile_sql_statement_core(statement, authority)
+        Self::compile_sql_statement_core(statement, authority, schema)
     }
 
     // Wrap the complete compile entrypoint with the attribution shape used by
@@ -353,8 +366,9 @@ impl<C: CanisterKind> DbSession<C> {
         statement: &SqlStatement,
         surface: SqlCompiledCommandSurface,
         authority: EntityAuthority,
+        schema: &SchemaInfo,
     ) -> Result<(SqlCompileArtifacts, SqlCompilePhaseAttribution), QueryError> {
-        let artifacts = Self::compile_sql_statement_entry(statement, surface, authority)?;
+        let artifacts = Self::compile_sql_statement_entry(statement, surface, authority, schema)?;
         debug_assert!(
             !artifacts.shape.is_aggregate || artifacts.bind == 0,
             "aggregate SQL artifacts must not report scalar bind work"

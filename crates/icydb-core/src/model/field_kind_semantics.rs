@@ -64,12 +64,6 @@ pub(crate) enum FieldKindCategory {
 }
 
 impl FieldKindCategory {
-    /// Return true when this category participates in planner arithmetic.
-    #[must_use]
-    pub(crate) const fn supports_expr_numeric(self) -> bool {
-        matches!(self, Self::Scalar(FieldKindScalarClass::Numeric(_)))
-    }
-
     /// Return true when this category participates in numeric aggregates.
     #[must_use]
     pub(crate) const fn supports_aggregate_numeric(self) -> bool {
@@ -133,12 +127,6 @@ impl FieldKindSemantics {
     #[must_use]
     pub(crate) const fn category(self) -> FieldKindCategory {
         self.category
-    }
-
-    /// Return true when this field kind participates in planner arithmetic.
-    #[must_use]
-    pub(crate) const fn supports_expr_numeric(self) -> bool {
-        self.category.supports_expr_numeric()
     }
 
     /// Return true when this field kind participates in numeric aggregates.
@@ -483,7 +471,6 @@ mod tests {
                 FieldKindNumericClass::Unsigned64,
             )),
         );
-        assert!(semantics.supports_expr_numeric());
         assert!(semantics.supports_aggregate_numeric());
         assert!(semantics.supports_aggregate_ordering());
         assert!(semantics.supports_predicate_numeric_widen());
@@ -509,7 +496,6 @@ mod tests {
                 FieldKindNumericClass::Unsigned64,
             )),
         );
-        assert!(!semantics.supports_expr_numeric());
         assert!(semantics.supports_aggregate_numeric());
         assert!(semantics.supports_aggregate_ordering());
         assert!(semantics.supports_predicate_numeric_widen());
@@ -521,7 +507,6 @@ mod tests {
         let blob = classify_field_kind(&FieldKind::Blob);
 
         assert_eq!(collection.category(), FieldKindCategory::Collection);
-        assert!(!collection.supports_expr_numeric());
         assert!(!collection.supports_aggregate_ordering());
 
         assert_eq!(

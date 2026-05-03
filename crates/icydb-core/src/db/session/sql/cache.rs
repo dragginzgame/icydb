@@ -5,8 +5,9 @@
 
 use crate::{
     db::{
-        DbSession, PersistedRow, QueryError, commit::CommitSchemaFingerprint,
-        schema::accepted_schema_cache_fingerprint_for_model,
+        DbSession, PersistedRow, QueryError,
+        commit::CommitSchemaFingerprint,
+        schema::{SchemaInfo, accepted_schema_cache_fingerprint_for_model},
         session::sql::compiled::CompiledSqlCommand,
     },
     traits::{CanisterKind, EntityValue},
@@ -15,6 +16,8 @@ use std::{cell::RefCell, collections::HashMap};
 
 #[cfg(test)]
 use crate::db::schema::commit_schema_fingerprint_for_entity;
+#[cfg(test)]
+use crate::metrics::sink::{CacheKind, record_cache_entries};
 
 // Bump these when SQL cache-key meaning changes in a way that must force
 // existing in-heap entries to miss instead of aliasing superseded cache semantics.
@@ -74,6 +77,30 @@ pub(in crate::db) struct SqlCompiledCommandCacheKey {
 
 pub(in crate::db) type SqlCompiledCommandCache =
     HashMap<SqlCompiledCommandCacheKey, CompiledSqlCommand>;
+
+///
+/// SqlCompiledCommandCacheContext
+///
+/// SqlCompiledCommandCacheContext carries the accepted-schema facts needed by
+/// one SQL compile lookup. The cache key uses the accepted schema fingerprint;
+/// miss compilation uses the paired `SchemaInfo` so read-side predicate
+/// canonicalization observes the same live schema authority.
+///
+
+#[derive(Debug)]
+pub(in crate::db::session::sql) struct SqlCompiledCommandCacheContext {
+    key: SqlCompiledCommandCacheKey,
+    schema: SchemaInfo,
+}
+
+impl SqlCompiledCommandCacheContext {
+    #[must_use]
+    pub(in crate::db::session::sql) fn into_parts(
+        self,
+    ) -> (SqlCompiledCommandCacheKey, SchemaInfo) {
+        (self.key, self.schema)
+    }
+}
 
 thread_local! {
     // Keep SQL-facing caches in canister-lifetime heap state keyed by the
@@ -207,11 +234,11 @@ impl SqlCompiledCommandCacheKey {
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    pub(in crate::db::session::sql) fn sql_compiled_command_cache_key_for_entity<E>(
+    pub(in crate::db::session::sql) fn sql_compiled_command_cache_context_for_entity<E>(
         &self,
         surface: SqlCompiledCommandSurface,
         sql: &str,
-    ) -> Result<SqlCompiledCommandCacheKey, QueryError>
+    ) -> Result<SqlCompiledCommandCacheContext, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -222,12 +249,10 @@ impl<C: CanisterKind> DbSession<C> {
             accepted_schema_cache_fingerprint_for_model(E::MODEL, &accepted_schema)
                 .map_err(QueryError::execute)?;
 
-        Ok(SqlCompiledCommandCacheKey::new(
-            surface,
-            E::PATH,
-            schema_fingerprint,
-            sql,
-        ))
+        Ok(SqlCompiledCommandCacheContext {
+            key: SqlCompiledCommandCacheKey::new(surface, E::PATH, schema_fingerprint, sql),
+            schema: SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema),
+        })
     }
 
     pub(in crate::db::session::sql) fn with_sql_compiled_command_cache<R>(
@@ -251,6 +276,10 @@ impl<C: CanisterKind> DbSession<C> {
 
     #[cfg(test)]
     pub(in crate::db) fn clear_sql_caches_for_tests(&self) {
-        self.with_sql_compiled_command_cache(SqlCompiledCommandCache::clear);
+        let entries = self.with_sql_compiled_command_cache(|cache| {
+            cache.clear();
+            cache.len()
+        });
+        record_cache_entries(CacheKind::SqlCompiledCommand, entries);
     }
 }

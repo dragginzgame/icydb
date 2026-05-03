@@ -44,6 +44,27 @@ pub enum ExecOutcome {
     Aborted,
 }
 
+///
+/// CacheKind
+///
+
+#[derive(Clone, Copy, Debug)]
+pub enum CacheKind {
+    SharedQueryPlan,
+    SqlCompiledCommand,
+}
+
+///
+/// CacheOutcome
+///
+
+#[derive(Clone, Copy, Debug)]
+pub enum CacheOutcome {
+    Hit,
+    Miss,
+    Insert,
+}
+
 impl ExecOutcome {
     // Map the crate's typed runtime error taxonomy into stable metrics buckets.
     const fn from_error(error: &InternalError) -> Self {
@@ -121,6 +142,15 @@ pub enum MetricsEvent {
         kind: ExecKind,
         entity_path: &'static str,
         outcome: ExecOutcome,
+    },
+    Cache {
+        entity_path: &'static str,
+        kind: CacheKind,
+        outcome: CacheOutcome,
+    },
+    CacheEntries {
+        kind: CacheKind,
+        entries: u64,
     },
     RowsScanned {
         entity_path: &'static str,
@@ -264,6 +294,25 @@ impl MetricsSink for GlobalMetricsSink {
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
                     record_entity_exec_start(entry, kind);
                     record_entity_exec_outcome(entry, outcome);
+                });
+            }
+
+            MetricsEvent::Cache {
+                entity_path,
+                kind,
+                outcome,
+            } => {
+                metrics::with_state_mut(|m| {
+                    record_global_cache_outcome(&mut m.ops, kind, outcome);
+
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    record_entity_cache_outcome(entry, kind, outcome);
+                });
+            }
+
+            MetricsEvent::CacheEntries { kind, entries } => {
+                metrics::with_state_mut(|m| {
+                    record_global_cache_entries(&mut m.ops, kind, entries);
                 });
             }
 
@@ -582,6 +631,89 @@ const fn record_entity_exec_outcome(ops: &mut metrics::EntityCounters, outcome: 
     }
 }
 
+// Cache counters are intentionally cache-family specific and outcome specific
+// so the report can distinguish a cold cache from a warmed cache that inserts
+// successfully after misses.
+const fn record_global_cache_outcome(
+    ops: &mut metrics::EventOps,
+    kind: CacheKind,
+    outcome: CacheOutcome,
+) {
+    match (kind, outcome) {
+        (CacheKind::SharedQueryPlan, CacheOutcome::Hit) => {
+            ops.cache_shared_query_plan_hits = ops.cache_shared_query_plan_hits.saturating_add(1);
+        }
+        (CacheKind::SharedQueryPlan, CacheOutcome::Miss) => {
+            ops.cache_shared_query_plan_misses =
+                ops.cache_shared_query_plan_misses.saturating_add(1);
+        }
+        (CacheKind::SharedQueryPlan, CacheOutcome::Insert) => {
+            ops.cache_shared_query_plan_inserts =
+                ops.cache_shared_query_plan_inserts.saturating_add(1);
+        }
+        (CacheKind::SqlCompiledCommand, CacheOutcome::Hit) => {
+            ops.cache_sql_compiled_command_hits =
+                ops.cache_sql_compiled_command_hits.saturating_add(1);
+        }
+        (CacheKind::SqlCompiledCommand, CacheOutcome::Miss) => {
+            ops.cache_sql_compiled_command_misses =
+                ops.cache_sql_compiled_command_misses.saturating_add(1);
+        }
+        (CacheKind::SqlCompiledCommand, CacheOutcome::Insert) => {
+            ops.cache_sql_compiled_command_inserts =
+                ops.cache_sql_compiled_command_inserts.saturating_add(1);
+        }
+    }
+}
+
+// Cache size is a gauge for the current scope, not an event count. Cache owners
+// refresh it after lookups and insertions so the metrics report can show memory
+// pressure alongside reuse outcomes.
+const fn record_global_cache_entries(ops: &mut metrics::EventOps, kind: CacheKind, entries: u64) {
+    match kind {
+        CacheKind::SharedQueryPlan => {
+            ops.cache_shared_query_plan_entries = entries;
+        }
+        CacheKind::SqlCompiledCommand => {
+            ops.cache_sql_compiled_command_entries = entries;
+        }
+    }
+}
+
+// Mirror cache activity to the owning entity so global cache movement can be
+// traced back to the model whose schema/query identity produced it.
+const fn record_entity_cache_outcome(
+    ops: &mut metrics::EntityCounters,
+    kind: CacheKind,
+    outcome: CacheOutcome,
+) {
+    match (kind, outcome) {
+        (CacheKind::SharedQueryPlan, CacheOutcome::Hit) => {
+            ops.cache_shared_query_plan_hits = ops.cache_shared_query_plan_hits.saturating_add(1);
+        }
+        (CacheKind::SharedQueryPlan, CacheOutcome::Miss) => {
+            ops.cache_shared_query_plan_misses =
+                ops.cache_shared_query_plan_misses.saturating_add(1);
+        }
+        (CacheKind::SharedQueryPlan, CacheOutcome::Insert) => {
+            ops.cache_shared_query_plan_inserts =
+                ops.cache_shared_query_plan_inserts.saturating_add(1);
+        }
+        (CacheKind::SqlCompiledCommand, CacheOutcome::Hit) => {
+            ops.cache_sql_compiled_command_hits =
+                ops.cache_sql_compiled_command_hits.saturating_add(1);
+        }
+        (CacheKind::SqlCompiledCommand, CacheOutcome::Miss) => {
+            ops.cache_sql_compiled_command_misses =
+                ops.cache_sql_compiled_command_misses.saturating_add(1);
+        }
+        (CacheKind::SqlCompiledCommand, CacheOutcome::Insert) => {
+            ops.cache_sql_compiled_command_inserts =
+                ops.cache_sql_compiled_command_inserts.saturating_add(1);
+        }
+    }
+}
+
 // Keep the legacy coarse global plan groups in lockstep with the detailed
 // route counters so existing dashboards and newer diagnostics can agree.
 const fn record_global_plan_kind(ops: &mut metrics::EventOps, kind: PlanKind) {
@@ -826,6 +958,26 @@ pub(crate) fn record_exec_error_for_path(
         entity_path,
         outcome: ExecOutcome::from_error(error),
     });
+}
+
+/// Record one cache outcome for a cache key already scoped to an entity.
+pub(crate) fn record_cache_event_for_path(
+    kind: CacheKind,
+    outcome: CacheOutcome,
+    entity_path: &'static str,
+) {
+    record(MetricsEvent::Cache {
+        entity_path,
+        kind,
+        outcome,
+    });
+}
+
+/// Record the latest observed entry count for one cache family.
+pub(crate) fn record_cache_entries(kind: CacheKind, entries: usize) {
+    let entries = u64::try_from(entries).unwrap_or(u64::MAX);
+
+    record(MetricsEvent::CacheEntries { kind, entries });
 }
 
 impl<E: EntityKind> Drop for Span<E> {

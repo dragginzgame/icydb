@@ -27,7 +27,7 @@ pub(in crate::db) struct AcceptedSchemaSnapshot {
 impl AcceptedSchemaSnapshot {
     /// Wrap one persisted snapshot after reconciliation accepts it.
     #[must_use]
-    pub(in crate::db::schema) const fn new(snapshot: PersistedSchemaSnapshot) -> Self {
+    pub(in crate::db) const fn new(snapshot: PersistedSchemaSnapshot) -> Self {
         Self { snapshot }
     }
 

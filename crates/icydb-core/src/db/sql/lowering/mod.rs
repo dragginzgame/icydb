@@ -49,7 +49,7 @@ pub(in crate::db::sql::lowering) use analysis::{LoweredExprAnalysis, analyze_low
 pub(in crate::db) use order_expr::{
     lower_grouped_post_aggregate_order_expr_text, lower_supported_order_expr_text,
 };
-pub(in crate::db) use prepare::bind_prepared_sql_select_statement_structural;
+pub(in crate::db) use prepare::bind_prepared_sql_select_statement_structural_with_schema;
 pub(crate) use prepare::{
     extract_prepared_sql_insert_select_source, extract_prepared_sql_insert_statement,
     extract_prepared_sql_update_statement, lower_prepared_sql_delete_statement,
@@ -65,8 +65,9 @@ pub(in crate::db) use select::apply_lowered_select_shape;
 pub(in crate::db) use select::bind_lowered_sql_query;
 pub(crate) use select::{LoweredBaseQueryShape, LoweredSelectShape};
 pub(in crate::db) use select::{
-    bind_lowered_sql_delete_query_structural, bind_lowered_sql_query_structural,
-    bind_lowered_sql_select_query_structural, bind_sql_update_selector_query_structural,
+    bind_lowered_sql_delete_query_structural_with_schema, bind_lowered_sql_query_structural,
+    bind_lowered_sql_select_query_structural_with_schema,
+    bind_sql_update_selector_query_structural_with_schema,
 };
 
 ///

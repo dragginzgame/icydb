@@ -15,6 +15,7 @@ use crate::{
         },
         schema::{SchemaInfo, accepted_schema_cache_fingerprint_for_model},
     },
+    metrics::sink::{CacheKind, CacheOutcome, record_cache_entries, record_cache_event_for_path},
     model::entity::EntityModel,
     traits::{CanisterKind, EntityKind, Path},
 };
@@ -131,7 +132,11 @@ impl<C: CanisterKind> DbSession<C> {
 
     #[cfg(test)]
     pub(in crate::db) fn clear_query_plan_cache_for_tests(&self) {
-        self.with_query_plan_cache(QueryPlanCache::clear);
+        let entries = self.with_query_plan_cache(|cache| {
+            cache.clear();
+            cache.len()
+        });
+        record_cache_entries(CacheKind::SharedQueryPlan, entries);
     }
 
     pub(in crate::db) fn query_plan_visibility_for_store_path(
@@ -190,20 +195,39 @@ impl<C: CanisterKind> DbSession<C> {
             );
 
         {
-            let cached = self.with_query_plan_cache(|cache| cache.get(&cache_key).cloned());
+            let (cached, entries) =
+                self.with_query_plan_cache(|cache| (cache.get(&cache_key).cloned(), cache.len()));
+            record_cache_entries(CacheKind::SharedQueryPlan, entries);
             if let Some(prepared_plan) = cached {
+                record_cache_event_for_path(
+                    CacheKind::SharedQueryPlan,
+                    CacheOutcome::Hit,
+                    authority.entity_path(),
+                );
                 return Ok((prepared_plan, QueryPlanCacheAttribution::hit()));
             }
         }
+        record_cache_event_for_path(
+            CacheKind::SharedQueryPlan,
+            CacheOutcome::Miss,
+            authority.entity_path(),
+        );
 
         let plan = query.build_plan_with_visible_indexes_from_scalar_planning_state(
             &visible_indexes,
             planning_state,
         )?;
         let prepared_plan = SharedPreparedExecutionPlan::from_plan(authority, plan);
-        self.with_query_plan_cache(|cache| {
+        let entries = self.with_query_plan_cache(|cache| {
             cache.insert(cache_key, prepared_plan.clone());
+            cache.len()
         });
+        record_cache_entries(CacheKind::SharedQueryPlan, entries);
+        record_cache_event_for_path(
+            CacheKind::SharedQueryPlan,
+            CacheOutcome::Insert,
+            authority.entity_path(),
+        );
 
         Ok((prepared_plan, QueryPlanCacheAttribution::miss()))
     }
@@ -226,11 +250,23 @@ impl<C: CanisterKind> DbSession<C> {
             );
 
         {
-            let cached = self.with_query_plan_cache(|cache| cache.get(&cache_key).cloned());
+            let (cached, entries) =
+                self.with_query_plan_cache(|cache| (cache.get(&cache_key).cloned(), cache.len()));
+            record_cache_entries(CacheKind::SharedQueryPlan, entries);
             if let Some(prepared_plan) = cached {
+                record_cache_event_for_path(
+                    CacheKind::SharedQueryPlan,
+                    CacheOutcome::Hit,
+                    authority.entity_path(),
+                );
                 return Ok((prepared_plan, QueryPlanCacheAttribution::hit()));
             }
         }
+        record_cache_event_for_path(
+            CacheKind::SharedQueryPlan,
+            CacheOutcome::Miss,
+            authority.entity_path(),
+        );
 
         let Some(plan) = query.try_build_trivial_scalar_load_plan()? else {
             return Err(QueryError::invariant(
@@ -238,9 +274,16 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         };
         let prepared_plan = SharedPreparedExecutionPlan::from_plan(authority, plan);
-        self.with_query_plan_cache(|cache| {
+        let entries = self.with_query_plan_cache(|cache| {
             cache.insert(cache_key, prepared_plan.clone());
+            cache.len()
         });
+        record_cache_entries(CacheKind::SharedQueryPlan, entries);
+        record_cache_event_for_path(
+            CacheKind::SharedQueryPlan,
+            CacheOutcome::Insert,
+            authority.entity_path(),
+        );
 
         Ok((prepared_plan, QueryPlanCacheAttribution::miss()))
     }

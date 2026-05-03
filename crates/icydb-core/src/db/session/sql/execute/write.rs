@@ -4,7 +4,7 @@ use crate::{
         data::StructuralPatch,
         executor::{EntityAuthority, MutationMode},
         schema::{
-            AcceptedSchemaSnapshot, ValidateError,
+            AcceptedSchemaSnapshot, SchemaInfo, ValidateError,
             canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_persisted_kind,
             literal_matches_type,
         },
@@ -16,9 +16,9 @@ use crate::{
             projection::projection_labels_from_fields,
         },
         sql::lowering::{
-            bind_prepared_sql_select_statement_structural,
-            bind_sql_update_selector_query_structural, extract_prepared_sql_insert_select_source,
-            prepare_sql_statement,
+            bind_prepared_sql_select_statement_structural_with_schema,
+            bind_sql_update_selector_query_structural_with_schema,
+            extract_prepared_sql_insert_select_source, prepare_sql_statement,
         },
         sql::parser::{
             SqlExpr, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
@@ -311,14 +311,19 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(patch)
     }
 
-    fn sql_update_selector_query<E>(statement: &SqlUpdateStatement) -> Result<Query<E>, QueryError>
+    fn sql_update_selector_query<E>(
+        schema: &AcceptedSchemaSnapshot,
+        statement: &SqlUpdateStatement,
+    ) -> Result<Query<E>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let selector = bind_sql_update_selector_query_structural(
+        let schema = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, schema);
+        let selector = bind_sql_update_selector_query_structural_with_schema(
             E::MODEL,
             statement,
             MissingRowPolicy::Ignore,
+            &schema,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
 
@@ -370,10 +375,12 @@ impl<C: CanisterKind> DbSession<C> {
         let prepared = prepare_sql_statement(&statement, E::MODEL.name())
             .map_err(QueryError::from_sql_lowering_error)?;
         let authority = EntityAuthority::for_type::<E>();
-        let query = bind_prepared_sql_select_statement_structural(
+        let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, schema);
+        let query = bind_prepared_sql_select_statement_structural_with_schema(
             prepared,
             authority.model(),
             MissingRowPolicy::Ignore,
+            &schema_info,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
         let (payload, _) = self
@@ -482,10 +489,10 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let selector = Self::sql_update_selector_query::<E>(statement)?;
         let schema = self
             .accepted_initial_schema_snapshot::<E>()
             .map_err(QueryError::execute)?;
+        let selector = Self::sql_update_selector_query::<E>(&schema, statement)?;
         let patch = Self::sql_structural_patch::<E>(&schema, statement)?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());
         let matched = self.execute_query(&selector)?;

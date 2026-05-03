@@ -13,9 +13,17 @@ use crate::{
                 validate::ExprPlanError,
             },
         },
-        schema::SchemaInfo,
+        schema::{
+            AcceptedSchemaSnapshot, FieldId as SchemaFieldId, PersistedFieldKind,
+            PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot,
+            SchemaInfo, SchemaRowLayout, SchemaVersion,
+        },
     },
-    model::{entity::EntityModel, field::FieldKind, index::IndexModel},
+    model::{
+        entity::EntityModel,
+        field::{FieldKind, FieldStorageDecode, LeafCodec},
+        index::IndexModel,
+    },
     value::Value,
 };
 
@@ -73,6 +81,37 @@ fn infer_field_type_uses_schema_field_kind() {
     let inferred = infer_expr_type(&expr, schema).expect("field should infer");
 
     assert_eq!(inferred, ExprType::Numeric(NumericSubtype::Integer));
+}
+
+#[test]
+fn infer_field_type_uses_accepted_schema_field_type() {
+    let model: &'static EntityModel = <ExprInferenceEntity as crate::traits::EntitySchema>::MODEL;
+    let accepted = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        model.path().to_string(),
+        model.name().to_string(),
+        SchemaFieldId::new(1),
+        SchemaRowLayout::new(
+            SchemaVersion::initial(),
+            vec![(SchemaFieldId::new(2), SchemaFieldSlot::new(1))],
+        ),
+        vec![PersistedFieldSnapshot::new(
+            SchemaFieldId::new(2),
+            "rank".to_string(),
+            SchemaFieldSlot::new(1),
+            PersistedFieldKind::Blob,
+            false,
+            SchemaFieldDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::StructuralFallback,
+        )],
+    ));
+    let schema = SchemaInfo::from_accepted_snapshot_for_model(model, &accepted);
+    let expr = Expr::Field(FieldId::new("rank"));
+
+    let inferred = infer_expr_type(&expr, &schema).expect("field should infer");
+
+    assert_eq!(inferred, ExprType::Blob);
 }
 
 #[test]

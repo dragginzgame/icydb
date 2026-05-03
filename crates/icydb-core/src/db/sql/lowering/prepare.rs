@@ -2,12 +2,13 @@ use crate::{
     db::{
         MissingRowPolicy, QueryError,
         query::intent::StructuralQuery,
+        schema::SchemaInfo,
         sql::{
             lowering::{
                 LoweredDeleteShape, LoweredSelectShape, LoweredSqlCommand, LoweredSqlCommandInner,
                 LoweredSqlQuery, PreparedSqlStatement, SqlLoweringError,
                 aggregate::lower_global_aggregate_select_shape,
-                bind_lowered_sql_select_query_structural,
+                bind_lowered_sql_select_query_structural_with_schema,
                 normalize::{
                     ensure_entity_matches_expected, normalize_delete_statement_to_expected_entity,
                     normalize_select_statement_to_expected_entity,
@@ -211,16 +212,21 @@ pub(crate) fn lower_prepared_sql_delete_statement(
     lower_delete_statement_shape(statement)
 }
 
-/// Bind one prepared SQL SELECT statement directly onto structural query input.
+/// Bind one prepared SQL SELECT through an explicit schema projection.
+///
+/// Write-side `INSERT ... SELECT` uses this accepted-schema-aware route so
+/// source predicates follow the same top-level field authority as cached
+/// query-surface SELECT compilation.
 #[inline(never)]
-pub(in crate::db) fn bind_prepared_sql_select_statement_structural(
+pub(in crate::db) fn bind_prepared_sql_select_statement_structural_with_schema(
     prepared: PreparedSqlStatement,
     model: &'static EntityModel,
     consistency: MissingRowPolicy,
+    schema: &SchemaInfo,
 ) -> Result<StructuralQuery, SqlLoweringError> {
     let select = lower_prepared_sql_select_statement(prepared, model)?;
 
-    bind_lowered_sql_select_query_structural(model, select, consistency)
+    bind_lowered_sql_select_query_structural_with_schema(model, select, consistency, schema)
 }
 
 /// Extract one normalized prepared SQL INSERT statement.

@@ -3,8 +3,9 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::metrics::state::{
-    EntityCounters, report_window_start, reset_all, with_state, with_state_mut,
+use crate::metrics::{
+    sink::{CacheKind, CacheOutcome, MetricsEvent, record},
+    state::{EntityCounters, report_window_start, reset_all, with_state, with_state_mut},
 };
 use candid::types::{CandidType, Label, Type, TypeInner};
 
@@ -170,6 +171,14 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
         "exec_error_unsupported",
         "exec_error_invariant_violation",
         "exec_aborted",
+        "cache_shared_query_plan_hits",
+        "cache_shared_query_plan_misses",
+        "cache_shared_query_plan_inserts",
+        "cache_shared_query_plan_entries",
+        "cache_sql_compiled_command_hits",
+        "cache_sql_compiled_command_misses",
+        "cache_sql_compiled_command_inserts",
+        "cache_sql_compiled_command_entries",
         "plan_by_key",
         "plan_by_keys",
         "plan_key_range",
@@ -188,6 +197,60 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
             "EventOps must keep `{field}` as Candid field key",
         );
     }
+}
+
+#[test]
+fn cache_metrics_accumulate_by_cache_kind_and_entity() {
+    reset_all();
+
+    for (kind, outcome) in [
+        (CacheKind::SharedQueryPlan, CacheOutcome::Hit),
+        (CacheKind::SharedQueryPlan, CacheOutcome::Miss),
+        (CacheKind::SharedQueryPlan, CacheOutcome::Insert),
+        (CacheKind::SqlCompiledCommand, CacheOutcome::Hit),
+        (CacheKind::SqlCompiledCommand, CacheOutcome::Miss),
+        (CacheKind::SqlCompiledCommand, CacheOutcome::Insert),
+    ] {
+        record(MetricsEvent::Cache {
+            entity_path: "metrics::tests::CacheEntity",
+            kind,
+            outcome,
+        });
+    }
+    record(MetricsEvent::CacheEntries {
+        kind: CacheKind::SharedQueryPlan,
+        entries: 7,
+    });
+    record(MetricsEvent::CacheEntries {
+        kind: CacheKind::SqlCompiledCommand,
+        entries: 11,
+    });
+
+    let report = report_window_start(None);
+    let counters = report
+        .counters()
+        .expect("cache fixture should produce aggregate counters");
+    let ops = counters.ops();
+    assert_eq!(ops.cache_shared_query_plan_hits(), 1);
+    assert_eq!(ops.cache_shared_query_plan_misses(), 1);
+    assert_eq!(ops.cache_shared_query_plan_inserts(), 1);
+    assert_eq!(ops.cache_shared_query_plan_entries(), 7);
+    assert_eq!(ops.cache_sql_compiled_command_hits(), 1);
+    assert_eq!(ops.cache_sql_compiled_command_misses(), 1);
+    assert_eq!(ops.cache_sql_compiled_command_inserts(), 1);
+    assert_eq!(ops.cache_sql_compiled_command_entries(), 11);
+
+    let summary = report
+        .entity_counters()
+        .first()
+        .expect("cache fixture should produce an entity summary");
+    assert_eq!(summary.path(), "metrics::tests::CacheEntity");
+    assert_eq!(summary.cache_shared_query_plan_hits(), 1);
+    assert_eq!(summary.cache_shared_query_plan_misses(), 1);
+    assert_eq!(summary.cache_shared_query_plan_inserts(), 1);
+    assert_eq!(summary.cache_sql_compiled_command_hits(), 1);
+    assert_eq!(summary.cache_sql_compiled_command_misses(), 1);
+    assert_eq!(summary.cache_sql_compiled_command_inserts(), 1);
 }
 
 // Fixture with every per-entity field populated so the Candid-shape test also
@@ -209,6 +272,12 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         exec_error_unsupported: 51,
         exec_error_invariant_violation: 52,
         exec_aborted: 53,
+        cache_shared_query_plan_hits: 54,
+        cache_shared_query_plan_misses: 55,
+        cache_shared_query_plan_inserts: 56,
+        cache_sql_compiled_command_hits: 58,
+        cache_sql_compiled_command_misses: 59,
+        cache_sql_compiled_command_inserts: 60,
         plan_index: 30,
         plan_keys: 31,
         plan_range: 32,
@@ -266,6 +335,12 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "exec_error_unsupported",
         "exec_error_invariant_violation",
         "exec_aborted",
+        "cache_shared_query_plan_hits",
+        "cache_shared_query_plan_misses",
+        "cache_shared_query_plan_inserts",
+        "cache_sql_compiled_command_hits",
+        "cache_sql_compiled_command_misses",
+        "cache_sql_compiled_command_inserts",
         "plan_index",
         "plan_keys",
         "plan_range",
@@ -338,6 +413,12 @@ fn entity_summary_candid_shape_is_stable() {
     assert_eq!(summary.exec_error_unsupported(), 51);
     assert_eq!(summary.exec_error_invariant_violation(), 52);
     assert_eq!(summary.exec_aborted(), 53);
+    assert_eq!(summary.cache_shared_query_plan_hits(), 54);
+    assert_eq!(summary.cache_shared_query_plan_misses(), 55);
+    assert_eq!(summary.cache_shared_query_plan_inserts(), 56);
+    assert_eq!(summary.cache_sql_compiled_command_hits(), 58);
+    assert_eq!(summary.cache_sql_compiled_command_misses(), 59);
+    assert_eq!(summary.cache_sql_compiled_command_inserts(), 60);
     assert_eq!(summary.plan_index(), 30);
     assert_eq!(summary.plan_keys(), 31);
     assert_eq!(summary.plan_range(), 32);

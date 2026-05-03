@@ -22,6 +22,7 @@ use crate::{
             intent::{QueryError, StructuralQuery},
             plan::expr::{Expr, ProjectionSelection, derive_normalized_bool_expr_predicate_subset},
         },
+        schema::SchemaInfo,
         sql::parser::{
             SqlAggregateCall, SqlDeleteStatement, SqlExpr, SqlOrderDirection, SqlOrderTerm,
             SqlReturningProjection, SqlSelectStatement, SqlUpdateStatement,
@@ -41,7 +42,7 @@ use crate::db::sql::lowering::select::{
 
 pub(in crate::db::sql::lowering) use aggregate::lower_global_aggregate_having_expr;
 pub(in crate::db) use binding::{
-    canonicalize_sql_filter_expr_for_model, canonicalize_sql_predicate_for_model,
+    canonicalize_sql_filter_expr_for_schema, canonicalize_sql_predicate_for_schema,
 };
 pub(in crate::db::sql::lowering) use projection::lower_select_item_expr;
 
@@ -101,12 +102,12 @@ impl LoweredSqlFilter {
 
     // Keep the older SQL binding behavior where some callers canonicalized the
     // predicate side before entering the shared base-query application helper.
-    fn canonicalize_predicate_for_model(self, model: &'static EntityModel) -> Self {
+    fn canonicalize_predicate_for_schema(self, schema: &SchemaInfo) -> Self {
         Self {
             visible_expr: self.visible_expr,
             predicate_subset: self
                 .predicate_subset
-                .map(|predicate| canonicalize_sql_predicate_for_model(model, predicate)),
+                .map(|predicate| canonicalize_sql_predicate_for_schema(schema, predicate)),
         }
     }
 }
@@ -290,9 +291,20 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
 }
 
 #[inline(never)]
+#[cfg(test)]
 pub(in crate::db) fn apply_lowered_select_shape(
+    query: StructuralQuery,
+    lowered: LoweredSelectShape,
+) -> Result<StructuralQuery, SqlLoweringError> {
+    let schema = SchemaInfo::cached_for_entity_model(query.model());
+
+    apply_lowered_select_shape_with_schema(query, lowered, schema)
+}
+
+fn apply_lowered_select_shape_with_schema(
     mut query: StructuralQuery,
     lowered: LoweredSelectShape,
+    schema: &SchemaInfo,
 ) -> Result<StructuralQuery, SqlLoweringError> {
     let LoweredSelectShape {
         projection_selection,
@@ -327,35 +339,48 @@ pub(in crate::db) fn apply_lowered_select_shape(
     }
 
     // Phase 4: attach the shared filter/order/page tail through the base-query lane.
-    Ok(apply_lowered_base_query_shape(
+    Ok(apply_lowered_base_query_shape_with_schema(
         query,
         LoweredBaseQueryShape {
-            filter: filter.map(|filter| filter.canonicalize_predicate_for_model(model)),
+            filter: filter.map(|filter| filter.canonicalize_predicate_for_schema(schema)),
             order_by,
             limit,
             offset,
         },
+        schema,
     ))
 }
 
 pub(in crate::db::sql::lowering) fn apply_lowered_base_query_shape(
-    mut query: StructuralQuery,
+    query: StructuralQuery,
     lowered: LoweredBaseQueryShape,
 ) -> StructuralQuery {
-    let model = query.model();
+    let schema = SchemaInfo::cached_for_entity_model(query.model());
 
+    apply_lowered_base_query_shape_with_schema(query, lowered, schema)
+}
+
+/// Apply one lowered base-query tail through an explicit schema projection.
+///
+/// SQL aggregate/session paths use this hook when they already hold the
+/// accepted schema view and need filter canonicalization to respect it.
+pub(in crate::db::sql::lowering) fn apply_lowered_base_query_shape_with_schema(
+    mut query: StructuralQuery,
+    lowered: LoweredBaseQueryShape,
+    schema: &SchemaInfo,
+) -> StructuralQuery {
     if let Some(filter) = lowered.filter {
         if let Some(filter_expr) = filter.visible_expr {
             if let Some(predicate) = filter.predicate_subset {
-                let predicate = canonicalize_sql_predicate_for_model(model, predicate);
-                let filter_expr = canonicalize_sql_filter_expr_for_model(model, filter_expr);
+                let predicate = canonicalize_sql_predicate_for_schema(schema, predicate);
+                let filter_expr = canonicalize_sql_filter_expr_for_schema(schema, filter_expr);
 
                 query = query.filter_expr_with_normalized_predicate(filter_expr, predicate);
             } else {
                 query = query.filter_expr(filter_expr);
             }
         } else if let Some(predicate) = filter.predicate_subset {
-            let predicate = canonicalize_sql_predicate_for_model(model, predicate);
+            let predicate = canonicalize_sql_predicate_for_schema(schema, predicate);
             query = query.filter_predicate(predicate);
         }
     }
@@ -395,22 +420,41 @@ pub(in crate::db) fn bind_lowered_sql_select_query_structural(
     select: LoweredSelectShape,
     consistency: MissingRowPolicy,
 ) -> Result<StructuralQuery, SqlLoweringError> {
-    apply_lowered_select_shape(StructuralQuery::new(model, consistency), select)
+    bind_lowered_sql_select_query_structural_with_schema(
+        model,
+        select,
+        consistency,
+        SchemaInfo::cached_for_entity_model(model),
+    )
 }
 
-/// Bind one lowered base-query selector onto the structural load query surface.
+/// Bind one lowered SQL SELECT shape with an explicit schema projection.
 ///
-/// This is the shared SQL selector boundary for mutation lanes that first read
-/// target keys before applying write-specific patch/commit behavior. It keeps
-/// WHERE, ORDER BY, LIMIT, and OFFSET application owned by SQL lowering rather
-/// than session write execution.
+/// Session SQL compile paths use this accepted-schema-aware boundary so
+/// top-level predicate/filter literal canonicalization follows live schema
+/// reconciliation, while direct lowering tests keep the generated fallback.
+pub(in crate::db) fn bind_lowered_sql_select_query_structural_with_schema(
+    model: &'static EntityModel,
+    select: LoweredSelectShape,
+    consistency: MissingRowPolicy,
+    schema: &SchemaInfo,
+) -> Result<StructuralQuery, SqlLoweringError> {
+    apply_lowered_select_shape_with_schema(StructuralQuery::new(model, consistency), select, schema)
+}
+
+/// Bind one lowered base-query selector with an explicit schema projection.
 #[must_use]
-pub(in crate::db) fn bind_lowered_sql_base_query_structural(
+pub(in crate::db) fn bind_lowered_sql_base_query_structural_with_schema(
     model: &'static EntityModel,
     base_query: LoweredBaseQueryShape,
     consistency: MissingRowPolicy,
+    schema: &SchemaInfo,
 ) -> StructuralQuery {
-    apply_lowered_base_query_shape(StructuralQuery::new(model, consistency), base_query)
+    apply_lowered_base_query_shape_with_schema(
+        StructuralQuery::new(model, consistency),
+        base_query,
+        schema,
+    )
 }
 
 /// Bind one lowered SQL DELETE shape onto the structural query surface.
@@ -424,35 +468,56 @@ pub(in crate::db) fn bind_lowered_sql_delete_query_structural(
     delete: LoweredBaseQueryShape,
     consistency: MissingRowPolicy,
 ) -> StructuralQuery {
+    bind_lowered_sql_delete_query_structural_with_schema(
+        model,
+        delete,
+        consistency,
+        SchemaInfo::cached_for_entity_model(model),
+    )
+}
+
+/// Bind one lowered SQL DELETE shape with an explicit schema projection.
+#[must_use]
+pub(in crate::db) fn bind_lowered_sql_delete_query_structural_with_schema(
+    model: &'static EntityModel,
+    delete: LoweredBaseQueryShape,
+    consistency: MissingRowPolicy,
+    schema: &SchemaInfo,
+) -> StructuralQuery {
     let delete = LoweredBaseQueryShape {
         filter: delete
             .filter
-            .map(|filter| filter.canonicalize_predicate_for_model(model)),
+            .map(|filter| filter.canonicalize_predicate_for_schema(schema)),
         order_by: delete.order_by,
         limit: delete.limit,
         offset: delete.offset,
     };
 
-    apply_lowered_base_query_shape(StructuralQuery::new(model, consistency).delete(), delete)
+    apply_lowered_base_query_shape_with_schema(
+        StructuralQuery::new(model, consistency).delete(),
+        delete,
+        schema,
+    )
 }
 
-/// Lower and bind one SQL UPDATE selector onto the structural load query surface.
+/// Bind one SQL UPDATE selector with an explicit schema projection.
 ///
-/// UPDATE-specific patch construction remains session-owned, but target-row
-/// selection now reuses the same lowered base-query selector contract as SQL
-/// SELECT/DELETE instead of manually reconstructing a typed query in write
-/// execution.
-pub(in crate::db) fn bind_sql_update_selector_query_structural(
+/// This mirrors the base-query read boundary used by cached SELECT/DELETE
+/// compilation so update target selection observes accepted top-level field
+/// literal rules.
+pub(in crate::db) fn bind_sql_update_selector_query_structural_with_schema(
     model: &'static EntityModel,
     statement: &SqlUpdateStatement,
     consistency: MissingRowPolicy,
+    schema: &SchemaInfo,
 ) -> Result<StructuralQuery, SqlLoweringError> {
     let base_query = lower_update_selector_shape(statement, model)?;
 
-    Ok(bind_lowered_sql_base_query_structural(
+    Ok(bind_lowered_sql_base_query_structural_with_schema(
         model,
         base_query,
         consistency,
+        schema,
     ))
 }
 

@@ -5,13 +5,16 @@
 
 use crate::{
     db::schema::{
-        AcceptedSchemaSnapshot, FieldType, field_type_from_model_kind,
+        AcceptedSchemaSnapshot, FieldType, PersistedFieldKind,
+        canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_model_kind,
         field_type_from_persisted_kind,
     },
     model::{
+        canonicalize_strict_sql_literal_for_kind,
         entity::EntityModel,
         field::{FieldKind, FieldModel},
     },
+    value::Value,
 };
 use std::sync::{Mutex, OnceLock};
 
@@ -47,6 +50,7 @@ fn schema_field_info<'a>(
 struct SchemaFieldInfo {
     ty: FieldType,
     kind: FieldKind,
+    persisted_kind: Option<PersistedFieldKind>,
     nested_fields: &'static [FieldModel],
 }
 
@@ -66,6 +70,7 @@ impl SchemaInfo {
                     SchemaFieldInfo {
                         ty: field_type_from_model_kind(&field.kind()),
                         kind: field.kind(),
+                        persisted_kind: None,
                         nested_fields: field.nested_fields(),
                     },
                 )
@@ -97,6 +102,27 @@ impl SchemaInfo {
         schema_field_info(self.fields.as_slice(), name).map(|field| field.nested_fields)
     }
 
+    /// Canonicalize one strict SQL literal against this schema's field authority.
+    ///
+    /// Accepted live schemas use persisted field kinds so SQL read predicates
+    /// follow the same top-level type boundary as SQL writes and planning.
+    /// Generated schema views retain the old generated-kind fallback for
+    /// direct lowering tests and compile-time-only callers.
+    ///
+    #[must_use]
+    pub(in crate::db) fn canonicalize_strict_sql_literal(
+        &self,
+        field_name: &str,
+        value: &Value,
+    ) -> Option<Value> {
+        let field = schema_field_info(self.fields.as_slice(), field_name)?;
+
+        field.persisted_kind.as_ref().map_or_else(
+            || canonicalize_strict_sql_literal_for_kind(&field.kind, value),
+            |kind| canonicalize_strict_sql_literal_for_persisted_kind(kind, value),
+        )
+    }
+
     /// Build one owned schema view from trusted generated field metadata.
     #[must_use]
     pub(crate) fn from_field_models(fields: &[FieldModel]) -> Self {
@@ -118,7 +144,8 @@ impl SchemaInfo {
             .fields()
             .iter()
             .map(|field| {
-                let ty = schema.field_by_name(field.name()).map_or_else(
+                let accepted_field = schema.field_by_name(field.name());
+                let ty = accepted_field.map_or_else(
                     || field_type_from_model_kind(&field.kind()),
                     |persisted| field_type_from_persisted_kind(persisted.kind()),
                 );
@@ -128,6 +155,7 @@ impl SchemaInfo {
                     SchemaFieldInfo {
                         ty,
                         kind: field.kind(),
+                        persisted_kind: accepted_field.map(|persisted| persisted.kind().clone()),
                         nested_fields: field.nested_fields(),
                     },
                 )
@@ -194,19 +222,11 @@ mod tests {
         &INDEXES,
     );
 
-    #[test]
-    fn cached_for_entity_model_reuses_one_schema_instance() {
-        let first = SchemaInfo::cached_for_entity_model(&MODEL);
-        let second = SchemaInfo::cached_for_entity_model(&MODEL);
-
-        assert!(std::ptr::eq(first, second));
-        assert!(first.field("id").is_some());
-        assert!(first.field("name").is_some());
-    }
-
-    #[test]
-    fn accepted_snapshot_schema_info_uses_persisted_top_level_field_type() {
-        let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+    // Build one accepted schema whose second field deliberately differs from
+    // generated metadata so tests can prove `SchemaInfo` follows the persisted
+    // top-level authority.
+    fn accepted_schema_with_name_kind(kind: PersistedFieldKind) -> AcceptedSchemaSnapshot {
+        AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
             SchemaVersion::initial(),
             "schema::info::tests::Entity".to_string(),
             "Entity".to_string(),
@@ -233,14 +253,29 @@ mod tests {
                     FieldId::new(2),
                     "name".to_string(),
                     SchemaFieldSlot::new(1),
-                    PersistedFieldKind::Blob,
+                    kind,
                     false,
                     SchemaFieldDefault::None,
                     FieldStorageDecode::ByKind,
                     LeafCodec::StructuralFallback,
                 ),
             ],
-        ));
+        ))
+    }
+
+    #[test]
+    fn cached_for_entity_model_reuses_one_schema_instance() {
+        let first = SchemaInfo::cached_for_entity_model(&MODEL);
+        let second = SchemaInfo::cached_for_entity_model(&MODEL);
+
+        assert!(std::ptr::eq(first, second));
+        assert!(first.field("id").is_some());
+        assert!(first.field("name").is_some());
+    }
+
+    #[test]
+    fn accepted_snapshot_schema_info_uses_persisted_top_level_field_type() {
+        let snapshot = accepted_schema_with_name_kind(PersistedFieldKind::Blob);
 
         let schema = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
         let name_type = schema.field("name").expect("accepted field should exist");
@@ -250,5 +285,21 @@ mod tests {
             &Value::Text("name".into()),
             name_type
         ));
+    }
+
+    #[test]
+    fn accepted_snapshot_schema_info_canonicalizes_sql_literals_from_persisted_kind() {
+        let generated = SchemaInfo::cached_for_entity_model(&MODEL);
+        let snapshot = accepted_schema_with_name_kind(PersistedFieldKind::Uint);
+        let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
+
+        assert_eq!(
+            generated.canonicalize_strict_sql_literal("name", &Value::Int(7)),
+            None
+        );
+        assert_eq!(
+            accepted.canonicalize_strict_sql_literal("name", &Value::Int(7)),
+            Some(Value::Uint(7))
+        );
     }
 }

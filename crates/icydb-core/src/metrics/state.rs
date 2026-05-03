@@ -50,6 +50,14 @@ pub struct EventOps {
     pub(crate) exec_error_unsupported: u64,
     pub(crate) exec_error_invariant_violation: u64,
     pub(crate) exec_aborted: u64,
+    pub(crate) cache_shared_query_plan_hits: u64,
+    pub(crate) cache_shared_query_plan_misses: u64,
+    pub(crate) cache_shared_query_plan_inserts: u64,
+    pub(crate) cache_shared_query_plan_entries: u64,
+    pub(crate) cache_sql_compiled_command_hits: u64,
+    pub(crate) cache_sql_compiled_command_misses: u64,
+    pub(crate) cache_sql_compiled_command_inserts: u64,
+    pub(crate) cache_sql_compiled_command_entries: u64,
 
     // Planner kinds
     pub(crate) plan_index: u64,
@@ -166,6 +174,46 @@ impl EventOps {
     #[must_use]
     pub const fn exec_aborted(&self) -> u64 {
         self.exec_aborted
+    }
+
+    #[must_use]
+    pub const fn cache_shared_query_plan_hits(&self) -> u64 {
+        self.cache_shared_query_plan_hits
+    }
+
+    #[must_use]
+    pub const fn cache_shared_query_plan_misses(&self) -> u64 {
+        self.cache_shared_query_plan_misses
+    }
+
+    #[must_use]
+    pub const fn cache_shared_query_plan_inserts(&self) -> u64 {
+        self.cache_shared_query_plan_inserts
+    }
+
+    #[must_use]
+    pub const fn cache_shared_query_plan_entries(&self) -> u64 {
+        self.cache_shared_query_plan_entries
+    }
+
+    #[must_use]
+    pub const fn cache_sql_compiled_command_hits(&self) -> u64 {
+        self.cache_sql_compiled_command_hits
+    }
+
+    #[must_use]
+    pub const fn cache_sql_compiled_command_misses(&self) -> u64 {
+        self.cache_sql_compiled_command_misses
+    }
+
+    #[must_use]
+    pub const fn cache_sql_compiled_command_inserts(&self) -> u64 {
+        self.cache_sql_compiled_command_inserts
+    }
+
+    #[must_use]
+    pub const fn cache_sql_compiled_command_entries(&self) -> u64 {
+        self.cache_sql_compiled_command_entries
     }
 
     #[must_use]
@@ -356,6 +404,12 @@ pub(crate) struct EntityCounters {
     pub(crate) exec_error_unsupported: u64,
     pub(crate) exec_error_invariant_violation: u64,
     pub(crate) exec_aborted: u64,
+    pub(crate) cache_shared_query_plan_hits: u64,
+    pub(crate) cache_shared_query_plan_misses: u64,
+    pub(crate) cache_shared_query_plan_inserts: u64,
+    pub(crate) cache_sql_compiled_command_hits: u64,
+    pub(crate) cache_sql_compiled_command_misses: u64,
+    pub(crate) cache_sql_compiled_command_inserts: u64,
     pub(crate) plan_index: u64,
     pub(crate) plan_keys: u64,
     pub(crate) plan_range: u64,
@@ -632,6 +686,12 @@ pub struct EntitySummary {
     exec_error_unsupported: u64,
     exec_error_invariant_violation: u64,
     exec_aborted: u64,
+    cache_shared_query_plan_hits: u64,
+    cache_shared_query_plan_misses: u64,
+    cache_shared_query_plan_inserts: u64,
+    cache_sql_compiled_command_hits: u64,
+    cache_sql_compiled_command_misses: u64,
+    cache_sql_compiled_command_inserts: u64,
     plan_index: u64,
     plan_keys: u64,
     plan_range: u64,
@@ -747,6 +807,36 @@ impl EntitySummary {
     #[must_use]
     pub const fn exec_aborted(&self) -> u64 {
         self.exec_aborted
+    }
+
+    #[must_use]
+    pub const fn cache_shared_query_plan_hits(&self) -> u64 {
+        self.cache_shared_query_plan_hits
+    }
+
+    #[must_use]
+    pub const fn cache_shared_query_plan_misses(&self) -> u64 {
+        self.cache_shared_query_plan_misses
+    }
+
+    #[must_use]
+    pub const fn cache_shared_query_plan_inserts(&self) -> u64 {
+        self.cache_shared_query_plan_inserts
+    }
+
+    #[must_use]
+    pub const fn cache_sql_compiled_command_hits(&self) -> u64 {
+        self.cache_sql_compiled_command_hits
+    }
+
+    #[must_use]
+    pub const fn cache_sql_compiled_command_misses(&self) -> u64 {
+        self.cache_sql_compiled_command_misses
+    }
+
+    #[must_use]
+    pub const fn cache_sql_compiled_command_inserts(&self) -> u64 {
+        self.cache_sql_compiled_command_inserts
     }
 
     #[must_use]
@@ -937,6 +1027,12 @@ impl EntitySummary {
             .saturating_add(self.exec_error_unsupported)
             .saturating_add(self.exec_error_invariant_violation)
             .saturating_add(self.exec_aborted)
+            .saturating_add(self.cache_shared_query_plan_hits)
+            .saturating_add(self.cache_shared_query_plan_misses)
+            .saturating_add(self.cache_shared_query_plan_inserts)
+            .saturating_add(self.cache_sql_compiled_command_hits)
+            .saturating_add(self.cache_sql_compiled_command_misses)
+            .saturating_add(self.cache_sql_compiled_command_inserts)
             .saturating_add(self.plan_index)
             .saturating_add(self.plan_keys)
             .saturating_add(self.plan_range)
@@ -1017,6 +1113,12 @@ pub(super) fn report_window_start(window_start_ms: Option<u64>) -> EventReport {
             exec_error_unsupported: ops.exec_error_unsupported,
             exec_error_invariant_violation: ops.exec_error_invariant_violation,
             exec_aborted: ops.exec_aborted,
+            cache_shared_query_plan_hits: ops.cache_shared_query_plan_hits,
+            cache_shared_query_plan_misses: ops.cache_shared_query_plan_misses,
+            cache_shared_query_plan_inserts: ops.cache_shared_query_plan_inserts,
+            cache_sql_compiled_command_hits: ops.cache_sql_compiled_command_hits,
+            cache_sql_compiled_command_misses: ops.cache_sql_compiled_command_misses,
+            cache_sql_compiled_command_inserts: ops.cache_sql_compiled_command_inserts,
             plan_index: ops.plan_index,
             plan_keys: ops.plan_keys,
             plan_range: ops.plan_range,

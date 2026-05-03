@@ -45,7 +45,7 @@ pub(in crate::db) use snapshot::{
     PersistedRelationStrength, PersistedSchemaSnapshot, SchemaFieldDefault,
 };
 pub use store::SchemaStore;
-pub(crate) use types::{FieldType, field_type_from_model_kind, literal_matches_type};
+pub(crate) use types::{FieldType, ScalarType, field_type_from_model_kind, literal_matches_type};
 pub(in crate::db) use types::{
     canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_persisted_kind,
 };
