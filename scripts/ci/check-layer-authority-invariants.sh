@@ -25,7 +25,14 @@ ORDERING_AUDIT_DIRS=(
 ACCESS_PATH_DECISION_OWNERS_BASELINE=2
 ROUTE_SHAPE_DECISION_OWNERS_BASELINE=2
 PREDICATE_COERCION_OWNERS_BASELINE=4
-PREDICATE_BOUNDARY_DRIFT_BASELINE=6
+PREDICATE_BOUNDARY_DRIFT_BASELINE=3
+UPWARD_IMPORTS_TRACKED_BASELINE=0
+CROSS_LAYER_PREDICATE_DUPLICATION_BASELINE=0
+ENUM_FANOUT_GT2_BASELINE=1
+ACCESS_PATH_LAYER_FANOUT_BASELINE=2
+AGGREGATE_KIND_LAYER_FANOUT_BASELINE=4
+CONTINUATION_MODE_LAYER_FANOUT_BASELINE=1
+CANONICALIZATION_ENTRYPOINTS_BASELINE=1
 
 run_rg() {
   local pattern=$1
@@ -198,6 +205,16 @@ if [[ -n "$terminal_planner_import_leaks" ]]; then
   status=1
 fi
 
+planner_executor_import_leaks="$(
+  run_rg "db::executor::" "crates/icydb-core/src/db/query/plan" \
+    | strip_comment_only
+)"
+if [[ -n "$planner_executor_import_leaks" ]]; then
+  echo "[ERROR] Planner contracts must not import executor-layer contracts." >&2
+  echo "$planner_executor_import_leaks" >&2
+  status=1
+fi
+
 pipeline_planner_import_leaks="$(
   run_rg "db::query::plan::" "crates/icydb-core/src/db/executor/pipeline" \
     --glob '!crates/icydb-core/src/db/executor/pipeline/contracts/**' \
@@ -250,6 +267,7 @@ upward_imports_tracked="$(
     "crates/icydb-core/src/db/index" \
     "crates/icydb-core/src/db/commit" \
     "crates/icydb-core/src/db/codec" \
+    "crates/icydb-core/src/db/data" \
     | strip_comment_only \
     | count_lines
 )"
@@ -282,6 +300,9 @@ done
 
 enum_fanout_gt2=0
 enum_fanout_details=()
+access_path_layer_fanout=0
+aggregate_kind_layer_fanout=0
+continuation_mode_layer_fanout=0
 ENUM_TOKENS=(
   "AccessPath::"
   "AggregateKind::"
@@ -293,6 +314,17 @@ for token in "${ENUM_TOKENS[@]}"; do
     enum_fanout_gt2=$((enum_fanout_gt2 + 1))
   fi
   enum_fanout_details+=("$token=$layer_count")
+  case "$token" in
+    "AccessPath::")
+      access_path_layer_fanout="$layer_count"
+      ;;
+    "AggregateKind::")
+      aggregate_kind_layer_fanout="$layer_count"
+      ;;
+    "ContinuationMode::")
+      continuation_mode_layer_fanout="$layer_count"
+      ;;
+  esac
 done
 
 access_path_decision_owners="$(
@@ -343,6 +375,48 @@ fi
 if [[ "$predicate_boundary_drift_imports" -gt "$PREDICATE_BOUNDARY_DRIFT_BASELINE" ]]; then
   echo "[ERROR] Predicate boundary drift import count increased above baseline." >&2
   echo "        baseline=$PREDICATE_BOUNDARY_DRIFT_BASELINE current=$predicate_boundary_drift_imports" >&2
+  status=1
+fi
+
+if [[ "$upward_imports_tracked" -gt "$UPWARD_IMPORTS_TRACKED_BASELINE" ]]; then
+  echo "[ERROR] Lower-level storage/index layers imported upward across tracked boundaries." >&2
+  echo "        baseline=$UPWARD_IMPORTS_TRACKED_BASELINE current=$upward_imports_tracked" >&2
+  status=1
+fi
+
+if [[ "$predicate_duplication_count" -gt "$CROSS_LAYER_PREDICATE_DUPLICATION_BASELINE" ]]; then
+  echo "[ERROR] Cross-layer predicate decision declarations spread beyond their owner layers." >&2
+  echo "        baseline=$CROSS_LAYER_PREDICATE_DUPLICATION_BASELINE current=$predicate_duplication_count" >&2
+  status=1
+fi
+
+if [[ "$enum_fanout_gt2" -gt "$ENUM_FANOUT_GT2_BASELINE" ]]; then
+  echo "[ERROR] Enum fan-out beyond two layers increased above baseline." >&2
+  echo "        baseline=$ENUM_FANOUT_GT2_BASELINE current=$enum_fanout_gt2" >&2
+  status=1
+fi
+
+if [[ "$access_path_layer_fanout" -gt "$ACCESS_PATH_LAYER_FANOUT_BASELINE" ]]; then
+  echo "[ERROR] AccessPath layer fan-out increased above baseline." >&2
+  echo "        baseline=$ACCESS_PATH_LAYER_FANOUT_BASELINE current=$access_path_layer_fanout" >&2
+  status=1
+fi
+
+if [[ "$aggregate_kind_layer_fanout" -gt "$AGGREGATE_KIND_LAYER_FANOUT_BASELINE" ]]; then
+  echo "[ERROR] AggregateKind layer fan-out increased above baseline." >&2
+  echo "        baseline=$AGGREGATE_KIND_LAYER_FANOUT_BASELINE current=$aggregate_kind_layer_fanout" >&2
+  status=1
+fi
+
+if [[ "$continuation_mode_layer_fanout" -gt "$CONTINUATION_MODE_LAYER_FANOUT_BASELINE" ]]; then
+  echo "[ERROR] ContinuationMode layer fan-out increased above baseline." >&2
+  echo "        baseline=$CONTINUATION_MODE_LAYER_FANOUT_BASELINE current=$continuation_mode_layer_fanout" >&2
+  status=1
+fi
+
+if [[ "$canonicalization_entrypoints" -gt "$CANONICALIZATION_ENTRYPOINTS_BASELINE" ]]; then
+  echo "[ERROR] Canonicalization entrypoint count increased above baseline." >&2
+  echo "        baseline=$CANONICALIZATION_ENTRYPOINTS_BASELINE current=$canonicalization_entrypoints" >&2
   status=1
 fi
 
