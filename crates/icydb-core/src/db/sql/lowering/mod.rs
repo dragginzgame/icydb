@@ -32,7 +32,7 @@ use crate::{
 use thiserror::Error as ThisError;
 
 pub(in crate::db::sql::lowering) use aggregate::LoweredSqlGlobalAggregateCommand;
-pub(in crate::db) use aggregate::compile_sql_global_aggregate_command_core_from_prepared;
+pub(in crate::db) use aggregate::compile_sql_global_aggregate_command_core_from_prepared_with_schema;
 #[cfg(test)]
 pub(crate) use aggregate::{
     PreparedSqlScalarAggregateDescriptorShape, SqlGlobalAggregateCommand,
@@ -58,12 +58,14 @@ pub(crate) use prepare::{
 };
 pub(crate) use select::LoweredDeleteShape;
 pub(in crate::db::sql::lowering) use select::LoweredSqlFilter;
-pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape;
 #[cfg(test)]
 pub(in crate::db) use select::apply_lowered_select_shape;
 #[cfg(test)]
 pub(in crate::db) use select::bind_lowered_sql_query;
 pub(crate) use select::{LoweredBaseQueryShape, LoweredSelectShape};
+pub(in crate::db::sql::lowering) use select::{
+    apply_lowered_base_query_shape, validate_base_query_sql_capabilities,
+};
 pub(in crate::db) use select::{
     bind_lowered_sql_delete_query_structural_with_schema, bind_lowered_sql_query_structural,
     bind_lowered_sql_select_query_structural_with_schema,

@@ -20,7 +20,7 @@ use crate::{
             lowering::{
                 PreparedSqlStatement, bind_lowered_sql_delete_query_structural_with_schema,
                 bind_lowered_sql_select_query_structural_with_schema,
-                compile_sql_global_aggregate_command_core_from_prepared,
+                compile_sql_global_aggregate_command_core_from_prepared_with_schema,
                 extract_prepared_sql_insert_statement, extract_prepared_sql_update_statement,
                 lower_prepared_sql_delete_statement, lower_prepared_sql_select_statement,
                 lower_sql_command_from_prepared_statement, prepare_sql_statement,
@@ -84,6 +84,7 @@ impl<C: CanisterKind> DbSession<C> {
             Self::compile_select_global_aggregate(
                 prepared,
                 model,
+                schema,
                 aggregate_lane_check_local_instructions,
                 prepare_local_instructions,
             )
@@ -105,14 +106,16 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_select_global_aggregate(
         prepared: PreparedSqlStatement,
         model: &'static EntityModel,
+        schema: &SchemaInfo,
         aggregate_lane_check_local_instructions: u64,
         prepare_local_instructions: u64,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         let (lower_local_instructions, command) = measured(|| {
-            compile_sql_global_aggregate_command_core_from_prepared(
+            compile_sql_global_aggregate_command_core_from_prepared_with_schema(
                 prepared,
                 model,
                 MissingRowPolicy::Ignore,
+                schema,
             )
             .map_err(QueryError::from_sql_lowering_error)
         })?;
@@ -181,12 +184,13 @@ impl<C: CanisterKind> DbSession<C> {
         let returning = delete.returning().cloned();
         let query = delete.into_base_query();
         let (bind_local_instructions, query) = measured(|| {
-            Ok(bind_lowered_sql_delete_query_structural_with_schema(
+            bind_lowered_sql_delete_query_structural_with_schema(
                 model,
                 query,
                 MissingRowPolicy::Ignore,
                 schema,
-            ))
+            )
+            .map_err(QueryError::from_sql_lowering_error)
         })?;
 
         let shape = SqlQueryShape::mutation(returning.is_some());

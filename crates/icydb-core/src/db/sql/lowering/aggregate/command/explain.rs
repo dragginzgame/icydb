@@ -1,6 +1,7 @@
 use crate::{
     db::{
         predicate::MissingRowPolicy,
+        schema::SchemaInfo,
         sql::{
             lowering::{
                 LoweredSqlCommand, LoweredSqlCommandInner, SqlLoweringError,
@@ -34,6 +35,11 @@ pub(crate) fn bind_lowered_sql_explain_global_aggregate_structural(
     Ok(Some((
         *mode,
         *verbose,
-        bind_lowered_sql_global_aggregate_command_structural(model, command.clone(), consistency)?,
+        bind_lowered_sql_global_aggregate_command_structural(
+            model,
+            command.clone(),
+            consistency,
+            SchemaInfo::cached_for_entity_model(model),
+        )?,
     )))
 }

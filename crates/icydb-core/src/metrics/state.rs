@@ -86,6 +86,9 @@ pub struct EventOps {
     pub(crate) rows_filtered: u64,
     pub(crate) rows_aggregated: u64,
     pub(crate) rows_emitted: u64,
+    pub(crate) load_candidate_rows_scanned: u64,
+    pub(crate) load_candidate_rows_filtered: u64,
+    pub(crate) load_result_rows_emitted: u64,
     pub(crate) rows_deleted: u64,
 
     // Index maintenance
@@ -337,6 +340,21 @@ impl EventOps {
     }
 
     #[must_use]
+    pub const fn load_candidate_rows_scanned(&self) -> u64 {
+        self.load_candidate_rows_scanned
+    }
+
+    #[must_use]
+    pub const fn load_candidate_rows_filtered(&self) -> u64 {
+        self.load_candidate_rows_filtered
+    }
+
+    #[must_use]
+    pub const fn load_result_rows_emitted(&self) -> u64 {
+        self.load_result_rows_emitted
+    }
+
+    #[must_use]
     pub const fn rows_deleted(&self) -> u64 {
         self.rows_deleted
     }
@@ -434,6 +452,9 @@ pub(crate) struct EntityCounters {
     pub(crate) rows_filtered: u64,
     pub(crate) rows_aggregated: u64,
     pub(crate) rows_emitted: u64,
+    pub(crate) load_candidate_rows_scanned: u64,
+    pub(crate) load_candidate_rows_filtered: u64,
+    pub(crate) load_result_rows_emitted: u64,
     pub(crate) rows_deleted: u64,
     pub(crate) index_inserts: u64,
     pub(crate) index_removes: u64,
@@ -716,6 +737,9 @@ pub struct EntitySummary {
     rows_filtered: u64,
     rows_aggregated: u64,
     rows_emitted: u64,
+    load_candidate_rows_scanned: u64,
+    load_candidate_rows_filtered: u64,
+    load_result_rows_emitted: u64,
     rows_deleted: u64,
     index_inserts: u64,
     index_removes: u64,
@@ -960,6 +984,21 @@ impl EntitySummary {
     }
 
     #[must_use]
+    pub const fn load_candidate_rows_scanned(&self) -> u64 {
+        self.load_candidate_rows_scanned
+    }
+
+    #[must_use]
+    pub const fn load_candidate_rows_filtered(&self) -> u64 {
+        self.load_candidate_rows_filtered
+    }
+
+    #[must_use]
+    pub const fn load_result_rows_emitted(&self) -> u64 {
+        self.load_result_rows_emitted
+    }
+
+    #[must_use]
     pub const fn rows_deleted(&self) -> u64 {
         self.rows_deleted
     }
@@ -1057,6 +1096,9 @@ impl EntitySummary {
             .saturating_add(self.rows_filtered)
             .saturating_add(self.rows_aggregated)
             .saturating_add(self.rows_emitted)
+            .saturating_add(self.load_candidate_rows_scanned)
+            .saturating_add(self.load_candidate_rows_filtered)
+            .saturating_add(self.load_result_rows_emitted)
             .saturating_add(self.rows_deleted)
             .saturating_add(self.index_inserts)
             .saturating_add(self.index_removes)
@@ -1143,6 +1185,9 @@ pub(super) fn report_window_start(window_start_ms: Option<u64>) -> EventReport {
             rows_filtered: ops.rows_filtered,
             rows_aggregated: ops.rows_aggregated,
             rows_emitted: ops.rows_emitted,
+            load_candidate_rows_scanned: ops.load_candidate_rows_scanned,
+            load_candidate_rows_filtered: ops.load_candidate_rows_filtered,
+            load_result_rows_emitted: ops.load_result_rows_emitted,
             rows_deleted: ops.rows_deleted,
             index_inserts: ops.index_inserts,
             index_removes: ops.index_removes,

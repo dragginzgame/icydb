@@ -306,6 +306,8 @@ fn apply_lowered_select_shape_with_schema(
     lowered: LoweredSelectShape,
     schema: &SchemaInfo,
 ) -> Result<StructuralQuery, SqlLoweringError> {
+    validate_lowered_select_sql_capabilities(schema, &lowered)?;
+
     let LoweredSelectShape {
         projection_selection,
         grouped_aggregates,
@@ -349,6 +351,138 @@ fn apply_lowered_select_shape_with_schema(
         },
         schema,
     ))
+}
+
+// Validate the top-level SQL field-capability rules that can safely use the
+// accepted schema snapshot today. Nested field-path planning intentionally
+// remains generated-model based until persisted snapshots carry nested leaves.
+fn validate_lowered_select_sql_capabilities(
+    schema: &SchemaInfo,
+    lowered: &LoweredSelectShape,
+) -> Result<(), SqlLoweringError> {
+    validate_projection_sql_capabilities(schema, &lowered.projection_selection)?;
+    validate_group_by_sql_capabilities(schema, lowered.group_by_fields.as_slice())?;
+    validate_order_sql_capabilities(schema, lowered.order_by.as_slice())?;
+
+    Ok(())
+}
+
+// Check SELECT output admission against schema-owned SQL capabilities. This
+// keeps non-queryable structured fields and other unsupported field families
+// from entering projection planning through accepted live schema metadata.
+fn validate_projection_sql_capabilities(
+    schema: &SchemaInfo,
+    selection: &ProjectionSelection,
+) -> Result<(), SqlLoweringError> {
+    match selection {
+        ProjectionSelection::All => {
+            if schema.first_non_sql_selectable_field().is_some() {
+                return Err(SqlLoweringError::unsupported_select_projection());
+            }
+        }
+        ProjectionSelection::Fields(fields) => {
+            for field in fields {
+                ensure_sql_selectable_field(schema, field.as_str())?;
+            }
+        }
+        ProjectionSelection::Exprs(fields) => {
+            for field in fields {
+                validate_projection_expr_sql_capabilities(schema, field.expr())?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// Walk projection expressions only for top-level source-field admission. The
+// expression engine still owns type inference, coercion, and nested leaf rules.
+fn validate_projection_expr_sql_capabilities(
+    schema: &SchemaInfo,
+    expr: &Expr,
+) -> Result<(), SqlLoweringError> {
+    expr.try_for_each_tree_expr(&mut |node| match node {
+        Expr::Field(field) => ensure_sql_selectable_field(schema, field.as_str()),
+        Expr::FieldPath(path) => ensure_sql_selectable_field(schema, path.root().as_str()),
+        Expr::Literal(_)
+        | Expr::FunctionCall { .. }
+        | Expr::Unary { .. }
+        | Expr::Binary { .. }
+        | Expr::Aggregate(_)
+        | Expr::Case { .. } => Ok(()),
+        #[cfg(test)]
+        Expr::Alias { .. } => Ok(()),
+    })
+}
+
+// GROUP BY identity must use the schema-owned groupable capability instead of
+// re-deriving comparable/identity behavior from generated field kinds.
+fn validate_group_by_sql_capabilities(
+    schema: &SchemaInfo,
+    fields: &[String],
+) -> Result<(), SqlLoweringError> {
+    for field in fields {
+        let Some(capabilities) = schema.sql_capabilities(field) else {
+            continue;
+        };
+        if !capabilities.groupable() {
+            return Err(SqlLoweringError::unsupported_select_group_by());
+        }
+    }
+
+    Ok(())
+}
+
+// ORDER BY direct fields use accepted top-level orderability. Computed ORDER BY
+// expressions continue through expression planning because their result type,
+// not each input field's type, owns the final orderability decision.
+fn validate_order_sql_capabilities(
+    schema: &SchemaInfo,
+    terms: &[LoweredSqlOrderTerm],
+) -> Result<(), SqlLoweringError> {
+    for term in terms {
+        let Expr::Field(field) = &term.expr else {
+            continue;
+        };
+        let Some(capabilities) = schema.sql_capabilities(field.as_str()) else {
+            continue;
+        };
+        if !capabilities.orderable() {
+            return Err(
+                QueryError::unsupported_query("SQL ORDER BY field is not orderable").into(),
+            );
+        }
+    }
+
+    Ok(())
+}
+
+// Apply one direct SELECT/source-field capability check and keep unknown-field
+// reporting on the planner-owned unknown-field path.
+fn ensure_sql_selectable_field(
+    schema: &SchemaInfo,
+    field_name: &str,
+) -> Result<(), SqlLoweringError> {
+    let Some(capabilities) = schema.sql_capabilities(field_name) else {
+        return Ok(());
+    };
+    if !capabilities.selectable() {
+        return Err(SqlLoweringError::unsupported_select_projection());
+    }
+
+    Ok(())
+}
+
+/// Validate accepted-schema SQL capabilities for one lowered base-query tail.
+///
+/// This applies only to direct-field ORDER BY terms. Filters remain expression
+/// planner-owned, and computed ORDER BY terms are validated by their inferred
+/// result type rather than by each source field they reference.
+pub(in crate::db::sql::lowering) fn validate_base_query_sql_capabilities(
+    schema: &SchemaInfo,
+    lowered: &LoweredBaseQueryShape,
+) -> Result<(), SqlLoweringError> {
+    validate_order_sql_capabilities(schema, lowered.order_by.as_slice())
 }
 
 pub(in crate::db::sql::lowering) fn apply_lowered_base_query_shape(
@@ -404,9 +538,9 @@ pub(in crate::db) fn bind_lowered_sql_query_structural(
         crate::db::sql::lowering::LoweredSqlQuery::Select(select) => {
             bind_lowered_sql_select_query_structural(model, select, consistency)
         }
-        crate::db::sql::lowering::LoweredSqlQuery::Delete(delete) => Ok(
-            bind_lowered_sql_delete_query_structural(model, delete, consistency),
-        ),
+        crate::db::sql::lowering::LoweredSqlQuery::Delete(delete) => {
+            bind_lowered_sql_delete_query_structural(model, delete, consistency)
+        }
     }
 }
 
@@ -443,18 +577,19 @@ pub(in crate::db) fn bind_lowered_sql_select_query_structural_with_schema(
 }
 
 /// Bind one lowered base-query selector with an explicit schema projection.
-#[must_use]
 pub(in crate::db) fn bind_lowered_sql_base_query_structural_with_schema(
     model: &'static EntityModel,
     base_query: LoweredBaseQueryShape,
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
-) -> StructuralQuery {
-    apply_lowered_base_query_shape_with_schema(
+) -> Result<StructuralQuery, SqlLoweringError> {
+    validate_base_query_sql_capabilities(schema, &base_query)?;
+
+    Ok(apply_lowered_base_query_shape_with_schema(
         StructuralQuery::new(model, consistency),
         base_query,
         schema,
-    )
+    ))
 }
 
 /// Bind one lowered SQL DELETE shape onto the structural query surface.
@@ -462,12 +597,11 @@ pub(in crate::db) fn bind_lowered_sql_base_query_structural_with_schema(
 /// This keeps the generic-free mutation lane aligned with SELECT binding:
 /// callers that already resolved entity authority can consume a lowered DELETE
 /// artifact without reconstructing the `LoweredSqlQuery` envelope locally.
-#[must_use]
 pub(in crate::db) fn bind_lowered_sql_delete_query_structural(
     model: &'static EntityModel,
     delete: LoweredBaseQueryShape,
     consistency: MissingRowPolicy,
-) -> StructuralQuery {
+) -> Result<StructuralQuery, SqlLoweringError> {
     bind_lowered_sql_delete_query_structural_with_schema(
         model,
         delete,
@@ -477,13 +611,12 @@ pub(in crate::db) fn bind_lowered_sql_delete_query_structural(
 }
 
 /// Bind one lowered SQL DELETE shape with an explicit schema projection.
-#[must_use]
 pub(in crate::db) fn bind_lowered_sql_delete_query_structural_with_schema(
     model: &'static EntityModel,
     delete: LoweredBaseQueryShape,
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
-) -> StructuralQuery {
+) -> Result<StructuralQuery, SqlLoweringError> {
     let delete = LoweredBaseQueryShape {
         filter: delete
             .filter
@@ -493,11 +626,13 @@ pub(in crate::db) fn bind_lowered_sql_delete_query_structural_with_schema(
         offset: delete.offset,
     };
 
-    apply_lowered_base_query_shape_with_schema(
+    validate_base_query_sql_capabilities(schema, &delete)?;
+
+    Ok(apply_lowered_base_query_shape_with_schema(
         StructuralQuery::new(model, consistency).delete(),
         delete,
         schema,
-    )
+    ))
 }
 
 /// Bind one SQL UPDATE selector with an explicit schema projection.
@@ -513,12 +648,7 @@ pub(in crate::db) fn bind_sql_update_selector_query_structural_with_schema(
 ) -> Result<StructuralQuery, SqlLoweringError> {
     let base_query = lower_update_selector_shape(statement, model)?;
 
-    Ok(bind_lowered_sql_base_query_structural_with_schema(
-        model,
-        base_query,
-        consistency,
-        schema,
-    ))
+    bind_lowered_sql_base_query_structural_with_schema(model, base_query, consistency, schema)
 }
 
 // Test-only typed SQL lowering still uses this adapter to compare the

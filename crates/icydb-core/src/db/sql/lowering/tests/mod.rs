@@ -15,6 +15,11 @@ use crate::{
             },
         },
         query::{builder::FieldRef, expr::FilterExpr, intent::Query},
+        schema::{
+            AcceptedSchemaSnapshot, FieldId as SchemaFieldId, PersistedFieldKind,
+            PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot,
+            SchemaInfo, SchemaRowLayout, SchemaVersion,
+        },
         sql::{
             lowering::{
                 PreparedSqlScalarAggregateDescriptorShape, PreparedSqlScalarAggregatePlanFragment,
@@ -30,7 +35,7 @@ use crate::{
             },
         },
     },
-    model::field::FieldKind,
+    model::field::{FieldKind, FieldStorageDecode, LeafCodec},
     model::index::{IndexExpression, IndexKeyItem, IndexModel},
     traits::{EntitySchema, Path},
     types::Ulid,
@@ -291,6 +296,81 @@ fn lower_sql_select_shape_for_test(
     };
 
     select
+}
+
+// Lower one SQL DELETE statement just through the normalized frontend lane so
+// schema-aware base-query binding tests can exercise DELETE tails directly.
+fn lower_sql_delete_shape_for_test(
+    sql: &str,
+    context: &str,
+) -> crate::db::sql::lowering::LoweredBaseQueryShape {
+    let statement = crate::db::sql::parser::parse_sql(sql)
+        .unwrap_or_else(|err| panic!("{context} should parse: {err:?}"));
+    let prepared = prepare_sql_statement(&statement, SqlLowerEntity::MODEL.name())
+        .unwrap_or_else(|err| panic!("{context} should prepare: {err:?}"));
+    let lowered = lower_sql_command_from_prepared_statement(prepared, SqlLowerEntity::MODEL)
+        .unwrap_or_else(|err| panic!("{context} should lower: {err:?}"));
+    let Some(crate::db::sql::lowering::LoweredSqlQuery::Delete(delete)) = lowered.into_query()
+    else {
+        panic!("{context} should lower to one DELETE query shape");
+    };
+
+    delete
+}
+
+// Build one accepted schema variant for the shared SQL-lowering fixture with
+// the `name` field deliberately changed. This lets binding tests prove the
+// explicit-schema SQL lane follows accepted metadata rather than generated
+// Rust field kinds for top-level capability checks.
+fn accepted_sql_lower_schema_with_name_kind(kind: PersistedFieldKind) -> SchemaInfo {
+    let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        SqlLowerEntity::MODEL.path().to_string(),
+        SqlLowerEntity::MODEL.name().to_string(),
+        SchemaFieldId::new(1),
+        SchemaRowLayout::new(
+            SchemaVersion::initial(),
+            vec![
+                (SchemaFieldId::new(1), SchemaFieldSlot::new(0)),
+                (SchemaFieldId::new(2), SchemaFieldSlot::new(1)),
+                (SchemaFieldId::new(3), SchemaFieldSlot::new(2)),
+            ],
+        ),
+        vec![
+            PersistedFieldSnapshot::new(
+                SchemaFieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                PersistedFieldKind::Ulid,
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::StructuralFallback,
+            ),
+            PersistedFieldSnapshot::new(
+                SchemaFieldId::new(2),
+                "name".to_string(),
+                SchemaFieldSlot::new(1),
+                kind,
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::StructuralFallback,
+            ),
+            PersistedFieldSnapshot::new(
+                SchemaFieldId::new(3),
+                "age".to_string(),
+                SchemaFieldSlot::new(2),
+                PersistedFieldKind::Uint,
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::StructuralFallback,
+            ),
+        ],
+    ));
+
+    SchemaInfo::from_accepted_snapshot_for_model(SqlLowerEntity::MODEL, &snapshot)
 }
 
 // Lower one global aggregate SQL command through the shared reduced SQL lane
@@ -3217,6 +3297,107 @@ fn compile_sql_command_rejects_round_with_negative_scale() {
 }
 
 #[test]
+fn bind_sql_select_with_schema_rejects_non_selectable_accepted_field() {
+    let select = lower_sql_select_shape_for_test(
+        "SELECT name FROM SqlLowerEntity",
+        "accepted non-selectable projection",
+    );
+    let schema = accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Structured {
+        queryable: false,
+    });
+
+    let err = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
+        SqlLowerEntity::MODEL,
+        select,
+        MissingRowPolicy::Ignore,
+        &schema,
+    )
+    .expect_err("accepted non-queryable structured field should not be selectable");
+
+    assert!(matches!(err, SqlLoweringError::UnsupportedSelectProjection));
+}
+
+#[test]
+fn bind_sql_select_with_schema_rejects_non_groupable_accepted_field() {
+    let select = lower_sql_select_shape_for_test(
+        "SELECT name, COUNT(*) FROM SqlLowerEntity GROUP BY name",
+        "accepted non-groupable grouped projection",
+    );
+    let schema = accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::List(Box::new(
+        PersistedFieldKind::Text { max_len: None },
+    )));
+
+    let err = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
+        SqlLowerEntity::MODEL,
+        select,
+        MissingRowPolicy::Ignore,
+        &schema,
+    )
+    .expect_err("accepted collection field should not be groupable");
+
+    assert!(matches!(err, SqlLoweringError::UnsupportedSelectGroupBy));
+}
+
+#[test]
+fn bind_sql_select_with_schema_rejects_non_orderable_accepted_field() {
+    let select = lower_sql_select_shape_for_test(
+        "SELECT name FROM SqlLowerEntity ORDER BY name",
+        "accepted non-orderable ordered projection",
+    );
+    let schema = accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Blob);
+
+    let err = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
+        SqlLowerEntity::MODEL,
+        select,
+        MissingRowPolicy::Ignore,
+        &schema,
+    )
+    .expect_err("accepted blob field should not be orderable");
+
+    assert!(matches!(err, SqlLoweringError::Query(_)));
+}
+
+#[test]
+fn bind_sql_delete_with_schema_rejects_non_orderable_accepted_field() {
+    let delete = lower_sql_delete_shape_for_test(
+        "DELETE FROM SqlLowerEntity ORDER BY name LIMIT 1",
+        "accepted non-orderable delete tail",
+    );
+    let schema = accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Blob);
+
+    let err = crate::db::sql::lowering::bind_lowered_sql_delete_query_structural_with_schema(
+        SqlLowerEntity::MODEL,
+        delete,
+        MissingRowPolicy::Ignore,
+        &schema,
+    )
+    .expect_err("accepted blob field should not be a direct DELETE ORDER BY target");
+
+    assert!(matches!(err, SqlLoweringError::Query(_)));
+}
+
+#[test]
+fn bind_sql_update_selector_with_schema_rejects_non_orderable_accepted_field() {
+    let statement =
+        parse_sql("UPDATE SqlLowerEntity SET age = 22 WHERE age >= 1 ORDER BY name LIMIT 1")
+            .expect("accepted non-orderable update selector should parse");
+    let crate::db::sql::parser::SqlStatement::Update(statement) = statement else {
+        panic!("accepted non-orderable update selector should parse as UPDATE");
+    };
+    let schema = accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Blob);
+
+    let err = crate::db::sql::lowering::bind_sql_update_selector_query_structural_with_schema(
+        SqlLowerEntity::MODEL,
+        &statement,
+        MissingRowPolicy::Ignore,
+        &schema,
+    )
+    .expect_err("accepted blob field should not be a direct UPDATE ORDER BY target");
+
+    assert!(matches!(err, SqlLoweringError::Query(_)));
+}
+
+#[test]
 fn compile_sql_command_select_table_qualified_fields_parity_matches_unqualified_intent() {
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
         .select_fields(["name", "age"])
@@ -5026,6 +5207,29 @@ fn compile_sql_global_aggregate_command_count_sum_avg_min_max_lower() {
     assert_field_aggregate_strategy(avg_command.terminal(), AggregateKind::Avg, "age", false);
     assert_field_aggregate_strategy(min_command.terminal(), AggregateKind::Min, "age", false);
     assert_field_aggregate_strategy(max_command.terminal(), AggregateKind::Max, "age", false);
+}
+
+#[test]
+fn compile_sql_global_aggregate_with_schema_rejects_non_numeric_accepted_sum_field() {
+    let statement = parse_sql("SELECT SUM(name) FROM SqlLowerEntity")
+        .expect("schema-aware aggregate SQL should parse");
+    let prepared = prepare_sql_statement(&statement, SqlLowerEntity::MODEL.name())
+        .expect("schema-aware aggregate SQL should prepare");
+    let schema = accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Blob);
+
+    let err =
+        crate::db::sql::lowering::compile_sql_global_aggregate_command_core_from_prepared_with_schema(
+            prepared,
+            SqlLowerEntity::MODEL,
+            MissingRowPolicy::Ignore,
+            &schema,
+        )
+        .expect_err("accepted blob field should not be SUM input");
+
+    assert!(matches!(
+        err,
+        SqlLoweringError::UnsupportedGlobalAggregateProjection
+    ));
 }
 
 #[test]

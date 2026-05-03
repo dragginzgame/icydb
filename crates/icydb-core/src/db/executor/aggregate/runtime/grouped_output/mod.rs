@@ -13,8 +13,9 @@ use crate::{
             pipeline::contracts::{ExecutionOutcomeMetrics, GroupedCursorPage, GroupedRouteStage},
             pipeline::runtime::GroupedFoldStage,
             plan_metrics::{
-                record_rows_aggregated_for_path, record_rows_emitted_for_path,
-                record_rows_filtered_for_path, record_rows_scanned_for_path,
+                record_load_row_efficiency_for_path, record_rows_aggregated_for_path,
+                record_rows_emitted_for_path, record_rows_filtered_for_path,
+                record_rows_scanned_for_path,
             },
             projection::*,
         },
@@ -251,6 +252,7 @@ fn record_path_outcome_counts_for_path(
     record_rows_scanned_for_path(entity_path, rows_scanned);
     record_rows_filtered_for_path(entity_path, rows_filtered);
     record_rows_emitted_for_path(entity_path, rows_emitted);
+    record_load_row_efficiency_for_path(entity_path, rows_scanned, rows_filtered, rows_emitted);
 }
 
 // Finalize the shared execution-trace outcome contract after aggregate output

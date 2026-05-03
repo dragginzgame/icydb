@@ -154,6 +154,32 @@ fn count_rows_emitted(events: &[MetricsEvent], entity_path: &'static str) -> usi
     })
 }
 
+fn load_row_efficiency_totals(
+    events: &[MetricsEvent],
+    entity_path: &'static str,
+) -> (usize, usize, usize) {
+    events.iter().fold(
+        (0usize, 0usize, 0usize),
+        |(scanned_acc, filtered_acc, emitted_acc), event| match event {
+            MetricsEvent::LoadRowEfficiency {
+                entity_path: path,
+                candidate_rows_scanned,
+                candidate_rows_filtered,
+                result_rows_emitted,
+            } if *path == entity_path => (
+                scanned_acc
+                    .saturating_add(usize::try_from(*candidate_rows_scanned).unwrap_or(usize::MAX)),
+                filtered_acc.saturating_add(
+                    usize::try_from(*candidate_rows_filtered).unwrap_or(usize::MAX),
+                ),
+                emitted_acc
+                    .saturating_add(usize::try_from(*result_rows_emitted).unwrap_or(usize::MAX)),
+            ),
+            _ => (scanned_acc, filtered_acc, emitted_acc),
+        },
+    )
+}
+
 fn count_grouped_plan_events(events: &[MetricsEvent]) -> usize {
     events.iter().fold(0usize, |acc, event| {
         let delta = match event {
@@ -528,6 +554,20 @@ fn scalar_load_emits_rows_filtered_and_rows_emitted_metrics() {
     assert!(
         count_rows_emitted(&events, SimpleEntity::PATH) >= 1,
         "scalar load should emit at least one output row metric for paged output",
+    );
+    let (load_rows_scanned, load_rows_filtered, load_rows_emitted) =
+        load_row_efficiency_totals(&events, SimpleEntity::PATH);
+    assert!(
+        load_rows_scanned >= load_rows_emitted,
+        "load efficiency should count at least as many scanned candidates as emitted rows",
+    );
+    assert!(
+        load_rows_filtered >= 1,
+        "load efficiency should expose filtered candidate rows for offset windows",
+    );
+    assert!(
+        load_rows_emitted >= 1,
+        "load efficiency should expose emitted load result rows",
     );
 }
 

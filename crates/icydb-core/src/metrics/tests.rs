@@ -191,6 +191,9 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
         "rows_inserted",
         "rows_updated",
         "rows_replaced",
+        "load_candidate_rows_scanned",
+        "load_candidate_rows_filtered",
+        "load_result_rows_emitted",
     ] {
         assert!(
             fields.iter().any(|candidate| candidate == field),
@@ -302,6 +305,9 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         rows_filtered: 20,
         rows_aggregated: 21,
         rows_emitted: 22,
+        load_candidate_rows_scanned: 61,
+        load_candidate_rows_filtered: 62,
+        load_result_rows_emitted: 63,
         rows_deleted: 10,
         index_inserts: 11,
         index_removes: 12,
@@ -365,6 +371,9 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "rows_filtered",
         "rows_aggregated",
         "rows_emitted",
+        "load_candidate_rows_scanned",
+        "load_candidate_rows_filtered",
+        "load_result_rows_emitted",
         "rows_deleted",
         "index_inserts",
         "index_removes",
@@ -441,6 +450,9 @@ fn entity_summary_candid_shape_is_stable() {
     assert_eq!(summary.rows_filtered(), 20);
     assert_eq!(summary.rows_aggregated(), 21);
     assert_eq!(summary.rows_emitted(), 22);
+    assert_eq!(summary.load_candidate_rows_scanned(), 61);
+    assert_eq!(summary.load_candidate_rows_filtered(), 62);
+    assert_eq!(summary.load_result_rows_emitted(), 63);
     assert_eq!(summary.index_inserts(), 11);
     assert_eq!(summary.index_removes(), 12);
     assert_eq!(summary.reverse_index_inserts(), 13);

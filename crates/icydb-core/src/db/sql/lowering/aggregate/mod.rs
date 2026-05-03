@@ -13,7 +13,7 @@ use crate::db::sql::parser::{SqlProjection, SqlSelectItem, SqlSelectStatement, S
 pub(crate) use command::SqlGlobalAggregateCommand;
 #[cfg(test)]
 pub(crate) use command::compile_sql_global_aggregate_command;
-pub(in crate::db) use command::compile_sql_global_aggregate_command_core_from_prepared;
+pub(in crate::db) use command::compile_sql_global_aggregate_command_core_from_prepared_with_schema;
 pub(in crate::db::sql::lowering) use command::{
     LoweredSqlGlobalAggregateCommand, lower_global_aggregate_select_shape,
 };

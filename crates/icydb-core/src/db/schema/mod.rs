@@ -24,7 +24,7 @@ pub use describe::{
 };
 pub use errors::ValidateError;
 
-pub(in crate::db) use capabilities::sql_capabilities;
+pub(in crate::db) use capabilities::{SqlCapabilities, sql_capabilities};
 pub(in crate::db) use codec::{decode_persisted_schema_snapshot, encode_persisted_schema_snapshot};
 pub(in crate::db) use describe::{
     describe_entity_fields, describe_entity_fields_with_persisted_schema, describe_entity_model,

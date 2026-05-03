@@ -96,3 +96,18 @@ pub(super) fn record_rows_emitted_for_path(entity_path: &'static str, rows_emitt
         rows_emitted: u64::try_from(rows_emitted).unwrap_or(u64::MAX),
     });
 }
+
+/// Record read-efficiency totals for one finalized load path.
+pub(super) fn record_load_row_efficiency_for_path(
+    entity_path: &'static str,
+    candidate_rows_scanned: usize,
+    candidate_rows_filtered: usize,
+    result_rows_emitted: usize,
+) {
+    record(MetricsEvent::LoadRowEfficiency {
+        entity_path,
+        candidate_rows_scanned: u64::try_from(candidate_rows_scanned).unwrap_or(u64::MAX),
+        candidate_rows_filtered: u64::try_from(candidate_rows_filtered).unwrap_or(u64::MAX),
+        result_rows_emitted: u64::try_from(result_rows_emitted).unwrap_or(u64::MAX),
+    });
+}

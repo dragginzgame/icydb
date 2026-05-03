@@ -1,6 +1,7 @@
 use crate::{
     db::{
         query::plan::{AggregateKind, FieldSlot, expr::Expr, resolve_aggregate_target_field_slot},
+        schema::SchemaInfo,
         sql::lowering::{
             SqlLoweringError,
             aggregate::{
@@ -74,11 +75,11 @@ impl PreparedSqlScalarAggregateStrategy {
         }
     }
 
-    // Keep terminal preparation on one owner-local seam so field-target and
-    // expression-input aggregate shapes cannot drift apart across parallel
-    // helpers.
-    pub(in crate::db::sql::lowering::aggregate) fn from_lowered_terminal(
+    // Build one prepared aggregate strategy while reading top-level SQL
+    // aggregate-input capabilities from the accepted schema projection.
+    pub(in crate::db::sql::lowering::aggregate) fn from_lowered_terminal_with_schema(
         model: &'static EntityModel,
+        schema: &SchemaInfo,
         terminal: SqlGlobalAggregateTerminal,
     ) -> Result<Self, SqlLoweringError> {
         let (semantic_identity, filter_expr) =
@@ -88,6 +89,7 @@ impl PreparedSqlScalarAggregateStrategy {
         let target = match aggregate_input_from_semantics(semantic_identity) {
             AggregateInput::Rows => PreparedAggregateTarget::Rows,
             AggregateInput::Field(field) => {
+                validate_field_target_sql_aggregate_capabilities(schema, field.as_str(), kind)?;
                 let target_slot = resolve_aggregate_target_field_slot(model, field.as_str())
                     .map_err(SqlLoweringError::from)?;
                 PreparedAggregateTarget::Field(target_slot)
@@ -226,4 +228,29 @@ impl PreparedSqlScalarAggregateStrategy {
     pub(crate) fn projected_field(&self) -> Option<&str> {
         self.target_slot().map(FieldSlot::field)
     }
+}
+
+// Validate field-target aggregate admission against schema-owned SQL
+// capabilities. Expression-input aggregate typing remains expression-owned and
+// generated-model based until accepted nested/type inference is fully sealed.
+fn validate_field_target_sql_aggregate_capabilities(
+    schema: &SchemaInfo,
+    field_name: &str,
+    kind: AggregateKind,
+) -> Result<(), SqlLoweringError> {
+    let Some(capabilities) = schema.sql_capabilities(field_name) else {
+        return Ok(());
+    };
+    let aggregate_input = capabilities.aggregate_input();
+    let supported = match kind {
+        AggregateKind::Count => aggregate_input.count(),
+        AggregateKind::Sum | AggregateKind::Avg => aggregate_input.numeric(),
+        AggregateKind::Min | AggregateKind::Max => aggregate_input.extrema(),
+        AggregateKind::Exists | AggregateKind::First | AggregateKind::Last => false,
+    };
+    if !supported {
+        return Err(SqlLoweringError::unsupported_global_aggregate_projection());
+    }
+
+    Ok(())
 }

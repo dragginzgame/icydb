@@ -5,9 +5,9 @@
 
 use crate::{
     db::schema::{
-        AcceptedSchemaSnapshot, FieldType, PersistedFieldKind,
+        AcceptedSchemaSnapshot, FieldType, PersistedFieldKind, SqlCapabilities,
         canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_model_kind,
-        field_type_from_persisted_kind,
+        field_type_from_persisted_kind, sql_capabilities,
     },
     model::{
         canonicalize_strict_sql_literal_for_kind,
@@ -50,6 +50,7 @@ fn schema_field_info<'a>(
 struct SchemaFieldInfo {
     ty: FieldType,
     kind: FieldKind,
+    sql_capabilities: SqlCapabilities,
     persisted_kind: Option<PersistedFieldKind>,
     nested_fields: &'static [FieldModel],
 }
@@ -70,6 +71,9 @@ impl SchemaInfo {
                     SchemaFieldInfo {
                         ty: field_type_from_model_kind(&field.kind()),
                         kind: field.kind(),
+                        sql_capabilities: sql_capabilities(&PersistedFieldKind::from_model_kind(
+                            field.kind(),
+                        )),
                         persisted_kind: None,
                         nested_fields: field.nested_fields(),
                     },
@@ -95,6 +99,26 @@ impl SchemaInfo {
     #[must_use]
     pub(crate) fn field_kind(&self, name: &str) -> Option<&FieldKind> {
         schema_field_info(self.fields.as_slice(), name).map(|field| &field.kind)
+    }
+
+    /// Return SQL operation capabilities for one top-level field.
+    ///
+    /// Accepted live schema views derive this from persisted field kinds so SQL
+    /// admission follows reconciled schema authority. Generated schema views
+    /// use generated model metadata for compile-time-only callers.
+    ///
+    #[must_use]
+    pub(in crate::db) fn sql_capabilities(&self, name: &str) -> Option<SqlCapabilities> {
+        schema_field_info(self.fields.as_slice(), name).map(|field| field.sql_capabilities)
+    }
+
+    /// Return the first top-level field that SQL cannot project directly.
+    #[must_use]
+    pub(in crate::db) fn first_non_sql_selectable_field(&self) -> Option<&'static str> {
+        self.fields
+            .iter()
+            .find(|(_, field)| !field.sql_capabilities.selectable())
+            .map(|(field_name, _)| *field_name)
     }
 
     #[must_use]
@@ -149,12 +173,17 @@ impl SchemaInfo {
                     || field_type_from_model_kind(&field.kind()),
                     |persisted| field_type_from_persisted_kind(persisted.kind()),
                 );
+                let sql_capabilities = accepted_field.map_or_else(
+                    || sql_capabilities(&PersistedFieldKind::from_model_kind(field.kind())),
+                    |persisted| sql_capabilities(persisted.kind()),
+                );
 
                 (
                     field.name(),
                     SchemaFieldInfo {
                         ty,
                         kind: field.kind(),
+                        sql_capabilities,
                         persisted_kind: accepted_field.map(|persisted| persisted.kind().clone()),
                         nested_fields: field.nested_fields(),
                     },
@@ -301,5 +330,24 @@ mod tests {
             accepted.canonicalize_strict_sql_literal("name", &Value::Int(7)),
             Some(Value::Uint(7))
         );
+    }
+
+    #[test]
+    fn accepted_snapshot_schema_info_uses_persisted_sql_capabilities() {
+        let generated = SchemaInfo::cached_for_entity_model(&MODEL);
+        let snapshot = accepted_schema_with_name_kind(PersistedFieldKind::Blob);
+        let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
+
+        let generated_name = generated
+            .sql_capabilities("name")
+            .expect("generated field capability should exist");
+        let accepted_name = accepted
+            .sql_capabilities("name")
+            .expect("accepted field capability should exist");
+
+        assert!(generated_name.orderable());
+        assert!(accepted_name.selectable());
+        assert!(accepted_name.comparable());
+        assert!(!accepted_name.orderable());
     }
 }

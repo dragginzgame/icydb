@@ -168,6 +168,12 @@ pub enum MetricsEvent {
         entity_path: &'static str,
         rows_emitted: u64,
     },
+    LoadRowEfficiency {
+        entity_path: &'static str,
+        candidate_rows_scanned: u64,
+        candidate_rows_filtered: u64,
+        result_rows_emitted: u64,
+    },
     UniqueViolation {
         entity_path: &'static str,
     },
@@ -357,6 +363,39 @@ impl MetricsSink for GlobalMetricsSink {
                     m.ops.rows_emitted = m.ops.rows_emitted.saturating_add(rows_emitted);
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
                     entry.rows_emitted = entry.rows_emitted.saturating_add(rows_emitted);
+                });
+            }
+
+            MetricsEvent::LoadRowEfficiency {
+                entity_path,
+                candidate_rows_scanned,
+                candidate_rows_filtered,
+                result_rows_emitted,
+            } => {
+                metrics::with_state_mut(|m| {
+                    m.ops.load_candidate_rows_scanned = m
+                        .ops
+                        .load_candidate_rows_scanned
+                        .saturating_add(candidate_rows_scanned);
+                    m.ops.load_candidate_rows_filtered = m
+                        .ops
+                        .load_candidate_rows_filtered
+                        .saturating_add(candidate_rows_filtered);
+                    m.ops.load_result_rows_emitted = m
+                        .ops
+                        .load_result_rows_emitted
+                        .saturating_add(result_rows_emitted);
+
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    entry.load_candidate_rows_scanned = entry
+                        .load_candidate_rows_scanned
+                        .saturating_add(candidate_rows_scanned);
+                    entry.load_candidate_rows_filtered = entry
+                        .load_candidate_rows_filtered
+                        .saturating_add(candidate_rows_filtered);
+                    entry.load_result_rows_emitted = entry
+                        .load_result_rows_emitted
+                        .saturating_add(result_rows_emitted);
                 });
             }
 
@@ -1479,6 +1518,12 @@ mod tests {
             entity_path: "metrics::tests::Entity",
             rows_emitted: 3,
         });
+        record(MetricsEvent::LoadRowEfficiency {
+            entity_path: "metrics::tests::Entity",
+            candidate_rows_scanned: 11,
+            candidate_rows_filtered: 8,
+            result_rows_emitted: 3,
+        });
 
         let report = metrics_report(None);
         let counters = report
@@ -1487,5 +1532,8 @@ mod tests {
         assert_eq!(counters.ops.rows_filtered, 9);
         assert_eq!(counters.ops.rows_aggregated, 4);
         assert_eq!(counters.ops.rows_emitted, 3);
+        assert_eq!(counters.ops.load_candidate_rows_scanned, 11);
+        assert_eq!(counters.ops.load_candidate_rows_filtered, 8);
+        assert_eq!(counters.ops.load_result_rows_emitted, 3);
     }
 }
