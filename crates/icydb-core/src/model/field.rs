@@ -150,6 +150,22 @@ pub struct FieldModel {
     pub(crate) insert_generation: Option<FieldInsertGeneration>,
     /// Auto-managed write contract emitted for derive-owned system fields.
     pub(crate) write_management: Option<FieldWriteManagement>,
+    /// Database-level default contract used by persisted schema authority.
+    pub(crate) database_default: FieldDatabaseDefault,
+}
+
+///
+/// FieldDatabaseDefault
+///
+/// FieldDatabaseDefault declares the database-level default contract for one
+/// runtime field. It is intentionally separate from Rust `Default` so schema
+/// reconciliation never treats construction defaults as persisted-row policy.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FieldDatabaseDefault {
+    /// No database-level default is declared for this field.
+    None,
 }
 
 ///
@@ -275,6 +291,7 @@ impl FieldModel {
             leaf_codec: leaf_codec_for(kind, storage_decode),
             insert_generation,
             write_management,
+            database_default: FieldDatabaseDefault::None,
         }
     }
 
@@ -299,6 +316,7 @@ impl FieldModel {
             leaf_codec: leaf_codec_for(kind, storage_decode),
             insert_generation,
             write_management,
+            database_default: FieldDatabaseDefault::None,
         }
     }
 
@@ -348,6 +366,12 @@ impl FieldModel {
     #[must_use]
     pub const fn write_management(&self) -> Option<FieldWriteManagement> {
         self.write_management
+    }
+
+    /// Return the database-level default contract for this field.
+    #[must_use]
+    pub const fn database_default(&self) -> FieldDatabaseDefault {
+        self.database_default
     }
 
     /// Validate one runtime value against this field's persisted storage contract.

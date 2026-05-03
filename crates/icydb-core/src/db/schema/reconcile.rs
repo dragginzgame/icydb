@@ -7,7 +7,7 @@ use crate::{
     db::{
         Db, EntityRuntimeHooks,
         schema::{
-            PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaStore,
+            AcceptedSchemaSnapshot, PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaStore,
             compiled_schema_proposal_for_model,
         },
     },
@@ -64,18 +64,18 @@ pub(in crate::db) fn ensure_initial_schema_snapshot(
     entity_tag: EntityTag,
     entity_path: &str,
     model: &EntityModel,
-) -> Result<PersistedSchemaSnapshot, InternalError> {
+) -> Result<AcceptedSchemaSnapshot, InternalError> {
     let proposal = compiled_schema_proposal_for_model(model);
     let expected = proposal.initial_persisted_schema_snapshot();
 
     if let Some(actual) = schema_store.get_persisted_snapshot(entity_tag, expected.version())? {
         validate_existing_schema_snapshot(entity_path, &actual, &expected)?;
-        return Ok(actual);
+        return Ok(AcceptedSchemaSnapshot::new(actual));
     }
 
     schema_store.insert_persisted_snapshot(entity_tag, &expected)?;
 
-    Ok(expected)
+    Ok(AcceptedSchemaSnapshot::new(expected))
 }
 
 // Fail closed when generated code no longer matches an accepted persisted

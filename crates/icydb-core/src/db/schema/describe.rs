@@ -8,7 +8,7 @@ use crate::{
         relation::{
             RelationDescriptor, RelationDescriptorCardinality, relation_descriptors_for_model_iter,
         },
-        schema::PersistedSchemaSnapshot,
+        schema::AcceptedSchemaSnapshot,
     },
     model::{
         entity::EntityModel,
@@ -314,7 +314,7 @@ pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaD
 #[must_use]
 pub(in crate::db) fn describe_entity_model_with_persisted_schema(
     model: &EntityModel,
-    schema: &PersistedSchemaSnapshot,
+    schema: &AcceptedSchemaSnapshot,
 ) -> EntitySchemaDescription {
     let fields = describe_entity_fields_with_persisted_schema(model, schema);
 
@@ -372,9 +372,10 @@ pub(in crate::db) fn describe_entity_fields(model: &EntityModel) -> Vec<EntityFi
 #[must_use]
 pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
     model: &EntityModel,
-    schema: &PersistedSchemaSnapshot,
+    schema: &AcceptedSchemaSnapshot,
 ) -> Vec<EntityFieldDescription> {
     let slots_by_name = schema
+        .snapshot()
         .fields()
         .iter()
         .map(|field| (field.name(), field.slot().get()))
@@ -644,6 +645,19 @@ mod tests {
         }
     }
 
+    fn expect_record_field_type(ty: Type, field_name: &str) -> Type {
+        match ty.as_ref() {
+            TypeInner::Record(fields) => fields
+                .iter()
+                .find_map(|field| match field.id.as_ref() {
+                    Label::Named(name) if name == field_name => Some(field.ty.clone()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("expected record field `{field_name}`")),
+            other => panic!("expected candid record, got {other:?}"),
+        }
+    }
+
     fn expect_variant_labels(ty: Type) -> Vec<String> {
         match ty.as_ref() {
             TypeInner::Variant(fields) => fields
@@ -686,6 +700,14 @@ mod tests {
                 "EntityFieldDescription must keep `{field}` field key",
             );
         }
+
+        assert!(
+            matches!(
+                expect_record_field_type(EntityFieldDescription::ty(), "slot").as_ref(),
+                TypeInner::Nat16
+            ),
+            "EntityFieldDescription slot must remain plain nat16 for CLI/canister compatibility",
+        );
     }
 
     #[test]

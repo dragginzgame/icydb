@@ -6,11 +6,11 @@
 use crate::{
     db::schema::{
         FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedSchemaSnapshot,
-        SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
+        SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaVersion, sql_capabilities,
     },
     model::{
         entity::EntityModel,
-        field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
+        field::{FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
     },
 };
 
@@ -117,6 +117,7 @@ pub(in crate::db) struct CompiledFieldProposal {
     slot: SchemaFieldSlot,
     kind: FieldKind,
     nullable: bool,
+    database_default: FieldDatabaseDefault,
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
 }
@@ -152,6 +153,12 @@ impl CompiledFieldProposal {
         self.nullable
     }
 
+    /// Return the generated database-level default contract.
+    #[must_use]
+    pub(in crate::db) const fn database_default(&self) -> FieldDatabaseDefault {
+        self.database_default
+    }
+
     /// Return the generated persisted decode contract.
     #[must_use]
     pub(in crate::db) const fn storage_decode(&self) -> FieldStorageDecode {
@@ -177,7 +184,7 @@ impl CompiledFieldProposal {
             self.slot(),
             PersistedFieldKind::from_model_kind(self.kind()),
             self.nullable(),
-            SchemaFieldDefault::None,
+            SchemaFieldDefault::from_model_default(self.database_default()),
             self.storage_decode(),
             self.leaf_codec(),
         )
@@ -247,6 +254,18 @@ fn debug_assert_compiled_schema_proposal_invariants(
             field.storage_decode(),
             field.leaf_codec(),
         );
+
+        let capabilities = sql_capabilities(field.kind());
+        let aggregate = capabilities.aggregate_input();
+        let _ = (
+            capabilities.selectable(),
+            capabilities.comparable(),
+            capabilities.orderable(),
+            capabilities.groupable(),
+            aggregate.count(),
+            aggregate.numeric(),
+            aggregate.extrema(),
+        );
     }
 
     for (expected_slot, field) in proposal.fields().iter().enumerate() {
@@ -260,6 +279,7 @@ fn debug_assert_compiled_schema_proposal_invariants(
             field.name(),
             field.kind(),
             field.nullable(),
+            field.database_default(),
             field.storage_decode(),
             field.leaf_codec(),
             field.initial_persisted_field_snapshot(),
@@ -281,6 +301,7 @@ fn compiled_field_proposal_from_model_field(
         slot,
         kind: field.kind(),
         nullable: field.nullable(),
+        database_default: field.database_default(),
         storage_decode: field.storage_decode(),
         leaf_codec: field.leaf_codec(),
     }
@@ -299,7 +320,10 @@ mod tests {
         },
         model::{
             entity::EntityModel,
-            field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec},
+            field::{
+                FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode, LeafCodec,
+                ScalarCodec,
+            },
             index::IndexModel,
         },
         testing::entity_model_from_static,
@@ -351,6 +375,7 @@ mod tests {
         assert_eq!(name.slot(), SchemaFieldSlot::from_generated_index(1));
         assert!(matches!(name.kind(), FieldKind::Text { max_len: None }));
         assert!(name.nullable());
+        assert_eq!(name.database_default(), FieldDatabaseDefault::None);
         assert_eq!(name.storage_decode(), FieldStorageDecode::ByKind);
         assert_eq!(name.leaf_codec(), LeafCodec::Scalar(ScalarCodec::Text));
     }

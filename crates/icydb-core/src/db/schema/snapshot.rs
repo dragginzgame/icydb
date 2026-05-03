@@ -5,9 +5,38 @@
 
 use crate::{
     db::schema::{FieldId, SchemaFieldSlot, SchemaRowLayout, SchemaVersion},
-    model::field::{FieldKind, FieldStorageDecode, LeafCodec, RelationStrength},
+    model::field::{
+        FieldDatabaseDefault, FieldKind, FieldStorageDecode, LeafCodec, RelationStrength,
+    },
     types::EntityTag,
 };
+
+///
+/// AcceptedSchemaSnapshot
+///
+/// Schema snapshot accepted by startup reconciliation.
+/// This wrapper marks the boundary between a decoded persisted payload and a
+/// schema authority that has been checked against the compiled proposal.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedSchemaSnapshot {
+    snapshot: PersistedSchemaSnapshot,
+}
+
+impl AcceptedSchemaSnapshot {
+    /// Wrap one persisted snapshot after reconciliation accepts it.
+    #[must_use]
+    pub(in crate::db::schema) const fn new(snapshot: PersistedSchemaSnapshot) -> Self {
+        Self { snapshot }
+    }
+
+    /// Borrow the accepted persisted snapshot.
+    #[must_use]
+    pub(in crate::db) const fn snapshot(&self) -> &PersistedSchemaSnapshot {
+        &self.snapshot
+    }
+}
 
 ///
 /// PersistedSchemaSnapshot
@@ -195,6 +224,16 @@ impl PersistedFieldSnapshot {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum SchemaFieldDefault {
     None,
+}
+
+impl SchemaFieldDefault {
+    /// Convert runtime model default metadata into persisted schema shape.
+    #[must_use]
+    pub(in crate::db) const fn from_model_default(default: FieldDatabaseDefault) -> Self {
+        match default {
+            FieldDatabaseDefault::None => Self::None,
+        }
+    }
 }
 
 ///

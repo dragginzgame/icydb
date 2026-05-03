@@ -17,8 +17,8 @@ pub(crate) mod index;
 // re-exports
 pub use entity::EntityModel;
 pub use field::{
-    EnumVariantModel, FieldInsertGeneration, FieldKind, FieldModel, FieldStorageDecode,
-    FieldWriteManagement, RelationStrength,
+    EnumVariantModel, FieldDatabaseDefault, FieldInsertGeneration, FieldKind, FieldModel,
+    FieldStorageDecode, FieldWriteManagement, RelationStrength,
 };
 pub(crate) use field_kind_semantics::{
     FieldKindCategory, FieldKindNumericClass, FieldKindScalarClass,

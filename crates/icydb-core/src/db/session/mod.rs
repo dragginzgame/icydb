@@ -22,7 +22,7 @@ use crate::{
         executor::{DeleteExecutor, LoadExecutor, SaveExecutor},
         query::plan::VisibleIndexes,
         schema::{
-            PersistedSchemaSnapshot, describe_entity_fields,
+            AcceptedSchemaSnapshot, describe_entity_fields,
             describe_entity_fields_with_persisted_schema, describe_entity_model,
             describe_entity_model_with_persisted_schema, ensure_initial_schema_snapshot,
             show_indexes_for_model, show_indexes_for_model_with_runtime_state,
@@ -367,7 +367,7 @@ impl<C: CanisterKind> DbSession<C> {
     // Load the accepted initial schema snapshot for one generated entity after
     // enforcing recovery/reconciliation. Later schema-evolution work will
     // replace the initial-version lookup with accepted live-version authority.
-    fn accepted_initial_schema_snapshot<E>(&self) -> Result<PersistedSchemaSnapshot, InternalError>
+    fn accepted_initial_schema_snapshot<E>(&self) -> Result<AcceptedSchemaSnapshot, InternalError>
     where
         E: EntityKind<Canister = C>,
     {

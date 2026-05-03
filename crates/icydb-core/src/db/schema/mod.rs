@@ -3,6 +3,7 @@
 //! Does not own: query planning policy, execution routing, or storage diagnostics.
 //! Boundary: exposes schema-facing contracts consumed by session/query/commit paths.
 
+mod capabilities;
 mod codec;
 mod describe;
 mod errors;
@@ -23,6 +24,7 @@ pub use describe::{
 };
 pub use errors::ValidateError;
 
+pub(in crate::db) use capabilities::sql_capabilities;
 pub(in crate::db) use codec::{decode_persisted_schema_snapshot, encode_persisted_schema_snapshot};
 pub(in crate::db) use describe::{
     describe_entity_fields, describe_entity_fields_with_persisted_schema, describe_entity_model,
@@ -38,8 +40,8 @@ pub(in crate::db) use layout::{SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
 pub(in crate::db) use proposal::compiled_schema_proposal_for_model;
 pub(in crate::db) use reconcile::{ensure_initial_schema_snapshot, reconcile_runtime_schemas};
 pub(in crate::db) use snapshot::{
-    PersistedEnumVariant, PersistedFieldKind, PersistedFieldSnapshot, PersistedRelationStrength,
-    PersistedSchemaSnapshot, SchemaFieldDefault,
+    AcceptedSchemaSnapshot, PersistedEnumVariant, PersistedFieldKind, PersistedFieldSnapshot,
+    PersistedRelationStrength, PersistedSchemaSnapshot, SchemaFieldDefault,
 };
 pub use store::SchemaStore;
 pub(crate) use types::{FieldType, field_type_from_model_kind, literal_matches_type};
