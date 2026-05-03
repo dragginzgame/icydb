@@ -11,6 +11,7 @@ mod typed;
 use crate::{
     db::{Db, commit::CommitSchemaFingerprint, data::PersistedRow, schema::SchemaInfo},
     error::InternalError,
+    metrics::sink::{MetricsEvent, SaveMutationKind, record},
     sanitize::{SanitizeWriteContext, SanitizeWriteMode},
     traits::{EntityCreateInput, EntityValue},
     types::Timestamp,
@@ -67,6 +68,14 @@ impl SaveRule {
             SaveMode::Replace => Self::AllowAny,
         }
     }
+
+    const fn save_mutation_kind(self) -> SaveMutationKind {
+        match self {
+            Self::RequireAbsent => SaveMutationKind::Insert,
+            Self::RequirePresent => SaveMutationKind::Update,
+            Self::AllowAny => SaveMutationKind::Replace,
+        }
+    }
 }
 
 ///
@@ -116,6 +125,14 @@ impl MutationMode {
             Self::Update => SanitizeWriteMode::Update,
         }
     }
+
+    const fn save_mutation_kind(self) -> SaveMutationKind {
+        match self {
+            Self::Insert => SaveMutationKind::Insert,
+            Self::Replace => SaveMutationKind::Replace,
+            Self::Update => SaveMutationKind::Update,
+        }
+    }
 }
 
 impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
@@ -138,6 +155,16 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     #[must_use]
     pub(in crate::db) const fn new(db: Db<E::Canister>, _debug: bool) -> Self {
         Self { db }
+    }
+
+    // Record the committed save mode after the row mutation has crossed the
+    // commit boundary so failed preflight attempts do not inflate write metrics.
+    fn record_save_mutation(kind: SaveMutationKind, rows_touched: u64) {
+        record(MetricsEvent::SaveMutation {
+            entity_path: E::PATH,
+            kind,
+            rows_touched,
+        });
     }
 
     // ======================================================================

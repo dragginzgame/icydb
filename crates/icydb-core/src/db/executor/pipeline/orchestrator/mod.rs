@@ -12,6 +12,7 @@ mod strategy;
 use crate::{
     db::executor::{LoadCursorInput, PreparedLoadPlan, pipeline::contracts::LoadExecutor},
     error::InternalError,
+    metrics::sink::{ExecKind, record_exec_error_for_path},
     traits::{EntityKind, EntityValue},
 };
 pub(in crate::db::executor) use contracts::{
@@ -32,11 +33,18 @@ where
         cursor: LoadCursorInput,
         execution_mode: LoadSurfaceMode,
     ) -> Result<LoadExecutionSurface, InternalError> {
-        let access_state = self.build_execution_context(plan, cursor, execution_mode)?;
-        let payload_state = Self::apply_grouping_projection(access_state)?;
-        let payload_state = payload_state.apply_paging()?;
-        let payload_state = payload_state.apply_tracing();
+        let result = (|| {
+            let access_state = self.build_execution_context(plan, cursor, execution_mode)?;
+            let payload_state = Self::apply_grouping_projection(access_state)?;
+            let payload_state = payload_state.apply_paging()?;
+            let payload_state = payload_state.apply_tracing();
 
-        payload_state.into_surface()
+            payload_state.into_surface()
+        })();
+        if let Err(err) = &result {
+            record_exec_error_for_path(ExecKind::Load, E::PATH, err);
+        }
+
+        result
     }
 }

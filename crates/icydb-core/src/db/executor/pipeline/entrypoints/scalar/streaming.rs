@@ -81,6 +81,7 @@ pub(super) fn execute_prepared_scalar_kernel_row_sink_execution(
         suppress_route_scan_hints,
         debug,
     } = prepared;
+    let entity_path = authority.entity_path();
     let runtime = ExecutionRuntimeAdapter::from_scalar_runtime_parts(
         TraversalRuntime::new(store, authority.entity_tag()),
         store,
@@ -130,7 +131,7 @@ pub(super) fn execute_prepared_scalar_kernel_row_sink_execution(
         prepared_projection: projection,
         emit_cursor: cursor_emission.enabled(),
     });
-    record_plan_metrics(&plan.access);
+    record_plan_metrics(entity_path, &plan.access);
     let (attempt, mut execution_stats) = with_execution_stats_capture(debug, || {
         ExecutionKernel::materialize_kernel_rows_with_optional_residual_retry(
             &execution_inputs,

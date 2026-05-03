@@ -27,7 +27,6 @@ use crate::db::{GroupedCountAttribution, GroupedExecutionAttribution};
 use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
-        commit::CommitSchemaFingerprint,
         executor::{EntityAuthority, SharedPreparedExecutionPlan},
         query::intent::StructuralQuery,
         session::sql::projection::{
@@ -85,7 +84,6 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: &StructuralQuery,
         authority: EntityAuthority,
-        cache_schema_fingerprint: CommitSchemaFingerprint,
     ) -> Result<
         (
             SharedPreparedExecutionPlan,
@@ -94,11 +92,8 @@ impl<C: CanisterKind> DbSession<C> {
         ),
         QueryError,
     > {
-        let (prepared_plan, cache_attribution) = self.cached_shared_query_plan_for_authority(
-            authority,
-            cache_schema_fingerprint,
-            query,
-        )?;
+        let (prepared_plan, cache_attribution) =
+            self.cached_shared_query_plan_for_authority(authority, query)?;
         let projection_spec = prepared_plan
             .logical_plan()
             .projection_spec(authority.model());

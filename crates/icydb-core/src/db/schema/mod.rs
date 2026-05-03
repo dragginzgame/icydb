@@ -30,12 +30,13 @@ pub(in crate::db) use describe::{
     describe_entity_fields, describe_entity_fields_with_persisted_schema, describe_entity_model,
     describe_entity_model_with_persisted_schema,
 };
+pub(in crate::db) use fingerprint::accepted_schema_cache_fingerprint_for_model;
 pub(crate) use fingerprint::{
     commit_schema_fingerprint_for_entity, commit_schema_fingerprint_for_model,
 };
 pub(in crate::db) use format::{show_indexes_for_model, show_indexes_for_model_with_runtime_state};
 pub(in crate::db) use identity::FieldId;
-pub(crate) use info::SchemaInfo;
+pub(in crate::db) use info::SchemaInfo;
 pub(in crate::db) use layout::{SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
 pub(in crate::db) use proposal::compiled_schema_proposal_for_model;
 pub(in crate::db) use reconcile::{ensure_initial_schema_snapshot, reconcile_runtime_schemas};

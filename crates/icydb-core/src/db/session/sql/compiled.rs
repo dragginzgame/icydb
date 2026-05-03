@@ -5,7 +5,6 @@
 
 use crate::db::{
     query::intent::StructuralQuery,
-    session::sql::cache::SqlCompiledCommandCacheKey,
     sql::{
         lowering::{LoweredSqlCommand, SqlGlobalAggregateCommandCore},
         parser::{SqlInsertStatement, SqlReturningProjection, SqlUpdateStatement},
@@ -25,7 +24,6 @@ use std::sync::Arc;
 pub(in crate::db) enum CompiledSqlCommand {
     Select {
         query: Arc<StructuralQuery>,
-        compiled_cache_key: SqlCompiledCommandCacheKey,
     },
     Delete {
         query: Arc<StructuralQuery>,

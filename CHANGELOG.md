@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.146.x] 🪪 - 2026-05-02 - Schema Identity
 
+- `0.146.4` makes cached query planning and SQL cache identity follow accepted schema snapshots after startup reconciliation, and makes per-entity metrics show save modes, query plan routes, and executor outcomes.
 - `0.146.3` keeps schema introspection and SQL write literal validation tied to accepted live schema snapshots, and makes `icydb_metrics()` show saved rows, detailed plan routes, richer per-entity counters, and clearer window filtering.
 - `0.146.2` tightens schema introspection and future SQL admission by marking reconciled schema snapshots explicitly, keeping database defaults separate from Rust defaults, and defining field capability facts for persisted schema metadata.
 - `0.146.1` gives schema memory a real metadata map, persists and checks initial schema snapshots at startup, and shows current field slot numbers in schema introspection output.

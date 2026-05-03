@@ -28,8 +28,7 @@ use crate::{
         session::{
             finalize_structural_grouped_projection_result,
             sql::{
-                CompiledSqlCommand, SqlCacheAttribution, SqlCompiledCommandCacheKey,
-                SqlStatementResult,
+                CompiledSqlCommand, SqlCacheAttribution, SqlStatementResult,
                 projection::{SqlProjectionPayload, execute_sql_projection_rows_for_canister},
             },
             sql_grouped_cursor_from_bytes,
@@ -251,12 +250,8 @@ impl<C: CanisterKind> DbSession<C> {
         query: StructuralQuery,
         authority: EntityAuthority,
     ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
-        let cache_schema_fingerprint = crate::db::schema::commit_schema_fingerprint_for_model(
-            authority.model().path,
-            authority.model(),
-        );
         let (prepared_plan, projection, cache_attribution) =
-            self.sql_select_prepared_plan(&query, authority, cache_schema_fingerprint)?;
+            self.sql_select_prepared_plan(&query, authority)?;
 
         self.execute_sql_projection_from_structural_prepared_plan(
             prepared_plan,
@@ -360,19 +355,10 @@ impl<C: CanisterKind> DbSession<C> {
         let authority = EntityAuthority::for_type::<E>();
 
         match compiled {
-            CompiledSqlCommand::Select {
-                query,
-                compiled_cache_key,
-            } => {
+            CompiledSqlCommand::Select { query } => {
                 if query.has_grouping() {
                     let (planner_local_instructions, resolved_query_plan) =
-                        measure_sql_stage(|| {
-                            self.sql_select_prepared_plan(
-                                query,
-                                authority,
-                                compiled_cache_key.schema_fingerprint(),
-                            )
-                        });
+                        measure_sql_stage(|| self.sql_select_prepared_plan(query, authority));
                     let (prepared_plan, projection, cache_attribution) = resolved_query_plan?;
 
                     let ((execute_local_instructions, store_local_instructions), statement_result) =
@@ -429,13 +415,8 @@ impl<C: CanisterKind> DbSession<C> {
                     ));
                 }
 
-                let (planner_local_instructions, resolved_query_plan) = measure_sql_stage(|| {
-                    self.sql_select_prepared_plan(
-                        query,
-                        authority,
-                        compiled_cache_key.schema_fingerprint(),
-                    )
-                });
+                let (planner_local_instructions, resolved_query_plan) =
+                    measure_sql_stage(|| self.sql_select_prepared_plan(query, authority));
                 let (prepared_plan, projection, cache_attribution) = resolved_query_plan?;
 
                 let ((execute_local_instructions, store_local_instructions), payload) =
@@ -488,18 +469,14 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_select_compiled_sql_with_cache_attribution<E>(
         &self,
         query: &StructuralQuery,
-        compiled_cache_key: &SqlCompiledCommandCacheKey,
         authority: EntityAuthority,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         if query.has_grouping() {
-            let (prepared_plan, projection, cache_attribution) = self.sql_select_prepared_plan(
-                query,
-                authority,
-                compiled_cache_key.schema_fingerprint(),
-            )?;
+            let (prepared_plan, projection, cache_attribution) =
+                self.sql_select_prepared_plan(query, authority)?;
             let (statement_result, ()) = self.execute_grouped_sql_statement_from_prepared_plan(
                 prepared_plan,
                 projection,
@@ -514,11 +491,8 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok((statement_result, cache_attribution));
         }
 
-        let (prepared_plan, projection, cache_attribution) = self.sql_select_prepared_plan(
-            query,
-            authority,
-            compiled_cache_key.schema_fingerprint(),
-        )?;
+        let (prepared_plan, projection, cache_attribution) =
+            self.sql_select_prepared_plan(query, authority)?;
 
         self.execute_sql_statement_from_structural_prepared_plan(
             prepared_plan,
@@ -538,14 +512,9 @@ impl<C: CanisterKind> DbSession<C> {
         let authority = EntityAuthority::for_type::<E>();
 
         match compiled {
-            CompiledSqlCommand::Select {
-                query,
-                compiled_cache_key,
-            } => self.execute_select_compiled_sql_with_cache_attribution::<E>(
-                query,
-                compiled_cache_key,
-                authority,
-            ),
+            CompiledSqlCommand::Select { query } => {
+                self.execute_select_compiled_sql_with_cache_attribution::<E>(query, authority)
+            }
             CompiledSqlCommand::Delete { query, returning } => self
                 .execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref())
                 .map(|result| (result, SqlCacheAttribution::default())),
@@ -605,14 +574,8 @@ impl<C: CanisterKind> DbSession<C> {
         let authority = EntityAuthority::for_type::<E>();
 
         match compiled {
-            CompiledSqlCommand::Select {
-                query,
-                compiled_cache_key,
-            } => self.execute_select_compiled_sql_with_cache_attribution::<E>(
-                query.as_ref(),
-                &compiled_cache_key,
-                authority,
-            ),
+            CompiledSqlCommand::Select { query } => self
+                .execute_select_compiled_sql_with_cache_attribution::<E>(query.as_ref(), authority),
             CompiledSqlCommand::Delete { query, returning } => self
                 .execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref())
                 .map(|result| (result, SqlCacheAttribution::default())),

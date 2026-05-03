@@ -38,6 +38,18 @@ pub struct EventOps {
     pub(crate) load_calls: u64,
     pub(crate) save_calls: u64,
     pub(crate) delete_calls: u64,
+    pub(crate) save_insert_calls: u64,
+    pub(crate) save_update_calls: u64,
+    pub(crate) save_replace_calls: u64,
+    pub(crate) exec_success: u64,
+    pub(crate) exec_error_corruption: u64,
+    pub(crate) exec_error_incompatible_persisted_format: u64,
+    pub(crate) exec_error_not_found: u64,
+    pub(crate) exec_error_internal: u64,
+    pub(crate) exec_error_conflict: u64,
+    pub(crate) exec_error_unsupported: u64,
+    pub(crate) exec_error_invariant_violation: u64,
+    pub(crate) exec_aborted: u64,
 
     // Planner kinds
     pub(crate) plan_index: u64,
@@ -59,6 +71,9 @@ pub struct EventOps {
     // Rows touched
     pub(crate) rows_loaded: u64,
     pub(crate) rows_saved: u64,
+    pub(crate) rows_inserted: u64,
+    pub(crate) rows_updated: u64,
+    pub(crate) rows_replaced: u64,
     pub(crate) rows_scanned: u64,
     pub(crate) rows_filtered: u64,
     pub(crate) rows_aggregated: u64,
@@ -91,6 +106,66 @@ impl EventOps {
     #[must_use]
     pub const fn delete_calls(&self) -> u64 {
         self.delete_calls
+    }
+
+    #[must_use]
+    pub const fn save_insert_calls(&self) -> u64 {
+        self.save_insert_calls
+    }
+
+    #[must_use]
+    pub const fn save_update_calls(&self) -> u64 {
+        self.save_update_calls
+    }
+
+    #[must_use]
+    pub const fn save_replace_calls(&self) -> u64 {
+        self.save_replace_calls
+    }
+
+    #[must_use]
+    pub const fn exec_success(&self) -> u64 {
+        self.exec_success
+    }
+
+    #[must_use]
+    pub const fn exec_error_corruption(&self) -> u64 {
+        self.exec_error_corruption
+    }
+
+    #[must_use]
+    pub const fn exec_error_incompatible_persisted_format(&self) -> u64 {
+        self.exec_error_incompatible_persisted_format
+    }
+
+    #[must_use]
+    pub const fn exec_error_not_found(&self) -> u64 {
+        self.exec_error_not_found
+    }
+
+    #[must_use]
+    pub const fn exec_error_internal(&self) -> u64 {
+        self.exec_error_internal
+    }
+
+    #[must_use]
+    pub const fn exec_error_conflict(&self) -> u64 {
+        self.exec_error_conflict
+    }
+
+    #[must_use]
+    pub const fn exec_error_unsupported(&self) -> u64 {
+        self.exec_error_unsupported
+    }
+
+    #[must_use]
+    pub const fn exec_error_invariant_violation(&self) -> u64 {
+        self.exec_error_invariant_violation
+    }
+
+    #[must_use]
+    pub const fn exec_aborted(&self) -> u64 {
+        self.exec_aborted
     }
 
     #[must_use]
@@ -179,6 +254,21 @@ impl EventOps {
     }
 
     #[must_use]
+    pub const fn rows_inserted(&self) -> u64 {
+        self.rows_inserted
+    }
+
+    #[must_use]
+    pub const fn rows_updated(&self) -> u64 {
+        self.rows_updated
+    }
+
+    #[must_use]
+    pub const fn rows_replaced(&self) -> u64 {
+        self.rows_replaced
+    }
+
+    #[must_use]
     pub const fn rows_scanned(&self) -> u64 {
         self.rows_scanned
     }
@@ -254,8 +344,38 @@ pub(crate) struct EntityCounters {
     pub(crate) load_calls: u64,
     pub(crate) save_calls: u64,
     pub(crate) delete_calls: u64,
+    pub(crate) save_insert_calls: u64,
+    pub(crate) save_update_calls: u64,
+    pub(crate) save_replace_calls: u64,
+    pub(crate) exec_success: u64,
+    pub(crate) exec_error_corruption: u64,
+    pub(crate) exec_error_incompatible_persisted_format: u64,
+    pub(crate) exec_error_not_found: u64,
+    pub(crate) exec_error_internal: u64,
+    pub(crate) exec_error_conflict: u64,
+    pub(crate) exec_error_unsupported: u64,
+    pub(crate) exec_error_invariant_violation: u64,
+    pub(crate) exec_aborted: u64,
+    pub(crate) plan_index: u64,
+    pub(crate) plan_keys: u64,
+    pub(crate) plan_range: u64,
+    pub(crate) plan_full_scan: u64,
+    pub(crate) plan_by_key: u64,
+    pub(crate) plan_by_keys: u64,
+    pub(crate) plan_key_range: u64,
+    pub(crate) plan_index_prefix: u64,
+    pub(crate) plan_index_multi_lookup: u64,
+    pub(crate) plan_index_range: u64,
+    pub(crate) plan_explicit_full_scan: u64,
+    pub(crate) plan_union: u64,
+    pub(crate) plan_intersection: u64,
+    pub(crate) plan_grouped_hash_materialized: u64,
+    pub(crate) plan_grouped_ordered_materialized: u64,
     pub(crate) rows_loaded: u64,
     pub(crate) rows_saved: u64,
+    pub(crate) rows_inserted: u64,
+    pub(crate) rows_updated: u64,
+    pub(crate) rows_replaced: u64,
     pub(crate) rows_scanned: u64,
     pub(crate) rows_filtered: u64,
     pub(crate) rows_aggregated: u64,
@@ -500,8 +620,38 @@ pub struct EntitySummary {
     load_calls: u64,
     save_calls: u64,
     delete_calls: u64,
+    save_insert_calls: u64,
+    save_update_calls: u64,
+    save_replace_calls: u64,
+    exec_success: u64,
+    exec_error_corruption: u64,
+    exec_error_incompatible_persisted_format: u64,
+    exec_error_not_found: u64,
+    exec_error_internal: u64,
+    exec_error_conflict: u64,
+    exec_error_unsupported: u64,
+    exec_error_invariant_violation: u64,
+    exec_aborted: u64,
+    plan_index: u64,
+    plan_keys: u64,
+    plan_range: u64,
+    plan_full_scan: u64,
+    plan_by_key: u64,
+    plan_by_keys: u64,
+    plan_key_range: u64,
+    plan_index_prefix: u64,
+    plan_index_multi_lookup: u64,
+    plan_index_range: u64,
+    plan_explicit_full_scan: u64,
+    plan_union: u64,
+    plan_intersection: u64,
+    plan_grouped_hash_materialized: u64,
+    plan_grouped_ordered_materialized: u64,
     rows_loaded: u64,
     rows_saved: u64,
+    rows_inserted: u64,
+    rows_updated: u64,
+    rows_replaced: u64,
     rows_scanned: u64,
     rows_filtered: u64,
     rows_aggregated: u64,
@@ -540,6 +690,141 @@ impl EntitySummary {
     }
 
     #[must_use]
+    pub const fn save_insert_calls(&self) -> u64 {
+        self.save_insert_calls
+    }
+
+    #[must_use]
+    pub const fn save_update_calls(&self) -> u64 {
+        self.save_update_calls
+    }
+
+    #[must_use]
+    pub const fn save_replace_calls(&self) -> u64 {
+        self.save_replace_calls
+    }
+
+    #[must_use]
+    pub const fn exec_success(&self) -> u64 {
+        self.exec_success
+    }
+
+    #[must_use]
+    pub const fn exec_error_corruption(&self) -> u64 {
+        self.exec_error_corruption
+    }
+
+    #[must_use]
+    pub const fn exec_error_incompatible_persisted_format(&self) -> u64 {
+        self.exec_error_incompatible_persisted_format
+    }
+
+    #[must_use]
+    pub const fn exec_error_not_found(&self) -> u64 {
+        self.exec_error_not_found
+    }
+
+    #[must_use]
+    pub const fn exec_error_internal(&self) -> u64 {
+        self.exec_error_internal
+    }
+
+    #[must_use]
+    pub const fn exec_error_conflict(&self) -> u64 {
+        self.exec_error_conflict
+    }
+
+    #[must_use]
+    pub const fn exec_error_unsupported(&self) -> u64 {
+        self.exec_error_unsupported
+    }
+
+    #[must_use]
+    pub const fn exec_error_invariant_violation(&self) -> u64 {
+        self.exec_error_invariant_violation
+    }
+
+    #[must_use]
+    pub const fn exec_aborted(&self) -> u64 {
+        self.exec_aborted
+    }
+
+    #[must_use]
+    pub const fn plan_index(&self) -> u64 {
+        self.plan_index
+    }
+
+    #[must_use]
+    pub const fn plan_keys(&self) -> u64 {
+        self.plan_keys
+    }
+
+    #[must_use]
+    pub const fn plan_range(&self) -> u64 {
+        self.plan_range
+    }
+
+    #[must_use]
+    pub const fn plan_full_scan(&self) -> u64 {
+        self.plan_full_scan
+    }
+
+    #[must_use]
+    pub const fn plan_by_key(&self) -> u64 {
+        self.plan_by_key
+    }
+
+    #[must_use]
+    pub const fn plan_by_keys(&self) -> u64 {
+        self.plan_by_keys
+    }
+
+    #[must_use]
+    pub const fn plan_key_range(&self) -> u64 {
+        self.plan_key_range
+    }
+
+    #[must_use]
+    pub const fn plan_index_prefix(&self) -> u64 {
+        self.plan_index_prefix
+    }
+
+    #[must_use]
+    pub const fn plan_index_multi_lookup(&self) -> u64 {
+        self.plan_index_multi_lookup
+    }
+
+    #[must_use]
+    pub const fn plan_index_range(&self) -> u64 {
+        self.plan_index_range
+    }
+
+    #[must_use]
+    pub const fn plan_explicit_full_scan(&self) -> u64 {
+        self.plan_explicit_full_scan
+    }
+
+    #[must_use]
+    pub const fn plan_union(&self) -> u64 {
+        self.plan_union
+    }
+
+    #[must_use]
+    pub const fn plan_intersection(&self) -> u64 {
+        self.plan_intersection
+    }
+
+    #[must_use]
+    pub const fn plan_grouped_hash_materialized(&self) -> u64 {
+        self.plan_grouped_hash_materialized
+    }
+
+    #[must_use]
+    pub const fn plan_grouped_ordered_materialized(&self) -> u64 {
+        self.plan_grouped_ordered_materialized
+    }
+
+    #[must_use]
     pub const fn rows_loaded(&self) -> u64 {
         self.rows_loaded
     }
@@ -547,6 +832,21 @@ impl EntitySummary {
     #[must_use]
     pub const fn rows_saved(&self) -> u64 {
         self.rows_saved
+    }
+
+    #[must_use]
+    pub const fn rows_inserted(&self) -> u64 {
+        self.rows_inserted
+    }
+
+    #[must_use]
+    pub const fn rows_updated(&self) -> u64 {
+        self.rows_updated
+    }
+
+    #[must_use]
+    pub const fn rows_replaced(&self) -> u64 {
+        self.rows_replaced
     }
 
     #[must_use]
@@ -625,8 +925,38 @@ impl EntitySummary {
         self.load_calls
             .saturating_add(self.save_calls)
             .saturating_add(self.delete_calls)
+            .saturating_add(self.save_insert_calls)
+            .saturating_add(self.save_update_calls)
+            .saturating_add(self.save_replace_calls)
+            .saturating_add(self.exec_success)
+            .saturating_add(self.exec_error_corruption)
+            .saturating_add(self.exec_error_incompatible_persisted_format)
+            .saturating_add(self.exec_error_not_found)
+            .saturating_add(self.exec_error_internal)
+            .saturating_add(self.exec_error_conflict)
+            .saturating_add(self.exec_error_unsupported)
+            .saturating_add(self.exec_error_invariant_violation)
+            .saturating_add(self.exec_aborted)
+            .saturating_add(self.plan_index)
+            .saturating_add(self.plan_keys)
+            .saturating_add(self.plan_range)
+            .saturating_add(self.plan_full_scan)
+            .saturating_add(self.plan_by_key)
+            .saturating_add(self.plan_by_keys)
+            .saturating_add(self.plan_key_range)
+            .saturating_add(self.plan_index_prefix)
+            .saturating_add(self.plan_index_multi_lookup)
+            .saturating_add(self.plan_index_range)
+            .saturating_add(self.plan_explicit_full_scan)
+            .saturating_add(self.plan_union)
+            .saturating_add(self.plan_intersection)
+            .saturating_add(self.plan_grouped_hash_materialized)
+            .saturating_add(self.plan_grouped_ordered_materialized)
             .saturating_add(self.rows_loaded)
             .saturating_add(self.rows_saved)
+            .saturating_add(self.rows_inserted)
+            .saturating_add(self.rows_updated)
+            .saturating_add(self.rows_replaced)
             .saturating_add(self.rows_scanned)
             .saturating_add(self.rows_filtered)
             .saturating_add(self.rows_aggregated)
@@ -675,8 +1005,38 @@ pub(super) fn report_window_start(window_start_ms: Option<u64>) -> EventReport {
             load_calls: ops.load_calls,
             save_calls: ops.save_calls,
             delete_calls: ops.delete_calls,
+            save_insert_calls: ops.save_insert_calls,
+            save_update_calls: ops.save_update_calls,
+            save_replace_calls: ops.save_replace_calls,
+            exec_success: ops.exec_success,
+            exec_error_corruption: ops.exec_error_corruption,
+            exec_error_incompatible_persisted_format: ops.exec_error_incompatible_persisted_format,
+            exec_error_not_found: ops.exec_error_not_found,
+            exec_error_internal: ops.exec_error_internal,
+            exec_error_conflict: ops.exec_error_conflict,
+            exec_error_unsupported: ops.exec_error_unsupported,
+            exec_error_invariant_violation: ops.exec_error_invariant_violation,
+            exec_aborted: ops.exec_aborted,
+            plan_index: ops.plan_index,
+            plan_keys: ops.plan_keys,
+            plan_range: ops.plan_range,
+            plan_full_scan: ops.plan_full_scan,
+            plan_by_key: ops.plan_by_key,
+            plan_by_keys: ops.plan_by_keys,
+            plan_key_range: ops.plan_key_range,
+            plan_index_prefix: ops.plan_index_prefix,
+            plan_index_multi_lookup: ops.plan_index_multi_lookup,
+            plan_index_range: ops.plan_index_range,
+            plan_explicit_full_scan: ops.plan_explicit_full_scan,
+            plan_union: ops.plan_union,
+            plan_intersection: ops.plan_intersection,
+            plan_grouped_hash_materialized: ops.plan_grouped_hash_materialized,
+            plan_grouped_ordered_materialized: ops.plan_grouped_ordered_materialized,
             rows_loaded: ops.rows_loaded,
             rows_saved: ops.rows_saved,
+            rows_inserted: ops.rows_inserted,
+            rows_updated: ops.rows_updated,
+            rows_replaced: ops.rows_replaced,
             rows_scanned: ops.rows_scanned,
             rows_filtered: ops.rows_filtered,
             rows_aggregated: ops.rows_aggregated,

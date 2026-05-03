@@ -35,7 +35,7 @@ use crate::{
 ///
 
 pub(in crate::db) struct PreparedScalarPlanningState<'a> {
-    schema_info: &'static SchemaInfo,
+    schema_info: SchemaInfo,
     access_inputs: AccessPlanningInputs<'a>,
     normalized_predicate: Option<Predicate>,
 }
@@ -44,7 +44,7 @@ impl<'a> PreparedScalarPlanningState<'a> {
     // Build one reusable scalar planning-state bundle after policy validation
     // and predicate normalization have already succeeded.
     const fn new(
-        schema_info: &'static SchemaInfo,
+        schema_info: SchemaInfo,
         access_inputs: AccessPlanningInputs<'a>,
         normalized_predicate: Option<Predicate>,
     ) -> Self {
@@ -118,7 +118,7 @@ where
     let access_selection = plan_access_from_normalized_predicate(
         query,
         visible_indexes,
-        schema_info,
+        &schema_info,
         normalized_predicate.as_ref(),
         access_order,
         key_access_override,
@@ -157,7 +157,7 @@ where
     if let Some(preferred_access) = rerank_access_plan_by_residual_burden_with_indexes(
         query.model(),
         visible_indexes.as_slice(),
-        schema_info,
+        &schema_info,
         &plan,
     ) {
         plan = AccessPlannedQuery::from_planned_parts_with_projection(
@@ -176,7 +176,7 @@ where
 
     // Phase 5: validate the assembled plan against schema, access-shape, and
     // planner-policy contracts before projecting explain metadata.
-    validate_plan_semantics(query.model(), schema_info, &plan)?;
+    validate_plan_semantics(query.model(), &schema_info, &plan)?;
 
     // Phase 6: freeze planner-owned execution metadata only after semantic
     // validation succeeds so user-facing projection/order errors remain
@@ -237,9 +237,22 @@ pub(in crate::db::query) fn prepare_query_model_scalar_planning_state<'a, K>(
 where
     K: KeyValueCodec,
 {
+    prepare_query_model_scalar_planning_state_with_schema_info(
+        query,
+        SchemaInfo::cached_for_entity_model(query.model()).clone(),
+    )
+}
+
+/// Prepare scalar planning inputs using the caller-provided schema authority.
+pub(in crate::db::query) fn prepare_query_model_scalar_planning_state_with_schema_info<'a, K>(
+    query: &'a QueryModel<'_, K>,
+    schema_info: SchemaInfo,
+) -> Result<PreparedScalarPlanningState<'a>, QueryError>
+where
+    K: KeyValueCodec,
+{
     // Phase 1: validate query-intent policy shape before any cache or planner
     // work so compile attribution keeps policy failures honest.
-    let schema_info = SchemaInfo::cached_for_entity_model(query.model());
     query.validate_policy_shape()?;
 
     // Phase 2: project the planner access inputs once so cache-key construction
@@ -247,7 +260,7 @@ where
     // materialization.
     let access_inputs = query.planning_access_inputs();
     let normalized_predicate = fold_constant_predicate(normalize_query_predicate(
-        schema_info,
+        &schema_info,
         access_inputs.predicate(),
     )?);
 

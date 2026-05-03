@@ -97,9 +97,8 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (cache_key_local_instructions, cache_key) = measured(|| {
-            Ok::<_, QueryError>(SqlCompiledCommandCacheKey::for_entity::<E>(surface, sql))
-        })?;
+        let (cache_key_local_instructions, cache_key) =
+            measured(|| self.sql_compiled_command_cache_key_for_entity::<E>(surface, sql))?;
         let mut attribution = SqlCompileAttributionBuilder::default();
         attribution.record_cache_key(cache_key_local_instructions);
 
@@ -144,7 +143,7 @@ impl<C: CanisterKind> DbSession<C> {
         attribution.record_parse(parse_local_instructions, parse_attribution);
         let authority = EntityAuthority::for_type::<E>();
         let (artifacts, compile_attribution) =
-            Self::compile_sql_statement_measured(&parsed, surface, authority, cache_key.clone())?;
+            Self::compile_sql_statement_measured(&parsed, surface, authority)?;
         attribution.record_core_compile(compile_attribution);
         let compiled = artifacts.command;
 

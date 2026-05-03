@@ -4,7 +4,10 @@
 //! Boundary: validates entity/index model consistency for predicate schema metadata.
 
 use crate::{
-    db::schema::{FieldType, field_type_from_model_kind},
+    db::schema::{
+        AcceptedSchemaSnapshot, FieldType, field_type_from_model_kind,
+        field_type_from_persisted_kind,
+    },
     model::{
         entity::EntityModel,
         field::{FieldKind, FieldModel},
@@ -100,6 +103,42 @@ impl SchemaInfo {
         Self::from_trusted_field_models(fields)
     }
 
+    /// Build one owned schema view from an accepted persisted snapshot.
+    ///
+    /// This is the live-schema counterpart to the generated metadata cache.
+    /// It intentionally keeps generated nested-field metadata until persisted
+    /// snapshots carry nested leaf descriptions, but top-level SQL/query type
+    /// checks now read the accepted persisted field kind.
+    #[must_use]
+    pub(in crate::db) fn from_accepted_snapshot_for_model(
+        model: &EntityModel,
+        schema: &AcceptedSchemaSnapshot,
+    ) -> Self {
+        let mut fields = model
+            .fields()
+            .iter()
+            .map(|field| {
+                let ty = schema.field_by_name(field.name()).map_or_else(
+                    || field_type_from_model_kind(&field.kind()),
+                    |persisted| field_type_from_persisted_kind(persisted.kind()),
+                );
+
+                (
+                    field.name(),
+                    SchemaFieldInfo {
+                        ty,
+                        kind: field.kind(),
+                        nested_fields: field.nested_fields(),
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+
+        fields.sort_unstable_by_key(|(field_name, _)| *field_name);
+
+        Self { fields }
+    }
+
     /// Return one cached schema view for a trusted generated entity model.
     pub(crate) fn cached_for_entity_model(model: &EntityModel) -> &'static Self {
         static CACHE: OnceLock<Mutex<CachedSchemaEntries>> = OnceLock::new();
@@ -127,13 +166,18 @@ impl SchemaInfo {
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::schema::SchemaInfo,
+        db::schema::{
+            AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
+            PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaInfo,
+            SchemaRowLayout, SchemaVersion, literal_matches_type,
+        },
         model::{
             entity::EntityModel,
-            field::{FieldKind, FieldModel},
+            field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
             index::IndexModel,
         },
         testing::entity_model_from_static,
+        value::Value,
     };
 
     static FIELDS: [FieldModel; 2] = [
@@ -158,5 +202,53 @@ mod tests {
         assert!(std::ptr::eq(first, second));
         assert!(first.field("id").is_some());
         assert!(first.field("name").is_some());
+    }
+
+    #[test]
+    fn accepted_snapshot_schema_info_uses_persisted_top_level_field_type() {
+        let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "schema::info::tests::Entity".to_string(),
+            "Entity".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "name".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Blob,
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+            ],
+        ));
+
+        let schema = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
+        let name_type = schema.field("name").expect("accepted field should exist");
+
+        assert!(literal_matches_type(&Value::Blob(vec![1, 2, 3]), name_type));
+        assert!(!literal_matches_type(
+            &Value::Text("name".into()),
+            name_type
+        ));
     }
 }

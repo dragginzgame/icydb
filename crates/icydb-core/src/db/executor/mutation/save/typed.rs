@@ -115,30 +115,38 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         entity: E,
     ) -> Result<E, InternalError> {
         let mut span = Span::<E>::new(ExecKind::Save);
-        let (entity, marker_row_op) =
-            self.prepare_entity_save_row_op(ctx, save_rule, preflight, entity)?;
-        let prepared_row_op =
-            prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<E>(
+        let result = (|| {
+            let (entity, marker_row_op) =
+                self.prepare_entity_save_row_op(ctx, save_rule, preflight, entity)?;
+            let prepared_row_op =
+                prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<E>(
+                    &self.db,
+                    &marker_row_op,
+                    ctx,
+                    ctx,
+                    preflight.schema_fingerprint,
+                )?;
+
+            // Phase 1: persist/apply one single-row commit through the shared
+            // commit-window path under the normal single-save metrics contract.
+            Self::commit_prepared_single_row(
                 &self.db,
-                &marker_row_op,
-                ctx,
-                ctx,
-                preflight.schema_fingerprint,
+                marker_row_op,
+                prepared_row_op,
+                |delta| emit_index_delta_metrics::<E>(delta),
+                || {
+                    span.set_rows(1);
+                },
             )?;
+            Self::record_save_mutation(save_rule.save_mutation_kind(), 1);
 
-        // Phase 1: persist/apply one single-row commit through the shared
-        // commit-window path under the normal single-save metrics contract.
-        Self::commit_prepared_single_row(
-            &self.db,
-            marker_row_op,
-            prepared_row_op,
-            |delta| emit_index_delta_metrics::<E>(delta),
-            || {
-                span.set_rows(1);
-            },
-        )?;
+            Ok(entity)
+        })();
+        if let Err(err) = &result {
+            span.set_error(err);
+        }
 
-        Ok(entity)
+        result
     }
 
     // Prepare one typed save row op after canonical entity preflight so both

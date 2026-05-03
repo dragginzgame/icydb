@@ -80,8 +80,13 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                     span.set_rows(u64::try_from(out.len()).unwrap_or(u64::MAX));
                 }
                 Err(err) => {
+                    span.set_error(&err);
                     if !out.is_empty() {
                         emit_index_delta_metrics::<E>(&batch_delta);
+                        Self::record_save_mutation(
+                            save_rule.save_mutation_kind(),
+                            u64::try_from(out.len()).unwrap_or(u64::MAX),
+                        );
                         record(MetricsEvent::NonAtomicPartialCommit {
                             entity_path: E::PATH,
                             committed_rows: u64::try_from(out.len()).unwrap_or(u64::MAX),
@@ -95,6 +100,10 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
         if !out.is_empty() {
             emit_index_delta_metrics::<E>(&batch_delta);
+            Self::record_save_mutation(
+                save_rule.save_mutation_kind(),
+                u64::try_from(out.len()).unwrap_or(u64::MAX),
+            );
         }
 
         Ok(out)
@@ -186,62 +195,73 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     ) -> Result<Vec<E>, InternalError> {
         // Phase 1: validate + stage all row ops before opening the commit window.
         let mut span = Span::<E>::new(ExecKind::Save);
-        let ctx = mutation_write_context::<E>(&self.db)?;
-        let mut out = Vec::with_capacity(entities.len());
-        let mut marker_row_ops = Vec::with_capacity(entities.len());
-        let mut seen_row_keys = HashSet::with_capacity(entities.len());
-        let schema = Self::schema_info();
-        let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
-        let validate_relations = E::MODEL.has_any_strong_relations();
-        let write_context = Self::save_write_context(
-            match save_rule {
-                SaveRule::RequireAbsent => SaveMode::Insert,
-                SaveRule::RequirePresent => SaveMode::Update,
-                SaveRule::AllowAny => SaveMode::Replace,
-            },
-            Timestamp::now(),
-        );
-        let preflight = SavePreflightInputs {
-            schema,
-            schema_fingerprint,
-            validate_relations,
-            write_context,
-            authored_create_slots: None,
-        };
+        let result = (|| {
+            let ctx = mutation_write_context::<E>(&self.db)?;
+            let mut out = Vec::with_capacity(entities.len());
+            let mut marker_row_ops = Vec::with_capacity(entities.len());
+            let mut seen_row_keys = HashSet::with_capacity(entities.len());
+            let schema = Self::schema_info();
+            let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
+            let validate_relations = E::MODEL.has_any_strong_relations();
+            let write_context = Self::save_write_context(
+                match save_rule {
+                    SaveRule::RequireAbsent => SaveMode::Insert,
+                    SaveRule::RequirePresent => SaveMode::Update,
+                    SaveRule::AllowAny => SaveMode::Replace,
+                },
+                Timestamp::now(),
+            );
+            let preflight = SavePreflightInputs {
+                schema,
+                schema_fingerprint,
+                validate_relations,
+                write_context,
+                authored_create_slots: None,
+            };
 
-        // Validate and stage all row ops before opening the commit window.
-        for mut entity in entities {
-            self.preflight_entity_with_cached_schema(
-                &mut entity,
-                preflight.schema,
-                preflight.validate_relations,
-                preflight.write_context,
-                preflight.authored_create_slots,
-            )?;
-            let marker_row_op = Self::prepare_typed_entity_row_op(
-                &ctx,
-                save_rule,
-                &entity,
-                preflight.schema_fingerprint,
-            )?;
-            if !seen_row_keys.insert(marker_row_op.key) {
-                let data_key = DataKey::try_new::<E>(entity.id().key())?;
-                return Err(InternalError::mutation_atomic_save_duplicate_key(
-                    E::PATH,
-                    data_key,
-                ));
+            // Validate and stage all row ops before opening the commit window.
+            for mut entity in entities {
+                self.preflight_entity_with_cached_schema(
+                    &mut entity,
+                    preflight.schema,
+                    preflight.validate_relations,
+                    preflight.write_context,
+                    preflight.authored_create_slots,
+                )?;
+                let marker_row_op = Self::prepare_typed_entity_row_op(
+                    &ctx,
+                    save_rule,
+                    &entity,
+                    preflight.schema_fingerprint,
+                )?;
+                if !seen_row_keys.insert(marker_row_op.key) {
+                    let data_key = DataKey::try_new::<E>(entity.id().key())?;
+                    return Err(InternalError::mutation_atomic_save_duplicate_key(
+                        E::PATH,
+                        data_key,
+                    ));
+                }
+                marker_row_ops.push(marker_row_op);
+                out.push(entity);
             }
-            marker_row_ops.push(marker_row_op);
-            out.push(entity);
+
+            if marker_row_ops.is_empty() {
+                return Ok(out);
+            }
+
+            // Phase 2: enter commit window and apply staged row ops atomically.
+            Self::commit_atomic_batch(&self.db, marker_row_ops, &mut span)?;
+            Self::record_save_mutation(
+                save_rule.save_mutation_kind(),
+                u64::try_from(out.len()).unwrap_or(u64::MAX),
+            );
+
+            Ok(out)
+        })();
+        if let Err(err) = &result {
+            span.set_error(err);
         }
 
-        if marker_row_ops.is_empty() {
-            return Ok(out);
-        }
-
-        // Phase 2: enter commit window and apply staged row ops atomically.
-        Self::commit_atomic_batch(&self.db, marker_row_ops, &mut span)?;
-
-        Ok(out)
+        result
     }
 }

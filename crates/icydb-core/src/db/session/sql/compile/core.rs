@@ -11,7 +11,7 @@ use crate::{
         DbSession, MissingRowPolicy, QueryError,
         executor::EntityAuthority,
         session::sql::{
-            CompiledSqlCommand, SqlCompiledCommandCacheKey, SqlCompiledCommandSurface,
+            CompiledSqlCommand, SqlCompiledCommandSurface,
             compile::{SqlCompileArtifacts, SqlCompilePhaseAttribution, SqlQueryShape},
             measured,
         },
@@ -37,12 +37,11 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_sql_statement_core(
         statement: &SqlStatement,
         authority: EntityAuthority,
-        compiled_cache_key: SqlCompiledCommandCacheKey,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         let model = authority.model();
 
         match statement {
-            SqlStatement::Select(_) => Self::compile_select(statement, model, compiled_cache_key),
+            SqlStatement::Select(_) => Self::compile_select(statement, model),
             SqlStatement::Delete(_) => Self::compile_delete(statement, model),
             SqlStatement::Insert(_) => Self::compile_insert(statement, model),
             SqlStatement::Update(_) => Self::compile_update(statement, model),
@@ -72,7 +71,6 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_select(
         statement: &SqlStatement,
         model: &'static EntityModel,
-        compiled_cache_key: SqlCompiledCommandCacheKey,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         let (prepare_local_instructions, prepared) =
             Self::prepare_statement_for_model(statement, model)?;
@@ -90,7 +88,6 @@ impl<C: CanisterKind> DbSession<C> {
             Self::compile_select_non_aggregate(
                 prepared,
                 model,
-                compiled_cache_key,
                 aggregate_lane_check_local_instructions,
                 prepare_local_instructions,
             )
@@ -134,7 +131,6 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_select_non_aggregate(
         prepared: PreparedSqlStatement,
         model: &'static EntityModel,
-        compiled_cache_key: SqlCompiledCommandCacheKey,
         aggregate_lane_check_local_instructions: u64,
         prepare_local_instructions: u64,
     ) -> Result<SqlCompileArtifacts, QueryError> {
@@ -150,7 +146,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(SqlCompileArtifacts::new(
             CompiledSqlCommand::Select {
                 query: Arc::new(query),
-                compiled_cache_key,
             },
             SqlQueryShape::read_rows(false),
             aggregate_lane_check_local_instructions,
@@ -345,11 +340,10 @@ impl<C: CanisterKind> DbSession<C> {
         statement: &SqlStatement,
         surface: SqlCompiledCommandSurface,
         authority: EntityAuthority,
-        compiled_cache_key: SqlCompiledCommandCacheKey,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         Self::ensure_sql_statement_supported_for_surface(statement, surface)?;
 
-        Self::compile_sql_statement_core(statement, authority, compiled_cache_key)
+        Self::compile_sql_statement_core(statement, authority)
     }
 
     // Wrap the complete compile entrypoint with the attribution shape used by
@@ -359,10 +353,8 @@ impl<C: CanisterKind> DbSession<C> {
         statement: &SqlStatement,
         surface: SqlCompiledCommandSurface,
         authority: EntityAuthority,
-        compiled_cache_key: SqlCompiledCommandCacheKey,
     ) -> Result<(SqlCompileArtifacts, SqlCompilePhaseAttribution), QueryError> {
-        let artifacts =
-            Self::compile_sql_statement_entry(statement, surface, authority, compiled_cache_key)?;
+        let artifacts = Self::compile_sql_statement_entry(statement, surface, authority)?;
         debug_assert!(
             !artifacts.shape.is_aggregate || artifacts.bind == 0,
             "aggregate SQL artifacts must not report scalar bind work"

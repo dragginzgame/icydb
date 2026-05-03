@@ -17,7 +17,6 @@ use crate::{
             intent::StructuralQuery,
             plan::AccessPlannedQuery,
         },
-        schema::commit_schema_fingerprint_for_model,
         session::{
             query::{QueryPlanCacheAttribution, query_plan_cache_reuse_event},
             sql::projection::annotate_sql_projection_debug_on_execution_descriptor,
@@ -80,12 +79,8 @@ impl<C: CanisterKind> DbSession<C> {
         structural: &StructuralQuery,
         map: impl FnOnce(&AccessPlannedQuery) -> Result<T, QueryError>,
     ) -> Result<(T, QueryPlanCacheAttribution), QueryError> {
-        let cache_schema_fingerprint =
-            commit_schema_fingerprint_for_model(authority.model().path, authority.model());
-
         self.try_map_cached_shared_query_plan_ref_for_authority(
             authority,
-            cache_schema_fingerprint,
             structural,
             |prepared_plan| map(prepared_plan.logical_plan()),
         )
@@ -98,13 +93,8 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         structural: &StructuralQuery,
     ) -> Result<(AccessPlannedQuery, QueryPlanCacheAttribution), QueryError> {
-        let cache_schema_fingerprint =
-            commit_schema_fingerprint_for_model(authority.model().path, authority.model());
-        let (prepared_plan, cache_attribution) = self.cached_shared_query_plan_for_authority(
-            authority,
-            cache_schema_fingerprint,
-            structural,
-        )?;
+        let (prepared_plan, cache_attribution) =
+            self.cached_shared_query_plan_for_authority(authority, structural)?;
 
         Ok((prepared_plan.logical_plan().clone(), cache_attribution))
     }

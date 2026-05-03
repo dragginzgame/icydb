@@ -22,10 +22,11 @@ use crate::{
                     normalize_bool_expr,
                 },
                 group_aggregate_spec_expr, grouped_having_compare_expr,
-                prepare_query_model_scalar_planning_state, resolve_group_field_slot,
-                try_build_trivial_scalar_load_plan,
+                prepare_query_model_scalar_planning_state_with_schema_info,
+                resolve_group_field_slot, try_build_trivial_scalar_load_plan,
             },
         },
+        schema::SchemaInfo,
     },
     model::entity::EntityModel,
     traits::KeyValueCodec,
@@ -455,9 +456,10 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
         try_build_trivial_scalar_load_plan(self)
     }
 
-    pub(in crate::db::query::intent) fn prepare_scalar_planning_state(
+    pub(in crate::db::query::intent) fn prepare_scalar_planning_state_with_schema_info(
         &self,
+        schema_info: SchemaInfo,
     ) -> Result<PreparedScalarPlanningState<'_>, QueryError> {
-        prepare_query_model_scalar_planning_state(self)
+        prepare_query_model_scalar_planning_state_with_schema_info(self, schema_info)
     }
 }

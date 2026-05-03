@@ -177,6 +177,7 @@ impl GroupedPathRuntimeCore {
     ) -> Result<GroupedStreamStage, InternalError> {
         let runtime = ExecutionRuntimeAdapter::from_stream_runtime_parts(self.traversal_runtime);
         build_grouped_stream_with_runtime(
+            self.authority.entity_path(),
             route,
             &runtime,
             execution_preparation,

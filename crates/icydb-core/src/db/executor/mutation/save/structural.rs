@@ -171,88 +171,105 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         write_context: SanitizeWriteContext,
     ) -> Result<Vec<E>, InternalError> {
         let mut span = Span::<E>::new(ExecKind::Save);
-        let ctx = mutation_write_context::<E>(&self.db)?;
-        let schema = Self::schema_info();
-        let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
-        let validate_relations = E::MODEL.has_any_strong_relations();
-        let mut entities = Vec::with_capacity(items.len());
-        let mut marker_row_ops = Vec::with_capacity(items.len());
-        let mut seen_row_keys = HashSet::with_capacity(items.len());
+        let result = (|| {
+            let ctx = mutation_write_context::<E>(&self.db)?;
+            let schema = Self::schema_info();
+            let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
+            let validate_relations = E::MODEL.has_any_strong_relations();
+            let mut entities = Vec::with_capacity(items.len());
+            let mut marker_row_ops = Vec::with_capacity(items.len());
+            let mut seen_row_keys = HashSet::with_capacity(items.len());
 
-        // Phase 1: lower, materialize, and validate every structural after-image
-        // before the shared commit-window helper can persist a marker.
-        for item in items {
-            let request = StructuralMutationRequest::internal_lowered(
-                mode,
-                item.key,
-                item.patch,
-                write_context,
-            );
-            let (entity, marker_row_op) = self.prepare_structural_mutation_row_op(
-                &ctx,
-                schema,
-                schema_fingerprint,
-                validate_relations,
-                request,
-            )?;
-            if !seen_row_keys.insert(marker_row_op.key) {
-                let data_key = DataKey::try_new::<E>(entity.id().key())?;
-                return Err(InternalError::mutation_atomic_save_duplicate_key(
-                    E::PATH,
-                    data_key,
-                ));
+            // Phase 1: lower, materialize, and validate every structural after-image
+            // before the shared commit-window helper can persist a marker.
+            for item in items {
+                let request = StructuralMutationRequest::internal_lowered(
+                    mode,
+                    item.key,
+                    item.patch,
+                    write_context,
+                );
+                let (entity, marker_row_op) = self.prepare_structural_mutation_row_op(
+                    &ctx,
+                    schema,
+                    schema_fingerprint,
+                    validate_relations,
+                    request,
+                )?;
+                if !seen_row_keys.insert(marker_row_op.key) {
+                    let data_key = DataKey::try_new::<E>(entity.id().key())?;
+                    return Err(InternalError::mutation_atomic_save_duplicate_key(
+                        E::PATH,
+                        data_key,
+                    ));
+                }
+                marker_row_ops.push(marker_row_op);
+                entities.push(entity);
             }
-            marker_row_ops.push(marker_row_op);
-            entities.push(entity);
+
+            if marker_row_ops.is_empty() {
+                return Ok(entities);
+            }
+
+            // Phase 2: open one marker/control-slot window and let commit preflight
+            // simulate index/data overlay state across the staged row ops.
+            Self::commit_atomic_batch(&self.db, marker_row_ops, &mut span)?;
+            Self::record_save_mutation(
+                mode.save_mutation_kind(),
+                u64::try_from(entities.len()).unwrap_or(u64::MAX),
+            );
+
+            Ok(entities)
+        })();
+        if let Err(err) = &result {
+            span.set_error(err);
         }
 
-        if marker_row_ops.is_empty() {
-            return Ok(entities);
-        }
-
-        // Phase 2: open one marker/control-slot window and let commit preflight
-        // simulate index/data overlay state across the staged row ops.
-        Self::commit_atomic_batch(&self.db, marker_row_ops, &mut span)?;
-
-        Ok(entities)
+        result
     }
 
     fn save_structural_mutation(
         &self,
         request: StructuralMutationRequest<E>,
     ) -> Result<E, InternalError> {
+        let mutation_kind = request.mode.save_mutation_kind();
         let mut span = Span::<E>::new(ExecKind::Save);
-        let ctx = mutation_write_context::<E>(&self.db)?;
-        let schema = Self::schema_info();
-        let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
-        let validate_relations = E::MODEL.has_any_strong_relations();
-        let (entity, marker_row_op) = self.prepare_structural_mutation_row_op(
-            &ctx,
-            schema,
-            schema_fingerprint,
-            validate_relations,
-            request,
-        )?;
-        let prepared_row_op =
-            prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<E>(
-                &self.db,
-                &marker_row_op,
-                &ctx,
-                &ctx,
-                schema_fingerprint,
-            )?;
+        let result =
+            (|| {
+                let ctx = mutation_write_context::<E>(&self.db)?;
+                let schema = Self::schema_info();
+                let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
+                let validate_relations = E::MODEL.has_any_strong_relations();
+                let (entity, marker_row_op) = self.prepare_structural_mutation_row_op(
+                    &ctx,
+                    schema,
+                    schema_fingerprint,
+                    validate_relations,
+                    request,
+                )?;
+                let prepared_row_op =
+                    prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<
+                        E,
+                    >(&self.db, &marker_row_op, &ctx, &ctx, schema_fingerprint)?;
 
-        Self::commit_prepared_single_row(
-            &self.db,
-            marker_row_op,
-            prepared_row_op,
-            |delta| emit_index_delta_metrics::<E>(delta),
-            || {
-                span.set_rows(1);
-            },
-        )?;
+                Self::commit_prepared_single_row(
+                    &self.db,
+                    marker_row_op,
+                    prepared_row_op,
+                    |delta| emit_index_delta_metrics::<E>(delta),
+                    || {
+                        span.set_rows(1);
+                    },
+                )?;
+                Self::record_save_mutation(mutation_kind, 1);
 
-        Ok(entity)
+                Ok(entity)
+            })();
+        if let Err(err) = &result {
+            span.set_error(err);
+        }
+
+        result
     }
 
     // Prepare one structural mutation into a normalized row operation without

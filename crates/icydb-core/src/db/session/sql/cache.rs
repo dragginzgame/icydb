@@ -5,14 +5,16 @@
 
 use crate::{
     db::{
-        DbSession, PersistedRow, commit::CommitSchemaFingerprint,
-        schema::commit_schema_fingerprint_for_entity,
+        DbSession, PersistedRow, QueryError, commit::CommitSchemaFingerprint,
+        schema::accepted_schema_cache_fingerprint_for_model,
+        session::sql::compiled::CompiledSqlCommand,
     },
     traits::{CanisterKind, EntityValue},
 };
 use std::{cell::RefCell, collections::HashMap};
 
-use crate::db::session::sql::compiled::CompiledSqlCommand;
+#[cfg(test)]
+use crate::db::schema::commit_schema_fingerprint_for_entity;
 
 // Bump these when SQL cache-key meaning changes in a way that must force
 // existing in-heap entries to miss instead of aliasing superseded cache semantics.
@@ -140,25 +142,19 @@ impl SqlCacheAttribution {
 }
 
 impl SqlCompiledCommandCacheKey {
-    pub(in crate::db::session::sql) fn for_entity<E>(
+    fn new(
         surface: SqlCompiledCommandSurface,
+        entity_path: &'static str,
+        schema_fingerprint: CommitSchemaFingerprint,
         sql: &str,
-    ) -> Self
-    where
-        E: PersistedRow + EntityValue,
-    {
+    ) -> Self {
         Self {
             cache_method_version: SQL_COMPILED_COMMAND_CACHE_METHOD_VERSION,
             surface,
-            entity_path: E::PATH,
-            schema_fingerprint: commit_schema_fingerprint_for_entity::<E>(),
+            entity_path,
+            schema_fingerprint,
             sql: sql.to_string(),
         }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn schema_fingerprint(&self) -> CommitSchemaFingerprint {
-        self.schema_fingerprint
     }
 }
 
@@ -211,6 +207,29 @@ impl SqlCompiledCommandCacheKey {
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    pub(in crate::db::session::sql) fn sql_compiled_command_cache_key_for_entity<E>(
+        &self,
+        surface: SqlCompiledCommandSurface,
+        sql: &str,
+    ) -> Result<SqlCompiledCommandCacheKey, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let accepted_schema = self
+            .accepted_initial_schema_snapshot::<E>()
+            .map_err(QueryError::execute)?;
+        let schema_fingerprint =
+            accepted_schema_cache_fingerprint_for_model(E::MODEL, &accepted_schema)
+                .map_err(QueryError::execute)?;
+
+        Ok(SqlCompiledCommandCacheKey::new(
+            surface,
+            E::PATH,
+            schema_fingerprint,
+            sql,
+        ))
+    }
+
     pub(in crate::db::session::sql) fn with_sql_compiled_command_cache<R>(
         &self,
         f: impl FnOnce(&mut SqlCompiledCommandCache) -> R,

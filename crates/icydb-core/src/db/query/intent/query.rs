@@ -19,6 +19,7 @@ use crate::{
                 VisibleIndexes, expr::Expr,
             },
         },
+        schema::SchemaInfo,
     },
     traits::{EntityKind, KeyValueCodec, SingletonEntity},
     value::{InputValue, Value},
@@ -260,10 +261,12 @@ impl StructuralQuery {
         self.intent.build_plan_model_with_indexes(visible_indexes)
     }
 
-    pub(in crate::db) fn prepare_scalar_planning_state(
+    pub(in crate::db) fn prepare_scalar_planning_state_with_schema_info(
         &self,
+        schema_info: SchemaInfo,
     ) -> Result<PreparedScalarPlanningState<'_>, QueryError> {
-        self.intent.prepare_scalar_planning_state()
+        self.intent
+            .prepare_scalar_planning_state_with_schema_info(schema_info)
     }
 
     pub(in crate::db) fn build_plan_with_visible_indexes_from_scalar_planning_state(

@@ -9,8 +9,12 @@ use crate::{
         commit::CommitSchemaFingerprint,
         index::canonical_index_predicate,
         predicate::hash_predicate,
-        schema::compiled_schema_proposal_for_model,
+        schema::{
+            AcceptedSchemaSnapshot, compiled_schema_proposal_for_model,
+            encode_persisted_schema_snapshot,
+        },
     },
+    error::InternalError,
     model::{
         EntityModel,
         field::FieldKind,
@@ -27,6 +31,7 @@ thread_local! {
 }
 
 const COMMIT_SCHEMA_FINGERPRINT_VERSION: u8 = 2;
+const ACCEPTED_SCHEMA_CACHE_FINGERPRINT_VERSION: u8 = 1;
 
 const INDEX_KEY_ITEM_FIELD_TAG: u8 = 0x00;
 const INDEX_KEY_ITEM_EXPRESSION_TAG: u8 = 0x01;
@@ -100,6 +105,32 @@ pub(crate) fn commit_schema_fingerprint_for_model(
     truncate_sha256_commit_schema_fingerprint(hasher)
 }
 
+/// Compute one accepted-schema fingerprint for runtime cache identity.
+///
+/// Unlike the commit fingerprint, this cache fingerprint follows the accepted
+/// persisted snapshot that planning and SQL admission consume at runtime. It
+/// intentionally includes the encoded accepted schema payload and generated
+/// index contract so in-heap SQL/query caches miss when either the live schema
+/// authority or planner-visible index metadata changes.
+pub(in crate::db) fn accepted_schema_cache_fingerprint_for_model(
+    model: &'static EntityModel,
+    schema: &AcceptedSchemaSnapshot,
+) -> Result<CommitSchemaFingerprint, InternalError> {
+    let mut hasher = new_hash_sha256();
+    hasher.update([ACCEPTED_SCHEMA_CACHE_FINGERPRINT_VERSION]);
+    hash_labeled_str(&mut hasher, "model_path", model.path());
+    let encoded_snapshot = encode_persisted_schema_snapshot(schema.persisted_snapshot())?;
+    hash_labeled_len(
+        &mut hasher,
+        "accepted_schema_snapshot_len",
+        encoded_snapshot.len(),
+    );
+    hasher.update(encoded_snapshot);
+    hash_model_index_contract_for_cache(&mut hasher, model);
+
+    Ok(truncate_sha256_commit_schema_fingerprint(hasher))
+}
+
 fn hash_entity_model_for_commit(hasher: &mut Sha256, model: &EntityModel) {
     let proposal = compiled_schema_proposal_for_model(model);
 
@@ -115,6 +146,10 @@ fn hash_entity_model_for_commit(hasher: &mut Sha256, model: &EntityModel) {
     }
 
     // Phase 2: hash index contract details (names, stores, uniqueness, fields).
+    hash_model_index_contract_for_cache(hasher, model);
+}
+
+fn hash_model_index_contract_for_cache(hasher: &mut Sha256, model: &EntityModel) {
     hash_labeled_len(hasher, "index_count", model.indexes.len());
     for index in model.indexes {
         hash_labeled_str(hasher, "index_name", index.name());

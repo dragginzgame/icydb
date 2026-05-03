@@ -56,11 +56,14 @@ where
         self,
         plan: PreparedExecutionPlan<E>,
     ) -> Result<EntityResponse<E>, InternalError> {
-        (|| {
+        let mut span = Span::<E>::new(ExecKind::Delete);
+        let result = (|| {
             // Phase 1: prepare authority, store access, and delete execution inputs once.
             let (prepared, store) = prepare_delete_runtime(&self.db, plan)?;
-            let mut span = Span::<E>::new(ExecKind::Delete);
-            record_plan_metrics(&prepared.logical_plan.access);
+            record_plan_metrics(
+                prepared.authority.entity.entity_path(),
+                &prepared.logical_plan.access,
+            );
 
             // Phase 2: run the shared typed delete core and package response rows.
             let Some(typed) = prepare_typed_delete_core(
@@ -86,7 +89,12 @@ where
             set_rows_from_len(&mut span, typed.row_count);
 
             Ok(EntityResponse::new(typed.output))
-        })()
+        })();
+        if let Err(err) = &result {
+            span.set_error(err);
+        }
+
+        result
     }
 
     /// Execute one structural delete projection plan and return structural row
@@ -96,11 +104,14 @@ where
         self,
         plan: PreparedExecutionPlan<E>,
     ) -> Result<DeleteProjection, InternalError> {
-        (|| {
+        let mut span = Span::<E>::new(ExecKind::Delete);
+        let result = (|| {
             // Phase 1: prepare authority, store access, and delete execution inputs once.
             let (prepared, store) = prepare_delete_runtime(&self.db, plan)?;
-            let mut span = Span::<E>::new(ExecKind::Delete);
-            record_plan_metrics(&prepared.logical_plan.access);
+            record_plan_metrics(
+                prepared.authority.entity.entity_path(),
+                &prepared.logical_plan.access,
+            );
 
             // Phase 2: run the shared structural delete core and apply the
             // final typed commit-window bridge only at the boundary.
@@ -122,7 +133,12 @@ where
             );
 
             Ok(projection)
-        })()
+        })();
+        if let Err(err) = &result {
+            span.set_error(err);
+        }
+
+        result
     }
 
     /// Execute one delete plan and return only the affected-row count.
@@ -130,11 +146,14 @@ where
         self,
         plan: PreparedExecutionPlan<E>,
     ) -> Result<u32, InternalError> {
-        (|| {
+        let mut span = Span::<E>::new(ExecKind::Delete);
+        let result = (|| {
             // Phase 1: prepare authority, store access, and delete execution inputs once.
             let (prepared, store) = prepare_delete_runtime(&self.db, plan)?;
-            let mut span = Span::<E>::new(ExecKind::Delete);
-            record_plan_metrics(&prepared.logical_plan.access);
+            record_plan_metrics(
+                prepared.authority.entity.entity_path(),
+                &prepared.logical_plan.access,
+            );
 
             // Phase 2: run the shared typed delete core while skipping response
             // row materialization.
@@ -161,6 +180,11 @@ where
             set_rows_from_len(&mut span, counted.row_count);
 
             Ok(counted.output)
-        })()
+        })();
+        if let Err(err) = &result {
+            span.set_error(err);
+        }
+
+        result
     }
 }

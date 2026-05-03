@@ -12,10 +12,11 @@ use crate::{
 
 /// Records metrics for the chosen execution plan.
 /// Must be called exactly once per execution.
-pub(super) fn record_plan_metrics<K>(access: &AccessPlan<K>) {
+pub(super) fn record_plan_metrics<K>(entity_path: &'static str, access: &AccessPlan<K>) {
     let kind = access_plan_kind(access);
 
     record(MetricsEvent::Plan {
+        entity_path,
         kind,
         grouped_execution_mode: None,
     });
@@ -24,6 +25,7 @@ pub(super) fn record_plan_metrics<K>(access: &AccessPlan<K>) {
 /// Records metrics for one grouped execution plan with explicit grouped execution mode.
 /// Must be called exactly once per grouped execution.
 pub(super) fn record_grouped_plan_metrics<K>(
+    entity_path: &'static str,
     access: &AccessPlan<K>,
     grouped_execution_mode: GroupedExecutionMode,
 ) {
@@ -34,6 +36,7 @@ pub(super) fn record_grouped_plan_metrics<K>(
     };
 
     record(MetricsEvent::Plan {
+        entity_path,
         kind,
         grouped_execution_mode: Some(grouped_execution_mode),
     });

@@ -13,6 +13,7 @@ use crate::{
             intent::StructuralQuery,
             plan::{AccessPlannedQuery, VisibleIndexes},
         },
+        schema::{SchemaInfo, accepted_schema_cache_fingerprint_for_model},
     },
     model::entity::EntityModel,
     traits::{CanisterKind, EntityKind, Path},
@@ -153,10 +154,15 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db) fn cached_shared_query_plan_for_authority(
         &self,
         authority: EntityAuthority,
-        schema_fingerprint: CommitSchemaFingerprint,
         query: &StructuralQuery,
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
+        let accepted_schema = self
+            .accepted_initial_schema_snapshot_for_authority(authority)
+            .map_err(QueryError::execute)?;
+        let schema_fingerprint =
+            accepted_schema_cache_fingerprint_for_model(authority.model(), &accepted_schema)
+                .map_err(QueryError::execute)?;
         if query.trivial_scalar_load_fast_path_eligible() {
             return self.cached_trivial_scalar_load_plan_for_authority(
                 authority,
@@ -167,7 +173,9 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         let visible_indexes = Self::visible_indexes_for_model(authority.model(), visibility);
-        let planning_state = query.prepare_scalar_planning_state()?;
+        let schema_info =
+            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), &accepted_schema);
+        let planning_state = query.prepare_scalar_planning_state_with_schema_info(schema_info)?;
         let normalized_predicate_fingerprint = planning_state
             .normalized_predicate()
             .map(predicate_fingerprint_normalized);
@@ -293,7 +301,6 @@ impl<C: CanisterKind> DbSession<C> {
     {
         self.cached_shared_query_plan_for_authority(
             EntityAuthority::for_type::<E>(),
-            crate::db::schema::commit_schema_fingerprint_for_entity::<E>(),
             query.structural(),
         )
     }
@@ -320,12 +327,11 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db::session) fn try_map_cached_shared_query_plan_ref_for_authority<T>(
         &self,
         authority: EntityAuthority,
-        schema_fingerprint: CommitSchemaFingerprint,
         query: &StructuralQuery,
         map: impl FnOnce(&SharedPreparedExecutionPlan) -> Result<T, QueryError>,
     ) -> Result<(T, QueryPlanCacheAttribution), QueryError> {
         let (prepared_plan, attribution) =
-            self.cached_shared_query_plan_for_authority(authority, schema_fingerprint, query)?;
+            self.cached_shared_query_plan_for_authority(authority, query)?;
         let mapped = map(&prepared_plan)?;
 
         Ok((mapped, attribution))

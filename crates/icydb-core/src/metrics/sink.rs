@@ -5,7 +5,11 @@
 //!
 //! Core DB logic MUST NOT depend on `metrics::state` directly.
 //! All instrumentation flows through `MetricsEvent` and `MetricsSink`.
-use crate::{metrics::state as metrics, traits::EntityKind};
+use crate::{
+    error::{ErrorClass, InternalError},
+    metrics::state as metrics,
+    traits::EntityKind,
+};
 use std::{cell::RefCell, marker::PhantomData};
 
 thread_local! {
@@ -21,6 +25,49 @@ pub enum ExecKind {
     Load,
     Save,
     Delete,
+}
+
+///
+/// ExecOutcome
+///
+
+#[derive(Clone, Copy, Debug)]
+pub enum ExecOutcome {
+    Success,
+    ErrorCorruption,
+    ErrorIncompatiblePersistedFormat,
+    ErrorNotFound,
+    ErrorInternal,
+    ErrorConflict,
+    ErrorUnsupported,
+    ErrorInvariantViolation,
+    Aborted,
+}
+
+impl ExecOutcome {
+    // Map the crate's typed runtime error taxonomy into stable metrics buckets.
+    const fn from_error(error: &InternalError) -> Self {
+        match error.class() {
+            ErrorClass::Corruption => Self::ErrorCorruption,
+            ErrorClass::IncompatiblePersistedFormat => Self::ErrorIncompatiblePersistedFormat,
+            ErrorClass::NotFound => Self::ErrorNotFound,
+            ErrorClass::Internal => Self::ErrorInternal,
+            ErrorClass::Conflict => Self::ErrorConflict,
+            ErrorClass::Unsupported => Self::ErrorUnsupported,
+            ErrorClass::InvariantViolation => Self::ErrorInvariantViolation,
+        }
+    }
+}
+
+///
+/// SaveMutationKind
+///
+
+#[derive(Clone, Copy, Debug)]
+pub enum SaveMutationKind {
+    Insert,
+    Update,
+    Replace,
 }
 
 ///
@@ -68,6 +115,12 @@ pub enum MetricsEvent {
         entity_path: &'static str,
         rows_touched: u64,
         inst_delta: u64,
+        outcome: ExecOutcome,
+    },
+    ExecError {
+        kind: ExecKind,
+        entity_path: &'static str,
+        outcome: ExecOutcome,
     },
     RowsScanned {
         entity_path: &'static str,
@@ -107,7 +160,13 @@ pub enum MetricsEvent {
         entity_path: &'static str,
         committed_rows: u64,
     },
+    SaveMutation {
+        entity_path: &'static str,
+        kind: SaveMutationKind,
+        rows_touched: u64,
+    },
     Plan {
+        entity_path: &'static str,
         kind: PlanKind,
         grouped_execution_mode: Option<GroupedPlanExecutionMode>,
     },
@@ -133,26 +192,10 @@ impl MetricsSink for GlobalMetricsSink {
         match event {
             MetricsEvent::ExecStart { kind, entity_path } => {
                 metrics::with_state_mut(|m| {
-                    match kind {
-                        ExecKind::Load => m.ops.load_calls = m.ops.load_calls.saturating_add(1),
-                        ExecKind::Save => m.ops.save_calls = m.ops.save_calls.saturating_add(1),
-                        ExecKind::Delete => {
-                            m.ops.delete_calls = m.ops.delete_calls.saturating_add(1);
-                        }
-                    }
+                    record_global_exec_start(&mut m.ops, kind);
 
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
-                    match kind {
-                        ExecKind::Load => {
-                            entry.load_calls = entry.load_calls.saturating_add(1);
-                        }
-                        ExecKind::Save => {
-                            entry.save_calls = entry.save_calls.saturating_add(1);
-                        }
-                        ExecKind::Delete => {
-                            entry.delete_calls = entry.delete_calls.saturating_add(1);
-                        }
-                    }
+                    record_entity_exec_start(entry, kind);
                 });
             }
 
@@ -161,8 +204,11 @@ impl MetricsSink for GlobalMetricsSink {
                 entity_path,
                 rows_touched,
                 inst_delta,
+                outcome,
             } => {
                 metrics::with_state_mut(|m| {
+                    record_global_exec_outcome(&mut m.ops, outcome);
+
                     match kind {
                         ExecKind::Load => {
                             m.ops.rows_loaded = m.ops.rows_loaded.saturating_add(rows_touched);
@@ -191,6 +237,7 @@ impl MetricsSink for GlobalMetricsSink {
                     }
 
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    record_entity_exec_outcome(entry, outcome);
                     match kind {
                         ExecKind::Load => {
                             entry.rows_loaded = entry.rows_loaded.saturating_add(rows_touched);
@@ -202,6 +249,21 @@ impl MetricsSink for GlobalMetricsSink {
                             entry.rows_saved = entry.rows_saved.saturating_add(rows_touched);
                         }
                     }
+                });
+            }
+
+            MetricsEvent::ExecError {
+                kind,
+                entity_path,
+                outcome,
+            } => {
+                metrics::with_state_mut(|m| {
+                    record_global_exec_start(&mut m.ops, kind);
+                    record_global_exec_outcome(&mut m.ops, outcome);
+
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    record_entity_exec_start(entry, kind);
+                    record_entity_exec_outcome(entry, outcome);
                 });
             }
 
@@ -332,63 +394,57 @@ impl MetricsSink for GlobalMetricsSink {
                 });
             }
 
+            MetricsEvent::SaveMutation {
+                entity_path,
+                kind,
+                rows_touched,
+            } => {
+                metrics::with_state_mut(|m| {
+                    match kind {
+                        SaveMutationKind::Insert => {
+                            m.ops.save_insert_calls = m.ops.save_insert_calls.saturating_add(1);
+                            m.ops.rows_inserted = m.ops.rows_inserted.saturating_add(rows_touched);
+                        }
+                        SaveMutationKind::Update => {
+                            m.ops.save_update_calls = m.ops.save_update_calls.saturating_add(1);
+                            m.ops.rows_updated = m.ops.rows_updated.saturating_add(rows_touched);
+                        }
+                        SaveMutationKind::Replace => {
+                            m.ops.save_replace_calls = m.ops.save_replace_calls.saturating_add(1);
+                            m.ops.rows_replaced = m.ops.rows_replaced.saturating_add(rows_touched);
+                        }
+                    }
+
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    match kind {
+                        SaveMutationKind::Insert => {
+                            entry.save_insert_calls = entry.save_insert_calls.saturating_add(1);
+                            entry.rows_inserted = entry.rows_inserted.saturating_add(rows_touched);
+                        }
+                        SaveMutationKind::Update => {
+                            entry.save_update_calls = entry.save_update_calls.saturating_add(1);
+                            entry.rows_updated = entry.rows_updated.saturating_add(rows_touched);
+                        }
+                        SaveMutationKind::Replace => {
+                            entry.save_replace_calls = entry.save_replace_calls.saturating_add(1);
+                            entry.rows_replaced = entry.rows_replaced.saturating_add(rows_touched);
+                        }
+                    }
+                });
+            }
+
             MetricsEvent::Plan {
+                entity_path,
                 kind,
                 grouped_execution_mode,
             } => {
                 metrics::with_state_mut(|m| {
-                    match kind {
-                        PlanKind::ByKey => {
-                            m.ops.plan_keys = m.ops.plan_keys.saturating_add(1);
-                            m.ops.plan_by_key = m.ops.plan_by_key.saturating_add(1);
-                        }
-                        PlanKind::ByKeys => {
-                            m.ops.plan_keys = m.ops.plan_keys.saturating_add(1);
-                            m.ops.plan_by_keys = m.ops.plan_by_keys.saturating_add(1);
-                        }
-                        PlanKind::KeyRange => {
-                            m.ops.plan_range = m.ops.plan_range.saturating_add(1);
-                            m.ops.plan_key_range = m.ops.plan_key_range.saturating_add(1);
-                        }
-                        PlanKind::IndexPrefix => {
-                            m.ops.plan_index = m.ops.plan_index.saturating_add(1);
-                            m.ops.plan_index_prefix = m.ops.plan_index_prefix.saturating_add(1);
-                        }
-                        PlanKind::IndexMultiLookup => {
-                            m.ops.plan_index = m.ops.plan_index.saturating_add(1);
-                            m.ops.plan_index_multi_lookup =
-                                m.ops.plan_index_multi_lookup.saturating_add(1);
-                        }
-                        PlanKind::IndexRange => {
-                            m.ops.plan_index = m.ops.plan_index.saturating_add(1);
-                            m.ops.plan_index_range = m.ops.plan_index_range.saturating_add(1);
-                        }
-                        PlanKind::FullScan => {
-                            m.ops.plan_full_scan = m.ops.plan_full_scan.saturating_add(1);
-                            m.ops.plan_explicit_full_scan =
-                                m.ops.plan_explicit_full_scan.saturating_add(1);
-                        }
-                        PlanKind::Union => {
-                            m.ops.plan_full_scan = m.ops.plan_full_scan.saturating_add(1);
-                            m.ops.plan_union = m.ops.plan_union.saturating_add(1);
-                        }
-                        PlanKind::Intersection => {
-                            m.ops.plan_full_scan = m.ops.plan_full_scan.saturating_add(1);
-                            m.ops.plan_intersection = m.ops.plan_intersection.saturating_add(1);
-                        }
-                    }
+                    record_global_plan_kind(&mut m.ops, kind);
+                    record_global_grouped_plan_mode(&mut m.ops, grouped_execution_mode);
 
-                    match grouped_execution_mode {
-                        Some(GroupedPlanExecutionMode::HashMaterialized) => {
-                            m.ops.plan_grouped_hash_materialized =
-                                m.ops.plan_grouped_hash_materialized.saturating_add(1);
-                        }
-                        Some(GroupedPlanExecutionMode::OrderedMaterialized) => {
-                            m.ops.plan_grouped_ordered_materialized =
-                                m.ops.plan_grouped_ordered_materialized.saturating_add(1);
-                        }
-                        None => {}
-                    }
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    record_entity_plan_kind(entry, kind);
+                    record_entity_grouped_plan_mode(entry, grouped_execution_mode);
                 });
             }
         }
@@ -420,6 +476,234 @@ pub(crate) fn record(event: MetricsEvent) {
         unsafe { (&*ptr).record(event) };
     } else {
         GLOBAL_METRICS_SINK.record(event);
+    }
+}
+
+// Start counters are used for ordinary spans and for load errors that return
+// before the successful load finalizers create their normal span.
+const fn record_global_exec_start(ops: &mut metrics::EventOps, kind: ExecKind) {
+    match kind {
+        ExecKind::Load => ops.load_calls = ops.load_calls.saturating_add(1),
+        ExecKind::Save => ops.save_calls = ops.save_calls.saturating_add(1),
+        ExecKind::Delete => {
+            ops.delete_calls = ops.delete_calls.saturating_add(1);
+        }
+    }
+}
+
+// Mirror executor starts into entity summaries so attempts and outcomes can be
+// read from the same per-entity row in the report.
+const fn record_entity_exec_start(ops: &mut metrics::EntityCounters, kind: ExecKind) {
+    match kind {
+        ExecKind::Load => {
+            ops.load_calls = ops.load_calls.saturating_add(1);
+        }
+        ExecKind::Save => {
+            ops.save_calls = ops.save_calls.saturating_add(1);
+        }
+        ExecKind::Delete => {
+            ops.delete_calls = ops.delete_calls.saturating_add(1);
+        }
+    }
+}
+
+// Outcome counters are shared by all executor kinds. Per-kind attempts still
+// come from load/save/delete call counters, so this layer only tracks finish
+// status and error taxonomy.
+const fn record_global_exec_outcome(ops: &mut metrics::EventOps, outcome: ExecOutcome) {
+    match outcome {
+        ExecOutcome::Success => {
+            ops.exec_success = ops.exec_success.saturating_add(1);
+        }
+        ExecOutcome::ErrorCorruption => {
+            ops.exec_error_corruption = ops.exec_error_corruption.saturating_add(1);
+        }
+        ExecOutcome::ErrorIncompatiblePersistedFormat => {
+            ops.exec_error_incompatible_persisted_format = ops
+                .exec_error_incompatible_persisted_format
+                .saturating_add(1);
+        }
+        ExecOutcome::ErrorNotFound => {
+            ops.exec_error_not_found = ops.exec_error_not_found.saturating_add(1);
+        }
+        ExecOutcome::ErrorInternal => {
+            ops.exec_error_internal = ops.exec_error_internal.saturating_add(1);
+        }
+        ExecOutcome::ErrorConflict => {
+            ops.exec_error_conflict = ops.exec_error_conflict.saturating_add(1);
+        }
+        ExecOutcome::ErrorUnsupported => {
+            ops.exec_error_unsupported = ops.exec_error_unsupported.saturating_add(1);
+        }
+        ExecOutcome::ErrorInvariantViolation => {
+            ops.exec_error_invariant_violation =
+                ops.exec_error_invariant_violation.saturating_add(1);
+        }
+        ExecOutcome::Aborted => {
+            ops.exec_aborted = ops.exec_aborted.saturating_add(1);
+        }
+    }
+}
+
+// Mirror outcome attribution into entity summaries so failed operations can be
+// correlated with the model that owned the executor span.
+const fn record_entity_exec_outcome(ops: &mut metrics::EntityCounters, outcome: ExecOutcome) {
+    match outcome {
+        ExecOutcome::Success => {
+            ops.exec_success = ops.exec_success.saturating_add(1);
+        }
+        ExecOutcome::ErrorCorruption => {
+            ops.exec_error_corruption = ops.exec_error_corruption.saturating_add(1);
+        }
+        ExecOutcome::ErrorIncompatiblePersistedFormat => {
+            ops.exec_error_incompatible_persisted_format = ops
+                .exec_error_incompatible_persisted_format
+                .saturating_add(1);
+        }
+        ExecOutcome::ErrorNotFound => {
+            ops.exec_error_not_found = ops.exec_error_not_found.saturating_add(1);
+        }
+        ExecOutcome::ErrorInternal => {
+            ops.exec_error_internal = ops.exec_error_internal.saturating_add(1);
+        }
+        ExecOutcome::ErrorConflict => {
+            ops.exec_error_conflict = ops.exec_error_conflict.saturating_add(1);
+        }
+        ExecOutcome::ErrorUnsupported => {
+            ops.exec_error_unsupported = ops.exec_error_unsupported.saturating_add(1);
+        }
+        ExecOutcome::ErrorInvariantViolation => {
+            ops.exec_error_invariant_violation =
+                ops.exec_error_invariant_violation.saturating_add(1);
+        }
+        ExecOutcome::Aborted => {
+            ops.exec_aborted = ops.exec_aborted.saturating_add(1);
+        }
+    }
+}
+
+// Keep the legacy coarse global plan groups in lockstep with the detailed
+// route counters so existing dashboards and newer diagnostics can agree.
+const fn record_global_plan_kind(ops: &mut metrics::EventOps, kind: PlanKind) {
+    match kind {
+        PlanKind::ByKey => {
+            ops.plan_keys = ops.plan_keys.saturating_add(1);
+            ops.plan_by_key = ops.plan_by_key.saturating_add(1);
+        }
+        PlanKind::ByKeys => {
+            ops.plan_keys = ops.plan_keys.saturating_add(1);
+            ops.plan_by_keys = ops.plan_by_keys.saturating_add(1);
+        }
+        PlanKind::KeyRange => {
+            ops.plan_range = ops.plan_range.saturating_add(1);
+            ops.plan_key_range = ops.plan_key_range.saturating_add(1);
+        }
+        PlanKind::IndexPrefix => {
+            ops.plan_index = ops.plan_index.saturating_add(1);
+            ops.plan_index_prefix = ops.plan_index_prefix.saturating_add(1);
+        }
+        PlanKind::IndexMultiLookup => {
+            ops.plan_index = ops.plan_index.saturating_add(1);
+            ops.plan_index_multi_lookup = ops.plan_index_multi_lookup.saturating_add(1);
+        }
+        PlanKind::IndexRange => {
+            ops.plan_index = ops.plan_index.saturating_add(1);
+            ops.plan_index_range = ops.plan_index_range.saturating_add(1);
+        }
+        PlanKind::FullScan => {
+            ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
+            ops.plan_explicit_full_scan = ops.plan_explicit_full_scan.saturating_add(1);
+        }
+        PlanKind::Union => {
+            ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
+            ops.plan_union = ops.plan_union.saturating_add(1);
+        }
+        PlanKind::Intersection => {
+            ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
+            ops.plan_intersection = ops.plan_intersection.saturating_add(1);
+        }
+    }
+}
+
+// Grouped plan modes are orthogonal to access shape, so count them beside the
+// route counters instead of deriving them from a single access kind.
+const fn record_global_grouped_plan_mode(
+    ops: &mut metrics::EventOps,
+    grouped_execution_mode: Option<GroupedPlanExecutionMode>,
+) {
+    match grouped_execution_mode {
+        Some(GroupedPlanExecutionMode::HashMaterialized) => {
+            ops.plan_grouped_hash_materialized =
+                ops.plan_grouped_hash_materialized.saturating_add(1);
+        }
+        Some(GroupedPlanExecutionMode::OrderedMaterialized) => {
+            ops.plan_grouped_ordered_materialized =
+                ops.plan_grouped_ordered_materialized.saturating_add(1);
+        }
+        None => {}
+    }
+}
+
+// Mirror global plan attribution into the owning entity summary so operators
+// can identify which model is causing full scans, unions, or expensive grouped
+// routes without correlating separate counters.
+const fn record_entity_plan_kind(ops: &mut metrics::EntityCounters, kind: PlanKind) {
+    match kind {
+        PlanKind::ByKey => {
+            ops.plan_keys = ops.plan_keys.saturating_add(1);
+            ops.plan_by_key = ops.plan_by_key.saturating_add(1);
+        }
+        PlanKind::ByKeys => {
+            ops.plan_keys = ops.plan_keys.saturating_add(1);
+            ops.plan_by_keys = ops.plan_by_keys.saturating_add(1);
+        }
+        PlanKind::KeyRange => {
+            ops.plan_range = ops.plan_range.saturating_add(1);
+            ops.plan_key_range = ops.plan_key_range.saturating_add(1);
+        }
+        PlanKind::IndexPrefix => {
+            ops.plan_index = ops.plan_index.saturating_add(1);
+            ops.plan_index_prefix = ops.plan_index_prefix.saturating_add(1);
+        }
+        PlanKind::IndexMultiLookup => {
+            ops.plan_index = ops.plan_index.saturating_add(1);
+            ops.plan_index_multi_lookup = ops.plan_index_multi_lookup.saturating_add(1);
+        }
+        PlanKind::IndexRange => {
+            ops.plan_index = ops.plan_index.saturating_add(1);
+            ops.plan_index_range = ops.plan_index_range.saturating_add(1);
+        }
+        PlanKind::FullScan => {
+            ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
+            ops.plan_explicit_full_scan = ops.plan_explicit_full_scan.saturating_add(1);
+        }
+        PlanKind::Union => {
+            ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
+            ops.plan_union = ops.plan_union.saturating_add(1);
+        }
+        PlanKind::Intersection => {
+            ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
+            ops.plan_intersection = ops.plan_intersection.saturating_add(1);
+        }
+    }
+}
+
+// Grouped execution counters stay per entity for the same reason as access
+// route counters: global counts show shape drift, but entity counts show owner.
+const fn record_entity_grouped_plan_mode(
+    ops: &mut metrics::EntityCounters,
+    grouped_execution_mode: Option<GroupedPlanExecutionMode>,
+) {
+    match grouped_execution_mode {
+        Some(GroupedPlanExecutionMode::HashMaterialized) => {
+            ops.plan_grouped_hash_materialized =
+                ops.plan_grouped_hash_materialized.saturating_add(1);
+        }
+        Some(GroupedPlanExecutionMode::OrderedMaterialized) => {
+            ops.plan_grouped_ordered_materialized =
+                ops.plan_grouped_ordered_materialized.saturating_add(1);
+        }
+        None => {}
     }
 }
 
@@ -495,6 +779,7 @@ pub(crate) struct PathSpan {
     entity_path: &'static str,
     start: u64,
     rows: u64,
+    outcome: ExecOutcome,
     finished: bool,
 }
 
@@ -523,6 +808,24 @@ impl<E: EntityKind> Span<E> {
     pub(crate) const fn set_rows(&mut self, rows: u64) {
         self.inner.set_rows(rows);
     }
+
+    pub(crate) const fn set_error(&mut self, error: &InternalError) {
+        self.inner.set_error(error);
+    }
+}
+
+/// Record one classified executor error for a path that failed before the
+/// ordinary success span boundary was reached.
+pub(crate) fn record_exec_error_for_path(
+    kind: ExecKind,
+    entity_path: &'static str,
+    error: &InternalError,
+) {
+    record(MetricsEvent::ExecError {
+        kind,
+        entity_path,
+        outcome: ExecOutcome::from_error(error),
+    });
 }
 
 impl<E: EntityKind> Drop for Span<E> {
@@ -542,12 +845,18 @@ impl PathSpan {
             entity_path,
             start: read_perf_counter(),
             rows: 0,
+            outcome: ExecOutcome::Aborted,
             finished: false,
         }
     }
 
     pub(crate) const fn set_rows(&mut self, rows: u64) {
         self.rows = rows;
+        self.outcome = ExecOutcome::Success;
+    }
+
+    pub(crate) const fn set_error(&mut self, error: &InternalError) {
+        self.outcome = ExecOutcome::from_error(error);
     }
 
     fn finish_inner(&self) {
@@ -559,6 +868,7 @@ impl PathSpan {
             entity_path: self.entity_path,
             rows_touched: self.rows,
             inst_delta: delta,
+            outcome: self.outcome,
         });
     }
 
@@ -609,6 +919,7 @@ mod tests {
 
         // No override installed yet.
         record(MetricsEvent::Plan {
+            entity_path: "metrics::tests::Entity",
             kind: PlanKind::ByKey,
             grouped_execution_mode: None,
         });
@@ -617,6 +928,7 @@ mod tests {
 
         with_metrics_sink(&outer, || {
             record(MetricsEvent::Plan {
+                entity_path: "metrics::tests::Entity",
                 kind: PlanKind::IndexPrefix,
                 grouped_execution_mode: None,
             });
@@ -625,6 +937,7 @@ mod tests {
 
             with_metrics_sink(&inner, || {
                 record(MetricsEvent::Plan {
+                    entity_path: "metrics::tests::Entity",
                     kind: PlanKind::KeyRange,
                     grouped_execution_mode: None,
                 });
@@ -632,6 +945,7 @@ mod tests {
 
             // Inner override was restored to outer override.
             record(MetricsEvent::Plan {
+                entity_path: "metrics::tests::Entity",
                 kind: PlanKind::FullScan,
                 grouped_execution_mode: None,
             });
@@ -646,6 +960,7 @@ mod tests {
         });
 
         record(MetricsEvent::Plan {
+            entity_path: "metrics::tests::Entity",
             kind: PlanKind::ByKey,
             grouped_execution_mode: None,
         });
@@ -665,6 +980,7 @@ mod tests {
         let panicked = catch_unwind(AssertUnwindSafe(|| {
             with_metrics_sink(&sink, || {
                 record(MetricsEvent::Plan {
+                    entity_path: "metrics::tests::Entity",
                     kind: PlanKind::IndexPrefix,
                     grouped_execution_mode: None,
                 });
@@ -681,6 +997,7 @@ mod tests {
         });
 
         record(MetricsEvent::Plan {
+            entity_path: "metrics::tests::Entity",
             kind: PlanKind::KeyRange,
             grouped_execution_mode: None,
         });
@@ -691,6 +1008,7 @@ mod tests {
     fn metrics_report_without_window_start_returns_counters() {
         metrics_reset_all();
         record(MetricsEvent::Plan {
+            entity_path: "metrics::tests::Entity",
             kind: PlanKind::IndexPrefix,
             grouped_execution_mode: None,
         });
@@ -708,6 +1026,7 @@ mod tests {
         metrics_reset_all();
         let window_start = metrics::with_state(|m| m.window_start_ms);
         record(MetricsEvent::Plan {
+            entity_path: "metrics::tests::Entity",
             kind: PlanKind::ByKey,
             grouped_execution_mode: None,
         });
@@ -730,6 +1049,7 @@ mod tests {
         metrics_reset_all();
         let window_start = metrics::with_state(|m| m.window_start_ms);
         record(MetricsEvent::Plan {
+            entity_path: "metrics::tests::Entity",
             kind: PlanKind::FullScan,
             grouped_execution_mode: None,
         });
@@ -749,10 +1069,12 @@ mod tests {
     fn metrics_report_grouped_execution_mode_counters_accumulate() {
         metrics_reset_all();
         record(MetricsEvent::Plan {
+            entity_path: "metrics::tests::Entity",
             kind: PlanKind::IndexPrefix,
             grouped_execution_mode: Some(GroupedPlanExecutionMode::HashMaterialized),
         });
         record(MetricsEvent::Plan {
+            entity_path: "metrics::tests::Entity",
             kind: PlanKind::KeyRange,
             grouped_execution_mode: Some(GroupedPlanExecutionMode::OrderedMaterialized),
         });
@@ -765,6 +1087,13 @@ mod tests {
         assert_eq!(counters.ops.plan_range, 1);
         assert_eq!(counters.ops.plan_grouped_hash_materialized, 1);
         assert_eq!(counters.ops.plan_grouped_ordered_materialized, 1);
+
+        let entity = report
+            .entity_counters()
+            .first()
+            .expect("grouped plan metrics should retain per-entity counters");
+        assert_eq!(entity.plan_grouped_hash_materialized(), 1);
+        assert_eq!(entity.plan_grouped_ordered_materialized(), 1);
     }
 
     #[test]
@@ -783,6 +1112,7 @@ mod tests {
             PlanKind::Intersection,
         ] {
             record(MetricsEvent::Plan {
+                entity_path: "metrics::tests::Entity",
                 kind,
                 grouped_execution_mode: None,
             });
@@ -805,6 +1135,25 @@ mod tests {
         assert_eq!(counters.ops.plan_explicit_full_scan, 1);
         assert_eq!(counters.ops.plan_union, 1);
         assert_eq!(counters.ops.plan_intersection, 1);
+
+        let entity = report
+            .entity_counters()
+            .first()
+            .expect("plan metrics should retain per-entity counters");
+        assert_eq!(entity.path(), "metrics::tests::Entity");
+        assert_eq!(entity.plan_keys(), 2);
+        assert_eq!(entity.plan_range(), 1);
+        assert_eq!(entity.plan_index(), 3);
+        assert_eq!(entity.plan_full_scan(), 3);
+        assert_eq!(entity.plan_by_key(), 1);
+        assert_eq!(entity.plan_by_keys(), 1);
+        assert_eq!(entity.plan_key_range(), 1);
+        assert_eq!(entity.plan_index_prefix(), 1);
+        assert_eq!(entity.plan_index_multi_lookup(), 1);
+        assert_eq!(entity.plan_index_range(), 1);
+        assert_eq!(entity.plan_explicit_full_scan(), 1);
+        assert_eq!(entity.plan_union(), 1);
+        assert_eq!(entity.plan_intersection(), 1);
     }
 
     #[test]
@@ -816,6 +1165,7 @@ mod tests {
             entity_path: "metrics::tests::Entity",
             rows_touched: 4,
             inst_delta: 11,
+            outcome: ExecOutcome::Success,
         });
 
         let report = metrics_report(None);
@@ -830,6 +1180,110 @@ mod tests {
             .first()
             .expect("save finish should retain per-entity counters");
         assert_eq!(entity.rows_saved(), 4);
+    }
+
+    #[test]
+    fn exec_finish_metrics_accumulate_outcomes_by_entity() {
+        metrics_reset_all();
+
+        for outcome in [
+            ExecOutcome::Success,
+            ExecOutcome::ErrorUnsupported,
+            ExecOutcome::ErrorCorruption,
+            ExecOutcome::Aborted,
+        ] {
+            record(MetricsEvent::ExecFinish {
+                kind: ExecKind::Load,
+                entity_path: "metrics::tests::Entity",
+                rows_touched: 0,
+                inst_delta: 0,
+                outcome,
+            });
+        }
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("metrics report should include counters");
+        assert_eq!(counters.ops.exec_success(), 1);
+        assert_eq!(counters.ops.exec_error_unsupported(), 1);
+        assert_eq!(counters.ops.exec_error_corruption(), 1);
+        assert_eq!(counters.ops.exec_aborted(), 1);
+
+        let entity = report
+            .entity_counters()
+            .first()
+            .expect("outcome metrics should retain per-entity counters");
+        assert_eq!(entity.exec_success(), 1);
+        assert_eq!(entity.exec_error_unsupported(), 1);
+        assert_eq!(entity.exec_error_corruption(), 1);
+        assert_eq!(entity.exec_aborted(), 1);
+    }
+
+    #[test]
+    fn exec_error_metrics_count_attempt_and_outcome_without_rows() {
+        metrics_reset_all();
+
+        record(MetricsEvent::ExecError {
+            kind: ExecKind::Load,
+            entity_path: "metrics::tests::Entity",
+            outcome: ExecOutcome::ErrorInternal,
+        });
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("metrics report should include counters");
+        assert_eq!(counters.ops.load_calls(), 1);
+        assert_eq!(counters.ops.exec_error_internal(), 1);
+        assert_eq!(counters.ops.rows_loaded(), 0);
+
+        let entity = report
+            .entity_counters()
+            .first()
+            .expect("exec error should retain per-entity counters");
+        assert_eq!(entity.load_calls(), 1);
+        assert_eq!(entity.exec_error_internal(), 1);
+        assert_eq!(entity.rows_loaded(), 0);
+    }
+
+    #[test]
+    fn save_mutation_metrics_accumulate_by_mode() {
+        metrics_reset_all();
+
+        for (kind, rows_touched) in [
+            (SaveMutationKind::Insert, 2),
+            (SaveMutationKind::Update, 3),
+            (SaveMutationKind::Replace, 4),
+        ] {
+            record(MetricsEvent::SaveMutation {
+                entity_path: "metrics::tests::Entity",
+                kind,
+                rows_touched,
+            });
+        }
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("metrics report should include counters");
+        assert_eq!(counters.ops.save_insert_calls, 1);
+        assert_eq!(counters.ops.save_update_calls, 1);
+        assert_eq!(counters.ops.save_replace_calls, 1);
+        assert_eq!(counters.ops.rows_inserted, 2);
+        assert_eq!(counters.ops.rows_updated, 3);
+        assert_eq!(counters.ops.rows_replaced, 4);
+
+        let entity = report
+            .entity_counters()
+            .first()
+            .expect("save mutation should retain per-entity counters");
+        assert_eq!(entity.save_insert_calls(), 1);
+        assert_eq!(entity.save_update_calls(), 1);
+        assert_eq!(entity.save_replace_calls(), 1);
+        assert_eq!(entity.rows_inserted(), 2);
+        assert_eq!(entity.rows_updated(), 3);
+        assert_eq!(entity.rows_replaced(), 4);
     }
 
     #[test]

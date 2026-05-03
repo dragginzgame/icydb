@@ -31,6 +31,12 @@ impl AcceptedSchemaSnapshot {
         Self { snapshot }
     }
 
+    /// Borrow the accepted persisted snapshot payload.
+    #[must_use]
+    pub(in crate::db) const fn persisted_snapshot(&self) -> &PersistedSchemaSnapshot {
+        &self.snapshot
+    }
+
     /// Borrow the accepted entity path.
     #[must_use]
     pub(in crate::db) const fn entity_path(&self) -> &str {

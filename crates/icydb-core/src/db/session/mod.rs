@@ -19,7 +19,7 @@ use crate::{
         Db, EntityFieldDescription, EntityRuntimeHooks, EntitySchemaDescription, FluentDeleteQuery,
         FluentLoadQuery, IndexState, IntegrityReport, MissingRowPolicy, PersistedRow, Query,
         QueryError, StorageReport, StoreRegistry, WriteBatchResponse,
-        executor::{DeleteExecutor, LoadExecutor, SaveExecutor},
+        executor::{DeleteExecutor, EntityAuthority, LoadExecutor, SaveExecutor},
         query::plan::VisibleIndexes,
         schema::{
             AcceptedSchemaSnapshot, describe_entity_fields,
@@ -371,10 +371,25 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let store = self.db.recovered_store(E::Store::PATH)?;
+        self.accepted_initial_schema_snapshot_for_authority(EntityAuthority::for_type::<E>())
+    }
+
+    // Load the accepted initial schema snapshot from already-resolved structural
+    // entity authority. SQL and fluent shared-plan cache paths use this shape
+    // after lowering has erased the concrete entity type.
+    fn accepted_initial_schema_snapshot_for_authority(
+        &self,
+        authority: EntityAuthority,
+    ) -> Result<AcceptedSchemaSnapshot, InternalError> {
+        let store = self.db.recovered_store(authority.store_path())?;
 
         store.with_schema_mut(|schema_store| {
-            ensure_initial_schema_snapshot(schema_store, E::ENTITY_TAG, E::PATH, E::MODEL)
+            ensure_initial_schema_snapshot(
+                schema_store,
+                authority.entity_tag(),
+                authority.entity_path(),
+                authority.model(),
+            )
         })
     }
 
