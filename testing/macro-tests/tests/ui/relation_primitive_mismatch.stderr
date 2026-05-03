@@ -1,5 +1,5 @@
 error: rel fields must explicitly declare prim = "..."; implicit identity types are forbidden
-  --> tests/ui/relation_primitive_mismatch.rs:27:53
+  --> tests/ui/relation_primitive_mismatch.rs:28:53
    |
-27 |         field(ident = "target_id", value(item(rel = "Target")))
+28 |         field(ident = "target_id", value(item(rel = "Target")))
    |                                                     ^^^^^^^^

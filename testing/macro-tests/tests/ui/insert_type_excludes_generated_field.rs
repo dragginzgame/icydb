@@ -7,7 +7,8 @@ pub struct UiCanister {}
     ident = "UI_DATA_STORE",
     canister = "UiCanister",
     data_memory_id = 1,
-    index_memory_id = 2
+    index_memory_id = 2,
+    schema_memory_id = 3
 )]
 pub struct UiDataStore {}
 

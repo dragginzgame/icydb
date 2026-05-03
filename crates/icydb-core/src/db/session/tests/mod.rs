@@ -72,6 +72,7 @@ use crate::{
         },
         registry::StoreRegistry,
         response::EntityResponse,
+        schema::SchemaStore,
         sql::{
             lowering::{
                 LoweredSqlQuery, apply_lowered_select_shape, bind_lowered_sql_query,
@@ -118,12 +119,15 @@ thread_local! {
         RefCell::new(DataStore::init(test_memory(160)));
     static SESSION_SQL_INDEX_STORE: RefCell<IndexStore> =
         RefCell::new(IndexStore::init(test_memory(161)));
+    static SESSION_SQL_SCHEMA_STORE: RefCell<SchemaStore> =
+        RefCell::new(SchemaStore::init(test_memory(164)));
     static SESSION_SQL_STORE_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
         reg.register_store(
             SessionSqlStore::PATH,
             &SESSION_SQL_DATA_STORE,
             &SESSION_SQL_INDEX_STORE,
+            &SESSION_SQL_SCHEMA_STORE,
         )
         .expect("SQL session test store registration should succeed");
         reg
@@ -132,12 +136,15 @@ thread_local! {
         RefCell::new(DataStore::init(test_memory(162)));
     static INDEXED_SESSION_SQL_INDEX_STORE: RefCell<IndexStore> =
         RefCell::new(IndexStore::init(test_memory(163)));
+    static INDEXED_SESSION_SQL_SCHEMA_STORE: RefCell<SchemaStore> =
+        RefCell::new(SchemaStore::init(test_memory(165)));
     static INDEXED_SESSION_SQL_STORE_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
         reg.register_store(
             IndexedSessionSqlStore::PATH,
             &INDEXED_SESSION_SQL_DATA_STORE,
             &INDEXED_SESSION_SQL_INDEX_STORE,
+            &INDEXED_SESSION_SQL_SCHEMA_STORE,
         )
         .expect("indexed SQL session test store registration should succeed");
         reg

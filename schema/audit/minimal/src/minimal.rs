@@ -20,6 +20,7 @@ pub struct MinimalCanister {}
     ident = "MINIMAL_STORE",
     canister = "MinimalCanister",
     data_memory_id = 61,
-    index_memory_id = 62
+    index_memory_id = 62,
+    schema_memory_id = 64
 )]
 pub struct MinimalStore {}

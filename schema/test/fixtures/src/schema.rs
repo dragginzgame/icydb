@@ -15,7 +15,8 @@ pub mod relation {
         ident = "RELATION_DATA_STORE",
         canister = "RelationCanister",
         data_memory_id = 10,
-        index_memory_id = 11
+        index_memory_id = 11,
+        schema_memory_id = 12
     )]
     pub struct RelationDataStore {}
 }
@@ -36,7 +37,8 @@ pub mod test {
         ident = "TEST_STORE",
         canister = "TestCanister",
         data_memory_id = 50,
-        index_memory_id = 51
+        index_memory_id = 51,
+        schema_memory_id = 52
     )]
     pub struct TestStore {}
 }

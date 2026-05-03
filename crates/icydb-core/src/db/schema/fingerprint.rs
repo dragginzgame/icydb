@@ -9,6 +9,7 @@ use crate::{
         commit::CommitSchemaFingerprint,
         index::canonical_index_predicate,
         predicate::hash_predicate,
+        schema::compiled_schema_proposal_for_model,
     },
     model::{
         EntityModel,
@@ -100,15 +101,17 @@ pub(crate) fn commit_schema_fingerprint_for_model(
 }
 
 fn hash_entity_model_for_commit(hasher: &mut Sha256, model: &EntityModel) {
-    // Phase 1: hash core entity identity and field-shape contract.
-    hash_labeled_str(hasher, "model_path", model.path);
-    hash_labeled_str(hasher, "entity_name", model.entity_name);
-    hash_labeled_str(hasher, "primary_key", model.primary_key.name);
-    hash_labeled_len(hasher, "field_count", model.fields.len());
+    let proposal = compiled_schema_proposal_for_model(model);
 
-    for field in model.fields {
-        hash_labeled_str(hasher, "field_name", field.name);
-        hash_field_text_max_len_contract(hasher, &field.kind);
+    // Phase 1: hash core entity identity and field-shape contract.
+    hash_labeled_str(hasher, "model_path", proposal.entity_path());
+    hash_labeled_str(hasher, "entity_name", proposal.entity_name());
+    hash_labeled_str(hasher, "primary_key", proposal.primary_key_name());
+    hash_labeled_len(hasher, "field_count", proposal.fields().len());
+
+    for field in proposal.fields() {
+        hash_labeled_str(hasher, "field_name", field.name());
+        hash_field_text_max_len_contract(hasher, &field.kind());
     }
 
     // Phase 2: hash index contract details (names, stores, uniqueness, fields).

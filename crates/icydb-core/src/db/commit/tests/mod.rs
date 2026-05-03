@@ -25,7 +25,7 @@ use crate::{
         index::{IndexKey, IndexStore, RawIndexEntry},
         registry::{StoreHandle, StoreRegistry},
         relation::validate_delete_strong_relations_for_source,
-        schema::commit_schema_fingerprint_for_entity,
+        schema::{SchemaStore, commit_schema_fingerprint_for_entity},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{
@@ -465,9 +465,10 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
 thread_local! {
     static DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(19)));
     static INDEX_STORE: RefCell<IndexStore> = RefCell::new(IndexStore::init(test_memory(20)));
+    static SCHEMA_STORE: RefCell<SchemaStore> = RefCell::new(SchemaStore::init(test_memory(21)));
     static STORE_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
-        reg.register_store(RecoveryTestDataStore::PATH, &DATA_STORE, &INDEX_STORE)
+        reg.register_store(RecoveryTestDataStore::PATH, &DATA_STORE, &INDEX_STORE, &SCHEMA_STORE)
             .expect("test store registration should succeed");
         reg
     };

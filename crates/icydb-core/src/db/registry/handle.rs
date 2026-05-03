@@ -1,14 +1,15 @@
 use crate::db::{
     data::DataStore,
     index::{IndexState, IndexStore},
+    schema::SchemaStore,
 };
 use std::{cell::RefCell, thread::LocalKey};
 
 ///
 /// StoreHandle
 ///
-/// StoreHandle binds the row and index stores for one generated schema `Store`
-/// path.
+/// StoreHandle binds the row, index, and schema stores for one generated schema
+/// `Store` path.
 /// It is the stable access token passed across commit, recovery, executor, and
 /// diagnostics boundaries instead of exposing registry internals directly.
 ///
@@ -17,16 +18,22 @@ use std::{cell::RefCell, thread::LocalKey};
 pub struct StoreHandle {
     data: &'static LocalKey<RefCell<DataStore>>,
     index: &'static LocalKey<RefCell<IndexStore>>,
+    schema: &'static LocalKey<RefCell<SchemaStore>>,
 }
 
 impl StoreHandle {
-    /// Build a store handle from thread-local row/index stores.
+    /// Build a store handle from thread-local row/index/schema stores.
     #[must_use]
     pub const fn new(
         data: &'static LocalKey<RefCell<DataStore>>,
         index: &'static LocalKey<RefCell<IndexStore>>,
+        schema: &'static LocalKey<RefCell<SchemaStore>>,
     ) -> Self {
-        Self { data, index }
+        Self {
+            data,
+            index,
+            schema,
+        }
     }
 
     /// Borrow the row store immutably.
@@ -95,5 +102,11 @@ impl StoreHandle {
     #[must_use]
     pub const fn index_store(&self) -> &'static LocalKey<RefCell<IndexStore>> {
         self.index
+    }
+
+    /// Return the raw schema-store accessor.
+    #[must_use]
+    pub const fn schema_store(&self) -> &'static LocalKey<RefCell<SchemaStore>> {
+        self.schema
     }
 }

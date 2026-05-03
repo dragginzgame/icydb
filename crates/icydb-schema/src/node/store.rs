@@ -4,9 +4,10 @@ use crate::prelude::*;
 ///
 /// Store
 ///
-/// Schema node describing a stable IC BTreeMap pair that stores:
+/// Schema node describing stable IC BTreeMap memories that store:
 /// - primary entity data
 /// - all index data for that entity
+/// - persisted schema metadata for that store
 ///
 
 #[derive(Clone, Debug, Serialize)]
@@ -16,6 +17,7 @@ pub struct Store {
     canister: &'static str,
     data_memory_id: u8,
     index_memory_id: u8,
+    schema_memory_id: u8,
 }
 
 impl Store {
@@ -26,6 +28,7 @@ impl Store {
         canister: &'static str,
         data_memory_id: u8,
         index_memory_id: u8,
+        schema_memory_id: u8,
     ) -> Self {
         Self {
             def,
@@ -33,6 +36,7 @@ impl Store {
             canister,
             data_memory_id,
             index_memory_id,
+            schema_memory_id,
         }
     }
 
@@ -59,6 +63,11 @@ impl Store {
     #[must_use]
     pub const fn index_memory_id(&self) -> u8 {
         self.index_memory_id
+    }
+
+    #[must_use]
+    pub const fn schema_memory_id(&self) -> u8 {
+        self.schema_memory_id
     }
 }
 
@@ -99,12 +108,40 @@ impl ValidateNode for Store {
                     self.index_memory_id(),
                 );
 
-                // Ensure they are not the same
+                // Validate schema memory ID
+                validate_memory_id_in_range(
+                    &mut errs,
+                    "schema_memory_id",
+                    self.schema_memory_id(),
+                    canister.memory_min(),
+                    canister.memory_max(),
+                );
+                validate_memory_id_not_reserved(
+                    &mut errs,
+                    "schema_memory_id",
+                    self.schema_memory_id(),
+                );
+
+                // Ensure the per-store memories are distinct.
                 if self.data_memory_id() == self.index_memory_id() {
                     err!(
                         errs,
                         "data_memory_id and index_memory_id must differ (both are {})",
                         self.data_memory_id(),
+                    );
+                }
+                if self.data_memory_id() == self.schema_memory_id() {
+                    err!(
+                        errs,
+                        "data_memory_id and schema_memory_id must differ (both are {})",
+                        self.data_memory_id(),
+                    );
+                }
+                if self.index_memory_id() == self.schema_memory_id() {
+                    err!(
+                        errs,
+                        "index_memory_id and schema_memory_id must differ (both are {})",
+                        self.index_memory_id(),
                     );
                 }
             }

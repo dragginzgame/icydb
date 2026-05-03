@@ -15,6 +15,7 @@ pub struct Store {
     pub(crate) canister: Path,
     pub(crate) data_memory_id: u8,
     pub(crate) index_memory_id: u8,
+    pub(crate) schema_memory_id: u8,
 }
 
 impl HasDef for Store {
@@ -38,6 +39,9 @@ impl ValidateNode for Store {
         if let Some(message) = memory_id_reserved_error("index_memory_id", self.index_memory_id) {
             return Err(DarlingError::custom(message).with_span(&self.ident));
         }
+        if let Some(message) = memory_id_reserved_error("schema_memory_id", self.schema_memory_id) {
+            return Err(DarlingError::custom(message).with_span(&self.ident));
+        }
 
         Ok(())
     }
@@ -56,6 +60,7 @@ impl HasSchemaPart for Store {
         let canister = quote_one(&self.canister, to_path);
         let data_memory_id = &self.data_memory_id;
         let index_memory_id = &self.index_memory_id;
+        let schema_memory_id = &self.schema_memory_id;
 
         // quote
         quote! {
@@ -65,6 +70,7 @@ impl HasSchemaPart for Store {
                 #canister,
                 #data_memory_id,
                 #index_memory_id,
+                #schema_memory_id,
             )
         }
     }

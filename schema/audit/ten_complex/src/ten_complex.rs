@@ -20,7 +20,8 @@ pub struct TenComplexCanister {}
     ident = "TEN_COMPLEX_STORE",
     canister = "TenComplexCanister",
     data_memory_id = 176,
-    index_memory_id = 177
+    index_memory_id = 177,
+    schema_memory_id = 179
 )]
 pub struct TenComplexStore {}
 

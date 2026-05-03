@@ -94,6 +94,14 @@ impl ValidateNode for Canister {
                 &mut seen_ids,
                 &mut errs,
             );
+
+            assert_unique_memory_id(
+                store.schema_memory_id(),
+                format!("Store `{path}`.schema_memory_id"),
+                &canister_path,
+                &mut seen_ids,
+                &mut errs,
+            );
         }
 
         errs.result()
@@ -150,6 +158,7 @@ mod tests {
         canister_path: &'static str,
         data_memory_id: u8,
         index_memory_id: u8,
+        schema_memory_id: u8,
     ) {
         schema_write().insert_node(SchemaNode::Store(Store::new(
             Def::new(path_module, ident),
@@ -157,6 +166,7 @@ mod tests {
             canister_path,
             data_memory_id,
             index_memory_id,
+            schema_memory_id,
         )));
     }
 
@@ -165,8 +175,22 @@ mod tests {
         let canister = insert_canister("schema_store_collision", "Canister");
         let canister_path = "schema_store_collision::Canister";
 
-        insert_store("schema_store_collision", "StoreA", canister_path, 10, 11);
-        insert_store("schema_store_collision", "StoreB", canister_path, 12, 10); // collision
+        insert_store(
+            "schema_store_collision",
+            "StoreA",
+            canister_path,
+            10,
+            11,
+            12,
+        );
+        insert_store(
+            "schema_store_collision",
+            "StoreB",
+            canister_path,
+            13,
+            10,
+            14,
+        ); // collision
 
         let err = canister
             .validate()
@@ -184,8 +208,8 @@ mod tests {
         let canister = insert_canister("schema_store_unique", "Canister");
         let canister_path = "schema_store_unique::Canister";
 
-        insert_store("schema_store_unique", "StoreA", canister_path, 30, 31);
-        insert_store("schema_store_unique", "StoreB", canister_path, 32, 33);
+        insert_store("schema_store_unique", "StoreA", canister_path, 30, 31, 32);
+        insert_store("schema_store_unique", "StoreB", canister_path, 33, 34, 35);
 
         canister.validate().expect("unique memory IDs should pass");
     }

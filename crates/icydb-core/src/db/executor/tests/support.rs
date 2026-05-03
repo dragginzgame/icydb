@@ -22,6 +22,7 @@ pub(in crate::db::executor::tests) use crate::{
         query::intent::Query,
         registry::StoreRegistry,
         relation::validate_delete_strong_relations_for_source,
+        schema::SchemaStore,
     },
     error::InternalError,
     metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
@@ -145,9 +146,11 @@ thread_local! {
         RefCell::new(DataStore::init(test_memory(0)));
     pub(in crate::db::executor::tests) static INDEX_STORE: RefCell<IndexStore> =
         RefCell::new(IndexStore::init(test_memory(1)));
+    pub(in crate::db::executor::tests) static SCHEMA_STORE: RefCell<SchemaStore> =
+        RefCell::new(SchemaStore::init(test_memory(2)));
     pub(in crate::db::executor::tests) static STORE_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
-        reg.register_store(TestDataStore::PATH, &DATA_STORE, &INDEX_STORE)
+        reg.register_store(TestDataStore::PATH, &DATA_STORE, &INDEX_STORE, &SCHEMA_STORE)
             .expect("test store registration should succeed");
         reg
     };
@@ -430,18 +433,24 @@ thread_local! {
         RefCell::new(IndexStore::init(test_memory(42)));
     pub(in crate::db::executor::tests) static REL_TARGET_INDEX_STORE: RefCell<IndexStore> =
         RefCell::new(IndexStore::init(test_memory(43)));
+    pub(in crate::db::executor::tests) static REL_SOURCE_SCHEMA_STORE: RefCell<SchemaStore> =
+        RefCell::new(SchemaStore::init(test_memory(44)));
+    pub(in crate::db::executor::tests) static REL_TARGET_SCHEMA_STORE: RefCell<SchemaStore> =
+        RefCell::new(SchemaStore::init(test_memory(45)));
     pub(in crate::db::executor::tests) static REL_STORE_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
         reg.register_store(
             RelationSourceStore::PATH,
             &REL_SOURCE_STORE,
             &REL_SOURCE_INDEX_STORE,
+            &REL_SOURCE_SCHEMA_STORE,
         )
         .expect("relation source store registration should succeed");
         reg.register_store(
             RelationTargetStore::PATH,
             &REL_TARGET_STORE,
             &REL_TARGET_INDEX_STORE,
+            &REL_TARGET_SCHEMA_STORE,
         )
         .expect("relation target store registration should succeed");
         reg

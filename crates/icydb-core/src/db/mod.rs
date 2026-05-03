@@ -135,7 +135,8 @@ pub use response::{
 };
 pub use schema::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
-    EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription, ValidateError,
+    EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription, SchemaStore,
+    ValidateError,
 };
 #[cfg(not(feature = "sql"))]
 pub use session::DbSession;

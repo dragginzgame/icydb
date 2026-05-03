@@ -1,5 +1,5 @@
 error: invalid entity name 'UiIndexedEntity|~reserved': entity name must not contain '|'
-  --> tests/ui/index_reserved_namespace_segment.rs:15:12
+  --> tests/ui/index_reserved_namespace_segment.rs:16:12
    |
-15 |     name = "UiIndexedEntity|~reserved",
+16 |     name = "UiIndexedEntity|~reserved",
    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -1,5 +1,5 @@
 use crate::{
-    db::{data::DataStore, index::IndexStore, registry::StoreRegistry},
+    db::{data::DataStore, index::IndexStore, registry::StoreRegistry, schema::SchemaStore},
     error::{ErrorClass, ErrorOrigin},
     testing::test_memory,
 };
@@ -12,18 +12,25 @@ thread_local! {
     static TEST_DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(151)));
     static TEST_INDEX_STORE: RefCell<IndexStore> =
         RefCell::new(IndexStore::init(test_memory(152)));
+    static TEST_SCHEMA_STORE: RefCell<SchemaStore> =
+        RefCell::new(SchemaStore::init(test_memory(153)));
 }
 
 fn test_registry() -> StoreRegistry {
     let mut registry = StoreRegistry::new();
     registry
-        .register_store(STORE_PATH, &TEST_DATA_STORE, &TEST_INDEX_STORE)
+        .register_store(
+            STORE_PATH,
+            &TEST_DATA_STORE,
+            &TEST_INDEX_STORE,
+            &TEST_SCHEMA_STORE,
+        )
         .expect("test store registration should succeed");
     registry
 }
 
 #[test]
-fn register_store_binds_data_and_index_handles() {
+fn register_store_binds_data_index_and_schema_handles() {
     let registry = test_registry();
     let handle = registry
         .try_get_store(STORE_PATH)
@@ -36,6 +43,10 @@ fn register_store_binds_data_and_index_handles() {
     assert!(
         ptr::eq(handle.index_store(), &TEST_INDEX_STORE),
         "store handle should expose the registered index store accessor"
+    );
+    assert!(
+        ptr::eq(handle.schema_store(), &TEST_SCHEMA_STORE),
+        "store handle should expose the registered schema store accessor"
     );
 
     let data_rows = handle.with_data(DataStore::len);
@@ -64,11 +75,21 @@ fn missing_store_path_rejected_before_access() {
 fn duplicate_store_registration_is_rejected() {
     let mut registry = StoreRegistry::new();
     registry
-        .register_store(STORE_PATH, &TEST_DATA_STORE, &TEST_INDEX_STORE)
+        .register_store(
+            STORE_PATH,
+            &TEST_DATA_STORE,
+            &TEST_INDEX_STORE,
+            &TEST_SCHEMA_STORE,
+        )
         .expect("initial store registration should succeed");
 
     let err = registry
-        .register_store(STORE_PATH, &TEST_DATA_STORE, &TEST_INDEX_STORE)
+        .register_store(
+            STORE_PATH,
+            &TEST_DATA_STORE,
+            &TEST_INDEX_STORE,
+            &TEST_SCHEMA_STORE,
+        )
         .expect_err("duplicate registration should fail");
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Store);
@@ -80,20 +101,30 @@ fn duplicate_store_registration_is_rejected() {
 }
 
 #[test]
-fn alias_store_registration_reusing_same_store_pair_is_rejected() {
+fn alias_store_registration_reusing_same_store_triplet_is_rejected() {
     let mut registry = StoreRegistry::new();
     registry
-        .register_store(STORE_PATH, &TEST_DATA_STORE, &TEST_INDEX_STORE)
+        .register_store(
+            STORE_PATH,
+            &TEST_DATA_STORE,
+            &TEST_INDEX_STORE,
+            &TEST_SCHEMA_STORE,
+        )
         .expect("initial store registration should succeed");
 
     let err = registry
-        .register_store(ALIAS_STORE_PATH, &TEST_DATA_STORE, &TEST_INDEX_STORE)
-        .expect_err("alias registration reusing the same store pair should fail");
+        .register_store(
+            ALIAS_STORE_PATH,
+            &TEST_DATA_STORE,
+            &TEST_INDEX_STORE,
+            &TEST_SCHEMA_STORE,
+        )
+        .expect_err("alias registration reusing the same store triplet should fail");
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Store);
     assert!(
         err.message.contains(
-            "store 'store_registry_tests::StoreAlias' reuses the same row/index store pair"
+            "store 'store_registry_tests::StoreAlias' reuses the same row/index/schema store triplet"
         ),
         "alias registration should include conflicting alias path"
     );

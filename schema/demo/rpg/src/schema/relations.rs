@@ -19,6 +19,7 @@ pub struct DemoRpgCanister {}
     ident = "DEMO_RPG_STORE",
     canister = "DemoRpgCanister",
     data_memory_id = 104,
-    index_memory_id = 105
+    index_memory_id = 105,
+    schema_memory_id = 106
 )]
 pub struct DemoRpgStore {}

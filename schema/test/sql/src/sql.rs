@@ -20,7 +20,8 @@ pub struct SqlTestCanister {}
     ident = "SQL_TEST_STORE",
     canister = "SqlTestCanister",
     data_memory_id = 155,
-    index_memory_id = 156
+    index_memory_id = 156,
+    schema_memory_id = 158
 )]
 pub struct SqlTestStore {}
 

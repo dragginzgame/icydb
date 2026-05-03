@@ -57,6 +57,7 @@ mod tests {
         store_path: &'static str,
         data_memory_id: u8,
         index_memory_id: u8,
+        schema_memory_id: u8,
     ) {
         schema.insert_node(SchemaNode::Canister(Canister::new(
             Def::new(module_path, canister_ident),
@@ -70,6 +71,7 @@ mod tests {
             canister_path,
             data_memory_id,
             index_memory_id,
+            schema_memory_id,
         )));
 
         let inserted_store_path = format!("{module_path}::{store_ident}");
@@ -110,6 +112,7 @@ mod tests {
             "schema_case_conflict::Store",
             10,
             11,
+            12,
         );
         insert_entity(
             &mut schema,
@@ -161,6 +164,7 @@ mod tests {
             "schema_case_allowed_a::StoreA",
             20,
             21,
+            22,
         );
         insert_canister_store(
             &mut schema,
@@ -171,6 +175,7 @@ mod tests {
             "schema_case_allowed_b::StoreB",
             30,
             31,
+            32,
         );
         insert_entity(
             &mut schema,

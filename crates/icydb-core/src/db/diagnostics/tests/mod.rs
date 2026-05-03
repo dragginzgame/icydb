@@ -26,7 +26,7 @@ use crate::{
         },
         registry::StoreRegistry,
         relation::validate_delete_strong_relations_for_source,
-        schema::commit_schema_fingerprint_for_entity,
+        schema::{SchemaStore, commit_schema_fingerprint_for_entity},
     },
     model::{field::FieldKind, index::IndexModel},
     testing::test_memory,
@@ -140,15 +140,19 @@ static DIAGNOSTICS_RUNTIME_HOOKS: &[EntityRuntimeHooks<DiagnosticsCanister>] = &
 thread_local! {
     static STORE_Z_DATA: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(153)));
     static STORE_Z_INDEX: RefCell<IndexStore> = RefCell::new(IndexStore::init(test_memory(154)));
+    static STORE_Z_SCHEMA: RefCell<SchemaStore> =
+        RefCell::new(SchemaStore::init(test_memory(157)));
     static STORE_A_DATA: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(155)));
     static STORE_A_INDEX: RefCell<IndexStore> = RefCell::new(IndexStore::init(test_memory(156)));
+    static STORE_A_SCHEMA: RefCell<SchemaStore> =
+        RefCell::new(SchemaStore::init(test_memory(158)));
     static DIAGNOSTICS_REGISTRY: StoreRegistry = {
         let mut registry = StoreRegistry::new();
         registry
-            .register_store(STORE_Z_PATH, &STORE_Z_DATA, &STORE_Z_INDEX)
+            .register_store(STORE_Z_PATH, &STORE_Z_DATA, &STORE_Z_INDEX, &STORE_Z_SCHEMA)
             .expect("diagnostics test z-store registration should succeed");
         registry
-            .register_store(STORE_A_PATH, &STORE_A_DATA, &STORE_A_INDEX)
+            .register_store(STORE_A_PATH, &STORE_A_DATA, &STORE_A_INDEX, &STORE_A_SCHEMA)
             .expect("diagnostics test a-store registration should succeed");
         registry
     };

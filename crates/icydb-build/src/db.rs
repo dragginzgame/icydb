@@ -17,46 +17,69 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
     let canister = &builder.canister;
     let canister_path: syn::Path = parse_str(&canister.def().path())
         .unwrap_or_else(|_| panic!("invalid canister path: {}", canister.def().path()));
-    let (data_defs, index_defs, store_inits) = store_registry_tokens(builder);
+    let store_registry = store_registry_tokens(builder);
     let entity_runtime_hooks = entity_runtime_hooks(builder, &canister_path);
     let memory_min = canister.memory_min();
     let memory_max = canister.memory_max();
 
     store_wiring_tokens(
         &canister_path,
-        data_defs,
-        index_defs,
-        store_inits,
+        store_registry,
         entity_runtime_hooks,
         memory_min,
         memory_max,
     )
 }
 
-fn store_registry_tokens(builder: &ActorBuilder) -> (TokenStream, TokenStream, TokenStream) {
+///
+/// StoreRegistryTokens
+///
+/// Generated token bundle for all store-memory definitions and registration
+/// statements emitted for one actor. It keeps store wiring helpers below the
+/// argument limit while preserving the generated-code phase boundary.
+///
+
+struct StoreRegistryTokens {
+    data_defs: TokenStream,
+    index_defs: TokenStream,
+    schema_defs: TokenStream,
+    store_inits: TokenStream,
+}
+
+fn store_registry_tokens(builder: &ActorBuilder) -> StoreRegistryTokens {
     let mut data_defs = quote!();
     let mut index_defs = quote!();
+    let mut schema_defs = quote!();
     let mut store_inits = quote!();
 
     for (store_path, store) in builder.get_stores() {
-        let (data_def, index_def, store_init) = store_registry_entry_tokens(&store_path, &store);
+        let (data_def, index_def, schema_def, store_init) =
+            store_registry_entry_tokens(&store_path, &store);
         data_defs.extend(data_def);
         index_defs.extend(index_def);
+        schema_defs.extend(schema_def);
         store_inits.extend(store_init);
     }
 
-    (data_defs, index_defs, store_inits)
+    StoreRegistryTokens {
+        data_defs,
+        index_defs,
+        schema_defs,
+        store_inits,
+    }
 }
 
-/// Render one store registry entry into data/index cells plus registration.
+/// Render one store registry entry into data/index/schema cells plus registration.
 fn store_registry_entry_tokens(
     store_path: &str,
     store: &Store,
-) -> (TokenStream, TokenStream, TokenStream) {
+) -> (TokenStream, TokenStream, TokenStream, TokenStream) {
     let data_cell_ident = format_ident!("{}_DATA", store.ident());
     let index_cell_ident = format_ident!("{}_INDEX", store.ident());
+    let schema_cell_ident = format_ident!("{}_SCHEMA", store.ident());
     let data_memory_id = store.data_memory_id();
     let index_memory_id = store.index_memory_id();
+    let schema_memory_id = store.schema_memory_id();
 
     let data_def = quote! {
         ::icydb::__reexports::canic_memory::eager_static! {
@@ -86,24 +109,43 @@ fn store_registry_entry_tokens(
             );
         }
     };
+    let schema_def = quote! {
+        ::icydb::__reexports::canic_memory::eager_static! {
+            static #schema_cell_ident: ::std::cell::RefCell<
+                ::icydb::__macro::SchemaStore
+            > = ::std::cell::RefCell::new(
+                ::icydb::__macro::SchemaStore::init(
+                    ::icydb::__reexports::canic_memory::ic_memory!(
+                        ::icydb::__macro::SchemaStore,
+                        #schema_memory_id
+                    )
+                )
+            );
+        }
+    };
     let store_init = quote! {
-        reg.register_store(#store_path, &#data_cell_ident, &#index_cell_ident)
+        reg.register_store(#store_path, &#data_cell_ident, &#index_cell_ident, &#schema_cell_ident)
             .expect("store registration should succeed");
     };
 
-    (data_def, index_def, store_init)
+    (data_def, index_def, schema_def, store_init)
 }
 
 /// Assemble the outer canister store wiring around the generated registry.
 fn store_wiring_tokens(
     canister_path: &syn::Path,
-    data_defs: TokenStream,
-    index_defs: TokenStream,
-    store_inits: TokenStream,
+    store_registry: StoreRegistryTokens,
     entity_runtime_hooks: TokenStream,
     memory_min: u8,
     memory_max: u8,
 ) -> TokenStream {
+    let StoreRegistryTokens {
+        data_defs,
+        index_defs,
+        schema_defs,
+        store_inits,
+    } = store_registry;
+
     quote! {
         ::icydb::__reexports::canic_memory::eager_init!({
             ::icydb::__reexports::canic_memory::ic_memory_range!(#memory_min, #memory_max);
@@ -111,6 +153,7 @@ fn store_wiring_tokens(
 
         #data_defs
         #index_defs
+        #schema_defs
         #entity_runtime_hooks
         thread_local! {
             #[allow(unused_mut)]

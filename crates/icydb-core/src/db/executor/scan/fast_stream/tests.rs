@@ -15,6 +15,7 @@ use crate::{
         },
         index::IndexStore,
         registry::StoreRegistry,
+        schema::SchemaStore,
     },
     model::field::FieldKind,
     testing::test_memory,
@@ -60,12 +61,15 @@ thread_local! {
         RefCell::new(DataStore::init(test_memory(170)));
     static FAST_STREAM_INVARIANT_INDEX_STORE: RefCell<IndexStore> =
         RefCell::new(IndexStore::init(test_memory(171)));
+    static FAST_STREAM_INVARIANT_SCHEMA_STORE: RefCell<SchemaStore> =
+        RefCell::new(SchemaStore::init(test_memory(172)));
     static FAST_STREAM_INVARIANT_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
         reg.register_store(
             FastStreamInvariantStore::PATH,
             &FAST_STREAM_INVARIANT_DATA_STORE,
             &FAST_STREAM_INVARIANT_INDEX_STORE,
+            &FAST_STREAM_INVARIANT_SCHEMA_STORE,
         )
         .expect("fast-stream invariant test store registration should succeed");
         reg

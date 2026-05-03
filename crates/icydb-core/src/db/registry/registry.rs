@@ -3,6 +3,7 @@ use crate::{
         data::DataStore,
         index::IndexStore,
         registry::{StoreHandle, StoreRegistryError},
+        schema::SchemaStore,
     },
     error::InternalError,
 };
@@ -12,7 +13,7 @@ use std::{cell::RefCell, thread::LocalKey};
 /// StoreRegistry
 ///
 /// StoreRegistry owns the generated mapping from schema `Store` paths to their
-/// row/index store handles.
+/// row, index, and schema store handles.
 /// It validates registration invariants once at generated wiring time and then
 /// serves cheap immutable lookups during runtime operations.
 ///
@@ -38,12 +39,13 @@ impl StoreRegistry {
         self.stores.iter().copied()
     }
 
-    /// Register a `Store` path to its row/index store pair.
+    /// Register a `Store` path to its row/index/schema store triplet.
     pub fn register_store(
         &mut self,
         name: &'static str,
         data: &'static LocalKey<RefCell<DataStore>>,
         index: &'static LocalKey<RefCell<IndexStore>>,
+        schema: &'static LocalKey<RefCell<SchemaStore>>,
     ) -> Result<(), InternalError> {
         if self
             .stores
@@ -53,24 +55,27 @@ impl StoreRegistry {
             return Err(StoreRegistryError::StoreAlreadyRegistered(name.to_string()).into());
         }
 
-        // Keep one canonical logical store name per physical row/index store pair.
+        // Keep one canonical logical store name per physical row/index/schema
+        // store triplet.
         if let Some(existing_name) =
             self.stores
                 .iter()
                 .find_map(|(existing_name, existing_handle)| {
                     (std::ptr::eq(existing_handle.data_store(), data)
-                        && std::ptr::eq(existing_handle.index_store(), index))
+                        && std::ptr::eq(existing_handle.index_store(), index)
+                        && std::ptr::eq(existing_handle.schema_store(), schema))
                     .then_some(*existing_name)
                 })
         {
-            return Err(StoreRegistryError::StoreHandlePairAlreadyRegistered {
+            return Err(StoreRegistryError::StoreHandleTripletAlreadyRegistered {
                 name: name.to_string(),
                 existing_name: existing_name.to_string(),
             }
             .into());
         }
 
-        self.stores.push((name, StoreHandle::new(data, index)));
+        self.stores
+            .push((name, StoreHandle::new(data, index, schema)));
 
         Ok(())
     }

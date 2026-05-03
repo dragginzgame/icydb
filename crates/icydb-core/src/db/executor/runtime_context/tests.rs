@@ -9,6 +9,7 @@ use crate::{
         index::IndexStore,
         predicate::MissingRowPolicy,
         registry::StoreHandle,
+        schema::SchemaStore,
     },
     testing::test_memory,
     types::EntityTag,
@@ -22,6 +23,8 @@ thread_local! {
         RefCell::new(DataStore::init(test_memory(171)));
     static TEST_RUNTIME_CONTEXT_INDEX_STORE: RefCell<IndexStore> =
         RefCell::new(IndexStore::init(test_memory(172)));
+    static TEST_RUNTIME_CONTEXT_SCHEMA_STORE: RefCell<SchemaStore> =
+        RefCell::new(SchemaStore::init(test_memory(173)));
 }
 
 fn test_key() -> DataKey {
@@ -42,6 +45,7 @@ fn test_store_handle() -> StoreHandle {
     StoreHandle::new(
         &TEST_RUNTIME_CONTEXT_DATA_STORE,
         &TEST_RUNTIME_CONTEXT_INDEX_STORE,
+        &TEST_RUNTIME_CONTEXT_SCHEMA_STORE,
     )
 }
 

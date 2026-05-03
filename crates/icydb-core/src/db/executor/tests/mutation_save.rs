@@ -27,7 +27,7 @@ use crate::{
         query::intent::Query,
         registry::StoreRegistry,
         relation::{validate_delete_strong_relations_for_source, validate_save_strong_relations},
-        schema::commit_schema_fingerprint_for_entity,
+        schema::{SchemaStore, commit_schema_fingerprint_for_entity},
     },
     error::{ErrorClass, ErrorOrigin},
     metrics::{metrics_report, metrics_reset_all},
@@ -82,11 +82,25 @@ thread_local! {
         RefCell::new(IndexStore::init(test_memory(2)));
     static TARGET_INDEX_STORE: RefCell<IndexStore> =
         RefCell::new(IndexStore::init(test_memory(3)));
+    static SOURCE_SCHEMA_STORE: RefCell<SchemaStore> =
+        RefCell::new(SchemaStore::init(test_memory(4)));
+    static TARGET_SCHEMA_STORE: RefCell<SchemaStore> =
+        RefCell::new(SchemaStore::init(test_memory(5)));
     static STORE_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
-        reg.register_store(SourceStore::PATH, &SOURCE_DATA_STORE, &UNIQUE_INDEX_STORE)
+        reg.register_store(
+            SourceStore::PATH,
+            &SOURCE_DATA_STORE,
+            &UNIQUE_INDEX_STORE,
+            &SOURCE_SCHEMA_STORE,
+        )
             .expect("source store registration should succeed");
-        reg.register_store(TargetStore::PATH, &TARGET_DATA_STORE, &TARGET_INDEX_STORE)
+        reg.register_store(
+            TargetStore::PATH,
+            &TARGET_DATA_STORE,
+            &TARGET_INDEX_STORE,
+            &TARGET_SCHEMA_STORE,
+        )
             .expect("target store registration should succeed");
         reg
     };

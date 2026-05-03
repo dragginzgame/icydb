@@ -20,7 +20,8 @@ pub struct PerfAuditCanister {}
     ident = "PERF_AUDIT_STORE",
     canister = "PerfAuditCanister",
     data_memory_id = 180,
-    index_memory_id = 181
+    index_memory_id = 181,
+    schema_memory_id = 183
 )]
 pub struct PerfAuditStore {}
 

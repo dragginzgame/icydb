@@ -20,16 +20,16 @@ pub enum StoreRegistryError {
     StoreAlreadyRegistered(String),
 
     #[error(
-        "store '{name}' reuses the same row/index store pair already registered as '{existing_name}'"
+        "store '{name}' reuses the same row/index/schema store triplet already registered as '{existing_name}'"
     )]
-    StoreHandlePairAlreadyRegistered { name: String, existing_name: String },
+    StoreHandleTripletAlreadyRegistered { name: String, existing_name: String },
 }
 
 impl StoreRegistryError {
     pub(crate) const fn class(&self) -> ErrorClass {
         match self {
             Self::StoreNotFound(_) => ErrorClass::Internal,
-            Self::StoreAlreadyRegistered(_) | Self::StoreHandlePairAlreadyRegistered { .. } => {
+            Self::StoreAlreadyRegistered(_) | Self::StoreHandleTripletAlreadyRegistered { .. } => {
                 ErrorClass::InvariantViolation
             }
         }

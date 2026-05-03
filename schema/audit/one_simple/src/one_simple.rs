@@ -20,7 +20,8 @@ pub struct OneSimpleCanister {}
     ident = "ONE_SIMPLE_STORE",
     canister = "OneSimpleCanister",
     data_memory_id = 72,
-    index_memory_id = 73
+    index_memory_id = 73,
+    schema_memory_id = 75
 )]
 pub struct OneSimpleStore {}
 
