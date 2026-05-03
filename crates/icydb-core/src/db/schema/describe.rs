@@ -19,6 +19,8 @@ use candid::CandidType;
 use serde::Deserialize;
 use std::{collections::BTreeMap, fmt::Write};
 
+const ENTITY_FIELD_DESCRIPTION_NO_SLOT: u16 = u16::MAX;
+
 #[cfg_attr(
     doc,
     doc = "EntitySchemaDescription\n\nStable describe payload for one entity model."
@@ -98,7 +100,7 @@ impl EntitySchemaDescription {
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct EntityFieldDescription {
     pub(crate) name: String,
-    pub(crate) slot: Option<u16>,
+    pub(crate) slot: u16,
     pub(crate) kind: String,
     pub(crate) primary_key: bool,
     pub(crate) queryable: bool,
@@ -114,6 +116,11 @@ impl EntityFieldDescription {
         primary_key: bool,
         queryable: bool,
     ) -> Self {
+        let slot = match slot {
+            Some(slot) => slot,
+            None => ENTITY_FIELD_DESCRIPTION_NO_SLOT,
+        };
+
         Self {
             name,
             slot,
@@ -132,7 +139,11 @@ impl EntityFieldDescription {
     /// Return the physical row slot for top-level fields.
     #[must_use]
     pub const fn slot(&self) -> Option<u16> {
-        self.slot
+        if self.slot == ENTITY_FIELD_DESCRIPTION_NO_SLOT {
+            None
+        } else {
+            Some(self.slot)
+        }
     }
 
     /// Borrow the rendered field kind label.
