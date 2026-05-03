@@ -403,7 +403,7 @@ fn validate_projection_expr_sql_capabilities(
 ) -> Result<(), SqlLoweringError> {
     expr.try_for_each_tree_expr(&mut |node| match node {
         Expr::Field(field) => ensure_sql_selectable_field(schema, field.as_str()),
-        Expr::FieldPath(path) => ensure_sql_selectable_field(schema, path.root().as_str()),
+        Expr::FieldPath(_) => Ok(()),
         Expr::Literal(_)
         | Expr::FunctionCall { .. }
         | Expr::Unary { .. }
@@ -448,9 +448,11 @@ fn validate_order_sql_capabilities(
             continue;
         };
         if !capabilities.orderable() {
-            return Err(
-                QueryError::unsupported_query("SQL ORDER BY field is not orderable").into(),
-            );
+            return Err(QueryError::unsupported_query(format!(
+                "order field '{}' is not orderable",
+                field.as_str()
+            ))
+            .into());
         }
     }
 
