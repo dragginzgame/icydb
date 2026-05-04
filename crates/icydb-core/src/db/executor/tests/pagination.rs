@@ -9506,16 +9506,24 @@ fn load_secondary_order_top_n_seek_residual_underfill_widens_expression_owned_fi
 
     // Phase 2: compare the bounded ordered prefix route against one canonical
     // fallback full scan with the same expression-owned residual filter.
-    let mut fast_logical = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-        .filter_predicate(pushdown_group_predicate(7))
-        .order_term(crate::db::asc("rank"))
-        .order_term(crate::db::asc("id"))
-        .limit(2)
-        .plan()
-        .expect("planned secondary top-n residual test plan should build")
-        .into_inner();
-    fast_logical.scalar_plan_mut().predicate = None;
+    let mut fast_logical = AccessPlannedQuery::new(
+        AccessPath::IndexPrefix {
+            index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+            values: vec![Value::Uint(7)],
+        },
+        MissingRowPolicy::Ignore,
+    );
     fast_logical.scalar_plan_mut().filter_expr = Some(keep_label_runtime_filter_expr());
+    fast_logical.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
+        ],
+    });
+    fast_logical.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
     let fast_plan = PreparedExecutionPlan::<PushdownParityEntity>::new(fast_logical);
 
     let mut fallback_logical =
