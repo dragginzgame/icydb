@@ -8,6 +8,7 @@ use crate::{
         FieldId, PersistedEnumVariant, PersistedFieldKind, PersistedFieldSnapshot,
         PersistedNestedLeafSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,
         SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
+        schema_snapshot_integrity_detail,
     },
     error::InternalError,
     model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
@@ -219,16 +220,31 @@ impl PersistedSchemaSnapshotWire {
             )));
         }
 
+        let version = SchemaVersion::new(self.version);
+        let row_layout = self.row_layout.into_layout();
+        let fields = self
+            .fields
+            .into_iter()
+            .map(PersistedFieldSnapshotWire::into_field)
+            .collect::<Result<Vec<_>, _>>()?;
+        let primary_key_field_id = FieldId::new(self.primary_key_field_id);
+        if let Some(detail) = schema_snapshot_integrity_detail(
+            "persisted schema snapshot",
+            version,
+            primary_key_field_id,
+            &row_layout,
+            &fields,
+        ) {
+            return Err(InternalError::store_corruption(detail));
+        }
+
         Ok(PersistedSchemaSnapshot::new(
-            SchemaVersion::new(self.version),
+            version,
             self.entity_path,
             self.entity_name,
-            FieldId::new(self.primary_key_field_id),
-            self.row_layout.into_layout(),
-            self.fields
-                .into_iter()
-                .map(PersistedFieldSnapshotWire::into_field)
-                .collect::<Result<Vec<_>, _>>()?,
+            primary_key_field_id,
+            row_layout,
+            fields,
         ))
     }
 }
@@ -550,5 +566,40 @@ impl ScalarCodecWire {
             Self::Ulid => ScalarCodec::Ulid,
             Self::Unit => ScalarCodec::Unit,
         }
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::db::schema::{
+        FieldId, PersistedSchemaSnapshot, SchemaRowLayout, SchemaVersion,
+        decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
+    };
+
+    #[test]
+    fn decode_persisted_schema_snapshot_rejects_snapshot_layout_version_mismatch() {
+        let snapshot = PersistedSchemaSnapshot::new(
+            SchemaVersion::new(2),
+            "entities::Mismatch".to_string(),
+            "Mismatch".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(SchemaVersion::initial(), Vec::new()),
+            Vec::new(),
+        );
+        let encoded = encode_persisted_schema_snapshot(&snapshot)
+            .expect("schema snapshot should encode for decode-boundary coverage");
+
+        let err = decode_persisted_schema_snapshot(&encoded)
+            .expect_err("decode should reject mismatched snapshot/layout versions");
+
+        assert!(
+            err.message()
+                .contains("persisted schema snapshot row-layout version mismatch"),
+            "schema codec should report the decoded version invariant"
+        );
     }
 }

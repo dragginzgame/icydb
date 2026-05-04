@@ -68,7 +68,7 @@ pub(in crate::db) fn ensure_initial_schema_snapshot(
     let proposal = compiled_schema_proposal_for_model(model);
     let expected = proposal.initial_persisted_schema_snapshot();
 
-    if let Some(actual) = schema_store.get_persisted_snapshot(entity_tag, expected.version())? {
+    if let Some(actual) = schema_store.latest_persisted_snapshot(entity_tag)? {
         validate_existing_schema_snapshot(entity_path, &actual, &expected)?;
         return Ok(AcceptedSchemaSnapshot::new(actual));
     }
@@ -110,7 +110,7 @@ mod tests {
             index::IndexStore,
             registry::StoreRegistry,
             schema::{
-                PersistedSchemaSnapshot, SchemaStore, SchemaVersion,
+                PersistedSchemaSnapshot, SchemaRowLayout, SchemaStore, SchemaVersion,
                 compiled_schema_proposal_for_model,
             },
         },
@@ -252,6 +252,41 @@ mod tests {
             err.message
                 .contains("entity name changed: stored='ChangedSchemaReconcileEntity' generated='SchemaReconcileEntity'"),
             "schema mismatch should include the first rejected difference"
+        );
+    }
+
+    #[test]
+    fn reconcile_runtime_schemas_rejects_newer_schema_snapshot() {
+        reset_schema_store();
+
+        let proposal = compiled_schema_proposal_for_model(SchemaReconcileEntity::MODEL);
+        let expected = proposal.initial_persisted_schema_snapshot();
+        let newer_row_layout = SchemaRowLayout::new(
+            SchemaVersion::new(2),
+            expected.row_layout().field_to_slot().to_vec(),
+        );
+        let newer = PersistedSchemaSnapshot::new(
+            SchemaVersion::new(2),
+            expected.entity_path().to_string(),
+            expected.entity_name().to_string(),
+            expected.primary_key_field_id(),
+            newer_row_layout,
+            expected.fields().to_vec(),
+        );
+        RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
+            store
+                .insert_persisted_snapshot(SchemaReconcileEntity::ENTITY_TAG, &newer)
+                .expect("newer schema snapshot should encode");
+        });
+
+        let err = super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+            .expect_err("schema reconciliation must not ignore newer persisted versions");
+
+        assert_eq!(err.class, ErrorClass::Unsupported);
+        assert!(
+            err.message
+                .contains("schema version changed: stored=2 generated=1"),
+            "schema reconciliation should compare against the latest persisted version"
         );
     }
 }
