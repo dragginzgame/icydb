@@ -43,7 +43,8 @@ use crate::db::data::persisted_row::{
 /// This adapter is for runtime row consumers only. It uses the owning
 /// `FieldModel` contract to select the exact storage lane before materializing
 /// a dynamic value for query/projection code.
-pub(in crate::db) fn decode_slot_into_runtime_value(
+#[doc(hidden)]
+pub fn decode_slot_into_runtime_value(
     model: &'static EntityModel,
     slot: usize,
     raw_value: &[u8],
@@ -75,7 +76,8 @@ pub(in crate::db::data::persisted_row) fn decode_field_slot_into_runtime_value(
 /// This adapter converts `Value` -> bytes through schema `FieldModel`
 /// validation. It is a boundary contract, not permission to persist `Value` as
 /// a field type; persisted Rust fields remain governed by type-owned codecs.
-pub(in crate::db::data::persisted_row) fn encode_runtime_value_into_slot(
+#[doc(hidden)]
+pub fn encode_runtime_value_into_slot(
     model: &'static EntityModel,
     slot: usize,
     value: &Value,

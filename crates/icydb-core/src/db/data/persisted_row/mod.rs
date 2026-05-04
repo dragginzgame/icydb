@@ -19,6 +19,8 @@ mod writer;
 #[cfg(test)]
 mod tests;
 
+#[doc(hidden)]
+pub use contract::{decode_slot_into_runtime_value, encode_runtime_value_into_slot};
 pub(in crate::db) use patch::{
     apply_serialized_structural_patch_to_raw_row,
     canonical_row_from_complete_serialized_structural_patch, canonical_row_from_entity,

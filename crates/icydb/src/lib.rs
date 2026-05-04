@@ -145,14 +145,14 @@ pub mod __macro {
         decode_persisted_option_slot_payload_by_meta, decode_persisted_scalar_slot_payload,
         decode_persisted_slot_payload_by_kind, decode_persisted_slot_payload_by_meta,
         decode_persisted_structured_many_slot_payload, decode_persisted_structured_slot_payload,
-        encode_generated_structural_enum_payload_bytes,
+        decode_schema_runtime_field_slot, encode_generated_structural_enum_payload_bytes,
         encode_generated_structural_list_payload_bytes,
         encode_generated_structural_map_payload_bytes,
         encode_generated_structural_text_payload_bytes, encode_persisted_many_slot_payload_by_meta,
         encode_persisted_option_scalar_slot_payload, encode_persisted_option_slot_payload_by_meta,
         encode_persisted_scalar_slot_payload, encode_persisted_slot_payload_by_kind,
         encode_persisted_slot_payload_by_meta, encode_persisted_structured_many_slot_payload,
-        encode_persisted_structured_slot_payload,
+        encode_persisted_structured_slot_payload, encode_schema_runtime_field_slot,
         generated_persisted_structured_payload_decode_failed,
     };
     pub use icydb_core::__macro::{PersistedScalar, ScalarSlotValueRef, ScalarValueRef};

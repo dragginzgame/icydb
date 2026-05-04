@@ -329,4 +329,38 @@ pub mod __macro {
     {
         crate::db::decode_persisted_slot_payload_by_meta(bytes, field_name)
     }
+
+    #[doc(hidden)]
+    pub fn encode_schema_runtime_field_slot<T>(
+        model: &'static crate::model::entity::EntityModel,
+        slot: usize,
+        value: &T,
+    ) -> Result<Vec<u8>, crate::error::InternalError>
+    where
+        T: ?Sized + crate::traits::RuntimeValueEncode,
+    {
+        let runtime_value = value.to_value();
+
+        crate::db::encode_runtime_value_into_slot(model, slot, &runtime_value)
+    }
+
+    #[doc(hidden)]
+    pub fn decode_schema_runtime_field_slot<T>(
+        model: &'static crate::model::entity::EntityModel,
+        slot: usize,
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<T, crate::error::InternalError>
+    where
+        T: crate::traits::RuntimeValueDecode,
+    {
+        let runtime_value = crate::db::decode_slot_into_runtime_value(model, slot, bytes)?;
+
+        T::from_value(&runtime_value).ok_or_else(|| {
+            crate::error::InternalError::persisted_row_field_decode_failed(
+                field_name,
+                format!("payload does not match {}", std::any::type_name::<T>()),
+            )
+        })
+    }
 }

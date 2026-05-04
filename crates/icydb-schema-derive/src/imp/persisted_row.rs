@@ -28,7 +28,8 @@ impl Imp<Entity> for PersistedRowTrait {
                     },
                 }
             };
-            let decode_expr = persisted_field_decode_expr(field, field_name.as_str());
+            let decode_expr =
+                persisted_field_decode_expr(field, field_name.as_str(), quote!(#slot));
 
             quote! {
                 #ident: match slots.get_bytes(#slot) {
@@ -42,8 +43,12 @@ impl Imp<Entity> for PersistedRowTrait {
             let slot = syn::Index::from(slot);
             let ident = &field.ident;
             let field_name = ident.to_string();
-            let encode_expr =
-                persisted_field_encode_expr(field, quote!(&self.#ident), field_name.as_str());
+            let encode_expr = persisted_field_encode_expr(
+                field,
+                quote!(&self.#ident),
+                field_name.as_str(),
+                quote!(#slot),
+            );
 
             quote! {
                 let payload = #encode_expr;
@@ -95,14 +100,25 @@ fn persisted_field_codec_assertion(field: &Field) -> TokenStream {
         );
     }
 
-    let field_ty = persisted_field_slot_asserted_type(field);
+    let field_ty = field.value.type_expr();
 
-    emit_persisted_trait_assertion(
+    let encode_assertion = emit_persisted_trait_assertion(
         field_ident,
-        quote!(::icydb::__macro::PersistedFieldSlotCodec),
+        quote!(::icydb::__macro::RuntimeValueEncode),
+        field_ty.clone(),
+        "RUNTIME_VALUE_ENCODE",
+    );
+    let decode_assertion = emit_persisted_trait_assertion(
+        field_ident,
+        quote!(::icydb::__macro::RuntimeValueDecode),
         field_ty,
-        "PERSISTED_FIELD_SLOT_CODEC",
-    )
+        "RUNTIME_VALUE_DECODE",
+    );
+
+    quote! {
+        #encode_assertion
+        #decode_assertion
+    }
 }
 
 // Generate a descriptive compile-time assertion symbol for one schema field so
@@ -186,67 +202,38 @@ fn persisted_item_field_encode_expr(
     }
 }
 
-fn persisted_field_decode_expr(field: &Field, field_name: &str) -> TokenStream {
+fn persisted_field_decode_expr(field: &Field, field_name: &str, slot: TokenStream) -> TokenStream {
     if field.value.item.is.is_some() {
         return persisted_item_field_decode_expr(field, field_name);
     }
 
-    match field.value.cardinality() {
-        Cardinality::Opt => {
-            let item_ty = field.value.item.type_expr();
-            quote!(
-                <#item_ty as ::icydb::__macro::PersistedFieldSlotCodec>::decode_persisted_option_slot(
-                    bytes,
-                    #field_name,
-                )?
-            )
-        }
-        Cardinality::One | Cardinality::Many => {
-            let field_ty = field.value.type_expr();
-            quote!(
-                <#field_ty as ::icydb::__macro::PersistedFieldSlotCodec>::decode_persisted_slot(
-                    bytes,
-                    #field_name,
-                )?
-            )
-        }
-    }
+    let field_ty = field.value.type_expr();
+
+    quote!(
+        ::icydb::__macro::decode_schema_runtime_field_slot::<#field_ty>(
+            <Self as ::icydb::traits::EntitySchema>::MODEL,
+            #slot,
+            bytes,
+            #field_name,
+        )?
+    )
 }
 
 fn persisted_field_encode_expr(
     field: &Field,
     field_expr: TokenStream,
     field_name: &str,
+    slot: TokenStream,
 ) -> TokenStream {
     if field.value.item.is.is_some() {
         return persisted_item_field_encode_expr(field, field_expr, field_name);
     }
 
-    match field.value.cardinality() {
-        Cardinality::Opt => {
-            let item_ty = field.value.item.type_expr();
-            quote!(
-                <#item_ty as ::icydb::__macro::PersistedFieldSlotCodec>::encode_persisted_option_slot(
-                    #field_expr,
-                    #field_name,
-                )?
-            )
-        }
-        Cardinality::One | Cardinality::Many => {
-            let field_ty = field.value.type_expr();
-            quote!(
-                <#field_ty as ::icydb::__macro::PersistedFieldSlotCodec>::encode_persisted_slot(
-                    #field_expr,
-                    #field_name,
-                )?
-            )
-        }
-    }
-}
-
-fn persisted_field_slot_asserted_type(field: &Field) -> TokenStream {
-    match field.value.cardinality() {
-        Cardinality::Opt => field.value.item.type_expr(),
-        Cardinality::One | Cardinality::Many => field.value.type_expr(),
-    }
+    quote!(
+        ::icydb::__macro::encode_schema_runtime_field_slot(
+            <Self as ::icydb::traits::EntitySchema>::MODEL,
+            #slot,
+            #field_expr,
+        )?
+    )
 }
