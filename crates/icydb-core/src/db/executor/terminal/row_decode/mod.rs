@@ -22,6 +22,7 @@ use crate::{
         executor::terminal::{
             RetainedSlotLayout, RetainedSlotRow, RetainedSlotValueMode, page::KernelRow,
         },
+        schema::{AcceptedRowLayoutRuntimeDescriptor, PersistedFieldKind},
     },
     error::InternalError,
     model::{entity::EntityModel, field::FieldModel},
@@ -57,6 +58,42 @@ impl RowLayout {
             field_count: contract.field_count(),
             primary_key_slot: contract.primary_key_slot(),
         }
+    }
+
+    /// Build one row layout from accepted runtime row-layout metadata while
+    /// retaining generated field decoders.
+    ///
+    /// The current data decoder still needs generated `FieldModel` entries to
+    /// decode field payloads. For that reason this bridge accepts only layouts
+    /// whose accepted field slots exactly match generated field indices. Later
+    /// schema evolution work can replace this with accepted-field decoders.
+    pub(in crate::db) fn from_generated_compatible_accepted_descriptor(
+        model: &'static EntityModel,
+        descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    ) -> Result<Self, InternalError> {
+        validate_generated_compatible_descriptor(model, descriptor)?;
+        let primary_key_slot = descriptor
+            .field_by_name(model.primary_key.name)
+            .ok_or_else(|| {
+                InternalError::store_invariant(format!(
+                    "accepted row layout missing primary-key field '{}'",
+                    model.primary_key.name,
+                ))
+            })?
+            .slot();
+        let primary_key_slot = usize::from(primary_key_slot.get());
+        let contract = StructuralRowContract::from_model_with_row_shape(
+            model,
+            descriptor.required_slot_count(),
+            primary_key_slot,
+        );
+
+        Ok(Self {
+            model,
+            contract,
+            field_count: contract.field_count(),
+            primary_key_slot: contract.primary_key_slot(),
+        })
     }
 
     /// Borrow the frozen field-count authority carried by this layout.
@@ -142,6 +179,71 @@ impl RowLayout {
 
         Ok(())
     }
+}
+
+// Validate the temporary accepted-schema row-layout bridge. The current
+// structural decoder still maps slot indexes to generated `FieldModel` entries,
+// so accepting a slot or payload-contract drift here would silently decode
+// fresh rows through the wrong field kind.
+fn validate_generated_compatible_descriptor(
+    model: &'static EntityModel,
+    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+) -> Result<(), InternalError> {
+    if descriptor.required_slot_count() != model.fields().len() {
+        return Err(InternalError::store_invariant(format!(
+            "accepted row layout field count is not generated-compatible: accepted={} generated={}",
+            descriptor.required_slot_count(),
+            model.fields().len(),
+        )));
+    }
+
+    for (generated_slot, field) in model.fields().iter().enumerate() {
+        let Some(accepted_field) = descriptor.field_by_name(field.name()) else {
+            return Err(InternalError::store_invariant(format!(
+                "accepted row layout missing generated field '{}'",
+                field.name(),
+            )));
+        };
+        let accepted_slot = usize::from(accepted_field.slot().get());
+        if accepted_slot != generated_slot {
+            return Err(InternalError::store_invariant(format!(
+                "accepted row layout slot is not generated-compatible: field='{}' accepted_slot={} generated_slot={}",
+                field.name(),
+                accepted_slot,
+                generated_slot,
+            )));
+        }
+
+        let generated_kind = PersistedFieldKind::from_model_kind(field.kind());
+        if accepted_field.kind() != &generated_kind {
+            return Err(InternalError::store_invariant(format!(
+                "accepted row layout kind is not generated-compatible: field='{}' accepted_kind={:?} generated_kind={:?}",
+                field.name(),
+                accepted_field.kind(),
+                generated_kind,
+            )));
+        }
+
+        if accepted_field.storage_decode() != field.storage_decode() {
+            return Err(InternalError::store_invariant(format!(
+                "accepted row layout storage decode is not generated-compatible: field='{}' accepted_storage_decode={:?} generated_storage_decode={:?}",
+                field.name(),
+                accepted_field.storage_decode(),
+                field.storage_decode(),
+            )));
+        }
+
+        if accepted_field.leaf_codec() != field.leaf_codec() {
+            return Err(InternalError::store_invariant(format!(
+                "accepted row layout leaf codec is not generated-compatible: field='{}' accepted_leaf_codec={:?} generated_leaf_codec={:?}",
+                field.name(),
+                accepted_field.leaf_codec(),
+                field.leaf_codec(),
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 ///

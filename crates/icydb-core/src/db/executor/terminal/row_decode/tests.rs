@@ -1,12 +1,22 @@
 use super::*;
 use crate::{
-    db::data::{
-        CanonicalRow, decode_structural_field_by_kind_bytes, encode_structural_field_by_kind_bytes,
-        with_structural_read_metrics,
+    db::{
+        data::{
+            CanonicalRow, decode_structural_field_by_kind_bytes,
+            encode_structural_field_by_kind_bytes, with_structural_read_metrics,
+        },
+        schema::{
+            AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot, FieldId,
+            PersistedFieldKind, PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
+            SchemaRowLayout, SchemaVersion, compiled_schema_proposal_for_model,
+        },
     },
     error::{ErrorClass, ErrorOrigin},
-    model::field::{FieldKind, FieldStorageDecode},
-    traits::EntitySchema,
+    model::field::{FieldKind, FieldStorageDecode, LeafCodec},
+    traits::{
+        EntitySchema, FieldTypeMeta, PersistedFieldSlotCodec, RuntimeValueDecode,
+        RuntimeValueEncode,
+    },
     types::{Blob, Text},
     value::{Value, ValueEnum},
 };
@@ -87,6 +97,111 @@ fn decode_required_test_slots_with_metrics(
             )
             .expect("selective slot decode should succeed")
     })
+}
+
+fn row_decode_schema_snapshot() -> PersistedSchemaSnapshot {
+    let proposal = compiled_schema_proposal_for_model(RowDecodeEntity::MODEL);
+
+    proposal.initial_persisted_schema_snapshot()
+}
+
+fn accepted_row_decode_schema() -> AcceptedSchemaSnapshot {
+    AcceptedSchemaSnapshot::new(row_decode_schema_snapshot())
+}
+
+#[test]
+fn row_layout_can_be_frozen_from_generated_compatible_accepted_schema() {
+    let accepted = accepted_row_decode_schema();
+    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+        .expect("accepted row decode schema should project into runtime descriptor");
+    let layout = RowLayout::from_generated_compatible_accepted_descriptor(
+        RowDecodeEntity::MODEL,
+        &descriptor,
+    )
+    .expect("exact accepted row layout should be generated-compatible");
+
+    assert_eq!(layout.field_count(), RowDecodeEntity::MODEL.fields().len());
+    assert_eq!(
+        layout.primary_key_slot(),
+        RowDecodeEntity::MODEL.primary_key_slot()
+    );
+}
+
+#[test]
+fn row_layout_rejects_accepted_slot_reorder_until_decoder_consumes_accepted_fields() {
+    let snapshot = row_decode_schema_snapshot();
+    let changed = PersistedSchemaSnapshot::new(
+        snapshot.version(),
+        snapshot.entity_path().to_string(),
+        snapshot.entity_name().to_string(),
+        snapshot.primary_key_field_id(),
+        SchemaRowLayout::new(
+            SchemaVersion::initial(),
+            vec![
+                (FieldId::new(1), SchemaFieldSlot::new(0)),
+                (FieldId::new(2), SchemaFieldSlot::new(2)),
+                (FieldId::new(3), SchemaFieldSlot::new(1)),
+                (FieldId::new(4), SchemaFieldSlot::new(3)),
+            ],
+        ),
+        snapshot.fields().to_vec(),
+    );
+    let accepted = AcceptedSchemaSnapshot::new(changed);
+    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+        .expect("slot-reordered test schema should still form a descriptor");
+
+    let err = RowLayout::from_generated_compatible_accepted_descriptor(
+        RowDecodeEntity::MODEL,
+        &descriptor,
+    )
+    .expect_err("slot reorder must stay rejected at generated-compatible bridge");
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
+fn row_layout_rejects_accepted_payload_contract_drift_until_decoder_consumes_accepted_fields() {
+    let snapshot = row_decode_schema_snapshot();
+    let mut fields = snapshot.fields().to_vec();
+    let title = fields
+        .get_mut(1)
+        .expect("row decode test schema should include title");
+    *title = PersistedFieldSnapshot::new(
+        title.id(),
+        title.name().to_string(),
+        title.slot(),
+        PersistedFieldKind::Text { max_len: None },
+        title.nested_leaves().to_vec(),
+        title.nullable(),
+        title.default(),
+        FieldStorageDecode::Value,
+        LeafCodec::StructuralFallback,
+    );
+    let changed = PersistedSchemaSnapshot::new(
+        snapshot.version(),
+        snapshot.entity_path().to_string(),
+        snapshot.entity_name().to_string(),
+        snapshot.primary_key_field_id(),
+        snapshot.row_layout().clone(),
+        fields,
+    );
+    let accepted = AcceptedSchemaSnapshot::new(changed);
+    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+        .expect("storage-decode-drift test schema should still form a descriptor");
+
+    let err = RowLayout::from_generated_compatible_accepted_descriptor(
+        RowDecodeEntity::MODEL,
+        &descriptor,
+    )
+    .expect_err("payload contract drift must stay rejected at generated-compatible bridge");
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert!(
+        err.message
+            .contains("accepted row layout storage decode is not generated-compatible"),
+        "unexpected compatibility error: {}",
+        err.message,
+    );
 }
 
 #[test]
@@ -257,18 +372,83 @@ fn structural_row_decoder_preserves_enum_payload_shape_best_effort() {
     );
 }
 
+///
+/// RowDecodeStatus
+///
+/// RowDecodeStatus is the typed persisted enum wrapper for structural row
+/// decode tests.
+/// The decoder still materializes runtime `Value` outputs, but persistence
+/// enters through this static field contract instead of `Value` itself.
+///
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+struct RowDecodeStatus(ValueEnum);
+
+impl FieldTypeMeta for RowDecodeStatus {
+    const KIND: FieldKind = FieldKind::Enum {
+        path: "tests::Status",
+        variants: &[],
+    };
+    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
+}
+
+impl RuntimeValueEncode for RowDecodeStatus {
+    fn to_value(&self) -> Value {
+        Value::Enum(self.0.clone())
+    }
+}
+
+impl RuntimeValueDecode for RowDecodeStatus {
+    fn from_value(value: &Value) -> Option<Self> {
+        let Value::Enum(value) = value else {
+            return None;
+        };
+
+        Some(Self(value.clone()))
+    }
+}
+
+impl PersistedFieldSlotCodec for RowDecodeStatus {
+    fn encode_persisted_slot(
+        &self,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, crate::error::InternalError> {
+        crate::db::encode_persisted_slot_payload_by_meta(self, field_name)
+    }
+
+    fn decode_persisted_slot(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Self, crate::error::InternalError> {
+        crate::db::decode_persisted_slot_payload_by_meta(bytes, field_name)
+    }
+
+    fn encode_persisted_option_slot(
+        value: &Option<Self>,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, crate::error::InternalError> {
+        crate::db::encode_persisted_option_slot_payload_by_meta(value, field_name)
+    }
+
+    fn decode_persisted_option_slot(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Option<Self>, crate::error::InternalError> {
+        crate::db::decode_persisted_option_slot_payload_by_meta(bytes, field_name)
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct RowDecodeValueEntity {
     id: Ulid,
-    #[icydb(meta)]
-    status: Value,
+    status: RowDecodeStatus,
 }
 
 impl Default for RowDecodeValueEntity {
     fn default() -> Self {
         Self {
             id: Ulid::from_u128(0),
-            status: Value::Null,
+            status: RowDecodeStatus(ValueEnum::new("Pending", Some("tests::Status"))),
         }
     }
 }
@@ -300,7 +480,7 @@ crate::test_entity_schema! {
 fn structural_row_decoder_respects_value_storage_decode_contract() {
     let entity = RowDecodeValueEntity {
         id: Ulid::from_u128(77),
-        status: Value::Enum(
+        status: RowDecodeStatus(
             ValueEnum::new("Paid", Some("tests::Status")).with_payload(Value::Uint(7)),
         ),
     };
@@ -316,5 +496,5 @@ fn structural_row_decoder_respects_value_storage_decode_contract() {
         )
         .expect("structural row decode should succeed");
 
-    assert_eq!(decoded.slot(1), Some(entity.status));
+    assert_eq!(decoded.slot(1), Some(entity.status.to_value()));
 }

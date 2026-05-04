@@ -46,6 +46,7 @@ pub(in crate::db::schema) use integrity::schema_snapshot_integrity_detail;
 pub(in crate::db) use layout::{SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
 pub(in crate::db) use proposal::compiled_schema_proposal_for_model;
 pub(in crate::db) use reconcile::{ensure_accepted_schema_snapshot, reconcile_runtime_schemas};
+pub(in crate::db) use runtime::AcceptedRowLayoutRuntimeDescriptor;
 pub(in crate::db) use snapshot::{
     AcceptedSchemaSnapshot, PersistedEnumVariant, PersistedFieldKind, PersistedFieldSnapshot,
     PersistedNestedLeafSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,

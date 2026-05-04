@@ -66,9 +66,10 @@ pub mod __macro {
     pub use crate::error::InternalError;
     pub use crate::traits::{
         EnumValue, FieldProjection, PersistedByKindCodec, PersistedFieldMetaCodec,
-        PersistedStructuredFieldCodec, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
-        RuntimeValueMeta, runtime_value_btree_map_from_value, runtime_value_btree_set_from_value,
-        runtime_value_collection_to_value, runtime_value_from_value, runtime_value_from_vec_into,
+        PersistedFieldSlotCodec, PersistedStructuredFieldCodec, RuntimeValueDecode,
+        RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, runtime_value_btree_map_from_value,
+        runtime_value_btree_set_from_value, runtime_value_collection_to_value,
+        runtime_value_from_value, runtime_value_from_vec_into,
         runtime_value_from_vec_into_btree_map, runtime_value_from_vec_into_btree_set,
         runtime_value_into, runtime_value_map_collection_to_value, runtime_value_to_value,
         runtime_value_vec_from_value,
@@ -140,47 +141,47 @@ pub mod __macro {
     }
 
     #[doc(hidden)]
-    pub fn encode_persisted_custom_many_slot_payload<T>(
+    pub fn encode_persisted_structured_many_slot_payload<T>(
         value: &[T],
         field_name: &'static str,
     ) -> Result<Vec<u8>, crate::error::InternalError>
     where
-        T: crate::traits::PersistedStructuredFieldCodec + Clone,
+        T: crate::traits::PersistedStructuredFieldCodec,
     {
-        crate::db::encode_persisted_custom_many_slot_payload(value, field_name)
+        crate::db::encode_persisted_structured_many_slot_payload(value, field_name)
     }
 
     #[doc(hidden)]
-    pub fn decode_persisted_custom_many_slot_payload<T>(
+    pub fn decode_persisted_structured_many_slot_payload<T>(
         bytes: &[u8],
         field_name: &'static str,
     ) -> Result<Vec<T>, crate::error::InternalError>
     where
         T: crate::traits::PersistedStructuredFieldCodec,
     {
-        crate::db::decode_persisted_custom_many_slot_payload(bytes, field_name)
+        crate::db::decode_persisted_structured_many_slot_payload(bytes, field_name)
     }
 
     #[doc(hidden)]
-    pub fn encode_persisted_custom_slot_payload<T>(
+    pub fn encode_persisted_structured_slot_payload<T>(
         value: &T,
         field_name: &'static str,
     ) -> Result<Vec<u8>, crate::error::InternalError>
     where
         T: crate::traits::PersistedStructuredFieldCodec,
     {
-        crate::db::encode_persisted_custom_slot_payload(value, field_name)
+        crate::db::encode_persisted_structured_slot_payload(value, field_name)
     }
 
     #[doc(hidden)]
-    pub fn decode_persisted_custom_slot_payload<T>(
+    pub fn decode_persisted_structured_slot_payload<T>(
         bytes: &[u8],
         field_name: &'static str,
     ) -> Result<T, crate::error::InternalError>
     where
         T: crate::traits::PersistedStructuredFieldCodec,
     {
-        crate::db::decode_persisted_custom_slot_payload(bytes, field_name)
+        crate::db::decode_persisted_structured_slot_payload(bytes, field_name)
     }
 
     #[doc(hidden)]
@@ -283,6 +284,28 @@ pub mod __macro {
         T: crate::traits::PersistedFieldMetaCodec,
     {
         crate::db::decode_persisted_option_slot_payload_by_meta(bytes, field_name)
+    }
+
+    #[doc(hidden)]
+    pub fn encode_persisted_many_slot_payload_by_meta<T>(
+        value: &[T],
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, crate::error::InternalError>
+    where
+        T: crate::traits::FieldTypeMeta + crate::traits::RuntimeValueEncode,
+    {
+        crate::db::encode_persisted_many_slot_payload_by_meta(value, field_name)
+    }
+
+    #[doc(hidden)]
+    pub fn decode_persisted_many_slot_payload_by_meta<T>(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Vec<T>, crate::error::InternalError>
+    where
+        T: crate::traits::FieldTypeMeta + crate::traits::RuntimeValueDecode,
+    {
+        crate::db::decode_persisted_many_slot_payload_by_meta(bytes, field_name)
     }
 
     #[doc(hidden)]

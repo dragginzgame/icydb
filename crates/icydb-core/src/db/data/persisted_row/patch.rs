@@ -9,8 +9,8 @@ use std::borrow::Cow;
 use crate::db::data::persisted_row::{
     codec::ScalarSlotValueRef,
     contract::{
-        canonical_row_from_payload_source, canonical_row_from_value_source,
-        decode_slot_value_from_bytes, encode_slot_value_from_value,
+        canonical_row_from_payload_source, canonical_row_from_runtime_value_source,
+        decode_slot_into_runtime_value, encode_runtime_value_into_slot,
     },
     reader::StructuralSlotReader,
     types::{
@@ -164,7 +164,11 @@ impl SlotReader for SerializedPatchSlotReader<'_> {
         if self.decoded[slot].is_none()
             && let Some(raw_value) = self.get_bytes(slot)
         {
-            self.decoded[slot] = Some(decode_slot_value_from_bytes(self.model(), slot, raw_value)?);
+            self.decoded[slot] = Some(decode_slot_into_runtime_value(
+                self.model(),
+                slot,
+                raw_value,
+            )?);
         }
 
         Ok(self.decoded[slot].clone())
@@ -211,7 +215,7 @@ where
 pub(in crate::db) fn canonical_row_from_structural_slot_reader(
     row_fields: &StructuralSlotReader<'_>,
 ) -> Result<CanonicalRow, InternalError> {
-    canonical_row_from_value_source(row_fields.model(), |slot| {
+    canonical_row_from_runtime_value_source(row_fields.model(), |slot| {
         row_fields
             .required_cached_value(slot)
             .map(Cow::Borrowed)
@@ -267,7 +271,7 @@ pub(in crate::db) fn serialize_structural_patch_fields(
     // canonical slot codec owner.
     for entry in patch.entries() {
         let slot = entry.slot();
-        let payload = encode_slot_value_from_value(model, slot.index(), entry.value())?;
+        let payload = encode_runtime_value_into_slot(model, slot.index(), entry.value())?;
         entries.push(SerializedStructuralFieldUpdate::new(slot, payload));
     }
 

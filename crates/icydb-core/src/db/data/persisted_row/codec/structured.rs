@@ -9,7 +9,6 @@ use crate::{
         Account, Blob, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128,
         Principal, Subaccount, Timestamp, Ulid, Unit,
     },
-    value::Value,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -307,21 +306,6 @@ impl PersistedStructuredFieldCodec for Unit {
     }
 }
 
-// `Value` remains an explicit runtime/dynamic escape hatch for callers that
-// intentionally want to persist one already-materialized runtime union.
-// This is not a generic fallback: normal typed persistence should use
-// `PersistedStructuredFieldCodec` or `PersistedByKindCodec` on the concrete
-// field type instead of routing through `Value`.
-impl PersistedStructuredFieldCodec for Value {
-    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
-        storage_encode::value(self).map_err(InternalError::persisted_row_encode_failed)
-    }
-
-    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
-        storage_decode::value(bytes).map_err(InternalError::persisted_row_decode_failed)
-    }
-}
-
 impl_persisted_structured_signed_scalar_codec!(i8, i16, i32, i64);
 impl_persisted_structured_unsigned_scalar_codec!(u8, u16, u32, u64);
 
@@ -391,9 +375,9 @@ where
     }
 }
 
-/// Decode one persisted custom-schema payload through the direct structured
+/// Decode one persisted structured payload through the direct structured
 /// field codec owner.
-pub fn decode_persisted_custom_slot_payload<T>(
+pub fn decode_persisted_structured_slot_payload<T>(
     bytes: &[u8],
     field_name: &'static str,
 ) -> Result<T, InternalError>
@@ -404,9 +388,9 @@ where
         .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
 }
 
-/// Decode one persisted repeated custom-schema payload through the `Vec<T>`
+/// Decode one persisted repeated structured payload through the `Vec<T>`
 /// structured codec owner.
-pub fn decode_persisted_custom_many_slot_payload<T>(
+pub fn decode_persisted_structured_many_slot_payload<T>(
     bytes: &[u8],
     field_name: &'static str,
 ) -> Result<Vec<T>, InternalError>
@@ -417,9 +401,9 @@ where
         .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
 }
 
-/// Encode one custom-schema field payload through the direct structured field
+/// Encode one structured field payload through the direct structured field
 /// codec owner.
-pub fn encode_persisted_custom_slot_payload<T>(
+pub fn encode_persisted_structured_slot_payload<T>(
     value: &T,
     field_name: &'static str,
 ) -> Result<Vec<u8>, InternalError>
@@ -438,9 +422,9 @@ where
     )
 }
 
-/// Encode one repeated custom-schema payload through the `Vec<T>` structured
+/// Encode one repeated structured payload through the `Vec<T>` structured
 /// codec owner.
-pub fn encode_persisted_custom_many_slot_payload<T>(
+pub fn encode_persisted_structured_many_slot_payload<T>(
     values: &[T],
     field_name: &'static str,
 ) -> Result<Vec<u8>, InternalError>

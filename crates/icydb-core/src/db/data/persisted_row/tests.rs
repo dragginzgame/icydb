@@ -1,9 +1,9 @@
 use super::{
     SlotReader, SlotWriter, StructuralPatch, apply_serialized_structural_patch_to_raw_row,
-    canonical_row_from_complete_serialized_structural_patch,
-    decode_persisted_custom_many_slot_payload, decode_persisted_custom_slot_payload,
-    decode_persisted_slot_payload_by_kind, decode_sparse_required_slot_with_contract,
-    encode_persisted_custom_many_slot_payload, encode_persisted_custom_slot_payload,
+    canonical_row_from_complete_serialized_structural_patch, decode_persisted_slot_payload_by_kind,
+    decode_persisted_structured_many_slot_payload, decode_persisted_structured_slot_payload,
+    decode_sparse_required_slot_with_contract, encode_persisted_slot_payload_by_kind,
+    encode_persisted_structured_many_slot_payload, encode_persisted_structured_slot_payload,
     materialize_entity_from_serialized_structural_patch,
     serialize_entity_slots_as_complete_serialized_patch, serialize_structural_patch_fields,
     with_structural_read_metrics,
@@ -11,7 +11,8 @@ use super::{
 use super::{
     codec::{ScalarSlotValueRef, ScalarValueRef, encode_scalar_slot_value},
     contract::{
-        decode_slot_value_from_bytes, encode_slot_payload_from_parts, encode_slot_value_from_value,
+        decode_slot_into_runtime_value, encode_runtime_value_into_slot,
+        encode_slot_payload_from_parts,
     },
     patch::canonical_row_from_raw_row,
     reader::{CachedSlotValue, StructuralSlotReader},
@@ -37,7 +38,10 @@ use crate::{
         field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode, RelationStrength},
     },
     testing::SIMPLE_ENTITY_TAG,
-    traits::{EntitySchema, PersistedByKindCodec, PersistedStructuredFieldCodec},
+    traits::{
+        EntitySchema, FieldTypeMeta, PersistedByKindCodec, PersistedFieldSlotCodec,
+        PersistedStructuredFieldCodec, RuntimeValueDecode, RuntimeValueEncode,
+    },
     types::{
         Account, Blob, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128,
         Principal, Subaccount, Timestamp, Ulid, Unit,
@@ -76,88 +80,41 @@ struct PersistedRowPatchBridgeEntity {
 }
 
 ///
-/// PersistedRowDecimalHintEntity
+/// PersistedRowTypedMetaEntity
 ///
-/// PersistedRowDecimalHintEntity proves that the metadata-free
-/// `PersistedRow` derive can encode decimal fields through the owner-local
-/// by-kind structural contract when the caller supplies an explicit scale
-/// hint.
-///
-
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
-struct PersistedRowDecimalHintEntity {
-    id: crate::types::Ulid,
-    #[icydb(scale = 2)]
-    amount: Decimal,
-}
-
-///
-/// PersistedRowCustomHintEntity
-///
-/// PersistedRowCustomHintEntity proves that the metadata-free `PersistedRow`
-/// derive can route one field through its owner-local structured codec when
-/// the caller opts into the explicit custom-payload hint.
-///
-
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, PersistedRow)]
-struct PersistedRowCustomHintEntity {
-    id: crate::types::Ulid,
-    #[icydb(value)]
-    profile: PersistedRowProfileValue,
-}
-
-impl crate::traits::FieldProjection for PersistedRowCustomHintEntity {
-    fn get_value_by_index(&self, index: usize) -> Option<Value> {
-        match index {
-            0 => Some(Value::Ulid(self.id)),
-            1 => Some(
-                Value::from_map(vec![(
-                    Value::Text("bio".to_string()),
-                    Value::Text(self.profile.bio.clone()),
-                )])
-                .expect("custom hint test profile should encode as a canonical map"),
-            ),
-            _ => None,
-        }
-    }
-}
-
-///
-/// PersistedRowMetaHintEntity
-///
-/// PersistedRowMetaHintEntity proves that the metadata-free `PersistedRow`
-/// derive can reuse a field type's own `FieldTypeMeta` contract directly.
+/// PersistedRowTypedMetaEntity proves that the metadata-free `PersistedRow`
+/// derive can reuse a typed field's own slot codec directly.
+/// It intentionally uses a schema-like wrapper instead of the runtime-only
+/// `Value` union so persisted fields stay statically contracted.
 ///
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
-struct PersistedRowMetaHintEntity {
+struct PersistedRowTypedMetaEntity {
     id: crate::types::Ulid,
-    #[icydb(meta)]
-    payload: Value,
+    payload: PersistedRowProfileValue,
 }
 
-impl Default for PersistedRowMetaHintEntity {
+impl Default for PersistedRowTypedMetaEntity {
     fn default() -> Self {
         Self {
             id: crate::types::Ulid::from_u128(0),
-            payload: Value::Null,
+            payload: PersistedRowProfileValue::default(),
         }
     }
 }
 
 ///
-/// PersistedRowMetaManyHintEntity
+/// PersistedRowManyTypedMetaEntity
 ///
-/// PersistedRowMetaManyHintEntity proves that the metadata-free
-/// `PersistedRow` derive can reuse blanket `FieldTypeMeta` contracts for
-/// standard containers, not just leaf or wrapper types.
+/// PersistedRowManyTypedMetaEntity proves that the metadata-free
+/// `PersistedRow` derive can persist containers of typed schema-like fields
+/// without allowing `Vec<Value>` as a persisted escape hatch.
 ///
 
 #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
-struct PersistedRowMetaManyHintEntity {
+struct PersistedRowManyTypedMetaEntity {
     id: crate::types::Ulid,
-    #[icydb(meta)]
-    payloads: Vec<Value>,
+    payloads: Vec<PersistedRowProfileValue>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -239,6 +196,67 @@ impl PersistedStructuredFieldCodec for PersistedRowProfileValue {
     }
 }
 
+impl FieldTypeMeta for PersistedRowProfileValue {
+    const KIND: FieldKind = FieldKind::Structured { queryable: false };
+    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
+    const NESTED_FIELDS: &'static [FieldModel] = &[FieldModel::generated(
+        "bio",
+        FieldKind::Text { max_len: None },
+    )];
+}
+
+impl RuntimeValueEncode for PersistedRowProfileValue {
+    fn to_value(&self) -> Value {
+        Value::from_map(vec![(
+            Value::Text("bio".to_string()),
+            Value::Text(self.bio.clone()),
+        )])
+        .expect("typed persisted-row profile value should normalize")
+    }
+}
+
+impl RuntimeValueDecode for PersistedRowProfileValue {
+    fn from_value(value: &Value) -> Option<Self> {
+        let Value::Map(entries) = value else {
+            return None;
+        };
+
+        entries.iter().find_map(|(key, value)| match (key, value) {
+            (Value::Text(key), Value::Text(value)) if key == "bio" => {
+                Some(Self { bio: value.clone() })
+            }
+            _ => None,
+        })
+    }
+}
+
+impl PersistedFieldSlotCodec for PersistedRowProfileValue {
+    fn encode_persisted_slot(&self, field_name: &'static str) -> Result<Vec<u8>, InternalError> {
+        crate::db::encode_persisted_slot_payload_by_meta(self, field_name)
+    }
+
+    fn decode_persisted_slot(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Self, InternalError> {
+        crate::db::decode_persisted_slot_payload_by_meta(bytes, field_name)
+    }
+
+    fn encode_persisted_option_slot(
+        value: &Option<Self>,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError> {
+        crate::db::encode_persisted_option_slot_payload_by_meta(value, field_name)
+    }
+
+    fn decode_persisted_option_slot(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Option<Self>, InternalError> {
+        crate::db::decode_persisted_option_slot_payload_by_meta(bytes, field_name)
+    }
+}
+
 impl PersistedByKindCodec for PersistedRowProfileValue {
     fn encode_persisted_slot_payload_by_kind(
         &self,
@@ -304,46 +322,10 @@ crate::test_entity_schema! {
 }
 
 crate::test_entity_schema! {
-    ident = PersistedRowDecimalHintEntity,
+    ident = PersistedRowTypedMetaEntity,
     id = crate::types::Ulid,
     id_field = id,
-    entity_name = "PersistedRowDecimalHintEntity",
-    entity_tag = SIMPLE_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        ("amount", FieldKind::Decimal { scale: 2 }),
-    ],
-    indexes = [],
-    store = PersistedRowPatchBridgeStore,
-    canister = PersistedRowPatchBridgeCanister,
-}
-
-crate::test_entity_schema! {
-    ident = PersistedRowCustomHintEntity,
-    id = crate::types::Ulid,
-    id_field = id,
-    entity_name = "PersistedRowCustomHintEntity",
-    entity_tag = SIMPLE_ENTITY_TAG,
-    pk_index = 0,
-    fields = [
-        ("id", FieldKind::Ulid),
-        (
-            "profile",
-            FieldKind::Structured { queryable: false },
-            FieldStorageDecode::Value
-        ),
-    ],
-    indexes = [],
-    store = PersistedRowPatchBridgeStore,
-    canister = PersistedRowPatchBridgeCanister,
-}
-
-crate::test_entity_schema! {
-    ident = PersistedRowMetaHintEntity,
-    id = crate::types::Ulid,
-    id_field = id,
-    entity_name = "PersistedRowMetaHintEntity",
+    entity_name = "PersistedRowTypedMetaEntity",
     entity_tag = SIMPLE_ENTITY_TAG,
     pk_index = 0,
     fields = [
@@ -360,10 +342,10 @@ crate::test_entity_schema! {
 }
 
 crate::test_entity_schema! {
-    ident = PersistedRowMetaManyHintEntity,
+    ident = PersistedRowManyTypedMetaEntity,
     id = crate::types::Ulid,
     id_field = id,
-    entity_name = "PersistedRowMetaManyHintEntity",
+    entity_name = "PersistedRowManyTypedMetaEntity",
     entity_tag = SIMPLE_ENTITY_TAG,
     pk_index = 0,
     fields = [
@@ -1133,42 +1115,17 @@ fn direct_persisted_structured_float_codecs_reject_nonfinite_payloads() {
 }
 
 #[test]
-fn value_persisted_structured_codec_is_explicit_dynamic_escape_hatch() {
-    let value = Value::from_map(vec![
-        (
-            Value::Text("owner".to_string()),
-            Value::Account(Account::dummy(7)),
-        ),
-        (
-            Value::Text("token".to_string()),
-            Value::Ulid(Ulid::from_u128(91)),
-        ),
-    ])
-    .expect("sample dynamic runtime value should encode as a canonical map");
-
-    assert_direct_persisted_structured_roundtrip(value);
-}
-
-#[test]
-fn value_persisted_structured_codec_rejects_malformed_payloads() {
-    let err = Value::decode_persisted_structured_payload(&[0xFF])
-        .expect_err("malformed runtime value payload must fail closed");
-
-    assert_eq!(err.class(), crate::error::ErrorClass::Corruption);
-}
-
-#[test]
-fn decode_slot_value_from_bytes_decodes_scalar_slots_through_one_owner() {
+fn decode_slot_into_runtime_value_decodes_scalar_slots_through_one_owner() {
     let payload = encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
     let value =
-        decode_slot_value_from_bytes(&TEST_MODEL, 0, payload.as_slice()).expect("decode slot");
+        decode_slot_into_runtime_value(&TEST_MODEL, 0, payload.as_slice()).expect("decode slot");
 
     assert_eq!(value, Value::Text("Ada".to_string()));
 }
 
 #[test]
-fn decode_slot_value_from_bytes_reports_scalar_prefix_bytes() {
-    let err = decode_slot_value_from_bytes(&TEST_MODEL, 0, &[0x00, 1])
+fn decode_slot_into_runtime_value_reports_scalar_prefix_bytes() {
+    let err = decode_slot_into_runtime_value(&TEST_MODEL, 0, &[0x00, 1])
         .expect_err("invalid scalar slot prefix should fail closed");
 
     assert!(
@@ -1179,43 +1136,43 @@ fn decode_slot_value_from_bytes_reports_scalar_prefix_bytes() {
 }
 
 #[test]
-fn decode_slot_value_from_bytes_respects_value_storage_decode_contract() {
+fn decode_slot_into_runtime_value_respects_value_storage_decode_contract() {
     let payload = encode_value_storage_payload(&Value::Text("Ada".to_string()));
 
     let value =
-        decode_slot_value_from_bytes(&TEST_MODEL, 1, payload.as_slice()).expect("decode slot");
+        decode_slot_into_runtime_value(&TEST_MODEL, 1, payload.as_slice()).expect("decode slot");
 
     assert_eq!(value, Value::Text("Ada".to_string()));
 }
 
 #[test]
-fn encode_slot_value_from_value_roundtrips_scalar_slots() {
-    let payload = encode_slot_value_from_value(&TEST_MODEL, 0, &Value::Text("Ada".to_string()))
+fn encode_runtime_value_into_slot_roundtrips_scalar_slots() {
+    let payload = encode_runtime_value_into_slot(&TEST_MODEL, 0, &Value::Text("Ada".to_string()))
         .expect("encode slot");
     let decoded =
-        decode_slot_value_from_bytes(&TEST_MODEL, 0, payload.as_slice()).expect("decode slot");
+        decode_slot_into_runtime_value(&TEST_MODEL, 0, payload.as_slice()).expect("decode slot");
 
     assert_eq!(decoded, Value::Text("Ada".to_string()));
 }
 
 #[test]
-fn encode_slot_value_from_value_roundtrips_value_storage_slots() {
-    let payload = encode_slot_value_from_value(&TEST_MODEL, 1, &Value::Text("Ada".to_string()))
+fn encode_runtime_value_into_slot_roundtrips_value_storage_slots() {
+    let payload = encode_runtime_value_into_slot(&TEST_MODEL, 1, &Value::Text("Ada".to_string()))
         .expect("encode slot");
     let decoded =
-        decode_slot_value_from_bytes(&TEST_MODEL, 1, payload.as_slice()).expect("decode slot");
+        decode_slot_into_runtime_value(&TEST_MODEL, 1, payload.as_slice()).expect("decode slot");
 
     assert_eq!(decoded, Value::Text("Ada".to_string()));
 }
 
 #[test]
-fn encode_slot_value_from_value_roundtrips_structured_value_storage_slots_for_all_cases() {
+fn encode_runtime_value_into_slot_roundtrips_structured_value_storage_slots_for_all_cases() {
     for value in representative_structured_value_storage_cases() {
-        let payload = encode_slot_value_from_value(&VALUE_STORAGE_STRUCTURED_MODEL, 0, &value)
+        let payload = encode_runtime_value_into_slot(&VALUE_STORAGE_STRUCTURED_MODEL, 0, &value)
             .unwrap_or_else(|err| {
                 panic!("structured value-storage slot should encode for value {value:?}: {err:?}")
             });
-        let decoded = decode_slot_value_from_bytes(
+        let decoded = decode_slot_into_runtime_value(
             &VALUE_STORAGE_STRUCTURED_MODEL,
             0,
             payload.as_slice(),
@@ -1231,29 +1188,29 @@ fn encode_slot_value_from_value_roundtrips_structured_value_storage_slots_for_al
 }
 
 #[test]
-fn encode_slot_value_from_value_roundtrips_list_by_kind_slots() {
-    let payload = encode_slot_value_from_value(
+fn encode_runtime_value_into_slot_roundtrips_list_by_kind_slots() {
+    let payload = encode_runtime_value_into_slot(
         &LIST_MODEL,
         0,
         &Value::List(vec![Value::Text("alpha".to_string())]),
     )
     .expect("encode list slot");
     let decoded =
-        decode_slot_value_from_bytes(&LIST_MODEL, 0, payload.as_slice()).expect("decode slot");
+        decode_slot_into_runtime_value(&LIST_MODEL, 0, payload.as_slice()).expect("decode slot");
 
     assert_eq!(decoded, Value::List(vec![Value::Text("alpha".to_string())]),);
 }
 
 #[test]
-fn encode_slot_value_from_value_roundtrips_map_by_kind_slots() {
-    let payload = encode_slot_value_from_value(
+fn encode_runtime_value_into_slot_roundtrips_map_by_kind_slots() {
+    let payload = encode_runtime_value_into_slot(
         &MAP_MODEL,
         0,
         &Value::Map(vec![(Value::Text("alpha".to_string()), Value::Uint(7))]),
     )
     .expect("encode map slot");
     let decoded =
-        decode_slot_value_from_bytes(&MAP_MODEL, 0, payload.as_slice()).expect("decode slot");
+        decode_slot_into_runtime_value(&MAP_MODEL, 0, payload.as_slice()).expect("decode slot");
 
     assert_eq!(
         decoded,
@@ -1262,7 +1219,7 @@ fn encode_slot_value_from_value_roundtrips_map_by_kind_slots() {
 }
 
 #[test]
-fn encode_slot_value_from_value_accepts_value_storage_maps_with_structured_values() {
+fn encode_runtime_value_into_slot_accepts_value_storage_maps_with_structured_values() {
     let principal = Principal::dummy(7);
     let project = Value::from_map(vec![
         (Value::Text("pid".to_string()), Value::Principal(principal)),
@@ -1278,10 +1235,10 @@ fn encode_slot_value_from_value_accepts_value_storage_maps_with_structured_value
     let projects = Value::from_map(vec![(Value::Principal(principal), project)])
         .expect("outer map should normalize into a canonical map");
 
-    let payload = encode_slot_value_from_value(&STRUCTURED_MAP_VALUE_STORAGE_MODEL, 0, &projects)
+    let payload = encode_runtime_value_into_slot(&STRUCTURED_MAP_VALUE_STORAGE_MODEL, 0, &projects)
         .expect("encode structured map slot");
     let decoded =
-        decode_slot_value_from_bytes(&STRUCTURED_MAP_VALUE_STORAGE_MODEL, 0, payload.as_slice())
+        decode_slot_into_runtime_value(&STRUCTURED_MAP_VALUE_STORAGE_MODEL, 0, payload.as_slice())
             .expect("decode structured map slot");
 
     assert_eq!(decoded, projects);
@@ -1304,15 +1261,15 @@ fn structured_value_storage_cases_decode_through_direct_value_storage_boundary()
 }
 
 #[test]
-fn encode_slot_value_from_value_roundtrips_enum_by_kind_slots() {
-    let payload = encode_slot_value_from_value(
+fn encode_runtime_value_into_slot_roundtrips_enum_by_kind_slots() {
+    let payload = encode_runtime_value_into_slot(
         &ENUM_MODEL,
         0,
         &Value::Enum(ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Uint(7))),
     )
     .expect("encode enum slot");
     let decoded =
-        decode_slot_value_from_bytes(&ENUM_MODEL, 0, payload.as_slice()).expect("decode slot");
+        decode_slot_into_runtime_value(&ENUM_MODEL, 0, payload.as_slice()).expect("decode slot");
 
     assert_eq!(
         decoded,
@@ -1321,40 +1278,40 @@ fn encode_slot_value_from_value_roundtrips_enum_by_kind_slots() {
 }
 
 #[test]
-fn encode_slot_value_from_value_roundtrips_leaf_by_kind_wrapper_slots() {
+fn encode_runtime_value_into_slot_roundtrips_leaf_by_kind_wrapper_slots() {
     let account = Account::from_parts(Principal::dummy(7), Some(Subaccount::from([7_u8; 32])));
-    let payload = encode_slot_value_from_value(&ACCOUNT_MODEL, 0, &Value::Account(account))
+    let payload = encode_runtime_value_into_slot(&ACCOUNT_MODEL, 0, &Value::Account(account))
         .expect("encode account slot");
     let decoded =
-        decode_slot_value_from_bytes(&ACCOUNT_MODEL, 0, payload.as_slice()).expect("decode slot");
+        decode_slot_into_runtime_value(&ACCOUNT_MODEL, 0, payload.as_slice()).expect("decode slot");
 
     assert_eq!(decoded, Value::Account(account));
 }
 
 #[test]
-fn custom_slot_payload_roundtrips_structured_custom_payload() {
+fn structured_slot_payload_roundtrips_generated_structured_payload() {
     let profile = PersistedRowProfileValue {
         bio: "Ada".to_string(),
     };
-    let payload = encode_persisted_custom_slot_payload(&profile, "profile")
-        .expect("encode custom structured payload");
-    let decoded = decode_persisted_custom_slot_payload::<PersistedRowProfileValue>(
+    let payload = encode_persisted_structured_slot_payload(&profile, "profile")
+        .expect("encode structured field payload");
+    let decoded = decode_persisted_structured_slot_payload::<PersistedRowProfileValue>(
         payload.as_slice(),
         "profile",
     )
-    .expect("decode custom structured payload");
+    .expect("decode structured field payload");
 
     assert_eq!(decoded, profile);
 }
 
 #[test]
-fn custom_slot_payload_roundtrips_direct_structured_codec_without_runtime_value_bridge() {
+fn structured_slot_payload_roundtrips_direct_structured_codec_without_runtime_value_bridge() {
     let profile = DirectPersistedProfileValue {
         bio: "Ada".to_string(),
     };
-    let payload = encode_persisted_custom_slot_payload(&profile, "profile")
+    let payload = encode_persisted_structured_slot_payload(&profile, "profile")
         .expect("encode direct structured payload");
-    let decoded = decode_persisted_custom_slot_payload::<DirectPersistedProfileValue>(
+    let decoded = decode_persisted_structured_slot_payload::<DirectPersistedProfileValue>(
         payload.as_slice(),
         "profile",
     )
@@ -1365,7 +1322,7 @@ fn custom_slot_payload_roundtrips_direct_structured_codec_without_runtime_value_
 }
 
 #[test]
-fn custom_many_slot_payload_roundtrips_structured_value_lists() {
+fn structured_many_slot_payload_roundtrips_structured_value_lists() {
     let profiles = vec![
         PersistedRowProfileValue {
             bio: "Ada".to_string(),
@@ -1374,13 +1331,13 @@ fn custom_many_slot_payload_roundtrips_structured_value_lists() {
             bio: "Grace".to_string(),
         },
     ];
-    let payload = encode_persisted_custom_many_slot_payload(profiles.as_slice(), "profiles")
-        .expect("encode custom structured list payload");
-    let decoded = decode_persisted_custom_many_slot_payload::<PersistedRowProfileValue>(
+    let payload = encode_persisted_structured_many_slot_payload(profiles.as_slice(), "profiles")
+        .expect("encode structured list payload");
+    let decoded = decode_persisted_structured_many_slot_payload::<PersistedRowProfileValue>(
         payload.as_slice(),
         "profiles",
     )
-    .expect("decode custom structured list payload");
+    .expect("decode structured list payload");
 
     assert_eq!(decoded, profiles);
 }
@@ -1401,8 +1358,8 @@ fn decode_persisted_slot_payload_by_kind_rejects_malformed_structured_null_paylo
 }
 
 #[test]
-fn encode_slot_value_from_value_rejects_null_for_required_structured_slots() {
-    let err = encode_slot_value_from_value(&REQUIRED_STRUCTURED_MODEL, 0, &Value::Null)
+fn encode_runtime_value_into_slot_rejects_null_for_required_structured_slots() {
+    let err = encode_runtime_value_into_slot(&REQUIRED_STRUCTURED_MODEL, 0, &Value::Null)
         .expect_err("required structured slot must reject null");
 
     assert!(
@@ -1412,34 +1369,34 @@ fn encode_slot_value_from_value_rejects_null_for_required_structured_slots() {
 }
 
 #[test]
-fn encode_slot_value_from_value_allows_null_for_optional_structured_slots() {
-    let payload = encode_slot_value_from_value(&OPTIONAL_STRUCTURED_MODEL, 0, &Value::Null)
+fn encode_runtime_value_into_slot_allows_null_for_optional_structured_slots() {
+    let payload = encode_runtime_value_into_slot(&OPTIONAL_STRUCTURED_MODEL, 0, &Value::Null)
         .expect("optional structured slot should allow null");
-    let decoded = decode_slot_value_from_bytes(&OPTIONAL_STRUCTURED_MODEL, 0, payload.as_slice())
+    let decoded = decode_slot_into_runtime_value(&OPTIONAL_STRUCTURED_MODEL, 0, payload.as_slice())
         .expect("optional structured slot should decode");
 
     assert_eq!(decoded, Value::Null);
 }
 
 #[test]
-fn encode_slot_value_from_value_allows_null_for_optional_decimal_slots() {
-    let payload = encode_slot_value_from_value(&OPTIONAL_DECIMAL_MODEL, 0, &Value::Null)
+fn encode_runtime_value_into_slot_allows_null_for_optional_decimal_slots() {
+    let payload = encode_runtime_value_into_slot(&OPTIONAL_DECIMAL_MODEL, 0, &Value::Null)
         .expect("optional decimal slot should allow null");
-    let decoded = decode_slot_value_from_bytes(&OPTIONAL_DECIMAL_MODEL, 0, payload.as_slice())
+    let decoded = decode_slot_into_runtime_value(&OPTIONAL_DECIMAL_MODEL, 0, payload.as_slice())
         .expect("optional decimal slot should decode");
 
     assert_eq!(decoded, Value::Null);
 }
 
 #[test]
-fn encode_slot_value_from_value_normalizes_decimal_to_declared_scale() {
-    let payload = encode_slot_value_from_value(
+fn encode_runtime_value_into_slot_normalizes_decimal_to_declared_scale() {
+    let payload = encode_runtime_value_into_slot(
         &OPTIONAL_DECIMAL_MODEL,
         0,
         &Value::Decimal(Decimal::from_i128_with_scale(140, 0)),
     )
     .expect("decimal slot should normalize to field scale");
-    let decoded = decode_slot_value_from_bytes(&OPTIONAL_DECIMAL_MODEL, 0, payload.as_slice())
+    let decoded = decode_slot_into_runtime_value(&OPTIONAL_DECIMAL_MODEL, 0, payload.as_slice())
         .expect("normalized decimal slot should decode");
     let Value::Decimal(decimal) = decoded else {
         panic!("normalized decimal slot should decode as Decimal");
@@ -1524,10 +1481,10 @@ fn option_by_kind_leaf_malformed_non_null_error_is_stable() {
 }
 
 #[test]
-fn decode_slot_value_from_bytes_allows_null_for_optional_account_slots() {
-    let payload = encode_slot_value_from_value(&OPTIONAL_ACCOUNT_MODEL, 0, &Value::Null)
+fn decode_slot_into_runtime_value_allows_null_for_optional_account_slots() {
+    let payload = encode_runtime_value_into_slot(&OPTIONAL_ACCOUNT_MODEL, 0, &Value::Null)
         .expect("optional account slot should allow null");
-    let decoded = decode_slot_value_from_bytes(&OPTIONAL_ACCOUNT_MODEL, 0, payload.as_slice())
+    let decoded = decode_slot_into_runtime_value(&OPTIONAL_ACCOUNT_MODEL, 0, payload.as_slice())
         .expect("optional account slot should decode");
 
     assert_eq!(decoded, Value::Null);
@@ -1535,7 +1492,7 @@ fn decode_slot_value_from_bytes_allows_null_for_optional_account_slots() {
 
 #[test]
 fn structural_slot_reader_accepts_null_for_optional_account_slots() {
-    let payload = encode_slot_value_from_value(&OPTIONAL_ACCOUNT_MODEL, 0, &Value::Null)
+    let payload = encode_runtime_value_into_slot(&OPTIONAL_ACCOUNT_MODEL, 0, &Value::Null)
         .expect("optional account slot should allow null");
     let raw_row =
         raw_row_from_dense_slot_payloads_for_tests(&OPTIONAL_ACCOUNT_MODEL, &[payload.as_slice()]);
@@ -1547,8 +1504,8 @@ fn structural_slot_reader_accepts_null_for_optional_account_slots() {
 }
 
 #[test]
-fn encode_slot_value_from_value_rejects_unknown_enum_payload_variants() {
-    let err = encode_slot_value_from_value(
+fn encode_runtime_value_into_slot_rejects_unknown_enum_payload_variants() {
+    let err = encode_runtime_value_into_slot(
         &ENUM_MODEL,
         0,
         &Value::Enum(ValueEnum::new("Unknown", Some("tests::State")).with_payload(Value::Uint(7))),
@@ -1581,12 +1538,12 @@ fn structural_slot_reader_and_direct_decode_share_the_same_field_codec_boundary(
 
     let direct_name = direct_slots
         .get_bytes(0)
-        .map(|bytes| decode_slot_value_from_bytes(&TEST_MODEL, 0, bytes))
+        .map(|bytes| decode_slot_into_runtime_value(&TEST_MODEL, 0, bytes))
         .transpose()
         .expect("decode name");
     let direct_payload = direct_slots
         .get_bytes(1)
-        .map(|bytes| decode_slot_value_from_bytes(&TEST_MODEL, 1, bytes))
+        .map(|bytes| decode_slot_into_runtime_value(&TEST_MODEL, 1, bytes))
         .transpose()
         .expect("decode payload");
     let cached_name = cached_slots.get_value(0).expect("cached name");
@@ -1917,7 +1874,7 @@ fn serialize_structural_patch_fields_encodes_canonical_slot_payloads() {
 
     assert_eq!(serialized.entries().len(), 2);
     assert_eq!(
-        decode_slot_value_from_bytes(
+        decode_slot_into_runtime_value(
             &TEST_MODEL,
             serialized.entries()[0].slot().index(),
             serialized.entries()[0].payload(),
@@ -1926,7 +1883,7 @@ fn serialize_structural_patch_fields_encodes_canonical_slot_payloads() {
         Value::Text("Grace".to_string())
     );
     assert_eq!(
-        decode_slot_value_from_bytes(
+        decode_slot_into_runtime_value(
             &TEST_MODEL,
             serialized.entries()[1].slot().index(),
             serialized.entries()[1].payload(),
@@ -2248,168 +2205,38 @@ fn serialize_entity_slots_as_complete_serialized_patch_replays_full_typed_after_
 }
 
 #[test]
-fn persisted_row_decimal_scale_hint_uses_by_kind_slot_codec() {
-    let entity = PersistedRowDecimalHintEntity {
-        id: crate::types::Ulid::from_u128(77),
-        amount: Decimal::new(123, 2),
-    };
-    let expected_amount = crate::db::data::encode_structural_field_by_kind_bytes(
-        FieldKind::Decimal { scale: 2 },
-        &Value::Decimal(entity.amount),
-        "amount",
-    )
-    .expect("decimal slot bytes should encode through by-kind contract");
-    let raw_row = CanonicalRow::from_entity(&entity)
-        .expect("derived entity should encode")
-        .into_raw_row();
-    let reader = StructuralSlotReader::from_raw_row(&raw_row, PersistedRowDecimalHintEntity::MODEL)
-        .expect("raw row should decode structurally");
-
-    assert_eq!(
-        reader.get_bytes(1),
-        Some(expected_amount.as_slice()),
-        "derived decimal hint should emit the same by-kind bytes as schema-owned decimal storage",
-    );
-}
-
-#[test]
-fn decimal_scale_hint_decodes_matching_by_kind_payload() {
-    let id = crate::types::Ulid::from_u128(78);
-    let id_payload = encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(id)));
-    let amount_payload = crate::db::data::encode_structural_field_by_kind_bytes(
-        FieldKind::Decimal { scale: 2 },
-        &Value::Decimal(Decimal::new(123, 2)),
-        "amount",
-    )
-    .expect("matching decimal slot bytes should encode");
-    let payload = encode_slot_payload_from_parts(
-        2,
-        &[
-            (
-                0_u32,
-                u32::try_from(id_payload.len()).expect("id slot length should fit in u32"),
-            ),
-            (
-                u32::try_from(id_payload.len()).expect("id slot start should fit in u32"),
-                u32::try_from(amount_payload.len()).expect("amount slot length should fit in u32"),
-            ),
-        ],
-        &[id_payload.as_slice(), amount_payload.as_slice()].concat(),
-    )
-    .expect("test row payload should encode");
-    let raw_row =
-        RawRow::try_new(serialize_row_payload(payload).expect("test row bytes should serialize"))
-            .expect("test row should encode");
-    let decoded = raw_row
-        .try_decode::<PersistedRowDecimalHintEntity>()
-        .expect("derived decimal hint should decode matching by-kind payload");
-
-    assert_eq!(
-        decoded,
-        PersistedRowDecimalHintEntity {
-            id,
-            amount: Decimal::new(123, 2),
-        }
-    );
-}
-
-#[test]
-fn persisted_row_custom_hint_uses_direct_structured_slot_codec() {
-    let entity = PersistedRowCustomHintEntity {
-        id: crate::types::Ulid::from_u128(79),
-        profile: PersistedRowProfileValue {
-            bio: "systems".to_string(),
+fn persisted_row_typed_meta_field_uses_field_slot_contract() {
+    let entity = PersistedRowTypedMetaEntity {
+        id: crate::types::Ulid::from_u128(81),
+        payload: PersistedRowProfileValue {
+            bio: "meta".to_string(),
         },
     };
-    let expected_profile = entity
-        .profile
-        .encode_persisted_structured_payload()
-        .expect("profile slot bytes should encode through the direct structured codec");
+    let expected_payload =
+        crate::db::encode_persisted_slot_payload_by_meta(&entity.payload, "payload")
+            .expect("typed payload bytes should encode through field metadata");
     let raw_row = CanonicalRow::from_entity(&entity)
         .expect("derived entity should encode")
         .into_raw_row();
-    let reader = StructuralSlotReader::from_raw_row(&raw_row, PersistedRowCustomHintEntity::MODEL)
-        .expect("raw row should decode structurally");
-
-    assert_eq!(
-        reader.get_bytes(1),
-        Some(expected_profile.as_slice()),
-        "derived custom hint should emit the same bytes as the owner-local structured codec",
-    );
-}
-
-#[test]
-fn custom_hint_decodes_matching_direct_structured_payload() {
-    let id = crate::types::Ulid::from_u128(80);
-    let id_payload = encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(id)));
-    let profile = PersistedRowProfileValue {
-        bio: "runtime".to_string(),
-    };
-    let profile_payload = profile
-        .encode_persisted_structured_payload()
-        .expect("matching direct structured bytes should encode");
-    let payload = encode_slot_payload_from_parts(
-        2,
-        &[
-            (
-                0_u32,
-                u32::try_from(id_payload.len()).expect("id slot length should fit in u32"),
-            ),
-            (
-                u32::try_from(id_payload.len()).expect("id slot start should fit in u32"),
-                u32::try_from(profile_payload.len())
-                    .expect("profile slot length should fit in u32"),
-            ),
-        ],
-        &[id_payload.as_slice(), profile_payload.as_slice()].concat(),
-    )
-    .expect("test row payload should encode");
-    let raw_row =
-        RawRow::try_new(serialize_row_payload(payload).expect("test row bytes should serialize"))
-            .expect("test row should encode");
-    let decoded = raw_row
-        .try_decode::<PersistedRowCustomHintEntity>()
-        .expect("derived custom hint should decode matching direct structured payload");
-
-    assert_eq!(decoded, PersistedRowCustomHintEntity { id, profile });
-}
-
-#[test]
-fn persisted_row_meta_hint_uses_field_type_meta_storage_contract() {
-    let entity = PersistedRowMetaHintEntity {
-        id: crate::types::Ulid::from_u128(81),
-        payload: Value::from_map(vec![(
-            Value::Text("bio".to_string()),
-            Value::Text("meta".to_string()),
-        )])
-        .expect("payload value should normalize"),
-    };
-    let expected_payload = encode_structural_value_storage_bytes(&entity.payload)
-        .expect("payload bytes should encode through structural value storage");
-    let raw_row = CanonicalRow::from_entity(&entity)
-        .expect("derived entity should encode")
-        .into_raw_row();
-    let reader = StructuralSlotReader::from_raw_row(&raw_row, PersistedRowMetaHintEntity::MODEL)
+    let reader = StructuralSlotReader::from_raw_row(&raw_row, PersistedRowTypedMetaEntity::MODEL)
         .expect("raw row should decode structurally");
 
     assert_eq!(
         reader.get_bytes(1),
         Some(expected_payload.as_slice()),
-        "derived meta hint should emit bytes from the field type's own storage contract",
+        "derived typed metadata field should emit bytes from the field type's slot contract",
     );
 }
 
 #[test]
-fn meta_hint_decodes_matching_field_type_meta_payload() {
+fn typed_meta_field_decodes_matching_field_slot_payload() {
     let id = crate::types::Ulid::from_u128(82);
     let id_payload = encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(id)));
-    let payload_value = Value::from_map(vec![(
-        Value::Text("bio".to_string()),
-        Value::Text("field-meta".to_string()),
-    )])
-    .expect("payload value should normalize");
-    let payload_bytes = encode_structural_value_storage_bytes(&payload_value)
-        .expect("matching field-meta bytes should encode");
+    let payload_value = PersistedRowProfileValue {
+        bio: "field-meta".to_string(),
+    };
+    let payload_bytes = crate::db::encode_persisted_slot_payload_by_meta(&payload_value, "payload")
+        .expect("matching typed field bytes should encode");
     let payload = encode_slot_payload_from_parts(
         2,
         &[
@@ -2429,12 +2256,12 @@ fn meta_hint_decodes_matching_field_type_meta_payload() {
         RawRow::try_new(serialize_row_payload(payload).expect("test row bytes should serialize"))
             .expect("test row should encode");
     let decoded = raw_row
-        .try_decode::<PersistedRowMetaHintEntity>()
-        .expect("derived meta hint should decode matching field-meta payload");
+        .try_decode::<PersistedRowTypedMetaEntity>()
+        .expect("derived typed metadata field should decode matching field payload");
 
     assert_eq!(
         decoded,
-        PersistedRowMetaHintEntity {
+        PersistedRowTypedMetaEntity {
             id,
             payload: payload_value,
         }
@@ -2442,41 +2269,56 @@ fn meta_hint_decodes_matching_field_type_meta_payload() {
 }
 
 #[test]
-fn persisted_row_meta_many_hint_uses_container_field_type_meta_contract() {
-    let entity = PersistedRowMetaManyHintEntity {
+fn persisted_row_many_typed_meta_uses_container_slot_contract() {
+    let entity = PersistedRowManyTypedMetaEntity {
         id: crate::types::Ulid::from_u128(83),
         payloads: vec![
-            Value::Text("alpha".to_string()),
-            Value::Text("beta".to_string()),
+            PersistedRowProfileValue {
+                bio: "alpha".to_string(),
+            },
+            PersistedRowProfileValue {
+                bio: "beta".to_string(),
+            },
         ],
     };
-    let expected_payload =
-        encode_structural_value_storage_bytes(&Value::List(entity.payloads.clone()))
-            .expect("payload list bytes should encode through structural value storage");
+    let expected_payload = encode_persisted_slot_payload_by_kind(
+        &entity.payloads,
+        FieldKind::List(&PersistedRowProfileValue::KIND),
+        "payloads",
+    )
+    .expect("typed payload list bytes should encode through static item metadata");
     let raw_row = CanonicalRow::from_entity(&entity)
         .expect("derived entity should encode")
         .into_raw_row();
     let reader =
-        StructuralSlotReader::from_raw_row(&raw_row, PersistedRowMetaManyHintEntity::MODEL)
+        StructuralSlotReader::from_raw_row(&raw_row, PersistedRowManyTypedMetaEntity::MODEL)
             .expect("raw row should decode structurally");
 
     assert_eq!(
         reader.get_bytes(1),
         Some(expected_payload.as_slice()),
-        "derived meta hint should emit container bytes from blanket field-type metadata",
+        "derived typed container field should emit bytes from the container slot contract",
     );
 }
 
 #[test]
-fn meta_many_hint_decodes_matching_container_field_type_meta_payload() {
+fn many_typed_meta_decodes_matching_container_slot_payload() {
     let id = crate::types::Ulid::from_u128(84);
     let id_payload = encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(id)));
     let payload_values = vec![
-        Value::Text("left".to_string()),
-        Value::Text("right".to_string()),
+        PersistedRowProfileValue {
+            bio: "left".to_string(),
+        },
+        PersistedRowProfileValue {
+            bio: "right".to_string(),
+        },
     ];
-    let payload_bytes = encode_structural_value_storage_bytes(&Value::List(payload_values.clone()))
-        .expect("matching container field-meta bytes should encode");
+    let payload_bytes = encode_persisted_slot_payload_by_kind(
+        &payload_values,
+        FieldKind::List(&PersistedRowProfileValue::KIND),
+        "payloads",
+    )
+    .expect("matching typed container bytes should encode");
     let payload = encode_slot_payload_from_parts(
         2,
         &[
@@ -2496,12 +2338,12 @@ fn meta_many_hint_decodes_matching_container_field_type_meta_payload() {
         RawRow::try_new(serialize_row_payload(payload).expect("test row bytes should serialize"))
             .expect("test row should encode");
     let decoded = raw_row
-        .try_decode::<PersistedRowMetaManyHintEntity>()
-        .expect("derived meta many hint should decode matching field-meta payload");
+        .try_decode::<PersistedRowManyTypedMetaEntity>()
+        .expect("derived many typed field should decode matching container payload");
 
     assert_eq!(
         decoded,
-        PersistedRowMetaManyHintEntity {
+        PersistedRowManyTypedMetaEntity {
             id,
             payloads: payload_values,
         }

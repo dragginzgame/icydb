@@ -1,0 +1,5 @@
+error: #[icydb(...)] persisted-row field hints have been removed; use schema-derived field metadata or a type that implements PersistedFieldSlotCodec
+ --> tests/ui/db/persisted_row_field_hints_removed.rs:5:5
+  |
+5 |     #[icydb(meta)]
+  |     ^^^^^^^^^^^^^^

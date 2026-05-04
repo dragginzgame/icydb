@@ -1,0 +1,77 @@
+error[E0277]: the trait bound `icydb_core::value::Value: PersistedByKindCodec` is not satisfied
+  --> tests/ui/db/persisted_row_vec_value_field_rejected.rs:23:13
+   |
+23 |     values: Vec<Value>,
+   |             ^^^^^^^^^^ the trait `PersistedByKindCodec` is not implemented for `icydb_core::value::Value`
+   |
+   = help: the following other types implement trait `PersistedByKindCodec`:
+             BTreeMap<K, V>
+             BTreeSet<T>
+             Box<T>
+             Nat
+             Nat128
+             Option<T>
+             Vec<T>
+             bool
+           and $N others
+   = note: required for `Vec<icydb_core::value::Value>` to implement `PersistedFieldSlotCodec`
+note: required by a bound in `__ICYDB_FIELD_VALUES_MUST_IMPLEMENT_PERSISTED_FIELD_SLOT_CODEC_TO_BE_STORED`
+  --> tests/ui/db/persisted_row_vec_value_field_rejected.rs:21:10
+   |
+21 | #[derive(PersistedRow)]
+   |          ^^^^^^^^^^^^ required by this bound in `__ICYDB_FIELD_VALUES_MUST_IMPLEMENT_PERSISTED_FIELD_SLOT_CODEC_TO_BE_STORED`
+   = note: this error originates in the derive macro `PersistedRow` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `icydb_core::value::Value: FieldTypeMeta` is not satisfied
+  --> tests/ui/db/persisted_row_vec_value_field_rejected.rs:23:13
+   |
+23 |     values: Vec<Value>,
+   |             ^^^^^^^^^^ the trait `FieldTypeMeta` is not implemented for `icydb_core::value::Value`
+   |
+   = help: the following other types implement trait `FieldTypeMeta`:
+             BTreeMap<K, V>
+             BTreeSet<T>
+             Box<T>
+             Option<T>
+             Vec<T>
+   = note: required for `icydb_core::value::Value` to implement `icydb_core::db::data::persisted_row::codec::slot::PersistedFieldSlotKind`
+   = note: required for `Vec<icydb_core::value::Value>` to implement `PersistedFieldSlotCodec`
+note: required by a bound in `__ICYDB_FIELD_VALUES_MUST_IMPLEMENT_PERSISTED_FIELD_SLOT_CODEC_TO_BE_STORED`
+  --> tests/ui/db/persisted_row_vec_value_field_rejected.rs:21:10
+   |
+21 | #[derive(PersistedRow)]
+   |          ^^^^^^^^^^^^ required by this bound in `__ICYDB_FIELD_VALUES_MUST_IMPLEMENT_PERSISTED_FIELD_SLOT_CODEC_TO_BE_STORED`
+   = note: this error originates in the derive macro `PersistedRow` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `icydb_core::value::Value: PersistedByKindCodec` is not satisfied
+  --> tests/ui/db/persisted_row_vec_value_field_rejected.rs:23:13
+   |
+23 |     values: Vec<Value>,
+   |             ^^^^^^^^^^ the trait `PersistedByKindCodec` is not implemented for `icydb_core::value::Value`
+   |
+   = help: the following other types implement trait `PersistedByKindCodec`:
+             BTreeMap<K, V>
+             BTreeSet<T>
+             Box<T>
+             Nat
+             Nat128
+             Option<T>
+             Vec<T>
+             bool
+           and $N others
+   = note: required for `Vec<icydb_core::value::Value>` to implement `PersistedFieldSlotCodec`
+
+error[E0277]: the trait bound `icydb_core::value::Value: FieldTypeMeta` is not satisfied
+  --> tests/ui/db/persisted_row_vec_value_field_rejected.rs:23:13
+   |
+23 |     values: Vec<Value>,
+   |             ^^^^^^^^^^ the trait `FieldTypeMeta` is not implemented for `icydb_core::value::Value`
+   |
+   = help: the following other types implement trait `FieldTypeMeta`:
+             BTreeMap<K, V>
+             BTreeSet<T>
+             Box<T>
+             Option<T>
+             Vec<T>
+   = note: required for `icydb_core::value::Value` to implement `icydb_core::db::data::persisted_row::codec::slot::PersistedFieldSlotKind`
+   = note: required for `Vec<icydb_core::value::Value>` to implement `PersistedFieldSlotCodec`

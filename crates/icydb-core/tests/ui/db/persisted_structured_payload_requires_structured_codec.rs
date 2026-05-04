@@ -1,5 +1,5 @@
 use icydb_core::{
-    db::encode_persisted_custom_slot_payload,
+    db::encode_persisted_structured_slot_payload,
     traits::RuntimeValueEncode,
     value::Value,
 };
@@ -15,5 +15,5 @@ impl RuntimeValueEncode for CloneDebugOnly {
 
 fn main() {
     let value = CloneDebugOnly;
-    let _ = encode_persisted_custom_slot_payload(&value, "broken");
+    let _ = encode_persisted_structured_slot_payload(&value, "broken");
 }

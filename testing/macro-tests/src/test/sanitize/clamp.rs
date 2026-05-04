@@ -9,10 +9,51 @@ mod tests {
     use super::*;
     use crate::prelude::*;
     use icydb::{
+        __macro::{
+            encode_persisted_many_slot_payload_by_meta,
+            encode_persisted_option_slot_payload_by_meta, encode_persisted_slot_payload_by_meta,
+        },
+        db::{InternalError, PersistedRow, SlotWriter},
         sanitize,
-        traits::{Collection, Inner},
+        traits::{Collection, EntitySchema, Inner},
         types::Decimal,
     };
+
+    ///
+    /// CaptureSlotWriter
+    ///
+    /// CaptureSlotWriter stores generated persisted slot payloads in-memory so
+    /// macro tests can inspect the exact encoded field image before any store
+    /// boundary rewraps it into a raw row.
+    ///
+
+    struct CaptureSlotWriter {
+        slots: Vec<Option<Vec<u8>>>,
+    }
+
+    impl CaptureSlotWriter {
+        fn new(slot_count: usize) -> Self {
+            Self {
+                slots: vec![None; slot_count],
+            }
+        }
+
+        fn into_slots(self) -> Vec<Option<Vec<u8>>> {
+            self.slots
+        }
+    }
+
+    impl SlotWriter for CaptureSlotWriter {
+        fn write_slot(&mut self, slot: usize, payload: Option<&[u8]>) -> Result<(), InternalError> {
+            let cell = self
+                .slots
+                .get_mut(slot)
+                .unwrap_or_else(|| panic!("test writer slot {slot} outside capture bounds"));
+            *cell = payload.map(Vec::from);
+
+            Ok(())
+        }
+    }
 
     #[entity(
         store = "TestStore",
@@ -23,6 +64,7 @@ mod tests {
             field(ident = "cint32_opt", value(opt, item(is = "ClampInt32"))),
             field(ident = "cdec", value(item(is = "ClampDecimal"))),
             field(ident = "cdec_opt", value(opt, item(is = "ClampDecimal"))),
+            field(ident = "cdec_many", value(many, item(is = "ClampDecimal"))),
         )
     )]
     pub struct ClampEntityHarness {}
@@ -100,6 +142,7 @@ mod tests {
             cint32_opt: Some(ClampInt32::from(25)),
             cdec: ClampDecimal::from(10),
             cdec_opt: Some(ClampDecimal::from(0.1)),
+            cdec_many: vec![],
             ..Default::default()
         };
 
@@ -109,5 +152,49 @@ mod tests {
         assert_eq!(e.cint32_opt.unwrap(), ClampInt32::from(20), "clamped down");
         assert_eq!(e.cdec, ClampDecimal::from(5.5), "clamped down");
         assert_eq!(e.cdec_opt.unwrap(), ClampDecimal::from(0.5), "clamped up");
+    }
+
+    #[test]
+    fn item_is_decimal_entity_slots_use_field_meta_storage_contract() {
+        let entity = ClampEntityHarness {
+            cdec: ClampDecimal::from(2.5),
+            cdec_opt: Some(ClampDecimal::from(3.5)),
+            cdec_many: vec![ClampDecimal::from(1.5), ClampDecimal::from(4.5)],
+            ..Default::default()
+        };
+        let mut writer = CaptureSlotWriter::new(ClampEntityHarness::MODEL.fields().len());
+        entity
+            .write_slots(&mut writer)
+            .expect("generated persisted row should write slots");
+        let slots = writer.into_slots();
+
+        assert_eq!(
+            required_slot_payload(slots.as_slice(), 3),
+            encode_persisted_slot_payload_by_meta(&entity.cdec, "cdec")
+                .expect("required decimal metadata payload should encode")
+                .as_slice(),
+            "required item(is) decimal field should use field metadata storage",
+        );
+        assert_eq!(
+            required_slot_payload(slots.as_slice(), 4),
+            encode_persisted_option_slot_payload_by_meta(&entity.cdec_opt, "cdec_opt")
+                .expect("optional decimal metadata payload should encode")
+                .as_slice(),
+            "optional item(is) decimal field should use field metadata storage",
+        );
+        assert_eq!(
+            required_slot_payload(slots.as_slice(), 5),
+            encode_persisted_many_slot_payload_by_meta(entity.cdec_many.as_slice(), "cdec_many")
+                .expect("repeated decimal metadata payload should encode")
+                .as_slice(),
+            "repeated item(is) decimal field should use item metadata storage",
+        );
+    }
+
+    fn required_slot_payload(slots: &[Option<Vec<u8>>], slot: usize) -> &[u8] {
+        slots
+            .get(slot)
+            .and_then(Option::as_deref)
+            .unwrap_or_else(|| panic!("expected captured payload for slot {slot}"))
     }
 }

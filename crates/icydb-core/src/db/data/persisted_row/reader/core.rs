@@ -6,7 +6,7 @@ use crate::{
         ValueStorageView,
         persisted_row::{
             codec::{ScalarSlotValueRef, ScalarValueRef, decode_scalar_slot_value},
-            contract::{decode_slot_value_for_field, validate_non_scalar_slot_value},
+            contract::{decode_field_slot_into_runtime_value, validate_non_scalar_slot_value},
             reader::{
                 cache::{
                     CachedSlotValue, ValidatedScalarSlotValue, build_initial_slot_cache,
@@ -231,7 +231,7 @@ impl<'a> StructuralSlotReader<'a> {
                         self.metrics.record_materialized_non_scalar();
                     }
                     validate_non_scalar_slot_value(raw_value, field)?;
-                    let value = decode_slot_value_for_field(field, raw_value)?;
+                    let value = decode_field_slot_into_runtime_value(field, raw_value)?;
                     let _ = materialized.set(value);
                 }
 

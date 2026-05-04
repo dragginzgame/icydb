@@ -1,8 +1,13 @@
 //! Module: data::persisted_row
 //! Responsibility: slot-oriented persisted-row seams over runtime row bytes.
-//! Does not own: row envelope versions, typed entity materialization, or query semantics.
+//! Does not own: field persistence policy, row envelope versions, typed entity
+//! materialization, or query semantics.
 //! Boundary: commit/index planning, row writes, and typed materialization all
 //! consume the canonical slot-oriented persisted-row boundary here.
+//!
+//! Runtime `Value` appears here only at outer row adapters for structural
+//! writes, reads, projection, and patch replay. Persisted field storage remains
+//! owned by field types through `PersistedFieldSlotCodec`.
 
 mod codec;
 mod contract;
@@ -36,12 +41,14 @@ pub use types::{PersistedRow, SlotReader, SlotWriter, StructuralPatch};
 // These helpers remain public inside `icydb-core` because the cross-crate
 // `icydb::__macro` boundary still needs a stable path for generated code.
 pub use codec::{
-    PersistedScalar, ScalarSlotValueRef, ScalarValueRef, decode_persisted_custom_many_slot_payload,
-    decode_persisted_custom_slot_payload, decode_persisted_option_scalar_slot_payload,
+    PersistedScalar, ScalarSlotValueRef, ScalarValueRef,
+    decode_persisted_many_slot_payload_by_meta, decode_persisted_option_scalar_slot_payload,
     decode_persisted_option_slot_payload_by_kind, decode_persisted_option_slot_payload_by_meta,
     decode_persisted_scalar_slot_payload, decode_persisted_slot_payload_by_kind,
-    decode_persisted_slot_payload_by_meta, encode_persisted_custom_many_slot_payload,
-    encode_persisted_custom_slot_payload, encode_persisted_option_scalar_slot_payload,
-    encode_persisted_option_slot_payload_by_meta, encode_persisted_scalar_slot_payload,
-    encode_persisted_slot_payload_by_kind, encode_persisted_slot_payload_by_meta,
+    decode_persisted_slot_payload_by_meta, decode_persisted_structured_many_slot_payload,
+    decode_persisted_structured_slot_payload, encode_persisted_many_slot_payload_by_meta,
+    encode_persisted_option_scalar_slot_payload, encode_persisted_option_slot_payload_by_meta,
+    encode_persisted_scalar_slot_payload, encode_persisted_slot_payload_by_kind,
+    encode_persisted_slot_payload_by_meta, encode_persisted_structured_many_slot_payload,
+    encode_persisted_structured_slot_payload,
 };

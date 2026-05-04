@@ -9,7 +9,7 @@ use crate::{
             AccessPlannedQuery, CoveringReadExecutionPlan, PlannedContinuationContract,
             covering_read_execution_plan_from_fields,
         },
-        schema::SchemaInfo,
+        schema::{AcceptedRowLayoutRuntimeDescriptor, SchemaInfo},
     },
     error::InternalError,
     metrics::sink::{
@@ -62,6 +62,23 @@ impl EntityAuthority {
     #[must_use]
     pub const fn for_type<E: EntityKind>() -> Self {
         Self::new(E::MODEL, E::ENTITY_TAG, E::Store::PATH)
+    }
+
+    /// Return authority with its row layout frozen from accepted schema.
+    ///
+    /// This currently requires a generated-compatible accepted descriptor
+    /// because the structural data decoder still uses generated field decoders.
+    /// The method keeps that compatibility requirement at the authority
+    /// boundary instead of letting executor call sites mix generated and
+    /// accepted layout facts ad hoc.
+    pub(in crate::db) fn with_accepted_row_layout(
+        self,
+        descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    ) -> Result<Self, InternalError> {
+        let row_layout =
+            RowLayout::from_generated_compatible_accepted_descriptor(self.model, descriptor)?;
+
+        Ok(Self { row_layout, ..self })
     }
 
     /// Borrow the entity model authority.

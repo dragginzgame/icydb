@@ -82,7 +82,7 @@ fn execute_sql_scalar_field_path_where_matches_expected_rows() {
         &[
             ("Adam", profile_rank(Value::Int(5))),
             ("Beth", profile_rank(Value::Int(7))),
-            ("Cara", Value::Map(vec![])),
+            ("Cara", SessionSqlFieldPathProfile::default()),
             ("Dina", profile_rank(Value::Null)),
         ],
     );
@@ -166,8 +166,8 @@ fn execute_sql_scalar_in_trailing_comma_matches_canonical_rows() {
     );
 }
 
-fn profile_rank(rank: Value) -> Value {
-    Value::Map(vec![(Value::Text("rank".to_string()), rank)])
+fn profile_rank(rank: Value) -> SessionSqlFieldPathProfile {
+    SessionSqlFieldPathProfile::rank(rank)
 }
 
 #[test]

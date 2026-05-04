@@ -13,8 +13,8 @@ use crate::{
         },
         data::{
             CanonicalRow, DataKey, DataStore, RawRow, StructuralPatch,
-            decode_persisted_custom_many_slot_payload, decode_persisted_scalar_slot_payload,
-            encode_persisted_custom_many_slot_payload, encode_persisted_scalar_slot_payload,
+            decode_persisted_scalar_slot_payload, decode_persisted_structured_many_slot_payload,
+            encode_persisted_scalar_slot_payload, encode_persisted_structured_many_slot_payload,
         },
         executor::{
             DeleteExecutor, SaveExecutor,
@@ -37,8 +37,9 @@ use crate::{
     },
     testing::test_memory,
     traits::{
-        EntityKind, EntitySchema, Path, PersistedStructuredFieldCodec, RuntimeValueDecode,
-        RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
+        EntityKind, EntitySchema, FieldTypeMeta, Path, PersistedFieldSlotCodec,
+        PersistedStructuredFieldCodec, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
+        RuntimeValueMeta,
     },
     types::{Account, Decimal, EntityTag, Id, Ulid},
     value::Value,
@@ -562,7 +563,7 @@ impl crate::db::PersistedRow for StructuredSelectionEntity {
                 None => return Err(crate::error::InternalError::missing_persisted_slot("id")),
             },
             selected_parts: match slots.get_bytes(1) {
-                Some(bytes) => decode_persisted_custom_many_slot_payload::<SaveSelectedPart>(
+                Some(bytes) => decode_persisted_structured_many_slot_payload::<SaveSelectedPart>(
                     bytes,
                     "selected_parts",
                 )?,
@@ -583,7 +584,7 @@ impl crate::db::PersistedRow for StructuredSelectionEntity {
         out.write_slot(0, Some(id_payload.as_slice()))?;
 
         let selected_parts_payload =
-            encode_persisted_custom_many_slot_payload(&self.selected_parts, "selected_parts")?;
+            encode_persisted_structured_many_slot_payload(&self.selected_parts, "selected_parts")?;
         out.write_slot(1, Some(selected_parts_payload.as_slice()))?;
 
         Ok(())
@@ -693,7 +694,7 @@ impl crate::db::PersistedRow for StructuredSelectionSetEntity {
                 None => return Err(crate::error::InternalError::missing_persisted_slot("id")),
             },
             selected_parts: match slots.get_bytes(1) {
-                Some(bytes) => crate::db::decode_persisted_custom_slot_payload::<
+                Some(bytes) => crate::db::decode_persisted_structured_slot_payload::<
                     SaveSelectedPartSet,
                 >(bytes, "selected_parts")?,
                 None => {
@@ -712,7 +713,7 @@ impl crate::db::PersistedRow for StructuredSelectionSetEntity {
         let id_payload = encode_persisted_scalar_slot_payload(&self.id, "id")?;
         out.write_slot(0, Some(id_payload.as_slice()))?;
 
-        let selected_parts_payload = crate::db::encode_persisted_custom_slot_payload(
+        let selected_parts_payload = crate::db::encode_persisted_structured_slot_payload(
             &self.selected_parts,
             "selected_parts",
         )?;
@@ -849,7 +850,7 @@ impl crate::db::PersistedRow for StructuredSelectionMapEntity {
                 None => return Err(crate::error::InternalError::missing_persisted_slot("id")),
             },
             selected_parts_by_layer: match slots.get_bytes(1) {
-                Some(bytes) => crate::db::decode_persisted_custom_slot_payload::<
+                Some(bytes) => crate::db::decode_persisted_structured_slot_payload::<
                     SaveSelectedPartMap,
                 >(bytes, "selected_parts_by_layer")?,
                 None => {
@@ -868,7 +869,7 @@ impl crate::db::PersistedRow for StructuredSelectionMapEntity {
         let id_payload = encode_persisted_scalar_slot_payload(&self.id, "id")?;
         out.write_slot(0, Some(id_payload.as_slice()))?;
 
-        let selected_parts_by_layer_payload = crate::db::encode_persisted_custom_slot_payload(
+        let selected_parts_by_layer_payload = crate::db::encode_persisted_structured_slot_payload(
             &self.selected_parts_by_layer,
             "selected_parts_by_layer",
         )?;
@@ -1029,14 +1030,96 @@ crate::test_entity_schema! {
 }
 
 ///
+/// SaveScale2Decimal
+///
+/// SaveScale2Decimal gives the executor decimal-scale fixture a type-owned
+/// field metadata contract.
+/// It replaces the removed persisted-row field hint while still letting these
+/// core tests exercise decimal normalization without depending on schema macro
+/// fixtures from another crate.
+///
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq)]
+struct SaveScale2Decimal(Decimal);
+
+impl SaveScale2Decimal {
+    fn new(decimal: Decimal) -> Self {
+        Self(decimal)
+    }
+
+    fn decimal(self) -> Decimal {
+        self.0
+    }
+}
+
+impl FieldTypeMeta for SaveScale2Decimal {
+    const KIND: FieldKind = FieldKind::Decimal { scale: 2 };
+    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::ByKind;
+}
+
+impl RuntimeValueMeta for SaveScale2Decimal {
+    fn kind() -> RuntimeValueKind {
+        RuntimeValueKind::Atomic
+    }
+}
+
+impl RuntimeValueEncode for SaveScale2Decimal {
+    fn to_value(&self) -> Value {
+        Value::Decimal(self.0)
+    }
+}
+
+impl RuntimeValueDecode for SaveScale2Decimal {
+    fn from_value(value: &Value) -> Option<Self> {
+        let Value::Decimal(decimal) = value else {
+            return None;
+        };
+
+        Some(Self(*decimal))
+    }
+}
+
+impl PersistedFieldSlotCodec for SaveScale2Decimal {
+    fn encode_persisted_slot(
+        &self,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, crate::error::InternalError> {
+        crate::db::encode_persisted_slot_payload_by_meta(self, field_name)
+    }
+
+    fn decode_persisted_slot(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Self, crate::error::InternalError> {
+        crate::db::decode_persisted_slot_payload_by_meta(bytes, field_name)
+    }
+
+    fn encode_persisted_option_slot(
+        value: &Option<Self>,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, crate::error::InternalError> {
+        crate::db::encode_persisted_option_slot_payload_by_meta(value, field_name)
+    }
+
+    fn decode_persisted_option_slot(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Option<Self>, crate::error::InternalError> {
+        crate::db::decode_persisted_option_slot_payload_by_meta(bytes, field_name)
+    }
+}
+
+///
 /// DecimalScaleEntity
+///
+/// DecimalScaleEntity is the save-path fixture for decimal fields whose
+/// persisted scale is declared by the field type metadata contract.
 ///
 
 #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct DecimalScaleEntity {
     id: Ulid,
-    #[icydb(scale = 2)]
-    amount: Decimal,
+    amount: SaveScale2Decimal,
 }
 
 crate::test_entity_schema! {
@@ -2571,21 +2654,21 @@ fn decimal_scale_mixed_writes_normalize_to_declared_scale() {
     let canonical_id = Ulid::from_u128(8101);
     save.insert(DecimalScaleEntity {
         id: canonical_id,
-        amount: Decimal::new(123, 2),
+        amount: SaveScale2Decimal::new(Decimal::new(123, 2)),
     })
     .expect("canonical decimal scale should save");
 
     let padded_id = Ulid::from_u128(8102);
     save.insert(DecimalScaleEntity {
         id: padded_id,
-        amount: Decimal::new(123, 0),
+        amount: SaveScale2Decimal::new(Decimal::new(123, 0)),
     })
     .expect("lower-scale decimal should be padded to field scale");
 
     let rounded_id = Ulid::from_u128(8103);
     save.insert(DecimalScaleEntity {
         id: rounded_id,
-        amount: Decimal::new(1234, 3),
+        amount: SaveScale2Decimal::new(Decimal::new(1234, 3)),
     })
     .expect("higher-scale decimal should be rounded to field scale");
 
@@ -2593,19 +2676,22 @@ fn decimal_scale_mixed_writes_normalize_to_declared_scale() {
     assert_eq!(rows, 3, "normalized mixed-scale writes should persist");
     let canonical = load_decimal_scale_entity(canonical_id)
         .expect("canonical decimal row should persist")
-        .amount;
+        .amount
+        .decimal();
     assert_eq!(canonical, Decimal::new(123, 2));
     assert_eq!(canonical.scale(), 2);
 
     let padded = load_decimal_scale_entity(padded_id)
         .expect("padded decimal row should persist")
-        .amount;
+        .amount
+        .decimal();
     assert_eq!(padded, Decimal::new(12_300, 2));
     assert_eq!(padded.scale(), 2);
 
     let rounded = load_decimal_scale_entity(rounded_id)
         .expect("rounded decimal row should persist")
-        .amount;
+        .amount
+        .decimal();
     assert_eq!(rounded, Decimal::new(123, 2));
     assert_eq!(rounded.scale(), 2);
 }
@@ -2639,7 +2725,8 @@ fn structural_insert_normalizes_decimal_scale_to_declared_scale() {
     );
     let persisted = load_decimal_scale_entity(id)
         .expect("structural decimal row should persist")
-        .amount;
+        .amount
+        .decimal();
     assert_eq!(persisted, Decimal::new(12_300, 2));
     assert_eq!(persisted.scale(), 2);
 }
@@ -2751,7 +2838,7 @@ fn save_update_rejects_persisted_row_with_decimal_scale_drift() {
     let err = save
         .update(DecimalScaleEntity {
             id,
-            amount: Decimal::new(123, 2),
+            amount: SaveScale2Decimal::new(Decimal::new(123, 2)),
         })
         .expect_err("decode path must reject persisted decimal scale drift");
     assert_eq!(err.class, ErrorClass::Corruption);

@@ -89,8 +89,8 @@ use crate::{
     },
     testing::test_memory,
     traits::{
-        EntitySchema, FieldTypeMeta, Path, PersistedByKindCodec, RuntimeValueDecode,
-        RuntimeValueEncode,
+        EntitySchema, FieldTypeMeta, Path, PersistedByKindCodec, PersistedFieldSlotCodec,
+        RuntimeValueDecode, RuntimeValueEncode,
     },
     types::{Blob, Date, Duration, EntityTag, Float64, Id, Timestamp, Ulid},
     value::{OutputValue, StorageKey, Value},
@@ -607,17 +607,17 @@ struct SessionSqlEntity {
 ///
 /// SessionSqlFieldPathEntity
 ///
-/// SessionSqlFieldPathEntity keeps one value-storage map on the SQL session
-/// fixture surface so scan-only FieldPath predicate execution can be verified
-/// through the public SQL path without changing the shared scalar fixture.
+/// SessionSqlFieldPathEntity keeps one typed value-storage profile on the SQL
+/// session fixture surface so scan-only FieldPath predicate execution can be
+/// verified through the public SQL path without changing the shared scalar
+/// fixture.
 ///
 
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionSqlFieldPathEntity {
     id: Ulid,
     name: String,
-    #[icydb(value)]
-    profile: Value,
+    profile: SessionSqlFieldPathProfile,
 }
 
 impl Default for SessionSqlFieldPathEntity {
@@ -625,8 +625,119 @@ impl Default for SessionSqlFieldPathEntity {
         Self {
             id: Ulid::from_u128(0),
             name: String::new(),
-            profile: Value::Null,
+            profile: SessionSqlFieldPathProfile::default(),
         }
+    }
+}
+
+///
+/// SessionSqlFieldPathProfile
+///
+/// SessionSqlFieldPathProfile is the typed structured field used by scan-only
+/// FieldPath predicate tests.
+/// The rank state lets tests distinguish a missing `rank` key from an explicit
+/// SQL NULL while keeping the persisted field statically typed.
+///
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+struct SessionSqlFieldPathProfile {
+    rank: SessionSqlFieldPathRank,
+}
+
+impl SessionSqlFieldPathProfile {
+    fn rank(value: Value) -> Self {
+        match value {
+            Value::Int(value) => Self {
+                rank: SessionSqlFieldPathRank::Value(value),
+            },
+            Value::Null => Self {
+                rank: SessionSqlFieldPathRank::Null,
+            },
+            _ => Self::default(),
+        }
+    }
+}
+
+///
+/// SessionSqlFieldPathRank
+///
+/// SessionSqlFieldPathRank models the three nested field states needed by the
+/// SQL FieldPath predicate fixture.
+/// It keeps missing-key and explicit-NULL semantics distinct without using a
+/// nested option type in the persisted test wrapper.
+///
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+enum SessionSqlFieldPathRank {
+    #[default]
+    Missing,
+    Null,
+    Value(i64),
+}
+
+impl FieldTypeMeta for SessionSqlFieldPathProfile {
+    const KIND: FieldKind = FieldKind::Structured { queryable: false };
+    const NESTED_FIELDS: &'static [FieldModel] = &[FieldModel::generated("rank", FieldKind::Int)];
+    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
+}
+
+impl RuntimeValueEncode for SessionSqlFieldPathProfile {
+    fn to_value(&self) -> Value {
+        let rank = match self.rank {
+            SessionSqlFieldPathRank::Missing => return Value::Map(Vec::new()),
+            SessionSqlFieldPathRank::Null => Value::Null,
+            SessionSqlFieldPathRank::Value(value) => Value::Int(value),
+        };
+
+        Value::Map(vec![(Value::Text("rank".to_string()), rank)])
+    }
+}
+
+impl RuntimeValueDecode for SessionSqlFieldPathProfile {
+    fn from_value(value: &Value) -> Option<Self> {
+        let Value::Map(entries) = value else {
+            return None;
+        };
+
+        let rank = session_sql_profile_record_entry(entries.as_slice(), "rank");
+        let rank = match rank {
+            Some(Value::Int(rank)) => SessionSqlFieldPathRank::Value(*rank),
+            Some(Value::Null) => SessionSqlFieldPathRank::Null,
+            Some(_) => return None,
+            None => SessionSqlFieldPathRank::Missing,
+        };
+
+        Some(Self { rank })
+    }
+}
+
+impl PersistedFieldSlotCodec for SessionSqlFieldPathProfile {
+    fn encode_persisted_slot(
+        &self,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, crate::error::InternalError> {
+        crate::db::encode_persisted_slot_payload_by_meta(self, field_name)
+    }
+
+    fn decode_persisted_slot(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Self, crate::error::InternalError> {
+        crate::db::decode_persisted_slot_payload_by_meta(bytes, field_name)
+    }
+
+    fn encode_persisted_option_slot(
+        value: &Option<Self>,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, crate::error::InternalError> {
+        crate::db::encode_persisted_option_slot_payload_by_meta(value, field_name)
+    }
+
+    fn decode_persisted_option_slot(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Option<Self>, crate::error::InternalError> {
+        crate::db::decode_persisted_option_slot_payload_by_meta(bytes, field_name)
     }
 }
 
@@ -686,6 +797,36 @@ impl RuntimeValueDecode for SessionSqlProfileRecord {
             rank: *rank,
             nickname: nickname.clone(),
         })
+    }
+}
+
+impl PersistedFieldSlotCodec for SessionSqlProfileRecord {
+    fn encode_persisted_slot(
+        &self,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, crate::error::InternalError> {
+        crate::db::encode_persisted_slot_payload_by_meta(self, field_name)
+    }
+
+    fn decode_persisted_slot(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Self, crate::error::InternalError> {
+        crate::db::decode_persisted_slot_payload_by_meta(bytes, field_name)
+    }
+
+    fn encode_persisted_option_slot(
+        value: &Option<Self>,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, crate::error::InternalError> {
+        crate::db::encode_persisted_option_slot_payload_by_meta(value, field_name)
+    }
+
+    fn decode_persisted_option_slot(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Option<Self>, crate::error::InternalError> {
+        crate::db::decode_persisted_option_slot_payload_by_meta(bytes, field_name)
     }
 }
 
@@ -757,7 +898,6 @@ fn session_sql_profile_record_entry<'a>(
 struct SessionSqlRecordFieldPathEntity {
     id: Ulid,
     name: String,
-    #[icydb(meta)]
     profile: SessionSqlProfileRecord,
 }
 
@@ -2588,7 +2728,7 @@ fn seed_session_sql_entities(
 // predicate execution tests.
 fn seed_session_sql_field_path_entities(
     session: &DbSession<SessionSqlCanister>,
-    rows: &[(&'static str, Value)],
+    rows: &[(&'static str, SessionSqlFieldPathProfile)],
 ) {
     insert_session_fixture_rows(
         session,

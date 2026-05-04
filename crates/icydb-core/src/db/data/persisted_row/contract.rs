@@ -1,3 +1,14 @@
+//! Runtime boundary adapters between typed persisted-row slots and `Value`.
+//!
+//! This module is not the persisted-field contract. It is the runtime boundary
+//! adapter that converts `Value` -> bytes using schema `FieldModel` validation.
+//! It intentionally does not use Rust field types because runtime write, query,
+//! projection, and patch paths naturally carry dynamic `Value` payloads at the
+//! outer row boundary.
+//!
+//! Persistence contracts remain type-owned in codecs. `Value` must stay
+//! runtime-only and must never implement persisted-field codec traits.
+
 use crate::{
     db::{
         codec::serialize_row_payload,
@@ -27,24 +38,25 @@ use crate::db::data::persisted_row::{
     types::field_model_for_slot,
 };
 
-/// Decode one structural slot payload using the owning model field contract.
+/// Decode one structural slot payload into a runtime boundary `Value`.
 ///
-/// This is the canonical field-level decode boundary for persisted-row bytes.
-/// Higher-level row readers may still cache decoded values, but they should not
-/// rebuild scalar-vs-structural field dispatch themselves.
-pub(in crate::db) fn decode_slot_value_from_bytes(
+/// This adapter is for runtime row consumers only. It uses the owning
+/// `FieldModel` contract to select the exact storage lane before materializing
+/// a dynamic value for query/projection code.
+pub(in crate::db) fn decode_slot_into_runtime_value(
     model: &'static EntityModel,
     slot: usize,
     raw_value: &[u8],
 ) -> Result<Value, InternalError> {
     let field = field_model_for_slot(model, slot)?;
 
-    decode_slot_value_for_field(field, raw_value)
+    decode_field_slot_into_runtime_value(field, raw_value)
 }
 
-// Decode one structural slot payload once the owning field contract has
-// already been resolved.
-pub(in crate::db::data::persisted_row) fn decode_slot_value_for_field(
+// Decode one runtime-boundary slot payload once the owning field contract has
+// already been resolved. Callers inside persisted-row readers use this to avoid
+// repeating field-model lookup while still sharing the same adapter policy.
+pub(in crate::db::data::persisted_row) fn decode_field_slot_into_runtime_value(
     field: &FieldModel,
     raw_value: &[u8],
 ) -> Result<Value, InternalError> {
@@ -58,17 +70,12 @@ pub(in crate::db::data::persisted_row) fn decode_slot_value_for_field(
     }
 }
 
-/// Encode one structural slot value using the owning model field contract.
+/// Encode one runtime boundary `Value` into a persisted slot payload.
 ///
-/// This is the initial `0.64` write-side field-codec boundary. It currently
-/// covers:
-/// - scalar leaf slots
-/// - `FieldStorageDecode::Value` slots
-///
-/// Composite `ByKind` field encoding remains a follow-up slice so the runtime
-/// can add one structural encoder owner instead of quietly rebuilding typed
-/// per-field branches.
-pub(in crate::db::data::persisted_row) fn encode_slot_value_from_value(
+/// This adapter converts `Value` -> bytes through schema `FieldModel`
+/// validation. It is a boundary contract, not permission to persist `Value` as
+/// a field type; persisted Rust fields remain governed by type-owned codecs.
+pub(in crate::db::data::persisted_row) fn encode_runtime_value_into_slot(
     model: &'static EntityModel,
     slot: usize,
     value: &Value,
@@ -178,9 +185,9 @@ fn canonicalize_slot_payload(
     slot: usize,
     raw_value: &[u8],
 ) -> Result<Vec<u8>, InternalError> {
-    let value = decode_slot_value_from_bytes(model, slot, raw_value)?;
+    let value = decode_slot_into_runtime_value(model, slot, raw_value)?;
 
-    encode_slot_value_from_value(model, slot, &value)
+    encode_runtime_value_into_slot(model, slot, &value)
 }
 
 // Build one dense slot image by running one caller-supplied encode step per
@@ -222,7 +229,7 @@ where
 // Build one dense canonical slot image from already-decoded runtime values.
 // This keeps row-emission paths from re-decoding raw slot bytes when a caller
 // already owns the validated structural value cache.
-fn dense_canonical_slot_image_from_value_source<'a, F>(
+fn dense_canonical_slot_image_from_runtime_value_source<'a, F>(
     model: &'static EntityModel,
     mut value_for_slot: F,
 ) -> Result<Vec<Vec<u8>>, InternalError>
@@ -231,7 +238,7 @@ where
 {
     dense_slot_image_from_source(model, |slot| {
         let value = value_for_slot(slot)?;
-        encode_slot_value_from_value(model, slot, value.as_ref())
+        encode_runtime_value_into_slot(model, slot, value.as_ref())
     })
 }
 
@@ -310,14 +317,15 @@ where
 // Build and emit one canonical row from already-decoded runtime values so
 // callers that already own the structural value cache can reuse the same
 // row-emission owner without staging the dense slot image themselves.
-pub(in crate::db::data::persisted_row) fn canonical_row_from_value_source<'a, F>(
+pub(in crate::db::data::persisted_row) fn canonical_row_from_runtime_value_source<'a, F>(
     model: &'static EntityModel,
     value_for_slot: F,
 ) -> Result<CanonicalRow, InternalError>
 where
     F: FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
 {
-    let slot_payloads = dense_canonical_slot_image_from_value_source(model, value_for_slot)?;
+    let slot_payloads =
+        dense_canonical_slot_image_from_runtime_value_source(model, value_for_slot)?;
 
     emit_raw_row_from_slot_payloads(model, slot_payloads.as_slice())
 }

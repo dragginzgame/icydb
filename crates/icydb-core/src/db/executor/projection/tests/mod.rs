@@ -35,7 +35,10 @@ use crate::{
         field::{FieldKind, FieldStorageDecode},
         index::IndexModel,
     },
-    traits::{EntitySchema, EntityValue},
+    traits::{
+        EntitySchema, EntityValue, FieldTypeMeta, PersistedFieldSlotCodec, RuntimeValueDecode,
+        RuntimeValueEncode,
+    },
     types::Ulid,
     value::{OutputValue, Value},
 };
@@ -79,8 +82,7 @@ struct ProjectionEvalEntity {
     rank: i64,
     flag: bool,
     label: String,
-    #[icydb(value)]
-    profile: Value,
+    profile: ProjectionEvalProfile,
 }
 
 impl Default for ProjectionEvalEntity {
@@ -90,9 +92,120 @@ impl Default for ProjectionEvalEntity {
             rank: 0,
             flag: false,
             label: String::new(),
-            profile: Value::Null,
+            profile: ProjectionEvalProfile::default(),
         }
     }
+}
+
+///
+/// ProjectionEvalProfile
+///
+/// ProjectionEvalProfile is the typed structured field used by projection
+/// evaluator tests.
+/// It lowers to the runtime `Value::Map` shape needed by expression tests
+/// without making the dynamic `Value` union a persisted field type.
+///
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+struct ProjectionEvalProfile {
+    name: String,
+    rank: i64,
+    score: u64,
+    details_flag: bool,
+}
+
+impl FieldTypeMeta for ProjectionEvalProfile {
+    const KIND: FieldKind = FieldKind::Structured { queryable: false };
+    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
+}
+
+impl RuntimeValueEncode for ProjectionEvalProfile {
+    fn to_value(&self) -> Value {
+        Value::Map(vec![
+            (
+                Value::Text("name".to_string()),
+                Value::Text(self.name.clone()),
+            ),
+            (Value::Text("rank".to_string()), Value::Int(self.rank)),
+            (Value::Text("score".to_string()), Value::Uint(self.score)),
+            (
+                Value::Text("details".to_string()),
+                Value::Map(vec![(
+                    Value::Text("flag".to_string()),
+                    Value::Bool(self.details_flag),
+                )]),
+            ),
+        ])
+    }
+}
+
+impl RuntimeValueDecode for ProjectionEvalProfile {
+    fn from_value(value: &Value) -> Option<Self> {
+        let Value::Map(entries) = value else {
+            return None;
+        };
+
+        let name = projection_profile_entry(entries, "name")?;
+        let rank = projection_profile_entry(entries, "rank")?;
+        let score = projection_profile_entry(entries, "score")?;
+        let details = projection_profile_entry(entries, "details")?;
+        let Value::Text(name) = name else {
+            return None;
+        };
+        let Value::Int(rank) = rank else {
+            return None;
+        };
+        let Value::Uint(score) = score else {
+            return None;
+        };
+        let Value::Map(details) = details else {
+            return None;
+        };
+        let Value::Bool(details_flag) = projection_profile_entry(details, "flag")? else {
+            return None;
+        };
+
+        Some(Self {
+            name: name.clone(),
+            rank: *rank,
+            score: *score,
+            details_flag: *details_flag,
+        })
+    }
+}
+
+impl PersistedFieldSlotCodec for ProjectionEvalProfile {
+    fn encode_persisted_slot(&self, field_name: &'static str) -> Result<Vec<u8>, InternalError> {
+        crate::db::encode_persisted_slot_payload_by_meta(self, field_name)
+    }
+
+    fn decode_persisted_slot(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Self, InternalError> {
+        crate::db::decode_persisted_slot_payload_by_meta(bytes, field_name)
+    }
+
+    fn encode_persisted_option_slot(
+        value: &Option<Self>,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError> {
+        crate::db::encode_persisted_option_slot_payload_by_meta(value, field_name)
+    }
+
+    fn decode_persisted_option_slot(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Option<Self>, InternalError> {
+        crate::db::decode_persisted_option_slot_payload_by_meta(bytes, field_name)
+    }
+}
+
+fn projection_profile_entry<'a>(entries: &'a [(Value, Value)], field: &str) -> Option<&'a Value> {
+    entries.iter().find_map(|(key, value)| match key {
+        Value::Text(key) if key == field => Some(value),
+        _ => None,
+    })
 }
 
 crate::test_canister! {
@@ -138,21 +251,12 @@ fn row(
         rank,
         flag,
         label: format!("label-{id}"),
-        profile: Value::Map(vec![
-            (
-                Value::Text("name".to_string()),
-                Value::Text(format!("profile-{id}")),
-            ),
-            (Value::Text("rank".to_string()), Value::Int(rank)),
-            (
-                Value::Text("score".to_string()),
-                Value::Uint(u64::try_from(rank).expect("test rank should be non-negative")),
-            ),
-            (
-                Value::Text("details".to_string()),
-                Value::Map(vec![(Value::Text("flag".to_string()), Value::Bool(flag))]),
-            ),
-        ]),
+        profile: ProjectionEvalProfile {
+            name: format!("profile-{id}"),
+            rank,
+            score: u64::try_from(rank).expect("test rank should be non-negative"),
+            details_flag: flag,
+        },
     };
 
     (entity.id(), entity)

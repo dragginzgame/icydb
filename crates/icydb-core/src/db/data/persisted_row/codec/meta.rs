@@ -5,6 +5,7 @@ use crate::{
         strategy::StorageStrategy,
     },
     error::InternalError,
+    model::field::FieldKind,
     traits::{FieldTypeMeta, PersistedFieldMetaCodec, RuntimeValueDecode, RuntimeValueEncode},
     value::Value,
 };
@@ -93,6 +94,59 @@ where
     T::encode_persisted_option_slot_payload_by_meta(value, field_name)
 }
 
+/// Decode one repeated persisted slot payload using the item field type's own
+/// runtime field metadata.
+pub fn decode_persisted_many_slot_payload_by_meta<T>(
+    bytes: &[u8],
+    field_name: &'static str,
+) -> Result<Vec<T>, InternalError>
+where
+    T: FieldTypeMeta + RuntimeValueDecode,
+{
+    let runtime_value = require_decoded(
+        decode_meta_many_value_option::<T>(bytes, field_name)?,
+        || {
+            InternalError::persisted_row_field_decode_failed(
+                field_name,
+                "unexpected null for non-nullable field",
+            )
+        },
+    )?;
+
+    let Value::List(items) = runtime_value else {
+        return Err(InternalError::persisted_row_field_decode_failed(
+            field_name,
+            format!("payload does not match Vec<{}>", std::any::type_name::<T>()),
+        ));
+    };
+
+    items
+        .iter()
+        .map(|value| decode_runtime_value_as_meta::<T>(value, field_name))
+        .collect()
+}
+
+/// Encode one repeated persisted slot payload using the item field type's own
+/// runtime field metadata.
+pub fn encode_persisted_many_slot_payload_by_meta<T>(
+    values: &[T],
+    field_name: &'static str,
+) -> Result<Vec<u8>, InternalError>
+where
+    T: FieldTypeMeta + RuntimeValueEncode,
+{
+    let runtime_values = values.iter().map(RuntimeValueEncode::to_value).collect();
+    let runtime_value = Value::List(runtime_values);
+    let strategy = meta_many_storage_strategy::<T>();
+
+    encode_with_strategy(
+        strategy,
+        Some(&runtime_value),
+        field_name,
+        encode_runtime_value_with_strategy,
+    )
+}
+
 pub(super) fn encode_meta<T>(
     value: Option<&T>,
     field_name: &'static str,
@@ -169,4 +223,33 @@ where
             format!("payload does not match {}", std::any::type_name::<T>()),
         )
     })
+}
+
+fn decode_meta_many_value_option<T>(
+    bytes: &[u8],
+    field_name: &'static str,
+) -> Result<Option<Value>, InternalError>
+where
+    T: FieldTypeMeta,
+{
+    let strategy = meta_many_storage_strategy::<T>();
+
+    decode_with_strategy(
+        strategy,
+        bytes,
+        field_name,
+        decode_runtime_value_option_with_strategy,
+    )
+}
+
+const fn meta_many_storage_strategy<T>() -> StorageStrategy
+where
+    T: FieldTypeMeta,
+{
+    // Repeated `item(is = "...")` fields are modeled as a list whose item
+    // payload contract comes from the item type. Using `Vec<T>` metadata here
+    // would incorrectly force value-storage for by-kind item newtypes.
+    let kind = FieldKind::List(&T::KIND);
+
+    StorageStrategy::from_field_storage(T::STORAGE_DECODE, kind)
 }

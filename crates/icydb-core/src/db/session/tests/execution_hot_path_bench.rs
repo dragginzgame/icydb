@@ -1,13 +1,14 @@
 use super::*;
 use crate::{
     db::data::{
-        decode_persisted_custom_many_slot_payload, decode_structural_value_storage_bytes,
-        encode_persisted_custom_many_slot_payload, encode_structural_value_storage_bytes,
+        decode_persisted_structured_many_slot_payload, decode_structural_value_storage_bytes,
+        encode_persisted_structured_many_slot_payload, encode_structural_value_storage_bytes,
     },
     value::Value,
 };
 use std::{
     cmp::Reverse,
+    collections::BTreeMap,
     hint::black_box,
     time::{Duration, Instant},
 };
@@ -410,20 +411,24 @@ fn bench_codec_value_collections_and_maps(results: &mut Vec<(String, u128, usize
     );
 }
 
-// Benchmark the persisted custom-many structured codec over nested runtime
-// values, which exercises collection traversal from the persisted row boundary.
+// Benchmark the persisted structured-many codec over nested typed map/list
+// payloads, which exercises collection traversal from the persisted row
+// boundary without making the runtime `Value` union persistable.
 fn bench_codec_nested_structured_many(results: &mut Vec<(String, u128, usize)>) {
     let values = (0..48)
-        .map(|index| nested_codec_value_fixture((index % 8) + 4))
+        .map(|index| nested_codec_structured_fixture((index % 8) + 4))
         .collect::<Vec<_>>();
-    let encoded = encode_persisted_custom_many_slot_payload(values.as_slice(), "values")
-        .expect("custom-many codec benchmark fixture should encode");
-    let decoded = decode_persisted_custom_many_slot_payload::<Value>(encoded.as_slice(), "values")
-        .expect("custom-many codec benchmark fixture should decode");
+    let encoded = encode_persisted_structured_many_slot_payload(values.as_slice(), "values")
+        .expect("structured-many codec benchmark fixture should encode");
+    let decoded = decode_persisted_structured_many_slot_payload::<BTreeMap<String, Vec<String>>>(
+        encoded.as_slice(),
+        "values",
+    )
+    .expect("structured-many codec benchmark fixture should decode");
     assert_eq!(
         decoded.len(),
         values.len(),
-        "custom-many codec benchmark fixture should round-trip item count",
+        "structured-many codec benchmark fixture should round-trip item count",
     );
 
     record_warmed_benchmark(
@@ -431,15 +436,16 @@ fn bench_codec_nested_structured_many(results: &mut Vec<(String, u128, usize)>) 
         "codec nested structured many",
         CODEC_ITERATIONS,
         || {
-            let encoded =
-                encode_persisted_custom_many_slot_payload(black_box(values.as_slice()), "values")
-                    .expect("custom-many codec benchmark encode should succeed");
-            let decoded = decode_persisted_custom_many_slot_payload::<Value>(
-                black_box(encoded.as_slice()),
+            let encoded = encode_persisted_structured_many_slot_payload(
+                black_box(values.as_slice()),
                 "values",
             )
-            .expect("custom-many codec benchmark decode should succeed");
-            decoded.iter().map(value_weight).sum()
+            .expect("structured-many codec benchmark encode should succeed");
+            let decoded = decode_persisted_structured_many_slot_payload::<
+                BTreeMap<String, Vec<String>>,
+            >(black_box(encoded.as_slice()), "values")
+            .expect("structured-many codec benchmark decode should succeed");
+            decoded.iter().map(structured_map_weight).sum()
         },
     );
 }
@@ -553,6 +559,24 @@ fn nested_codec_value_fixture(width: usize) -> Value {
     ])
 }
 
+// Build one nested typed payload for the structured-many persisted codec
+// benchmark. This intentionally mirrors the shape of the runtime-value fixture
+// while keeping every persisted item statically typed.
+fn nested_codec_structured_fixture(width: usize) -> BTreeMap<String, Vec<String>> {
+    (0..width)
+        .map(|index| {
+            (
+                format!("key-{index:04}"),
+                vec![
+                    index.to_string(),
+                    generated_text("payload", index, 24),
+                    generated_text("tail", index, 16),
+                ],
+            )
+        })
+        .collect()
+}
+
 // Compute a small deterministic weight for decoded codec values so encode and
 // decode results remain observable to the optimizer.
 fn value_weight(value: &Value) -> usize {
@@ -566,4 +590,14 @@ fn value_weight(value: &Value) -> usize {
         Value::Text(value) => value.len(),
         _ => 1,
     }
+}
+
+fn structured_map_weight(value: &BTreeMap<String, Vec<String>>) -> usize {
+    value
+        .iter()
+        .map(|(key, values)| {
+            key.len()
+                .saturating_add(values.iter().map(String::len).sum::<usize>())
+        })
+        .sum()
 }

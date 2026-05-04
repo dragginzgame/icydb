@@ -1,0 +1,21 @@
+error[E0277]: the trait bound `icydb_core::value::Value: PersistedStructuredFieldCodec` is not satisfied
+ --> tests/ui/db/value_is_runtime_only_not_structured_codec.rs:6:31
+  |
+6 |     assert_structured_codec::<Value>();
+  |                               ^^^^^ the trait `PersistedStructuredFieldCodec` is not implemented for `icydb_core::value::Value`
+  |
+  = help: the following other types implement trait `PersistedStructuredFieldCodec`:
+            BTreeMap<K, V>
+            BTreeSet<T>
+            Box<T>
+            Nat
+            Nat128
+            Option<T>
+            Vec<T>
+            bool
+          and $N others
+note: required by a bound in `assert_structured_codec`
+ --> tests/ui/db/value_is_runtime_only_not_structured_codec.rs:3:31
+  |
+3 | fn assert_structured_codec<T: PersistedStructuredFieldCodec>() {}
+  |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_structured_codec`

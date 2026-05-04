@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.147.x] 🪪 - 2026-05-04 - Accepted Schema Authority Closeout
 
+- `0.147.2` fixes schema-derived item field persistence so decimal and newtype fields use their schema-owned storage format, removes dynamic `Value` persistence and old row field hints, simplifies row derives and schema-generated row writes to trait-owned codecs, and rejects accepted row layouts the generated decoder cannot safely read.
 - `0.147.1` reports schema transition decisions separately from startup reconciliation, adds the accepted row-layout descriptor boundary for future row decode/write work, and tightens metrics total-vs-bucket guard coverage.
 - `0.147.0` closes the accepted-schema authority release line by surfacing schema-change upgrade failures as concise schema errors before row rebuild decode can run.
 
@@ -320,7 +321,7 @@ See detailed breakdown:
 - `0.127.3` finishes the next cleanup after the direct persisted codec cut by deleting `ValueCodec`, splitting runtime value conversion into explicit encode and decode traits, and moving duplicated structural leaf byte rules onto one shared typed payload owner so the structural, value-storage, and storage-key lanes no longer each carry their own copy of the same semantic leaf encoding logic.
 - `0.127.2` removes the old blanket `ValueCodec` fallback from the persisted-row `ByKind` lane, so those fields now go through explicit direct leaf owners and explicit wrapper owners instead of silently dropping back to one catch-all runtime value conversion path.
 - `0.127.1` keeps shrinking `ValueCodec` out of persisted-row ownership, so `ByKind` fields now go through a dedicated persisted contract and the obvious leaf family uses direct scalar or storage-key bytes before the old runtime `ValueCodec` fallback is considered.
-- `0.127.0` starts cutting `Value` out of derive-owned structured custom field persistence, so generated records, tuples, enums, and container wrappers can round-trip their persisted custom payload bytes through a typed-owned codec path instead of rebuilding a runtime `Value` just to get back to bytes.
+- `0.127.0` starts cutting `Value` out of derive-owned structured field persistence, so generated records, tuples, enums, and container wrappers can round-trip their persisted structured payload bytes through a typed-owned codec path instead of rebuilding a runtime `Value` just to get back to bytes.
 
 See detailed breakdown:
 [docs/changelog/0.127.md](docs/changelog/0.127.md)

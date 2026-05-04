@@ -22,7 +22,7 @@ use crate::{
         executor::{DeleteExecutor, EntityAuthority, LoadExecutor, SaveExecutor},
         query::plan::VisibleIndexes,
         schema::{
-            AcceptedSchemaSnapshot, describe_entity_fields,
+            AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot, describe_entity_fields,
             describe_entity_fields_with_persisted_schema, describe_entity_model,
             describe_entity_model_with_persisted_schema, ensure_accepted_schema_snapshot,
             show_indexes_for_model, show_indexes_for_model_with_runtime_state,
@@ -396,6 +396,21 @@ impl<C: CanisterKind> DbSession<C> {
                 authority.model(),
             )
         })
+    }
+
+    // Ensure accepted schema metadata and derive the execution authority that
+    // consumes it. Keeping the pair together prevents session call sites from
+    // mixing a live-schema fingerprint with a generated-only row layout.
+    fn ensure_accepted_schema_snapshot_and_authority(
+        &self,
+        authority: EntityAuthority,
+    ) -> Result<(AcceptedSchemaSnapshot, EntityAuthority), InternalError> {
+        let accepted_schema = self.ensure_accepted_schema_snapshot_for_authority(authority)?;
+        let accepted_row_layout =
+            AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted_schema)?;
+        let authority = authority.with_accepted_row_layout(&accepted_row_layout)?;
+
+        Ok((accepted_schema, authority))
     }
 
     /// Build one point-in-time storage report for observability endpoints.

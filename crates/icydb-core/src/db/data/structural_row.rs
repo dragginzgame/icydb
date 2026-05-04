@@ -28,6 +28,7 @@ type RowFieldSpans<'a> = (Cow<'a, [u8]>, SlotSpans);
 pub(in crate::db) struct StructuralRowContract {
     entity_path: &'static str,
     fields: &'static [FieldModel],
+    field_count: usize,
     primary_key_slot: usize,
 }
 
@@ -38,7 +39,30 @@ impl StructuralRowContract {
         Self {
             entity_path: model.path(),
             fields: model.fields(),
+            field_count: model.fields().len(),
             primary_key_slot: model.primary_key_slot(),
+        }
+    }
+
+    /// Build one structural row contract from a generated model plus an
+    /// accepted runtime row shape that is still generated-field compatible.
+    ///
+    /// This is the temporary bridge between accepted schema authority and the
+    /// current generated-field decoder. It lets session planning freeze slot
+    /// count and primary-key slot from accepted metadata, while still rejecting
+    /// non-generated-compatible layouts until decode can consume accepted field
+    /// contracts directly.
+    #[must_use]
+    pub(in crate::db) const fn from_model_with_row_shape(
+        model: &'static EntityModel,
+        field_count: usize,
+        primary_key_slot: usize,
+    ) -> Self {
+        Self {
+            entity_path: model.path(),
+            fields: model.fields(),
+            field_count,
+            primary_key_slot,
         }
     }
 
@@ -57,7 +81,7 @@ impl StructuralRowContract {
     /// Return the declared structural field count.
     #[must_use]
     pub(in crate::db) const fn field_count(self) -> usize {
-        self.fields.len()
+        self.field_count
     }
 
     /// Return the authoritative primary-key slot.

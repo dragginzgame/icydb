@@ -10,14 +10,16 @@ mod tests {
     use super::*;
     use icydb::{
         __macro::{
-            FieldProjection, PersistedStructuredFieldCodec, ScalarSlotValueRef, Value,
-            decode_generated_structural_enum_payload_bytes,
+            FieldProjection, PersistedStructuredFieldCodec, RuntimeValueEncode, ScalarSlotValueRef,
+            Value, decode_generated_structural_enum_payload_bytes,
             decode_generated_structural_map_payload_bytes,
-            decode_generated_structural_text_payload_bytes, decode_persisted_custom_slot_payload,
+            decode_generated_structural_text_payload_bytes,
+            decode_persisted_structured_slot_payload,
             encode_generated_structural_enum_payload_bytes,
             encode_generated_structural_map_payload_bytes,
-            encode_generated_structural_text_payload_bytes, encode_persisted_custom_slot_payload,
-            runtime_value_from_value, runtime_value_to_value,
+            encode_generated_structural_text_payload_bytes,
+            encode_persisted_structured_slot_payload, runtime_value_from_value,
+            runtime_value_to_value,
         },
         db::{InternalError, PersistedRow, SlotReader, SlotWriter},
         traits::EntitySchema,
@@ -107,11 +109,7 @@ mod tests {
         }
 
         fn get_value(&mut self, slot: usize) -> Result<Option<Value>, InternalError> {
-            let Some(bytes) = self.get_bytes(slot) else {
-                return Ok(None);
-            };
-
-            decode_persisted_custom_slot_payload::<Value>(bytes, "test-slot").map(Some)
+            panic!("test reader value path should not be used for slot {slot}");
         }
     }
 
@@ -156,7 +154,7 @@ mod tests {
     ///
     /// StructuredRecordWithEnumHarness stores a generated enum as one record
     /// field so the tests cover record -> enum -> record nesting through the
-    /// direct custom payload path.
+    /// direct structured payload path.
     ///
 
     #[record(fields(
@@ -454,21 +452,24 @@ mod tests {
         .expect("asset selection map should be canonical")
     }
 
-    fn assert_custom_slot_payload_roundtrip_is_canonical<T>(value: &T, field_name: &'static str)
+    fn assert_structured_slot_payload_roundtrip_is_canonical<T>(value: &T, field_name: &'static str)
     where
         T: PartialEq + Debug + PersistedStructuredFieldCodec,
     {
-        let bytes =
-            encode_persisted_custom_slot_payload(value, field_name).expect("encode custom payload");
-        let decoded = decode_persisted_custom_slot_payload::<T>(bytes.as_slice(), field_name)
-            .expect("decode custom payload");
-        let reencoded =
-            encode_persisted_custom_slot_payload(&decoded, field_name).expect("re-encode payload");
+        let bytes = encode_persisted_structured_slot_payload(value, field_name)
+            .expect("encode structured payload");
+        let decoded = decode_persisted_structured_slot_payload::<T>(bytes.as_slice(), field_name)
+            .expect("decode structured payload");
+        let reencoded = encode_persisted_structured_slot_payload(&decoded, field_name)
+            .expect("re-encode payload");
 
-        assert_eq!(decoded, *value, "typed custom payload should round-trip");
+        assert_eq!(
+            decoded, *value,
+            "typed structured payload should round-trip"
+        );
         assert_eq!(
             reencoded, bytes,
-            "typed custom payload should re-emit canonical bytes after decode",
+            "typed structured payload should re-emit canonical bytes after decode",
         );
     }
 
@@ -515,6 +516,16 @@ mod tests {
             .unwrap_or_else(|| panic!("expected captured payload for slot {slot}"))
     }
 
+    fn decode_structured_payload_value<T>(bytes: &[u8], field_name: &'static str) -> Value
+    where
+        T: PersistedStructuredFieldCodec + RuntimeValueEncode,
+    {
+        let decoded = decode_persisted_structured_slot_payload::<T>(bytes, field_name)
+            .expect("decode structured payload");
+
+        runtime_value_to_value(&decoded)
+    }
+
     fn expected_profile_value() -> Value {
         profile_value(&StructuredProfileHarness::default())
     }
@@ -530,10 +541,10 @@ mod tests {
 
         assert_eq!(value, expected_profile_value());
 
-        let bytes = encode_persisted_custom_slot_payload(&profile, "profile")
+        let bytes = encode_persisted_structured_slot_payload(&profile, "profile")
             .expect("encode structured profile value");
-        let decoded: Value = decode_persisted_custom_slot_payload(&bytes, "profile")
-            .expect("decode structured profile value");
+        let decoded =
+            decode_structured_payload_value::<StructuredProfileHarness>(&bytes, "profile");
 
         assert_eq!(decoded, expected_profile_value());
     }
@@ -574,11 +585,11 @@ mod tests {
     }
 
     #[test]
-    fn nested_record_custom_slot_payload_roundtrips_through_storage_helpers() {
+    fn nested_record_structured_slot_payload_roundtrips_through_storage_helpers() {
         let profile = StructuredNestedProfileHarness::default();
-        let payload = encode_persisted_custom_slot_payload(&profile, "profile")
+        let payload = encode_persisted_structured_slot_payload(&profile, "profile")
             .expect("encode nested record payload");
-        let decoded = decode_persisted_custom_slot_payload::<StructuredNestedProfileHarness>(
+        let decoded = decode_persisted_structured_slot_payload::<StructuredNestedProfileHarness>(
             payload.as_slice(),
             "profile",
         )
@@ -605,19 +616,17 @@ mod tests {
         let slots = roundtrip_entity_through_captured_slots(&entity);
 
         assert_eq!(
-            decode_persisted_custom_slot_payload::<Value>(
+            decode_structured_payload_value::<StructuredProfileHarness>(
                 required_slot_payload(&slots, 1),
                 "profile"
-            )
-            .expect("decode required structured payload"),
+            ),
             profile_value(&entity.profile),
         );
         assert_eq!(
-            decode_persisted_custom_slot_payload::<Value>(
+            decode_structured_payload_value::<Option<StructuredProfileHarness>>(
                 required_slot_payload(&slots, 2),
                 "profile"
-            )
-            .expect("decode optional structured payload"),
+            ),
             profile_value(
                 entity
                     .opt_profile
@@ -626,19 +635,17 @@ mod tests {
             ),
         );
         assert_eq!(
-            decode_persisted_custom_slot_payload::<Value>(
+            decode_structured_payload_value::<StructuredNestedProfileHarness>(
                 required_slot_payload(&slots, 3),
                 "nested_profile",
-            )
-            .expect("decode nested structured payload"),
+            ),
             nested_profile_value(&entity.nested_profile),
         );
         assert_eq!(
-            decode_persisted_custom_slot_payload::<Value>(
+            decode_structured_payload_value::<Vec<StructuredProfileHarness>>(
                 required_slot_payload(&slots, 4),
                 "profile_history",
-            )
-            .expect("decode many structured payload"),
+            ),
             Value::List(entity.profile_history.iter().map(profile_value).collect()),
         );
     }
@@ -657,28 +664,25 @@ mod tests {
         let slots = roundtrip_entity_through_captured_slots(&entity);
 
         assert_eq!(
-            decode_persisted_custom_slot_payload::<Value>(
+            decode_structured_payload_value::<StructuredProfileHarness>(
                 required_slot_payload(&slots, 1),
                 "profile"
-            )
-            .expect("decode required profile payload"),
+            ),
             profile_value(&entity.profile),
         );
         assert_ne!(
-            decode_persisted_custom_slot_payload::<Value>(
+            decode_structured_payload_value::<StructuredProfileHarness>(
                 required_slot_payload(&slots, 1),
                 "profile"
-            )
-            .expect("decode required profile payload"),
+            ),
             Value::Null,
             "required record payload must not collapse to null",
         );
         assert_eq!(
-            decode_persisted_custom_slot_payload::<Value>(
+            decode_structured_payload_value::<Option<StructuredProfileHarness>>(
                 required_slot_payload(&slots, 2),
                 "profile"
-            )
-            .expect("decode optional profile payload"),
+            ),
             Value::Null,
             "optional record payload should preserve explicit null",
         );
@@ -721,11 +725,10 @@ mod tests {
         let slots = roundtrip_entity_through_captured_slots(&entity);
 
         assert_eq!(
-            decode_persisted_custom_slot_payload::<Value>(
+            decode_structured_payload_value::<Vec<StructuredSelectedPartHarness>>(
                 required_slot_payload(&slots, 1),
                 "selected_parts",
-            )
-            .expect("decode selected-part list payload"),
+            ),
             Value::List(
                 entity
                     .selected_parts
@@ -768,11 +771,10 @@ mod tests {
             let slots = roundtrip_entity_through_captured_slots(&entity);
 
             assert_eq!(
-                decode_persisted_custom_slot_payload::<Value>(
+                decode_structured_payload_value::<StructuredAssetSelectionHarness>(
                     required_slot_payload(&slots, 1),
                     "asset_selection",
-                )
-                .expect("decode asset-selection payload"),
+                ),
                 asset_selection_value(&entity.asset_selection),
             );
         }
@@ -782,14 +784,14 @@ mod tests {
     fn record_containing_generated_enum_roundtrips_through_direct_custom_payloads() {
         let value = record_with_enum("primary", "Paris", 75_001);
 
-        assert_custom_slot_payload_roundtrip_is_canonical(&value, "record_with_enum");
+        assert_structured_slot_payload_roundtrip_is_canonical(&value, "record_with_enum");
     }
 
     #[test]
     fn enum_payload_containing_generated_record_roundtrips_through_direct_custom_payloads() {
         let value = profile_envelope_with("Ada", "Berlin", 10_115);
 
-        assert_custom_slot_payload_roundtrip_is_canonical(&value, "profile_envelope");
+        assert_structured_slot_payload_roundtrip_is_canonical(&value, "profile_envelope");
     }
 
     #[test]
@@ -804,14 +806,14 @@ mod tests {
             nested_profile_with("Grace", "Berlin", 10_115),
         );
 
-        assert_custom_slot_payload_roundtrip_is_canonical(&value, "profile_map");
+        assert_structured_slot_payload_roundtrip_is_canonical(&value, "profile_map");
     }
 
     #[test]
     fn malformed_nested_generated_payload_fails_closed() {
         let value = record_with_enum("broken", "Paris", 75_001);
         let bytes =
-            encode_persisted_custom_slot_payload(&value, "record_with_enum").expect("encode");
+            encode_persisted_structured_slot_payload(&value, "record_with_enum").expect("encode");
         let entries =
             decode_generated_structural_map_payload_bytes(bytes.as_slice()).expect("decode outer");
         let mut corrupted_entries = Vec::with_capacity(entries.len());
@@ -866,7 +868,7 @@ mod tests {
             .map(|(key_bytes, value_bytes)| (key_bytes.as_slice(), value_bytes.as_slice()))
             .collect::<Vec<_>>();
         let corrupted_bytes = encode_generated_structural_map_payload_bytes(&corrupted_refs);
-        let decode = decode_persisted_custom_slot_payload::<StructuredRecordWithEnumHarness>(
+        let decode = decode_persisted_structured_slot_payload::<StructuredRecordWithEnumHarness>(
             corrupted_bytes.as_slice(),
             "record_with_enum",
         );

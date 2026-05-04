@@ -32,11 +32,14 @@ use crate::{
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{
-        field::FieldKind,
+        field::{FieldKind, FieldStorageDecode},
         index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     testing::test_memory,
-    traits::{EntityKind, EntitySchema, Path, StorageKeyCodec},
+    traits::{
+        EntityKind, EntitySchema, FieldTypeMeta, Path, PersistedFieldSlotCodec, RuntimeValueDecode,
+        RuntimeValueEncode, StorageKeyCodec,
+    },
     types::Ulid,
     value::{Value, ValueEnum, storage_key_as_runtime_value},
 };
@@ -161,11 +164,73 @@ struct RecoveryConditionalUniqueCasefoldEntity {
     active: bool,
 }
 
+///
+/// RecoveryStatus
+///
+/// RecoveryStatus is the typed persisted wrapper for the runtime enum value
+/// used by conditional unique index recovery tests.
+/// It preserves enum-value index behavior without making the dynamic `Value`
+/// union itself persistable.
+///
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+struct RecoveryStatus(ValueEnum);
+
+impl FieldTypeMeta for RecoveryStatus {
+    const KIND: FieldKind = FieldKind::Enum {
+        path: RECOVERY_STATUS_ENUM_PATH,
+        variants: &[],
+    };
+    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
+}
+
+impl RuntimeValueEncode for RecoveryStatus {
+    fn to_value(&self) -> Value {
+        Value::Enum(self.0.clone())
+    }
+}
+
+impl RuntimeValueDecode for RecoveryStatus {
+    fn from_value(value: &Value) -> Option<Self> {
+        let Value::Enum(value) = value else {
+            return None;
+        };
+
+        Some(Self(value.clone()))
+    }
+}
+
+impl PersistedFieldSlotCodec for RecoveryStatus {
+    fn encode_persisted_slot(&self, field_name: &'static str) -> Result<Vec<u8>, InternalError> {
+        crate::db::encode_persisted_slot_payload_by_meta(self, field_name)
+    }
+
+    fn decode_persisted_slot(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Self, InternalError> {
+        crate::db::decode_persisted_slot_payload_by_meta(bytes, field_name)
+    }
+
+    fn encode_persisted_option_slot(
+        value: &Option<Self>,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError> {
+        crate::db::encode_persisted_option_slot_payload_by_meta(value, field_name)
+    }
+
+    fn decode_persisted_option_slot(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Option<Self>, InternalError> {
+        crate::db::decode_persisted_option_slot_payload_by_meta(bytes, field_name)
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct RecoveryConditionalUniqueEnumEntity {
     id: Ulid,
-    #[icydb(meta)]
-    status: Value,
+    status: RecoveryStatus,
     active: bool,
 }
 
@@ -814,8 +879,8 @@ fn canonical_row_payload_bytes<E: crate::db::PersistedRow>(entity: &E) -> Vec<u8
 
 const RECOVERY_STATUS_ENUM_PATH: &str = "db::commit::tests::RecoveryConditionalStatus";
 
-fn enum_status(variant: &str) -> Value {
-    Value::Enum(ValueEnum::new(variant, Some(RECOVERY_STATUS_ENUM_PATH)))
+fn enum_status(variant: &str) -> RecoveryStatus {
+    RecoveryStatus(ValueEnum::new(variant, Some(RECOVERY_STATUS_ENUM_PATH)))
 }
 
 // Build one deterministic seed snapshot used by forward/replay equivalence checks.

@@ -1,0 +1,42 @@
+error[E0277]: the trait bound `icydb_core::value::Value: PersistedByKindCodec` is not satisfied
+ --> tests/ui/db/vec_value_is_runtime_only_not_slot_codec.rs:6:25
+  |
+6 |     assert_slot_codec::<Vec<Value>>();
+  |                         ^^^^^^^^^^ the trait `PersistedByKindCodec` is not implemented for `icydb_core::value::Value`
+  |
+  = help: the following other types implement trait `PersistedByKindCodec`:
+            BTreeMap<K, V>
+            BTreeSet<T>
+            Box<T>
+            Nat
+            Nat128
+            Option<T>
+            Vec<T>
+            bool
+          and $N others
+  = note: required for `Vec<icydb_core::value::Value>` to implement `PersistedFieldSlotCodec`
+note: required by a bound in `assert_slot_codec`
+ --> tests/ui/db/vec_value_is_runtime_only_not_slot_codec.rs:3:25
+  |
+3 | fn assert_slot_codec<T: PersistedFieldSlotCodec>() {}
+  |                         ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_slot_codec`
+
+error[E0277]: the trait bound `icydb_core::value::Value: FieldTypeMeta` is not satisfied
+ --> tests/ui/db/vec_value_is_runtime_only_not_slot_codec.rs:6:25
+  |
+6 |     assert_slot_codec::<Vec<Value>>();
+  |                         ^^^^^^^^^^ the trait `FieldTypeMeta` is not implemented for `icydb_core::value::Value`
+  |
+  = help: the following other types implement trait `FieldTypeMeta`:
+            BTreeMap<K, V>
+            BTreeSet<T>
+            Box<T>
+            Option<T>
+            Vec<T>
+  = note: required for `icydb_core::value::Value` to implement `db::data::persisted_row::codec::slot::PersistedFieldSlotKind`
+  = note: required for `Vec<icydb_core::value::Value>` to implement `PersistedFieldSlotCodec`
+note: required by a bound in `assert_slot_codec`
+ --> tests/ui/db/vec_value_is_runtime_only_not_slot_codec.rs:3:25
+  |
+3 | fn assert_slot_codec<T: PersistedFieldSlotCodec>() {}
+  |                         ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_slot_codec`

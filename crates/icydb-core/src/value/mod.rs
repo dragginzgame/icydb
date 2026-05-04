@@ -23,9 +23,8 @@ mod wire;
 mod tests;
 
 use crate::{
-    model::field::{FieldKind, FieldStorageDecode},
     prelude::*,
-    traits::{EnumValue, FieldTypeMeta, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueMeta},
+    traits::{EnumValue, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueMeta},
     types::*,
 };
 use candid::CandidType;
@@ -153,12 +152,18 @@ pub enum TextMode {
 
 //
 // Value
-// can be used in WHERE statements
+//
+// Runtime-only dynamic value used by query evaluation, SQL expressions,
+// projection materialization, predicates, cursor payloads, and intermediate
+// execution state.
+//
+// Value is intentionally not a persisted field type. It must not implement the
+// persisted-row slot codec or field metadata contracts; schema persistence must
+// use primitive fields or schema-defined wrapper types with static contracts.
 //
 // Null        → the field’s value is Option::None (i.e., SQL NULL).
 // Unit        → internal placeholder for RHS; not a real value.
 //
-
 #[derive(CandidType, Clone, Eq, PartialEq)]
 pub enum Value {
     Account(Account),
@@ -225,16 +230,6 @@ impl fmt::Debug for Value {
             Self::Unit => f.write_str("Unit"),
         }
     }
-}
-
-impl FieldTypeMeta for Value {
-    const KIND: FieldKind = FieldKind::Structured { queryable: false };
-    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
-}
-
-impl Value {
-    pub const __KIND: FieldKind = FieldKind::Structured { queryable: false };
-    pub const __STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
 }
 
 impl Value {

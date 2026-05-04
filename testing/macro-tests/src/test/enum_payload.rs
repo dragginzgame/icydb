@@ -13,8 +13,8 @@ pub mod test {
     use base::types::ic::icp::Tokens;
     use icydb::{
         __macro::{
-            Value, decode_persisted_custom_slot_payload, encode_persisted_custom_slot_payload,
-            runtime_value_to_value,
+            Value, decode_persisted_structured_slot_payload,
+            encode_persisted_structured_slot_payload, runtime_value_to_value,
         },
         db::query::FilterExpr,
         value::InputValue,
@@ -89,11 +89,11 @@ pub mod test {
     }
 
     #[test]
-    fn primitive_enum_custom_slot_payload_roundtrips_through_storage_helpers() {
+    fn primitive_enum_structured_slot_payload_roundtrips_through_storage_helpers() {
         let value = PrimitiveEnumWithPayload::Loaded(7);
-        let payload =
-            encode_persisted_custom_slot_payload(&value, "status").expect("encode enum payload");
-        let decoded = decode_persisted_custom_slot_payload::<PrimitiveEnumWithPayload>(
+        let payload = encode_persisted_structured_slot_payload(&value, "status")
+            .expect("encode enum payload");
+        let decoded = decode_persisted_structured_slot_payload::<PrimitiveEnumWithPayload>(
             payload.as_slice(),
             "status",
         )

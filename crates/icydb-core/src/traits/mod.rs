@@ -502,8 +502,8 @@ pub trait PersistedByKindCodec: Sized {
 ///
 /// PersistedStructuredFieldCodec
 ///
-/// Direct persisted payload codec for custom structured field values.
-/// This trait owns only the typed field <-> persisted custom payload bytes
+/// Direct persisted payload codec for structured field values.
+/// This trait owns only the typed field <-> persisted structured payload bytes
 /// boundary used by persisted-row storage helpers.
 /// It is persistence-only and MUST NOT mention runtime `Value`, rely on
 /// generic fallback bridges, or widen into a general structural storage
@@ -511,10 +511,10 @@ pub trait PersistedByKindCodec: Sized {
 ///
 
 pub trait PersistedStructuredFieldCodec {
-    /// Encode this typed structured field into persisted custom payload bytes.
+    /// Encode this typed structured field into persisted structured payload bytes.
     fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError>;
 
-    /// Decode this typed structured field from persisted custom payload bytes.
+    /// Decode this typed structured field from persisted structured payload bytes.
     fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError>
     where
         Self: Sized;
@@ -735,6 +735,40 @@ pub trait PersistedFieldMetaCodec: FieldTypeMeta + Sized {
     /// Decode one optional field payload through the inner type's own
     /// `FieldTypeMeta` storage contract.
     fn decode_persisted_option_slot_payload_by_meta(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Option<Self>, InternalError>;
+}
+
+///
+/// PersistedFieldSlotCodec
+///
+/// PersistedFieldSlotCodec is the single persisted-row field boundary used by
+/// derive-generated row bridges.
+/// Implementations own every storage decision for their type, including
+/// primitive fast paths, optional null handling, and schema/type metadata.
+///
+
+pub trait PersistedFieldSlotCodec: Sized {
+    /// Encode one required field slot payload through this type's storage
+    /// contract.
+    fn encode_persisted_slot(&self, field_name: &'static str) -> Result<Vec<u8>, InternalError>;
+
+    /// Decode one required field slot payload through this type's storage
+    /// contract.
+    fn decode_persisted_slot(bytes: &[u8], field_name: &'static str)
+    -> Result<Self, InternalError>;
+
+    /// Encode one optional field slot payload through this type's storage
+    /// contract while preserving explicit null.
+    fn encode_persisted_option_slot(
+        value: &Option<Self>,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError>;
+
+    /// Decode one optional field slot payload through this type's storage
+    /// contract while preserving explicit null.
+    fn decode_persisted_option_slot(
         bytes: &[u8],
         field_name: &'static str,
     ) -> Result<Option<Self>, InternalError>;

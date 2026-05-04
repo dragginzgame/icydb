@@ -5,6 +5,7 @@
 mod by_kind;
 mod meta;
 mod scalar;
+mod slot;
 pub(super) mod strategy;
 mod structured;
 mod traversal;
@@ -21,7 +22,8 @@ pub use by_kind::{
     encode_persisted_slot_payload_by_kind,
 };
 pub use meta::{
-    decode_persisted_option_slot_payload_by_meta, decode_persisted_slot_payload_by_meta,
+    decode_persisted_many_slot_payload_by_meta, decode_persisted_option_slot_payload_by_meta,
+    decode_persisted_slot_payload_by_meta, encode_persisted_many_slot_payload_by_meta,
     encode_persisted_option_slot_payload_by_meta, encode_persisted_slot_payload_by_meta,
 };
 pub use scalar::{
@@ -31,8 +33,8 @@ pub use scalar::{
 };
 pub(super) use scalar::{decode_scalar_slot_value, encode_scalar_slot_value};
 pub use structured::{
-    decode_persisted_custom_many_slot_payload, decode_persisted_custom_slot_payload,
-    encode_persisted_custom_many_slot_payload, encode_persisted_custom_slot_payload,
+    decode_persisted_structured_many_slot_payload, decode_persisted_structured_slot_payload,
+    encode_persisted_structured_many_slot_payload, encode_persisted_structured_slot_payload,
 };
 
 // Encode the null sentinel selected by the storage lane. This is behavior, not

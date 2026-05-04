@@ -1,7 +1,4 @@
-use crate::{imp::inherent::model_kind_from_value, prelude::*};
-use syn::{
-    AngleBracketedGenericArguments, GenericArgument, PathArguments, Type, parse2 as parse_type,
-};
+use crate::prelude::*;
 
 ///
 /// PersistedRowTrait
@@ -31,12 +28,7 @@ impl Imp<Entity> for PersistedRowTrait {
                     },
                 }
             };
-            let decode_expr = if field.value.item.is.is_some() {
-                persisted_custom_field_decode_expr(field, field_name.as_str())
-            } else {
-                let field_ty = field.value.type_expr();
-                persisted_field_decode_expr(field, &field_ty, field_name.as_str())
-            };
+            let decode_expr = persisted_field_decode_expr(field, field_name.as_str());
 
             quote! {
                 #ident: match slots.get_bytes(#slot) {
@@ -50,17 +42,8 @@ impl Imp<Entity> for PersistedRowTrait {
             let slot = syn::Index::from(slot);
             let ident = &field.ident;
             let field_name = ident.to_string();
-            let encode_expr = if field.value.item.is.is_some() {
-                persisted_custom_field_encode_expr(field, quote!(&self.#ident), field_name.as_str())
-            } else {
-                let field_ty = field.value.type_expr();
-                persisted_field_encode_expr(
-                    field,
-                    &field_ty,
-                    quote!(&self.#ident),
-                    field_name.as_str(),
-                )
-            };
+            let encode_expr =
+                persisted_field_encode_expr(field, quote!(&self.#ident), field_name.as_str());
 
             quote! {
                 let payload = #encode_expr;
@@ -104,39 +87,22 @@ fn persisted_field_codec_assertion(field: &Field) -> TokenStream {
     let field_ident = &field.ident;
 
     if field.value.item.is.is_some() {
-        return match field.value.cardinality() {
-            Cardinality::One | Cardinality::Opt => emit_persisted_trait_assertion(
-                field_ident,
-                quote!(::icydb::__macro::PersistedStructuredFieldCodec),
-                field.value.type_expr(),
-                "PERSISTED_STRUCTURED_FIELD_CODEC",
-            ),
-            Cardinality::Many => emit_persisted_trait_assertion(
-                field_ident,
-                quote!(::icydb::__macro::PersistedStructuredFieldCodec),
-                field.value.item.type_expr(),
-                "PERSISTED_STRUCTURED_FIELD_CODEC",
-            ),
-        };
+        return emit_persisted_trait_assertion(
+            field_ident,
+            quote!(::icydb::__macro::PersistedFieldMetaCodec),
+            field.value.item.type_expr(),
+            "PERSISTED_FIELD_META_CODEC",
+        );
     }
 
-    let field_ty = field.value.type_expr();
+    let field_ty = persisted_field_slot_asserted_type(field);
 
-    match classify_persisted_field_type(&field_ty) {
-        PersistedFieldType::OptionScalar(_) | PersistedFieldType::Scalar(_) => TokenStream::new(),
-        PersistedFieldType::OptionStructural(inner_ty) => emit_persisted_trait_assertion(
-            field_ident,
-            quote!(::icydb::__macro::PersistedByKindCodec),
-            quote!(#inner_ty),
-            "PERSISTED_BY_KIND_CODEC",
-        ),
-        PersistedFieldType::Structural(parsed) => emit_persisted_trait_assertion(
-            field_ident,
-            quote!(::icydb::__macro::PersistedByKindCodec),
-            quote!(#parsed),
-            "PERSISTED_BY_KIND_CODEC",
-        ),
-    }
+    emit_persisted_trait_assertion(
+        field_ident,
+        quote!(::icydb::__macro::PersistedFieldSlotCodec),
+        field_ty,
+        "PERSISTED_FIELD_SLOT_CODEC",
+    )
 }
 
 // Generate a descriptive compile-time assertion symbol for one schema field so
@@ -161,12 +127,21 @@ fn emit_persisted_trait_assertion(
     }
 }
 
-fn persisted_custom_field_decode_expr(field: &Field, field_name: &str) -> TokenStream {
+fn persisted_item_field_decode_expr(field: &Field, field_name: &str) -> TokenStream {
     match field.value.cardinality() {
-        Cardinality::One | Cardinality::Opt => {
+        Cardinality::One => {
             let field_ty = field.value.type_expr();
             quote!(
-                ::icydb::__macro::decode_persisted_custom_slot_payload::<#field_ty>(
+                ::icydb::__macro::decode_persisted_slot_payload_by_meta::<#field_ty>(
+                    bytes,
+                    #field_name,
+                )?
+            )
+        }
+        Cardinality::Opt => {
+            let item_ty = field.value.item.type_expr();
+            quote!(
+                ::icydb::__macro::decode_persisted_option_slot_payload_by_meta::<#item_ty>(
                     bytes,
                     #field_name,
                 )?
@@ -175,7 +150,7 @@ fn persisted_custom_field_decode_expr(field: &Field, field_name: &str) -> TokenS
         Cardinality::Many => {
             let item_ty = field.value.item.type_expr();
             quote!(
-                ::icydb::__macro::decode_persisted_custom_many_slot_payload::<#item_ty>(
+                ::icydb::__macro::decode_persisted_many_slot_payload_by_meta::<#item_ty>(
                     bytes,
                     #field_name,
                 )?
@@ -184,215 +159,94 @@ fn persisted_custom_field_decode_expr(field: &Field, field_name: &str) -> TokenS
     }
 }
 
-fn persisted_custom_field_encode_expr(
+fn persisted_item_field_encode_expr(
     field: &Field,
     field_expr: TokenStream,
     field_name: &str,
 ) -> TokenStream {
     match field.value.cardinality() {
-        Cardinality::One | Cardinality::Opt => quote!(
-            ::icydb::__macro::encode_persisted_custom_slot_payload(
+        Cardinality::One => quote!(
+            ::icydb::__macro::encode_persisted_slot_payload_by_meta(
+                #field_expr,
+                #field_name,
+            )?
+        ),
+        Cardinality::Opt => quote!(
+            ::icydb::__macro::encode_persisted_option_slot_payload_by_meta(
                 #field_expr,
                 #field_name,
             )?
         ),
         Cardinality::Many => quote!(
-            ::icydb::__macro::encode_persisted_custom_many_slot_payload(
-                #field_expr,
+            ::icydb::__macro::encode_persisted_many_slot_payload_by_meta(
+                (#field_expr).as_slice(),
                 #field_name,
             )?
         ),
     }
 }
 
-fn persisted_field_decode_expr(
-    field: &Field,
-    field_ty: &TokenStream,
-    field_name: &str,
-) -> TokenStream {
-    let kind = model_kind_from_value(&field.value);
+fn persisted_field_decode_expr(field: &Field, field_name: &str) -> TokenStream {
+    if field.value.item.is.is_some() {
+        return persisted_item_field_decode_expr(field, field_name);
+    }
 
-    match classify_persisted_field_type(field_ty) {
-        PersistedFieldType::OptionScalar(inner_ty) => quote!(
-            ::icydb::__macro::decode_persisted_option_scalar_slot_payload::<#inner_ty>(
-                bytes,
-                #field_name,
-            )?
-        ),
-        PersistedFieldType::OptionStructural(inner_ty) => quote!(
-            ::icydb::__macro::decode_persisted_option_slot_payload_by_kind::<#inner_ty>(
-                bytes,
-                #kind,
-                #field_name,
-            )?
-        ),
-        PersistedFieldType::Scalar(parsed) => quote!(
-            ::icydb::__macro::decode_persisted_scalar_slot_payload::<#parsed>(
-                bytes,
-                #field_name,
-            )?
-        ),
-        PersistedFieldType::Structural(parsed) => quote!(
-            ::icydb::__macro::decode_persisted_slot_payload_by_kind::<#parsed>(
-                bytes,
-                #kind,
-                #field_name,
-            )?
-        ),
+    match field.value.cardinality() {
+        Cardinality::Opt => {
+            let item_ty = field.value.item.type_expr();
+            quote!(
+                <#item_ty as ::icydb::__macro::PersistedFieldSlotCodec>::decode_persisted_option_slot(
+                    bytes,
+                    #field_name,
+                )?
+            )
+        }
+        Cardinality::One | Cardinality::Many => {
+            let field_ty = field.value.type_expr();
+            quote!(
+                <#field_ty as ::icydb::__macro::PersistedFieldSlotCodec>::decode_persisted_slot(
+                    bytes,
+                    #field_name,
+                )?
+            )
+        }
     }
 }
 
 fn persisted_field_encode_expr(
     field: &Field,
-    field_ty: &TokenStream,
     field_expr: TokenStream,
     field_name: &str,
 ) -> TokenStream {
-    let kind = model_kind_from_value(&field.value);
-
-    match classify_persisted_field_type(field_ty) {
-        PersistedFieldType::OptionScalar(inner_ty) => quote!(
-            ::icydb::__macro::encode_persisted_option_scalar_slot_payload::<#inner_ty>(
-                #field_expr,
-                #field_name,
-            )?
-        ),
-        PersistedFieldType::OptionStructural(_) | PersistedFieldType::Structural(_) => quote!(
-            ::icydb::__macro::encode_persisted_slot_payload_by_kind(
-                #field_expr,
-                #kind,
-                #field_name,
-            )?
-        ),
-        PersistedFieldType::Scalar(_) => quote!(
-            ::icydb::__macro::encode_persisted_scalar_slot_payload(
-                #field_expr,
-                #field_name,
-            )?
-        ),
+    if field.value.item.is.is_some() {
+        return persisted_item_field_encode_expr(field, field_expr, field_name);
     }
-}
 
-// Classifies one generated field type into the persisted-row emission lanes.
-enum PersistedFieldType {
-    OptionScalar(Type),
-    OptionStructural(Type),
-    Scalar(Type),
-    Structural(Type),
-}
-
-fn classify_persisted_field_type(field_ty: &TokenStream) -> PersistedFieldType {
-    let parsed = parse_type::<Type>(field_ty.clone()).expect("generated field type must parse");
-
-    if let Some(inner_ty) = option_inner_type(&parsed) {
-        if is_scalar_type(&inner_ty) {
-            return PersistedFieldType::OptionScalar(inner_ty);
+    match field.value.cardinality() {
+        Cardinality::Opt => {
+            let item_ty = field.value.item.type_expr();
+            quote!(
+                <#item_ty as ::icydb::__macro::PersistedFieldSlotCodec>::encode_persisted_option_slot(
+                    #field_expr,
+                    #field_name,
+                )?
+            )
         }
-
-        return PersistedFieldType::OptionStructural(inner_ty);
+        Cardinality::One | Cardinality::Many => {
+            let field_ty = field.value.type_expr();
+            quote!(
+                <#field_ty as ::icydb::__macro::PersistedFieldSlotCodec>::encode_persisted_slot(
+                    #field_expr,
+                    #field_name,
+                )?
+            )
+        }
     }
-
-    if is_scalar_type(&parsed) {
-        return PersistedFieldType::Scalar(parsed);
-    }
-
-    PersistedFieldType::Structural(parsed)
 }
 
-fn option_inner_type(ty: &Type) -> Option<Type> {
-    let Type::Path(path) = ty else {
-        return None;
-    };
-    let segment = path.path.segments.last()?;
-    if segment.ident != "Option" {
-        return None;
+fn persisted_field_slot_asserted_type(field: &Field) -> TokenStream {
+    match field.value.cardinality() {
+        Cardinality::Opt => field.value.item.type_expr(),
+        Cardinality::One | Cardinality::Many => field.value.type_expr(),
     }
-    let PathArguments::AngleBracketed(AngleBracketedGenericArguments { args, .. }) =
-        &segment.arguments
-    else {
-        return None;
-    };
-    let Some(GenericArgument::Type(inner_ty)) = args.first() else {
-        return None;
-    };
-    Some(inner_ty.clone())
-}
-
-fn is_scalar_type(ty: &Type) -> bool {
-    if is_unit_tuple(ty) {
-        return true;
-    }
-
-    matches!(
-        path_last_ident(ty).as_deref(),
-        Some(
-            "bool"
-                | "Bool"
-                | "i8"
-                | "Int8"
-                | "i16"
-                | "Int16"
-                | "i32"
-                | "Int32"
-                | "i64"
-                | "Int64"
-                | "u8"
-                | "Nat8"
-                | "u16"
-                | "Nat16"
-                | "u32"
-                | "Nat32"
-                | "u64"
-                | "Nat64"
-                | "Blob"
-                | "String"
-                | "Text"
-                | "Date"
-                | "Duration"
-                | "Float32"
-                | "Float64"
-                | "Principal"
-                | "Subaccount"
-                | "Timestamp"
-                | "Ulid"
-                | "Unit"
-        )
-    ) || is_vec_u8(ty)
-}
-
-fn is_unit_tuple(ty: &Type) -> bool {
-    matches!(ty, Type::Tuple(tuple) if tuple.elems.is_empty())
-}
-
-fn is_vec_u8(ty: &Type) -> bool {
-    let Type::Path(path) = ty else {
-        return false;
-    };
-    let Some(segment) = path.path.segments.last() else {
-        return false;
-    };
-    if segment.ident != "Vec" {
-        return false;
-    }
-    let PathArguments::AngleBracketed(AngleBracketedGenericArguments { args, .. }) =
-        &segment.arguments
-    else {
-        return false;
-    };
-    let Some(GenericArgument::Type(inner_ty)) = args.first() else {
-        return false;
-    };
-
-    matches!(path_last_ident(inner_ty).as_deref(), Some("u8"))
-}
-
-fn path_last_ident(ty: &Type) -> Option<String> {
-    let Type::Path(path) = ty else {
-        return None;
-    };
-
-    path.path
-        .segments
-        .last()
-        .map(|segment| segment.ident.to_string())
 }
