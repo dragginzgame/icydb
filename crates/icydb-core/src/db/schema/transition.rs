@@ -3,7 +3,9 @@
 //! Does not own: startup reconciliation orchestration or schema-store persistence.
 //! Boundary: decides whether one accepted snapshot may become another.
 
-use crate::db::schema::{PersistedFieldSnapshot, PersistedSchemaSnapshot};
+use crate::db::schema::{
+    FieldId, PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
+};
 
 ///
 /// SchemaTransitionDecision
@@ -152,11 +154,7 @@ fn schema_snapshot_structural_mismatch_detail(
     if actual.row_layout() != expected.row_layout() {
         return (
             SchemaTransitionRejectionKind::RowLayout,
-            format!(
-                "row layout changed: stored={:?} generated={:?}",
-                actual.row_layout(),
-                expected.row_layout(),
-            ),
+            row_layout_mismatch_detail(actual, expected),
         );
     }
 
@@ -183,6 +181,113 @@ fn schema_snapshot_structural_mismatch_detail(
     (
         SchemaTransitionRejectionKind::Snapshot,
         "schema snapshot changed".to_string(),
+    )
+}
+
+// Summarize row-layout drift without dumping every field/slot pair into the
+// startup error. Full layout dumps are too noisy for normal schema-change
+// rejection, while the first changed/missing/added fact is enough to debug the
+// generated-vs-accepted mismatch.
+fn row_layout_mismatch_detail(
+    actual: &PersistedSchemaSnapshot,
+    expected: &PersistedSchemaSnapshot,
+) -> String {
+    let stored_count = actual.row_layout().field_to_slot().len();
+    let generated_count = expected.row_layout().field_to_slot().len();
+    let prefix = format!(
+        "row layout changed: stored_version={} generated_version={} stored_fields={} generated_fields={}",
+        actual.row_layout().version().get(),
+        expected.row_layout().version().get(),
+        stored_count,
+        generated_count,
+    );
+
+    if actual.row_layout().version() != expected.row_layout().version() {
+        return prefix;
+    }
+
+    if let Some(detail) = row_layout_first_pair_mismatch_detail(actual, expected) {
+        return format!("{prefix}; {detail}");
+    }
+
+    prefix
+}
+
+// Report the first row-layout pair difference in deterministic vector order.
+// Schema evolution is still exact-match only, so diagnostics should identify
+// the earliest changed fact without attempting a migration diff.
+fn row_layout_first_pair_mismatch_detail(
+    actual: &PersistedSchemaSnapshot,
+    expected: &PersistedSchemaSnapshot,
+) -> Option<String> {
+    for (index, (actual_pair, expected_pair)) in actual
+        .row_layout()
+        .field_to_slot()
+        .iter()
+        .zip(expected.row_layout().field_to_slot())
+        .enumerate()
+    {
+        if actual_pair != expected_pair {
+            return Some(format!(
+                "first_difference=row_layout[{index}] {}; {}",
+                row_layout_field_detail("stored", actual_pair.0, actual_pair.1, actual.fields()),
+                row_layout_field_detail(
+                    "generated",
+                    expected_pair.0,
+                    expected_pair.1,
+                    expected.fields(),
+                ),
+            ));
+        }
+    }
+
+    if actual.row_layout().field_to_slot().len() > expected.row_layout().field_to_slot().len() {
+        let index = expected.row_layout().field_to_slot().len();
+        let (field_id, slot) = actual.row_layout().field_to_slot()[index];
+
+        return Some(format!(
+            "first_difference=stored_extra row_layout[{index}] {}; generated_has_no_layout_entry",
+            row_layout_field_detail("stored", field_id, slot, actual.fields()),
+        ));
+    }
+
+    if expected.row_layout().field_to_slot().len() > actual.row_layout().field_to_slot().len() {
+        let index = actual.row_layout().field_to_slot().len();
+        let (field_id, slot) = expected.row_layout().field_to_slot()[index];
+
+        return Some(format!(
+            "first_difference=generated_extra row_layout[{index}] stored_has_no_layout_entry; {}",
+            row_layout_field_detail("generated", field_id, slot, expected.fields()),
+        ));
+    }
+
+    None
+}
+
+// Attach field metadata to a row-layout mismatch when the field ID can still
+// be resolved through the same persisted snapshot. This keeps diagnostics
+// useful for added/removed fields while preserving the row-layout authority as
+// the first rejected transition fact.
+fn row_layout_field_detail(
+    label: &str,
+    field_id: FieldId,
+    slot: SchemaFieldSlot,
+    fields: &[PersistedFieldSnapshot],
+) -> String {
+    let Some(field) = fields.iter().find(|field| field.id() == field_id) else {
+        return format!(
+            "{label}_field_id={} {label}_slot={} {label}_field_metadata=missing",
+            field_id.get(),
+            slot.get(),
+        );
+    };
+
+    format!(
+        "{label}_field_id={} {label}_slot={} {label}_name='{}' {label}_kind={:?}",
+        field_id.get(),
+        slot.get(),
+        field.name(),
+        field.kind(),
     )
 }
 
@@ -437,6 +542,67 @@ mod tests {
         assert!(
             rejection.detail().contains("row layout changed"),
             "row-layout drift should be reported before field metadata drift",
+        );
+        assert!(
+            rejection
+                .detail()
+                .contains("stored_fields=2 generated_fields=2"),
+            "row-layout drift should summarize layout sizes",
+        );
+        assert!(
+            rejection.detail().contains(
+                "first_difference=row_layout[0] stored_field_id=1 stored_slot=1 stored_name='id' stored_kind=Ulid; generated_field_id=1 generated_slot=0 generated_name='id' generated_kind=Ulid"
+            ),
+            "row-layout drift should identify the first changed field/slot pair",
+        );
+        assert!(
+            !rejection.detail().contains("SchemaRowLayout"),
+            "row-layout drift should not dump raw layout debug output",
+        );
+    }
+
+    #[test]
+    fn schema_transition_policy_names_extra_row_layout_fields() {
+        let expected = expected_snapshot();
+        let mut stored_fields = expected.fields().to_vec();
+        stored_fields.push(PersistedFieldSnapshot::new(
+            FieldId::new(3),
+            "legacy_score".to_string(),
+            SchemaFieldSlot::new(2),
+            PersistedFieldKind::Uint,
+            Vec::new(),
+            false,
+            SchemaFieldDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Uint64),
+        ));
+        let changed = PersistedSchemaSnapshot::new(
+            expected.version(),
+            expected.entity_path().to_string(),
+            expected.entity_name().to_string(),
+            expected.primary_key_field_id(),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                    (FieldId::new(3), SchemaFieldSlot::new(2)),
+                ],
+            ),
+            stored_fields,
+        );
+
+        let SchemaTransitionDecision::Rejected(rejection) =
+            decide_schema_transition(&changed, &expected)
+        else {
+            panic!("stored extra row-layout field should be rejected");
+        };
+
+        assert!(
+            rejection.detail().contains(
+                "first_difference=stored_extra row_layout[2] stored_field_id=3 stored_slot=2 stored_name='legacy_score' stored_kind=Uint; generated_has_no_layout_entry"
+            ),
+            "row-layout extra field drift should name the stored field and kind",
         );
     }
 }

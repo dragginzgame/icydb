@@ -57,6 +57,9 @@ pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
 
     if RECOVERED.get().is_none() {
+        // Schema compatibility must be checked before row replay/rebuild can
+        // decode stored rows with the generated runtime layout.
+        ensure_schema_reconciled(db)?;
         perform_recovery(db)?;
 
         return ensure_schema_reconciled(db);
@@ -67,6 +70,9 @@ pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
     }
 
     if commit_marker_present_fast().map_err(|err| err.with_origin(ErrorOrigin::Recovery))? {
+        // A marker-triggered recovery may rebuild indexes from existing rows,
+        // so fail schema drift before any row decode path runs.
+        ensure_schema_reconciled(db)?;
         perform_recovery(db)?;
 
         return ensure_schema_reconciled(db);

@@ -25,7 +25,10 @@ use crate::{
         index::{IndexKey, IndexStore, RawIndexEntry},
         registry::{StoreHandle, StoreRegistry},
         relation::validate_delete_strong_relations_for_source,
-        schema::{SchemaStore, commit_schema_fingerprint_for_entity},
+        schema::{
+            PersistedSchemaSnapshot, SchemaRowLayout, SchemaStore, SchemaVersion,
+            commit_schema_fingerprint_for_entity, compiled_schema_proposal_for_model,
+        },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{
@@ -559,6 +562,7 @@ fn reset_recovery_state() {
     with_recovery_store(|store| {
         store.with_data_mut(DataStore::clear);
         store.with_index_mut(IndexStore::clear);
+        store.with_schema_mut(SchemaStore::clear);
     });
 }
 
@@ -3347,6 +3351,84 @@ fn recovery_startup_rebuild_rejects_future_row_format_fail_closed() {
         Ok(())
     })
     .expect("commit marker cleanup should succeed");
+}
+
+#[test]
+fn recovery_reconciles_schema_before_rebuilding_indexes_from_rows() {
+    reset_recovery_state();
+
+    let entity = RecoveryIndexedEntity {
+        id: Ulid::from_u128(926),
+        group: 35,
+    };
+    let raw_key = DataKey::try_new::<RecoveryIndexedEntity>(entity.id)
+        .expect("row key should build")
+        .to_raw()
+        .expect("row key should encode");
+    let payload = canonical_row_payload_bytes(&entity);
+    let future_version = ROW_FORMAT_VERSION_CURRENT.saturating_add(1);
+    let future_version_row = serialize_row_payload_with_version(payload, future_version)
+        .expect("future-version row envelope should encode");
+
+    let proposal = compiled_schema_proposal_for_model(RecoveryIndexedEntity::MODEL);
+    let expected = proposal.initial_persisted_schema_snapshot();
+    let changed = PersistedSchemaSnapshot::new(
+        expected.version(),
+        expected.entity_path().to_string(),
+        "ChangedRecoveryIndexedEntity".to_string(),
+        expected.primary_key_field_id(),
+        SchemaRowLayout::new(
+            SchemaVersion::initial(),
+            expected.row_layout().field_to_slot().to_vec(),
+        ),
+        expected.fields().to_vec(),
+    );
+
+    with_recovery_store(|store| {
+        store.with_schema_mut(|schema_store| {
+            schema_store
+                .insert_persisted_snapshot(RecoveryIndexedEntity::ENTITY_TAG, &changed)
+                .expect("changed schema snapshot should encode");
+        });
+        store.with_data_mut(|data_store| {
+            data_store.insert_raw_for_test(
+                raw_key,
+                RawRow::try_new(future_version_row)
+                    .expect("future-version row should fit raw row bounds"),
+            );
+        });
+    });
+
+    let marker = CommitMarker::new(Vec::new()).expect("marker creation should succeed");
+    begin_commit(marker).expect("begin_commit should persist marker");
+    let err = ensure_recovered(&DB)
+        .expect_err("schema reconciliation should run before startup index rebuild row decode");
+
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Recovery);
+    assert!(
+        err.message
+            .contains("schema evolution is not yet supported"),
+        "schema drift should surface before row decode, got: {}",
+        err.message,
+    );
+    assert!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        "marker should remain present when schema reconciliation rejects before recovery"
+    );
+    assert!(
+        row_bytes_for(&raw_key).is_some(),
+        "failed schema reconciliation must not discard persisted rows",
+    );
+
+    store::with_commit_store(|store| {
+        store.clear_raw_for_tests();
+        Ok(())
+    })
+    .expect("commit marker cleanup should succeed");
+    with_recovery_store(|store| {
+        store.with_schema_mut(SchemaStore::clear);
+    });
 }
 
 #[test]

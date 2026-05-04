@@ -24,7 +24,7 @@ use crate::{
         schema::{
             AcceptedSchemaSnapshot, describe_entity_fields,
             describe_entity_fields_with_persisted_schema, describe_entity_model,
-            describe_entity_model_with_persisted_schema, ensure_initial_schema_snapshot,
+            describe_entity_model_with_persisted_schema, ensure_accepted_schema_snapshot,
             show_indexes_for_model, show_indexes_for_model_with_runtime_state,
         },
     },
@@ -286,7 +286,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let snapshot = self.ensure_accepted_initial_schema_snapshot::<E>()?;
+        let snapshot = self.ensure_accepted_schema_snapshot::<E>()?;
 
         Ok(describe_entity_fields_with_persisted_schema(
             E::MODEL,
@@ -361,7 +361,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let snapshot = self.ensure_accepted_initial_schema_snapshot::<E>()?;
+        let snapshot = self.ensure_accepted_schema_snapshot::<E>()?;
 
         Ok(describe_entity_model_with_persisted_schema(
             E::MODEL,
@@ -369,31 +369,27 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    // Ensure and return the accepted initial schema snapshot for one generated
-    // entity. This may write the first snapshot for an empty store; later
-    // schema-evolution work will replace the initial-version lookup with
-    // accepted live-version authority.
-    fn ensure_accepted_initial_schema_snapshot<E>(
-        &self,
-    ) -> Result<AcceptedSchemaSnapshot, InternalError>
+    // Ensure and return the accepted schema snapshot for one generated entity.
+    // This may write the first snapshot for an empty store; otherwise it loads
+    // the latest stored snapshot and applies the current exact-match policy.
+    fn ensure_accepted_schema_snapshot<E>(&self) -> Result<AcceptedSchemaSnapshot, InternalError>
     where
         E: EntityKind<Canister = C>,
     {
-        self.ensure_accepted_initial_schema_snapshot_for_authority(EntityAuthority::for_type::<E>())
+        self.ensure_accepted_schema_snapshot_for_authority(EntityAuthority::for_type::<E>())
     }
 
-    // Ensure and return the accepted initial schema snapshot from
-    // already-resolved structural entity authority. SQL and fluent shared-plan
-    // cache paths use this shape after lowering has erased the concrete entity
-    // type.
-    fn ensure_accepted_initial_schema_snapshot_for_authority(
+    // Ensure and return the accepted schema snapshot from already-resolved
+    // structural entity authority. SQL and fluent shared-plan cache paths use
+    // this shape after lowering has erased the concrete entity type.
+    fn ensure_accepted_schema_snapshot_for_authority(
         &self,
         authority: EntityAuthority,
     ) -> Result<AcceptedSchemaSnapshot, InternalError> {
         let store = self.db.recovered_store(authority.store_path())?;
 
         store.with_schema_mut(|schema_store| {
-            ensure_initial_schema_snapshot(
+            ensure_accepted_schema_snapshot(
                 schema_store,
                 authority.entity_tag(),
                 authority.entity_path(),

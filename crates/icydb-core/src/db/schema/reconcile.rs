@@ -14,7 +14,8 @@ use crate::{
     },
     error::InternalError,
     metrics::sink::{
-        MetricsEvent, SchemaReconcileOutcome, record, record_schema_store_footprint_for_path,
+        MetricsEvent, SchemaReconcileOutcome, record, record_accepted_schema_footprint_for_path,
+        record_schema_store_footprint_for_path,
     },
     model::entity::EntityModel,
     traits::CanisterKind,
@@ -23,10 +24,10 @@ use crate::{
 
 /// Reconcile registered runtime schemas with the schema metadata store.
 ///
-/// The 0.146 path intentionally supports only the initial schema authority:
-/// first contact writes the generated initial snapshot, and later contacts must
-/// decode to the exact same snapshot. Schema evolution comes after this
-/// persistence boundary is live.
+/// The 0.146 path intentionally supports only exact generated-proposal
+/// equality: first contact writes the generated initial snapshot, and later
+/// contacts load the latest stored snapshot before accepting only exact
+/// matches. Schema evolution comes after this persistence boundary is live.
 pub(in crate::db) fn reconcile_runtime_schemas<C: CanisterKind>(
     db: &Db<C>,
     entity_runtime_hooks: &[EntityRuntimeHooks<C>],
@@ -48,7 +49,7 @@ fn reconcile_runtime_schema<C: CanisterKind>(
     let store = db.store_handle(hooks.store_path)?;
 
     store.with_schema_mut(|schema_store| {
-        ensure_initial_schema_snapshot(
+        ensure_accepted_schema_snapshot(
             schema_store,
             hooks.entity_tag,
             hooks.entity_path,
@@ -58,12 +59,13 @@ fn reconcile_runtime_schema<C: CanisterKind>(
     })
 }
 
-/// Ensure one store contains the initial persisted schema snapshot for a model.
+/// Ensure one store contains an accepted persisted schema snapshot for a model.
 ///
 /// This is the shared schema-owned boundary used by runtime-hook reconciliation
-/// and metadata-only session paths. It writes first-create snapshots, accepts
-/// exact matches, and rejects drift until explicit evolution rules exist.
-pub(in crate::db) fn ensure_initial_schema_snapshot(
+/// and metadata-only session paths. It writes first-create initial snapshots,
+/// loads the latest stored snapshot, accepts exact matches, and rejects drift
+/// until explicit evolution rules exist.
+pub(in crate::db) fn ensure_accepted_schema_snapshot(
     schema_store: &mut SchemaStore,
     entity_tag: EntityTag,
     entity_path: &'static str,
@@ -91,8 +93,10 @@ pub(in crate::db) fn ensure_initial_schema_snapshot(
         };
         record_schema_reconcile(entity_path, outcome);
         record_schema_store_footprint(schema_store, entity_tag, entity_path);
+        let accepted = AcceptedSchemaSnapshot::try_new(actual)?;
+        record_accepted_schema_footprint(entity_path, &accepted);
 
-        return AcceptedSchemaSnapshot::try_new(actual);
+        return Ok(accepted);
     }
 
     if let Err(error) = schema_store.insert_persisted_snapshot(entity_tag, &expected) {
@@ -103,8 +107,10 @@ pub(in crate::db) fn ensure_initial_schema_snapshot(
 
     record_schema_reconcile(entity_path, SchemaReconcileOutcome::FirstCreate);
     record_schema_store_footprint(schema_store, entity_tag, entity_path);
+    let accepted = AcceptedSchemaSnapshot::try_new(expected)?;
+    record_accepted_schema_footprint(entity_path, &accepted);
 
-    AcceptedSchemaSnapshot::try_new(expected)
+    Ok(accepted)
 }
 
 // Keep schema reconciliation instrumentation at the reconciliation boundary so
@@ -129,6 +135,17 @@ fn record_schema_store_footprint(
         footprint.snapshots(),
         footprint.encoded_bytes(),
         footprint.latest_snapshot_bytes(),
+    );
+}
+
+// Record accepted live-schema field-fact footprint only after an accepted
+// snapshot has passed the accepted-schema integrity boundary.
+fn record_accepted_schema_footprint(entity_path: &'static str, accepted: &AcceptedSchemaSnapshot) {
+    let footprint = accepted.footprint();
+    record_accepted_schema_footprint_for_path(
+        entity_path,
+        footprint.fields(),
+        footprint.nested_leaf_facts(),
     );
 }
 
@@ -191,8 +208,12 @@ mod tests {
         },
         error::ErrorClass,
         metrics::{metrics_report, metrics_reset_all},
-        model::field::FieldKind,
-        testing::test_memory,
+        model::{
+            entity::EntityModel,
+            field::{FieldKind, FieldModel, FieldStorageDecode},
+            index::IndexModel,
+        },
+        testing::{entity_model_from_static, test_memory},
         traits::{EntityKind, EntitySchema, Path},
         types::{EntityTag, Ulid},
     };
@@ -231,6 +252,31 @@ mod tests {
         store = SchemaReconcileTestStore,
         canister = SchemaReconcileTestCanister,
     }
+
+    static NESTED_PROFILE_FIELDS: [FieldModel; 1] =
+        [FieldModel::generated("rank", FieldKind::Uint)];
+    static NESTED_SCHEMA_FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
+            "profile",
+            FieldKind::Structured { queryable: true },
+            FieldStorageDecode::Value,
+            false,
+            None,
+            None,
+            &NESTED_PROFILE_FIELDS,
+        ),
+    ];
+    static NESTED_SCHEMA_INDEXES: [&IndexModel; 0] = [];
+    static NESTED_SCHEMA_MODEL: EntityModel = entity_model_from_static(
+        "schema::reconcile::tests::NestedSchemaEntity",
+        "NestedSchemaEntity",
+        &NESTED_SCHEMA_FIELDS[0],
+        0,
+        &NESTED_SCHEMA_FIELDS,
+        &NESTED_SCHEMA_INDEXES,
+    );
+    const NESTED_SCHEMA_ENTITY_TAG: EntityTag = EntityTag::new(0x6e65_7374_7363_6865);
 
     thread_local! {
         static RECONCILE_DATA_STORE: RefCell<DataStore> =
@@ -295,6 +341,8 @@ mod tests {
             counters.ops().schema_store_latest_snapshot_bytes(),
             counters.ops().schema_store_encoded_bytes(),
         );
+        assert_eq!(counters.ops().accepted_schema_fields(), 2);
+        assert_eq!(counters.ops().accepted_schema_nested_leaf_facts(), 0);
     }
 
     #[test]
@@ -316,6 +364,45 @@ mod tests {
         assert_eq!(counters.ops().schema_reconcile_checks(), 2);
         assert_eq!(counters.ops().schema_reconcile_first_create(), 1);
         assert_eq!(counters.ops().schema_reconcile_exact_match(), 1);
+        assert_eq!(
+            counters.ops().accepted_schema_fields(),
+            2,
+            "accepted-schema footprint should stay a replaced entity gauge instead of double-counting exact-match reconciliation",
+        );
+        assert_eq!(counters.ops().accepted_schema_nested_leaf_facts(), 0);
+    }
+
+    #[test]
+    fn ensure_accepted_schema_snapshot_records_nested_leaf_footprint() {
+        let mut schema_store = SchemaStore::init(test_memory(241));
+        metrics_reset_all();
+
+        let accepted = super::ensure_accepted_schema_snapshot(
+            &mut schema_store,
+            NESTED_SCHEMA_ENTITY_TAG,
+            NESTED_SCHEMA_MODEL.path(),
+            &NESTED_SCHEMA_MODEL,
+        )
+        .expect("nested schema snapshot should be accepted on first contact");
+
+        let footprint = accepted.footprint();
+        assert_eq!(footprint.fields(), 2);
+        assert_eq!(footprint.nested_leaf_facts(), 1);
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("accepted nested schema should record metrics");
+        assert_eq!(counters.ops().accepted_schema_fields(), 2);
+        assert_eq!(counters.ops().accepted_schema_nested_leaf_facts(), 1);
+
+        let summary = report
+            .entity_counters()
+            .iter()
+            .find(|summary| summary.path() == NESTED_SCHEMA_MODEL.path())
+            .expect("accepted nested schema should record an entity summary");
+        assert_eq!(summary.accepted_schema_fields(), 2);
+        assert_eq!(summary.accepted_schema_nested_leaf_facts(), 1);
     }
 
     #[test]

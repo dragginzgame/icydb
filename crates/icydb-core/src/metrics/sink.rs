@@ -248,6 +248,11 @@ pub enum GroupedPlanExecutionMode {
 #[derive(Clone, Copy, Debug)]
 #[remain::sorted]
 pub enum MetricsEvent {
+    AcceptedSchemaFootprint {
+        entity_path: &'static str,
+        fields: u64,
+        nested_leaf_facts: u64,
+    },
     Cache {
         entity_path: &'static str,
         kind: CacheKind,
@@ -383,94 +388,36 @@ pub trait MetricsSink {
 pub(crate) struct GlobalMetricsSink;
 
 impl MetricsSink for GlobalMetricsSink {
+    #[remain::check]
     #[expect(clippy::too_many_lines)]
     fn record(&self, event: MetricsEvent) {
+        #[remain::sorted]
         match event {
-            MetricsEvent::ExecStart { kind, entity_path } => {
-                metrics::with_state_mut(|m| {
-                    record_global_exec_start(&mut m.ops, kind);
-
-                    let entry = m.entities.entry(entity_path.to_string()).or_default();
-                    record_entity_exec_start(entry, kind);
-                });
-            }
-
-            MetricsEvent::ExecFinish {
-                kind,
+            MetricsEvent::AcceptedSchemaFootprint {
                 entity_path,
-                rows_touched,
-                inst_delta,
-                outcome,
+                fields,
+                nested_leaf_facts,
             } => {
                 metrics::with_state_mut(|m| {
-                    record_global_exec_outcome(&mut m.ops, outcome);
+                    let (previous_fields, previous_nested_leaf_facts) = {
+                        let entry = m.entities.entry(entity_path.to_string()).or_default();
+                        let previous = (
+                            entry.accepted_schema_fields,
+                            entry.accepted_schema_nested_leaf_facts,
+                        );
+                        entry.accepted_schema_fields = fields;
+                        entry.accepted_schema_nested_leaf_facts = nested_leaf_facts;
 
-                    match kind {
-                        ExecKind::Load => {
-                            m.ops.rows_loaded = m.ops.rows_loaded.saturating_add(rows_touched);
-                            metrics::add_instructions(
-                                &mut m.perf.load_inst_total,
-                                &mut m.perf.load_inst_max,
-                                inst_delta,
-                            );
-                        }
-                        ExecKind::Save => {
-                            m.ops.rows_saved = m.ops.rows_saved.saturating_add(rows_touched);
-                            m.ops.write_rows_touched =
-                                m.ops.write_rows_touched.saturating_add(rows_touched);
-                            metrics::add_instructions(
-                                &mut m.perf.save_inst_total,
-                                &mut m.perf.save_inst_max,
-                                inst_delta,
-                            );
-                        }
-                        ExecKind::Delete => {
-                            m.ops.rows_deleted = m.ops.rows_deleted.saturating_add(rows_touched);
-                            m.ops.write_rows_touched =
-                                m.ops.write_rows_touched.saturating_add(rows_touched);
-                            metrics::add_instructions(
-                                &mut m.perf.delete_inst_total,
-                                &mut m.perf.delete_inst_max,
-                                inst_delta,
-                            );
-                        }
-                    }
-
-                    let entry = m.entities.entry(entity_path.to_string()).or_default();
-                    record_entity_exec_outcome(entry, outcome);
-                    match kind {
-                        ExecKind::Load => {
-                            entry.rows_loaded = entry.rows_loaded.saturating_add(rows_touched);
-                        }
-                        ExecKind::Delete => {
-                            entry.rows_deleted = entry.rows_deleted.saturating_add(rows_touched);
-                            entry.write_rows_touched =
-                                entry.write_rows_touched.saturating_add(rows_touched);
-                        }
-                        ExecKind::Save => {
-                            entry.rows_saved = entry.rows_saved.saturating_add(rows_touched);
-                            entry.write_rows_touched =
-                                entry.write_rows_touched.saturating_add(rows_touched);
-                        }
-                    }
+                        previous
+                    };
+                    replace_gauge_total(&mut m.ops.accepted_schema_fields, previous_fields, fields);
+                    replace_gauge_total(
+                        &mut m.ops.accepted_schema_nested_leaf_facts,
+                        previous_nested_leaf_facts,
+                        nested_leaf_facts,
+                    );
                 });
             }
-
-            MetricsEvent::ExecError {
-                kind,
-                entity_path,
-                outcome,
-            } => {
-                metrics::with_state_mut(|m| {
-                    record_global_exec_start(&mut m.ops, kind);
-                    record_global_exec_outcome(&mut m.ops, outcome);
-
-                    let entry = m.entities.entry(entity_path.to_string()).or_default();
-                    record_entity_exec_start(entry, kind);
-                    record_entity_exec_outcome(entry, outcome);
-                });
-            }
-
             MetricsEvent::Cache {
                 entity_path,
                 kind,
@@ -502,51 +449,108 @@ impl MetricsSink for GlobalMetricsSink {
                     record_entity_cache_miss_reason(entry, kind, reason);
                 });
             }
-
-            MetricsEvent::RowsScanned {
+            MetricsEvent::ExecError {
+                kind,
                 entity_path,
-                rows_scanned,
+                outcome,
             } => {
                 metrics::with_state_mut(|m| {
-                    m.ops.rows_scanned = m.ops.rows_scanned.saturating_add(rows_scanned);
+                    record_global_exec_start(&mut m.ops, kind);
+                    record_global_exec_outcome(&mut m.ops, outcome);
+
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
-                    entry.rows_scanned = entry.rows_scanned.saturating_add(rows_scanned);
+                    record_entity_exec_start(entry, kind);
+                    record_entity_exec_outcome(entry, outcome);
                 });
             }
-
-            MetricsEvent::RowsFiltered {
+            MetricsEvent::ExecFinish {
+                kind,
                 entity_path,
-                rows_filtered,
+                rows_touched,
+                inst_delta,
+                outcome,
             } => {
                 metrics::with_state_mut(|m| {
-                    m.ops.rows_filtered = m.ops.rows_filtered.saturating_add(rows_filtered);
+                    record_global_exec_outcome(&mut m.ops, outcome);
+
+                    #[remain::sorted]
+                    match kind {
+                        ExecKind::Delete => {
+                            m.ops.rows_deleted = m.ops.rows_deleted.saturating_add(rows_touched);
+                            m.ops.write_rows_touched =
+                                m.ops.write_rows_touched.saturating_add(rows_touched);
+                            metrics::add_instructions(
+                                &mut m.perf.delete_inst_total,
+                                &mut m.perf.delete_inst_max,
+                                inst_delta,
+                            );
+                        }
+                        ExecKind::Load => {
+                            m.ops.rows_loaded = m.ops.rows_loaded.saturating_add(rows_touched);
+                            metrics::add_instructions(
+                                &mut m.perf.load_inst_total,
+                                &mut m.perf.load_inst_max,
+                                inst_delta,
+                            );
+                        }
+                        ExecKind::Save => {
+                            m.ops.rows_saved = m.ops.rows_saved.saturating_add(rows_touched);
+                            m.ops.write_rows_touched =
+                                m.ops.write_rows_touched.saturating_add(rows_touched);
+                            metrics::add_instructions(
+                                &mut m.perf.save_inst_total,
+                                &mut m.perf.save_inst_max,
+                                inst_delta,
+                            );
+                        }
+                    }
+
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
-                    entry.rows_filtered = entry.rows_filtered.saturating_add(rows_filtered);
+                    record_entity_exec_outcome(entry, outcome);
+                    #[remain::sorted]
+                    match kind {
+                        ExecKind::Delete => {
+                            entry.rows_deleted = entry.rows_deleted.saturating_add(rows_touched);
+                            entry.write_rows_touched =
+                                entry.write_rows_touched.saturating_add(rows_touched);
+                        }
+                        ExecKind::Load => {
+                            entry.rows_loaded = entry.rows_loaded.saturating_add(rows_touched);
+                        }
+                        ExecKind::Save => {
+                            entry.rows_saved = entry.rows_saved.saturating_add(rows_touched);
+                            entry.write_rows_touched =
+                                entry.write_rows_touched.saturating_add(rows_touched);
+                        }
+                    }
                 });
             }
+            MetricsEvent::ExecStart { kind, entity_path } => {
+                metrics::with_state_mut(|m| {
+                    record_global_exec_start(&mut m.ops, kind);
 
-            MetricsEvent::RowsAggregated {
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    record_entity_exec_start(entry, kind);
+                });
+            }
+            MetricsEvent::IndexDelta {
                 entity_path,
-                rows_aggregated,
+                inserts,
+                removes,
             } => {
                 metrics::with_state_mut(|m| {
-                    m.ops.rows_aggregated = m.ops.rows_aggregated.saturating_add(rows_aggregated);
+                    m.ops.index_inserts = m.ops.index_inserts.saturating_add(inserts);
+                    m.ops.index_removes = m.ops.index_removes.saturating_add(removes);
+                    let changed = inserts.saturating_add(removes);
+                    m.ops.write_index_entries_changed =
+                        m.ops.write_index_entries_changed.saturating_add(changed);
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
-                    entry.rows_aggregated = entry.rows_aggregated.saturating_add(rows_aggregated);
+                    entry.index_inserts = entry.index_inserts.saturating_add(inserts);
+                    entry.index_removes = entry.index_removes.saturating_add(removes);
+                    entry.write_index_entries_changed =
+                        entry.write_index_entries_changed.saturating_add(changed);
                 });
             }
-
-            MetricsEvent::RowsEmitted {
-                entity_path,
-                rows_emitted,
-            } => {
-                metrics::with_state_mut(|m| {
-                    m.ops.rows_emitted = m.ops.rows_emitted.saturating_add(rows_emitted);
-                    let entry = m.entities.entry(entity_path.to_string()).or_default();
-                    entry.rows_emitted = entry.rows_emitted.saturating_add(rows_emitted);
-                });
-            }
-
             MetricsEvent::LoadRowEfficiency {
                 entity_path,
                 candidate_rows_scanned,
@@ -579,60 +583,62 @@ impl MetricsSink for GlobalMetricsSink {
                         .saturating_add(result_rows_emitted);
                 });
             }
-
-            MetricsEvent::UniqueViolation { entity_path } => {
-                metrics::with_state_mut(|m| {
-                    m.ops.unique_violations = m.ops.unique_violations.saturating_add(1);
-                    let entry = m.entities.entry(entity_path.to_string()).or_default();
-                    entry.unique_violations = entry.unique_violations.saturating_add(1);
-                });
-            }
-
-            MetricsEvent::IndexDelta {
+            MetricsEvent::NonAtomicPartialCommit {
                 entity_path,
-                inserts,
-                removes,
+                committed_rows,
             } => {
                 metrics::with_state_mut(|m| {
-                    m.ops.index_inserts = m.ops.index_inserts.saturating_add(inserts);
-                    m.ops.index_removes = m.ops.index_removes.saturating_add(removes);
-                    let changed = inserts.saturating_add(removes);
-                    m.ops.write_index_entries_changed =
-                        m.ops.write_index_entries_changed.saturating_add(changed);
-                    let entry = m.entities.entry(entity_path.to_string()).or_default();
-                    entry.index_inserts = entry.index_inserts.saturating_add(inserts);
-                    entry.index_removes = entry.index_removes.saturating_add(removes);
-                    entry.write_index_entries_changed =
-                        entry.write_index_entries_changed.saturating_add(changed);
-                });
-            }
-
-            MetricsEvent::ReverseIndexDelta {
-                entity_path,
-                inserts,
-                removes,
-            } => {
-                metrics::with_state_mut(|m| {
-                    m.ops.reverse_index_inserts =
-                        m.ops.reverse_index_inserts.saturating_add(inserts);
-                    m.ops.reverse_index_removes =
-                        m.ops.reverse_index_removes.saturating_add(removes);
-                    let changed = inserts.saturating_add(removes);
-                    m.ops.write_reverse_index_entries_changed = m
+                    m.ops.non_atomic_partial_commits =
+                        m.ops.non_atomic_partial_commits.saturating_add(1);
+                    m.ops.non_atomic_partial_rows_committed = m
                         .ops
-                        .write_reverse_index_entries_changed
-                        .saturating_add(changed);
+                        .non_atomic_partial_rows_committed
+                        .saturating_add(committed_rows);
+
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
-                    entry.reverse_index_inserts =
-                        entry.reverse_index_inserts.saturating_add(inserts);
-                    entry.reverse_index_removes =
-                        entry.reverse_index_removes.saturating_add(removes);
-                    entry.write_reverse_index_entries_changed = entry
-                        .write_reverse_index_entries_changed
-                        .saturating_add(changed);
+                    entry.non_atomic_partial_commits =
+                        entry.non_atomic_partial_commits.saturating_add(1);
+                    entry.non_atomic_partial_rows_committed = entry
+                        .non_atomic_partial_rows_committed
+                        .saturating_add(committed_rows);
                 });
             }
+            MetricsEvent::Plan {
+                entity_path,
+                kind,
+                grouped_execution_mode,
+            } => {
+                metrics::with_state_mut(|m| {
+                    record_global_plan_kind(&mut m.ops, kind);
+                    record_global_grouped_plan_mode(&mut m.ops, grouped_execution_mode);
 
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    record_entity_plan_kind(entry, kind);
+                    record_entity_grouped_plan_mode(entry, grouped_execution_mode);
+                });
+            }
+            MetricsEvent::PlanChoice {
+                entity_path,
+                reason,
+            } => {
+                metrics::with_state_mut(|m| {
+                    record_global_plan_choice_reason(&mut m.ops, reason);
+
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    record_entity_plan_choice_reason(entry, reason);
+                });
+            }
+            MetricsEvent::PreparedShapeFinalization {
+                entity_path,
+                outcome,
+            } => {
+                metrics::with_state_mut(|m| {
+                    record_global_prepared_shape_finalization_outcome(&mut m.ops, outcome);
+
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    record_entity_prepared_shape_finalization_outcome(entry, outcome);
+                });
+            }
             MetricsEvent::RelationValidation {
                 entity_path,
                 reverse_lookups,
@@ -658,67 +664,111 @@ impl MetricsSink for GlobalMetricsSink {
                         entry.write_relation_checks.saturating_add(reverse_lookups);
                 });
             }
-
-            MetricsEvent::NonAtomicPartialCommit {
+            MetricsEvent::ReverseIndexDelta {
                 entity_path,
-                committed_rows,
+                inserts,
+                removes,
             } => {
                 metrics::with_state_mut(|m| {
-                    m.ops.non_atomic_partial_commits =
-                        m.ops.non_atomic_partial_commits.saturating_add(1);
-                    m.ops.non_atomic_partial_rows_committed = m
+                    m.ops.reverse_index_inserts =
+                        m.ops.reverse_index_inserts.saturating_add(inserts);
+                    m.ops.reverse_index_removes =
+                        m.ops.reverse_index_removes.saturating_add(removes);
+                    let changed = inserts.saturating_add(removes);
+                    m.ops.write_reverse_index_entries_changed = m
                         .ops
-                        .non_atomic_partial_rows_committed
-                        .saturating_add(committed_rows);
-
+                        .write_reverse_index_entries_changed
+                        .saturating_add(changed);
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
-                    entry.non_atomic_partial_commits =
-                        entry.non_atomic_partial_commits.saturating_add(1);
-                    entry.non_atomic_partial_rows_committed = entry
-                        .non_atomic_partial_rows_committed
-                        .saturating_add(committed_rows);
+                    entry.reverse_index_inserts =
+                        entry.reverse_index_inserts.saturating_add(inserts);
+                    entry.reverse_index_removes =
+                        entry.reverse_index_removes.saturating_add(removes);
+                    entry.write_reverse_index_entries_changed = entry
+                        .write_reverse_index_entries_changed
+                        .saturating_add(changed);
                 });
             }
-
+            MetricsEvent::RowsAggregated {
+                entity_path,
+                rows_aggregated,
+            } => {
+                metrics::with_state_mut(|m| {
+                    m.ops.rows_aggregated = m.ops.rows_aggregated.saturating_add(rows_aggregated);
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    entry.rows_aggregated = entry.rows_aggregated.saturating_add(rows_aggregated);
+                });
+            }
+            MetricsEvent::RowsEmitted {
+                entity_path,
+                rows_emitted,
+            } => {
+                metrics::with_state_mut(|m| {
+                    m.ops.rows_emitted = m.ops.rows_emitted.saturating_add(rows_emitted);
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    entry.rows_emitted = entry.rows_emitted.saturating_add(rows_emitted);
+                });
+            }
+            MetricsEvent::RowsFiltered {
+                entity_path,
+                rows_filtered,
+            } => {
+                metrics::with_state_mut(|m| {
+                    m.ops.rows_filtered = m.ops.rows_filtered.saturating_add(rows_filtered);
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    entry.rows_filtered = entry.rows_filtered.saturating_add(rows_filtered);
+                });
+            }
+            MetricsEvent::RowsScanned {
+                entity_path,
+                rows_scanned,
+            } => {
+                metrics::with_state_mut(|m| {
+                    m.ops.rows_scanned = m.ops.rows_scanned.saturating_add(rows_scanned);
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    entry.rows_scanned = entry.rows_scanned.saturating_add(rows_scanned);
+                });
+            }
             MetricsEvent::SaveMutation {
                 entity_path,
                 kind,
                 rows_touched,
             } => {
                 metrics::with_state_mut(|m| {
+                    #[remain::sorted]
                     match kind {
                         SaveMutationKind::Insert => {
                             m.ops.save_insert_calls = m.ops.save_insert_calls.saturating_add(1);
                             m.ops.rows_inserted = m.ops.rows_inserted.saturating_add(rows_touched);
                         }
-                        SaveMutationKind::Update => {
-                            m.ops.save_update_calls = m.ops.save_update_calls.saturating_add(1);
-                            m.ops.rows_updated = m.ops.rows_updated.saturating_add(rows_touched);
-                        }
                         SaveMutationKind::Replace => {
                             m.ops.save_replace_calls = m.ops.save_replace_calls.saturating_add(1);
                             m.ops.rows_replaced = m.ops.rows_replaced.saturating_add(rows_touched);
                         }
+                        SaveMutationKind::Update => {
+                            m.ops.save_update_calls = m.ops.save_update_calls.saturating_add(1);
+                            m.ops.rows_updated = m.ops.rows_updated.saturating_add(rows_touched);
+                        }
                     }
 
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    #[remain::sorted]
                     match kind {
                         SaveMutationKind::Insert => {
                             entry.save_insert_calls = entry.save_insert_calls.saturating_add(1);
                             entry.rows_inserted = entry.rows_inserted.saturating_add(rows_touched);
                         }
-                        SaveMutationKind::Update => {
-                            entry.save_update_calls = entry.save_update_calls.saturating_add(1);
-                            entry.rows_updated = entry.rows_updated.saturating_add(rows_touched);
-                        }
                         SaveMutationKind::Replace => {
                             entry.save_replace_calls = entry.save_replace_calls.saturating_add(1);
                             entry.rows_replaced = entry.rows_replaced.saturating_add(rows_touched);
                         }
+                        SaveMutationKind::Update => {
+                            entry.save_update_calls = entry.save_update_calls.saturating_add(1);
+                            entry.rows_updated = entry.rows_updated.saturating_add(rows_touched);
+                        }
                     }
                 });
             }
-
             MetricsEvent::SchemaReconcile {
                 entity_path,
                 outcome,
@@ -730,7 +780,6 @@ impl MetricsSink for GlobalMetricsSink {
                     record_entity_schema_reconcile_outcome(entry, outcome);
                 });
             }
-
             MetricsEvent::SchemaStoreFootprint {
                 encoded_bytes,
                 entity_path,
@@ -772,7 +821,6 @@ impl MetricsSink for GlobalMetricsSink {
                     );
                 });
             }
-
             MetricsEvent::SqlCompileReject { entity_path, phase } => {
                 metrics::with_state_mut(|m| {
                     record_global_sql_compile_reject_phase(&mut m.ops, phase);
@@ -781,7 +829,6 @@ impl MetricsSink for GlobalMetricsSink {
                     record_entity_sql_compile_reject_phase(entry, phase);
                 });
             }
-
             MetricsEvent::SqlWrite {
                 entity_path,
                 kind,
@@ -811,7 +858,6 @@ impl MetricsSink for GlobalMetricsSink {
                         .saturating_add(returning_rows);
                 });
             }
-
             MetricsEvent::SqlWriteError {
                 entity_path,
                 kind,
@@ -826,43 +872,11 @@ impl MetricsSink for GlobalMetricsSink {
                     record_entity_sql_write_error_class(entry, class);
                 });
             }
-
-            MetricsEvent::Plan {
-                entity_path,
-                kind,
-                grouped_execution_mode,
-            } => {
+            MetricsEvent::UniqueViolation { entity_path } => {
                 metrics::with_state_mut(|m| {
-                    record_global_plan_kind(&mut m.ops, kind);
-                    record_global_grouped_plan_mode(&mut m.ops, grouped_execution_mode);
-
+                    m.ops.unique_violations = m.ops.unique_violations.saturating_add(1);
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
-                    record_entity_plan_kind(entry, kind);
-                    record_entity_grouped_plan_mode(entry, grouped_execution_mode);
-                });
-            }
-
-            MetricsEvent::PlanChoice {
-                entity_path,
-                reason,
-            } => {
-                metrics::with_state_mut(|m| {
-                    record_global_plan_choice_reason(&mut m.ops, reason);
-
-                    let entry = m.entities.entry(entity_path.to_string()).or_default();
-                    record_entity_plan_choice_reason(entry, reason);
-                });
-            }
-
-            MetricsEvent::PreparedShapeFinalization {
-                entity_path,
-                outcome,
-            } => {
-                metrics::with_state_mut(|m| {
-                    record_global_prepared_shape_finalization_outcome(&mut m.ops, outcome);
-
-                    let entry = m.entities.entry(entity_path.to_string()).or_default();
-                    record_entity_prepared_shape_finalization_outcome(entry, outcome);
+                    entry.unique_violations = entry.unique_violations.saturating_add(1);
                 });
             }
         }
@@ -1304,32 +1318,64 @@ const fn record_entity_sql_write_error_class(ops: &mut metrics::EntityCounters, 
 // Cache counters are intentionally cache-family specific and outcome specific
 // so the report can distinguish a cold cache from a warmed cache that inserts
 // successfully after misses.
+#[remain::check]
 const fn record_global_cache_outcome(
     ops: &mut metrics::EventOps,
     kind: CacheKind,
     outcome: CacheOutcome,
 ) {
-    match (kind, outcome) {
-        (CacheKind::SharedQueryPlan, CacheOutcome::Hit) => {
+    #[remain::sorted]
+    match kind {
+        CacheKind::SharedQueryPlan => {
+            record_global_shared_query_plan_cache_outcome(ops, outcome);
+        }
+        CacheKind::SqlCompiledCommand => {
+            record_global_sql_compiled_command_cache_outcome(ops, outcome);
+        }
+    }
+}
+
+// Shared query-plan cache outcomes update only the query-plan cache family so
+// cache dashboards can distinguish planner reuse from SQL command reuse.
+#[remain::check]
+const fn record_global_shared_query_plan_cache_outcome(
+    ops: &mut metrics::EventOps,
+    outcome: CacheOutcome,
+) {
+    #[remain::sorted]
+    match outcome {
+        CacheOutcome::Hit => {
             ops.cache_shared_query_plan_hits = ops.cache_shared_query_plan_hits.saturating_add(1);
         }
-        (CacheKind::SharedQueryPlan, CacheOutcome::Insert) => {
+        CacheOutcome::Insert => {
             ops.cache_shared_query_plan_inserts =
                 ops.cache_shared_query_plan_inserts.saturating_add(1);
         }
-        (CacheKind::SharedQueryPlan, CacheOutcome::Miss) => {
+        CacheOutcome::Miss => {
             ops.cache_shared_query_plan_misses =
                 ops.cache_shared_query_plan_misses.saturating_add(1);
         }
-        (CacheKind::SqlCompiledCommand, CacheOutcome::Hit) => {
+    }
+}
+
+// SQL compiled-command cache outcomes update only the SQL cache family so the
+// same hit/miss vocabulary remains separated by cache owner.
+#[remain::check]
+const fn record_global_sql_compiled_command_cache_outcome(
+    ops: &mut metrics::EventOps,
+    outcome: CacheOutcome,
+) {
+    #[remain::sorted]
+    match outcome {
+        CacheOutcome::Hit => {
             ops.cache_sql_compiled_command_hits =
                 ops.cache_sql_compiled_command_hits.saturating_add(1);
         }
-        (CacheKind::SqlCompiledCommand, CacheOutcome::Insert) => {
+        CacheOutcome::Insert => {
             ops.cache_sql_compiled_command_inserts =
                 ops.cache_sql_compiled_command_inserts.saturating_add(1);
         }
-        (CacheKind::SqlCompiledCommand, CacheOutcome::Miss) => {
+        CacheOutcome::Miss => {
             ops.cache_sql_compiled_command_misses =
                 ops.cache_sql_compiled_command_misses.saturating_add(1);
         }
@@ -1448,32 +1494,64 @@ const fn record_global_sql_compiled_command_miss_reason(
 
 // Mirror cache activity to the owning entity so global cache movement can be
 // traced back to the model whose schema/query identity produced it.
+#[remain::check]
 const fn record_entity_cache_outcome(
     ops: &mut metrics::EntityCounters,
     kind: CacheKind,
     outcome: CacheOutcome,
 ) {
-    match (kind, outcome) {
-        (CacheKind::SharedQueryPlan, CacheOutcome::Hit) => {
+    #[remain::sorted]
+    match kind {
+        CacheKind::SharedQueryPlan => {
+            record_entity_shared_query_plan_cache_outcome(ops, outcome);
+        }
+        CacheKind::SqlCompiledCommand => {
+            record_entity_sql_compiled_command_cache_outcome(ops, outcome);
+        }
+    }
+}
+
+// Entity-scoped query-plan cache outcomes mirror global counters so one model's
+// planner cache churn can be isolated from aggregate cache totals.
+#[remain::check]
+const fn record_entity_shared_query_plan_cache_outcome(
+    ops: &mut metrics::EntityCounters,
+    outcome: CacheOutcome,
+) {
+    #[remain::sorted]
+    match outcome {
+        CacheOutcome::Hit => {
             ops.cache_shared_query_plan_hits = ops.cache_shared_query_plan_hits.saturating_add(1);
         }
-        (CacheKind::SharedQueryPlan, CacheOutcome::Insert) => {
+        CacheOutcome::Insert => {
             ops.cache_shared_query_plan_inserts =
                 ops.cache_shared_query_plan_inserts.saturating_add(1);
         }
-        (CacheKind::SharedQueryPlan, CacheOutcome::Miss) => {
+        CacheOutcome::Miss => {
             ops.cache_shared_query_plan_misses =
                 ops.cache_shared_query_plan_misses.saturating_add(1);
         }
-        (CacheKind::SqlCompiledCommand, CacheOutcome::Hit) => {
+    }
+}
+
+// Entity-scoped SQL cache outcomes keep SQL command reuse attributable to the
+// entity path that owns the compiled statement context.
+#[remain::check]
+const fn record_entity_sql_compiled_command_cache_outcome(
+    ops: &mut metrics::EntityCounters,
+    outcome: CacheOutcome,
+) {
+    #[remain::sorted]
+    match outcome {
+        CacheOutcome::Hit => {
             ops.cache_sql_compiled_command_hits =
                 ops.cache_sql_compiled_command_hits.saturating_add(1);
         }
-        (CacheKind::SqlCompiledCommand, CacheOutcome::Insert) => {
+        CacheOutcome::Insert => {
             ops.cache_sql_compiled_command_inserts =
                 ops.cache_sql_compiled_command_inserts.saturating_add(1);
         }
-        (CacheKind::SqlCompiledCommand, CacheOutcome::Miss) => {
+        CacheOutcome::Miss => {
             ops.cache_sql_compiled_command_misses =
                 ops.cache_sql_compiled_command_misses.saturating_add(1);
         }
@@ -2045,6 +2123,19 @@ pub(crate) fn record_schema_store_footprint_for_path(
         entity_path,
         latest_snapshot_bytes,
         snapshots,
+    });
+}
+
+/// Record the latest observed accepted schema fact footprint for one entity.
+pub(crate) fn record_accepted_schema_footprint_for_path(
+    entity_path: &'static str,
+    fields: u64,
+    nested_leaf_facts: u64,
+) {
+    record(MetricsEvent::AcceptedSchemaFootprint {
+        entity_path,
+        fields,
+        nested_leaf_facts,
     });
 }
 

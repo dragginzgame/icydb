@@ -455,7 +455,7 @@ impl<C: CanisterKind> DbSession<C> {
         let columns = sql_insert_columns::<E>(statement);
         ensure_sql_insert_required_fields::<E>(columns.as_slice())?;
         let schema = self
-            .ensure_accepted_initial_schema_snapshot::<E>()
+            .ensure_accepted_schema_snapshot::<E>()
             .map_err(QueryError::execute)?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Insert, Timestamp::now());
         let mut rows = Vec::new();
@@ -527,7 +527,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let schema = self
-            .ensure_accepted_initial_schema_snapshot::<E>()
+            .ensure_accepted_schema_snapshot::<E>()
             .map_err(QueryError::execute)?;
         let selector = Self::sql_update_selector_query::<E>(&schema, statement)?;
         let patch = Self::sql_structural_patch::<E>(&schema, statement)?;

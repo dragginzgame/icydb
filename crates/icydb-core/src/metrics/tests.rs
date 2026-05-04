@@ -211,6 +211,8 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
         "schema_store_snapshots",
         "schema_store_encoded_bytes",
         "schema_store_latest_snapshot_bytes",
+        "accepted_schema_fields",
+        "accepted_schema_nested_leaf_facts",
         "sql_compile_rejects",
         "sql_compile_reject_cache_key",
         "sql_compile_reject_parse",
@@ -367,6 +369,43 @@ fn schema_store_footprint_metrics_replace_entity_gauge_contributions() {
     assert_eq!(summary.schema_store_snapshots(), 3);
     assert_eq!(summary.schema_store_encoded_bytes(), 500);
     assert_eq!(summary.schema_store_latest_snapshot_bytes(), 220);
+}
+
+#[test]
+fn accepted_schema_footprint_metrics_replace_entity_gauge_contributions() {
+    reset_all();
+
+    record(MetricsEvent::AcceptedSchemaFootprint {
+        entity_path: "metrics::tests::AcceptedSchemaEntity",
+        fields: 2,
+        nested_leaf_facts: 1,
+    });
+    record(MetricsEvent::AcceptedSchemaFootprint {
+        entity_path: "metrics::tests::OtherAcceptedSchemaEntity",
+        fields: 4,
+        nested_leaf_facts: 3,
+    });
+    record(MetricsEvent::AcceptedSchemaFootprint {
+        entity_path: "metrics::tests::AcceptedSchemaEntity",
+        fields: 5,
+        nested_leaf_facts: 8,
+    });
+
+    let report = report_window_start(None);
+    let counters = report
+        .counters()
+        .expect("accepted-schema footprint fixture should produce aggregate counters");
+    let ops = counters.ops();
+    assert_eq!(ops.accepted_schema_fields(), 9);
+    assert_eq!(ops.accepted_schema_nested_leaf_facts(), 11);
+
+    let summaries = report.entity_counters();
+    let summary = summaries
+        .iter()
+        .find(|summary| summary.path() == "metrics::tests::AcceptedSchemaEntity")
+        .expect("accepted-schema fixture should produce updated entity summary");
+    assert_eq!(summary.accepted_schema_fields(), 5);
+    assert_eq!(summary.accepted_schema_nested_leaf_facts(), 8);
 }
 
 #[test]
@@ -749,6 +788,8 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         schema_store_snapshots: 184,
         schema_store_encoded_bytes: 185,
         schema_store_latest_snapshot_bytes: 186,
+        accepted_schema_fields: 189,
+        accepted_schema_nested_leaf_facts: 190,
         sql_compile_rejects: 180,
         sql_compile_reject_cache_key: 181,
         sql_compile_reject_parse: 182,
@@ -880,6 +921,8 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "schema_store_snapshots",
         "schema_store_encoded_bytes",
         "schema_store_latest_snapshot_bytes",
+        "accepted_schema_fields",
+        "accepted_schema_nested_leaf_facts",
         "sql_compile_rejects",
         "sql_compile_reject_cache_key",
         "sql_compile_reject_parse",
@@ -1037,6 +1080,8 @@ fn entity_summary_candid_shape_is_stable() {
     assert_eq!(summary.schema_store_snapshots(), 184);
     assert_eq!(summary.schema_store_encoded_bytes(), 185);
     assert_eq!(summary.schema_store_latest_snapshot_bytes(), 186);
+    assert_eq!(summary.accepted_schema_fields(), 189);
+    assert_eq!(summary.accepted_schema_nested_leaf_facts(), 190);
     assert_eq!(summary.sql_compile_rejects(), 180);
     assert_eq!(summary.sql_compile_reject_cache_key(), 181);
     assert_eq!(summary.sql_compile_reject_parse(), 182);

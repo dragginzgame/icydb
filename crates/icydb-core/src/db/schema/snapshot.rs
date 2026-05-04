@@ -27,6 +27,43 @@ pub(in crate::db) struct AcceptedSchemaSnapshot {
     snapshot: PersistedSchemaSnapshot,
 }
 
+///
+/// AcceptedSchemaFootprint
+///
+/// Low-cardinality footprint summary for one accepted schema snapshot. Metrics
+/// use this shape to report live schema-authority size without exposing field
+/// names, nested paths, or persisted type details.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedSchemaFootprint {
+    fields: u64,
+    nested_leaf_facts: u64,
+}
+
+impl AcceptedSchemaFootprint {
+    /// Build one accepted schema footprint from counted snapshot facts.
+    #[must_use]
+    const fn new(fields: u64, nested_leaf_facts: u64) -> Self {
+        Self {
+            fields,
+            nested_leaf_facts,
+        }
+    }
+
+    /// Return the number of top-level persisted field facts.
+    #[must_use]
+    pub(in crate::db) const fn fields(self) -> u64 {
+        self.fields
+    }
+
+    /// Return the number of accepted nested leaf metadata facts.
+    #[must_use]
+    pub(in crate::db) const fn nested_leaf_facts(self) -> u64 {
+        self.nested_leaf_facts
+    }
+}
+
 impl AcceptedSchemaSnapshot {
     /// Wrap one persisted snapshot after reconciliation accepts it.
     ///
@@ -133,6 +170,20 @@ impl AcceptedSchemaSnapshot {
         let slot = self.snapshot.row_layout().slot_for_field(field.id())?;
 
         Some((field.kind(), slot, field.nested_leaves()))
+    }
+
+    /// Return a low-cardinality footprint of accepted schema field facts.
+    #[must_use]
+    pub(in crate::db) fn footprint(&self) -> AcceptedSchemaFootprint {
+        let fields = u64::try_from(self.snapshot.fields().len()).unwrap_or(u64::MAX);
+        let nested_leaf_facts = self
+            .snapshot
+            .fields()
+            .iter()
+            .map(|field| u64::try_from(field.nested_leaves().len()).unwrap_or(u64::MAX))
+            .fold(0u64, u64::saturating_add);
+
+        AcceptedSchemaFootprint::new(fields, nested_leaf_facts)
     }
 }
 
@@ -731,6 +782,15 @@ mod tests {
         assert_eq!(slot, SchemaFieldSlot::new(11));
         assert_eq!(nested.len(), 1);
         assert_eq!(nested[0].path(), &["thumbnail".to_string()]);
+    }
+
+    #[test]
+    fn accepted_schema_snapshot_footprint_counts_field_and_nested_leaf_facts() {
+        let snapshot = accepted_schema_fixture();
+        let footprint = snapshot.footprint();
+
+        assert_eq!(footprint.fields(), 2);
+        assert_eq!(footprint.nested_leaf_facts(), 1);
     }
 
     #[test]

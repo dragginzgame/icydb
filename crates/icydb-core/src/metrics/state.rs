@@ -127,6 +127,8 @@ pub struct EventOps {
     pub(crate) schema_store_snapshots: u64,
     pub(crate) schema_store_encoded_bytes: u64,
     pub(crate) schema_store_latest_snapshot_bytes: u64,
+    pub(crate) accepted_schema_fields: u64,
+    pub(crate) accepted_schema_nested_leaf_facts: u64,
     pub(crate) sql_compile_rejects: u64,
     pub(crate) sql_compile_reject_cache_key: u64,
     pub(crate) sql_compile_reject_parse: u64,
@@ -438,6 +440,16 @@ impl EventOps {
     #[must_use]
     pub const fn schema_store_latest_snapshot_bytes(&self) -> u64 {
         self.schema_store_latest_snapshot_bytes
+    }
+
+    #[must_use]
+    pub const fn accepted_schema_fields(&self) -> u64 {
+        self.accepted_schema_fields
+    }
+
+    #[must_use]
+    pub const fn accepted_schema_nested_leaf_facts(&self) -> u64 {
+        self.accepted_schema_nested_leaf_facts
     }
 
     #[must_use]
@@ -932,6 +944,8 @@ pub(crate) struct EntityCounters {
     pub(crate) schema_store_snapshots: u64,
     pub(crate) schema_store_encoded_bytes: u64,
     pub(crate) schema_store_latest_snapshot_bytes: u64,
+    pub(crate) accepted_schema_fields: u64,
+    pub(crate) accepted_schema_nested_leaf_facts: u64,
     pub(crate) sql_compile_rejects: u64,
     pub(crate) sql_compile_reject_cache_key: u64,
     pub(crate) sql_compile_reject_parse: u64,
@@ -1281,6 +1295,8 @@ pub struct EntitySummary {
     schema_store_snapshots: u64,
     schema_store_encoded_bytes: u64,
     schema_store_latest_snapshot_bytes: u64,
+    accepted_schema_fields: u64,
+    accepted_schema_nested_leaf_facts: u64,
     sql_compile_rejects: u64,
     sql_compile_reject_cache_key: u64,
     sql_compile_reject_parse: u64,
@@ -1581,6 +1597,16 @@ impl EntitySummary {
     #[must_use]
     pub const fn schema_store_latest_snapshot_bytes(&self) -> u64 {
         self.schema_store_latest_snapshot_bytes
+    }
+
+    #[must_use]
+    pub const fn accepted_schema_fields(&self) -> u64 {
+        self.accepted_schema_fields
+    }
+
+    #[must_use]
+    pub const fn accepted_schema_nested_leaf_facts(&self) -> u64 {
+        self.accepted_schema_nested_leaf_facts
     }
 
     #[must_use]
@@ -2076,6 +2102,8 @@ impl EntitySummary {
             .saturating_add(self.schema_store_snapshots)
             .saturating_add(self.schema_store_encoded_bytes)
             .saturating_add(self.schema_store_latest_snapshot_bytes)
+            .saturating_add(self.accepted_schema_fields)
+            .saturating_add(self.accepted_schema_nested_leaf_facts)
             .saturating_add(self.sql_compile_rejects)
             .saturating_add(self.sql_compile_reject_cache_key)
             .saturating_add(self.sql_compile_reject_parse)
@@ -2214,6 +2242,8 @@ fn entity_summary_from_counters(path: &str, ops: &EntityCounters) -> EntitySumma
         schema_store_snapshots: ops.schema_store_snapshots,
         schema_store_encoded_bytes: ops.schema_store_encoded_bytes,
         schema_store_latest_snapshot_bytes: ops.schema_store_latest_snapshot_bytes,
+        accepted_schema_fields: ops.accepted_schema_fields,
+        accepted_schema_nested_leaf_facts: ops.accepted_schema_nested_leaf_facts,
         sql_compile_rejects: ops.sql_compile_rejects,
         sql_compile_reject_cache_key: ops.sql_compile_reject_cache_key,
         sql_compile_reject_parse: ops.sql_compile_reject_parse,

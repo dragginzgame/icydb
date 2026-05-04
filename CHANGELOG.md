@@ -6,8 +6,16 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
-## [0.146.x] 🪪 - 2026-05-02 - Schema Identity
+## [0.146.x] 🪪 - 2026-05-02 - Accepted Schema Authority
 
+This minor line is now intentionally complete. `0.146.x` makes accepted
+persisted schema metadata the source of truth for schema inspection, SQL field
+admission, planning type checks, cache identity, and schema diagnostics. Runtime
+row decoding/writes and full schema evolution are deliberately left for the
+next schema phase because they need migration policy, not another incremental
+metadata patch.
+
+- `0.146.14` reports accepted-schema field fact footprint metrics, makes accepted-schema loading names reflect latest accepted schema authority, and makes dev upgrade testing surface schema-change rejections before row rebuild decode errors.
 - `0.146.13` preserves accepted-schema prepared execution metadata when lowering cached plans into executor residents, keeps accepted field facts grouped at the schema boundary, and reports schema-store footprint plus prepared-shape finalization metrics.
 - `0.146.12` makes metrics explain cache misses, SQL compile rejects, and non-index route choices by reason, and makes prepared execution metadata use accepted schema slot authority when freezing field and field-path reads.
 - `0.146.11` makes accepted live schema construction validate metadata integrity instead of trusting arbitrary decoded snapshots, and makes metrics report schema reconciliation outcomes such as first-create, exact-match, and rejected drift.

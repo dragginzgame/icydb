@@ -288,7 +288,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let accepted_schema = self
-            .ensure_accepted_initial_schema_snapshot::<E>()
+            .ensure_accepted_schema_snapshot::<E>()
             .map_err(QueryError::execute)?;
         let schema_fingerprint =
             accepted_schema_cache_fingerprint_for_model(E::MODEL, &accepted_schema)
