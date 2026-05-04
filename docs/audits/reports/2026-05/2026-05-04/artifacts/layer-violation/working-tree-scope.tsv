@@ -1,0 +1,6 @@
+path	status	audit_note
+crates/icydb-core/src/db/schema/describe.rs	modified	user working-tree edit; accepted-schema describe now projects persisted snapshot fields rather than generated field order
+crates/icydb-core/src/db/session/mod.rs	modified	user working-tree edit; describe call now passes only the accepted schema snapshot
+docs/audits/reports/2026-05/2026-05-04/dry-consolidation.md	untracked	previous audit artifact from current run series
+docs/audits/reports/2026-05/2026-05-04/artifacts/dry-consolidation/dry-consolidation-pattern-counts.tsv	untracked	previous audit artifact from current run series
+docs/audits/reports/2026-05/2026-05-04/artifacts/dry-consolidation/dry-consolidation-module-pressure.tsv	untracked	previous audit artifact from current run series

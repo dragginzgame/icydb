@@ -311,10 +311,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let snapshot = self.ensure_accepted_schema_snapshot::<E>()?;
 
-        Ok(describe_entity_fields_with_persisted_schema(
-            E::MODEL,
-            &snapshot,
-        ))
+        Ok(describe_entity_fields_with_persisted_schema(&snapshot))
     }
 
     /// Return one stable list of runtime-registered entity names.

@@ -148,9 +148,15 @@ mod tests {
         assert_eq!(
             render_show_columns_lines("ExampleEntity", columns.as_slice()),
             vec![
-                "surface=columns entity=ExampleEntity column_count=2".to_string(),
-                "id: Ulid (slot=0, primary_key=true, queryable=true)".to_string(),
-                "name: Text (slot=1, primary_key=false, queryable=true)".to_string(),
+                "entity: ExampleEntity".to_string(),
+                String::new(),
+                "fields:".to_string(),
+                "+------+------+------+-----+-----------+".to_string(),
+                "| name | slot | type | pk  | queryable |".to_string(),
+                "+------+------+------+-----+-----------+".to_string(),
+                "| id   | 0    | Ulid | yes | yes       |".to_string(),
+                "| name | 1    | Text | no  | yes       |".to_string(),
+                "+------+------+------+-----+-----------+".to_string(),
             ],
             "show-columns shell output must remain contract-stable across release lines",
         );

@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.147.x] 🪪 - 2026-05-04 - Accepted Schema Authority Closeout
 
-- `0.147.3` makes typed saves and SQL writes prove accepted row-layout compatibility before staging or shaping mutations, reports early typed-save schema guard failures in save error metrics, and carries explicit text/blob length limits through accepted schema metadata.
+- `0.147.3` makes accepted schema metadata drive write safety, SQL field metadata, text/blob length checks, and clean local SQL initialization after hard-cut schema changes.
 - `0.147.2` fixes schema-derived decimal and newtype field persistence so generated row writes follow the schema-owned storage format, removes dynamic `Value` persistence and old row field hints, simplifies low-level row derives to trait-owned codecs, and rejects accepted row layouts the generated decoder cannot safely read.
 - `0.147.1` reports schema transition decisions separately from startup reconciliation, adds the accepted row-layout descriptor boundary for future row decode/write work, and tightens metrics total-vs-bucket guard coverage.
 - `0.147.0` closes the accepted-schema authority release line by surfacing schema-change upgrade failures as concise schema errors before row rebuild decode can run.

@@ -4,8 +4,8 @@ set -euo pipefail
 usage() {
     cat <<'USAGE'
 Usage:
-  sql.sh [--canister NAME] [--deploy] [--upgrade] [--reset] [--init] "SELECT ..."
-  sql.sh [--canister NAME] [--deploy] [--upgrade] [--reset] [--init]
+  sql.sh [--canister NAME] [--deploy] [--reinstall] [--upgrade] [--reset] [--init] "SELECT ..."
+  sql.sh [--canister NAME] [--deploy] [--reinstall] [--upgrade] [--reset] [--init]
 
 Examples:
   sql.sh
@@ -18,6 +18,7 @@ Examples:
   sql.sh "show columns character"
   sql.sh --canister demo_rpg "select count(*) from character"
   sql.sh --deploy
+  sql.sh --reinstall
   sql.sh --upgrade
   sql.sh --reset
   sql.sh --init
@@ -28,10 +29,12 @@ Environment:
   SQLQ_HISTORY_FILE  Interactive history path (default: .cache/sql_history)
 
 Flags:
-  --deploy   Deploy canister with dfx deploy.
+  --deploy   Deploy canister with dfx deploy, preserving stable memory on existing installs.
+  --reinstall
+             Destructive: deploy with reinstall mode when the canister already exists.
   --upgrade  Build, then upgrade the existing canister without resetting data.
   --reset    Destructive: erase all fixtures, then load default fixtures.
-  --init     Convenience: equivalent to --deploy --reset.
+  --init     Convenience: equivalent to --reinstall --reset.
 
 Schema-change rejection test:
   1. Run: sql.sh --init "describe character"
@@ -49,6 +52,7 @@ USAGE
 
 canister="${SQLQ_CANISTER:-demo_rpg}"
 deploy_requested=false
+reinstall_requested=false
 upgrade_requested=false
 reset_requested=false
 init_requested=false
@@ -76,6 +80,10 @@ while [[ $# -gt 0 ]]; do
             deploy_requested=true
             shift
             ;;
+        --reinstall)
+            reinstall_requested=true
+            shift
+            ;;
         --upgrade)
             upgrade_requested=true
             shift
@@ -100,18 +108,38 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$init_requested" == true ]]; then
-    deploy_requested=true
+    reinstall_requested=true
     reset_requested=true
 fi
 
-if [[ "$deploy_requested" == true && "$upgrade_requested" == true ]]; then
-    echo "error: --deploy and --upgrade are mutually exclusive" >&2
+selected_install_modes=0
+if [[ "$deploy_requested" == true ]]; then
+    selected_install_modes=$((selected_install_modes + 1))
+fi
+if [[ "$reinstall_requested" == true ]]; then
+    selected_install_modes=$((selected_install_modes + 1))
+fi
+if [[ "$upgrade_requested" == true ]]; then
+    selected_install_modes=$((selected_install_modes + 1))
+fi
+
+if [[ "$selected_install_modes" -gt 1 ]]; then
+    echo "error: --deploy, --reinstall, and --upgrade are mutually exclusive" >&2
     exit 2
 fi
 
 if [[ "$deploy_requested" == true ]]; then
     echo "[sql.sh] deploying canister '$canister'" >&2
     dfx deploy "$canister"
+fi
+
+if [[ "$reinstall_requested" == true ]]; then
+    echo "[sql.sh] reinstalling canister '$canister' when already installed" >&2
+    if dfx canister status "$canister" >/dev/null 2>&1; then
+        dfx deploy "$canister" --mode reinstall --yes
+    else
+        dfx deploy "$canister"
+    fi
 fi
 
 if [[ "$upgrade_requested" == true ]]; then

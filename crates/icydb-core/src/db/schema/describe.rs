@@ -1,7 +1,7 @@
 //! Module: db::schema::describe
 //! Responsibility: deterministic entity-schema introspection DTOs for runtime consumers.
 //! Does not own: query planning, execution routing, or relation enforcement semantics.
-//! Boundary: projects `EntityModel`/`FieldKind` into stable describe surfaces.
+//! Boundary: projects generated or accepted schema metadata into stable describe surfaces.
 
 use crate::{
     db::{
@@ -10,7 +10,7 @@ use crate::{
         },
         schema::{
             AcceptedSchemaSnapshot, PersistedFieldKind, PersistedNestedLeafSnapshot,
-            PersistedRelationStrength, field_type_from_persisted_kind,
+            PersistedRelationStrength, SchemaFieldSlot, field_type_from_persisted_kind,
         },
     },
     model::{
@@ -325,7 +325,7 @@ pub(in crate::db) fn describe_entity_model_with_persisted_schema(
     model: &EntityModel,
     schema: &AcceptedSchemaSnapshot,
 ) -> EntitySchemaDescription {
-    let fields = describe_entity_fields_with_persisted_schema(model, schema);
+    let fields = describe_entity_fields_with_persisted_schema(schema);
     let primary_key = schema
         .primary_key_field_name()
         .unwrap_or(model.primary_key.name);
@@ -392,44 +392,30 @@ pub(in crate::db) fn describe_entity_fields(model: &EntityModel) -> Vec<EntityFi
 )]
 #[must_use]
 pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
-    model: &EntityModel,
     schema: &AcceptedSchemaSnapshot,
 ) -> Vec<EntityFieldDescription> {
-    let mut fields = Vec::with_capacity(model.fields.len());
+    let snapshot = schema.persisted_snapshot();
+    let mut fields = Vec::with_capacity(snapshot.fields().len());
 
-    for field in model.fields {
-        let primary_key = field.name == model.primary_key.name;
-        let accepted_facts = schema.field_facts_by_name(field.name());
-        let slot = accepted_facts.map(|(_, accepted_slot, _)| accepted_slot.get());
-        let metadata = accepted_facts.map(|(kind, _, _)| {
-            DescribeFieldMetadata::new(
-                summarize_persisted_field_kind(kind),
-                field_type_from_persisted_kind(kind)
-                    .value_kind()
-                    .is_queryable(),
-            )
-        });
-
-        push_described_field_row(
-            &mut fields,
-            field.name,
-            slot,
-            primary_key,
-            None,
-            metadata.unwrap_or_else(|| {
-                DescribeFieldMetadata::new(
-                    summarize_field_kind(&field.kind),
-                    field.kind.value_kind().is_queryable(),
-                )
-            }),
+    // Accepted-schema describe surfaces must follow the stored schema payload,
+    // not the generated model's current field order.
+    for field in snapshot.fields() {
+        let primary_key = field.id() == snapshot.primary_key_field_id();
+        let slot = snapshot
+            .row_layout()
+            .slot_for_field(field.id())
+            .map(SchemaFieldSlot::get);
+        let metadata = DescribeFieldMetadata::new(
+            summarize_persisted_field_kind(field.kind()),
+            field_type_from_persisted_kind(field.kind())
+                .value_kind()
+                .is_queryable(),
         );
 
-        if let Some((_, _, nested_leaves)) = accepted_facts
-            && !nested_leaves.is_empty()
-        {
-            describe_persisted_nested_leaves(&mut fields, nested_leaves);
-        } else {
-            describe_generated_nested_fields(&mut fields, field.nested_fields());
+        push_described_field_row(&mut fields, field.name(), slot, primary_key, None, metadata);
+
+        if !field.nested_leaves().is_empty() {
+            describe_persisted_nested_leaves(&mut fields, field.nested_leaves());
         }
     }
 
@@ -617,14 +603,9 @@ fn summarize_field_kind(kind: &FieldKind) -> String {
 fn write_field_kind_summary(out: &mut String, kind: &FieldKind) {
     match kind {
         FieldKind::Account => out.push_str("account"),
-        FieldKind::Blob { max_len } => match max_len {
-            Some(max_len) => {
-                out.push_str("blob(max_len=");
-                out.push_str(&max_len.to_string());
-                out.push(')');
-            }
-            None => out.push_str("blob"),
-        },
+        FieldKind::Blob { max_len } => {
+            write_length_bounded_field_kind_summary(out, "blob", *max_len);
+        }
         FieldKind::Bool => out.push_str("bool"),
         FieldKind::Date => out.push_str("date"),
         FieldKind::Decimal { scale } => {
@@ -643,12 +624,9 @@ fn write_field_kind_summary(out: &mut String, kind: &FieldKind) {
         FieldKind::IntBig => out.push_str("int_big"),
         FieldKind::Principal => out.push_str("principal"),
         FieldKind::Subaccount => out.push_str("subaccount"),
-        FieldKind::Text { max_len } => match max_len {
-            Some(max_len) => {
-                let _ = write!(out, "text(max_len={max_len})");
-            }
-            None => out.push_str("text"),
-        },
+        FieldKind::Text { max_len } => {
+            write_length_bounded_field_kind_summary(out, "text", *max_len);
+        }
         FieldKind::Timestamp => out.push_str("timestamp"),
         FieldKind::Uint => out.push_str("uint"),
         FieldKind::Uint128 => out.push_str("uint128"),
@@ -692,6 +670,28 @@ fn write_field_kind_summary(out: &mut String, kind: &FieldKind) {
     }
 }
 
+// Write the common text/blob describe label. Both generated and accepted schema
+// summaries use this path so bounded and explicitly unbounded contracts stay
+// visibly identical across `DESCRIBE` and `SHOW COLUMNS`.
+fn write_length_bounded_field_kind_summary(
+    out: &mut String,
+    kind_name: &str,
+    max_len: Option<u32>,
+) {
+    match max_len {
+        Some(max_len) => {
+            out.push_str(kind_name);
+            out.push_str("(max_len=");
+            out.push_str(&max_len.to_string());
+            out.push(')');
+        }
+        None => {
+            out.push_str(kind_name);
+            out.push_str("(unbounded)");
+        }
+    }
+}
+
 #[cfg_attr(
     doc,
     doc = "Render one stable field-kind label from accepted persisted schema metadata."
@@ -709,14 +709,9 @@ fn summarize_persisted_field_kind(kind: &PersistedFieldKind) -> String {
 fn write_persisted_field_kind_summary(out: &mut String, kind: &PersistedFieldKind) {
     match kind {
         PersistedFieldKind::Account => out.push_str("account"),
-        PersistedFieldKind::Blob { max_len } => match max_len {
-            Some(max_len) => {
-                out.push_str("blob(max_len=");
-                out.push_str(&max_len.to_string());
-                out.push(')');
-            }
-            None => out.push_str("blob"),
-        },
+        PersistedFieldKind::Blob { max_len } => {
+            write_length_bounded_field_kind_summary(out, "blob", *max_len);
+        }
         PersistedFieldKind::Bool => out.push_str("bool"),
         PersistedFieldKind::Date => out.push_str("date"),
         PersistedFieldKind::Decimal { scale } => {
@@ -735,12 +730,9 @@ fn write_persisted_field_kind_summary(out: &mut String, kind: &PersistedFieldKin
         PersistedFieldKind::IntBig => out.push_str("int_big"),
         PersistedFieldKind::Principal => out.push_str("principal"),
         PersistedFieldKind::Subaccount => out.push_str("subaccount"),
-        PersistedFieldKind::Text { max_len } => match max_len {
-            Some(max_len) => {
-                let _ = write!(out, "text(max_len={max_len})");
-            }
-            None => out.push_str("text"),
-        },
+        PersistedFieldKind::Text { max_len } => {
+            write_length_bounded_field_kind_summary(out, "text", *max_len);
+        }
         PersistedFieldKind::Timestamp => out.push_str("timestamp"),
         PersistedFieldKind::Uint => out.push_str("uint"),
         PersistedFieldKind::Uint128 => out.push_str("uint128"),
@@ -1102,19 +1094,6 @@ mod tests {
 
     #[test]
     fn schema_describe_uses_accepted_top_level_field_metadata() {
-        static FIELDS: [FieldModel; 2] = [
-            FieldModel::generated("id", FieldKind::Ulid),
-            FieldModel::generated("payload", FieldKind::Text { max_len: None }),
-        ];
-        static INDEXES: [&crate::model::index::IndexModel; 0] = [];
-        static MODEL: EntityModel = EntityModel::generated(
-            "entities::BlobEvent",
-            "BlobEvent",
-            &FIELDS[0],
-            0,
-            &FIELDS,
-            &INDEXES,
-        );
         let id_slot = SchemaFieldSlot::new(0);
         let payload_slot = SchemaFieldSlot::new(7);
         // The accepted wrapper below is intentionally inconsistent so this
@@ -1155,7 +1134,7 @@ mod tests {
             ],
         ));
 
-        let described = describe_entity_fields_with_persisted_schema(&MODEL, &snapshot)
+        let described = describe_entity_fields_with_persisted_schema(&snapshot)
             .into_iter()
             .map(|field| {
                 (
@@ -1170,35 +1149,17 @@ mod tests {
             described,
             vec![
                 ("id".to_string(), Some(0), "ulid".to_string()),
-                ("payload".to_string(), Some(7), "blob".to_string()),
+                (
+                    "payload".to_string(),
+                    Some(7),
+                    "blob(unbounded)".to_string()
+                ),
             ],
         );
     }
 
     #[test]
     fn schema_describe_uses_accepted_nested_leaf_metadata() {
-        static NESTED_FIELDS: [FieldModel; 1] = [FieldModel::generated("rank", FieldKind::Uint)];
-        static FIELDS: [FieldModel; 2] = [
-            FieldModel::generated("id", FieldKind::Ulid),
-            FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
-                "profile",
-                FieldKind::Structured { queryable: true },
-                FieldStorageDecode::Value,
-                false,
-                None,
-                None,
-                &NESTED_FIELDS,
-            ),
-        ];
-        static INDEXES: [&crate::model::index::IndexModel; 0] = [];
-        static MODEL: EntityModel = EntityModel::generated(
-            "entities::AcceptedProfile",
-            "AcceptedProfile",
-            &FIELDS[0],
-            0,
-            &FIELDS,
-            &INDEXES,
-        );
         let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
             SchemaVersion::initial(),
             "entities::AcceptedProfile".to_string(),
@@ -1243,14 +1204,14 @@ mod tests {
             ],
         ));
 
-        let described = describe_entity_fields_with_persisted_schema(&MODEL, &snapshot);
+        let described = describe_entity_fields_with_persisted_schema(&snapshot);
         let rank = described
             .iter()
             .find(|field| field.name() == "└─ rank")
             .expect("accepted nested leaf should be described");
 
         assert_eq!(rank.slot(), None);
-        assert_eq!(rank.kind(), "blob");
+        assert_eq!(rank.kind(), "blob(unbounded)");
         assert!(rank.queryable());
     }
 
@@ -1295,7 +1256,7 @@ mod tests {
             vec![
                 ("id", Some(0), "ulid", true),
                 ("mentor", Some(1), "structured", false),
-                ("├─ name", None, "text", true),
+                ("├─ name", None, "text(unbounded)", true),
                 ("├─ level", None, "uint", true),
                 ("└─ pid", None, "principal", true),
             ],

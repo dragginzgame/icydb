@@ -31,40 +31,7 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
     // padded ASCII table shape as shell query results.
     lines.push(String::new());
     lines.push("fields:".to_string());
-    let field_rows = description
-        .fields()
-        .iter()
-        .map(|field| {
-            vec![
-                field.name().to_string(),
-                field
-                    .slot()
-                    .map_or_else(|| "-".to_string(), |slot| slot.to_string()),
-                field.kind().to_string(),
-                if field.primary_key() {
-                    "yes".to_string()
-                } else {
-                    "no".to_string()
-                },
-                if field.queryable() {
-                    "yes".to_string()
-                } else {
-                    "no".to_string()
-                },
-            ]
-        })
-        .collect::<Vec<_>>();
-    render_describe_table_section(
-        &mut lines,
-        &[
-            "name".to_string(),
-            "slot".to_string(),
-            "type".to_string(),
-            "pk".to_string(),
-            "queryable".to_string(),
-        ],
-        &field_rows,
-    );
+    render_describe_field_section(&mut lines, description.fields());
 
     // Phase 3: emit index descriptors or explicit empty marker.
     lines.push(String::new());
@@ -131,6 +98,45 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
     lines
 }
 
+// Render the shared field table used by both full `DESCRIBE` output and the
+// narrower `SHOW COLUMNS` surface. Keeping the table logic here prevents the
+// two shell commands from drifting into different human-facing formats.
+fn render_describe_field_section(lines: &mut Vec<String>, fields: &[EntityFieldDescription]) {
+    let field_rows = fields
+        .iter()
+        .map(|field| {
+            vec![
+                field.name().to_string(),
+                field
+                    .slot()
+                    .map_or_else(|| "-".to_string(), |slot| slot.to_string()),
+                field.kind().to_string(),
+                if field.primary_key() {
+                    "yes".to_string()
+                } else {
+                    "no".to_string()
+                },
+                if field.queryable() {
+                    "yes".to_string()
+                } else {
+                    "no".to_string()
+                },
+            ]
+        })
+        .collect::<Vec<_>>();
+    render_describe_table_section(
+        lines,
+        &[
+            "name".to_string(),
+            "slot".to_string(),
+            "type".to_string(),
+            "pk".to_string(),
+            "queryable".to_string(),
+        ],
+        &field_rows,
+    );
+}
+
 // Render one `DESCRIBE` subsection as the same deterministic ASCII table shape
 // used by shell-facing projection output.
 fn render_describe_table_section(
@@ -189,22 +195,12 @@ pub fn render_show_indexes_lines(entity: &str, indexes: &[String]) -> Vec<String
 )]
 #[must_use]
 pub fn render_show_columns_lines(entity: &str, columns: &[EntityFieldDescription]) -> Vec<String> {
-    let mut lines = vec![format!(
-        "surface=columns entity={entity} column_count={}",
-        columns.len()
-    )];
-    lines.extend(columns.iter().map(|column| {
-        format!(
-            "{}: {} (slot={}, primary_key={}, queryable={})",
-            column.name(),
-            column.kind(),
-            column
-                .slot()
-                .map_or_else(|| "-".to_string(), |slot| slot.to_string()),
-            column.primary_key(),
-            column.queryable(),
-        )
-    }));
+    let mut lines = vec![
+        format!("entity: {entity}"),
+        String::new(),
+        "fields:".to_string(),
+    ];
+    render_describe_field_section(&mut lines, columns);
 
     lines
 }

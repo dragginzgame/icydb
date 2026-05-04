@@ -1,0 +1,13 @@
+Layer Health Snapshot
+  Upward imports (tracked edges): 0
+  Predicate boundary drift imports: 3
+  Cross-layer policy re-derivations: 0
+  Cross-layer predicate duplication count: 0
+  AccessPath decision owners: 2
+  RouteShape decision owners: 2
+  Predicate coercion owners: 4
+  Enum fan-out > 2 layers: 1
+  Enum layer counts: AccessPath::=2 AggregateKind::=4 ContinuationMode::=1
+  Comparator definitions outside index: 0
+  Canonicalization entrypoints: 1
+[OK] Layer authority invariants verified.

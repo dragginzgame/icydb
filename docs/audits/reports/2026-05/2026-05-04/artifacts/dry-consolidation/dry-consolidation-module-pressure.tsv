@@ -1,0 +1,8 @@
+module	file	loc	duplication_families	pressure_type	risk
+db::session::sql::execute::write	crates/icydb-core/src/db/session/sql/execute/write.rs	744	1	boundary-bridge growth	medium-low
+db::session::sql::execute::write_returning	crates/icydb-core/src/db/session/sql/execute/write_returning.rs	303	1	boundary-bridge result shaping	low-medium
+db::session::sql::execute	crates/icydb-core/src/db/session/sql/execute/mod.rs	715	1	SQL execution shell repetition	low-medium
+db::session::sql::projection::labels	crates/icydb-core/src/db/session/sql/projection/labels.rs	145	1	projection label helper owner	low
+db::schema::runtime	crates/icydb-core/src/db/schema/runtime.rs	418	1	accepted descriptor authority	low
+db::data::persisted_row::types	crates/icydb-core/src/db/data/persisted_row/types.rs	367	1	slot wrapper contract	low
+db::executor::terminal::row_decode	crates/icydb-core/src/db/executor/terminal/row_decode/mod.rs	512	1	generated-compatible bridge	low-medium

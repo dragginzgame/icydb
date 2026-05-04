@@ -139,6 +139,7 @@ impl AcceptedSchemaSnapshot {
 
     /// Borrow one accepted field snapshot by its persisted field name.
     #[must_use]
+    #[cfg(test)]
     fn field_by_name(&self, name: &str) -> Option<&PersistedFieldSnapshot> {
         self.snapshot
             .fields()
@@ -151,26 +152,6 @@ impl AcceptedSchemaSnapshot {
     #[cfg(test)]
     pub(in crate::db) fn field_kind_by_name(&self, name: &str) -> Option<&PersistedFieldKind> {
         self.field_by_name(name).map(PersistedFieldSnapshot::kind)
-    }
-
-    /// Borrow accepted top-level field facts by persisted field name.
-    ///
-    /// The returned slot comes from `SchemaRowLayout`, not from the duplicated
-    /// field snapshot slot, so callers receive the same row-layout authority
-    /// as the narrower slot accessor while avoiding repeated field scans.
-    #[must_use]
-    pub(in crate::db) fn field_facts_by_name(
-        &self,
-        name: &str,
-    ) -> Option<(
-        &PersistedFieldKind,
-        SchemaFieldSlot,
-        &[PersistedNestedLeafSnapshot],
-    )> {
-        let field = self.field_by_name(name)?;
-        let slot = self.snapshot.row_layout().slot_for_field(field.id())?;
-
-        Some((field.kind(), slot, field.nested_leaves()))
     }
 
     /// Return a low-cardinality footprint of accepted schema field facts.
@@ -745,46 +726,7 @@ mod tests {
             snapshot.field_kind_by_name("payload"),
             Some(&PersistedFieldKind::Blob { max_len: None }),
         );
-        let (_, slot, nested) = snapshot
-            .field_facts_by_name("payload")
-            .expect("accepted payload facts should resolve");
-        assert_eq!(slot, SchemaFieldSlot::new(7));
-        assert_eq!(nested.len(), 1);
-        assert_eq!(nested[0].path(), &["thumbnail".to_string()]);
-
         assert_eq!(snapshot.field_kind_by_name("missing"), None);
-        assert_eq!(snapshot.field_facts_by_name("missing"), None);
-    }
-
-    #[test]
-    fn accepted_schema_snapshot_slot_lookup_uses_row_layout_authority() {
-        let snapshot = accepted_schema_fixture_with_payload_slots(
-            SchemaFieldSlot::new(9),
-            SchemaFieldSlot::new(7),
-        );
-
-        let (_, slot, _) = snapshot
-            .field_facts_by_name("payload")
-            .expect("accepted payload facts should resolve");
-
-        assert_eq!(slot, SchemaFieldSlot::new(9));
-    }
-
-    #[test]
-    fn accepted_schema_snapshot_field_facts_use_row_layout_slot_authority() {
-        let snapshot = accepted_schema_fixture_with_payload_slots(
-            SchemaFieldSlot::new(11),
-            SchemaFieldSlot::new(7),
-        );
-
-        let (kind, slot, nested) = snapshot
-            .field_facts_by_name("payload")
-            .expect("accepted field facts should resolve");
-
-        assert_eq!(kind, &PersistedFieldKind::Blob { max_len: None });
-        assert_eq!(slot, SchemaFieldSlot::new(11));
-        assert_eq!(nested.len(), 1);
-        assert_eq!(nested[0].path(), &["thumbnail".to_string()]);
     }
 
     #[test]

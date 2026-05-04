@@ -6,7 +6,7 @@
 use crate::{
     db::schema::{
         AcceptedSchemaSnapshot, FieldType, PersistedFieldKind, PersistedNestedLeafSnapshot,
-        SqlCapabilities, canonicalize_strict_sql_literal_for_persisted_kind,
+        SchemaFieldSlot, SqlCapabilities, canonicalize_strict_sql_literal_for_persisted_kind,
         field_type_from_model_kind, field_type_from_persisted_kind, sql_capabilities,
     },
     model::{
@@ -18,17 +18,35 @@ use crate::{
 };
 use std::sync::{Mutex, OnceLock};
 
-type SchemaFieldEntry = (&'static str, SchemaFieldInfo);
+type SchemaFieldEntry = (String, SchemaFieldInfo);
 type CachedSchemaEntries = Vec<(&'static str, &'static SchemaInfo)>;
+const EMPTY_GENERATED_NESTED_FIELDS: &[FieldModel] = &[];
 
 fn schema_field_info<'a>(
     fields: &'a [SchemaFieldEntry],
     name: &str,
 ) -> Option<&'a SchemaFieldInfo> {
     fields
-        .binary_search_by_key(&name, |(field_name, _)| *field_name)
+        .binary_search_by(|(field_name, _)| field_name.as_str().cmp(name))
         .ok()
         .map(|index| &fields[index].1)
+}
+
+fn generated_field_by_name<'a>(
+    model: &'a EntityModel,
+    field_name: &str,
+) -> Option<(usize, &'a FieldModel)> {
+    model
+        .fields()
+        .iter()
+        .enumerate()
+        .find(|(_, field)| field.name() == field_name)
+}
+
+// Convert a schema-owned row-layout slot into the usize slot surface consumed
+// by planner and executor DTOs.
+fn accepted_slot_index(slot: SchemaFieldSlot) -> usize {
+    usize::from(slot.get())
 }
 
 ///
@@ -42,15 +60,16 @@ fn schema_field_info<'a>(
 /// SchemaFieldInfo
 ///
 /// Compact per-field schema entry used by `SchemaInfo`.
-/// Keeps reduced predicate type metadata and the full field-kind authority in
-/// one table so schema construction does not duplicate field-name maps.
+/// Keeps reduced predicate type metadata and the temporary generated field-kind
+/// bridge in one table while accepted persisted facts become the field-list
+/// authority for SQL/session paths.
 ///
 
 #[derive(Clone, Debug)]
 struct SchemaFieldInfo {
     slot: usize,
     ty: FieldType,
-    kind: FieldKind,
+    kind: Option<FieldKind>,
     sql_capabilities: SqlCapabilities,
     persisted_kind: Option<PersistedFieldKind>,
     nested_leaves: Option<Vec<PersistedNestedLeafSnapshot>>,
@@ -70,11 +89,11 @@ impl SchemaInfo {
             .enumerate()
             .map(|(slot, field)| {
                 (
-                    field.name(),
+                    field.name().to_string(),
                     SchemaFieldInfo {
                         slot,
                         ty: field_type_from_model_kind(&field.kind()),
-                        kind: field.kind(),
+                        kind: Some(field.kind()),
                         sql_capabilities: sql_capabilities(&PersistedFieldKind::from_model_kind(
                             field.kind(),
                         )),
@@ -86,7 +105,7 @@ impl SchemaInfo {
             })
             .collect::<Vec<_>>();
 
-        fields.sort_unstable_by_key(|(field_name, _)| *field_name);
+        fields.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
 
         Self { fields }
     }
@@ -103,7 +122,7 @@ impl SchemaInfo {
 
     #[must_use]
     pub(crate) fn field_kind(&self, name: &str) -> Option<&FieldKind> {
-        schema_field_info(self.fields.as_slice(), name).map(|field| &field.kind)
+        schema_field_info(self.fields.as_slice(), name).and_then(|field| field.kind.as_ref())
     }
 
     /// Return the top-level physical row slot for one field.
@@ -154,11 +173,11 @@ impl SchemaInfo {
 
     /// Return the first top-level field that SQL cannot project directly.
     #[must_use]
-    pub(in crate::db) fn first_non_sql_selectable_field(&self) -> Option<&'static str> {
+    pub(in crate::db) fn first_non_sql_selectable_field(&self) -> Option<&str> {
         self.fields
             .iter()
             .find(|(_, field)| !field.sql_capabilities.selectable())
-            .map(|(field_name, _)| *field_name)
+            .map(|(field_name, _)| field_name.as_str())
     }
 
     /// Return the type for one nested field path rooted at a top-level field.
@@ -207,10 +226,14 @@ impl SchemaInfo {
     ) -> Option<Value> {
         let field = schema_field_info(self.fields.as_slice(), field_name)?;
 
-        field.persisted_kind.as_ref().map_or_else(
-            || canonicalize_strict_sql_literal_for_kind(&field.kind, value),
-            |kind| canonicalize_strict_sql_literal_for_persisted_kind(kind, value),
-        )
+        if let Some(kind) = field.persisted_kind.as_ref() {
+            return canonicalize_strict_sql_literal_for_persisted_kind(kind, value);
+        }
+
+        field
+            .kind
+            .as_ref()
+            .and_then(|kind| canonicalize_strict_sql_literal_for_kind(kind, value))
     }
 
     /// Build one owned schema view from trusted generated field metadata.
@@ -230,43 +253,38 @@ impl SchemaInfo {
         model: &EntityModel,
         schema: &AcceptedSchemaSnapshot,
     ) -> Self {
-        let mut fields = model
+        let snapshot = schema.persisted_snapshot();
+        let mut fields = snapshot
             .fields()
             .iter()
-            .enumerate()
-            .map(|(generated_slot, field)| {
-                let accepted_facts = schema.field_facts_by_name(field.name());
-                let accepted_kind = accepted_facts.map(|(kind, _, _)| kind);
-                let slot = accepted_facts.map_or_else(
-                    || generated_slot,
-                    |(_, accepted_slot, _)| usize::from(accepted_slot.get()),
-                );
-                let ty = accepted_kind.map_or_else(
-                    || field_type_from_model_kind(&field.kind()),
-                    field_type_from_persisted_kind,
-                );
-                let sql_capabilities = accepted_kind.map_or_else(
-                    || sql_capabilities(&PersistedFieldKind::from_model_kind(field.kind())),
-                    sql_capabilities,
-                );
+            .map(|field| {
+                let generated_field = generated_field_by_name(model, field.name());
+                let slot = snapshot
+                    .row_layout()
+                    .slot_for_field(field.id())
+                    .map_or_else(|| usize::from(field.slot().get()), accepted_slot_index);
+                let generated_kind = generated_field.map(|(_, field)| field.kind());
+                let generated_nested_fields = generated_field
+                    .map_or(EMPTY_GENERATED_NESTED_FIELDS, |(_, field)| {
+                        field.nested_fields()
+                    });
 
                 (
-                    field.name(),
+                    field.name().to_string(),
                     SchemaFieldInfo {
                         slot,
-                        ty,
-                        kind: field.kind(),
-                        sql_capabilities,
-                        persisted_kind: accepted_kind.cloned(),
-                        nested_leaves: accepted_facts
-                            .map(|(_, _, nested_leaves)| nested_leaves.to_vec()),
-                        nested_fields: field.nested_fields(),
+                        ty: field_type_from_persisted_kind(field.kind()),
+                        kind: generated_kind,
+                        sql_capabilities: sql_capabilities(field.kind()),
+                        persisted_kind: Some(field.kind().clone()),
+                        nested_leaves: Some(field.nested_leaves().to_vec()),
+                        nested_fields: generated_nested_fields,
                     },
                 )
             })
             .collect::<Vec<_>>();
 
-        fields.sort_unstable_by_key(|(field_name, _)| *field_name);
+        fields.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
 
         Self { fields }
     }
