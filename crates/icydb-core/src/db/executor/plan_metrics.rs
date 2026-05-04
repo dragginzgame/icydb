@@ -6,30 +6,34 @@
 use crate::{
     db::access::{AccessPathKind, AccessPlan},
     db::executor::planning::route::GroupedExecutionMode,
-    metrics::sink::{GroupedPlanExecutionMode, MetricsEvent, PlanKind, Span, record},
+    db::query::plan::{AccessChoiceSelectedReason, AccessPlannedQuery},
+    metrics::sink::{
+        GroupedPlanExecutionMode, MetricsEvent, PlanChoiceReason, PlanKind, Span, record,
+    },
     traits::EntityKind,
 };
 
 /// Records metrics for the chosen execution plan.
 /// Must be called exactly once per execution.
-pub(super) fn record_plan_metrics<K>(entity_path: &'static str, access: &AccessPlan<K>) {
-    let kind = access_plan_kind(access);
+pub(super) fn record_plan_metrics(entity_path: &'static str, plan: &AccessPlannedQuery) {
+    let kind = access_plan_kind(&plan.access);
 
     record(MetricsEvent::Plan {
         entity_path,
         kind,
         grouped_execution_mode: None,
     });
+    record_plan_choice_reason(entity_path, plan);
 }
 
 /// Records metrics for one grouped execution plan with explicit grouped execution mode.
 /// Must be called exactly once per grouped execution.
-pub(super) fn record_grouped_plan_metrics<K>(
+pub(super) fn record_grouped_plan_metrics(
     entity_path: &'static str,
-    access: &AccessPlan<K>,
+    plan: &AccessPlannedQuery,
     grouped_execution_mode: GroupedExecutionMode,
 ) {
-    let kind = access_plan_kind(access);
+    let kind = access_plan_kind(&plan.access);
     let grouped_execution_mode = match grouped_execution_mode {
         GroupedExecutionMode::HashMaterialized => GroupedPlanExecutionMode::HashMaterialized,
         GroupedExecutionMode::OrderedMaterialized => GroupedPlanExecutionMode::OrderedMaterialized,
@@ -40,6 +44,7 @@ pub(super) fn record_grouped_plan_metrics<K>(
         kind,
         grouped_execution_mode: Some(grouped_execution_mode),
     });
+    record_plan_choice_reason(entity_path, plan);
 }
 
 // Project the exact top-level access shape while the metrics sink keeps the
@@ -57,6 +62,69 @@ fn access_plan_kind<K>(access: &AccessPlan<K>) -> PlanKind {
         },
         AccessPlan::Union(_) => PlanKind::Union,
         AccessPlan::Intersection(_) => PlanKind::Intersection,
+    }
+}
+
+// Record selected non-index and primary-key route explanations without
+// emitting one metric for normal secondary-index winner ranking.
+fn record_plan_choice_reason(entity_path: &'static str, plan: &AccessPlannedQuery) {
+    let Some(reason) = plan_choice_reason(plan.access_choice().chosen_reason()) else {
+        return;
+    };
+
+    record(MetricsEvent::PlanChoice {
+        entity_path,
+        reason,
+    });
+}
+
+// Map explain-owned selected-route reasons into the low-cardinality metrics
+// subset that explains non-index/primary-key route selection.
+const fn plan_choice_reason(reason: AccessChoiceSelectedReason) -> Option<PlanChoiceReason> {
+    match reason {
+        AccessChoiceSelectedReason::ConflictingPrimaryKeyChildrenAccessPreferred => {
+            Some(PlanChoiceReason::ConflictingPrimaryKeyChildrenAccessPreferred)
+        }
+        AccessChoiceSelectedReason::ConstantFalsePredicate => {
+            Some(PlanChoiceReason::ConstantFalsePredicate)
+        }
+        AccessChoiceSelectedReason::EmptyChildAccessPreferred => {
+            Some(PlanChoiceReason::EmptyChildAccessPreferred)
+        }
+        AccessChoiceSelectedReason::FullScanAccess => Some(PlanChoiceReason::FullScanAccess),
+        AccessChoiceSelectedReason::IntentKeyAccessOverride => {
+            Some(PlanChoiceReason::IntentKeyAccessOverride)
+        }
+        AccessChoiceSelectedReason::LimitZeroWindow => Some(PlanChoiceReason::LimitZeroWindow),
+        AccessChoiceSelectedReason::NonIndexAccess => Some(PlanChoiceReason::NonIndexAccess),
+        AccessChoiceSelectedReason::PlannerCompositeNonIndex => {
+            Some(PlanChoiceReason::PlannerCompositeNonIndex)
+        }
+        AccessChoiceSelectedReason::PlannerFullScanFallback => {
+            Some(PlanChoiceReason::PlannerFullScanFallback)
+        }
+        AccessChoiceSelectedReason::PlannerKeySetAccess => {
+            Some(PlanChoiceReason::PlannerKeySetAccess)
+        }
+        AccessChoiceSelectedReason::PlannerPrimaryKeyLookup => {
+            Some(PlanChoiceReason::PlannerPrimaryKeyLookup)
+        }
+        AccessChoiceSelectedReason::PlannerPrimaryKeyRange => {
+            Some(PlanChoiceReason::PlannerPrimaryKeyRange)
+        }
+        AccessChoiceSelectedReason::RequiredOrderPrimaryKeyRangePreferred => {
+            Some(PlanChoiceReason::RequiredOrderPrimaryKeyRangePreferred)
+        }
+        AccessChoiceSelectedReason::SingletonPrimaryKeyChildAccessPreferred => {
+            Some(PlanChoiceReason::SingletonPrimaryKeyChildAccessPreferred)
+        }
+        AccessChoiceSelectedReason::BestPrefixLen
+        | AccessChoiceSelectedReason::ByKeyAccess
+        | AccessChoiceSelectedReason::ByKeysAccess
+        | AccessChoiceSelectedReason::PrimaryKeyRangeAccess
+        | AccessChoiceSelectedReason::Ranked(_)
+        | AccessChoiceSelectedReason::SelectedIndexNotProjected
+        | AccessChoiceSelectedReason::SingleCandidate => None,
     }
 }
 

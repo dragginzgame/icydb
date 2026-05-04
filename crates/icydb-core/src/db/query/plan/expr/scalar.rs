@@ -10,8 +10,11 @@ use crate::db::scalar_expr::{ScalarValueProgram, compile_scalar_field_program};
 use crate::db::scalar_expr::{compile_scalar_literal_expr_value, scalar_expr_value_into_value};
 use crate::value::Value;
 use crate::{
-    db::query::plan::expr::{
-        BinaryOp, CompiledPath, Expr, FieldPath, ProjectionField, ProjectionSpec,
+    db::{
+        query::plan::expr::{
+            BinaryOp, CompiledPath, Expr, FieldPath, ProjectionField, ProjectionSpec,
+        },
+        schema::SchemaInfo,
     },
     model::entity::EntityModel,
 };
@@ -160,14 +163,32 @@ pub(in crate::db) fn compile_scalar_projection_expr(
     model: &EntityModel,
     expr: &Expr,
 ) -> Option<ScalarProjectionExpr> {
+    compile_scalar_projection_expr_with_schema(
+        model,
+        SchemaInfo::cached_for_entity_model(model),
+        expr,
+    )
+}
+
+/// Compile one scalar projection expression using an explicit schema authority.
+///
+/// Accepted-schema planning paths use this helper so field and field-path root
+/// slots come from `SchemaInfo` instead of directly re-reading generated model
+/// slot order. Generated-only callers keep using `compile_scalar_projection_expr`.
+#[must_use]
+pub(in crate::db) fn compile_scalar_projection_expr_with_schema(
+    model: &EntityModel,
+    schema: &SchemaInfo,
+    expr: &Expr,
+) -> Option<ScalarProjectionExpr> {
     match expr {
-        Expr::Field(field_id) => compile_scalar_field_reference(model, field_id.as_str()),
-        Expr::FieldPath(path) => compile_scalar_field_path_reference(model, path),
+        Expr::Field(field_id) => compile_scalar_field_reference(model, schema, field_id.as_str()),
+        Expr::FieldPath(path) => compile_scalar_field_path_reference(schema, path),
         Expr::Literal(value) => Some(compile_scalar_literal(value)),
         Expr::FunctionCall { function, args } => {
             let args = args
                 .iter()
-                .map(|arg| compile_scalar_projection_expr(model, arg))
+                .map(|arg| compile_scalar_projection_expr_with_schema(model, schema, arg))
                 .collect::<Option<Vec<_>>>()?;
 
             Some(ScalarProjectionExpr::FunctionCall {
@@ -176,7 +197,7 @@ pub(in crate::db) fn compile_scalar_projection_expr(
             })
         }
         Expr::Unary { op, expr } => {
-            compile_scalar_projection_expr(model, expr.as_ref()).map(|expr| {
+            compile_scalar_projection_expr_with_schema(model, schema, expr.as_ref()).map(|expr| {
                 ScalarProjectionExpr::Unary {
                     op: *op,
                     expr: Box::new(expr),
@@ -191,12 +212,13 @@ pub(in crate::db) fn compile_scalar_projection_expr(
                 .iter()
                 .map(|arm| {
                     Some(ScalarProjectionCaseArm::new(
-                        compile_scalar_projection_expr(model, arm.condition())?,
-                        compile_scalar_projection_expr(model, arm.result())?,
+                        compile_scalar_projection_expr_with_schema(model, schema, arm.condition())?,
+                        compile_scalar_projection_expr_with_schema(model, schema, arm.result())?,
                     ))
                 })
                 .collect::<Option<Vec<_>>>()?;
-            let else_expr = compile_scalar_projection_expr(model, else_expr.as_ref())?;
+            let else_expr =
+                compile_scalar_projection_expr_with_schema(model, schema, else_expr.as_ref())?;
 
             Some(ScalarProjectionExpr::Case {
                 when_then_arms,
@@ -204,8 +226,8 @@ pub(in crate::db) fn compile_scalar_projection_expr(
             })
         }
         Expr::Binary { op, left, right } => {
-            let left = compile_scalar_projection_expr(model, left.as_ref())?;
-            let right = compile_scalar_projection_expr(model, right.as_ref())?;
+            let left = compile_scalar_projection_expr_with_schema(model, schema, left.as_ref())?;
+            let right = compile_scalar_projection_expr_with_schema(model, schema, right.as_ref())?;
 
             Some(ScalarProjectionExpr::Binary {
                 op: *op,
@@ -215,30 +237,36 @@ pub(in crate::db) fn compile_scalar_projection_expr(
         }
         Expr::Aggregate(_) => None,
         #[cfg(test)]
-        Expr::Alias { expr, .. } => compile_scalar_projection_expr(model, expr.as_ref()),
+        Expr::Alias { expr, .. } => {
+            compile_scalar_projection_expr_with_schema(model, schema, expr.as_ref())
+        }
     }
 }
 
-/// Compile one scalar projection spec into a frozen planner-owned projection
-/// program when every projected expression stays on the scalar seam.
+/// Compile one scalar projection spec using an explicit schema authority.
+///
+/// This freezes row-slot contracts from the schema view chosen by planning so
+/// prepared projection execution does not re-resolve slots from generated
+/// model order.
 #[must_use]
-pub(in crate::db) fn compile_scalar_projection_plan(
+pub(in crate::db) fn compile_scalar_projection_plan_with_schema(
     model: &EntityModel,
+    schema: &SchemaInfo,
     projection: &ProjectionSpec,
 ) -> Option<Vec<ScalarProjectionExpr>> {
     let mut compiled_fields = Vec::with_capacity(projection.len());
 
     for field in projection.fields() {
-        compiled_fields.push(compile_scalar_projection_field(model, field)?);
+        compiled_fields.push(compile_scalar_projection_field(model, schema, field)?);
     }
 
     Some(compiled_fields)
 }
 
-// Field paths still resolve the root through the existing model slot map; only
-// the nested tail is deferred to executor value-storage traversal.
+// Field paths resolve their root slot through the caller-provided schema view;
+// only the nested tail is deferred to executor value-storage traversal.
 fn compile_scalar_field_path_reference(
-    model: &EntityModel,
+    schema: &SchemaInfo,
     path: &FieldPath,
 ) -> Option<ScalarProjectionExpr> {
     debug_assert!(path.path_spec().is_scalar_leaf());
@@ -248,7 +276,7 @@ fn compile_scalar_field_path_reference(
     Some(ScalarProjectionExpr::FieldPath(ScalarProjectionFieldPath {
         path: path_spec,
         compiled_path,
-        root_slot: model.resolve_field_slot(path.root().as_str())?,
+        root_slot: schema.field_slot_index(path.root().as_str())?,
     }))
 }
 
@@ -256,9 +284,13 @@ fn compile_scalar_field_path_reference(
 // resolution and test-only field-program derivation before recursion continues.
 fn compile_scalar_field_reference(
     model: &EntityModel,
+    schema: &SchemaInfo,
     field_name: &str,
 ) -> Option<ScalarProjectionExpr> {
-    let slot = model.resolve_field_slot(field_name)?;
+    #[cfg(not(test))]
+    let _ = model;
+
+    let slot = schema.field_slot_index(field_name)?;
     #[cfg(test)]
     let program = compile_scalar_field_program(model, field_name);
 
@@ -295,7 +327,121 @@ fn compile_scalar_literal(value: &Value) -> ScalarProjectionExpr {
 // boundary, so the field wrapper is lowered through one shared helper.
 fn compile_scalar_projection_field(
     model: &EntityModel,
+    schema: &SchemaInfo,
     field: &ProjectionField,
 ) -> Option<ScalarProjectionExpr> {
-    compile_scalar_projection_expr(model, field.expr())
+    compile_scalar_projection_expr_with_schema(model, schema, field.expr())
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::{
+            query::plan::expr::{
+                Expr, FieldId as ExprFieldId, FieldPath, ScalarProjectionExpr,
+                compile_scalar_projection_expr_with_schema,
+            },
+            schema::{
+                AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
+                PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaInfo,
+                SchemaRowLayout, SchemaVersion,
+            },
+        },
+        model::{
+            entity::EntityModel,
+            field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
+            index::IndexModel,
+        },
+        testing::entity_model_from_static,
+    };
+
+    static FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated("profile", FieldKind::Structured { queryable: true }),
+    ];
+    static INDEXES: [&IndexModel; 0] = [];
+    static MODEL: EntityModel = entity_model_from_static(
+        "query::plan::expr::scalar::tests::Entity",
+        "Entity",
+        &FIELDS[0],
+        0,
+        &FIELDS,
+        &INDEXES,
+    );
+
+    // Build one accepted schema with a deliberately different row-layout slot
+    // for `profile`. The unchecked accepted wrapper is test-only, and lets this
+    // module prove compilation follows `SchemaInfo` rather than generated order.
+    fn accepted_schema_with_profile_slot(slot: SchemaFieldSlot) -> SchemaInfo {
+        let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "query::plan::expr::scalar::tests::Entity".to_string(),
+            "Entity".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), slot),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "profile".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Structured { queryable: true },
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::Value,
+                    LeafCodec::StructuralFallback,
+                ),
+            ],
+        ));
+
+        SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot)
+    }
+
+    #[test]
+    fn scalar_field_compilation_uses_schema_slot_authority() {
+        let schema = accepted_schema_with_profile_slot(SchemaFieldSlot::new(9));
+        let expr = Expr::Field(ExprFieldId::new("profile"));
+        let compiled = compile_scalar_projection_expr_with_schema(&MODEL, &schema, &expr)
+            .expect("accepted schema field slot should compile");
+
+        let ScalarProjectionExpr::Field(field) = compiled else {
+            panic!("field expression should compile as direct field");
+        };
+        assert_eq!(field.slot(), 9);
+    }
+
+    #[test]
+    fn scalar_field_path_compilation_uses_schema_root_slot_authority() {
+        let schema = accepted_schema_with_profile_slot(SchemaFieldSlot::new(7));
+        let expr = Expr::FieldPath(FieldPath::new("profile", vec!["rank".to_string()]));
+        let compiled = compile_scalar_projection_expr_with_schema(&MODEL, &schema, &expr)
+            .expect("accepted schema field-path root slot should compile");
+
+        let ScalarProjectionExpr::FieldPath(path) = compiled else {
+            panic!("field-path expression should compile as field path");
+        };
+        assert_eq!(path.root_slot(), 7);
+        assert_eq!(path.segments(), ["rank".to_string()].as_slice());
+    }
 }

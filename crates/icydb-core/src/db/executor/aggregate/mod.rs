@@ -156,7 +156,7 @@ impl ExecutionKernel {
         validate_executor_plan_for_authority(authority, &logical_plan)?;
         let store = executor.db.recovered_store(authority.store_path())?;
         let store_resolver = executor.db.store_resolver();
-        record_plan_metrics(authority.entity_path(), &logical_plan.access);
+        record_plan_metrics(authority.entity_path(), &logical_plan);
 
         Ok(PreparedAggregateStreamingInputs {
             store_resolver,

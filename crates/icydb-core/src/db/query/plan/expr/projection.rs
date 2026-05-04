@@ -3,7 +3,10 @@
 //! that flow into structural execution.
 
 use crate::{
-    db::query::plan::expr::ast::{Alias, BinaryOp, Expr, FieldId},
+    db::{
+        query::plan::expr::ast::{Alias, BinaryOp, Expr, FieldId},
+        schema::SchemaInfo,
+    },
     error::InternalError,
     model::{entity::EntityModel, field::FieldModel},
     value::Value,
@@ -94,23 +97,21 @@ impl ProjectionSpec {
         true
     }
 
-    /// Return the set of model field slots referenced anywhere inside this
-    /// projection's canonical expression tree.
-    pub(in crate::db) fn referenced_slots_for(
+    /// Return referenced slots using the caller-selected schema authority.
+    pub(in crate::db) fn referenced_slots_for_schema(
         &self,
-        model: &EntityModel,
+        _model: &EntityModel,
+        schema: &SchemaInfo,
     ) -> Result<Vec<usize>, InternalError> {
-        let mut referenced = vec![false; model.fields().len()];
+        let mut referenced = Vec::new();
 
         for field in self.fields() {
-            mark_projection_expr_slots(model, field.expr(), referenced.as_mut_slice())?;
+            mark_projection_expr_slots(schema, field.expr(), &mut referenced)?;
         }
 
-        Ok(referenced
-            .into_iter()
-            .enumerate()
-            .filter_map(|(slot, required)| required.then_some(slot))
-            .collect())
+        referenced.sort_unstable();
+
+        Ok(referenced)
     }
 }
 
@@ -147,29 +148,33 @@ impl ProjectionField {
 // against the resolved model layout. This stays on the projection boundary so
 // static-planning consumers do not open-code expression slot scans locally.
 fn mark_projection_expr_slots(
-    model: &EntityModel,
+    schema: &SchemaInfo,
     expr: &Expr,
-    referenced: &mut [bool],
+    referenced: &mut Vec<usize>,
 ) -> Result<(), InternalError> {
     expr.try_for_each_tree_expr(&mut |node| match node {
         Expr::Field(field_id) => {
             let field_name = field_id.as_str();
-            let slot = model.resolve_field_slot(field_name).ok_or_else(|| {
+            let slot = schema.field_slot_index(field_name).ok_or_else(|| {
                 InternalError::query_invalid_logical_plan(format!(
                     "projection expression references unknown field '{field_name}'",
                 ))
             })?;
-            referenced[slot] = true;
+            if !referenced.contains(&slot) {
+                referenced.push(slot);
+            }
             Ok(())
         }
         Expr::FieldPath(path) => {
             let field_name = path.root().as_str();
-            let slot = model.resolve_field_slot(field_name).ok_or_else(|| {
+            let slot = schema.field_slot_index(field_name).ok_or_else(|| {
                 InternalError::query_invalid_logical_plan(format!(
                     "projection expression references unknown field '{field_name}'",
                 ))
             })?;
-            referenced[slot] = true;
+            if !referenced.contains(&slot) {
+                referenced.push(slot);
+            }
             Ok(())
         }
         _ => Ok(()),
@@ -201,21 +206,16 @@ pub(in crate::db) fn direct_projection_expr_field_name(expr: &Expr) -> Option<&s
     }
 }
 
-/// Resolve one unique direct field-slot layout from canonical field names.
-///
-/// This helper centralizes the executor/planner rule for direct slot-copy
-/// projections: every projected output must map to one canonical field slot,
-/// and no source slot may be repeated because retained-slot readers consume
-/// values with `Option::take()`.
+/// Resolve one unique direct field-slot layout using explicit schema authority.
 #[must_use]
-pub(in crate::db::query) fn collect_unique_direct_projection_slots<'a>(
-    model: &EntityModel,
+pub(in crate::db::query) fn collect_unique_direct_projection_slots_with_schema<'a>(
+    schema: &SchemaInfo,
     field_names: impl IntoIterator<Item = &'a str>,
 ) -> Option<Vec<usize>> {
     let mut field_slots = Vec::new();
 
     for field_name in field_names {
-        let slot = model.resolve_field_slot(field_name)?;
+        let slot = schema.field_slot_index(field_name)?;
         if field_slots.contains(&slot) {
             return None;
         }
@@ -540,4 +540,114 @@ pub(in crate::db) fn classify_grouped_top_k_order_term(
 #[must_use]
 pub(in crate::db) fn grouped_top_k_order_term_requires_heap(expr: &Expr) -> bool {
     GroupedOrderExprAnalysis::from_expr(expr, &[], None).contains_aggregate
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::{
+            query::plan::expr::{
+                Expr, FieldPath, ProjectionField, ProjectionSpec,
+                collect_unique_direct_projection_slots_with_schema,
+            },
+            schema::{
+                AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
+                PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaInfo,
+                SchemaRowLayout, SchemaVersion,
+            },
+        },
+        model::{
+            entity::EntityModel,
+            field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
+            index::IndexModel,
+        },
+        testing::entity_model_from_static,
+    };
+
+    static FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated("profile", FieldKind::Structured { queryable: true }),
+    ];
+    static INDEXES: [&IndexModel; 0] = [];
+    static MODEL: EntityModel = entity_model_from_static(
+        "query::plan::expr::projection::tests::Entity",
+        "Entity",
+        &FIELDS[0],
+        0,
+        &FIELDS,
+        &INDEXES,
+    );
+
+    // Build one accepted schema with a deliberately divergent top-level slot
+    // for `profile`. The unchecked accepted wrapper is test-only, letting this
+    // module prove projection metadata follows accepted schema authority.
+    fn accepted_schema_with_profile_slot(slot: SchemaFieldSlot) -> SchemaInfo {
+        let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "query::plan::expr::projection::tests::Entity".to_string(),
+            "Entity".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), slot),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "profile".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Structured { queryable: true },
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::Value,
+                    LeafCodec::StructuralFallback,
+                ),
+            ],
+        ));
+
+        SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot)
+    }
+
+    #[test]
+    fn projection_referenced_slots_use_schema_slot_authority() {
+        let schema = accepted_schema_with_profile_slot(SchemaFieldSlot::new(7));
+        let projection = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: Expr::FieldPath(FieldPath::new("profile", vec!["rank".to_string()])),
+            alias: None,
+        }]);
+
+        let slots = projection
+            .referenced_slots_for_schema(&MODEL, &schema)
+            .expect("field-path projection should resolve through accepted schema");
+
+        assert_eq!(slots, vec![7]);
+    }
+
+    #[test]
+    fn direct_projection_slots_use_schema_slot_authority() {
+        let schema = accepted_schema_with_profile_slot(SchemaFieldSlot::new(5));
+        let slots = collect_unique_direct_projection_slots_with_schema(&schema, ["profile"])
+            .expect("direct projection field should resolve through accepted schema");
+
+        assert_eq!(slots, vec![5]);
+    }
 }

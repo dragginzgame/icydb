@@ -101,10 +101,20 @@ pub struct EventOps {
     pub(crate) cache_shared_query_plan_misses: u64,
     pub(crate) cache_shared_query_plan_inserts: u64,
     pub(crate) cache_shared_query_plan_entries: u64,
+    pub(crate) cache_shared_query_plan_miss_cold: u64,
+    pub(crate) cache_shared_query_plan_miss_distinct_key: u64,
+    pub(crate) cache_shared_query_plan_miss_method_version: u64,
+    pub(crate) cache_shared_query_plan_miss_schema_fingerprint: u64,
+    pub(crate) cache_shared_query_plan_miss_visibility: u64,
     pub(crate) cache_sql_compiled_command_hits: u64,
     pub(crate) cache_sql_compiled_command_misses: u64,
     pub(crate) cache_sql_compiled_command_inserts: u64,
     pub(crate) cache_sql_compiled_command_entries: u64,
+    pub(crate) cache_sql_compiled_command_miss_cold: u64,
+    pub(crate) cache_sql_compiled_command_miss_distinct_key: u64,
+    pub(crate) cache_sql_compiled_command_miss_method_version: u64,
+    pub(crate) cache_sql_compiled_command_miss_schema_fingerprint: u64,
+    pub(crate) cache_sql_compiled_command_miss_surface: u64,
     pub(crate) schema_reconcile_checks: u64,
     pub(crate) schema_reconcile_exact_match: u64,
     pub(crate) schema_reconcile_first_create: u64,
@@ -114,6 +124,10 @@ pub struct EventOps {
     pub(crate) schema_reconcile_rejected_row_layout: u64,
     pub(crate) schema_reconcile_rejected_schema_version: u64,
     pub(crate) schema_reconcile_store_write_error: u64,
+    pub(crate) sql_compile_rejects: u64,
+    pub(crate) sql_compile_reject_cache_key: u64,
+    pub(crate) sql_compile_reject_parse: u64,
+    pub(crate) sql_compile_reject_semantic: u64,
 
     // Planner kinds
     pub(crate) plan_index: u64,
@@ -131,6 +145,20 @@ pub struct EventOps {
     pub(crate) plan_intersection: u64,
     pub(crate) plan_grouped_hash_materialized: u64,
     pub(crate) plan_grouped_ordered_materialized: u64,
+    pub(crate) plan_choice_conflicting_primary_key_children_access_preferred: u64,
+    pub(crate) plan_choice_constant_false_predicate: u64,
+    pub(crate) plan_choice_empty_child_access_preferred: u64,
+    pub(crate) plan_choice_full_scan_access: u64,
+    pub(crate) plan_choice_intent_key_access_override: u64,
+    pub(crate) plan_choice_limit_zero_window: u64,
+    pub(crate) plan_choice_non_index_access: u64,
+    pub(crate) plan_choice_planner_composite_non_index: u64,
+    pub(crate) plan_choice_planner_full_scan_fallback: u64,
+    pub(crate) plan_choice_planner_key_set_access: u64,
+    pub(crate) plan_choice_planner_primary_key_lookup: u64,
+    pub(crate) plan_choice_planner_primary_key_range: u64,
+    pub(crate) plan_choice_required_order_primary_key_range_preferred: u64,
+    pub(crate) plan_choice_singleton_primary_key_child_access_preferred: u64,
 
     // Rows touched
     pub(crate) rows_loaded: u64,
@@ -278,6 +306,31 @@ impl EventOps {
     }
 
     #[must_use]
+    pub const fn cache_shared_query_plan_miss_cold(&self) -> u64 {
+        self.cache_shared_query_plan_miss_cold
+    }
+
+    #[must_use]
+    pub const fn cache_shared_query_plan_miss_distinct_key(&self) -> u64 {
+        self.cache_shared_query_plan_miss_distinct_key
+    }
+
+    #[must_use]
+    pub const fn cache_shared_query_plan_miss_method_version(&self) -> u64 {
+        self.cache_shared_query_plan_miss_method_version
+    }
+
+    #[must_use]
+    pub const fn cache_shared_query_plan_miss_schema_fingerprint(&self) -> u64 {
+        self.cache_shared_query_plan_miss_schema_fingerprint
+    }
+
+    #[must_use]
+    pub const fn cache_shared_query_plan_miss_visibility(&self) -> u64 {
+        self.cache_shared_query_plan_miss_visibility
+    }
+
+    #[must_use]
     pub const fn cache_sql_compiled_command_hits(&self) -> u64 {
         self.cache_sql_compiled_command_hits
     }
@@ -295,6 +348,31 @@ impl EventOps {
     #[must_use]
     pub const fn cache_sql_compiled_command_entries(&self) -> u64 {
         self.cache_sql_compiled_command_entries
+    }
+
+    #[must_use]
+    pub const fn cache_sql_compiled_command_miss_cold(&self) -> u64 {
+        self.cache_sql_compiled_command_miss_cold
+    }
+
+    #[must_use]
+    pub const fn cache_sql_compiled_command_miss_distinct_key(&self) -> u64 {
+        self.cache_sql_compiled_command_miss_distinct_key
+    }
+
+    #[must_use]
+    pub const fn cache_sql_compiled_command_miss_method_version(&self) -> u64 {
+        self.cache_sql_compiled_command_miss_method_version
+    }
+
+    #[must_use]
+    pub const fn cache_sql_compiled_command_miss_schema_fingerprint(&self) -> u64 {
+        self.cache_sql_compiled_command_miss_schema_fingerprint
+    }
+
+    #[must_use]
+    pub const fn cache_sql_compiled_command_miss_surface(&self) -> u64 {
+        self.cache_sql_compiled_command_miss_surface
     }
 
     #[must_use]
@@ -340,6 +418,26 @@ impl EventOps {
     #[must_use]
     pub const fn schema_reconcile_store_write_error(&self) -> u64 {
         self.schema_reconcile_store_write_error
+    }
+
+    #[must_use]
+    pub const fn sql_compile_rejects(&self) -> u64 {
+        self.sql_compile_rejects
+    }
+
+    #[must_use]
+    pub const fn sql_compile_reject_cache_key(&self) -> u64 {
+        self.sql_compile_reject_cache_key
+    }
+
+    #[must_use]
+    pub const fn sql_compile_reject_parse(&self) -> u64 {
+        self.sql_compile_reject_parse
+    }
+
+    #[must_use]
+    pub const fn sql_compile_reject_semantic(&self) -> u64 {
+        self.sql_compile_reject_semantic
     }
 
     #[must_use]
@@ -415,6 +513,76 @@ impl EventOps {
     #[must_use]
     pub const fn plan_grouped_ordered_materialized(&self) -> u64 {
         self.plan_grouped_ordered_materialized
+    }
+
+    #[must_use]
+    pub const fn plan_choice_conflicting_primary_key_children_access_preferred(&self) -> u64 {
+        self.plan_choice_conflicting_primary_key_children_access_preferred
+    }
+
+    #[must_use]
+    pub const fn plan_choice_constant_false_predicate(&self) -> u64 {
+        self.plan_choice_constant_false_predicate
+    }
+
+    #[must_use]
+    pub const fn plan_choice_empty_child_access_preferred(&self) -> u64 {
+        self.plan_choice_empty_child_access_preferred
+    }
+
+    #[must_use]
+    pub const fn plan_choice_full_scan_access(&self) -> u64 {
+        self.plan_choice_full_scan_access
+    }
+
+    #[must_use]
+    pub const fn plan_choice_intent_key_access_override(&self) -> u64 {
+        self.plan_choice_intent_key_access_override
+    }
+
+    #[must_use]
+    pub const fn plan_choice_limit_zero_window(&self) -> u64 {
+        self.plan_choice_limit_zero_window
+    }
+
+    #[must_use]
+    pub const fn plan_choice_non_index_access(&self) -> u64 {
+        self.plan_choice_non_index_access
+    }
+
+    #[must_use]
+    pub const fn plan_choice_planner_composite_non_index(&self) -> u64 {
+        self.plan_choice_planner_composite_non_index
+    }
+
+    #[must_use]
+    pub const fn plan_choice_planner_full_scan_fallback(&self) -> u64 {
+        self.plan_choice_planner_full_scan_fallback
+    }
+
+    #[must_use]
+    pub const fn plan_choice_planner_key_set_access(&self) -> u64 {
+        self.plan_choice_planner_key_set_access
+    }
+
+    #[must_use]
+    pub const fn plan_choice_planner_primary_key_lookup(&self) -> u64 {
+        self.plan_choice_planner_primary_key_lookup
+    }
+
+    #[must_use]
+    pub const fn plan_choice_planner_primary_key_range(&self) -> u64 {
+        self.plan_choice_planner_primary_key_range
+    }
+
+    #[must_use]
+    pub const fn plan_choice_required_order_primary_key_range_preferred(&self) -> u64 {
+        self.plan_choice_required_order_primary_key_range_preferred
+    }
+
+    #[must_use]
+    pub const fn plan_choice_singleton_primary_key_child_access_preferred(&self) -> u64 {
+        self.plan_choice_singleton_primary_key_child_access_preferred
     }
 
     #[must_use]
@@ -709,9 +877,19 @@ pub(crate) struct EntityCounters {
     pub(crate) cache_shared_query_plan_hits: u64,
     pub(crate) cache_shared_query_plan_misses: u64,
     pub(crate) cache_shared_query_plan_inserts: u64,
+    pub(crate) cache_shared_query_plan_miss_cold: u64,
+    pub(crate) cache_shared_query_plan_miss_distinct_key: u64,
+    pub(crate) cache_shared_query_plan_miss_method_version: u64,
+    pub(crate) cache_shared_query_plan_miss_schema_fingerprint: u64,
+    pub(crate) cache_shared_query_plan_miss_visibility: u64,
     pub(crate) cache_sql_compiled_command_hits: u64,
     pub(crate) cache_sql_compiled_command_misses: u64,
     pub(crate) cache_sql_compiled_command_inserts: u64,
+    pub(crate) cache_sql_compiled_command_miss_cold: u64,
+    pub(crate) cache_sql_compiled_command_miss_distinct_key: u64,
+    pub(crate) cache_sql_compiled_command_miss_method_version: u64,
+    pub(crate) cache_sql_compiled_command_miss_schema_fingerprint: u64,
+    pub(crate) cache_sql_compiled_command_miss_surface: u64,
     pub(crate) schema_reconcile_checks: u64,
     pub(crate) schema_reconcile_exact_match: u64,
     pub(crate) schema_reconcile_first_create: u64,
@@ -721,6 +899,10 @@ pub(crate) struct EntityCounters {
     pub(crate) schema_reconcile_rejected_row_layout: u64,
     pub(crate) schema_reconcile_rejected_schema_version: u64,
     pub(crate) schema_reconcile_store_write_error: u64,
+    pub(crate) sql_compile_rejects: u64,
+    pub(crate) sql_compile_reject_cache_key: u64,
+    pub(crate) sql_compile_reject_parse: u64,
+    pub(crate) sql_compile_reject_semantic: u64,
     pub(crate) plan_index: u64,
     pub(crate) plan_keys: u64,
     pub(crate) plan_range: u64,
@@ -736,6 +918,20 @@ pub(crate) struct EntityCounters {
     pub(crate) plan_intersection: u64,
     pub(crate) plan_grouped_hash_materialized: u64,
     pub(crate) plan_grouped_ordered_materialized: u64,
+    pub(crate) plan_choice_conflicting_primary_key_children_access_preferred: u64,
+    pub(crate) plan_choice_constant_false_predicate: u64,
+    pub(crate) plan_choice_empty_child_access_preferred: u64,
+    pub(crate) plan_choice_full_scan_access: u64,
+    pub(crate) plan_choice_intent_key_access_override: u64,
+    pub(crate) plan_choice_limit_zero_window: u64,
+    pub(crate) plan_choice_non_index_access: u64,
+    pub(crate) plan_choice_planner_composite_non_index: u64,
+    pub(crate) plan_choice_planner_full_scan_fallback: u64,
+    pub(crate) plan_choice_planner_key_set_access: u64,
+    pub(crate) plan_choice_planner_primary_key_lookup: u64,
+    pub(crate) plan_choice_planner_primary_key_range: u64,
+    pub(crate) plan_choice_required_order_primary_key_range_preferred: u64,
+    pub(crate) plan_choice_singleton_primary_key_child_access_preferred: u64,
     pub(crate) rows_loaded: u64,
     pub(crate) rows_saved: u64,
     pub(crate) rows_inserted: u64,
@@ -1025,9 +1221,19 @@ pub struct EntitySummary {
     cache_shared_query_plan_hits: u64,
     cache_shared_query_plan_misses: u64,
     cache_shared_query_plan_inserts: u64,
+    cache_shared_query_plan_miss_cold: u64,
+    cache_shared_query_plan_miss_distinct_key: u64,
+    cache_shared_query_plan_miss_method_version: u64,
+    cache_shared_query_plan_miss_schema_fingerprint: u64,
+    cache_shared_query_plan_miss_visibility: u64,
     cache_sql_compiled_command_hits: u64,
     cache_sql_compiled_command_misses: u64,
     cache_sql_compiled_command_inserts: u64,
+    cache_sql_compiled_command_miss_cold: u64,
+    cache_sql_compiled_command_miss_distinct_key: u64,
+    cache_sql_compiled_command_miss_method_version: u64,
+    cache_sql_compiled_command_miss_schema_fingerprint: u64,
+    cache_sql_compiled_command_miss_surface: u64,
     schema_reconcile_checks: u64,
     schema_reconcile_exact_match: u64,
     schema_reconcile_first_create: u64,
@@ -1037,6 +1243,10 @@ pub struct EntitySummary {
     schema_reconcile_rejected_row_layout: u64,
     schema_reconcile_rejected_schema_version: u64,
     schema_reconcile_store_write_error: u64,
+    sql_compile_rejects: u64,
+    sql_compile_reject_cache_key: u64,
+    sql_compile_reject_parse: u64,
+    sql_compile_reject_semantic: u64,
     plan_index: u64,
     plan_keys: u64,
     plan_range: u64,
@@ -1052,6 +1262,20 @@ pub struct EntitySummary {
     plan_intersection: u64,
     plan_grouped_hash_materialized: u64,
     plan_grouped_ordered_materialized: u64,
+    plan_choice_conflicting_primary_key_children_access_preferred: u64,
+    plan_choice_constant_false_predicate: u64,
+    plan_choice_empty_child_access_preferred: u64,
+    plan_choice_full_scan_access: u64,
+    plan_choice_intent_key_access_override: u64,
+    plan_choice_limit_zero_window: u64,
+    plan_choice_non_index_access: u64,
+    plan_choice_planner_composite_non_index: u64,
+    plan_choice_planner_full_scan_fallback: u64,
+    plan_choice_planner_key_set_access: u64,
+    plan_choice_planner_primary_key_lookup: u64,
+    plan_choice_planner_primary_key_range: u64,
+    plan_choice_required_order_primary_key_range_preferred: u64,
+    plan_choice_singleton_primary_key_child_access_preferred: u64,
     rows_loaded: u64,
     rows_saved: u64,
     rows_inserted: u64,
@@ -1195,6 +1419,31 @@ impl EntitySummary {
     }
 
     #[must_use]
+    pub const fn cache_shared_query_plan_miss_cold(&self) -> u64 {
+        self.cache_shared_query_plan_miss_cold
+    }
+
+    #[must_use]
+    pub const fn cache_shared_query_plan_miss_distinct_key(&self) -> u64 {
+        self.cache_shared_query_plan_miss_distinct_key
+    }
+
+    #[must_use]
+    pub const fn cache_shared_query_plan_miss_method_version(&self) -> u64 {
+        self.cache_shared_query_plan_miss_method_version
+    }
+
+    #[must_use]
+    pub const fn cache_shared_query_plan_miss_schema_fingerprint(&self) -> u64 {
+        self.cache_shared_query_plan_miss_schema_fingerprint
+    }
+
+    #[must_use]
+    pub const fn cache_shared_query_plan_miss_visibility(&self) -> u64 {
+        self.cache_shared_query_plan_miss_visibility
+    }
+
+    #[must_use]
     pub const fn cache_sql_compiled_command_hits(&self) -> u64 {
         self.cache_sql_compiled_command_hits
     }
@@ -1207,6 +1456,31 @@ impl EntitySummary {
     #[must_use]
     pub const fn cache_sql_compiled_command_inserts(&self) -> u64 {
         self.cache_sql_compiled_command_inserts
+    }
+
+    #[must_use]
+    pub const fn cache_sql_compiled_command_miss_cold(&self) -> u64 {
+        self.cache_sql_compiled_command_miss_cold
+    }
+
+    #[must_use]
+    pub const fn cache_sql_compiled_command_miss_distinct_key(&self) -> u64 {
+        self.cache_sql_compiled_command_miss_distinct_key
+    }
+
+    #[must_use]
+    pub const fn cache_sql_compiled_command_miss_method_version(&self) -> u64 {
+        self.cache_sql_compiled_command_miss_method_version
+    }
+
+    #[must_use]
+    pub const fn cache_sql_compiled_command_miss_schema_fingerprint(&self) -> u64 {
+        self.cache_sql_compiled_command_miss_schema_fingerprint
+    }
+
+    #[must_use]
+    pub const fn cache_sql_compiled_command_miss_surface(&self) -> u64 {
+        self.cache_sql_compiled_command_miss_surface
     }
 
     #[must_use]
@@ -1252,6 +1526,26 @@ impl EntitySummary {
     #[must_use]
     pub const fn schema_reconcile_store_write_error(&self) -> u64 {
         self.schema_reconcile_store_write_error
+    }
+
+    #[must_use]
+    pub const fn sql_compile_rejects(&self) -> u64 {
+        self.sql_compile_rejects
+    }
+
+    #[must_use]
+    pub const fn sql_compile_reject_cache_key(&self) -> u64 {
+        self.sql_compile_reject_cache_key
+    }
+
+    #[must_use]
+    pub const fn sql_compile_reject_parse(&self) -> u64 {
+        self.sql_compile_reject_parse
+    }
+
+    #[must_use]
+    pub const fn sql_compile_reject_semantic(&self) -> u64 {
+        self.sql_compile_reject_semantic
     }
 
     #[must_use]
@@ -1327,6 +1621,76 @@ impl EntitySummary {
     #[must_use]
     pub const fn plan_grouped_ordered_materialized(&self) -> u64 {
         self.plan_grouped_ordered_materialized
+    }
+
+    #[must_use]
+    pub const fn plan_choice_conflicting_primary_key_children_access_preferred(&self) -> u64 {
+        self.plan_choice_conflicting_primary_key_children_access_preferred
+    }
+
+    #[must_use]
+    pub const fn plan_choice_constant_false_predicate(&self) -> u64 {
+        self.plan_choice_constant_false_predicate
+    }
+
+    #[must_use]
+    pub const fn plan_choice_empty_child_access_preferred(&self) -> u64 {
+        self.plan_choice_empty_child_access_preferred
+    }
+
+    #[must_use]
+    pub const fn plan_choice_full_scan_access(&self) -> u64 {
+        self.plan_choice_full_scan_access
+    }
+
+    #[must_use]
+    pub const fn plan_choice_intent_key_access_override(&self) -> u64 {
+        self.plan_choice_intent_key_access_override
+    }
+
+    #[must_use]
+    pub const fn plan_choice_limit_zero_window(&self) -> u64 {
+        self.plan_choice_limit_zero_window
+    }
+
+    #[must_use]
+    pub const fn plan_choice_non_index_access(&self) -> u64 {
+        self.plan_choice_non_index_access
+    }
+
+    #[must_use]
+    pub const fn plan_choice_planner_composite_non_index(&self) -> u64 {
+        self.plan_choice_planner_composite_non_index
+    }
+
+    #[must_use]
+    pub const fn plan_choice_planner_full_scan_fallback(&self) -> u64 {
+        self.plan_choice_planner_full_scan_fallback
+    }
+
+    #[must_use]
+    pub const fn plan_choice_planner_key_set_access(&self) -> u64 {
+        self.plan_choice_planner_key_set_access
+    }
+
+    #[must_use]
+    pub const fn plan_choice_planner_primary_key_lookup(&self) -> u64 {
+        self.plan_choice_planner_primary_key_lookup
+    }
+
+    #[must_use]
+    pub const fn plan_choice_planner_primary_key_range(&self) -> u64 {
+        self.plan_choice_planner_primary_key_range
+    }
+
+    #[must_use]
+    pub const fn plan_choice_required_order_primary_key_range_preferred(&self) -> u64 {
+        self.plan_choice_required_order_primary_key_range_preferred
+    }
+
+    #[must_use]
+    pub const fn plan_choice_singleton_primary_key_child_access_preferred(&self) -> u64 {
+        self.plan_choice_singleton_primary_key_child_access_preferred
     }
 
     #[must_use]
@@ -1602,6 +1966,7 @@ impl EntitySummary {
 
     // Rank entity summaries by all visible activity so write-heavy or
     // maintenance-heavy entities are not hidden below read-heavy entities.
+    #[expect(clippy::too_many_lines)]
     const fn activity_score(&self) -> u64 {
         self.load_calls
             .saturating_add(self.save_calls)
@@ -1621,9 +1986,19 @@ impl EntitySummary {
             .saturating_add(self.cache_shared_query_plan_hits)
             .saturating_add(self.cache_shared_query_plan_misses)
             .saturating_add(self.cache_shared_query_plan_inserts)
+            .saturating_add(self.cache_shared_query_plan_miss_cold)
+            .saturating_add(self.cache_shared_query_plan_miss_distinct_key)
+            .saturating_add(self.cache_shared_query_plan_miss_method_version)
+            .saturating_add(self.cache_shared_query_plan_miss_schema_fingerprint)
+            .saturating_add(self.cache_shared_query_plan_miss_visibility)
             .saturating_add(self.cache_sql_compiled_command_hits)
             .saturating_add(self.cache_sql_compiled_command_misses)
             .saturating_add(self.cache_sql_compiled_command_inserts)
+            .saturating_add(self.cache_sql_compiled_command_miss_cold)
+            .saturating_add(self.cache_sql_compiled_command_miss_distinct_key)
+            .saturating_add(self.cache_sql_compiled_command_miss_method_version)
+            .saturating_add(self.cache_sql_compiled_command_miss_schema_fingerprint)
+            .saturating_add(self.cache_sql_compiled_command_miss_surface)
             .saturating_add(self.schema_reconcile_checks)
             .saturating_add(self.schema_reconcile_exact_match)
             .saturating_add(self.schema_reconcile_first_create)
@@ -1633,6 +2008,10 @@ impl EntitySummary {
             .saturating_add(self.schema_reconcile_rejected_row_layout)
             .saturating_add(self.schema_reconcile_rejected_schema_version)
             .saturating_add(self.schema_reconcile_store_write_error)
+            .saturating_add(self.sql_compile_rejects)
+            .saturating_add(self.sql_compile_reject_cache_key)
+            .saturating_add(self.sql_compile_reject_parse)
+            .saturating_add(self.sql_compile_reject_semantic)
             .saturating_add(self.plan_index)
             .saturating_add(self.plan_keys)
             .saturating_add(self.plan_range)
@@ -1648,6 +2027,20 @@ impl EntitySummary {
             .saturating_add(self.plan_intersection)
             .saturating_add(self.plan_grouped_hash_materialized)
             .saturating_add(self.plan_grouped_ordered_materialized)
+            .saturating_add(self.plan_choice_conflicting_primary_key_children_access_preferred)
+            .saturating_add(self.plan_choice_constant_false_predicate)
+            .saturating_add(self.plan_choice_empty_child_access_preferred)
+            .saturating_add(self.plan_choice_full_scan_access)
+            .saturating_add(self.plan_choice_intent_key_access_override)
+            .saturating_add(self.plan_choice_limit_zero_window)
+            .saturating_add(self.plan_choice_non_index_access)
+            .saturating_add(self.plan_choice_planner_composite_non_index)
+            .saturating_add(self.plan_choice_planner_full_scan_fallback)
+            .saturating_add(self.plan_choice_planner_key_set_access)
+            .saturating_add(self.plan_choice_planner_primary_key_lookup)
+            .saturating_add(self.plan_choice_planner_primary_key_range)
+            .saturating_add(self.plan_choice_required_order_primary_key_range_preferred)
+            .saturating_add(self.plan_choice_singleton_primary_key_child_access_preferred)
             .saturating_add(self.rows_loaded)
             .saturating_add(self.rows_saved)
             .saturating_add(self.rows_inserted)
@@ -1699,6 +2092,7 @@ impl EntitySummary {
 //
 // Keeping this projection out of `report_window_start` leaves the window
 // filtering logic readable while still making every report field explicit.
+#[expect(clippy::too_many_lines)]
 fn entity_summary_from_counters(path: &str, ops: &EntityCounters) -> EntitySummary {
     EntitySummary {
         path: path.to_string(),
@@ -1720,9 +2114,24 @@ fn entity_summary_from_counters(path: &str, ops: &EntityCounters) -> EntitySumma
         cache_shared_query_plan_hits: ops.cache_shared_query_plan_hits,
         cache_shared_query_plan_misses: ops.cache_shared_query_plan_misses,
         cache_shared_query_plan_inserts: ops.cache_shared_query_plan_inserts,
+        cache_shared_query_plan_miss_cold: ops.cache_shared_query_plan_miss_cold,
+        cache_shared_query_plan_miss_distinct_key: ops.cache_shared_query_plan_miss_distinct_key,
+        cache_shared_query_plan_miss_method_version: ops
+            .cache_shared_query_plan_miss_method_version,
+        cache_shared_query_plan_miss_schema_fingerprint: ops
+            .cache_shared_query_plan_miss_schema_fingerprint,
+        cache_shared_query_plan_miss_visibility: ops.cache_shared_query_plan_miss_visibility,
         cache_sql_compiled_command_hits: ops.cache_sql_compiled_command_hits,
         cache_sql_compiled_command_misses: ops.cache_sql_compiled_command_misses,
         cache_sql_compiled_command_inserts: ops.cache_sql_compiled_command_inserts,
+        cache_sql_compiled_command_miss_cold: ops.cache_sql_compiled_command_miss_cold,
+        cache_sql_compiled_command_miss_distinct_key: ops
+            .cache_sql_compiled_command_miss_distinct_key,
+        cache_sql_compiled_command_miss_method_version: ops
+            .cache_sql_compiled_command_miss_method_version,
+        cache_sql_compiled_command_miss_schema_fingerprint: ops
+            .cache_sql_compiled_command_miss_schema_fingerprint,
+        cache_sql_compiled_command_miss_surface: ops.cache_sql_compiled_command_miss_surface,
         schema_reconcile_checks: ops.schema_reconcile_checks,
         schema_reconcile_exact_match: ops.schema_reconcile_exact_match,
         schema_reconcile_first_create: ops.schema_reconcile_first_create,
@@ -1732,6 +2141,10 @@ fn entity_summary_from_counters(path: &str, ops: &EntityCounters) -> EntitySumma
         schema_reconcile_rejected_row_layout: ops.schema_reconcile_rejected_row_layout,
         schema_reconcile_rejected_schema_version: ops.schema_reconcile_rejected_schema_version,
         schema_reconcile_store_write_error: ops.schema_reconcile_store_write_error,
+        sql_compile_rejects: ops.sql_compile_rejects,
+        sql_compile_reject_cache_key: ops.sql_compile_reject_cache_key,
+        sql_compile_reject_parse: ops.sql_compile_reject_parse,
+        sql_compile_reject_semantic: ops.sql_compile_reject_semantic,
         plan_index: ops.plan_index,
         plan_keys: ops.plan_keys,
         plan_range: ops.plan_range,
@@ -1747,6 +2160,23 @@ fn entity_summary_from_counters(path: &str, ops: &EntityCounters) -> EntitySumma
         plan_intersection: ops.plan_intersection,
         plan_grouped_hash_materialized: ops.plan_grouped_hash_materialized,
         plan_grouped_ordered_materialized: ops.plan_grouped_ordered_materialized,
+        plan_choice_conflicting_primary_key_children_access_preferred: ops
+            .plan_choice_conflicting_primary_key_children_access_preferred,
+        plan_choice_constant_false_predicate: ops.plan_choice_constant_false_predicate,
+        plan_choice_empty_child_access_preferred: ops.plan_choice_empty_child_access_preferred,
+        plan_choice_full_scan_access: ops.plan_choice_full_scan_access,
+        plan_choice_intent_key_access_override: ops.plan_choice_intent_key_access_override,
+        plan_choice_limit_zero_window: ops.plan_choice_limit_zero_window,
+        plan_choice_non_index_access: ops.plan_choice_non_index_access,
+        plan_choice_planner_composite_non_index: ops.plan_choice_planner_composite_non_index,
+        plan_choice_planner_full_scan_fallback: ops.plan_choice_planner_full_scan_fallback,
+        plan_choice_planner_key_set_access: ops.plan_choice_planner_key_set_access,
+        plan_choice_planner_primary_key_lookup: ops.plan_choice_planner_primary_key_lookup,
+        plan_choice_planner_primary_key_range: ops.plan_choice_planner_primary_key_range,
+        plan_choice_required_order_primary_key_range_preferred: ops
+            .plan_choice_required_order_primary_key_range_preferred,
+        plan_choice_singleton_primary_key_child_access_preferred: ops
+            .plan_choice_singleton_primary_key_child_access_preferred,
         rows_loaded: ops.rows_loaded,
         rows_saved: ops.rows_saved,
         rows_inserted: ops.rows_inserted,

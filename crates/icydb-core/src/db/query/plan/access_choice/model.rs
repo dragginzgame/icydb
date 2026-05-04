@@ -100,6 +100,12 @@ impl AccessChoiceExplainSnapshot {
             rejected: Vec::new(),
         }
     }
+
+    /// Return the planner-owned reason for the selected access family.
+    #[must_use]
+    pub(in crate::db) const fn chosen_reason(&self) -> AccessChoiceSelectedReason {
+        self.chosen_reason
+    }
 }
 
 ///

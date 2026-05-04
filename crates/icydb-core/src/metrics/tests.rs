@@ -4,7 +4,10 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::metrics::{
-    sink::{CacheKind, CacheOutcome, MetricsEvent, SchemaReconcileOutcome, record},
+    sink::{
+        CacheKind, CacheMissReason, CacheOutcome, MetricsEvent, PlanChoiceReason,
+        SchemaReconcileOutcome, SqlCompileRejectPhase, record,
+    },
     state::{
         EntityCounters, EventOps, MetricRatio, report_window_start, reset_all, with_state,
         with_state_mut,
@@ -157,6 +160,10 @@ fn event_report_candid_shape_is_stable() {
     );
 }
 
+// The stable Candid shape test intentionally keeps the public field inventory
+// in one array so new metrics counters cannot update the DTO without updating
+// the compatibility assertion.
+#[expect(clippy::too_many_lines)]
 #[test]
 fn event_ops_candid_shape_exposes_detailed_plan_counters() {
     let fields = expect_record_fields(crate::metrics::state::EventOps::ty());
@@ -178,10 +185,20 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
         "cache_shared_query_plan_misses",
         "cache_shared_query_plan_inserts",
         "cache_shared_query_plan_entries",
+        "cache_shared_query_plan_miss_cold",
+        "cache_shared_query_plan_miss_distinct_key",
+        "cache_shared_query_plan_miss_method_version",
+        "cache_shared_query_plan_miss_schema_fingerprint",
+        "cache_shared_query_plan_miss_visibility",
         "cache_sql_compiled_command_hits",
         "cache_sql_compiled_command_misses",
         "cache_sql_compiled_command_inserts",
         "cache_sql_compiled_command_entries",
+        "cache_sql_compiled_command_miss_cold",
+        "cache_sql_compiled_command_miss_distinct_key",
+        "cache_sql_compiled_command_miss_method_version",
+        "cache_sql_compiled_command_miss_schema_fingerprint",
+        "cache_sql_compiled_command_miss_surface",
         "schema_reconcile_checks",
         "schema_reconcile_exact_match",
         "schema_reconcile_first_create",
@@ -191,6 +208,10 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
         "schema_reconcile_rejected_row_layout",
         "schema_reconcile_rejected_schema_version",
         "schema_reconcile_store_write_error",
+        "sql_compile_rejects",
+        "sql_compile_reject_cache_key",
+        "sql_compile_reject_parse",
+        "sql_compile_reject_semantic",
         "plan_by_key",
         "plan_by_keys",
         "plan_key_range",
@@ -200,6 +221,20 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
         "plan_explicit_full_scan",
         "plan_union",
         "plan_intersection",
+        "plan_choice_conflicting_primary_key_children_access_preferred",
+        "plan_choice_constant_false_predicate",
+        "plan_choice_empty_child_access_preferred",
+        "plan_choice_full_scan_access",
+        "plan_choice_intent_key_access_override",
+        "plan_choice_limit_zero_window",
+        "plan_choice_non_index_access",
+        "plan_choice_planner_composite_non_index",
+        "plan_choice_planner_full_scan_fallback",
+        "plan_choice_planner_key_set_access",
+        "plan_choice_planner_primary_key_lookup",
+        "plan_choice_planner_primary_key_range",
+        "plan_choice_required_order_primary_key_range_preferred",
+        "plan_choice_singleton_primary_key_child_access_preferred",
         "rows_inserted",
         "rows_updated",
         "rows_replaced",
@@ -288,6 +323,42 @@ fn schema_reconcile_metrics_accumulate_by_outcome_and_entity() {
 }
 
 #[test]
+fn sql_compile_reject_metrics_accumulate_by_phase_and_entity() {
+    reset_all();
+
+    for phase in [
+        SqlCompileRejectPhase::CacheKey,
+        SqlCompileRejectPhase::Parse,
+        SqlCompileRejectPhase::Semantic,
+    ] {
+        record(MetricsEvent::SqlCompileReject {
+            entity_path: "metrics::tests::SqlCompileEntity",
+            phase,
+        });
+    }
+
+    let report = report_window_start(None);
+    let counters = report
+        .counters()
+        .expect("SQL compile reject fixture should produce aggregate counters");
+    let ops = counters.ops();
+    assert_eq!(ops.sql_compile_rejects(), 3);
+    assert_eq!(ops.sql_compile_reject_cache_key(), 1);
+    assert_eq!(ops.sql_compile_reject_parse(), 1);
+    assert_eq!(ops.sql_compile_reject_semantic(), 1);
+
+    let summary = report
+        .entity_counters()
+        .first()
+        .expect("SQL compile reject fixture should produce an entity summary");
+    assert_eq!(summary.path(), "metrics::tests::SqlCompileEntity");
+    assert_eq!(summary.sql_compile_rejects(), 3);
+    assert_eq!(summary.sql_compile_reject_cache_key(), 1);
+    assert_eq!(summary.sql_compile_reject_parse(), 1);
+    assert_eq!(summary.sql_compile_reject_semantic(), 1);
+}
+
+#[test]
 fn cache_metrics_accumulate_by_cache_kind_and_entity() {
     reset_all();
 
@@ -339,6 +410,159 @@ fn cache_metrics_accumulate_by_cache_kind_and_entity() {
     assert_eq!(summary.cache_sql_compiled_command_hits(), 1);
     assert_eq!(summary.cache_sql_compiled_command_misses(), 1);
     assert_eq!(summary.cache_sql_compiled_command_inserts(), 1);
+}
+
+#[test]
+fn cache_miss_reason_metrics_accumulate_by_cache_kind_and_entity() {
+    reset_all();
+
+    for (kind, reason) in [
+        (CacheKind::SharedQueryPlan, CacheMissReason::Cold),
+        (CacheKind::SharedQueryPlan, CacheMissReason::DistinctKey),
+        (CacheKind::SharedQueryPlan, CacheMissReason::MethodVersion),
+        (
+            CacheKind::SharedQueryPlan,
+            CacheMissReason::SchemaFingerprint,
+        ),
+        (CacheKind::SharedQueryPlan, CacheMissReason::Visibility),
+        (CacheKind::SqlCompiledCommand, CacheMissReason::Cold),
+        (CacheKind::SqlCompiledCommand, CacheMissReason::DistinctKey),
+        (
+            CacheKind::SqlCompiledCommand,
+            CacheMissReason::MethodVersion,
+        ),
+        (
+            CacheKind::SqlCompiledCommand,
+            CacheMissReason::SchemaFingerprint,
+        ),
+        (CacheKind::SqlCompiledCommand, CacheMissReason::Surface),
+    ] {
+        record(MetricsEvent::CacheMissReason {
+            entity_path: "metrics::tests::CacheReasonEntity",
+            kind,
+            reason,
+        });
+    }
+
+    let report = report_window_start(None);
+    let counters = report
+        .counters()
+        .expect("cache miss reason fixture should produce aggregate counters");
+    let ops = counters.ops();
+    assert_eq!(ops.cache_shared_query_plan_miss_cold(), 1);
+    assert_eq!(ops.cache_shared_query_plan_miss_distinct_key(), 1);
+    assert_eq!(ops.cache_shared_query_plan_miss_method_version(), 1);
+    assert_eq!(ops.cache_shared_query_plan_miss_schema_fingerprint(), 1);
+    assert_eq!(ops.cache_shared_query_plan_miss_visibility(), 1);
+    assert_eq!(ops.cache_sql_compiled_command_miss_cold(), 1);
+    assert_eq!(ops.cache_sql_compiled_command_miss_distinct_key(), 1);
+    assert_eq!(ops.cache_sql_compiled_command_miss_method_version(), 1);
+    assert_eq!(ops.cache_sql_compiled_command_miss_schema_fingerprint(), 1);
+    assert_eq!(ops.cache_sql_compiled_command_miss_surface(), 1);
+
+    let summary = report
+        .entity_counters()
+        .first()
+        .expect("cache miss reason fixture should produce an entity summary");
+    assert_eq!(summary.path(), "metrics::tests::CacheReasonEntity");
+    assert_eq!(summary.cache_shared_query_plan_miss_cold(), 1);
+    assert_eq!(summary.cache_shared_query_plan_miss_distinct_key(), 1);
+    assert_eq!(summary.cache_shared_query_plan_miss_method_version(), 1);
+    assert_eq!(summary.cache_shared_query_plan_miss_schema_fingerprint(), 1);
+    assert_eq!(summary.cache_shared_query_plan_miss_visibility(), 1);
+    assert_eq!(summary.cache_sql_compiled_command_miss_cold(), 1);
+    assert_eq!(summary.cache_sql_compiled_command_miss_distinct_key(), 1);
+    assert_eq!(summary.cache_sql_compiled_command_miss_method_version(), 1);
+    assert_eq!(
+        summary.cache_sql_compiled_command_miss_schema_fingerprint(),
+        1
+    );
+    assert_eq!(summary.cache_sql_compiled_command_miss_surface(), 1);
+}
+
+#[test]
+fn plan_choice_reason_metrics_accumulate_by_reason_and_entity() {
+    reset_all();
+
+    for reason in [
+        PlanChoiceReason::ConflictingPrimaryKeyChildrenAccessPreferred,
+        PlanChoiceReason::ConstantFalsePredicate,
+        PlanChoiceReason::EmptyChildAccessPreferred,
+        PlanChoiceReason::FullScanAccess,
+        PlanChoiceReason::IntentKeyAccessOverride,
+        PlanChoiceReason::LimitZeroWindow,
+        PlanChoiceReason::NonIndexAccess,
+        PlanChoiceReason::PlannerCompositeNonIndex,
+        PlanChoiceReason::PlannerFullScanFallback,
+        PlanChoiceReason::PlannerKeySetAccess,
+        PlanChoiceReason::PlannerPrimaryKeyLookup,
+        PlanChoiceReason::PlannerPrimaryKeyRange,
+        PlanChoiceReason::RequiredOrderPrimaryKeyRangePreferred,
+        PlanChoiceReason::SingletonPrimaryKeyChildAccessPreferred,
+    ] {
+        record(MetricsEvent::PlanChoice {
+            entity_path: "metrics::tests::PlanChoiceEntity",
+            reason,
+        });
+    }
+
+    let report = report_window_start(None);
+    let counters = report
+        .counters()
+        .expect("plan choice fixture should produce aggregate counters");
+    let ops = counters.ops();
+    assert_eq!(
+        ops.plan_choice_conflicting_primary_key_children_access_preferred(),
+        1
+    );
+    assert_eq!(ops.plan_choice_constant_false_predicate(), 1);
+    assert_eq!(ops.plan_choice_empty_child_access_preferred(), 1);
+    assert_eq!(ops.plan_choice_full_scan_access(), 1);
+    assert_eq!(ops.plan_choice_intent_key_access_override(), 1);
+    assert_eq!(ops.plan_choice_limit_zero_window(), 1);
+    assert_eq!(ops.plan_choice_non_index_access(), 1);
+    assert_eq!(ops.plan_choice_planner_composite_non_index(), 1);
+    assert_eq!(ops.plan_choice_planner_full_scan_fallback(), 1);
+    assert_eq!(ops.plan_choice_planner_key_set_access(), 1);
+    assert_eq!(ops.plan_choice_planner_primary_key_lookup(), 1);
+    assert_eq!(ops.plan_choice_planner_primary_key_range(), 1);
+    assert_eq!(
+        ops.plan_choice_required_order_primary_key_range_preferred(),
+        1
+    );
+    assert_eq!(
+        ops.plan_choice_singleton_primary_key_child_access_preferred(),
+        1
+    );
+
+    let summary = report
+        .entity_counters()
+        .first()
+        .expect("plan choice fixture should produce an entity summary");
+    assert_eq!(summary.path(), "metrics::tests::PlanChoiceEntity");
+    assert_eq!(
+        summary.plan_choice_conflicting_primary_key_children_access_preferred(),
+        1
+    );
+    assert_eq!(summary.plan_choice_constant_false_predicate(), 1);
+    assert_eq!(summary.plan_choice_empty_child_access_preferred(), 1);
+    assert_eq!(summary.plan_choice_full_scan_access(), 1);
+    assert_eq!(summary.plan_choice_intent_key_access_override(), 1);
+    assert_eq!(summary.plan_choice_limit_zero_window(), 1);
+    assert_eq!(summary.plan_choice_non_index_access(), 1);
+    assert_eq!(summary.plan_choice_planner_composite_non_index(), 1);
+    assert_eq!(summary.plan_choice_planner_full_scan_fallback(), 1);
+    assert_eq!(summary.plan_choice_planner_key_set_access(), 1);
+    assert_eq!(summary.plan_choice_planner_primary_key_lookup(), 1);
+    assert_eq!(summary.plan_choice_planner_primary_key_range(), 1);
+    assert_eq!(
+        summary.plan_choice_required_order_primary_key_range_preferred(),
+        1
+    );
+    assert_eq!(
+        summary.plan_choice_singleton_primary_key_child_access_preferred(),
+        1
+    );
 }
 
 #[test]
@@ -401,6 +625,7 @@ fn derived_ratio_helpers_use_raw_counter_totals_without_changing_report_shape() 
 
 // Fixture with every per-entity field populated so the Candid-shape test also
 // proves report projection does not drop newly added counters.
+#[expect(clippy::too_many_lines)]
 const fn populated_entity_counters_fixture() -> EntityCounters {
     EntityCounters {
         load_calls: 5,
@@ -421,9 +646,19 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         cache_shared_query_plan_hits: 54,
         cache_shared_query_plan_misses: 55,
         cache_shared_query_plan_inserts: 56,
+        cache_shared_query_plan_miss_cold: 57,
+        cache_shared_query_plan_miss_distinct_key: 157,
+        cache_shared_query_plan_miss_method_version: 158,
+        cache_shared_query_plan_miss_schema_fingerprint: 159,
+        cache_shared_query_plan_miss_visibility: 160,
         cache_sql_compiled_command_hits: 58,
         cache_sql_compiled_command_misses: 59,
         cache_sql_compiled_command_inserts: 60,
+        cache_sql_compiled_command_miss_cold: 161,
+        cache_sql_compiled_command_miss_distinct_key: 162,
+        cache_sql_compiled_command_miss_method_version: 163,
+        cache_sql_compiled_command_miss_schema_fingerprint: 164,
+        cache_sql_compiled_command_miss_surface: 165,
         schema_reconcile_checks: 86,
         schema_reconcile_exact_match: 87,
         schema_reconcile_first_create: 88,
@@ -433,6 +668,10 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         schema_reconcile_rejected_row_layout: 92,
         schema_reconcile_rejected_schema_version: 93,
         schema_reconcile_store_write_error: 94,
+        sql_compile_rejects: 180,
+        sql_compile_reject_cache_key: 181,
+        sql_compile_reject_parse: 182,
+        sql_compile_reject_semantic: 183,
         plan_index: 30,
         plan_keys: 31,
         plan_range: 32,
@@ -448,6 +687,20 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         plan_intersection: 42,
         plan_grouped_hash_materialized: 43,
         plan_grouped_ordered_materialized: 44,
+        plan_choice_conflicting_primary_key_children_access_preferred: 166,
+        plan_choice_constant_false_predicate: 167,
+        plan_choice_empty_child_access_preferred: 168,
+        plan_choice_full_scan_access: 169,
+        plan_choice_intent_key_access_override: 170,
+        plan_choice_limit_zero_window: 171,
+        plan_choice_non_index_access: 172,
+        plan_choice_planner_composite_non_index: 173,
+        plan_choice_planner_full_scan_fallback: 174,
+        plan_choice_planner_key_set_access: 175,
+        plan_choice_planner_primary_key_lookup: 176,
+        plan_choice_planner_primary_key_range: 177,
+        plan_choice_required_order_primary_key_range_preferred: 178,
+        plan_choice_singleton_primary_key_child_access_preferred: 179,
         rows_loaded: 8,
         rows_saved: 23,
         rows_inserted: 27,
@@ -497,6 +750,7 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
 
 // Keep the expected field list near the projection assertions without letting
 // the main test body grow past the repository lint budget.
+#[expect(clippy::too_many_lines)]
 fn assert_entity_summary_fields_are_present(fields: &[String]) {
     for field in [
         "path",
@@ -518,9 +772,19 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "cache_shared_query_plan_hits",
         "cache_shared_query_plan_misses",
         "cache_shared_query_plan_inserts",
+        "cache_shared_query_plan_miss_cold",
+        "cache_shared_query_plan_miss_distinct_key",
+        "cache_shared_query_plan_miss_method_version",
+        "cache_shared_query_plan_miss_schema_fingerprint",
+        "cache_shared_query_plan_miss_visibility",
         "cache_sql_compiled_command_hits",
         "cache_sql_compiled_command_misses",
         "cache_sql_compiled_command_inserts",
+        "cache_sql_compiled_command_miss_cold",
+        "cache_sql_compiled_command_miss_distinct_key",
+        "cache_sql_compiled_command_miss_method_version",
+        "cache_sql_compiled_command_miss_schema_fingerprint",
+        "cache_sql_compiled_command_miss_surface",
         "schema_reconcile_checks",
         "schema_reconcile_exact_match",
         "schema_reconcile_first_create",
@@ -530,6 +794,10 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "schema_reconcile_rejected_row_layout",
         "schema_reconcile_rejected_schema_version",
         "schema_reconcile_store_write_error",
+        "sql_compile_rejects",
+        "sql_compile_reject_cache_key",
+        "sql_compile_reject_parse",
+        "sql_compile_reject_semantic",
         "plan_index",
         "plan_keys",
         "plan_range",
@@ -545,6 +813,20 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "plan_intersection",
         "plan_grouped_hash_materialized",
         "plan_grouped_ordered_materialized",
+        "plan_choice_conflicting_primary_key_children_access_preferred",
+        "plan_choice_constant_false_predicate",
+        "plan_choice_empty_child_access_preferred",
+        "plan_choice_full_scan_access",
+        "plan_choice_intent_key_access_override",
+        "plan_choice_limit_zero_window",
+        "plan_choice_non_index_access",
+        "plan_choice_planner_composite_non_index",
+        "plan_choice_planner_full_scan_fallback",
+        "plan_choice_planner_key_set_access",
+        "plan_choice_planner_primary_key_lookup",
+        "plan_choice_planner_primary_key_range",
+        "plan_choice_required_order_primary_key_range_preferred",
+        "plan_choice_singleton_primary_key_child_access_preferred",
         "rows_loaded",
         "rows_saved",
         "rows_inserted",
@@ -597,6 +879,9 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
     }
 }
 
+// Keep the stable Candid projection and getter assertions in one place so a
+// newly added entity field cannot update only half of the contract.
+#[expect(clippy::too_many_lines)]
 #[test]
 fn entity_summary_candid_shape_is_stable() {
     reset_all();
@@ -630,9 +915,28 @@ fn entity_summary_candid_shape_is_stable() {
     assert_eq!(summary.cache_shared_query_plan_hits(), 54);
     assert_eq!(summary.cache_shared_query_plan_misses(), 55);
     assert_eq!(summary.cache_shared_query_plan_inserts(), 56);
+    assert_eq!(summary.cache_shared_query_plan_miss_cold(), 57);
+    assert_eq!(summary.cache_shared_query_plan_miss_distinct_key(), 157);
+    assert_eq!(summary.cache_shared_query_plan_miss_method_version(), 158);
+    assert_eq!(
+        summary.cache_shared_query_plan_miss_schema_fingerprint(),
+        159
+    );
+    assert_eq!(summary.cache_shared_query_plan_miss_visibility(), 160);
     assert_eq!(summary.cache_sql_compiled_command_hits(), 58);
     assert_eq!(summary.cache_sql_compiled_command_misses(), 59);
     assert_eq!(summary.cache_sql_compiled_command_inserts(), 60);
+    assert_eq!(summary.cache_sql_compiled_command_miss_cold(), 161);
+    assert_eq!(summary.cache_sql_compiled_command_miss_distinct_key(), 162);
+    assert_eq!(
+        summary.cache_sql_compiled_command_miss_method_version(),
+        163
+    );
+    assert_eq!(
+        summary.cache_sql_compiled_command_miss_schema_fingerprint(),
+        164
+    );
+    assert_eq!(summary.cache_sql_compiled_command_miss_surface(), 165);
     assert_eq!(summary.schema_reconcile_checks(), 86);
     assert_eq!(summary.schema_reconcile_exact_match(), 87);
     assert_eq!(summary.schema_reconcile_first_create(), 88);
@@ -642,6 +946,10 @@ fn entity_summary_candid_shape_is_stable() {
     assert_eq!(summary.schema_reconcile_rejected_row_layout(), 92);
     assert_eq!(summary.schema_reconcile_rejected_schema_version(), 93);
     assert_eq!(summary.schema_reconcile_store_write_error(), 94);
+    assert_eq!(summary.sql_compile_rejects(), 180);
+    assert_eq!(summary.sql_compile_reject_cache_key(), 181);
+    assert_eq!(summary.sql_compile_reject_parse(), 182);
+    assert_eq!(summary.sql_compile_reject_semantic(), 183);
     assert_eq!(summary.plan_index(), 30);
     assert_eq!(summary.plan_keys(), 31);
     assert_eq!(summary.plan_range(), 32);
@@ -657,6 +965,29 @@ fn entity_summary_candid_shape_is_stable() {
     assert_eq!(summary.plan_intersection(), 42);
     assert_eq!(summary.plan_grouped_hash_materialized(), 43);
     assert_eq!(summary.plan_grouped_ordered_materialized(), 44);
+    assert_eq!(
+        summary.plan_choice_conflicting_primary_key_children_access_preferred(),
+        166
+    );
+    assert_eq!(summary.plan_choice_constant_false_predicate(), 167);
+    assert_eq!(summary.plan_choice_empty_child_access_preferred(), 168);
+    assert_eq!(summary.plan_choice_full_scan_access(), 169);
+    assert_eq!(summary.plan_choice_intent_key_access_override(), 170);
+    assert_eq!(summary.plan_choice_limit_zero_window(), 171);
+    assert_eq!(summary.plan_choice_non_index_access(), 172);
+    assert_eq!(summary.plan_choice_planner_composite_non_index(), 173);
+    assert_eq!(summary.plan_choice_planner_full_scan_fallback(), 174);
+    assert_eq!(summary.plan_choice_planner_key_set_access(), 175);
+    assert_eq!(summary.plan_choice_planner_primary_key_lookup(), 176);
+    assert_eq!(summary.plan_choice_planner_primary_key_range(), 177);
+    assert_eq!(
+        summary.plan_choice_required_order_primary_key_range_preferred(),
+        178
+    );
+    assert_eq!(
+        summary.plan_choice_singleton_primary_key_child_access_preferred(),
+        179
+    );
     assert_eq!(summary.rows_saved(), 23);
     assert_eq!(summary.rows_inserted(), 27);
     assert_eq!(summary.rows_updated(), 28);

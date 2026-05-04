@@ -15,7 +15,10 @@ use crate::{
         },
         schema::{SchemaInfo, accepted_schema_cache_fingerprint_for_model},
     },
-    metrics::sink::{CacheKind, CacheOutcome, record_cache_entries, record_cache_event_for_path},
+    metrics::sink::{
+        CacheKind, CacheMissReason, CacheOutcome, record_cache_entries,
+        record_cache_event_for_path, record_cache_miss_reason_for_path,
+    },
     model::entity::EntityModel,
     traits::{CanisterKind, EntityKind, Path},
 };
@@ -69,6 +72,50 @@ pub(in crate::db) struct QueryPlanCacheAttribution {
 }
 
 pub(in crate::db) type QueryPlanCache = HashMap<QueryPlanCacheKey, SharedPreparedExecutionPlan>;
+
+// Classify one shared query-plan cache miss by comparing the missed key against
+// already-warmed plans. The buckets mirror the identity dimensions that can
+// drift independently while keeping query structure and schema hashes private.
+fn shared_query_plan_cache_miss_reason(
+    cache: &QueryPlanCache,
+    key: &QueryPlanCacheKey,
+) -> CacheMissReason {
+    if cache.is_empty() {
+        return CacheMissReason::Cold;
+    }
+
+    if cache.keys().any(|candidate| {
+        candidate.entity_path == key.entity_path
+            && candidate.schema_fingerprint == key.schema_fingerprint
+            && candidate.visibility == key.visibility
+            && candidate.structural_query == key.structural_query
+            && candidate.cache_method_version != key.cache_method_version
+    }) {
+        return CacheMissReason::MethodVersion;
+    }
+
+    if cache.keys().any(|candidate| {
+        candidate.entity_path == key.entity_path
+            && candidate.visibility == key.visibility
+            && candidate.structural_query == key.structural_query
+            && candidate.cache_method_version == key.cache_method_version
+            && candidate.schema_fingerprint != key.schema_fingerprint
+    }) {
+        return CacheMissReason::SchemaFingerprint;
+    }
+
+    if cache.keys().any(|candidate| {
+        candidate.entity_path == key.entity_path
+            && candidate.schema_fingerprint == key.schema_fingerprint
+            && candidate.structural_query == key.structural_query
+            && candidate.cache_method_version == key.cache_method_version
+            && candidate.visibility != key.visibility
+    }) {
+        return CacheMissReason::Visibility;
+    }
+
+    CacheMissReason::DistinctKey
+}
 
 thread_local! {
     // Keep one in-heap query-plan cache per store registry so fresh `DbSession`
@@ -194,9 +241,15 @@ impl<C: CanisterKind> DbSession<C> {
                 SHARED_QUERY_PLAN_CACHE_METHOD_VERSION,
             );
 
-        {
-            let (cached, entries) =
-                self.with_query_plan_cache(|cache| (cache.get(&cache_key).cloned(), cache.len()));
+        let miss_reason = {
+            let (cached, entries, miss_reason) = self.with_query_plan_cache(|cache| {
+                let cached = cache.get(&cache_key).cloned();
+                let miss_reason = cached
+                    .is_none()
+                    .then(|| shared_query_plan_cache_miss_reason(cache, &cache_key));
+
+                (cached, cache.len(), miss_reason)
+            });
             record_cache_entries(CacheKind::SharedQueryPlan, entries);
             if let Some(prepared_plan) = cached {
                 record_cache_event_for_path(
@@ -206,12 +259,21 @@ impl<C: CanisterKind> DbSession<C> {
                 );
                 return Ok((prepared_plan, QueryPlanCacheAttribution::hit()));
             }
-        }
+
+            miss_reason
+        };
         record_cache_event_for_path(
             CacheKind::SharedQueryPlan,
             CacheOutcome::Miss,
             authority.entity_path(),
         );
+        if let Some(reason) = miss_reason {
+            record_cache_miss_reason_for_path(
+                CacheKind::SharedQueryPlan,
+                reason,
+                authority.entity_path(),
+            );
+        }
 
         let plan = query.build_plan_with_visible_indexes_from_scalar_planning_state(
             &visible_indexes,
@@ -249,9 +311,15 @@ impl<C: CanisterKind> DbSession<C> {
                 SHARED_QUERY_PLAN_CACHE_METHOD_VERSION,
             );
 
-        {
-            let (cached, entries) =
-                self.with_query_plan_cache(|cache| (cache.get(&cache_key).cloned(), cache.len()));
+        let miss_reason = {
+            let (cached, entries, miss_reason) = self.with_query_plan_cache(|cache| {
+                let cached = cache.get(&cache_key).cloned();
+                let miss_reason = cached
+                    .is_none()
+                    .then(|| shared_query_plan_cache_miss_reason(cache, &cache_key));
+
+                (cached, cache.len(), miss_reason)
+            });
             record_cache_entries(CacheKind::SharedQueryPlan, entries);
             if let Some(prepared_plan) = cached {
                 record_cache_event_for_path(
@@ -261,12 +329,21 @@ impl<C: CanisterKind> DbSession<C> {
                 );
                 return Ok((prepared_plan, QueryPlanCacheAttribution::hit()));
             }
-        }
+
+            miss_reason
+        };
         record_cache_event_for_path(
             CacheKind::SharedQueryPlan,
             CacheOutcome::Miss,
             authority.entity_path(),
         );
+        if let Some(reason) = miss_reason {
+            record_cache_miss_reason_for_path(
+                CacheKind::SharedQueryPlan,
+                reason,
+                authority.entity_path(),
+            );
+        }
 
         let Some(plan) = query.try_build_trivial_scalar_load_plan()? else {
             return Err(QueryError::invariant(

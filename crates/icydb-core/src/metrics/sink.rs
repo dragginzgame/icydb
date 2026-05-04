@@ -69,6 +69,25 @@ pub enum CacheOutcome {
     Miss,
 }
 
+///
+/// CacheMissReason
+///
+/// Stable cache miss reason buckets for cache identities that already have a
+/// scoped entity path. These categories explain why a lookup missed without
+/// exposing query text, field names, or schema hashes in the metrics report.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[remain::sorted]
+pub enum CacheMissReason {
+    Cold,
+    DistinctKey,
+    MethodVersion,
+    SchemaFingerprint,
+    Surface,
+    Visibility,
+}
+
 impl ExecOutcome {
     // Map the crate's typed runtime error taxonomy into stable metrics buckets.
     #[remain::check]
@@ -120,6 +139,22 @@ pub enum SchemaReconcileOutcome {
 }
 
 ///
+/// SqlCompileRejectPhase
+///
+/// Stable SQL compile rejection buckets. These counters identify the broad
+/// admission phase that rejected a SQL command without exposing SQL text,
+/// parser diagnostics, field names, or lowered query details.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[remain::sorted]
+pub enum SqlCompileRejectPhase {
+    CacheKey,
+    Parse,
+    Semantic,
+}
+
+///
 /// SqlWriteKind
 ///
 
@@ -151,6 +186,33 @@ pub enum PlanKind {
 }
 
 ///
+/// PlanChoiceReason
+///
+/// Stable selected-route reason buckets for non-index and primary-key access
+/// choices. These counters explain why a query did not land on a secondary
+/// index route without exposing predicates, literals, or index names.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[remain::sorted]
+pub enum PlanChoiceReason {
+    ConflictingPrimaryKeyChildrenAccessPreferred,
+    ConstantFalsePredicate,
+    EmptyChildAccessPreferred,
+    FullScanAccess,
+    IntentKeyAccessOverride,
+    LimitZeroWindow,
+    NonIndexAccess,
+    PlannerCompositeNonIndex,
+    PlannerFullScanFallback,
+    PlannerKeySetAccess,
+    PlannerPrimaryKeyLookup,
+    PlannerPrimaryKeyRange,
+    RequiredOrderPrimaryKeyRangePreferred,
+    SingletonPrimaryKeyChildAccessPreferred,
+}
+
+///
 /// GroupedPlanExecutionMode
 ///
 /// Canonical grouped-plan mode carried by metrics events.
@@ -179,6 +241,11 @@ pub enum MetricsEvent {
     CacheEntries {
         kind: CacheKind,
         entries: u64,
+    },
+    CacheMissReason {
+        entity_path: &'static str,
+        kind: CacheKind,
+        reason: CacheMissReason,
     },
     ExecError {
         kind: ExecKind,
@@ -216,6 +283,10 @@ pub enum MetricsEvent {
         kind: PlanKind,
         grouped_execution_mode: Option<GroupedPlanExecutionMode>,
     },
+    PlanChoice {
+        entity_path: &'static str,
+        reason: PlanChoiceReason,
+    },
     RelationValidation {
         entity_path: &'static str,
         reverse_lookups: u64,
@@ -250,6 +321,10 @@ pub enum MetricsEvent {
     SchemaReconcile {
         entity_path: &'static str,
         outcome: SchemaReconcileOutcome,
+    },
+    SqlCompileReject {
+        entity_path: &'static str,
+        phase: SqlCompileRejectPhase,
     },
     SqlWrite {
         entity_path: &'static str,
@@ -387,6 +462,19 @@ impl MetricsSink for GlobalMetricsSink {
             MetricsEvent::CacheEntries { kind, entries } => {
                 metrics::with_state_mut(|m| {
                     record_global_cache_entries(&mut m.ops, kind, entries);
+                });
+            }
+
+            MetricsEvent::CacheMissReason {
+                entity_path,
+                kind,
+                reason,
+            } => {
+                metrics::with_state_mut(|m| {
+                    record_global_cache_miss_reason(&mut m.ops, kind, reason);
+
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    record_entity_cache_miss_reason(entry, kind, reason);
                 });
             }
 
@@ -618,6 +706,15 @@ impl MetricsSink for GlobalMetricsSink {
                 });
             }
 
+            MetricsEvent::SqlCompileReject { entity_path, phase } => {
+                metrics::with_state_mut(|m| {
+                    record_global_sql_compile_reject_phase(&mut m.ops, phase);
+
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    record_entity_sql_compile_reject_phase(entry, phase);
+                });
+            }
+
             MetricsEvent::SqlWrite {
                 entity_path,
                 kind,
@@ -675,6 +772,18 @@ impl MetricsSink for GlobalMetricsSink {
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
                     record_entity_plan_kind(entry, kind);
                     record_entity_grouped_plan_mode(entry, grouped_execution_mode);
+                });
+            }
+
+            MetricsEvent::PlanChoice {
+                entity_path,
+                reason,
+            } => {
+                metrics::with_state_mut(|m| {
+                    record_global_plan_choice_reason(&mut m.ops, reason);
+
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    record_entity_plan_choice_reason(entry, reason);
                 });
             }
         }
@@ -951,6 +1060,53 @@ const fn record_entity_schema_reconcile_outcome(
     }
 }
 
+// SQL compile rejects are counted before execution/write metrics because they
+// represent SQL admission failures. The phase bucket intentionally stays broad
+// to avoid leaking SQL text or semantic diagnostics through metrics.
+#[remain::check]
+const fn record_global_sql_compile_reject_phase(
+    ops: &mut metrics::EventOps,
+    phase: SqlCompileRejectPhase,
+) {
+    ops.sql_compile_rejects = ops.sql_compile_rejects.saturating_add(1);
+
+    #[remain::sorted]
+    match phase {
+        SqlCompileRejectPhase::CacheKey => {
+            ops.sql_compile_reject_cache_key = ops.sql_compile_reject_cache_key.saturating_add(1);
+        }
+        SqlCompileRejectPhase::Parse => {
+            ops.sql_compile_reject_parse = ops.sql_compile_reject_parse.saturating_add(1);
+        }
+        SqlCompileRejectPhase::Semantic => {
+            ops.sql_compile_reject_semantic = ops.sql_compile_reject_semantic.saturating_add(1);
+        }
+    }
+}
+
+// Per-entity compile rejects make it possible to distinguish a global SQL
+// client issue from one model whose schema or query surface rejects commands.
+#[remain::check]
+const fn record_entity_sql_compile_reject_phase(
+    ops: &mut metrics::EntityCounters,
+    phase: SqlCompileRejectPhase,
+) {
+    ops.sql_compile_rejects = ops.sql_compile_rejects.saturating_add(1);
+
+    #[remain::sorted]
+    match phase {
+        SqlCompileRejectPhase::CacheKey => {
+            ops.sql_compile_reject_cache_key = ops.sql_compile_reject_cache_key.saturating_add(1);
+        }
+        SqlCompileRejectPhase::Parse => {
+            ops.sql_compile_reject_parse = ops.sql_compile_reject_parse.saturating_add(1);
+        }
+        SqlCompileRejectPhase::Semantic => {
+            ops.sql_compile_reject_semantic = ops.sql_compile_reject_semantic.saturating_add(1);
+        }
+    }
+}
+
 // SQL write errors are split by command kind so dashboards can distinguish
 // invalid write shapes from failing statement families.
 #[remain::check]
@@ -1110,6 +1266,100 @@ const fn record_global_cache_entries(ops: &mut metrics::EventOps, kind: CacheKin
     }
 }
 
+// Cache miss reasons are scoped below the coarse miss counter. They explain
+// whether misses are healthy first-contact behavior or drift in one identity
+// dimension without expanding labels by query text or schema fingerprint.
+#[remain::check]
+const fn record_global_cache_miss_reason(
+    ops: &mut metrics::EventOps,
+    kind: CacheKind,
+    reason: CacheMissReason,
+) {
+    #[remain::sorted]
+    match kind {
+        CacheKind::SharedQueryPlan => {
+            record_global_shared_query_plan_miss_reason(ops, reason);
+        }
+        CacheKind::SqlCompiledCommand => {
+            record_global_sql_compiled_command_miss_reason(ops, reason);
+        }
+    }
+}
+
+// Shared query-plan cache misses cannot vary by SQL surface. If that impossible
+// reason reaches this boundary, fold it into the distinct-key bucket rather than
+// creating a nonsensical public counter.
+#[remain::check]
+const fn record_global_shared_query_plan_miss_reason(
+    ops: &mut metrics::EventOps,
+    reason: CacheMissReason,
+) {
+    #[remain::sorted]
+    match reason {
+        CacheMissReason::Cold => {
+            ops.cache_shared_query_plan_miss_cold =
+                ops.cache_shared_query_plan_miss_cold.saturating_add(1);
+        }
+        CacheMissReason::DistinctKey | CacheMissReason::Surface => {
+            ops.cache_shared_query_plan_miss_distinct_key = ops
+                .cache_shared_query_plan_miss_distinct_key
+                .saturating_add(1);
+        }
+        CacheMissReason::MethodVersion => {
+            ops.cache_shared_query_plan_miss_method_version = ops
+                .cache_shared_query_plan_miss_method_version
+                .saturating_add(1);
+        }
+        CacheMissReason::SchemaFingerprint => {
+            ops.cache_shared_query_plan_miss_schema_fingerprint = ops
+                .cache_shared_query_plan_miss_schema_fingerprint
+                .saturating_add(1);
+        }
+        CacheMissReason::Visibility => {
+            ops.cache_shared_query_plan_miss_visibility = ops
+                .cache_shared_query_plan_miss_visibility
+                .saturating_add(1);
+        }
+    }
+}
+
+// SQL compiled-command cache misses cannot vary by planner visibility. Fold
+// that impossible reason into distinct-key so the public report stays aligned
+// with the cache family's real identity dimensions.
+#[remain::check]
+const fn record_global_sql_compiled_command_miss_reason(
+    ops: &mut metrics::EventOps,
+    reason: CacheMissReason,
+) {
+    #[remain::sorted]
+    match reason {
+        CacheMissReason::Cold => {
+            ops.cache_sql_compiled_command_miss_cold =
+                ops.cache_sql_compiled_command_miss_cold.saturating_add(1);
+        }
+        CacheMissReason::DistinctKey | CacheMissReason::Visibility => {
+            ops.cache_sql_compiled_command_miss_distinct_key = ops
+                .cache_sql_compiled_command_miss_distinct_key
+                .saturating_add(1);
+        }
+        CacheMissReason::MethodVersion => {
+            ops.cache_sql_compiled_command_miss_method_version = ops
+                .cache_sql_compiled_command_miss_method_version
+                .saturating_add(1);
+        }
+        CacheMissReason::SchemaFingerprint => {
+            ops.cache_sql_compiled_command_miss_schema_fingerprint = ops
+                .cache_sql_compiled_command_miss_schema_fingerprint
+                .saturating_add(1);
+        }
+        CacheMissReason::Surface => {
+            ops.cache_sql_compiled_command_miss_surface = ops
+                .cache_sql_compiled_command_miss_surface
+                .saturating_add(1);
+        }
+    }
+}
+
 // Mirror cache activity to the owning entity so global cache movement can be
 // traced back to the model whose schema/query identity produced it.
 const fn record_entity_cache_outcome(
@@ -1140,6 +1390,93 @@ const fn record_entity_cache_outcome(
         (CacheKind::SqlCompiledCommand, CacheOutcome::Miss) => {
             ops.cache_sql_compiled_command_misses =
                 ops.cache_sql_compiled_command_misses.saturating_add(1);
+        }
+    }
+}
+
+// Keep per-entity miss reason buckets aligned with the global cache report so
+// one drifting entity can be found without reverse-engineering aggregate totals.
+#[remain::check]
+const fn record_entity_cache_miss_reason(
+    ops: &mut metrics::EntityCounters,
+    kind: CacheKind,
+    reason: CacheMissReason,
+) {
+    #[remain::sorted]
+    match kind {
+        CacheKind::SharedQueryPlan => {
+            record_entity_shared_query_plan_miss_reason(ops, reason);
+        }
+        CacheKind::SqlCompiledCommand => {
+            record_entity_sql_compiled_command_miss_reason(ops, reason);
+        }
+    }
+}
+
+#[remain::check]
+const fn record_entity_shared_query_plan_miss_reason(
+    ops: &mut metrics::EntityCounters,
+    reason: CacheMissReason,
+) {
+    #[remain::sorted]
+    match reason {
+        CacheMissReason::Cold => {
+            ops.cache_shared_query_plan_miss_cold =
+                ops.cache_shared_query_plan_miss_cold.saturating_add(1);
+        }
+        CacheMissReason::DistinctKey | CacheMissReason::Surface => {
+            ops.cache_shared_query_plan_miss_distinct_key = ops
+                .cache_shared_query_plan_miss_distinct_key
+                .saturating_add(1);
+        }
+        CacheMissReason::MethodVersion => {
+            ops.cache_shared_query_plan_miss_method_version = ops
+                .cache_shared_query_plan_miss_method_version
+                .saturating_add(1);
+        }
+        CacheMissReason::SchemaFingerprint => {
+            ops.cache_shared_query_plan_miss_schema_fingerprint = ops
+                .cache_shared_query_plan_miss_schema_fingerprint
+                .saturating_add(1);
+        }
+        CacheMissReason::Visibility => {
+            ops.cache_shared_query_plan_miss_visibility = ops
+                .cache_shared_query_plan_miss_visibility
+                .saturating_add(1);
+        }
+    }
+}
+
+#[remain::check]
+const fn record_entity_sql_compiled_command_miss_reason(
+    ops: &mut metrics::EntityCounters,
+    reason: CacheMissReason,
+) {
+    #[remain::sorted]
+    match reason {
+        CacheMissReason::Cold => {
+            ops.cache_sql_compiled_command_miss_cold =
+                ops.cache_sql_compiled_command_miss_cold.saturating_add(1);
+        }
+        CacheMissReason::DistinctKey | CacheMissReason::Visibility => {
+            ops.cache_sql_compiled_command_miss_distinct_key = ops
+                .cache_sql_compiled_command_miss_distinct_key
+                .saturating_add(1);
+        }
+        CacheMissReason::MethodVersion => {
+            ops.cache_sql_compiled_command_miss_method_version = ops
+                .cache_sql_compiled_command_miss_method_version
+                .saturating_add(1);
+        }
+        CacheMissReason::SchemaFingerprint => {
+            ops.cache_sql_compiled_command_miss_schema_fingerprint = ops
+                .cache_sql_compiled_command_miss_schema_fingerprint
+                .saturating_add(1);
+        }
+        CacheMissReason::Surface => {
+            ops.cache_sql_compiled_command_miss_surface = ops
+                .cache_sql_compiled_command_miss_surface
+                .saturating_add(1);
         }
     }
 }
@@ -1185,6 +1522,73 @@ const fn record_global_plan_kind(ops: &mut metrics::EventOps, kind: PlanKind) {
         PlanKind::Union => {
             ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
             ops.plan_union = ops.plan_union.saturating_add(1);
+        }
+    }
+}
+
+// Plan choice reasons explain selected non-index and primary-key route families
+// at execution time, complementing the coarse route kind counters.
+#[remain::check]
+const fn record_global_plan_choice_reason(ops: &mut metrics::EventOps, reason: PlanChoiceReason) {
+    #[remain::sorted]
+    match reason {
+        PlanChoiceReason::ConflictingPrimaryKeyChildrenAccessPreferred => {
+            ops.plan_choice_conflicting_primary_key_children_access_preferred = ops
+                .plan_choice_conflicting_primary_key_children_access_preferred
+                .saturating_add(1);
+        }
+        PlanChoiceReason::ConstantFalsePredicate => {
+            ops.plan_choice_constant_false_predicate =
+                ops.plan_choice_constant_false_predicate.saturating_add(1);
+        }
+        PlanChoiceReason::EmptyChildAccessPreferred => {
+            ops.plan_choice_empty_child_access_preferred = ops
+                .plan_choice_empty_child_access_preferred
+                .saturating_add(1);
+        }
+        PlanChoiceReason::FullScanAccess => {
+            ops.plan_choice_full_scan_access = ops.plan_choice_full_scan_access.saturating_add(1);
+        }
+        PlanChoiceReason::IntentKeyAccessOverride => {
+            ops.plan_choice_intent_key_access_override =
+                ops.plan_choice_intent_key_access_override.saturating_add(1);
+        }
+        PlanChoiceReason::LimitZeroWindow => {
+            ops.plan_choice_limit_zero_window = ops.plan_choice_limit_zero_window.saturating_add(1);
+        }
+        PlanChoiceReason::NonIndexAccess => {
+            ops.plan_choice_non_index_access = ops.plan_choice_non_index_access.saturating_add(1);
+        }
+        PlanChoiceReason::PlannerCompositeNonIndex => {
+            ops.plan_choice_planner_composite_non_index = ops
+                .plan_choice_planner_composite_non_index
+                .saturating_add(1);
+        }
+        PlanChoiceReason::PlannerFullScanFallback => {
+            ops.plan_choice_planner_full_scan_fallback =
+                ops.plan_choice_planner_full_scan_fallback.saturating_add(1);
+        }
+        PlanChoiceReason::PlannerKeySetAccess => {
+            ops.plan_choice_planner_key_set_access =
+                ops.plan_choice_planner_key_set_access.saturating_add(1);
+        }
+        PlanChoiceReason::PlannerPrimaryKeyLookup => {
+            ops.plan_choice_planner_primary_key_lookup =
+                ops.plan_choice_planner_primary_key_lookup.saturating_add(1);
+        }
+        PlanChoiceReason::PlannerPrimaryKeyRange => {
+            ops.plan_choice_planner_primary_key_range =
+                ops.plan_choice_planner_primary_key_range.saturating_add(1);
+        }
+        PlanChoiceReason::RequiredOrderPrimaryKeyRangePreferred => {
+            ops.plan_choice_required_order_primary_key_range_preferred = ops
+                .plan_choice_required_order_primary_key_range_preferred
+                .saturating_add(1);
+        }
+        PlanChoiceReason::SingletonPrimaryKeyChildAccessPreferred => {
+            ops.plan_choice_singleton_primary_key_child_access_preferred = ops
+                .plan_choice_singleton_primary_key_child_access_preferred
+                .saturating_add(1);
         }
     }
 }
@@ -1252,6 +1656,76 @@ const fn record_entity_plan_kind(ops: &mut metrics::EntityCounters, kind: PlanKi
         PlanKind::Union => {
             ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
             ops.plan_union = ops.plan_union.saturating_add(1);
+        }
+    }
+}
+
+// Mirror selected route-choice reasons to per-entity summaries so one model's
+// fallback behavior is visible without correlating global counters manually.
+#[remain::check]
+const fn record_entity_plan_choice_reason(
+    ops: &mut metrics::EntityCounters,
+    reason: PlanChoiceReason,
+) {
+    #[remain::sorted]
+    match reason {
+        PlanChoiceReason::ConflictingPrimaryKeyChildrenAccessPreferred => {
+            ops.plan_choice_conflicting_primary_key_children_access_preferred = ops
+                .plan_choice_conflicting_primary_key_children_access_preferred
+                .saturating_add(1);
+        }
+        PlanChoiceReason::ConstantFalsePredicate => {
+            ops.plan_choice_constant_false_predicate =
+                ops.plan_choice_constant_false_predicate.saturating_add(1);
+        }
+        PlanChoiceReason::EmptyChildAccessPreferred => {
+            ops.plan_choice_empty_child_access_preferred = ops
+                .plan_choice_empty_child_access_preferred
+                .saturating_add(1);
+        }
+        PlanChoiceReason::FullScanAccess => {
+            ops.plan_choice_full_scan_access = ops.plan_choice_full_scan_access.saturating_add(1);
+        }
+        PlanChoiceReason::IntentKeyAccessOverride => {
+            ops.plan_choice_intent_key_access_override =
+                ops.plan_choice_intent_key_access_override.saturating_add(1);
+        }
+        PlanChoiceReason::LimitZeroWindow => {
+            ops.plan_choice_limit_zero_window = ops.plan_choice_limit_zero_window.saturating_add(1);
+        }
+        PlanChoiceReason::NonIndexAccess => {
+            ops.plan_choice_non_index_access = ops.plan_choice_non_index_access.saturating_add(1);
+        }
+        PlanChoiceReason::PlannerCompositeNonIndex => {
+            ops.plan_choice_planner_composite_non_index = ops
+                .plan_choice_planner_composite_non_index
+                .saturating_add(1);
+        }
+        PlanChoiceReason::PlannerFullScanFallback => {
+            ops.plan_choice_planner_full_scan_fallback =
+                ops.plan_choice_planner_full_scan_fallback.saturating_add(1);
+        }
+        PlanChoiceReason::PlannerKeySetAccess => {
+            ops.plan_choice_planner_key_set_access =
+                ops.plan_choice_planner_key_set_access.saturating_add(1);
+        }
+        PlanChoiceReason::PlannerPrimaryKeyLookup => {
+            ops.plan_choice_planner_primary_key_lookup =
+                ops.plan_choice_planner_primary_key_lookup.saturating_add(1);
+        }
+        PlanChoiceReason::PlannerPrimaryKeyRange => {
+            ops.plan_choice_planner_primary_key_range =
+                ops.plan_choice_planner_primary_key_range.saturating_add(1);
+        }
+        PlanChoiceReason::RequiredOrderPrimaryKeyRangePreferred => {
+            ops.plan_choice_required_order_primary_key_range_preferred = ops
+                .plan_choice_required_order_primary_key_range_preferred
+                .saturating_add(1);
+        }
+        PlanChoiceReason::SingletonPrimaryKeyChildAccessPreferred => {
+            ops.plan_choice_singleton_primary_key_child_access_preferred = ops
+                .plan_choice_singleton_primary_key_child_access_preferred
+                .saturating_add(1);
         }
     }
 }
@@ -1409,6 +1883,27 @@ pub(crate) fn record_cache_event_for_path(
         kind,
         outcome,
     });
+}
+
+/// Record the low-cardinality reason for one cache miss.
+pub(crate) fn record_cache_miss_reason_for_path(
+    kind: CacheKind,
+    reason: CacheMissReason,
+    entity_path: &'static str,
+) {
+    record(MetricsEvent::CacheMissReason {
+        entity_path,
+        kind,
+        reason,
+    });
+}
+
+/// Record one SQL compile rejection for a command already scoped to an entity.
+pub(crate) fn record_sql_compile_reject_for_path(
+    phase: SqlCompileRejectPhase,
+    entity_path: &'static str,
+) {
+    record(MetricsEvent::SqlCompileReject { entity_path, phase });
 }
 
 /// Record the latest observed entry count for one cache family.

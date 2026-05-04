@@ -37,6 +37,7 @@ use crate::{
 
 pub(in crate::db) use self::model::{
     AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot, AccessChoiceResidualBurden,
+    AccessChoiceSelectedReason,
 };
 
 ///

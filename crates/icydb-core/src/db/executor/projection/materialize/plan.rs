@@ -183,7 +183,10 @@ pub(in crate::db) fn prepare_projection_shape_from_plan(
             &compiled_projection,
         );
     let data_row_direct_projection_field_slots =
-        data_row_direct_projection_field_slots_from_projection(model, &projection);
+        data_row_direct_projection_field_slots_from_projection(
+            &projection,
+            plan.frozen_data_row_direct_projection_slots(),
+        );
     #[cfg(any(test, feature = "diagnostics"))]
     let projected_slot_mask =
         projected_slot_mask_from_slots(model.fields().len(), plan.projected_slot_mask());
@@ -242,17 +245,20 @@ fn retained_slot_direct_projection_field_slots_from_projection(
 }
 
 fn data_row_direct_projection_field_slots_from_projection(
-    model: &EntityModel,
     projection: &ProjectionSpec,
+    direct_projection_slots: Option<&[usize]>,
 ) -> Option<Vec<(String, usize)>> {
-    let mut field_slots = Vec::with_capacity(projection.len());
+    let direct_projection_slots = direct_projection_slots?;
+    let mut field_slots = Vec::with_capacity(direct_projection_slots.len());
 
     // Phase 1: preserve canonical output order exactly as declared, but allow
     // duplicate source slots because raw-row decoding can borrow the same slot
     // repeatedly without the retained-slot `take()` constraint.
-    for field in projection.fields() {
+    for (field, slot) in projection
+        .fields()
+        .zip(direct_projection_slots.iter().copied())
+    {
         let field_name = field.direct_field_name()?;
-        let slot = model.resolve_field_slot(field_name)?;
         field_slots.push((field_name.to_string(), slot));
     }
 

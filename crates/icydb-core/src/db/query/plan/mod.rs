@@ -34,6 +34,7 @@ pub(in crate::db) use crate::model::{
 pub(in crate::db::query) use access_choice::rerank_access_plan_by_residual_burden_with_indexes;
 pub(in crate::db) use access_choice::{
     AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot, AccessChoiceResidualBurden,
+    AccessChoiceSelectedReason,
 };
 pub(in crate::db) use access_plan::AccessPlannedQuery;
 pub(in crate::db) use access_plan::{
@@ -104,7 +105,8 @@ pub(in crate::db) use planner::{
 };
 pub(in crate::db) use projection::lower_global_aggregate_projection;
 pub(in crate::db::query) use projection::{
-    lower_direct_projection_slots, lower_projection_identity, lower_projection_intent,
+    lower_data_row_direct_projection_slots_with_schema, lower_direct_projection_slots_with_schema,
+    lower_projection_identity, lower_projection_intent,
 };
 pub(in crate::db) use semantics::global_distinct_group_spec_for_aggregate_identity;
 pub(in crate::db) use semantics::group_aggregate_spec_expr;

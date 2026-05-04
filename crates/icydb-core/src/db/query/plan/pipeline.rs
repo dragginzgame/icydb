@@ -181,7 +181,7 @@ where
     // Phase 6: freeze planner-owned execution metadata only after semantic
     // validation succeeds so user-facing projection/order errors remain
     // planner-domain failures instead of executor invariant violations.
-    plan.finalize_static_planning_shape_for_model(query.model())
+    plan.finalize_static_planning_shape_for_model_with_schema(query.model(), &schema_info)
         .map_err(QueryError::execute)?;
 
     Ok(plan)

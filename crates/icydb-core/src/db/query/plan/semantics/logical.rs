@@ -15,16 +15,18 @@ use crate::{
             ResolvedOrderValueSource, ScalarPlan, StaticPlanningShape,
             derive_logical_pushdown_eligibility,
             expr::{
-                CompiledExpr, Expr, ProjectionSpec, compile_scalar_projection_expr,
-                compile_scalar_projection_plan,
+                CompiledExpr, Expr, ProjectionSpec, compile_scalar_projection_expr_with_schema,
+                compile_scalar_projection_plan_with_schema,
             },
             grouped_aggregate_execution_specs, grouped_aggregate_specs_from_projection_spec,
-            grouped_cursor_policy_violation, grouped_plan_strategy, lower_direct_projection_slots,
-            lower_projection_identity, lower_projection_intent,
-            residual_query_predicate_after_access_path_bounds,
+            grouped_cursor_policy_violation, grouped_plan_strategy,
+            lower_data_row_direct_projection_slots_with_schema,
+            lower_direct_projection_slots_with_schema, lower_projection_identity,
+            lower_projection_intent, residual_query_predicate_after_access_path_bounds,
             residual_query_predicate_after_filtered_access,
             resolved_grouped_distinct_execution_strategy_for_model,
         },
+        schema::SchemaInfo,
     },
     error::InternalError,
     model::{entity::EntityModel, index::IndexKeyItemsRef},
@@ -277,7 +279,23 @@ impl AccessPlannedQuery {
         &mut self,
         model: &EntityModel,
     ) -> Result<(), InternalError> {
-        self.static_planning_shape = Some(project_static_planning_shape_for_model(model, self)?);
+        self.finalize_static_planning_shape_for_model_with_schema(
+            model,
+            SchemaInfo::cached_for_entity_model(model),
+        )
+    }
+
+    /// Freeze planner-owned executor metadata with explicit schema authority.
+    pub(in crate::db) fn finalize_static_planning_shape_for_model_with_schema(
+        &mut self,
+        model: &EntityModel,
+        schema_info: &SchemaInfo,
+    ) -> Result<(), InternalError> {
+        self.static_planning_shape = Some(project_static_planning_shape_for_model(
+            model,
+            schema_info,
+            self,
+        )?);
 
         Ok(())
     }
@@ -393,6 +411,14 @@ impl AccessPlannedQuery {
             .as_deref()
     }
 
+    /// Borrow duplicate-preserving direct projection slots for raw data-row readers.
+    #[must_use]
+    pub(in crate::db) fn frozen_data_row_direct_projection_slots(&self) -> Option<&[usize]> {
+        self.static_planning_shape()
+            .projection_data_row_direct_slots
+            .as_deref()
+    }
+
     /// Borrow the planner-frozen key-item-aware compile targets for the chosen access path.
     #[must_use]
     pub(in crate::db) fn index_compile_targets(&self) -> Option<&[IndexCompileTarget]> {
@@ -453,6 +479,7 @@ pub(in crate::db) fn project_planner_route_profile_for_model(
 
 fn project_static_planning_shape_for_model(
     model: &EntityModel,
+    schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Result<StaticPlanningShape, InternalError> {
     let projection_spec = lower_projection_intent(model, &plan.logical, &plan.projection_selection);
@@ -463,12 +490,13 @@ fn project_static_planning_shape_for_model(
         compile_optional_predicate(model, execution_preparation_predicate.as_ref());
     let effective_runtime_filter_program = compile_effective_runtime_filter_program(
         model,
+        schema_info,
         residual_filter_expr.as_ref(),
         residual_filter_predicate.as_ref(),
     )?;
     let scalar_projection_plan = if plan.grouped_plan().is_none() {
         Some(
-                compile_scalar_projection_plan(model, &projection_spec)
+                compile_scalar_projection_plan_with_schema(model, schema_info, &projection_spec)
                     .ok_or_else(|| {
                         InternalError::query_executor_invariant(
                             "scalar projection program must compile during static planning finalization",
@@ -482,17 +510,28 @@ fn project_static_planning_shape_for_model(
         None
     };
     let (grouped_aggregate_execution_specs, grouped_distinct_execution_strategy) =
-        resolve_grouped_static_planning_semantics(model, plan, &projection_spec)?;
-    let projection_direct_slots =
-        lower_direct_projection_slots(model, &plan.logical, &plan.projection_selection);
-    let projection_referenced_slots = projection_spec.referenced_slots_for(model)?;
+        resolve_grouped_static_planning_semantics(model, schema_info, plan, &projection_spec)?;
+    let projection_direct_slots = lower_direct_projection_slots_with_schema(
+        model,
+        schema_info,
+        &plan.logical,
+        &plan.projection_selection,
+    );
+    let projection_data_row_direct_slots = lower_data_row_direct_projection_slots_with_schema(
+        model,
+        schema_info,
+        &plan.logical,
+        &plan.projection_selection,
+    );
+    let projection_referenced_slots =
+        projection_spec.referenced_slots_for_schema(model, schema_info)?;
     let projected_slot_mask =
         projected_slot_mask_for_spec(model, projection_direct_slots.as_deref());
     let projection_is_model_identity = projection_spec.is_model_identity_for(model);
-    let resolved_order = resolved_order_for_plan(model, plan)?;
+    let resolved_order = resolved_order_for_plan(model, schema_info, plan)?;
     let order_referenced_slots = order_referenced_slots_for_resolved_order(resolved_order.as_ref());
-    let slot_map = slot_map_for_model_plan(model, plan);
-    let index_compile_targets = index_compile_targets_for_model_plan(model, plan);
+    let slot_map = slot_map_for_schema_plan(schema_info, plan);
+    let index_compile_targets = index_compile_targets_for_schema_plan(schema_info, plan);
 
     Ok(StaticPlanningShape {
         primary_key_name: model.primary_key.name,
@@ -506,6 +545,7 @@ fn project_static_planning_shape_for_model(
         grouped_aggregate_execution_specs,
         grouped_distinct_execution_strategy,
         projection_direct_slots,
+        projection_data_row_direct_slots,
         projection_referenced_slots,
         projected_slot_mask,
         projection_is_model_identity,
@@ -521,6 +561,7 @@ fn project_static_planning_shape_for_model(
 // residual presence or shape from semantic/filter/pushdown state.
 fn compile_effective_runtime_filter_program(
     model: &EntityModel,
+    schema_info: &SchemaInfo,
     residual_filter_expr: Option<&Expr>,
     residual_filter_predicate: Option<&Predicate>,
 ) -> Result<Option<EffectiveRuntimeFilterProgram>, InternalError> {
@@ -535,11 +576,12 @@ fn compile_effective_runtime_filter_program(
     }
 
     if let Some(filter_expr) = residual_filter_expr {
-        let compiled = compile_scalar_projection_expr(model, filter_expr).ok_or_else(|| {
-            InternalError::query_invalid_logical_plan(
-                "effective runtime scalar filter expression must compile during static planning finalization",
-            )
-        })?;
+        let compiled = compile_scalar_projection_expr_with_schema(model, schema_info, filter_expr)
+            .ok_or_else(|| {
+                InternalError::query_invalid_logical_plan(
+                    "effective runtime scalar filter expression must compile during static planning finalization",
+                )
+            })?;
 
         return Ok(Some(EffectiveRuntimeFilterProgram::expression(
             CompiledExpr::compile(&compiled),
@@ -655,6 +697,7 @@ fn compile_optional_predicate(
 // one shared grouped-plan branch.
 fn resolve_grouped_static_planning_semantics(
     model: &EntityModel,
+    schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
     projection_spec: &ProjectionSpec,
 ) -> Result<
@@ -677,11 +720,13 @@ fn resolve_grouped_static_planning_semantics(
 
     let grouped_aggregate_execution_specs = Some(grouped_aggregate_execution_specs(
         model,
+        schema_info,
         aggregate_specs.as_slice(),
     )?);
     let grouped_distinct_execution_strategy =
         Some(resolved_grouped_distinct_execution_strategy_for_model(
             model,
+            schema_info,
             grouped.group.group_fields.as_slice(),
             grouped.group.aggregates.as_slice(),
             grouped.having_expr.as_ref(),
@@ -730,7 +775,10 @@ fn projected_slot_mask_for_spec(
     model: &EntityModel,
     direct_projection_slots: Option<&[usize]>,
 ) -> Vec<bool> {
-    let mut projected_slots = vec![false; model.fields().len()];
+    let schema_slot_len = direct_projection_slots
+        .and_then(|slots| slots.iter().copied().max())
+        .map_or(0, |slot| slot.saturating_add(1));
+    let mut projected_slots = vec![false; model.fields().len().max(schema_slot_len)];
 
     let Some(direct_projection_slots) = direct_projection_slots else {
         return projected_slots;
@@ -747,6 +795,7 @@ fn projected_slot_mask_for_spec(
 
 fn resolved_order_for_plan(
     model: &EntityModel,
+    schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Result<Option<ResolvedOrder>, InternalError> {
     if grouped_plan_strategy(plan).is_some_and(GroupedPlanStrategy::is_top_k_group) {
@@ -760,7 +809,7 @@ fn resolved_order_for_plan(
     let mut fields = Vec::with_capacity(order.fields.len());
     for term in &order.fields {
         fields.push(ResolvedOrderField::new(
-            resolved_order_value_source_for_term(model, term)?,
+            resolved_order_value_source_for_term(model, schema_info, term)?,
             term.direction(),
         ));
     }
@@ -770,12 +819,13 @@ fn resolved_order_for_plan(
 
 fn resolved_order_value_source_for_term(
     model: &EntityModel,
+    schema_info: &SchemaInfo,
     term: &crate::db::query::plan::OrderTerm,
 ) -> Result<ResolvedOrderValueSource, InternalError> {
     if term.direct_field().is_none() {
         let rendered = term.rendered_label();
-        validate_resolved_order_expr_fields(model, term.expr(), rendered.as_str())?;
-        let compiled = compile_scalar_projection_expr(model, term.expr())
+        validate_resolved_order_expr_fields(schema_info, term.expr(), rendered.as_str())?;
+        let compiled = compile_scalar_projection_expr_with_schema(model, schema_info, term.expr())
             .ok_or_else(|| order_expression_scalar_seam_error(rendered.as_str()))?;
 
         return Ok(ResolvedOrderValueSource::expression(CompiledExpr::compile(
@@ -786,7 +836,7 @@ fn resolved_order_value_source_for_term(
     let field = term
         .direct_field()
         .expect("direct-field order branch should only execute for field-backed terms");
-    let slot = resolve_required_field_slot(model, field, || {
+    let slot = resolve_required_schema_slot(schema_info, field, || {
         InternalError::query_invalid_logical_plan(format!(
             "order expression references unknown field '{field}'",
         ))
@@ -796,17 +846,19 @@ fn resolved_order_value_source_for_term(
 }
 
 fn validate_resolved_order_expr_fields(
-    model: &EntityModel,
+    schema_info: &SchemaInfo,
     expr: &Expr,
     rendered: &str,
 ) -> Result<(), InternalError> {
     expr.try_for_each_tree_expr(&mut |node| match node {
-        Expr::Field(field_id) => resolve_required_field_slot(model, field_id.as_str(), || {
-            InternalError::query_invalid_logical_plan(format!(
-                "order expression references unknown field '{rendered}'",
-            ))
-        })
-        .map(|_| ()),
+        Expr::Field(field_id) => {
+            resolve_required_schema_slot(schema_info, field_id.as_str(), || {
+                InternalError::query_invalid_logical_plan(format!(
+                    "order expression references unknown field '{rendered}'",
+                ))
+            })
+            .map(|_| ())
+        }
         Expr::Aggregate(_) => Err(order_expression_scalar_seam_error(rendered)),
         #[cfg(test)]
         Expr::Alias { .. } => Err(order_expression_scalar_seam_error(rendered)),
@@ -815,18 +867,19 @@ fn validate_resolved_order_expr_fields(
     })
 }
 
-// Resolve one model field slot while keeping planner invalid-logical-plan
-// error construction at the callsite that owns the diagnostic wording.
-fn resolve_required_field_slot<F>(
-    model: &EntityModel,
+// Resolve one schema-authoritative field slot while keeping planner
+// invalid-logical-plan error construction at the callsite that owns the
+// diagnostic wording.
+fn resolve_required_schema_slot<F>(
+    schema_info: &SchemaInfo,
     field: &str,
     invalid_plan_error: F,
 ) -> Result<usize, InternalError>
 where
     F: FnOnce() -> InternalError,
 {
-    model
-        .resolve_field_slot(field)
+    schema_info
+        .field_slot_index(field)
         .ok_or_else(invalid_plan_error)
 }
 
@@ -848,14 +901,17 @@ fn order_referenced_slots_for_resolved_order(
     Some(resolved_order?.referenced_slots())
 }
 
-fn slot_map_for_model_plan(model: &EntityModel, plan: &AccessPlannedQuery) -> Option<Vec<usize>> {
+fn slot_map_for_schema_plan(
+    schema_info: &SchemaInfo,
+    plan: &AccessPlannedQuery,
+) -> Option<Vec<usize>> {
     let executable = plan.access.executable_contract();
 
-    resolved_index_slots_for_access_path(model, &executable)
+    resolved_index_slots_for_access_path(schema_info, &executable)
 }
 
 fn resolved_index_slots_for_access_path(
-    model: &EntityModel,
+    schema_info: &SchemaInfo,
     access: &ExecutableAccessPlan<'_, crate::value::Value>,
 ) -> Option<Vec<usize>> {
     let path = access.as_path()?;
@@ -864,15 +920,15 @@ fn resolved_index_slots_for_access_path(
     let mut slots = Vec::with_capacity(index_fields.len());
 
     for field_name in index_fields {
-        let slot = model.resolve_field_slot(field_name)?;
+        let slot = schema_info.field_slot_index(field_name)?;
         slots.push(slot);
     }
 
     Some(slots)
 }
 
-fn index_compile_targets_for_model_plan(
-    model: &EntityModel,
+fn index_compile_targets_for_schema_plan(
+    schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Option<Vec<IndexCompileTarget>> {
     let index = plan.access.as_path()?.selected_index_model()?;
@@ -881,7 +937,7 @@ fn index_compile_targets_for_model_plan(
     match index.key_items() {
         IndexKeyItemsRef::Fields(fields) => {
             for (component_index, &field_name) in fields.iter().enumerate() {
-                let field_slot = model.resolve_field_slot(field_name)?;
+                let field_slot = schema_info.field_slot_index(field_name)?;
                 targets.push(IndexCompileTarget {
                     component_index,
                     field_slot,
@@ -891,7 +947,7 @@ fn index_compile_targets_for_model_plan(
         }
         IndexKeyItemsRef::Items(items) => {
             for (component_index, &key_item) in items.iter().enumerate() {
-                let field_slot = model.resolve_field_slot(key_item.field())?;
+                let field_slot = schema_info.field_slot_index(key_item.field())?;
                 targets.push(IndexCompileTarget {
                     component_index,
                     field_slot,

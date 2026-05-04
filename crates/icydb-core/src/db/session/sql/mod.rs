@@ -45,8 +45,10 @@ pub use attribution::{
     SqlCompileAttribution, SqlExecutionAttribution, SqlPureCoveringAttribution,
     SqlQueryCacheAttribution, SqlQueryExecutionAttribution, SqlScalarAggregateAttribution,
 };
-pub(in crate::db::session::sql) use cache::SqlCompiledCommandSurface;
 pub(in crate::db) use cache::{SqlCacheAttribution, SqlCompiledCommandCacheKey};
+pub(in crate::db::session::sql) use cache::{
+    SqlCompiledCommandSurface, sql_compiled_command_cache_miss_reason,
+};
 pub(in crate::db::session::sql) use compile::{
     SqlCompileAttributionBuilder, SqlCompilePhaseAttribution,
 };

@@ -12,11 +12,15 @@ use crate::{
         session::sql::{
             CompiledSqlCommand, SqlCacheAttribution, SqlCompileAttributionBuilder,
             SqlCompilePhaseAttribution, SqlCompiledCommandCacheKey, SqlCompiledCommandSurface,
-            measured,
+            measured, sql_compiled_command_cache_miss_reason,
         },
         sql::parser::parse_sql_with_attribution,
     },
-    metrics::sink::{CacheKind, CacheOutcome, record_cache_entries, record_cache_event_for_path},
+    metrics::sink::{
+        CacheKind, CacheOutcome, SqlCompileRejectPhase, record_cache_entries,
+        record_cache_event_for_path, record_cache_miss_reason_for_path,
+        record_sql_compile_reject_for_path,
+    },
     traits::{CanisterKind, EntityValue},
 };
 
@@ -99,8 +103,15 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (cache_key_local_instructions, context) =
-            measured(|| self.sql_compiled_command_cache_context_for_entity::<E>(surface, sql))?;
+        let cache_context =
+            measured(|| self.sql_compiled_command_cache_context_for_entity::<E>(surface, sql));
+        let (cache_key_local_instructions, context) = match cache_context {
+            Ok(context) => context,
+            Err(error) => {
+                record_sql_compile_reject_for_path(SqlCompileRejectPhase::CacheKey, E::PATH);
+                return Err(error);
+            }
+        };
         let mut attribution = SqlCompileAttributionBuilder::default();
         attribution.record_cache_key(cache_key_local_instructions);
         let (cache_key, schema) = context.into_parts();
@@ -128,9 +139,14 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (cache_lookup_local_instructions, (cached, entries)) = measured(|| {
+        let (cache_lookup_local_instructions, (cached, entries, miss_reason)) = measured(|| {
             let cache_state = self.with_sql_compiled_command_cache(|cache| {
-                (cache.get(&cache_key).cloned(), cache.len())
+                let cached = cache.get(&cache_key).cloned();
+                let miss_reason = cached
+                    .is_none()
+                    .then(|| sql_compiled_command_cache_miss_reason(cache, &cache_key));
+
+                (cached, cache.len(), miss_reason)
             });
             Ok::<_, QueryError>(cache_state)
         })?;
@@ -145,13 +161,30 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
         record_cache_event_for_path(CacheKind::SqlCompiledCommand, CacheOutcome::Miss, E::PATH);
+        if let Some(reason) = miss_reason {
+            record_cache_miss_reason_for_path(CacheKind::SqlCompiledCommand, reason, E::PATH);
+        }
 
-        let (parse_local_instructions, (parsed, parse_attribution)) =
-            measured(|| parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error))?;
+        let parse_result =
+            measured(|| parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error));
+        let (parse_local_instructions, (parsed, parse_attribution)) = match parse_result {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                record_sql_compile_reject_for_path(SqlCompileRejectPhase::Parse, E::PATH);
+                return Err(error);
+            }
+        };
         attribution.record_parse(parse_local_instructions, parse_attribution);
         let authority = EntityAuthority::for_type::<E>();
-        let (artifacts, compile_attribution) =
-            Self::compile_sql_statement_measured(&parsed, surface, authority, &schema)?;
+        let compile_result =
+            Self::compile_sql_statement_measured(&parsed, surface, authority, &schema);
+        let (artifacts, compile_attribution) = match compile_result {
+            Ok(compiled) => compiled,
+            Err(error) => {
+                record_sql_compile_reject_for_path(SqlCompileRejectPhase::Semantic, E::PATH);
+                return Err(error);
+            }
+        };
         attribution.record_core_compile(compile_attribution);
         let compiled = artifacts.command;
 

@@ -197,6 +197,7 @@ pub(in crate::db) struct StaticPlanningShape {
     pub(in crate::db) grouped_aggregate_execution_specs: Option<Vec<GroupedAggregateExecutionSpec>>,
     pub(in crate::db) grouped_distinct_execution_strategy: Option<GroupedDistinctExecutionStrategy>,
     pub(in crate::db) projection_direct_slots: Option<Vec<usize>>,
+    pub(in crate::db) projection_data_row_direct_slots: Option<Vec<usize>>,
     pub(in crate::db) projection_referenced_slots: Vec<usize>,
     pub(in crate::db) projected_slot_mask: Vec<bool>,
     pub(in crate::db) projection_is_model_identity: bool,

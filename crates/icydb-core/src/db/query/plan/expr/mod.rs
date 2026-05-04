@@ -125,7 +125,7 @@ pub(in crate::db) use predicate::{
 pub(in crate::db) use preview::eval_literal_only_expr_value;
 #[cfg(test)]
 pub(in crate::db) use projection::GroupedOrderExprClass;
-pub(in crate::db::query) use projection::collect_unique_direct_projection_slots;
+pub(in crate::db::query) use projection::collect_unique_direct_projection_slots_with_schema;
 pub(in crate::db) use projection::{
     GroupedOrderTermAdmissibility, GroupedTopKOrderTermAdmissibility, ProjectionField,
     ProjectionSelection, ProjectionSpec, classify_grouped_order_term_for_field,
@@ -138,7 +138,7 @@ pub(in crate::db) use projection_eval::{
 pub(in crate::db) use rewrite::rewrite_affine_numeric_compare_expr;
 pub(in crate::db) use scalar::{
     ScalarProjectionCaseArm, ScalarProjectionExpr, compile_scalar_projection_expr,
-    compile_scalar_projection_plan,
+    compile_scalar_projection_expr_with_schema, compile_scalar_projection_plan_with_schema,
 };
 pub(in crate::db) use truth_value::{
     admit_true_only_boolean_value, collapse_true_only_boolean_admission,

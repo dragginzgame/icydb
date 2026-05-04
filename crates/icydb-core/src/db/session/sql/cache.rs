@@ -10,6 +10,7 @@ use crate::{
         schema::{SchemaInfo, accepted_schema_cache_fingerprint_for_model},
         session::sql::compiled::CompiledSqlCommand,
     },
+    metrics::sink::CacheMissReason,
     traits::{CanisterKind, EntityValue},
 };
 use std::{cell::RefCell, collections::HashMap};
@@ -77,6 +78,50 @@ pub(in crate::db) struct SqlCompiledCommandCacheKey {
 
 pub(in crate::db) type SqlCompiledCommandCache =
     HashMap<SqlCompiledCommandCacheKey, CompiledSqlCommand>;
+
+// Classify one SQL compiled-command cache miss by comparing the missed key
+// against already-warmed entries. The comparison order preserves the most
+// actionable drift dimensions before falling back to unrelated query text.
+pub(in crate::db::session::sql) fn sql_compiled_command_cache_miss_reason(
+    cache: &SqlCompiledCommandCache,
+    key: &SqlCompiledCommandCacheKey,
+) -> CacheMissReason {
+    if cache.is_empty() {
+        return CacheMissReason::Cold;
+    }
+
+    if cache.keys().any(|candidate| {
+        candidate.surface == key.surface
+            && candidate.entity_path == key.entity_path
+            && candidate.schema_fingerprint == key.schema_fingerprint
+            && candidate.sql == key.sql
+            && candidate.cache_method_version != key.cache_method_version
+    }) {
+        return CacheMissReason::MethodVersion;
+    }
+
+    if cache.keys().any(|candidate| {
+        candidate.surface == key.surface
+            && candidate.entity_path == key.entity_path
+            && candidate.sql == key.sql
+            && candidate.cache_method_version == key.cache_method_version
+            && candidate.schema_fingerprint != key.schema_fingerprint
+    }) {
+        return CacheMissReason::SchemaFingerprint;
+    }
+
+    if cache.keys().any(|candidate| {
+        candidate.entity_path == key.entity_path
+            && candidate.schema_fingerprint == key.schema_fingerprint
+            && candidate.sql == key.sql
+            && candidate.cache_method_version == key.cache_method_version
+            && candidate.surface != key.surface
+    }) {
+        return CacheMissReason::Surface;
+    }
+
+    CacheMissReason::DistinctKey
+}
 
 ///
 /// SqlCompiledCommandCacheContext

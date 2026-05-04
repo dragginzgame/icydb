@@ -68,11 +68,7 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
         prepared_projection: PreparedExecutionProjection::empty(),
         emit_cursor: true,
     });
-    record_grouped_plan_metrics(
-        entity_path,
-        &route.plan().access,
-        route.grouped_execution_mode(),
-    );
+    record_grouped_plan_metrics(entity_path, route.plan(), route.grouped_execution_mode());
     let resolved = ExecutionAttemptKernel::new(&execution_inputs)
         .resolve_execution_key_stream_without_distinct(
             route.grouped_route_plan(),

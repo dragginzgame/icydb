@@ -62,7 +62,7 @@ where
             let (prepared, store) = prepare_delete_runtime(&self.db, plan)?;
             record_plan_metrics(
                 prepared.authority.entity.entity_path(),
-                &prepared.logical_plan.access,
+                &prepared.logical_plan,
             );
 
             // Phase 2: run the shared typed delete core and package response rows.
@@ -110,7 +110,7 @@ where
             let (prepared, store) = prepare_delete_runtime(&self.db, plan)?;
             record_plan_metrics(
                 prepared.authority.entity.entity_path(),
-                &prepared.logical_plan.access,
+                &prepared.logical_plan,
             );
 
             // Phase 2: run the shared structural delete core and apply the
@@ -152,7 +152,7 @@ where
             let (prepared, store) = prepare_delete_runtime(&self.db, plan)?;
             record_plan_metrics(
                 prepared.authority.entity.entity_path(),
-                &prepared.logical_plan.access,
+                &prepared.logical_plan,
             );
 
             // Phase 2: run the shared typed delete core while skipping response

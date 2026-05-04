@@ -4,17 +4,22 @@
 //! Boundary: explicit grouped query-to-executor transfer surface.
 
 use crate::{
-    db::query::{
-        builder::AggregateExpr,
-        plan::{
-            AccessPlannedQuery, AggregateIdentity, AggregateKind, AggregateSemanticKey, FieldSlot,
-            GlobalDistinctAggregateKind, GroupAggregateSpec, GroupDistinctAdmissibility,
-            GroupDistinctPolicyReason, GroupedExecutionConfig, GroupedPlanStrategy,
-            expr::{CompiledExpr, Expr, ProjectionSpec, compile_scalar_projection_expr},
-            grouped_distinct_admissibility, grouped_plan_strategy,
-            resolve_aggregate_target_field_slot, resolve_global_distinct_field_aggregate,
-            validate_grouped_projection_layout,
+    db::{
+        query::{
+            builder::AggregateExpr,
+            plan::{
+                AccessPlannedQuery, AggregateIdentity, AggregateKind, AggregateSemanticKey,
+                FieldSlot, GlobalDistinctAggregateKind, GroupAggregateSpec,
+                GroupDistinctAdmissibility, GroupDistinctPolicyReason, GroupedExecutionConfig,
+                GroupedPlanStrategy,
+                expr::{
+                    CompiledExpr, Expr, ProjectionSpec, compile_scalar_projection_expr_with_schema,
+                },
+                grouped_distinct_admissibility, grouped_plan_strategy,
+                resolve_global_distinct_field_aggregate, validate_grouped_projection_layout,
+            },
         },
+        schema::SchemaInfo,
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -106,11 +111,12 @@ impl GroupedAggregateExecutionSpec {
     // invariant message for both aggregate inputs and aggregate-local filters.
     fn compile_attached_scalar_expr(
         model: &EntityModel,
+        schema_info: &SchemaInfo,
         kind: AggregateKind,
         role: &'static str,
         expr: &Expr,
     ) -> Result<CompiledExpr, InternalError> {
-        let scalar = compile_scalar_projection_expr(model, expr).ok_or_else(|| {
+        let scalar = compile_scalar_projection_expr_with_schema(model, schema_info, expr).ok_or_else(|| {
             InternalError::planner_executor_invariant(format!(
                 "grouped aggregate {role} expression must stay on the scalar seam: kind={kind:?} {role}_expr={expr:?}",
             ))
@@ -158,23 +164,29 @@ impl GroupedAggregateExecutionSpec {
     pub(in crate::db) fn resolve_for_model(
         &self,
         model: &EntityModel,
+        schema_info: &SchemaInfo,
     ) -> Result<Self, InternalError> {
         let compiled_input_expr = self
             .input_expr()
-            .map(|expr| Self::compile_attached_scalar_expr(model, self.kind(), "input", expr))
+            .map(|expr| {
+                Self::compile_attached_scalar_expr(model, schema_info, self.kind(), "input", expr)
+            })
             .transpose()?;
         let compiled_filter_expr = self
             .filter_expr()
-            .map(|expr| Self::compile_attached_scalar_expr(model, self.kind(), "filter", expr))
+            .map(|expr| {
+                Self::compile_attached_scalar_expr(model, schema_info, self.kind(), "filter", expr)
+            })
             .transpose()?;
         let target_slot = self
             .target_field()
             .map(|field| {
-                resolve_aggregate_target_field_slot(model, field).map_err(|err| {
-                    InternalError::planner_executor_invariant(format!(
-                        "grouped aggregate execution target slot resolution failed: field='{field}', error={err}",
-                    ))
-                })
+                resolve_aggregate_target_field_slot_from_schema(model, schema_info, field)
+                    .ok_or_else(|| {
+                        InternalError::planner_executor_invariant(format!(
+                            "grouped aggregate execution target slot resolution failed: field='{field}'",
+                        ))
+                    })
             })
             .transpose()?;
 
@@ -650,11 +662,12 @@ pub(in crate::db) fn grouped_executor_handoff(
 /// projection specs and one structural model context.
 pub(in crate::db) fn grouped_aggregate_execution_specs(
     model: &EntityModel,
+    schema_info: &SchemaInfo,
     aggregate_specs: &[GroupedAggregateExecutionSpec],
 ) -> Result<Vec<GroupedAggregateExecutionSpec>, InternalError> {
     aggregate_specs
         .iter()
-        .map(|aggregate_spec| aggregate_spec.resolve_for_model(model))
+        .map(|aggregate_spec| aggregate_spec.resolve_for_model(model, schema_info))
         .collect()
 }
 
@@ -797,6 +810,7 @@ impl GroupedDistinctExecutionStrategy {
 // while freezing the field-target slot under planner ownership.
 pub(in crate::db) fn resolved_grouped_distinct_execution_strategy_for_model(
     model: &EntityModel,
+    schema_info: &SchemaInfo,
     group_fields: &[FieldSlot],
     aggregates: &[GroupAggregateSpec],
     having_expr: Option<&crate::db::query::plan::expr::Expr>,
@@ -804,15 +818,17 @@ pub(in crate::db) fn resolved_grouped_distinct_execution_strategy_for_model(
     match resolve_global_distinct_field_aggregate(group_fields, aggregates, having_expr) {
         Ok(Some(aggregate)) => {
             let target_field = aggregate.target_field().to_string();
-            let target_slot =
-                resolve_aggregate_target_field_slot(model, aggregate.target_field()).map_err(
-                    |err| {
-                        InternalError::planner_executor_invariant(format!(
-                            "grouped DISTINCT strategy target slot resolution failed: field='{}', error={err}",
-                            aggregate.target_field(),
-                        ))
-                    },
-                )?;
+            let target_slot = resolve_aggregate_target_field_slot_from_schema(
+                model,
+                schema_info,
+                aggregate.target_field(),
+            )
+            .ok_or_else(|| {
+                InternalError::planner_executor_invariant(format!(
+                    "grouped DISTINCT strategy target slot resolution failed: field='{}'",
+                    aggregate.target_field(),
+                ))
+            })?;
 
             let distinct_kind = aggregate.kind().global_distinct_kind().ok_or_else(|| {
                 InternalError::planner_executor_invariant(
@@ -831,6 +847,26 @@ pub(in crate::db) fn resolved_grouped_distinct_execution_strategy_for_model(
         Ok(None) => Ok(GroupedDistinctExecutionStrategy::None),
         Err(reason) => Err(reason.into_planner_handoff_internal_error()),
     }
+}
+
+// Resolve one aggregate target slot through schema authority while retaining
+// the generated model field label and kind for diagnostics/explain surfaces.
+fn resolve_aggregate_target_field_slot_from_schema(
+    model: &EntityModel,
+    schema_info: &SchemaInfo,
+    field: &str,
+) -> Option<FieldSlot> {
+    let index = schema_info.field_slot_index(field)?;
+    let model_field = model
+        .fields()
+        .iter()
+        .find(|model_field| model_field.name() == field)?;
+
+    Some(FieldSlot {
+        index,
+        field: model_field.name().to_string(),
+        kind: Some(model_field.kind()),
+    })
 }
 
 // Derive grouped field/aggregate projection slots and grouped aggregate

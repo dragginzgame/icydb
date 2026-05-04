@@ -4,18 +4,21 @@
 //! Boundary: converts logical query intent into `ProjectionSpec`.
 
 use crate::{
-    db::query::{
-        builder::aggregate::AggregateExpr,
-        plan::{
-            FieldSlot, GroupAggregateSpec, LogicalPlan,
-            expr::{
-                Expr, FieldId, ProjectionField, ProjectionSelection, ProjectionSpec,
-                collect_unique_direct_projection_slots,
+    db::{
+        query::{
+            builder::aggregate::AggregateExpr,
+            plan::{
+                FieldSlot, GroupAggregateSpec, LogicalPlan,
+                expr::{
+                    Expr, FieldId, ProjectionField, ProjectionSelection, ProjectionSpec,
+                    collect_unique_direct_projection_slots_with_schema,
+                },
+                semantics::group_aggregate_spec_expr,
             },
-            semantics::group_aggregate_spec_expr,
         },
+        schema::SchemaInfo,
     },
-    model::entity::EntityModel,
+    model::{entity::EntityModel, field::FieldModel},
 };
 
 /// Lower one logical plan into the canonical planner-owned projection semantic shape.
@@ -65,22 +68,61 @@ fn lower_scalar_projection(model: &EntityModel, selection: &ProjectionSelection)
     ProjectionSpec::new(fields)
 }
 
-/// Lower one logical plan into one direct slot projection layout when every
-/// output remains a unique canonical field reference.
+/// Lower a direct slot projection layout using explicit schema authority.
 #[must_use]
-pub(in crate::db::query) fn lower_direct_projection_slots(
+pub(in crate::db::query) fn lower_direct_projection_slots_with_schema(
     model: &EntityModel,
+    schema: &SchemaInfo,
     logical: &LogicalPlan,
     selection: &ProjectionSelection,
 ) -> Option<Vec<usize>> {
     match logical {
         LogicalPlan::Scalar(_) => match selection {
-            ProjectionSelection::All => Some((0..model.fields.len()).collect()),
+            ProjectionSelection::All => collect_unique_direct_projection_slots_with_schema(
+                schema,
+                model.fields().iter().map(FieldModel::name),
+            ),
             ProjectionSelection::Fields(field_ids) => {
-                collect_unique_direct_projection_slots(model, field_ids.iter().map(FieldId::as_str))
+                collect_unique_direct_projection_slots_with_schema(
+                    schema,
+                    field_ids.iter().map(FieldId::as_str),
+                )
             }
-            ProjectionSelection::Exprs(fields) => collect_unique_direct_projection_slots(
-                model,
+            ProjectionSelection::Exprs(fields) => {
+                collect_unique_direct_projection_slots_with_schema(
+                    schema,
+                    fields
+                        .iter()
+                        .map(ProjectionField::direct_field_name)
+                        .collect::<Option<Vec<_>>>()?,
+                )
+            }
+        },
+        LogicalPlan::Grouped(_) => None,
+    }
+}
+
+/// Lower a duplicate-preserving direct slot projection layout for raw data-row
+/// readers using explicit schema authority.
+#[must_use]
+pub(in crate::db::query) fn lower_data_row_direct_projection_slots_with_schema(
+    model: &EntityModel,
+    schema: &SchemaInfo,
+    logical: &LogicalPlan,
+    selection: &ProjectionSelection,
+) -> Option<Vec<usize>> {
+    match logical {
+        LogicalPlan::Scalar(_) => match selection {
+            ProjectionSelection::All => collect_direct_projection_slots_with_schema(
+                schema,
+                model.fields().iter().map(FieldModel::name),
+            ),
+            ProjectionSelection::Fields(field_ids) => collect_direct_projection_slots_with_schema(
+                schema,
+                field_ids.iter().map(FieldId::as_str),
+            ),
+            ProjectionSelection::Exprs(fields) => collect_direct_projection_slots_with_schema(
+                schema,
                 fields
                     .iter()
                     .map(ProjectionField::direct_field_name)
@@ -152,4 +194,20 @@ const fn aggregate_projection(aggregate_expr: AggregateExpr) -> ProjectionField 
         expr: Expr::Aggregate(aggregate_expr),
         alias: None,
     }
+}
+
+// Resolve one direct field-slot layout while preserving duplicate source slots.
+// Raw data-row projection can borrow the same slot repeatedly, unlike retained
+// slot readers that consume values through `Option::take()`.
+fn collect_direct_projection_slots_with_schema<'a>(
+    schema: &SchemaInfo,
+    field_names: impl IntoIterator<Item = &'a str>,
+) -> Option<Vec<usize>> {
+    let mut field_slots = Vec::new();
+
+    for field_name in field_names {
+        field_slots.push(schema.field_slot_index(field_name)?);
+    }
+
+    Some(field_slots)
 }

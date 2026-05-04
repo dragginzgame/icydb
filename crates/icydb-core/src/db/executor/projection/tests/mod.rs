@@ -28,6 +28,7 @@ use crate::{
             ProjectionMaterializationMetricsRecorder, StructuralCursorPage,
             terminal::{RetainedSlotRow, RowLayout},
         },
+        schema::SchemaInfo,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{
@@ -361,7 +362,10 @@ fn grouped_execution_specs<const N: usize>(
 ) -> [GroupedAggregateExecutionSpec; N] {
     aggregate_exprs.map(|aggregate_expr| {
         GroupedAggregateExecutionSpec::from_aggregate_expr(&aggregate_expr)
-            .resolve_for_model(ProjectionEvalEntity::MODEL)
+            .resolve_for_model(
+                ProjectionEvalEntity::MODEL,
+                SchemaInfo::cached_for_entity_model(ProjectionEvalEntity::MODEL),
+            )
             .expect("grouped execution spec should lower from aggregate expression")
     })
 }

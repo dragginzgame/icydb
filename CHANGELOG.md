@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.146.x] 🪪 - 2026-05-02 - Schema Identity
 
+- `0.146.12` makes metrics explain cache misses, SQL compile rejects, and non-index route choices by reason, and makes prepared execution metadata use accepted schema slot authority when freezing field and field-path reads.
 - `0.146.11` makes accepted live schema construction validate metadata integrity instead of trusting arbitrary decoded snapshots, and makes metrics report schema reconciliation outcomes such as first-create, exact-match, and rejected drift.
 - `0.146.10` makes startup schema reconciliation check the latest stored schema version for each entity and rejects internally inconsistent schema records before they can become live metadata.
 - `0.146.9` makes accepted schema slot lookups and grouped slot validation use the persisted row-layout mapping as the authority for top-level fields.

@@ -130,7 +130,7 @@ pub(super) fn execute_prepared_scalar_path_execution(
         prepared_projection: projection,
         emit_cursor: cursor_emission.enabled(),
     });
-    record_plan_metrics(entity_path, &plan.access);
+    record_plan_metrics(entity_path, plan);
     let (materialized, mut execution_stats) = with_execution_stats_capture(debug, || {
         ExecutionKernel::materialize_with_optional_residual_retry(
             &execution_inputs,
