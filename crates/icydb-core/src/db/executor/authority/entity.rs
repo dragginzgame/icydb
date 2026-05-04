@@ -213,7 +213,6 @@ impl EntityAuthority {
 mod tests {
     use crate::{
         db::{
-            access::AccessPath,
             executor::EntityAuthority,
             predicate::MissingRowPolicy,
             query::plan::{
@@ -234,7 +233,6 @@ mod tests {
         },
         testing::entity_model_from_static,
         types::EntityTag,
-        value::Value,
     };
 
     const AUTHORITY_SCHEMA_SLOT_TEST_STORE_PATH: &str = "authority_schema_slot_test_store";
@@ -306,8 +304,7 @@ mod tests {
             AUTHORITY_SCHEMA_SLOT_TEST_STORE_PATH,
         );
         let schema = accepted_schema_with_profile_slot(SchemaFieldSlot::new(7));
-        let mut plan =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
         plan.projection_selection = ProjectionSelection::Fields(vec![ExprFieldId::new("profile")]);
 
         plan.finalize_static_planning_shape_for_model_with_schema(&MODEL, &schema)
@@ -334,8 +331,7 @@ mod tests {
             EntityTag::new(0x1460_0014),
             AUTHORITY_SCHEMA_SLOT_TEST_STORE_PATH,
         );
-        let mut plan =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
         plan.projection_selection = ProjectionSelection::Fields(vec![ExprFieldId::new("profile")]);
 
         authority.finalize_static_planning_shape(&mut plan);
