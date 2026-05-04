@@ -90,7 +90,9 @@ impl AcceptedSchemaSnapshot {
     /// Return one accepted top-level field slot by persisted field name.
     #[must_use]
     pub(in crate::db) fn field_slot_by_name(&self, name: &str) -> Option<SchemaFieldSlot> {
-        self.field_by_name(name).map(PersistedFieldSnapshot::slot)
+        let field = self.field_by_name(name)?;
+
+        self.snapshot.row_layout().slot_for_field(field.id())
     }
 
     /// Borrow accepted nested leaf descriptors for one top-level field.
@@ -589,6 +591,16 @@ mod tests {
     // Build a small accepted schema snapshot with deliberately non-generated
     // slot values so accessor tests prove they read persisted schema facts.
     fn accepted_schema_fixture() -> AcceptedSchemaSnapshot {
+        accepted_schema_fixture_with_payload_slots(SchemaFieldSlot::new(7), SchemaFieldSlot::new(7))
+    }
+
+    // Build a deliberately inconsistent accepted wrapper for owner-local
+    // boundary tests. Production reconciliation rejects this shape, but the
+    // accessor must still prove which internal artifact owns slot answers.
+    fn accepted_schema_fixture_with_payload_slots(
+        layout_slot: SchemaFieldSlot,
+        field_slot: SchemaFieldSlot,
+    ) -> AcceptedSchemaSnapshot {
         AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
             SchemaVersion::initial(),
             "schema::snapshot::tests::Asset".to_string(),
@@ -598,7 +610,7 @@ mod tests {
                 SchemaVersion::initial(),
                 vec![
                     (FieldId::new(1), SchemaFieldSlot::new(0)),
-                    (FieldId::new(2), SchemaFieldSlot::new(7)),
+                    (FieldId::new(2), layout_slot),
                 ],
             ),
             vec![
@@ -616,7 +628,7 @@ mod tests {
                 PersistedFieldSnapshot::new(
                     FieldId::new(2),
                     "payload".to_string(),
-                    SchemaFieldSlot::new(7),
+                    field_slot,
                     PersistedFieldKind::Blob,
                     vec![PersistedNestedLeafSnapshot::new(
                         vec!["thumbnail".to_string()],
@@ -663,5 +675,18 @@ mod tests {
         assert_eq!(snapshot.field_kind_by_name("missing"), None);
         assert_eq!(snapshot.field_slot_by_name("missing"), None);
         assert_eq!(snapshot.nested_leaves_by_field_name("missing"), None);
+    }
+
+    #[test]
+    fn accepted_schema_snapshot_slot_lookup_uses_row_layout_authority() {
+        let snapshot = accepted_schema_fixture_with_payload_slots(
+            SchemaFieldSlot::new(9),
+            SchemaFieldSlot::new(7),
+        );
+
+        assert_eq!(
+            snapshot.field_slot_by_name("payload"),
+            Some(SchemaFieldSlot::new(9)),
+        );
     }
 }

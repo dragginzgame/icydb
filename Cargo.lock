@@ -204,9 +204,9 @@ dependencies = [
 
 [[package]]
 name = "canic"
-version = "0.29.10"
+version = "0.30.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e604afea1d0bc6f7691431ebc3592a3ad9ad6a142a159938ec4bd046840e9ab"
+checksum = "bbb6ea561a0f16ef312e12e5f8e37701208546f9d17afd5680d96ce26b06cdc8"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -220,9 +220,9 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.29.10"
+version = "0.30.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54d3ee2bfbd52521105b9b48e0bf2de9b61b90572e9b98fc1c476be057e5a2b1"
+checksum = "4e2012abd8746aa6197c40939898094b4bdbe57ef7e877067e5d5f83efea1293"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -237,15 +237,15 @@ dependencies = [
 
 [[package]]
 name = "canic-core"
-version = "0.29.10"
+version = "0.30.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "958ac7f021bb219a6927129cac7fa63b60802c3f78ca9c45658197f3b1ca7921"
+checksum = "aee327d1d568e20dc33272f297cfa8e4f4f94a3ee8f0ab837553bb81a6479aab"
 dependencies = [
  "async-trait",
  "candid",
  "canic-cdk",
  "canic-memory",
- "ctor",
+ "ctor 0.8.0",
  "k256",
  "proc-macro2",
  "quote",
@@ -259,9 +259,9 @@ dependencies = [
 
 [[package]]
 name = "canic-macros"
-version = "0.29.10"
+version = "0.30.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbd4603296ba0c5a96d64f807f9c83f342f6c91ec39d92ceb016a41ee6982f02"
+checksum = "725a144be947421915210809e438d9472fabcbb21fe661e8d858491f97847280"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -270,13 +270,13 @@ dependencies = [
 
 [[package]]
 name = "canic-memory"
-version = "0.29.10"
+version = "0.30.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e0e7a86f7c1101918711c5cab722faddb09689bf7994bffae65d1becd0ea061"
+checksum = "86545a6671f129b0343bc49ca87c1beb9e7d663b9f4da4cbce21b3a8067ed369"
 dependencies = [
  "candid",
  "canic-cdk",
- "ctor",
+ "ctor 0.8.0",
  "serde",
  "serde_cbor",
  "thiserror 2.0.18",
@@ -284,9 +284,9 @@ dependencies = [
 
 [[package]]
 name = "canic-testkit"
-version = "0.29.10"
+version = "0.30.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72e985108d0339337a73f3f673195b7f43673ee50420a9f0c585c8cf6dbfac44"
+checksum = "e9c3c29529f50fad91621a94725392916bc5888eeab51011eef3674b4ab7dafe"
 dependencies = [
  "candid",
  "canic",
@@ -296,7 +296,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_minimal"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -306,7 +306,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_complex"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -316,7 +316,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_simple"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -326,7 +326,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_sql_perf"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -336,7 +336,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_ten_complex"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -346,7 +346,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_ten_simple"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -356,7 +356,7 @@ dependencies = [
 
 [[package]]
 name = "canister_demo_rpg"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -367,7 +367,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_sql"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -500,6 +500,16 @@ checksum = "352d39c2f7bef1d6ad73db6f5160efcaed66d94ef8c6c573a8410c00bf909a98"
 dependencies = [
  "ctor-proc-macro",
  "dtor",
+]
+
+[[package]]
+name = "ctor"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d9055288750fb7dd379447bc8b5ebbc89e6a70c233258f5ec6e8ade1c4b413b"
+dependencies = [
+ "link-section",
+ "linktime-proc-macro",
 ]
 
 [[package]]
@@ -1335,12 +1345,12 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "canic-cdk",
  "canic-memory",
- "ctor",
+ "ctor 1.0.0",
  "derive_more",
  "icydb-build",
  "icydb-core",
@@ -1355,7 +1365,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -1365,7 +1375,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-cli"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "icydb",
  "rustyline",
@@ -1374,7 +1384,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1398,7 +1408,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-derive"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1407,11 +1417,11 @@ dependencies = [
 
 [[package]]
 name = "icydb-primitives"
-version = "0.146.7"
+version = "0.146.8"
 
 [[package]]
 name = "icydb-schema"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1427,7 +1437,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-derive"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "darling",
@@ -1445,7 +1455,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-tests"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "icydb",
@@ -1457,7 +1467,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-minimal-fixtures"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "icydb",
@@ -1466,7 +1476,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-one-complex-fixtures"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "icydb",
@@ -1475,7 +1485,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-one-simple-fixtures"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "icydb",
@@ -1484,7 +1494,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-sql-perf-fixtures"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "icydb",
@@ -1492,7 +1502,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-ten-complex-fixtures"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "icydb",
@@ -1501,7 +1511,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-ten-simple-fixtures"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "icydb",
@@ -1510,7 +1520,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-demo-rpg-fixtures"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "icydb",
@@ -1519,7 +1529,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-integration"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "canic-testkit",
@@ -1530,7 +1540,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-test-fixtures"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "icydb",
@@ -1540,7 +1550,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-test-sql-fixtures"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "candid",
  "icydb",
@@ -1548,14 +1558,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-wasm-helpers"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "icydb",
 ]
 
 [[package]]
 name = "icydb-utils"
-version = "0.146.7"
+version = "0.146.8"
 dependencies = [
  "convert_case",
  "rand_chacha 0.10.0",
@@ -1692,6 +1702,18 @@ name = "libm"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
+
+[[package]]
+name = "link-section"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea2c24837c4fd5ab6a31d64133eae954f5199247523cf29586117e85245c0dd3"
+
+[[package]]
+name = "linktime-proc-macro"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a44cd706ff0d503ee32b2071166510ca27e281228de10cd3aa8d35ff94560f81"
 
 [[package]]
 name = "linux-raw-sys"

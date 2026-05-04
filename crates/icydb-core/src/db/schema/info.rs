@@ -48,6 +48,7 @@ fn schema_field_info<'a>(
 
 #[derive(Clone, Debug)]
 struct SchemaFieldInfo {
+    slot: usize,
     ty: FieldType,
     kind: FieldKind,
     sql_capabilities: SqlCapabilities,
@@ -66,10 +67,12 @@ impl SchemaInfo {
     fn from_trusted_field_models(fields: &[FieldModel]) -> Self {
         let mut fields = fields
             .iter()
-            .map(|field| {
+            .enumerate()
+            .map(|(slot, field)| {
                 (
                     field.name(),
                     SchemaFieldInfo {
+                        slot,
                         ty: field_type_from_model_kind(&field.kind()),
                         kind: field.kind(),
                         sql_capabilities: sql_capabilities(&PersistedFieldKind::from_model_kind(
@@ -101,6 +104,17 @@ impl SchemaInfo {
     #[must_use]
     pub(crate) fn field_kind(&self, name: &str) -> Option<&FieldKind> {
         schema_field_info(self.fields.as_slice(), name).map(|field| &field.kind)
+    }
+
+    /// Return the top-level physical row slot for one field.
+    ///
+    /// Accepted schema views source this from `SchemaRowLayout`; generated
+    /// schema views keep using generated field-table position. The method gives
+    /// planning validation one schema-owned slot surface instead of requiring
+    /// direct `EntityModel` field-table checks.
+    #[must_use]
+    pub(in crate::db) fn field_slot_index(&self, name: &str) -> Option<usize> {
+        schema_field_info(self.fields.as_slice(), name).map(|field| field.slot)
     }
 
     /// Return SQL operation capabilities for one top-level field.
@@ -219,8 +233,13 @@ impl SchemaInfo {
         let mut fields = model
             .fields()
             .iter()
-            .map(|field| {
+            .enumerate()
+            .map(|(generated_slot, field)| {
                 let accepted_kind = schema.field_kind_by_name(field.name());
+                let slot = schema.field_slot_by_name(field.name()).map_or_else(
+                    || generated_slot,
+                    |accepted_slot| usize::from(accepted_slot.get()),
+                );
                 let ty = accepted_kind.map_or_else(
                     || field_type_from_model_kind(&field.kind()),
                     field_type_from_persisted_kind,
@@ -233,6 +252,7 @@ impl SchemaInfo {
                 (
                     field.name(),
                     SchemaFieldInfo {
+                        slot,
                         ty,
                         kind: field.kind(),
                         sql_capabilities,
@@ -348,6 +368,21 @@ mod tests {
     // generated metadata so tests can prove `SchemaInfo` follows the persisted
     // top-level authority.
     fn accepted_schema_with_name_kind(kind: PersistedFieldKind) -> AcceptedSchemaSnapshot {
+        accepted_schema_with_name_kind_and_slots(
+            kind,
+            SchemaFieldSlot::new(1),
+            SchemaFieldSlot::new(1),
+        )
+    }
+
+    // Build one accepted schema fixture with independently selected layout and
+    // field-snapshot slots. Owner-local tests use this to prove `SchemaInfo`
+    // reads slot facts from accepted row layout, not duplicated field data.
+    fn accepted_schema_with_name_kind_and_slots(
+        kind: PersistedFieldKind,
+        layout_slot: SchemaFieldSlot,
+        field_slot: SchemaFieldSlot,
+    ) -> AcceptedSchemaSnapshot {
         AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
             SchemaVersion::initial(),
             "schema::info::tests::Entity".to_string(),
@@ -357,7 +392,7 @@ mod tests {
                 SchemaVersion::initial(),
                 vec![
                     (FieldId::new(1), SchemaFieldSlot::new(0)),
-                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                    (FieldId::new(2), layout_slot),
                 ],
             ),
             vec![
@@ -375,7 +410,7 @@ mod tests {
                 PersistedFieldSnapshot::new(
                     FieldId::new(2),
                     "name".to_string(),
-                    SchemaFieldSlot::new(1),
+                    field_slot,
                     kind,
                     Vec::new(),
                     false,
@@ -444,6 +479,20 @@ mod tests {
         assert!(accepted_name.selectable());
         assert!(accepted_name.comparable());
         assert!(!accepted_name.orderable());
+    }
+
+    #[test]
+    fn accepted_snapshot_schema_info_uses_row_layout_slot_authority() {
+        let generated = SchemaInfo::cached_for_entity_model(&MODEL);
+        let snapshot = accepted_schema_with_name_kind_and_slots(
+            PersistedFieldKind::Text { max_len: None },
+            SchemaFieldSlot::new(9),
+            SchemaFieldSlot::new(1),
+        );
+        let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
+
+        assert_eq!(generated.field_slot_index("name"), Some(0));
+        assert_eq!(accepted.field_slot_index("name"), Some(9));
     }
 
     #[test]

@@ -21,11 +21,15 @@ use crate::{
                 },
             },
         },
-        schema::SchemaInfo,
+        schema::{
+            AcceptedSchemaSnapshot, FieldId as SchemaFieldId, PersistedFieldKind,
+            PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot,
+            SchemaInfo, SchemaRowLayout, SchemaVersion,
+        },
     },
     model::{
         entity::EntityModel,
-        field::{FieldKind, FieldModel, FieldStorageDecode},
+        field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
         index::IndexModel,
     },
     traits::EntitySchema,
@@ -204,6 +208,71 @@ fn scalar_plan(distinct: bool) -> ScalarPlan {
 
 fn schema() -> &'static SchemaInfo {
     SchemaInfo::cached_for_entity_model(model())
+}
+
+// Build an accepted schema where the live row layout assigns `team` to a
+// different top-level slot than the generated model. The fixture lets grouped
+// validation prove it is reading slot authority through `SchemaInfo`.
+fn accepted_schema_with_team_layout_slot(team_slot: SchemaFieldSlot) -> SchemaInfo {
+    let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "query::plan::validate::tests::GroupedPolicyValidateEntity".to_string(),
+        "GroupedPolicyValidateEntity".to_string(),
+        SchemaFieldId::new(1),
+        SchemaRowLayout::new(
+            SchemaVersion::initial(),
+            vec![
+                (SchemaFieldId::new(1), SchemaFieldSlot::new(0)),
+                (SchemaFieldId::new(2), team_slot),
+                (SchemaFieldId::new(3), SchemaFieldSlot::new(2)),
+                (SchemaFieldId::new(4), SchemaFieldSlot::new(3)),
+            ],
+        ),
+        vec![
+            accepted_field(1, "id", SchemaFieldSlot::new(0), PersistedFieldKind::Ulid),
+            accepted_field(
+                2,
+                "team",
+                team_slot,
+                PersistedFieldKind::Text { max_len: None },
+            ),
+            accepted_field(
+                3,
+                "region",
+                SchemaFieldSlot::new(2),
+                PersistedFieldKind::Text { max_len: None },
+            ),
+            accepted_field(
+                4,
+                "score",
+                SchemaFieldSlot::new(3),
+                PersistedFieldKind::Uint,
+            ),
+        ],
+    ));
+
+    SchemaInfo::from_accepted_snapshot_for_model(model(), &snapshot)
+}
+
+// Build one top-level persisted field descriptor for accepted-schema validation
+// fixtures. Only field kind and slot are relevant for these grouped tests.
+fn accepted_field(
+    id: u32,
+    name: &str,
+    slot: SchemaFieldSlot,
+    kind: PersistedFieldKind,
+) -> PersistedFieldSnapshot {
+    PersistedFieldSnapshot::new(
+        SchemaFieldId::new(id),
+        name.to_string(),
+        slot,
+        kind,
+        Vec::new(),
+        false,
+        SchemaFieldDefault::None,
+        FieldStorageDecode::Value,
+        LeafCodec::StructuralFallback,
+    )
 }
 
 fn aggregate_having_expr(group: &GroupSpec, index: usize, op: CompareOp, value: Value) -> Expr {
@@ -546,12 +615,27 @@ fn grouped_structure_rejects_projection_expr_referencing_non_group_field() {
         alias: None,
     }]);
 
-    let err = validate_group_structure(schema(), model(), &group, &projection, None)
+    let err = validate_group_structure(schema(), &group, &projection, None)
         .expect_err("projection references outside GROUP BY keys must fail in planner");
 
     assert!(is_expr_user_error(&err, |inner| matches!(
         inner,
         ExprPlanError::GroupedProjectionReferencesNonGroupField { index: 0 }
+    )));
+}
+
+#[test]
+fn grouped_structure_rejects_group_field_slot_outside_accepted_row_layout() {
+    let schema = accepted_schema_with_team_layout_slot(SchemaFieldSlot::new(9));
+    let group = grouped_spec();
+    let projection = ProjectionSpec::default();
+
+    let err = validate_group_structure(&schema, &group, &projection, None)
+        .expect_err("generated group slots must be checked against accepted row-layout slots");
+
+    assert!(is_group_user_error(&err, |inner| matches!(
+        inner,
+        GroupPlanError::UnknownGroupField { field } if field == "team"
     )));
 }
 
@@ -565,7 +649,7 @@ fn grouped_structure_rejects_having_group_field_symbol_outside_group_keys() {
         Value::Text("eu".to_string()),
     );
 
-    let err = validate_group_structure(schema(), model(), &group, &projection, Some(&having))
+    let err = validate_group_structure(schema(), &group, &projection, Some(&having))
         .expect_err("HAVING group-field symbols outside GROUP BY keys must fail in planner");
 
     assert!(is_group_user_error(&err, |inner| matches!(
@@ -584,7 +668,7 @@ fn grouped_structure_rejects_having_aggregate_index_out_of_bounds() {
         right: Box::new(Expr::Literal(Value::Uint(5))),
     };
 
-    let err = validate_group_structure(schema(), model(), &group, &projection, Some(&having))
+    let err = validate_group_structure(schema(), &group, &projection, Some(&having))
         .expect_err("HAVING aggregate expressions outside declared aggregate set must fail");
 
     assert!(is_group_user_error(&err, |inner| matches!(

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.146.x] 🪪 - 2026-05-02 - Schema Identity
 
+- `0.146.9` makes accepted schema slot lookups and grouped slot validation use the persisted row-layout mapping as the authority for top-level fields.
 - `0.146.8` keeps database defaults separate from Rust construction defaults, makes schema reconciliation use an explicit transition-policy owner, and reports rejected SQL write causes plus derived read/write efficiency ratios.
 - `0.146.7` adds accepted nested field metadata for schema snapshots, uses it for field-path type checks, and makes metrics show SQL write shape, matched rows, mutated rows, and `RETURNING` rows.
 - `0.146.6` makes SQL projection, grouping, direct ordering, and global aggregate field checks use accepted schema capability metadata, and keeps metrics reporting current for load row efficiency and write amplification.

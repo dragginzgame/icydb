@@ -1104,6 +1104,9 @@ mod tests {
         );
         let id_slot = SchemaFieldSlot::new(0);
         let payload_slot = SchemaFieldSlot::new(7);
+        // The accepted wrapper below is intentionally inconsistent so this
+        // metadata boundary proves row-layout authority owns slot answers.
+        let stale_payload_field_slot = SchemaFieldSlot::new(3);
         let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
             SchemaVersion::initial(),
             "entities::BlobEvent".to_string(),
@@ -1128,7 +1131,7 @@ mod tests {
                 PersistedFieldSnapshot::new(
                     FieldId::new(2),
                     "payload".to_string(),
-                    payload_slot,
+                    stale_payload_field_slot,
                     PersistedFieldKind::Blob,
                     Vec::new(),
                     false,

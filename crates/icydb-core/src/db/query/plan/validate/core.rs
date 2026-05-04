@@ -103,7 +103,7 @@ pub(in crate::db::query) fn validate_group_query_semantics(
         validate_access_structure_for_plan,
         false,
     )?;
-    validate_group_structure(schema, model, group, &projection, having_expr)?;
+    validate_group_structure(schema, group, &projection, having_expr)?;
     validate_group_policy(schema, logical, group, having_expr)?;
     validate_group_cursor_constraints(logical, group)?;
     validate_projection_expr_types(schema, &projection)?;

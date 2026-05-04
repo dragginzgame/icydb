@@ -3,28 +3,24 @@
 //! Does not own: grouped policy admissibility rules or runtime grouped execution checks.
 //! Boundary: validates grouped spec and HAVING symbol structure at planner boundary.
 
-use crate::{
-    db::{
-        query::plan::{
-            AggregateSemanticKey, GroupSpec,
-            expr::{Expr, ProjectionSpec},
-            validate::grouped::projection_expr::validate_group_projection_expr_compatibility,
-            validate::{GroupPlanError, PlanError, resolve_group_aggregate_target_field_type},
-        },
-        schema::SchemaInfo,
+use crate::db::{
+    query::plan::{
+        AggregateSemanticKey, GroupSpec,
+        expr::{Expr, ProjectionSpec},
+        validate::grouped::projection_expr::validate_group_projection_expr_compatibility,
+        validate::{GroupPlanError, PlanError, resolve_group_aggregate_target_field_type},
     },
-    model::entity::EntityModel,
+    schema::SchemaInfo,
 };
 
 // Validate grouped structural invariants before policy/cursor gates.
 pub(in crate::db::query) fn validate_group_structure(
     schema: &SchemaInfo,
-    model: &EntityModel,
     group: &GroupSpec,
     projection: &ProjectionSpec,
     having_expr: Option<&Expr>,
 ) -> Result<(), PlanError> {
-    validate_group_spec_structure(schema, model, group)?;
+    validate_group_spec_structure(schema, group)?;
     validate_group_projection_expr_compatibility(group, projection)?;
     validate_grouped_having_structure(group, having_expr)?;
 
@@ -81,11 +77,7 @@ fn validate_having_aggregate_index(
 }
 
 // Validate grouped structural declarations against model/schema shape.
-fn validate_group_spec_structure(
-    schema: &SchemaInfo,
-    model: &EntityModel,
-    group: &GroupSpec,
-) -> Result<(), PlanError> {
+fn validate_group_spec_structure(schema: &SchemaInfo, group: &GroupSpec) -> Result<(), PlanError> {
     if group.group_fields.is_empty() {
         (!group.aggregates.is_empty())
             .then_some(())
@@ -105,18 +97,25 @@ fn validate_group_spec_structure(
         .then_some(())
         .ok_or_else(|| PlanError::from(GroupPlanError::empty_aggregates()))?;
 
-    let mut seen_group_slots = Vec::<usize>::with_capacity(group.group_fields.len());
+    let mut seen_accepted_group_slots = Vec::<usize>::with_capacity(group.group_fields.len());
     for field_slot in &group.group_fields {
-        model.fields.get(field_slot.index()).ok_or_else(|| {
-            PlanError::from(GroupPlanError::unknown_group_field(field_slot.field()))
-        })?;
-        seen_group_slots
-            .iter()
-            .any(|seen| *seen == field_slot.index())
+        let Some(accepted_slot) = schema.field_slot_index(field_slot.field()) else {
+            return Err(PlanError::from(GroupPlanError::unknown_group_field(
+                field_slot.field(),
+            )));
+        };
+        if accepted_slot != field_slot.index() {
+            return Err(PlanError::from(GroupPlanError::unknown_group_field(
+                field_slot.field(),
+            )));
+        }
+
+        seen_accepted_group_slots
+            .contains(&accepted_slot)
             .then_some(())
             .map_or_else(
                 || {
-                    seen_group_slots.push(field_slot.index());
+                    seen_accepted_group_slots.push(accepted_slot);
                     Ok(())
                 },
                 |()| {

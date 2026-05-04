@@ -108,4 +108,12 @@ impl SchemaRowLayout {
     pub(in crate::db) const fn field_to_slot(&self) -> &[(FieldId, SchemaFieldSlot)] {
         self.field_to_slot.as_slice()
     }
+
+    /// Resolve one durable field identity into its accepted physical row slot.
+    #[must_use]
+    pub(in crate::db) fn slot_for_field(&self, field_id: FieldId) -> Option<SchemaFieldSlot> {
+        self.field_to_slot
+            .iter()
+            .find_map(|(id, slot)| (*id == field_id).then_some(*slot))
+    }
 }
