@@ -25,6 +25,7 @@ use crate::{
             EntityAuthority, SharedPreparedExecutionPlan, StructuralGroupedProjectionResult,
         },
         query::intent::StructuralQuery,
+        response::ResponseError,
         session::{
             finalize_structural_grouped_projection_result,
             sql::{
@@ -33,7 +34,10 @@ use crate::{
             },
             sql_grouped_cursor_from_bytes,
         },
+        sql::parser::{SqlInsertSource, SqlInsertStatement},
     },
+    error::ErrorClass,
+    metrics::sink::{MetricsEvent, SqlWriteKind, record},
     traits::{CanisterKind, EntityValue},
 };
 
@@ -106,6 +110,44 @@ impl GroupedSqlDiagnosticsCollector<'_> {
             let _ = self;
             DbSession::<C>::grouped_sql_statement_result_from_result(columns, fixed_scales, result)
         }
+    }
+}
+
+// Collapse SQL execution failures into the stable error taxonomy used by the
+// public metrics report instead of exposing internal query-error variants.
+const fn sql_write_error_class(error: &QueryError) -> ErrorClass {
+    match error {
+        QueryError::Execute(err) => err.as_internal().class(),
+        QueryError::Response(ResponseError::NotFound { .. }) => ErrorClass::NotFound,
+        QueryError::Response(ResponseError::NotUnique { .. }) => ErrorClass::Conflict,
+        QueryError::Validate(_) | QueryError::Plan(_) | QueryError::Intent(_) => {
+            ErrorClass::Unsupported
+        }
+    }
+}
+
+// Preserve the important INSERT shape distinction because `INSERT ... SELECT`
+// has very different execution and debugging characteristics from VALUES.
+const fn sql_insert_write_kind(statement: &SqlInsertStatement) -> SqlWriteKind {
+    match &statement.source {
+        SqlInsertSource::Values(_) => SqlWriteKind::Insert,
+        SqlInsertSource::Select(_) => SqlWriteKind::InsertSelect,
+    }
+}
+
+// Record only rejected SQL writes at the statement boundary. Successful writes
+// are counted by the write executors after they know row cardinalities.
+fn record_sql_write_error<E, C>(kind: SqlWriteKind, result: &Result<SqlStatementResult, QueryError>)
+where
+    E: PersistedRow<Canister = C> + EntityValue,
+    C: CanisterKind,
+{
+    if let Err(error) = result {
+        record(MetricsEvent::SqlWriteError {
+            entity_path: E::PATH,
+            kind,
+            class: sql_write_error_class(error),
+        });
     }
 }
 
@@ -515,9 +557,12 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Select { query } => {
                 self.execute_select_compiled_sql_with_cache_attribution::<E>(query, authority)
             }
-            CompiledSqlCommand::Delete { query, returning } => self
-                .execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref())
-                .map(|result| (result, SqlCacheAttribution::default())),
+            CompiledSqlCommand::Delete { query, returning } => {
+                let result =
+                    self.execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref());
+                record_sql_write_error::<E, C>(SqlWriteKind::Delete, &result);
+                result.map(|result| (result, SqlCacheAttribution::default()))
+            }
             CompiledSqlCommand::GlobalAggregate { command } => self
                 .execute_global_aggregate_statement_for_authority::<E>(*command.clone(), authority),
             CompiledSqlCommand::Explain(lowered) => {
@@ -534,12 +579,16 @@ impl<C: CanisterKind> DbSession<C> {
                     .map(SqlStatementResult::Explain)
                     .map(|result| (result, SqlCacheAttribution::default()))
             }
-            CompiledSqlCommand::Insert(statement) => self
-                .execute_sql_insert_statement::<E>(statement)
-                .map(|result| (result, SqlCacheAttribution::default())),
-            CompiledSqlCommand::Update(statement) => self
-                .execute_sql_update_statement::<E>(statement)
-                .map(|result| (result, SqlCacheAttribution::default())),
+            CompiledSqlCommand::Insert(statement) => {
+                let result = self.execute_sql_insert_statement::<E>(statement);
+                record_sql_write_error::<E, C>(sql_insert_write_kind(statement), &result);
+                result.map(|result| (result, SqlCacheAttribution::default()))
+            }
+            CompiledSqlCommand::Update(statement) => {
+                let result = self.execute_sql_update_statement::<E>(statement);
+                record_sql_write_error::<E, C>(SqlWriteKind::Update, &result);
+                result.map(|result| (result, SqlCacheAttribution::default()))
+            }
             CompiledSqlCommand::DescribeEntity => Ok((
                 SqlStatementResult::Describe(
                     self.try_describe_entity::<E>()
@@ -576,9 +625,12 @@ impl<C: CanisterKind> DbSession<C> {
         match compiled {
             CompiledSqlCommand::Select { query } => self
                 .execute_select_compiled_sql_with_cache_attribution::<E>(query.as_ref(), authority),
-            CompiledSqlCommand::Delete { query, returning } => self
-                .execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref())
-                .map(|result| (result, SqlCacheAttribution::default())),
+            CompiledSqlCommand::Delete { query, returning } => {
+                let result =
+                    self.execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref());
+                record_sql_write_error::<E, C>(SqlWriteKind::Delete, &result);
+                result.map(|result| (result, SqlCacheAttribution::default()))
+            }
             CompiledSqlCommand::GlobalAggregate { command } => {
                 self.execute_global_aggregate_statement_for_authority::<E>(*command, authority)
             }
@@ -596,12 +648,17 @@ impl<C: CanisterKind> DbSession<C> {
                     .map(SqlStatementResult::Explain)
                     .map(|result| (result, SqlCacheAttribution::default()))
             }
-            CompiledSqlCommand::Insert(statement) => self
-                .execute_sql_insert_statement::<E>(&statement)
-                .map(|result| (result, SqlCacheAttribution::default())),
-            CompiledSqlCommand::Update(statement) => self
-                .execute_sql_update_statement::<E>(&statement)
-                .map(|result| (result, SqlCacheAttribution::default())),
+            CompiledSqlCommand::Insert(statement) => {
+                let kind = sql_insert_write_kind(&statement);
+                let result = self.execute_sql_insert_statement::<E>(&statement);
+                record_sql_write_error::<E, C>(kind, &result);
+                result.map(|result| (result, SqlCacheAttribution::default()))
+            }
+            CompiledSqlCommand::Update(statement) => {
+                let result = self.execute_sql_update_statement::<E>(&statement);
+                record_sql_write_error::<E, C>(SqlWriteKind::Update, &result);
+                result.map(|result| (result, SqlCacheAttribution::default()))
+            }
             CompiledSqlCommand::DescribeEntity => Ok((
                 SqlStatementResult::Describe(
                     self.try_describe_entity::<E>()

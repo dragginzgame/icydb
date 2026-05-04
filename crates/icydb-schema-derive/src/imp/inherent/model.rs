@@ -30,14 +30,16 @@ pub fn model_field_expr(field: &Field) -> TokenStream {
     let nullable = matches!(field.value.cardinality(), Cardinality::Opt);
     let insert_generation = field.insert_generation_expr();
     let write_management = field.write_management_expr();
+    let database_default = field.database_default_expr();
 
-    quote!(::icydb::model::field::FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
+    quote!(::icydb::model::field::FieldModel::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
         #name,
         #kind,
         #storage_decode,
         #nullable,
         #insert_generation,
         #write_management,
+        #database_default,
         #nested_fields,
     ))
 }

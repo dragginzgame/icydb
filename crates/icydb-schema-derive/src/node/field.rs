@@ -300,6 +300,17 @@ impl Field {
         }
     }
 
+    /// Generate the database-level default contract for this field.
+    ///
+    /// Rust construction defaults are intentionally ignored here. Until the
+    /// schema layer supports explicit database defaults, every generated field
+    /// emits `FieldDatabaseDefault::None`.
+    pub fn database_default_expr(&self) -> TokenStream {
+        let _rust_construction_default_is_not_a_database_default = self.default.is_some();
+
+        quote!(::icydb::model::field::FieldDatabaseDefault::None)
+    }
+
     pub fn created_at() -> Self {
         Self {
             ident: format_ident!("created_at"),

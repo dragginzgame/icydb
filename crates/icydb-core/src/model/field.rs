@@ -307,6 +307,36 @@ impl FieldModel {
         write_management: Option<FieldWriteManagement>,
         nested_fields: &'static [Self],
     ) -> Self {
+        Self::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
+            name,
+            kind,
+            storage_decode,
+            nullable,
+            insert_generation,
+            write_management,
+            FieldDatabaseDefault::None,
+            nested_fields,
+        )
+    }
+
+    /// Build one runtime field descriptor with explicit write policies,
+    /// database default metadata, and nested generated-record field metadata.
+    #[must_use]
+    #[doc(hidden)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "generated schema metadata keeps every field contract explicit"
+    )]
+    pub const fn generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
+        name: &'static str,
+        kind: FieldKind,
+        storage_decode: FieldStorageDecode,
+        nullable: bool,
+        insert_generation: Option<FieldInsertGeneration>,
+        write_management: Option<FieldWriteManagement>,
+        database_default: FieldDatabaseDefault,
+        nested_fields: &'static [Self],
+    ) -> Self {
         Self {
             name,
             kind,
@@ -316,7 +346,7 @@ impl FieldModel {
             leaf_codec: leaf_codec_for(kind, storage_decode),
             insert_generation,
             write_management,
-            database_default: FieldDatabaseDefault::None,
+            database_default,
         }
     }
 

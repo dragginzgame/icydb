@@ -8,7 +8,7 @@ pub use icydb_testing_test_fixtures::macro_test::entity::*;
 mod tests {
     use super::*;
     use icydb::{
-        model::field::FieldKind,
+        model::field::{FieldDatabaseDefault, FieldKind},
         traits::{EntityKey, EntitySchema},
         types::Ulid,
     };
@@ -38,5 +38,19 @@ mod tests {
             .expect("bounded text field should be present");
 
         assert!(matches!(name.kind(), FieldKind::Text { max_len: Some(12) }));
+    }
+
+    #[test]
+    fn rust_construction_defaults_do_not_become_database_defaults() {
+        let explicit_rust_default = Entity::MODEL
+            .fields()
+            .iter()
+            .find(|field| field.name() == "a")
+            .expect("field with Rust construction default should be present");
+
+        assert_eq!(
+            explicit_rust_default.database_default(),
+            FieldDatabaseDefault::None,
+        );
     }
 }

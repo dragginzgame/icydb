@@ -5,7 +5,10 @@
 
 use crate::metrics::{
     sink::{CacheKind, CacheOutcome, MetricsEvent, record},
-    state::{EntityCounters, report_window_start, reset_all, with_state, with_state_mut},
+    state::{
+        EntityCounters, EventOps, MetricRatio, report_window_start, reset_all, with_state,
+        with_state_mut,
+    },
 };
 use candid::types::{CandidType, Label, Type, TypeInner};
 
@@ -201,6 +204,17 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
         "sql_write_matched_rows",
         "sql_write_mutated_rows",
         "sql_write_returning_rows",
+        "sql_write_error_insert",
+        "sql_write_error_insert_select",
+        "sql_write_error_update",
+        "sql_write_error_delete",
+        "sql_write_error_corruption",
+        "sql_write_error_incompatible_persisted_format",
+        "sql_write_error_not_found",
+        "sql_write_error_internal",
+        "sql_write_error_conflict",
+        "sql_write_error_unsupported",
+        "sql_write_error_invariant_violation",
         "write_rows_touched",
         "write_index_entries_changed",
         "write_reverse_index_entries_changed",
@@ -267,6 +281,64 @@ fn cache_metrics_accumulate_by_cache_kind_and_entity() {
     assert_eq!(summary.cache_sql_compiled_command_inserts(), 1);
 }
 
+#[test]
+fn derived_ratio_helpers_use_raw_counter_totals_without_changing_report_shape() {
+    let ops = EventOps {
+        load_candidate_rows_scanned: 16,
+        load_candidate_rows_filtered: 12,
+        load_result_rows_emitted: 4,
+        sql_write_matched_rows: 8,
+        sql_write_mutated_rows: 4,
+        sql_write_returning_rows: 2,
+        write_rows_touched: 4,
+        write_index_entries_changed: 8,
+        write_reverse_index_entries_changed: 6,
+        write_relation_checks: 2,
+        ..Default::default()
+    };
+
+    assert_eq!(
+        ops.load_selectivity_ratio().map(MetricRatio::into_parts),
+        Some((4, 16))
+    );
+    assert_eq!(
+        ops.load_filter_ratio().map(MetricRatio::into_parts),
+        Some((12, 16))
+    );
+    assert_eq!(
+        ops.sql_write_mutation_ratio().map(MetricRatio::into_parts),
+        Some((4, 8))
+    );
+    assert_eq!(
+        ops.sql_write_returning_ratio().map(MetricRatio::into_parts),
+        Some((2, 4))
+    );
+    assert_eq!(
+        ops.write_index_entries_per_row()
+            .map(MetricRatio::into_parts),
+        Some((8, 4))
+    );
+    assert_eq!(
+        ops.write_reverse_index_entries_per_row()
+            .map(MetricRatio::into_parts),
+        Some((6, 4)),
+    );
+    assert_eq!(
+        ops.write_relation_checks_per_row()
+            .map(MetricRatio::into_parts),
+        Some((2, 4))
+    );
+
+    let empty = EventOps::default();
+    assert_eq!(empty.load_selectivity_ratio(), None);
+    assert_eq!(empty.load_filter_ratio(), None);
+    assert_eq!(empty.sql_write_mutation_ratio(), None);
+    assert_eq!(empty.sql_write_returning_ratio(), None);
+    assert_eq!(empty.write_index_entries_per_row(), None);
+    assert_eq!(empty.write_reverse_index_entries_per_row(), None);
+    assert_eq!(empty.write_relation_checks_per_row(), None);
+}
+
 // Fixture with every per-entity field populated so the Candid-shape test also
 // proves report projection does not drop newly added counters.
 const fn populated_entity_counters_fixture() -> EntityCounters {
@@ -326,6 +398,17 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         sql_write_matched_rows: 72,
         sql_write_mutated_rows: 73,
         sql_write_returning_rows: 74,
+        sql_write_error_insert: 75,
+        sql_write_error_insert_select: 76,
+        sql_write_error_update: 77,
+        sql_write_error_delete: 78,
+        sql_write_error_corruption: 79,
+        sql_write_error_incompatible_persisted_format: 80,
+        sql_write_error_not_found: 81,
+        sql_write_error_internal: 82,
+        sql_write_error_conflict: 83,
+        sql_write_error_unsupported: 84,
+        sql_write_error_invariant_violation: 85,
         rows_deleted: 10,
         index_inserts: 11,
         index_removes: 12,
@@ -403,6 +486,17 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "sql_write_matched_rows",
         "sql_write_mutated_rows",
         "sql_write_returning_rows",
+        "sql_write_error_insert",
+        "sql_write_error_insert_select",
+        "sql_write_error_update",
+        "sql_write_error_delete",
+        "sql_write_error_corruption",
+        "sql_write_error_incompatible_persisted_format",
+        "sql_write_error_not_found",
+        "sql_write_error_internal",
+        "sql_write_error_conflict",
+        "sql_write_error_unsupported",
+        "sql_write_error_invariant_violation",
         "rows_deleted",
         "index_inserts",
         "index_removes",
@@ -493,6 +587,17 @@ fn entity_summary_candid_shape_is_stable() {
     assert_eq!(summary.sql_write_matched_rows(), 72);
     assert_eq!(summary.sql_write_mutated_rows(), 73);
     assert_eq!(summary.sql_write_returning_rows(), 74);
+    assert_eq!(summary.sql_write_error_insert(), 75);
+    assert_eq!(summary.sql_write_error_insert_select(), 76);
+    assert_eq!(summary.sql_write_error_update(), 77);
+    assert_eq!(summary.sql_write_error_delete(), 78);
+    assert_eq!(summary.sql_write_error_corruption(), 79);
+    assert_eq!(summary.sql_write_error_incompatible_persisted_format(), 80);
+    assert_eq!(summary.sql_write_error_not_found(), 81);
+    assert_eq!(summary.sql_write_error_internal(), 82);
+    assert_eq!(summary.sql_write_error_conflict(), 83);
+    assert_eq!(summary.sql_write_error_unsupported(), 84);
+    assert_eq!(summary.sql_write_error_invariant_violation(), 85);
     assert_eq!(summary.index_inserts(), 11);
     assert_eq!(summary.index_removes(), 12);
     assert_eq!(summary.reverse_index_inserts(), 13);
@@ -506,4 +611,73 @@ fn entity_summary_candid_shape_is_stable() {
     assert_eq!(summary.unique_violations(), 17);
     assert_eq!(summary.non_atomic_partial_commits(), 18);
     assert_eq!(summary.non_atomic_partial_rows_committed(), 19);
+}
+
+#[test]
+fn entity_summary_derived_ratio_helpers_use_projected_counter_totals() {
+    reset_all();
+    with_state_mut(|state| {
+        state.entities.insert(
+            "ratio".to_string(),
+            EntityCounters {
+                load_candidate_rows_scanned: 20,
+                load_candidate_rows_filtered: 5,
+                load_result_rows_emitted: 10,
+                sql_write_matched_rows: 8,
+                sql_write_mutated_rows: 6,
+                sql_write_returning_rows: 3,
+                write_rows_touched: 4,
+                write_index_entries_changed: 2,
+                write_reverse_index_entries_changed: 8,
+                write_relation_checks: 1,
+                ..Default::default()
+            },
+        );
+    });
+
+    let report = report_window_start(None);
+    let summary = report
+        .entity_counters()
+        .first()
+        .expect("entity summary should exist for ratio state");
+    assert_eq!(
+        summary
+            .load_selectivity_ratio()
+            .map(MetricRatio::into_parts),
+        Some((10, 20)),
+    );
+    assert_eq!(
+        summary.load_filter_ratio().map(MetricRatio::into_parts),
+        Some((5, 20)),
+    );
+    assert_eq!(
+        summary
+            .sql_write_mutation_ratio()
+            .map(MetricRatio::into_parts),
+        Some((6, 8)),
+    );
+    assert_eq!(
+        summary
+            .sql_write_returning_ratio()
+            .map(MetricRatio::into_parts),
+        Some((3, 6)),
+    );
+    assert_eq!(
+        summary
+            .write_index_entries_per_row()
+            .map(MetricRatio::into_parts),
+        Some((2, 4)),
+    );
+    assert_eq!(
+        summary
+            .write_reverse_index_entries_per_row()
+            .map(MetricRatio::into_parts),
+        Some((8, 4)),
+    );
+    assert_eq!(
+        summary
+            .write_relation_checks_per_row()
+            .map(MetricRatio::into_parts),
+        Some((1, 4)),
+    );
 }

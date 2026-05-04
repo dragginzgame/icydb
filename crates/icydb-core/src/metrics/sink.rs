@@ -21,10 +21,11 @@ thread_local! {
 ///
 
 #[derive(Clone, Copy, Debug)]
+#[remain::sorted]
 pub enum ExecKind {
+    Delete,
     Load,
     Save,
-    Delete,
 }
 
 ///
@@ -32,16 +33,17 @@ pub enum ExecKind {
 ///
 
 #[derive(Clone, Copy, Debug)]
+#[remain::sorted]
 pub enum ExecOutcome {
-    Success,
+    Aborted,
+    ErrorConflict,
     ErrorCorruption,
     ErrorIncompatiblePersistedFormat,
-    ErrorNotFound,
     ErrorInternal,
-    ErrorConflict,
-    ErrorUnsupported,
     ErrorInvariantViolation,
-    Aborted,
+    ErrorNotFound,
+    ErrorUnsupported,
+    Success,
 }
 
 ///
@@ -49,6 +51,7 @@ pub enum ExecOutcome {
 ///
 
 #[derive(Clone, Copy, Debug)]
+#[remain::sorted]
 pub enum CacheKind {
     SharedQueryPlan,
     SqlCompiledCommand,
@@ -59,23 +62,26 @@ pub enum CacheKind {
 ///
 
 #[derive(Clone, Copy, Debug)]
+#[remain::sorted]
 pub enum CacheOutcome {
     Hit,
-    Miss,
     Insert,
+    Miss,
 }
 
 impl ExecOutcome {
     // Map the crate's typed runtime error taxonomy into stable metrics buckets.
+    #[remain::check]
     const fn from_error(error: &InternalError) -> Self {
+        #[remain::sorted]
         match error.class() {
+            ErrorClass::Conflict => Self::ErrorConflict,
             ErrorClass::Corruption => Self::ErrorCorruption,
             ErrorClass::IncompatiblePersistedFormat => Self::ErrorIncompatiblePersistedFormat,
-            ErrorClass::NotFound => Self::ErrorNotFound,
             ErrorClass::Internal => Self::ErrorInternal,
-            ErrorClass::Conflict => Self::ErrorConflict,
-            ErrorClass::Unsupported => Self::ErrorUnsupported,
             ErrorClass::InvariantViolation => Self::ErrorInvariantViolation,
+            ErrorClass::NotFound => Self::ErrorNotFound,
+            ErrorClass::Unsupported => Self::ErrorUnsupported,
         }
     }
 }
@@ -85,10 +91,11 @@ impl ExecOutcome {
 ///
 
 #[derive(Clone, Copy, Debug)]
+#[remain::sorted]
 pub enum SaveMutationKind {
     Insert,
-    Update,
     Replace,
+    Update,
 }
 
 ///
@@ -96,11 +103,12 @@ pub enum SaveMutationKind {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[remain::sorted]
 pub enum SqlWriteKind {
+    Delete,
     Insert,
     InsertSelect,
     Update,
-    Delete,
 }
 
 ///
@@ -108,16 +116,17 @@ pub enum SqlWriteKind {
 ///
 
 #[derive(Clone, Copy, Debug)]
+#[remain::sorted]
 pub enum PlanKind {
     ByKey,
     ByKeys,
-    KeyRange,
-    IndexPrefix,
-    IndexMultiLookup,
-    IndexRange,
     FullScan,
-    Union,
+    IndexMultiLookup,
+    IndexPrefix,
+    IndexRange,
     Intersection,
+    KeyRange,
+    Union,
 }
 
 ///
@@ -128,6 +137,7 @@ pub enum PlanKind {
 /// through string codes that the sink would immediately decode again.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[remain::sorted]
 pub enum GroupedPlanExecutionMode {
     HashMaterialized,
     OrderedMaterialized,
@@ -138,23 +148,8 @@ pub enum GroupedPlanExecutionMode {
 ///
 
 #[derive(Clone, Copy, Debug)]
+#[remain::sorted]
 pub enum MetricsEvent {
-    ExecStart {
-        kind: ExecKind,
-        entity_path: &'static str,
-    },
-    ExecFinish {
-        kind: ExecKind,
-        entity_path: &'static str,
-        rows_touched: u64,
-        inst_delta: u64,
-        outcome: ExecOutcome,
-    },
-    ExecError {
-        kind: ExecKind,
-        entity_path: &'static str,
-        outcome: ExecOutcome,
-    },
     Cache {
         entity_path: &'static str,
         kind: CacheKind,
@@ -164,13 +159,51 @@ pub enum MetricsEvent {
         kind: CacheKind,
         entries: u64,
     },
-    RowsScanned {
+    ExecError {
+        kind: ExecKind,
         entity_path: &'static str,
-        rows_scanned: u64,
+        outcome: ExecOutcome,
     },
-    RowsFiltered {
+    ExecFinish {
+        kind: ExecKind,
         entity_path: &'static str,
-        rows_filtered: u64,
+        rows_touched: u64,
+        inst_delta: u64,
+        outcome: ExecOutcome,
+    },
+    ExecStart {
+        kind: ExecKind,
+        entity_path: &'static str,
+    },
+    IndexDelta {
+        entity_path: &'static str,
+        inserts: u64,
+        removes: u64,
+    },
+    LoadRowEfficiency {
+        entity_path: &'static str,
+        candidate_rows_scanned: u64,
+        candidate_rows_filtered: u64,
+        result_rows_emitted: u64,
+    },
+    NonAtomicPartialCommit {
+        entity_path: &'static str,
+        committed_rows: u64,
+    },
+    Plan {
+        entity_path: &'static str,
+        kind: PlanKind,
+        grouped_execution_mode: Option<GroupedPlanExecutionMode>,
+    },
+    RelationValidation {
+        entity_path: &'static str,
+        reverse_lookups: u64,
+        blocked_deletes: u64,
+    },
+    ReverseIndexDelta {
+        entity_path: &'static str,
+        inserts: u64,
+        removes: u64,
     },
     RowsAggregated {
         entity_path: &'static str,
@@ -180,33 +213,13 @@ pub enum MetricsEvent {
         entity_path: &'static str,
         rows_emitted: u64,
     },
-    LoadRowEfficiency {
+    RowsFiltered {
         entity_path: &'static str,
-        candidate_rows_scanned: u64,
-        candidate_rows_filtered: u64,
-        result_rows_emitted: u64,
+        rows_filtered: u64,
     },
-    UniqueViolation {
+    RowsScanned {
         entity_path: &'static str,
-    },
-    IndexDelta {
-        entity_path: &'static str,
-        inserts: u64,
-        removes: u64,
-    },
-    ReverseIndexDelta {
-        entity_path: &'static str,
-        inserts: u64,
-        removes: u64,
-    },
-    RelationValidation {
-        entity_path: &'static str,
-        reverse_lookups: u64,
-        blocked_deletes: u64,
-    },
-    NonAtomicPartialCommit {
-        entity_path: &'static str,
-        committed_rows: u64,
+        rows_scanned: u64,
     },
     SaveMutation {
         entity_path: &'static str,
@@ -220,10 +233,13 @@ pub enum MetricsEvent {
         mutated_rows: u64,
         returning_rows: u64,
     },
-    Plan {
+    SqlWriteError {
         entity_path: &'static str,
-        kind: PlanKind,
-        grouped_execution_mode: Option<GroupedPlanExecutionMode>,
+        kind: SqlWriteKind,
+        class: ErrorClass,
+    },
+    UniqueViolation {
+        entity_path: &'static str,
     },
 }
 
@@ -595,6 +611,21 @@ impl MetricsSink for GlobalMetricsSink {
                 });
             }
 
+            MetricsEvent::SqlWriteError {
+                entity_path,
+                kind,
+                class,
+            } => {
+                metrics::with_state_mut(|m| {
+                    record_global_sql_write_error_kind(&mut m.ops, kind);
+                    record_global_sql_write_error_class(&mut m.ops, class);
+
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    record_entity_sql_write_error_kind(entry, kind);
+                    record_entity_sql_write_error_class(entry, class);
+                });
+            }
+
             MetricsEvent::Plan {
                 entity_path,
                 kind,
@@ -643,28 +674,32 @@ pub(crate) fn record(event: MetricsEvent) {
 
 // Start counters are used for ordinary spans and for load errors that return
 // before the successful load finalizers create their normal span.
+#[remain::check]
 const fn record_global_exec_start(ops: &mut metrics::EventOps, kind: ExecKind) {
+    #[remain::sorted]
     match kind {
-        ExecKind::Load => ops.load_calls = ops.load_calls.saturating_add(1),
-        ExecKind::Save => ops.save_calls = ops.save_calls.saturating_add(1),
         ExecKind::Delete => {
             ops.delete_calls = ops.delete_calls.saturating_add(1);
         }
+        ExecKind::Load => ops.load_calls = ops.load_calls.saturating_add(1),
+        ExecKind::Save => ops.save_calls = ops.save_calls.saturating_add(1),
     }
 }
 
 // Mirror executor starts into entity summaries so attempts and outcomes can be
 // read from the same per-entity row in the report.
+#[remain::check]
 const fn record_entity_exec_start(ops: &mut metrics::EntityCounters, kind: ExecKind) {
+    #[remain::sorted]
     match kind {
+        ExecKind::Delete => {
+            ops.delete_calls = ops.delete_calls.saturating_add(1);
+        }
         ExecKind::Load => {
             ops.load_calls = ops.load_calls.saturating_add(1);
         }
         ExecKind::Save => {
             ops.save_calls = ops.save_calls.saturating_add(1);
-        }
-        ExecKind::Delete => {
-            ops.delete_calls = ops.delete_calls.saturating_add(1);
         }
     }
 }
@@ -672,10 +707,15 @@ const fn record_entity_exec_start(ops: &mut metrics::EntityCounters, kind: ExecK
 // Outcome counters are shared by all executor kinds. Per-kind attempts still
 // come from load/save/delete call counters, so this layer only tracks finish
 // status and error taxonomy.
+#[remain::check]
 const fn record_global_exec_outcome(ops: &mut metrics::EventOps, outcome: ExecOutcome) {
+    #[remain::sorted]
     match outcome {
-        ExecOutcome::Success => {
-            ops.exec_success = ops.exec_success.saturating_add(1);
+        ExecOutcome::Aborted => {
+            ops.exec_aborted = ops.exec_aborted.saturating_add(1);
+        }
+        ExecOutcome::ErrorConflict => {
+            ops.exec_error_conflict = ops.exec_error_conflict.saturating_add(1);
         }
         ExecOutcome::ErrorCorruption => {
             ops.exec_error_corruption = ops.exec_error_corruption.saturating_add(1);
@@ -685,34 +725,36 @@ const fn record_global_exec_outcome(ops: &mut metrics::EventOps, outcome: ExecOu
                 .exec_error_incompatible_persisted_format
                 .saturating_add(1);
         }
-        ExecOutcome::ErrorNotFound => {
-            ops.exec_error_not_found = ops.exec_error_not_found.saturating_add(1);
-        }
         ExecOutcome::ErrorInternal => {
             ops.exec_error_internal = ops.exec_error_internal.saturating_add(1);
-        }
-        ExecOutcome::ErrorConflict => {
-            ops.exec_error_conflict = ops.exec_error_conflict.saturating_add(1);
-        }
-        ExecOutcome::ErrorUnsupported => {
-            ops.exec_error_unsupported = ops.exec_error_unsupported.saturating_add(1);
         }
         ExecOutcome::ErrorInvariantViolation => {
             ops.exec_error_invariant_violation =
                 ops.exec_error_invariant_violation.saturating_add(1);
         }
-        ExecOutcome::Aborted => {
-            ops.exec_aborted = ops.exec_aborted.saturating_add(1);
+        ExecOutcome::ErrorNotFound => {
+            ops.exec_error_not_found = ops.exec_error_not_found.saturating_add(1);
+        }
+        ExecOutcome::ErrorUnsupported => {
+            ops.exec_error_unsupported = ops.exec_error_unsupported.saturating_add(1);
+        }
+        ExecOutcome::Success => {
+            ops.exec_success = ops.exec_success.saturating_add(1);
         }
     }
 }
 
 // Mirror outcome attribution into entity summaries so failed operations can be
 // correlated with the model that owned the executor span.
+#[remain::check]
 const fn record_entity_exec_outcome(ops: &mut metrics::EntityCounters, outcome: ExecOutcome) {
+    #[remain::sorted]
     match outcome {
-        ExecOutcome::Success => {
-            ops.exec_success = ops.exec_success.saturating_add(1);
+        ExecOutcome::Aborted => {
+            ops.exec_aborted = ops.exec_aborted.saturating_add(1);
+        }
+        ExecOutcome::ErrorConflict => {
+            ops.exec_error_conflict = ops.exec_error_conflict.saturating_add(1);
         }
         ExecOutcome::ErrorCorruption => {
             ops.exec_error_corruption = ops.exec_error_corruption.saturating_add(1);
@@ -722,30 +764,32 @@ const fn record_entity_exec_outcome(ops: &mut metrics::EntityCounters, outcome: 
                 .exec_error_incompatible_persisted_format
                 .saturating_add(1);
         }
-        ExecOutcome::ErrorNotFound => {
-            ops.exec_error_not_found = ops.exec_error_not_found.saturating_add(1);
-        }
         ExecOutcome::ErrorInternal => {
             ops.exec_error_internal = ops.exec_error_internal.saturating_add(1);
-        }
-        ExecOutcome::ErrorConflict => {
-            ops.exec_error_conflict = ops.exec_error_conflict.saturating_add(1);
-        }
-        ExecOutcome::ErrorUnsupported => {
-            ops.exec_error_unsupported = ops.exec_error_unsupported.saturating_add(1);
         }
         ExecOutcome::ErrorInvariantViolation => {
             ops.exec_error_invariant_violation =
                 ops.exec_error_invariant_violation.saturating_add(1);
         }
-        ExecOutcome::Aborted => {
-            ops.exec_aborted = ops.exec_aborted.saturating_add(1);
+        ExecOutcome::ErrorNotFound => {
+            ops.exec_error_not_found = ops.exec_error_not_found.saturating_add(1);
+        }
+        ExecOutcome::ErrorUnsupported => {
+            ops.exec_error_unsupported = ops.exec_error_unsupported.saturating_add(1);
+        }
+        ExecOutcome::Success => {
+            ops.exec_success = ops.exec_success.saturating_add(1);
         }
     }
 }
 
+#[remain::check]
 const fn record_global_sql_write_kind(ops: &mut metrics::EventOps, kind: SqlWriteKind) {
+    #[remain::sorted]
     match kind {
+        SqlWriteKind::Delete => {
+            ops.sql_delete_calls = ops.sql_delete_calls.saturating_add(1);
+        }
         SqlWriteKind::Insert => {
             ops.sql_insert_calls = ops.sql_insert_calls.saturating_add(1);
         }
@@ -754,15 +798,17 @@ const fn record_global_sql_write_kind(ops: &mut metrics::EventOps, kind: SqlWrit
         }
         SqlWriteKind::Update => {
             ops.sql_update_calls = ops.sql_update_calls.saturating_add(1);
-        }
-        SqlWriteKind::Delete => {
-            ops.sql_delete_calls = ops.sql_delete_calls.saturating_add(1);
         }
     }
 }
 
+#[remain::check]
 const fn record_entity_sql_write_kind(ops: &mut metrics::EntityCounters, kind: SqlWriteKind) {
+    #[remain::sorted]
     match kind {
+        SqlWriteKind::Delete => {
+            ops.sql_delete_calls = ops.sql_delete_calls.saturating_add(1);
+        }
         SqlWriteKind::Insert => {
             ops.sql_insert_calls = ops.sql_insert_calls.saturating_add(1);
         }
@@ -772,8 +818,113 @@ const fn record_entity_sql_write_kind(ops: &mut metrics::EntityCounters, kind: S
         SqlWriteKind::Update => {
             ops.sql_update_calls = ops.sql_update_calls.saturating_add(1);
         }
+    }
+}
+
+// SQL write errors are split by command kind so dashboards can distinguish
+// invalid write shapes from failing statement families.
+#[remain::check]
+const fn record_global_sql_write_error_kind(ops: &mut metrics::EventOps, kind: SqlWriteKind) {
+    #[remain::sorted]
+    match kind {
         SqlWriteKind::Delete => {
-            ops.sql_delete_calls = ops.sql_delete_calls.saturating_add(1);
+            ops.sql_write_error_delete = ops.sql_write_error_delete.saturating_add(1);
+        }
+        SqlWriteKind::Insert => {
+            ops.sql_write_error_insert = ops.sql_write_error_insert.saturating_add(1);
+        }
+        SqlWriteKind::InsertSelect => {
+            ops.sql_write_error_insert_select = ops.sql_write_error_insert_select.saturating_add(1);
+        }
+        SqlWriteKind::Update => {
+            ops.sql_write_error_update = ops.sql_write_error_update.saturating_add(1);
+        }
+    }
+}
+
+// Keep the per-entity write-error command counters aligned with the global
+// report so entity summaries can explain localized write rejection hotspots.
+#[remain::check]
+const fn record_entity_sql_write_error_kind(ops: &mut metrics::EntityCounters, kind: SqlWriteKind) {
+    #[remain::sorted]
+    match kind {
+        SqlWriteKind::Delete => {
+            ops.sql_write_error_delete = ops.sql_write_error_delete.saturating_add(1);
+        }
+        SqlWriteKind::Insert => {
+            ops.sql_write_error_insert = ops.sql_write_error_insert.saturating_add(1);
+        }
+        SqlWriteKind::InsertSelect => {
+            ops.sql_write_error_insert_select = ops.sql_write_error_insert_select.saturating_add(1);
+        }
+        SqlWriteKind::Update => {
+            ops.sql_write_error_update = ops.sql_write_error_update.saturating_add(1);
+        }
+    }
+}
+
+// Error-class counters retain the stable taxonomy without tying the metrics
+// report to internal SQL planning, validation, or executor error types.
+#[remain::check]
+const fn record_global_sql_write_error_class(ops: &mut metrics::EventOps, class: ErrorClass) {
+    #[remain::sorted]
+    match class {
+        ErrorClass::Conflict => {
+            ops.sql_write_error_conflict = ops.sql_write_error_conflict.saturating_add(1);
+        }
+        ErrorClass::Corruption => {
+            ops.sql_write_error_corruption = ops.sql_write_error_corruption.saturating_add(1);
+        }
+        ErrorClass::IncompatiblePersistedFormat => {
+            ops.sql_write_error_incompatible_persisted_format = ops
+                .sql_write_error_incompatible_persisted_format
+                .saturating_add(1);
+        }
+        ErrorClass::Internal => {
+            ops.sql_write_error_internal = ops.sql_write_error_internal.saturating_add(1);
+        }
+        ErrorClass::InvariantViolation => {
+            ops.sql_write_error_invariant_violation =
+                ops.sql_write_error_invariant_violation.saturating_add(1);
+        }
+        ErrorClass::NotFound => {
+            ops.sql_write_error_not_found = ops.sql_write_error_not_found.saturating_add(1);
+        }
+        ErrorClass::Unsupported => {
+            ops.sql_write_error_unsupported = ops.sql_write_error_unsupported.saturating_add(1);
+        }
+    }
+}
+
+// Mirror error-class totals per entity so one noisy table does not disappear
+// into the process-wide rejected-write totals.
+#[remain::check]
+const fn record_entity_sql_write_error_class(ops: &mut metrics::EntityCounters, class: ErrorClass) {
+    #[remain::sorted]
+    match class {
+        ErrorClass::Conflict => {
+            ops.sql_write_error_conflict = ops.sql_write_error_conflict.saturating_add(1);
+        }
+        ErrorClass::Corruption => {
+            ops.sql_write_error_corruption = ops.sql_write_error_corruption.saturating_add(1);
+        }
+        ErrorClass::IncompatiblePersistedFormat => {
+            ops.sql_write_error_incompatible_persisted_format = ops
+                .sql_write_error_incompatible_persisted_format
+                .saturating_add(1);
+        }
+        ErrorClass::Internal => {
+            ops.sql_write_error_internal = ops.sql_write_error_internal.saturating_add(1);
+        }
+        ErrorClass::InvariantViolation => {
+            ops.sql_write_error_invariant_violation =
+                ops.sql_write_error_invariant_violation.saturating_add(1);
+        }
+        ErrorClass::NotFound => {
+            ops.sql_write_error_not_found = ops.sql_write_error_not_found.saturating_add(1);
+        }
+        ErrorClass::Unsupported => {
+            ops.sql_write_error_unsupported = ops.sql_write_error_unsupported.saturating_add(1);
         }
     }
 }
@@ -790,25 +941,25 @@ const fn record_global_cache_outcome(
         (CacheKind::SharedQueryPlan, CacheOutcome::Hit) => {
             ops.cache_shared_query_plan_hits = ops.cache_shared_query_plan_hits.saturating_add(1);
         }
-        (CacheKind::SharedQueryPlan, CacheOutcome::Miss) => {
-            ops.cache_shared_query_plan_misses =
-                ops.cache_shared_query_plan_misses.saturating_add(1);
-        }
         (CacheKind::SharedQueryPlan, CacheOutcome::Insert) => {
             ops.cache_shared_query_plan_inserts =
                 ops.cache_shared_query_plan_inserts.saturating_add(1);
+        }
+        (CacheKind::SharedQueryPlan, CacheOutcome::Miss) => {
+            ops.cache_shared_query_plan_misses =
+                ops.cache_shared_query_plan_misses.saturating_add(1);
         }
         (CacheKind::SqlCompiledCommand, CacheOutcome::Hit) => {
             ops.cache_sql_compiled_command_hits =
                 ops.cache_sql_compiled_command_hits.saturating_add(1);
         }
-        (CacheKind::SqlCompiledCommand, CacheOutcome::Miss) => {
-            ops.cache_sql_compiled_command_misses =
-                ops.cache_sql_compiled_command_misses.saturating_add(1);
-        }
         (CacheKind::SqlCompiledCommand, CacheOutcome::Insert) => {
             ops.cache_sql_compiled_command_inserts =
                 ops.cache_sql_compiled_command_inserts.saturating_add(1);
+        }
+        (CacheKind::SqlCompiledCommand, CacheOutcome::Miss) => {
+            ops.cache_sql_compiled_command_misses =
+                ops.cache_sql_compiled_command_misses.saturating_add(1);
         }
     }
 }
@@ -816,7 +967,9 @@ const fn record_global_cache_outcome(
 // Cache size is a gauge for the current scope, not an event count. Cache owners
 // refresh it after lookups and insertions so the metrics report can show memory
 // pressure alongside reuse outcomes.
+#[remain::check]
 const fn record_global_cache_entries(ops: &mut metrics::EventOps, kind: CacheKind, entries: u64) {
+    #[remain::sorted]
     match kind {
         CacheKind::SharedQueryPlan => {
             ops.cache_shared_query_plan_entries = entries;
@@ -838,32 +991,34 @@ const fn record_entity_cache_outcome(
         (CacheKind::SharedQueryPlan, CacheOutcome::Hit) => {
             ops.cache_shared_query_plan_hits = ops.cache_shared_query_plan_hits.saturating_add(1);
         }
-        (CacheKind::SharedQueryPlan, CacheOutcome::Miss) => {
-            ops.cache_shared_query_plan_misses =
-                ops.cache_shared_query_plan_misses.saturating_add(1);
-        }
         (CacheKind::SharedQueryPlan, CacheOutcome::Insert) => {
             ops.cache_shared_query_plan_inserts =
                 ops.cache_shared_query_plan_inserts.saturating_add(1);
+        }
+        (CacheKind::SharedQueryPlan, CacheOutcome::Miss) => {
+            ops.cache_shared_query_plan_misses =
+                ops.cache_shared_query_plan_misses.saturating_add(1);
         }
         (CacheKind::SqlCompiledCommand, CacheOutcome::Hit) => {
             ops.cache_sql_compiled_command_hits =
                 ops.cache_sql_compiled_command_hits.saturating_add(1);
         }
-        (CacheKind::SqlCompiledCommand, CacheOutcome::Miss) => {
-            ops.cache_sql_compiled_command_misses =
-                ops.cache_sql_compiled_command_misses.saturating_add(1);
-        }
         (CacheKind::SqlCompiledCommand, CacheOutcome::Insert) => {
             ops.cache_sql_compiled_command_inserts =
                 ops.cache_sql_compiled_command_inserts.saturating_add(1);
+        }
+        (CacheKind::SqlCompiledCommand, CacheOutcome::Miss) => {
+            ops.cache_sql_compiled_command_misses =
+                ops.cache_sql_compiled_command_misses.saturating_add(1);
         }
     }
 }
 
 // Keep the legacy coarse global plan groups in lockstep with the detailed
 // route counters so existing dashboards and newer diagnostics can agree.
+#[remain::check]
 const fn record_global_plan_kind(ops: &mut metrics::EventOps, kind: PlanKind) {
+    #[remain::sorted]
     match kind {
         PlanKind::ByKey => {
             ops.plan_keys = ops.plan_keys.saturating_add(1);
@@ -873,44 +1028,47 @@ const fn record_global_plan_kind(ops: &mut metrics::EventOps, kind: PlanKind) {
             ops.plan_keys = ops.plan_keys.saturating_add(1);
             ops.plan_by_keys = ops.plan_by_keys.saturating_add(1);
         }
-        PlanKind::KeyRange => {
-            ops.plan_range = ops.plan_range.saturating_add(1);
-            ops.plan_key_range = ops.plan_key_range.saturating_add(1);
-        }
-        PlanKind::IndexPrefix => {
-            ops.plan_index = ops.plan_index.saturating_add(1);
-            ops.plan_index_prefix = ops.plan_index_prefix.saturating_add(1);
+        PlanKind::FullScan => {
+            ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
+            ops.plan_explicit_full_scan = ops.plan_explicit_full_scan.saturating_add(1);
         }
         PlanKind::IndexMultiLookup => {
             ops.plan_index = ops.plan_index.saturating_add(1);
             ops.plan_index_multi_lookup = ops.plan_index_multi_lookup.saturating_add(1);
         }
+        PlanKind::IndexPrefix => {
+            ops.plan_index = ops.plan_index.saturating_add(1);
+            ops.plan_index_prefix = ops.plan_index_prefix.saturating_add(1);
+        }
         PlanKind::IndexRange => {
             ops.plan_index = ops.plan_index.saturating_add(1);
             ops.plan_index_range = ops.plan_index_range.saturating_add(1);
         }
-        PlanKind::FullScan => {
+        PlanKind::Intersection => {
             ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
-            ops.plan_explicit_full_scan = ops.plan_explicit_full_scan.saturating_add(1);
+            ops.plan_intersection = ops.plan_intersection.saturating_add(1);
+        }
+        PlanKind::KeyRange => {
+            ops.plan_range = ops.plan_range.saturating_add(1);
+            ops.plan_key_range = ops.plan_key_range.saturating_add(1);
         }
         PlanKind::Union => {
             ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
             ops.plan_union = ops.plan_union.saturating_add(1);
-        }
-        PlanKind::Intersection => {
-            ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
-            ops.plan_intersection = ops.plan_intersection.saturating_add(1);
         }
     }
 }
 
 // Grouped plan modes are orthogonal to access shape, so count them beside the
 // route counters instead of deriving them from a single access kind.
+#[remain::check]
 const fn record_global_grouped_plan_mode(
     ops: &mut metrics::EventOps,
     grouped_execution_mode: Option<GroupedPlanExecutionMode>,
 ) {
+    #[remain::sorted]
     match grouped_execution_mode {
+        None => {}
         Some(GroupedPlanExecutionMode::HashMaterialized) => {
             ops.plan_grouped_hash_materialized =
                 ops.plan_grouped_hash_materialized.saturating_add(1);
@@ -919,14 +1077,15 @@ const fn record_global_grouped_plan_mode(
             ops.plan_grouped_ordered_materialized =
                 ops.plan_grouped_ordered_materialized.saturating_add(1);
         }
-        None => {}
     }
 }
 
 // Mirror global plan attribution into the owning entity summary so operators
 // can identify which model is causing full scans, unions, or expensive grouped
 // routes without correlating separate counters.
+#[remain::check]
 const fn record_entity_plan_kind(ops: &mut metrics::EntityCounters, kind: PlanKind) {
+    #[remain::sorted]
     match kind {
         PlanKind::ByKey => {
             ops.plan_keys = ops.plan_keys.saturating_add(1);
@@ -936,44 +1095,47 @@ const fn record_entity_plan_kind(ops: &mut metrics::EntityCounters, kind: PlanKi
             ops.plan_keys = ops.plan_keys.saturating_add(1);
             ops.plan_by_keys = ops.plan_by_keys.saturating_add(1);
         }
-        PlanKind::KeyRange => {
-            ops.plan_range = ops.plan_range.saturating_add(1);
-            ops.plan_key_range = ops.plan_key_range.saturating_add(1);
-        }
-        PlanKind::IndexPrefix => {
-            ops.plan_index = ops.plan_index.saturating_add(1);
-            ops.plan_index_prefix = ops.plan_index_prefix.saturating_add(1);
+        PlanKind::FullScan => {
+            ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
+            ops.plan_explicit_full_scan = ops.plan_explicit_full_scan.saturating_add(1);
         }
         PlanKind::IndexMultiLookup => {
             ops.plan_index = ops.plan_index.saturating_add(1);
             ops.plan_index_multi_lookup = ops.plan_index_multi_lookup.saturating_add(1);
         }
+        PlanKind::IndexPrefix => {
+            ops.plan_index = ops.plan_index.saturating_add(1);
+            ops.plan_index_prefix = ops.plan_index_prefix.saturating_add(1);
+        }
         PlanKind::IndexRange => {
             ops.plan_index = ops.plan_index.saturating_add(1);
             ops.plan_index_range = ops.plan_index_range.saturating_add(1);
         }
-        PlanKind::FullScan => {
+        PlanKind::Intersection => {
             ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
-            ops.plan_explicit_full_scan = ops.plan_explicit_full_scan.saturating_add(1);
+            ops.plan_intersection = ops.plan_intersection.saturating_add(1);
+        }
+        PlanKind::KeyRange => {
+            ops.plan_range = ops.plan_range.saturating_add(1);
+            ops.plan_key_range = ops.plan_key_range.saturating_add(1);
         }
         PlanKind::Union => {
             ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
             ops.plan_union = ops.plan_union.saturating_add(1);
-        }
-        PlanKind::Intersection => {
-            ops.plan_full_scan = ops.plan_full_scan.saturating_add(1);
-            ops.plan_intersection = ops.plan_intersection.saturating_add(1);
         }
     }
 }
 
 // Grouped execution counters stay per entity for the same reason as access
 // route counters: global counts show shape drift, but entity counts show owner.
+#[remain::check]
 const fn record_entity_grouped_plan_mode(
     ops: &mut metrics::EntityCounters,
     grouped_execution_mode: Option<GroupedPlanExecutionMode>,
 ) {
+    #[remain::sorted]
     match grouped_execution_mode {
+        None => {}
         Some(GroupedPlanExecutionMode::HashMaterialized) => {
             ops.plan_grouped_hash_materialized =
                 ops.plan_grouped_hash_materialized.saturating_add(1);
@@ -982,7 +1144,6 @@ const fn record_entity_grouped_plan_mode(
             ops.plan_grouped_ordered_materialized =
                 ops.plan_grouped_ordered_materialized.saturating_add(1);
         }
-        None => {}
     }
 }
 
@@ -1629,6 +1790,65 @@ mod tests {
         assert_eq!(entity.sql_write_matched_rows(), 12);
         assert_eq!(entity.sql_write_mutated_rows(), 11);
         assert_eq!(entity.sql_write_returning_rows(), 8);
+    }
+
+    #[test]
+    fn sql_write_error_metrics_accumulate_by_command_shape_and_class() {
+        metrics_reset_all();
+
+        for (kind, class) in [
+            (SqlWriteKind::Insert, ErrorClass::Unsupported),
+            (SqlWriteKind::InsertSelect, ErrorClass::Conflict),
+            (SqlWriteKind::Update, ErrorClass::InvariantViolation),
+            (SqlWriteKind::Delete, ErrorClass::Internal),
+            (SqlWriteKind::Update, ErrorClass::Corruption),
+            (
+                SqlWriteKind::Delete,
+                ErrorClass::IncompatiblePersistedFormat,
+            ),
+            (SqlWriteKind::Insert, ErrorClass::NotFound),
+        ] {
+            record(MetricsEvent::SqlWriteError {
+                entity_path: "metrics::tests::Entity",
+                kind,
+                class,
+            });
+        }
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("metrics report should include counters");
+        assert_eq!(counters.ops.sql_write_error_insert(), 2);
+        assert_eq!(counters.ops.sql_write_error_insert_select(), 1);
+        assert_eq!(counters.ops.sql_write_error_update(), 2);
+        assert_eq!(counters.ops.sql_write_error_delete(), 2);
+        assert_eq!(counters.ops.sql_write_error_corruption(), 1);
+        assert_eq!(
+            counters.ops.sql_write_error_incompatible_persisted_format(),
+            1,
+        );
+        assert_eq!(counters.ops.sql_write_error_not_found(), 1);
+        assert_eq!(counters.ops.sql_write_error_internal(), 1);
+        assert_eq!(counters.ops.sql_write_error_conflict(), 1);
+        assert_eq!(counters.ops.sql_write_error_unsupported(), 1);
+        assert_eq!(counters.ops.sql_write_error_invariant_violation(), 1);
+
+        let entity = report
+            .entity_counters()
+            .first()
+            .expect("sql write error metrics should retain per-entity counters");
+        assert_eq!(entity.sql_write_error_insert(), 2);
+        assert_eq!(entity.sql_write_error_insert_select(), 1);
+        assert_eq!(entity.sql_write_error_update(), 2);
+        assert_eq!(entity.sql_write_error_delete(), 2);
+        assert_eq!(entity.sql_write_error_corruption(), 1);
+        assert_eq!(entity.sql_write_error_incompatible_persisted_format(), 1);
+        assert_eq!(entity.sql_write_error_not_found(), 1);
+        assert_eq!(entity.sql_write_error_internal(), 1);
+        assert_eq!(entity.sql_write_error_conflict(), 1);
+        assert_eq!(entity.sql_write_error_unsupported(), 1);
+        assert_eq!(entity.sql_write_error_invariant_violation(), 1);
     }
 
     #[test]

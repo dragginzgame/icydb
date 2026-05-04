@@ -31,6 +31,53 @@ impl Default for EventState {
     }
 }
 
+///
+/// MetricRatio
+///
+/// MetricRatio carries a derived metric as an exact raw numerator and
+/// denominator pair. Callers can choose their own decimal rendering policy
+/// without losing precision inside the canister metrics layer.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MetricRatio {
+    numerator: u64,
+    denominator: u64,
+}
+
+impl MetricRatio {
+    /// Returns the ratio numerator.
+    #[must_use]
+    pub const fn numerator(&self) -> u64 {
+        self.numerator
+    }
+
+    /// Returns the ratio denominator.
+    #[must_use]
+    pub const fn denominator(&self) -> u64 {
+        self.denominator
+    }
+
+    /// Returns the raw ratio pair.
+    #[must_use]
+    pub const fn into_parts(self) -> (u64, u64) {
+        (self.numerator, self.denominator)
+    }
+}
+
+// Convert raw counter pairs into optional ratio values without encoding a
+// sentinel for "no activity". Consumers can distinguish absent denominators
+// from legitimate zero-valued work.
+const fn ratio(numerator: u64, denominator: u64) -> Option<MetricRatio> {
+    if denominator == 0 {
+        return None;
+    }
+
+    Some(MetricRatio {
+        numerator,
+        denominator,
+    })
+}
+
 #[cfg_attr(doc, doc = "EventOps\n\nOperation counters.")]
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct EventOps {
@@ -97,6 +144,17 @@ pub struct EventOps {
     pub(crate) sql_write_matched_rows: u64,
     pub(crate) sql_write_mutated_rows: u64,
     pub(crate) sql_write_returning_rows: u64,
+    pub(crate) sql_write_error_insert: u64,
+    pub(crate) sql_write_error_insert_select: u64,
+    pub(crate) sql_write_error_update: u64,
+    pub(crate) sql_write_error_delete: u64,
+    pub(crate) sql_write_error_corruption: u64,
+    pub(crate) sql_write_error_incompatible_persisted_format: u64,
+    pub(crate) sql_write_error_not_found: u64,
+    pub(crate) sql_write_error_internal: u64,
+    pub(crate) sql_write_error_conflict: u64,
+    pub(crate) sql_write_error_unsupported: u64,
+    pub(crate) sql_write_error_invariant_violation: u64,
 
     // Index maintenance
     pub(crate) index_inserts: u64,
@@ -406,6 +464,61 @@ impl EventOps {
     }
 
     #[must_use]
+    pub const fn sql_write_error_insert(&self) -> u64 {
+        self.sql_write_error_insert
+    }
+
+    #[must_use]
+    pub const fn sql_write_error_insert_select(&self) -> u64 {
+        self.sql_write_error_insert_select
+    }
+
+    #[must_use]
+    pub const fn sql_write_error_update(&self) -> u64 {
+        self.sql_write_error_update
+    }
+
+    #[must_use]
+    pub const fn sql_write_error_delete(&self) -> u64 {
+        self.sql_write_error_delete
+    }
+
+    #[must_use]
+    pub const fn sql_write_error_corruption(&self) -> u64 {
+        self.sql_write_error_corruption
+    }
+
+    #[must_use]
+    pub const fn sql_write_error_incompatible_persisted_format(&self) -> u64 {
+        self.sql_write_error_incompatible_persisted_format
+    }
+
+    #[must_use]
+    pub const fn sql_write_error_not_found(&self) -> u64 {
+        self.sql_write_error_not_found
+    }
+
+    #[must_use]
+    pub const fn sql_write_error_internal(&self) -> u64 {
+        self.sql_write_error_internal
+    }
+
+    #[must_use]
+    pub const fn sql_write_error_conflict(&self) -> u64 {
+        self.sql_write_error_conflict
+    }
+
+    #[must_use]
+    pub const fn sql_write_error_unsupported(&self) -> u64 {
+        self.sql_write_error_unsupported
+    }
+
+    #[must_use]
+    pub const fn sql_write_error_invariant_violation(&self) -> u64 {
+        self.sql_write_error_invariant_violation
+    }
+
+    #[must_use]
     pub const fn index_inserts(&self) -> u64 {
         self.index_inserts
     }
@@ -469,6 +582,57 @@ impl EventOps {
     pub const fn non_atomic_partial_rows_committed(&self) -> u64 {
         self.non_atomic_partial_rows_committed
     }
+
+    /// Returns result rows emitted per load candidate row scanned.
+    #[must_use]
+    pub const fn load_selectivity_ratio(&self) -> Option<MetricRatio> {
+        ratio(
+            self.load_result_rows_emitted,
+            self.load_candidate_rows_scanned,
+        )
+    }
+
+    /// Returns candidate rows filtered per load candidate row scanned.
+    #[must_use]
+    pub const fn load_filter_ratio(&self) -> Option<MetricRatio> {
+        ratio(
+            self.load_candidate_rows_filtered,
+            self.load_candidate_rows_scanned,
+        )
+    }
+
+    /// Returns SQL-mutated rows per SQL-matched row.
+    #[must_use]
+    pub const fn sql_write_mutation_ratio(&self) -> Option<MetricRatio> {
+        ratio(self.sql_write_mutated_rows, self.sql_write_matched_rows)
+    }
+
+    /// Returns SQL `RETURNING` rows per SQL-mutated row.
+    #[must_use]
+    pub const fn sql_write_returning_ratio(&self) -> Option<MetricRatio> {
+        ratio(self.sql_write_returning_rows, self.sql_write_mutated_rows)
+    }
+
+    /// Returns primary index entries changed per write row touched.
+    #[must_use]
+    pub const fn write_index_entries_per_row(&self) -> Option<MetricRatio> {
+        ratio(self.write_index_entries_changed, self.write_rows_touched)
+    }
+
+    /// Returns reverse-index entries changed per write row touched.
+    #[must_use]
+    pub const fn write_reverse_index_entries_per_row(&self) -> Option<MetricRatio> {
+        ratio(
+            self.write_reverse_index_entries_changed,
+            self.write_rows_touched,
+        )
+    }
+
+    /// Returns relation checks performed per write row touched.
+    #[must_use]
+    pub const fn write_relation_checks_per_row(&self) -> Option<MetricRatio> {
+        ratio(self.write_relation_checks, self.write_rows_touched)
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -529,6 +693,17 @@ pub(crate) struct EntityCounters {
     pub(crate) sql_write_matched_rows: u64,
     pub(crate) sql_write_mutated_rows: u64,
     pub(crate) sql_write_returning_rows: u64,
+    pub(crate) sql_write_error_insert: u64,
+    pub(crate) sql_write_error_insert_select: u64,
+    pub(crate) sql_write_error_update: u64,
+    pub(crate) sql_write_error_delete: u64,
+    pub(crate) sql_write_error_corruption: u64,
+    pub(crate) sql_write_error_incompatible_persisted_format: u64,
+    pub(crate) sql_write_error_not_found: u64,
+    pub(crate) sql_write_error_internal: u64,
+    pub(crate) sql_write_error_conflict: u64,
+    pub(crate) sql_write_error_unsupported: u64,
+    pub(crate) sql_write_error_invariant_violation: u64,
     pub(crate) index_inserts: u64,
     pub(crate) index_removes: u64,
     pub(crate) reverse_index_inserts: u64,
@@ -825,6 +1000,17 @@ pub struct EntitySummary {
     sql_write_matched_rows: u64,
     sql_write_mutated_rows: u64,
     sql_write_returning_rows: u64,
+    sql_write_error_insert: u64,
+    sql_write_error_insert_select: u64,
+    sql_write_error_update: u64,
+    sql_write_error_delete: u64,
+    sql_write_error_corruption: u64,
+    sql_write_error_incompatible_persisted_format: u64,
+    sql_write_error_not_found: u64,
+    sql_write_error_internal: u64,
+    sql_write_error_conflict: u64,
+    sql_write_error_unsupported: u64,
+    sql_write_error_invariant_violation: u64,
     index_inserts: u64,
     index_removes: u64,
     reverse_index_inserts: u64,
@@ -1127,6 +1313,61 @@ impl EntitySummary {
     }
 
     #[must_use]
+    pub const fn sql_write_error_insert(&self) -> u64 {
+        self.sql_write_error_insert
+    }
+
+    #[must_use]
+    pub const fn sql_write_error_insert_select(&self) -> u64 {
+        self.sql_write_error_insert_select
+    }
+
+    #[must_use]
+    pub const fn sql_write_error_update(&self) -> u64 {
+        self.sql_write_error_update
+    }
+
+    #[must_use]
+    pub const fn sql_write_error_delete(&self) -> u64 {
+        self.sql_write_error_delete
+    }
+
+    #[must_use]
+    pub const fn sql_write_error_corruption(&self) -> u64 {
+        self.sql_write_error_corruption
+    }
+
+    #[must_use]
+    pub const fn sql_write_error_incompatible_persisted_format(&self) -> u64 {
+        self.sql_write_error_incompatible_persisted_format
+    }
+
+    #[must_use]
+    pub const fn sql_write_error_not_found(&self) -> u64 {
+        self.sql_write_error_not_found
+    }
+
+    #[must_use]
+    pub const fn sql_write_error_internal(&self) -> u64 {
+        self.sql_write_error_internal
+    }
+
+    #[must_use]
+    pub const fn sql_write_error_conflict(&self) -> u64 {
+        self.sql_write_error_conflict
+    }
+
+    #[must_use]
+    pub const fn sql_write_error_unsupported(&self) -> u64 {
+        self.sql_write_error_unsupported
+    }
+
+    #[must_use]
+    pub const fn sql_write_error_invariant_violation(&self) -> u64 {
+        self.sql_write_error_invariant_violation
+    }
+
+    #[must_use]
     pub const fn index_inserts(&self) -> u64 {
         self.index_inserts
     }
@@ -1191,6 +1432,57 @@ impl EntitySummary {
         self.non_atomic_partial_rows_committed
     }
 
+    /// Returns result rows emitted per load candidate row scanned.
+    #[must_use]
+    pub const fn load_selectivity_ratio(&self) -> Option<MetricRatio> {
+        ratio(
+            self.load_result_rows_emitted,
+            self.load_candidate_rows_scanned,
+        )
+    }
+
+    /// Returns candidate rows filtered per load candidate row scanned.
+    #[must_use]
+    pub const fn load_filter_ratio(&self) -> Option<MetricRatio> {
+        ratio(
+            self.load_candidate_rows_filtered,
+            self.load_candidate_rows_scanned,
+        )
+    }
+
+    /// Returns SQL-mutated rows per SQL-matched row.
+    #[must_use]
+    pub const fn sql_write_mutation_ratio(&self) -> Option<MetricRatio> {
+        ratio(self.sql_write_mutated_rows, self.sql_write_matched_rows)
+    }
+
+    /// Returns SQL `RETURNING` rows per SQL-mutated row.
+    #[must_use]
+    pub const fn sql_write_returning_ratio(&self) -> Option<MetricRatio> {
+        ratio(self.sql_write_returning_rows, self.sql_write_mutated_rows)
+    }
+
+    /// Returns primary index entries changed per write row touched.
+    #[must_use]
+    pub const fn write_index_entries_per_row(&self) -> Option<MetricRatio> {
+        ratio(self.write_index_entries_changed, self.write_rows_touched)
+    }
+
+    /// Returns reverse-index entries changed per write row touched.
+    #[must_use]
+    pub const fn write_reverse_index_entries_per_row(&self) -> Option<MetricRatio> {
+        ratio(
+            self.write_reverse_index_entries_changed,
+            self.write_rows_touched,
+        )
+    }
+
+    /// Returns relation checks performed per write row touched.
+    #[must_use]
+    pub const fn write_relation_checks_per_row(&self) -> Option<MetricRatio> {
+        ratio(self.write_relation_checks, self.write_rows_touched)
+    }
+
     // Rank entity summaries by all visible activity so write-heavy or
     // maintenance-heavy entities are not hidden below read-heavy entities.
     const fn activity_score(&self) -> u64 {
@@ -1250,6 +1542,17 @@ impl EntitySummary {
             .saturating_add(self.sql_write_matched_rows)
             .saturating_add(self.sql_write_mutated_rows)
             .saturating_add(self.sql_write_returning_rows)
+            .saturating_add(self.sql_write_error_insert)
+            .saturating_add(self.sql_write_error_insert_select)
+            .saturating_add(self.sql_write_error_update)
+            .saturating_add(self.sql_write_error_delete)
+            .saturating_add(self.sql_write_error_corruption)
+            .saturating_add(self.sql_write_error_incompatible_persisted_format)
+            .saturating_add(self.sql_write_error_not_found)
+            .saturating_add(self.sql_write_error_internal)
+            .saturating_add(self.sql_write_error_conflict)
+            .saturating_add(self.sql_write_error_unsupported)
+            .saturating_add(self.sql_write_error_invariant_violation)
             .saturating_add(self.index_inserts)
             .saturating_add(self.index_removes)
             .saturating_add(self.reverse_index_inserts)
@@ -1329,6 +1632,18 @@ fn entity_summary_from_counters(path: &str, ops: &EntityCounters) -> EntitySumma
         sql_write_matched_rows: ops.sql_write_matched_rows,
         sql_write_mutated_rows: ops.sql_write_mutated_rows,
         sql_write_returning_rows: ops.sql_write_returning_rows,
+        sql_write_error_insert: ops.sql_write_error_insert,
+        sql_write_error_insert_select: ops.sql_write_error_insert_select,
+        sql_write_error_update: ops.sql_write_error_update,
+        sql_write_error_delete: ops.sql_write_error_delete,
+        sql_write_error_corruption: ops.sql_write_error_corruption,
+        sql_write_error_incompatible_persisted_format: ops
+            .sql_write_error_incompatible_persisted_format,
+        sql_write_error_not_found: ops.sql_write_error_not_found,
+        sql_write_error_internal: ops.sql_write_error_internal,
+        sql_write_error_conflict: ops.sql_write_error_conflict,
+        sql_write_error_unsupported: ops.sql_write_error_unsupported,
+        sql_write_error_invariant_violation: ops.sql_write_error_invariant_violation,
         index_inserts: ops.index_inserts,
         index_removes: ops.index_removes,
         reverse_index_inserts: ops.reverse_index_inserts,

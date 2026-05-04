@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     db::{MutationMode, StructuralPatch},
-    error::InternalError,
+    error::{ErrorClass, InternalError},
     metrics::sink::SqlWriteKind,
 };
 
@@ -121,6 +121,22 @@ fn captured_sql_write_events(
                 *mutated_rows,
                 *returning_rows,
             )),
+            _ => None,
+        })
+        .collect()
+}
+
+fn captured_sql_write_error_events(
+    events: &[MetricsEvent],
+) -> Vec<(&'static str, SqlWriteKind, ErrorClass)> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            MetricsEvent::SqlWriteError {
+                entity_path,
+                kind,
+                class,
+            } => Some((*entity_path, *kind, *class)),
             _ => None,
         })
         .collect()
@@ -839,6 +855,31 @@ fn execute_sql_statement_write_metrics_capture_sql_boundary_shape() {
             (SessionSqlWriteEntity::PATH, SqlWriteKind::Update, 3, 3, 3),
             (SessionSqlWriteEntity::PATH, SqlWriteKind::Delete, 1, 1, 1),
         ],
+    );
+}
+
+#[test]
+fn execute_sql_statement_write_error_metrics_capture_command_shape_and_class() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21)]);
+
+    let sink = SessionMetricsCaptureSink::default();
+    with_metrics_sink(&sink, || {
+        execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+            &session,
+            "UPDATE SessionSqlWriteEntity SET age = 'old' WHERE id = 1",
+        )
+        .expect_err("invalid SQL UPDATE literal should fail");
+    });
+
+    assert_eq!(
+        captured_sql_write_error_events(&sink.into_events()),
+        vec![(
+            SessionSqlWriteEntity::PATH,
+            SqlWriteKind::Update,
+            ErrorClass::Unsupported,
+        )],
     );
 }
 
