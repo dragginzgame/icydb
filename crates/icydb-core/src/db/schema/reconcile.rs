@@ -8,14 +8,14 @@ use crate::{
         Db, EntityRuntimeHooks,
         schema::{
             AcceptedSchemaSnapshot, PersistedSchemaSnapshot, SchemaStore, SchemaTransitionDecision,
-            compiled_schema_proposal_for_model, decide_schema_transition,
-            transition::SchemaTransitionRejectionKind,
+            SchemaTransitionPlanKind, compiled_schema_proposal_for_model, decide_schema_transition,
+            runtime::AcceptedRowLayoutRuntimeDescriptor, transition::SchemaTransitionRejectionKind,
         },
     },
     error::InternalError,
     metrics::sink::{
-        MetricsEvent, SchemaReconcileOutcome, record, record_accepted_schema_footprint_for_path,
-        record_schema_store_footprint_for_path,
+        MetricsEvent, SchemaReconcileOutcome, SchemaTransitionOutcome, record,
+        record_accepted_schema_footprint_for_path, record_schema_store_footprint_for_path,
     },
     model::entity::EntityModel,
     traits::CanisterKind,
@@ -94,6 +94,7 @@ pub(in crate::db) fn ensure_accepted_schema_snapshot(
         record_schema_reconcile(entity_path, outcome);
         record_schema_store_footprint(schema_store, entity_tag, entity_path);
         let accepted = AcceptedSchemaSnapshot::try_new(actual)?;
+        validate_accepted_runtime_descriptor(&accepted)?;
         record_accepted_schema_footprint(entity_path, &accepted);
 
         return Ok(accepted);
@@ -108,15 +109,35 @@ pub(in crate::db) fn ensure_accepted_schema_snapshot(
     record_schema_reconcile(entity_path, SchemaReconcileOutcome::FirstCreate);
     record_schema_store_footprint(schema_store, entity_tag, entity_path);
     let accepted = AcceptedSchemaSnapshot::try_new(expected)?;
+    validate_accepted_runtime_descriptor(&accepted)?;
     record_accepted_schema_footprint(entity_path, &accepted);
 
     Ok(accepted)
+}
+
+// Validate that every accepted snapshot can be projected into the schema-owned
+// runtime layout descriptor before callers use it as live schema authority.
+fn validate_accepted_runtime_descriptor(
+    accepted: &AcceptedSchemaSnapshot,
+) -> Result<(), InternalError> {
+    let _descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(accepted)?;
+
+    Ok(())
 }
 
 // Keep schema reconciliation instrumentation at the reconciliation boundary so
 // store/codec helpers remain persistence-focused and do not depend on metrics.
 fn record_schema_reconcile(entity_path: &'static str, outcome: SchemaReconcileOutcome) {
     record(MetricsEvent::SchemaReconcile {
+        entity_path,
+        outcome,
+    });
+}
+
+// Record transition-policy decisions separately from broader reconciliation
+// outcomes such as first-create writes, corrupt stores, or store failures.
+fn record_schema_transition(entity_path: &'static str, outcome: SchemaTransitionOutcome) {
+    record(MetricsEvent::SchemaTransition {
         entity_path,
         outcome,
     });
@@ -167,6 +188,37 @@ const fn schema_reconcile_rejection_outcome(
     }
 }
 
+// Map accepted transition plans into public transition metrics. The only
+// accepted plan today is exact-match, but the match keeps future plan kinds
+// visible at the policy boundary instead of hiding them in reconciliation.
+const fn schema_transition_plan_outcome(kind: SchemaTransitionPlanKind) -> SchemaTransitionOutcome {
+    match kind {
+        SchemaTransitionPlanKind::ExactMatch => SchemaTransitionOutcome::ExactMatch,
+    }
+}
+
+// Map schema-owned rejection classes into the narrower transition metrics
+// family. Unlike reconciliation metrics, this preserves the distinction
+// between entity identity, field contract, and snapshot fallback rejections.
+const fn schema_transition_rejection_outcome(
+    kind: SchemaTransitionRejectionKind,
+) -> SchemaTransitionOutcome {
+    match kind {
+        SchemaTransitionRejectionKind::EntityIdentity => {
+            SchemaTransitionOutcome::RejectedEntityIdentity
+        }
+        SchemaTransitionRejectionKind::FieldContract => {
+            SchemaTransitionOutcome::RejectedFieldContract
+        }
+        SchemaTransitionRejectionKind::FieldSlot => SchemaTransitionOutcome::RejectedFieldSlot,
+        SchemaTransitionRejectionKind::RowLayout => SchemaTransitionOutcome::RejectedRowLayout,
+        SchemaTransitionRejectionKind::SchemaVersion => {
+            SchemaTransitionOutcome::RejectedSchemaVersion
+        }
+        SchemaTransitionRejectionKind::Snapshot => SchemaTransitionOutcome::RejectedSnapshot,
+    }
+}
+
 // Fail closed when generated code no longer matches an accepted persisted
 // schema. Later schema-evolution work will replace this exact-match boundary
 // with compatibility checks and explicit migrations.
@@ -176,9 +228,15 @@ fn validate_existing_schema_snapshot(
     expected: &PersistedSchemaSnapshot,
 ) -> Result<SchemaReconcileOutcome, InternalError> {
     match decide_schema_transition(actual, expected) {
-        SchemaTransitionDecision::ExactMatch => Ok(SchemaReconcileOutcome::ExactMatch),
+        SchemaTransitionDecision::Accepted(plan) => {
+            record_schema_transition(entity_path, schema_transition_plan_outcome(plan.kind()));
+
+            Ok(SchemaReconcileOutcome::ExactMatch)
+        }
         SchemaTransitionDecision::Rejected(rejection) => {
             let outcome = schema_reconcile_rejection_outcome(rejection.kind());
+            let transition_outcome = schema_transition_rejection_outcome(rejection.kind());
+            record_schema_transition(entity_path, transition_outcome);
             record_schema_reconcile(entity_path, outcome);
 
             Err(InternalError::store_unsupported(format!(
@@ -335,6 +393,11 @@ mod tests {
             .expect("schema reconciliation should record metrics");
         assert_eq!(counters.ops().schema_reconcile_checks(), 1);
         assert_eq!(counters.ops().schema_reconcile_first_create(), 1);
+        assert_eq!(
+            counters.ops().schema_transition_checks(),
+            0,
+            "first-create reconciliation has no existing schema transition decision",
+        );
         assert_eq!(counters.ops().schema_store_snapshots(), 1);
         assert!(counters.ops().schema_store_encoded_bytes() > 0);
         assert_eq!(
@@ -364,6 +427,8 @@ mod tests {
         assert_eq!(counters.ops().schema_reconcile_checks(), 2);
         assert_eq!(counters.ops().schema_reconcile_first_create(), 1);
         assert_eq!(counters.ops().schema_reconcile_exact_match(), 1);
+        assert_eq!(counters.ops().schema_transition_checks(), 1);
+        assert_eq!(counters.ops().schema_transition_exact_match(), 1);
         assert_eq!(
             counters.ops().accepted_schema_fields(),
             2,
@@ -447,6 +512,11 @@ mod tests {
             .expect("schema reconciliation should record metrics");
         assert_eq!(counters.ops().schema_reconcile_checks(), 1);
         assert_eq!(counters.ops().schema_reconcile_rejected_other(), 1);
+        assert_eq!(counters.ops().schema_transition_checks(), 1);
+        assert_eq!(
+            counters.ops().schema_transition_rejected_entity_identity(),
+            1
+        );
     }
 
     #[test]

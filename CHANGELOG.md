@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.147.x] 🪪 - 2026-05-04 - Accepted Schema Authority Closeout
+
+- `0.147.1` reports schema transition decisions separately from startup reconciliation, adds the accepted row-layout descriptor boundary for future row decode/write work, and tightens metrics total-vs-bucket guard coverage.
+- `0.147.0` closes the accepted-schema authority release line by surfacing schema-change upgrade failures as concise schema errors before row rebuild decode can run.
+
+See detailed breakdown:
+[docs/changelog/0.147.md](docs/changelog/0.147.md)
+
+---
+
 ## [0.146.x] 🪪 - 2026-05-02 - Accepted Schema Authority
 
 This minor line is now intentionally complete. `0.146.x` makes accepted

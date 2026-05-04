@@ -139,6 +139,26 @@ pub enum SchemaReconcileOutcome {
 }
 
 ///
+/// SchemaTransitionOutcome
+///
+/// Stable schema transition policy buckets. These counters isolate the policy
+/// decision for an existing accepted snapshot from broader reconciliation
+/// outcomes such as first-create writes, corrupt stores, or store failures.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[remain::sorted]
+pub enum SchemaTransitionOutcome {
+    ExactMatch,
+    RejectedEntityIdentity,
+    RejectedFieldContract,
+    RejectedFieldSlot,
+    RejectedRowLayout,
+    RejectedSchemaVersion,
+    RejectedSnapshot,
+}
+
+///
 /// SqlCompileRejectPhase
 ///
 /// Stable SQL compile rejection buckets. These counters identify the broad
@@ -351,6 +371,10 @@ pub enum MetricsEvent {
         entity_path: &'static str,
         latest_snapshot_bytes: u64,
         snapshots: u64,
+    },
+    SchemaTransition {
+        entity_path: &'static str,
+        outcome: SchemaTransitionOutcome,
     },
     SqlCompileReject {
         entity_path: &'static str,
@@ -821,6 +845,17 @@ impl MetricsSink for GlobalMetricsSink {
                     );
                 });
             }
+            MetricsEvent::SchemaTransition {
+                entity_path,
+                outcome,
+            } => {
+                metrics::with_state_mut(|m| {
+                    record_global_schema_transition_outcome(&mut m.ops, outcome);
+
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    record_entity_schema_transition_outcome(entry, outcome);
+                });
+            }
             MetricsEvent::SqlCompileReject { entity_path, phase } => {
                 metrics::with_state_mut(|m| {
                     record_global_sql_compile_reject_phase(&mut m.ops, phase);
@@ -1156,6 +1191,94 @@ const fn record_entity_schema_reconcile_outcome(
         SchemaReconcileOutcome::StoreWriteError => {
             ops.schema_reconcile_store_write_error =
                 ops.schema_reconcile_store_write_error.saturating_add(1);
+        }
+    }
+}
+
+// Schema transition outcomes are narrower than reconciliation outcomes: they
+// count only policy decisions for an existing accepted snapshot.
+#[remain::check]
+const fn record_global_schema_transition_outcome(
+    ops: &mut metrics::EventOps,
+    outcome: SchemaTransitionOutcome,
+) {
+    ops.schema_transition_checks = ops.schema_transition_checks.saturating_add(1);
+
+    #[remain::sorted]
+    match outcome {
+        SchemaTransitionOutcome::ExactMatch => {
+            ops.schema_transition_exact_match = ops.schema_transition_exact_match.saturating_add(1);
+        }
+        SchemaTransitionOutcome::RejectedEntityIdentity => {
+            ops.schema_transition_rejected_entity_identity = ops
+                .schema_transition_rejected_entity_identity
+                .saturating_add(1);
+        }
+        SchemaTransitionOutcome::RejectedFieldContract => {
+            ops.schema_transition_rejected_field_contract = ops
+                .schema_transition_rejected_field_contract
+                .saturating_add(1);
+        }
+        SchemaTransitionOutcome::RejectedFieldSlot => {
+            ops.schema_transition_rejected_field_slot =
+                ops.schema_transition_rejected_field_slot.saturating_add(1);
+        }
+        SchemaTransitionOutcome::RejectedRowLayout => {
+            ops.schema_transition_rejected_row_layout =
+                ops.schema_transition_rejected_row_layout.saturating_add(1);
+        }
+        SchemaTransitionOutcome::RejectedSchemaVersion => {
+            ops.schema_transition_rejected_schema_version = ops
+                .schema_transition_rejected_schema_version
+                .saturating_add(1);
+        }
+        SchemaTransitionOutcome::RejectedSnapshot => {
+            ops.schema_transition_rejected_snapshot =
+                ops.schema_transition_rejected_snapshot.saturating_add(1);
+        }
+    }
+}
+
+// Mirror transition decisions into entity summaries so one drifting entity can
+// be found without conflating policy rejection with store/recovery failures.
+#[remain::check]
+const fn record_entity_schema_transition_outcome(
+    ops: &mut metrics::EntityCounters,
+    outcome: SchemaTransitionOutcome,
+) {
+    ops.schema_transition_checks = ops.schema_transition_checks.saturating_add(1);
+
+    #[remain::sorted]
+    match outcome {
+        SchemaTransitionOutcome::ExactMatch => {
+            ops.schema_transition_exact_match = ops.schema_transition_exact_match.saturating_add(1);
+        }
+        SchemaTransitionOutcome::RejectedEntityIdentity => {
+            ops.schema_transition_rejected_entity_identity = ops
+                .schema_transition_rejected_entity_identity
+                .saturating_add(1);
+        }
+        SchemaTransitionOutcome::RejectedFieldContract => {
+            ops.schema_transition_rejected_field_contract = ops
+                .schema_transition_rejected_field_contract
+                .saturating_add(1);
+        }
+        SchemaTransitionOutcome::RejectedFieldSlot => {
+            ops.schema_transition_rejected_field_slot =
+                ops.schema_transition_rejected_field_slot.saturating_add(1);
+        }
+        SchemaTransitionOutcome::RejectedRowLayout => {
+            ops.schema_transition_rejected_row_layout =
+                ops.schema_transition_rejected_row_layout.saturating_add(1);
+        }
+        SchemaTransitionOutcome::RejectedSchemaVersion => {
+            ops.schema_transition_rejected_schema_version = ops
+                .schema_transition_rejected_schema_version
+                .saturating_add(1);
+        }
+        SchemaTransitionOutcome::RejectedSnapshot => {
+            ops.schema_transition_rejected_snapshot =
+                ops.schema_transition_rejected_snapshot.saturating_add(1);
         }
     }
 }

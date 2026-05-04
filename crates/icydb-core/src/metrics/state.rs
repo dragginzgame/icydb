@@ -124,6 +124,14 @@ pub struct EventOps {
     pub(crate) schema_reconcile_rejected_row_layout: u64,
     pub(crate) schema_reconcile_rejected_schema_version: u64,
     pub(crate) schema_reconcile_store_write_error: u64,
+    pub(crate) schema_transition_checks: u64,
+    pub(crate) schema_transition_exact_match: u64,
+    pub(crate) schema_transition_rejected_entity_identity: u64,
+    pub(crate) schema_transition_rejected_field_contract: u64,
+    pub(crate) schema_transition_rejected_field_slot: u64,
+    pub(crate) schema_transition_rejected_row_layout: u64,
+    pub(crate) schema_transition_rejected_schema_version: u64,
+    pub(crate) schema_transition_rejected_snapshot: u64,
     pub(crate) schema_store_snapshots: u64,
     pub(crate) schema_store_encoded_bytes: u64,
     pub(crate) schema_store_latest_snapshot_bytes: u64,
@@ -425,6 +433,46 @@ impl EventOps {
     #[must_use]
     pub const fn schema_reconcile_store_write_error(&self) -> u64 {
         self.schema_reconcile_store_write_error
+    }
+
+    #[must_use]
+    pub const fn schema_transition_checks(&self) -> u64 {
+        self.schema_transition_checks
+    }
+
+    #[must_use]
+    pub const fn schema_transition_exact_match(&self) -> u64 {
+        self.schema_transition_exact_match
+    }
+
+    #[must_use]
+    pub const fn schema_transition_rejected_entity_identity(&self) -> u64 {
+        self.schema_transition_rejected_entity_identity
+    }
+
+    #[must_use]
+    pub const fn schema_transition_rejected_field_contract(&self) -> u64 {
+        self.schema_transition_rejected_field_contract
+    }
+
+    #[must_use]
+    pub const fn schema_transition_rejected_field_slot(&self) -> u64 {
+        self.schema_transition_rejected_field_slot
+    }
+
+    #[must_use]
+    pub const fn schema_transition_rejected_row_layout(&self) -> u64 {
+        self.schema_transition_rejected_row_layout
+    }
+
+    #[must_use]
+    pub const fn schema_transition_rejected_schema_version(&self) -> u64 {
+        self.schema_transition_rejected_schema_version
+    }
+
+    #[must_use]
+    pub const fn schema_transition_rejected_snapshot(&self) -> u64 {
+        self.schema_transition_rejected_snapshot
     }
 
     #[must_use]
@@ -941,6 +989,14 @@ pub(crate) struct EntityCounters {
     pub(crate) schema_reconcile_rejected_row_layout: u64,
     pub(crate) schema_reconcile_rejected_schema_version: u64,
     pub(crate) schema_reconcile_store_write_error: u64,
+    pub(crate) schema_transition_checks: u64,
+    pub(crate) schema_transition_exact_match: u64,
+    pub(crate) schema_transition_rejected_entity_identity: u64,
+    pub(crate) schema_transition_rejected_field_contract: u64,
+    pub(crate) schema_transition_rejected_field_slot: u64,
+    pub(crate) schema_transition_rejected_row_layout: u64,
+    pub(crate) schema_transition_rejected_schema_version: u64,
+    pub(crate) schema_transition_rejected_snapshot: u64,
     pub(crate) schema_store_snapshots: u64,
     pub(crate) schema_store_encoded_bytes: u64,
     pub(crate) schema_store_latest_snapshot_bytes: u64,
@@ -1292,6 +1348,14 @@ pub struct EntitySummary {
     schema_reconcile_rejected_row_layout: u64,
     schema_reconcile_rejected_schema_version: u64,
     schema_reconcile_store_write_error: u64,
+    schema_transition_checks: u64,
+    schema_transition_exact_match: u64,
+    schema_transition_rejected_entity_identity: u64,
+    schema_transition_rejected_field_contract: u64,
+    schema_transition_rejected_field_slot: u64,
+    schema_transition_rejected_row_layout: u64,
+    schema_transition_rejected_schema_version: u64,
+    schema_transition_rejected_snapshot: u64,
     schema_store_snapshots: u64,
     schema_store_encoded_bytes: u64,
     schema_store_latest_snapshot_bytes: u64,
@@ -1582,6 +1646,46 @@ impl EntitySummary {
     #[must_use]
     pub const fn schema_reconcile_store_write_error(&self) -> u64 {
         self.schema_reconcile_store_write_error
+    }
+
+    #[must_use]
+    pub const fn schema_transition_checks(&self) -> u64 {
+        self.schema_transition_checks
+    }
+
+    #[must_use]
+    pub const fn schema_transition_exact_match(&self) -> u64 {
+        self.schema_transition_exact_match
+    }
+
+    #[must_use]
+    pub const fn schema_transition_rejected_entity_identity(&self) -> u64 {
+        self.schema_transition_rejected_entity_identity
+    }
+
+    #[must_use]
+    pub const fn schema_transition_rejected_field_contract(&self) -> u64 {
+        self.schema_transition_rejected_field_contract
+    }
+
+    #[must_use]
+    pub const fn schema_transition_rejected_field_slot(&self) -> u64 {
+        self.schema_transition_rejected_field_slot
+    }
+
+    #[must_use]
+    pub const fn schema_transition_rejected_row_layout(&self) -> u64 {
+        self.schema_transition_rejected_row_layout
+    }
+
+    #[must_use]
+    pub const fn schema_transition_rejected_schema_version(&self) -> u64 {
+        self.schema_transition_rejected_schema_version
+    }
+
+    #[must_use]
+    pub const fn schema_transition_rejected_snapshot(&self) -> u64 {
+        self.schema_transition_rejected_snapshot
     }
 
     #[must_use]
@@ -2099,6 +2203,14 @@ impl EntitySummary {
             .saturating_add(self.schema_reconcile_rejected_row_layout)
             .saturating_add(self.schema_reconcile_rejected_schema_version)
             .saturating_add(self.schema_reconcile_store_write_error)
+            .saturating_add(self.schema_transition_checks)
+            .saturating_add(self.schema_transition_exact_match)
+            .saturating_add(self.schema_transition_rejected_entity_identity)
+            .saturating_add(self.schema_transition_rejected_field_contract)
+            .saturating_add(self.schema_transition_rejected_field_slot)
+            .saturating_add(self.schema_transition_rejected_row_layout)
+            .saturating_add(self.schema_transition_rejected_schema_version)
+            .saturating_add(self.schema_transition_rejected_snapshot)
             .saturating_add(self.schema_store_snapshots)
             .saturating_add(self.schema_store_encoded_bytes)
             .saturating_add(self.schema_store_latest_snapshot_bytes)
@@ -2239,6 +2351,14 @@ fn entity_summary_from_counters(path: &str, ops: &EntityCounters) -> EntitySumma
         schema_reconcile_rejected_row_layout: ops.schema_reconcile_rejected_row_layout,
         schema_reconcile_rejected_schema_version: ops.schema_reconcile_rejected_schema_version,
         schema_reconcile_store_write_error: ops.schema_reconcile_store_write_error,
+        schema_transition_checks: ops.schema_transition_checks,
+        schema_transition_exact_match: ops.schema_transition_exact_match,
+        schema_transition_rejected_entity_identity: ops.schema_transition_rejected_entity_identity,
+        schema_transition_rejected_field_contract: ops.schema_transition_rejected_field_contract,
+        schema_transition_rejected_field_slot: ops.schema_transition_rejected_field_slot,
+        schema_transition_rejected_row_layout: ops.schema_transition_rejected_row_layout,
+        schema_transition_rejected_schema_version: ops.schema_transition_rejected_schema_version,
+        schema_transition_rejected_snapshot: ops.schema_transition_rejected_snapshot,
         schema_store_snapshots: ops.schema_store_snapshots,
         schema_store_encoded_bytes: ops.schema_store_encoded_bytes,
         schema_store_latest_snapshot_bytes: ops.schema_store_latest_snapshot_bytes,

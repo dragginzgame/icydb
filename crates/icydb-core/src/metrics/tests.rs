@@ -6,7 +6,8 @@
 use crate::metrics::{
     sink::{
         CacheKind, CacheMissReason, CacheOutcome, MetricsEvent, PlanChoiceReason,
-        PreparedShapeFinalizationOutcome, SchemaReconcileOutcome, SqlCompileRejectPhase, record,
+        PreparedShapeFinalizationOutcome, SchemaReconcileOutcome, SchemaTransitionOutcome,
+        SqlCompileRejectPhase, record,
     },
     state::{
         EntityCounters, EventOps, MetricRatio, report_window_start, reset_all, with_state,
@@ -208,6 +209,14 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
         "schema_reconcile_rejected_row_layout",
         "schema_reconcile_rejected_schema_version",
         "schema_reconcile_store_write_error",
+        "schema_transition_checks",
+        "schema_transition_exact_match",
+        "schema_transition_rejected_entity_identity",
+        "schema_transition_rejected_field_contract",
+        "schema_transition_rejected_field_slot",
+        "schema_transition_rejected_row_layout",
+        "schema_transition_rejected_schema_version",
+        "schema_transition_rejected_snapshot",
         "schema_store_snapshots",
         "schema_store_encoded_bytes",
         "schema_store_latest_snapshot_bytes",
@@ -312,6 +321,18 @@ fn schema_reconcile_metrics_accumulate_by_outcome_and_entity() {
     assert_eq!(ops.schema_reconcile_rejected_row_layout(), 1);
     assert_eq!(ops.schema_reconcile_rejected_schema_version(), 1);
     assert_eq!(ops.schema_reconcile_store_write_error(), 1);
+    assert_eq!(
+        ops.schema_reconcile_checks(),
+        ops.schema_reconcile_first_create()
+            .saturating_add(ops.schema_reconcile_exact_match())
+            .saturating_add(ops.schema_reconcile_latest_snapshot_corrupt())
+            .saturating_add(ops.schema_reconcile_rejected_field_slot())
+            .saturating_add(ops.schema_reconcile_rejected_other())
+            .saturating_add(ops.schema_reconcile_rejected_row_layout())
+            .saturating_add(ops.schema_reconcile_rejected_schema_version())
+            .saturating_add(ops.schema_reconcile_store_write_error()),
+        "schema reconcile total must equal its outcome buckets",
+    );
 
     let summary = report
         .entity_counters()
@@ -327,6 +348,90 @@ fn schema_reconcile_metrics_accumulate_by_outcome_and_entity() {
     assert_eq!(summary.schema_reconcile_rejected_row_layout(), 1);
     assert_eq!(summary.schema_reconcile_rejected_schema_version(), 1);
     assert_eq!(summary.schema_reconcile_store_write_error(), 1);
+    assert_eq!(
+        summary.schema_reconcile_checks(),
+        summary
+            .schema_reconcile_first_create()
+            .saturating_add(summary.schema_reconcile_exact_match())
+            .saturating_add(summary.schema_reconcile_latest_snapshot_corrupt())
+            .saturating_add(summary.schema_reconcile_rejected_field_slot())
+            .saturating_add(summary.schema_reconcile_rejected_other())
+            .saturating_add(summary.schema_reconcile_rejected_row_layout())
+            .saturating_add(summary.schema_reconcile_rejected_schema_version())
+            .saturating_add(summary.schema_reconcile_store_write_error()),
+        "entity schema reconcile total must equal its outcome buckets",
+    );
+}
+
+#[test]
+fn schema_transition_metrics_accumulate_by_outcome_and_entity() {
+    reset_all();
+
+    for outcome in [
+        SchemaTransitionOutcome::ExactMatch,
+        SchemaTransitionOutcome::RejectedEntityIdentity,
+        SchemaTransitionOutcome::RejectedFieldContract,
+        SchemaTransitionOutcome::RejectedFieldSlot,
+        SchemaTransitionOutcome::RejectedRowLayout,
+        SchemaTransitionOutcome::RejectedSchemaVersion,
+        SchemaTransitionOutcome::RejectedSnapshot,
+    ] {
+        record(MetricsEvent::SchemaTransition {
+            entity_path: "metrics::tests::SchemaEntity",
+            outcome,
+        });
+    }
+
+    let report = report_window_start(None);
+    let counters = report
+        .counters()
+        .expect("schema transition fixture should produce counters");
+    let ops = counters.ops();
+    assert_eq!(ops.schema_transition_checks(), 7);
+    assert_eq!(ops.schema_transition_exact_match(), 1);
+    assert_eq!(ops.schema_transition_rejected_entity_identity(), 1);
+    assert_eq!(ops.schema_transition_rejected_field_contract(), 1);
+    assert_eq!(ops.schema_transition_rejected_field_slot(), 1);
+    assert_eq!(ops.schema_transition_rejected_row_layout(), 1);
+    assert_eq!(ops.schema_transition_rejected_schema_version(), 1);
+    assert_eq!(ops.schema_transition_rejected_snapshot(), 1);
+    assert_eq!(
+        ops.schema_transition_checks(),
+        ops.schema_transition_exact_match()
+            .saturating_add(ops.schema_transition_rejected_entity_identity())
+            .saturating_add(ops.schema_transition_rejected_field_contract())
+            .saturating_add(ops.schema_transition_rejected_field_slot())
+            .saturating_add(ops.schema_transition_rejected_row_layout())
+            .saturating_add(ops.schema_transition_rejected_schema_version())
+            .saturating_add(ops.schema_transition_rejected_snapshot()),
+        "schema transition total must equal its outcome buckets",
+    );
+
+    let summary = report
+        .entity_counters()
+        .first()
+        .expect("schema transition fixture should produce an entity summary");
+    assert_eq!(summary.path(), "metrics::tests::SchemaEntity");
+    assert_eq!(summary.schema_transition_checks(), 7);
+    assert_eq!(summary.schema_transition_exact_match(), 1);
+    assert_eq!(summary.schema_transition_rejected_entity_identity(), 1);
+    assert_eq!(summary.schema_transition_rejected_field_contract(), 1);
+    assert_eq!(summary.schema_transition_rejected_field_slot(), 1);
+    assert_eq!(summary.schema_transition_rejected_row_layout(), 1);
+    assert_eq!(summary.schema_transition_rejected_schema_version(), 1);
+    assert_eq!(summary.schema_transition_rejected_snapshot(), 1);
+    assert_eq!(
+        summary.schema_transition_checks(),
+        summary
+            .schema_transition_exact_match()
+            .saturating_add(summary.schema_transition_rejected_entity_identity())
+            .saturating_add(summary.schema_transition_rejected_field_contract())
+            .saturating_add(summary.schema_transition_rejected_field_slot())
+            .saturating_add(summary.schema_transition_rejected_row_layout())
+            .saturating_add(summary.schema_transition_rejected_schema_version())
+            .saturating_add(summary.schema_transition_rejected_snapshot()),
+        "entity schema transition total must equal its outcome buckets",
+    );
 }
 
 #[test]
@@ -432,6 +537,13 @@ fn sql_compile_reject_metrics_accumulate_by_phase_and_entity() {
     assert_eq!(ops.sql_compile_reject_cache_key(), 1);
     assert_eq!(ops.sql_compile_reject_parse(), 1);
     assert_eq!(ops.sql_compile_reject_semantic(), 1);
+    assert_eq!(
+        ops.sql_compile_rejects(),
+        ops.sql_compile_reject_cache_key()
+            .saturating_add(ops.sql_compile_reject_parse())
+            .saturating_add(ops.sql_compile_reject_semantic()),
+        "SQL compile reject total must equal its phase buckets",
+    );
 
     let summary = report
         .entity_counters()
@@ -442,6 +554,14 @@ fn sql_compile_reject_metrics_accumulate_by_phase_and_entity() {
     assert_eq!(summary.sql_compile_reject_cache_key(), 1);
     assert_eq!(summary.sql_compile_reject_parse(), 1);
     assert_eq!(summary.sql_compile_reject_semantic(), 1);
+    assert_eq!(
+        summary.sql_compile_rejects(),
+        summary
+            .sql_compile_reject_cache_key()
+            .saturating_add(summary.sql_compile_reject_parse())
+            .saturating_add(summary.sql_compile_reject_semantic()),
+        "entity SQL compile reject total must equal its phase buckets",
+    );
 }
 
 #[test]
@@ -785,6 +905,14 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         schema_reconcile_rejected_row_layout: 92,
         schema_reconcile_rejected_schema_version: 93,
         schema_reconcile_store_write_error: 94,
+        schema_transition_checks: 191,
+        schema_transition_exact_match: 192,
+        schema_transition_rejected_entity_identity: 193,
+        schema_transition_rejected_field_contract: 194,
+        schema_transition_rejected_field_slot: 195,
+        schema_transition_rejected_row_layout: 196,
+        schema_transition_rejected_schema_version: 197,
+        schema_transition_rejected_snapshot: 198,
         schema_store_snapshots: 184,
         schema_store_encoded_bytes: 185,
         schema_store_latest_snapshot_bytes: 186,
@@ -918,6 +1046,14 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "schema_reconcile_rejected_row_layout",
         "schema_reconcile_rejected_schema_version",
         "schema_reconcile_store_write_error",
+        "schema_transition_checks",
+        "schema_transition_exact_match",
+        "schema_transition_rejected_entity_identity",
+        "schema_transition_rejected_field_contract",
+        "schema_transition_rejected_field_slot",
+        "schema_transition_rejected_row_layout",
+        "schema_transition_rejected_schema_version",
+        "schema_transition_rejected_snapshot",
         "schema_store_snapshots",
         "schema_store_encoded_bytes",
         "schema_store_latest_snapshot_bytes",
@@ -1077,6 +1213,14 @@ fn entity_summary_candid_shape_is_stable() {
     assert_eq!(summary.schema_reconcile_rejected_row_layout(), 92);
     assert_eq!(summary.schema_reconcile_rejected_schema_version(), 93);
     assert_eq!(summary.schema_reconcile_store_write_error(), 94);
+    assert_eq!(summary.schema_transition_checks(), 191);
+    assert_eq!(summary.schema_transition_exact_match(), 192);
+    assert_eq!(summary.schema_transition_rejected_entity_identity(), 193);
+    assert_eq!(summary.schema_transition_rejected_field_contract(), 194);
+    assert_eq!(summary.schema_transition_rejected_field_slot(), 195);
+    assert_eq!(summary.schema_transition_rejected_row_layout(), 196);
+    assert_eq!(summary.schema_transition_rejected_schema_version(), 197);
+    assert_eq!(summary.schema_transition_rejected_snapshot(), 198);
     assert_eq!(summary.schema_store_snapshots(), 184);
     assert_eq!(summary.schema_store_encoded_bytes(), 185);
     assert_eq!(summary.schema_store_latest_snapshot_bytes(), 186);

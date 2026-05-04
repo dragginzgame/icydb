@@ -15,6 +15,7 @@ mod integrity;
 mod layout;
 mod proposal;
 mod reconcile;
+mod runtime;
 mod snapshot;
 mod store;
 mod transition;
@@ -51,7 +52,9 @@ pub(in crate::db) use snapshot::{
     SchemaFieldDefault,
 };
 pub use store::SchemaStore;
-pub(in crate::db::schema) use transition::{SchemaTransitionDecision, decide_schema_transition};
+pub(in crate::db::schema) use transition::{
+    SchemaTransitionDecision, SchemaTransitionPlanKind, decide_schema_transition,
+};
 pub(crate) use types::{FieldType, ScalarType, field_type_from_model_kind, literal_matches_type};
 pub(in crate::db) use types::{
     canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_persisted_kind,

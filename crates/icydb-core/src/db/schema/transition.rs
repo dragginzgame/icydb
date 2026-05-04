@@ -14,13 +14,57 @@ use crate::db::schema::{
 /// persisted accepted snapshot with the generated proposal for the same entity.
 /// It exists so reconciliation policy can distinguish accepted transitions
 /// from rejected transitions before any live migration rules are added.
-/// Today the only accepted transition is exact equality.
+/// Today the only accepted plan is exact equality.
 ///
 
 #[derive(Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaTransitionDecision {
-    ExactMatch,
+    Accepted(SchemaTransitionPlan),
     Rejected(SchemaTransitionRejection),
+}
+
+///
+/// SchemaTransitionPlanKind
+///
+/// SchemaTransitionPlanKind classifies accepted schema transitions. The enum
+/// is intentionally small today so future migration support must add explicit
+/// accepted cases instead of smuggling behavior through loose booleans.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaTransitionPlanKind {
+    ExactMatch,
+}
+
+///
+/// SchemaTransitionPlan
+///
+/// SchemaTransitionPlan is the schema-owned artifact that authorizes startup
+/// reconciliation to accept a generated proposal against a stored schema
+/// snapshot. Later live-layout work will hang runtime remapping/default
+/// instructions from this plan rather than asking executor code to recompute
+/// schema meaning from raw snapshots.
+///
+
+#[derive(Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaTransitionPlan {
+    kind: SchemaTransitionPlanKind,
+}
+
+impl SchemaTransitionPlan {
+    // Build the current no-op transition plan used when stored and generated
+    // schema snapshots are exactly equal.
+    const fn exact_match() -> Self {
+        Self {
+            kind: SchemaTransitionPlanKind::ExactMatch,
+        }
+    }
+
+    // Return the stable accepted-plan bucket for reconciliation and future
+    // metrics. This avoids exposing raw transition internals to callers.
+    pub(in crate::db::schema) const fn kind(&self) -> SchemaTransitionPlanKind {
+        self.kind
+    }
 }
 
 ///
@@ -82,7 +126,7 @@ pub(in crate::db::schema) fn decide_schema_transition(
     expected: &PersistedSchemaSnapshot,
 ) -> SchemaTransitionDecision {
     if actual == expected {
-        return SchemaTransitionDecision::ExactMatch;
+        return SchemaTransitionDecision::Accepted(SchemaTransitionPlan::exact_match());
     }
 
     let (kind, detail) = schema_snapshot_mismatch_detail(actual, expected);
@@ -432,7 +476,7 @@ mod tests {
         db::schema::{
             FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedSchemaSnapshot,
             SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaTransitionDecision,
-            SchemaVersion, decide_schema_transition,
+            SchemaTransitionPlanKind, SchemaVersion, decide_schema_transition,
         },
         model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
     };
@@ -496,10 +540,12 @@ mod tests {
     fn schema_transition_policy_accepts_only_exact_snapshot_match() {
         let expected = expected_snapshot();
 
-        assert_eq!(
-            decide_schema_transition(&expected, &expected),
-            SchemaTransitionDecision::ExactMatch,
-        );
+        let SchemaTransitionDecision::Accepted(plan) =
+            decide_schema_transition(&expected, &expected)
+        else {
+            panic!("exact snapshot match should produce an accepted transition plan");
+        };
+        assert_eq!(plan.kind(), SchemaTransitionPlanKind::ExactMatch);
 
         let changed = changed_entity_name_snapshot(&expected);
         let SchemaTransitionDecision::Rejected(rejection) =
@@ -603,6 +649,53 @@ mod tests {
                 "first_difference=stored_extra row_layout[2] stored_field_id=3 stored_slot=2 stored_name='legacy_score' stored_kind=Uint; generated_has_no_layout_entry"
             ),
             "row-layout extra field drift should name the stored field and kind",
+        );
+    }
+
+    #[test]
+    fn schema_transition_policy_rejects_generated_extra_row_layout_fields() {
+        let stored = expected_snapshot();
+        let mut generated_fields = stored.fields().to_vec();
+        generated_fields.push(PersistedFieldSnapshot::new(
+            FieldId::new(3),
+            "new_score".to_string(),
+            SchemaFieldSlot::new(2),
+            PersistedFieldKind::Uint,
+            Vec::new(),
+            false,
+            SchemaFieldDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Uint64),
+        ));
+        let generated = PersistedSchemaSnapshot::new(
+            stored.version(),
+            stored.entity_path().to_string(),
+            stored.entity_name().to_string(),
+            stored.primary_key_field_id(),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                    (FieldId::new(3), SchemaFieldSlot::new(2)),
+                ],
+            ),
+            generated_fields,
+        );
+
+        let SchemaTransitionDecision::Rejected(rejection) =
+            decide_schema_transition(&stored, &generated)
+        else {
+            panic!(
+                "generated extra row-layout field should be rejected until additive policy exists"
+            );
+        };
+
+        assert!(
+            rejection.detail().contains(
+                "first_difference=generated_extra row_layout[2] stored_has_no_layout_entry; generated_field_id=3 generated_slot=2 generated_name='new_score' generated_kind=Uint"
+            ),
+            "additive row-layout drift should name the generated field and kind",
         );
     }
 }
