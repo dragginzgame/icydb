@@ -4,7 +4,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::metrics::{
-    sink::{CacheKind, CacheOutcome, MetricsEvent, record},
+    sink::{CacheKind, CacheOutcome, MetricsEvent, SchemaReconcileOutcome, record},
     state::{
         EntityCounters, EventOps, MetricRatio, report_window_start, reset_all, with_state,
         with_state_mut,
@@ -182,6 +182,15 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
         "cache_sql_compiled_command_misses",
         "cache_sql_compiled_command_inserts",
         "cache_sql_compiled_command_entries",
+        "schema_reconcile_checks",
+        "schema_reconcile_exact_match",
+        "schema_reconcile_first_create",
+        "schema_reconcile_latest_snapshot_corrupt",
+        "schema_reconcile_rejected_field_slot",
+        "schema_reconcile_rejected_other",
+        "schema_reconcile_rejected_row_layout",
+        "schema_reconcile_rejected_schema_version",
+        "schema_reconcile_store_write_error",
         "plan_by_key",
         "plan_by_keys",
         "plan_key_range",
@@ -225,6 +234,57 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
             "EventOps must keep `{field}` as Candid field key",
         );
     }
+}
+
+#[test]
+fn schema_reconcile_metrics_accumulate_by_outcome_and_entity() {
+    reset_all();
+
+    for outcome in [
+        SchemaReconcileOutcome::FirstCreate,
+        SchemaReconcileOutcome::ExactMatch,
+        SchemaReconcileOutcome::LatestSnapshotCorrupt,
+        SchemaReconcileOutcome::RejectedFieldSlot,
+        SchemaReconcileOutcome::RejectedOther,
+        SchemaReconcileOutcome::RejectedRowLayout,
+        SchemaReconcileOutcome::RejectedSchemaVersion,
+        SchemaReconcileOutcome::StoreWriteError,
+    ] {
+        record(MetricsEvent::SchemaReconcile {
+            entity_path: "metrics::tests::SchemaEntity",
+            outcome,
+        });
+    }
+
+    let report = report_window_start(None);
+    let counters = report
+        .counters()
+        .expect("schema reconciliation fixture should produce counters");
+    let ops = counters.ops();
+    assert_eq!(ops.schema_reconcile_checks(), 8);
+    assert_eq!(ops.schema_reconcile_first_create(), 1);
+    assert_eq!(ops.schema_reconcile_exact_match(), 1);
+    assert_eq!(ops.schema_reconcile_latest_snapshot_corrupt(), 1);
+    assert_eq!(ops.schema_reconcile_rejected_field_slot(), 1);
+    assert_eq!(ops.schema_reconcile_rejected_other(), 1);
+    assert_eq!(ops.schema_reconcile_rejected_row_layout(), 1);
+    assert_eq!(ops.schema_reconcile_rejected_schema_version(), 1);
+    assert_eq!(ops.schema_reconcile_store_write_error(), 1);
+
+    let summary = report
+        .entity_counters()
+        .first()
+        .expect("schema reconciliation fixture should produce an entity summary");
+    assert_eq!(summary.path(), "metrics::tests::SchemaEntity");
+    assert_eq!(summary.schema_reconcile_checks(), 8);
+    assert_eq!(summary.schema_reconcile_first_create(), 1);
+    assert_eq!(summary.schema_reconcile_exact_match(), 1);
+    assert_eq!(summary.schema_reconcile_latest_snapshot_corrupt(), 1);
+    assert_eq!(summary.schema_reconcile_rejected_field_slot(), 1);
+    assert_eq!(summary.schema_reconcile_rejected_other(), 1);
+    assert_eq!(summary.schema_reconcile_rejected_row_layout(), 1);
+    assert_eq!(summary.schema_reconcile_rejected_schema_version(), 1);
+    assert_eq!(summary.schema_reconcile_store_write_error(), 1);
 }
 
 #[test]
@@ -364,6 +424,15 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         cache_sql_compiled_command_hits: 58,
         cache_sql_compiled_command_misses: 59,
         cache_sql_compiled_command_inserts: 60,
+        schema_reconcile_checks: 86,
+        schema_reconcile_exact_match: 87,
+        schema_reconcile_first_create: 88,
+        schema_reconcile_latest_snapshot_corrupt: 89,
+        schema_reconcile_rejected_field_slot: 90,
+        schema_reconcile_rejected_other: 91,
+        schema_reconcile_rejected_row_layout: 92,
+        schema_reconcile_rejected_schema_version: 93,
+        schema_reconcile_store_write_error: 94,
         plan_index: 30,
         plan_keys: 31,
         plan_range: 32,
@@ -452,6 +521,15 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "cache_sql_compiled_command_hits",
         "cache_sql_compiled_command_misses",
         "cache_sql_compiled_command_inserts",
+        "schema_reconcile_checks",
+        "schema_reconcile_exact_match",
+        "schema_reconcile_first_create",
+        "schema_reconcile_latest_snapshot_corrupt",
+        "schema_reconcile_rejected_field_slot",
+        "schema_reconcile_rejected_other",
+        "schema_reconcile_rejected_row_layout",
+        "schema_reconcile_rejected_schema_version",
+        "schema_reconcile_store_write_error",
         "plan_index",
         "plan_keys",
         "plan_range",
@@ -555,6 +633,15 @@ fn entity_summary_candid_shape_is_stable() {
     assert_eq!(summary.cache_sql_compiled_command_hits(), 58);
     assert_eq!(summary.cache_sql_compiled_command_misses(), 59);
     assert_eq!(summary.cache_sql_compiled_command_inserts(), 60);
+    assert_eq!(summary.schema_reconcile_checks(), 86);
+    assert_eq!(summary.schema_reconcile_exact_match(), 87);
+    assert_eq!(summary.schema_reconcile_first_create(), 88);
+    assert_eq!(summary.schema_reconcile_latest_snapshot_corrupt(), 89);
+    assert_eq!(summary.schema_reconcile_rejected_field_slot(), 90);
+    assert_eq!(summary.schema_reconcile_rejected_other(), 91);
+    assert_eq!(summary.schema_reconcile_rejected_row_layout(), 92);
+    assert_eq!(summary.schema_reconcile_rejected_schema_version(), 93);
+    assert_eq!(summary.schema_reconcile_store_write_error(), 94);
     assert_eq!(summary.plan_index(), 30);
     assert_eq!(summary.plan_keys(), 31);
     assert_eq!(summary.plan_range(), 32);

@@ -105,6 +105,15 @@ pub struct EventOps {
     pub(crate) cache_sql_compiled_command_misses: u64,
     pub(crate) cache_sql_compiled_command_inserts: u64,
     pub(crate) cache_sql_compiled_command_entries: u64,
+    pub(crate) schema_reconcile_checks: u64,
+    pub(crate) schema_reconcile_exact_match: u64,
+    pub(crate) schema_reconcile_first_create: u64,
+    pub(crate) schema_reconcile_latest_snapshot_corrupt: u64,
+    pub(crate) schema_reconcile_rejected_field_slot: u64,
+    pub(crate) schema_reconcile_rejected_other: u64,
+    pub(crate) schema_reconcile_rejected_row_layout: u64,
+    pub(crate) schema_reconcile_rejected_schema_version: u64,
+    pub(crate) schema_reconcile_store_write_error: u64,
 
     // Planner kinds
     pub(crate) plan_index: u64,
@@ -286,6 +295,51 @@ impl EventOps {
     #[must_use]
     pub const fn cache_sql_compiled_command_entries(&self) -> u64 {
         self.cache_sql_compiled_command_entries
+    }
+
+    #[must_use]
+    pub const fn schema_reconcile_checks(&self) -> u64 {
+        self.schema_reconcile_checks
+    }
+
+    #[must_use]
+    pub const fn schema_reconcile_exact_match(&self) -> u64 {
+        self.schema_reconcile_exact_match
+    }
+
+    #[must_use]
+    pub const fn schema_reconcile_first_create(&self) -> u64 {
+        self.schema_reconcile_first_create
+    }
+
+    #[must_use]
+    pub const fn schema_reconcile_latest_snapshot_corrupt(&self) -> u64 {
+        self.schema_reconcile_latest_snapshot_corrupt
+    }
+
+    #[must_use]
+    pub const fn schema_reconcile_rejected_field_slot(&self) -> u64 {
+        self.schema_reconcile_rejected_field_slot
+    }
+
+    #[must_use]
+    pub const fn schema_reconcile_rejected_other(&self) -> u64 {
+        self.schema_reconcile_rejected_other
+    }
+
+    #[must_use]
+    pub const fn schema_reconcile_rejected_row_layout(&self) -> u64 {
+        self.schema_reconcile_rejected_row_layout
+    }
+
+    #[must_use]
+    pub const fn schema_reconcile_rejected_schema_version(&self) -> u64 {
+        self.schema_reconcile_rejected_schema_version
+    }
+
+    #[must_use]
+    pub const fn schema_reconcile_store_write_error(&self) -> u64 {
+        self.schema_reconcile_store_write_error
     }
 
     #[must_use]
@@ -658,6 +712,15 @@ pub(crate) struct EntityCounters {
     pub(crate) cache_sql_compiled_command_hits: u64,
     pub(crate) cache_sql_compiled_command_misses: u64,
     pub(crate) cache_sql_compiled_command_inserts: u64,
+    pub(crate) schema_reconcile_checks: u64,
+    pub(crate) schema_reconcile_exact_match: u64,
+    pub(crate) schema_reconcile_first_create: u64,
+    pub(crate) schema_reconcile_latest_snapshot_corrupt: u64,
+    pub(crate) schema_reconcile_rejected_field_slot: u64,
+    pub(crate) schema_reconcile_rejected_other: u64,
+    pub(crate) schema_reconcile_rejected_row_layout: u64,
+    pub(crate) schema_reconcile_rejected_schema_version: u64,
+    pub(crate) schema_reconcile_store_write_error: u64,
     pub(crate) plan_index: u64,
     pub(crate) plan_keys: u64,
     pub(crate) plan_range: u64,
@@ -965,6 +1028,15 @@ pub struct EntitySummary {
     cache_sql_compiled_command_hits: u64,
     cache_sql_compiled_command_misses: u64,
     cache_sql_compiled_command_inserts: u64,
+    schema_reconcile_checks: u64,
+    schema_reconcile_exact_match: u64,
+    schema_reconcile_first_create: u64,
+    schema_reconcile_latest_snapshot_corrupt: u64,
+    schema_reconcile_rejected_field_slot: u64,
+    schema_reconcile_rejected_other: u64,
+    schema_reconcile_rejected_row_layout: u64,
+    schema_reconcile_rejected_schema_version: u64,
+    schema_reconcile_store_write_error: u64,
     plan_index: u64,
     plan_keys: u64,
     plan_range: u64,
@@ -1135,6 +1207,51 @@ impl EntitySummary {
     #[must_use]
     pub const fn cache_sql_compiled_command_inserts(&self) -> u64 {
         self.cache_sql_compiled_command_inserts
+    }
+
+    #[must_use]
+    pub const fn schema_reconcile_checks(&self) -> u64 {
+        self.schema_reconcile_checks
+    }
+
+    #[must_use]
+    pub const fn schema_reconcile_exact_match(&self) -> u64 {
+        self.schema_reconcile_exact_match
+    }
+
+    #[must_use]
+    pub const fn schema_reconcile_first_create(&self) -> u64 {
+        self.schema_reconcile_first_create
+    }
+
+    #[must_use]
+    pub const fn schema_reconcile_latest_snapshot_corrupt(&self) -> u64 {
+        self.schema_reconcile_latest_snapshot_corrupt
+    }
+
+    #[must_use]
+    pub const fn schema_reconcile_rejected_field_slot(&self) -> u64 {
+        self.schema_reconcile_rejected_field_slot
+    }
+
+    #[must_use]
+    pub const fn schema_reconcile_rejected_other(&self) -> u64 {
+        self.schema_reconcile_rejected_other
+    }
+
+    #[must_use]
+    pub const fn schema_reconcile_rejected_row_layout(&self) -> u64 {
+        self.schema_reconcile_rejected_row_layout
+    }
+
+    #[must_use]
+    pub const fn schema_reconcile_rejected_schema_version(&self) -> u64 {
+        self.schema_reconcile_rejected_schema_version
+    }
+
+    #[must_use]
+    pub const fn schema_reconcile_store_write_error(&self) -> u64 {
+        self.schema_reconcile_store_write_error
     }
 
     #[must_use]
@@ -1507,6 +1624,15 @@ impl EntitySummary {
             .saturating_add(self.cache_sql_compiled_command_hits)
             .saturating_add(self.cache_sql_compiled_command_misses)
             .saturating_add(self.cache_sql_compiled_command_inserts)
+            .saturating_add(self.schema_reconcile_checks)
+            .saturating_add(self.schema_reconcile_exact_match)
+            .saturating_add(self.schema_reconcile_first_create)
+            .saturating_add(self.schema_reconcile_latest_snapshot_corrupt)
+            .saturating_add(self.schema_reconcile_rejected_field_slot)
+            .saturating_add(self.schema_reconcile_rejected_other)
+            .saturating_add(self.schema_reconcile_rejected_row_layout)
+            .saturating_add(self.schema_reconcile_rejected_schema_version)
+            .saturating_add(self.schema_reconcile_store_write_error)
             .saturating_add(self.plan_index)
             .saturating_add(self.plan_keys)
             .saturating_add(self.plan_range)
@@ -1597,6 +1723,15 @@ fn entity_summary_from_counters(path: &str, ops: &EntityCounters) -> EntitySumma
         cache_sql_compiled_command_hits: ops.cache_sql_compiled_command_hits,
         cache_sql_compiled_command_misses: ops.cache_sql_compiled_command_misses,
         cache_sql_compiled_command_inserts: ops.cache_sql_compiled_command_inserts,
+        schema_reconcile_checks: ops.schema_reconcile_checks,
+        schema_reconcile_exact_match: ops.schema_reconcile_exact_match,
+        schema_reconcile_first_create: ops.schema_reconcile_first_create,
+        schema_reconcile_latest_snapshot_corrupt: ops.schema_reconcile_latest_snapshot_corrupt,
+        schema_reconcile_rejected_field_slot: ops.schema_reconcile_rejected_field_slot,
+        schema_reconcile_rejected_other: ops.schema_reconcile_rejected_other,
+        schema_reconcile_rejected_row_layout: ops.schema_reconcile_rejected_row_layout,
+        schema_reconcile_rejected_schema_version: ops.schema_reconcile_rejected_schema_version,
+        schema_reconcile_store_write_error: ops.schema_reconcile_store_write_error,
         plan_index: ops.plan_index,
         plan_keys: ops.plan_keys,
         plan_range: ops.plan_range,

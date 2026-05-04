@@ -22,6 +22,24 @@ pub(in crate::db::schema) enum SchemaTransitionDecision {
 }
 
 ///
+/// SchemaTransitionRejectionKind
+///
+/// SchemaTransitionRejectionKind classifies rejected schema transitions into
+/// stable low-cardinality buckets. Reconciliation metrics use this taxonomy so
+/// dashboards can track trust-boundary failures without parsing diagnostic text.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaTransitionRejectionKind {
+    EntityIdentity,
+    FieldContract,
+    FieldSlot,
+    RowLayout,
+    SchemaVersion,
+    Snapshot,
+}
+
+///
 /// SchemaTransitionRejection
 ///
 /// SchemaTransitionRejection carries the schema-owned diagnostic for one
@@ -32,14 +50,20 @@ pub(in crate::db::schema) enum SchemaTransitionDecision {
 
 #[derive(Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaTransitionRejection {
+    kind: SchemaTransitionRejectionKind,
     detail: String,
 }
 
 impl SchemaTransitionRejection {
     // Build one transition rejection from the first schema mismatch detail
     // produced by the diagnostic comparison helpers below.
-    const fn new(detail: String) -> Self {
-        Self { detail }
+    const fn new(kind: SchemaTransitionRejectionKind, detail: String) -> Self {
+        Self { kind, detail }
+    }
+
+    // Return the stable rejection bucket for metrics and audit readouts.
+    pub(in crate::db::schema) const fn kind(&self) -> SchemaTransitionRejectionKind {
+        self.kind
     }
 
     // Borrow the first rejected transition detail for final error formatting.
@@ -59,9 +83,9 @@ pub(in crate::db::schema) fn decide_schema_transition(
         return SchemaTransitionDecision::ExactMatch;
     }
 
-    SchemaTransitionDecision::Rejected(SchemaTransitionRejection::new(
-        schema_snapshot_mismatch_detail(actual, expected),
-    ))
+    let (kind, detail) = schema_snapshot_mismatch_detail(actual, expected);
+
+    SchemaTransitionDecision::Rejected(SchemaTransitionRejection::new(kind, detail))
 }
 
 // Return the first human-readable schema difference between the stored
@@ -70,28 +94,37 @@ pub(in crate::db::schema) fn decide_schema_transition(
 fn schema_snapshot_mismatch_detail(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
-) -> String {
+) -> (SchemaTransitionRejectionKind, String) {
     if actual.version() != expected.version() {
-        return format!(
-            "schema version changed: stored={} generated={}",
-            actual.version().get(),
-            expected.version().get(),
+        return (
+            SchemaTransitionRejectionKind::SchemaVersion,
+            format!(
+                "schema version changed: stored={} generated={}",
+                actual.version().get(),
+                expected.version().get(),
+            ),
         );
     }
 
     if actual.entity_path() != expected.entity_path() {
-        return format!(
-            "entity path changed: stored='{}' generated='{}'",
-            actual.entity_path(),
-            expected.entity_path(),
+        return (
+            SchemaTransitionRejectionKind::EntityIdentity,
+            format!(
+                "entity path changed: stored='{}' generated='{}'",
+                actual.entity_path(),
+                expected.entity_path(),
+            ),
         );
     }
 
     if actual.entity_name() != expected.entity_name() {
-        return format!(
-            "entity name changed: stored='{}' generated='{}'",
-            actual.entity_name(),
-            expected.entity_name(),
+        return (
+            SchemaTransitionRejectionKind::EntityIdentity,
+            format!(
+                "entity name changed: stored='{}' generated='{}'",
+                actual.entity_name(),
+                expected.entity_name(),
+            ),
         );
     }
 
@@ -104,40 +137,53 @@ fn schema_snapshot_mismatch_detail(
 fn schema_snapshot_structural_mismatch_detail(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
-) -> String {
+) -> (SchemaTransitionRejectionKind, String) {
     if actual.primary_key_field_id() != expected.primary_key_field_id() {
-        return format!(
-            "primary key field id changed: stored={} generated={}",
-            actual.primary_key_field_id().get(),
-            expected.primary_key_field_id().get(),
+        return (
+            SchemaTransitionRejectionKind::EntityIdentity,
+            format!(
+                "primary key field id changed: stored={} generated={}",
+                actual.primary_key_field_id().get(),
+                expected.primary_key_field_id().get(),
+            ),
         );
     }
 
     if actual.row_layout() != expected.row_layout() {
-        return format!(
-            "row layout changed: stored={:?} generated={:?}",
-            actual.row_layout(),
-            expected.row_layout(),
+        return (
+            SchemaTransitionRejectionKind::RowLayout,
+            format!(
+                "row layout changed: stored={:?} generated={:?}",
+                actual.row_layout(),
+                expected.row_layout(),
+            ),
         );
     }
 
     if actual.fields().len() != expected.fields().len() {
-        return format!(
-            "field count changed: stored={} generated={}",
-            actual.fields().len(),
-            expected.fields().len(),
+        return (
+            SchemaTransitionRejectionKind::FieldContract,
+            format!(
+                "field count changed: stored={} generated={}",
+                actual.fields().len(),
+                expected.fields().len(),
+            ),
         );
     }
 
     for (index, (actual_field, expected_field)) in
         actual.fields().iter().zip(expected.fields()).enumerate()
     {
-        if let Some(detail) = field_snapshot_mismatch_detail(index, actual_field, expected_field) {
-            return detail;
+        if let Some(mismatch) = field_snapshot_mismatch_detail(index, actual_field, expected_field)
+        {
+            return mismatch;
         }
     }
 
-    "schema snapshot changed".to_string()
+    (
+        SchemaTransitionRejectionKind::Snapshot,
+        "schema snapshot changed".to_string(),
+    )
 }
 
 // Compare one field snapshot in a stable order so diagnostics point at the
@@ -146,20 +192,26 @@ fn field_snapshot_mismatch_detail(
     index: usize,
     actual: &PersistedFieldSnapshot,
     expected: &PersistedFieldSnapshot,
-) -> Option<String> {
+) -> Option<(SchemaTransitionRejectionKind, String)> {
     if actual.id() != expected.id() {
-        return Some(format!(
-            "field[{index}] id changed: stored={} generated={}",
-            actual.id().get(),
-            expected.id().get(),
+        return Some((
+            SchemaTransitionRejectionKind::FieldContract,
+            format!(
+                "field[{index}] id changed: stored={} generated={}",
+                actual.id().get(),
+                expected.id().get(),
+            ),
         ));
     }
 
     if actual.name() != expected.name() {
-        return Some(format!(
-            "field[{index}] name changed: stored='{}' generated='{}'",
-            actual.name(),
-            expected.name(),
+        return Some((
+            SchemaTransitionRejectionKind::FieldContract,
+            format!(
+                "field[{index}] name changed: stored='{}' generated='{}'",
+                actual.name(),
+                expected.name(),
+            ),
         ));
     }
 
@@ -173,28 +225,37 @@ fn field_snapshot_contract_mismatch_detail(
     index: usize,
     actual: &PersistedFieldSnapshot,
     expected: &PersistedFieldSnapshot,
-) -> Option<String> {
+) -> Option<(SchemaTransitionRejectionKind, String)> {
     if actual.slot() != expected.slot() {
-        return Some(format!(
-            "field[{index}] slot changed: stored={} generated={}",
-            actual.slot().get(),
-            expected.slot().get(),
+        return Some((
+            SchemaTransitionRejectionKind::FieldSlot,
+            format!(
+                "field[{index}] slot changed: stored={} generated={}",
+                actual.slot().get(),
+                expected.slot().get(),
+            ),
         ));
     }
 
     if actual.kind() != expected.kind() {
-        return Some(format!(
-            "field[{index}] kind changed: stored={:?} generated={:?}",
-            actual.kind(),
-            expected.kind(),
+        return Some((
+            SchemaTransitionRejectionKind::FieldContract,
+            format!(
+                "field[{index}] kind changed: stored={:?} generated={:?}",
+                actual.kind(),
+                expected.kind(),
+            ),
         ));
     }
 
     if actual.nested_leaves() != expected.nested_leaves() {
-        return Some(format!(
-            "field[{index}] nested leaf metadata changed: stored={} generated={}",
-            actual.nested_leaves().len(),
-            expected.nested_leaves().len(),
+        return Some((
+            SchemaTransitionRejectionKind::FieldContract,
+            format!(
+                "field[{index}] nested leaf metadata changed: stored={} generated={}",
+                actual.nested_leaves().len(),
+                expected.nested_leaves().len(),
+            ),
         ));
     }
 
@@ -208,36 +269,48 @@ fn field_snapshot_storage_mismatch_detail(
     index: usize,
     actual: &PersistedFieldSnapshot,
     expected: &PersistedFieldSnapshot,
-) -> Option<String> {
+) -> Option<(SchemaTransitionRejectionKind, String)> {
     if actual.nullable() != expected.nullable() {
-        return Some(format!(
-            "field[{index}] nullability changed: stored={} generated={}",
-            actual.nullable(),
-            expected.nullable(),
+        return Some((
+            SchemaTransitionRejectionKind::FieldContract,
+            format!(
+                "field[{index}] nullability changed: stored={} generated={}",
+                actual.nullable(),
+                expected.nullable(),
+            ),
         ));
     }
 
     if actual.default() != expected.default() {
-        return Some(format!(
-            "field[{index}] default changed: stored={:?} generated={:?}",
-            actual.default(),
-            expected.default(),
+        return Some((
+            SchemaTransitionRejectionKind::FieldContract,
+            format!(
+                "field[{index}] default changed: stored={:?} generated={:?}",
+                actual.default(),
+                expected.default(),
+            ),
         ));
     }
 
     if actual.storage_decode() != expected.storage_decode() {
-        return Some(format!(
-            "field[{index}] storage decode changed: stored={:?} generated={:?}",
-            actual.storage_decode(),
-            expected.storage_decode(),
+        return Some((
+            SchemaTransitionRejectionKind::FieldContract,
+            format!(
+                "field[{index}] storage decode changed: stored={:?} generated={:?}",
+                actual.storage_decode(),
+                expected.storage_decode(),
+            ),
         ));
     }
 
     if actual.leaf_codec() != expected.leaf_codec() {
-        return Some(format!(
-            "field[{index}] leaf codec changed: stored={:?} generated={:?}",
-            actual.leaf_codec(),
-            expected.leaf_codec(),
+        return Some((
+            SchemaTransitionRejectionKind::FieldContract,
+            format!(
+                "field[{index}] leaf codec changed: stored={:?} generated={:?}",
+                actual.leaf_codec(),
+                expected.leaf_codec(),
+            ),
         ));
     }
 

@@ -7,11 +7,13 @@ use crate::{
     db::{
         Db, EntityRuntimeHooks,
         schema::{
-            AcceptedSchemaSnapshot, SchemaStore, SchemaTransitionDecision,
+            AcceptedSchemaSnapshot, PersistedSchemaSnapshot, SchemaStore, SchemaTransitionDecision,
             compiled_schema_proposal_for_model, decide_schema_transition,
+            transition::SchemaTransitionRejectionKind,
         },
     },
     error::InternalError,
+    metrics::sink::{MetricsEvent, SchemaReconcileOutcome, record},
     model::entity::EntityModel,
     traits::CanisterKind,
     types::EntityTag,
@@ -62,33 +64,78 @@ fn reconcile_runtime_schema<C: CanisterKind>(
 pub(in crate::db) fn ensure_initial_schema_snapshot(
     schema_store: &mut SchemaStore,
     entity_tag: EntityTag,
-    entity_path: &str,
+    entity_path: &'static str,
     model: &EntityModel,
 ) -> Result<AcceptedSchemaSnapshot, InternalError> {
     let proposal = compiled_schema_proposal_for_model(model);
     let expected = proposal.initial_persisted_schema_snapshot();
 
-    if let Some(actual) = schema_store.latest_persisted_snapshot(entity_tag)? {
-        validate_existing_schema_snapshot(entity_path, &actual, &expected)?;
-        return Ok(AcceptedSchemaSnapshot::new(actual));
+    let latest = match schema_store.latest_persisted_snapshot(entity_tag) {
+        Ok(latest) => latest,
+        Err(error) => {
+            record_schema_reconcile(entity_path, SchemaReconcileOutcome::LatestSnapshotCorrupt);
+            return Err(error);
+        }
+    };
+
+    if let Some(actual) = latest {
+        let outcome = validate_existing_schema_snapshot(entity_path, &actual, &expected)?;
+        record_schema_reconcile(entity_path, outcome);
+
+        return AcceptedSchemaSnapshot::try_new(actual);
     }
 
-    schema_store.insert_persisted_snapshot(entity_tag, &expected)?;
+    if let Err(error) = schema_store.insert_persisted_snapshot(entity_tag, &expected) {
+        record_schema_reconcile(entity_path, SchemaReconcileOutcome::StoreWriteError);
+        return Err(error);
+    }
 
-    Ok(AcceptedSchemaSnapshot::new(expected))
+    record_schema_reconcile(entity_path, SchemaReconcileOutcome::FirstCreate);
+
+    AcceptedSchemaSnapshot::try_new(expected)
+}
+
+// Keep schema reconciliation instrumentation at the reconciliation boundary so
+// store/codec helpers remain persistence-focused and do not depend on metrics.
+fn record_schema_reconcile(entity_path: &'static str, outcome: SchemaReconcileOutcome) {
+    record(MetricsEvent::SchemaReconcile {
+        entity_path,
+        outcome,
+    });
+}
+
+// Map schema-owned transition rejection classes into public metrics buckets.
+// Detailed diagnostics stay on the rejection itself; metrics only carry stable
+// low-cardinality categories.
+const fn schema_reconcile_rejection_outcome(
+    kind: SchemaTransitionRejectionKind,
+) -> SchemaReconcileOutcome {
+    match kind {
+        SchemaTransitionRejectionKind::SchemaVersion => {
+            SchemaReconcileOutcome::RejectedSchemaVersion
+        }
+        SchemaTransitionRejectionKind::RowLayout => SchemaReconcileOutcome::RejectedRowLayout,
+        SchemaTransitionRejectionKind::FieldSlot => SchemaReconcileOutcome::RejectedFieldSlot,
+        SchemaTransitionRejectionKind::EntityIdentity
+        | SchemaTransitionRejectionKind::FieldContract
+        | SchemaTransitionRejectionKind::Snapshot => SchemaReconcileOutcome::RejectedOther,
+    }
 }
 
 // Fail closed when generated code no longer matches an accepted persisted
 // schema. Later schema-evolution work will replace this exact-match boundary
 // with compatibility checks and explicit migrations.
 fn validate_existing_schema_snapshot(
-    entity_path: &str,
-    actual: &crate::db::schema::PersistedSchemaSnapshot,
-    expected: &crate::db::schema::PersistedSchemaSnapshot,
-) -> Result<(), InternalError> {
+    entity_path: &'static str,
+    actual: &PersistedSchemaSnapshot,
+    expected: &PersistedSchemaSnapshot,
+) -> Result<SchemaReconcileOutcome, InternalError> {
     match decide_schema_transition(actual, expected) {
-        SchemaTransitionDecision::ExactMatch => Ok(()),
+        SchemaTransitionDecision::ExactMatch => Ok(SchemaReconcileOutcome::ExactMatch),
         SchemaTransitionDecision::Rejected(rejection) => {
+            let outcome = schema_reconcile_rejection_outcome(rejection.kind());
+            record_schema_reconcile(entity_path, outcome);
+
             Err(InternalError::store_unsupported(format!(
                 "schema evolution is not yet supported for entity '{entity_path}': {}",
                 rejection.detail(),
@@ -115,6 +162,7 @@ mod tests {
             },
         },
         error::ErrorClass,
+        metrics::{metrics_report, metrics_reset_all},
         model::field::FieldKind,
         testing::test_memory,
         traits::{EntityKind, EntitySchema, Path},
@@ -189,6 +237,7 @@ mod tests {
     #[test]
     fn reconcile_runtime_schemas_writes_initial_snapshot_on_first_contact() {
         reset_schema_store();
+        metrics_reset_all();
 
         super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
             .expect("initial schema reconciliation should write generated snapshot");
@@ -205,11 +254,19 @@ mod tests {
 
         assert_eq!(snapshot.entity_path(), SchemaReconcileEntity::PATH);
         assert_eq!(snapshot.fields().len(), 2);
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("schema reconciliation should record metrics");
+        assert_eq!(counters.ops().schema_reconcile_checks(), 1);
+        assert_eq!(counters.ops().schema_reconcile_first_create(), 1);
     }
 
     #[test]
     fn reconcile_runtime_schemas_accepts_existing_matching_snapshot() {
         reset_schema_store();
+        metrics_reset_all();
         super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
             .expect("initial schema reconciliation should write generated snapshot");
 
@@ -217,11 +274,20 @@ mod tests {
             .expect("matching persisted schema should be accepted");
 
         assert_eq!(RECONCILE_SCHEMA_STORE.with_borrow(SchemaStore::len), 1);
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("schema reconciliation should record metrics");
+        assert_eq!(counters.ops().schema_reconcile_checks(), 2);
+        assert_eq!(counters.ops().schema_reconcile_first_create(), 1);
+        assert_eq!(counters.ops().schema_reconcile_exact_match(), 1);
     }
 
     #[test]
     fn reconcile_runtime_schemas_rejects_changed_initial_snapshot() {
         reset_schema_store();
+        metrics_reset_all();
 
         let proposal = compiled_schema_proposal_for_model(SchemaReconcileEntity::MODEL);
         let expected = proposal.initial_persisted_schema_snapshot();
@@ -253,6 +319,13 @@ mod tests {
                 .contains("entity name changed: stored='ChangedSchemaReconcileEntity' generated='SchemaReconcileEntity'"),
             "schema mismatch should include the first rejected difference"
         );
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("schema reconciliation should record metrics");
+        assert_eq!(counters.ops().schema_reconcile_checks(), 1);
+        assert_eq!(counters.ops().schema_reconcile_rejected_other(), 1);
     }
 
     #[test]

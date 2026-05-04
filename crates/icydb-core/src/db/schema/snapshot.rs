@@ -4,7 +4,10 @@
 //! Boundary: schema-owned DTOs that can become the `__icydb_schema` payload.
 
 use crate::{
-    db::schema::{FieldId, SchemaFieldSlot, SchemaRowLayout, SchemaVersion},
+    db::schema::{
+        FieldId, SchemaFieldSlot, SchemaRowLayout, SchemaVersion, schema_snapshot_integrity_detail,
+    },
+    error::InternalError,
     model::field::{
         FieldDatabaseDefault, FieldKind, FieldStorageDecode, LeafCodec, RelationStrength,
     },
@@ -26,7 +29,32 @@ pub(in crate::db) struct AcceptedSchemaSnapshot {
 
 impl AcceptedSchemaSnapshot {
     /// Wrap one persisted snapshot after reconciliation accepts it.
+    ///
+    /// Production callers use this fallible constructor so accepted schema
+    /// metadata cannot bypass the same integrity rules enforced by the schema
+    /// store and raw schema codec. Owner-local tests may use `new` to build
+    /// deliberately inconsistent fixtures that exercise accessor authority.
+    pub(in crate::db) fn try_new(snapshot: PersistedSchemaSnapshot) -> Result<Self, InternalError> {
+        if let Some(detail) = schema_snapshot_integrity_detail(
+            "accepted schema snapshot",
+            snapshot.version(),
+            snapshot.primary_key_field_id(),
+            snapshot.row_layout(),
+            snapshot.fields(),
+        ) {
+            return Err(InternalError::store_invariant(detail));
+        }
+
+        Ok(Self { snapshot })
+    }
+
+    /// Wrap one persisted snapshot for owner-local test fixtures.
+    ///
+    /// This unchecked constructor exists only for tests that intentionally
+    /// construct inconsistent accepted metadata to prove accessor authority.
+    /// Runtime acceptance must use `try_new`.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn new(snapshot: PersistedSchemaSnapshot) -> Self {
         Self { snapshot }
     }
@@ -687,6 +715,40 @@ mod tests {
         assert_eq!(
             snapshot.field_slot_by_name("payload"),
             Some(SchemaFieldSlot::new(9)),
+        );
+    }
+
+    #[test]
+    fn accepted_schema_snapshot_try_new_rejects_invalid_metadata() {
+        let snapshot = PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "schema::snapshot::tests::Invalid".to_string(),
+            "Invalid".to_string(),
+            FieldId::new(99),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
+            ),
+            vec![PersistedFieldSnapshot::new(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                PersistedFieldKind::Ulid,
+                Vec::new(),
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Ulid),
+            )],
+        );
+
+        let err = AcceptedSchemaSnapshot::try_new(snapshot)
+            .expect_err("accepted schema construction should reject invalid metadata");
+
+        assert!(
+            err.message()
+                .contains("accepted schema snapshot primary key field missing from row layout"),
+            "accepted schema construction should report the integrity failure"
         );
     }
 }

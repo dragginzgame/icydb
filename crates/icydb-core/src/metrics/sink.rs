@@ -99,6 +99,27 @@ pub enum SaveMutationKind {
 }
 
 ///
+/// SchemaReconcileOutcome
+///
+/// Stable startup/metadata reconciliation outcomes for the schema trust
+/// boundary. The enum is intentionally low-cardinality so metrics can explain
+/// schema acceptance failures without exposing field names or diagnostic text.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[remain::sorted]
+pub enum SchemaReconcileOutcome {
+    ExactMatch,
+    FirstCreate,
+    LatestSnapshotCorrupt,
+    RejectedFieldSlot,
+    RejectedOther,
+    RejectedRowLayout,
+    RejectedSchemaVersion,
+    StoreWriteError,
+}
+
+///
 /// SqlWriteKind
 ///
 
@@ -225,6 +246,10 @@ pub enum MetricsEvent {
         entity_path: &'static str,
         kind: SaveMutationKind,
         rows_touched: u64,
+    },
+    SchemaReconcile {
+        entity_path: &'static str,
+        outcome: SchemaReconcileOutcome,
     },
     SqlWrite {
         entity_path: &'static str,
@@ -581,6 +606,18 @@ impl MetricsSink for GlobalMetricsSink {
                 });
             }
 
+            MetricsEvent::SchemaReconcile {
+                entity_path,
+                outcome,
+            } => {
+                metrics::with_state_mut(|m| {
+                    record_global_schema_reconcile_outcome(&mut m.ops, outcome);
+
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    record_entity_schema_reconcile_outcome(entry, outcome);
+                });
+            }
+
             MetricsEvent::SqlWrite {
                 entity_path,
                 kind,
@@ -817,6 +854,99 @@ const fn record_entity_sql_write_kind(ops: &mut metrics::EntityCounters, kind: S
         }
         SqlWriteKind::Update => {
             ops.sql_update_calls = ops.sql_update_calls.saturating_add(1);
+        }
+    }
+}
+
+// Schema reconciliation is a startup/metadata trust boundary, not normal query
+// execution. Count the check plus the stable outcome bucket so operators can
+// distinguish expected first-contact writes from fail-closed drift.
+#[remain::check]
+const fn record_global_schema_reconcile_outcome(
+    ops: &mut metrics::EventOps,
+    outcome: SchemaReconcileOutcome,
+) {
+    ops.schema_reconcile_checks = ops.schema_reconcile_checks.saturating_add(1);
+
+    #[remain::sorted]
+    match outcome {
+        SchemaReconcileOutcome::ExactMatch => {
+            ops.schema_reconcile_exact_match = ops.schema_reconcile_exact_match.saturating_add(1);
+        }
+        SchemaReconcileOutcome::FirstCreate => {
+            ops.schema_reconcile_first_create = ops.schema_reconcile_first_create.saturating_add(1);
+        }
+        SchemaReconcileOutcome::LatestSnapshotCorrupt => {
+            ops.schema_reconcile_latest_snapshot_corrupt = ops
+                .schema_reconcile_latest_snapshot_corrupt
+                .saturating_add(1);
+        }
+        SchemaReconcileOutcome::RejectedFieldSlot => {
+            ops.schema_reconcile_rejected_field_slot =
+                ops.schema_reconcile_rejected_field_slot.saturating_add(1);
+        }
+        SchemaReconcileOutcome::RejectedOther => {
+            ops.schema_reconcile_rejected_other =
+                ops.schema_reconcile_rejected_other.saturating_add(1);
+        }
+        SchemaReconcileOutcome::RejectedRowLayout => {
+            ops.schema_reconcile_rejected_row_layout =
+                ops.schema_reconcile_rejected_row_layout.saturating_add(1);
+        }
+        SchemaReconcileOutcome::RejectedSchemaVersion => {
+            ops.schema_reconcile_rejected_schema_version = ops
+                .schema_reconcile_rejected_schema_version
+                .saturating_add(1);
+        }
+        SchemaReconcileOutcome::StoreWriteError => {
+            ops.schema_reconcile_store_write_error =
+                ops.schema_reconcile_store_write_error.saturating_add(1);
+        }
+    }
+}
+
+// Mirror schema reconciliation outcomes into the entity summary because one
+// drifting entity schema should be visible without inspecting global totals.
+#[remain::check]
+const fn record_entity_schema_reconcile_outcome(
+    ops: &mut metrics::EntityCounters,
+    outcome: SchemaReconcileOutcome,
+) {
+    ops.schema_reconcile_checks = ops.schema_reconcile_checks.saturating_add(1);
+
+    #[remain::sorted]
+    match outcome {
+        SchemaReconcileOutcome::ExactMatch => {
+            ops.schema_reconcile_exact_match = ops.schema_reconcile_exact_match.saturating_add(1);
+        }
+        SchemaReconcileOutcome::FirstCreate => {
+            ops.schema_reconcile_first_create = ops.schema_reconcile_first_create.saturating_add(1);
+        }
+        SchemaReconcileOutcome::LatestSnapshotCorrupt => {
+            ops.schema_reconcile_latest_snapshot_corrupt = ops
+                .schema_reconcile_latest_snapshot_corrupt
+                .saturating_add(1);
+        }
+        SchemaReconcileOutcome::RejectedFieldSlot => {
+            ops.schema_reconcile_rejected_field_slot =
+                ops.schema_reconcile_rejected_field_slot.saturating_add(1);
+        }
+        SchemaReconcileOutcome::RejectedOther => {
+            ops.schema_reconcile_rejected_other =
+                ops.schema_reconcile_rejected_other.saturating_add(1);
+        }
+        SchemaReconcileOutcome::RejectedRowLayout => {
+            ops.schema_reconcile_rejected_row_layout =
+                ops.schema_reconcile_rejected_row_layout.saturating_add(1);
+        }
+        SchemaReconcileOutcome::RejectedSchemaVersion => {
+            ops.schema_reconcile_rejected_schema_version = ops
+                .schema_reconcile_rejected_schema_version
+                .saturating_add(1);
+        }
+        SchemaReconcileOutcome::StoreWriteError => {
+            ops.schema_reconcile_store_write_error =
+                ops.schema_reconcile_store_write_error.saturating_add(1);
         }
     }
 }
