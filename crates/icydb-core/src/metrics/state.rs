@@ -124,6 +124,9 @@ pub struct EventOps {
     pub(crate) schema_reconcile_rejected_row_layout: u64,
     pub(crate) schema_reconcile_rejected_schema_version: u64,
     pub(crate) schema_reconcile_store_write_error: u64,
+    pub(crate) schema_store_snapshots: u64,
+    pub(crate) schema_store_encoded_bytes: u64,
+    pub(crate) schema_store_latest_snapshot_bytes: u64,
     pub(crate) sql_compile_rejects: u64,
     pub(crate) sql_compile_reject_cache_key: u64,
     pub(crate) sql_compile_reject_parse: u64,
@@ -159,6 +162,8 @@ pub struct EventOps {
     pub(crate) plan_choice_planner_primary_key_range: u64,
     pub(crate) plan_choice_required_order_primary_key_range_preferred: u64,
     pub(crate) plan_choice_singleton_primary_key_child_access_preferred: u64,
+    pub(crate) prepared_shape_already_finalized: u64,
+    pub(crate) prepared_shape_generated_fallback: u64,
 
     // Rows touched
     pub(crate) rows_loaded: u64,
@@ -421,6 +426,21 @@ impl EventOps {
     }
 
     #[must_use]
+    pub const fn schema_store_snapshots(&self) -> u64 {
+        self.schema_store_snapshots
+    }
+
+    #[must_use]
+    pub const fn schema_store_encoded_bytes(&self) -> u64 {
+        self.schema_store_encoded_bytes
+    }
+
+    #[must_use]
+    pub const fn schema_store_latest_snapshot_bytes(&self) -> u64 {
+        self.schema_store_latest_snapshot_bytes
+    }
+
+    #[must_use]
     pub const fn sql_compile_rejects(&self) -> u64 {
         self.sql_compile_rejects
     }
@@ -583,6 +603,16 @@ impl EventOps {
     #[must_use]
     pub const fn plan_choice_singleton_primary_key_child_access_preferred(&self) -> u64 {
         self.plan_choice_singleton_primary_key_child_access_preferred
+    }
+
+    #[must_use]
+    pub const fn prepared_shape_already_finalized(&self) -> u64 {
+        self.prepared_shape_already_finalized
+    }
+
+    #[must_use]
+    pub const fn prepared_shape_generated_fallback(&self) -> u64 {
+        self.prepared_shape_generated_fallback
     }
 
     #[must_use]
@@ -899,6 +929,9 @@ pub(crate) struct EntityCounters {
     pub(crate) schema_reconcile_rejected_row_layout: u64,
     pub(crate) schema_reconcile_rejected_schema_version: u64,
     pub(crate) schema_reconcile_store_write_error: u64,
+    pub(crate) schema_store_snapshots: u64,
+    pub(crate) schema_store_encoded_bytes: u64,
+    pub(crate) schema_store_latest_snapshot_bytes: u64,
     pub(crate) sql_compile_rejects: u64,
     pub(crate) sql_compile_reject_cache_key: u64,
     pub(crate) sql_compile_reject_parse: u64,
@@ -932,6 +965,8 @@ pub(crate) struct EntityCounters {
     pub(crate) plan_choice_planner_primary_key_range: u64,
     pub(crate) plan_choice_required_order_primary_key_range_preferred: u64,
     pub(crate) plan_choice_singleton_primary_key_child_access_preferred: u64,
+    pub(crate) prepared_shape_already_finalized: u64,
+    pub(crate) prepared_shape_generated_fallback: u64,
     pub(crate) rows_loaded: u64,
     pub(crate) rows_saved: u64,
     pub(crate) rows_inserted: u64,
@@ -1243,6 +1278,9 @@ pub struct EntitySummary {
     schema_reconcile_rejected_row_layout: u64,
     schema_reconcile_rejected_schema_version: u64,
     schema_reconcile_store_write_error: u64,
+    schema_store_snapshots: u64,
+    schema_store_encoded_bytes: u64,
+    schema_store_latest_snapshot_bytes: u64,
     sql_compile_rejects: u64,
     sql_compile_reject_cache_key: u64,
     sql_compile_reject_parse: u64,
@@ -1276,6 +1314,8 @@ pub struct EntitySummary {
     plan_choice_planner_primary_key_range: u64,
     plan_choice_required_order_primary_key_range_preferred: u64,
     plan_choice_singleton_primary_key_child_access_preferred: u64,
+    prepared_shape_already_finalized: u64,
+    prepared_shape_generated_fallback: u64,
     rows_loaded: u64,
     rows_saved: u64,
     rows_inserted: u64,
@@ -1529,6 +1569,21 @@ impl EntitySummary {
     }
 
     #[must_use]
+    pub const fn schema_store_snapshots(&self) -> u64 {
+        self.schema_store_snapshots
+    }
+
+    #[must_use]
+    pub const fn schema_store_encoded_bytes(&self) -> u64 {
+        self.schema_store_encoded_bytes
+    }
+
+    #[must_use]
+    pub const fn schema_store_latest_snapshot_bytes(&self) -> u64 {
+        self.schema_store_latest_snapshot_bytes
+    }
+
+    #[must_use]
     pub const fn sql_compile_rejects(&self) -> u64 {
         self.sql_compile_rejects
     }
@@ -1691,6 +1746,16 @@ impl EntitySummary {
     #[must_use]
     pub const fn plan_choice_singleton_primary_key_child_access_preferred(&self) -> u64 {
         self.plan_choice_singleton_primary_key_child_access_preferred
+    }
+
+    #[must_use]
+    pub const fn prepared_shape_already_finalized(&self) -> u64 {
+        self.prepared_shape_already_finalized
+    }
+
+    #[must_use]
+    pub const fn prepared_shape_generated_fallback(&self) -> u64 {
+        self.prepared_shape_generated_fallback
     }
 
     #[must_use]
@@ -2008,6 +2073,9 @@ impl EntitySummary {
             .saturating_add(self.schema_reconcile_rejected_row_layout)
             .saturating_add(self.schema_reconcile_rejected_schema_version)
             .saturating_add(self.schema_reconcile_store_write_error)
+            .saturating_add(self.schema_store_snapshots)
+            .saturating_add(self.schema_store_encoded_bytes)
+            .saturating_add(self.schema_store_latest_snapshot_bytes)
             .saturating_add(self.sql_compile_rejects)
             .saturating_add(self.sql_compile_reject_cache_key)
             .saturating_add(self.sql_compile_reject_parse)
@@ -2041,6 +2109,8 @@ impl EntitySummary {
             .saturating_add(self.plan_choice_planner_primary_key_range)
             .saturating_add(self.plan_choice_required_order_primary_key_range_preferred)
             .saturating_add(self.plan_choice_singleton_primary_key_child_access_preferred)
+            .saturating_add(self.prepared_shape_already_finalized)
+            .saturating_add(self.prepared_shape_generated_fallback)
             .saturating_add(self.rows_loaded)
             .saturating_add(self.rows_saved)
             .saturating_add(self.rows_inserted)
@@ -2141,6 +2211,9 @@ fn entity_summary_from_counters(path: &str, ops: &EntityCounters) -> EntitySumma
         schema_reconcile_rejected_row_layout: ops.schema_reconcile_rejected_row_layout,
         schema_reconcile_rejected_schema_version: ops.schema_reconcile_rejected_schema_version,
         schema_reconcile_store_write_error: ops.schema_reconcile_store_write_error,
+        schema_store_snapshots: ops.schema_store_snapshots,
+        schema_store_encoded_bytes: ops.schema_store_encoded_bytes,
+        schema_store_latest_snapshot_bytes: ops.schema_store_latest_snapshot_bytes,
         sql_compile_rejects: ops.sql_compile_rejects,
         sql_compile_reject_cache_key: ops.sql_compile_reject_cache_key,
         sql_compile_reject_parse: ops.sql_compile_reject_parse,
@@ -2177,6 +2250,8 @@ fn entity_summary_from_counters(path: &str, ops: &EntityCounters) -> EntitySumma
             .plan_choice_required_order_primary_key_range_preferred,
         plan_choice_singleton_primary_key_child_access_preferred: ops
             .plan_choice_singleton_primary_key_child_access_preferred,
+        prepared_shape_already_finalized: ops.prepared_shape_already_finalized,
+        prepared_shape_generated_fallback: ops.prepared_shape_generated_fallback,
         rows_loaded: ops.rows_loaded,
         rows_saved: ops.rows_saved,
         rows_inserted: ops.rows_inserted,

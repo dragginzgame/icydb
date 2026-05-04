@@ -13,7 +13,9 @@ use crate::{
         },
     },
     error::InternalError,
-    metrics::sink::{MetricsEvent, SchemaReconcileOutcome, record},
+    metrics::sink::{
+        MetricsEvent, SchemaReconcileOutcome, record, record_schema_store_footprint_for_path,
+    },
     model::entity::EntityModel,
     traits::CanisterKind,
     types::EntityTag,
@@ -73,24 +75,34 @@ pub(in crate::db) fn ensure_initial_schema_snapshot(
     let latest = match schema_store.latest_persisted_snapshot(entity_tag) {
         Ok(latest) => latest,
         Err(error) => {
+            record_schema_store_footprint(schema_store, entity_tag, entity_path);
             record_schema_reconcile(entity_path, SchemaReconcileOutcome::LatestSnapshotCorrupt);
             return Err(error);
         }
     };
 
     if let Some(actual) = latest {
-        let outcome = validate_existing_schema_snapshot(entity_path, &actual, &expected)?;
+        let outcome = match validate_existing_schema_snapshot(entity_path, &actual, &expected) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                record_schema_store_footprint(schema_store, entity_tag, entity_path);
+                return Err(error);
+            }
+        };
         record_schema_reconcile(entity_path, outcome);
+        record_schema_store_footprint(schema_store, entity_tag, entity_path);
 
         return AcceptedSchemaSnapshot::try_new(actual);
     }
 
     if let Err(error) = schema_store.insert_persisted_snapshot(entity_tag, &expected) {
+        record_schema_store_footprint(schema_store, entity_tag, entity_path);
         record_schema_reconcile(entity_path, SchemaReconcileOutcome::StoreWriteError);
         return Err(error);
     }
 
     record_schema_reconcile(entity_path, SchemaReconcileOutcome::FirstCreate);
+    record_schema_store_footprint(schema_store, entity_tag, entity_path);
 
     AcceptedSchemaSnapshot::try_new(expected)
 }
@@ -102,6 +114,22 @@ fn record_schema_reconcile(entity_path: &'static str, outcome: SchemaReconcileOu
         entity_path,
         outcome,
     });
+}
+
+// Record raw schema-store footprint from the store boundary without decoding
+// snapshot payloads or exposing schema metadata details through metrics.
+fn record_schema_store_footprint(
+    schema_store: &SchemaStore,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+) {
+    let footprint = schema_store.entity_footprint(entity_tag);
+    record_schema_store_footprint_for_path(
+        entity_path,
+        footprint.snapshots(),
+        footprint.encoded_bytes(),
+        footprint.latest_snapshot_bytes(),
+    );
 }
 
 // Map schema-owned transition rejection classes into public metrics buckets.
@@ -261,6 +289,12 @@ mod tests {
             .expect("schema reconciliation should record metrics");
         assert_eq!(counters.ops().schema_reconcile_checks(), 1);
         assert_eq!(counters.ops().schema_reconcile_first_create(), 1);
+        assert_eq!(counters.ops().schema_store_snapshots(), 1);
+        assert!(counters.ops().schema_store_encoded_bytes() > 0);
+        assert_eq!(
+            counters.ops().schema_store_latest_snapshot_bytes(),
+            counters.ops().schema_store_encoded_bytes(),
+        );
     }
 
     #[test]

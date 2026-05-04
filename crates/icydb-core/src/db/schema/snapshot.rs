@@ -115,22 +115,24 @@ impl AcceptedSchemaSnapshot {
         self.field_by_name(name).map(PersistedFieldSnapshot::kind)
     }
 
-    /// Return one accepted top-level field slot by persisted field name.
+    /// Borrow accepted top-level field facts by persisted field name.
+    ///
+    /// The returned slot comes from `SchemaRowLayout`, not from the duplicated
+    /// field snapshot slot, so callers receive the same row-layout authority
+    /// as the narrower slot accessor while avoiding repeated field scans.
     #[must_use]
-    pub(in crate::db) fn field_slot_by_name(&self, name: &str) -> Option<SchemaFieldSlot> {
-        let field = self.field_by_name(name)?;
-
-        self.snapshot.row_layout().slot_for_field(field.id())
-    }
-
-    /// Borrow accepted nested leaf descriptors for one top-level field.
-    #[must_use]
-    pub(in crate::db) fn nested_leaves_by_field_name(
+    pub(in crate::db) fn field_facts_by_name(
         &self,
         name: &str,
-    ) -> Option<&[PersistedNestedLeafSnapshot]> {
-        self.field_by_name(name)
-            .map(PersistedFieldSnapshot::nested_leaves)
+    ) -> Option<(
+        &PersistedFieldKind,
+        SchemaFieldSlot,
+        &[PersistedNestedLeafSnapshot],
+    )> {
+        let field = self.field_by_name(name)?;
+        let slot = self.snapshot.row_layout().slot_for_field(field.id())?;
+
+        Some((field.kind(), slot, field.nested_leaves()))
     }
 }
 
@@ -689,20 +691,15 @@ mod tests {
             snapshot.field_kind_by_name("payload"),
             Some(&PersistedFieldKind::Blob),
         );
-        assert_eq!(
-            snapshot.field_slot_by_name("payload"),
-            Some(SchemaFieldSlot::new(7)),
-        );
-
-        let nested = snapshot
-            .nested_leaves_by_field_name("payload")
-            .expect("accepted nested leaf metadata should be exposed");
+        let (_, slot, nested) = snapshot
+            .field_facts_by_name("payload")
+            .expect("accepted payload facts should resolve");
+        assert_eq!(slot, SchemaFieldSlot::new(7));
         assert_eq!(nested.len(), 1);
         assert_eq!(nested[0].path(), &["thumbnail".to_string()]);
 
         assert_eq!(snapshot.field_kind_by_name("missing"), None);
-        assert_eq!(snapshot.field_slot_by_name("missing"), None);
-        assert_eq!(snapshot.nested_leaves_by_field_name("missing"), None);
+        assert_eq!(snapshot.field_facts_by_name("missing"), None);
     }
 
     #[test]
@@ -712,10 +709,28 @@ mod tests {
             SchemaFieldSlot::new(7),
         );
 
-        assert_eq!(
-            snapshot.field_slot_by_name("payload"),
-            Some(SchemaFieldSlot::new(9)),
+        let (_, slot, _) = snapshot
+            .field_facts_by_name("payload")
+            .expect("accepted payload facts should resolve");
+
+        assert_eq!(slot, SchemaFieldSlot::new(9));
+    }
+
+    #[test]
+    fn accepted_schema_snapshot_field_facts_use_row_layout_slot_authority() {
+        let snapshot = accepted_schema_fixture_with_payload_slots(
+            SchemaFieldSlot::new(11),
+            SchemaFieldSlot::new(7),
         );
+
+        let (kind, slot, nested) = snapshot
+            .field_facts_by_name("payload")
+            .expect("accepted field facts should resolve");
+
+        assert_eq!(kind, &PersistedFieldKind::Blob);
+        assert_eq!(slot, SchemaFieldSlot::new(11));
+        assert_eq!(nested.len(), 1);
+        assert_eq!(nested[0].path(), &["thumbnail".to_string()]);
     }
 
     #[test]

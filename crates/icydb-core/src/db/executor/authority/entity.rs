@@ -12,6 +12,9 @@ use crate::{
         schema::SchemaInfo,
     },
     error::InternalError,
+    metrics::sink::{
+        PreparedShapeFinalizationOutcome, record_prepared_shape_finalization_for_path,
+    },
     model::{entity::EntityModel, field::FieldModel, index::IndexModel},
     traits::{EntityKind, Path},
     types::EntityTag,
@@ -114,8 +117,24 @@ impl EntityAuthority {
         self,
         plan: &mut AccessPlannedQuery,
     ) {
+        // Cached/session planning may already have frozen static execution
+        // metadata with accepted schema authority. Do not overwrite that
+        // schema-selected slot contract with the generated fallback while
+        // lowering the executor core.
+        if plan.has_static_planning_shape() {
+            record_prepared_shape_finalization_for_path(
+                self.entity_path(),
+                PreparedShapeFinalizationOutcome::AlreadyFinalized,
+            );
+            return;
+        }
+
         plan.finalize_static_planning_shape_for_model(self.model)
             .expect("executable plan core requires planner-frozen static execution shape");
+        record_prepared_shape_finalization_for_path(
+            self.entity_path(),
+            PreparedShapeFinalizationOutcome::GeneratedFallback,
+        );
     }
 
     /// Finalize planner-owned route profiling through canonical entity authority.
@@ -183,5 +202,151 @@ impl EntityAuthority {
             index,
             read_slot,
         )
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::{
+            access::AccessPath,
+            executor::EntityAuthority,
+            predicate::MissingRowPolicy,
+            query::plan::{
+                AccessPlannedQuery,
+                expr::{FieldId as ExprFieldId, ProjectionSelection},
+            },
+            schema::{
+                AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
+                PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaInfo,
+                SchemaRowLayout, SchemaVersion,
+            },
+        },
+        metrics::{metrics_report, metrics_reset_all},
+        model::{
+            entity::EntityModel,
+            field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
+            index::IndexModel,
+        },
+        testing::entity_model_from_static,
+        types::EntityTag,
+        value::Value,
+    };
+
+    const AUTHORITY_SCHEMA_SLOT_TEST_STORE_PATH: &str = "authority_schema_slot_test_store";
+
+    static FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated("profile", FieldKind::Structured { queryable: true }),
+    ];
+    static INDEXES: [&IndexModel; 0] = [];
+    static MODEL: EntityModel = entity_model_from_static(
+        "executor::authority::tests::Entity",
+        "Entity",
+        &FIELDS[0],
+        0,
+        &FIELDS,
+        &INDEXES,
+    );
+
+    // Build one accepted schema with a deliberately divergent row-layout slot
+    // for `profile` so this test catches generated-fallback re-finalization.
+    fn accepted_schema_with_profile_slot(slot: SchemaFieldSlot) -> SchemaInfo {
+        let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "executor::authority::tests::Entity".to_string(),
+            "Entity".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), slot),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "profile".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Structured { queryable: true },
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::Value,
+                    LeafCodec::StructuralFallback,
+                ),
+            ],
+        ));
+
+        SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot)
+    }
+
+    #[test]
+    fn authority_finalization_preserves_schema_finalized_static_shape() {
+        metrics_reset_all();
+        let authority = EntityAuthority::new(
+            &MODEL,
+            EntityTag::new(0x1460_0013),
+            AUTHORITY_SCHEMA_SLOT_TEST_STORE_PATH,
+        );
+        let schema = accepted_schema_with_profile_slot(SchemaFieldSlot::new(7));
+        let mut plan =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        plan.projection_selection = ProjectionSelection::Fields(vec![ExprFieldId::new("profile")]);
+
+        plan.finalize_static_planning_shape_for_model_with_schema(&MODEL, &schema)
+            .expect("schema-finalized static shape should build");
+        assert_eq!(plan.frozen_direct_projection_slots(), Some([7].as_slice()));
+
+        authority.finalize_static_planning_shape(&mut plan);
+
+        assert_eq!(plan.frozen_direct_projection_slots(), Some([7].as_slice()));
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("authority finalization should record metrics");
+        assert_eq!(counters.ops().prepared_shape_already_finalized(), 1);
+        assert_eq!(counters.ops().prepared_shape_generated_fallback(), 0);
+    }
+
+    #[test]
+    fn authority_finalization_records_generated_fallback_shape() {
+        metrics_reset_all();
+        let authority = EntityAuthority::new(
+            &MODEL,
+            EntityTag::new(0x1460_0014),
+            AUTHORITY_SCHEMA_SLOT_TEST_STORE_PATH,
+        );
+        let mut plan =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        plan.projection_selection = ProjectionSelection::Fields(vec![ExprFieldId::new("profile")]);
+
+        authority.finalize_static_planning_shape(&mut plan);
+
+        assert_eq!(plan.frozen_direct_projection_slots(), Some([1].as_slice()));
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("authority finalization should record metrics");
+        assert_eq!(counters.ops().prepared_shape_already_finalized(), 0);
+        assert_eq!(counters.ops().prepared_shape_generated_fallback(), 1);
     }
 }

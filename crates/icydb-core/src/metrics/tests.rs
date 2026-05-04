@@ -6,7 +6,7 @@
 use crate::metrics::{
     sink::{
         CacheKind, CacheMissReason, CacheOutcome, MetricsEvent, PlanChoiceReason,
-        SchemaReconcileOutcome, SqlCompileRejectPhase, record,
+        PreparedShapeFinalizationOutcome, SchemaReconcileOutcome, SqlCompileRejectPhase, record,
     },
     state::{
         EntityCounters, EventOps, MetricRatio, report_window_start, reset_all, with_state,
@@ -208,6 +208,9 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
         "schema_reconcile_rejected_row_layout",
         "schema_reconcile_rejected_schema_version",
         "schema_reconcile_store_write_error",
+        "schema_store_snapshots",
+        "schema_store_encoded_bytes",
+        "schema_store_latest_snapshot_bytes",
         "sql_compile_rejects",
         "sql_compile_reject_cache_key",
         "sql_compile_reject_parse",
@@ -235,6 +238,8 @@ fn event_ops_candid_shape_exposes_detailed_plan_counters() {
         "plan_choice_planner_primary_key_range",
         "plan_choice_required_order_primary_key_range_preferred",
         "plan_choice_singleton_primary_key_child_access_preferred",
+        "prepared_shape_already_finalized",
+        "prepared_shape_generated_fallback",
         "rows_inserted",
         "rows_updated",
         "rows_replaced",
@@ -320,6 +325,48 @@ fn schema_reconcile_metrics_accumulate_by_outcome_and_entity() {
     assert_eq!(summary.schema_reconcile_rejected_row_layout(), 1);
     assert_eq!(summary.schema_reconcile_rejected_schema_version(), 1);
     assert_eq!(summary.schema_reconcile_store_write_error(), 1);
+}
+
+#[test]
+fn schema_store_footprint_metrics_replace_entity_gauge_contributions() {
+    reset_all();
+
+    record(MetricsEvent::SchemaStoreFootprint {
+        entity_path: "metrics::tests::SchemaStoreEntity",
+        snapshots: 1,
+        encoded_bytes: 100,
+        latest_snapshot_bytes: 100,
+    });
+    record(MetricsEvent::SchemaStoreFootprint {
+        entity_path: "metrics::tests::OtherSchemaStoreEntity",
+        snapshots: 2,
+        encoded_bytes: 300,
+        latest_snapshot_bytes: 180,
+    });
+    record(MetricsEvent::SchemaStoreFootprint {
+        entity_path: "metrics::tests::SchemaStoreEntity",
+        snapshots: 3,
+        encoded_bytes: 500,
+        latest_snapshot_bytes: 220,
+    });
+
+    let report = report_window_start(None);
+    let counters = report
+        .counters()
+        .expect("schema-store footprint fixture should produce aggregate counters");
+    let ops = counters.ops();
+    assert_eq!(ops.schema_store_snapshots(), 5);
+    assert_eq!(ops.schema_store_encoded_bytes(), 800);
+    assert_eq!(ops.schema_store_latest_snapshot_bytes(), 400);
+
+    let summaries = report.entity_counters();
+    let summary = summaries
+        .iter()
+        .find(|summary| summary.path() == "metrics::tests::SchemaStoreEntity")
+        .expect("schema-store fixture should produce updated entity summary");
+    assert_eq!(summary.schema_store_snapshots(), 3);
+    assert_eq!(summary.schema_store_encoded_bytes(), 500);
+    assert_eq!(summary.schema_store_latest_snapshot_bytes(), 220);
 }
 
 #[test]
@@ -566,6 +613,37 @@ fn plan_choice_reason_metrics_accumulate_by_reason_and_entity() {
 }
 
 #[test]
+fn prepared_shape_finalization_metrics_accumulate_by_outcome_and_entity() {
+    reset_all();
+
+    for outcome in [
+        PreparedShapeFinalizationOutcome::AlreadyFinalized,
+        PreparedShapeFinalizationOutcome::GeneratedFallback,
+    ] {
+        record(MetricsEvent::PreparedShapeFinalization {
+            entity_path: "metrics::tests::PreparedShapeEntity",
+            outcome,
+        });
+    }
+
+    let report = report_window_start(None);
+    let counters = report
+        .counters()
+        .expect("prepared-shape finalization fixture should produce counters");
+    let ops = counters.ops();
+    assert_eq!(ops.prepared_shape_already_finalized(), 1);
+    assert_eq!(ops.prepared_shape_generated_fallback(), 1);
+
+    let summary = report
+        .entity_counters()
+        .first()
+        .expect("prepared-shape finalization fixture should produce entity summary");
+    assert_eq!(summary.path(), "metrics::tests::PreparedShapeEntity");
+    assert_eq!(summary.prepared_shape_already_finalized(), 1);
+    assert_eq!(summary.prepared_shape_generated_fallback(), 1);
+}
+
+#[test]
 fn derived_ratio_helpers_use_raw_counter_totals_without_changing_report_shape() {
     let ops = EventOps {
         load_candidate_rows_scanned: 16,
@@ -668,6 +746,9 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         schema_reconcile_rejected_row_layout: 92,
         schema_reconcile_rejected_schema_version: 93,
         schema_reconcile_store_write_error: 94,
+        schema_store_snapshots: 184,
+        schema_store_encoded_bytes: 185,
+        schema_store_latest_snapshot_bytes: 186,
         sql_compile_rejects: 180,
         sql_compile_reject_cache_key: 181,
         sql_compile_reject_parse: 182,
@@ -701,6 +782,8 @@ const fn populated_entity_counters_fixture() -> EntityCounters {
         plan_choice_planner_primary_key_range: 177,
         plan_choice_required_order_primary_key_range_preferred: 178,
         plan_choice_singleton_primary_key_child_access_preferred: 179,
+        prepared_shape_already_finalized: 187,
+        prepared_shape_generated_fallback: 188,
         rows_loaded: 8,
         rows_saved: 23,
         rows_inserted: 27,
@@ -794,6 +877,9 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "schema_reconcile_rejected_row_layout",
         "schema_reconcile_rejected_schema_version",
         "schema_reconcile_store_write_error",
+        "schema_store_snapshots",
+        "schema_store_encoded_bytes",
+        "schema_store_latest_snapshot_bytes",
         "sql_compile_rejects",
         "sql_compile_reject_cache_key",
         "sql_compile_reject_parse",
@@ -827,6 +913,8 @@ fn assert_entity_summary_fields_are_present(fields: &[String]) {
         "plan_choice_planner_primary_key_range",
         "plan_choice_required_order_primary_key_range_preferred",
         "plan_choice_singleton_primary_key_child_access_preferred",
+        "prepared_shape_already_finalized",
+        "prepared_shape_generated_fallback",
         "rows_loaded",
         "rows_saved",
         "rows_inserted",
@@ -946,6 +1034,9 @@ fn entity_summary_candid_shape_is_stable() {
     assert_eq!(summary.schema_reconcile_rejected_row_layout(), 92);
     assert_eq!(summary.schema_reconcile_rejected_schema_version(), 93);
     assert_eq!(summary.schema_reconcile_store_write_error(), 94);
+    assert_eq!(summary.schema_store_snapshots(), 184);
+    assert_eq!(summary.schema_store_encoded_bytes(), 185);
+    assert_eq!(summary.schema_store_latest_snapshot_bytes(), 186);
     assert_eq!(summary.sql_compile_rejects(), 180);
     assert_eq!(summary.sql_compile_reject_cache_key(), 181);
     assert_eq!(summary.sql_compile_reject_parse(), 182);
@@ -988,6 +1079,8 @@ fn entity_summary_candid_shape_is_stable() {
         summary.plan_choice_singleton_primary_key_child_access_preferred(),
         179
     );
+    assert_eq!(summary.prepared_shape_already_finalized(), 187);
+    assert_eq!(summary.prepared_shape_generated_fallback(), 188);
     assert_eq!(summary.rows_saved(), 23);
     assert_eq!(summary.rows_inserted(), 27);
     assert_eq!(summary.rows_updated(), 28);

@@ -213,6 +213,21 @@ pub enum PlanChoiceReason {
 }
 
 ///
+/// PreparedShapeFinalizationOutcome
+///
+/// Stable executor authority outcome buckets for prepared static-shape
+/// finalization. These counters show whether executor lowering preserved an
+/// already-frozen schema-selected shape or applied the generated-model fallback.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[remain::sorted]
+pub enum PreparedShapeFinalizationOutcome {
+    AlreadyFinalized,
+    GeneratedFallback,
+}
+
+///
 /// GroupedPlanExecutionMode
 ///
 /// Canonical grouped-plan mode carried by metrics events.
@@ -287,6 +302,10 @@ pub enum MetricsEvent {
         entity_path: &'static str,
         reason: PlanChoiceReason,
     },
+    PreparedShapeFinalization {
+        entity_path: &'static str,
+        outcome: PreparedShapeFinalizationOutcome,
+    },
     RelationValidation {
         entity_path: &'static str,
         reverse_lookups: u64,
@@ -321,6 +340,12 @@ pub enum MetricsEvent {
     SchemaReconcile {
         entity_path: &'static str,
         outcome: SchemaReconcileOutcome,
+    },
+    SchemaStoreFootprint {
+        encoded_bytes: u64,
+        entity_path: &'static str,
+        latest_snapshot_bytes: u64,
+        snapshots: u64,
     },
     SqlCompileReject {
         entity_path: &'static str,
@@ -706,6 +731,48 @@ impl MetricsSink for GlobalMetricsSink {
                 });
             }
 
+            MetricsEvent::SchemaStoreFootprint {
+                encoded_bytes,
+                entity_path,
+                latest_snapshot_bytes,
+                snapshots,
+            } => {
+                metrics::with_state_mut(|m| {
+                    let (
+                        previous_snapshots,
+                        previous_encoded_bytes,
+                        previous_latest_snapshot_bytes,
+                    ) = {
+                        let entry = m.entities.entry(entity_path.to_string()).or_default();
+                        let previous = (
+                            entry.schema_store_snapshots,
+                            entry.schema_store_encoded_bytes,
+                            entry.schema_store_latest_snapshot_bytes,
+                        );
+                        entry.schema_store_snapshots = snapshots;
+                        entry.schema_store_encoded_bytes = encoded_bytes;
+                        entry.schema_store_latest_snapshot_bytes = latest_snapshot_bytes;
+
+                        previous
+                    };
+                    replace_gauge_total(
+                        &mut m.ops.schema_store_snapshots,
+                        previous_snapshots,
+                        snapshots,
+                    );
+                    replace_gauge_total(
+                        &mut m.ops.schema_store_encoded_bytes,
+                        previous_encoded_bytes,
+                        encoded_bytes,
+                    );
+                    replace_gauge_total(
+                        &mut m.ops.schema_store_latest_snapshot_bytes,
+                        previous_latest_snapshot_bytes,
+                        latest_snapshot_bytes,
+                    );
+                });
+            }
+
             MetricsEvent::SqlCompileReject { entity_path, phase } => {
                 metrics::with_state_mut(|m| {
                     record_global_sql_compile_reject_phase(&mut m.ops, phase);
@@ -786,6 +853,18 @@ impl MetricsSink for GlobalMetricsSink {
                     record_entity_plan_choice_reason(entry, reason);
                 });
             }
+
+            MetricsEvent::PreparedShapeFinalization {
+                entity_path,
+                outcome,
+            } => {
+                metrics::with_state_mut(|m| {
+                    record_global_prepared_shape_finalization_outcome(&mut m.ops, outcome);
+
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    record_entity_prepared_shape_finalization_outcome(entry, outcome);
+                });
+            }
         }
     }
 }
@@ -816,6 +895,13 @@ pub(crate) fn record(event: MetricsEvent) {
     } else {
         GLOBAL_METRICS_SINK.record(event);
     }
+}
+
+// Replace one entity-scoped gauge contribution inside an aggregate total. This
+// keeps global footprint gauges current even when the same entity reports a
+// newer observed size later in the window.
+const fn replace_gauge_total(total: &mut u64, previous: u64, current: u64) {
+    *total = total.saturating_sub(previous).saturating_add(current);
 }
 
 // Start counters are used for ordinary spans and for load errors that return
@@ -1614,6 +1700,27 @@ const fn record_global_grouped_plan_mode(
     }
 }
 
+// Prepared shape finalization sits at the executor authority boundary. Count
+// whether a plan arrived with schema-selected static metadata already frozen or
+// needed the generated-model fallback at lowering time.
+#[remain::check]
+const fn record_global_prepared_shape_finalization_outcome(
+    ops: &mut metrics::EventOps,
+    outcome: PreparedShapeFinalizationOutcome,
+) {
+    #[remain::sorted]
+    match outcome {
+        PreparedShapeFinalizationOutcome::AlreadyFinalized => {
+            ops.prepared_shape_already_finalized =
+                ops.prepared_shape_already_finalized.saturating_add(1);
+        }
+        PreparedShapeFinalizationOutcome::GeneratedFallback => {
+            ops.prepared_shape_generated_fallback =
+                ops.prepared_shape_generated_fallback.saturating_add(1);
+        }
+    }
+}
+
 // Mirror global plan attribution into the owning entity summary so operators
 // can identify which model is causing full scans, unions, or expensive grouped
 // routes without correlating separate counters.
@@ -1726,6 +1833,26 @@ const fn record_entity_plan_choice_reason(
             ops.plan_choice_singleton_primary_key_child_access_preferred = ops
                 .plan_choice_singleton_primary_key_child_access_preferred
                 .saturating_add(1);
+        }
+    }
+}
+
+// Mirror prepared static-shape authority outcomes to entity summaries so one
+// model still using generated fallback can be found from metrics alone.
+#[remain::check]
+const fn record_entity_prepared_shape_finalization_outcome(
+    ops: &mut metrics::EntityCounters,
+    outcome: PreparedShapeFinalizationOutcome,
+) {
+    #[remain::sorted]
+    match outcome {
+        PreparedShapeFinalizationOutcome::AlreadyFinalized => {
+            ops.prepared_shape_already_finalized =
+                ops.prepared_shape_already_finalized.saturating_add(1);
+        }
+        PreparedShapeFinalizationOutcome::GeneratedFallback => {
+            ops.prepared_shape_generated_fallback =
+                ops.prepared_shape_generated_fallback.saturating_add(1);
         }
     }
 }
@@ -1904,6 +2031,32 @@ pub(crate) fn record_sql_compile_reject_for_path(
     entity_path: &'static str,
 ) {
     record(MetricsEvent::SqlCompileReject { entity_path, phase });
+}
+
+/// Record the latest observed schema-store footprint for one entity.
+pub(crate) fn record_schema_store_footprint_for_path(
+    entity_path: &'static str,
+    snapshots: u64,
+    encoded_bytes: u64,
+    latest_snapshot_bytes: u64,
+) {
+    record(MetricsEvent::SchemaStoreFootprint {
+        encoded_bytes,
+        entity_path,
+        latest_snapshot_bytes,
+        snapshots,
+    });
+}
+
+/// Record one executor authority prepared-shape finalization outcome.
+pub(crate) fn record_prepared_shape_finalization_for_path(
+    entity_path: &'static str,
+    outcome: PreparedShapeFinalizationOutcome,
+) {
+    record(MetricsEvent::PreparedShapeFinalization {
+        entity_path,
+        outcome,
+    });
 }
 
 /// Record the latest observed entry count for one cache family.

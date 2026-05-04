@@ -235,10 +235,11 @@ impl SchemaInfo {
             .iter()
             .enumerate()
             .map(|(generated_slot, field)| {
-                let accepted_kind = schema.field_kind_by_name(field.name());
-                let slot = schema.field_slot_by_name(field.name()).map_or_else(
+                let accepted_facts = schema.field_facts_by_name(field.name());
+                let accepted_kind = accepted_facts.map(|(kind, _, _)| kind);
+                let slot = accepted_facts.map_or_else(
                     || generated_slot,
-                    |accepted_slot| usize::from(accepted_slot.get()),
+                    |(_, accepted_slot, _)| usize::from(accepted_slot.get()),
                 );
                 let ty = accepted_kind.map_or_else(
                     || field_type_from_model_kind(&field.kind()),
@@ -257,9 +258,8 @@ impl SchemaInfo {
                         kind: field.kind(),
                         sql_capabilities,
                         persisted_kind: accepted_kind.cloned(),
-                        nested_leaves: schema
-                            .nested_leaves_by_field_name(field.name())
-                            .map(<[PersistedNestedLeafSnapshot]>::to_vec),
+                        nested_leaves: accepted_facts
+                            .map(|(_, _, nested_leaves)| nested_leaves.to_vec()),
                         nested_fields: field.nested_fields(),
                     },
                 )

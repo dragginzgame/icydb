@@ -330,6 +330,12 @@ impl AccessPlannedQuery {
             .as_deref()
     }
 
+    /// Return whether planner-owned static execution metadata has already been frozen.
+    #[must_use]
+    pub(in crate::db) const fn has_static_planning_shape(&self) -> bool {
+        self.static_planning_shape.is_some()
+    }
+
     /// Borrow the planner-frozen primary-key field name.
     #[must_use]
     pub(in crate::db) const fn primary_key_name(&self) -> &'static str {

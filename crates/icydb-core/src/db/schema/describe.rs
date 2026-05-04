@@ -10,7 +10,7 @@ use crate::{
         },
         schema::{
             AcceptedSchemaSnapshot, PersistedFieldKind, PersistedNestedLeafSnapshot,
-            PersistedRelationStrength, SchemaFieldSlot, field_type_from_persisted_kind,
+            PersistedRelationStrength, field_type_from_persisted_kind,
         },
     },
     model::{
@@ -399,10 +399,9 @@ pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
 
     for field in model.fields {
         let primary_key = field.name == model.primary_key.name;
-        let slot = schema
-            .field_slot_by_name(field.name())
-            .map(SchemaFieldSlot::get);
-        let metadata = schema.field_kind_by_name(field.name()).map(|kind| {
+        let accepted_facts = schema.field_facts_by_name(field.name());
+        let slot = accepted_facts.map(|(_, accepted_slot, _)| accepted_slot.get());
+        let metadata = accepted_facts.map(|(kind, _, _)| {
             DescribeFieldMetadata::new(
                 summarize_persisted_field_kind(kind),
                 field_type_from_persisted_kind(kind)
@@ -425,7 +424,7 @@ pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
             }),
         );
 
-        if let Some(nested_leaves) = schema.nested_leaves_by_field_name(field.name())
+        if let Some((_, _, nested_leaves)) = accepted_facts
             && !nested_leaves.is_empty()
         {
             describe_persisted_nested_leaves(&mut fields, nested_leaves);

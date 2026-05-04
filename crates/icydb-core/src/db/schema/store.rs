@@ -176,6 +176,51 @@ fn validate_typed_schema_snapshot_for_store(
 }
 
 ///
+/// SchemaStoreFootprint
+///
+/// Current raw schema metadata footprint for one entity. Reconciliation uses
+/// this value to report stable-memory pressure without decoding schema payloads
+/// or exposing field-level metadata through metrics.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct SchemaStoreFootprint {
+    snapshots: u64,
+    encoded_bytes: u64,
+    latest_snapshot_bytes: u64,
+}
+
+impl SchemaStoreFootprint {
+    /// Build one schema-store footprint from already-counted raw payload facts.
+    #[must_use]
+    const fn new(snapshots: u64, encoded_bytes: u64, latest_snapshot_bytes: u64) -> Self {
+        Self {
+            snapshots,
+            encoded_bytes,
+            latest_snapshot_bytes,
+        }
+    }
+
+    /// Return the number of raw schema snapshots stored for the entity.
+    #[must_use]
+    pub(in crate::db) const fn snapshots(self) -> u64 {
+        self.snapshots
+    }
+
+    /// Return the total encoded payload bytes stored for the entity.
+    #[must_use]
+    pub(in crate::db) const fn encoded_bytes(self) -> u64 {
+        self.encoded_bytes
+    }
+
+    /// Return the encoded payload bytes for the highest-version snapshot.
+    #[must_use]
+    pub(in crate::db) const fn latest_snapshot_bytes(self) -> u64 {
+        self.latest_snapshot_bytes
+    }
+}
+
+///
 /// SchemaStore
 ///
 /// Thin persistence wrapper over one stable schema metadata BTreeMap.
@@ -246,6 +291,39 @@ impl SchemaStore {
         latest
             .map(|(_, snapshot)| snapshot.decode_persisted_snapshot())
             .transpose()
+    }
+
+    /// Return raw schema-store footprint facts for one entity.
+    #[must_use]
+    pub(in crate::db) fn entity_footprint(&self, entity: EntityTag) -> SchemaStoreFootprint {
+        let mut snapshots = 0u64;
+        let mut encoded_bytes = 0u64;
+        let mut latest = None::<(SchemaVersion, u64)>;
+
+        for entry in self.map.iter() {
+            let (key, snapshot) = entry.into_pair();
+            if key.entity_tag() != entity {
+                continue;
+            }
+
+            let snapshot_bytes = u64::try_from(snapshot.as_bytes().len()).unwrap_or(u64::MAX);
+            snapshots = snapshots.saturating_add(1);
+            encoded_bytes = encoded_bytes.saturating_add(snapshot_bytes);
+
+            let version = SchemaVersion::new(key.version());
+            if latest
+                .as_ref()
+                .is_none_or(|(latest_version, _)| version > *latest_version)
+            {
+                latest = Some((version, snapshot_bytes));
+            }
+        }
+
+        SchemaStoreFootprint::new(
+            snapshots,
+            encoded_bytes,
+            latest.map_or(0, |(_, snapshot_bytes)| snapshot_bytes),
+        )
     }
 
     /// Insert or replace one raw schema snapshot.
@@ -382,6 +460,29 @@ mod tests {
 
         assert_eq!(latest.version(), SchemaVersion::new(2));
         assert_eq!(latest.entity_name(), "Newer");
+    }
+
+    #[test]
+    fn schema_store_entity_footprint_counts_raw_snapshots_without_decoding() {
+        let mut store = SchemaStore::init(test_memory(242));
+        store.insert_raw_snapshot(
+            RawSchemaKey::from_entity_version(EntityTag::new(71), SchemaVersion::initial()),
+            RawSchemaSnapshot::from_bytes(vec![1, 2, 3]),
+        );
+        store.insert_raw_snapshot(
+            RawSchemaKey::from_entity_version(EntityTag::new(72), SchemaVersion::new(3)),
+            RawSchemaSnapshot::from_bytes(vec![5, 8]),
+        );
+        store.insert_raw_snapshot(
+            RawSchemaKey::from_entity_version(EntityTag::new(71), SchemaVersion::new(2)),
+            RawSchemaSnapshot::from_bytes(vec![13, 21, 34, 55]),
+        );
+
+        let footprint = store.entity_footprint(EntityTag::new(71));
+
+        assert_eq!(footprint.snapshots(), 2);
+        assert_eq!(footprint.encoded_bytes(), 7);
+        assert_eq!(footprint.latest_snapshot_bytes(), 4);
     }
 
     #[test]
