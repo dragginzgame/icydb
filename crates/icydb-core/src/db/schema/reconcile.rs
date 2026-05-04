@@ -7,8 +7,8 @@ use crate::{
     db::{
         Db, EntityRuntimeHooks,
         schema::{
-            AcceptedSchemaSnapshot, PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaStore,
-            compiled_schema_proposal_for_model,
+            AcceptedSchemaSnapshot, SchemaStore, SchemaTransitionDecision,
+            compiled_schema_proposal_for_model, decide_schema_transition,
         },
     },
     error::InternalError,
@@ -86,195 +86,15 @@ fn validate_existing_schema_snapshot(
     actual: &crate::db::schema::PersistedSchemaSnapshot,
     expected: &crate::db::schema::PersistedSchemaSnapshot,
 ) -> Result<(), InternalError> {
-    if actual == expected {
-        return Ok(());
-    }
-
-    let detail = schema_snapshot_mismatch_detail(actual, expected);
-
-    Err(InternalError::store_unsupported(format!(
-        "schema evolution is not yet supported for entity '{entity_path}': {detail}",
-    )))
-}
-
-// Return the first human-readable schema difference between the stored
-// snapshot and the current generated proposal. This is diagnostic-only: the
-// acceptance policy remains exact equality until schema transitions exist.
-fn schema_snapshot_mismatch_detail(
-    actual: &PersistedSchemaSnapshot,
-    expected: &PersistedSchemaSnapshot,
-) -> String {
-    if actual.version() != expected.version() {
-        return format!(
-            "schema version changed: stored={} generated={}",
-            actual.version().get(),
-            expected.version().get(),
-        );
-    }
-
-    if actual.entity_path() != expected.entity_path() {
-        return format!(
-            "entity path changed: stored='{}' generated='{}'",
-            actual.entity_path(),
-            expected.entity_path(),
-        );
-    }
-
-    if actual.entity_name() != expected.entity_name() {
-        return format!(
-            "entity name changed: stored='{}' generated='{}'",
-            actual.entity_name(),
-            expected.entity_name(),
-        );
-    }
-
-    schema_snapshot_structural_mismatch_detail(actual, expected)
-}
-
-// Compare schema internals after version/path/name have already matched. The
-// split keeps the top-level diagnostic helper readable while preserving a
-// deterministic first-difference order for startup failures.
-fn schema_snapshot_structural_mismatch_detail(
-    actual: &PersistedSchemaSnapshot,
-    expected: &PersistedSchemaSnapshot,
-) -> String {
-    if actual.primary_key_field_id() != expected.primary_key_field_id() {
-        return format!(
-            "primary key field id changed: stored={} generated={}",
-            actual.primary_key_field_id().get(),
-            expected.primary_key_field_id().get(),
-        );
-    }
-
-    if actual.row_layout() != expected.row_layout() {
-        return format!(
-            "row layout changed: stored={:?} generated={:?}",
-            actual.row_layout(),
-            expected.row_layout(),
-        );
-    }
-
-    if actual.fields().len() != expected.fields().len() {
-        return format!(
-            "field count changed: stored={} generated={}",
-            actual.fields().len(),
-            expected.fields().len(),
-        );
-    }
-
-    for (index, (actual_field, expected_field)) in
-        actual.fields().iter().zip(expected.fields()).enumerate()
-    {
-        if let Some(detail) = field_snapshot_mismatch_detail(index, actual_field, expected_field) {
-            return detail;
+    match decide_schema_transition(actual, expected) {
+        SchemaTransitionDecision::ExactMatch => Ok(()),
+        SchemaTransitionDecision::Rejected(rejection) => {
+            Err(InternalError::store_unsupported(format!(
+                "schema evolution is not yet supported for entity '{entity_path}': {}",
+                rejection.detail(),
+            )))
         }
     }
-
-    "schema snapshot changed".to_string()
-}
-
-// Compare one field snapshot in a stable order so diagnostics point at the
-// first durable field contract that would require explicit migration support.
-fn field_snapshot_mismatch_detail(
-    index: usize,
-    actual: &PersistedFieldSnapshot,
-    expected: &PersistedFieldSnapshot,
-) -> Option<String> {
-    if actual.id() != expected.id() {
-        return Some(format!(
-            "field[{index}] id changed: stored={} generated={}",
-            actual.id().get(),
-            expected.id().get(),
-        ));
-    }
-
-    if actual.name() != expected.name() {
-        return Some(format!(
-            "field[{index}] name changed: stored='{}' generated='{}'",
-            actual.name(),
-            expected.name(),
-        ));
-    }
-
-    field_snapshot_contract_mismatch_detail(index, actual, expected)
-}
-
-// Compare non-identity field metadata separately from durable ID/name so the
-// mismatch order stays explicit without turning reconciliation into a large
-// monolithic branch list.
-fn field_snapshot_contract_mismatch_detail(
-    index: usize,
-    actual: &PersistedFieldSnapshot,
-    expected: &PersistedFieldSnapshot,
-) -> Option<String> {
-    if actual.slot() != expected.slot() {
-        return Some(format!(
-            "field[{index}] slot changed: stored={} generated={}",
-            actual.slot().get(),
-            expected.slot().get(),
-        ));
-    }
-
-    if actual.kind() != expected.kind() {
-        return Some(format!(
-            "field[{index}] kind changed: stored={:?} generated={:?}",
-            actual.kind(),
-            expected.kind(),
-        ));
-    }
-
-    if actual.nested_leaves() != expected.nested_leaves() {
-        return Some(format!(
-            "field[{index}] nested leaf metadata changed: stored={} generated={}",
-            actual.nested_leaves().len(),
-            expected.nested_leaves().len(),
-        ));
-    }
-
-    field_snapshot_storage_mismatch_detail(index, actual, expected)
-}
-
-// Compare nullable/default/storage codec metadata last. These are still schema
-// contracts, but they are subordinate to field identity and physical layout
-// when reporting the first rejected transition.
-fn field_snapshot_storage_mismatch_detail(
-    index: usize,
-    actual: &PersistedFieldSnapshot,
-    expected: &PersistedFieldSnapshot,
-) -> Option<String> {
-    if actual.nullable() != expected.nullable() {
-        return Some(format!(
-            "field[{index}] nullability changed: stored={} generated={}",
-            actual.nullable(),
-            expected.nullable(),
-        ));
-    }
-
-    if actual.default() != expected.default() {
-        return Some(format!(
-            "field[{index}] default changed: stored={:?} generated={:?}",
-            actual.default(),
-            expected.default(),
-        ));
-    }
-
-    if actual.storage_decode() != expected.storage_decode() {
-        return Some(format!(
-            "field[{index}] storage decode changed: stored={:?} generated={:?}",
-            actual.storage_decode(),
-            expected.storage_decode(),
-        ));
-    }
-
-    if actual.leaf_codec() != expected.leaf_codec() {
-        return Some(format!(
-            "field[{index}] leaf codec changed: stored={:?} generated={:?}",
-            actual.leaf_codec(),
-            expected.leaf_codec(),
-        ));
-    }
-
-    None
 }
 
 ///

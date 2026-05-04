@@ -33,7 +33,7 @@ impl AcceptedSchemaSnapshot {
 
     /// Borrow the accepted persisted snapshot payload.
     #[must_use]
-    pub(in crate::db) const fn persisted_snapshot(&self) -> &PersistedSchemaSnapshot {
+    pub(in crate::db::schema) const fn persisted_snapshot(&self) -> &PersistedSchemaSnapshot {
         &self.snapshot
     }
 
@@ -51,13 +51,19 @@ impl AcceptedSchemaSnapshot {
 
     /// Borrow the accepted primary-key field snapshot, when present.
     #[must_use]
-    pub(in crate::db) fn primary_key_field(&self) -> Option<&PersistedFieldSnapshot> {
+    fn primary_key_field(&self) -> Option<&PersistedFieldSnapshot> {
         let primary_key_field_id = self.snapshot.primary_key_field_id();
 
         self.snapshot
             .fields()
             .iter()
             .find(|field| field.id() == primary_key_field_id)
+    }
+
+    /// Borrow the accepted primary-key field kind, when present.
+    #[must_use]
+    pub(in crate::db) fn primary_key_field_kind(&self) -> Option<&PersistedFieldKind> {
+        self.primary_key_field().map(PersistedFieldSnapshot::kind)
     }
 
     /// Borrow the accepted primary-key field name, when present.
@@ -68,11 +74,33 @@ impl AcceptedSchemaSnapshot {
 
     /// Borrow one accepted field snapshot by its persisted field name.
     #[must_use]
-    pub(in crate::db) fn field_by_name(&self, name: &str) -> Option<&PersistedFieldSnapshot> {
+    fn field_by_name(&self, name: &str) -> Option<&PersistedFieldSnapshot> {
         self.snapshot
             .fields()
             .iter()
             .find(|field| field.name() == name)
+    }
+
+    /// Borrow one accepted field kind by persisted field name.
+    #[must_use]
+    pub(in crate::db) fn field_kind_by_name(&self, name: &str) -> Option<&PersistedFieldKind> {
+        self.field_by_name(name).map(PersistedFieldSnapshot::kind)
+    }
+
+    /// Return one accepted top-level field slot by persisted field name.
+    #[must_use]
+    pub(in crate::db) fn field_slot_by_name(&self, name: &str) -> Option<SchemaFieldSlot> {
+        self.field_by_name(name).map(PersistedFieldSnapshot::slot)
+    }
+
+    /// Borrow accepted nested leaf descriptors for one top-level field.
+    #[must_use]
+    pub(in crate::db) fn nested_leaves_by_field_name(
+        &self,
+        name: &str,
+    ) -> Option<&[PersistedNestedLeafSnapshot]> {
+        self.field_by_name(name)
+            .map(PersistedFieldSnapshot::nested_leaves)
     }
 }
 
@@ -546,5 +574,94 @@ impl PersistedRelationStrength {
             RelationStrength::Strong => Self::Strong,
             RelationStrength::Weak => Self::Weak,
         }
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::field::ScalarCodec;
+
+    // Build a small accepted schema snapshot with deliberately non-generated
+    // slot values so accessor tests prove they read persisted schema facts.
+    fn accepted_schema_fixture() -> AcceptedSchemaSnapshot {
+        AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "schema::snapshot::tests::Asset".to_string(),
+            "Asset".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(7)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "payload".to_string(),
+                    SchemaFieldSlot::new(7),
+                    PersistedFieldKind::Blob,
+                    vec![PersistedNestedLeafSnapshot::new(
+                        vec!["thumbnail".to_string()],
+                        PersistedFieldKind::Blob,
+                        false,
+                        FieldStorageDecode::ByKind,
+                        LeafCodec::Scalar(ScalarCodec::Blob),
+                    )],
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Blob),
+                ),
+            ],
+        ))
+    }
+
+    #[test]
+    fn accepted_schema_snapshot_exposes_schema_facts_without_raw_payload_access() {
+        let snapshot = accepted_schema_fixture();
+
+        assert_eq!(snapshot.entity_path(), "schema::snapshot::tests::Asset");
+        assert_eq!(snapshot.entity_name(), "Asset");
+        assert_eq!(snapshot.primary_key_field_name(), Some("id"));
+        assert_eq!(
+            snapshot.primary_key_field_kind(),
+            Some(&PersistedFieldKind::Ulid),
+        );
+        assert_eq!(
+            snapshot.field_kind_by_name("payload"),
+            Some(&PersistedFieldKind::Blob),
+        );
+        assert_eq!(
+            snapshot.field_slot_by_name("payload"),
+            Some(SchemaFieldSlot::new(7)),
+        );
+
+        let nested = snapshot
+            .nested_leaves_by_field_name("payload")
+            .expect("accepted nested leaf metadata should be exposed");
+        assert_eq!(nested.len(), 1);
+        assert_eq!(nested[0].path(), &["thumbnail".to_string()]);
+
+        assert_eq!(snapshot.field_kind_by_name("missing"), None);
+        assert_eq!(snapshot.field_slot_by_name("missing"), None);
+        assert_eq!(snapshot.nested_leaves_by_field_name("missing"), None);
     }
 }

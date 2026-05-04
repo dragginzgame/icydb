@@ -46,13 +46,13 @@ where
         return Ok(key);
     }
 
-    let Some(primary_key) = schema.primary_key_field() else {
+    let Some(primary_key_kind) = schema.primary_key_field_kind() else {
         return Err(QueryError::invariant(
             "accepted schema snapshot must contain primary key field metadata",
         ));
     };
     let Some(normalized) =
-        canonicalize_strict_sql_literal_for_persisted_kind(primary_key.kind(), value)
+        canonicalize_strict_sql_literal_for_persisted_kind(primary_key_kind, value)
     else {
         return Err(QueryError::unsupported_query(format!(
             "SQL write primary key literal for '{pk_name}' is not compatible with entity key type"
@@ -80,14 +80,13 @@ fn sql_write_value_for_accepted_field(
     field_name: &str,
     value: &Value,
 ) -> Result<Value, QueryError> {
-    let accepted_field = schema.field_by_name(field_name).ok_or_else(|| {
+    let accepted_kind = schema.field_kind_by_name(field_name).ok_or_else(|| {
         QueryError::invariant("SQL write field must resolve against accepted schema metadata")
     })?;
-    let normalized =
-        canonicalize_strict_sql_literal_for_persisted_kind(accepted_field.kind(), value)
-            .unwrap_or_else(|| value.clone());
+    let normalized = canonicalize_strict_sql_literal_for_persisted_kind(accepted_kind, value)
+        .unwrap_or_else(|| value.clone());
 
-    let field_type = field_type_from_persisted_kind(accepted_field.kind());
+    let field_type = field_type_from_persisted_kind(accepted_kind);
     if !literal_matches_type(&normalized, &field_type) {
         return Err(QueryError::unsupported_query(
             ValidateError::invalid_literal(field_name, "literal type does not match field type")
@@ -456,7 +455,7 @@ impl<C: CanisterKind> DbSession<C> {
         let columns = sql_insert_columns::<E>(statement);
         ensure_sql_insert_required_fields::<E>(columns.as_slice())?;
         let schema = self
-            .accepted_initial_schema_snapshot::<E>()
+            .ensure_accepted_initial_schema_snapshot::<E>()
             .map_err(QueryError::execute)?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Insert, Timestamp::now());
         let mut rows = Vec::new();
@@ -528,7 +527,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let schema = self
-            .accepted_initial_schema_snapshot::<E>()
+            .ensure_accepted_initial_schema_snapshot::<E>()
             .map_err(QueryError::execute)?;
         let selector = Self::sql_update_selector_query::<E>(&schema, statement)?;
         let patch = Self::sql_structural_patch::<E>(&schema, statement)?;

@@ -220,14 +220,14 @@ impl SchemaInfo {
             .fields()
             .iter()
             .map(|field| {
-                let accepted_field = schema.field_by_name(field.name());
-                let ty = accepted_field.map_or_else(
+                let accepted_kind = schema.field_kind_by_name(field.name());
+                let ty = accepted_kind.map_or_else(
                     || field_type_from_model_kind(&field.kind()),
-                    |persisted| field_type_from_persisted_kind(persisted.kind()),
+                    field_type_from_persisted_kind,
                 );
-                let sql_capabilities = accepted_field.map_or_else(
+                let sql_capabilities = accepted_kind.map_or_else(
                     || sql_capabilities(&PersistedFieldKind::from_model_kind(field.kind())),
-                    |persisted| sql_capabilities(persisted.kind()),
+                    sql_capabilities,
                 );
 
                 (
@@ -236,9 +236,10 @@ impl SchemaInfo {
                         ty,
                         kind: field.kind(),
                         sql_capabilities,
-                        persisted_kind: accepted_field.map(|persisted| persisted.kind().clone()),
-                        nested_leaves: accepted_field
-                            .map(|persisted| persisted.nested_leaves().to_vec()),
+                        persisted_kind: accepted_kind.cloned(),
+                        nested_leaves: schema
+                            .nested_leaves_by_field_name(field.name())
+                            .map(<[PersistedNestedLeafSnapshot]>::to_vec),
                         nested_fields: field.nested_fields(),
                     },
                 )

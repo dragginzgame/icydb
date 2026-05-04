@@ -163,7 +163,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
         let accepted_schema = self
-            .accepted_initial_schema_snapshot_for_authority(authority)
+            .ensure_accepted_initial_schema_snapshot_for_authority(authority)
             .map_err(QueryError::execute)?;
         let schema_fingerprint =
             accepted_schema_cache_fingerprint_for_model(authority.model(), &accepted_schema)

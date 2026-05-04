@@ -9,9 +9,8 @@ use crate::{
             RelationDescriptor, RelationDescriptorCardinality, relation_descriptors_for_model_iter,
         },
         schema::{
-            AcceptedSchemaSnapshot, PersistedFieldKind, PersistedFieldSnapshot,
-            PersistedNestedLeafSnapshot, PersistedRelationStrength, SchemaFieldSlot,
-            field_type_from_persisted_kind,
+            AcceptedSchemaSnapshot, PersistedFieldKind, PersistedNestedLeafSnapshot,
+            PersistedRelationStrength, SchemaFieldSlot, field_type_from_persisted_kind,
         },
     },
     model::{
@@ -400,14 +399,13 @@ pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
 
     for field in model.fields {
         let primary_key = field.name == model.primary_key.name;
-        let accepted_field = schema.field_by_name(field.name());
-        let slot = accepted_field
-            .map(PersistedFieldSnapshot::slot)
+        let slot = schema
+            .field_slot_by_name(field.name())
             .map(SchemaFieldSlot::get);
-        let metadata = accepted_field.map(|field| {
+        let metadata = schema.field_kind_by_name(field.name()).map(|kind| {
             DescribeFieldMetadata::new(
-                summarize_persisted_field_kind(field.kind()),
-                field_type_from_persisted_kind(field.kind())
+                summarize_persisted_field_kind(kind),
+                field_type_from_persisted_kind(kind)
                     .value_kind()
                     .is_queryable(),
             )
@@ -427,10 +425,10 @@ pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
             }),
         );
 
-        if let Some(accepted_field) = accepted_field
-            && !accepted_field.nested_leaves().is_empty()
+        if let Some(nested_leaves) = schema.nested_leaves_by_field_name(field.name())
+            && !nested_leaves.is_empty()
         {
-            describe_persisted_nested_leaves(&mut fields, accepted_field.nested_leaves());
+            describe_persisted_nested_leaves(&mut fields, nested_leaves);
         } else {
             describe_generated_nested_fields(&mut fields, field.nested_fields());
         }
