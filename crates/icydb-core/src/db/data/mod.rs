@@ -18,7 +18,7 @@ pub(in crate::db) use entity_decode::decode_raw_row_for_entity_key;
 pub(in crate::db) use key::DataKey;
 pub(crate) use key::RawDataKey;
 pub(in crate::db) use persisted_row::{
-    CanonicalSlotReader, SerializedStructuralPatch, StructuralSlotReader,
+    CanonicalSlotReader, FieldSlot, SerializedStructuralPatch, StructuralSlotReader,
     apply_serialized_structural_patch_to_raw_row, canonical_row_from_entity,
     canonical_row_from_stored_raw_row, canonical_row_from_structural_slot_reader,
     decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,

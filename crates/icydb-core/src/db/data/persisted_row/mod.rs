@@ -38,7 +38,7 @@ pub(in crate::db) use reader::{
     decode_sparse_required_slot_with_contract,
     decode_sparse_required_slot_with_contract_and_fields,
 };
-pub(in crate::db) use types::{CanonicalSlotReader, SerializedStructuralPatch};
+pub(in crate::db) use types::{CanonicalSlotReader, FieldSlot, SerializedStructuralPatch};
 pub use types::{PersistedRow, SlotReader, SlotWriter, StructuralPatch};
 // These helpers remain public inside `icydb-core` because the cross-crate
 // `icydb::__macro` boundary still needs a stable path for generated code.

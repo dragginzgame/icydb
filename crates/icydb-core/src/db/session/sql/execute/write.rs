@@ -1,7 +1,7 @@
 use crate::{
     db::{
         DbSession, MissingRowPolicy, PersistedRow, Query, QueryError,
-        data::StructuralPatch,
+        data::{FieldSlot, StructuralPatch},
         executor::{EntityAuthority, MutationMode},
         schema::{
             AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot, SchemaInfo, ValidateError,
@@ -11,9 +11,9 @@ use crate::{
         session::sql::{
             SqlStatementResult,
             execute::write_returning::{
+                projection_labels_from_accepted_write_descriptor,
                 sql_returning_statement_projection, sql_write_statement_result,
             },
-            projection::projection_labels_from_fields,
         },
         sql::lowering::{
             bind_prepared_sql_select_statement_structural_with_schema,
@@ -76,6 +76,29 @@ fn accepted_write_descriptor(
     schema: &AcceptedSchemaSnapshot,
 ) -> Result<AcceptedRowLayoutRuntimeDescriptor<'_>, QueryError> {
     AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(schema).map_err(QueryError::execute)
+}
+
+fn accepted_write_field_slot(
+    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    field_name: &str,
+) -> Result<FieldSlot, QueryError> {
+    let accepted_field = descriptor.field_by_name(field_name).ok_or_else(|| {
+        QueryError::invariant("SQL write field must resolve against accepted schema metadata")
+    })?;
+    let accepted_slot = usize::from(accepted_field.slot().get());
+
+    Ok(FieldSlot::from_validated_index(accepted_slot))
+}
+
+fn sql_write_patch_set_accepted_field(
+    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    patch: StructuralPatch,
+    field_name: &str,
+    value: Value,
+) -> Result<StructuralPatch, QueryError> {
+    let slot = accepted_write_field_slot(descriptor, field_name)?;
+
+    Ok(patch.set(slot, value))
 }
 
 fn generated_field_by_name<E>(field_name: &str) -> Option<&'static FieldModel>
@@ -368,17 +391,18 @@ impl<C: CanisterKind> DbSession<C> {
 
         let mut patch = StructuralPatch::new();
         for (field_name, generated_value) in &generated_fields {
-            patch = patch
-                .set_field(E::MODEL, field_name, generated_value.clone())
-                .map_err(QueryError::execute)?;
+            patch = sql_write_patch_set_accepted_field(
+                descriptor,
+                patch,
+                field_name,
+                generated_value.clone(),
+            )?;
         }
         for (field, value) in columns.iter().zip(values.iter()) {
             reject_explicit_sql_write_to_generated_field::<E>(field, "INSERT")?;
             reject_explicit_sql_write_to_managed_field::<E>(field, "INSERT")?;
             let normalized = sql_write_value_for_accepted_field(descriptor, field, value)?;
-            patch = patch
-                .set_field(E::MODEL, field, normalized)
-                .map_err(QueryError::execute)?;
+            patch = sql_write_patch_set_accepted_field(descriptor, patch, field, normalized)?;
         }
 
         Ok((key, patch))
@@ -408,9 +432,12 @@ impl<C: CanisterKind> DbSession<C> {
                 &assignment.value,
             )?;
 
-            patch = patch
-                .set_field(E::MODEL, assignment.field.as_str(), normalized)
-                .map_err(QueryError::execute)?;
+            patch = sql_write_patch_set_accepted_field(
+                descriptor,
+                patch,
+                assignment.field.as_str(),
+                normalized,
+            )?;
         }
 
         Ok(patch)
@@ -610,7 +637,7 @@ impl<C: CanisterKind> DbSession<C> {
             sql_returning_rows(statement.returning.as_ref(), mutated_rows),
         );
 
-        sql_write_statement_result::<C, E>(entities, statement.returning.as_ref())
+        sql_write_statement_result::<E>(entities, statement.returning.as_ref(), &descriptor)
     }
 
     pub(in crate::db::session::sql::execute) fn execute_sql_update_statement<E>(
@@ -655,7 +682,7 @@ impl<C: CanisterKind> DbSession<C> {
             sql_returning_rows(statement.returning.as_ref(), mutated_rows),
         );
 
-        sql_write_statement_result::<C, E>(entities, statement.returning.as_ref())
+        sql_write_statement_result::<E>(entities, statement.returning.as_ref(), &descriptor)
     }
 
     pub(in crate::db::session::sql::execute) fn execute_sql_delete_statement<E>(
@@ -679,6 +706,11 @@ impl<C: CanisterKind> DbSession<C> {
                 Ok(SqlStatementResult::Count { row_count })
             }
             Some(returning) => {
+                let schema = self
+                    .ensure_generated_compatible_accepted_schema::<E>()
+                    .map_err(QueryError::execute)?;
+                let descriptor = accepted_write_descriptor(&schema)?;
+
                 // Phase 2: returning deletes reuse the structural projection
                 // terminal once, then shape the requested outbound row contract
                 // from executor-materialized rows at the SQL write boundary.
@@ -701,7 +733,7 @@ impl<C: CanisterKind> DbSession<C> {
                 );
 
                 sql_returning_statement_projection(
-                    projection_labels_from_fields(E::MODEL.fields()),
+                    projection_labels_from_accepted_write_descriptor(&descriptor),
                     rows,
                     row_count,
                     returning,

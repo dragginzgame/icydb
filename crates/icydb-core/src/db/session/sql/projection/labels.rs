@@ -15,7 +15,6 @@ use crate::{
             },
         },
     },
-    model::field::FieldModel,
     value::Value,
 };
 
@@ -143,14 +142,4 @@ pub(in crate::db::session::sql) fn annotate_sql_projection_debug_on_execution_de
             .node_properties
             .insert("proj_materialization", Value::from(materialization));
     }
-}
-
-// Derive canonical full-entity projection labels in declared model order.
-pub(in crate::db::session::sql) fn projection_labels_from_fields(
-    fields: &'static [FieldModel],
-) -> Vec<String> {
-    fields
-        .iter()
-        .map(|field| field.name().to_string())
-        .collect()
 }

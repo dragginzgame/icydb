@@ -29,7 +29,7 @@ use crate::{
         },
     },
     error::InternalError,
-    metrics::sink::{MetricsSink, with_metrics_sink},
+    metrics::sink::{ExecKind, MetricsSink, record_exec_error_for_path, with_metrics_sink},
     model::entity::EntityModel,
     traits::{CanisterKind, EntityKind, EntityValue, Path},
     value::Value,
@@ -135,7 +135,14 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        self.ensure_generated_compatible_accepted_schema::<E>()?;
+        if let Err(error) =
+            self.with_metrics(|| self.ensure_generated_compatible_accepted_schema::<E>())
+        {
+            self.with_metrics(|| record_exec_error_for_path(ExecKind::Save, E::PATH, &error));
+
+            return Err(error);
+        }
+
         self.execute_save_with_checked_accepted_schema(op, map)
     }
 

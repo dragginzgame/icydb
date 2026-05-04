@@ -54,6 +54,18 @@ impl FieldSlot {
         Ok(Self { index })
     }
 
+    /// Build one stable field slot from a non-generated authority.
+    ///
+    /// Accepted-schema write paths use this after the session has already
+    /// validated that the accepted row layout is generated-compatible. Keeping
+    /// this constructor explicit prevents those paths from re-resolving the
+    /// slot through `EntityModel` while still making the trust boundary visible
+    /// at the call site.
+    #[must_use]
+    pub(in crate::db) const fn from_validated_index(index: usize) -> Self {
+        Self { index }
+    }
+
     /// Return the stable slot index inside `EntityModel::fields`.
     #[must_use]
     pub(in crate::db) const fn index(self) -> usize {

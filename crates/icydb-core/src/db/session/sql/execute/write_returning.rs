@@ -6,17 +6,17 @@
 use crate::{
     db::{
         PersistedRow, QueryError,
+        schema::AcceptedRowLayoutRuntimeDescriptor,
         session::sql::{
             SqlStatementResult,
             projection::{
-                projection_labels_from_fields,
                 sql_projection_statement_result_from_fallible_value_rows,
                 sql_projection_statement_result_from_value_rows,
             },
         },
         sql::parser::SqlReturningProjection,
     },
-    traits::{CanisterKind, EntityValue},
+    traits::EntityValue,
     value::Value,
 };
 
@@ -25,33 +25,34 @@ use crate::{
 /// This helper owns only the statement-result envelope conversion for rows that
 /// were returned by the mutation path. It intentionally does not select rows,
 /// build patches, or perform mutation execution.
-pub(in crate::db::session::sql::execute) fn sql_write_statement_result<C, E>(
+pub(in crate::db::session::sql::execute) fn sql_write_statement_result<E>(
     entities: Vec<E>,
     returning: Option<&SqlReturningProjection>,
+    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
 ) -> Result<SqlStatementResult, QueryError>
 where
-    C: CanisterKind,
-    E: PersistedRow<Canister = C> + EntityValue,
+    E: PersistedRow + EntityValue,
 {
     let row_count = u32::try_from(entities.len()).unwrap_or(u32::MAX);
 
     match returning {
         None => Ok(SqlStatementResult::Count { row_count }),
         Some(SqlReturningProjection::All) => {
-            let columns = projection_labels_from_fields(E::MODEL.fields());
+            let all_columns = projection_labels_from_accepted_write_descriptor(descriptor);
+            let all_field_count = descriptor.required_slot_count();
 
             sql_projection_statement_result_from_fallible_value_rows(
-                columns,
-                vec![None; E::MODEL.fields().len()],
+                all_columns,
+                vec![None; all_field_count],
                 entities
                     .into_iter()
-                    .map(|entity| sql_returning_all_values(&entity, E::MODEL.fields().len())),
+                    .map(|entity| sql_returning_all_values(&entity, all_field_count)),
                 row_count,
             )
         }
         Some(SqlReturningProjection::Fields(fields)) => {
-            let columns = projection_labels_from_fields(E::MODEL.fields());
-            let indices = sql_returning_field_indices(&columns, fields)?;
+            let all_columns = projection_labels_from_accepted_write_descriptor(descriptor);
+            let indices = sql_returning_field_indices(&all_columns, fields)?;
 
             // Project field-list RETURNING rows directly from typed mutation
             // outputs. This avoids constructing full rows for blob-heavy
@@ -66,6 +67,22 @@ where
             )
         }
     }
+}
+
+/// Derive canonical SQL `RETURNING *` labels from the accepted row descriptor.
+///
+/// The accepted descriptor is the statement-result shape authority for SQL
+/// write paths. Generated model fields are still used by typed codecs after the
+/// descriptor has been proven generated-compatible, but they do not choose the
+/// outward all-column contract here.
+pub(in crate::db::session::sql::execute) fn projection_labels_from_accepted_write_descriptor(
+    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+) -> Vec<String> {
+    descriptor
+        .fields()
+        .iter()
+        .map(|field| field.name().to_string())
+        .collect()
 }
 
 // Materialize every field from one typed write result for `RETURNING *`.
