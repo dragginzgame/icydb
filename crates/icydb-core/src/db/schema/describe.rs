@@ -678,17 +678,13 @@ fn write_length_bounded_field_kind_summary(
     kind_name: &str,
     max_len: Option<u32>,
 ) {
-    match max_len {
-        Some(max_len) => {
-            out.push_str(kind_name);
-            out.push_str("(max_len=");
-            out.push_str(&max_len.to_string());
-            out.push(')');
-        }
-        None => {
-            out.push_str(kind_name);
-            out.push_str("(unbounded)");
-        }
+    out.push_str(kind_name);
+    if let Some(max_len) = max_len {
+        out.push_str("(max_len=");
+        out.push_str(&max_len.to_string());
+        out.push(')');
+    } else {
+        out.push_str("(unbounded)");
     }
 }
 
