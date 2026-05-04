@@ -732,7 +732,7 @@ mod tests {
             fields[1].kind().clone(),
             vec![PersistedNestedLeafSnapshot::new(
                 Vec::new(),
-                PersistedFieldKind::Blob,
+                PersistedFieldKind::Blob { max_len: None },
                 false,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Blob),
@@ -772,7 +772,7 @@ mod tests {
         let duplicate_leaves = vec![
             PersistedNestedLeafSnapshot::new(
                 vec!["bytes".to_string()],
-                PersistedFieldKind::Blob,
+                PersistedFieldKind::Blob { max_len: None },
                 false,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Blob),
@@ -889,7 +889,7 @@ mod tests {
                     },
                     vec![PersistedNestedLeafSnapshot::new(
                         vec!["bytes".to_string()],
-                        PersistedFieldKind::Blob,
+                        PersistedFieldKind::Blob { max_len: None },
                         false,
                         FieldStorageDecode::ByKind,
                         LeafCodec::Scalar(ScalarCodec::Blob),

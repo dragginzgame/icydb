@@ -20,10 +20,10 @@ mod tests {
         pk(field = "id"),
         fields(
             field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-            field(ident = "title", value(item(prim = "Text"))),
+            field(ident = "title", value(item(prim = "Text", unbounded))),
             field(ident = "score", value(item(prim = "Nat32"))),
-            field(ident = "nickname", value(opt, item(prim = "Text"))),
-            field(ident = "tags", value(many, item(prim = "Text")))
+            field(ident = "nickname", value(opt, item(prim = "Text", unbounded))),
+            field(ident = "tags", value(many, item(prim = "Text", unbounded)))
         )
     )]
     pub struct ProjectionOrderEntityHarness {}

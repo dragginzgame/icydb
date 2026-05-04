@@ -220,7 +220,7 @@ pub(crate) const fn classify_field_kind(kind: &FieldKind) -> FieldKindSemantics 
         | FieldKind::Unit => FieldKindSemantics::new(FieldKindCategory::Scalar(
             FieldKindScalarClass::OrderedOpaque,
         )),
-        FieldKind::Blob => {
+        FieldKind::Blob { .. } => {
             FieldKindSemantics::new(FieldKindCategory::Scalar(FieldKindScalarClass::Opaque))
         }
         FieldKind::Bool => {
@@ -507,7 +507,7 @@ mod tests {
     #[test]
     fn classify_collection_and_blob_stay_non_orderable() {
         let collection = classify_field_kind(&FieldKind::List(&FieldKind::Text { max_len: None }));
-        let blob = classify_field_kind(&FieldKind::Blob);
+        let blob = classify_field_kind(&FieldKind::Blob { max_len: None });
 
         assert_eq!(collection.category(), FieldKindCategory::Collection);
         assert!(!collection.supports_aggregate_ordering());

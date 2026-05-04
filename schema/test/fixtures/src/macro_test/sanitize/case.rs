@@ -6,7 +6,7 @@ use icydb::design::prelude::*;
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(sanitizer(path = "base::sanitizer::text::case::Lower"))
 )]
 pub struct LowerCaseText {}
@@ -17,7 +17,7 @@ pub struct LowerCaseText {}
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(sanitizer(path = "base::sanitizer::text::case::Upper"))
 )]
 pub struct UpperCaseText {}
@@ -28,7 +28,7 @@ pub struct UpperCaseText {}
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(sanitizer(path = "base::sanitizer::text::case::UpperSnake"))
 )]
 pub struct UpperSnakeText {}
@@ -39,7 +39,7 @@ pub struct UpperSnakeText {}
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(sanitizer(path = "base::sanitizer::text::case::Snake"))
 )]
 pub struct SnakeCaseText {}
@@ -50,7 +50,7 @@ pub struct SnakeCaseText {}
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(sanitizer(path = "base::sanitizer::text::case::Kebab"))
 )]
 pub struct KebabCaseText {}
@@ -61,7 +61,7 @@ pub struct KebabCaseText {}
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(sanitizer(path = "base::sanitizer::text::case::Title"))
 )]
 pub struct TitleCaseText {}
@@ -72,7 +72,7 @@ pub struct TitleCaseText {}
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(sanitizer(path = "base::sanitizer::text::case::UpperCamel"))
 )]
 pub struct UpperCamelText {}
@@ -88,5 +88,5 @@ pub struct SnakeCaseTextList {}
 /// TitleCaseValueMap
 ///
 
-#[map(key(prim = "Text"), value(item(is = "TitleCaseText")))]
+#[map(key(prim = "Text", unbounded), value(item(is = "TitleCaseText")))]
 pub struct TitleCaseValueMap {}

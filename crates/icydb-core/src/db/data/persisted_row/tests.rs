@@ -875,7 +875,10 @@ fn direct_persisted_by_kind_leaf_codecs_cover_tier_one_family() {
         String::from("Ada"),
         FieldKind::Text { max_len: None },
     );
-    assert_direct_persisted_by_kind_roundtrip(Blob::from(vec![0xAB, 0xCD]), FieldKind::Blob);
+    assert_direct_persisted_by_kind_roundtrip(
+        Blob::from(vec![0xAB, 0xCD]),
+        FieldKind::Blob { max_len: None },
+    );
     assert_direct_persisted_by_kind_roundtrip(
         Float32::try_new(1.25).expect("finite float32"),
         FieldKind::Float32,

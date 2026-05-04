@@ -436,7 +436,7 @@ impl FieldModel {
         }
 
         ensure_decimal_scale_matches(self.kind(), value)?;
-        ensure_text_max_len_matches(self.kind(), value)?;
+        ensure_scalar_max_len_matches(self.kind(), value)?;
         ensure_value_is_deterministic_for_storage(self.kind(), value)
     }
 
@@ -460,7 +460,7 @@ const fn leaf_codec_for(kind: FieldKind, storage_decode: FieldStorageDecode) -> 
     }
 
     match kind {
-        FieldKind::Blob => LeafCodec::Scalar(ScalarCodec::Blob),
+        FieldKind::Blob { .. } => LeafCodec::Scalar(ScalarCodec::Blob),
         FieldKind::Bool => LeafCodec::Scalar(ScalarCodec::Bool),
         FieldKind::Date => LeafCodec::Scalar(ScalarCodec::Date),
         FieldKind::Duration => LeafCodec::Scalar(ScalarCodec::Duration),
@@ -514,7 +514,10 @@ pub enum RelationStrength {
 pub enum FieldKind {
     // Scalar primitives
     Account,
-    Blob,
+    Blob {
+        /// Optional schema-declared maximum byte length for blob fields.
+        max_len: Option<u32>,
+    },
     Bool,
     Date,
     Decimal {
@@ -585,7 +588,7 @@ impl FieldKind {
     pub const fn value_kind(&self) -> RuntimeValueKind {
         match self {
             Self::Account
-            | Self::Blob
+            | Self::Blob { .. }
             | Self::Bool
             | Self::Date
             | Self::Duration
@@ -653,7 +656,7 @@ impl FieldKind {
             | Self::Structured { .. }
             | Self::Unit => false,
             Self::Account
-            | Self::Blob
+            | Self::Blob { .. }
             | Self::Bool
             | Self::Date
             | Self::Decimal { .. }
@@ -683,7 +686,7 @@ impl FieldKind {
     pub(crate) fn accepts_value(&self, value: &Value) -> bool {
         match (self, value) {
             (Self::Account, Value::Account(_))
-            | (Self::Blob, Value::Blob(_))
+            | (Self::Blob { .. }, Value::Blob(_))
             | (Self::Bool, Value::Bool(_))
             | (Self::Date, Value::Date(_))
             | (Self::Decimal { .. }, Value::Decimal(_))
@@ -946,9 +949,9 @@ fn normalize_decimal_map_entries(
     Ok(normalized_entries)
 }
 
-// Enforce bounded text length through nested collection/map shapes before a
-// field-level runtime value is persisted.
-fn ensure_text_max_len_matches(kind: FieldKind, value: &Value) -> Result<(), String> {
+// Enforce bounded text/blob length through nested collection/map shapes before
+// a field-level runtime value is persisted.
+fn ensure_scalar_max_len_matches(kind: FieldKind, value: &Value) -> Result<(), String> {
     if matches!(value, Value::Null) {
         return Ok(());
     }
@@ -964,12 +967,22 @@ fn ensure_text_max_len_matches(kind: FieldKind, value: &Value) -> Result<(), Str
 
             Ok(())
         }
+        (FieldKind::Blob { max_len: Some(max) }, Value::Blob(bytes)) => {
+            let len = bytes.len();
+            if len > max as usize {
+                return Err(format!(
+                    "blob length exceeds max_len: expected at most {max}, found {len}"
+                ));
+            }
+
+            Ok(())
+        }
         (FieldKind::Relation { key_kind, .. }, value) => {
-            ensure_text_max_len_matches(*key_kind, value)
+            ensure_scalar_max_len_matches(*key_kind, value)
         }
         (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => {
             for item in items {
-                ensure_text_max_len_matches(*inner, item)?;
+                ensure_scalar_max_len_matches(*inner, item)?;
             }
 
             Ok(())
@@ -982,8 +995,8 @@ fn ensure_text_max_len_matches(kind: FieldKind, value: &Value) -> Result<(), Str
             Value::Map(entries),
         ) => {
             for (entry_key, entry_value) in entries {
-                ensure_text_max_len_matches(*key, entry_key)?;
-                ensure_text_max_len_matches(*map_value, entry_value)?;
+                ensure_scalar_max_len_matches(*key, entry_key)?;
+                ensure_scalar_max_len_matches(*map_value, entry_value)?;
             }
 
             Ok(())
@@ -1033,6 +1046,7 @@ mod tests {
     };
 
     static BOUNDED_TEXT: FieldKind = FieldKind::Text { max_len: Some(3) };
+    static BOUNDED_BLOB: FieldKind = FieldKind::Blob { max_len: Some(3) };
 
     #[test]
     fn text_max_len_accepts_unbounded_text() {
@@ -1099,6 +1113,45 @@ mod tests {
                     Value::Text("long".into()),
                     Value::Text("val".into()),
                 )]))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn blob_max_len_counts_bytes() {
+        let field = FieldModel::generated("payload", BOUNDED_BLOB);
+
+        assert!(
+            field
+                .validate_runtime_value_for_storage(&Value::Blob(vec![1, 2, 3]))
+                .is_ok()
+        );
+        assert!(
+            field
+                .validate_runtime_value_for_storage(&Value::Blob(vec![1, 2, 3, 4]))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn blob_max_len_recurses_through_collections() {
+        static BLOB_LIST: FieldKind = FieldKind::List(&BOUNDED_BLOB);
+
+        let field = FieldModel::generated("payloads", BLOB_LIST);
+
+        assert!(
+            field
+                .validate_runtime_value_for_storage(&Value::List(vec![
+                    Value::Blob(vec![1, 2, 3]),
+                    Value::Blob(vec![4, 5]),
+                ]))
+                .is_ok()
+        );
+        assert!(
+            field
+                .validate_runtime_value_for_storage(&Value::List(vec![Value::Blob(vec![
+                    1, 2, 3, 4
+                ])]))
                 .is_err()
         );
     }

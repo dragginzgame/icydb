@@ -286,7 +286,7 @@ pub(super) fn decode_composite_field_binary_bytes(
             decode_structural_binary_field_by_kind_bytes(raw_bytes, *key_kind)
         }
         FieldKind::Account
-        | FieldKind::Blob
+        | FieldKind::Blob { .. }
         | FieldKind::Bool
         | FieldKind::Date
         | FieldKind::Decimal { .. }
@@ -327,7 +327,7 @@ pub(super) fn validate_composite_field_binary_bytes(
             validate_structural_binary_field_by_kind_bytes(raw_bytes, *key_kind)
         }
         FieldKind::Account
-        | FieldKind::Blob
+        | FieldKind::Blob { .. }
         | FieldKind::Bool
         | FieldKind::Date
         | FieldKind::Decimal { .. }

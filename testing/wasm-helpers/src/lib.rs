@@ -19,7 +19,7 @@ macro_rules! define_simple_audit_entities {
                 pk(field = "id"),
                 fields(
                     field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-                    field(ident = "name", value(item(prim = "Text")))
+                    field(ident = "name", value(item(prim = "Text", unbounded)))
                 )
             )]
             pub struct $entity {}
@@ -43,7 +43,7 @@ macro_rules! define_complex_audit_types {
         #[doc = ""]
         #[newtype(
             primitive = "Text",
-            item(prim = "Text"),
+            item(prim = "Text", unbounded),
             ty(
                 sanitizer(path = "base::sanitizer::text::case::Lower"),
                 validator(path = "base::validator::text::case::Lower")
@@ -58,7 +58,7 @@ macro_rules! define_complex_audit_types {
         #[doc = ""]
         #[newtype(
             primitive = "Text",
-            item(prim = "Text"),
+            item(prim = "Text", unbounded),
             ty(validator(path = "base::validator::text::case::UpperSnake"))
         )]
         pub struct AuditCode {}
@@ -102,7 +102,11 @@ macro_rules! define_complex_audit_types {
         #[doc = "Bounded map reused across complex audit entities."]
         #[doc = ""]
         #[map(
-            key(prim = "Text", validator(path = "base::validator::text::case::Lower")),
+            key(
+                prim = "Text",
+                unbounded,
+                validator(path = "base::validator::text::case::Lower")
+            ),
             value(item(is = "AuditText")),
             ty(validator(path = "base::validator::len::Max", args(16)))
         )]
@@ -114,7 +118,7 @@ macro_rules! define_complex_audit_types {
         #[doc = "Embedded record reused across complex audit entities."]
         #[doc = ""]
         #[record(fields(
-            field(ident = "display_name", value(item(prim = "Text"))),
+            field(ident = "display_name", value(item(prim = "Text", unbounded))),
             field(ident = "nickname", value(opt, item(is = "AuditText"))),
             field(ident = "scores", value(item(is = "AuditScoreList"))),
             field(ident = "tags", value(item(is = "AuditTagSet"))),

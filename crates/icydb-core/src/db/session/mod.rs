@@ -135,6 +135,22 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
+        self.ensure_generated_compatible_accepted_schema::<E>()?;
+        self.execute_save_with_checked_accepted_schema(op, map)
+    }
+
+    // Execute save work after the caller has already proven that the accepted
+    // schema is generated-compatible. SQL writes use this after their
+    // pre-staging schema guard so mutation staging and save execution do not
+    // run duplicate schema-store reconciliation in the same statement.
+    fn execute_save_with_checked_accepted_schema<E, T, R>(
+        &self,
+        op: impl FnOnce(SaveExecutor<E>) -> Result<T, InternalError>,
+        map: impl FnOnce(T) -> R,
+    ) -> Result<R, InternalError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
         let value = self.with_metrics(|| op(self.save_executor::<E>()))?;
 
         Ok(map(value))
@@ -411,6 +427,22 @@ impl<C: CanisterKind> DbSession<C> {
         let authority = authority.with_accepted_row_layout(&accepted_row_layout)?;
 
         Ok((accepted_schema, authority))
+    }
+
+    // Ensure accepted schema metadata is safe for write paths that still encode
+    // rows through generated field contracts. Returning only the snapshot keeps
+    // SQL write type checks unchanged while the descriptor-derived authority
+    // guard rejects unsupported layout or payload drift before mutation staging.
+    fn ensure_generated_compatible_accepted_schema<E>(
+        &self,
+    ) -> Result<AcceptedSchemaSnapshot, InternalError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let (accepted_schema, _) =
+            self.ensure_accepted_schema_snapshot_and_authority(EntityAuthority::for_type::<E>())?;
+
+        Ok(accepted_schema)
     }
 
     /// Build one point-in-time storage report for observability endpoints.

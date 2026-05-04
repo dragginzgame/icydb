@@ -239,7 +239,7 @@ pub(crate) fn literal_matches_type(literal: &Value, field_type: &FieldType) -> b
 pub(crate) fn field_type_from_model_kind(kind: &FieldKind) -> FieldType {
     match kind {
         FieldKind::Account => FieldType::Scalar(ScalarType::Account),
-        FieldKind::Blob => FieldType::Scalar(ScalarType::Blob),
+        FieldKind::Blob { .. } => FieldType::Scalar(ScalarType::Blob),
         FieldKind::Bool => FieldType::Scalar(ScalarType::Bool),
         FieldKind::Date => FieldType::Scalar(ScalarType::Date),
         FieldKind::Decimal { .. } => FieldType::Scalar(ScalarType::Decimal),
@@ -303,7 +303,7 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
             _ => None,
         },
         PersistedFieldKind::Account
-        | PersistedFieldKind::Blob
+        | PersistedFieldKind::Blob { .. }
         | PersistedFieldKind::Bool
         | PersistedFieldKind::Date
         | PersistedFieldKind::Decimal { .. }
@@ -328,7 +328,7 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
 pub(in crate::db) fn field_type_from_persisted_kind(kind: &PersistedFieldKind) -> FieldType {
     match kind {
         PersistedFieldKind::Account => FieldType::Scalar(ScalarType::Account),
-        PersistedFieldKind::Blob => FieldType::Scalar(ScalarType::Blob),
+        PersistedFieldKind::Blob { .. } => FieldType::Scalar(ScalarType::Blob),
         PersistedFieldKind::Bool => FieldType::Scalar(ScalarType::Bool),
         PersistedFieldKind::Date => FieldType::Scalar(ScalarType::Date),
         PersistedFieldKind::Decimal { .. } => FieldType::Scalar(ScalarType::Decimal),

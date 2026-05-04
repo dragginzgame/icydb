@@ -24,7 +24,7 @@ pub struct UiDataStore {}
         ),
         field(
             ident = "name",
-            value(item(prim = "Text")),
+            value(item(prim = "Text", unbounded)),
             generated(insert = "Ulid::generate")
         )
     )

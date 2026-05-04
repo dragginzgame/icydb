@@ -22,7 +22,7 @@ pub struct UiDataStore {}
             default = "Ulid::generate",
             generated(insert = "Ulid::generate")
         ),
-        field(ident = "name", value(item(prim = "Text")))
+        field(ident = "name", value(item(prim = "Text", unbounded)))
     )
 )]
 pub struct UiEntity {}

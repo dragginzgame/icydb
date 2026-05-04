@@ -170,7 +170,7 @@ fn infer_field_type_uses_accepted_schema_field_type() {
             SchemaFieldId::new(2),
             "rank".to_string(),
             SchemaFieldSlot::new(1),
-            PersistedFieldKind::Blob,
+            PersistedFieldKind::Blob { max_len: None },
             Vec::new(),
             false,
             SchemaFieldDefault::None,
@@ -188,7 +188,8 @@ fn infer_field_type_uses_accepted_schema_field_type() {
 
 #[test]
 fn infer_field_path_type_uses_accepted_nested_leaf_type() {
-    let schema = accepted_profile_schema_with_nested_rank(PersistedFieldKind::Blob);
+    let schema =
+        accepted_profile_schema_with_nested_rank(PersistedFieldKind::Blob { max_len: None });
     let expr = Expr::FieldPath(FieldPath::new(
         FieldId::new("profile"),
         vec!["rank".to_string()],

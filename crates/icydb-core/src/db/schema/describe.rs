@@ -617,7 +617,14 @@ fn summarize_field_kind(kind: &FieldKind) -> String {
 fn write_field_kind_summary(out: &mut String, kind: &FieldKind) {
     match kind {
         FieldKind::Account => out.push_str("account"),
-        FieldKind::Blob => out.push_str("blob"),
+        FieldKind::Blob { max_len } => match max_len {
+            Some(max_len) => {
+                out.push_str("blob(max_len=");
+                out.push_str(&max_len.to_string());
+                out.push(')');
+            }
+            None => out.push_str("blob"),
+        },
         FieldKind::Bool => out.push_str("bool"),
         FieldKind::Date => out.push_str("date"),
         FieldKind::Decimal { scale } => {
@@ -702,7 +709,14 @@ fn summarize_persisted_field_kind(kind: &PersistedFieldKind) -> String {
 fn write_persisted_field_kind_summary(out: &mut String, kind: &PersistedFieldKind) {
     match kind {
         PersistedFieldKind::Account => out.push_str("account"),
-        PersistedFieldKind::Blob => out.push_str("blob"),
+        PersistedFieldKind::Blob { max_len } => match max_len {
+            Some(max_len) => {
+                out.push_str("blob(max_len=");
+                out.push_str(&max_len.to_string());
+                out.push(')');
+            }
+            None => out.push_str("blob"),
+        },
         PersistedFieldKind::Bool => out.push_str("bool"),
         PersistedFieldKind::Date => out.push_str("date"),
         PersistedFieldKind::Decimal { scale } => {
@@ -1131,7 +1145,7 @@ mod tests {
                     FieldId::new(2),
                     "payload".to_string(),
                     stale_payload_field_slot,
-                    PersistedFieldKind::Blob,
+                    PersistedFieldKind::Blob { max_len: None },
                     Vec::new(),
                     false,
                     SchemaFieldDefault::None,
@@ -1216,7 +1230,7 @@ mod tests {
                     PersistedFieldKind::Structured { queryable: true },
                     vec![PersistedNestedLeafSnapshot::new(
                         vec!["rank".to_string()],
-                        PersistedFieldKind::Blob,
+                        PersistedFieldKind::Blob { max_len: None },
                         false,
                         FieldStorageDecode::ByKind,
                         LeafCodec::Scalar(ScalarCodec::Blob),

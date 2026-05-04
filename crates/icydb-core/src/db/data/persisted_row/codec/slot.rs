@@ -281,7 +281,7 @@ impl_persisted_field_slot_kind!(
     u64 => FieldKind::Uint,
     String => FieldKind::Text { max_len: None },
     Account => FieldKind::Account,
-    Blob => FieldKind::Blob,
+    Blob => FieldKind::Blob { max_len: None },
     Date => FieldKind::Date,
     Duration => FieldKind::Duration,
     Float32 => FieldKind::Float32,

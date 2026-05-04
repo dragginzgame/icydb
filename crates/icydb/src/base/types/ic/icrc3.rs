@@ -8,11 +8,11 @@ use crate::design::prelude::*;
 #[enum_(
     variant(unspecified, default),
     variant(ident = "Array", value(many, item(is = "Value", indirect))),
-    variant(ident = "Blob", value(item(prim = "Blob"))),
+    variant(ident = "Blob", value(item(prim = "Blob", unbounded))),
     variant(ident = "Int", value(item(prim = "Int64"))),
     variant(ident = "Map", value(item(is = "value::Map", indirect))),
     variant(ident = "Nat", value(item(prim = "Nat64"))),
-    variant(ident = "Text", value(item(prim = "Text")))
+    variant(ident = "Text", value(item(prim = "Text", unbounded)))
 )]
 pub struct Value {}
 
@@ -31,6 +31,6 @@ pub mod value {
     /// Icrc3 Value Map
     ///
 
-    #[map(key(prim = "Text"), value(item(is = "Value")))]
+    #[map(key(prim = "Text", unbounded), value(item(is = "Value")))]
     pub struct Map {}
 }

@@ -33,7 +33,7 @@ use crate::{
 pub(super) const fn supports_scalar_binary_fast_path(kind: FieldKind) -> bool {
     matches!(
         kind,
-        FieldKind::Blob
+        FieldKind::Blob { .. }
             | FieldKind::Bool
             | FieldKind::Float32
             | FieldKind::Float64
@@ -80,7 +80,7 @@ pub(super) fn decode_scalar_fast_path_binary_bytes(
     }
 
     let value = match kind {
-        FieldKind::Blob | FieldKind::Int128 | FieldKind::Uint128 | FieldKind::Ulid => {
+        FieldKind::Blob { .. } | FieldKind::Int128 | FieldKind::Uint128 | FieldKind::Ulid => {
             decode_scalar_fast_path_binary_bytes_kind(raw_bytes, kind, tag, len, payload_start)?
         }
         FieldKind::Text { .. } => {
@@ -125,7 +125,9 @@ pub(super) fn encode_scalar_fast_path_binary_bytes(
     let mut encoded = Vec::new();
     match (kind, value) {
         (_, Value::Null) => push_binary_null(&mut encoded),
-        (FieldKind::Blob, Value::Blob(value)) => push_binary_bytes(&mut encoded, value.as_slice()),
+        (FieldKind::Blob { .. }, Value::Blob(value)) => {
+            push_binary_bytes(&mut encoded, value.as_slice());
+        }
         (FieldKind::Bool, Value::Bool(value)) => push_binary_bool(&mut encoded, *value),
         (FieldKind::Float32, Value::Float32(value)) => {
             push_binary_float32(&mut encoded, value.get());
@@ -232,7 +234,7 @@ pub(super) fn encode_blob_fast_path_binary_bytes(
     kind: FieldKind,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
-    if !matches!(kind, FieldKind::Blob) {
+    if !matches!(kind, FieldKind::Blob { .. }) {
         return Err(InternalError::persisted_row_field_encode_failed(
             field_name,
             format!("field kind {kind:?} does not accept blob"),
@@ -416,7 +418,7 @@ fn decode_scalar_fast_path_binary_bytes_kind(
     }
 
     match kind {
-        FieldKind::Blob => Ok(Value::Blob(
+        FieldKind::Blob { .. } => Ok(Value::Blob(
             binary_payload_bytes(raw_bytes, len, payload_start, "byte payload")?.to_vec(),
         )),
         FieldKind::Int128 => Ok(Value::Int128(decode_int128_payload_bytes(

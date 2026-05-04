@@ -17,7 +17,7 @@ pub struct UiDataStore {}
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Nat64"))),
-        field(ident = "name", value(item(prim = "Text")))
+        field(ident = "name", value(item(prim = "Text", unbounded)))
     )
 )]
 pub struct UiEntity {}

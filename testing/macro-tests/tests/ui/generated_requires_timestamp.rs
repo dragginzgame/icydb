@@ -19,7 +19,7 @@ pub struct UiDataStore {}
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
         field(
             ident = "name",
-            value(item(prim = "Text")),
+            value(item(prim = "Text", unbounded)),
             generated(insert = "Timestamp::now")
         )
     )

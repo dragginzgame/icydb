@@ -426,7 +426,9 @@ fn generated_item_kind_for_predicate(item: &Item) -> Result<CoreFieldKind, Darli
 
     let base_kind = match item.primitive.unwrap_or(Primitive::Unit) {
         Primitive::Account => CoreFieldKind::Account,
-        Primitive::Blob => CoreFieldKind::Blob,
+        Primitive::Blob => CoreFieldKind::Blob {
+            max_len: item.max_len,
+        },
         Primitive::Bool => CoreFieldKind::Bool,
         Primitive::Date => CoreFieldKind::Date,
         Primitive::Decimal => CoreFieldKind::Decimal {

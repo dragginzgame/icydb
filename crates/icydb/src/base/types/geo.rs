@@ -10,7 +10,7 @@ use crate::design::prelude::*;
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(
         sanitizer(path = "base::sanitizer::text::Trim"),
         validator(path = "base::validator::len::Range", args(1, 100)),
@@ -29,7 +29,7 @@ pub struct AddressLine {}
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(
         sanitizer(path = "base::sanitizer::text::Trim"),
         sanitizer(path = "base::sanitizer::text::case::Title"),
@@ -49,7 +49,7 @@ pub struct CityName {}
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(
         sanitizer(path = "base::sanitizer::text::Trim"),
         sanitizer(path = "base::sanitizer::text::case::Upper"),
@@ -70,7 +70,7 @@ pub struct PostalCode {}
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(
         sanitizer(path = "base::sanitizer::text::Trim"),
         sanitizer(path = "base::sanitizer::text::case::Upper"),

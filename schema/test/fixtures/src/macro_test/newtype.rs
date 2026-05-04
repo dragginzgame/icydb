@@ -67,7 +67,7 @@ pub struct PrincipalN {}
 #[newtype(primitive = "Subaccount", item(prim = "Subaccount"))]
 pub struct SubaccountN {}
 
-#[newtype(primitive = "Text", item(prim = "Text"))]
+#[newtype(primitive = "Text", item(prim = "Text", unbounded))]
 pub struct TextN {}
 
 #[newtype(primitive = "Timestamp", item(prim = "Timestamp"))]
@@ -155,7 +155,7 @@ pub struct PrincipalD;
 #[newtype(primitive = "Subaccount", item(prim = "Subaccount"))]
 pub struct SubaccountD;
 
-#[newtype(primitive = "Text", item(prim = "Text"))]
+#[newtype(primitive = "Text", item(prim = "Text", unbounded))]
 pub struct TextD;
 
 #[newtype(

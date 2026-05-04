@@ -6,7 +6,7 @@ use crate::design::prelude::*;
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(
         validator(path = "base::validator::len::Range", args(1, 40)),
         validator(path = "base::validator::text::case::UpperSnake"),
@@ -20,7 +20,7 @@ pub struct Constant {}
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(
         validator(path = "base::validator::len::Range", args(2, 40)),
         validator(path = "base::validator::text::case::Snake"),
@@ -36,7 +36,7 @@ pub struct Field {}
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(
         validator(path = "base::validator::len::Range", args(2, 64)),
         validator(path = "base::validator::text::case::Snake"),
@@ -50,7 +50,7 @@ pub struct Function {}
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(
         validator(path = "base::validator::len::Range", args(2, 40)),
         validator(path = "base::validator::text::case::Snake"),
@@ -64,7 +64,7 @@ pub struct Variable {}
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(
         validator(path = "base::validator::len::Range", args(1, 40)),
         validator(path = "base::validator::text::case::UpperCamel"),

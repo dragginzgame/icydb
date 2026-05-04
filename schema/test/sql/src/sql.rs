@@ -37,7 +37,7 @@ pub struct SqlTestStore {}
     index(fields = "name"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "name", value(item(prim = "Text"))),
+        field(ident = "name", value(item(prim = "Text", unbounded))),
         field(ident = "age", value(item(prim = "Int32"))),
         field(ident = "rank", value(item(prim = "Int32")))
     )
@@ -57,8 +57,8 @@ pub struct SqlTestUser {}
     index(fields = "label"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "label", value(item(prim = "Text"))),
-        field(ident = "group_name", value(item(prim = "Text"))),
+        field(ident = "label", value(item(prim = "Text", unbounded))),
+        field(ident = "group_name", value(item(prim = "Text", unbounded))),
         field(ident = "int8_value", value(item(prim = "Int8"))),
         field(ident = "int16_value", value(item(prim = "Int16"))),
         field(ident = "int32_value", value(item(prim = "Int32"))),

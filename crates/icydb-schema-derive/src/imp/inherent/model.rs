@@ -127,11 +127,14 @@ fn model_storage_decode_from_item(item: &Item) -> TokenStream {
 pub fn model_kind_from_primitive(
     prim: Primitive,
     decimal_scale: u32,
-    text_max_len: Option<u32>,
+    max_len: Option<u32>,
 ) -> TokenStream {
     match prim {
         Primitive::Account => quote!(::icydb::model::field::FieldKind::Account),
-        Primitive::Blob => quote!(::icydb::model::field::FieldKind::Blob),
+        Primitive::Blob => {
+            let max_len = quote_option(max_len.as_ref(), |max_len| quote!(#max_len));
+            quote!(::icydb::model::field::FieldKind::Blob { max_len: #max_len })
+        }
         Primitive::Bool => quote!(::icydb::model::field::FieldKind::Bool),
         Primitive::Date => quote!(::icydb::model::field::FieldKind::Date),
         Primitive::Decimal => {
@@ -153,7 +156,7 @@ pub fn model_kind_from_primitive(
         Primitive::Principal => quote!(::icydb::model::field::FieldKind::Principal),
         Primitive::Subaccount => quote!(::icydb::model::field::FieldKind::Subaccount),
         Primitive::Text => {
-            let max_len = quote_option(text_max_len.as_ref(), |max_len| quote!(#max_len));
+            let max_len = quote_option(max_len.as_ref(), |max_len| quote!(#max_len));
             quote!(::icydb::model::field::FieldKind::Text { max_len: #max_len })
         }
         Primitive::Timestamp => quote!(::icydb::model::field::FieldKind::Timestamp),

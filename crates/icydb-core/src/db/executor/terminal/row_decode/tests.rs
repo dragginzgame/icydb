@@ -52,7 +52,7 @@ crate::test_entity_schema! {
         ("id", FieldKind::Ulid),
         ("title", FieldKind::Text { max_len: None }),
         ("tags", FieldKind::List(&FieldKind::Text { max_len: None })),
-        ("portrait", FieldKind::Blob),
+        ("portrait", FieldKind::Blob { max_len: None }),
     ],
     indexes = [],
     store = RowDecodeStore,

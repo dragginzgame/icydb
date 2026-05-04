@@ -434,7 +434,7 @@ mod tests {
 
     #[test]
     fn accepted_snapshot_schema_info_uses_persisted_top_level_field_type() {
-        let snapshot = accepted_schema_with_name_kind(PersistedFieldKind::Blob);
+        let snapshot = accepted_schema_with_name_kind(PersistedFieldKind::Blob { max_len: None });
 
         let schema = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
         let name_type = schema.field("name").expect("accepted field should exist");
@@ -465,7 +465,7 @@ mod tests {
     #[test]
     fn accepted_snapshot_schema_info_uses_persisted_sql_capabilities() {
         let generated = SchemaInfo::cached_for_entity_model(&MODEL);
-        let snapshot = accepted_schema_with_name_kind(PersistedFieldKind::Blob);
+        let snapshot = accepted_schema_with_name_kind(PersistedFieldKind::Blob { max_len: None });
         let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
 
         let generated_name = generated
@@ -528,7 +528,7 @@ mod tests {
                     PersistedFieldKind::Structured { queryable: true },
                     vec![PersistedNestedLeafSnapshot::new(
                         vec!["rank".to_string()],
-                        PersistedFieldKind::Blob,
+                        PersistedFieldKind::Blob { max_len: None },
                         false,
                         FieldStorageDecode::ByKind,
                         LeafCodec::Scalar(ScalarCodec::Blob),

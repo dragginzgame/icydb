@@ -10,9 +10,9 @@ use icydb::design::prelude::*;
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "name", value(item(prim = "Text"))),
+        field(ident = "name", value(item(prim = "Text", unbounded))),
         field(ident = "score", value(item(prim = "Nat32"))),
-        field(ident = "nickname", value(opt, item(prim = "Text"))),
+        field(ident = "nickname", value(opt, item(prim = "Text", unbounded))),
         field(ident = "scores", value(many, item(prim = "Nat32"))),
         field(ident = "tags", value(item(is = "MergeTags"))),
         field(ident = "settings", value(item(is = "MergeSettings"))),
@@ -28,14 +28,14 @@ pub struct MergeEntity {}
 /// MergeSettings
 ///
 
-#[map(key(prim = "Text"), value(item(prim = "Nat32")))]
+#[map(key(prim = "Text", unbounded), value(item(prim = "Nat32")))]
 pub struct MergeSettings {}
 
 ///
 /// MergeTags
 ///
 
-#[set(item(prim = "Text"))]
+#[set(item(prim = "Text", unbounded))]
 pub struct MergeTags {}
 
 ///
@@ -43,7 +43,7 @@ pub struct MergeTags {}
 ///
 
 #[record(fields(
-    field(ident = "bio", value(item(prim = "Text"))),
+    field(ident = "bio", value(item(prim = "Text", unbounded))),
     field(ident = "visits", value(item(prim = "Nat32"))),
     field(ident = "favorite_numbers", value(many, item(prim = "Nat32")))
 ))]
@@ -60,5 +60,5 @@ pub struct MergeWrapper {}
 /// MergeTuple
 ///
 
-#[tuple(value(item(prim = "Text")), value(item(prim = "Nat32")))]
+#[tuple(value(item(prim = "Text", unbounded)), value(item(prim = "Nat32")))]
 pub struct MergeTuple {}

@@ -9,7 +9,7 @@ use crate::design::prelude::*;
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(
         sanitizer(path = "base::sanitizer::intl::iso::Iso3166_1A2"),
         validator(path = "base::validator::intl::iso::Iso3166_1A2"),
@@ -26,7 +26,7 @@ pub struct CountryCode {}
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(
         sanitizer(path = "base::sanitizer::intl::iso::Iso639_1"),
         validator(path = "base::validator::intl::iso::Iso639_1"),
@@ -43,7 +43,7 @@ pub struct LanguageCode {}
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(
         sanitizer(path = "base::sanitizer::intl::phone::E164PhoneNumber"),
         validator(path = "base::validator::intl::phone::E164PhoneNumber"),

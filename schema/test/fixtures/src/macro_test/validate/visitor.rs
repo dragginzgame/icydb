@@ -6,7 +6,7 @@ use icydb::design::prelude::*;
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::text::case::Lower"))
 )]
 pub struct VisitorLowerText {}
@@ -32,7 +32,7 @@ pub struct VisitorLowerTextTuple {}
 /// VisitorLowerTextMap
 ///
 
-#[map(key(prim = "Text"), value(item(is = "VisitorLowerText")))]
+#[map(key(prim = "Text", unbounded), value(item(is = "VisitorLowerText")))]
 pub struct VisitorLowerTextMap {}
 
 ///
@@ -58,7 +58,11 @@ pub struct VisitorOuter {}
 /// VisitorLowerTextSetValidated
 ///
 
-#[set(item(prim = "Text", validator(path = "base::validator::text::case::Lower")))]
+#[set(item(
+    prim = "Text",
+    unbounded,
+    validator(path = "base::validator::text::case::Lower")
+))]
 pub struct VisitorLowerTextSetValidated {}
 
 ///
@@ -66,8 +70,12 @@ pub struct VisitorLowerTextSetValidated {}
 ///
 
 #[map(
-    key(prim = "Text", validator(path = "base::validator::text::case::Lower")),
-    value(item(prim = "Text"))
+    key(
+        prim = "Text",
+        unbounded,
+        validator(path = "base::validator::text::case::Lower")
+    ),
+    value(item(prim = "Text", unbounded))
 )]
 pub struct VisitorLowerTextKeyMapValidated {}
 
@@ -76,8 +84,12 @@ pub struct VisitorLowerTextKeyMapValidated {}
 ///
 
 #[map(
-    key(prim = "Text"),
-    value(item(prim = "Text", validator(path = "base::validator::text::case::Lower")))
+    key(prim = "Text", unbounded),
+    value(item(
+        prim = "Text",
+        unbounded,
+        validator(path = "base::validator::text::case::Lower")
+    ))
 )]
 pub struct VisitorLowerTextValueMapValidated {}
 
@@ -107,7 +119,7 @@ pub struct VisitorMapValueOuter {}
 ///
 
 #[list(
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::len::Max", args(1)))
 )]
 pub struct VisitorLengthList {}
@@ -117,7 +129,7 @@ pub struct VisitorLengthList {}
 ///
 
 #[set(
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(validator(path = "base::validator::len::Max", args(1)))
 )]
 pub struct VisitorLengthSet {}
@@ -127,8 +139,8 @@ pub struct VisitorLengthSet {}
 ///
 
 #[map(
-    key(prim = "Text"),
-    value(item(prim = "Text")),
+    key(prim = "Text", unbounded),
+    value(item(prim = "Text", unbounded)),
     ty(validator(path = "base::validator::len::Max", args(1)))
 )]
 pub struct VisitorLengthMap {}

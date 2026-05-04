@@ -15,9 +15,9 @@ use icydb::design::prelude::*;
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "string_test", value(item(prim = "Text"))),
+        field(ident = "string_test", value(item(prim = "Text", unbounded))),
         field(ident = "principal_test", value(item(prim = "Principal"))),
-        field(ident = "blob_test", value(item(prim = "Blob"))),
+        field(ident = "blob_test", value(item(prim = "Blob", unbounded))),
         field(ident = "int_candid", value(item(prim = "Int"))),
         field(ident = "int_8", value(item(prim = "Int8"))),
         field(ident = "int_16", value(item(prim = "Int16"))),
@@ -35,8 +35,8 @@ use icydb::design::prelude::*;
         field(ident = "timestamp", value(item(prim = "Timestamp"))),
         field(ident = "utf8_test", value(item(is = "base::types::bytes::Utf8"))),
         field(ident = "tuple_test", value(item(is = "Tuple"))),
-        field(ident = "name_many", value(many, item(prim = "Text"))),
-        field(ident = "name_opt", value(opt, item(prim = "Text"))),
+        field(ident = "name_many", value(many, item(prim = "Text", unbounded))),
+        field(ident = "name_opt", value(opt, item(prim = "Text", unbounded))),
         field(ident = "record_a", value(item(is = "RecordA"))),
         field(ident = "record_opt", value(opt, item(is = "RecordB"))),
         field(ident = "record_many", value(many, item(is = "RecordB"))),
@@ -62,10 +62,10 @@ pub struct ComplexEntity {}
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "simple_text", value(item(prim = "Text"))),
+        field(ident = "simple_text", value(item(prim = "Text", unbounded))),
         field(ident = "tuple_test", value(item(is = "Tuple"))),
-        field(ident = "text_many", value(many, item(prim = "Text"))),
-        field(ident = "text_opt", value(opt, item(prim = "Text"))),
+        field(ident = "text_many", value(many, item(prim = "Text", unbounded))),
+        field(ident = "text_opt", value(opt, item(prim = "Text", unbounded))),
         field(ident = "nat_32", value(item(prim = "Nat32"))),
         field(ident = "record_a", value(item(is = "RecordA"))),
         field(ident = "record_opt", value(opt, item(is = "RecordB"))),
@@ -112,7 +112,7 @@ pub struct RelatedEntity {}
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "name", value(item(prim = "Text")))
+        field(ident = "name", value(item(prim = "Text", unbounded)))
     )
 )]
 pub struct SimpleEntity {}
@@ -124,7 +124,7 @@ pub struct SimpleEntity {}
 #[record(fields(
     field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
     field(ident = "variant_a", value(item(is = "EnumA"))),
-    field(ident = "description", value(item(prim = "Text"))),
+    field(ident = "description", value(item(prim = "Text", unbounded))),
 ))]
 pub struct RecordA {}
 
@@ -133,8 +133,8 @@ pub struct RecordA {}
 ///
 
 #[record(fields(
-    field(ident = "name", value(item(prim = "Text"))),
-    field(ident = "name_opt", value(opt, item(prim = "Text")))
+    field(ident = "name", value(item(prim = "Text", unbounded))),
+    field(ident = "name_opt", value(opt, item(prim = "Text", unbounded)))
 ))]
 pub struct RecordB {}
 
@@ -142,7 +142,7 @@ pub struct RecordB {}
 /// RecordC
 ///
 
-#[record(fields(field(ident = "prim", value(item(prim = "Text")))))]
+#[record(fields(field(ident = "prim", value(item(prim = "Text", unbounded)))))]
 pub struct RecordC {}
 
 ///
@@ -151,7 +151,7 @@ pub struct RecordC {}
 
 #[enum_(
     variant(ident = "A", default),
-    variant(ident = "B", value(item(prim = "Text"))),
+    variant(ident = "B", value(item(prim = "Text", unbounded))),
     variant(ident = "C", value(item(is = "RecordB"))),
     variant(ident = "D", value(item(is = "RecordC")))
 )]
@@ -170,7 +170,7 @@ pub struct EnumB {}
 
 #[enum_(
     variant(unspecified, default),
-    variant(ident = "F", value(item(prim = "Text"))),
+    variant(ident = "F", value(item(prim = "Text", unbounded))),
     variant(ident = "I", value(item(is = "RecordB")))
 )]
 pub struct EnumC {}
@@ -179,33 +179,36 @@ pub struct EnumC {}
 /// List
 ///
 
-#[list(item(prim = "Text"))]
+#[list(item(prim = "Text", unbounded))]
 pub struct List {}
 
 ///
 /// Map
 ///
 
-#[map(key(prim = "Nat8"), value(item(prim = "Text")))]
+#[map(key(prim = "Nat8"), value(item(prim = "Text", unbounded)))]
 pub struct Map {}
 
 ///
 /// Set
 ///
 
-#[set(item(prim = "Text"))]
+#[set(item(prim = "Text", unbounded))]
 pub struct Set {}
 
 ///
 /// Newtype
 ///
 
-#[newtype(primitive = "Text", item(prim = "Text"))]
+#[newtype(primitive = "Text", item(prim = "Text", unbounded))]
 pub struct Newtype {}
 
 ///
 /// Tuple
 ///
 
-#[tuple(value(item(prim = "Text")), value(item(prim = "Text")))]
+#[tuple(
+    value(item(prim = "Text", unbounded)),
+    value(item(prim = "Text", unbounded))
+)]
 pub struct Tuple {}

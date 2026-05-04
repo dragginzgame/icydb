@@ -724,6 +724,7 @@ mod tests {
                 many: false,
                 item: Item {
                     primitive: Some(Primitive::Text),
+                    unbounded: true,
                     ..Item::default()
                 },
             },
@@ -880,6 +881,7 @@ mod tests {
                 many: false,
                 item: Item {
                     primitive: Some(Primitive::Text),
+                    unbounded: true,
                     ..Item::default()
                 },
             },

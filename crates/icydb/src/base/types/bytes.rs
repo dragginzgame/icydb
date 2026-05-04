@@ -6,7 +6,7 @@ use crate::design::prelude::*;
 
 #[newtype(
     primitive = "Blob",
-    item(prim = "Blob"),
+    item(prim = "Blob", unbounded),
     traits(remove(ValidateCustom))
 )]
 pub struct Utf8;

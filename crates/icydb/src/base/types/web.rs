@@ -8,7 +8,7 @@ use crate::design::prelude::*;
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(
         sanitizer(path = "base::sanitizer::web::MimeType"),
         validator(path = "base::validator::web::MimeType"),
@@ -24,7 +24,7 @@ pub struct MimeType {}
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(
         sanitizer(path = "base::sanitizer::web::Url"),
         validator(path = "base::validator::web::Url"),

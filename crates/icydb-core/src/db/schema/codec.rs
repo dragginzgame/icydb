@@ -75,7 +75,9 @@ enum SchemaFieldDefaultWire {
 #[derive(CandidType, Deserialize)]
 enum PersistedFieldKindWire {
     Account,
-    Blob,
+    Blob {
+        max_len: Option<u32>,
+    },
     Bool,
     Date,
     Decimal {
@@ -349,7 +351,7 @@ impl PersistedFieldKindWire {
     fn from_kind(kind: &PersistedFieldKind) -> Self {
         match kind {
             PersistedFieldKind::Account => Self::Account,
-            PersistedFieldKind::Blob => Self::Blob,
+            PersistedFieldKind::Blob { max_len } => Self::Blob { max_len: *max_len },
             PersistedFieldKind::Bool => Self::Bool,
             PersistedFieldKind::Date => Self::Date,
             PersistedFieldKind::Decimal { scale } => Self::Decimal { scale: *scale },
@@ -405,7 +407,7 @@ impl PersistedFieldKindWire {
     fn into_kind(self) -> Result<PersistedFieldKind, InternalError> {
         Ok(match self {
             Self::Account => PersistedFieldKind::Account,
-            Self::Blob => PersistedFieldKind::Blob,
+            Self::Blob { max_len } => PersistedFieldKind::Blob { max_len },
             Self::Bool => PersistedFieldKind::Bool,
             Self::Date => PersistedFieldKind::Date,
             Self::Decimal { scale } => PersistedFieldKind::Decimal { scale },

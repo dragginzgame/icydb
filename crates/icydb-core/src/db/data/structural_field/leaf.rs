@@ -45,7 +45,7 @@ pub(super) fn decode_leaf_field_by_kind_bytes(
         FieldKind::IntBig => decode_int_big_value_bytes(raw_bytes)?,
         FieldKind::Structured { .. } => decode_structured_leaf_null_value_bytes(raw_bytes)?,
         FieldKind::UintBig => decode_uint_big_value_bytes(raw_bytes)?,
-        FieldKind::Blob
+        FieldKind::Blob { .. }
         | FieldKind::Bool
         | FieldKind::Float32
         | FieldKind::Float64
@@ -88,7 +88,7 @@ pub(super) fn encode_leaf_field_binary_bytes(
         FieldKind::IntBig => Some(encode_int_big_value_bytes(value, field_name)?),
         FieldKind::Structured { .. } => Some(encode_structured_leaf_null_bytes(value, field_name)?),
         FieldKind::UintBig => Some(encode_uint_big_value_bytes(value, field_name)?),
-        FieldKind::Blob
+        FieldKind::Blob { .. }
         | FieldKind::Bool
         | FieldKind::Float32
         | FieldKind::Float64

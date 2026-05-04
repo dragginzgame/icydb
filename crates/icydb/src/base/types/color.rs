@@ -29,7 +29,7 @@ pub struct Rgba {}
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     default = "FFFFFF",
     ty(
         sanitizer(path = "base::sanitizer::text::color::RgbHex"),
@@ -44,7 +44,7 @@ pub struct RgbHex {}
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     default = "FFFFFFFF",
     ty(
         sanitizer(path = "base::sanitizer::text::color::RgbaHex"),

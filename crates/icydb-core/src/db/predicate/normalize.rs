@@ -309,7 +309,7 @@ fn normalize_value_for_kind(
             Ok(Value::Map(normalized))
         }
         FieldKind::Account
-        | FieldKind::Blob
+        | FieldKind::Blob { .. }
         | FieldKind::Bool
         | FieldKind::Date
         | FieldKind::Decimal { .. }

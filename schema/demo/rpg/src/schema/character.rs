@@ -10,7 +10,11 @@ use icydb::design::prelude::*;
 ///
 
 #[record(fields(
-    field(ident = "name", value(item(prim = "Text")), default = "String::new"),
+    field(
+        ident = "name",
+        value(item(prim = "Text", unbounded)),
+        default = "String::new"
+    ),
     field(ident = "level", value(item(prim = "Nat16")), default = 0u16),
     field(
         ident = "pid",
@@ -33,11 +37,11 @@ pub struct CharacterMentor {}
     index(fields = "level, class_name"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "name", value(item(prim = "Text"))),
-        field(ident = "description", value(item(prim = "Text"))),
-        field(ident = "class_name", value(item(prim = "Text"))),
-        field(ident = "background", value(item(prim = "Text"))),
-        field(ident = "homeland", value(item(prim = "Text"))),
+        field(ident = "name", value(item(prim = "Text", unbounded))),
+        field(ident = "description", value(item(prim = "Text", unbounded))),
+        field(ident = "class_name", value(item(prim = "Text", unbounded))),
+        field(ident = "background", value(item(prim = "Text", unbounded))),
+        field(ident = "homeland", value(item(prim = "Text", unbounded))),
         field(ident = "level", value(item(prim = "Nat16"))),
         field(ident = "experience", value(item(prim = "Nat64"))),
         field(ident = "renown", value(item(prim = "Int16"))),
@@ -55,11 +59,11 @@ pub struct CharacterMentor {}
         field(ident = "critical_chance", value(item(prim = "Decimal", scale = 2))),
         field(ident = "dodge_chance", value(item(prim = "Float64"))),
         field(ident = "is_npc", value(item(prim = "Bool"))),
-        field(ident = "guild_rank", value(opt, item(prim = "Text"))),
+        field(ident = "guild_rank", value(opt, item(prim = "Text", unbounded))),
         field(ident = "mentor", value(item(is = "CharacterMentor")),),
-        field(ident = "resistances", value(many, item(prim = "Text"))),
+        field(ident = "resistances", value(many, item(prim = "Text", unbounded))),
         field(ident = "inventory_weights", value(many, item(prim = "Nat16"))),
-        field(ident = "portrait", value(item(prim = "Blob"))),
+        field(ident = "portrait", value(item(prim = "Blob", unbounded))),
         field(ident = "last_rest_at", value(item(prim = "Timestamp"))),
         field(ident = "respawn_cooldown", value(item(prim = "Duration")))
     )

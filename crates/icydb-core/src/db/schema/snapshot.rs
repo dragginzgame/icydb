@@ -148,6 +148,7 @@ impl AcceptedSchemaSnapshot {
 
     /// Borrow one accepted field kind by persisted field name.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) fn field_kind_by_name(&self, name: &str) -> Option<&PersistedFieldKind> {
         self.field_by_name(name).map(PersistedFieldSnapshot::kind)
     }
@@ -473,7 +474,9 @@ impl SchemaFieldDefault {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum PersistedFieldKind {
     Account,
-    Blob,
+    Blob {
+        max_len: Option<u32>,
+    },
     Bool,
     Date,
     Decimal {
@@ -525,7 +528,7 @@ impl PersistedFieldKind {
     pub(in crate::db) fn from_model_kind(kind: FieldKind) -> Self {
         match kind {
             FieldKind::Account => Self::Account,
-            FieldKind::Blob => Self::Blob,
+            FieldKind::Blob { max_len } => Self::Blob { max_len },
             FieldKind::Bool => Self::Bool,
             FieldKind::Date => Self::Date,
             FieldKind::Decimal { scale } => Self::Decimal { scale },
@@ -710,10 +713,10 @@ mod tests {
                     FieldId::new(2),
                     "payload".to_string(),
                     field_slot,
-                    PersistedFieldKind::Blob,
+                    PersistedFieldKind::Blob { max_len: None },
                     vec![PersistedNestedLeafSnapshot::new(
                         vec!["thumbnail".to_string()],
-                        PersistedFieldKind::Blob,
+                        PersistedFieldKind::Blob { max_len: None },
                         false,
                         FieldStorageDecode::ByKind,
                         LeafCodec::Scalar(ScalarCodec::Blob),
@@ -740,7 +743,7 @@ mod tests {
         );
         assert_eq!(
             snapshot.field_kind_by_name("payload"),
-            Some(&PersistedFieldKind::Blob),
+            Some(&PersistedFieldKind::Blob { max_len: None }),
         );
         let (_, slot, nested) = snapshot
             .field_facts_by_name("payload")
@@ -778,7 +781,7 @@ mod tests {
             .field_facts_by_name("payload")
             .expect("accepted field facts should resolve");
 
-        assert_eq!(kind, &PersistedFieldKind::Blob);
+        assert_eq!(kind, &PersistedFieldKind::Blob { max_len: None });
         assert_eq!(slot, SchemaFieldSlot::new(11));
         assert_eq!(nested.len(), 1);
         assert_eq!(nested[0].path(), &["thumbnail".to_string()]);

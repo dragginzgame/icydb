@@ -44,7 +44,7 @@ pub struct NotIndexable {}
     index(fields = "username", unique),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "username", value(opt, item(prim = "Text"))),
+        field(ident = "username", value(opt, item(prim = "Text", unbounded))),
     )
 )]
 pub struct IndexableOptText {}

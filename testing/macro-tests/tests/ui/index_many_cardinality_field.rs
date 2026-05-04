@@ -18,7 +18,7 @@ pub struct UiDataStore {}
     index(fields = "tags"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "tags", value(many, item(prim = "Text")))
+        field(ident = "tags", value(many, item(prim = "Text", unbounded)))
     )
 )]
 pub struct InvalidManyIndexField;

@@ -6,7 +6,7 @@ use icydb::design::prelude::*;
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(sanitizer(path = "base::sanitizer::text::case::Lower"))
 )]
 pub struct VisitorLowerText {}
@@ -32,7 +32,7 @@ pub struct VisitorLowerTextTuple {}
 /// VisitorLowerTextMap
 ///
 
-#[map(key(prim = "Text"), value(item(is = "VisitorLowerText")))]
+#[map(key(prim = "Text", unbounded), value(item(is = "VisitorLowerText")))]
 pub struct VisitorLowerTextMap {}
 
 ///
@@ -65,7 +65,7 @@ impl Sanitizer<String> for Reject {
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(sanitizer(path = "crate::macro_test::sanitize::visitor::Reject"))
 )]
 pub struct VisitorRejectText {}
@@ -81,7 +81,7 @@ pub struct VisitorRejectTextList {}
 /// VisitorRejectTextMap
 ///
 
-#[map(key(prim = "Text"), value(item(is = "VisitorRejectText")))]
+#[map(key(prim = "Text", unbounded), value(item(is = "VisitorRejectText")))]
 pub struct VisitorRejectTextMap {}
 
 ///
@@ -93,6 +93,7 @@ pub struct VisitorRejectTextMap {}
         ident = "field",
         value(item(
             prim = "Text",
+            unbounded,
             sanitizer(path = "crate::macro_test::sanitize::visitor::Reject")
         ))
     ),

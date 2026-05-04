@@ -41,6 +41,20 @@ mod tests {
     }
 
     #[test]
+    fn blob_max_len_directive_reaches_entity_model() {
+        let payload = BoundedBlobEntity::MODEL
+            .fields()
+            .iter()
+            .find(|field| field.name() == "payload")
+            .expect("bounded blob field should be present");
+
+        assert!(matches!(
+            payload.kind(),
+            FieldKind::Blob { max_len: Some(4) }
+        ));
+    }
+
+    #[test]
     fn rust_construction_defaults_do_not_become_database_defaults() {
         let explicit_rust_default = Entity::MODEL
             .fields()

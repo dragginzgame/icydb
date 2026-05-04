@@ -3431,7 +3431,8 @@ fn bind_sql_select_with_schema_rejects_non_orderable_accepted_field() {
         "SELECT name FROM SqlLowerEntity ORDER BY name",
         "accepted non-orderable ordered projection",
     );
-    let schema = accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Blob);
+    let schema =
+        accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Blob { max_len: None });
 
     let err = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
         SqlLowerEntity::MODEL,
@@ -3450,7 +3451,8 @@ fn bind_sql_delete_with_schema_rejects_non_orderable_accepted_field() {
         "DELETE FROM SqlLowerEntity ORDER BY name LIMIT 1",
         "accepted non-orderable delete tail",
     );
-    let schema = accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Blob);
+    let schema =
+        accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Blob { max_len: None });
 
     let err = crate::db::sql::lowering::bind_lowered_sql_delete_query_structural_with_schema(
         SqlLowerEntity::MODEL,
@@ -3471,7 +3473,8 @@ fn bind_sql_update_selector_with_schema_rejects_non_orderable_accepted_field() {
     let crate::db::sql::parser::SqlStatement::Update(statement) = statement else {
         panic!("accepted non-orderable update selector should parse as UPDATE");
     };
-    let schema = accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Blob);
+    let schema =
+        accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Blob { max_len: None });
 
     let err = crate::db::sql::lowering::bind_sql_update_selector_query_structural_with_schema(
         SqlLowerEntity::MODEL,
@@ -5302,7 +5305,8 @@ fn compile_sql_global_aggregate_with_schema_rejects_non_numeric_accepted_sum_fie
         .expect("schema-aware aggregate SQL should parse");
     let prepared = prepare_sql_statement(&statement, SqlLowerEntity::MODEL.name())
         .expect("schema-aware aggregate SQL should prepare");
-    let schema = accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Blob);
+    let schema =
+        accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Blob { max_len: None });
 
     let err =
         crate::db::sql::lowering::compile_sql_global_aggregate_command_core_from_prepared_with_schema(

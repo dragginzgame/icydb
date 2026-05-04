@@ -4,14 +4,14 @@ use icydb::design::prelude::*;
 /// List
 ///
 
-#[list(item(prim = "Text"))]
+#[list(item(prim = "Text", unbounded))]
 pub struct List;
 
 ///
 /// Map
 ///
 
-#[map(key(prim = "Text"), value(item(prim = "Nat8")))]
+#[map(key(prim = "Text", unbounded), value(item(prim = "Nat8")))]
 pub struct Map;
 
 ///
@@ -25,7 +25,7 @@ pub struct Record;
 /// Set
 ///
 
-#[set(item(prim = "Text"))]
+#[set(item(prim = "Text", unbounded))]
 pub struct Set;
 
 ///

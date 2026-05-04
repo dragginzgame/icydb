@@ -26,7 +26,7 @@ pub struct Set {}
 
 #[map(
     key(prim = "Ulid"),
-    value(item(prim = "Text")),
+    value(item(prim = "Text", unbounded)),
     ty(validator(path = "base::validator::len::Max", args(2)))
 )]
 pub struct Map {}

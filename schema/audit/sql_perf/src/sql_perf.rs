@@ -40,7 +40,7 @@ pub struct PerfAuditStore {}
     index(fields = "LOWER(name)"),
     fields(
         field(ident = "id", value(item(prim = "Int32"))),
-        field(ident = "name", value(item(prim = "Text"))),
+        field(ident = "name", value(item(prim = "Text", unbounded))),
         field(ident = "age", value(item(prim = "Int32"))),
         field(ident = "age_nat", value(item(prim = "Nat32"))),
         field(ident = "rank", value(item(prim = "Int32"))),
@@ -64,10 +64,10 @@ pub struct PerfAuditUser {}
     index(fields = "label"),
     fields(
         field(ident = "id", value(item(prim = "Int32"))),
-        field(ident = "label", value(item(prim = "Text"))),
+        field(ident = "label", value(item(prim = "Text", unbounded))),
         field(ident = "bucket", value(item(prim = "Int32"))),
-        field(ident = "thumbnail", value(item(prim = "Blob"))),
-        field(ident = "chunk", value(item(prim = "Blob")))
+        field(ident = "thumbnail", value(item(prim = "Blob", unbounded))),
+        field(ident = "chunk", value(item(prim = "Blob", unbounded)))
     )
 )]
 pub struct PerfAuditBlob {}
@@ -88,8 +88,8 @@ pub struct PerfAuditBlob {}
     index(fields = "tier, LOWER(handle)", predicate = "active = true"),
     fields(
         field(ident = "id", value(item(prim = "Int32"))),
-        field(ident = "handle", value(item(prim = "Text"))),
-        field(ident = "tier", value(item(prim = "Text"))),
+        field(ident = "handle", value(item(prim = "Text", unbounded))),
+        field(ident = "tier", value(item(prim = "Text", unbounded))),
         field(ident = "active", value(item(prim = "Bool"))),
         field(ident = "score", value(item(prim = "Int32")))
     )

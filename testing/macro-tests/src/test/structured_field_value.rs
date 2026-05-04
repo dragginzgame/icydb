@@ -114,19 +114,31 @@ mod tests {
     }
 
     #[record(fields(
-        field(ident = "bio", value(item(prim = "Text")), default = "String::new"),
+        field(
+            ident = "bio",
+            value(item(prim = "Text", unbounded)),
+            default = "String::new"
+        ),
         field(ident = "visits", value(item(prim = "Nat32")), default = 0u32)
     ))]
     pub struct StructuredProfileHarness {}
 
     #[record(fields(
-        field(ident = "city", value(item(prim = "Text")), default = "String::new"),
+        field(
+            ident = "city",
+            value(item(prim = "Text", unbounded)),
+            default = "String::new"
+        ),
         field(ident = "zip", value(item(prim = "Nat32")), default = 0u32)
     ))]
     pub struct StructuredAddressHarness {}
 
     #[record(fields(
-        field(ident = "name", value(item(prim = "Text")), default = "String::new"),
+        field(
+            ident = "name",
+            value(item(prim = "Text", unbounded)),
+            default = "String::new"
+        ),
         field(
             ident = "address",
             value(item(is = "StructuredAddressHarness")),
@@ -158,7 +170,11 @@ mod tests {
     ///
 
     #[record(fields(
-        field(ident = "label", value(item(prim = "Text")), default = "String::new"),
+        field(
+            ident = "label",
+            value(item(prim = "Text", unbounded)),
+            default = "String::new"
+        ),
         field(
             ident = "address",
             value(item(is = "StructuredAddressEnvelopeHarness"))
@@ -327,8 +343,12 @@ mod tests {
         pk(field = "id"),
         fields(
             field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-            field(ident = "nickname", value(item(prim = "Text")), default = "\"guest\""),
-            field(ident = "note", value(opt, item(prim = "Text")))
+            field(
+                ident = "nickname",
+                value(item(prim = "Text", unbounded)),
+                default = "\"guest\""
+            ),
+            field(ident = "note", value(opt, item(prim = "Text", unbounded)))
         )
     )]
     pub struct StructuredDefaultedEntityHarness {}

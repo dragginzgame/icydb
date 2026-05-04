@@ -155,6 +155,7 @@ mod tests {
             def: Def::default(),
             key: Item {
                 primitive: Some(Primitive::Text),
+                unbounded: true,
                 ..Default::default()
             },
             value: Value {

@@ -41,7 +41,7 @@ pub mod test {
     #[enum_(
         variant(unspecified, default),
         variant(ident = "Loaded", value(item(prim = "Nat32"))),
-        variant(ident = "Named", value(item(prim = "Text")))
+        variant(ident = "Named", value(item(prim = "Text", unbounded)))
     )]
     pub struct PrimitiveEnumWithPayload {}
 

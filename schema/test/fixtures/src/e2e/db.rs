@@ -21,7 +21,7 @@ pub struct SimpleEntity {}
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "bytes", value(item(prim = "Blob")))
+        field(ident = "bytes", value(item(prim = "Blob", unbounded)))
     )
 )]
 pub struct BlobEntity {}
@@ -35,8 +35,8 @@ pub struct BlobEntity {}
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "name", value(item(prim = "Text"))),
-        field(ident = "description", value(item(prim = "Text")))
+        field(ident = "name", value(item(prim = "Text", unbounded))),
+        field(ident = "description", value(item(prim = "Text", unbounded)))
     )
 )]
 pub struct Searchable {}
@@ -93,7 +93,7 @@ pub struct MissingFieldLarge {}
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "bytes", value(opt, item(prim = "Blob")))
+        field(ident = "bytes", value(opt, item(prim = "Blob", unbounded)))
     )
 )]
 pub struct ContainsBlob {}
@@ -210,7 +210,7 @@ impl Index {
 
 #[newtype(
     primitive = "Text",
-    item(prim = "Text"),
+    item(prim = "Text", unbounded),
     ty(sanitizer(path = "base::sanitizer::text::case::Lower"))
 )]
 pub struct LowerIndexText {}

@@ -201,7 +201,7 @@ fn sql_capabilities_for_non_scalar(kind: &PersistedFieldKind) -> SqlCapabilities
             SqlAggregateInputCapabilities::new(false, false, false),
         ),
         PersistedFieldKind::Account
-        | PersistedFieldKind::Blob
+        | PersistedFieldKind::Blob { .. }
         | PersistedFieldKind::Bool
         | PersistedFieldKind::Date
         | PersistedFieldKind::Decimal { .. }
@@ -236,7 +236,7 @@ fn persisted_sql_scalar_family(kind: &PersistedFieldKind) -> Option<PersistedSql
         | PersistedFieldKind::Principal
         | PersistedFieldKind::Subaccount
         | PersistedFieldKind::Ulid => Some(PersistedSqlScalarFamily::OrderedOpaque),
-        PersistedFieldKind::Blob => Some(PersistedSqlScalarFamily::Opaque),
+        PersistedFieldKind::Blob { .. } => Some(PersistedSqlScalarFamily::Opaque),
         PersistedFieldKind::Bool => Some(PersistedSqlScalarFamily::Boolean),
         PersistedFieldKind::Decimal { .. }
         | PersistedFieldKind::Float32
@@ -290,7 +290,7 @@ mod tests {
 
     #[test]
     fn sql_capabilities_keep_blob_selectable_and_comparable_but_not_orderable() {
-        let capabilities = sql_capabilities(&PersistedFieldKind::Blob);
+        let capabilities = sql_capabilities(&PersistedFieldKind::Blob { max_len: None });
 
         assert!(capabilities.selectable());
         assert!(capabilities.comparable());
