@@ -35,7 +35,7 @@ resolver = "2"
 [workspace.package]
 rust-version = "1.91.0"
 edition = "2024"
-version = "0.146.7"
+version = "0.146.8"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
 description = "IcyDB — A schema-first typed query engine and persistence runtime for Internet Computer canisters"
 categories = ["database", "web-programming", "wasm"]
@@ -58,13 +58,13 @@ derive_more = { version = "2.0", default-features = false, features = [
     "into_iterator",
     "sum",
 ] }
-icydb = { path = "crates/icydb", version = "0.146.7" }
-icydb-build = { path = "crates/icydb-build", version = "0.146.7" }
-icydb-core = { path = "crates/icydb-core", version = "0.146.7" }
-icydb-derive = { path = "crates/icydb-derive", version = "0.146.7" }
-icydb-primitives = { path = "crates/icydb-primitives", version = "0.146.7" }
-icydb-schema = { path = "crates/icydb-schema", version = "0.146.7" }
-icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.146.7" }
+icydb = { path = "crates/icydb", version = "0.146.8" }
+icydb-build = { path = "crates/icydb-build", version = "0.146.8" }
+icydb-core = { path = "crates/icydb-core", version = "0.146.8" }
+icydb-derive = { path = "crates/icydb-derive", version = "0.146.8" }
+icydb-primitives = { path = "crates/icydb-primitives", version = "0.146.8" }
+icydb-schema = { path = "crates/icydb-schema", version = "0.146.8" }
+icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.146.8" }
 icydb-testing-audit-minimal-fixtures = { path = "schema/audit/minimal" }
 icydb-testing-audit-one-complex-fixtures = { path = "schema/audit/one_complex" }
 icydb-testing-audit-one-simple-fixtures = { path = "schema/audit/one_simple" }
@@ -75,7 +75,7 @@ icydb-testing-demo-rpg-fixtures = { path = "schema/demo/rpg" }
 icydb-testing-test-fixtures = { path = "schema/test/fixtures" }
 icydb-testing-test-sql-fixtures = { path = "schema/test/sql" }
 icydb-testing-wasm-helpers = { path = "testing/wasm-helpers" }
-icydb-utils = { path = "crates/icydb-utils", version = "0.146.7" }
+icydb-utils = { path = "crates/icydb-utils", version = "0.146.8" }
 num-bigint = "0.4"
 proc-macro2 = "1.0"
 proptest = "1.9.0"
