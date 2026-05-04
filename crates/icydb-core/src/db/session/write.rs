@@ -6,11 +6,33 @@
 
 use crate::{
     db::{
-        DbSession, PersistedRow, WriteBatchResponse, data::StructuralPatch, executor::MutationMode,
+        DbSession, PersistedRow, WriteBatchResponse,
+        data::{FieldSlot, StructuralPatch},
+        executor::{EntityAuthority, MutationMode},
+        schema::AcceptedRowLayoutRuntimeDescriptor,
     },
     error::InternalError,
     traits::{CanisterKind, EntityCreateInput, EntityValue},
+    value::Value,
 };
+
+// Append one session-resolved structural field update. The caller passes the
+// accepted runtime descriptor that already crossed schema reconciliation, so
+// field-name lookup follows persisted row-layout metadata rather than generated
+// declaration order.
+fn append_accepted_structural_patch_field(
+    entity_path: &'static str,
+    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    patch: StructuralPatch,
+    field_name: &str,
+    value: Value,
+) -> Result<StructuralPatch, InternalError> {
+    let slot = descriptor
+        .field_slot_index_by_name(field_name)
+        .ok_or_else(|| InternalError::mutation_structural_field_unknown(entity_path, field_name))?;
+
+    Ok(patch.set(FieldSlot::from_validated_index(slot), value))
+}
 
 impl<C: CanisterKind> DbSession<C> {
     /// Insert one entity row.
@@ -81,6 +103,41 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         self.execute_save_entity(|save| save.apply_structural_mutation(mode, key, patch))
+    }
+
+    /// Build one structural patch through the accepted schema row layout.
+    ///
+    /// This is the session-owned patch construction boundary for callers that
+    /// can provide all dynamic field updates at once. It resolves field names
+    /// through the accepted row-layout descriptor before the patch reaches the
+    /// generated-compatible write codec bridge.
+    pub fn structural_patch<E, I, S>(&self, fields: I) -> Result<StructuralPatch, InternalError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+        I: IntoIterator<Item = (S, Value)>,
+        S: AsRef<str>,
+    {
+        let (accepted_schema, _) =
+            self.ensure_accepted_schema_snapshot_and_authority(EntityAuthority::for_type::<E>())?;
+        let descriptor =
+            AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted_schema)?;
+        let mut patch = StructuralPatch::new();
+
+        // Phase 1: resolve every caller-provided field name against the
+        // accepted descriptor so public structural patch construction no
+        // longer has to choose slots from generated model field order.
+        for (field_name, value) in fields {
+            let field_name = field_name.as_ref();
+            patch = append_accepted_structural_patch_field(
+                E::PATH,
+                &descriptor,
+                patch,
+                field_name,
+                value,
+            )?;
+        }
+
+        Ok(patch)
     }
 
     /// Apply one structural replacement, inserting if missing.

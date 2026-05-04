@@ -9,7 +9,10 @@ use crate::{
         SchemaFieldDefault, SchemaFieldSlot, SchemaVersion,
     },
     error::InternalError,
-    model::field::{FieldStorageDecode, LeafCodec},
+    model::{
+        entity::EntityModel,
+        field::{FieldStorageDecode, LeafCodec},
+    },
 };
 
 ///
@@ -142,6 +145,8 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
 pub(in crate::db) struct AcceptedRowLayoutRuntimeDescriptor<'a> {
     version: SchemaVersion,
     required_slot_count: usize,
+    primary_key_name: &'a str,
+    primary_key_slot_index: usize,
     fields: Vec<AcceptedRowLayoutRuntimeField<'a>>,
 }
 
@@ -190,10 +195,23 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
                 absence_policy: accepted_field_absence_policy(field.nullable(), field.default()),
             });
         }
+        let Some(primary_key_field) = fields
+            .iter()
+            .find(|field| field.field_id() == snapshot.primary_key_field_id())
+        else {
+            return Err(InternalError::store_invariant(format!(
+                "accepted row layout runtime descriptor missing primary-key field_id={}",
+                snapshot.primary_key_field_id().get(),
+            )));
+        };
+        let primary_key_name = primary_key_field.name();
+        let primary_key_slot_index = usize::from(primary_key_field.slot().get());
 
         Ok(Self {
             version: row_layout.version(),
             required_slot_count,
+            primary_key_name,
+            primary_key_slot_index,
             fields,
         })
     }
@@ -208,6 +226,18 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
     #[must_use]
     pub(in crate::db) const fn required_slot_count(&self) -> usize {
         self.required_slot_count
+    }
+
+    /// Borrow the accepted primary-key field name carried by this layout.
+    #[must_use]
+    pub(in crate::db) const fn primary_key_name(&self) -> &'a str {
+        self.primary_key_name
+    }
+
+    /// Return the accepted primary-key physical slot index.
+    #[must_use]
+    pub(in crate::db) const fn primary_key_slot_index(&self) -> usize {
+        self.primary_key_slot_index
     }
 
     /// Borrow runtime field facts in accepted snapshot field order.
@@ -243,6 +273,104 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
         name: &str,
     ) -> Option<&AcceptedRowLayoutRuntimeField<'a>> {
         self.fields.iter().find(|field| field.name() == name)
+    }
+
+    /// Return one runtime field's accepted physical slot index by name.
+    #[must_use]
+    pub(in crate::db) fn field_slot_index_by_name(&self, name: &str) -> Option<usize> {
+        self.field_by_name(name)
+            .map(|field| usize::from(field.slot().get()))
+    }
+
+    /// Borrow one runtime field's accepted persisted kind by name.
+    #[must_use]
+    pub(in crate::db) fn field_kind_by_name(&self, name: &str) -> Option<&PersistedFieldKind> {
+        self.field_by_name(name)
+            .map(AcceptedRowLayoutRuntimeField::kind)
+    }
+
+    /// Validate that this accepted layout can still use generated field codecs.
+    ///
+    /// The row decoder remains generated-codec backed until accepted-field
+    /// decoders exist. Keeping this bridge check in the descriptor owner makes
+    /// generated compatibility a schema-runtime contract instead of an executor
+    /// side calculation.
+    pub(in crate::db) fn validate_generated_compatible_model(
+        &self,
+        model: &'static EntityModel,
+    ) -> Result<(), InternalError> {
+        // Phase 1: require primary-key identity and the accepted row shape to
+        // match the generated decoder contract.
+        if self.primary_key_name() != model.primary_key.name {
+            return Err(InternalError::store_invariant(format!(
+                "accepted row layout primary key is not generated-compatible: accepted_primary_key='{}' generated_primary_key='{}'",
+                self.primary_key_name(),
+                model.primary_key.name,
+            )));
+        }
+
+        // Phase 2: require the accepted row shape to have the same dense slot
+        // count the generated decoder expects.
+        if self.required_slot_count() != model.fields().len() {
+            return Err(InternalError::store_invariant(format!(
+                "accepted row layout field count is not generated-compatible: accepted={} generated={}",
+                self.required_slot_count(),
+                model.fields().len(),
+            )));
+        }
+
+        // Phase 3: compare every generated field against the accepted
+        // descriptor fact used by runtime decode before executor code can
+        // consume the descriptor.
+        for (generated_slot, field) in model.fields().iter().enumerate() {
+            let Some(accepted_field) = self.field_by_name(field.name()) else {
+                return Err(InternalError::store_invariant(format!(
+                    "accepted row layout missing generated field '{}'",
+                    field.name(),
+                )));
+            };
+            let accepted_slot = self
+                .field_slot_index_by_name(field.name())
+                .expect("accepted field must have a descriptor-owned slot");
+            if accepted_slot != generated_slot {
+                return Err(InternalError::store_invariant(format!(
+                    "accepted row layout slot is not generated-compatible: field='{}' accepted_slot={} generated_slot={}",
+                    field.name(),
+                    accepted_slot,
+                    generated_slot,
+                )));
+            }
+
+            let generated_kind = PersistedFieldKind::from_model_kind(field.kind());
+            if accepted_field.kind() != &generated_kind {
+                return Err(InternalError::store_invariant(format!(
+                    "accepted row layout kind is not generated-compatible: field='{}' accepted_kind={:?} generated_kind={:?}",
+                    field.name(),
+                    accepted_field.kind(),
+                    generated_kind,
+                )));
+            }
+
+            if accepted_field.storage_decode() != field.storage_decode() {
+                return Err(InternalError::store_invariant(format!(
+                    "accepted row layout storage decode is not generated-compatible: field='{}' accepted_storage_decode={:?} generated_storage_decode={:?}",
+                    field.name(),
+                    accepted_field.storage_decode(),
+                    field.storage_decode(),
+                )));
+            }
+
+            if accepted_field.leaf_codec() != field.leaf_codec() {
+                return Err(InternalError::store_invariant(format!(
+                    "accepted row layout leaf codec is not generated-compatible: field='{}' accepted_leaf_codec={:?} generated_leaf_codec={:?}",
+                    field.name(),
+                    accepted_field.leaf_codec(),
+                    field.leaf_codec(),
+                )));
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -326,6 +454,8 @@ mod tests {
 
         assert_eq!(descriptor.version(), SchemaVersion::initial());
         assert_eq!(descriptor.required_slot_count(), 10);
+        assert_eq!(descriptor.primary_key_name(), "id");
+        assert_eq!(descriptor.primary_key_slot_index(), 0);
         assert_eq!(descriptor.fields().len(), 2);
 
         let nickname = descriptor
@@ -367,6 +497,11 @@ mod tests {
                 .field_id(),
             FieldId::new(2),
         );
+        assert_eq!(descriptor.field_slot_index_by_name("nickname"), Some(9));
+        assert!(matches!(
+            descriptor.field_kind_by_name("nickname"),
+            Some(PersistedFieldKind::Text { max_len: Some(32) }),
+        ));
         assert!(nickname.nested_leaves().is_empty());
         assert!(nickname.nullable());
     }

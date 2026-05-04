@@ -55,6 +55,8 @@ impl MutationMode {
 /// Callers address fields by model field name and provide public `InputValue`
 /// payloads; validation remains model-owned and occurs both at patch
 /// construction and again during session mutation execution.
+/// Prefer `DbSession::structural_patch(...)` when a session is available so
+/// field lookup follows the accepted persisted schema.
 ///
 
 #[derive(Default)]
@@ -87,6 +89,10 @@ impl StructuralPatch {
         self.inner = self.inner.set_field(model, field_name, value.into())?;
 
         Ok(self)
+    }
+
+    const fn from_core(inner: core::db::StructuralPatch) -> Self {
+        Self { inner }
     }
 }
 
@@ -688,6 +694,25 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(self
             .inner
             .mutate_structural::<E>(key, patch.inner, mode.into_core())?)
+    }
+
+    /// Build one structural mutation patch through the active accepted schema.
+    ///
+    /// Unlike the standalone `StructuralPatch::set_field(...)` builder, this
+    /// session-owned constructor resolves field names through persisted schema
+    /// metadata before returning the patch to the caller.
+    pub fn structural_patch<E, I, S>(&self, fields: I) -> Result<StructuralPatch, Error>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+        I: IntoIterator<Item = (S, InputValue)>,
+        S: AsRef<str>,
+    {
+        let fields = fields
+            .into_iter()
+            .map(|(field, value)| (field, value.into()));
+        let patch = self.inner.structural_patch::<E, _, _>(fields)?;
+
+        Ok(StructuralPatch::from_core(patch))
     }
 
     /// Update a single-entity-type batch atomically in one commit window.

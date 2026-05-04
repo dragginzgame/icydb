@@ -244,30 +244,50 @@ fn seed_generated_timestamp_entity(
 // Build one structural insert/replace patch that explicitly writes the
 // generated timestamp field so generated-field rejection matrices can share it.
 fn generated_timestamp_insert_patch(
+    session: &DbSession<SessionSqlCanister>,
     id: u64,
     name: &str,
     created_on_insert_nanos: i64,
     context: &str,
 ) -> StructuralPatch {
-    StructuralPatch::new()
-        .set_field(
-            SessionSqlGeneratedTimestampEntity::MODEL,
-            "id",
-            Value::Uint(id),
-        )
-        .unwrap_or_else(|err| panic!("{context} should resolve id: {err}"))
-        .set_field(
-            SessionSqlGeneratedTimestampEntity::MODEL,
-            "created_on_insert",
-            Value::Timestamp(Timestamp::from_nanos(created_on_insert_nanos)),
-        )
-        .unwrap_or_else(|err| panic!("{context} should resolve generated field: {err}"))
-        .set_field(
-            SessionSqlGeneratedTimestampEntity::MODEL,
-            "name",
-            Value::Text(name.to_string()),
-        )
-        .unwrap_or_else(|err| panic!("{context} should resolve name: {err}"))
+    session
+        .structural_patch::<SessionSqlGeneratedTimestampEntity, _, _>([
+            ("id", Value::Uint(id)),
+            (
+                "created_on_insert",
+                Value::Timestamp(Timestamp::from_nanos(created_on_insert_nanos)),
+            ),
+            ("name", Value::Text(name.to_string())),
+        ])
+        .unwrap_or_else(|err| panic!("{context} should resolve accepted-schema fields: {err}"))
+}
+
+#[test]
+fn session_structural_patch_resolves_fields_through_accepted_schema_descriptor() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21)]);
+
+    let patch = session
+        .structural_patch::<SessionSqlWriteEntity, _, _>([
+            ("name", Value::Text("Ari".to_string())),
+            ("age", Value::Uint(31)),
+        ])
+        .expect("session structural patch should resolve accepted schema fields");
+    let updated = session
+        .mutate_structural::<SessionSqlWriteEntity>(1, patch, MutationMode::Update)
+        .expect("accepted-schema structural patch should update the row");
+
+    assert_eq!(updated.name, "Ari");
+    assert_eq!(updated.age, 31);
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![vec![
+            Value::Uint(1),
+            Value::Text("Ari".to_string()),
+            Value::Uint(31),
+        ]],
+    );
 }
 
 // Assert one structural generated-field rejection keeps the Unsupported class
@@ -701,22 +721,31 @@ fn structural_create_rejects_explicit_generated_insert_fields_matrix() {
         (
             MutationMode::Insert,
             1_u64,
-            generated_timestamp_insert_patch(1, "Ada", 7, "generated timestamp structural insert"),
+            "Ada",
+            7_i64,
             "created_on_insert",
             "structural insert explicit generated timestamp",
         ),
         (
             MutationMode::Replace,
             2_u64,
-            generated_timestamp_insert_patch(2, "Bea", 9, "generated timestamp structural replace"),
+            "Bea",
+            9_i64,
             "created_on_insert",
             "structural replace-on-missing explicit generated timestamp",
         ),
     ];
 
-    for (mode, key, patch, field_name, context) in cases {
+    for (mode, key, name, created_on_insert_nanos, field_name, context) in cases {
         reset_session_sql_store();
         let session = sql_session();
+        let patch = generated_timestamp_insert_patch(
+            &session,
+            key,
+            name,
+            created_on_insert_nanos,
+            "generated timestamp structural create",
+        );
 
         let err = session
             .mutate_structural::<SessionSqlGeneratedTimestampEntity>(key, patch, mode)
@@ -765,13 +794,12 @@ fn structural_rewrite_rejects_explicit_generated_insert_fields_matrix() {
         let session = sql_session();
         seed_generated_timestamp_entity(&session, 1, "Ada", 1);
 
-        let patch = StructuralPatch::new()
-            .set_field(
-                SessionSqlGeneratedTimestampEntity::MODEL,
+        let patch = session
+            .structural_patch::<SessionSqlGeneratedTimestampEntity, _, _>([(
                 "created_on_insert",
                 Value::Timestamp(Timestamp::from_nanos(9)),
-            )
-            .expect("generated timestamp structural rewrite should resolve generated field");
+            )])
+            .expect("generated timestamp structural rewrite should resolve accepted-schema field");
         let err = session
             .mutate_structural::<SessionSqlGeneratedTimestampEntity>(1, patch, mode)
             .expect_err("structural rewrites should reject explicit insert-generated fields");

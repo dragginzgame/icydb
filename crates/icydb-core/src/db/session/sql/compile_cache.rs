@@ -114,9 +114,16 @@ impl<C: CanisterKind> DbSession<C> {
         };
         let mut attribution = SqlCompileAttributionBuilder::default();
         attribution.record_cache_key(cache_key_local_instructions);
-        let (cache_key, schema) = context.into_parts();
+        let (cache_key, authority, schema) = context.into_parts();
 
-        self.compile_sql_statement_with_cache::<E>(cache_key, schema, attribution, sql, surface)
+        self.compile_sql_statement_with_cache::<E>(
+            cache_key,
+            authority,
+            schema,
+            attribution,
+            sql,
+            surface,
+        )
     }
 
     // Reuse one previously compiled SQL artifact when the session-local cache
@@ -124,6 +131,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_sql_statement_with_cache<E>(
         &self,
         cache_key: SqlCompiledCommandCacheKey,
+        authority: EntityAuthority,
         schema: SchemaInfo,
         mut attribution: SqlCompileAttributionBuilder,
         sql: &str,
@@ -175,7 +183,6 @@ impl<C: CanisterKind> DbSession<C> {
             }
         };
         attribution.record_parse(parse_local_instructions, parse_attribution);
-        let authority = EntityAuthority::for_type::<E>();
         let compile_result =
             Self::compile_sql_statement_measured(&parsed, surface, authority, &schema);
         let (artifacts, compile_attribution) = match compile_result {

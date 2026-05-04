@@ -116,6 +116,9 @@ impl StructuralFieldUpdate {
 /// write lanes before persisted-row slot serialization.
 /// It carries caller/runtime `Value` payloads only; insert, update, and replace
 /// semantics remain owned by `MutationMode`, not by the patch container.
+/// Standalone `set_field(...)` remains a generated-model convenience; session
+/// structural patch construction should be preferred when accepted schema
+/// metadata is available.
 ///
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]

@@ -7,6 +7,7 @@ use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
         commit::CommitSchemaFingerprint,
+        executor::EntityAuthority,
         schema::{SchemaInfo, accepted_schema_cache_fingerprint_for_model},
         session::sql::compiled::CompiledSqlCommand,
     },
@@ -128,13 +129,14 @@ pub(in crate::db::session::sql) fn sql_compiled_command_cache_miss_reason(
 ///
 /// SqlCompiledCommandCacheContext carries the accepted-schema facts needed by
 /// one SQL compile lookup. The cache key uses the accepted schema fingerprint;
-/// miss compilation uses the paired `SchemaInfo` so read-side predicate
-/// canonicalization observes the same live schema authority.
+/// miss compilation uses the paired `EntityAuthority` and `SchemaInfo` so
+/// read-side predicate canonicalization observes the same live schema authority.
 ///
 
 #[derive(Debug)]
 pub(in crate::db::session::sql) struct SqlCompiledCommandCacheContext {
     key: SqlCompiledCommandCacheKey,
+    authority: EntityAuthority,
     schema: SchemaInfo,
 }
 
@@ -142,8 +144,8 @@ impl SqlCompiledCommandCacheContext {
     #[must_use]
     pub(in crate::db::session::sql) fn into_parts(
         self,
-    ) -> (SqlCompiledCommandCacheKey, SchemaInfo) {
-        (self.key, self.schema)
+    ) -> (SqlCompiledCommandCacheKey, EntityAuthority, SchemaInfo) {
+        (self.key, self.authority, self.schema)
     }
 }
 
@@ -287,16 +289,25 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let accepted_schema = self
-            .ensure_accepted_schema_snapshot::<E>()
+        let (accepted_schema, authority) = self
+            .ensure_accepted_schema_snapshot_and_authority(EntityAuthority::for_type::<E>())
             .map_err(QueryError::execute)?;
         let schema_fingerprint =
-            accepted_schema_cache_fingerprint_for_model(E::MODEL, &accepted_schema)
+            accepted_schema_cache_fingerprint_for_model(authority.model(), &accepted_schema)
                 .map_err(QueryError::execute)?;
 
         Ok(SqlCompiledCommandCacheContext {
-            key: SqlCompiledCommandCacheKey::new(surface, E::PATH, schema_fingerprint, sql),
-            schema: SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema),
+            key: SqlCompiledCommandCacheKey::new(
+                surface,
+                authority.entity_path(),
+                schema_fingerprint,
+                sql,
+            ),
+            authority,
+            schema: SchemaInfo::from_accepted_snapshot_for_model(
+                authority.model(),
+                &accepted_schema,
+            ),
         })
     }
 

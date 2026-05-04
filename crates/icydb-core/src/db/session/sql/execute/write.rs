@@ -82,10 +82,11 @@ fn accepted_write_field_slot(
     descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
     field_name: &str,
 ) -> Result<FieldSlot, QueryError> {
-    let accepted_field = descriptor.field_by_name(field_name).ok_or_else(|| {
-        QueryError::invariant("SQL write field must resolve against accepted schema metadata")
-    })?;
-    let accepted_slot = usize::from(accepted_field.slot().get());
+    let accepted_slot = descriptor
+        .field_slot_index_by_name(field_name)
+        .ok_or_else(|| {
+            QueryError::invariant("SQL write field must resolve against accepted schema metadata")
+        })?;
 
     Ok(FieldSlot::from_validated_index(accepted_slot))
 }
@@ -137,10 +138,9 @@ fn sql_write_value_for_accepted_field(
     field_name: &str,
     value: &Value,
 ) -> Result<Value, QueryError> {
-    let accepted_field = descriptor.field_by_name(field_name).ok_or_else(|| {
+    let accepted_kind = descriptor.field_kind_by_name(field_name).ok_or_else(|| {
         QueryError::invariant("SQL write field must resolve against accepted schema metadata")
     })?;
-    let accepted_kind = accepted_field.kind();
     let normalized = canonicalize_strict_sql_literal_for_persisted_kind(accepted_kind, value)
         .unwrap_or_else(|| value.clone());
 
