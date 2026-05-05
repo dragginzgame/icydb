@@ -25,10 +25,6 @@ use crate::{
 /// flags or Rust defaults.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.147 introduces the accepted layout runtime boundary before row decode consumes it"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum AcceptedFieldAbsencePolicy {
     NullIfMissing,
@@ -44,10 +40,6 @@ pub(in crate::db) enum AcceptedFieldAbsencePolicy {
 /// row-layout authority.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.147 introduces the accepted layout runtime boundary before row decode consumes it"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AcceptedRowLayoutRuntimeField<'a> {
     field_id: FieldId,
@@ -62,10 +54,6 @@ pub(in crate::db) struct AcceptedRowLayoutRuntimeField<'a> {
     absence_policy: AcceptedFieldAbsencePolicy,
 }
 
-#[allow(
-    dead_code,
-    reason = "0.147 introduces the accepted layout runtime boundary before row decode consumes it"
-)]
 impl<'a> AcceptedRowLayoutRuntimeField<'a> {
     /// Return the durable accepted field identity.
     #[must_use]
@@ -92,18 +80,30 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
     }
 
     /// Borrow accepted nested leaf metadata rooted at this field.
+    #[allow(
+        dead_code,
+        reason = "nested leaf facts are part of the accepted runtime boundary before row decode consumes them directly"
+    )]
     #[must_use]
     pub(in crate::db) const fn nested_leaves(&self) -> &'a [PersistedNestedLeafSnapshot] {
         self.nested_leaves
     }
 
     /// Return whether this field permits explicit persisted `NULL`.
+    #[allow(
+        dead_code,
+        reason = "missing-slot nullability is part of the accepted runtime boundary before additive decode support"
+    )]
     #[must_use]
     pub(in crate::db) const fn nullable(&self) -> bool {
         self.nullable
     }
 
     /// Return the accepted database-level default contract.
+    #[allow(
+        dead_code,
+        reason = "database defaults are part of the accepted runtime boundary before additive write support"
+    )]
     #[must_use]
     pub(in crate::db) const fn default(&self) -> SchemaFieldDefault {
         self.default
@@ -122,9 +122,42 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
     }
 
     /// Return the accepted missing-slot policy for this field.
+    #[allow(
+        dead_code,
+        reason = "absence policy becomes live when accepted additive row decode is enabled"
+    )]
     #[must_use]
     pub(in crate::db) const fn absence_policy(&self) -> AcceptedFieldAbsencePolicy {
         self.absence_policy
+    }
+}
+
+///
+/// AcceptedGeneratedCompatibleRowShape
+///
+/// AcceptedGeneratedCompatibleRowShape is the schema-runtime proof that one
+/// accepted row layout can still be decoded by generated field codecs.
+/// Row decode consumes this small shape instead of recombining descriptor
+/// fields after compatibility validation has already succeeded.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedGeneratedCompatibleRowShape {
+    required_slot_count: usize,
+    primary_key_slot_index: usize,
+}
+
+impl AcceptedGeneratedCompatibleRowShape {
+    /// Return the accepted physical slot count proven generated-compatible.
+    #[must_use]
+    pub(in crate::db) const fn required_slot_count(self) -> usize {
+        self.required_slot_count
+    }
+
+    /// Return the accepted primary-key physical slot proven generated-compatible.
+    #[must_use]
+    pub(in crate::db) const fn primary_key_slot_index(self) -> usize {
+        self.primary_key_slot_index
     }
 }
 
@@ -137,10 +170,6 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
 /// persisted snapshots or generated model fields to decide slot behavior.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.147 introduces the accepted layout runtime boundary before row decode consumes it"
-)]
 #[derive(Debug, Eq, PartialEq)]
 pub(in crate::db) struct AcceptedRowLayoutRuntimeDescriptor<'a> {
     version: SchemaVersion,
@@ -150,10 +179,6 @@ pub(in crate::db) struct AcceptedRowLayoutRuntimeDescriptor<'a> {
     fields: Vec<AcceptedRowLayoutRuntimeField<'a>>,
 }
 
-#[allow(
-    dead_code,
-    reason = "0.147 introduces the accepted layout runtime boundary before row decode consumes it"
-)]
 impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
     /// Build one runtime descriptor from an already accepted schema snapshot.
     ///
@@ -217,6 +242,10 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
     }
 
     /// Return the accepted schema version backing this runtime layout.
+    #[allow(
+        dead_code,
+        reason = "schema-version reads are reserved for accepted transition plans beyond exact-match"
+    )]
     #[must_use]
     pub(in crate::db) const fn version(&self) -> SchemaVersion {
         self.version
@@ -247,6 +276,10 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
     }
 
     /// Borrow one runtime field by accepted physical row slot.
+    #[allow(
+        dead_code,
+        reason = "slot-indexed accepted field lookup becomes live when decode consumes accepted field contracts directly"
+    )]
     #[must_use]
     pub(in crate::db) fn field_for_slot(
         &self,
@@ -256,6 +289,10 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
     }
 
     /// Borrow one runtime field by durable accepted field identity.
+    #[allow(
+        dead_code,
+        reason = "field-id accepted lookup becomes live when migration plans remap durable field identities"
+    )]
     #[must_use]
     pub(in crate::db) fn field_for_id(
         &self,
@@ -289,16 +326,16 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
             .map(AcceptedRowLayoutRuntimeField::kind)
     }
 
-    /// Validate that this accepted layout can still use generated field codecs.
+    /// Return the row shape when this accepted layout can still use generated field codecs.
     ///
     /// The row decoder remains generated-codec backed until accepted-field
-    /// decoders exist. Keeping this bridge check in the descriptor owner makes
-    /// generated compatibility a schema-runtime contract instead of an executor
-    /// side calculation.
-    pub(in crate::db) fn validate_generated_compatible_model(
+    /// decoders exist. Keeping this bridge check and shape projection in the
+    /// descriptor owner makes generated compatibility a schema-runtime contract
+    /// instead of an executor side calculation.
+    pub(in crate::db) fn generated_compatible_row_shape_for_model(
         &self,
         model: &'static EntityModel,
-    ) -> Result<(), InternalError> {
+    ) -> Result<AcceptedGeneratedCompatibleRowShape, InternalError> {
         // Phase 1: require primary-key identity and the accepted row shape to
         // match the generated decoder contract.
         if self.primary_key_name() != model.primary_key.name {
@@ -370,16 +407,15 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
             }
         }
 
-        Ok(())
+        Ok(AcceptedGeneratedCompatibleRowShape {
+            required_slot_count: self.required_slot_count(),
+            primary_key_slot_index: self.primary_key_slot_index(),
+        })
     }
 }
 
 // Decide the missing-slot behavior from accepted database metadata only. Rust
 // struct defaults are deliberately absent from this calculation.
-#[allow(
-    dead_code,
-    reason = "0.147 introduces the accepted layout runtime boundary before row decode consumes it"
-)]
 const fn accepted_field_absence_policy(
     nullable: bool,
     default: SchemaFieldDefault,
@@ -403,8 +439,27 @@ mod tests {
             SchemaVersion,
             runtime::{AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeDescriptor},
         },
-        model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
+        model::{
+            entity::EntityModel,
+            field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec},
+            index::IndexModel,
+        },
+        testing::entity_model_from_static,
     };
+
+    static RUNTIME_ENTITY_FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated("nickname", FieldKind::Text { max_len: Some(32) }),
+    ];
+    static RUNTIME_ENTITY_INDEXES: [&IndexModel; 0] = [];
+    static RUNTIME_ENTITY_MODEL: EntityModel = entity_model_from_static(
+        "schema::tests::RuntimeEntity",
+        "RuntimeEntity",
+        &RUNTIME_ENTITY_FIELDS[0],
+        0,
+        &RUNTIME_ENTITY_FIELDS,
+        &RUNTIME_ENTITY_INDEXES,
+    );
 
     fn accepted_schema_fixture() -> AcceptedSchemaSnapshot {
         AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
@@ -438,6 +493,46 @@ mod tests {
                     PersistedFieldKind::Text { max_len: Some(32) },
                     Vec::new(),
                     true,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Text),
+                ),
+            ],
+        ))
+    }
+
+    fn generated_compatible_accepted_schema_fixture() -> AcceptedSchemaSnapshot {
+        AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "schema::tests::RuntimeEntity".to_string(),
+            "RuntimeEntity".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "nickname".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Text { max_len: Some(32) },
+                    Vec::new(),
+                    false,
                     SchemaFieldDefault::None,
                     FieldStorageDecode::ByKind,
                     LeafCodec::Scalar(ScalarCodec::Text),
@@ -504,6 +599,38 @@ mod tests {
         ));
         assert!(nickname.nested_leaves().is_empty());
         assert!(nickname.nullable());
+    }
+
+    #[test]
+    fn accepted_row_layout_runtime_descriptor_projects_generated_compatible_shape() {
+        let accepted = generated_compatible_accepted_schema_fixture();
+        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+            .expect("generated-compatible schema should build descriptor");
+
+        let shape = descriptor
+            .generated_compatible_row_shape_for_model(&RUNTIME_ENTITY_MODEL)
+            .expect("matching generated model should produce row shape proof");
+
+        assert_eq!(shape.required_slot_count(), 2);
+        assert_eq!(shape.primary_key_slot_index(), 0);
+    }
+
+    #[test]
+    fn accepted_row_layout_runtime_descriptor_rejects_non_generated_compatible_shape() {
+        let accepted = accepted_schema_fixture();
+        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+            .expect("slot-expanded accepted schema should build descriptor");
+
+        let err = descriptor
+            .generated_compatible_row_shape_for_model(&RUNTIME_ENTITY_MODEL)
+            .expect_err("slot-expanded schema must not produce generated-compatible shape proof");
+
+        assert!(
+            err.message
+                .contains("accepted row layout field count is not generated-compatible"),
+            "unexpected generated-compatible shape error: {}",
+            err.message,
+        );
     }
 
     #[test]

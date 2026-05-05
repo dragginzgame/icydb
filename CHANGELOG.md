@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.147.x] 🪪 - 2026-05-04 - Accepted Schema Authority Closeout
 
+- `0.147.7` makes structural row decode open persisted rows through the frozen row-layout contract instead of retaining generated model metadata at that boundary.
 - `0.147.6` keeps schema evolution rejected while giving generated field additions, removals, and nested-field drift clear transition diagnostics for future safe migration policy.
 - `0.147.5` keeps SQL writes, structural patch construction, SQL compile misses, and row-layout compatibility checks tied to saved schema metadata before rows are encoded.
 - `0.147.4` makes SQL schema inspection easier to read by sharing one field-table format between `DESCRIBE` and `SHOW COLUMNS`, showing explicit text/blob bounds, and making local SQL init truly clear old stable-memory schema bytes.

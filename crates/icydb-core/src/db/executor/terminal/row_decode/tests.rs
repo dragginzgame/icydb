@@ -300,14 +300,18 @@ fn retained_slot_decode_can_materialize_scalar_octet_lengths_without_blob_values
             RetainedSlotValueMode::ScalarOctetLength,
         ],
     );
-
-    let values = RowDecoder::decode_indexed_slot_values(
-        &RowLayout::from_model(RowDecodeEntity::MODEL),
-        key.storage_key(),
-        &row,
-        &layout,
+    let accepted = accepted_row_decode_schema();
+    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+        .expect("accepted retained-slot row decode schema should form descriptor");
+    let row_layout = RowLayout::from_generated_compatible_accepted_descriptor(
+        RowDecodeEntity::MODEL,
+        &descriptor,
     )
-    .expect("retained scalar length decode should succeed");
+    .expect("accepted retained-slot row layout should be generated-compatible");
+
+    let values =
+        RowDecoder::decode_indexed_slot_values(&row_layout, key.storage_key(), &row, &layout)
+            .expect("retained scalar length decode should succeed");
 
     assert_eq!(
         values,

@@ -68,9 +68,8 @@ impl<'a> StructuralSlotReader<'a> {
         Ok(reader)
     }
 
-    /// Build one slot reader over one persisted row using one static
+    /// Build one slot reader over one persisted row using one frozen
     /// structural row contract without retaining the full entity model.
-    #[cfg(test)]
     pub(in crate::db) fn from_raw_row_with_contract(
         raw_row: &'a RawRow,
         contract: StructuralRowContract,

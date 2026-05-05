@@ -40,23 +40,15 @@ use crate::{
 
 #[derive(Clone, Copy, Debug)]
 pub(in crate::db) struct RowLayout {
-    model: &'static EntityModel,
     contract: StructuralRowContract,
-    field_count: usize,
-    primary_key_slot: usize,
 }
 
 impl RowLayout {
     /// Build one structural row layout from model metadata.
     #[must_use]
     pub(in crate::db) const fn from_model(model: &'static EntityModel) -> Self {
-        let contract = StructuralRowContract::from_model(model);
-
         Self {
-            model,
-            contract,
-            field_count: contract.field_count(),
-            primary_key_slot: contract.primary_key_slot(),
+            contract: StructuralRowContract::from_model(model),
         }
     }
 
@@ -71,31 +63,26 @@ impl RowLayout {
         model: &'static EntityModel,
         descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
     ) -> Result<Self, InternalError> {
-        descriptor.validate_generated_compatible_model(model)?;
+        let row_shape = descriptor.generated_compatible_row_shape_for_model(model)?;
         let contract = StructuralRowContract::from_model_with_row_shape(
             model,
-            descriptor.required_slot_count(),
-            descriptor.primary_key_slot_index(),
+            row_shape.required_slot_count(),
+            row_shape.primary_key_slot_index(),
         );
 
-        Ok(Self {
-            model,
-            contract,
-            field_count: contract.field_count(),
-            primary_key_slot: contract.primary_key_slot(),
-        })
+        Ok(Self { contract })
     }
 
     /// Borrow the frozen field-count authority carried by this layout.
     #[must_use]
     pub(in crate::db) const fn field_count(self) -> usize {
-        self.field_count
+        self.contract.field_count()
     }
 
     /// Borrow the frozen primary-key slot authority carried by this layout.
     #[must_use]
     pub(in crate::db) const fn primary_key_slot(self) -> usize {
-        self.primary_key_slot
+        self.contract.primary_key_slot()
     }
 
     /// Borrow the frozen structural row contract carried by this layout.
@@ -109,7 +96,7 @@ impl RowLayout {
         self,
         row: &RawRow,
     ) -> Result<StructuralSlotReader<'_>, InternalError> {
-        StructuralSlotReader::from_raw_row_with_model(row, self.model)
+        StructuralSlotReader::from_raw_row_with_contract(row, self.contract)
     }
 
     /// Decode one compact sparse slot buffer directly through the frozen row
@@ -428,7 +415,7 @@ fn decode_structural_slots(
 // structural paths can stay on the straight-line dense decode before compact
 // retained-row conversion instead of paying the sparse per-slot decode machinery.
 fn required_slots_match_full_layout(layout: &RowLayout, required_slots: &[usize]) -> bool {
-    required_slots.len() == layout.field_count
+    required_slots.len() == layout.field_count()
         && required_slots
             .iter()
             .copied()
