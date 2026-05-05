@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.147.x] 🪪 - 2026-05-04 - Accepted Schema Authority Closeout
 
+- `0.147.21` renames the remaining internal generated field-slot lookup surfaces so compatibility code clearly says when it still depends on generated field metadata.
 - `0.147.20` makes internal runtime slot decoding and generated-compatible value encoding use explicit field-level helpers, leaving older model-and-slot adapters as compatibility glue for generated runtime surfaces.
 - `0.147.19` moves predicate scalar fast paths, structural row-reader scalar helpers, and direct scalar `OCTET_LENGTH` projection checks onto the canonical decode-contract surface instead of generated field metadata.
 - `0.147.18` splits the row-reader field surface so runtime value decode can request narrow decode facts while typed materialization keeps its generated-compatible field bridge.

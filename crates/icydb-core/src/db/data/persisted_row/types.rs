@@ -12,8 +12,11 @@ use crate::{
     value::Value,
 };
 
-// Resolve one field model entry by stable slot index.
-pub(in crate::db::data::persisted_row) fn field_model_for_slot(
+// Resolve one generated-compatible field model entry by stable slot index.
+// This is a transitional helper for runtime adapters that still need today's
+// generated `FieldModel` validation surface after slot authority has already
+// been checked elsewhere.
+pub(in crate::db::data::persisted_row) fn generated_compatible_field_model_for_slot(
     model: &'static EntityModel,
     slot: usize,
 ) -> Result<&'static FieldModel, InternalError> {
@@ -44,7 +47,7 @@ impl FieldSlot {
         model: &'static EntityModel,
         index: usize,
     ) -> Result<Self, InternalError> {
-        field_model_for_slot(model, index)?;
+        generated_compatible_field_model_for_slot(model, index)?;
 
         Ok(Self { index })
     }

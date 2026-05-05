@@ -35,7 +35,7 @@ use crate::db::data::persisted_row::{
     codec::{
         ScalarSlotValueRef, ScalarValueRef, decode_scalar_slot_value, encode_scalar_slot_value,
     },
-    types::field_model_for_slot,
+    types::generated_compatible_field_model_for_slot,
 };
 
 /// Decode one structural slot payload into a runtime boundary `Value`.
@@ -49,7 +49,7 @@ pub fn decode_slot_into_runtime_value(
     slot: usize,
     raw_value: &[u8],
 ) -> Result<Value, InternalError> {
-    let field = field_model_for_slot(model, slot)?;
+    let field = generated_compatible_field_model_for_slot(model, slot)?;
     let field = StructuralFieldDecodeContract::from_field_model(field);
 
     decode_runtime_value_from_field_contract(field, raw_value)
@@ -83,7 +83,7 @@ pub fn encode_runtime_value_into_slot(
     slot: usize,
     value: &Value,
 ) -> Result<Vec<u8>, InternalError> {
-    let field = field_model_for_slot(model, slot)?;
+    let field = generated_compatible_field_model_for_slot(model, slot)?;
 
     encode_runtime_value_for_field_model(field, value)
 }
@@ -200,7 +200,7 @@ fn canonicalize_slot_payload(
     slot: usize,
     raw_value: &[u8],
 ) -> Result<Vec<u8>, InternalError> {
-    let field = field_model_for_slot(model, slot)?;
+    let field = generated_compatible_field_model_for_slot(model, slot)?;
     let value = decode_runtime_value_from_field_contract(
         StructuralFieldDecodeContract::from_field_model(field),
         raw_value,
@@ -256,7 +256,7 @@ where
     F: FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
 {
     dense_slot_image_from_source(model, |slot| {
-        let field = field_model_for_slot(model, slot)?;
+        let field = generated_compatible_field_model_for_slot(model, slot)?;
         let value = value_for_slot(slot)?;
 
         encode_runtime_value_for_field_model(field, value.as_ref())

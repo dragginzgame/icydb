@@ -18,7 +18,7 @@ use crate::db::data::persisted_row::{
     reader::StructuralSlotReader,
     types::{
         PersistedRow, SerializedStructuralFieldUpdate, SerializedStructuralPatch, SlotReader,
-        StructuralPatch, field_model_for_slot,
+        StructuralPatch, generated_compatible_field_model_for_slot,
     },
     writer::CompleteSerializedPatchWriter,
 };
@@ -294,7 +294,7 @@ pub(in crate::db) fn serialize_structural_patch_fields(
     // canonical slot codec owner.
     for entry in patch.entries() {
         let slot = entry.slot();
-        let field = field_model_for_slot(model, slot.index())?;
+        let field = generated_compatible_field_model_for_slot(model, slot.index())?;
         let payload = encode_runtime_value_for_field_model(field, entry.value())?;
         entries.push(SerializedStructuralFieldUpdate::new(slot, payload));
     }

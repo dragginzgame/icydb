@@ -31,7 +31,7 @@ type RowFieldSpans<'a> = (Cow<'a, [u8]>, SlotSpans);
 #[derive(Clone, Copy, Debug)]
 pub(in crate::db) struct StructuralRowContract {
     entity_path: &'static str,
-    fields: &'static [FieldModel],
+    generated_fields: &'static [FieldModel],
     field_count: usize,
     primary_key_slot: usize,
 }
@@ -42,7 +42,7 @@ impl StructuralRowContract {
     pub(in crate::db) const fn from_model(model: &'static EntityModel) -> Self {
         Self {
             entity_path: model.path(),
-            fields: model.fields(),
+            generated_fields: model.fields(),
             field_count: model.fields().len(),
             primary_key_slot: model.primary_key_slot(),
         }
@@ -64,7 +64,7 @@ impl StructuralRowContract {
     ) -> Self {
         Self {
             entity_path: model.path(),
-            fields: model.fields(),
+            generated_fields: model.fields(),
             field_count,
             primary_key_slot,
         }
@@ -86,7 +86,7 @@ impl StructuralRowContract {
         self,
         slot: usize,
     ) -> Result<&'static FieldModel, InternalError> {
-        self.fields.get(slot).ok_or_else(|| {
+        self.generated_fields.get(slot).ok_or_else(|| {
             InternalError::persisted_row_slot_lookup_out_of_bounds(self.entity_path(), slot)
         })
     }
