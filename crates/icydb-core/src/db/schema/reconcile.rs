@@ -260,15 +260,16 @@ mod tests {
             index::IndexStore,
             registry::StoreRegistry,
             schema::{
-                PersistedSchemaSnapshot, SchemaRowLayout, SchemaStore, SchemaVersion,
-                compiled_schema_proposal_for_model,
+                FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedNestedLeafSnapshot,
+                PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout,
+                SchemaStore, SchemaVersion, compiled_schema_proposal_for_model,
             },
         },
         error::ErrorClass,
         metrics::{metrics_report, metrics_reset_all},
         model::{
             entity::EntityModel,
-            field::{FieldKind, FieldModel, FieldStorageDecode},
+            field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec},
             index::IndexModel,
         },
         testing::{entity_model_from_static, test_memory},
@@ -471,6 +472,85 @@ mod tests {
     }
 
     #[test]
+    fn ensure_accepted_schema_snapshot_rejects_nested_leaf_drift_as_field_contract() {
+        let mut schema_store = SchemaStore::init(test_memory(242));
+        metrics_reset_all();
+
+        let proposal = compiled_schema_proposal_for_model(&NESTED_SCHEMA_MODEL);
+        let expected = proposal.initial_persisted_schema_snapshot();
+        let mut stored_fields = expected.fields().to_vec();
+        let profile = &expected.fields()[1];
+        stored_fields[1] = PersistedFieldSnapshot::new(
+            profile.id(),
+            profile.name().to_string(),
+            profile.slot(),
+            profile.kind().clone(),
+            vec![PersistedNestedLeafSnapshot::new(
+                vec!["legacy_rank".to_string()],
+                PersistedFieldKind::Uint,
+                false,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Uint64),
+            )],
+            profile.nullable(),
+            profile.default(),
+            profile.storage_decode(),
+            profile.leaf_codec(),
+        );
+        let stored_with_nested_leaf_drift = PersistedSchemaSnapshot::new(
+            expected.version(),
+            expected.entity_path().to_string(),
+            expected.entity_name().to_string(),
+            expected.primary_key_field_id(),
+            expected.row_layout().clone(),
+            stored_fields,
+        );
+        schema_store
+            .insert_persisted_snapshot(NESTED_SCHEMA_ENTITY_TAG, &stored_with_nested_leaf_drift)
+            .expect("stored nested-leaf drift snapshot should encode");
+
+        let err = super::ensure_accepted_schema_snapshot(
+            &mut schema_store,
+            NESTED_SCHEMA_ENTITY_TAG,
+            NESTED_SCHEMA_MODEL.path(),
+            &NESTED_SCHEMA_MODEL,
+        )
+        .expect_err("nested leaf schema drift should still be rejected");
+
+        assert_eq!(err.class, ErrorClass::Unsupported);
+        assert!(
+            err.message
+                .contains("field[1] nested leaf metadata changed"),
+            "nested leaf drift should name the owning field"
+        );
+        assert!(
+            err.message.contains("stored_path='legacy_rank'"),
+            "nested leaf drift should include the stored nested path"
+        );
+        assert!(
+            err.message.contains("generated_path='rank'"),
+            "nested leaf drift should include the generated nested path"
+        );
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("schema reconciliation should record metrics");
+        assert_eq!(counters.ops().schema_reconcile_checks(), 1);
+        assert_eq!(counters.ops().schema_reconcile_rejected_other(), 1);
+        assert_eq!(
+            counters.ops().schema_reconcile_rejected_row_layout(),
+            0,
+            "nested leaf drift should stay in field-contract transition buckets",
+        );
+        assert_eq!(counters.ops().schema_transition_checks(), 1);
+        assert_eq!(
+            counters.ops().schema_transition_rejected_field_contract(),
+            1
+        );
+    }
+
+    #[test]
     fn reconcile_runtime_schemas_rejects_changed_initial_snapshot() {
         reset_schema_store();
         metrics_reset_all();
@@ -515,6 +595,128 @@ mod tests {
         assert_eq!(counters.ops().schema_transition_checks(), 1);
         assert_eq!(
             counters.ops().schema_transition_rejected_entity_identity(),
+            1
+        );
+    }
+
+    #[test]
+    fn reconcile_runtime_schemas_rejects_generated_additive_field_as_field_contract() {
+        reset_schema_store();
+        metrics_reset_all();
+
+        let proposal = compiled_schema_proposal_for_model(SchemaReconcileEntity::MODEL);
+        let expected = proposal.initial_persisted_schema_snapshot();
+        let stored_prefix = PersistedSchemaSnapshot::new(
+            expected.version(),
+            expected.entity_path().to_string(),
+            expected.entity_name().to_string(),
+            expected.primary_key_field_id(),
+            SchemaRowLayout::new(
+                expected.row_layout().version(),
+                vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
+            ),
+            expected.fields()[..1].to_vec(),
+        );
+        RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
+            store
+                .insert_persisted_snapshot(SchemaReconcileEntity::ENTITY_TAG, &stored_prefix)
+                .expect("stored prefix schema snapshot should encode");
+        });
+
+        let err = super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+            .expect_err("additive generated schema drift should still be rejected");
+
+        assert_eq!(err.class, ErrorClass::Unsupported);
+        assert!(
+            err.message
+                .contains("unsupported additive field transition"),
+            "additive schema drift should name the future transition shape"
+        );
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("schema reconciliation should record metrics");
+        assert_eq!(counters.ops().schema_reconcile_checks(), 1);
+        assert_eq!(counters.ops().schema_reconcile_rejected_other(), 1);
+        assert_eq!(
+            counters.ops().schema_reconcile_rejected_row_layout(),
+            0,
+            "append-only generated fields should no longer be bucketed as generic row-layout drift",
+        );
+        assert_eq!(counters.ops().schema_transition_checks(), 1);
+        assert_eq!(
+            counters.ops().schema_transition_rejected_field_contract(),
+            1
+        );
+    }
+
+    #[test]
+    fn reconcile_runtime_schemas_rejects_generated_removed_field_as_field_contract() {
+        reset_schema_store();
+        metrics_reset_all();
+
+        let proposal = compiled_schema_proposal_for_model(SchemaReconcileEntity::MODEL);
+        let expected = proposal.initial_persisted_schema_snapshot();
+        let mut stored_fields = expected.fields().to_vec();
+        stored_fields.push(PersistedFieldSnapshot::new(
+            FieldId::new(3),
+            "legacy_score".to_string(),
+            SchemaFieldSlot::new(2),
+            PersistedFieldKind::Uint,
+            Vec::new(),
+            false,
+            SchemaFieldDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Uint64),
+        ));
+        let stored_with_removed_field = PersistedSchemaSnapshot::new(
+            expected.version(),
+            expected.entity_path().to_string(),
+            expected.entity_name().to_string(),
+            expected.primary_key_field_id(),
+            SchemaRowLayout::new(
+                expected.row_layout().version(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                    (FieldId::new(3), SchemaFieldSlot::new(2)),
+                ],
+            ),
+            stored_fields,
+        );
+        RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
+            store
+                .insert_persisted_snapshot(
+                    SchemaReconcileEntity::ENTITY_TAG,
+                    &stored_with_removed_field,
+                )
+                .expect("stored removed-field schema snapshot should encode");
+        });
+
+        let err = super::reconcile_runtime_schemas(&RECONCILE_DB, RECONCILE_RUNTIME_HOOKS)
+            .expect_err("generated field removal should still be rejected");
+
+        assert_eq!(err.class, ErrorClass::Unsupported);
+        assert!(
+            err.message.contains("unsupported removed field transition"),
+            "removed field drift should name the future transition shape"
+        );
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("schema reconciliation should record metrics");
+        assert_eq!(counters.ops().schema_reconcile_checks(), 1);
+        assert_eq!(counters.ops().schema_reconcile_rejected_other(), 1);
+        assert_eq!(
+            counters.ops().schema_reconcile_rejected_row_layout(),
+            0,
+            "append-only stored fields should no longer be bucketed as generic row-layout drift",
+        );
+        assert_eq!(counters.ops().schema_transition_checks(), 1);
+        assert_eq!(
+            counters.ops().schema_transition_rejected_field_contract(),
             1
         );
     }

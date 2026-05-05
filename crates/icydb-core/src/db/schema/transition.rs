@@ -4,7 +4,8 @@
 //! Boundary: decides whether one accepted snapshot may become another.
 
 use crate::db::schema::{
-    FieldId, PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
+    FieldId, PersistedFieldSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
+    SchemaFieldSlot,
 };
 
 ///
@@ -195,6 +196,14 @@ fn schema_snapshot_structural_mismatch_detail(
         );
     }
 
+    if let Some(detail) = unsupported_generated_additive_field_detail(actual, expected) {
+        return (SchemaTransitionRejectionKind::FieldContract, detail);
+    }
+
+    if let Some(detail) = unsupported_generated_removed_field_detail(actual, expected) {
+        return (SchemaTransitionRejectionKind::FieldContract, detail);
+    }
+
     if actual.row_layout() != expected.row_layout() {
         return (
             SchemaTransitionRejectionKind::RowLayout,
@@ -226,6 +235,97 @@ fn schema_snapshot_structural_mismatch_detail(
         SchemaTransitionRejectionKind::Snapshot,
         "schema snapshot changed".to_string(),
     )
+}
+
+// Detect the future additive-field transition shape without accepting it yet.
+// A generated snapshot is an append-only additive candidate only when the
+// stored fields and row-layout mappings are exact prefixes of the generated
+// snapshot. Anything else remains a normal layout/field-contract rejection.
+fn unsupported_generated_additive_field_detail(
+    actual: &PersistedSchemaSnapshot,
+    expected: &PersistedSchemaSnapshot,
+) -> Option<String> {
+    if actual.fields().len() >= expected.fields().len()
+        || actual.row_layout().field_to_slot().len() >= expected.row_layout().field_to_slot().len()
+    {
+        return None;
+    }
+
+    if !actual
+        .fields()
+        .iter()
+        .zip(expected.fields())
+        .all(|(actual_field, expected_field)| actual_field == expected_field)
+    {
+        return None;
+    }
+
+    if !actual
+        .row_layout()
+        .field_to_slot()
+        .iter()
+        .zip(expected.row_layout().field_to_slot())
+        .all(|(actual_pair, expected_pair)| actual_pair == expected_pair)
+    {
+        return None;
+    }
+
+    let index = actual.fields().len();
+    let field = &expected.fields()[index];
+    Some(format!(
+        "unsupported additive field transition: generated field[{index}] id={} slot={} name='{}' kind={:?} nullable={} default={:?}; accepted decode/write support is not enabled yet",
+        field.id().get(),
+        field.slot().get(),
+        field.name(),
+        field.kind(),
+        field.nullable(),
+        field.default(),
+    ))
+}
+
+// Detect the symmetric field-removal transition shape without accepting it.
+// A generated snapshot is a removal candidate only when the generated fields
+// and row-layout mappings are exact prefixes of the stored accepted snapshot.
+// That means the new code has stopped declaring a field that old rows may
+// still carry, which needs explicit retained-slot semantics before acceptance.
+fn unsupported_generated_removed_field_detail(
+    actual: &PersistedSchemaSnapshot,
+    expected: &PersistedSchemaSnapshot,
+) -> Option<String> {
+    if actual.fields().len() <= expected.fields().len()
+        || actual.row_layout().field_to_slot().len() <= expected.row_layout().field_to_slot().len()
+    {
+        return None;
+    }
+
+    if !actual
+        .fields()
+        .iter()
+        .zip(expected.fields())
+        .all(|(actual_field, expected_field)| actual_field == expected_field)
+    {
+        return None;
+    }
+
+    if !actual
+        .row_layout()
+        .field_to_slot()
+        .iter()
+        .zip(expected.row_layout().field_to_slot())
+        .all(|(actual_pair, expected_pair)| actual_pair == expected_pair)
+    {
+        return None;
+    }
+
+    let index = expected.fields().len();
+    let field = &actual.fields()[index];
+    Some(format!(
+        "unsupported removed field transition: stored field[{index}] id={} slot={} name='{}' kind={:?}; retained-slot support is not enabled yet",
+        field.id().get(),
+        field.slot().get(),
+        field.name(),
+        field.kind(),
+    ))
 }
 
 // Summarize row-layout drift without dumping every field/slot pair into the
@@ -400,15 +500,87 @@ fn field_snapshot_contract_mismatch_detail(
     if actual.nested_leaves() != expected.nested_leaves() {
         return Some((
             SchemaTransitionRejectionKind::FieldContract,
-            format!(
-                "field[{index}] nested leaf metadata changed: stored={} generated={}",
-                actual.nested_leaves().len(),
-                expected.nested_leaves().len(),
-            ),
+            nested_leaf_mismatch_detail(index, actual.nested_leaves(), expected.nested_leaves()),
         ));
     }
 
     field_snapshot_storage_mismatch_detail(index, actual, expected)
+}
+
+// Summarize nested field-path drift on the owning top-level field. Nested
+// leaves do not carry physical row slots, so the first changed path/kind/codec
+// fact is more useful than a raw debug dump when generated metadata drifts.
+fn nested_leaf_mismatch_detail(
+    field_index: usize,
+    actual: &[PersistedNestedLeafSnapshot],
+    expected: &[PersistedNestedLeafSnapshot],
+) -> String {
+    let prefix = format!(
+        "field[{field_index}] nested leaf metadata changed: stored={} generated={}",
+        actual.len(),
+        expected.len(),
+    );
+
+    if let Some(detail) = nested_leaf_first_mismatch_detail(actual, expected) {
+        return format!("{prefix}; {detail}");
+    }
+
+    prefix
+}
+
+// Find the first changed nested leaf fact in stable vector order. The transition
+// policy still rejects every nested metadata drift; this helper only names the
+// earliest changed fact so operators can see what generated code changed.
+fn nested_leaf_first_mismatch_detail(
+    actual: &[PersistedNestedLeafSnapshot],
+    expected: &[PersistedNestedLeafSnapshot],
+) -> Option<String> {
+    for (index, (actual_leaf, expected_leaf)) in actual.iter().zip(expected).enumerate() {
+        if actual_leaf != expected_leaf {
+            return Some(format!(
+                "first_difference=nested_leaf[{index}] {}; {}",
+                nested_leaf_detail("stored", actual_leaf),
+                nested_leaf_detail("generated", expected_leaf),
+            ));
+        }
+    }
+
+    if actual.len() > expected.len() {
+        let index = expected.len();
+        return Some(format!(
+            "first_difference=stored_extra nested_leaf[{index}] {}; generated_has_no_nested_leaf",
+            nested_leaf_detail("stored", &actual[index]),
+        ));
+    }
+
+    if expected.len() > actual.len() {
+        let index = actual.len();
+        return Some(format!(
+            "first_difference=generated_extra nested_leaf[{index}] stored_has_no_nested_leaf; {}",
+            nested_leaf_detail("generated", &expected[index]),
+        ));
+    }
+
+    None
+}
+
+// Render one nested leaf descriptor without exposing the full debug shape.
+// Path/kind/nullability/codec are the facts needed to understand whether field
+// path planning or row-value decoding would need an explicit migration rule.
+fn nested_leaf_detail(label: &str, leaf: &PersistedNestedLeafSnapshot) -> String {
+    let path = if leaf.path().is_empty() {
+        "<root>".to_string()
+    } else {
+        leaf.path().join(".")
+    };
+
+    format!(
+        "{label}_path='{path}' {label}_kind={:?} {label}_nullable={} {label}_storage_decode={:?} {label}_leaf_codec={:?}",
+        leaf.kind(),
+        leaf.nullable(),
+        leaf.storage_decode(),
+        leaf.leaf_codec(),
+    )
 }
 
 // Compare nullable/default/storage codec metadata last. These are still schema
@@ -474,9 +646,10 @@ fn field_snapshot_storage_mismatch_detail(
 mod tests {
     use crate::{
         db::schema::{
-            FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedSchemaSnapshot,
-            SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaTransitionDecision,
-            SchemaTransitionPlanKind, SchemaVersion, decide_schema_transition,
+            FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedNestedLeafSnapshot,
+            PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout,
+            SchemaTransitionDecision, SchemaTransitionPlanKind, SchemaVersion,
+            decide_schema_transition, transition::SchemaTransitionRejectionKind,
         },
         model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
     };
@@ -608,7 +781,110 @@ mod tests {
     }
 
     #[test]
-    fn schema_transition_policy_names_extra_row_layout_fields() {
+    fn schema_transition_policy_reports_first_nested_leaf_mismatch() {
+        let stored = PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "test::NestedSchemaEntity".to_string(),
+            "NestedSchemaEntity".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "profile".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Structured { queryable: false },
+                    vec![PersistedNestedLeafSnapshot::new(
+                        vec!["nickname".to_string()],
+                        PersistedFieldKind::Text { max_len: None },
+                        false,
+                        FieldStorageDecode::ByKind,
+                        LeafCodec::Scalar(ScalarCodec::Text),
+                    )],
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+            ],
+        );
+        let mut generated_fields = stored.fields().to_vec();
+        generated_fields[1] = PersistedFieldSnapshot::new(
+            FieldId::new(2),
+            "profile".to_string(),
+            SchemaFieldSlot::new(1),
+            PersistedFieldKind::Structured { queryable: false },
+            vec![PersistedNestedLeafSnapshot::new(
+                vec!["score".to_string()],
+                PersistedFieldKind::Uint,
+                false,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Uint64),
+            )],
+            false,
+            SchemaFieldDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::StructuralFallback,
+        );
+        let generated = PersistedSchemaSnapshot::new(
+            stored.version(),
+            stored.entity_path().to_string(),
+            stored.entity_name().to_string(),
+            stored.primary_key_field_id(),
+            stored.row_layout().clone(),
+            generated_fields,
+        );
+
+        let SchemaTransitionDecision::Rejected(rejection) =
+            decide_schema_transition(&stored, &generated)
+        else {
+            panic!("nested leaf metadata drift should be rejected");
+        };
+
+        assert!(
+            rejection.detail().contains(
+                "field[1] nested leaf metadata changed: stored=1 generated=1; first_difference=nested_leaf[0]"
+            ),
+            "nested leaf drift should identify the owning field and first changed leaf",
+        );
+        assert!(
+            rejection.detail().contains(
+                "stored_path='nickname' stored_kind=Text { max_len: None } stored_nullable=false stored_storage_decode=ByKind stored_leaf_codec=Scalar(Text)"
+            ),
+            "nested leaf drift should describe the stored leaf contract",
+        );
+        assert!(
+            rejection.detail().contains(
+                "generated_path='score' generated_kind=Uint generated_nullable=false generated_storage_decode=ByKind generated_leaf_codec=Scalar(Uint64)"
+            ),
+            "nested leaf drift should describe the generated leaf contract",
+        );
+        assert_eq!(
+            rejection.kind(),
+            SchemaTransitionRejectionKind::FieldContract,
+            "nested leaf drift remains a rejected field-contract transition",
+        );
+    }
+
+    #[test]
+    fn schema_transition_policy_names_unsupported_generated_removed_fields() {
         let expected = expected_snapshot();
         let mut stored_fields = expected.fields().to_vec();
         stored_fields.push(PersistedFieldSnapshot::new(
@@ -646,14 +922,19 @@ mod tests {
 
         assert!(
             rejection.detail().contains(
-                "first_difference=stored_extra row_layout[2] stored_field_id=3 stored_slot=2 stored_name='legacy_score' stored_kind=Uint; generated_has_no_layout_entry"
+                "unsupported removed field transition: stored field[2] id=3 slot=2 name='legacy_score' kind=Uint; retained-slot support is not enabled yet"
             ),
-            "row-layout extra field drift should name the stored field and kind",
+            "removed field drift should be named as an unsupported future transition shape",
+        );
+        assert_eq!(
+            rejection.kind(),
+            SchemaTransitionRejectionKind::FieldContract,
+            "unsupported removals are future field-contract transitions, not generic row-layout mismatches",
         );
     }
 
     #[test]
-    fn schema_transition_policy_rejects_generated_extra_row_layout_fields() {
+    fn schema_transition_policy_names_unsupported_generated_additive_fields() {
         let stored = expected_snapshot();
         let mut generated_fields = stored.fields().to_vec();
         generated_fields.push(PersistedFieldSnapshot::new(
@@ -686,16 +967,19 @@ mod tests {
         let SchemaTransitionDecision::Rejected(rejection) =
             decide_schema_transition(&stored, &generated)
         else {
-            panic!(
-                "generated extra row-layout field should be rejected until additive policy exists"
-            );
+            panic!("generated additive field should be rejected until additive policy exists");
         };
 
         assert!(
             rejection.detail().contains(
-                "first_difference=generated_extra row_layout[2] stored_has_no_layout_entry; generated_field_id=3 generated_slot=2 generated_name='new_score' generated_kind=Uint"
+                "unsupported additive field transition: generated field[2] id=3 slot=2 name='new_score' kind=Uint nullable=false default=None; accepted decode/write support is not enabled yet"
             ),
-            "additive row-layout drift should name the generated field and kind",
+            "additive field drift should be named as an unsupported future transition shape",
+        );
+        assert_eq!(
+            rejection.kind(),
+            SchemaTransitionRejectionKind::FieldContract,
+            "unsupported additive fields are a future field-contract transition, not a generic row-layout mismatch",
         );
     }
 }
