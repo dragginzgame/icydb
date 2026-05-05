@@ -34,12 +34,12 @@ fn append_accepted_structural_patch_field(
     Ok(patch.set(FieldSlot::from_validated_index(slot), value))
 }
 
-// Enforce missing-field policy for sparse insert/replace patches before the
-// executor materializes an entity through generated derive code. This keeps
-// database absence/default policy owned by accepted schema metadata instead of
-// accidentally relying on Rust construction defaults or derive-local missing
-// slot behavior.
-fn validate_structural_patch_absence_policy<E>(
+// Enforce public structural patch policy before the executor materializes an
+// entity through generated derive code. This keeps database write ownership and
+// absence/default policy owned by accepted schema metadata instead of
+// accidentally relying on executor-local generated field metadata, Rust
+// construction defaults, or derive-local missing slot behavior.
+fn validate_structural_patch_schema_policy<E>(
     descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
     patch: &StructuralPatch,
     mode: MutationMode,
@@ -47,10 +47,9 @@ fn validate_structural_patch_absence_policy<E>(
 where
     E: PersistedRow + EntityValue,
 {
+    reject_explicit_generated_fields_from_accepted_patch::<E>(descriptor, patch)?;
+
     if matches!(mode, MutationMode::Update) {
-        return Ok(());
-    }
-    if patch_explicitly_writes_generated_field(descriptor, patch) {
         return Ok(());
     }
 
@@ -85,24 +84,35 @@ where
 }
 
 // Preserve generated-field ownership diagnostics ahead of sparse-patch
-// required-field diagnostics. The executor still owns the final rejection, but
-// this session check avoids masking that more specific generated-field policy
-// error with unrelated omitted-field errors on malformed create/replace
-// patches.
-fn patch_explicitly_writes_generated_field(
+// required-field diagnostics. Public structural writes must not author fields
+// whose values are owned by accepted schema write policy, except for the
+// redundant primary-key slot because the structural API already carries the
+// authoritative key separately.
+fn reject_explicit_generated_fields_from_accepted_patch<E>(
     descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
     patch: &StructuralPatch,
-) -> bool {
-    patch.entries().iter().any(|entry| {
+) -> Result<(), InternalError>
+where
+    E: PersistedRow + EntityValue,
+{
+    for entry in patch.entries() {
         let slot = entry.slot().index();
         let Some(accepted_field) = descriptor.field_for_slot_index(slot) else {
-            return false;
+            continue;
         };
         let write_policy = accepted_field.write_policy();
 
-        write_policy.insert_generation().is_some()
+        if write_policy.insert_generation().is_some()
             && accepted_field.name() != descriptor.primary_key_name()
-    })
+        {
+            return Err(InternalError::mutation_generated_field_explicit(
+                E::PATH,
+                accepted_field.name(),
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -177,7 +187,7 @@ impl<C: CanisterKind> DbSession<C> {
         let descriptor =
             AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted_schema)?;
         descriptor.generated_compatible_row_shape_for_model(E::MODEL)?;
-        validate_structural_patch_absence_policy::<E>(&descriptor, &patch, mode)?;
+        validate_structural_patch_schema_policy::<E>(&descriptor, &patch, mode)?;
 
         self.execute_save_with_checked_accepted_schema(
             |save| save.apply_structural_mutation(mode, key, patch),

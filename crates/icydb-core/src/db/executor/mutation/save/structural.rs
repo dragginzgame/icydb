@@ -25,37 +25,12 @@ use crate::{
 use std::collections::HashSet;
 
 ///
-/// StructuralPatchOrigin
-///
-/// StructuralPatchOrigin records whether one structural patch was authored
-/// through the public field-patch surface or synthesized by an internal
-/// lowering lane. Save preflight uses this to enforce generated-field
-/// authorship policy without encoding policy into the patch container itself.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum StructuralPatchOrigin {
-    PublicAuthored,
-    InternalLowered,
-}
-
-impl StructuralPatchOrigin {
-    // Public authored patches must not provide generated field payloads because
-    // generated/managed values belong to write-boundary materialization, not to
-    // caller-authored sparse field patches.
-    const fn rejects_explicit_generated_fields(self) -> bool {
-        matches!(self, Self::PublicAuthored)
-    }
-}
-
-///
 /// StructuralMutationRequest
 ///
 /// StructuralMutationRequest is the internal save-executor handoff for one
-/// structural mutation before persisted-row serialization. It keeps mode,
-/// target key, patch payload, write context, and authored-origin policy in one
-/// request so helper signatures do not use loose tuples or option flags for
-/// mutation semantics.
+/// structural mutation before persisted-row serialization. It keeps mode, target
+/// key, patch payload, and write context in one request so helper signatures do
+/// not use loose tuples for mutation semantics.
 ///
 
 struct StructuralMutationRequest<E: PersistedRow + EntityValue> {
@@ -63,7 +38,6 @@ struct StructuralMutationRequest<E: PersistedRow + EntityValue> {
     key: E::Key,
     patch: StructuralPatch,
     write_context: SanitizeWriteContext,
-    origin: StructuralPatchOrigin,
 }
 
 ///
@@ -100,7 +74,6 @@ impl<E: PersistedRow + EntityValue> StructuralMutationRequest<E> {
             key,
             patch,
             write_context,
-            origin: StructuralPatchOrigin::PublicAuthored,
         }
     }
 
@@ -118,7 +91,6 @@ impl<E: PersistedRow + EntityValue> StructuralMutationRequest<E> {
             key,
             patch,
             write_context,
-            origin: StructuralPatchOrigin::InternalLowered,
         }
     }
 }
@@ -288,18 +260,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             key,
             patch,
             write_context,
-            origin,
         } = request;
-
-        // Phase 0: reject authored values for insert-generated fields on every
-        // public structural lane. The one structural exception is the primary
-        // key slot: public structural writes already carry the authoritative
-        // key out of band, so a matching generated primary-key payload in the
-        // patch is redundant identity wiring rather than a second generated
-        // value source.
-        if origin.rejects_explicit_generated_fields() {
-            Self::reject_explicit_generated_fields(&patch)?;
-        }
 
         Self::validate_structural_patch_write_bounds(&patch)?;
 
@@ -347,25 +308,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         );
 
         Ok((entity, marker_row_op))
-    }
-
-    // Reject structural patches that try to author schema insert-generated
-    // fields directly. Public structural writes must not bypass system-owned
-    // generation on create or later rewrites, except for the redundant primary
-    // key slot because the structural API already carries the authoritative
-    // key separately.
-    fn reject_explicit_generated_fields(patch: &StructuralPatch) -> Result<(), InternalError> {
-        for entry in patch.entries() {
-            let field = &E::MODEL.fields()[entry.slot().index()];
-            if field.insert_generation().is_some() && field.name() != E::MODEL.primary_key.name() {
-                return Err(InternalError::mutation_generated_field_explicit(
-                    E::PATH,
-                    field.name(),
-                ));
-            }
-        }
-
-        Ok(())
     }
 
     // Build the final persisted after-image under one explicit structural mode.

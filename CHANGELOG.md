@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.147.x] 🪪 - 2026-05-04 - Accepted Schema Authority Closeout
 
+- `0.147.15` makes public structural writes reject generated-field authorship from accepted schema metadata before executor staging, removing the remaining executor-side generated-field policy switch.
 - `0.147.14` stores generated and managed write policies in accepted schema snapshots so write checks use saved database schema facts instead of generated field metadata.
 - `0.147.13` keeps write-side generated field checks behind accepted schema descriptors, reducing direct generated-model lookups while schema evolution remains safely rejected.
 - `0.147.12` tightens the accepted-schema decode bridge so generated-compatible row-layout checks explicitly verify field payload decode contracts before generated decoders are used.
