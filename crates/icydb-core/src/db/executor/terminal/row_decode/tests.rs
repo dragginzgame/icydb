@@ -11,7 +11,7 @@ use crate::{
             SchemaRowLayout, SchemaVersion, compiled_schema_proposal_for_model,
         },
     },
-    error::{ErrorClass, ErrorOrigin},
+    error::{ErrorClass, ErrorOrigin, InternalError},
     model::field::{FieldKind, FieldStorageDecode, LeafCodec},
     traits::{
         EntitySchema, FieldTypeMeta, PersistedFieldSlotCodec, RuntimeValueDecode,
@@ -109,16 +109,24 @@ fn accepted_row_decode_schema() -> AcceptedSchemaSnapshot {
     AcceptedSchemaSnapshot::new(row_decode_schema_snapshot())
 }
 
+fn generated_compatible_row_layout(
+    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+) -> Result<RowLayout, InternalError> {
+    let row_shape = descriptor.generated_compatible_row_shape_for_model(RowDecodeEntity::MODEL)?;
+
+    Ok(RowLayout::from_generated_compatible_row_shape(
+        RowDecodeEntity::MODEL,
+        row_shape,
+    ))
+}
+
 #[test]
-fn row_layout_can_be_frozen_from_generated_compatible_accepted_schema() {
+fn row_layout_can_be_frozen_from_generated_compatible_row_shape() {
     let accepted = accepted_row_decode_schema();
     let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
         .expect("accepted row decode schema should project into runtime descriptor");
-    let layout = RowLayout::from_generated_compatible_accepted_descriptor(
-        RowDecodeEntity::MODEL,
-        &descriptor,
-    )
-    .expect("exact accepted row layout should be generated-compatible");
+    let layout = generated_compatible_row_layout(&descriptor)
+        .expect("exact accepted row layout should be generated-compatible");
 
     assert_eq!(layout.field_count(), RowDecodeEntity::MODEL.fields().len());
     assert_eq!(
@@ -150,11 +158,8 @@ fn row_layout_rejects_accepted_slot_reorder_until_decoder_consumes_accepted_fiel
     let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
         .expect("slot-reordered test schema should still form a descriptor");
 
-    let err = RowLayout::from_generated_compatible_accepted_descriptor(
-        RowDecodeEntity::MODEL,
-        &descriptor,
-    )
-    .expect_err("slot reorder must stay rejected at generated-compatible bridge");
+    let err = generated_compatible_row_layout(&descriptor)
+        .expect_err("slot reorder must stay rejected at generated-compatible bridge");
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Store);
 }
@@ -189,11 +194,8 @@ fn row_layout_rejects_accepted_payload_contract_drift_until_decoder_consumes_acc
     let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
         .expect("storage-decode-drift test schema should still form a descriptor");
 
-    let err = RowLayout::from_generated_compatible_accepted_descriptor(
-        RowDecodeEntity::MODEL,
-        &descriptor,
-    )
-    .expect_err("payload contract drift must stay rejected at generated-compatible bridge");
+    let err = generated_compatible_row_layout(&descriptor)
+        .expect_err("payload contract drift must stay rejected at generated-compatible bridge");
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Store);
     assert!(
@@ -209,11 +211,8 @@ fn accepted_row_layout_decoder_rejects_malformed_raw_row() {
     let accepted = accepted_row_decode_schema();
     let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
         .expect("accepted row decode schema should project into runtime descriptor");
-    let layout = RowLayout::from_generated_compatible_accepted_descriptor(
-        RowDecodeEntity::MODEL,
-        &descriptor,
-    )
-    .expect("exact accepted row layout should be generated-compatible");
+    let layout = generated_compatible_row_layout(&descriptor)
+        .expect("exact accepted row layout should be generated-compatible");
     let key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(Ulid::from_u128(31))
         .expect("test key construction should succeed");
     let malformed = RawRow::from_untrusted_bytes(vec![0xFF])
@@ -329,11 +328,8 @@ fn retained_slot_decode_can_materialize_scalar_octet_lengths_without_blob_values
     let accepted = accepted_row_decode_schema();
     let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
         .expect("accepted retained-slot row decode schema should form descriptor");
-    let row_layout = RowLayout::from_generated_compatible_accepted_descriptor(
-        RowDecodeEntity::MODEL,
-        &descriptor,
-    )
-    .expect("accepted retained-slot row layout should be generated-compatible");
+    let row_layout = generated_compatible_row_layout(&descriptor)
+        .expect("accepted retained-slot row layout should be generated-compatible");
 
     let values =
         RowDecoder::decode_indexed_slot_values(&row_layout, key.storage_key(), &row, &layout)

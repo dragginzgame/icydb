@@ -9,7 +9,7 @@ use crate::{
             AccessPlannedQuery, CoveringReadExecutionPlan, PlannedContinuationContract,
             covering_read_execution_plan_from_fields,
         },
-        schema::{AcceptedRowLayoutRuntimeDescriptor, SchemaInfo},
+        schema::{AcceptedGeneratedCompatibleRowShape, SchemaInfo},
     },
     error::InternalError,
     metrics::sink::{
@@ -64,21 +64,19 @@ impl EntityAuthority {
         Self::new(E::MODEL, E::ENTITY_TAG, E::Store::PATH)
     }
 
-    /// Return authority with its row layout frozen from accepted schema.
+    /// Return authority with its row layout frozen from a checked accepted shape.
     ///
-    /// This currently requires a generated-compatible accepted descriptor
-    /// because the structural data decoder still uses generated field decoders.
-    /// The method keeps that compatibility requirement at the authority
-    /// boundary instead of letting executor call sites mix generated and
-    /// accepted layout facts ad hoc.
-    pub(in crate::db) fn with_accepted_row_layout(
+    /// Session schema handoff uses this after schema runtime has already
+    /// produced the generated-compatible proof. The executor authority only
+    /// consumes the proof and does not recompute accepted-schema semantics.
+    #[must_use]
+    pub(in crate::db) const fn with_generated_compatible_row_shape(
         self,
-        descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
-    ) -> Result<Self, InternalError> {
-        let row_layout =
-            RowLayout::from_generated_compatible_accepted_descriptor(self.model, descriptor)?;
+        row_shape: AcceptedGeneratedCompatibleRowShape,
+    ) -> Self {
+        let row_layout = RowLayout::from_generated_compatible_row_shape(self.model, row_shape);
 
-        Ok(Self { row_layout, ..self })
+        Self { row_layout, ..self }
     }
 
     /// Borrow the entity model authority.

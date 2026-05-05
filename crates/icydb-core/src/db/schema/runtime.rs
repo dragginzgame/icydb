@@ -11,7 +11,7 @@ use crate::{
     error::InternalError,
     model::{
         entity::EntityModel,
-        field::{FieldStorageDecode, LeafCodec},
+        field::{FieldModel, FieldStorageDecode, LeafCodec},
     },
 };
 
@@ -240,22 +240,6 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
         })
     }
 
-    /// Build one runtime descriptor and prove it can still use generated field codecs.
-    ///
-    /// This is the current write/decode bridge for exact-match schemas. It
-    /// keeps generated compatibility as a schema-runtime decision, not a
-    /// session or executor convention, while the decoder still consumes
-    /// generated field codecs.
-    pub(in crate::db) fn from_generated_compatible_accepted_schema(
-        accepted: &'a AcceptedSchemaSnapshot,
-        model: &'static EntityModel,
-    ) -> Result<Self, InternalError> {
-        let descriptor = Self::from_accepted_schema(accepted)?;
-        let _row_shape = descriptor.generated_compatible_row_shape_for_model(model)?;
-
-        Ok(descriptor)
-    }
-
     /// Return the accepted schema version backing this runtime layout.
     #[allow(
         dead_code,
@@ -398,9 +382,7 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
                     field.name(),
                 )));
             };
-            let accepted_slot = self
-                .field_slot_index_by_name(field.name())
-                .expect("accepted field must have a descriptor-owned slot");
+            let accepted_slot = usize::from(accepted_field.slot().get());
             if accepted_slot != generated_slot {
                 return Err(InternalError::store_invariant(format!(
                     "accepted row layout slot is not generated-compatible: field='{}' accepted_slot={} generated_slot={}",
@@ -410,33 +392,7 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
                 )));
             }
 
-            let generated_kind = PersistedFieldKind::from_model_kind(field.kind());
-            if accepted_field.kind() != &generated_kind {
-                return Err(InternalError::store_invariant(format!(
-                    "accepted row layout kind is not generated-compatible: field='{}' accepted_kind={:?} generated_kind={:?}",
-                    field.name(),
-                    accepted_field.kind(),
-                    generated_kind,
-                )));
-            }
-
-            if accepted_field.storage_decode() != field.storage_decode() {
-                return Err(InternalError::store_invariant(format!(
-                    "accepted row layout storage decode is not generated-compatible: field='{}' accepted_storage_decode={:?} generated_storage_decode={:?}",
-                    field.name(),
-                    accepted_field.storage_decode(),
-                    field.storage_decode(),
-                )));
-            }
-
-            if accepted_field.leaf_codec() != field.leaf_codec() {
-                return Err(InternalError::store_invariant(format!(
-                    "accepted row layout leaf codec is not generated-compatible: field='{}' accepted_leaf_codec={:?} generated_leaf_codec={:?}",
-                    field.name(),
-                    accepted_field.leaf_codec(),
-                    field.leaf_codec(),
-                )));
-            }
+            ensure_generated_field_decode_contract_compatible(accepted_field, field)?;
         }
 
         Ok(AcceptedGeneratedCompatibleRowShape {
@@ -444,6 +400,45 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
             primary_key_slot_index: self.primary_key_slot_index(),
         })
     }
+}
+
+// Prove that one accepted field still has the exact decode contract expected by
+// its generated field codec. This is the field-level bridge that lets exact
+// schemas keep using generated decoders while additive/remapped layouts remain
+// rejected until accepted-field decoders exist.
+fn ensure_generated_field_decode_contract_compatible(
+    accepted_field: &AcceptedRowLayoutRuntimeField<'_>,
+    generated_field: &FieldModel,
+) -> Result<(), InternalError> {
+    let generated_kind = PersistedFieldKind::from_model_kind(generated_field.kind());
+    if accepted_field.kind() != &generated_kind {
+        return Err(InternalError::store_invariant(format!(
+            "accepted row layout kind is not generated-compatible: field='{}' accepted_kind={:?} generated_kind={:?}",
+            generated_field.name(),
+            accepted_field.kind(),
+            generated_kind,
+        )));
+    }
+
+    if accepted_field.storage_decode() != generated_field.storage_decode() {
+        return Err(InternalError::store_invariant(format!(
+            "accepted row layout storage decode is not generated-compatible: field='{}' accepted_storage_decode={:?} generated_storage_decode={:?}",
+            generated_field.name(),
+            accepted_field.storage_decode(),
+            generated_field.storage_decode(),
+        )));
+    }
+
+    if accepted_field.leaf_codec() != generated_field.leaf_codec() {
+        return Err(InternalError::store_invariant(format!(
+            "accepted row layout leaf codec is not generated-compatible: field='{}' accepted_leaf_codec={:?} generated_leaf_codec={:?}",
+            generated_field.name(),
+            accepted_field.leaf_codec(),
+            generated_field.leaf_codec(),
+        )));
+    }
+
+    Ok(())
 }
 
 // Decide the missing-slot behavior from accepted database metadata only. Rust
@@ -576,6 +571,49 @@ mod tests {
         ))
     }
 
+    fn generated_slot_compatible_accepted_schema_with_nickname_decode(
+        storage_decode: FieldStorageDecode,
+        leaf_codec: LeafCodec,
+    ) -> AcceptedSchemaSnapshot {
+        AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "schema::tests::RuntimeEntity".to_string(),
+            "RuntimeEntity".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "nickname".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Text { max_len: Some(32) },
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    storage_decode,
+                    leaf_codec,
+                ),
+            ],
+        ))
+    }
+
     #[test]
     fn accepted_row_layout_runtime_descriptor_uses_row_layout_slot_authority() {
         let accepted = accepted_schema_fixture();
@@ -651,19 +689,20 @@ mod tests {
     }
 
     #[test]
-    fn accepted_row_layout_runtime_descriptor_builds_generated_compatible_descriptor() {
+    fn accepted_row_layout_runtime_descriptor_builds_descriptor_and_row_shape_proof() {
         let accepted = generated_compatible_accepted_schema_fixture();
-        let descriptor =
-            AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_accepted_schema(
-                &accepted,
-                &RUNTIME_ENTITY_MODEL,
-            )
-            .expect("generated-compatible schema should build checked descriptor");
+        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+            .expect("accepted schema should build descriptor");
+        let shape = descriptor
+            .generated_compatible_row_shape_for_model(&RUNTIME_ENTITY_MODEL)
+            .expect("generated-compatible schema should build row shape proof");
 
         assert_eq!(descriptor.required_slot_count(), 2);
         assert_eq!(descriptor.primary_key_slot_index(), 0);
         assert_eq!(descriptor.primary_key_name(), "id");
         assert_eq!(descriptor.primary_key_kind(), &PersistedFieldKind::Ulid);
+        assert_eq!(shape.required_slot_count(), 2);
+        assert_eq!(shape.primary_key_slot_index(), 0);
         assert_eq!(
             descriptor.field_slot_index_by_name("nickname"),
             Some(1),
@@ -692,6 +731,48 @@ mod tests {
             err.message
                 .contains("accepted row layout field count is not generated-compatible"),
             "unexpected generated-compatible shape error: {}",
+            err.message,
+        );
+    }
+
+    #[test]
+    fn accepted_row_layout_runtime_descriptor_rejects_storage_decode_drift() {
+        let accepted = generated_slot_compatible_accepted_schema_with_nickname_decode(
+            FieldStorageDecode::Value,
+            LeafCodec::Scalar(ScalarCodec::Text),
+        );
+        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+            .expect("slot-compatible accepted schema should build descriptor");
+
+        let err = descriptor
+            .generated_compatible_row_shape_for_model(&RUNTIME_ENTITY_MODEL)
+            .expect_err("storage decode drift must reject generated decoder bridge");
+
+        assert!(
+            err.message
+                .contains("accepted row layout storage decode is not generated-compatible"),
+            "unexpected generated-compatible storage decode error: {}",
+            err.message,
+        );
+    }
+
+    #[test]
+    fn accepted_row_layout_runtime_descriptor_rejects_leaf_codec_drift() {
+        let accepted = generated_slot_compatible_accepted_schema_with_nickname_decode(
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Blob),
+        );
+        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+            .expect("slot-compatible accepted schema should build descriptor");
+
+        let err = descriptor
+            .generated_compatible_row_shape_for_model(&RUNTIME_ENTITY_MODEL)
+            .expect_err("leaf codec drift must reject generated decoder bridge");
+
+        assert!(
+            err.message
+                .contains("accepted row layout leaf codec is not generated-compatible"),
+            "unexpected generated-compatible leaf codec error: {}",
             err.message,
         );
     }

@@ -428,7 +428,9 @@ impl<C: CanisterKind> DbSession<C> {
         let accepted_schema = self.ensure_accepted_schema_snapshot_for_authority(authority)?;
         let accepted_row_layout =
             AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted_schema)?;
-        let authority = authority.with_accepted_row_layout(&accepted_row_layout)?;
+        let row_shape =
+            accepted_row_layout.generated_compatible_row_shape_for_model(authority.model())?;
+        let authority = authority.with_generated_compatible_row_shape(row_shape);
 
         Ok((accepted_schema, authority))
     }
@@ -444,11 +446,9 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
-        let _accepted_row_layout =
-            AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_accepted_schema(
-                &accepted_schema,
-                E::MODEL,
-            )?;
+        let accepted_row_layout =
+            AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted_schema)?;
+        accepted_row_layout.generated_compatible_row_shape_for_model(E::MODEL)?;
 
         Ok(accepted_schema)
     }

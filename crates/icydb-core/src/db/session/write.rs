@@ -180,10 +180,8 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
         let descriptor =
-            AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_accepted_schema(
-                &accepted_schema,
-                E::MODEL,
-            )?;
+            AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted_schema)?;
+        descriptor.generated_compatible_row_shape_for_model(E::MODEL)?;
         validate_structural_patch_absence_policy::<E>(&descriptor, &patch, mode)?;
 
         self.execute_save_with_checked_accepted_schema(
@@ -206,10 +204,8 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
         let descriptor =
-            AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_accepted_schema(
-                &accepted_schema,
-                E::MODEL,
-            )?;
+            AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted_schema)?;
+        descriptor.generated_compatible_row_shape_for_model(E::MODEL)?;
         let mut patch = StructuralPatch::new();
 
         // Phase 1: resolve every caller-provided field name against the

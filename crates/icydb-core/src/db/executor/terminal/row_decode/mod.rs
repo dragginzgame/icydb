@@ -22,7 +22,7 @@ use crate::{
         executor::terminal::{
             RetainedSlotLayout, RetainedSlotRow, RetainedSlotValueMode, page::KernelRow,
         },
-        schema::AcceptedRowLayoutRuntimeDescriptor,
+        schema::AcceptedGeneratedCompatibleRowShape,
     },
     error::InternalError,
     model::{entity::EntityModel, field::FieldModel},
@@ -52,25 +52,23 @@ impl RowLayout {
         }
     }
 
-    /// Build one row layout from accepted runtime row-layout metadata while
-    /// retaining generated field decoders.
+    /// Build one row layout from an already-proven generated-compatible shape.
     ///
-    /// The current data decoder still needs generated `FieldModel` entries to
-    /// decode field payloads. For that reason this bridge accepts only layouts
-    /// whose accepted field slots exactly match generated field indices. Later
-    /// schema evolution work can replace this with accepted-field decoders.
-    pub(in crate::db) fn from_generated_compatible_accepted_descriptor(
+    /// Schema runtime owns the compatibility proof. This constructor only
+    /// projects the proof into the structural row contract consumed by the
+    /// generated decoder bridge.
+    #[must_use]
+    pub(in crate::db) const fn from_generated_compatible_row_shape(
         model: &'static EntityModel,
-        descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
-    ) -> Result<Self, InternalError> {
-        let row_shape = descriptor.generated_compatible_row_shape_for_model(model)?;
+        row_shape: AcceptedGeneratedCompatibleRowShape,
+    ) -> Self {
         let contract = StructuralRowContract::from_model_with_row_shape(
             model,
             row_shape.required_slot_count(),
             row_shape.primary_key_slot_index(),
         );
 
-        Ok(Self { contract })
+        Self { contract }
     }
 
     /// Borrow the frozen field-count authority carried by this layout.
