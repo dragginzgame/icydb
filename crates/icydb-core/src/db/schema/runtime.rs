@@ -6,14 +6,12 @@
 use crate::{
     db::schema::{
         AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedNestedLeafSnapshot,
-        SchemaFieldDefault, SchemaFieldSlot, SchemaVersion,
+        SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaVersion,
     },
     error::InternalError,
     model::{
         entity::EntityModel,
-        field::{
-            FieldInsertGeneration, FieldModel, FieldStorageDecode, FieldWriteManagement, LeafCodec,
-        },
+        field::{FieldModel, FieldStorageDecode, LeafCodec},
     },
 };
 
@@ -51,6 +49,7 @@ pub(in crate::db) struct AcceptedRowLayoutRuntimeField<'a> {
     nested_leaves: &'a [PersistedNestedLeafSnapshot],
     nullable: bool,
     default: SchemaFieldDefault,
+    write_policy: SchemaFieldWritePolicy,
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
     absence_policy: AcceptedFieldAbsencePolicy,
@@ -111,22 +110,70 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
         self.default
     }
 
-    /// Return the accepted payload decode contract.
+    /// Return the accepted database-level write policy for this field.
     #[must_use]
-    pub(in crate::db) const fn storage_decode(&self) -> FieldStorageDecode {
-        self.storage_decode
-    }
-
-    /// Return the accepted leaf codec contract.
-    #[must_use]
-    pub(in crate::db) const fn leaf_codec(&self) -> LeafCodec {
-        self.leaf_codec
+    pub(in crate::db) const fn write_policy(&self) -> SchemaFieldWritePolicy {
+        self.write_policy
     }
 
     /// Return the accepted missing-slot policy for this field.
     #[must_use]
     pub(in crate::db) const fn absence_policy(&self) -> AcceptedFieldAbsencePolicy {
         self.absence_policy
+    }
+
+    /// Return the accepted field-level payload decode contract.
+    #[must_use]
+    pub(in crate::db) const fn decode_contract(&self) -> AcceptedFieldDecodeContract<'a> {
+        AcceptedFieldDecodeContract {
+            field_name: self.name,
+            kind: self.kind,
+            storage_decode: self.storage_decode,
+            leaf_codec: self.leaf_codec,
+        }
+    }
+}
+
+///
+/// AcceptedFieldDecodeContract
+///
+/// AcceptedFieldDecodeContract is the field-level decode shape accepted schema
+/// exposes to generated-compatible row-layout checks. It exists so the bridge
+/// compares one named contract instead of reopening individual field facts in
+/// executor or data decode code.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedFieldDecodeContract<'a> {
+    field_name: &'a str,
+    kind: &'a PersistedFieldKind,
+    storage_decode: FieldStorageDecode,
+    leaf_codec: LeafCodec,
+}
+
+impl<'a> AcceptedFieldDecodeContract<'a> {
+    /// Borrow the accepted field name that owns this decode contract.
+    #[must_use]
+    pub(in crate::db) const fn field_name(&self) -> &'a str {
+        self.field_name
+    }
+
+    /// Borrow the accepted persisted field kind for decode.
+    #[must_use]
+    pub(in crate::db) const fn kind(&self) -> &'a PersistedFieldKind {
+        self.kind
+    }
+
+    /// Return the accepted storage decode lane.
+    #[must_use]
+    pub(in crate::db) const fn storage_decode(&self) -> FieldStorageDecode {
+        self.storage_decode
+    }
+
+    /// Return the accepted scalar/structural leaf codec.
+    #[must_use]
+    pub(in crate::db) const fn leaf_codec(&self) -> LeafCodec {
+        self.leaf_codec
     }
 }
 
@@ -156,44 +203,6 @@ impl AcceptedGeneratedCompatibleRowShape {
     #[must_use]
     pub(in crate::db) const fn primary_key_slot_index(self) -> usize {
         self.primary_key_slot_index
-    }
-}
-
-///
-/// GeneratedCompatibleFieldWritePolicy
-///
-/// GeneratedCompatibleFieldWritePolicy is the temporary write-policy view for
-/// accepted layouts that are still proven generated-compatible.
-/// It lets write admission ask the accepted descriptor for generated/managed
-/// ownership facts without reopening generated field lookup at each call site.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct GeneratedCompatibleFieldWritePolicy {
-    insert_generation: Option<FieldInsertGeneration>,
-    write_management: Option<FieldWriteManagement>,
-}
-
-impl GeneratedCompatibleFieldWritePolicy {
-    /// Build one write-policy view from a generated field model.
-    #[must_use]
-    const fn from_generated_field(field: &'static FieldModel) -> Self {
-        Self {
-            insert_generation: field.insert_generation(),
-            write_management: field.write_management(),
-        }
-    }
-
-    /// Return the insert-time generated value contract, when present.
-    #[must_use]
-    pub(in crate::db) const fn insert_generation(self) -> Option<FieldInsertGeneration> {
-        self.insert_generation
-    }
-
-    /// Return the write-managed field contract, when present.
-    #[must_use]
-    pub(in crate::db) const fn write_management(self) -> Option<FieldWriteManagement> {
-        self.write_management
     }
 }
 
@@ -252,6 +261,7 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
                 nested_leaves: field.nested_leaves(),
                 nullable: field.nullable(),
                 default: field.default(),
+                write_policy: field.write_policy(),
                 storage_decode: field.storage_decode(),
                 leaf_codec: field.leaf_codec(),
                 absence_policy: accepted_field_absence_policy(field.nullable(), field.default()),
@@ -382,79 +392,6 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
             .map(AcceptedRowLayoutRuntimeField::kind)
     }
 
-    // Borrow the generated field that currently backs one accepted slot. This
-    // private helper is kept below the descriptor boundary so external write
-    // callers consume a policy view rather than generated `FieldModel` facts.
-    fn generated_field_for_accepted_slot_index(
-        &self,
-        model: &'static EntityModel,
-        slot: usize,
-    ) -> Option<&'static FieldModel> {
-        self.field_for_slot_index(slot)?;
-
-        model.fields().get(slot)
-    }
-
-    // Borrow the generated field that currently backs one accepted field name.
-    // The public bridge exposes only write-policy facts because generated field
-    // metadata must not spread back into SQL/session call sites.
-    fn generated_field_for_accepted_name(
-        &self,
-        model: &'static EntityModel,
-        name: &str,
-    ) -> Option<&'static FieldModel> {
-        let slot = self.field_slot_index_by_name(name)?;
-
-        self.generated_field_for_accepted_slot_index(model, slot)
-    }
-
-    /// Return generated write-policy facts for one accepted physical slot.
-    ///
-    /// The returned policy exists only for generated-compatible descriptors:
-    /// persisted schema snapshots do not yet store generated/managed write
-    /// facts, so this remains an explicit bridge until those facts move into
-    /// accepted schema metadata.
-    #[must_use]
-    pub(in crate::db) fn generated_write_policy_for_accepted_slot_index(
-        &self,
-        model: &'static EntityModel,
-        slot: usize,
-    ) -> Option<GeneratedCompatibleFieldWritePolicy> {
-        self.generated_field_for_accepted_slot_index(model, slot)
-            .map(GeneratedCompatibleFieldWritePolicy::from_generated_field)
-    }
-
-    /// Return generated write-policy facts for one descriptor-owned field.
-    ///
-    /// Callers that already iterate `descriptor.fields()` use this overload to
-    /// avoid resolving the accepted field name back through the descriptor
-    /// before crossing the temporary generated-compatible policy bridge.
-    #[must_use]
-    pub(in crate::db) fn generated_write_policy_for_accepted_field(
-        &self,
-        model: &'static EntityModel,
-        field: &AcceptedRowLayoutRuntimeField<'_>,
-    ) -> Option<GeneratedCompatibleFieldWritePolicy> {
-        let slot = usize::from(field.slot().get());
-
-        self.generated_write_policy_for_accepted_slot_index(model, slot)
-    }
-
-    /// Return generated write-policy facts for one accepted field name.
-    ///
-    /// SQL and structural-write admission use this after names have crossed
-    /// accepted schema lookup, avoiding open-coded generated field access in
-    /// every write helper.
-    #[must_use]
-    pub(in crate::db) fn generated_write_policy_for_accepted_name(
-        &self,
-        model: &'static EntityModel,
-        name: &str,
-    ) -> Option<GeneratedCompatibleFieldWritePolicy> {
-        self.generated_field_for_accepted_name(model, name)
-            .map(GeneratedCompatibleFieldWritePolicy::from_generated_field)
-    }
-
     /// Return the row shape when this accepted layout can still use generated field codecs.
     ///
     /// The row decoder remains generated-codec backed until accepted-field
@@ -523,30 +460,31 @@ fn ensure_generated_field_decode_contract_compatible(
     accepted_field: &AcceptedRowLayoutRuntimeField<'_>,
     generated_field: &FieldModel,
 ) -> Result<(), InternalError> {
+    let accepted_contract = accepted_field.decode_contract();
     let generated_kind = PersistedFieldKind::from_model_kind(generated_field.kind());
-    if accepted_field.kind() != &generated_kind {
+    if accepted_contract.kind() != &generated_kind {
         return Err(InternalError::store_invariant(format!(
             "accepted row layout kind is not generated-compatible: field='{}' accepted_kind={:?} generated_kind={:?}",
-            generated_field.name(),
-            accepted_field.kind(),
+            accepted_contract.field_name(),
+            accepted_contract.kind(),
             generated_kind,
         )));
     }
 
-    if accepted_field.storage_decode() != generated_field.storage_decode() {
+    if accepted_contract.storage_decode() != generated_field.storage_decode() {
         return Err(InternalError::store_invariant(format!(
             "accepted row layout storage decode is not generated-compatible: field='{}' accepted_storage_decode={:?} generated_storage_decode={:?}",
-            generated_field.name(),
-            accepted_field.storage_decode(),
+            accepted_contract.field_name(),
+            accepted_contract.storage_decode(),
             generated_field.storage_decode(),
         )));
     }
 
-    if accepted_field.leaf_codec() != generated_field.leaf_codec() {
+    if accepted_contract.leaf_codec() != generated_field.leaf_codec() {
         return Err(InternalError::store_invariant(format!(
             "accepted row layout leaf codec is not generated-compatible: field='{}' accepted_leaf_codec={:?} generated_leaf_codec={:?}",
-            generated_field.name(),
-            accepted_field.leaf_codec(),
+            accepted_contract.field_name(),
+            accepted_contract.leaf_codec(),
             generated_field.leaf_codec(),
         )));
     }
@@ -575,11 +513,11 @@ mod tests {
     use crate::{
         db::schema::{
             AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
-            PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout,
-            SchemaVersion,
+            PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy,
+            SchemaRowLayout, SchemaVersion,
             runtime::{
                 AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeDescriptor,
-                AcceptedRowLayoutRuntimeField, GeneratedCompatibleFieldWritePolicy,
+                AcceptedRowLayoutRuntimeField,
             },
         },
         model::{
@@ -785,7 +723,7 @@ mod tests {
                     FieldStorageDecode::ByKind,
                     LeafCodec::Scalar(ScalarCodec::Ulid),
                 ),
-                PersistedFieldSnapshot::new(
+                PersistedFieldSnapshot::new_with_write_policy(
                     FieldId::new(2),
                     "token".to_string(),
                     SchemaFieldSlot::new(1),
@@ -793,10 +731,14 @@ mod tests {
                     Vec::new(),
                     false,
                     SchemaFieldDefault::None,
+                    SchemaFieldWritePolicy::from_model_policies(
+                        Some(FieldInsertGeneration::Ulid),
+                        None,
+                    ),
                     FieldStorageDecode::ByKind,
                     LeafCodec::Scalar(ScalarCodec::Ulid),
                 ),
-                PersistedFieldSnapshot::new(
+                PersistedFieldSnapshot::new_with_write_policy(
                     FieldId::new(3),
                     "updated_at".to_string(),
                     SchemaFieldSlot::new(2),
@@ -804,6 +746,10 @@ mod tests {
                     Vec::new(),
                     false,
                     SchemaFieldDefault::None,
+                    SchemaFieldWritePolicy::from_model_policies(
+                        None,
+                        Some(FieldWriteManagement::UpdatedAt),
+                    ),
                     FieldStorageDecode::ByKind,
                     LeafCodec::Scalar(ScalarCodec::Timestamp),
                 ),
@@ -835,8 +781,15 @@ mod tests {
             AcceptedFieldAbsencePolicy::NullIfMissing
         );
         assert_eq!(nickname.default(), SchemaFieldDefault::None);
-        assert_eq!(nickname.storage_decode(), FieldStorageDecode::ByKind);
-        assert_eq!(nickname.leaf_codec(), LeafCodec::Scalar(ScalarCodec::Text));
+        let nickname_decode_contract = nickname.decode_contract();
+        assert_eq!(
+            nickname_decode_contract.storage_decode(),
+            FieldStorageDecode::ByKind,
+        );
+        assert_eq!(
+            nickname_decode_contract.leaf_codec(),
+            LeafCodec::Scalar(ScalarCodec::Text),
+        );
         assert!(matches!(
             nickname.kind(),
             PersistedFieldKind::Text { max_len: Some(32) },
@@ -912,24 +865,18 @@ mod tests {
             Some("nickname"),
             "checked descriptor should resolve accepted physical slots by index",
         );
+        let nickname_field = descriptor
+            .field_by_name("nickname")
+            .expect("nickname should resolve accepted descriptor field");
         assert_eq!(
-            descriptor
-                .generated_write_policy_for_accepted_name(&RUNTIME_ENTITY_MODEL, "nickname")
-                .map(GeneratedCompatibleFieldWritePolicy::insert_generation),
-            Some(None),
-            "generated-compatible descriptor should project accepted names to write-policy facts",
-        );
-        assert_eq!(
-            descriptor
-                .generated_write_policy_for_accepted_slot_index(&RUNTIME_ENTITY_MODEL, 1)
-                .map(GeneratedCompatibleFieldWritePolicy::write_management),
-            Some(None),
-            "generated-compatible descriptor should project accepted slots to write-policy facts",
+            nickname_field.write_policy().insert_generation(),
+            None,
+            "generated-compatible descriptor should project accepted fields to write-policy facts",
         );
     }
 
     #[test]
-    fn accepted_row_layout_runtime_descriptor_projects_generated_write_policy() {
+    fn accepted_row_layout_runtime_descriptor_projects_persisted_write_policy() {
         let accepted = write_policy_accepted_schema_fixture();
         let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
             .expect("write-policy accepted schema should build descriptor");
@@ -937,30 +884,20 @@ mod tests {
             .generated_compatible_row_shape_for_model(&WRITE_POLICY_ENTITY_MODEL)
             .expect("write-policy schema should remain generated-compatible");
 
-        let token_policy = descriptor
-            .generated_write_policy_for_accepted_name(&WRITE_POLICY_ENTITY_MODEL, "token")
-            .expect("token should resolve generated write policy by accepted name");
+        let token_field = descriptor
+            .field_by_name("token")
+            .expect("token should resolve accepted descriptor field");
+        let token_policy = token_field.write_policy();
         assert_eq!(
             token_policy.insert_generation(),
             Some(FieldInsertGeneration::Ulid)
         );
         assert_eq!(token_policy.write_management(), None);
 
-        let updated_at_policy = descriptor
-            .generated_write_policy_for_accepted_slot_index(&WRITE_POLICY_ENTITY_MODEL, 2)
-            .expect("updated_at should resolve generated write policy by accepted slot");
-        assert_eq!(updated_at_policy.insert_generation(), None);
-        assert_eq!(
-            updated_at_policy.write_management(),
-            Some(FieldWriteManagement::UpdatedAt)
-        );
-
         let updated_at_field = descriptor
             .field_by_name("updated_at")
             .expect("updated_at should resolve accepted descriptor field");
-        let updated_at_policy_from_field = descriptor
-            .generated_write_policy_for_accepted_field(&WRITE_POLICY_ENTITY_MODEL, updated_at_field)
-            .expect("updated_at should resolve generated write policy by accepted field");
+        let updated_at_policy_from_field = updated_at_field.write_policy();
         assert_eq!(
             updated_at_policy_from_field.write_management(),
             Some(FieldWriteManagement::UpdatedAt),

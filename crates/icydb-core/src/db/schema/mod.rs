@@ -49,12 +49,11 @@ pub(in crate::db) use reconcile::{ensure_accepted_schema_snapshot, reconcile_run
 pub(in crate::db) use runtime::{
     AcceptedFieldAbsencePolicy, AcceptedGeneratedCompatibleRowShape,
     AcceptedRowLayoutRuntimeDescriptor, AcceptedRowLayoutRuntimeField,
-    GeneratedCompatibleFieldWritePolicy,
 };
 pub(in crate::db) use snapshot::{
     AcceptedSchemaSnapshot, PersistedEnumVariant, PersistedFieldKind, PersistedFieldSnapshot,
     PersistedNestedLeafSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,
-    SchemaFieldDefault,
+    SchemaFieldDefault, SchemaFieldWritePolicy,
 };
 pub use store::SchemaStore;
 pub(in crate::db::schema) use transition::{

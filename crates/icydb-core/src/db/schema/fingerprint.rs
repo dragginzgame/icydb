@@ -10,14 +10,14 @@ use crate::{
         index::canonical_index_predicate,
         predicate::hash_predicate,
         schema::{
-            AcceptedSchemaSnapshot, compiled_schema_proposal_for_model,
+            AcceptedSchemaSnapshot, SchemaFieldWritePolicy, compiled_schema_proposal_for_model,
             encode_persisted_schema_snapshot,
         },
     },
     error::InternalError,
     model::{
         EntityModel,
-        field::FieldKind,
+        field::{FieldInsertGeneration, FieldKind, FieldWriteManagement},
         index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
     },
     traits::EntityKind,
@@ -30,7 +30,7 @@ thread_local! {
         RefCell<HashMap<TypeId, CommitSchemaFingerprint>> = RefCell::new(HashMap::new());
 }
 
-const COMMIT_SCHEMA_FINGERPRINT_VERSION: u8 = 2;
+const COMMIT_SCHEMA_FINGERPRINT_VERSION: u8 = 3;
 const ACCEPTED_SCHEMA_CACHE_FINGERPRINT_VERSION: u8 = 1;
 
 const INDEX_KEY_ITEM_FIELD_TAG: u8 = 0x00;
@@ -38,6 +38,12 @@ const INDEX_KEY_ITEM_EXPRESSION_TAG: u8 = 0x01;
 
 const INDEX_PREDICATE_NONE_TAG: u8 = 0x00;
 const INDEX_PREDICATE_SEMANTIC_TAG: u8 = 0x01;
+const FIELD_INSERT_GENERATION_NONE_TAG: u8 = 0x00;
+const FIELD_INSERT_GENERATION_ULID_TAG: u8 = 0x01;
+const FIELD_INSERT_GENERATION_TIMESTAMP_TAG: u8 = 0x02;
+const FIELD_WRITE_MANAGEMENT_NONE_TAG: u8 = 0x00;
+const FIELD_WRITE_MANAGEMENT_CREATED_AT_TAG: u8 = 0x01;
+const FIELD_WRITE_MANAGEMENT_UPDATED_AT_TAG: u8 = 0x02;
 
 /// SchemaFingerprint
 ///
@@ -54,6 +60,8 @@ const INDEX_PREDICATE_SEMANTIC_TAG: u8 = 0x01;
 ///
 /// It does represent schema-level bounded-text limits because those affect
 /// write admissibility without changing field order or storage encoding.
+/// It also represents generated and managed write policy because those decide
+/// which fields may be omitted or explicitly written.
 ///
 /// Therefore, this is a structural identity fingerprint, not a full
 /// compatibility hash.
@@ -96,10 +104,10 @@ pub(crate) fn commit_schema_fingerprint_for_model(
 
     // Phase 2: hash the macro-generated entity schema contract consumed by
     // prepare/replay planning. Today's contract tracks entity identity, primary
-    // key name, field slot names/count, bounded-text limits, and index definitions.
+    // key name, field slot names/count, bounded-text limits, write policy, and index definitions.
     // It intentionally does not track general field kind, nullability, decimal
-    // scale, storage decode, or write-management metadata; tests below pin that
-    // behavior before any future contract expansion.
+    // scale, or storage decode; tests below pin that behavior before any future
+    // contract expansion.
     hash_entity_model_for_commit(&mut hasher, model);
 
     truncate_sha256_commit_schema_fingerprint(hasher)
@@ -143,6 +151,7 @@ fn hash_entity_model_for_commit(hasher: &mut Sha256, model: &EntityModel) {
     for field in proposal.fields() {
         hash_labeled_str(hasher, "field_name", field.name());
         hash_field_text_max_len_contract(hasher, &field.kind());
+        hash_field_write_policy_contract(hasher, field.write_policy());
     }
 
     // Phase 2: hash index contract details (names, stores, uniqueness, fields).
@@ -173,6 +182,22 @@ fn hash_field_text_max_len_contract(hasher: &mut Sha256, kind: &FieldKind) {
         }
         _ => hash_labeled_tag(hasher, "field_text_max_len_kind", 0),
     }
+}
+
+fn hash_field_write_policy_contract(hasher: &mut Sha256, policy: SchemaFieldWritePolicy) {
+    let insert_generation_tag = match policy.insert_generation() {
+        Some(FieldInsertGeneration::Ulid) => FIELD_INSERT_GENERATION_ULID_TAG,
+        Some(FieldInsertGeneration::Timestamp) => FIELD_INSERT_GENERATION_TIMESTAMP_TAG,
+        None => FIELD_INSERT_GENERATION_NONE_TAG,
+    };
+    hash_labeled_tag(hasher, "field_insert_generation", insert_generation_tag);
+
+    let write_management_tag = match policy.write_management() {
+        Some(FieldWriteManagement::CreatedAt) => FIELD_WRITE_MANAGEMENT_CREATED_AT_TAG,
+        Some(FieldWriteManagement::UpdatedAt) => FIELD_WRITE_MANAGEMENT_UPDATED_AT_TAG,
+        None => FIELD_WRITE_MANAGEMENT_NONE_TAG,
+    };
+    hash_labeled_tag(hasher, "field_write_management", write_management_tag);
 }
 
 fn hash_index_key_items_contract(hasher: &mut Sha256, index: &IndexModel) {
@@ -258,7 +283,10 @@ mod tests {
         db::schema::fingerprint::{hash_entity_model_for_commit, hash_labeled_str},
         model::{
             entity::EntityModel,
-            field::{FieldKind, FieldModel, FieldStorageDecode},
+            field::{
+                FieldInsertGeneration, FieldKind, FieldModel, FieldStorageDecode,
+                FieldWriteManagement,
+            },
             index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
         },
     };
@@ -301,6 +329,28 @@ mod tests {
     static CONTRACT_TEXT_MAX_LEN_FIELDS: [FieldModel; 2] = [
         FieldModel::generated("id", FieldKind::Ulid),
         FieldModel::generated("value", FieldKind::Text { max_len: Some(16) }),
+    ];
+    static CONTRACT_WRITE_POLICY_FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated_with_storage_decode_nullability_and_write_policies(
+            "value",
+            FieldKind::Timestamp,
+            FieldStorageDecode::ByKind,
+            false,
+            None,
+            Some(FieldWriteManagement::UpdatedAt),
+        ),
+    ];
+    static CONTRACT_INSERT_GENERATION_FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated_with_storage_decode_nullability_and_write_policies(
+            "value",
+            FieldKind::Ulid,
+            FieldStorageDecode::ByKind,
+            false,
+            Some(FieldInsertGeneration::Ulid),
+            None,
+        ),
     ];
     static CONTRACT_DECIMAL_SCALE_2_FIELDS: [FieldModel; 2] = [
         FieldModel::generated("id", FieldKind::Ulid),
@@ -476,6 +526,22 @@ mod tests {
         &CONTRACT_TEXT_MAX_LEN_FIELDS,
         &EMPTY_INDEX_REFS,
     );
+    static CONTRACT_WRITE_POLICY_MODEL: EntityModel = EntityModel::generated(
+        "fingerprint::ContractEntity",
+        "ContractEntity",
+        &CONTRACT_WRITE_POLICY_FIELDS[0],
+        0,
+        &CONTRACT_WRITE_POLICY_FIELDS,
+        &EMPTY_INDEX_REFS,
+    );
+    static CONTRACT_INSERT_GENERATION_MODEL: EntityModel = EntityModel::generated(
+        "fingerprint::ContractEntity",
+        "ContractEntity",
+        &CONTRACT_INSERT_GENERATION_FIELDS[0],
+        0,
+        &CONTRACT_INSERT_GENERATION_FIELDS,
+        &EMPTY_INDEX_REFS,
+    );
     static CONTRACT_DECIMAL_SCALE_2_MODEL: EntityModel = EntityModel::generated(
         "fingerprint::ContractEntity",
         "ContractEntity",
@@ -553,6 +619,20 @@ mod tests {
             fingerprint_for_model(&CONTRACT_BASE_MODEL),
             fingerprint_for_model(&CONTRACT_TEXT_MAX_LEN_MODEL),
             "text max_len changes write admissibility and must change commit schema fingerprint",
+        );
+    }
+
+    #[test]
+    fn schema_fingerprint_tracks_field_write_policy_contract() {
+        assert_ne!(
+            fingerprint_for_model(&CONTRACT_BASE_MODEL),
+            fingerprint_for_model(&CONTRACT_WRITE_POLICY_MODEL),
+            "managed write policy changes write admissibility and must change commit schema fingerprint",
+        );
+        assert_ne!(
+            fingerprint_for_model(&CONTRACT_BASE_MODEL),
+            fingerprint_for_model(&CONTRACT_INSERT_GENERATION_MODEL),
+            "insert generation changes write admissibility and must change commit schema fingerprint",
         );
     }
 

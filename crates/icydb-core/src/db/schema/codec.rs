@@ -7,17 +7,19 @@ use crate::{
     db::schema::{
         FieldId, PersistedEnumVariant, PersistedFieldKind, PersistedFieldSnapshot,
         PersistedNestedLeafSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,
-        SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
-        schema_snapshot_integrity_detail,
+        SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout,
+        SchemaVersion, schema_snapshot_integrity_detail,
     },
     error::InternalError,
-    model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
+    model::field::{
+        FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec, ScalarCodec,
+    },
     types::EntityTag,
 };
 use candid::{CandidType, Decode, Encode};
 use serde::Deserialize;
 
-const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 1;
+const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 2;
 
 // Candid wire container for one persisted schema snapshot.
 //
@@ -51,6 +53,7 @@ struct PersistedFieldSnapshotWire {
     nested_leaves: Vec<PersistedNestedLeafSnapshotWire>,
     nullable: bool,
     default: SchemaFieldDefaultWire,
+    write_policy: SchemaFieldWritePolicyWire,
     storage_decode: FieldStorageDecodeWire,
     leaf_codec: LeafCodecWire,
 }
@@ -69,6 +72,27 @@ struct PersistedNestedLeafSnapshotWire {
 #[derive(CandidType, Deserialize)]
 enum SchemaFieldDefaultWire {
     None,
+}
+
+// Candid wire container for database-level write policy metadata.
+#[derive(CandidType, Deserialize)]
+struct SchemaFieldWritePolicyWire {
+    insert_generation: Option<FieldInsertGenerationWire>,
+    write_management: Option<FieldWriteManagementWire>,
+}
+
+// Candid wire enum for insert-time generated value metadata.
+#[derive(CandidType, Deserialize)]
+enum FieldInsertGenerationWire {
+    Ulid,
+    Timestamp,
+}
+
+// Candid wire enum for managed write metadata.
+#[derive(CandidType, Deserialize)]
+enum FieldWriteManagementWire {
+    CreatedAt,
+    UpdatedAt,
 }
 
 // Candid wire enum for the complete persisted field-kind shape.
@@ -288,13 +312,14 @@ impl PersistedFieldSnapshotWire {
                 .collect(),
             nullable: field.nullable(),
             default: SchemaFieldDefaultWire::from_default(field.default()),
+            write_policy: SchemaFieldWritePolicyWire::from_policy(field.write_policy()),
             storage_decode: FieldStorageDecodeWire::from_storage_decode(field.storage_decode()),
             leaf_codec: LeafCodecWire::from_leaf_codec(field.leaf_codec()),
         }
     }
 
     fn into_field(self) -> Result<PersistedFieldSnapshot, InternalError> {
-        Ok(PersistedFieldSnapshot::new(
+        Ok(PersistedFieldSnapshot::new_with_write_policy(
             FieldId::new(self.id),
             self.name,
             SchemaFieldSlot::new(self.slot),
@@ -305,6 +330,7 @@ impl PersistedFieldSnapshotWire {
                 .collect::<Result<Vec<_>, _>>()?,
             self.nullable,
             self.default.into_default(),
+            self.write_policy.into_policy(),
             self.storage_decode.into_storage_decode(),
             self.leaf_codec.into_leaf_codec(),
         ))
@@ -344,6 +370,42 @@ impl SchemaFieldDefaultWire {
         match self {
             Self::None => SchemaFieldDefault::None,
         }
+    }
+}
+
+impl SchemaFieldWritePolicyWire {
+    const fn from_policy(policy: SchemaFieldWritePolicy) -> Self {
+        Self {
+            insert_generation: match policy.insert_generation() {
+                Some(FieldInsertGeneration::Ulid) => Some(FieldInsertGenerationWire::Ulid),
+                Some(FieldInsertGeneration::Timestamp) => {
+                    Some(FieldInsertGenerationWire::Timestamp)
+                }
+                None => None,
+            },
+            write_management: match policy.write_management() {
+                Some(FieldWriteManagement::CreatedAt) => Some(FieldWriteManagementWire::CreatedAt),
+                Some(FieldWriteManagement::UpdatedAt) => Some(FieldWriteManagementWire::UpdatedAt),
+                None => None,
+            },
+        }
+    }
+
+    const fn into_policy(self) -> SchemaFieldWritePolicy {
+        SchemaFieldWritePolicy::from_model_policies(
+            match self.insert_generation {
+                Some(FieldInsertGenerationWire::Ulid) => Some(FieldInsertGeneration::Ulid),
+                Some(FieldInsertGenerationWire::Timestamp) => {
+                    Some(FieldInsertGeneration::Timestamp)
+                }
+                None => None,
+            },
+            match self.write_management {
+                Some(FieldWriteManagementWire::CreatedAt) => Some(FieldWriteManagement::CreatedAt),
+                Some(FieldWriteManagementWire::UpdatedAt) => Some(FieldWriteManagement::UpdatedAt),
+                None => None,
+            },
+        )
     }
 }
 
@@ -577,9 +639,15 @@ impl ScalarCodecWire {
 
 #[cfg(test)]
 mod tests {
-    use crate::db::schema::{
-        FieldId, PersistedSchemaSnapshot, SchemaRowLayout, SchemaVersion,
-        decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
+    use crate::{
+        db::schema::{
+            FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedSchemaSnapshot,
+            SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout,
+            SchemaVersion, decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
+        },
+        model::field::{
+            FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec, ScalarCodec,
+        },
     };
 
     #[test]
@@ -602,6 +670,71 @@ mod tests {
             err.message()
                 .contains("persisted schema snapshot row-layout version mismatch"),
             "schema codec should report the decoded version invariant"
+        );
+    }
+
+    #[test]
+    fn persisted_schema_snapshot_round_trips_field_write_policy() {
+        let snapshot = PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "entities::WritePolicy".to_string(),
+            "WritePolicy".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new_with_write_policy(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    SchemaFieldWritePolicy::from_model_policies(
+                        Some(FieldInsertGeneration::Ulid),
+                        None,
+                    ),
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new_with_write_policy(
+                    FieldId::new(2),
+                    "updated_at".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Timestamp,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    SchemaFieldWritePolicy::from_model_policies(
+                        None,
+                        Some(FieldWriteManagement::UpdatedAt),
+                    ),
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Timestamp),
+                ),
+            ],
+        );
+        let encoded = encode_persisted_schema_snapshot(&snapshot)
+            .expect("schema snapshot should encode persisted write policy");
+
+        let decoded = decode_persisted_schema_snapshot(&encoded)
+            .expect("schema snapshot should decode persisted write policy");
+
+        assert_eq!(
+            decoded.fields()[0].write_policy().insert_generation(),
+            Some(FieldInsertGeneration::Ulid),
+            "insert generation should survive schema snapshot round-trip",
+        );
+        assert_eq!(
+            decoded.fields()[1].write_policy().write_management(),
+            Some(FieldWriteManagement::UpdatedAt),
+            "managed write policy should survive schema snapshot round-trip",
         );
     }
 }

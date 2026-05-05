@@ -50,7 +50,7 @@ where
     if matches!(mode, MutationMode::Update) {
         return Ok(());
     }
-    if patch_explicitly_writes_generated_field::<E>(descriptor, patch) {
+    if patch_explicitly_writes_generated_field(descriptor, patch) {
         return Ok(());
     }
 
@@ -89,23 +89,16 @@ where
 // this session check avoids masking that more specific generated-field policy
 // error with unrelated omitted-field errors on malformed create/replace
 // patches.
-fn patch_explicitly_writes_generated_field<E>(
+fn patch_explicitly_writes_generated_field(
     descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
     patch: &StructuralPatch,
-) -> bool
-where
-    E: PersistedRow + EntityValue,
-{
+) -> bool {
     patch.entries().iter().any(|entry| {
         let slot = entry.slot().index();
         let Some(accepted_field) = descriptor.field_for_slot_index(slot) else {
             return false;
         };
-        let Some(write_policy) =
-            descriptor.generated_write_policy_for_accepted_slot_index(E::MODEL, slot)
-        else {
-            return false;
-        };
+        let write_policy = accepted_field.write_policy();
 
         write_policy.insert_generation().is_some()
             && accepted_field.name() != descriptor.primary_key_name()

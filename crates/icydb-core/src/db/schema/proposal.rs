@@ -6,8 +6,8 @@
 use crate::{
     db::schema::{
         FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedNestedLeafSnapshot,
-        PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout,
-        SchemaVersion, sql_capabilities,
+        PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy,
+        SchemaRowLayout, SchemaVersion, sql_capabilities,
     },
     model::{
         entity::EntityModel,
@@ -120,6 +120,7 @@ pub(in crate::db) struct CompiledFieldProposal {
     nested_leaves: Vec<PersistedNestedLeafSnapshot>,
     nullable: bool,
     database_default: FieldDatabaseDefault,
+    write_policy: SchemaFieldWritePolicy,
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
 }
@@ -167,6 +168,12 @@ impl CompiledFieldProposal {
         self.database_default
     }
 
+    /// Return the generated database-level write policy.
+    #[must_use]
+    pub(in crate::db) const fn write_policy(&self) -> SchemaFieldWritePolicy {
+        self.write_policy
+    }
+
     /// Return the generated persisted decode contract.
     #[must_use]
     pub(in crate::db) const fn storage_decode(&self) -> FieldStorageDecode {
@@ -186,7 +193,7 @@ impl CompiledFieldProposal {
     /// authority by this projection.
     #[must_use]
     pub(in crate::db) fn initial_persisted_field_snapshot(&self) -> PersistedFieldSnapshot {
-        PersistedFieldSnapshot::new(
+        PersistedFieldSnapshot::new_with_write_policy(
             self.id(),
             self.name().to_string(),
             self.slot(),
@@ -194,6 +201,7 @@ impl CompiledFieldProposal {
             self.nested_leaves().to_vec(),
             self.nullable(),
             SchemaFieldDefault::from_model_default(self.database_default()),
+            self.write_policy(),
             self.storage_decode(),
             self.leaf_codec(),
         )
@@ -290,6 +298,7 @@ fn debug_assert_compiled_schema_proposal_invariants(
             field.kind(),
             field.nullable(),
             field.database_default(),
+            field.write_policy(),
             field.storage_decode(),
             field.leaf_codec(),
             field.nested_leaves(),
@@ -314,6 +323,10 @@ fn compiled_field_proposal_from_model_field(
         nested_leaves: persisted_nested_leaf_snapshots_from_model_fields(field.nested_fields()),
         nullable: field.nullable(),
         database_default: field.database_default(),
+        write_policy: SchemaFieldWritePolicy::from_model_policies(
+            field.insert_generation(),
+            field.write_management(),
+        ),
         storage_decode: field.storage_decode(),
         leaf_codec: field.leaf_codec(),
     }

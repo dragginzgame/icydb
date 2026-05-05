@@ -5,7 +5,7 @@ use crate::{
         executor::{EntityAuthority, MutationMode},
         schema::{
             AcceptedRowLayoutRuntimeDescriptor, AcceptedRowLayoutRuntimeField,
-            AcceptedSchemaSnapshot, GeneratedCompatibleFieldWritePolicy, SchemaInfo, ValidateError,
+            AcceptedSchemaSnapshot, SchemaFieldWritePolicy, SchemaInfo, ValidateError,
             canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_persisted_kind,
             literal_matches_type,
         },
@@ -102,43 +102,23 @@ fn sql_write_patch_set_accepted_field(
     Ok(patch.set(slot, value))
 }
 
-fn generated_write_policy_for_accepted_name<E>(
+fn write_policy_for_accepted_name(
     descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
     field_name: &str,
-) -> Result<GeneratedCompatibleFieldWritePolicy, QueryError>
-where
-    E: EntityKind,
-{
-    if descriptor.field_by_name(field_name).is_none() {
+) -> Result<SchemaFieldWritePolicy, QueryError> {
+    let Some(field) = descriptor.field_by_name(field_name) else {
         return Err(QueryError::invariant(
             "SQL write field must resolve against accepted schema metadata",
         ));
-    }
-
-    let Some(policy) = descriptor.generated_write_policy_for_accepted_name(E::MODEL, field_name)
-    else {
-        return Err(QueryError::invariant(
-            "generated-compatible accepted schema field slot must resolve generated write policy",
-        ));
     };
 
-    Ok(policy)
+    Ok(field.write_policy())
 }
 
-fn generated_write_policy_for_accepted_field<E>(
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+const fn write_policy_for_accepted_field(
     field: &AcceptedRowLayoutRuntimeField<'_>,
-) -> Result<GeneratedCompatibleFieldWritePolicy, QueryError>
-where
-    E: EntityKind,
-{
-    descriptor
-        .generated_write_policy_for_accepted_field(E::MODEL, field)
-        .ok_or_else(|| {
-            QueryError::invariant(
-                "generated-compatible accepted schema field slot must resolve generated write policy",
-            )
-        })
+) -> SchemaFieldWritePolicy {
+    field.write_policy()
 }
 
 fn sql_write_generated_field_value(generation: FieldInsertGeneration) -> Value {
@@ -170,15 +150,12 @@ fn sql_write_value_for_accepted_field(
     Ok(normalized)
 }
 
-fn reject_explicit_sql_write_to_managed_field<E>(
+fn reject_explicit_sql_write_to_managed_field(
     descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
     field_name: &str,
     statement_kind: &str,
-) -> Result<(), QueryError>
-where
-    E: EntityKind,
-{
-    let Ok(policy) = generated_write_policy_for_accepted_name::<E>(descriptor, field_name) else {
+) -> Result<(), QueryError> {
+    let Ok(policy) = write_policy_for_accepted_name(descriptor, field_name) else {
         return Ok(());
     };
 
@@ -191,15 +168,12 @@ where
     Ok(())
 }
 
-fn reject_explicit_sql_write_to_generated_field<E>(
+fn reject_explicit_sql_write_to_generated_field(
     descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
     field_name: &str,
     statement_kind: &str,
-) -> Result<(), QueryError>
-where
-    E: EntityKind,
-{
-    let Ok(policy) = generated_write_policy_for_accepted_name::<E>(descriptor, field_name) else {
+) -> Result<(), QueryError> {
+    let Ok(policy) = write_policy_for_accepted_name(descriptor, field_name) else {
         return Ok(());
     };
 
@@ -212,7 +186,7 @@ where
     Ok(())
 }
 
-const fn sql_insert_field_is_omittable(policy: GeneratedCompatibleFieldWritePolicy) -> bool {
+const fn sql_insert_field_is_omittable(policy: SchemaFieldWritePolicy) -> bool {
     if policy.insert_generation().is_some() {
         return true;
     }
@@ -220,44 +194,23 @@ const fn sql_insert_field_is_omittable(policy: GeneratedCompatibleFieldWritePoli
     policy.write_management().is_some()
 }
 
-fn sql_insert_accepted_field_is_omittable<E>(
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
-    field_name: &str,
-) -> Result<bool, QueryError>
-where
-    E: EntityKind,
-{
-    let policy = generated_write_policy_for_accepted_name::<E>(descriptor, field_name)?;
+const fn sql_insert_accepted_field_is_omittable(field: &AcceptedRowLayoutRuntimeField<'_>) -> bool {
+    let policy = write_policy_for_accepted_field(field);
 
-    Ok(sql_insert_field_is_omittable(policy))
+    sql_insert_field_is_omittable(policy)
 }
 
-fn sql_insert_accepted_field_is_omittable_by_field<E>(
-    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
-    field: &AcceptedRowLayoutRuntimeField<'_>,
-) -> Result<bool, QueryError>
-where
-    E: EntityKind,
-{
-    let policy = generated_write_policy_for_accepted_field::<E>(descriptor, field)?;
-
-    Ok(sql_insert_field_is_omittable(policy))
-}
-
-fn ensure_sql_insert_required_fields<E>(
+fn ensure_sql_insert_required_fields(
     descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
     pk_name: &str,
     columns: &[String],
-) -> Result<(), QueryError>
-where
-    E: EntityKind,
-{
+) -> Result<(), QueryError> {
     let mut missing_required_fields = Vec::new();
     for field in descriptor.fields() {
         if columns.iter().any(|column| column == field.name()) {
             continue;
         }
-        if sql_insert_accepted_field_is_omittable::<E>(descriptor, field.name())? {
+        if sql_insert_accepted_field_is_omittable(field) {
             continue;
         }
 
@@ -280,20 +233,17 @@ where
     )))
 }
 
-fn sql_insert_source_width_hint<E>(
+fn sql_insert_source_width_hint(
     descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
     source: &SqlInsertSource,
-) -> Result<Option<usize>, QueryError>
-where
-    E: EntityKind,
-{
-    let width = match source {
+) -> Option<usize> {
+    match source {
         SqlInsertSource::Values(values) => values.first().map(Vec::len),
         SqlInsertSource::Select(select) => match &select.projection {
             SqlProjection::All => {
                 let mut count = 0usize;
                 for field in descriptor.fields() {
-                    let policy = generated_write_policy_for_accepted_field::<E>(descriptor, field)?;
+                    let policy = write_policy_for_accepted_field(field);
                     if policy.write_management().is_none() {
                         count = count.saturating_add(1);
                     }
@@ -302,27 +252,20 @@ where
             }
             SqlProjection::Items(items) => Some(items.len()),
         },
-    };
-
-    Ok(width)
+    }
 }
 
-fn accepted_insert_columns<E>(
+fn accepted_insert_columns(
     descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
     include_omittable_fields: bool,
-) -> Result<Vec<String>, QueryError>
-where
-    E: EntityKind,
-{
+) -> Vec<String> {
     let mut columns = Vec::new();
     for field in descriptor.fields() {
-        if !include_omittable_fields
-            && sql_insert_accepted_field_is_omittable_by_field::<E>(descriptor, field)?
-        {
+        if !include_omittable_fields && sql_insert_accepted_field_is_omittable(field) {
             continue;
         }
         if include_omittable_fields
-            && generated_write_policy_for_accepted_field::<E>(descriptor, field)?
+            && write_policy_for_accepted_field(field)
                 .write_management()
                 .is_some()
         {
@@ -332,29 +275,26 @@ where
         columns.push(field.name().to_string());
     }
 
-    Ok(columns)
+    columns
 }
 
-fn sql_insert_columns<E>(
+fn sql_insert_columns(
     descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
     statement: &SqlInsertStatement,
-) -> Result<Vec<String>, QueryError>
-where
-    E: EntityKind,
-{
+) -> Vec<String> {
     if !statement.columns.is_empty() {
-        return Ok(statement.columns.clone());
+        return statement.columns.clone();
     }
 
-    let columns = accepted_insert_columns::<E>(descriptor, false)?;
-    let full_columns = accepted_insert_columns::<E>(descriptor, true)?;
-    let first_width = sql_insert_source_width_hint::<E>(descriptor, &statement.source)?;
+    let columns = accepted_insert_columns(descriptor, false);
+    let full_columns = accepted_insert_columns(descriptor, true);
+    let first_width = sql_insert_source_width_hint(descriptor, &statement.source);
 
     if first_width == Some(columns.len()) {
-        return Ok(columns);
+        return columns;
     }
 
-    Ok(full_columns)
+    full_columns
 }
 
 fn usize_to_u64_saturating(value: usize) -> u64 {
@@ -396,8 +336,7 @@ impl<C: CanisterKind> DbSession<C> {
                 continue;
             }
 
-            let policy =
-                generated_write_policy_for_accepted_field::<E>(descriptor, accepted_field)?;
+            let policy = write_policy_for_accepted_field(accepted_field);
             if let Some(generation) = policy.insert_generation() {
                 generated_fields.push((
                     accepted_field.name(),
@@ -434,8 +373,8 @@ impl<C: CanisterKind> DbSession<C> {
             )?;
         }
         for (field, value) in columns.iter().zip(values.iter()) {
-            reject_explicit_sql_write_to_generated_field::<E>(descriptor, field, "INSERT")?;
-            reject_explicit_sql_write_to_managed_field::<E>(descriptor, field, "INSERT")?;
+            reject_explicit_sql_write_to_generated_field(descriptor, field, "INSERT")?;
+            reject_explicit_sql_write_to_managed_field(descriptor, field, "INSERT")?;
             let normalized = sql_write_value_for_accepted_field(descriptor, field, value)?;
             patch = sql_write_patch_set_accepted_field(descriptor, patch, field, normalized)?;
         }
@@ -443,13 +382,10 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((key, patch))
     }
 
-    fn sql_structural_patch<E>(
+    fn sql_structural_patch(
         descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
         statement: &SqlUpdateStatement,
-    ) -> Result<StructuralPatch, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
+    ) -> Result<StructuralPatch, QueryError> {
         let pk_name = descriptor.primary_key_name();
         let mut patch = StructuralPatch::new();
         for assignment in &statement.assignments {
@@ -458,12 +394,12 @@ impl<C: CanisterKind> DbSession<C> {
                     "SQL UPDATE does not allow primary key mutation for '{pk_name}' in this release"
                 )));
             }
-            reject_explicit_sql_write_to_generated_field::<E>(
+            reject_explicit_sql_write_to_generated_field(
                 descriptor,
                 assignment.field.as_str(),
                 "UPDATE",
             )?;
-            reject_explicit_sql_write_to_managed_field::<E>(
+            reject_explicit_sql_write_to_managed_field(
                 descriptor,
                 assignment.field.as_str(),
                 "UPDATE",
@@ -608,8 +544,8 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::execute)?;
         let descriptor = checked_accepted_write_descriptor::<E>(&schema)?;
         let pk_name = descriptor.primary_key_name();
-        let columns = sql_insert_columns::<E>(&descriptor, statement)?;
-        ensure_sql_insert_required_fields::<E>(&descriptor, pk_name, columns.as_slice())?;
+        let columns = sql_insert_columns(&descriptor, statement);
+        ensure_sql_insert_required_fields(&descriptor, pk_name, columns.as_slice())?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Insert, Timestamp::now());
         let mut rows = Vec::new();
 
@@ -685,7 +621,7 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::execute)?;
         let descriptor = checked_accepted_write_descriptor::<E>(&schema)?;
         let selector = Self::sql_update_selector_query::<E>(&schema, statement)?;
-        let patch = Self::sql_structural_patch::<E>(&descriptor, statement)?;
+        let patch = Self::sql_structural_patch(&descriptor, statement)?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());
         let matched = self.execute_query(&selector)?;
         let matched_rows = usize_to_u64_saturating(matched.len());

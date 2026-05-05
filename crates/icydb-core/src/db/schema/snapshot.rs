@@ -9,7 +9,8 @@ use crate::{
     },
     error::InternalError,
     model::field::{
-        FieldDatabaseDefault, FieldKind, FieldStorageDecode, LeafCodec, RelationStrength,
+        FieldDatabaseDefault, FieldInsertGeneration, FieldKind, FieldStorageDecode,
+        FieldWriteManagement, LeafCodec, RelationStrength,
     },
     types::EntityTag,
 };
@@ -257,12 +258,14 @@ pub(in crate::db) struct PersistedFieldSnapshot {
     nested_leaves: Vec<PersistedNestedLeafSnapshot>,
     nullable: bool,
     default: SchemaFieldDefault,
+    write_policy: SchemaFieldWritePolicy,
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
 }
 
 impl PersistedFieldSnapshot {
     /// Build one persisted field snapshot from already-validated pieces.
+    #[cfg(test)]
     #[expect(
         clippy::too_many_arguments,
         reason = "schema snapshot construction keeps every persisted field contract explicit"
@@ -279,6 +282,38 @@ impl PersistedFieldSnapshot {
         storage_decode: FieldStorageDecode,
         leaf_codec: LeafCodec,
     ) -> Self {
+        Self::new_with_write_policy(
+            id,
+            name,
+            slot,
+            kind,
+            nested_leaves,
+            nullable,
+            default,
+            SchemaFieldWritePolicy::none(),
+            storage_decode,
+            leaf_codec,
+        )
+    }
+
+    /// Build one persisted field snapshot with explicit database write policy.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "schema snapshot construction keeps every persisted field contract explicit"
+    )]
+    #[must_use]
+    pub(in crate::db) const fn new_with_write_policy(
+        id: FieldId,
+        name: String,
+        slot: SchemaFieldSlot,
+        kind: PersistedFieldKind,
+        nested_leaves: Vec<PersistedNestedLeafSnapshot>,
+        nullable: bool,
+        default: SchemaFieldDefault,
+        write_policy: SchemaFieldWritePolicy,
+        storage_decode: FieldStorageDecode,
+        leaf_codec: LeafCodec,
+    ) -> Self {
         Self {
             id,
             name,
@@ -287,6 +322,7 @@ impl PersistedFieldSnapshot {
             nested_leaves,
             nullable,
             default,
+            write_policy,
             storage_decode,
             leaf_codec,
         }
@@ -332,6 +368,12 @@ impl PersistedFieldSnapshot {
     #[must_use]
     pub(in crate::db) const fn default(&self) -> SchemaFieldDefault {
         self.default
+    }
+
+    /// Return the accepted database-level write policy for this field.
+    #[must_use]
+    pub(in crate::db) const fn write_policy(&self) -> SchemaFieldWritePolicy {
+        self.write_policy
     }
 
     /// Return the stored payload decode contract.
@@ -435,6 +477,56 @@ impl SchemaFieldDefault {
         match default {
             FieldDatabaseDefault::None => Self::None,
         }
+    }
+}
+
+///
+/// SchemaFieldWritePolicy
+///
+/// SchemaFieldWritePolicy stores database-owned write synthesis and management
+/// metadata for one persisted field. It is separate from generated field
+/// metadata so SQL/session write admission can rely on accepted schema facts.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct SchemaFieldWritePolicy {
+    insert_generation: Option<FieldInsertGeneration>,
+    write_management: Option<FieldWriteManagement>,
+}
+
+impl SchemaFieldWritePolicy {
+    /// Build one empty write-policy contract.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) const fn none() -> Self {
+        Self {
+            insert_generation: None,
+            write_management: None,
+        }
+    }
+
+    /// Build one write-policy contract from generated schema metadata.
+    #[must_use]
+    pub(in crate::db) const fn from_model_policies(
+        insert_generation: Option<FieldInsertGeneration>,
+        write_management: Option<FieldWriteManagement>,
+    ) -> Self {
+        Self {
+            insert_generation,
+            write_management,
+        }
+    }
+
+    /// Return the insert-time generated value contract, when present.
+    #[must_use]
+    pub(in crate::db) const fn insert_generation(self) -> Option<FieldInsertGeneration> {
+        self.insert_generation
+    }
+
+    /// Return the write-managed field contract, when present.
+    #[must_use]
+    pub(in crate::db) const fn write_management(self) -> Option<FieldWriteManagement> {
+        self.write_management
     }
 }
 
