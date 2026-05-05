@@ -436,7 +436,7 @@ fn cache_order_values_from_data_row(
 
     // Phase 2: expression-backed ordering still needs the general structural
     // slot reader so expression evaluation can borrow slots repeatedly.
-    let slots = row_layout.open_raw_row(&row.1)?;
+    let slots = row_layout.open_raw_row_with_contract(&row.1)?;
     let mut cached_values = CachedOrderValues::with_capacity(resolved_order.fields().len());
 
     for field in resolved_order.fields() {

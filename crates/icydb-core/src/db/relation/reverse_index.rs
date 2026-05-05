@@ -9,8 +9,8 @@ use crate::{
         commit::PreparedIndexMutation,
         data::{
             CanonicalSlotReader, DataKey, RawDataKey, RawRow, ScalarSlotValueRef, ScalarValueRef,
-            StorageKey, StructuralSlotReader, decode_relation_target_storage_keys_bytes,
-            supports_storage_key_binary_kind,
+            StorageKey, StructuralRowContract, StructuralSlotReader,
+            decode_relation_target_storage_keys_bytes, supports_storage_key_binary_kind,
         },
         index::{
             IndexEntry, IndexId, IndexKeyKind, IndexStore, RawIndexEntry, RawIndexKey,
@@ -172,7 +172,10 @@ pub(super) fn relation_target_raw_keys_for_source_row(
     source_info: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
 ) -> Result<Vec<RawDataKey>, InternalError> {
-    let row_fields = StructuralSlotReader::from_raw_row(raw_row, source_model)?;
+    let row_fields = StructuralSlotReader::from_raw_row_with_validated_contract(
+        raw_row,
+        StructuralRowContract::from_model(source_model),
+    )?;
 
     relation_target_raw_keys_for_source_slots(&row_fields, source_info, relation)
 }
@@ -203,7 +206,10 @@ pub(in crate::db::relation) fn source_row_references_relation_target(
     relation: StrongRelationInfo,
     target_key: StorageKey,
 ) -> Result<bool, InternalError> {
-    let row_fields = StructuralSlotReader::from_raw_row(raw_row, source_model)?;
+    let row_fields = StructuralSlotReader::from_raw_row_with_validated_contract(
+        raw_row,
+        StructuralRowContract::from_model(source_model),
+    )?;
 
     source_slots_reference_relation_target(&row_fields, source_info, relation, target_key)
 }

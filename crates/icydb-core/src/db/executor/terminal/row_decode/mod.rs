@@ -40,7 +40,6 @@ use crate::{
 
 #[derive(Clone, Copy, Debug)]
 pub(in crate::db) struct RowLayout {
-    model: &'static EntityModel,
     contract: StructuralRowContract,
 }
 
@@ -49,7 +48,6 @@ impl RowLayout {
     #[must_use]
     pub(in crate::db) const fn from_model(model: &'static EntityModel) -> Self {
         Self {
-            model,
             contract: StructuralRowContract::from_model(model),
         }
     }
@@ -72,7 +70,7 @@ impl RowLayout {
             row_shape.primary_key_slot_index(),
         );
 
-        Ok(Self { model, contract })
+        Ok(Self { contract })
     }
 
     /// Borrow the frozen field-count authority carried by this layout.
@@ -91,14 +89,6 @@ impl RowLayout {
     #[must_use]
     pub(in crate::db) const fn contract(self) -> StructuralRowContract {
         self.contract
-    }
-
-    /// Open one raw row through the authority-owned structural decode contract.
-    pub(in crate::db) fn open_raw_row(
-        self,
-        row: &RawRow,
-    ) -> Result<StructuralSlotReader<'_>, InternalError> {
-        StructuralSlotReader::from_raw_row_with_model(row, self.model)
     }
 
     /// Open one raw row through the frozen structural decode contract without

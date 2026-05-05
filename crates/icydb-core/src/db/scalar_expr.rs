@@ -563,8 +563,13 @@ mod tests {
     }
 
     impl SlotReader for TestSlotReader {
-        fn model(&self) -> &'static EntityModel {
-            &SCALAR_EXPR_MODEL
+        fn field_contract(&self, slot: usize) -> Result<&FieldModel, InternalError> {
+            SCALAR_EXPR_MODEL.fields().get(slot).ok_or_else(|| {
+                InternalError::persisted_row_slot_lookup_out_of_bounds(
+                    SCALAR_EXPR_MODEL.path(),
+                    slot,
+                )
+            })
         }
 
         fn has(&self, slot: usize) -> bool {

@@ -77,11 +77,12 @@ impl IndexKey {
     pub(crate) fn new_from_slots(
         entity_tag: EntityTag,
         storage_key: StorageKey,
+        entity_model: &'static EntityModel,
         slots: &dyn CanonicalSlotReader,
         index: &IndexModel,
     ) -> Result<Option<Self>, InternalError> {
         let mut component_bytes =
-            |key_item| index_component_bytes_from_slots(slots, index, key_item);
+            |key_item| index_component_bytes_from_slots(entity_model, slots, index, key_item);
 
         build_index_key(entity_tag, storage_key, index, &mut component_bytes)
     }
@@ -470,19 +471,20 @@ fn push_index_key_component(
 
 // Build one canonical index component directly from one slot reader.
 fn index_component_bytes_from_slots(
+    entity_model: &'static EntityModel,
     slots: &dyn CanonicalSlotReader,
     index: &IndexModel,
     key_item: IndexKeyItem,
 ) -> Result<Option<Vec<u8>>, InternalError> {
     let field = key_item.field();
 
-    if let Some(program) = compile_scalar_index_key_item_program(slots.model(), key_item) {
+    if let Some(program) = compile_scalar_index_key_item_program(entity_model, key_item) {
         let source = eval_canonical_scalar_value_program(&program, slots)?;
 
         return encode_scalar_index_component(source.as_slot_value_ref());
     }
 
-    let Some(field_index) = slots.model().resolve_field_slot(field) else {
+    let Some(field_index) = entity_model.resolve_field_slot(field) else {
         return Err(InternalError::index_key_item_field_missing_on_entity_model(
             field,
         ));

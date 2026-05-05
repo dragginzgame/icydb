@@ -12,7 +12,7 @@ use crate::{
         },
         data::{
             CanonicalRow, CanonicalSlotReader, DataKey, DataStore, RawDataKey, RawRow, StorageKey,
-            StructuralSlotReader, canonical_row_from_structural_slot_reader,
+            StructuralRowContract, StructuralSlotReader, canonical_row_from_structural_slot_reader,
         },
         index::{
             IndexDelta, IndexDeltaGroup, IndexEntry, IndexMembershipDelta, IndexMutationPlan,
@@ -293,7 +293,7 @@ where
     let data_value = decoded
         .new_slots
         .as_ref()
-        .map(canonical_row_from_structural_slot_reader)
+        .map(|slots| canonical_row_from_structural_slot_reader(authority.model, slots))
         .transpose()?;
 
     finalize_row_commit_structural(
@@ -379,7 +379,11 @@ fn decode_commit_marker_structural_slots<'a>(
     label: &str,
     model: &'static EntityModel,
 ) -> Result<StructuralSlotReader<'a>, InternalError> {
-    let slots = StructuralSlotReader::from_raw_row(row, model).map_err(|err| {
+    let slots = StructuralSlotReader::from_raw_row_with_validated_contract(
+        row,
+        StructuralRowContract::from_model(model),
+    )
+    .map_err(|err| {
         let message = format!("commit marker {label} row: {err}");
         if err.class() == ErrorClass::IncompatiblePersistedFormat {
             InternalError::serialize_incompatible_persisted_format(message)

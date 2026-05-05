@@ -6,7 +6,7 @@
 
 use crate::{
     db::{
-        data::{DataKey, StorageKey, StructuralSlotReader},
+        data::{DataKey, StorageKey, StructuralRowContract, StructuralSlotReader},
         index::{IndexId, IndexKey, IndexPlanReadView, plan::error::IndexPlanError},
     },
     error::InternalError,
@@ -96,6 +96,7 @@ pub(super) fn validate_unique_constraint_structural(
         entity_path,
         &data_key,
         existing_key,
+        model,
         &row_fields,
         index,
     )?
@@ -129,7 +130,11 @@ fn decode_unique_row_slots<'a>(
     row: &'a crate::db::data::RawRow,
     model: &'static EntityModel,
 ) -> Result<StructuralSlotReader<'a>, InternalError> {
-    let row_fields = StructuralSlotReader::from_raw_row(row, model).map_err(|source| {
+    let row_fields = StructuralSlotReader::from_raw_row_with_validated_contract(
+        row,
+        StructuralRowContract::from_model(model),
+    )
+    .map_err(|source| {
         InternalError::index_unique_validation_row_deserialize_failed(data_key, source)
     })?;
     row_fields
@@ -148,10 +153,11 @@ fn build_unique_index_key_from_row_slots(
     entity_path: &'static str,
     data_key: &DataKey,
     storage_key: StorageKey,
+    model: &'static EntityModel,
     row_fields: &StructuralSlotReader<'_>,
     index: &IndexModel,
 ) -> Result<Option<IndexKey>, InternalError> {
-    IndexKey::new_from_slots(entity_tag, storage_key, row_fields, index).map_err(|err| {
+    IndexKey::new_from_slots(entity_tag, storage_key, model, row_fields, index).map_err(|err| {
         InternalError::index_unique_validation_key_rebuild_failed(data_key, entity_path, err)
     })
 }

@@ -63,6 +63,7 @@ pub(in crate::db) fn compile_index_membership_predicate_structural(
 /// Build one index key from one slot reader using structural entity authority only.
 pub(in crate::db) fn index_key_for_slot_reader_with_membership_structural(
     entity_tag: EntityTag,
+    model: &'static EntityModel,
     index: &IndexModel,
     predicate_program: Option<&PredicateProgram>,
     storage_key: StorageKey,
@@ -75,7 +76,7 @@ pub(in crate::db) fn index_key_for_slot_reader_with_membership_structural(
         }
     }
 
-    let index_key = IndexKey::new_from_slots(entity_tag, storage_key, slots, index)?;
+    let index_key = IndexKey::new_from_slots(entity_tag, storage_key, model, slots, index)?;
 
     Ok(index_key)
 }
@@ -84,6 +85,7 @@ pub(in crate::db) fn index_key_for_slot_reader_with_membership_structural(
 fn load_structural_index_key(
     lane: IndexKeyLane,
     entity_tag: EntityTag,
+    model: &'static EntityModel,
     index: &IndexModel,
     predicate_program: Option<&PredicateProgram>,
     storage_key: Option<StorageKey>,
@@ -95,6 +97,7 @@ fn load_structural_index_key(
 
     index_key_for_slot_reader_with_membership_structural(
         entity_tag,
+        model,
         index,
         predicate_program,
         storage_key,
@@ -199,6 +202,7 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
             Some(slots) => load_structural_index_key(
                 IndexKeyLane::Old,
                 entity_tag,
+                model,
                 index,
                 membership_program.as_ref(),
                 old_storage_key,
@@ -210,6 +214,7 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
             Some(slots) => load_structural_index_key(
                 IndexKeyLane::New,
                 entity_tag,
+                model,
                 index,
                 membership_program.as_ref(),
                 new_storage_key,

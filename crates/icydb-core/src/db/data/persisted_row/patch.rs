@@ -1,7 +1,10 @@
 use crate::{
-    db::data::{CanonicalRow, RawRow, StructuralRowDecodeError, StructuralRowFieldBytes},
+    db::data::{
+        CanonicalRow, RawRow, StructuralRowContract, StructuralRowDecodeError,
+        StructuralRowFieldBytes,
+    },
     error::InternalError,
-    model::entity::EntityModel,
+    model::{entity::EntityModel, field::FieldModel},
     value::Value,
 };
 use std::borrow::Cow;
@@ -10,12 +13,12 @@ use crate::db::data::persisted_row::{
     codec::ScalarSlotValueRef,
     contract::{
         canonical_row_from_payload_source, canonical_row_from_runtime_value_source,
-        decode_slot_into_runtime_value, encode_runtime_value_into_slot,
+        decode_field_slot_into_runtime_value, encode_runtime_value_into_slot,
     },
     reader::StructuralSlotReader,
     types::{
         PersistedRow, SerializedStructuralFieldUpdate, SerializedStructuralPatch, SlotReader,
-        StructuralPatch, field_model_for_slot,
+        StructuralPatch,
     },
     writer::CompleteSerializedPatchWriter,
 };
@@ -30,7 +33,7 @@ use crate::db::data::persisted_row::{
 ///
 
 struct SerializedPatchPayloads<'a> {
-    model: &'static EntityModel,
+    contract: StructuralRowContract,
     payloads: Vec<Option<&'a [u8]>>,
 }
 
@@ -41,21 +44,32 @@ impl<'a> SerializedPatchPayloads<'a> {
         model: &'static EntityModel,
         patch: &'a SerializedStructuralPatch,
     ) -> Result<Self, InternalError> {
-        let mut payloads = vec![None; model.fields().len()];
+        let contract = StructuralRowContract::from_model(model);
+        let mut payloads = vec![None; contract.field_count()];
 
         for entry in patch.entries() {
             let slot = entry.slot().index();
-            field_model_for_slot(model, slot)?;
+            Self::field_contract_for(contract, slot)?;
             payloads[slot] = Some(entry.payload());
         }
 
-        Ok(Self { model, payloads })
+        Ok(Self { contract, payloads })
     }
 
-    // Return the owning entity model for slot-reader and error-reporting
-    // call sites that should not duplicate model storage separately.
-    const fn model(&self) -> &'static EntityModel {
-        self.model
+    // Resolve one field contract by stable slot index so patch-backed readers
+    // use the same metadata seam as raw-row structural readers.
+    fn field_contract(&self, slot: usize) -> Result<&FieldModel, InternalError> {
+        Self::field_contract_for(self.contract, slot)
+    }
+
+    // Resolve one field contract from a projected structural row contract.
+    fn field_contract_for(
+        contract: StructuralRowContract,
+        slot: usize,
+    ) -> Result<&'static FieldModel, InternalError> {
+        contract.fields().get(slot).ok_or_else(|| {
+            InternalError::persisted_row_slot_lookup_out_of_bounds(contract.entity_path(), slot)
+        })
     }
 
     // Return whether this patch after-image currently carries a payload for
@@ -75,7 +89,7 @@ impl<'a> SerializedPatchPayloads<'a> {
         self.get(slot).ok_or_else(|| {
             InternalError::persisted_row_encode_failed(format!(
                 "serialized patch did not emit slot {slot} for entity '{}'",
-                self.model.path()
+                self.contract.entity_path()
             ))
         })
     }
@@ -95,7 +109,7 @@ impl<'a> SerializedPatchPayloads<'a> {
         baseline.field(slot).ok_or_else(|| {
             InternalError::persisted_row_encode_failed(format!(
                 "slot {slot} is missing from the baseline row for entity '{}'",
-                self.model.path()
+                self.contract.entity_path()
             ))
         })
     }
@@ -120,15 +134,15 @@ impl<'a> SerializedPatchSlotReader<'a> {
         patch: &'a SerializedStructuralPatch,
     ) -> Result<Self, InternalError> {
         let payloads = SerializedPatchPayloads::new(model, patch)?;
-        let decoded = vec![None; model.fields().len()];
+        let decoded = vec![None; payloads.contract.field_count()];
 
         Ok(Self { payloads, decoded })
     }
 }
 
 impl SlotReader for SerializedPatchSlotReader<'_> {
-    fn model(&self) -> &'static EntityModel {
-        self.payloads.model()
+    fn field_contract(&self, slot: usize) -> Result<&FieldModel, InternalError> {
+        self.payloads.field_contract(slot)
     }
 
     fn has(&self, slot: usize) -> bool {
@@ -143,7 +157,7 @@ impl SlotReader for SerializedPatchSlotReader<'_> {
         let Some(raw_value) = self.get_bytes(slot) else {
             return Ok(None);
         };
-        let field = field_model_for_slot(self.model(), slot)?;
+        let field = self.field_contract(slot)?;
         let crate::model::field::LeafCodec::Scalar(codec) = field.leaf_codec() else {
             return Ok(None);
         };
@@ -164,11 +178,8 @@ impl SlotReader for SerializedPatchSlotReader<'_> {
         if self.decoded[slot].is_none()
             && let Some(raw_value) = self.get_bytes(slot)
         {
-            self.decoded[slot] = Some(decode_slot_into_runtime_value(
-                self.model(),
-                slot,
-                raw_value,
-            )?);
+            let field = self.field_contract(slot)?;
+            self.decoded[slot] = Some(decode_field_slot_into_runtime_value(field, raw_value)?);
         }
 
         Ok(self.decoded[slot].clone())
@@ -213,16 +224,17 @@ where
 
 /// Build one canonical row from one already-decoded structural slot reader.
 pub(in crate::db) fn canonical_row_from_structural_slot_reader(
+    model: &'static EntityModel,
     row_fields: &StructuralSlotReader<'_>,
 ) -> Result<CanonicalRow, InternalError> {
-    canonical_row_from_runtime_value_source(row_fields.model(), |slot| {
+    canonical_row_from_runtime_value_source(model, |slot| {
         row_fields
             .required_cached_value(slot)
             .map(Cow::Borrowed)
             .map_err(|_| {
                 InternalError::persisted_row_encode_failed(format!(
                     "slot {slot} is missing from the structural value cache for entity '{}'",
-                    row_fields.model().path()
+                    model.path()
                 ))
             })
     })

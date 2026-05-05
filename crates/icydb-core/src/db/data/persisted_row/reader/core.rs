@@ -48,7 +48,6 @@ fn scalar_slot_value_ref_into_value(value: ScalarSlotValueRef<'_>) -> Value {
 ///
 
 pub(in crate::db) struct StructuralSlotReader<'a> {
-    model: Option<&'static EntityModel>,
     contract: StructuralRowContract,
     field_bytes: StructuralRowFieldBytes<'a>,
     pub(in crate::db::data::persisted_row) cached_values: Vec<CachedSlotValue>,
@@ -77,7 +76,6 @@ impl<'a> StructuralSlotReader<'a> {
         let field_bytes = StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract)
             .map_err(StructuralRowDecodeError::into_internal_error)?;
         let reader = Self {
-            model: None,
             contract,
             field_bytes,
             cached_values: build_initial_slot_cache(contract),
@@ -88,32 +86,25 @@ impl<'a> StructuralSlotReader<'a> {
         Ok(reader)
     }
 
-    // Build one slot reader over one persisted row while retaining the full
-    // entity model for typed slot-reader seams that still require it.
+    /// Build one slot reader over one persisted row using a frozen structural
+    /// row contract, then validate every declared slot eagerly.
+    pub(in crate::db) fn from_raw_row_with_validated_contract(
+        raw_row: &'a RawRow,
+        contract: StructuralRowContract,
+    ) -> Result<Self, InternalError> {
+        let reader = Self::from_raw_row_with_contract(raw_row, contract)?;
+        reader.validate_all_declared_slots()?;
+
+        Ok(reader)
+    }
+
+    // Build one slot reader over one persisted row from a generated model by
+    // immediately projecting that model into the structural row contract.
     pub(in crate::db) fn from_raw_row_with_model(
         raw_row: &'a RawRow,
         model: &'static EntityModel,
     ) -> Result<Self, InternalError> {
-        let contract = StructuralRowContract::from_model(model);
-        let field_bytes = StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract)
-            .map_err(StructuralRowDecodeError::into_internal_error)?;
-        let reader = Self {
-            model: Some(model),
-            contract,
-            field_bytes,
-            cached_values: build_initial_slot_cache(contract),
-            #[cfg(any(test, feature = "diagnostics"))]
-            metrics: metrics::StructuralReadProbe::begin(contract.field_count()),
-        };
-
-        Ok(reader)
-    }
-
-    /// Return the owning structural model.
-    #[must_use]
-    pub(in crate::db) const fn model(&self) -> &'static EntityModel {
-        self.model
-            .expect("model-backed structural slot reader required by typed slot-reader seam")
+        Self::from_raw_row_with_contract(raw_row, StructuralRowContract::from_model(model))
     }
 
     /// Validate the decoded primary-key slot against the authoritative row key.
@@ -127,16 +118,14 @@ impl<'a> StructuralSlotReader<'a> {
     // Validate the decoded primary-key slot against one authoritative storage
     // key without rebuilding a full `DataKey` wrapper at the call site.
     fn validate_storage_key_value(&self, expected_key: StorageKey) -> Result<(), InternalError> {
-        let primary_key_slot = self.model.map_or_else(
-            || self.contract.primary_key_slot(),
-            EntityModel::primary_key_slot,
-        );
-        let field = self.field_model(primary_key_slot)?;
+        let primary_key_slot = self.contract.primary_key_slot();
+        let field = self.field_contract(primary_key_slot)?;
 
         // Preserve the reader's scalar validation/cache side effect before the
         // shared raw-bytes validator performs the authoritative key check.
-        if let (LeafCodec::Scalar(_), Some(CachedSlotValue::Scalar { validated, .. })) =
-            (field.leaf_codec(), self.cached_values.get(primary_key_slot))
+        if matches!(field.leaf_codec(), LeafCodec::Scalar(_))
+            && let Some(CachedSlotValue::Scalar { validated, .. }) =
+                self.cached_values.get(primary_key_slot)
         {
             let _ = self.required_validated_scalar_slot_value(primary_key_slot, validated)?;
         }
@@ -146,8 +135,8 @@ impl<'a> StructuralSlotReader<'a> {
         validate_storage_key_from_primary_key_bytes_with_field(raw_value, field, expected_key)
     }
 
-    // Resolve one field model entry by stable slot index.
-    fn field_model(&self, slot: usize) -> Result<&FieldModel, InternalError> {
+    // Resolve one field contract entry by stable slot index.
+    fn field_contract(&self, slot: usize) -> Result<&FieldModel, InternalError> {
         self.contract.fields().get(slot).ok_or_else(|| {
             InternalError::persisted_row_slot_lookup_out_of_bounds(
                 self.contract.entity_path(),
@@ -167,7 +156,7 @@ impl<'a> StructuralSlotReader<'a> {
             return Ok(*validated);
         }
 
-        let field = self.field_model(slot)?;
+        let field = self.field_contract(slot)?;
         let raw_value = self.required_field_bytes(slot, field.name())?;
         let LeafCodec::Scalar(codec) = field.leaf_codec() else {
             return Err(InternalError::persisted_row_decode_failed(format!(
@@ -220,7 +209,7 @@ impl<'a> StructuralSlotReader<'a> {
                 })
             }
             CachedSlotValue::Deferred { materialized } => {
-                let field = self.field_model(slot)?;
+                let field = self.field_contract(slot)?;
                 let raw_value = self.required_field_bytes(slot, field.name())?;
                 if materialized.get().is_none() {
                     #[cfg(any(test, feature = "diagnostics"))]
@@ -248,7 +237,7 @@ impl<'a> StructuralSlotReader<'a> {
         &self,
         slot: usize,
     ) -> Result<Value, InternalError> {
-        let field = self.field_model(slot)?;
+        let field = self.field_contract(slot)?;
 
         // Phase 1: value-storage scalar fields can project directly from the
         // validated byte view when the persisted tag matches the declared
@@ -359,8 +348,8 @@ impl<'a> StructuralSlotReader<'a> {
 }
 
 impl SlotReader for StructuralSlotReader<'_> {
-    fn model(&self) -> &'static EntityModel {
-        self.model()
+    fn field_contract(&self, slot: usize) -> Result<&FieldModel, InternalError> {
+        StructuralSlotReader::field_contract(self, slot)
     }
 
     fn has(&self, slot: usize) -> bool {
@@ -372,7 +361,7 @@ impl SlotReader for StructuralSlotReader<'_> {
     }
 
     fn get_scalar(&self, slot: usize) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
-        let field = self.field_model(slot)?;
+        let field = self.field_contract(slot)?;
 
         match field.leaf_codec() {
             LeafCodec::Scalar(_codec) => match self.cached_values.get(slot) {
@@ -410,14 +399,14 @@ impl SlotReader for StructuralSlotReader<'_> {
 
 impl CanonicalSlotReader for StructuralSlotReader<'_> {
     fn required_bytes(&self, slot: usize) -> Result<&[u8], InternalError> {
-        let field = self.field_model(slot)?;
+        let field = self.field_contract(slot)?;
 
         self.get_bytes(slot)
             .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field.name()))
     }
 
     fn required_scalar(&self, slot: usize) -> Result<ScalarSlotValueRef<'_>, InternalError> {
-        let field = self.field_model(slot)?;
+        let field = self.field_contract(slot)?;
         debug_assert!(matches!(field.leaf_codec(), LeafCodec::Scalar(_)));
 
         self.get_scalar(slot)?
@@ -428,7 +417,7 @@ impl CanonicalSlotReader for StructuralSlotReader<'_> {
         &self,
         slot: usize,
     ) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
-        let field = self.field_model(slot)?;
+        let field = self.field_contract(slot)?;
         if !matches!(field.storage_decode(), FieldStorageDecode::Value) {
             return Ok(None);
         }

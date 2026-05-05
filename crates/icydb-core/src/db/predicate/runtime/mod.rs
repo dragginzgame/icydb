@@ -717,7 +717,7 @@ fn eval_compare_with_structural_slots(
     cmp: &ExecutableComparePredicate,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, crate::error::InternalError> {
-    if scalar_compare_operands_supported_for_fast_path(cmp, slots.model())
+    if scalar_compare_operands_supported_for_fast_path(cmp, slots)
         && let Some(result) = eval_scalar_compare_operands_fast_path(cmp, slots)?
     {
         return Ok(result);
@@ -760,7 +760,7 @@ fn eval_scalar_compare_operands_fast_path(
 // are backed by scalar leaf codecs.
 fn scalar_compare_operands_supported_for_fast_path(
     cmp: &ExecutableComparePredicate,
-    model: &EntityModel,
+    slots: &dyn CanonicalSlotReader,
 ) -> bool {
     match (
         cmp.left_field_slot(),
@@ -768,29 +768,32 @@ fn scalar_compare_operands_supported_for_fast_path(
         cmp.right_field_slot(),
     ) {
         (Some(field_slot), Some(_), None) => {
-            compare_scalar_slot_fast_path_supported(model, field_slot)
+            compare_scalar_slot_fast_path_supported(slots, field_slot)
         }
         (Some(left_field_slot), None, Some(right_field_slot)) => {
-            scalar_slot_fast_path_supported(model, left_field_slot)
-                && scalar_slot_fast_path_supported(model, right_field_slot)
+            scalar_slot_fast_path_supported(slots, left_field_slot)
+                && scalar_slot_fast_path_supported(slots, right_field_slot)
         }
         _ => false,
     }
 }
 
 // Reuse the scalar-leaf boundary check for compare fast paths.
-fn scalar_slot_fast_path_supported(model: &EntityModel, field_slot: usize) -> bool {
-    model
-        .fields()
-        .get(field_slot)
+fn scalar_slot_fast_path_supported(slots: &dyn CanonicalSlotReader, field_slot: usize) -> bool {
+    slots
+        .field_contract(field_slot)
+        .ok()
         .is_some_and(|field| matches!(field.leaf_codec(), LeafCodec::Scalar(_)))
 }
 
 // Field-vs-literal compares can also use borrowed value-storage scalar views
 // when the declared field kind is one of the primitive families currently
 // admitted by `ValueStorageView`.
-fn compare_scalar_slot_fast_path_supported(model: &EntityModel, field_slot: usize) -> bool {
-    model.fields().get(field_slot).is_some_and(|field| {
+fn compare_scalar_slot_fast_path_supported(
+    slots: &dyn CanonicalSlotReader,
+    field_slot: usize,
+) -> bool {
+    slots.field_contract(field_slot).ok().is_some_and(|field| {
         matches!(field.leaf_codec(), LeafCodec::Scalar(_))
             || (matches!(field.storage_decode(), FieldStorageDecode::Value)
                 && matches!(
@@ -823,7 +826,7 @@ fn required_compare_scalar_slot(
     field_slot: usize,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<ScalarSlotValueRef<'_>>, crate::error::InternalError> {
-    let Some(field) = slots.model().fields().get(field_slot) else {
+    let Ok(field) = slots.field_contract(field_slot) else {
         return Ok(None);
     };
 
@@ -934,7 +937,7 @@ fn eval_structural_field_slot(
     let Some(field_slot) = field_slot else {
         return Ok(false);
     };
-    let Some(field) = slots.model().fields().get(field_slot) else {
+    let Ok(field) = slots.field_contract(field_slot) else {
         return Ok(false);
     };
 

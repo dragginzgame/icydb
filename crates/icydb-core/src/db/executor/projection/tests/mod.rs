@@ -32,7 +32,7 @@ use crate::{
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{
-        field::{FieldKind, FieldStorageDecode},
+        field::{FieldKind, FieldModel, FieldStorageDecode},
         index::IndexModel,
     },
     traits::{
@@ -487,8 +487,16 @@ fn grouped_execution_specs<const N: usize>(
 struct ProjectionMissingDeclaredSlotReader;
 
 impl SlotReader for ProjectionMissingDeclaredSlotReader {
-    fn model(&self) -> &'static crate::model::entity::EntityModel {
+    fn field_contract(&self, slot: usize) -> Result<&FieldModel, InternalError> {
         ProjectionEvalEntity::MODEL
+            .fields()
+            .get(slot)
+            .ok_or_else(|| {
+                InternalError::persisted_row_slot_lookup_out_of_bounds(
+                    ProjectionEvalEntity::MODEL.path(),
+                    slot,
+                )
+            })
     }
 
     fn has(&self, _slot: usize) -> bool {

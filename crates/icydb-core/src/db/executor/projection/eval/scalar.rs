@@ -376,15 +376,15 @@ fn eval_direct_scalar_octet_length(
     slot: usize,
     field: &str,
 ) -> Result<Option<Value>, InternalError> {
-    let Some(field_model) = slots.model().fields().get(slot) else {
-        return Err(ProjectionEvalError::MissingFieldValue {
+    let field_contract = slots.field_contract(slot).map_err(|_| {
+        ProjectionEvalError::MissingFieldValue {
             field: field.to_string(),
             index: slot,
         }
-        .into_invalid_logical_plan_internal_error());
-    };
+        .into_invalid_logical_plan_internal_error()
+    })?;
     if !matches!(
-        field_model.leaf_codec(),
+        field_contract.leaf_codec(),
         LeafCodec::Scalar(ScalarCodec::Blob | ScalarCodec::Text)
     ) {
         return Ok(None);

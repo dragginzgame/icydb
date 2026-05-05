@@ -471,7 +471,7 @@ fn project_data_row_from_direct_field_slots_into(
 ) -> Result<(), InternalError> {
     shaped.clear();
     let (data_key, raw_row) = row;
-    let row_fields = row_layout.open_raw_row(raw_row)?;
+    let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
     row_fields.validate_storage_key(data_key)?;
     shaped.reserve(field_slots.len());
 
@@ -547,7 +547,7 @@ fn project_scalar_data_row_into(
     let _ = projected_slot_mask;
 
     shaped.clear();
-    let row_fields = row_layout.open_raw_row(raw_row)?;
+    let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
     row_fields.validate_storage_key(data_key)?;
     shaped.reserve(compiled_fields.len());
 

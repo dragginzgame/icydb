@@ -235,7 +235,7 @@ impl ScalarRowRuntimeState {
         row: &RawRow,
         filter_program: &EffectiveRuntimeFilterProgram,
     ) -> Result<bool, InternalError> {
-        let slots = self.row_layout.open_raw_row(row)?;
+        let slots = self.row_layout.open_raw_row_with_contract(row)?;
 
         eval_effective_runtime_filter_program_with_slot_reader(filter_program, &slots)
     }

@@ -1,7 +1,7 @@
 use crate::{
     db::data::persisted_row::{
         codec::{ScalarSlotValueRef, encode_scalar_slot_value},
-        contract::decode_slot_into_runtime_value,
+        contract::decode_field_slot_into_runtime_value,
     },
     error::InternalError,
     model::{entity::EntityModel, field::FieldModel},
@@ -255,8 +255,8 @@ impl SerializedStructuralPatch {
 ///
 
 pub trait SlotReader {
-    /// Return the structural model that owns this slot mapping.
-    fn model(&self) -> &'static EntityModel;
+    /// Resolve one field contract by stable slot index.
+    fn field_contract(&self, slot: usize) -> Result<&FieldModel, InternalError>;
 
     /// Return whether the given slot is present in the persisted row.
     fn has(&self, slot: usize) -> bool;
@@ -283,7 +283,7 @@ pub trait SlotReader {
 pub(in crate::db) trait CanonicalSlotReader: SlotReader {
     /// Borrow one declared slot payload, erroring when the persisted row is not canonical.
     fn required_bytes(&self, slot: usize) -> Result<&[u8], InternalError> {
-        let field = field_model_for_slot(self.model(), slot)?;
+        let field = self.field_contract(slot)?;
 
         self.get_bytes(slot)
             .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field.name()))
@@ -292,7 +292,7 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
     /// Read one scalar slot through the structural fast path without allowing
     /// declared-slot absence.
     fn required_scalar(&self, slot: usize) -> Result<ScalarSlotValueRef<'_>, InternalError> {
-        let field = field_model_for_slot(self.model(), slot)?;
+        let field = self.field_contract(slot)?;
         debug_assert!(matches!(
             field.leaf_codec(),
             crate::model::field::LeafCodec::Scalar(_)
@@ -313,7 +313,9 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
     /// Decode one declared slot through the owning field contract without
     /// allowing absent payloads.
     fn required_value_by_contract(&self, slot: usize) -> Result<Value, InternalError> {
-        decode_slot_into_runtime_value(self.model(), slot, self.required_bytes(slot)?)
+        let field = self.field_contract(slot)?;
+
+        decode_field_slot_into_runtime_value(field, self.required_bytes(slot)?)
     }
 
     /// Borrow one declared slot value when the concrete reader already owns a
