@@ -376,7 +376,7 @@ fn eval_direct_scalar_octet_length(
     slot: usize,
     field: &str,
 ) -> Result<Option<Value>, InternalError> {
-    let field_contract = slots.field_contract(slot).map_err(|_| {
+    let field_contract = slots.field_decode_contract(slot).map_err(|_| {
         ProjectionEvalError::MissingFieldValue {
             field: field.to_string(),
             index: slot,

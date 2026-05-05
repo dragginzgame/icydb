@@ -781,7 +781,7 @@ fn scalar_compare_operands_supported_for_fast_path(
 // Reuse the scalar-leaf boundary check for compare fast paths.
 fn scalar_slot_fast_path_supported(slots: &dyn CanonicalSlotReader, field_slot: usize) -> bool {
     slots
-        .field_contract(field_slot)
+        .field_decode_contract(field_slot)
         .ok()
         .is_some_and(|field| matches!(field.leaf_codec(), LeafCodec::Scalar(_)))
 }
@@ -793,14 +793,17 @@ fn compare_scalar_slot_fast_path_supported(
     slots: &dyn CanonicalSlotReader,
     field_slot: usize,
 ) -> bool {
-    slots.field_contract(field_slot).ok().is_some_and(|field| {
-        matches!(field.leaf_codec(), LeafCodec::Scalar(_))
-            || (matches!(field.storage_decode(), FieldStorageDecode::Value)
-                && matches!(
-                    field.kind(),
-                    FieldKind::Bool | FieldKind::Int | FieldKind::Text { .. } | FieldKind::Uint
-                ))
-    })
+    slots
+        .field_decode_contract(field_slot)
+        .ok()
+        .is_some_and(|field| {
+            matches!(field.leaf_codec(), LeafCodec::Scalar(_))
+                || (matches!(field.storage_decode(), FieldStorageDecode::Value)
+                    && matches!(
+                        field.kind(),
+                        FieldKind::Bool | FieldKind::Int | FieldKind::Text { .. } | FieldKind::Uint
+                    ))
+        })
 }
 
 // Share the scalar-slot read plus direct compare dispatch across the scalar-only
@@ -826,7 +829,7 @@ fn required_compare_scalar_slot(
     field_slot: usize,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<ScalarSlotValueRef<'_>>, crate::error::InternalError> {
-    let Ok(field) = slots.field_contract(field_slot) else {
+    let Ok(field) = slots.field_decode_contract(field_slot) else {
         return Ok(None);
     };
 
@@ -937,7 +940,7 @@ fn eval_structural_field_slot(
     let Some(field_slot) = field_slot else {
         return Ok(false);
     };
-    let Ok(field) = slots.field_contract(field_slot) else {
+    let Ok(field) = slots.field_decode_contract(field_slot) else {
         return Ok(false);
     };
 
