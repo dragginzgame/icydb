@@ -36,14 +36,6 @@ pub(in crate::db) struct FieldSlot {
 }
 
 impl FieldSlot {
-    /// Resolve one stable field slot by runtime field name.
-    #[must_use]
-    pub(in crate::db) fn resolve(model: &'static EntityModel, field_name: &str) -> Option<Self> {
-        model
-            .resolve_field_slot(field_name)
-            .map(|index| Self { index })
-    }
-
     /// Build one stable field slot from an already validated index.
     pub(in crate::db) fn from_index(
         model: &'static EntityModel,
@@ -116,9 +108,8 @@ impl StructuralFieldUpdate {
 /// write lanes before persisted-row slot serialization.
 /// It carries caller/runtime `Value` payloads only; insert, update, and replace
 /// semantics remain owned by `MutationMode`, not by the patch container.
-/// Standalone `set_field(...)` remains a generated-model convenience; session
-/// structural patch construction should be preferred when accepted schema
-/// metadata is available.
+/// Field-name resolution is owned by session/schema boundaries; this container
+/// only records already validated slot assignments.
 ///
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -140,23 +131,6 @@ impl StructuralPatch {
     pub(in crate::db) fn set(mut self, slot: FieldSlot, value: Value) -> Self {
         self.entries.push(StructuralFieldUpdate::new(slot, value));
         self
-    }
-
-    /// Resolve one field name and append its structural update.
-    pub fn set_field(
-        self,
-        model: &'static EntityModel,
-        field_name: &str,
-        value: Value,
-    ) -> Result<Self, InternalError> {
-        let Some(slot) = FieldSlot::resolve(model, field_name) else {
-            return Err(InternalError::mutation_structural_field_unknown(
-                model.path(),
-                field_name,
-            ));
-        };
-
-        Ok(self.set(slot, value))
     }
 
     /// Borrow the ordered field updates carried by this patch.

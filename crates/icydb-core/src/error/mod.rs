@@ -378,6 +378,16 @@ impl InternalError {
         ))
     }
 
+    /// Construct an executor-origin sparse structural patch required-field invariant.
+    pub(crate) fn mutation_structural_patch_required_field_missing(
+        entity_path: &str,
+        field_name: &str,
+    ) -> Self {
+        Self::executor_invariant(format!(
+            "structural patch missing required field: {entity_path} field={field_name}",
+        ))
+    }
+
     /// Construct an executor-origin save-preflight field-type mismatch invariant.
     pub(crate) fn mutation_entity_field_type_mismatch(
         entity_path: &str,

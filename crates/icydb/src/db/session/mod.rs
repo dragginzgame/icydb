@@ -13,7 +13,6 @@ use crate::{
     },
     error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
     metrics::MetricsSink,
-    model::entity::EntityModel,
     traits::{CanisterKind, EntityKind, EntityValue},
     value::{InputValue, OutputValue},
 };
@@ -51,12 +50,12 @@ impl MutationMode {
 ///
 /// StructuralPatch
 ///
-/// Public structural mutation patch builder.
-/// Callers address fields by model field name and provide public `InputValue`
-/// payloads; validation remains model-owned and occurs both at patch
-/// construction and again during session mutation execution.
-/// Prefer `DbSession::structural_patch(...)` when a session is available so
-/// field lookup follows the accepted persisted schema.
+/// Public structural mutation patch wrapper.
+/// Public callers should construct field-bearing patches through
+/// `DbSession::structural_patch(...)` so field lookup follows the accepted
+/// persisted schema instead of generated model field order.
+/// Empty patches remain representable for callers that need to explicitly
+/// exercise sparse mutation behavior.
 ///
 
 #[derive(Default)]
@@ -67,28 +66,12 @@ pub struct StructuralPatch {
 impl StructuralPatch {
     /// Build one empty structural patch.
     ///
-    /// Callers then append field updates through `set_field(...)` so model
-    /// field-name validation stays at the patch boundary.
+    /// Use `DbSession::structural_patch(...)` for patches with field updates.
     #[must_use]
     pub const fn new() -> Self {
         Self {
             inner: core::db::StructuralPatch::new(),
         }
-    }
-
-    /// Resolve one model field name and append its structural field update.
-    ///
-    /// This keeps the public patch surface field-name-driven while still
-    /// validating field existence before mutation execution begins.
-    pub fn set_field(
-        mut self,
-        model: &'static EntityModel,
-        field_name: &str,
-        value: InputValue,
-    ) -> Result<Self, Error> {
-        self.inner = self.inner.set_field(model, field_name, value.into())?;
-
-        Ok(self)
     }
 
     const fn from_core(inner: core::db::StructuralPatch) -> Self {
@@ -698,9 +681,8 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Build one structural mutation patch through the active accepted schema.
     ///
-    /// Unlike the standalone `StructuralPatch::set_field(...)` builder, this
-    /// session-owned constructor resolves field names through persisted schema
-    /// metadata before returning the patch to the caller.
+    /// This session-owned constructor resolves field names through persisted
+    /// schema metadata before returning the patch to the caller.
     pub fn structural_patch<E, I, S>(&self, fields: I) -> Result<StructuralPatch, Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,

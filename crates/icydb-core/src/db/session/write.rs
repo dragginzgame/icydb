@@ -9,7 +9,7 @@ use crate::{
         DbSession, PersistedRow, WriteBatchResponse,
         data::{FieldSlot, StructuralPatch},
         executor::{EntityAuthority, MutationMode},
-        schema::AcceptedRowLayoutRuntimeDescriptor,
+        schema::{AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeDescriptor},
     },
     error::InternalError,
     traits::{CanisterKind, EntityCreateInput, EntityValue},
@@ -32,6 +32,75 @@ fn append_accepted_structural_patch_field(
         .ok_or_else(|| InternalError::mutation_structural_field_unknown(entity_path, field_name))?;
 
     Ok(patch.set(FieldSlot::from_validated_index(slot), value))
+}
+
+// Enforce missing-field policy for sparse insert/replace patches before the
+// executor materializes an entity through generated derive code. This keeps
+// database absence/default policy owned by accepted schema metadata instead of
+// accidentally relying on Rust construction defaults or derive-local missing
+// slot behavior.
+fn validate_structural_patch_absence_policy<E>(
+    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    patch: &StructuralPatch,
+    mode: MutationMode,
+) -> Result<(), InternalError>
+where
+    E: PersistedRow + EntityValue,
+{
+    if matches!(mode, MutationMode::Update) {
+        return Ok(());
+    }
+    if patch_explicitly_writes_generated_field::<E>(patch) {
+        return Ok(());
+    }
+
+    let mut provided_slots = vec![false; descriptor.required_slot_count()];
+    for entry in patch.entries() {
+        let slot = entry.slot().index();
+        if slot < provided_slots.len() {
+            provided_slots[slot] = true;
+        }
+    }
+
+    // Every omitted field must be allowed by accepted schema absence policy.
+    // Future database defaults should extend `AcceptedFieldAbsencePolicy`; this
+    // check must not inspect `Default` impls or generated construction values.
+    for field in descriptor.fields() {
+        let slot = usize::from(field.slot().get());
+        if provided_slots.get(slot).copied().unwrap_or(false) {
+            continue;
+        }
+
+        if matches!(field.absence_policy(), AcceptedFieldAbsencePolicy::Required) {
+            return Err(
+                InternalError::mutation_structural_patch_required_field_missing(
+                    E::PATH,
+                    field.name(),
+                ),
+            );
+        }
+    }
+
+    Ok(())
+}
+
+// Preserve generated-field ownership diagnostics ahead of sparse-patch
+// required-field diagnostics. The executor still owns the final rejection, but
+// this session check avoids masking that more specific generated-field policy
+// error with unrelated omitted-field errors on malformed create/replace
+// patches.
+fn patch_explicitly_writes_generated_field<E>(patch: &StructuralPatch) -> bool
+where
+    E: PersistedRow + EntityValue,
+{
+    patch.entries().iter().any(|entry| {
+        E::MODEL
+            .fields()
+            .get(entry.slot().index())
+            .is_some_and(|field| {
+                field.insert_generation().is_some() && field.name() != E::MODEL.primary_key.name()
+            })
+    })
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -102,6 +171,12 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
+        let (accepted_schema, _) =
+            self.ensure_accepted_schema_snapshot_and_authority(EntityAuthority::for_type::<E>())?;
+        let descriptor =
+            AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted_schema)?;
+        validate_structural_patch_absence_policy::<E>(&descriptor, &patch, mode)?;
+
         self.execute_save_entity(|save| save.apply_structural_mutation(mode, key, patch))
     }
 

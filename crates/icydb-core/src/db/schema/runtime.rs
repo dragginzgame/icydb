@@ -122,10 +122,6 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
     }
 
     /// Return the accepted missing-slot policy for this field.
-    #[allow(
-        dead_code,
-        reason = "absence policy becomes live when accepted additive row decode is enabled"
-    )]
     #[must_use]
     pub(in crate::db) const fn absence_policy(&self) -> AcceptedFieldAbsencePolicy {
         self.absence_policy
