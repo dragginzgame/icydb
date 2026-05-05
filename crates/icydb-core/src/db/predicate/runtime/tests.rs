@@ -37,7 +37,7 @@ struct PredicateTestSlotReader {
 }
 
 impl SlotReader for PredicateTestSlotReader {
-    fn field_contract(&self, slot: usize) -> Result<&FieldModel, InternalError> {
+    fn generated_compatible_field_model(&self, slot: usize) -> Result<&FieldModel, InternalError> {
         PREDICATE_MODEL.fields().get(slot).ok_or_else(|| {
             InternalError::persisted_row_slot_lookup_out_of_bounds(PREDICATE_MODEL.path(), slot)
         })

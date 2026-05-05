@@ -149,7 +149,7 @@ impl<'a> SerializedPatchSlotReader<'a> {
 }
 
 impl SlotReader for SerializedPatchSlotReader<'_> {
-    fn field_contract(&self, slot: usize) -> Result<&FieldModel, InternalError> {
+    fn generated_compatible_field_model(&self, slot: usize) -> Result<&FieldModel, InternalError> {
         self.payloads.generated_compatible_field_model(slot)
     }
 
@@ -165,7 +165,7 @@ impl SlotReader for SerializedPatchSlotReader<'_> {
         let Some(raw_value) = self.get_bytes(slot) else {
             return Ok(None);
         };
-        let field = self.field_contract(slot)?;
+        let field = self.payloads.field_decode_contract(slot)?;
         let crate::model::field::LeafCodec::Scalar(codec) = field.leaf_codec() else {
             return Ok(None);
         };

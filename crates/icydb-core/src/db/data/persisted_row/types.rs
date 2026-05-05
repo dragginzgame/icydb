@@ -240,7 +240,7 @@ pub trait SlotReader {
     /// This is a typed materialization compatibility bridge. Runtime decode
     /// paths that only need payload decode facts should use
     /// `field_decode_contract`.
-    fn field_contract(&self, slot: usize) -> Result<&FieldModel, InternalError>;
+    fn generated_compatible_field_model(&self, slot: usize) -> Result<&FieldModel, InternalError>;
 
     /// Return whether the given slot is present in the persisted row.
     fn has(&self, slot: usize) -> bool;
@@ -248,10 +248,10 @@ pub trait SlotReader {
     /// Borrow the raw persisted payload for one slot when present.
     fn get_bytes(&self, slot: usize) -> Option<&[u8]>;
 
-    /// Decode one slot as a scalar leaf when the field model declares a scalar codec.
+    /// Decode one slot as a scalar leaf when the field contract declares a scalar codec.
     fn get_scalar(&self, slot: usize) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError>;
 
-    /// Decode one slot value on demand using the field contract declared by the model.
+    /// Decode one slot value on demand using the generated-compatible field model bridge.
     fn get_value(&mut self, slot: usize) -> Result<Option<Value>, InternalError>;
 }
 
@@ -275,13 +275,13 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
         &self,
         slot: usize,
     ) -> Result<StructuralFieldDecodeContract, InternalError> {
-        self.field_contract(slot)
+        self.generated_compatible_field_model(slot)
             .map(StructuralFieldDecodeContract::from_field_model)
     }
 
     /// Borrow one declared slot payload, erroring when the persisted row is not canonical.
     fn required_bytes(&self, slot: usize) -> Result<&[u8], InternalError> {
-        let field = self.field_contract(slot)?;
+        let field = self.field_decode_contract(slot)?;
 
         self.get_bytes(slot)
             .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field.name()))
@@ -290,7 +290,7 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
     /// Read one scalar slot through the structural fast path without allowing
     /// declared-slot absence.
     fn required_scalar(&self, slot: usize) -> Result<ScalarSlotValueRef<'_>, InternalError> {
-        let field = self.field_contract(slot)?;
+        let field = self.field_decode_contract(slot)?;
         debug_assert!(matches!(
             field.leaf_codec(),
             crate::model::field::LeafCodec::Scalar(_)
@@ -311,10 +311,12 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
     /// Decode one declared slot through the owning field contract without
     /// allowing absent payloads.
     fn required_value_by_contract(&self, slot: usize) -> Result<Value, InternalError> {
-        decode_runtime_value_from_field_contract(
-            self.field_decode_contract(slot)?,
-            self.required_bytes(slot)?,
-        )
+        let field = self.field_decode_contract(slot)?;
+        let raw_value = self
+            .get_bytes(slot)
+            .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field.name()))?;
+
+        decode_runtime_value_from_field_contract(field, raw_value)
     }
 
     /// Borrow one declared slot value when the concrete reader already owns a

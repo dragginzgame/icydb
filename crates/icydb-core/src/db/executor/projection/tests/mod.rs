@@ -487,7 +487,7 @@ fn grouped_execution_specs<const N: usize>(
 struct ProjectionMissingDeclaredSlotReader;
 
 impl SlotReader for ProjectionMissingDeclaredSlotReader {
-    fn field_contract(&self, slot: usize) -> Result<&FieldModel, InternalError> {
+    fn generated_compatible_field_model(&self, slot: usize) -> Result<&FieldModel, InternalError> {
         ProjectionEvalEntity::MODEL
             .fields()
             .get(slot)

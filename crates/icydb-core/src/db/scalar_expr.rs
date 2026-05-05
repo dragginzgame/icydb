@@ -563,7 +563,10 @@ mod tests {
     }
 
     impl SlotReader for TestSlotReader {
-        fn field_contract(&self, slot: usize) -> Result<&FieldModel, InternalError> {
+        fn generated_compatible_field_model(
+            &self,
+            slot: usize,
+        ) -> Result<&FieldModel, InternalError> {
             SCALAR_EXPR_MODEL.fields().get(slot).ok_or_else(|| {
                 InternalError::persisted_row_slot_lookup_out_of_bounds(
                     SCALAR_EXPR_MODEL.path(),

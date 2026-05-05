@@ -837,10 +837,11 @@ fn ensure_decimal_scale_matches(kind: FieldKind, value: &Value) -> Result<(), St
     }
 }
 
-// Normalize fixed-scale decimal values through nested collection/map shapes
-// before the field-level payload is encoded. This is write-side canonicalization;
-// callers that validate already persisted bytes still use the exact scale check.
-fn normalize_decimal_scale_for_storage(
+/// Normalize fixed-scale decimal values through nested collection/map shapes
+/// before the field-level payload is encoded. This is write-side
+/// canonicalization; callers that validate already persisted bytes still use
+/// the exact scale check.
+pub(crate) fn normalize_decimal_scale_for_storage(
     kind: FieldKind,
     value: &Value,
 ) -> Result<Cow<'_, Value>, String> {

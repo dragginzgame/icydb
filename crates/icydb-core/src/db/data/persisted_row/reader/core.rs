@@ -127,7 +127,8 @@ impl<'a> StructuralSlotReader<'a> {
             && let Some(CachedSlotValue::Scalar { validated, .. }) =
                 self.cached_values.get(primary_key_slot)
         {
-            let _ = self.required_validated_scalar_slot_value(primary_key_slot, validated)?;
+            let _ =
+                self.required_validated_scalar_slot_value(primary_key_slot, field, validated)?;
         }
 
         let raw_value = self.required_field_bytes(primary_key_slot, field.name())?;
@@ -137,7 +138,10 @@ impl<'a> StructuralSlotReader<'a> {
 
     // Resolve one generated-compatible field model by stable slot index for
     // typed materialization compatibility surfaces.
-    fn generated_compatible_field_model(&self, slot: usize) -> Result<&FieldModel, InternalError> {
+    fn generated_compatible_field_model_for_slot(
+        &self,
+        slot: usize,
+    ) -> Result<&FieldModel, InternalError> {
         self.contract.generated_compatible_field_model(slot)
     }
 
@@ -146,13 +150,13 @@ impl<'a> StructuralSlotReader<'a> {
     fn required_validated_scalar_slot_value(
         &self,
         slot: usize,
+        field: StructuralFieldDecodeContract,
         validated: &OnceCell<ValidatedScalarSlotValue>,
     ) -> Result<ValidatedScalarSlotValue, InternalError> {
         if let Some(validated) = validated.get() {
             return Ok(*validated);
         }
 
-        let field = self.contract.field_decode_contract(slot)?;
         let raw_value = self.required_field_bytes(slot, field.name())?;
         let LeafCodec::Scalar(codec) = field.leaf_codec() else {
             return Err(InternalError::persisted_row_decode_failed(format!(
@@ -187,7 +191,9 @@ impl<'a> StructuralSlotReader<'a> {
                 validated,
                 materialized,
             } => {
-                let validated = self.required_validated_scalar_slot_value(slot, validated)?;
+                let field = self.contract.field_decode_contract(slot)?;
+                let validated =
+                    self.required_validated_scalar_slot_value(slot, field, validated)?;
                 if materialized.get().is_none() {
                     let value = materialize_validated_scalar_slot_value(
                         validated,
@@ -345,8 +351,8 @@ impl<'a> StructuralSlotReader<'a> {
 }
 
 impl SlotReader for StructuralSlotReader<'_> {
-    fn field_contract(&self, slot: usize) -> Result<&FieldModel, InternalError> {
-        self.generated_compatible_field_model(slot)
+    fn generated_compatible_field_model(&self, slot: usize) -> Result<&FieldModel, InternalError> {
+        self.generated_compatible_field_model_for_slot(slot)
     }
 
     fn has(&self, slot: usize) -> bool {
@@ -363,7 +369,8 @@ impl SlotReader for StructuralSlotReader<'_> {
         match field.leaf_codec() {
             LeafCodec::Scalar(_) => match self.cached_values.get(slot) {
                 Some(CachedSlotValue::Scalar { validated, .. }) => {
-                    let validated = self.required_validated_scalar_slot_value(slot, validated)?;
+                    let validated =
+                        self.required_validated_scalar_slot_value(slot, field, validated)?;
 
                     scalar_slot_value_ref_from_validated(
                         validated,
@@ -400,21 +407,6 @@ impl CanonicalSlotReader for StructuralSlotReader<'_> {
         slot: usize,
     ) -> Result<StructuralFieldDecodeContract, InternalError> {
         self.contract.field_decode_contract(slot)
-    }
-
-    fn required_bytes(&self, slot: usize) -> Result<&[u8], InternalError> {
-        let field = self.field_decode_contract(slot)?;
-
-        self.get_bytes(slot)
-            .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field.name()))
-    }
-
-    fn required_scalar(&self, slot: usize) -> Result<ScalarSlotValueRef<'_>, InternalError> {
-        let field = self.field_decode_contract(slot)?;
-        debug_assert!(matches!(field.leaf_codec(), LeafCodec::Scalar(_)));
-
-        self.get_scalar(slot)?
-            .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field.name()))
     }
 
     fn required_value_storage_scalar(

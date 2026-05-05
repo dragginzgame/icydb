@@ -92,7 +92,7 @@ mod tests {
     }
 
     impl SlotReader for CaptureSlotReader {
-        fn field_contract(
+        fn generated_compatible_field_model(
             &self,
             slot: usize,
         ) -> Result<&icydb::model::field::FieldModel, InternalError> {

@@ -15,7 +15,7 @@ use crate::{
         schema::{SchemaInfo, literal_matches_type},
     },
     error::InternalError,
-    model::field::FieldKind,
+    model::field::{FieldKind, normalize_decimal_scale_for_storage},
     sanitize::{SanitizeWriteContext, sanitize_with_context},
     traits::{EntityKind, EntityValue},
     validate::validate,
@@ -32,18 +32,17 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     pub(in crate::db::executor::mutation) fn validate_structural_patch_write_bounds(
         patch: &StructuralPatch,
     ) -> Result<(), InternalError> {
-        let fields = EntityAuthority::for_type::<E>().fields();
+        let row_layout = EntityAuthority::for_type::<E>().row_layout();
 
         for entry in patch.entries() {
-            let Some(field) = fields.get(entry.slot().index()) else {
-                return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
-                    E::MODEL.path(),
-                    entry.slot().index(),
-                ));
-            };
+            let field = row_layout
+                .contract()
+                .field_decode_contract(entry.slot().index())?;
+            let field_name = field.name();
+            let field_kind = field.kind();
 
-            Self::validate_decimal_scale_is_normalizable(field.name, &field.kind, entry.value())?;
-            Self::validate_text_max_len(field.name, &field.kind, entry.value())?;
+            Self::validate_decimal_scale_is_normalizable(field_name, &field_kind, entry.value())?;
+            Self::validate_text_max_len(field_name, &field_kind, entry.value())?;
         }
 
         Ok(())
@@ -165,12 +164,17 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         }
 
         // Phase 2: validate field presence and runtime value shapes.
-        for (field_index, field) in authority.fields().iter().enumerate() {
+        let row_layout = authority.row_layout();
+        for field_index in 0..row_layout.field_count() {
+            let field = row_layout.contract().field_decode_contract(field_index)?;
+            let field_name = field.name();
+            let field_kind = field.kind();
+
             let value = entity.get_value_by_index(field_index).ok_or_else(|| {
                 InternalError::mutation_entity_field_missing(
                     E::PATH,
-                    field.name,
-                    field_is_indexed::<E>(field.name),
+                    field_name,
+                    field_is_indexed::<E>(field_name),
                 )
             })?;
 
@@ -179,30 +183,30 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 continue;
             }
 
-            if !field.kind.value_kind().is_queryable() {
+            if !field_kind.value_kind().is_queryable() {
                 // Non-queryable structured fields are not planner-addressable.
                 continue;
             }
 
-            let Some(field_type) = schema.field(field.name) else {
+            let Some(field_type) = schema.field(field_name) else {
                 // Runtime-only field; treat as non-queryable.
                 continue;
             };
 
-            if !literal_matches_type(&value, field_type) && !field.kind.accepts_value(&value) {
+            if !literal_matches_type(&value, field_type) && !field_kind.accepts_value(&value) {
                 return Err(InternalError::mutation_entity_field_type_mismatch(
                     E::PATH,
-                    field.name,
+                    field_name,
                     &value,
                 ));
             }
 
             // Phase 3: enforce schema-declared scalar bounds at write boundaries.
-            Self::validate_decimal_scale_is_normalizable(field.name, &field.kind, &value)?;
-            Self::validate_text_max_len(field.name, &field.kind, &value)?;
+            Self::validate_decimal_scale_is_normalizable(field_name, &field_kind, &value)?;
+            Self::validate_text_max_len(field_name, &field_kind, &value)?;
 
             // Phase 4: enforce deterministic collection/map encodings at runtime.
-            Self::validate_deterministic_field_value(field.name, &field.kind, &value)?;
+            Self::validate_deterministic_field_value(field_name, &field_kind, &value)?;
         }
 
         Ok(())
@@ -215,13 +219,18 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         schema: &SchemaInfo,
     ) -> Result<(), InternalError> {
         let authority = EntityAuthority::for_type::<E>();
+        let row_layout = authority.row_layout();
 
-        for (field_index, field) in authority.fields().iter().enumerate() {
+        for field_index in 0..row_layout.field_count() {
+            let field = row_fields.field_decode_contract(field_index)?;
+            let field_name = field.name();
+            let field_kind = field.kind();
+
             if !row_fields.has(field_index) {
                 return Err(InternalError::mutation_entity_field_missing(
                     E::PATH,
-                    field.name,
-                    field_is_indexed::<E>(field.name),
+                    field_name,
+                    field_is_indexed::<E>(field_name),
                 ));
             }
 
@@ -232,32 +241,32 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 continue;
             }
 
-            if !field.kind.value_kind().is_queryable() {
+            if !field_kind.value_kind().is_queryable() {
                 // Non-queryable structured fields are not planner-addressable.
                 continue;
             }
 
-            let Some(field_type) = schema.field(field.name) else {
+            let Some(field_type) = schema.field(field_name) else {
                 // Runtime-only field; treat as non-queryable.
                 continue;
             };
 
             if !literal_matches_type(value.as_ref(), field_type)
-                && !field.kind.accepts_value(value.as_ref())
+                && !field_kind.accepts_value(value.as_ref())
             {
                 return Err(InternalError::mutation_entity_field_type_mismatch(
                     E::PATH,
-                    field.name,
+                    field_name,
                     value.as_ref(),
                 ));
             }
 
             // Phase 1: enforce schema-declared scalar bounds at write boundaries.
-            Self::validate_decimal_scale_exact(field.name, &field.kind, value.as_ref())?;
-            Self::validate_text_max_len(field.name, &field.kind, value.as_ref())?;
+            Self::validate_decimal_scale_exact(field_name, &field_kind, value.as_ref())?;
+            Self::validate_text_max_len(field_name, &field_kind, value.as_ref())?;
 
             // Phase 2: enforce deterministic collection/map encodings at runtime.
-            Self::validate_deterministic_field_value(field.name, &field.kind, value.as_ref())?;
+            Self::validate_deterministic_field_value(field_name, &field_kind, value.as_ref())?;
         }
 
         Ok(())
@@ -275,9 +284,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
         match (kind, value) {
             (FieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
-                let probe = crate::model::field::FieldModel::generated(field_name, *kind);
-                probe
-                    .normalize_runtime_value_for_storage(value)
+                normalize_decimal_scale_for_storage(*kind, value)
                     .map(|_| ())
                     .map_err(|_| {
                         InternalError::mutation_decimal_scale_mismatch(
