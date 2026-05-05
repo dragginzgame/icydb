@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.147.x] 🪪 - 2026-05-04 - Accepted Schema Authority Closeout
 
+- `0.147.18` splits the row-reader field surface so runtime value decode can request narrow decode facts while typed materialization keeps its generated-compatible field bridge.
 - `0.147.17` makes the remaining generated field-model bridge in structural row contracts explicit and slot-scoped, so production row readers no longer borrow the full generated field table.
 - `0.147.16` introduces a narrow structural field decode contract so row-value, grouped single-slot, and row-validation paths consume field decode facts instead of raw generated field models.
 - `0.147.15` makes public structural writes reject generated-field authorship from accepted schema metadata before executor staging, removing the remaining executor-side generated-field policy switch.

@@ -2,8 +2,8 @@
 use crate::db::data::persisted_row::reader::metrics;
 use crate::{
     db::data::{
-        DataKey, RawRow, StructuralRowContract, StructuralRowDecodeError, StructuralRowFieldBytes,
-        ValueStorageView,
+        DataKey, RawRow, StructuralFieldDecodeContract, StructuralRowContract,
+        StructuralRowDecodeError, StructuralRowFieldBytes, ValueStorageView,
         persisted_row::{
             codec::{ScalarSlotValueRef, ScalarValueRef, decode_scalar_slot_value},
             contract::{decode_field_slot_into_runtime_value, validate_non_scalar_slot_value},
@@ -401,6 +401,13 @@ impl SlotReader for StructuralSlotReader<'_> {
 }
 
 impl CanonicalSlotReader for StructuralSlotReader<'_> {
+    fn field_decode_contract(
+        &self,
+        slot: usize,
+    ) -> Result<StructuralFieldDecodeContract, InternalError> {
+        self.contract.field_decode_contract(slot)
+    }
+
     fn required_bytes(&self, slot: usize) -> Result<&[u8], InternalError> {
         let field = self.field_contract(slot)?;
 

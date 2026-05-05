@@ -258,6 +258,20 @@ pub trait SlotReader {
 ///
 
 pub(in crate::db) trait CanonicalSlotReader: SlotReader {
+    /// Resolve one field decode contract by stable slot index.
+    ///
+    /// The default implementation adapts from the generated-compatible
+    /// `FieldModel` surface so test readers and compatibility readers can stay
+    /// minimal. Structural readers override this when they can provide decode
+    /// facts without reopening the generated field model.
+    fn field_decode_contract(
+        &self,
+        slot: usize,
+    ) -> Result<StructuralFieldDecodeContract, InternalError> {
+        self.field_contract(slot)
+            .map(StructuralFieldDecodeContract::from_field_model)
+    }
+
     /// Borrow one declared slot payload, erroring when the persisted row is not canonical.
     fn required_bytes(&self, slot: usize) -> Result<&[u8], InternalError> {
         let field = self.field_contract(slot)?;
@@ -290,10 +304,10 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
     /// Decode one declared slot through the owning field contract without
     /// allowing absent payloads.
     fn required_value_by_contract(&self, slot: usize) -> Result<Value, InternalError> {
-        let field = self.field_contract(slot)?;
-        let field_contract = StructuralFieldDecodeContract::from_field_model(field);
-
-        decode_field_slot_into_runtime_value(field_contract, self.required_bytes(slot)?)
+        decode_field_slot_into_runtime_value(
+            self.field_decode_contract(slot)?,
+            self.required_bytes(slot)?,
+        )
     }
 
     /// Borrow one declared slot value when the concrete reader already owns a
