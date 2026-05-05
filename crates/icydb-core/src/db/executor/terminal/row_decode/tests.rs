@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     db::{
         data::{
-            CanonicalRow, decode_structural_field_by_kind_bytes,
+            CanonicalRow, RawRow, decode_structural_field_by_kind_bytes,
             encode_structural_field_by_kind_bytes, with_structural_read_metrics,
         },
         schema::{
@@ -201,6 +201,32 @@ fn row_layout_rejects_accepted_payload_contract_drift_until_decoder_consumes_acc
             .contains("accepted row layout storage decode is not generated-compatible"),
         "unexpected compatibility error: {}",
         err.message,
+    );
+}
+
+#[test]
+fn accepted_row_layout_decoder_rejects_malformed_raw_row() {
+    let accepted = accepted_row_decode_schema();
+    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+        .expect("accepted row decode schema should project into runtime descriptor");
+    let layout = RowLayout::from_generated_compatible_accepted_descriptor(
+        RowDecodeEntity::MODEL,
+        &descriptor,
+    )
+    .expect("exact accepted row layout should be generated-compatible");
+    let key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(Ulid::from_u128(31))
+        .expect("test key construction should succeed");
+    let malformed = RawRow::from_untrusted_bytes(vec![0xFF])
+        .expect("malformed test row should still be bounded");
+    let Err(err) = RowDecoder::structural().decode(&layout, (key, malformed)) else {
+        panic!("malformed row bytes must fail closed through accepted layout")
+    };
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Serialize);
+    assert!(
+        err.message.contains("row decode"),
+        "unexpected malformed-row decode error: {err:?}",
     );
 }
 

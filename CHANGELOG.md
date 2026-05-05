@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.147.x] 🪪 - 2026-05-04 - Accepted Schema Authority Closeout
 
+- `0.147.10` tightens accepted-schema guards across SQL and direct session reads, deletes, and writes so unsupported schema changes fail before row decoding or mutation staging, with malformed row bytes still rejected at the accepted-layout decode boundary.
 - `0.147.9` removes the old generated-model structural patch setter, makes sparse structural writes use accepted schema required-field rules instead of Rust defaults, and keeps unsupported schema changes blocked before write staging.
 - `0.147.8` removes generated-model access from generic row readers and makes structural row reads resolve fields through frozen field contracts.
 - `0.147.7` tightens structural row decode by introducing a generated-compatible accepted row-shape proof and routing retained-slot byte-length reads through the frozen row-layout contract.

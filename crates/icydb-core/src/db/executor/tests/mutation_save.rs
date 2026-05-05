@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        Db, DbSession, EntityRuntimeHooks, PersistedRow,
+        Db, DbSession, EntityRuntimeHooks, PersistedRow, QueryError,
         codec::serialize_row_payload,
         commit::{
             CommitRowOp, commit_marker_present, ensure_recovered, init_commit_store_for_tests,
@@ -977,6 +977,32 @@ fn unique_email_patch(session: &DbSession<TestCanister>, id: Ulid, email: &str) 
             ("email", Value::Text(email.to_string())),
         ],
     )
+}
+
+// Install a well-formed but intentionally older accepted schema so session
+// paths must reject the unsupported transition before decoding or staging rows.
+fn install_unique_email_old_accepted_schema_prefix() {
+    let proposal = compiled_schema_proposal_for_model(
+        <UniqueEmailEntity as crate::traits::EntitySchema>::MODEL,
+    );
+    let expected = proposal.initial_persisted_schema_snapshot();
+    let stored_prefix_row_layout = SchemaRowLayout::new(
+        expected.row_layout().version(),
+        vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
+    );
+    let stored_prefix = PersistedSchemaSnapshot::new(
+        expected.version(),
+        expected.entity_path().to_string(),
+        expected.entity_name().to_string(),
+        expected.primary_key_field_id(),
+        stored_prefix_row_layout,
+        vec![expected.fields()[0].clone()],
+    );
+    SOURCE_SCHEMA_STORE.with_borrow_mut(|store| {
+        store
+            .insert_persisted_snapshot(UniqueEmailEntity::ENTITY_TAG, &stored_prefix)
+            .expect("unsupported but well-formed old schema snapshot should persist");
+    });
 }
 
 fn load_source_set_entity(id: Ulid) -> Option<SourceSetEntity> {
@@ -3021,28 +3047,7 @@ fn session_insert_rejects_unsupported_schema_transition_before_write_staging() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
     SOURCE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-
-    let proposal = compiled_schema_proposal_for_model(
-        <UniqueEmailEntity as crate::traits::EntitySchema>::MODEL,
-    );
-    let expected = proposal.initial_persisted_schema_snapshot();
-    let stored_prefix_row_layout = SchemaRowLayout::new(
-        expected.row_layout().version(),
-        vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
-    );
-    let stored_prefix = PersistedSchemaSnapshot::new(
-        expected.version(),
-        expected.entity_path().to_string(),
-        expected.entity_name().to_string(),
-        expected.primary_key_field_id(),
-        stored_prefix_row_layout,
-        vec![expected.fields()[0].clone()],
-    );
-    SOURCE_SCHEMA_STORE.with_borrow_mut(|store| {
-        store
-            .insert_persisted_snapshot(UniqueEmailEntity::ENTITY_TAG, &stored_prefix)
-            .expect("unsupported but well-formed old schema snapshot should persist");
-    });
+    install_unique_email_old_accepted_schema_prefix();
 
     let session = DbSession::new(DB);
     let err = session
@@ -3066,6 +3071,86 @@ fn session_insert_rejects_unsupported_schema_transition_before_write_staging() {
     assert!(
         load_unique_email_entity(Ulid::from_u128(25)).is_none(),
         "schema transition rejection must happen before write staging persists data",
+    );
+}
+
+#[test]
+fn session_load_rejects_unsupported_schema_transition_before_row_decode() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let session = DbSession::new(DB);
+    let id = Ulid::from_u128(26);
+    session
+        .insert(UniqueEmailEntity {
+            id,
+            email: "alice@example.com".to_string(),
+        })
+        .expect("seed row should save before schema transition fixture is installed");
+    SOURCE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_unique_email_old_accepted_schema_prefix();
+
+    let query = Query::<UniqueEmailEntity>::new(MissingRowPolicy::Ignore).by_id(id);
+    let err = session
+        .execute_query(&query)
+        .expect_err("unsupported accepted schema transition must block load planning");
+
+    SOURCE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+
+    assert!(
+        matches!(&err, QueryError::Execute(_)),
+        "schema transition should surface through the query execution boundary: {err:?}",
+    );
+    assert!(
+        err.to_string()
+            .contains("schema evolution is not yet supported")
+            && err
+                .to_string()
+                .contains("unsupported additive field transition"),
+        "unexpected schema transition error: {err:?}",
+    );
+}
+
+#[test]
+fn session_delete_rejects_unsupported_schema_transition_before_row_decode() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let session = DbSession::new(DB);
+    let id = Ulid::from_u128(27);
+    session
+        .insert(UniqueEmailEntity {
+            id,
+            email: "alice@example.com".to_string(),
+        })
+        .expect("seed row should save before schema transition fixture is installed");
+    SOURCE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_unique_email_old_accepted_schema_prefix();
+
+    let query = Query::<UniqueEmailEntity>::new(MissingRowPolicy::Ignore)
+        .delete()
+        .by_id(id);
+    let err = session
+        .execute_delete_count(&query)
+        .expect_err("unsupported accepted schema transition must block delete planning");
+
+    SOURCE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+
+    assert!(
+        matches!(&err, QueryError::Execute(_)),
+        "schema transition should surface through the query execution boundary: {err:?}",
+    );
+    assert!(
+        err.to_string()
+            .contains("schema evolution is not yet supported")
+            && err
+                .to_string()
+                .contains("unsupported additive field transition"),
+        "unexpected schema transition error: {err:?}",
+    );
+    assert!(
+        load_unique_email_entity(id).is_some(),
+        "schema transition rejection must happen before delete staging removes data",
     );
 }
 

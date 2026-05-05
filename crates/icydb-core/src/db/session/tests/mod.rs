@@ -72,7 +72,10 @@ use crate::{
         },
         registry::StoreRegistry,
         response::EntityResponse,
-        schema::SchemaStore,
+        schema::{
+            FieldId, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaRowLayout, SchemaStore,
+            compiled_schema_proposal_for_model,
+        },
         sql::{
             lowering::{
                 LoweredSqlQuery, apply_lowered_select_shape, bind_lowered_sql_query,
@@ -2065,6 +2068,32 @@ fn reset_session_sql_store() {
 
 fn sql_session() -> DbSession<SessionSqlCanister> {
     DbSession::new(SESSION_SQL_DB)
+}
+
+// Install a generated-compatible snapshot prefix that intentionally omits the
+// non-key write fields. SQL session paths must reject this as unsupported
+// schema evolution before they compile or stage row work against stale layout.
+fn install_session_sql_write_old_accepted_schema_prefix() {
+    let proposal =
+        compiled_schema_proposal_for_model(<SessionSqlWriteEntity as EntitySchema>::MODEL);
+    let expected = proposal.initial_persisted_schema_snapshot();
+    let stored_prefix_row_layout = SchemaRowLayout::new(
+        expected.row_layout().version(),
+        vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
+    );
+    let stored_prefix = PersistedSchemaSnapshot::new(
+        expected.version(),
+        expected.entity_path().to_string(),
+        expected.entity_name().to_string(),
+        expected.primary_key_field_id(),
+        stored_prefix_row_layout,
+        vec![expected.fields()[0].clone()],
+    );
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
+        store
+            .insert_persisted_snapshot(SessionSqlWriteEntity::ENTITY_TAG, &stored_prefix)
+            .expect("unsupported but well-formed old SQL write schema should persist");
+    });
 }
 
 fn reset_indexed_session_sql_store() {

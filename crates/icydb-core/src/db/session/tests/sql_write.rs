@@ -102,6 +102,24 @@ fn seed_write_entities(session: &DbSession<SessionSqlCanister>, rows: &[(u64, &s
     }
 }
 
+// Assert one SQL write rejection from the accepted-schema transition barrier
+// while preserving the row surface after the schema fixture is cleared.
+fn assert_sql_write_unsupported_transition(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    context: &str,
+) {
+    let err = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(session, sql)
+        .expect_err("SQL write should reject unsupported accepted schema drift");
+    let err_text = err.to_string();
+
+    assert!(
+        err_text.contains("schema evolution is not yet supported")
+            && err_text.contains("unsupported additive field transition"),
+        "{context} should surface the schema-transition barrier: {err_text}",
+    );
+}
+
 fn captured_sql_write_events(
     events: &[MetricsEvent],
 ) -> Vec<(&'static str, SqlWriteKind, u64, u64, u64)> {
@@ -260,6 +278,67 @@ fn generated_timestamp_insert_patch(
             ("name", Value::Text(name.to_string())),
         ])
         .unwrap_or_else(|err| panic!("{context} should resolve accepted-schema fields: {err}"))
+}
+
+#[test]
+fn execute_sql_write_rejects_unsupported_schema_transition_before_staging() {
+    reset_session_sql_store();
+    let session = sql_session();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_session_sql_write_old_accepted_schema_prefix();
+
+    assert_sql_write_unsupported_transition(
+        &session,
+        "INSERT INTO SessionSqlWriteEntity (id, name, age) VALUES (1, 'Ada', 21)",
+        "SQL INSERT",
+    );
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    assert!(
+        persisted_write_rows(&session).is_empty(),
+        "unsupported INSERT transition must fail before mutation staging",
+    );
+
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21)]);
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_session_sql_write_old_accepted_schema_prefix();
+    assert_sql_write_unsupported_transition(
+        &session,
+        "UPDATE SessionSqlWriteEntity SET age = 22 WHERE id = 1",
+        "SQL UPDATE",
+    );
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![vec![
+            Value::Uint(1),
+            Value::Text("Ada".to_string()),
+            Value::Uint(21),
+        ]],
+        "unsupported UPDATE transition must fail before mutation staging",
+    );
+
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(1, "Ada", 21)]);
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_session_sql_write_old_accepted_schema_prefix();
+    assert_sql_write_unsupported_transition(
+        &session,
+        "DELETE FROM SessionSqlWriteEntity WHERE id = 1 RETURNING id",
+        "SQL DELETE RETURNING",
+    );
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![vec![
+            Value::Uint(1),
+            Value::Text("Ada".to_string()),
+            Value::Uint(21),
+        ]],
+        "unsupported DELETE transition must fail before delete staging",
+    );
 }
 
 #[test]

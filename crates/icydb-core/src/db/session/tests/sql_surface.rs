@@ -735,6 +735,36 @@ fn execute_sql_statement_admits_supported_single_entity_read_shapes() {
 }
 
 #[test]
+fn execute_sql_statement_rejects_unsupported_schema_transition_before_select_compile() {
+    reset_session_sql_store();
+    let session = sql_session();
+    session
+        .insert(SessionSqlWriteEntity {
+            id: 1,
+            name: "Ada".to_string(),
+            age: 21,
+        })
+        .expect("SQL SELECT schema-transition fixture row should save");
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_session_sql_write_old_accepted_schema_prefix();
+
+    let err = execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+        &session,
+        "SELECT id, name FROM SessionSqlWriteEntity WHERE id = 1",
+    )
+    .expect_err("SQL SELECT should reject unsupported accepted schema drift");
+    let err_text = err.to_string();
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+
+    assert!(
+        err_text.contains("schema evolution is not yet supported")
+            && err_text.contains("unsupported additive field transition"),
+        "SQL SELECT should surface the schema-transition barrier: {err_text}",
+    );
+}
+
+#[test]
 fn execute_sql_statement_admits_supported_single_entity_mutation_shapes() {
     reset_session_sql_store();
     let session = sql_session();
