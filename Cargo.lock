@@ -204,9 +204,9 @@ dependencies = [
 
 [[package]]
 name = "canic"
-version = "0.30.36"
+version = "0.30.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21be374ec6ceca33e169d3a6ff0e254e5ad85ed2e1c5b0560301b0a258c4e01c"
+checksum = "191ca5046c4bca86ac4e282f87ff2e7c791a0a50201ad9f0816aa4ccda0555b8"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -220,9 +220,9 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.30.36"
+version = "0.30.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f70fa97e316f15946310d8eb0105a96826be27ee1dab8173a6073a015b8c239"
+checksum = "d6d3744b34929ec51cffd847c2e35167e5d69dd97ebac2d59f876af3034c8a6d"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -237,9 +237,9 @@ dependencies = [
 
 [[package]]
 name = "canic-core"
-version = "0.30.36"
+version = "0.30.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9875ea8e96f58c0abd678961d90785320fb5df7a1456b056fea75e5de2781066"
+checksum = "cae22c5cff64403e01cf9a5484786d0ee3c369e9a460909d97d1eeedfdd87c8b"
 dependencies = [
  "async-trait",
  "candid",
@@ -259,9 +259,9 @@ dependencies = [
 
 [[package]]
 name = "canic-macros"
-version = "0.30.36"
+version = "0.30.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a65270ca377f7930b2430b0fc9260025971c9bb363a9eff3c9983aa68efd0ccd"
+checksum = "28102282f5f952cac39b687cdf8c5384611d059862800f1cad6739eb2db2267b"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -270,9 +270,9 @@ dependencies = [
 
 [[package]]
 name = "canic-memory"
-version = "0.30.36"
+version = "0.30.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "786d3789959c22ae26f574ed9347859d57e2e34dea5bde462b64be6f89c75c54"
+checksum = "b137fd74d5e33bdfc35a07210b3d4d9678dd12658b0b2ea830d16f6fdd3e6c80"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -284,9 +284,9 @@ dependencies = [
 
 [[package]]
 name = "canic-testkit"
-version = "0.30.36"
+version = "0.30.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb6d931ff563aaebd2be728637cc215b776aafb05136e3417f464fa4afa5e0a5"
+checksum = "ef734691907ed208341e57d6a09ad9a80f45e1ca6d8e928ee5f945ce55c9f909"
 dependencies = [
  "candid",
  "canic",
@@ -296,7 +296,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_minimal"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -306,7 +306,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_complex"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -316,7 +316,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_simple"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -326,7 +326,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_sql_perf"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -336,7 +336,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_ten_complex"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -346,7 +346,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_ten_simple"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -356,7 +356,7 @@ dependencies = [
 
 [[package]]
 name = "canister_demo_rpg"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -367,7 +367,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_sql"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1314,7 +1314,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1334,7 +1334,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -1344,7 +1344,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-cli"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "icydb",
  "rustyline",
@@ -1353,7 +1353,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1377,7 +1377,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-derive"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1386,11 +1386,11 @@ dependencies = [
 
 [[package]]
 name = "icydb-primitives"
-version = "0.147.21"
+version = "0.147.22"
 
 [[package]]
 name = "icydb-schema"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1406,7 +1406,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-derive"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "darling",
@@ -1424,7 +1424,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-tests"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "icydb",
@@ -1436,7 +1436,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-minimal-fixtures"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "icydb",
@@ -1445,7 +1445,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-one-complex-fixtures"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "icydb",
@@ -1454,7 +1454,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-one-simple-fixtures"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "icydb",
@@ -1463,7 +1463,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-sql-perf-fixtures"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "icydb",
@@ -1471,7 +1471,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-ten-complex-fixtures"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "icydb",
@@ -1480,7 +1480,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-ten-simple-fixtures"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "icydb",
@@ -1489,7 +1489,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-demo-rpg-fixtures"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "icydb",
@@ -1498,7 +1498,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-integration"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "canic-testkit",
@@ -1509,7 +1509,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-test-fixtures"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "icydb",
@@ -1519,7 +1519,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-test-sql-fixtures"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "candid",
  "icydb",
@@ -1527,14 +1527,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-wasm-helpers"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "icydb",
 ]
 
 [[package]]
 name = "icydb-utils"
-version = "0.147.21"
+version = "0.147.22"
 dependencies = [
  "convert_case",
  "rand_chacha 0.10.0",
