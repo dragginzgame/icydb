@@ -3,6 +3,7 @@
 //! Does not own: row layout planning, typed entity reconstruction, or query semantics.
 //! Boundary: runtime paths use this module when they need one persisted field decoded without `E`.
 
+mod accepted;
 mod binary;
 mod composite;
 mod encode;
@@ -48,6 +49,10 @@ use scalar::{
     encode_text_fast_path_binary_bytes,
 };
 
+pub(in crate::db) use accepted::{
+    accepted_kind_supports_storage_key_binary, decode_structural_field_by_accepted_kind_bytes,
+    validate_structural_field_by_accepted_kind_bytes,
+};
 pub(in crate::db) use encode::encode_structural_field_by_kind_bytes;
 pub(in crate::db) use storage_key::{
     decode_optional_storage_key_field_bytes, decode_relation_target_storage_keys_bytes,

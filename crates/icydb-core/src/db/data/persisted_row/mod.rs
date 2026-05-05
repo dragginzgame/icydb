@@ -19,6 +19,8 @@ mod writer;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+pub(in crate::db) use contract::decode_runtime_value_from_accepted_field_contract;
 #[doc(hidden)]
 pub use contract::{decode_slot_into_runtime_value, encode_runtime_value_into_slot};
 pub(in crate::db) use patch::{

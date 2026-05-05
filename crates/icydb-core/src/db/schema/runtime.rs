@@ -528,13 +528,16 @@ const fn accepted_field_absence_policy(
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::schema::{
-            AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
-            PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy,
-            SchemaRowLayout, SchemaVersion,
-            runtime::{
-                AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeDescriptor,
-                AcceptedRowLayoutRuntimeField,
+        db::{
+            data::decode_runtime_value_from_accepted_field_contract,
+            schema::{
+                AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
+                PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot,
+                SchemaFieldWritePolicy, SchemaRowLayout, SchemaVersion,
+                runtime::{
+                    AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeDescriptor,
+                    AcceptedRowLayoutRuntimeField,
+                },
             },
         },
         model::{
@@ -891,6 +894,36 @@ mod tests {
             nickname_field.write_policy().insert_generation(),
             None,
             "generated-compatible descriptor should project accepted fields to write-policy facts",
+        );
+    }
+
+    #[test]
+    fn accepted_field_decode_contract_reports_persisted_scalar_field_name() {
+        let accepted = generated_compatible_accepted_schema_fixture();
+        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+            .expect("accepted schema should build descriptor");
+        let nickname_field = descriptor
+            .field_by_name("nickname")
+            .expect("nickname should resolve accepted descriptor field");
+
+        // Invalid UTF-8 inside a scalar text envelope should be attributed to
+        // the accepted persisted field name, not to a generated placeholder.
+        let invalid_text_scalar_payload = [0xFF, 0x01, 0xFF];
+        let err = decode_runtime_value_from_accepted_field_contract(
+            nickname_field.decode_contract(),
+            invalid_text_scalar_payload.as_slice(),
+        )
+        .expect_err("invalid accepted scalar payload should fail closed");
+
+        assert!(
+            err.message.contains("field 'nickname'"),
+            "accepted scalar decode should retain field ownership in diagnostics: {}",
+            err.message,
+        );
+        assert!(
+            !err.message.contains("accepted field"),
+            "accepted scalar decode should not use the old placeholder field name: {}",
+            err.message,
         );
     }
 

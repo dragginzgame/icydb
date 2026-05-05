@@ -47,7 +47,7 @@ pub(in crate::db) use layout::{SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
 pub(in crate::db) use proposal::compiled_schema_proposal_for_model;
 pub(in crate::db) use reconcile::{ensure_accepted_schema_snapshot, reconcile_runtime_schemas};
 pub(in crate::db) use runtime::{
-    AcceptedFieldAbsencePolicy, AcceptedGeneratedCompatibleRowShape,
+    AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract, AcceptedGeneratedCompatibleRowShape,
     AcceptedRowLayoutRuntimeDescriptor, AcceptedRowLayoutRuntimeField,
 };
 pub(in crate::db) use snapshot::{

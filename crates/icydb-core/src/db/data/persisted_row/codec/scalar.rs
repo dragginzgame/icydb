@@ -204,7 +204,7 @@ where
 // field/codec-specific length error used by each scalar owner.
 fn decode_fixed<const N: usize>(
     bytes: &[u8],
-    field_name: &'static str,
+    field_name: &str,
     label: &'static str,
 ) -> Result<[u8; N], InternalError> {
     bytes.try_into().map_err(|_| {
@@ -220,10 +220,7 @@ fn encode_fixed<const N: usize>(bytes: [u8; N]) -> Vec<u8> {
 
 // Decode the one-byte boolean scalar payload shared by raw scalar slots and
 // generated scalar-field owners.
-fn decode_bool_scalar_payload(
-    bytes: &[u8],
-    field_name: &'static str,
-) -> Result<bool, InternalError> {
+fn decode_bool_scalar_payload(bytes: &[u8], field_name: &str) -> Result<bool, InternalError> {
     let [value] = bytes else {
         return Err(
             InternalError::persisted_row_field_payload_exact_len_required(
@@ -245,7 +242,7 @@ fn decode_bool_scalar_payload(
 
 // Decode the empty unit scalar payload shared by `()` and the public `Unit`
 // wrapper without giving either owner its own copy of the same guard.
-fn decode_unit_scalar_payload(bytes: &[u8], field_name: &'static str) -> Result<(), InternalError> {
+fn decode_unit_scalar_payload(bytes: &[u8], field_name: &str) -> Result<(), InternalError> {
     if !bytes.is_empty() {
         return Err(InternalError::persisted_row_field_payload_must_be_empty(
             field_name, "unit",
@@ -258,7 +255,7 @@ fn decode_unit_scalar_payload(bytes: &[u8], field_name: &'static str) -> Result<
 // Decode common little-endian scalar words through one fixed-width path.
 fn decode_i32_payload(
     bytes: &[u8],
-    field_name: &'static str,
+    field_name: &str,
     label: &'static str,
 ) -> Result<i32, InternalError> {
     Ok(i32::from_le_bytes(decode_fixed(bytes, field_name, label)?))
@@ -267,7 +264,7 @@ fn decode_i32_payload(
 // Decode common little-endian scalar words through one fixed-width path.
 fn decode_i64_payload(
     bytes: &[u8],
-    field_name: &'static str,
+    field_name: &str,
     label: &'static str,
 ) -> Result<i64, InternalError> {
     Ok(i64::from_le_bytes(decode_fixed(bytes, field_name, label)?))
@@ -276,7 +273,7 @@ fn decode_i64_payload(
 // Decode common little-endian scalar words through one fixed-width path.
 fn decode_u32_payload(
     bytes: &[u8],
-    field_name: &'static str,
+    field_name: &str,
     label: &'static str,
 ) -> Result<u32, InternalError> {
     Ok(u32::from_le_bytes(decode_fixed(bytes, field_name, label)?))
@@ -285,7 +282,7 @@ fn decode_u32_payload(
 // Decode common little-endian scalar words through one fixed-width path.
 fn decode_u64_payload(
     bytes: &[u8],
-    field_name: &'static str,
+    field_name: &str,
     label: &'static str,
 ) -> Result<u64, InternalError> {
     Ok(u64::from_le_bytes(decode_fixed(bytes, field_name, label)?))
@@ -396,7 +393,7 @@ pub(in crate::db::data::persisted_row) fn encode_scalar_slot_value(
 // Split one scalar slot envelope into `NULL` vs payload bytes.
 fn decode_scalar_slot_payload_body<'a>(
     bytes: &'a [u8],
-    field_name: &'static str,
+    field_name: &str,
 ) -> Result<Option<&'a [u8]>, InternalError> {
     let Some((&prefix, rest)) = bytes.split_first() else {
         return Err(InternalError::persisted_row_field_decode_failed(
@@ -442,7 +439,7 @@ fn decode_scalar_slot_payload_body<'a>(
 pub(in crate::db::data::persisted_row) fn decode_scalar_slot_value<'a>(
     bytes: &'a [u8],
     codec: ScalarCodec,
-    field_name: &'static str,
+    field_name: &str,
 ) -> Result<ScalarSlotValueRef<'a>, InternalError> {
     let Some(payload) = decode_scalar_slot_payload_body(bytes, field_name)? else {
         return Ok(ScalarSlotValueRef::Null);

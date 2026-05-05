@@ -17,6 +17,8 @@ pub(in crate::db) use crate::value::{StorageKey, StorageKeyDecodeError, StorageK
 pub(in crate::db) use entity_decode::decode_raw_row_for_entity_key;
 pub(in crate::db) use key::DataKey;
 pub(crate) use key::RawDataKey;
+#[cfg(test)]
+pub(in crate::db) use persisted_row::decode_runtime_value_from_accepted_field_contract;
 pub(in crate::db) use persisted_row::{
     CanonicalSlotReader, FieldSlot, SerializedStructuralPatch, StructuralSlotReader,
     apply_serialized_structural_patch_to_raw_row, canonical_row_from_entity,
@@ -44,8 +46,9 @@ pub(in crate::db) use row::CanonicalRow;
 pub(in crate::db) use row::{DataRow, RawRow};
 pub use store::DataStore;
 pub(in crate::db) use structural_field::{
-    FieldDecodeError, ValueStorageView, decode_enum, decode_relation_target_storage_keys_bytes,
-    decode_storage_key_binary_value_bytes, decode_storage_key_field_bytes,
+    FieldDecodeError, ValueStorageView, accepted_kind_supports_storage_key_binary, decode_enum,
+    decode_relation_target_storage_keys_bytes, decode_storage_key_binary_value_bytes,
+    decode_storage_key_field_bytes, decode_structural_field_by_accepted_kind_bytes,
     decode_structural_field_by_kind_bytes, decode_structural_value_storage_bytes,
     decode_value_storage_list_item_slices, decode_value_storage_map_entry_slices,
     decode_value_storage_text, encode_enum, encode_storage_key_binary_value_bytes,
@@ -53,8 +56,8 @@ pub(in crate::db) use structural_field::{
     encode_structural_value_storage_null_bytes, encode_value_storage_list_item_slices,
     encode_value_storage_map_entry_slices, encode_value_storage_text,
     supports_storage_key_binary_kind, validate_storage_key_binary_value_bytes,
-    validate_structural_field_by_kind_bytes, validate_structural_value_storage_bytes,
-    value_storage_bytes_are_null,
+    validate_structural_field_by_accepted_kind_bytes, validate_structural_field_by_kind_bytes,
+    validate_structural_value_storage_bytes, value_storage_bytes_are_null,
 };
 pub(in crate::db::data) use structural_row::{
     SparseRequiredRowFieldBytes, StructuralRowDecodeError, StructuralRowFieldBytes,

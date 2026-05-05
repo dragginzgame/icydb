@@ -14,13 +14,17 @@ use crate::{
         codec::serialize_row_payload,
         data::{
             CanonicalRow, RawRow, StructuralFieldDecodeContract,
-            decode_storage_key_binary_value_bytes, decode_structural_field_by_kind_bytes,
+            accepted_kind_supports_storage_key_binary, decode_storage_key_binary_value_bytes,
+            decode_structural_field_by_accepted_kind_bytes, decode_structural_field_by_kind_bytes,
             decode_structural_value_storage_bytes, encode_storage_key_binary_value_bytes,
             encode_structural_field_by_kind_bytes, encode_structural_value_storage_bytes,
             encode_structural_value_storage_null_bytes, supports_storage_key_binary_kind,
-            validate_storage_key_binary_value_bytes, validate_structural_field_by_kind_bytes,
-            validate_structural_value_storage_bytes, value_storage_bytes_are_null,
+            validate_storage_key_binary_value_bytes,
+            validate_structural_field_by_accepted_kind_bytes,
+            validate_structural_field_by_kind_bytes, validate_structural_value_storage_bytes,
+            value_storage_bytes_are_null,
         },
+        schema::AcceptedFieldDecodeContract,
     },
     error::InternalError,
     model::{
@@ -69,6 +73,31 @@ pub(in crate::db::data::persisted_row) fn decode_runtime_value_from_field_contra
             ScalarSlotValueRef::Value(value) => Ok(value.into_value()),
         },
         LeafCodec::StructuralFallback => decode_non_scalar_slot_value(raw_value, field),
+    }
+}
+
+/// Decode one slot payload through an accepted-schema field contract.
+///
+/// This is the descriptor-owned counterpart to
+/// `decode_runtime_value_from_field_contract(...)`. It keeps accepted
+/// `PersistedFieldKind` metadata intact for recursive payloads instead of
+/// first converting back through generated static `FieldKind` descriptors.
+#[allow(
+    dead_code,
+    reason = "accepted row readers will consume this once row layout no longer projects through generated-compatible contracts"
+)]
+pub(in crate::db) fn decode_runtime_value_from_accepted_field_contract(
+    field: AcceptedFieldDecodeContract<'_>,
+    raw_value: &[u8],
+) -> Result<Value, InternalError> {
+    match field.leaf_codec() {
+        LeafCodec::Scalar(codec) => {
+            match decode_scalar_slot_value(raw_value, codec, field.field_name())? {
+                ScalarSlotValueRef::Null => Ok(Value::Null),
+                ScalarSlotValueRef::Value(value) => Ok(value.into_value()),
+            }
+        }
+        LeafCodec::StructuralFallback => decode_non_scalar_accepted_slot_value(raw_value, field),
     }
 }
 
@@ -443,6 +472,39 @@ fn decode_non_scalar_slot_value(
     }
 }
 
+// Decode one non-scalar slot through the accepted persisted schema contract
+// that will become the row-reader authority once generated-compatible bridges
+// are removed.
+fn decode_non_scalar_accepted_slot_value(
+    raw_value: &[u8],
+    field: AcceptedFieldDecodeContract<'_>,
+) -> Result<Value, InternalError> {
+    if nullable_non_storage_key_accepted_slot_payload_is_structural_null(raw_value, field)? {
+        return Ok(Value::Null);
+    }
+
+    match field.storage_decode() {
+        FieldStorageDecode::ByKind => {
+            decode_structural_field_by_accepted_kind_bytes(raw_value, field.kind()).map_err(|err| {
+                InternalError::persisted_row_field_kind_decode_failed(
+                    field.field_name(),
+                    field.kind(),
+                    err,
+                )
+            })
+        }
+        FieldStorageDecode::Value => {
+            decode_structural_value_storage_bytes(raw_value).map_err(|err| {
+                InternalError::persisted_row_field_kind_decode_failed(
+                    field.field_name(),
+                    field.kind(),
+                    err,
+                )
+            })
+        }
+    }
+}
+
 // Validate one non-scalar slot through the exact persisted contract declared
 // by the field model without eagerly building the final runtime `Value`.
 pub(in crate::db::data::persisted_row) fn validate_non_scalar_slot_value(
@@ -488,6 +550,46 @@ pub(in crate::db::data::persisted_row) fn validate_non_scalar_slot_value(
     }
 }
 
+/// Validate one non-scalar slot through an accepted-schema field contract.
+///
+/// The helper mirrors the generated-compatible validation boundary but keeps
+/// recursive payload validation on accepted `PersistedFieldKind` metadata.
+#[allow(
+    dead_code,
+    reason = "accepted row readers will consume this once row layout no longer projects through generated-compatible contracts"
+)]
+pub(in crate::db) fn validate_non_scalar_accepted_slot_value(
+    raw_value: &[u8],
+    field: AcceptedFieldDecodeContract<'_>,
+) -> Result<(), InternalError> {
+    if nullable_non_storage_key_accepted_slot_payload_is_structural_null(raw_value, field)? {
+        return Ok(());
+    }
+
+    match field.storage_decode() {
+        FieldStorageDecode::ByKind => {
+            validate_structural_field_by_accepted_kind_bytes(raw_value, field.kind()).map_err(
+                |err| {
+                    InternalError::persisted_row_field_kind_decode_failed(
+                        field.field_name(),
+                        field.kind(),
+                        err,
+                    )
+                },
+            )
+        }
+        FieldStorageDecode::Value => {
+            validate_structural_value_storage_bytes(raw_value).map_err(|err| {
+                InternalError::persisted_row_field_kind_decode_failed(
+                    field.field_name(),
+                    field.kind(),
+                    err,
+                )
+            })
+        }
+    }
+}
+
 // Nullable non-storage-key by-kind leaves share the structural null sentinel,
 // but their concrete leaf decoders are intentionally strict about non-null
 // field kinds. Detect the sentinel before dispatching to those leaf decoders.
@@ -504,5 +606,25 @@ fn nullable_non_storage_key_by_kind_slot_payload_is_structural_null(
 
     value_storage_bytes_are_null(raw_value).map_err(|err| {
         InternalError::persisted_row_field_kind_decode_failed(field.name(), field.kind(), err)
+    })
+}
+
+// Accepted-schema equivalent of the generated-field nullable structural-null
+// check. Storage-key-compatible accepted kinds keep their own null encoding
+// lane, so only non-storage-key by-kind payloads use the structural null
+// sentinel here.
+fn nullable_non_storage_key_accepted_slot_payload_is_structural_null(
+    raw_value: &[u8],
+    field: AcceptedFieldDecodeContract<'_>,
+) -> Result<bool, InternalError> {
+    if !field.nullable()
+        || !matches!(field.storage_decode(), FieldStorageDecode::ByKind)
+        || accepted_kind_supports_storage_key_binary(field.kind())
+    {
+        return Ok(false);
+    }
+
+    value_storage_bytes_are_null(raw_value).map_err(|err| {
+        InternalError::persisted_row_field_kind_decode_failed(field.field_name(), field.kind(), err)
     })
 }
