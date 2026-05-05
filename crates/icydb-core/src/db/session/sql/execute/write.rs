@@ -4,7 +4,8 @@ use crate::{
         data::{FieldSlot, StructuralPatch},
         executor::{EntityAuthority, MutationMode},
         schema::{
-            AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot, SchemaInfo, ValidateError,
+            AcceptedRowLayoutRuntimeDescriptor, AcceptedRowLayoutRuntimeField,
+            AcceptedSchemaSnapshot, GeneratedCompatibleFieldWritePolicy, SchemaInfo, ValidateError,
             canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_persisted_kind,
             literal_matches_type,
         },
@@ -27,7 +28,7 @@ use crate::{
         },
     },
     metrics::sink::{MetricsEvent, SqlWriteKind, record},
-    model::field::{FieldInsertGeneration, FieldModel},
+    model::field::FieldInsertGeneration,
     sanitize::{SanitizeWriteContext, SanitizeWriteMode},
     traits::{CanisterKind, EntityKind, EntityValue, KeyValueCodec},
     types::{Timestamp, Ulid},
@@ -101,35 +102,50 @@ fn sql_write_patch_set_accepted_field(
     Ok(patch.set(slot, value))
 }
 
-fn generated_field_for_accepted_name<E>(
+fn generated_write_policy_for_accepted_name<E>(
     descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
     field_name: &str,
-) -> Result<&'static FieldModel, QueryError>
+) -> Result<GeneratedCompatibleFieldWritePolicy, QueryError>
 where
     E: EntityKind,
 {
-    let Some(field_slot) = descriptor.field_slot_index_by_name(field_name) else {
+    if descriptor.field_by_name(field_name).is_none() {
         return Err(QueryError::invariant(
             "SQL write field must resolve against accepted schema metadata",
         ));
-    };
+    }
 
-    let Some(field) = E::MODEL.fields().get(field_slot) else {
+    let Some(policy) = descriptor.generated_write_policy_for_accepted_name(E::MODEL, field_name)
+    else {
         return Err(QueryError::invariant(
-            "generated-compatible accepted schema field slot must resolve against generated model",
+            "generated-compatible accepted schema field slot must resolve generated write policy",
         ));
     };
 
-    Ok(field)
+    Ok(policy)
 }
 
-fn sql_write_generated_field_value(field: &FieldModel) -> Option<Value> {
-    field
-        .insert_generation()
-        .map(|generation| match generation {
-            FieldInsertGeneration::Ulid => Value::Ulid(Ulid::generate()),
-            FieldInsertGeneration::Timestamp => Value::Timestamp(Timestamp::now()),
+fn generated_write_policy_for_accepted_field<E>(
+    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    field: &AcceptedRowLayoutRuntimeField<'_>,
+) -> Result<GeneratedCompatibleFieldWritePolicy, QueryError>
+where
+    E: EntityKind,
+{
+    descriptor
+        .generated_write_policy_for_accepted_field(E::MODEL, field)
+        .ok_or_else(|| {
+            QueryError::invariant(
+                "generated-compatible accepted schema field slot must resolve generated write policy",
+            )
         })
+}
+
+fn sql_write_generated_field_value(generation: FieldInsertGeneration) -> Value {
+    match generation {
+        FieldInsertGeneration::Ulid => Value::Ulid(Ulid::generate()),
+        FieldInsertGeneration::Timestamp => Value::Timestamp(Timestamp::now()),
+    }
 }
 
 fn sql_write_value_for_accepted_field(
@@ -162,11 +178,11 @@ fn reject_explicit_sql_write_to_managed_field<E>(
 where
     E: EntityKind,
 {
-    let Ok(field) = generated_field_for_accepted_name::<E>(descriptor, field_name) else {
+    let Ok(policy) = generated_write_policy_for_accepted_name::<E>(descriptor, field_name) else {
         return Ok(());
     };
 
-    if field.write_management().is_some() {
+    if policy.write_management().is_some() {
         return Err(QueryError::unsupported_query(format!(
             "SQL {statement_kind} does not allow explicit writes to managed field '{field_name}' in this release"
         )));
@@ -183,11 +199,11 @@ fn reject_explicit_sql_write_to_generated_field<E>(
 where
     E: EntityKind,
 {
-    let Ok(field) = generated_field_for_accepted_name::<E>(descriptor, field_name) else {
+    let Ok(policy) = generated_write_policy_for_accepted_name::<E>(descriptor, field_name) else {
         return Ok(());
     };
 
-    if field.insert_generation().is_some() {
+    if policy.insert_generation().is_some() {
         return Err(QueryError::unsupported_query(format!(
             "SQL {statement_kind} does not allow explicit writes to generated field '{field_name}' in this release"
         )));
@@ -196,12 +212,12 @@ where
     Ok(())
 }
 
-fn sql_insert_field_is_omittable(field: &FieldModel) -> bool {
-    if sql_write_generated_field_value(field).is_some() {
+const fn sql_insert_field_is_omittable(policy: GeneratedCompatibleFieldWritePolicy) -> bool {
+    if policy.insert_generation().is_some() {
         return true;
     }
 
-    field.write_management().is_some()
+    policy.write_management().is_some()
 }
 
 fn sql_insert_accepted_field_is_omittable<E>(
@@ -211,9 +227,21 @@ fn sql_insert_accepted_field_is_omittable<E>(
 where
     E: EntityKind,
 {
-    let field = generated_field_for_accepted_name::<E>(descriptor, field_name)?;
+    let policy = generated_write_policy_for_accepted_name::<E>(descriptor, field_name)?;
 
-    Ok(sql_insert_field_is_omittable(field))
+    Ok(sql_insert_field_is_omittable(policy))
+}
+
+fn sql_insert_accepted_field_is_omittable_by_field<E>(
+    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    field: &AcceptedRowLayoutRuntimeField<'_>,
+) -> Result<bool, QueryError>
+where
+    E: EntityKind,
+{
+    let policy = generated_write_policy_for_accepted_field::<E>(descriptor, field)?;
+
+    Ok(sql_insert_field_is_omittable(policy))
 }
 
 fn ensure_sql_insert_required_fields<E>(
@@ -265,10 +293,8 @@ where
             SqlProjection::All => {
                 let mut count = 0usize;
                 for field in descriptor.fields() {
-                    if generated_field_for_accepted_name::<E>(descriptor, field.name())?
-                        .write_management()
-                        .is_none()
-                    {
+                    let policy = generated_write_policy_for_accepted_field::<E>(descriptor, field)?;
+                    if policy.write_management().is_none() {
                         count = count.saturating_add(1);
                     }
                 }
@@ -291,12 +317,12 @@ where
     let mut columns = Vec::new();
     for field in descriptor.fields() {
         if !include_omittable_fields
-            && sql_insert_accepted_field_is_omittable::<E>(descriptor, field.name())?
+            && sql_insert_accepted_field_is_omittable_by_field::<E>(descriptor, field)?
         {
             continue;
         }
         if include_omittable_fields
-            && generated_field_for_accepted_name::<E>(descriptor, field.name())?
+            && generated_write_policy_for_accepted_field::<E>(descriptor, field)?
                 .write_management()
                 .is_some()
         {
@@ -370,10 +396,13 @@ impl<C: CanisterKind> DbSession<C> {
                 continue;
             }
 
-            let generated_field =
-                generated_field_for_accepted_name::<E>(descriptor, accepted_field.name())?;
-            if let Some(value) = sql_write_generated_field_value(generated_field) {
-                generated_fields.push((accepted_field.name(), value));
+            let policy =
+                generated_write_policy_for_accepted_field::<E>(descriptor, accepted_field)?;
+            if let Some(generation) = policy.insert_generation() {
+                generated_fields.push((
+                    accepted_field.name(),
+                    sql_write_generated_field_value(generation),
+                ));
             }
         }
         let pk_name = descriptor.primary_key_name();

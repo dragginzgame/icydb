@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.147.x] 🪪 - 2026-05-04 - Accepted Schema Authority Closeout
 
+- `0.147.13` keeps write-side generated field checks behind accepted schema descriptors, reducing direct generated-model lookups while schema evolution remains safely rejected.
 - `0.147.12` tightens the accepted-schema decode bridge so generated-compatible row-layout checks explicitly verify field payload decode contracts before generated decoders are used.
 - `0.147.11` moves write-side generated-compatibility checks onto the accepted schema runtime descriptor so direct and SQL writes no longer use executor authority as a schema proof.
 - `0.147.10` tightens accepted-schema guards across SQL and direct session reads, deletes, and writes so unsupported schema changes fail before row decoding or mutation staging, with malformed row bytes still rejected at the accepted-layout decode boundary.

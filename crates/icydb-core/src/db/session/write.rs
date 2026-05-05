@@ -101,11 +101,13 @@ where
         let Some(accepted_field) = descriptor.field_for_slot_index(slot) else {
             return false;
         };
-        let Some(generated_field) = E::MODEL.fields().get(slot) else {
+        let Some(write_policy) =
+            descriptor.generated_write_policy_for_accepted_slot_index(E::MODEL, slot)
+        else {
             return false;
         };
 
-        generated_field.insert_generation().is_some()
+        write_policy.insert_generation().is_some()
             && accepted_field.name() != descriptor.primary_key_name()
     })
 }

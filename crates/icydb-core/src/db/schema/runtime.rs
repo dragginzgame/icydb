@@ -11,7 +11,9 @@ use crate::{
     error::InternalError,
     model::{
         entity::EntityModel,
-        field::{FieldModel, FieldStorageDecode, LeafCodec},
+        field::{
+            FieldInsertGeneration, FieldModel, FieldStorageDecode, FieldWriteManagement, LeafCodec,
+        },
     },
 };
 
@@ -154,6 +156,44 @@ impl AcceptedGeneratedCompatibleRowShape {
     #[must_use]
     pub(in crate::db) const fn primary_key_slot_index(self) -> usize {
         self.primary_key_slot_index
+    }
+}
+
+///
+/// GeneratedCompatibleFieldWritePolicy
+///
+/// GeneratedCompatibleFieldWritePolicy is the temporary write-policy view for
+/// accepted layouts that are still proven generated-compatible.
+/// It lets write admission ask the accepted descriptor for generated/managed
+/// ownership facts without reopening generated field lookup at each call site.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct GeneratedCompatibleFieldWritePolicy {
+    insert_generation: Option<FieldInsertGeneration>,
+    write_management: Option<FieldWriteManagement>,
+}
+
+impl GeneratedCompatibleFieldWritePolicy {
+    /// Build one write-policy view from a generated field model.
+    #[must_use]
+    const fn from_generated_field(field: &'static FieldModel) -> Self {
+        Self {
+            insert_generation: field.insert_generation(),
+            write_management: field.write_management(),
+        }
+    }
+
+    /// Return the insert-time generated value contract, when present.
+    #[must_use]
+    pub(in crate::db) const fn insert_generation(self) -> Option<FieldInsertGeneration> {
+        self.insert_generation
+    }
+
+    /// Return the write-managed field contract, when present.
+    #[must_use]
+    pub(in crate::db) const fn write_management(self) -> Option<FieldWriteManagement> {
+        self.write_management
     }
 }
 
@@ -342,6 +382,79 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
             .map(AcceptedRowLayoutRuntimeField::kind)
     }
 
+    // Borrow the generated field that currently backs one accepted slot. This
+    // private helper is kept below the descriptor boundary so external write
+    // callers consume a policy view rather than generated `FieldModel` facts.
+    fn generated_field_for_accepted_slot_index(
+        &self,
+        model: &'static EntityModel,
+        slot: usize,
+    ) -> Option<&'static FieldModel> {
+        self.field_for_slot_index(slot)?;
+
+        model.fields().get(slot)
+    }
+
+    // Borrow the generated field that currently backs one accepted field name.
+    // The public bridge exposes only write-policy facts because generated field
+    // metadata must not spread back into SQL/session call sites.
+    fn generated_field_for_accepted_name(
+        &self,
+        model: &'static EntityModel,
+        name: &str,
+    ) -> Option<&'static FieldModel> {
+        let slot = self.field_slot_index_by_name(name)?;
+
+        self.generated_field_for_accepted_slot_index(model, slot)
+    }
+
+    /// Return generated write-policy facts for one accepted physical slot.
+    ///
+    /// The returned policy exists only for generated-compatible descriptors:
+    /// persisted schema snapshots do not yet store generated/managed write
+    /// facts, so this remains an explicit bridge until those facts move into
+    /// accepted schema metadata.
+    #[must_use]
+    pub(in crate::db) fn generated_write_policy_for_accepted_slot_index(
+        &self,
+        model: &'static EntityModel,
+        slot: usize,
+    ) -> Option<GeneratedCompatibleFieldWritePolicy> {
+        self.generated_field_for_accepted_slot_index(model, slot)
+            .map(GeneratedCompatibleFieldWritePolicy::from_generated_field)
+    }
+
+    /// Return generated write-policy facts for one descriptor-owned field.
+    ///
+    /// Callers that already iterate `descriptor.fields()` use this overload to
+    /// avoid resolving the accepted field name back through the descriptor
+    /// before crossing the temporary generated-compatible policy bridge.
+    #[must_use]
+    pub(in crate::db) fn generated_write_policy_for_accepted_field(
+        &self,
+        model: &'static EntityModel,
+        field: &AcceptedRowLayoutRuntimeField<'_>,
+    ) -> Option<GeneratedCompatibleFieldWritePolicy> {
+        let slot = usize::from(field.slot().get());
+
+        self.generated_write_policy_for_accepted_slot_index(model, slot)
+    }
+
+    /// Return generated write-policy facts for one accepted field name.
+    ///
+    /// SQL and structural-write admission use this after names have crossed
+    /// accepted schema lookup, avoiding open-coded generated field access in
+    /// every write helper.
+    #[must_use]
+    pub(in crate::db) fn generated_write_policy_for_accepted_name(
+        &self,
+        model: &'static EntityModel,
+        name: &str,
+    ) -> Option<GeneratedCompatibleFieldWritePolicy> {
+        self.generated_field_for_accepted_name(model, name)
+            .map(GeneratedCompatibleFieldWritePolicy::from_generated_field)
+    }
+
     /// Return the row shape when this accepted layout can still use generated field codecs.
     ///
     /// The row decoder remains generated-codec backed until accepted-field
@@ -466,12 +579,15 @@ mod tests {
             SchemaVersion,
             runtime::{
                 AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeDescriptor,
-                AcceptedRowLayoutRuntimeField,
+                AcceptedRowLayoutRuntimeField, GeneratedCompatibleFieldWritePolicy,
             },
         },
         model::{
             entity::EntityModel,
-            field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec},
+            field::{
+                FieldInsertGeneration, FieldKind, FieldModel, FieldStorageDecode,
+                FieldWriteManagement, LeafCodec, ScalarCodec,
+            },
             index::IndexModel,
         },
         testing::entity_model_from_static,
@@ -489,6 +605,35 @@ mod tests {
         0,
         &RUNTIME_ENTITY_FIELDS,
         &RUNTIME_ENTITY_INDEXES,
+    );
+
+    static WRITE_POLICY_ENTITY_FIELDS: [FieldModel; 3] = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated_with_storage_decode_nullability_and_write_policies(
+            "token",
+            FieldKind::Ulid,
+            FieldStorageDecode::ByKind,
+            false,
+            Some(FieldInsertGeneration::Ulid),
+            None,
+        ),
+        FieldModel::generated_with_storage_decode_nullability_and_write_policies(
+            "updated_at",
+            FieldKind::Timestamp,
+            FieldStorageDecode::ByKind,
+            false,
+            None,
+            Some(FieldWriteManagement::UpdatedAt),
+        ),
+    ];
+    static WRITE_POLICY_ENTITY_INDEXES: [&IndexModel; 0] = [];
+    static WRITE_POLICY_ENTITY_MODEL: EntityModel = entity_model_from_static(
+        "schema::tests::WritePolicyEntity",
+        "WritePolicyEntity",
+        &WRITE_POLICY_ENTITY_FIELDS[0],
+        0,
+        &WRITE_POLICY_ENTITY_FIELDS,
+        &WRITE_POLICY_ENTITY_INDEXES,
     );
 
     fn accepted_schema_fixture() -> AcceptedSchemaSnapshot {
@@ -614,6 +759,58 @@ mod tests {
         ))
     }
 
+    fn write_policy_accepted_schema_fixture() -> AcceptedSchemaSnapshot {
+        AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "schema::tests::WritePolicyEntity".to_string(),
+            "WritePolicyEntity".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                    (FieldId::new(3), SchemaFieldSlot::new(2)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "token".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(3),
+                    "updated_at".to_string(),
+                    SchemaFieldSlot::new(2),
+                    PersistedFieldKind::Timestamp,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Timestamp),
+                ),
+            ],
+        ))
+    }
+
     #[test]
     fn accepted_row_layout_runtime_descriptor_uses_row_layout_slot_authority() {
         let accepted = accepted_schema_fixture();
@@ -714,6 +911,60 @@ mod tests {
                 .map(AcceptedRowLayoutRuntimeField::name),
             Some("nickname"),
             "checked descriptor should resolve accepted physical slots by index",
+        );
+        assert_eq!(
+            descriptor
+                .generated_write_policy_for_accepted_name(&RUNTIME_ENTITY_MODEL, "nickname")
+                .map(GeneratedCompatibleFieldWritePolicy::insert_generation),
+            Some(None),
+            "generated-compatible descriptor should project accepted names to write-policy facts",
+        );
+        assert_eq!(
+            descriptor
+                .generated_write_policy_for_accepted_slot_index(&RUNTIME_ENTITY_MODEL, 1)
+                .map(GeneratedCompatibleFieldWritePolicy::write_management),
+            Some(None),
+            "generated-compatible descriptor should project accepted slots to write-policy facts",
+        );
+    }
+
+    #[test]
+    fn accepted_row_layout_runtime_descriptor_projects_generated_write_policy() {
+        let accepted = write_policy_accepted_schema_fixture();
+        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+            .expect("write-policy accepted schema should build descriptor");
+        descriptor
+            .generated_compatible_row_shape_for_model(&WRITE_POLICY_ENTITY_MODEL)
+            .expect("write-policy schema should remain generated-compatible");
+
+        let token_policy = descriptor
+            .generated_write_policy_for_accepted_name(&WRITE_POLICY_ENTITY_MODEL, "token")
+            .expect("token should resolve generated write policy by accepted name");
+        assert_eq!(
+            token_policy.insert_generation(),
+            Some(FieldInsertGeneration::Ulid)
+        );
+        assert_eq!(token_policy.write_management(), None);
+
+        let updated_at_policy = descriptor
+            .generated_write_policy_for_accepted_slot_index(&WRITE_POLICY_ENTITY_MODEL, 2)
+            .expect("updated_at should resolve generated write policy by accepted slot");
+        assert_eq!(updated_at_policy.insert_generation(), None);
+        assert_eq!(
+            updated_at_policy.write_management(),
+            Some(FieldWriteManagement::UpdatedAt)
+        );
+
+        let updated_at_field = descriptor
+            .field_by_name("updated_at")
+            .expect("updated_at should resolve accepted descriptor field");
+        let updated_at_policy_from_field = descriptor
+            .generated_write_policy_for_accepted_field(&WRITE_POLICY_ENTITY_MODEL, updated_at_field)
+            .expect("updated_at should resolve generated write policy by accepted field");
+        assert_eq!(
+            updated_at_policy_from_field.write_management(),
+            Some(FieldWriteManagement::UpdatedAt),
+            "descriptor-owned field projection should avoid name re-resolution",
         );
     }
 
