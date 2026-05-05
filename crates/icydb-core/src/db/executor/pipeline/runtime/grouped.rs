@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::{DataKey, RawRow, StorageKey},
+        data::{DataKey, RawRow, StorageKey, StructuralFieldDecodeContract},
         executor::{
             ExecutionOptimization, ExecutionPreparation,
             aggregate::field::{
@@ -24,7 +24,6 @@ use crate::{
         registry::StoreHandle,
     },
     error::InternalError,
-    model::field::FieldModel,
     value::Value,
 };
 use std::borrow::Cow;
@@ -314,8 +313,8 @@ impl CompiledExprValueReader for RowView {
 
 struct SingleGroupedSlotDecode {
     slot: usize,
-    field: &'static FieldModel,
-    primary_key_field: &'static FieldModel,
+    field: StructuralFieldDecodeContract,
+    primary_key_field: StructuralFieldDecodeContract,
 }
 
 ///
@@ -362,12 +361,10 @@ impl StructuralGroupedRowRuntime {
             [required_slot] => {
                 let contract = row_layout.contract();
                 let field = contract
-                    .fields()
-                    .get(*required_slot)
+                    .field_decode_contract(*required_slot)
                     .expect("grouped slot layout must reference one declared structural row field");
                 let primary_key_field = contract
-                    .fields()
-                    .get(contract.primary_key_slot())
+                    .field_decode_contract(contract.primary_key_slot())
                     .expect("structural row contract must retain one declared primary-key field");
 
                 Some(SingleGroupedSlotDecode {
@@ -447,7 +444,7 @@ impl StructuralGroupedRowRuntime {
         row: &RawRow,
         single_grouped_slot_decode: &SingleGroupedSlotDecode,
     ) -> Result<Option<Value>, InternalError> {
-        RowDecoder::decode_required_slot_value_with_fields(
+        RowDecoder::decode_required_slot_value_with_contracts(
             &self.row_layout,
             expected_key,
             row,

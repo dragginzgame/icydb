@@ -59,7 +59,9 @@ pub(in crate::db) use structural_field::{
 pub(in crate::db::data) use structural_row::{
     SparseRequiredRowFieldBytes, StructuralRowDecodeError, StructuralRowFieldBytes,
 };
-pub(in crate::db) use structural_row::{StructuralRowContract, decode_structural_row_payload};
+pub(in crate::db) use structural_row::{
+    StructuralFieldDecodeContract, StructuralRowContract, decode_structural_row_payload,
+};
 
 #[cfg(test)]
 macro_rules! impl_scalar_only_test_slot_reader_get_value {

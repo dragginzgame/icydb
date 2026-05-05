@@ -1,7 +1,7 @@
 use crate::{
     db::data::{
-        CanonicalRow, RawRow, StructuralRowContract, StructuralRowDecodeError,
-        StructuralRowFieldBytes,
+        CanonicalRow, RawRow, StructuralFieldDecodeContract, StructuralRowContract,
+        StructuralRowDecodeError, StructuralRowFieldBytes,
     },
     error::InternalError,
     model::{entity::EntityModel, field::FieldModel},
@@ -179,7 +179,11 @@ impl SlotReader for SerializedPatchSlotReader<'_> {
             && let Some(raw_value) = self.get_bytes(slot)
         {
             let field = self.field_contract(slot)?;
-            self.decoded[slot] = Some(decode_field_slot_into_runtime_value(field, raw_value)?);
+            let field_contract = StructuralFieldDecodeContract::from_field_model(field);
+            self.decoded[slot] = Some(decode_field_slot_into_runtime_value(
+                field_contract,
+                raw_value,
+            )?);
         }
 
         Ok(self.decoded[slot].clone())

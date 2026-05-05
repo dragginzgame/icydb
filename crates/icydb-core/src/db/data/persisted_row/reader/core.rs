@@ -131,8 +131,13 @@ impl<'a> StructuralSlotReader<'a> {
         }
 
         let raw_value = self.required_field_bytes(primary_key_slot, field.name())?;
+        let field_contract = self.contract.field_decode_contract(primary_key_slot)?;
 
-        validate_storage_key_from_primary_key_bytes_with_field(raw_value, field, expected_key)
+        validate_storage_key_from_primary_key_bytes_with_field(
+            raw_value,
+            field_contract,
+            expected_key,
+        )
     }
 
     // Resolve one field contract entry by stable slot index.
@@ -218,8 +223,9 @@ impl<'a> StructuralSlotReader<'a> {
                         self.metrics.record_validated_non_scalar();
                         self.metrics.record_materialized_non_scalar();
                     }
-                    validate_non_scalar_slot_value(raw_value, field)?;
-                    let value = decode_field_slot_into_runtime_value(field, raw_value)?;
+                    let field_contract = self.contract.field_decode_contract(slot)?;
+                    validate_non_scalar_slot_value(raw_value, field_contract)?;
+                    let value = decode_field_slot_into_runtime_value(field_contract, raw_value)?;
                     let _ = materialized.set(value);
                 }
 
@@ -319,11 +325,12 @@ impl<'a> StructuralSlotReader<'a> {
             .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field_name))
     }
 
-    // Validate every declared slot once at the model-backed structural row
+    // Validate every declared slot once at the structural row contract
     // boundary so fail-closed callers reject malformed unused fields before
     // projection, relation, or commit logic runs.
     fn validate_all_declared_slots(&self) -> Result<(), InternalError> {
-        for (slot, field) in self.contract.fields().iter().enumerate() {
+        for slot in 0..self.contract.field_count() {
+            let field = self.contract.field_decode_contract(slot)?;
             let raw_value = self.required_field_bytes(slot, field.name())?;
 
             match field.leaf_codec() {
@@ -338,7 +345,8 @@ impl<'a> StructuralSlotReader<'a> {
                         self.metrics.record_validated_slot();
                         self.metrics.record_validated_non_scalar();
                     }
-                    validate_non_scalar_slot_value(raw_value, field)?;
+                    let field_contract = self.contract.field_decode_contract(slot)?;
+                    validate_non_scalar_slot_value(raw_value, field_contract)?;
                 }
             }
         }

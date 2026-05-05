@@ -13,13 +13,13 @@ use crate::{
     db::{
         codec::serialize_row_payload,
         data::{
-            CanonicalRow, RawRow, decode_storage_key_binary_value_bytes,
-            decode_structural_field_by_kind_bytes, decode_structural_value_storage_bytes,
-            encode_storage_key_binary_value_bytes, encode_structural_field_by_kind_bytes,
-            encode_structural_value_storage_bytes, encode_structural_value_storage_null_bytes,
-            supports_storage_key_binary_kind, validate_storage_key_binary_value_bytes,
-            validate_structural_field_by_kind_bytes, validate_structural_value_storage_bytes,
-            value_storage_bytes_are_null,
+            CanonicalRow, RawRow, StructuralFieldDecodeContract,
+            decode_storage_key_binary_value_bytes, decode_structural_field_by_kind_bytes,
+            decode_structural_value_storage_bytes, encode_storage_key_binary_value_bytes,
+            encode_structural_field_by_kind_bytes, encode_structural_value_storage_bytes,
+            encode_structural_value_storage_null_bytes, supports_storage_key_binary_kind,
+            validate_storage_key_binary_value_bytes, validate_structural_field_by_kind_bytes,
+            validate_structural_value_storage_bytes, value_storage_bytes_are_null,
         },
     },
     error::InternalError,
@@ -50,6 +50,7 @@ pub fn decode_slot_into_runtime_value(
     raw_value: &[u8],
 ) -> Result<Value, InternalError> {
     let field = field_model_for_slot(model, slot)?;
+    let field = StructuralFieldDecodeContract::from_field_model(field);
 
     decode_field_slot_into_runtime_value(field, raw_value)
 }
@@ -58,7 +59,7 @@ pub fn decode_slot_into_runtime_value(
 // already been resolved. Callers inside persisted-row readers use this to avoid
 // repeating field-model lookup while still sharing the same adapter policy.
 pub(in crate::db::data::persisted_row) fn decode_field_slot_into_runtime_value(
-    field: &FieldModel,
+    field: StructuralFieldDecodeContract,
     raw_value: &[u8],
 ) -> Result<Value, InternalError> {
     match field.leaf_codec() {
@@ -383,7 +384,7 @@ fn emit_raw_row_from_slot_payloads(
 // the field model.
 fn decode_non_scalar_slot_value(
     raw_value: &[u8],
-    field: &FieldModel,
+    field: StructuralFieldDecodeContract,
 ) -> Result<Value, InternalError> {
     if nullable_non_storage_key_by_kind_slot_payload_is_structural_null(raw_value, field)? {
         return Ok(Value::Null);
@@ -428,7 +429,7 @@ fn decode_non_scalar_slot_value(
 // by the field model without eagerly building the final runtime `Value`.
 pub(in crate::db::data::persisted_row) fn validate_non_scalar_slot_value(
     raw_value: &[u8],
-    field: &FieldModel,
+    field: StructuralFieldDecodeContract,
 ) -> Result<(), InternalError> {
     if nullable_non_storage_key_by_kind_slot_payload_is_structural_null(raw_value, field)? {
         return Ok(());
@@ -474,7 +475,7 @@ pub(in crate::db::data::persisted_row) fn validate_non_scalar_slot_value(
 // field kinds. Detect the sentinel before dispatching to those leaf decoders.
 fn nullable_non_storage_key_by_kind_slot_payload_is_structural_null(
     raw_value: &[u8],
-    field: &FieldModel,
+    field: StructuralFieldDecodeContract,
 ) -> Result<bool, InternalError> {
     if !field.nullable()
         || !matches!(field.storage_decode(), FieldStorageDecode::ByKind)

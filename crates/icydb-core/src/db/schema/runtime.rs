@@ -128,6 +128,7 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
         AcceptedFieldDecodeContract {
             field_name: self.name,
             kind: self.kind,
+            nullable: self.nullable,
             storage_decode: self.storage_decode,
             leaf_codec: self.leaf_codec,
         }
@@ -147,6 +148,7 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
 pub(in crate::db) struct AcceptedFieldDecodeContract<'a> {
     field_name: &'a str,
     kind: &'a PersistedFieldKind,
+    nullable: bool,
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
 }
@@ -162,6 +164,12 @@ impl<'a> AcceptedFieldDecodeContract<'a> {
     #[must_use]
     pub(in crate::db) const fn kind(&self) -> &'a PersistedFieldKind {
         self.kind
+    }
+
+    /// Return whether this accepted field permits explicit persisted `NULL`.
+    #[must_use]
+    pub(in crate::db) const fn nullable(&self) -> bool {
+        self.nullable
     }
 
     /// Return the accepted storage decode lane.
@@ -471,6 +479,15 @@ fn ensure_generated_field_decode_contract_compatible(
         )));
     }
 
+    if accepted_contract.nullable() != generated_field.nullable() {
+        return Err(InternalError::store_invariant(format!(
+            "accepted row layout nullability is not generated-compatible: field='{}' accepted_nullable={} generated_nullable={}",
+            accepted_contract.field_name(),
+            accepted_contract.nullable(),
+            generated_field.nullable(),
+        )));
+    }
+
     if accepted_contract.storage_decode() != generated_field.storage_decode() {
         return Err(InternalError::store_invariant(format!(
             "accepted row layout storage decode is not generated-compatible: field='{}' accepted_storage_decode={:?} generated_storage_decode={:?}",
@@ -655,6 +672,7 @@ mod tests {
     }
 
     fn generated_slot_compatible_accepted_schema_with_nickname_decode(
+        nullable: bool,
         storage_decode: FieldStorageDecode,
         leaf_codec: LeafCodec,
     ) -> AcceptedSchemaSnapshot {
@@ -688,7 +706,7 @@ mod tests {
                     SchemaFieldSlot::new(1),
                     PersistedFieldKind::Text { max_len: Some(32) },
                     Vec::new(),
-                    false,
+                    nullable,
                     SchemaFieldDefault::None,
                     storage_decode,
                     leaf_codec,
@@ -782,6 +800,7 @@ mod tests {
         );
         assert_eq!(nickname.default(), SchemaFieldDefault::None);
         let nickname_decode_contract = nickname.decode_contract();
+        assert!(nickname_decode_contract.nullable());
         assert_eq!(
             nickname_decode_contract.storage_decode(),
             FieldStorageDecode::ByKind,
@@ -926,6 +945,7 @@ mod tests {
     #[test]
     fn accepted_row_layout_runtime_descriptor_rejects_storage_decode_drift() {
         let accepted = generated_slot_compatible_accepted_schema_with_nickname_decode(
+            false,
             FieldStorageDecode::Value,
             LeafCodec::Scalar(ScalarCodec::Text),
         );
@@ -947,6 +967,7 @@ mod tests {
     #[test]
     fn accepted_row_layout_runtime_descriptor_rejects_leaf_codec_drift() {
         let accepted = generated_slot_compatible_accepted_schema_with_nickname_decode(
+            false,
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Blob),
         );
@@ -961,6 +982,28 @@ mod tests {
             err.message
                 .contains("accepted row layout leaf codec is not generated-compatible"),
             "unexpected generated-compatible leaf codec error: {}",
+            err.message,
+        );
+    }
+
+    #[test]
+    fn accepted_row_layout_runtime_descriptor_rejects_nullability_drift() {
+        let accepted = generated_slot_compatible_accepted_schema_with_nickname_decode(
+            true,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Text),
+        );
+        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+            .expect("slot-compatible accepted schema should build descriptor");
+
+        let err = descriptor
+            .generated_compatible_row_shape_for_model(&RUNTIME_ENTITY_MODEL)
+            .expect_err("nullability drift must reject generated decoder bridge");
+
+        assert!(
+            err.message
+                .contains("accepted row layout nullability is not generated-compatible"),
+            "unexpected generated-compatible nullability error: {}",
             err.message,
         );
     }

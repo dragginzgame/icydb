@@ -1,13 +1,13 @@
 use crate::{
     db::data::{
-        StructuralRowContract, StructuralRowFieldBytes,
+        StructuralFieldDecodeContract, StructuralRowContract, StructuralRowFieldBytes,
         persisted_row::{
             codec::{ScalarSlotValueRef, ScalarValueRef, decode_scalar_slot_value},
             reader::metrics::StructuralReadProbe,
         },
     },
     error::InternalError,
-    model::field::{FieldKind, FieldModel, LeafCodec},
+    model::field::{FieldKind, LeafCodec},
     value::{StorageKey, Value},
 };
 
@@ -33,15 +33,7 @@ pub(super) fn validate_storage_key_from_field_bytes(
     field_bytes: &StructuralRowFieldBytes<'_>,
     expected_key: StorageKey,
 ) -> Result<(), InternalError> {
-    let primary_key_field = contract
-        .fields()
-        .get(contract.primary_key_slot())
-        .ok_or_else(|| {
-            InternalError::persisted_row_slot_lookup_out_of_bounds(
-                contract.entity_path(),
-                contract.primary_key_slot(),
-            )
-        })?;
+    let primary_key_field = contract.field_decode_contract(contract.primary_key_slot())?;
     let primary_key_slot = contract.primary_key_slot();
     let raw_value = field_bytes.field(primary_key_slot).ok_or_else(|| {
         InternalError::persisted_row_declared_field_missing(primary_key_field.name())
@@ -58,7 +50,7 @@ pub(super) fn validate_storage_key_from_field_bytes(
 // field bytes so both full-span and narrow sparse reads share one decode rule.
 pub(super) fn validate_storage_key_from_primary_key_bytes_with_field(
     raw_value: &[u8],
-    field: &FieldModel,
+    field: StructuralFieldDecodeContract,
     expected_key: StorageKey,
 ) -> Result<(), InternalError> {
     let decoded_key = match field.leaf_codec() {
@@ -104,7 +96,7 @@ pub(super) fn validate_storage_key_from_primary_key_bytes_with_field(
 // Materialize the already-validated primary-key slot directly from the
 // authoritative storage key carried by the row boundary.
 pub(super) fn materialize_primary_key_slot_value_from_expected_key(
-    field: &FieldModel,
+    field: StructuralFieldDecodeContract,
     expected_key: StorageKey,
     probe: &StructuralReadProbe,
 ) -> Result<Value, InternalError> {

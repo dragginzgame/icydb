@@ -61,17 +61,21 @@ pub(in crate::db::data::persisted_row) enum CachedSlotValue {
 // This avoids a row-open decode loop while still letting access-time readers
 // branch cheaply by leaf codec.
 pub(super) fn build_initial_slot_cache(contract: StructuralRowContract) -> Vec<CachedSlotValue> {
-    contract
-        .fields()
-        .iter()
-        .map(|field| match field.leaf_codec() {
-            LeafCodec::Scalar(_) => CachedSlotValue::Scalar {
-                validated: OnceCell::new(),
-                materialized: OnceCell::new(),
-            },
-            LeafCodec::StructuralFallback => CachedSlotValue::Deferred {
-                materialized: OnceCell::new(),
-            },
+    (0..contract.field_count())
+        .map(|slot| {
+            match contract
+                .field_decode_contract(slot)
+                .expect("cache initialization only visits declared structural slots")
+                .leaf_codec()
+            {
+                LeafCodec::Scalar(_) => CachedSlotValue::Scalar {
+                    validated: OnceCell::new(),
+                    materialized: OnceCell::new(),
+                },
+                LeafCodec::StructuralFallback => CachedSlotValue::Deferred {
+                    materialized: OnceCell::new(),
+                },
+            }
         })
         .collect()
 }
@@ -114,9 +118,7 @@ pub(super) fn scalar_slot_value_ref_from_validated<'a>(
     match validated {
         ValidatedScalarSlotValue::Null => Ok(ScalarSlotValueRef::Null),
         ValidatedScalarSlotValue::Blob | ValidatedScalarSlotValue::Text => {
-            let field = contract.fields().get(slot).ok_or_else(|| {
-                InternalError::persisted_row_slot_lookup_out_of_bounds(contract.entity_path(), slot)
-            })?;
+            let field = contract.field_decode_contract(slot)?;
             let raw_value = field_bytes
                 .field(slot)
                 .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field.name()))?;

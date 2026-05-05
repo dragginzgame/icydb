@@ -1,7 +1,7 @@
 use crate::{
     db::data::{
-        RawRow, SparseRequiredRowFieldBytes, StructuralRowContract, StructuralRowDecodeError,
-        StructuralRowFieldBytes,
+        RawRow, SparseRequiredRowFieldBytes, StructuralFieldDecodeContract, StructuralRowContract,
+        StructuralRowDecodeError, StructuralRowFieldBytes,
         persisted_row::{
             codec::{ScalarSlotValueRef, decode_scalar_slot_value},
             contract::{decode_field_slot_into_runtime_value, validate_non_scalar_slot_value},
@@ -16,7 +16,7 @@ use crate::{
         },
     },
     error::InternalError,
-    model::field::{FieldModel, LeafCodec},
+    model::field::LeafCodec,
     value::{StorageKey, Value},
 };
 
@@ -81,15 +81,15 @@ impl<'a> DirectStructuralRowFields<'a> {
 /// while still centralizing primary-key validation before value materialization.
 ///
 
-struct DirectSparseRequiredRowField<'a, 'f> {
+struct DirectSparseRequiredRowField<'a> {
     contract: StructuralRowContract,
     expected_key: StorageKey,
     required_slot: usize,
-    required_field: &'f FieldModel,
+    required_field: StructuralFieldDecodeContract,
     field_bytes: SparseRequiredRowFieldBytes<'a>,
 }
 
-impl<'a, 'f> DirectSparseRequiredRowField<'a, 'f> {
+impl<'a> DirectSparseRequiredRowField<'a> {
     // Open one raw row through the compact two-span scanner and validate the
     // primary-key span before the requested slot is decoded.
     fn open(
@@ -97,8 +97,8 @@ impl<'a, 'f> DirectSparseRequiredRowField<'a, 'f> {
         contract: StructuralRowContract,
         expected_key: StorageKey,
         required_slot: usize,
-        required_field: &'f FieldModel,
-        primary_key_field: &FieldModel,
+        required_field: StructuralFieldDecodeContract,
+        primary_key_field: StructuralFieldDecodeContract,
     ) -> Result<Self, InternalError> {
         let field_bytes = SparseRequiredRowFieldBytes::from_raw_row_with_contract(
             raw_row,
@@ -224,21 +224,8 @@ pub(in crate::db) fn decode_sparse_required_slot_with_contract(
     expected_key: StorageKey,
     required_slot: usize,
 ) -> Result<Option<Value>, InternalError> {
-    let required_field = contract.fields().get(required_slot).ok_or_else(|| {
-        InternalError::persisted_row_slot_lookup_out_of_bounds(
-            contract.entity_path(),
-            required_slot,
-        )
-    })?;
-    let primary_key_field = contract
-        .fields()
-        .get(contract.primary_key_slot())
-        .ok_or_else(|| {
-            InternalError::persisted_row_slot_lookup_out_of_bounds(
-                contract.entity_path(),
-                contract.primary_key_slot(),
-            )
-        })?;
+    let required_field = contract.field_decode_contract(required_slot)?;
+    let primary_key_field = contract.field_decode_contract(contract.primary_key_slot())?;
 
     decode_sparse_required_slot_with_contract_and_fields(
         raw_row,
@@ -258,8 +245,8 @@ pub(in crate::db) fn decode_sparse_required_slot_with_contract_and_fields(
     contract: StructuralRowContract,
     expected_key: StorageKey,
     required_slot: usize,
-    required_field: &FieldModel,
-    primary_key_field: &FieldModel,
+    required_field: StructuralFieldDecodeContract,
+    primary_key_field: StructuralFieldDecodeContract,
 ) -> Result<Option<Value>, InternalError> {
     // Phase 1: scan and key-validate the row through the compact two-span
     // reader owner used only by narrow one-slot decode paths.
@@ -290,9 +277,7 @@ fn decode_selected_slot_value(
     expected_key: StorageKey,
     probe: &StructuralReadProbe,
 ) -> Result<Value, InternalError> {
-    let field = contract.fields().get(slot).ok_or_else(|| {
-        InternalError::persisted_row_slot_lookup_out_of_bounds(contract.entity_path(), slot)
-    })?;
+    let field = contract.field_decode_contract(slot)?;
 
     let raw_value = field_bytes
         .field(slot)
@@ -310,7 +295,7 @@ fn decode_selected_slot_value(
 // Decode one caller-selected slot from raw field bytes once the caller has
 // already resolved the field contract and primary-key role for that slot.
 fn decode_slot_with_field(
-    field: &FieldModel,
+    field: StructuralFieldDecodeContract,
     raw_value: &[u8],
     expected_key: StorageKey,
     is_primary: bool,

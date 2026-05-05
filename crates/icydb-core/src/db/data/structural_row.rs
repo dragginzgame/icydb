@@ -6,7 +6,10 @@
 use crate::{
     db::{codec::decode_row_payload_bytes, data::RawRow},
     error::InternalError,
-    model::{entity::EntityModel, field::FieldModel},
+    model::{
+        entity::EntityModel,
+        field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
+    },
 };
 use std::borrow::Cow;
 use thiserror::Error as ThisError;
@@ -88,6 +91,82 @@ impl StructuralRowContract {
     #[must_use]
     pub(in crate::db) const fn primary_key_slot(self) -> usize {
         self.primary_key_slot
+    }
+
+    /// Return the field-level decode contract for one structural slot.
+    pub(in crate::db) fn field_decode_contract(
+        self,
+        slot: usize,
+    ) -> Result<StructuralFieldDecodeContract, InternalError> {
+        self.fields
+            .get(slot)
+            .map(StructuralFieldDecodeContract::from_field_model)
+            .ok_or_else(|| {
+                InternalError::persisted_row_slot_lookup_out_of_bounds(self.entity_path(), slot)
+            })
+    }
+}
+
+///
+/// StructuralFieldDecodeContract
+///
+/// StructuralFieldDecodeContract is the narrow field-level decode shape used
+/// by structural row readers once the owning row layout has already selected a
+/// physical slot. It exists to keep value materialization on decode facts
+/// instead of requiring every consumer to depend on the full generated
+/// `FieldModel`.
+///
+
+#[derive(Clone, Copy, Debug)]
+pub(in crate::db) struct StructuralFieldDecodeContract {
+    field_name: &'static str,
+    kind: FieldKind,
+    storage_decode: FieldStorageDecode,
+    leaf_codec: LeafCodec,
+    nullable: bool,
+}
+
+impl StructuralFieldDecodeContract {
+    /// Build one decode contract from today's generated field metadata.
+    #[must_use]
+    pub(in crate::db) const fn from_field_model(field: &FieldModel) -> Self {
+        Self {
+            field_name: field.name(),
+            kind: field.kind,
+            storage_decode: field.storage_decode(),
+            leaf_codec: field.leaf_codec(),
+            nullable: field.nullable(),
+        }
+    }
+
+    /// Borrow the field name used for diagnostics.
+    #[must_use]
+    pub(in crate::db) const fn name(self) -> &'static str {
+        self.field_name
+    }
+
+    /// Return the field kind used by structural decoders.
+    #[must_use]
+    pub(in crate::db) const fn kind(self) -> FieldKind {
+        self.kind
+    }
+
+    /// Return the storage decode lane for this field.
+    #[must_use]
+    pub(in crate::db) const fn storage_decode(self) -> FieldStorageDecode {
+        self.storage_decode
+    }
+
+    /// Return the leaf codec for this field.
+    #[must_use]
+    pub(in crate::db) const fn leaf_codec(self) -> LeafCodec {
+        self.leaf_codec
+    }
+
+    /// Return whether this field permits explicit persisted `NULL`.
+    #[must_use]
+    pub(in crate::db) const fn nullable(self) -> bool {
+        self.nullable
     }
 }
 

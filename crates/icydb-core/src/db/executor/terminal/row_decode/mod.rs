@@ -14,9 +14,9 @@ use crate::{
     db::{
         data::{
             CanonicalSlotReader, DataRow, RawRow, ScalarSlotValueRef, ScalarValueRef, StorageKey,
-            StructuralRowContract, StructuralSlotReader, decode_dense_raw_row_with_contract,
-            decode_sparse_indexed_raw_row_with_contract, decode_sparse_raw_row_with_contract,
-            decode_sparse_required_slot_with_contract,
+            StructuralFieldDecodeContract, StructuralRowContract, StructuralSlotReader,
+            decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,
+            decode_sparse_raw_row_with_contract, decode_sparse_required_slot_with_contract,
             decode_sparse_required_slot_with_contract_and_fields,
         },
         executor::terminal::{
@@ -25,7 +25,7 @@ use crate::{
         schema::AcceptedGeneratedCompatibleRowShape,
     },
     error::InternalError,
-    model::{entity::EntityModel, field::FieldModel},
+    model::entity::EntityModel,
     value::Value,
 };
 
@@ -144,8 +144,7 @@ impl RowLayout {
             let value = value.ok_or_else(|| {
                 let field = self
                     .contract
-                    .fields()
-                    .get(slot)
+                    .field_decode_contract(slot)
                     .expect("dense structural decode only returns declared slots");
 
                 InternalError::persisted_row_declared_field_missing(field.name())
@@ -227,15 +226,15 @@ impl RowDecoder {
     }
 
     // Decode one retained structural slot value through caller-frozen field
-    // metadata so one-slot grouped paths do not rediscover the selected and
-    // primary-key field contracts per row.
-    pub(in crate::db::executor) fn decode_required_slot_value_with_fields(
+    // decode contracts so one-slot grouped paths do not rediscover the
+    // selected and primary-key field contracts per row.
+    pub(in crate::db::executor) fn decode_required_slot_value_with_contracts(
         layout: &RowLayout,
         expected_key: StorageKey,
         row: &RawRow,
         required_slot: usize,
-        required_field: &FieldModel,
-        primary_key_field: &FieldModel,
+        required_field: StructuralFieldDecodeContract,
+        primary_key_field: StructuralFieldDecodeContract,
     ) -> Result<Option<Value>, InternalError> {
         decode_sparse_required_slot_with_contract_and_fields(
             row,

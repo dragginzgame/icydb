@@ -1,7 +1,10 @@
 use crate::{
-    db::data::persisted_row::{
-        codec::{ScalarSlotValueRef, encode_scalar_slot_value},
-        contract::decode_field_slot_into_runtime_value,
+    db::data::{
+        StructuralFieldDecodeContract,
+        persisted_row::{
+            codec::{ScalarSlotValueRef, encode_scalar_slot_value},
+            contract::decode_field_slot_into_runtime_value,
+        },
     },
     error::InternalError,
     model::{entity::EntityModel, field::FieldModel},
@@ -288,8 +291,9 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
     /// allowing absent payloads.
     fn required_value_by_contract(&self, slot: usize) -> Result<Value, InternalError> {
         let field = self.field_contract(slot)?;
+        let field_contract = StructuralFieldDecodeContract::from_field_model(field);
 
-        decode_field_slot_into_runtime_value(field, self.required_bytes(slot)?)
+        decode_field_slot_into_runtime_value(field_contract, self.required_bytes(slot)?)
     }
 
     /// Borrow one declared slot value when the concrete reader already owns a
