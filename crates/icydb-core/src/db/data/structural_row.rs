@@ -23,8 +23,9 @@ type RowFieldSpans<'a> = (Cow<'a, [u8]>, SlotSpans);
 ///
 /// StructuralRowContract is the compact static row-shape authority used by
 /// structural row readers that do not need the full semantic `EntityModel`.
-/// It keeps only the entity path, field table, and primary-key slot required
-/// to open canonical persisted rows through the data-layer decode boundary.
+/// It keeps the entity path, generated-compatible field bridge, declared field
+/// count, and primary-key slot required to open canonical persisted rows
+/// through the data-layer decode boundary.
 ///
 
 #[derive(Clone, Copy, Debug)]
@@ -75,10 +76,19 @@ impl StructuralRowContract {
         self.entity_path
     }
 
-    /// Borrow the static field table for slot-indexed decode.
-    #[must_use]
-    pub(in crate::db) const fn fields(self) -> &'static [FieldModel] {
-        self.fields
+    /// Borrow one generated-compatible field model by structural slot.
+    ///
+    /// This remains a transitional adapter for the public `SlotReader`
+    /// materialization trait and write-side generated codecs. Runtime decode
+    /// code should prefer `field_decode_contract` whenever it only needs
+    /// field decode facts.
+    pub(in crate::db) fn generated_compatible_field_model(
+        self,
+        slot: usize,
+    ) -> Result<&'static FieldModel, InternalError> {
+        self.fields.get(slot).ok_or_else(|| {
+            InternalError::persisted_row_slot_lookup_out_of_bounds(self.entity_path(), slot)
+        })
     }
 
     /// Return the declared structural field count.
@@ -98,12 +108,8 @@ impl StructuralRowContract {
         self,
         slot: usize,
     ) -> Result<StructuralFieldDecodeContract, InternalError> {
-        self.fields
-            .get(slot)
+        self.generated_compatible_field_model(slot)
             .map(StructuralFieldDecodeContract::from_field_model)
-            .ok_or_else(|| {
-                InternalError::persisted_row_slot_lookup_out_of_bounds(self.entity_path(), slot)
-            })
     }
 }
 

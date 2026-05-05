@@ -142,12 +142,7 @@ impl<'a> StructuralSlotReader<'a> {
 
     // Resolve one field contract entry by stable slot index.
     fn field_contract(&self, slot: usize) -> Result<&FieldModel, InternalError> {
-        self.contract.fields().get(slot).ok_or_else(|| {
-            InternalError::persisted_row_slot_lookup_out_of_bounds(
-                self.contract.entity_path(),
-                slot,
-            )
-        })
+        self.contract.generated_compatible_field_model(slot)
     }
 
     // Validate one scalar slot at most once and freeze the compact validated

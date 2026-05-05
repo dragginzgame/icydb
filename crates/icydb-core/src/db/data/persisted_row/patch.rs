@@ -62,14 +62,21 @@ impl<'a> SerializedPatchPayloads<'a> {
         Self::field_contract_for(self.contract, slot)
     }
 
+    // Resolve one field decode contract by stable slot index for runtime value
+    // materialization that no longer needs the generated `FieldModel` surface.
+    fn field_decode_contract(
+        &self,
+        slot: usize,
+    ) -> Result<StructuralFieldDecodeContract, InternalError> {
+        self.contract.field_decode_contract(slot)
+    }
+
     // Resolve one field contract from a projected structural row contract.
     fn field_contract_for(
         contract: StructuralRowContract,
         slot: usize,
     ) -> Result<&'static FieldModel, InternalError> {
-        contract.fields().get(slot).ok_or_else(|| {
-            InternalError::persisted_row_slot_lookup_out_of_bounds(contract.entity_path(), slot)
-        })
+        contract.generated_compatible_field_model(slot)
     }
 
     // Return whether this patch after-image currently carries a payload for
@@ -178,8 +185,7 @@ impl SlotReader for SerializedPatchSlotReader<'_> {
         if self.decoded[slot].is_none()
             && let Some(raw_value) = self.get_bytes(slot)
         {
-            let field = self.field_contract(slot)?;
-            let field_contract = StructuralFieldDecodeContract::from_field_model(field);
+            let field_contract = self.payloads.field_decode_contract(slot)?;
             self.decoded[slot] = Some(decode_field_slot_into_runtime_value(
                 field_contract,
                 raw_value,
