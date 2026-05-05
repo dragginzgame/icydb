@@ -8,7 +8,7 @@ use crate::{
     db::{
         DbSession, PersistedRow, WriteBatchResponse,
         data::{FieldSlot, StructuralPatch},
-        executor::{EntityAuthority, MutationMode},
+        executor::MutationMode,
         schema::{AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeDescriptor},
     },
     error::InternalError,
@@ -50,7 +50,7 @@ where
     if matches!(mode, MutationMode::Update) {
         return Ok(());
     }
-    if patch_explicitly_writes_generated_field::<E>(patch) {
+    if patch_explicitly_writes_generated_field::<E>(descriptor, patch) {
         return Ok(());
     }
 
@@ -89,17 +89,24 @@ where
 // this session check avoids masking that more specific generated-field policy
 // error with unrelated omitted-field errors on malformed create/replace
 // patches.
-fn patch_explicitly_writes_generated_field<E>(patch: &StructuralPatch) -> bool
+fn patch_explicitly_writes_generated_field<E>(
+    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    patch: &StructuralPatch,
+) -> bool
 where
     E: PersistedRow + EntityValue,
 {
     patch.entries().iter().any(|entry| {
-        E::MODEL
-            .fields()
-            .get(entry.slot().index())
-            .is_some_and(|field| {
-                field.insert_generation().is_some() && field.name() != E::MODEL.primary_key.name()
-            })
+        let slot = entry.slot().index();
+        let Some(accepted_field) = descriptor.field_for_slot_index(slot) else {
+            return false;
+        };
+        let Some(generated_field) = E::MODEL.fields().get(slot) else {
+            return false;
+        };
+
+        generated_field.insert_generation().is_some()
+            && accepted_field.name() != descriptor.primary_key_name()
     })
 }
 
@@ -171,13 +178,18 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (accepted_schema, _) =
-            self.ensure_accepted_schema_snapshot_and_authority(EntityAuthority::for_type::<E>())?;
+        let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
         let descriptor =
-            AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted_schema)?;
+            AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_accepted_schema(
+                &accepted_schema,
+                E::MODEL,
+            )?;
         validate_structural_patch_absence_policy::<E>(&descriptor, &patch, mode)?;
 
-        self.execute_save_entity(|save| save.apply_structural_mutation(mode, key, patch))
+        self.execute_save_with_checked_accepted_schema(
+            |save| save.apply_structural_mutation(mode, key, patch),
+            std::convert::identity,
+        )
     }
 
     /// Build one structural patch through the accepted schema row layout.
@@ -192,10 +204,12 @@ impl<C: CanisterKind> DbSession<C> {
         I: IntoIterator<Item = (S, Value)>,
         S: AsRef<str>,
     {
-        let (accepted_schema, _) =
-            self.ensure_accepted_schema_snapshot_and_authority(EntityAuthority::for_type::<E>())?;
+        let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
         let descriptor =
-            AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted_schema)?;
+            AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_accepted_schema(
+                &accepted_schema,
+                E::MODEL,
+            )?;
         let mut patch = StructuralPatch::new();
 
         // Phase 1: resolve every caller-provided field name against the

@@ -136,7 +136,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         if let Err(error) =
-            self.with_metrics(|| self.ensure_generated_compatible_accepted_schema::<E>())
+            self.with_metrics(|| self.ensure_generated_compatible_accepted_schema_snapshot::<E>())
         {
             self.with_metrics(|| record_exec_error_for_path(ExecKind::Save, E::PATH, &error));
 
@@ -435,16 +435,20 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Ensure accepted schema metadata is safe for write paths that still encode
     // rows through generated field contracts. Returning only the snapshot keeps
-    // SQL write type checks unchanged while the descriptor-derived authority
-    // guard rejects unsupported layout or payload drift before mutation staging.
-    fn ensure_generated_compatible_accepted_schema<E>(
+    // SQL write type checks unchanged while the schema-runtime descriptor guard
+    // rejects unsupported layout or payload drift before mutation staging.
+    fn ensure_generated_compatible_accepted_schema_snapshot<E>(
         &self,
     ) -> Result<AcceptedSchemaSnapshot, InternalError>
     where
         E: EntityKind<Canister = C>,
     {
-        let (accepted_schema, _) =
-            self.ensure_accepted_schema_snapshot_and_authority(EntityAuthority::for_type::<E>())?;
+        let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
+        let _accepted_row_layout =
+            AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_accepted_schema(
+                &accepted_schema,
+                E::MODEL,
+            )?;
 
         Ok(accepted_schema)
     }

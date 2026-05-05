@@ -171,6 +171,7 @@ pub(in crate::db) struct AcceptedRowLayoutRuntimeDescriptor<'a> {
     version: SchemaVersion,
     required_slot_count: usize,
     primary_key_name: &'a str,
+    primary_key_kind: &'a PersistedFieldKind,
     primary_key_slot_index: usize,
     fields: Vec<AcceptedRowLayoutRuntimeField<'a>>,
 }
@@ -226,15 +227,33 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
             )));
         };
         let primary_key_name = primary_key_field.name();
+        let primary_key_kind = primary_key_field.kind();
         let primary_key_slot_index = usize::from(primary_key_field.slot().get());
 
         Ok(Self {
             version: row_layout.version(),
             required_slot_count,
             primary_key_name,
+            primary_key_kind,
             primary_key_slot_index,
             fields,
         })
+    }
+
+    /// Build one runtime descriptor and prove it can still use generated field codecs.
+    ///
+    /// This is the current write/decode bridge for exact-match schemas. It
+    /// keeps generated compatibility as a schema-runtime decision, not a
+    /// session or executor convention, while the decoder still consumes
+    /// generated field codecs.
+    pub(in crate::db) fn from_generated_compatible_accepted_schema(
+        accepted: &'a AcceptedSchemaSnapshot,
+        model: &'static EntityModel,
+    ) -> Result<Self, InternalError> {
+        let descriptor = Self::from_accepted_schema(accepted)?;
+        let _row_shape = descriptor.generated_compatible_row_shape_for_model(model)?;
+
+        Ok(descriptor)
     }
 
     /// Return the accepted schema version backing this runtime layout.
@@ -257,6 +276,12 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
     #[must_use]
     pub(in crate::db) const fn primary_key_name(&self) -> &'a str {
         self.primary_key_name
+    }
+
+    /// Borrow the accepted primary-key persisted field kind.
+    #[must_use]
+    pub(in crate::db) const fn primary_key_kind(&self) -> &'a PersistedFieldKind {
+        self.primary_key_kind
     }
 
     /// Return the accepted primary-key physical slot index.
@@ -282,6 +307,17 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
         slot: SchemaFieldSlot,
     ) -> Option<&AcceptedRowLayoutRuntimeField<'a>> {
         self.fields.iter().find(|field| field.slot() == slot)
+    }
+
+    /// Borrow one runtime field by accepted physical row slot index.
+    #[must_use]
+    pub(in crate::db) fn field_for_slot_index(
+        &self,
+        slot: usize,
+    ) -> Option<&AcceptedRowLayoutRuntimeField<'a>> {
+        self.fields
+            .iter()
+            .find(|field| usize::from(field.slot().get()) == slot)
     }
 
     /// Borrow one runtime field by durable accepted field identity.
@@ -433,7 +469,10 @@ mod tests {
             AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
             PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout,
             SchemaVersion,
-            runtime::{AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeDescriptor},
+            runtime::{
+                AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeDescriptor,
+                AcceptedRowLayoutRuntimeField,
+            },
         },
         model::{
             entity::EntityModel,
@@ -609,6 +648,34 @@ mod tests {
 
         assert_eq!(shape.required_slot_count(), 2);
         assert_eq!(shape.primary_key_slot_index(), 0);
+    }
+
+    #[test]
+    fn accepted_row_layout_runtime_descriptor_builds_generated_compatible_descriptor() {
+        let accepted = generated_compatible_accepted_schema_fixture();
+        let descriptor =
+            AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_accepted_schema(
+                &accepted,
+                &RUNTIME_ENTITY_MODEL,
+            )
+            .expect("generated-compatible schema should build checked descriptor");
+
+        assert_eq!(descriptor.required_slot_count(), 2);
+        assert_eq!(descriptor.primary_key_slot_index(), 0);
+        assert_eq!(descriptor.primary_key_name(), "id");
+        assert_eq!(descriptor.primary_key_kind(), &PersistedFieldKind::Ulid);
+        assert_eq!(
+            descriptor.field_slot_index_by_name("nickname"),
+            Some(1),
+            "checked descriptor should retain accepted field lookup facts",
+        );
+        assert_eq!(
+            descriptor
+                .field_for_slot_index(1)
+                .map(AcceptedRowLayoutRuntimeField::name),
+            Some("nickname"),
+            "checked descriptor should resolve accepted physical slots by index",
+        );
     }
 
     #[test]

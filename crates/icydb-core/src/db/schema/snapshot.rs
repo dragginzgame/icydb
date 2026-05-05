@@ -125,12 +125,6 @@ impl AcceptedSchemaSnapshot {
             .find(|field| field.id() == primary_key_field_id)
     }
 
-    /// Borrow the accepted primary-key field kind, when present.
-    #[must_use]
-    pub(in crate::db) fn primary_key_field_kind(&self) -> Option<&PersistedFieldKind> {
-        self.primary_key_field().map(PersistedFieldSnapshot::kind)
-    }
-
     /// Borrow the accepted primary-key field name, when present.
     #[must_use]
     pub(in crate::db) fn primary_key_field_name(&self) -> Option<&str> {
@@ -719,8 +713,8 @@ mod tests {
         assert_eq!(snapshot.entity_name(), "Asset");
         assert_eq!(snapshot.primary_key_field_name(), Some("id"));
         assert_eq!(
-            snapshot.primary_key_field_kind(),
-            Some(&PersistedFieldKind::Ulid),
+            snapshot.field_kind_by_name("id"),
+            Some(&PersistedFieldKind::Ulid)
         );
         assert_eq!(
             snapshot.field_kind_by_name("payload"),
