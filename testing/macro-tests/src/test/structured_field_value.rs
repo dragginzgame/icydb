@@ -92,8 +92,15 @@ mod tests {
     }
 
     impl SlotReader for CaptureSlotReader {
-        fn model(&self) -> &'static icydb::model::entity::EntityModel {
-            self.model
+        fn field_contract(
+            &self,
+            slot: usize,
+        ) -> Result<&icydb::model::field::FieldModel, InternalError> {
+            Ok(self
+                .model
+                .fields()
+                .get(slot)
+                .expect("structured field capture reader slot must exist"))
         }
 
         fn has(&self, slot: usize) -> bool {
