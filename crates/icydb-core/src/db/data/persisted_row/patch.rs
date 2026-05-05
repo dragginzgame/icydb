@@ -13,12 +13,12 @@ use crate::db::data::persisted_row::{
     codec::ScalarSlotValueRef,
     contract::{
         canonical_row_from_payload_source, canonical_row_from_runtime_value_source,
-        decode_field_slot_into_runtime_value, encode_runtime_value_into_slot,
+        decode_runtime_value_from_field_contract, encode_runtime_value_for_field_model,
     },
     reader::StructuralSlotReader,
     types::{
         PersistedRow, SerializedStructuralFieldUpdate, SerializedStructuralPatch, SlotReader,
-        StructuralPatch,
+        StructuralPatch, field_model_for_slot,
     },
     writer::CompleteSerializedPatchWriter,
 };
@@ -49,17 +49,17 @@ impl<'a> SerializedPatchPayloads<'a> {
 
         for entry in patch.entries() {
             let slot = entry.slot().index();
-            Self::field_contract_for(contract, slot)?;
+            Self::generated_compatible_field_model_for(contract, slot)?;
             payloads[slot] = Some(entry.payload());
         }
 
         Ok(Self { contract, payloads })
     }
 
-    // Resolve one field contract by stable slot index so patch-backed readers
-    // use the same metadata seam as raw-row structural readers.
-    fn field_contract(&self, slot: usize) -> Result<&FieldModel, InternalError> {
-        Self::field_contract_for(self.contract, slot)
+    // Resolve one generated-compatible field model by stable slot index for
+    // typed materialization compatibility surfaces.
+    fn generated_compatible_field_model(&self, slot: usize) -> Result<&FieldModel, InternalError> {
+        Self::generated_compatible_field_model_for(self.contract, slot)
     }
 
     // Resolve one field decode contract by stable slot index for runtime value
@@ -71,8 +71,9 @@ impl<'a> SerializedPatchPayloads<'a> {
         self.contract.field_decode_contract(slot)
     }
 
-    // Resolve one field contract from a projected structural row contract.
-    fn field_contract_for(
+    // Resolve one generated-compatible field model from a projected structural
+    // row contract.
+    fn generated_compatible_field_model_for(
         contract: StructuralRowContract,
         slot: usize,
     ) -> Result<&'static FieldModel, InternalError> {
@@ -149,7 +150,7 @@ impl<'a> SerializedPatchSlotReader<'a> {
 
 impl SlotReader for SerializedPatchSlotReader<'_> {
     fn field_contract(&self, slot: usize) -> Result<&FieldModel, InternalError> {
-        self.payloads.field_contract(slot)
+        self.payloads.generated_compatible_field_model(slot)
     }
 
     fn has(&self, slot: usize) -> bool {
@@ -186,7 +187,7 @@ impl SlotReader for SerializedPatchSlotReader<'_> {
             && let Some(raw_value) = self.get_bytes(slot)
         {
             let field_contract = self.payloads.field_decode_contract(slot)?;
-            self.decoded[slot] = Some(decode_field_slot_into_runtime_value(
+            self.decoded[slot] = Some(decode_runtime_value_from_field_contract(
                 field_contract,
                 raw_value,
             )?);
@@ -293,7 +294,8 @@ pub(in crate::db) fn serialize_structural_patch_fields(
     // canonical slot codec owner.
     for entry in patch.entries() {
         let slot = entry.slot();
-        let payload = encode_runtime_value_into_slot(model, slot.index(), entry.value())?;
+        let field = field_model_for_slot(model, slot.index())?;
+        let payload = encode_runtime_value_for_field_model(field, entry.value())?;
         entries.push(SerializedStructuralFieldUpdate::new(slot, payload));
     }
 

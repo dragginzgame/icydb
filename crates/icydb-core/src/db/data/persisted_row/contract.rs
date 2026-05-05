@@ -52,13 +52,13 @@ pub fn decode_slot_into_runtime_value(
     let field = field_model_for_slot(model, slot)?;
     let field = StructuralFieldDecodeContract::from_field_model(field);
 
-    decode_field_slot_into_runtime_value(field, raw_value)
+    decode_runtime_value_from_field_contract(field, raw_value)
 }
 
 // Decode one runtime-boundary slot payload once the owning field contract has
 // already been resolved. Callers inside persisted-row readers use this to avoid
 // repeating field-model lookup while still sharing the same adapter policy.
-pub(in crate::db::data::persisted_row) fn decode_field_slot_into_runtime_value(
+pub(in crate::db::data::persisted_row) fn decode_runtime_value_from_field_contract(
     field: StructuralFieldDecodeContract,
     raw_value: &[u8],
 ) -> Result<Value, InternalError> {
@@ -84,6 +84,18 @@ pub fn encode_runtime_value_into_slot(
     value: &Value,
 ) -> Result<Vec<u8>, InternalError> {
     let field = field_model_for_slot(model, slot)?;
+
+    encode_runtime_value_for_field_model(field, value)
+}
+
+// Encode one runtime boundary `Value` after the caller has already resolved
+// the generated-compatible field model. This keeps the public model/slot
+// adapter thin while the current write codec still requires `FieldModel`
+// validation and normalization policy.
+pub(in crate::db::data::persisted_row) fn encode_runtime_value_for_field_model(
+    field: &FieldModel,
+    value: &Value,
+) -> Result<Vec<u8>, InternalError> {
     let value = field
         .normalize_runtime_value_for_storage(value)
         .map_err(|err| InternalError::persisted_row_field_encode_failed(field.name(), err))?;
@@ -188,9 +200,13 @@ fn canonicalize_slot_payload(
     slot: usize,
     raw_value: &[u8],
 ) -> Result<Vec<u8>, InternalError> {
-    let value = decode_slot_into_runtime_value(model, slot, raw_value)?;
+    let field = field_model_for_slot(model, slot)?;
+    let value = decode_runtime_value_from_field_contract(
+        StructuralFieldDecodeContract::from_field_model(field),
+        raw_value,
+    )?;
 
-    encode_runtime_value_into_slot(model, slot, &value)
+    encode_runtime_value_for_field_model(field, &value)
 }
 
 // Build one dense slot image by running one caller-supplied encode step per
@@ -240,8 +256,10 @@ where
     F: FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
 {
     dense_slot_image_from_source(model, |slot| {
+        let field = field_model_for_slot(model, slot)?;
         let value = value_for_slot(slot)?;
-        encode_runtime_value_into_slot(model, slot, value.as_ref())
+
+        encode_runtime_value_for_field_model(field, value.as_ref())
     })
 }
 

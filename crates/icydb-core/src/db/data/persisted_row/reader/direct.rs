@@ -4,7 +4,7 @@ use crate::{
         StructuralRowDecodeError, StructuralRowFieldBytes,
         persisted_row::{
             codec::{ScalarSlotValueRef, decode_scalar_slot_value},
-            contract::{decode_field_slot_into_runtime_value, validate_non_scalar_slot_value},
+            contract::{decode_runtime_value_from_field_contract, validate_non_scalar_slot_value},
             reader::{
                 metrics::{StructuralReadProbe, finish_direct_probe},
                 primary_key::{
@@ -323,7 +323,7 @@ fn decode_slot_with_field(
             probe.record_materialized_non_scalar();
             validate_non_scalar_slot_value(raw_value, field)?;
 
-            decode_field_slot_into_runtime_value(field, raw_value)
+            decode_runtime_value_from_field_contract(field, raw_value)
         }
     }
 }

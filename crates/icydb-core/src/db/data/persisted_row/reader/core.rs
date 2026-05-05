@@ -6,7 +6,7 @@ use crate::{
         StructuralRowDecodeError, StructuralRowFieldBytes, ValueStorageView,
         persisted_row::{
             codec::{ScalarSlotValueRef, ScalarValueRef, decode_scalar_slot_value},
-            contract::{decode_field_slot_into_runtime_value, validate_non_scalar_slot_value},
+            contract::{decode_runtime_value_from_field_contract, validate_non_scalar_slot_value},
             reader::{
                 cache::{
                     CachedSlotValue, ValidatedScalarSlotValue, build_initial_slot_cache,
@@ -135,8 +135,9 @@ impl<'a> StructuralSlotReader<'a> {
         validate_storage_key_from_primary_key_bytes_with_field(raw_value, field, expected_key)
     }
 
-    // Resolve one field contract entry by stable slot index.
-    fn field_contract(&self, slot: usize) -> Result<&FieldModel, InternalError> {
+    // Resolve one generated-compatible field model by stable slot index for
+    // typed materialization compatibility surfaces.
+    fn generated_compatible_field_model(&self, slot: usize) -> Result<&FieldModel, InternalError> {
         self.contract.generated_compatible_field_model(slot)
     }
 
@@ -214,7 +215,7 @@ impl<'a> StructuralSlotReader<'a> {
                         self.metrics.record_materialized_non_scalar();
                     }
                     validate_non_scalar_slot_value(raw_value, field)?;
-                    let value = decode_field_slot_into_runtime_value(field, raw_value)?;
+                    let value = decode_runtime_value_from_field_contract(field, raw_value)?;
                     let _ = materialized.set(value);
                 }
 
@@ -345,7 +346,7 @@ impl<'a> StructuralSlotReader<'a> {
 
 impl SlotReader for StructuralSlotReader<'_> {
     fn field_contract(&self, slot: usize) -> Result<&FieldModel, InternalError> {
-        StructuralSlotReader::field_contract(self, slot)
+        self.generated_compatible_field_model(slot)
     }
 
     fn has(&self, slot: usize) -> bool {

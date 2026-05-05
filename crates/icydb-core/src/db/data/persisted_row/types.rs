@@ -3,7 +3,7 @@ use crate::{
         StructuralFieldDecodeContract,
         persisted_row::{
             codec::{ScalarSlotValueRef, encode_scalar_slot_value},
-            contract::decode_field_slot_into_runtime_value,
+            contract::decode_runtime_value_from_field_contract,
         },
     },
     error::InternalError,
@@ -232,7 +232,11 @@ impl SerializedStructuralPatch {
 ///
 
 pub trait SlotReader {
-    /// Resolve one field contract by stable slot index.
+    /// Resolve one generated-compatible field model by stable slot index.
+    ///
+    /// This is a typed materialization compatibility bridge. Runtime decode
+    /// paths that only need payload decode facts should use
+    /// `field_decode_contract`.
     fn field_contract(&self, slot: usize) -> Result<&FieldModel, InternalError>;
 
     /// Return whether the given slot is present in the persisted row.
@@ -304,7 +308,7 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
     /// Decode one declared slot through the owning field contract without
     /// allowing absent payloads.
     fn required_value_by_contract(&self, slot: usize) -> Result<Value, InternalError> {
-        decode_field_slot_into_runtime_value(
+        decode_runtime_value_from_field_contract(
             self.field_decode_contract(slot)?,
             self.required_bytes(slot)?,
         )
