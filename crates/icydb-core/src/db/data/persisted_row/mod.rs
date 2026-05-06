@@ -25,6 +25,7 @@ pub(in crate::db) use contract::decode_runtime_value_from_accepted_field_contrac
 pub use contract::{decode_slot_into_runtime_value, encode_runtime_value_into_slot};
 pub(in crate::db) use patch::{
     apply_serialized_structural_patch_to_raw_row,
+    apply_serialized_structural_patch_to_raw_row_with_accepted_contract,
     canonical_row_from_complete_serialized_structural_patch, canonical_row_from_entity,
     canonical_row_from_stored_raw_row, canonical_row_from_structural_slot_reader,
     materialize_entity_from_serialized_structural_patch,

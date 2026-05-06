@@ -17,7 +17,6 @@ use crate::{
                 },
             },
             plan_metrics::record_rows_scanned_for_path,
-            saturating_u32_len,
         },
         registry::StoreHandle,
         response::Row,
@@ -86,34 +85,6 @@ where
     Ok(TypedDeleteLeaf {
         output: response_rows,
         row_count: rollback_rows.len(),
-        rollback_rows,
-    })
-}
-
-// Package surviving typed delete rows into rollback rows only when the caller
-// needs the affected-row count without response-row materialization.
-pub(in crate::db::executor::delete) fn package_typed_delete_count<E>(
-    rows: Vec<DeleteRow<E>>,
-) -> Result<TypedDeleteLeaf<u32>, InternalError>
-where
-    E: PersistedRow + EntityValue,
-{
-    let row_count = rows.len();
-    let mut rollback_rows = Vec::with_capacity(rows.len());
-
-    for mut row in rows {
-        let rollback_row = row
-            .raw
-            .take()
-            .ok_or_else(InternalError::delete_rollback_row_required)?;
-        let rollback_key = row.key.to_raw()?;
-
-        rollback_rows.push((rollback_key, rollback_row));
-    }
-
-    Ok(TypedDeleteLeaf {
-        output: saturating_u32_len(row_count),
-        row_count,
         rollback_rows,
     })
 }

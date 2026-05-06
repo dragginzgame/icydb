@@ -5,7 +5,10 @@ use crate::{
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
         },
         data::{
-            CanonicalRow, DataKey, PersistedRow, RawRow, SerializedStructuralPatch, StructuralPatch,
+            CanonicalRow, DataKey, PersistedRow, RawRow, SerializedStructuralPatch,
+            StructuralPatch, StructuralRowContract, StructuralSlotReader,
+            apply_serialized_structural_patch_to_raw_row_with_accepted_contract,
+            canonical_row_from_structural_slot_reader,
         },
         executor::{
             Context,
@@ -14,7 +17,7 @@ use crate::{
                 save::{MutationMode, SaveExecutor},
             },
         },
-        schema::{SchemaInfo, commit_schema_fingerprint_for_entity},
+        schema::{AcceptedRowDecodeContract, SchemaInfo, commit_schema_fingerprint_for_entity},
     },
     error::InternalError,
     metrics::sink::{ExecKind, Span},
@@ -38,6 +41,7 @@ struct StructuralMutationRequest<E: PersistedRow + EntityValue> {
     key: E::Key,
     patch: StructuralPatch,
     write_context: SanitizeWriteContext,
+    accepted_row_decode_contract: Option<AcceptedRowDecodeContract>,
 }
 
 ///
@@ -68,12 +72,14 @@ impl<E: PersistedRow + EntityValue> StructuralMutationRequest<E> {
         key: E::Key,
         patch: StructuralPatch,
         write_context: SanitizeWriteContext,
+        accepted_row_decode_contract: Option<AcceptedRowDecodeContract>,
     ) -> Self {
         Self {
             mode,
             key,
             patch,
             write_context,
+            accepted_row_decode_contract,
         }
     }
 
@@ -85,12 +91,14 @@ impl<E: PersistedRow + EntityValue> StructuralMutationRequest<E> {
         key: E::Key,
         patch: StructuralPatch,
         write_context: SanitizeWriteContext,
+        accepted_row_decode_contract: Option<AcceptedRowDecodeContract>,
     ) -> Self {
         Self {
             mode,
             key,
             patch,
             write_context,
+            accepted_row_decode_contract,
         }
     }
 }
@@ -107,9 +115,16 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         mode: MutationMode,
         key: E::Key,
         patch: StructuralPatch,
+        accepted_row_decode_contract: Option<AcceptedRowDecodeContract>,
     ) -> Result<E, InternalError> {
         let write_context = Self::structural_write_context(mode, Timestamp::now());
-        let request = StructuralMutationRequest::public_authored(mode, key, patch, write_context);
+        let request = StructuralMutationRequest::public_authored(
+            mode,
+            key,
+            patch,
+            write_context,
+            accepted_row_decode_contract,
+        );
 
         self.save_structural_mutation(request)
     }
@@ -124,13 +139,19 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         mode: MutationMode,
         rows: Vec<(E::Key, StructuralPatch)>,
         write_context: SanitizeWriteContext,
+        accepted_row_decode_contract: Option<AcceptedRowDecodeContract>,
     ) -> Result<Vec<E>, InternalError> {
         let items = rows
             .into_iter()
             .map(|(key, patch)| StructuralMutationBatchItem::internal_lowered(key, patch))
             .collect();
 
-        self.apply_internal_structural_mutation_batch(mode, items, write_context)
+        self.apply_internal_structural_mutation_batch(
+            mode,
+            items,
+            write_context,
+            accepted_row_decode_contract,
+        )
     }
 
     // Prepare and commit one executor-owned batch of internal structural
@@ -141,6 +162,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         mode: MutationMode,
         items: Vec<StructuralMutationBatchItem<E>>,
         write_context: SanitizeWriteContext,
+        accepted_row_decode_contract: Option<AcceptedRowDecodeContract>,
     ) -> Result<Vec<E>, InternalError> {
         let mut span = Span::<E>::new(ExecKind::Save);
         let result = (|| {
@@ -160,6 +182,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                     item.key,
                     item.patch,
                     write_context,
+                    accepted_row_decode_contract.clone(),
                 );
                 let (entity, marker_row_op) = self.prepare_structural_mutation_row_op(
                     &ctx,
@@ -260,20 +283,29 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             key,
             patch,
             write_context,
+            accepted_row_decode_contract,
         } = request;
 
         Self::validate_structural_patch_write_bounds(&patch)?;
 
         let mutation = MutationInput::from_structural_patch::<E>(key, &patch)?;
         let data_key = mutation.data_key().clone();
-        let old_raw = Self::resolve_existing_row_for_rule(ctx, &data_key, mode.save_rule())?;
+        let old_raw = Self::resolve_existing_row_for_rule(
+            ctx,
+            &data_key,
+            mode.save_rule(),
+            accepted_row_decode_contract.as_ref(),
+        )?;
 
         // Phase 1: materialize and preflight the structural after-image under
         // the same save contract as typed writes.
         let entity = match mode {
             MutationMode::Update => {
-                let raw_after_image =
-                    Self::build_structural_after_image_row(mode, &mutation, old_raw.as_ref())?;
+                let raw_after_image = Self::build_structural_update_after_image_row(
+                    &mutation,
+                    old_raw.as_ref(),
+                    accepted_row_decode_contract.clone(),
+                )?;
                 self.validate_structural_after_image(
                     &data_key,
                     &raw_after_image,
@@ -295,10 +327,17 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         // Phase 2: restage the normalized typed entity as one complete slot
         // image so commit preparation still sees the final canonical row.
         let normalized_mutation = MutationInput::from_entity(&entity)?;
-        let row_bytes =
-            Self::build_structural_after_image_row(mode, &normalized_mutation, old_raw.as_ref())?;
+        let row_bytes = Self::build_normalized_structural_after_image_row(&normalized_mutation)?;
         let row_bytes = row_bytes.into_raw_row().into_bytes();
-        let before_bytes = old_raw.map(<RawRow as Storable>::into_bytes);
+        let before_bytes = old_raw
+            .as_ref()
+            .map(|row| {
+                Self::build_structural_before_image_bytes(
+                    row,
+                    accepted_row_decode_contract.as_ref(),
+                )
+            })
+            .transpose()?;
         let marker_row_op = CommitRowOp::new(
             E::PATH,
             data_key.to_raw()?,
@@ -310,31 +349,60 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         Ok((entity, marker_row_op))
     }
 
-    // Build the final persisted after-image under one explicit structural mode.
-    // Sparse insert/replace no longer routes through this helper before
-    // preflight; only the final normalized row image crosses here.
-    fn build_structural_after_image_row(
-        mode: MutationMode,
+    // Build a sparse structural update after-image over the existing row. When
+    // an accepted decode contract is present, old short physical rows first
+    // materialize missing nullable slots before patch overlay.
+    fn build_structural_update_after_image_row(
         mutation: &MutationInput,
         old_row: Option<&RawRow>,
+        accepted_row_decode_contract: Option<AcceptedRowDecodeContract>,
     ) -> Result<CanonicalRow, InternalError> {
-        match mode {
-            MutationMode::Update => {
-                let Some(old_row) = old_row else {
-                    return Err(InternalError::executor_invariant(
-                        "structural update staging requires an existing baseline row",
-                    ));
-                };
+        let Some(old_row) = old_row else {
+            return Err(InternalError::executor_invariant(
+                "structural update staging requires an existing baseline row",
+            ));
+        };
 
-                old_row.apply_serialized_structural_patch(E::MODEL, mutation.serialized_slots())
-            }
-            MutationMode::Insert | MutationMode::Replace => {
-                RawRow::from_complete_serialized_structural_patch(
-                    E::MODEL,
-                    mutation.serialized_slots(),
-                )
-            }
+        if let Some(accepted_row_decode_contract) = accepted_row_decode_contract {
+            return apply_serialized_structural_patch_to_raw_row_with_accepted_contract(
+                E::MODEL,
+                accepted_row_decode_contract,
+                old_row,
+                mutation.serialized_slots(),
+            );
         }
+
+        old_row.apply_serialized_structural_patch(E::MODEL, mutation.serialized_slots())
+    }
+
+    // Build the final persisted after-image from a normalized typed entity.
+    // The normalized mutation is dense by construction, so this emits the
+    // current generated row layout and never preserves an old short row shape.
+    fn build_normalized_structural_after_image_row(
+        mutation: &MutationInput,
+    ) -> Result<CanonicalRow, InternalError> {
+        RawRow::from_complete_serialized_structural_patch(E::MODEL, mutation.serialized_slots())
+    }
+
+    // Build the commit-marker before image. Accepted-schema updates must not
+    // hand old short rows to commit preflight because index and relation delta
+    // planning still consume generated-compatible dense row images.
+    fn build_structural_before_image_bytes(
+        old_row: &RawRow,
+        accepted_row_decode_contract: Option<&AcceptedRowDecodeContract>,
+    ) -> Result<Vec<u8>, InternalError> {
+        let Some(accepted_row_decode_contract) = accepted_row_decode_contract else {
+            return Ok(old_row.clone().into_bytes());
+        };
+        let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
+            E::MODEL,
+            accepted_row_decode_contract.clone(),
+        );
+        let row_fields =
+            StructuralSlotReader::from_raw_row_with_validated_contract(old_row, contract)?;
+        let canonical = canonical_row_from_structural_slot_reader(E::MODEL, &row_fields)?;
+
+        Ok(canonical.into_raw_row().into_bytes())
     }
 
     // Validate one structurally patched after-image by decoding it against the

@@ -12,12 +12,14 @@ use crate::{
                 apply_delete_post_access_rows, prepare_delete_commit,
                 resolve_delete_candidate_rows_as,
                 types::{
-                    DeleteCommitApplyFn, DeletePreparation, DeleteProjection, PreparedDeleteCommit,
-                    PreparedDeleteExecutionState, PreparedDeleteProjection,
+                    DeleteCommitApplyFn, DeleteCountPreparation, DeletePreparation,
+                    DeleteProjection, PreparedDeleteCommit, PreparedDeleteExecutionState,
+                    PreparedDeleteProjection,
                 },
             },
             plan_metrics::record_rows_scanned_for_path,
             projection::MaterializedProjectionRows,
+            saturating_u32_len,
             terminal::{KernelRow, RowDecoder},
         },
         registry::StoreHandle,
@@ -71,6 +73,64 @@ fn package_structural_delete_rows(
         response_rows: MaterializedProjectionRows::from_value_rows(response_rows),
         rollback_rows,
     })
+}
+
+// Package surviving structural delete kernel rows into rollback rows only when
+// the caller needs affected-row count without response-row materialization.
+fn package_structural_delete_count(
+    rows: Vec<KernelRow>,
+) -> Result<DeleteCountPreparation, InternalError> {
+    let row_count = rows.len();
+    let mut rollback_rows = Vec::with_capacity(rows.len());
+
+    for row in rows {
+        let (data_row, _) = row.into_parts()?;
+        let (key, raw) = data_row;
+        let rollback_key = key.to_raw()?;
+
+        rollback_rows.push((rollback_key, raw));
+    }
+
+    Ok(DeleteCountPreparation {
+        row_count,
+        rollback_rows,
+    })
+}
+
+// Resolve, filter, and package one structural delete count before the outer
+// typed wrapper applies the final commit window.
+fn prepare_structural_delete_count<C>(
+    db: &Db<C>,
+    store: StoreHandle,
+    prepared: &PreparedDeleteExecutionState,
+) -> Result<Option<(u32, PreparedDeleteCommit)>, InternalError>
+where
+    C: CanisterKind,
+{
+    // Phase 1: decode rows through the same accepted row layout used by
+    // structural DELETE RETURNING so count-only SQL deletes can remove old
+    // physical rows after append-only nullable schema transitions.
+    let row_layout = prepared.authority.entity.row_layout();
+    let row_decoder = RowDecoder::structural();
+    let (rows, rows_scanned) = resolve_delete_candidate_rows_as(store, prepared, |data_row| {
+        row_decoder.decode(&row_layout, data_row)
+    })?;
+    record_rows_scanned_for_path(prepared.authority.entity.entity_path(), rows_scanned);
+
+    // Phase 2: keep delete filtering, ordering, and rollback packaging on the
+    // structural kernel-row boundary while discarding projection material.
+    let structural =
+        prepare_structural_delete_leaf(prepared, rows, package_structural_delete_count)?;
+    if structural.row_count == 0 {
+        return Ok(None);
+    }
+
+    // Phase 3: prepare relation validation and commit row ops once for the
+    // already-selected delete targets.
+    let row_count = saturating_u32_len(structural.row_count);
+    let commit = prepare_delete_commit(db, store, &prepared.authority, structural.rollback_rows)?;
+
+    Ok(Some((row_count, commit)))
 }
 
 // Resolve, filter, and package one structural delete result before the
@@ -142,4 +202,32 @@ where
     )?;
 
     Ok(prepared_projection.projection)
+}
+
+// Execute one structural delete count through the shared delete core while
+// leaving only the final typed commit-window bridge to the caller.
+pub(in crate::db::executor::delete) fn execute_structural_delete_count_core<C>(
+    db: &Db<C>,
+    store: StoreHandle,
+    prepared: &PreparedDeleteExecutionState,
+    apply_delete_commit: DeleteCommitApplyFn<C>,
+) -> Result<u32, InternalError>
+where
+    C: CanisterKind,
+{
+    // Phase 1: run the shared structural delete-count core.
+    let Some((row_count, commit)) = prepare_structural_delete_count(db, store, prepared)? else {
+        return Ok(0);
+    };
+
+    // Phase 2: apply the already prepared delete commit payload through the
+    // caller-provided commit-window bridge.
+    apply_delete_commit(
+        db,
+        prepared.authority.entity.clone(),
+        commit.row_ops,
+        "delete_row_apply",
+    )?;
+
+    Ok(row_count)
 }

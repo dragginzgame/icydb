@@ -56,6 +56,7 @@ pub(in crate::db) use shared_plan::SharedPreparedExecutionPlan;
 
 #[derive(Debug)]
 pub(in crate::db) struct PreparedExecutionPlan<E: EntityKind> {
+    authority: EntityAuthority,
     core: PreparedExecutionPlanCore,
     marker: PhantomData<fn() -> E>,
 }
@@ -70,6 +71,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         authority.finalize_planner_route_profile(&mut plan);
 
         Self {
+            authority: authority.clone(),
             core: build_prepared_execution_plan_core(authority, plan),
             marker: PhantomData,
         }
@@ -89,11 +91,9 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
             );
         }
 
-        let authority = EntityAuthority::for_type::<E>();
-
         assemble_load_execution_node_descriptor(
-            authority.fields(),
-            authority.primary_key_name(),
+            self.authority.fields(),
+            self.authority.primary_key_name(),
             self.core.plan(),
         )
     }
@@ -103,8 +103,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         &self,
         cursor: Option<&[u8]>,
     ) -> Result<PlannedCursor, ExecutorPlanError> {
-        self.core
-            .prepare_cursor(EntityAuthority::for_type::<E>(), cursor)
+        self.core.prepare_cursor(self.authority.clone(), cursor)
     }
 
     /// Return the plan mode (load vs delete).
@@ -152,15 +151,13 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         &self,
         target_field: &str,
     ) -> BytesByProjectionMode {
-        let authority = EntityAuthority::for_type::<E>();
-
         classify_bytes_by_projection_mode(
             self.access(),
             self.order_spec(),
             self.consistency(),
             self.has_predicate(),
             target_field,
-            authority.primary_key_name(),
+            self.authority.primary_key_name(),
         )
     }
 
@@ -202,7 +199,12 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
     pub(in crate::db::executor) fn into_access_plan_parts(
         self,
     ) -> Result<PreparedAccessPlanParts, InternalError> {
-        let shared = self.core.into_shared();
+        let Self {
+            authority,
+            core,
+            marker: _,
+        } = self;
+        let shared = core.into_shared();
 
         if shared.index_prefix_spec_invalid {
             return Err(
@@ -214,6 +216,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         }
 
         Ok(PreparedAccessPlanParts {
+            authority,
             plan: shared.plan,
             index_prefix_specs: shared.index_prefix_specs,
             index_range_specs: shared.index_range_specs,
@@ -231,7 +234,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         };
 
         contract
-            .prepare_grouped_cursor(EntityAuthority::for_type::<E>().entity_path(), cursor)
+            .prepare_grouped_cursor(self.authority.entity_path(), cursor)
             .map_err(ExecutorPlanError::from)
     }
 
@@ -245,7 +248,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         };
 
         contract
-            .prepare_grouped_cursor_token(EntityAuthority::for_type::<E>().entity_path(), cursor)
+            .prepare_grouped_cursor_token(self.authority.entity_path(), cursor)
             .map_err(ExecutorPlanError::from)
     }
 
@@ -253,19 +256,25 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
     /// payload for continuation and load-pipeline preparation.
     #[must_use]
     pub(in crate::db::executor) fn into_prepared_load_plan(self) -> PreparedLoadPlan {
-        PreparedLoadPlan {
-            authority: EntityAuthority::for_type::<E>(),
-            core: self.core,
-        }
+        let Self {
+            authority,
+            core,
+            marker: _,
+        } = self;
+
+        PreparedLoadPlan { authority, core }
     }
 
     /// Consume one typed prepared execution plan into one generic-free
     /// boundary payload for aggregate terminal and runtime preparation.
     #[must_use]
     pub(in crate::db::executor) fn into_prepared_aggregate_plan(self) -> PreparedAggregatePlan {
-        PreparedAggregatePlan {
-            authority: EntityAuthority::for_type::<E>(),
-            core: self.core,
-        }
+        let Self {
+            authority,
+            core,
+            marker: _,
+        } = self;
+
+        PreparedAggregatePlan { authority, core }
     }
 }

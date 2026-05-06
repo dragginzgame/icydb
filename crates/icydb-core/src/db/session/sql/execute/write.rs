@@ -3,6 +3,8 @@ use crate::{
         DbSession, MissingRowPolicy, PersistedRow, Query, QueryError,
         data::{FieldSlot, StructuralPatch},
         executor::{EntityAuthority, MutationMode},
+        query::intent::StructuralQuery,
+        query::plan::expr::{FieldId, ProjectionSelection},
         schema::{
             AcceptedRowLayoutRuntimeDescriptor, AcceptedRowLayoutRuntimeField,
             AcceptedSchemaSnapshot, SchemaFieldWritePolicy, SchemaInfo, ValidateError,
@@ -424,11 +426,12 @@ impl<C: CanisterKind> DbSession<C> {
     fn sql_update_selector_query<E>(
         schema: &AcceptedSchemaSnapshot,
         statement: &SqlUpdateStatement,
-    ) -> Result<Query<E>, QueryError>
+    ) -> Result<StructuralQuery, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let schema = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, schema);
+        let pk_name = E::MODEL.primary_key.name;
         let selector = bind_sql_update_selector_query_structural_with_schema(
             E::MODEL,
             statement,
@@ -437,7 +440,7 @@ impl<C: CanisterKind> DbSession<C> {
         )
         .map_err(QueryError::from_sql_lowering_error)?;
 
-        Ok(Query::<E>::from_inner(selector))
+        Ok(selector.projection_selection(ProjectionSelection::Fields(vec![FieldId::new(pk_name)])))
     }
 
     fn sql_insert_select_source_statement<E>(
@@ -592,6 +595,7 @@ impl<C: CanisterKind> DbSession<C> {
                         MutationMode::Insert,
                         rows,
                         write_context,
+                        Some(descriptor.row_decode_contract()),
                     )
                 },
                 std::convert::identity,
@@ -623,12 +627,24 @@ impl<C: CanisterKind> DbSession<C> {
         let selector = Self::sql_update_selector_query::<E>(&schema, statement)?;
         let patch = Self::sql_structural_patch(&descriptor, statement)?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());
-        let matched = self.execute_query(&selector)?;
-        let matched_rows = usize_to_u64_saturating(matched.len());
-        let mut rows = Vec::with_capacity(matched.len());
+        let authority = EntityAuthority::for_type::<E>();
+        let (payload, _) = self
+            .execute_sql_projection_from_structural_query_without_sql_compiled_cache(
+                selector, authority,
+            )?;
+        let (_, _, projected_rows, _) = payload.into_parts();
+        let matched_rows = usize_to_u64_saturating(projected_rows.len());
+        let mut rows = Vec::with_capacity(projected_rows.len());
 
-        for entity in matched.entities() {
-            rows.push((entity.id().key(), patch.clone()));
+        for row in projected_rows {
+            let Some(value) = row.first() else {
+                return Err(QueryError::invariant(
+                    "SQL UPDATE target selector emitted an empty primary-key projection row",
+                ));
+            };
+            let key = sql_write_key_from_literal::<E>(&descriptor, value)?;
+
+            rows.push((key, patch.clone()));
         }
         let entities = self
             .execute_save_with_checked_accepted_schema::<E, _, _>(
@@ -637,6 +653,7 @@ impl<C: CanisterKind> DbSession<C> {
                         MutationMode::Update,
                         rows,
                         write_context,
+                        Some(descriptor.row_decode_contract()),
                     )
                 },
                 std::convert::identity,

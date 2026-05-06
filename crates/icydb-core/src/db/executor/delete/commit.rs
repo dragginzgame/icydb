@@ -7,7 +7,7 @@ use crate::{
     db::{
         Db,
         commit::CommitRowOp,
-        data::{RawDataKey, RawRow},
+        data::{RawDataKey, RawRow, canonical_row_from_structural_slot_reader},
         executor::{
             EntityAuthority,
             delete::types::{DeleteExecutionAuthority, PreparedDeleteCommit},
@@ -21,6 +21,23 @@ use crate::{
     traits::{CanisterKind, EntityKind, EntityValue, Storable},
 };
 use std::collections::BTreeSet;
+
+// Build one commit-marker before image from the authority's row layout.
+//
+// Accepted-schema deletes can target old short physical rows. Commit preflight
+// still plans relation and index deltas from generated-compatible dense row
+// images, so normalize rollback bytes before constructing the marker op.
+fn delete_before_image_bytes(
+    authority: &DeleteExecutionAuthority,
+    raw_row: &RawRow,
+) -> Result<Vec<u8>, InternalError> {
+    let row_layout = authority.entity.row_layout();
+    let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
+    let canonical =
+        canonical_row_from_structural_slot_reader(authority.entity.model(), &row_fields)?;
+
+    Ok(canonical.into_raw_row().into_bytes())
+}
 
 // Prepare the nongeneric delete commit payload from structural rollback rows.
 #[inline(never)]
@@ -44,10 +61,12 @@ where
     let row_ops = rollback_rows
         .into_iter()
         .map(|(raw_key, raw_row)| {
+            let before_bytes = delete_before_image_bytes(authority, &raw_row)?;
+
             Ok(CommitRowOp::new(
                 authority.entity.entity_path(),
                 raw_key,
-                Some(raw_row.into_bytes()),
+                Some(before_bytes),
                 None,
                 authority.schema_fingerprint,
             ))

@@ -219,7 +219,7 @@ impl<'a> StructuralSlotReader<'a> {
     // Borrow one declared slot value from the validated structural cache,
     // materializing the semantic `Value` lazily when the caller first touches
     // that slot.
-    pub(in crate::db::data::persisted_row) fn required_cached_value(
+    pub(in crate::db) fn required_cached_value(
         &self,
         slot: usize,
     ) -> Result<&Value, InternalError> {

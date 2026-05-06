@@ -57,7 +57,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         // Phase 1: resolve key + current-store baseline from the canonical save rule.
         let data_key = DataKey::try_new::<E>(entity.id().key())?;
         let raw_key = data_key.to_raw()?;
-        let old_raw = Self::resolve_existing_row_for_rule(ctx, &data_key, save_rule)?;
+        let old_raw = Self::resolve_existing_row_for_rule(ctx, &data_key, save_rule, None)?;
 
         // Phase 2: typed save lanes already own a complete after-image, so
         // emit the canonical row directly instead of replaying a dense slot

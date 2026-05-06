@@ -126,6 +126,21 @@ fn insert_old_nullable_sql_row_for_test(id: Ulid, name: &str) {
     });
 }
 
+// Load the raw nullable SQL fixture row so tests can distinguish accepted
+// short-row reads from current-layout writeback.
+fn nullable_sql_raw_row_for_test(id: Ulid) -> RawRow {
+    let key = DataKey::try_new::<SessionNullableSqlEntity>(id)
+        .expect("nullable SQL data key should build")
+        .to_raw()
+        .expect("nullable SQL data key should encode");
+
+    SESSION_SQL_DATA_STORE.with_borrow(|store| {
+        store
+            .get(&key)
+            .expect("nullable SQL row should exist in data store")
+    })
+}
+
 // Assert that one unsupported SQL feature is surfaced with the same parser
 // detail label through the selected SQL surface.
 fn assert_sql_surface_preserves_unsupported_feature_detail<T, F>(
@@ -887,6 +902,133 @@ fn execute_sql_statement_reads_old_rows_after_nullable_additive_schema_transitio
         ]],
     );
     assert_eq!(row_count, 1);
+}
+
+#[test]
+fn execute_sql_update_rewrites_old_rows_after_nullable_additive_schema_transition() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_nullable_sql_old_accepted_schema_prefix();
+    let session = sql_session();
+    let id = Ulid::from_u128(1481);
+    insert_old_nullable_sql_row_for_test(id, "Ada");
+
+    let result = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+        &session,
+        "UPDATE SessionNullableSqlEntity SET name = 'Ada Lovelace' WHERE name = 'Ada'",
+    )
+    .expect("SQL UPDATE should accept old row after nullable append-only schema transition");
+    let SqlStatementResult::Count { row_count } = result else {
+        panic!("SQL UPDATE over old nullable row should emit a count result");
+    };
+    let raw_row = nullable_sql_raw_row_for_test(id);
+    let decoded = raw_row
+        .try_decode::<SessionNullableSqlEntity>()
+        .expect("SQL UPDATE should rewrite the old short row as a current-layout row");
+    let selected = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+        &session,
+        "SELECT name, nickname FROM SessionNullableSqlEntity",
+    )
+    .expect("SQL SELECT should read the updated nullable row");
+    let SqlStatementResult::Projection { rows, .. } = selected else {
+        panic!("SQL SELECT over updated nullable row should emit projection rows");
+    };
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+
+    assert_eq!(row_count, 1);
+    assert_eq!(decoded.name, "Ada Lovelace");
+    assert_eq!(decoded.nickname, None);
+    assert_eq!(
+        rows,
+        vec![vec![
+            output(Value::Text("Ada Lovelace".to_string())),
+            output(Value::Null)
+        ]],
+    );
+}
+
+#[test]
+fn execute_sql_delete_removes_old_rows_after_nullable_additive_schema_transition() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_nullable_sql_old_accepted_schema_prefix();
+    let session = sql_session();
+    let id = Ulid::from_u128(1482);
+    insert_old_nullable_sql_row_for_test(id, "Ada");
+
+    let result = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+        &session,
+        "DELETE FROM SessionNullableSqlEntity WHERE name = 'Ada'",
+    )
+    .expect("SQL DELETE should accept old row after nullable append-only schema transition");
+    let SqlStatementResult::Count { row_count } = result else {
+        panic!("SQL DELETE over old nullable row should emit a count result");
+    };
+    let selected = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+        &session,
+        "SELECT name, nickname FROM SessionNullableSqlEntity",
+    )
+    .expect("SQL SELECT should read after deleting the old nullable row");
+    let SqlStatementResult::Projection {
+        rows,
+        row_count: remaining_count,
+        ..
+    } = selected
+    else {
+        panic!("SQL SELECT after deleting old nullable row should emit projection rows");
+    };
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+
+    assert_eq!(row_count, 1);
+    assert_eq!(remaining_count, 0);
+    assert!(rows.is_empty());
+}
+
+#[test]
+fn execute_sql_delete_returning_projects_old_rows_after_nullable_additive_schema_transition() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_nullable_sql_old_accepted_schema_prefix();
+    let session = sql_session();
+    let id = Ulid::from_u128(1483);
+    insert_old_nullable_sql_row_for_test(id, "Ada");
+
+    let result = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+        &session,
+        "DELETE FROM SessionNullableSqlEntity WHERE name = 'Ada' RETURNING name, nickname",
+    )
+    .expect("SQL DELETE RETURNING should project old row through accepted nullable transition");
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = result
+    else {
+        panic!("SQL DELETE RETURNING over old nullable row should emit projection rows");
+    };
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+
+    assert_eq!(columns, vec!["name".to_string(), "nickname".to_string()]);
+    assert_eq!(row_count, 1);
+    assert_eq!(
+        rows,
+        vec![vec![
+            output(Value::Text("Ada".to_string())),
+            output(Value::Null)
+        ]],
+    );
+    SESSION_SQL_DATA_STORE.with_borrow(|store| {
+        let key = DataKey::try_new::<SessionNullableSqlEntity>(id)
+            .expect("old nullable SQL data key should build")
+            .to_raw()
+            .expect("old nullable SQL data key should encode");
+
+        assert!(store.get(&key).is_none());
+    });
 }
 
 #[test]

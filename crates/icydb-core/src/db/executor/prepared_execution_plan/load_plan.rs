@@ -228,7 +228,7 @@ impl PreparedLoadPlan {
     pub(in crate::db::executor) fn into_access_plan_parts(
         self,
     ) -> Result<PreparedAccessPlanParts, InternalError> {
-        let Self { authority: _, core } = self;
+        let Self { authority, core } = self;
         let shared = core.into_shared();
 
         if shared.index_prefix_spec_invalid {
@@ -241,6 +241,7 @@ impl PreparedLoadPlan {
         }
 
         Ok(PreparedAccessPlanParts {
+            authority,
             plan: shared.plan,
             index_prefix_specs: shared.index_prefix_specs,
             index_range_specs: shared.index_range_specs,

@@ -74,7 +74,7 @@ where
     validate_delete_plan_shape(&plan)?;
 
     let prepared = plan.into_access_plan_parts()?;
-    let authority = DeleteExecutionAuthority::for_type::<E>();
+    let authority = DeleteExecutionAuthority::from_entity_authority::<E>(prepared.authority);
     let prepared = prepare_delete_execution_state(
         authority,
         prepared.plan,

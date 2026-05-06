@@ -3,6 +3,7 @@ use crate::{
         CanonicalRow, RawRow, StructuralFieldDecodeContract, StructuralRowContract,
         StructuralRowDecodeError, StructuralRowFieldBytes,
     },
+    db::schema::AcceptedRowDecodeContract,
     error::InternalError,
     model::{entity::EntityModel, field::FieldModel},
     value::Value,
@@ -344,5 +345,50 @@ pub(in crate::db) fn apply_serialized_structural_patch_to_raw_row(
 
     canonical_row_from_payload_source(model, |slot| {
         patch_payloads.overlay_payload(&field_bytes, slot)
+    })
+}
+
+/// Apply one serialized structural patch through an accepted row-decode contract.
+///
+/// This is the schema-transition counterpart to the generated-only replay
+/// helper above. It materializes the old row through the accepted contract first
+/// so missing append-only nullable slots become ordinary `NULL` values before
+/// the sparse patch overlays the current generated field payloads.
+pub(in crate::db) fn apply_serialized_structural_patch_to_raw_row_with_accepted_contract(
+    model: &'static EntityModel,
+    accepted_decode_contract: AcceptedRowDecodeContract,
+    raw_row: &RawRow,
+    patch: &SerializedStructuralPatch,
+) -> Result<CanonicalRow, InternalError> {
+    let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
+        model,
+        accepted_decode_contract,
+    );
+    let row_fields = StructuralSlotReader::from_raw_row_with_validated_contract(raw_row, contract)?;
+    let mut values = Vec::with_capacity(model.fields().len());
+
+    // Phase 1: materialize the accepted baseline into current generated slot
+    // order, including any nullable appended slots that are absent on disk.
+    for slot in 0..model.fields().len() {
+        values.push(row_fields.required_cached_value(slot)?.clone());
+    }
+
+    // Phase 2: overlay the sparse current-layout patch. Patch payloads were
+    // already encoded by the generated-compatible write codec, so decode them
+    // through the generated field contract before final canonical row emission.
+    for entry in patch.entries() {
+        let slot = entry.slot().index();
+        let field = generated_compatible_field_model_for_slot(model, slot)?;
+        let field = StructuralFieldDecodeContract::from_field_model(field);
+        values[slot] = decode_runtime_value_from_field_contract(field, entry.payload())?;
+    }
+
+    canonical_row_from_runtime_value_source(model, |slot| {
+        values.get(slot).map(Cow::Borrowed).ok_or_else(|| {
+            InternalError::persisted_row_encode_failed(format!(
+                "slot {slot} is missing from accepted structural after-image for entity '{}'",
+                model.path()
+            ))
+        })
     })
 }

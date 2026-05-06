@@ -11,7 +11,7 @@ use crate::{
             PreparedExecutionPlan,
             delete::{
                 DeleteProjection, apply_delete_commit_window_for_type,
-                execute_structural_delete_projection_core, package_typed_delete_count,
+                execute_structural_delete_count_core, execute_structural_delete_projection_core,
                 package_typed_delete_rows, prepare_delete_runtime, prepare_typed_delete_core,
             },
             plan_metrics::{record_plan_metrics, set_rows_from_len},
@@ -155,31 +155,20 @@ where
                 &prepared.logical_plan,
             );
 
-            // Phase 2: run the shared typed delete core while skipping response
-            // row materialization.
-            let Some(counted) = prepare_typed_delete_core(
+            // Phase 2: run the structural delete-count core so accepted-schema
+            // row layouts are preserved for old physical rows. Count-only
+            // deletes do not need typed entity materialization.
+            let row_count = execute_structural_delete_count_core(
                 &self.db,
                 store,
                 &prepared,
-                package_typed_delete_count::<E>,
-            )?
-            else {
-                set_rows_from_len(&mut span, 0);
-                return Ok(0);
-            };
-
-            // Phase 3: apply the already prepared delete commit payload.
-            apply_delete_commit_window_for_type::<E>(
-                &self.db,
-                prepared.authority.entity,
-                counted.commit.row_ops,
-                "delete_row_apply",
+                apply_delete_commit_window_for_type::<E>,
             )?;
 
-            // Phase 4: return only the final affected-row count.
-            set_rows_from_len(&mut span, counted.row_count);
+            // Phase 3: return only the final affected-row count.
+            set_rows_from_len(&mut span, usize::try_from(row_count).unwrap_or(usize::MAX));
 
-            Ok(counted.output)
+            Ok(row_count)
         })();
         if let Err(err) = &result {
             span.set_error(err);

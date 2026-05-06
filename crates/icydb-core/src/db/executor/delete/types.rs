@@ -56,13 +56,17 @@ pub(in crate::db::executor::delete) struct DeleteExecutionAuthority {
 }
 
 impl DeleteExecutionAuthority {
-    /// Lower one entity type into the authority used by delete execution.
-    pub(in crate::db::executor::delete) fn for_type<E>() -> Self
+    /// Preserve one prepared-plan entity authority for delete execution.
+    ///
+    /// Accepted-schema delete plans carry a frozen row layout in the authority.
+    /// Delete must keep that layout when decoding old physical rows and when
+    /// staging rollback bytes for commit preflight.
+    pub(in crate::db::executor::delete) fn from_entity_authority<E>(entity: EntityAuthority) -> Self
     where
         E: EntityKind,
     {
         Self {
-            entity: EntityAuthority::for_type::<E>(),
+            entity,
             schema_fingerprint: commit_schema_fingerprint_for_entity::<E>(),
         }
     }
@@ -170,6 +174,20 @@ impl DeleteProjection {
 #[cfg(feature = "sql")]
 pub(in crate::db::executor::delete) struct DeletePreparation {
     pub(in crate::db::executor::delete) response_rows: MaterializedProjectionRows,
+    pub(in crate::db::executor::delete) rollback_rows: Vec<(RawDataKey, RawRow)>,
+}
+
+///
+/// DeleteCountPreparation
+///
+/// Structural delete-count payload carrying only the affected-row count plus
+/// rollback rows for commit preparation.
+/// This keeps count-only deletes on the accepted structural row-decode path
+/// without materializing typed response entities or SQL projection rows.
+///
+
+pub(in crate::db::executor::delete) struct DeleteCountPreparation {
+    pub(in crate::db::executor::delete) row_count: usize,
     pub(in crate::db::executor::delete) rollback_rows: Vec<(RawDataKey, RawRow)>,
 }
 

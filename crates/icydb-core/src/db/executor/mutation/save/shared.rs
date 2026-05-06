@@ -17,6 +17,7 @@ use crate::{
 };
 
 use crate::db::executor::mutation::save::{SaveExecutor, SaveRule};
+use crate::db::schema::AcceptedRowDecodeContract;
 
 impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // Resolve the "before" row according to one canonical save rule.
@@ -24,13 +25,18 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         ctx: &Context<'_, E>,
         data_key: &DataKey,
         save_rule: SaveRule,
+        accepted_row_decode_contract: Option<&AcceptedRowDecodeContract>,
     ) -> Result<Option<RawRow>, InternalError> {
         let raw_key = data_key.to_raw()?;
 
         match save_rule {
             SaveRule::RequireAbsent => {
                 if let Some(existing) = ctx.with_store(|store| store.get(&raw_key))? {
-                    Self::validate_existing_row_identity(data_key, &existing)?;
+                    Self::validate_existing_row_identity(
+                        data_key,
+                        &existing,
+                        accepted_row_decode_contract,
+                    )?;
                     return Err(ExecutorError::KeyExists(data_key.clone()).into());
                 }
 
@@ -40,14 +46,22 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 let old_row = ctx
                     .with_store(|store| store.get(&raw_key))?
                     .ok_or_else(|| InternalError::store_not_found(data_key.to_string()))?;
-                Self::validate_existing_row_identity(data_key, &old_row)?;
+                Self::validate_existing_row_identity(
+                    data_key,
+                    &old_row,
+                    accepted_row_decode_contract,
+                )?;
 
                 Ok(Some(old_row))
             }
             SaveRule::AllowAny => {
                 let old_row = ctx.with_store(|store| store.get(&raw_key))?;
                 if let Some(old) = old_row.as_ref() {
-                    Self::validate_existing_row_identity(data_key, old)?;
+                    Self::validate_existing_row_identity(
+                        data_key,
+                        old,
+                        accepted_row_decode_contract,
+                    )?;
                 }
 
                 Ok(old_row)
@@ -59,18 +73,27 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     fn validate_existing_row_identity(
         data_key: &DataKey,
         row: &RawRow,
+        accepted_row_decode_contract: Option<&AcceptedRowDecodeContract>,
     ) -> Result<(), InternalError> {
-        Self::ensure_persisted_row_invariants(data_key, row).map_err(|err| {
-            match (err.class(), err.origin()) {
-                (
-                    crate::error::ErrorClass::Corruption,
-                    crate::error::ErrorOrigin::Serialize | crate::error::ErrorOrigin::Store,
-                ) => err,
-                _ => InternalError::from(ExecutorError::persisted_row_invariant_violation(
-                    data_key,
-                    &err.message,
-                )),
-            }
+        let result = if let Some(accepted_row_decode_contract) = accepted_row_decode_contract {
+            Self::ensure_persisted_row_invariants_with_accepted_contract(
+                data_key,
+                row,
+                accepted_row_decode_contract.clone(),
+            )
+        } else {
+            Self::ensure_persisted_row_invariants(data_key, row)
+        };
+
+        result.map_err(|err| match (err.class(), err.origin()) {
+            (
+                crate::error::ErrorClass::Corruption,
+                crate::error::ErrorOrigin::Serialize | crate::error::ErrorOrigin::Store,
+            ) => err,
+            _ => InternalError::from(ExecutorError::persisted_row_invariant_violation(
+                data_key,
+                &err.message,
+            )),
         })?;
 
         Ok(())

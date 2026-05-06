@@ -7,12 +7,13 @@ use crate::{
     db::{
         PersistedRow,
         data::{
-            CanonicalSlotReader, DataKey, RawRow, SlotReader, StructuralPatch, StructuralSlotReader,
+            CanonicalSlotReader, DataKey, RawRow, StructuralPatch, StructuralRowContract,
+            StructuralSlotReader,
         },
         executor::{EntityAuthority, mutation::save::SaveExecutor},
         predicate::canonical_cmp,
         relation::validate_save_strong_relations,
-        schema::{SchemaInfo, literal_matches_type},
+        schema::{AcceptedRowDecodeContract, SchemaInfo, literal_matches_type},
     },
     error::InternalError,
     model::field::{FieldKind, normalize_decimal_scale_for_storage},
@@ -58,6 +59,27 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let schema = authority.schema_info();
         let row_layout = authority.row_layout();
         let row_fields = row_layout.open_raw_row_with_contract(row)?;
+        row_fields.validate_storage_key(data_key)?;
+
+        Self::validate_structural_row_invariants(&row_fields, schema)
+    }
+
+    // Validate one persisted row through an accepted row-decode contract before
+    // structural updates use it as a baseline. This keeps old short rows inside
+    // the accepted-schema path while preserving the same storage-key and field
+    // invariant checks as generated-only rows.
+    pub(in crate::db::executor::mutation) fn ensure_persisted_row_invariants_with_accepted_contract(
+        data_key: &DataKey,
+        row: &RawRow,
+        accepted_row_decode_contract: AcceptedRowDecodeContract,
+    ) -> Result<(), InternalError> {
+        let authority = EntityAuthority::for_type::<E>();
+        let schema = authority.schema_info();
+        let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
+            authority.model(),
+            accepted_row_decode_contract,
+        );
+        let row_fields = StructuralSlotReader::from_raw_row_with_validated_contract(row, contract)?;
         row_fields.validate_storage_key(data_key)?;
 
         Self::validate_structural_row_invariants(&row_fields, schema)
@@ -227,17 +249,9 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             let field_name = field.name();
             let field_kind = field.kind();
 
-            if !row_fields.has(field_index) {
-                return Err(InternalError::mutation_entity_field_missing(
-                    E::PATH,
-                    field_name,
-                    field_is_indexed::<E>(field_name),
-                ));
-            }
+            let value = row_fields.required_cached_value(field_index)?;
 
-            let value = row_fields.required_value_by_contract_cow(field_index)?;
-
-            if matches!(value.as_ref(), Value::Null | Value::Unit) {
+            if matches!(value, Value::Null | Value::Unit) {
                 // Null = absent, Unit = singleton sentinel; both skip type checks.
                 continue;
             }
@@ -252,22 +266,20 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 continue;
             };
 
-            if !literal_matches_type(value.as_ref(), field_type)
-                && !field_kind.accepts_value(value.as_ref())
-            {
+            if !literal_matches_type(value, field_type) && !field_kind.accepts_value(value) {
                 return Err(InternalError::mutation_entity_field_type_mismatch(
                     E::PATH,
                     field_name,
-                    value.as_ref(),
+                    value,
                 ));
             }
 
             // Phase 1: enforce schema-declared scalar bounds at write boundaries.
-            Self::validate_decimal_scale_exact(field_name, &field_kind, value.as_ref())?;
-            Self::validate_text_max_len(field_name, &field_kind, value.as_ref())?;
+            Self::validate_decimal_scale_exact(field_name, &field_kind, value)?;
+            Self::validate_text_max_len(field_name, &field_kind, value)?;
 
             // Phase 2: enforce deterministic collection/map encodings at runtime.
-            Self::validate_deterministic_field_value(field_name, &field_kind, value.as_ref())?;
+            Self::validate_deterministic_field_value(field_name, &field_kind, value)?;
         }
 
         Ok(())

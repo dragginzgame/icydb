@@ -190,7 +190,14 @@ impl<C: CanisterKind> DbSession<C> {
         validate_structural_patch_schema_policy::<E>(&descriptor, &patch, mode)?;
 
         self.execute_save_with_checked_accepted_schema(
-            |save| save.apply_structural_mutation(mode, key, patch),
+            |save| {
+                save.apply_structural_mutation(
+                    mode,
+                    key,
+                    patch,
+                    Some(descriptor.row_decode_contract()),
+                )
+            },
             std::convert::identity,
         )
     }

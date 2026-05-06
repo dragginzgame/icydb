@@ -85,6 +85,7 @@ pub(in crate::db::executor) struct PreparedGroupedRuntimeParts {
 ///
 
 pub(in crate::db::executor) struct PreparedAccessPlanParts {
+    pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) plan: Arc<AccessPlannedQuery>,
     pub(in crate::db::executor) index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
     pub(in crate::db::executor) index_range_specs: Arc<[LoweredIndexRangeSpec]>,

@@ -54,6 +54,7 @@ impl SharedPreparedExecutionPlan {
         );
 
         PreparedExecutionPlan {
+            authority: self.authority.clone(),
             core: self.core.clone(),
             marker: PhantomData,
         }
