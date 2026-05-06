@@ -73,8 +73,16 @@ fn prepared_row_write_payloads_stay_canonical() {
         "typed save after-image construction must stay CanonicalRow-backed",
     );
     assert!(
-        structural_save.contains("fn build_structural_after_image_row(\n        mode: MutationMode,\n        mutation: &MutationInput,\n        old_row: Option<&RawRow>,\n    ) -> Result<CanonicalRow, InternalError>"),
-        "structural save after-image builder must return CanonicalRow",
+        structural_save.contains("fn build_structural_update_after_image_row(")
+            && structural_save
+                .contains("accepted_row_decode_contract: Option<AcceptedRowDecodeContract>,",)
+            && structural_save.contains(") -> Result<CanonicalRow, InternalError>"),
+        "structural update after-image builder must stay accepted-contract aware and return CanonicalRow",
+    );
+    assert!(
+        structural_save.contains("fn build_normalized_structural_after_image_row(")
+            && structural_save.contains(") -> Result<CanonicalRow, InternalError>"),
+        "normalized structural save after-image builder must return CanonicalRow",
     );
 }
 
