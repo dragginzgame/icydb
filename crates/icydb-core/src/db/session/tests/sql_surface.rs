@@ -1034,38 +1034,6 @@ fn fluent_top_k_reads_old_rows_after_nullable_additive_schema_transition() {
 }
 
 #[test]
-fn fluent_value_projection_reads_appended_nullable_field_after_schema_transition() {
-    reset_session_sql_store();
-    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-    install_nullable_sql_old_accepted_schema_prefix();
-    let session = sql_session();
-    let id = Ulid::from_u128(1489);
-    insert_old_nullable_sql_row_for_test(id, "Ada");
-
-    let values = session
-        .load::<SessionNullableSqlEntity>()
-        .values_by("nickname")
-        .expect("fluent values_by should read appended nullable field from old row");
-    let values_with_ids = session
-        .load::<SessionNullableSqlEntity>()
-        .values_by_with_ids("nickname")
-        .expect("fluent values_by_with_ids should read appended nullable field from old row");
-    let first_value = session
-        .load::<SessionNullableSqlEntity>()
-        .first_value_by("nickname")
-        .expect("fluent first_value_by should read appended nullable field from old row");
-
-    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
-
-    assert_eq!(values, vec![output(Value::Null)]);
-    assert_eq!(
-        values_with_ids,
-        vec![(Id::from_key(id), output(Value::Null))]
-    );
-    assert_eq!(first_value, Some(output(Value::Null)));
-}
-
-#[test]
 fn fluent_delete_returns_old_rows_after_nullable_additive_schema_transition() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);

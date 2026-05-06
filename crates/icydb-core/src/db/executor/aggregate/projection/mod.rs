@@ -22,7 +22,7 @@ use crate::{
                 ScalarProjectionWindow,
                 field::{
                     AggregateFieldValueError, FieldSlot,
-                    extract_projected_field_value_from_decoded_slot,
+                    extract_orderable_field_value_from_decoded_slot,
                     resolve_any_aggregate_target_slot_from_planner_slot,
                 },
                 materialized_distinct::insert_materialized_distinct_value,
@@ -521,7 +521,7 @@ where
                     field_slot.index,
                 )?;
 
-                let value = extract_projected_field_value_from_decoded_slot(
+                let value = extract_orderable_field_value_from_decoded_slot(
                     target_field,
                     field_slot,
                     value,
@@ -552,7 +552,7 @@ where
                     field_slot.index,
                 )?;
 
-                let value = extract_projected_field_value_from_decoded_slot(
+                let value = extract_orderable_field_value_from_decoded_slot(
                     target_field,
                     field_slot,
                     value,
@@ -587,7 +587,7 @@ where
                 field_slot.index,
             )?;
             let value =
-                extract_projected_field_value_from_decoded_slot(target_field, field_slot, value)
+                extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
                     .map_err(AggregateFieldValueError::into_internal_error)?;
 
             if !insert_materialized_distinct_value(&mut distinct_values, &value)? {
@@ -621,7 +621,7 @@ where
                 field_slot.index,
             )?;
             let value =
-                extract_projected_field_value_from_decoded_slot(target_field, field_slot, value)
+                extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
                     .map_err(AggregateFieldValueError::into_internal_error)?;
 
             if !insert_materialized_distinct_value(&mut distinct_values, &value)? {

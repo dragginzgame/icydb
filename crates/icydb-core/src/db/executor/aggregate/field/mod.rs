@@ -330,28 +330,6 @@ pub(in crate::db::executor) fn extract_orderable_field_value_from_decoded_slot(
     })
 }
 
-/// Extract one projected field value from an already-decoded retained slot.
-pub(in crate::db::executor) fn extract_projected_field_value_from_decoded_slot(
-    target_field: &str,
-    field_slot: FieldSlot,
-    decoded_value: Option<Value>,
-) -> Result<Value, AggregateFieldValueError> {
-    let Some(value) = decoded_value else {
-        return Err(AggregateFieldValueError::MissingFieldValue {
-            field: target_field.to_string(),
-        });
-    };
-    if matches!(value, Value::Null) || field_slot.kind.accepts_value(&value) {
-        return Ok(value);
-    }
-
-    Err(AggregateFieldValueError::FieldValueTypeMismatch {
-        field: target_field.to_string(),
-        kind: field_slot.kind,
-        value: Box::new(value),
-    })
-}
-
 /// Extract one numeric field value as `Decimal` from a slot reader for aggregate arithmetic.
 #[cfg(test)]
 pub(in crate::db::executor) fn extract_numeric_field_decimal_with_slot_reader(
