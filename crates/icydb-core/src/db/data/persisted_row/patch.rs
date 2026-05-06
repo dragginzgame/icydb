@@ -15,7 +15,7 @@ use crate::db::data::persisted_row::{
     contract::{
         canonical_row_from_payload_source, canonical_row_from_runtime_value_source_with_slot_count,
         decode_runtime_value_from_field_contract, decode_runtime_value_from_row_contract,
-        encode_runtime_value_for_field_model,
+        encode_runtime_value_for_accepted_field_contract, encode_runtime_value_for_field_model,
     },
     reader::StructuralSlotReader,
     types::{
@@ -349,19 +349,17 @@ fn serialize_structural_patch_fields_for_contract(
     // canonical slot codec owner.
     for entry in patch.entries() {
         let slot = entry.slot();
-        if contract.has_accepted_decode_contract()
-            && contract
-                .accepted_field_decode_contract(slot.index())
-                .is_none()
-        {
+        let payload = if let Some(field) = contract.accepted_field_decode_contract(slot.index()) {
+            encode_runtime_value_for_accepted_field_contract(field, entry.value())?
+        } else if contract.has_accepted_decode_contract() {
             return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
                 contract.entity_path(),
                 slot.index(),
             ));
-        }
-
-        let field = contract.generated_compatible_field_model(slot.index())?;
-        let payload = encode_runtime_value_for_field_model(field, entry.value())?;
+        } else {
+            let field = contract.generated_compatible_field_model(slot.index())?;
+            encode_runtime_value_for_field_model(field, entry.value())?
+        };
         entries.push(SerializedStructuralFieldUpdate::new(slot, payload));
     }
 

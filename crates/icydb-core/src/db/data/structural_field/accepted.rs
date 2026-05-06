@@ -11,14 +11,17 @@ use crate::{
         data::structural_field::{
             FieldDecodeError,
             binary::{
-                TAG_LIST, TAG_MAP, parse_binary_head, skip_binary_value,
+                TAG_LIST, TAG_MAP, parse_binary_head, push_binary_list_len, push_binary_map_len,
+                push_binary_variant_payload, push_binary_variant_unit, skip_binary_value,
                 split_binary_variant_payload,
             },
             decode_structural_field_by_kind_bytes, decode_structural_value_storage_bytes,
+            encode_structural_field_by_kind_bytes, encode_structural_value_storage_bytes,
             validate_structural_field_by_kind_bytes, validate_structural_value_storage_bytes,
         },
         schema::{PersistedEnumVariant, PersistedFieldKind},
     },
+    error::InternalError,
     model::field::{FieldKind, FieldStorageDecode},
     value::{Value, ValueEnum},
 };
@@ -71,6 +74,25 @@ pub(in crate::db) fn decode_structural_field_by_accepted_kind_bytes(
         | PersistedFieldKind::Ulid
         | PersistedFieldKind::Unit => unreachable!("simple accepted kinds are decoded above"),
     }
+}
+
+// Encode one accepted-schema by-kind field payload. Simple non-recursive kinds
+// reuse the generated-compatible structural encoder after the accepted
+// `PersistedFieldKind` has selected the kind. Recursive shapes stay on
+// accepted metadata throughout traversal.
+pub(in crate::db) fn encode_structural_field_by_accepted_kind_bytes(
+    kind: &PersistedFieldKind,
+    value: &Value,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    if let Some(runtime_kind) = generated_compatible_simple_kind_from_accepted_kind(kind) {
+        return encode_structural_field_by_kind_bytes(runtime_kind, value, field_name);
+    }
+
+    let mut encoded = Vec::new();
+    encode_accepted_binary_field_into(&mut encoded, kind, value, field_name)?;
+
+    Ok(encoded)
 }
 
 // Validate one accepted-schema by-kind field payload. This mirrors the decode
@@ -185,6 +207,56 @@ const fn generated_compatible_simple_kind_from_accepted_kind(
     }
 }
 
+// Encode one accepted recursive field into Structural Binary v1 bytes.
+fn encode_accepted_binary_field_into(
+    out: &mut Vec<u8>,
+    kind: &PersistedFieldKind,
+    value: &Value,
+    field_name: &str,
+) -> Result<(), InternalError> {
+    if let Some(runtime_kind) = generated_compatible_simple_kind_from_accepted_kind(kind) {
+        let bytes = encode_structural_field_by_kind_bytes(runtime_kind, value, field_name)?;
+        out.extend_from_slice(bytes.as_slice());
+        return Ok(());
+    }
+
+    match kind {
+        PersistedFieldKind::Enum { path, variants } => {
+            encode_accepted_enum_bytes(out, path, variants.as_slice(), value, field_name)
+        }
+        PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner) => {
+            encode_accepted_list_bytes(out, inner.as_ref(), value, field_name)
+        }
+        PersistedFieldKind::Map { key, value: item } => {
+            encode_accepted_map_bytes(out, key.as_ref(), item.as_ref(), value, field_name)
+        }
+        PersistedFieldKind::Relation { key_kind, .. } => {
+            encode_accepted_binary_field_into(out, key_kind.as_ref(), value, field_name)
+        }
+        PersistedFieldKind::Account
+        | PersistedFieldKind::Blob { .. }
+        | PersistedFieldKind::Bool
+        | PersistedFieldKind::Date
+        | PersistedFieldKind::Decimal { .. }
+        | PersistedFieldKind::Duration
+        | PersistedFieldKind::Float32
+        | PersistedFieldKind::Float64
+        | PersistedFieldKind::Int
+        | PersistedFieldKind::Int128
+        | PersistedFieldKind::IntBig
+        | PersistedFieldKind::Principal
+        | PersistedFieldKind::Structured { .. }
+        | PersistedFieldKind::Subaccount
+        | PersistedFieldKind::Text { .. }
+        | PersistedFieldKind::Timestamp
+        | PersistedFieldKind::Uint
+        | PersistedFieldKind::Uint128
+        | PersistedFieldKind::UintBig
+        | PersistedFieldKind::Ulid
+        | PersistedFieldKind::Unit => unreachable!("simple accepted kinds are encoded above"),
+    }
+}
+
 // Decode one accepted list or set by recursively decoding each item slice.
 fn decode_accepted_list_bytes(
     raw_bytes: &[u8],
@@ -204,6 +276,42 @@ fn decode_accepted_list_bytes(
     Ok(Value::List(items))
 }
 
+// Encode one accepted list or set by recursively encoding each item. Accepted
+// relation collections preserve generated-compatible relation-list behavior by
+// skipping explicit null items.
+fn encode_accepted_list_bytes(
+    out: &mut Vec<u8>,
+    inner: &PersistedFieldKind,
+    value: &Value,
+    field_name: &str,
+) -> Result<(), InternalError> {
+    let Value::List(items) = value else {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("accepted field kind {inner:?} list does not accept runtime value {value:?}"),
+        ));
+    };
+    let skip_null_items = matches!(inner, PersistedFieldKind::Relation { .. });
+    let encoded_len = if skip_null_items {
+        items
+            .iter()
+            .filter(|item| !matches!(item, Value::Null))
+            .count()
+    } else {
+        items.len()
+    };
+
+    push_binary_list_len(out, encoded_len);
+    for item in items {
+        if skip_null_items && matches!(item, Value::Null) {
+            continue;
+        }
+        encode_accepted_binary_field_into(out, inner, item, field_name)?;
+    }
+
+    Ok(())
+}
+
 // Validate one accepted list or set by recursively validating each item slice.
 fn validate_accepted_list_bytes(
     raw_bytes: &[u8],
@@ -212,6 +320,30 @@ fn validate_accepted_list_bytes(
     walk_accepted_list_items(raw_bytes, |item_bytes| {
         validate_structural_field_by_accepted_kind_bytes(item_bytes, inner)
     })
+}
+
+// Encode one accepted map by recursively encoding each key/value pair.
+fn encode_accepted_map_bytes(
+    out: &mut Vec<u8>,
+    key_kind: &PersistedFieldKind,
+    value_kind: &PersistedFieldKind,
+    value: &Value,
+    field_name: &str,
+) -> Result<(), InternalError> {
+    let Value::Map(entries) = value else {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("accepted map field does not accept runtime value {value:?}"),
+        ));
+    };
+
+    push_binary_map_len(out, entries.len());
+    for (entry_key, entry_value) in entries {
+        encode_accepted_binary_field_into(out, key_kind, entry_key, field_name)?;
+        encode_accepted_binary_field_into(out, value_kind, entry_value, field_name)?;
+    }
+
+    Ok(())
 }
 
 // Decode one accepted map by recursively decoding each key/value slice pair.
@@ -244,6 +376,64 @@ fn validate_accepted_map_bytes(
         validate_structural_field_by_accepted_kind_bytes(key_bytes, key_kind)?;
         validate_structural_field_by_accepted_kind_bytes(value_bytes, value_kind)
     })
+}
+
+// Encode one accepted enum payload using persisted variant metadata rather
+// than generated static enum descriptors.
+fn encode_accepted_enum_bytes(
+    out: &mut Vec<u8>,
+    path: &str,
+    variants: &[PersistedEnumVariant],
+    value: &Value,
+    field_name: &str,
+) -> Result<(), InternalError> {
+    let Value::Enum(value) = value else {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("enum field '{path}' does not accept runtime value {value:?}"),
+        ));
+    };
+
+    if let Some(actual_path) = value.path()
+        && actual_path != path
+    {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("enum path mismatch: expected '{path}', found '{actual_path}'"),
+        ));
+    }
+
+    let Some(payload) = value.payload() else {
+        push_binary_variant_unit(out, value.variant());
+        return Ok(());
+    };
+    let Some(variant_model) = variants.iter().find(|item| item.ident() == value.variant()) else {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!(
+                "unknown enum variant '{}' for path '{path}'",
+                value.variant()
+            ),
+        ));
+    };
+    let Some(payload_kind) = variant_model.payload_kind() else {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!(
+                "enum variant '{}' does not accept a payload",
+                value.variant()
+            ),
+        ));
+    };
+    let payload_bytes = match variant_model.payload_storage_decode() {
+        FieldStorageDecode::ByKind => {
+            encode_structural_field_by_accepted_kind_bytes(payload_kind, payload, field_name)?
+        }
+        FieldStorageDecode::Value => encode_structural_value_storage_bytes(payload)?,
+    };
+    push_binary_variant_payload(out, value.variant(), payload_bytes.as_slice());
+
+    Ok(())
 }
 
 // Decode one accepted enum payload using persisted variant metadata rather

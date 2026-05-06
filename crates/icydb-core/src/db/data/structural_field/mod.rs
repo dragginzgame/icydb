@@ -51,6 +51,7 @@ use scalar::{
 
 pub(in crate::db) use accepted::{
     accepted_kind_supports_storage_key_binary, decode_structural_field_by_accepted_kind_bytes,
+    encode_structural_field_by_accepted_kind_bytes,
     validate_structural_field_by_accepted_kind_bytes,
 };
 pub(in crate::db) use encode::encode_structural_field_by_kind_bytes;

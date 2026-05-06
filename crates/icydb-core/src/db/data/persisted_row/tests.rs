@@ -2207,6 +2207,34 @@ fn serialize_structural_patch_fields_with_accepted_contract_rejects_unaccepted_s
 }
 
 #[test]
+fn serialize_structural_patch_fields_with_accepted_contract_normalizes_decimal_scale() {
+    let accepted_decode_contract = accepted_row_decode_contract_for_model(&OPTIONAL_DECIMAL_MODEL);
+    let patch = StructuralPatch::new().set(
+        FieldSlot::from_index(&OPTIONAL_DECIMAL_MODEL, 0).expect("resolve decimal slot"),
+        Value::Decimal(Decimal::from_i128_with_scale(140, 0)),
+    );
+
+    let serialized = serialize_structural_patch_fields_with_accepted_contract(
+        &OPTIONAL_DECIMAL_MODEL,
+        accepted_decode_contract,
+        &patch,
+    )
+    .expect("accepted decimal patch should serialize");
+    let decoded = decode_slot_into_runtime_value(
+        &OPTIONAL_DECIMAL_MODEL,
+        serialized.entries()[0].slot().index(),
+        serialized.entries()[0].payload(),
+    )
+    .expect("accepted decimal patch payload should decode");
+    let Value::Decimal(decimal) = decoded else {
+        panic!("accepted decimal patch payload should decode as Decimal");
+    };
+
+    assert_eq!(decimal, Decimal::from_i128_with_scale(140_000, 3));
+    assert_eq!(decimal.scale(), 3);
+}
+
+#[test]
 fn serialized_patch_writer_rejects_clear_slots() {
     let mut writer = CompleteSerializedPatchWriter::for_model(&TEST_MODEL);
 

@@ -1,13 +1,15 @@
 use super::{
     decode_relation_target_storage_keys_bytes, decode_structural_field_by_kind_bytes,
     decode_structural_value_storage_bytes, encode_storage_key_binary_value_bytes,
-    encode_structural_field_by_kind_bytes, encode_structural_value_storage_bytes,
-    validate_structural_field_by_kind_bytes, validate_structural_value_storage_bytes,
+    encode_structural_field_by_accepted_kind_bytes, encode_structural_field_by_kind_bytes,
+    encode_structural_value_storage_bytes, validate_structural_field_by_kind_bytes,
+    validate_structural_value_storage_bytes,
 };
 use crate::{
     db::data::structural_field::binary::{
         push_binary_bytes, push_binary_list_len, push_binary_text, push_binary_uint64,
     },
+    db::schema::PersistedFieldKind,
     model::field::{FieldKind, RelationStrength},
     types::{
         Account, Decimal, EntityTag, Float32, Float64, Int128, Nat128, Principal, Subaccount, Ulid,
@@ -69,6 +71,74 @@ fn relation_target_storage_key_decode_handles_list_and_skips_null_items() {
         decoded,
         vec![StorageKey::Ulid(left), StorageKey::Ulid(right)],
     );
+}
+
+#[test]
+fn accepted_structural_field_encode_matches_generated_simple_kind() {
+    let value = Value::Text("Ada".to_string());
+    let accepted_kind = PersistedFieldKind::Text { max_len: None };
+    let generated_kind = FieldKind::Text { max_len: None };
+
+    let accepted = encode_structural_field_by_accepted_kind_bytes(&accepted_kind, &value, "name")
+        .expect("accepted text bytes should encode");
+    let generated = encode_structural_field_by_kind_bytes(generated_kind, &value, "name")
+        .expect("generated-compatible text bytes should encode");
+
+    assert_eq!(accepted, generated);
+}
+
+#[test]
+fn accepted_structural_field_encode_matches_generated_recursive_kinds() {
+    let list_value = Value::List(vec![
+        Value::Text("left".to_string()),
+        Value::Text("right".to_string()),
+    ]);
+    let map_value = Value::Map(vec![
+        (Value::Text("alpha".to_string()), Value::Uint(1)),
+        (Value::Text("beta".to_string()), Value::Uint(2)),
+    ]);
+    let accepted_list_kind =
+        PersistedFieldKind::List(Box::new(PersistedFieldKind::Text { max_len: None }));
+    let accepted_map_kind = PersistedFieldKind::Map {
+        key: Box::new(PersistedFieldKind::Text { max_len: None }),
+        value: Box::new(PersistedFieldKind::Uint),
+    };
+    let generated_list_kind = FieldKind::List(&FieldKind::Text { max_len: None });
+    let generated_map_kind = FieldKind::Map {
+        key: &FieldKind::Text { max_len: None },
+        value: &FieldKind::Uint,
+    };
+
+    let accepted_list =
+        encode_structural_field_by_accepted_kind_bytes(&accepted_list_kind, &list_value, "items")
+            .expect("accepted list bytes should encode");
+    let generated_list =
+        encode_structural_field_by_kind_bytes(generated_list_kind, &list_value, "items")
+            .expect("generated-compatible list bytes should encode");
+    let accepted_map =
+        encode_structural_field_by_accepted_kind_bytes(&accepted_map_kind, &map_value, "entries")
+            .expect("accepted map bytes should encode");
+    let generated_map =
+        encode_structural_field_by_kind_bytes(generated_map_kind, &map_value, "entries")
+            .expect("generated-compatible map bytes should encode");
+
+    assert_eq!(accepted_list, generated_list);
+    assert_eq!(accepted_map, generated_map);
+}
+
+#[test]
+fn accepted_structural_field_encode_matches_generated_relation_list_null_skip() {
+    let left = Ulid::from_u128(10);
+    let right = Ulid::from_u128(11);
+    let value = Value::List(vec![Value::Ulid(left), Value::Null, Value::Ulid(right)]);
+    let accepted_kind = PersistedFieldKind::from_model_kind(STRONG_RELATION_LIST_KIND);
+
+    let accepted = encode_structural_field_by_accepted_kind_bytes(&accepted_kind, &value, "ids")
+        .expect("accepted relation list bytes should encode");
+    let generated = encode_structural_field_by_kind_bytes(STRONG_RELATION_LIST_KIND, &value, "ids")
+        .expect("generated-compatible relation list bytes should encode");
+
+    assert_eq!(accepted, generated);
 }
 
 #[test]

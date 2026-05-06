@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.149.x] 🧬 - 2026-05-06 - Schema Defaults And Accepted Write Encoding
+
+- `0.149.0` starts moving structural writes onto accepted schema field contracts, so runtime values are encoded through saved database field metadata instead of generated field bridges.
+
+See detailed breakdown:
+[docs/changelog/0.149.md](docs/changelog/0.149.md)
+
+---
+
 ## [0.148.x] 🧬 - 2026-05-06 - Schema Evolution Runtime Cutover
 
 - `0.148.13` makes accepted-schema row rebuilds and structural patch writes use the accepted row contract’s slot shape, so older rows are re-emitted in the current layout without generated slot-count decisions.

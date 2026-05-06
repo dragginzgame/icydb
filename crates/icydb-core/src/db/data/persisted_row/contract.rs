@@ -17,23 +17,24 @@ use crate::{
             accepted_kind_supports_storage_key_binary, decode_storage_key_binary_value_bytes,
             decode_structural_field_by_accepted_kind_bytes, decode_structural_field_by_kind_bytes,
             decode_structural_value_storage_bytes, encode_storage_key_binary_value_bytes,
-            encode_structural_field_by_kind_bytes, encode_structural_value_storage_bytes,
-            encode_structural_value_storage_null_bytes, supports_storage_key_binary_kind,
-            validate_storage_key_binary_value_bytes,
+            encode_structural_field_by_accepted_kind_bytes, encode_structural_field_by_kind_bytes,
+            encode_structural_value_storage_bytes, encode_structural_value_storage_null_bytes,
+            supports_storage_key_binary_kind, validate_storage_key_binary_value_bytes,
             validate_structural_field_by_accepted_kind_bytes,
             validate_structural_field_by_kind_bytes, validate_structural_value_storage_bytes,
             value_storage_bytes_are_null,
         },
-        schema::AcceptedFieldDecodeContract,
+        schema::{AcceptedFieldDecodeContract, PersistedFieldKind},
     },
     error::InternalError,
     model::{
         entity::EntityModel,
         field::{FieldModel, FieldStorageDecode, LeafCodec, ScalarCodec},
     },
+    types::Decimal,
     value::Value,
 };
-use std::borrow::Cow;
+use std::{borrow::Cow, cmp::Ordering};
 
 use crate::db::data::persisted_row::{
     codec::{
@@ -221,6 +222,52 @@ pub(in crate::db::data::persisted_row) fn encode_runtime_value_for_field_model(
     }
 }
 
+/// Encode one runtime boundary `Value` through an accepted field contract.
+///
+/// This is the accepted-schema counterpart to
+/// `encode_runtime_value_for_field_model(...)`. `Value` remains a runtime
+/// boundary object; this helper only selects the persisted field-codec lane
+/// from accepted schema metadata before emitting slot bytes.
+pub(in crate::db) fn encode_runtime_value_for_accepted_field_contract(
+    field: AcceptedFieldDecodeContract<'_>,
+    value: &Value,
+) -> Result<Vec<u8>, InternalError> {
+    let value = normalize_decimal_scale_for_accepted_storage(field.kind(), value)
+        .map_err(|err| InternalError::persisted_row_field_encode_failed(field.field_name(), err))?;
+    let value = value.as_ref();
+
+    if matches!(value, Value::Null) {
+        return encode_null_slot_value_for_accepted_field(field);
+    }
+
+    match field.storage_decode() {
+        FieldStorageDecode::Value => encode_structural_value_storage_bytes(value).map_err(|err| {
+            InternalError::persisted_row_field_encode_failed(field.field_name(), err)
+        }),
+        FieldStorageDecode::ByKind => match field.leaf_codec() {
+            LeafCodec::Scalar(codec) => {
+                let scalar =
+                    scalar_slot_value_ref_from_runtime_value(value, codec).ok_or_else(|| {
+                        InternalError::persisted_row_field_encode_failed(
+                            field.field_name(),
+                            format!(
+                                "accepted field kind {:?} requires a scalar runtime value, found {value:?}",
+                                field.kind()
+                            ),
+                        )
+                    })?;
+
+                Ok(encode_scalar_slot_value(scalar))
+            }
+            LeafCodec::StructuralFallback => encode_structural_field_by_accepted_kind_bytes(
+                field.kind(),
+                value,
+                field.field_name(),
+            ),
+        },
+    }
+}
+
 // Encode an explicit nullable `NULL` through the same slot lane the field uses
 // for non-null values. Storage-key-compatible fields keep their dedicated lane
 // because relation nulls already have storage-key-specific shape.
@@ -239,6 +286,31 @@ fn encode_null_slot_value_for_field(field: &FieldModel) -> Result<Vec<u8>, Inter
                     })
             }
             LeafCodec::StructuralFallback => Ok(encode_structural_value_storage_null_bytes()),
+        },
+    }
+}
+
+// Encode an explicit nullable `NULL` through the accepted field's storage
+// lane. Required fields fail before slot bytes are emitted.
+fn encode_null_slot_value_for_accepted_field(
+    field: AcceptedFieldDecodeContract<'_>,
+) -> Result<Vec<u8>, InternalError> {
+    if !field.nullable() {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field.field_name(),
+            "required field cannot store null",
+        ));
+    }
+
+    match field.storage_decode() {
+        FieldStorageDecode::Value => Ok(encode_structural_value_storage_null_bytes()),
+        FieldStorageDecode::ByKind => match field.leaf_codec() {
+            LeafCodec::Scalar(_) => Ok(encode_scalar_slot_value(ScalarSlotValueRef::Null)),
+            LeafCodec::StructuralFallback => encode_structural_field_by_accepted_kind_bytes(
+                field.kind(),
+                &Value::Null,
+                field.field_name(),
+            ),
         },
     }
 }
@@ -269,6 +341,116 @@ const fn scalar_slot_value_ref_from_runtime_value(
     };
 
     Some(ScalarSlotValueRef::Value(scalar))
+}
+
+// Normalize decimal values to accepted persisted storage scale before encoding.
+// This mirrors the generated field-model bridge while keeping the accepted
+// `PersistedFieldKind` as the storage contract owner.
+fn normalize_decimal_scale_for_accepted_storage<'a>(
+    kind: &PersistedFieldKind,
+    value: &'a Value,
+) -> Result<Cow<'a, Value>, String> {
+    if matches!(value, Value::Null) {
+        return Ok(Cow::Borrowed(value));
+    }
+
+    match (kind, value) {
+        (PersistedFieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
+            let normalized =
+                decimal_with_accepted_storage_scale(*decimal, *scale).ok_or_else(|| {
+                    format!(
+                        "decimal scale mismatch: expected {scale}, found {}",
+                        decimal.scale()
+                    )
+                })?;
+
+            if normalized.scale() == decimal.scale() {
+                Ok(Cow::Borrowed(value))
+            } else {
+                Ok(Cow::Owned(Value::Decimal(normalized)))
+            }
+        }
+        (PersistedFieldKind::Relation { key_kind, .. }, value) => {
+            normalize_decimal_scale_for_accepted_storage(key_kind, value)
+        }
+        (PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner), Value::List(items)) => {
+            normalize_accepted_decimal_list_items(inner, items.as_slice()).map(|items| {
+                items.map_or_else(
+                    || Cow::Borrowed(value),
+                    |items| Cow::Owned(Value::List(items)),
+                )
+            })
+        }
+        (
+            PersistedFieldKind::Map {
+                key,
+                value: map_value,
+            },
+            Value::Map(entries),
+        ) => normalize_accepted_decimal_map_entries(key, map_value, entries.as_slice()).map(
+            |entries| {
+                entries.map_or_else(
+                    || Cow::Borrowed(value),
+                    |items| Cow::Owned(Value::Map(items)),
+                )
+            },
+        ),
+        _ => Ok(Cow::Borrowed(value)),
+    }
+}
+
+// Convert one accepted decimal into exact persisted storage scale.
+fn decimal_with_accepted_storage_scale(decimal: Decimal, scale: u32) -> Option<Decimal> {
+    match decimal.scale().cmp(&scale) {
+        Ordering::Equal => Some(decimal),
+        Ordering::Less => decimal
+            .scale_to_integer(scale)
+            .map(|mantissa| Decimal::from_i128_with_scale(mantissa, scale)),
+        Ordering::Greater => Some(decimal.round_dp(scale)),
+    }
+}
+
+// Normalize decimal values inside accepted list/set fields while preserving
+// borrowed output when no element changes.
+fn normalize_accepted_decimal_list_items(
+    kind: &PersistedFieldKind,
+    items: &[Value],
+) -> Result<Option<Vec<Value>>, String> {
+    let mut normalized = None;
+    for (index, item) in items.iter().enumerate() {
+        let value = normalize_decimal_scale_for_accepted_storage(kind, item)?;
+        if let Cow::Owned(value) = value {
+            let values = normalized.get_or_insert_with(|| items.to_vec());
+            values[index] = value;
+        }
+    }
+
+    Ok(normalized)
+}
+
+// Normalize decimal values inside accepted map fields while preserving
+// borrowed output when no key or value changes.
+fn normalize_accepted_decimal_map_entries(
+    key_kind: &PersistedFieldKind,
+    value_kind: &PersistedFieldKind,
+    entries: &[(Value, Value)],
+) -> Result<Option<Vec<(Value, Value)>>, String> {
+    let mut normalized = None;
+    for (index, (entry_key, entry_value)) in entries.iter().enumerate() {
+        let key = normalize_decimal_scale_for_accepted_storage(key_kind, entry_key)?;
+        let value = normalize_decimal_scale_for_accepted_storage(value_kind, entry_value)?;
+        if matches!(key, Cow::Owned(_)) || matches!(value, Cow::Owned(_)) {
+            let values = normalized.get_or_insert_with(|| entries.to_vec());
+            if let Cow::Owned(key) = key {
+                values[index].0 = key;
+            }
+            if let Cow::Owned(value) = value {
+                values[index].1 = value;
+            }
+        }
+    }
+
+    Ok(normalized)
 }
 
 // Decode one slot payload and immediately re-encode it through the current
