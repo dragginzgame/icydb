@@ -85,8 +85,8 @@ impl StructuralRowContract {
     ///
     /// This remains a transitional adapter for the public `SlotReader`
     /// materialization trait and write-side generated codecs. Runtime decode
-    /// code should prefer `field_decode_contract` whenever it only needs
-    /// field decode facts.
+    /// code should prefer accepted-first row contract helpers whenever it only
+    /// needs field names, leaf codecs, or missing-slot policy.
     pub(in crate::db) fn generated_compatible_field_model(
         &self,
         slot: usize,
