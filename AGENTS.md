@@ -313,16 +313,18 @@ Commenting quality is a merge gate: code that is correct but under-documented is
   * Line 1: `///`
   * Line 2: `/// <TypeName>`
   * Line 3: `///`
-  * Line 4+: one or more descriptive `///` lines
+  * Line 4+: one or more natural-language descriptive `///` lines
   * Final line: `///`
   * Then one blank source line before the type definition
-* For every `struct`, `enum`, or `trait`, the `<TypeName>` line MUST exactly repeat the declared type name.
+* For every `struct`, `enum`, or `trait`, only the `<TypeName>` line MUST exactly repeat the declared type name.
+* Descriptive lines below the `<TypeName>` line SHOULD NOT mechanically start by repeating the type name. Write them naturally, focusing on what the type owns, why it exists, and how the owning module uses it.
 * After the doc comment block for a `struct`, `enum`, or `trait`, there MUST be a blank line before the type definition.
 * The multi-line doc-block shape above does not apply to `CandidType` wire surfaces; use concise `//` comments there instead.
 * Every non-trivial private function or type MUST have at least a brief explanatory comment.
 * For private `struct`, `enum`, and `trait` helper types, the descriptive lines MUST explain both why the type exists and how it is used by the owning module, not just restate field or variant names.
 * This “why it exists / how it is used” requirement applies across the entire codebase and is especially mandatory for normalization, planning, persistence, cache-key, indexing, and validation helper types.
 * “Trivial type” exemptions apply only to items outside the `struct`/`enum`/`trait` set, such as straightforward type aliases or similarly lightweight declarations.
+* Inside structs and enums, put one blank line between fields or variants when any adjacent field/variant has doc comments, normal comments, or attributes above it. This is mandatory for clap-style argument structs and other dense attributed shapes; it keeps each documented/attributed field visually separate.
 * For any function/struct/enum/trait/type with lint/control attributes (`#[expect]`, `#[allow]`, `#[cfg_attr]`, etc.), comments/doc comments for that item MUST come first, then attributes, then the item.
 * Inherent `impl <TypeName>` blocks SHOULD appear immediately after the type definition (after derives/attrs and doc block) and before unrelated items whenever feasible.
 * Functions with multiple logical phases MUST include inline comments separating those phases.

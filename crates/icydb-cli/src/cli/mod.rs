@@ -36,12 +36,15 @@ pub(crate) struct CliArgs {
 pub(crate) enum CliCommand {
     /// Run SQL against an IcyDB canister.
     Sql(SqlArgs),
+
     /// Manage a local dfx canister.
     #[command(subcommand)]
     Canister(CanisterCommand),
+
     /// Manage demo/test canister fixtures.
     #[command(subcommand)]
     Fixtures(FixturesCommand),
+
     /// Run combined local development workflows.
     #[command(subcommand)]
     Dev(DevCommand),

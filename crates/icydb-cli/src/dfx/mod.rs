@@ -1,11 +1,9 @@
+use crate::cli::DEFAULT_CANISTER;
+use serde_json::Value;
 use std::{
     path::PathBuf,
     process::{Command, Stdio},
 };
-
-use serde_json::Value;
-
-use crate::cli::DEFAULT_CANISTER;
 
 const DFX_JSON_PATH: &str = "dfx.json";
 
