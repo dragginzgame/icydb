@@ -115,6 +115,28 @@ impl<'a> StructuralSlotReader<'a> {
         Self::from_raw_row_with_contract(raw_row, StructuralRowContract::from_model(model))
     }
 
+    /// Borrow one accepted field decode contract when this reader was opened
+    /// over an accepted schema row layout.
+    #[must_use]
+    pub(in crate::db) fn accepted_field_decode_contract(
+        &self,
+        slot: usize,
+    ) -> Option<AcceptedFieldDecodeContract<'_>> {
+        self.contract.accepted_field_decode_contract(slot)
+    }
+
+    /// Return the declared structural field count for this reader contract.
+    #[must_use]
+    pub(in crate::db) const fn field_count(&self) -> usize {
+        self.contract.field_count()
+    }
+
+    /// Return whether this reader is governed by accepted persisted schema.
+    #[must_use]
+    pub(in crate::db) const fn has_accepted_decode_contract(&self) -> bool {
+        self.contract.has_accepted_decode_contract()
+    }
+
     /// Validate the decoded primary-key slot against the authoritative row key.
     pub(in crate::db) fn validate_storage_key(
         &self,

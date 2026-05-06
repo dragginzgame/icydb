@@ -286,7 +286,10 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             accepted_row_decode_contract,
         } = request;
 
-        Self::validate_structural_patch_write_bounds(&patch)?;
+        Self::validate_structural_patch_write_bounds(
+            &patch,
+            accepted_row_decode_contract.as_ref(),
+        )?;
 
         let mutation = MutationInput::from_structural_patch::<E>(key, &patch)?;
         let data_key = mutation.data_key().clone();

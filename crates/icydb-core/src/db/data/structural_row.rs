@@ -102,6 +102,12 @@ impl StructuralRowContract {
         self.field_count
     }
 
+    /// Return whether this contract was built from accepted persisted schema.
+    #[must_use]
+    pub(in crate::db) const fn has_accepted_decode_contract(&self) -> bool {
+        self.accepted_decode_contract.is_some()
+    }
+
     /// Return the authoritative primary-key slot.
     #[must_use]
     pub(in crate::db) const fn primary_key_slot(&self) -> usize {
