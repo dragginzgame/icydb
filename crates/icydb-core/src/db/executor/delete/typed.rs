@@ -7,7 +7,7 @@
 use crate::{
     db::{
         Db, PersistedRow,
-        data::{DataRow, decode_raw_row_for_entity_key},
+        data::DataRow,
         executor::{
             delete::{
                 apply_delete_post_access_rows, prepare_delete_commit,
@@ -17,6 +17,7 @@ use crate::{
                 },
             },
             plan_metrics::record_rows_scanned_for_path,
+            terminal::{RowLayout, decode_data_row_entity_with_layout},
         },
         registry::StoreHandle,
         response::Row,
@@ -47,9 +48,9 @@ impl<E> DeleteRow<E>
 where
     E: PersistedRow + EntityValue,
 {
-    fn from_delete_data_row(row: DataRow) -> Result<Self, InternalError> {
+    fn from_delete_data_row(row_layout: &RowLayout, row: DataRow) -> Result<Self, InternalError> {
         let (key, raw) = row;
-        let (_, entity) = decode_raw_row_for_entity_key::<E>(&key, &raw)?;
+        let (_, entity) = decode_data_row_entity_with_layout::<E>(row_layout, &key, &raw)?;
 
         Ok(Self {
             key,
@@ -103,8 +104,10 @@ where
 {
     // Phase 1: resolve structural access rows once through the shared executor
     // key-stream seam and record the real candidate count for metrics.
-    let (rows, rows_scanned) =
-        resolve_delete_candidate_rows_as(store, prepared, DeleteRow::<E>::from_delete_data_row)?;
+    let row_layout = prepared.authority.entity.row_layout();
+    let (rows, rows_scanned) = resolve_delete_candidate_rows_as(store, prepared, |row| {
+        DeleteRow::<E>::from_delete_data_row(&row_layout, row)
+    })?;
     record_rows_scanned_for_path(prepared.authority.entity.entity_path(), rows_scanned);
 
     // Phase 2: run typed delete post-access selection and package the caller's

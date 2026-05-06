@@ -28,7 +28,7 @@ use crate::{
                 },
                 orchestrator::LoadExecutionSurface,
             },
-            terminal::{KernelRow, decode_data_rows_into_cursor_page},
+            terminal::{KernelRow, RowLayout, decode_data_rows_into_cursor_page},
             validate_executor_plan_for_authority,
         },
         predicate::MissingRowPolicy,
@@ -118,6 +118,7 @@ where
         plan: PreparedLoadPlan,
         cursor: LoadCursorInput,
     ) -> Result<(CursorPage<E>, Option<crate::db::executor::ExecutionTrace>), InternalError> {
+        let row_layout = plan.authority().row_layout();
         let surface = self.execute_load_surface(
             plan,
             cursor,
@@ -126,11 +127,12 @@ where
             ),
         )?;
 
-        Self::expect_scalar_traced_surface(surface)
+        Self::expect_scalar_traced_surface(&row_layout, surface)
     }
 
     // Project one traced paged scalar load surface and classify shape mismatches.
     fn expect_scalar_traced_surface(
+        row_layout: &RowLayout,
         surface: LoadExecutionSurface,
     ) -> Result<(CursorPage<E>, Option<crate::db::executor::ExecutionTrace>), InternalError> {
         match surface {
@@ -138,7 +140,7 @@ where
                 let (data_rows, next_cursor) = page.into_parts();
 
                 Ok((
-                    decode_data_rows_into_cursor_page::<E>(data_rows, next_cursor)?,
+                    decode_data_rows_into_cursor_page::<E>(row_layout, data_rows, next_cursor)?,
                     trace,
                 ))
             }

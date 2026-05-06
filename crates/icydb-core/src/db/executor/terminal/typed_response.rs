@@ -6,8 +6,11 @@
 use crate::{
     db::{
         PersistedRow,
-        data::{DataRow, decode_raw_row_for_entity_key},
-        executor::{CursorPage, PageCursor},
+        data::{
+            DataKey, DataRow, RawRow, canonical_row_from_structural_slot_reader,
+            decode_raw_row_for_entity_key,
+        },
+        executor::{CursorPage, PageCursor, terminal::RowLayout},
         response::{EntityResponse, Row},
     },
     error::InternalError,
@@ -17,6 +20,7 @@ use crate::{
 
 /// Decode persisted data rows into one typed entity response through one structural loop.
 pub(in crate::db::executor) fn decode_data_rows_into_entity_response<E>(
+    row_layout: &RowLayout,
     rows: Vec<DataRow>,
 ) -> Result<EntityResponse<E>, InternalError>
 where
@@ -27,16 +31,55 @@ where
     // Phase 1: walk the structural row vector once and decode each row at the
     // final typed boundary.
     for row in rows {
-        let (data_key, raw_row) = row;
-        let (expected_key, entity) = decode_raw_row_for_entity_key::<E>(&data_key, &raw_row)?;
-        decoded_rows.push(Row::new(Id::from_key(expected_key), entity));
+        decoded_rows.push(decode_data_row_into_response_row::<E>(row_layout, row)?);
     }
 
     Ok(EntityResponse::new(decoded_rows))
 }
 
+// Decode one structural data row into one typed entity.
+//
+// Current-layout rows stay on the ordinary generated typed decoder. If that
+// fails, accepted-schema plans get one structural normalization attempt so old
+// append-only nullable rows can still cross the public typed response boundary.
+pub(in crate::db::executor) fn decode_data_row_entity_with_layout<E>(
+    row_layout: &RowLayout,
+    data_key: &DataKey,
+    raw_row: &RawRow,
+) -> Result<(E::Key, E), InternalError>
+where
+    E: PersistedRow + EntityValue,
+{
+    match decode_raw_row_for_entity_key::<E>(data_key, raw_row) {
+        Ok(decoded) => Ok(decoded),
+        Err(original_err) => {
+            let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
+            let canonical =
+                canonical_row_from_structural_slot_reader(E::MODEL, &row_fields)?.into_raw_row();
+
+            decode_raw_row_for_entity_key::<E>(data_key, &canonical).map_err(|_| original_err)
+        }
+    }
+}
+
+// Decode one structural data row into one typed response row.
+fn decode_data_row_into_response_row<E>(
+    row_layout: &RowLayout,
+    row: DataRow,
+) -> Result<Row<E>, InternalError>
+where
+    E: PersistedRow + EntityValue,
+{
+    let (data_key, raw_row) = row;
+    let (expected_key, entity) =
+        decode_data_row_entity_with_layout::<E>(row_layout, &data_key, &raw_row)?;
+
+    Ok(Row::new(Id::from_key(expected_key), entity))
+}
+
 /// Decode persisted data rows into one typed cursor page at the final typed boundary.
 pub(in crate::db::executor) fn decode_data_rows_into_cursor_page<E>(
+    row_layout: &RowLayout,
     rows: Vec<DataRow>,
     next_cursor: Option<PageCursor>,
 ) -> Result<CursorPage<E>, InternalError>
@@ -44,7 +87,7 @@ where
     E: PersistedRow + EntityValue,
 {
     Ok(CursorPage {
-        items: decode_data_rows_into_entity_response::<E>(rows)?,
+        items: decode_data_rows_into_entity_response::<E>(row_layout, rows)?,
         next_cursor,
     })
 }

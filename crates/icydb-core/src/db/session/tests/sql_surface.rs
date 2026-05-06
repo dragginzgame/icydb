@@ -1,8 +1,10 @@
 use super::*;
 use crate::db::{
+    FieldRef, asc,
     codec::serialize_row_payload,
     data::{RawRow, encode_runtime_value_into_slot},
     executor::EntityAuthority,
+    response::Row,
     schema::commit_schema_fingerprint_for_entity,
     session::{query::QueryPlanVisibility, sql::SqlCompiledCommandCacheKey},
     sql::lowering::{SqlCommand, compile_sql_command},
@@ -902,6 +904,206 @@ fn execute_sql_statement_reads_old_rows_after_nullable_additive_schema_transitio
         ]],
     );
     assert_eq!(row_count, 1);
+}
+
+#[test]
+fn fluent_load_reads_old_rows_after_nullable_additive_schema_transition() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_nullable_sql_old_accepted_schema_prefix();
+    let session = sql_session();
+    let id = Ulid::from_u128(1484);
+    insert_old_nullable_sql_row_for_test(id, "Ada");
+
+    let rows = session
+        .execute_query(&Query::<SessionNullableSqlEntity>::new(
+            MissingRowPolicy::Ignore,
+        ))
+        .expect("fluent load should accept old row after nullable append-only schema transition")
+        .rows();
+    let [(row_id, entity)] = rows
+        .into_iter()
+        .map(Row::into_parts)
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap_or_else(|rows: Vec<_>| {
+            panic!("fluent load should return exactly one nullable row, got {rows:?}")
+        });
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+
+    assert_eq!(row_id.key(), id);
+    assert_eq!(entity.name, "Ada");
+    assert_eq!(entity.nickname, None);
+}
+
+#[test]
+fn fluent_take_reads_old_rows_after_nullable_additive_schema_transition() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_nullable_sql_old_accepted_schema_prefix();
+    let session = sql_session();
+    let id = Ulid::from_u128(1486);
+    insert_old_nullable_sql_row_for_test(id, "Ada");
+
+    let rows = session
+        .load::<SessionNullableSqlEntity>()
+        .take(1)
+        .expect("fluent take should accept old row after nullable append-only schema transition")
+        .rows();
+    let [(row_id, entity)] = rows
+        .into_iter()
+        .map(Row::into_parts)
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap_or_else(|rows: Vec<_>| {
+            panic!("fluent take should return exactly one nullable row, got {rows:?}")
+        });
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+
+    assert_eq!(row_id.key(), id);
+    assert_eq!(entity.name, "Ada");
+    assert_eq!(entity.nickname, None);
+}
+
+#[test]
+fn fluent_paged_load_reads_old_rows_after_nullable_additive_schema_transition() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_nullable_sql_old_accepted_schema_prefix();
+    let session = sql_session();
+    let id = Ulid::from_u128(1487);
+    insert_old_nullable_sql_row_for_test(id, "Ada");
+
+    let (response, continuation_cursor) = session
+        .load::<SessionNullableSqlEntity>()
+        .order_term(asc("id"))
+        .limit(1)
+        .execute_paged()
+        .expect(
+            "fluent paged load should accept old row after nullable append-only schema transition",
+        )
+        .into_parts();
+    let [(row_id, entity)] = response
+        .rows()
+        .into_iter()
+        .map(Row::into_parts)
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap_or_else(|rows: Vec<_>| {
+            panic!("fluent paged load should return exactly one nullable row, got {rows:?}")
+        });
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+
+    assert_eq!(row_id.key(), id);
+    assert_eq!(entity.name, "Ada");
+    assert_eq!(entity.nickname, None);
+    assert!(continuation_cursor.is_none());
+}
+
+#[test]
+fn fluent_top_k_reads_old_rows_after_nullable_additive_schema_transition() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_nullable_sql_old_accepted_schema_prefix();
+    let session = sql_session();
+    let id = Ulid::from_u128(1488);
+    insert_old_nullable_sql_row_for_test(id, "Ada");
+
+    let rows = session
+        .load::<SessionNullableSqlEntity>()
+        .top_k_by("name", 1)
+        .expect("fluent top-k should accept old row after nullable append-only schema transition")
+        .rows();
+    let [(row_id, entity)] = rows
+        .into_iter()
+        .map(Row::into_parts)
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap_or_else(|rows: Vec<_>| {
+            panic!("fluent top-k should return exactly one nullable row, got {rows:?}")
+        });
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+
+    assert_eq!(row_id.key(), id);
+    assert_eq!(entity.name, "Ada");
+    assert_eq!(entity.nickname, None);
+}
+
+#[test]
+fn fluent_value_projection_reads_appended_nullable_field_after_schema_transition() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_nullable_sql_old_accepted_schema_prefix();
+    let session = sql_session();
+    let id = Ulid::from_u128(1489);
+    insert_old_nullable_sql_row_for_test(id, "Ada");
+
+    let values = session
+        .load::<SessionNullableSqlEntity>()
+        .values_by("nickname")
+        .expect("fluent values_by should read appended nullable field from old row");
+    let values_with_ids = session
+        .load::<SessionNullableSqlEntity>()
+        .values_by_with_ids("nickname")
+        .expect("fluent values_by_with_ids should read appended nullable field from old row");
+    let first_value = session
+        .load::<SessionNullableSqlEntity>()
+        .first_value_by("nickname")
+        .expect("fluent first_value_by should read appended nullable field from old row");
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+
+    assert_eq!(values, vec![output(Value::Null)]);
+    assert_eq!(
+        values_with_ids,
+        vec![(Id::from_key(id), output(Value::Null))]
+    );
+    assert_eq!(first_value, Some(output(Value::Null)));
+}
+
+#[test]
+fn fluent_delete_returns_old_rows_after_nullable_additive_schema_transition() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_nullable_sql_old_accepted_schema_prefix();
+    let session = sql_session();
+    let id = Ulid::from_u128(1485);
+    insert_old_nullable_sql_row_for_test(id, "Ada");
+
+    let rows = session
+        .delete::<SessionNullableSqlEntity>()
+        .filter(FieldRef::new("name").eq("Ada"))
+        .execute_rows()
+        .expect(
+            "fluent delete rows should accept old row after nullable append-only schema transition",
+        )
+        .rows();
+    let [(row_id, entity)] = rows
+        .into_iter()
+        .map(Row::into_parts)
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap_or_else(|rows: Vec<_>| {
+            panic!("fluent delete rows should return exactly one nullable row, got {rows:?}")
+        });
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+
+    assert_eq!(row_id.key(), id);
+    assert_eq!(entity.name, "Ada");
+    assert_eq!(entity.nickname, None);
+    SESSION_SQL_DATA_STORE.with_borrow(|store| {
+        let key = DataKey::try_new::<SessionNullableSqlEntity>(id)
+            .expect("old nullable SQL data key should build")
+            .to_raw()
+            .expect("old nullable SQL data key should encode");
+
+        assert!(store.get(&key).is_none());
+    });
 }
 
 #[test]

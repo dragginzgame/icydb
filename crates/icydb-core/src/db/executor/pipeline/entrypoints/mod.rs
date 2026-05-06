@@ -131,14 +131,12 @@ where
         &self,
         plan: PreparedExecutionPlan<E>,
     ) -> Result<EntityResponse<E>, InternalError> {
-        let page = execute_prepared_scalar_rows_for_canister(
-            &self.db,
-            self.debug,
-            plan.into_prepared_load_plan(),
-        )?;
+        let plan = plan.into_prepared_load_plan();
+        let row_layout = plan.authority().row_layout();
+        let page = execute_prepared_scalar_rows_for_canister(&self.db, self.debug, plan)?;
         let (data_rows, _) = page.into_parts();
 
-        decode_data_rows_into_entity_response::<E>(data_rows)
+        decode_data_rows_into_entity_response::<E>(&row_layout, data_rows)
     }
 
     /// Execute one scalar load plan while reporting the internal execute split
@@ -151,17 +149,18 @@ where
     ) -> Result<(EntityResponse<E>, ScalarExecutePhaseAttribution, u64), InternalError> {
         // Phase 1: execute the scalar runtime through the shared structural
         // page boundary.
+        let plan = plan.into_prepared_load_plan();
+        let row_layout = plan.authority().row_layout();
         let (page, phase_attribution) =
             execute_prepared_scalar_rows_for_canister_with_phase_attribution(
-                &self.db,
-                self.debug,
-                plan.into_prepared_load_plan(),
+                &self.db, self.debug, plan,
             )?;
         let (data_rows, _) = page.into_parts();
 
         // Phase 2: decode the structural data rows into typed response rows.
-        let (response_decode_local_instructions, response) =
-            measure_load_entry_phase(|| decode_data_rows_into_entity_response::<E>(data_rows));
+        let (response_decode_local_instructions, response) = measure_load_entry_phase(|| {
+            decode_data_rows_into_entity_response::<E>(&row_layout, data_rows)
+        });
         let response = response?;
 
         Ok((

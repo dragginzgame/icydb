@@ -15,6 +15,7 @@ use crate::{
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, compare_orderable_field_values,
                 extract_orderable_field_value_from_decoded_slot,
+                extract_projected_field_value_from_decoded_slot,
             },
             pipeline::contracts::LoadExecutor,
             plan_metrics::record_rows_scanned_for_path,
@@ -66,6 +67,26 @@ where
             field_slot.index,
         )?;
         extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
+            .map_err(AggregateFieldValueError::into_internal_error)
+    }
+
+    // Decode one retained slot for value-projection terminals. Unlike ordered
+    // aggregate helpers, projection terminals may surface accepted-schema NULL
+    // values for appended nullable fields.
+    fn decode_projected_nullable_field_value(
+        row_layout: &RowLayout,
+        storage_key: StorageKey,
+        raw_row: &RawRow,
+        target_field: &str,
+        field_slot: FieldSlot,
+    ) -> Result<Value, InternalError> {
+        let value = RowDecoder::decode_required_slot_value(
+            row_layout,
+            storage_key,
+            raw_row,
+            field_slot.index,
+        )?;
+        extract_projected_field_value_from_decoded_slot(target_field, field_slot, value)
             .map_err(AggregateFieldValueError::into_internal_error)
     }
 
@@ -359,7 +380,7 @@ where
         else {
             return Ok(None);
         };
-        let value = Self::decode_projected_field_value(
+        let value = Self::decode_projected_nullable_field_value(
             row_layout,
             storage_key,
             &row.1,

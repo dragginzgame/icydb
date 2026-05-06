@@ -29,7 +29,8 @@ pub(crate) use page::{ScalarMaterializationLaneMetrics, with_scalar_materializat
 pub(in crate::db::executor) use row_decode::RowDecoder;
 pub(in crate::db) use row_decode::RowLayout;
 pub(in crate::db::executor) use typed_response::{
-    decode_data_rows_into_cursor_page, decode_data_rows_into_entity_response,
+    decode_data_row_entity_with_layout, decode_data_rows_into_cursor_page,
+    decode_data_rows_into_entity_response,
 };
 
 // Centralize payload-byte saturation so terminal behavior stays explicit and

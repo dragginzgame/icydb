@@ -102,6 +102,7 @@ where
         plan: PreparedLoadPlan,
         take_count: u32,
     ) -> Result<EntityResponse<E>, InternalError> {
+        let row_layout = plan.authority().row_layout();
         let prepared = self.prepare_scalar_materialized_boundary(plan)?;
         let page = self.execute_scalar_materialized_page_boundary(prepared)?;
         let (mut data_rows, _) = page.into_parts();
@@ -110,7 +111,7 @@ where
             data_rows.truncate(take_len);
         }
 
-        decode_data_rows_into_entity_response::<E>(data_rows)
+        decode_data_rows_into_entity_response::<E>(&row_layout, data_rows)
     }
 
     // Execute one ranked scalar terminal family from the typed API boundary

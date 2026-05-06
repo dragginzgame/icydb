@@ -34,13 +34,13 @@ where
         take_count: u32,
     ) -> Result<EntityResponse<E>, InternalError> {
         let ordered_rows = Self::top_k_ranked_rows_from_materialized(
-            row_layout,
+            row_layout.clone(),
             &rows,
             target_field,
             field_slot,
             take_count,
         )?;
-        entity_response_from_ranked_rows(rows, ordered_rows)
+        entity_response_from_ranked_rows(&row_layout, rows, ordered_rows)
     }
 
     // Reduce one materialized response into top-k projected field values under
@@ -90,13 +90,13 @@ where
         take_count: u32,
     ) -> Result<EntityResponse<E>, InternalError> {
         let ordered_rows = Self::bottom_k_ranked_rows_from_materialized(
-            row_layout,
+            row_layout.clone(),
             &rows,
             target_field,
             field_slot,
             take_count,
         )?;
-        entity_response_from_ranked_rows(rows, ordered_rows)
+        entity_response_from_ranked_rows(&row_layout, rows, ordered_rows)
     }
 
     // Reduce one materialized response into bottom-k projected field values
@@ -140,6 +140,7 @@ where
 // Convert ranked row indices back into the entity response surface after the
 // top-k/bottom-k policy has already selected row order.
 fn entity_response_from_ranked_rows<E>(
+    row_layout: &RowLayout,
     rows: Vec<DataRow>,
     ordered_rows: Vec<(usize, Value)>,
 ) -> Result<EntityResponse<E>, InternalError>
@@ -155,7 +156,7 @@ where
     .map(|(row, _)| row)
     .collect();
 
-    decode_data_rows_into_entity_response::<E>(output_rows)
+    decode_data_rows_into_entity_response::<E>(row_layout, output_rows)
 }
 
 fn field_values_with_data_keys_from_ranked_rows(
