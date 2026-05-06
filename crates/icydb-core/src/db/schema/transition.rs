@@ -873,6 +873,78 @@ mod tests {
     }
 
     #[test]
+    fn schema_transition_policy_rejects_primary_key_field_changes() {
+        let expected = expected_snapshot();
+        let changed = PersistedSchemaSnapshot::new(
+            expected.version(),
+            expected.entity_path().to_string(),
+            expected.entity_name().to_string(),
+            FieldId::new(2),
+            expected.row_layout().clone(),
+            expected.fields().to_vec(),
+        );
+
+        let SchemaTransitionDecision::Rejected(rejection) =
+            decide_schema_transition(&changed, &expected)
+        else {
+            panic!("primary-key field drift should be rejected");
+        };
+
+        assert_eq!(
+            rejection.kind(),
+            SchemaTransitionRejectionKind::EntityIdentity
+        );
+        assert!(
+            rejection
+                .detail()
+                .contains("primary key field id changed: stored=2 generated=1"),
+            "primary-key drift should be identified before row decode can run",
+        );
+    }
+
+    #[test]
+    fn schema_transition_policy_rejects_field_type_changes() {
+        let expected = expected_snapshot();
+        let mut changed_fields = expected.fields().to_vec();
+        changed_fields[1] = PersistedFieldSnapshot::new(
+            FieldId::new(2),
+            "name".to_string(),
+            SchemaFieldSlot::new(1),
+            PersistedFieldKind::Uint,
+            Vec::new(),
+            false,
+            SchemaFieldDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Uint64),
+        );
+        let changed = PersistedSchemaSnapshot::new(
+            expected.version(),
+            expected.entity_path().to_string(),
+            expected.entity_name().to_string(),
+            expected.primary_key_field_id(),
+            expected.row_layout().clone(),
+            changed_fields,
+        );
+
+        let SchemaTransitionDecision::Rejected(rejection) =
+            decide_schema_transition(&changed, &expected)
+        else {
+            panic!("field type drift should be rejected");
+        };
+
+        assert_eq!(
+            rejection.kind(),
+            SchemaTransitionRejectionKind::FieldContract
+        );
+        assert!(
+            rejection
+                .detail()
+                .contains("field[1] kind changed: stored=Uint generated=Text"),
+            "field type drift should name the first changed field contract",
+        );
+    }
+
+    #[test]
     fn schema_transition_policy_reports_first_nested_leaf_mismatch() {
         let stored = PersistedSchemaSnapshot::new(
             SchemaVersion::initial(),

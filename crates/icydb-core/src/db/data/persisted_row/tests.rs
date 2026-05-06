@@ -36,7 +36,7 @@ use crate::{
             compiled_schema_proposal_for_model,
         },
     },
-    error::InternalError,
+    error::{ErrorClass, InternalError},
     model::{
         EntityModel,
         field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode, RelationStrength},
@@ -836,6 +836,33 @@ fn old_two_slot_additive_raw_row_for_tests(id: Ulid) -> RawRow {
 
     RawRow::try_new(serialize_row_payload(slot_payload).expect("old two-slot row should serialize"))
         .expect("old two-slot row should be accepted as raw bytes")
+}
+
+// Build a malformed old two-slot row whose existing second slot span points
+// beyond the payload table. Accepted append-only compatibility must not mask
+// corruption in physical slots that are actually present.
+fn malformed_old_two_slot_additive_raw_row_for_tests(id: Ulid) -> RawRow {
+    let id_payload = encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(id)));
+    let name_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
+    let slot_payload = encode_slot_payload_from_parts(
+        2,
+        &[
+            (
+                0_u32,
+                u32::try_from(id_payload.len()).expect("id payload length should fit"),
+            ),
+            (
+                u32::try_from(id_payload.len()).expect("name payload start should fit"),
+                u32::MAX,
+            ),
+        ],
+        &[id_payload.as_slice(), name_payload.as_slice()].concat(),
+    )
+    .expect("malformed old two-slot payload should encode");
+
+    RawRow::try_new(serialize_row_payload(slot_payload).expect("malformed row should serialize"))
+        .expect("malformed old two-slot row should stay bounded raw bytes")
 }
 
 fn assert_direct_persisted_structured_roundtrip<T>(value: T)
@@ -1706,6 +1733,33 @@ fn accepted_row_contract_validates_primary_key_with_accepted_contract() {
     assert!(
         err.message.contains("row key mismatch"),
         "accepted primary-key mismatch should preserve persisted-row mismatch taxonomy: {err:?}",
+    );
+}
+
+#[test]
+fn accepted_row_contract_preserves_malformed_present_slot_corruption_taxonomy() {
+    let id = Ulid::from_u128(151);
+    let raw_row = malformed_old_two_slot_additive_raw_row_for_tests(id);
+    let contract = accepted_row_contract_for_model(&ADDITIVE_NULLABLE_MODEL);
+
+    let Err(lazy_err) =
+        StructuralSlotReader::from_raw_row_with_validated_contract(&raw_row, contract.clone())
+    else {
+        panic!("accepted row contract must reject malformed present slot bytes");
+    };
+    let dense_err =
+        super::decode_dense_raw_row_with_contract(&raw_row, contract, StorageKey::Ulid(id))
+            .expect_err("accepted dense decode must reject malformed present slot bytes");
+
+    assert_eq!(lazy_err.class, ErrorClass::Corruption);
+    assert_eq!(dense_err.class, ErrorClass::Corruption);
+    assert_eq!(
+        lazy_err.message,
+        "row decode: slot span exceeds payload length"
+    );
+    assert_eq!(
+        dense_err.message,
+        "row decode: slot span exceeds payload length"
     );
 }
 

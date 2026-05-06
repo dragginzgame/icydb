@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     db::{
         FieldRef, MutationMode, asc,
-        codec::serialize_row_payload,
+        codec::{decode_row_payload_bytes, serialize_row_payload},
         data::{RawRow, encode_runtime_value_into_slot},
         executor::EntityAuthority,
         response::Row,
@@ -144,6 +144,19 @@ fn nullable_sql_raw_row_for_test(id: Ulid) -> RawRow {
             .get(&key)
             .expect("nullable SQL row should exist in data store")
     })
+}
+
+// Read the dense slot-count header from one raw persisted row. This keeps
+// write-layout tests precise without routing through typed decode, which would
+// hide whether the physical row was rewritten to the current accepted layout.
+fn raw_row_slot_count_for_test(raw_row: &RawRow) -> u16 {
+    let payload = decode_row_payload_bytes(raw_row.as_bytes())
+        .expect("nullable SQL raw row envelope should decode");
+    let count_bytes = payload
+        .get(..2)
+        .expect("nullable SQL raw row should include slot-count header");
+
+    u16::from_be_bytes([count_bytes[0], count_bytes[1]])
 }
 
 // Assert a projection result with a compact expected-column call site for the
@@ -1591,6 +1604,39 @@ fn typed_replace_rewrites_old_rows_after_nullable_additive_schema_transition() {
             output(Value::Text("Ada Augusta".to_string())),
             output(Value::Text("Enchantress".to_string()))
         ]],
+    );
+}
+
+#[test]
+fn typed_insert_writes_current_layout_after_nullable_additive_schema_transition() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_nullable_sql_old_accepted_schema_prefix();
+    let session = sql_session();
+    let id = Ulid::from_u128(1504);
+
+    let inserted = session
+        .insert(SessionNullableSqlEntity {
+            id,
+            name: "Ada Fresh".to_string(),
+            nickname: None,
+        })
+        .expect("typed insert should write current layout after nullable transition");
+    let raw_row = nullable_sql_raw_row_for_test(id);
+    let decoded = raw_row
+        .try_decode::<SessionNullableSqlEntity>()
+        .expect("typed insert should emit a current-layout row");
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+
+    assert_eq!(inserted.name, "Ada Fresh");
+    assert_eq!(inserted.nickname, None);
+    assert_eq!(decoded.name, "Ada Fresh");
+    assert_eq!(decoded.nickname, None);
+    assert_eq!(
+        raw_row_slot_count_for_test(&raw_row),
+        3,
+        "fresh inserts after transition must emit the current accepted slot count",
     );
 }
 

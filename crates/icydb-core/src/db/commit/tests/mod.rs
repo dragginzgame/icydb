@@ -7,7 +7,7 @@ use crate::{
     db::{
         Db, EntityRuntimeHooks, Predicate,
         codec::{
-            ROW_FORMAT_VERSION_CURRENT, decode_row_payload_bytes,
+            ROW_FORMAT_VERSION_CURRENT, decode_row_payload_bytes, serialize_row_payload,
             serialize_row_payload_with_version,
         },
         commit::{
@@ -20,19 +20,22 @@ use crate::{
             prepare_row_commit_for_entity_with_structural_readers,
             rollback_prepared_row_ops_reverse, store,
         },
-        data::{CanonicalRow, DataKey, DataStore, RawDataKey, RawRow},
+        data::{
+            CanonicalRow, DataKey, DataStore, RawDataKey, RawRow, encode_runtime_value_into_slot,
+        },
         executor::SaveExecutor,
         index::{IndexKey, IndexStore, RawIndexEntry},
         registry::{StoreHandle, StoreRegistry},
         relation::validate_delete_strong_relations_for_source,
         schema::{
-            PersistedSchemaSnapshot, SchemaRowLayout, SchemaStore, SchemaVersion,
-            commit_schema_fingerprint_for_entity, compiled_schema_proposal_for_model,
+            FieldId, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaRowLayout, SchemaStore,
+            SchemaVersion, commit_schema_fingerprint_for_entity,
+            compiled_schema_proposal_for_model,
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{
-        field::{FieldKind, FieldStorageDecode},
+        field::{FieldKind, FieldModel, FieldStorageDecode},
         index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     testing::test_memory,
@@ -40,7 +43,7 @@ use crate::{
         EntityKind, EntitySchema, FieldTypeMeta, Path, PersistedFieldSlotCodec, RuntimeValueDecode,
         RuntimeValueEncode, StorageKeyCodec,
     },
-    types::Ulid,
+    types::{EntityTag, Ulid},
     value::{Value, ValueEnum, storage_key_as_runtime_value},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
@@ -123,6 +126,21 @@ crate::test_entity_schema! {
 struct RecoveryIndexedEntity {
     id: Ulid,
     group: u32,
+}
+
+///
+/// RecoveryNullableIndexedEntity
+///
+/// Nullable additive-transition fixture used by startup recovery tests.
+/// It gives index rebuild one current generated model with an appended nullable
+/// field while the seeded stored rows still carry the shorter old layout.
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct RecoveryNullableIndexedEntity {
+    id: Ulid,
+    group: u32,
+    nickname: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
@@ -251,6 +269,13 @@ static RECOVERY_INDEXED_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     &RECOVERY_INDEXED_INDEX_FIELDS,
     false,
 )];
+static RECOVERY_NULLABLE_INDEXED_INDEX_FIELDS: [&str; 1] = ["group"];
+static RECOVERY_NULLABLE_INDEXED_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
+    "group_nullable",
+    RecoveryTestDataStore::PATH,
+    &RECOVERY_NULLABLE_INDEXED_INDEX_FIELDS,
+    false,
+)];
 static RECOVERY_UNIQUE_INDEX_FIELDS: [&str; 1] = ["email"];
 static RECOVERY_UNIQUE_INDEX_MODELS: [IndexModel; 1] = [IndexModel::generated(
     "email_unique",
@@ -337,6 +362,59 @@ crate::test_entity_schema! {
     indexes = [&RECOVERY_INDEXED_INDEX_MODELS[0]],
     store = RecoveryTestDataStore,
     canister = RecoveryTestCanister,
+}
+
+const RECOVERY_NULLABLE_INDEXED_ENTITY_TAG: EntityTag = EntityTag::new(0x103A);
+
+crate::impl_test_entity_markers!(RecoveryNullableIndexedEntity);
+
+crate::impl_test_entity_model_storage!(
+    RecoveryNullableIndexedEntity,
+    "RecoveryNullableIndexedEntity",
+    0,
+    fields = [
+        FieldModel::generated_with_storage_decode_and_nullability(
+            "id",
+            FieldKind::Ulid,
+            FieldStorageDecode::ByKind,
+            false,
+        ),
+        FieldModel::generated_with_storage_decode_and_nullability(
+            "group",
+            FieldKind::Uint,
+            FieldStorageDecode::ByKind,
+            false,
+        ),
+        FieldModel::generated_with_storage_decode_and_nullability(
+            "nickname",
+            FieldKind::Text { max_len: None },
+            FieldStorageDecode::ByKind,
+            true,
+        ),
+    ],
+    indexes = [&RECOVERY_NULLABLE_INDEXED_INDEX_MODELS[0]],
+);
+
+crate::impl_test_entity_runtime_surface!(
+    RecoveryNullableIndexedEntity,
+    Ulid,
+    "RecoveryNullableIndexedEntity",
+    MODEL_DEF
+);
+
+impl crate::traits::EntityPlacement for RecoveryNullableIndexedEntity {
+    type Store = RecoveryTestDataStore;
+    type Canister = RecoveryTestCanister;
+}
+
+impl EntityKind for RecoveryNullableIndexedEntity {
+    const ENTITY_TAG: EntityTag = RECOVERY_NULLABLE_INDEXED_ENTITY_TAG;
+}
+
+impl crate::traits::EntityValue for RecoveryNullableIndexedEntity {
+    fn id(&self) -> crate::types::Id<Self> {
+        crate::types::Id::from_key(self.id)
+    }
 }
 
 crate::test_entity_schema! {
@@ -469,6 +547,14 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         RecoveryTestDataStore::PATH,
         prepare_row_commit_for_entity_with_structural_readers::<RecoveryIndexedEntity>,
         validate_delete_strong_relations_for_source::<RecoveryIndexedEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        RecoveryNullableIndexedEntity::ENTITY_TAG,
+        <RecoveryNullableIndexedEntity as EntitySchema>::MODEL,
+        RecoveryNullableIndexedEntity::PATH,
+        RecoveryTestDataStore::PATH,
+        prepare_row_commit_for_entity_with_structural_readers::<RecoveryNullableIndexedEntity>,
+        validate_delete_strong_relations_for_source::<RecoveryNullableIndexedEntity>,
     ),
     EntityRuntimeHooks::new(
         RecoveryUniqueEntity::ENTITY_TAG,
@@ -653,6 +739,9 @@ fn row_op_for_path(
         RecoveryIndexedEntity::PATH => {
             commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>()
         }
+        RecoveryNullableIndexedEntity::PATH => {
+            commit_schema_fingerprint_for_entity::<RecoveryNullableIndexedEntity>()
+        }
         RecoveryUniqueEntity::PATH => {
             commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>()
         }
@@ -706,6 +795,112 @@ fn indexed_ids_for(entity: &RecoveryIndexedEntity) -> Option<BTreeSet<Ulid>> {
             })
         })
     })
+}
+
+fn nullable_indexed_ids_for(entity: &RecoveryNullableIndexedEntity) -> Option<BTreeSet<Ulid>> {
+    let index = RecoveryNullableIndexedEntity::MODEL.indexes()[0];
+    let index_key = IndexKey::new(entity, index)
+        .expect("nullable index key build should succeed")
+        .expect("nullable index key should exist")
+        .to_raw();
+
+    with_recovery_store(|store| {
+        store.with_index(|index_store| {
+            index_store.get(&index_key).map(|entry| {
+                entry
+                    .try_decode()
+                    .expect("nullable index entry decode should succeed")
+                    .iter_ids()
+                    .map(
+                        |storage_key| match storage_key_as_runtime_value(&storage_key) {
+                            Value::Ulid(value) => value,
+                            other => {
+                                panic!("decoded nullable index key should be a Ulid, got {other:?}")
+                            }
+                        },
+                    )
+                    .collect::<BTreeSet<_>>()
+            })
+        })
+    })
+}
+
+// Encode one old physical row for `RecoveryNullableIndexedEntity` with only
+// the pre-transition `id` and `group` slots. Startup recovery uses this to
+// prove that current accepted schema can rebuild indexes from older rows.
+fn old_nullable_indexed_raw_row_for_test(id: Ulid, group: u32) -> RawRow {
+    let id_payload =
+        encode_runtime_value_into_slot(RecoveryNullableIndexedEntity::MODEL, 0, &Value::Ulid(id))
+            .expect("old nullable indexed id payload should encode");
+    let group_payload = encode_runtime_value_into_slot(
+        RecoveryNullableIndexedEntity::MODEL,
+        1,
+        &Value::Uint(u64::from(group)),
+    )
+    .expect("old nullable indexed group payload should encode");
+    let slot_payload =
+        encode_commit_test_slot_payload(&[id_payload.as_slice(), group_payload.as_slice()]);
+
+    RawRow::try_new(
+        serialize_row_payload(slot_payload).expect("old nullable indexed row should serialize"),
+    )
+    .expect("old nullable indexed row should be valid raw row bytes")
+}
+
+// Build one dense slot-framed payload for owner-local row-layout fixtures.
+// Production writers continue to own canonical complete-row serialization.
+fn encode_commit_test_slot_payload(slots: &[&[u8]]) -> Vec<u8> {
+    let field_count =
+        u16::try_from(slots.len()).expect("commit slot fixture count should fit in u16");
+    let mut row_payload = Vec::new();
+    let mut payload_bytes = Vec::new();
+
+    row_payload.extend_from_slice(&field_count.to_be_bytes());
+    for bytes in slots {
+        let start = u32::try_from(payload_bytes.len())
+            .expect("commit slot fixture start should fit in u32");
+        let len = u32::try_from(bytes.len()).expect("commit slot fixture length should fit in u32");
+        row_payload.extend_from_slice(&start.to_be_bytes());
+        row_payload.extend_from_slice(&len.to_be_bytes());
+        payload_bytes.extend_from_slice(bytes);
+    }
+    row_payload.extend_from_slice(payload_bytes.as_slice());
+
+    row_payload
+}
+
+// Install the accepted schema snapshot that represents
+// `RecoveryNullableIndexedEntity` before `nickname` was added. Reconciliation
+// must accept this as an append-only nullable transition during startup.
+fn install_nullable_indexed_old_accepted_schema_prefix() {
+    let proposal =
+        compiled_schema_proposal_for_model(<RecoveryNullableIndexedEntity as EntitySchema>::MODEL);
+    let expected = proposal.initial_persisted_schema_snapshot();
+    let stored_prefix = PersistedSchemaSnapshot::new(
+        expected.version(),
+        expected.entity_path().to_string(),
+        expected.entity_name().to_string(),
+        expected.primary_key_field_id(),
+        SchemaRowLayout::new(
+            expected.row_layout().version(),
+            vec![
+                (FieldId::new(1), SchemaFieldSlot::new(0)),
+                (FieldId::new(2), SchemaFieldSlot::new(1)),
+            ],
+        ),
+        expected.fields()[..2].to_vec(),
+    );
+
+    with_recovery_store(|store| {
+        store.with_schema_mut(|schema_store| {
+            schema_store
+                .insert_persisted_snapshot(
+                    RecoveryNullableIndexedEntity::ENTITY_TAG,
+                    &stored_prefix,
+                )
+                .expect("old nullable indexed schema prefix should persist");
+        });
+    });
 }
 
 fn conditional_indexed_ids_for(entity: &RecoveryConditionalEntity) -> Option<BTreeSet<Ulid>> {
@@ -3158,6 +3353,184 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_authoritative_rows() {
     assert_eq!(
         indexed_ids_for(&second).expect("second index entry should exist"),
         std::iter::once(second.id).collect::<BTreeSet<_>>()
+    );
+}
+
+#[test]
+fn recovery_startup_gate_rebuilds_secondary_indexes_from_old_nullable_rows() {
+    reset_recovery_state();
+    install_nullable_indexed_old_accepted_schema_prefix();
+
+    let first = RecoveryNullableIndexedEntity {
+        id: Ulid::from_u128(12_020),
+        group: 30,
+        nickname: None,
+    };
+    let second = RecoveryNullableIndexedEntity {
+        id: Ulid::from_u128(12_021),
+        group: 31,
+        nickname: None,
+    };
+    let stale = RecoveryNullableIndexedEntity {
+        id: Ulid::from_u128(12_099),
+        group: 99,
+        nickname: None,
+    };
+
+    let first_key = DataKey::try_new::<RecoveryNullableIndexedEntity>(first.id)
+        .expect("first nullable data key should build")
+        .to_raw()
+        .expect("first nullable data key should encode");
+    let second_key = DataKey::try_new::<RecoveryNullableIndexedEntity>(second.id)
+        .expect("second nullable data key should build")
+        .to_raw()
+        .expect("second nullable data key should encode");
+    let first_row = old_nullable_indexed_raw_row_for_test(first.id, first.group);
+    let second_row = old_nullable_indexed_raw_row_for_test(second.id, second.group);
+
+    let index = RecoveryNullableIndexedEntity::MODEL.indexes()[0];
+    let stale_key = IndexKey::new(&stale, index)
+        .expect("stale nullable key build should succeed")
+        .expect("stale nullable key should exist")
+        .to_raw();
+    let stale_storage_key = stale
+        .id
+        .to_storage_key()
+        .expect("stale nullable storage key should encode");
+    let stale_entry = RawIndexEntry::try_from_keys(vec![stale_storage_key])
+        .expect("stale nullable index entry should encode");
+
+    // Phase 1: seed old two-slot rows and intentionally stale secondary index
+    // state, then force startup recovery through the empty-marker rebuild gate.
+    with_recovery_store(|store| {
+        store.with_data_mut(|data_store| {
+            data_store.insert_raw_for_test(first_key, first_row);
+            data_store.insert_raw_for_test(second_key, second_row);
+        });
+        store.with_index_mut(|index_store| {
+            index_store.insert(stale_key, stale_entry);
+        });
+    });
+
+    // Phase 2: recovery must reconcile the append-only nullable schema before
+    // rebuilding indexes so old shorter rows decode under accepted contracts.
+    let marker = CommitMarker::new(Vec::new()).expect("marker creation should succeed");
+    begin_commit(marker).expect("begin_commit should persist marker");
+    ensure_recovered(&DB)
+        .expect("recovery should rebuild indexes from old nullable-layout data rows");
+
+    assert!(
+        !commit_marker_present().expect("commit marker check should succeed"),
+        "commit marker should be cleared after nullable startup recovery"
+    );
+
+    let mut expected = vec![
+        IndexKey::new(&first, index)
+            .expect("first nullable index key build should succeed")
+            .expect("first nullable index key should exist")
+            .to_raw()
+            .as_bytes()
+            .to_vec(),
+        IndexKey::new(&second, index)
+            .expect("second nullable index key build should succeed")
+            .expect("second nullable index key should exist")
+            .to_raw()
+            .as_bytes()
+            .to_vec(),
+    ];
+    expected.sort();
+
+    assert_eq!(
+        index_key_bytes_snapshot(),
+        expected,
+        "startup rebuild should drop stale entries and index old rows through accepted schema",
+    );
+    assert_eq!(
+        nullable_indexed_ids_for(&first).expect("first nullable index entry should exist"),
+        std::iter::once(first.id).collect::<BTreeSet<_>>()
+    );
+    assert_eq!(
+        nullable_indexed_ids_for(&second).expect("second nullable index entry should exist"),
+        std::iter::once(second.id).collect::<BTreeSet<_>>()
+    );
+    assert!(
+        nullable_indexed_ids_for(&stale).is_none(),
+        "stale nullable index-only rows must be dropped during startup rebuild",
+    );
+}
+
+#[test]
+fn recovery_replay_updates_old_nullable_row_before_image_with_accepted_contract() {
+    reset_recovery_state();
+    install_nullable_indexed_old_accepted_schema_prefix();
+
+    let old = RecoveryNullableIndexedEntity {
+        id: Ulid::from_u128(12_120),
+        group: 30,
+        nickname: None,
+    };
+    let new = RecoveryNullableIndexedEntity {
+        id: old.id,
+        group: 31,
+        nickname: Some("accepted".to_string()),
+    };
+
+    let data_key = DataKey::try_new::<RecoveryNullableIndexedEntity>(old.id)
+        .expect("nullable update data key should build")
+        .to_raw()
+        .expect("nullable update data key should encode");
+    let old_raw_row = old_nullable_indexed_raw_row_for_test(old.id, old.group);
+    let old_row_bytes = old_raw_row.as_bytes().to_vec();
+    let new_row_bytes = canonical_row_bytes(&new);
+
+    let index = RecoveryNullableIndexedEntity::MODEL.indexes()[0];
+    let old_index_key = IndexKey::new(&old, index)
+        .expect("old nullable index key build should succeed")
+        .expect("old nullable index key should exist")
+        .to_raw();
+    let old_entry = RawIndexEntry::try_from_keys(vec![
+        old.id
+            .to_storage_key()
+            .expect("old nullable storage key should encode"),
+    ])
+    .expect("old nullable index entry should encode");
+
+    // Phase 1: seed an old-layout authoritative row and matching old index
+    // entry, then persist a marker that updates the row to current layout.
+    with_recovery_store(|store| {
+        store.with_data_mut(|data_store| {
+            data_store.insert_raw_for_test(data_key, old_raw_row);
+        });
+        store.with_index_mut(|index_store| {
+            index_store.insert(old_index_key, old_entry);
+        });
+    });
+
+    let marker = CommitMarker::new(vec![row_op_for_path(
+        RecoveryNullableIndexedEntity::PATH,
+        data_key.as_bytes().to_vec(),
+        Some(old_row_bytes),
+        Some(new_row_bytes.clone()),
+    )])
+    .expect("nullable update marker creation should succeed");
+    begin_commit(marker).expect("nullable update begin_commit should persist marker");
+
+    // Phase 2: replay must decode the old before-image through the accepted
+    // contract while writing the current-layout replacement row and index.
+    ensure_recovered(&DB).expect("nullable update replay should decode old before-image");
+
+    assert_eq!(
+        row_bytes_for(&data_key),
+        Some(new_row_bytes),
+        "nullable update replay should write the current-layout row",
+    );
+    assert!(
+        nullable_indexed_ids_for(&old).is_none(),
+        "old nullable index key should be removed after update replay",
+    );
+    assert_eq!(
+        nullable_indexed_ids_for(&new).expect("new nullable index entry should exist"),
+        std::iter::once(new.id).collect::<BTreeSet<_>>()
     );
 }
 
