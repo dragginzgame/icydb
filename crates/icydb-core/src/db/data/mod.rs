@@ -17,7 +17,6 @@ pub(in crate::db) use crate::value::{StorageKey, StorageKeyDecodeError, StorageK
 pub(in crate::db) use entity_decode::decode_raw_row_for_entity_key_with_structural_contract;
 pub(in crate::db) use key::DataKey;
 pub(crate) use key::RawDataKey;
-#[cfg(test)]
 pub(in crate::db) use persisted_row::decode_runtime_value_from_accepted_field_contract;
 pub(in crate::db) use persisted_row::{
     CanonicalSlotReader, FieldSlot, SerializedStructuralPatch, StructuralSlotReader,

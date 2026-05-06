@@ -1687,6 +1687,29 @@ fn accepted_row_contract_reads_missing_trailing_nullable_slots_as_null() {
 }
 
 #[test]
+fn accepted_row_contract_validates_primary_key_with_accepted_contract() {
+    let id = Ulid::from_u128(149);
+    let raw_row = old_two_slot_additive_raw_row_for_tests(id);
+    let contract = accepted_row_contract_for_model(&ADDITIVE_NULLABLE_MODEL);
+
+    let decoded =
+        super::decode_dense_raw_row_with_contract(&raw_row, contract.clone(), StorageKey::Ulid(id))
+            .expect("accepted primary-key contract should validate expected row key");
+    let err = super::decode_dense_raw_row_with_contract(
+        &raw_row,
+        contract,
+        StorageKey::Ulid(Ulid::from_u128(150)),
+    )
+    .expect_err("accepted primary-key contract should reject mismatched row key");
+
+    assert_eq!(decoded.first(), Some(&Some(Value::Ulid(id))));
+    assert!(
+        err.message.contains("row key mismatch"),
+        "accepted primary-key mismatch should preserve persisted-row mismatch taxonomy: {err:?}",
+    );
+}
+
+#[test]
 fn accepted_row_contract_rejects_missing_trailing_required_slots() {
     let id = Ulid::from_u128(148);
     let raw_row = old_two_slot_additive_raw_row_for_tests(id);

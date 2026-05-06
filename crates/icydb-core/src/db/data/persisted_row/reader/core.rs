@@ -18,7 +18,10 @@ use crate::{
                         materialize_validated_scalar_slot_value,
                         scalar_slot_value_ref_from_validated, validated_scalar_slot_value,
                     },
-                    primary_key::validate_storage_key_from_primary_key_bytes_with_field,
+                    primary_key::{
+                        validate_storage_key_from_primary_key_bytes_with_accepted_field,
+                        validate_storage_key_from_primary_key_bytes_with_field,
+                    },
                 },
                 types::{CanonicalSlotReader, SlotReader},
             },
@@ -127,6 +130,34 @@ impl<'a> StructuralSlotReader<'a> {
     // key without rebuilding a full `DataKey` wrapper at the call site.
     fn validate_storage_key_value(&self, expected_key: StorageKey) -> Result<(), InternalError> {
         let primary_key_slot = self.contract.primary_key_slot();
+        if let Some(accepted_field) = self
+            .contract
+            .accepted_field_decode_contract(primary_key_slot)
+        {
+            // Preserve the reader's scalar validation/cache side effect before
+            // the accepted raw-bytes validator performs the authoritative key
+            // check.
+            if matches!(accepted_field.leaf_codec(), LeafCodec::Scalar(_))
+                && let Some(CachedSlotValue::Scalar { validated, .. }) =
+                    self.cached_values.get(primary_key_slot)
+            {
+                let _ = self.required_validated_scalar_slot_value_for_accepted_contract(
+                    primary_key_slot,
+                    accepted_field,
+                    validated,
+                )?;
+            }
+
+            let raw_value =
+                self.required_field_bytes(primary_key_slot, accepted_field.field_name())?;
+
+            return validate_storage_key_from_primary_key_bytes_with_accepted_field(
+                raw_value,
+                accepted_field,
+                expected_key,
+            );
+        }
+
         let field = self.contract.field_decode_contract(primary_key_slot)?;
 
         // Preserve the reader's scalar validation/cache side effect before the
@@ -211,6 +242,38 @@ impl<'a> StructuralSlotReader<'a> {
                 "accepted scalar cache routed through non-scalar field contract",
                 "validated scalar cache routed through non-scalar field contract",
             )?);
+        let _ = validated.set(validated_value);
+
+        Ok(validated_value)
+    }
+
+    // Validate one accepted scalar slot for cache side effects without
+    // reopening generated field metadata. Accepted primary-key validation uses
+    // this before the raw-bytes row-key check so scalar cache semantics stay
+    // aligned with generated-only readers.
+    fn required_validated_scalar_slot_value_for_accepted_contract(
+        &self,
+        slot: usize,
+        field: AcceptedFieldDecodeContract<'_>,
+        validated: &OnceCell<ValidatedScalarSlotValue>,
+    ) -> Result<ValidatedScalarSlotValue, InternalError> {
+        if let Some(validated) = validated.get() {
+            return Ok(*validated);
+        }
+
+        let LeafCodec::Scalar(codec) = field.leaf_codec() else {
+            return Err(InternalError::persisted_row_decode_failed(format!(
+                "accepted scalar cache routed through non-scalar field contract: slot={slot}",
+            )));
+        };
+        let raw_value = self.required_field_bytes(slot, field.field_name())?;
+        #[cfg(any(test, feature = "diagnostics"))]
+        self.metrics.record_validated_slot();
+        let validated_value = validated_scalar_slot_value(decode_scalar_slot_value(
+            raw_value,
+            codec,
+            field.field_name(),
+        )?);
         let _ = validated.set(validated_value);
 
         Ok(validated_value)

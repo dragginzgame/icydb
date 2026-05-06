@@ -13,7 +13,9 @@ use crate::{
                 metrics::{StructuralReadProbe, finish_direct_probe},
                 primary_key::{
                     materialize_primary_key_slot_value_from_expected_key,
+                    materialize_primary_key_slot_value_from_expected_key_with_accepted_field,
                     validate_storage_key_from_field_bytes,
+                    validate_storage_key_from_primary_key_bytes_with_accepted_field,
                     validate_storage_key_from_primary_key_bytes_with_field,
                 },
             },
@@ -111,11 +113,21 @@ impl<'a> DirectSparseRequiredRowField<'a> {
             required_slot,
         )
         .map_err(StructuralRowDecodeError::into_internal_error)?;
-        validate_storage_key_from_primary_key_bytes_with_field(
-            field_bytes.primary_key_field(),
-            primary_key_field,
-            expected_key,
-        )?;
+        if let Some(accepted_field) =
+            contract.accepted_field_decode_contract(contract.primary_key_slot())
+        {
+            validate_storage_key_from_primary_key_bytes_with_accepted_field(
+                field_bytes.primary_key_field(),
+                accepted_field,
+                expected_key,
+            )?;
+        } else {
+            validate_storage_key_from_primary_key_bytes_with_field(
+                field_bytes.primary_key_field(),
+                primary_key_field,
+                expected_key,
+            )?;
+        }
 
         Ok(Self {
             contract,
@@ -339,10 +351,15 @@ fn decode_slot_with_contract_and_field(
         return contract.missing_slot_value(slot);
     };
 
-    // Primary-key projection reconstructs the already validated row key from
-    // the storage boundary. Keep that path on the generated-compatible field
-    // contract until primary-key materialization accepts persisted kinds.
     if is_primary {
+        if let Some(accepted_field) = contract.accepted_field_decode_contract(slot) {
+            return materialize_primary_key_slot_value_from_expected_key_with_accepted_field(
+                accepted_field,
+                expected_key,
+                probe,
+            );
+        }
+
         return decode_slot_with_field(field, raw_value, expected_key, true, probe);
     }
 

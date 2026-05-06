@@ -146,6 +146,41 @@ fn nullable_sql_raw_row_for_test(id: Ulid) -> RawRow {
     })
 }
 
+// Assert a projection result with a compact expected-column call site for the
+// nullable additive schema tests, where most assertions are single-column
+// predicate checks.
+fn assert_projection_rows(
+    result: SqlStatementResult,
+    expected_columns: [&str; 1],
+    expected_rows: Vec<Vec<OutputValue>>,
+    context: &str,
+) {
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = result
+    else {
+        panic!("{context}: expected projection result");
+    };
+
+    assert_eq!(
+        columns,
+        expected_columns
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>(),
+        "{context}: column mismatch",
+    );
+    assert_eq!(
+        row_count,
+        u32::try_from(expected_rows.len()).expect("expected row count should fit in u32"),
+        "{context}: row count mismatch"
+    );
+    assert_eq!(rows, expected_rows, "{context}: row mismatch");
+}
+
 // Assert that one unsupported SQL feature is surfaced with the same parser
 // detail label through the selected SQL surface.
 fn assert_sql_surface_preserves_unsupported_feature_detail<T, F>(
@@ -946,6 +981,125 @@ fn compiled_sql_query_reads_old_rows_after_nullable_additive_schema_transition()
         ]],
     );
     assert_eq!(row_count, 1);
+}
+
+#[test]
+fn execute_sql_statement_filters_old_rows_by_added_nullable_field_null_semantics() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_nullable_sql_old_accepted_schema_prefix();
+    let session = sql_session();
+    insert_old_nullable_sql_row_for_test(Ulid::from_u128(1497), "Ada");
+
+    let null_result = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+        &session,
+        "SELECT name FROM SessionNullableSqlEntity WHERE nickname IS NULL",
+    )
+    .expect("SQL SELECT should evaluate appended nullable field IS NULL on old row");
+    let not_null_result = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+        &session,
+        "SELECT name FROM SessionNullableSqlEntity WHERE nickname IS NOT NULL",
+    )
+    .expect("SQL SELECT should evaluate appended nullable field IS NOT NULL on old row");
+    let eq_null_result = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+        &session,
+        "SELECT name FROM SessionNullableSqlEntity WHERE nickname = NULL",
+    )
+    .expect("SQL SELECT should preserve = NULL semantics on appended nullable field");
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+
+    assert_projection_rows(
+        null_result,
+        ["name"],
+        vec![vec![output(Value::Text("Ada".to_string()))]],
+        "appended nullable field IS NULL should match old missing-slot rows",
+    );
+    assert_projection_rows(
+        not_null_result,
+        ["name"],
+        Vec::<Vec<OutputValue>>::new(),
+        "appended nullable field IS NOT NULL should not match old missing-slot rows",
+    );
+    assert_projection_rows(
+        eq_null_result,
+        ["name"],
+        Vec::<Vec<OutputValue>>::new(),
+        "appended nullable field = NULL should remain distinct from IS NULL",
+    );
+}
+
+#[test]
+fn compiled_sql_query_filters_old_rows_by_added_nullable_field_null_semantics() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_nullable_sql_old_accepted_schema_prefix();
+    let session = sql_session();
+    insert_old_nullable_sql_row_for_test(Ulid::from_u128(1498), "Ada");
+
+    let compiled = session
+        .compile_sql_query::<SessionNullableSqlEntity>(
+            "SELECT name FROM SessionNullableSqlEntity WHERE nickname IS NULL",
+        )
+        .expect("compiled SQL SELECT should accept appended nullable field predicate");
+    let result = session
+        .execute_compiled_sql::<SessionNullableSqlEntity>(&compiled)
+        .expect("compiled SQL SELECT should evaluate appended nullable field predicate");
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+
+    assert_projection_rows(
+        result,
+        ["name"],
+        vec![vec![output(Value::Text("Ada".to_string()))]],
+        "compiled appended nullable field IS NULL should match old missing-slot rows",
+    );
+}
+
+#[test]
+fn sql_metadata_surfaces_show_added_nullable_field_after_schema_transition() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_nullable_sql_old_accepted_schema_prefix();
+    let session = sql_session();
+
+    let described = statement_describe_sql::<SessionNullableSqlEntity>(
+        &session,
+        "DESCRIBE SessionNullableSqlEntity",
+    )
+    .expect("DESCRIBE should accept nullable append-only schema transition");
+    let columns = statement_show_columns_sql::<SessionNullableSqlEntity>(
+        &session,
+        "SHOW COLUMNS SessionNullableSqlEntity",
+    )
+    .expect("SHOW COLUMNS should accept nullable append-only schema transition");
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+
+    assert_eq!(
+        described.fields(),
+        columns.as_slice(),
+        "DESCRIBE and SHOW COLUMNS should share accepted-schema column rows",
+    );
+    assert_eq!(
+        columns
+            .iter()
+            .map(|field| (
+                field.name().to_string(),
+                field.slot(),
+                field.kind().to_string()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            ("id".to_string(), Some(0), "ulid".to_string()),
+            ("name".to_string(), Some(1), "text(unbounded)".to_string()),
+            (
+                "nickname".to_string(),
+                Some(2),
+                "text(unbounded)".to_string(),
+            ),
+        ],
+    );
 }
 
 #[test]

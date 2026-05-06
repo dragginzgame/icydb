@@ -24,10 +24,6 @@ pub fn derive_persisted_row(input: TokenStream) -> TokenStream {
         Err(err) => return err.to_compile_error(),
     };
 
-    if let Err(err) = reject_persisted_field_hints(fields) {
-        return err.to_compile_error();
-    }
-
     let parsed_fields: Vec<&Field> = fields.iter().collect();
     let field_codec_assertions = parsed_fields
         .iter()
@@ -135,27 +131,6 @@ fn named_struct_fields(
     };
 
     Ok(&named.named)
-}
-
-// Reject all field-level storage hints. Persisted row storage is selected from
-// the field type's `PersistedFieldSlotCodec` implementation only.
-fn reject_persisted_field_hints(
-    fields: &syn::punctuated::Punctuated<Field, syn::token::Comma>,
-) -> Result<(), Error> {
-    for field in fields {
-        for attr in &field.attrs {
-            if !attr.path().is_ident("icydb") {
-                continue;
-            }
-
-            return Err(Error::new_spanned(
-                attr,
-                "#[icydb(...)] persisted-row field hints have been removed; use schema-derived field metadata or a type that implements PersistedFieldSlotCodec",
-            ));
-        }
-    }
-
-    Ok(())
 }
 
 // Emit one field-local trait assertion so missing persisted codecs fail with a
