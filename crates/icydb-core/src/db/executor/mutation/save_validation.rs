@@ -56,7 +56,8 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     ) -> Result<(), InternalError> {
         let authority = EntityAuthority::for_type::<E>();
         let schema = authority.schema_info();
-        let row_fields = authority.row_layout().open_raw_row_with_contract(row)?;
+        let row_layout = authority.row_layout();
+        let row_fields = row_layout.open_raw_row_with_contract(row)?;
         row_fields.validate_storage_key(data_key)?;
 
         Self::validate_structural_row_invariants(&row_fields, schema)

@@ -172,7 +172,7 @@ where
         ScalarContinuationContext::for_runtime(PlannedCursor::none(), continuation_signature);
     let prebuilt_route_plan = reusable_initial_scalar_route_plan(
         prepared.plan_core.plan(),
-        prepared.authority,
+        prepared.authority.clone(),
         &continuation,
     )?;
     let prepared = prepare_scalar_route_runtime_from_parts(
@@ -223,7 +223,7 @@ where
         ScalarContinuationContext::for_runtime(PlannedCursor::none(), continuation_signature);
     let prebuilt_route_plan = reusable_initial_scalar_route_plan(
         prepared.plan_core.plan(),
-        prepared.authority,
+        prepared.authority.clone(),
         &continuation,
     )?;
     let prepared = prepare_scalar_route_runtime_from_parts(
@@ -277,7 +277,7 @@ where
         ScalarContinuationContext::for_runtime(PlannedCursor::none(), continuation_signature);
     let prebuilt_route_plan = reusable_initial_scalar_route_plan(
         prepared.plan_core.plan(),
-        prepared.authority,
+        prepared.authority.clone(),
         &continuation,
     )?;
     let projection_requires_data_rows =
@@ -355,7 +355,7 @@ where
         ScalarContinuationContext::for_runtime(PlannedCursor::none(), continuation_signature);
     let prebuilt_route_plan = reusable_initial_scalar_route_plan(
         prepared.plan_core.plan(),
-        prepared.authority,
+        prepared.authority.clone(),
         &continuation,
     )?;
     let prepared = prepare_scalar_route_runtime_from_parts(
@@ -404,7 +404,7 @@ where
         ScalarContinuationContext::for_runtime(PlannedCursor::none(), continuation_signature);
     let prebuilt_route_plan = reusable_initial_scalar_route_plan(
         prepared.plan_core.plan(),
-        prepared.authority,
+        prepared.authority.clone(),
         &continuation,
     )?;
 
@@ -444,7 +444,7 @@ where
         &self,
         plan: PreparedLoadPlan,
     ) -> Result<PreparedScalarMaterializedBoundary<'_>, InternalError> {
-        validate_executor_plan_for_authority(plan.authority(), plan.logical_plan())?;
+        validate_executor_plan_for_authority(&plan.authority(), plan.logical_plan())?;
         let store = self.db.recovered_store(plan.authority().store_path())?;
         let store_resolver = self.db.store_resolver();
 

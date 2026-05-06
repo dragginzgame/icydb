@@ -73,7 +73,7 @@ impl PreparedAggregatePlan {
         authority.finalize_static_planning_shape(&mut grouped_plan);
 
         PreparedLoadPlan {
-            authority,
+            authority: authority.clone(),
             core: build_prepared_execution_plan_core_with_lowered_access(
                 authority,
                 grouped_plan,

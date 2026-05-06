@@ -132,7 +132,7 @@ where
     if !distinct
         && let Some(projected) = try_execute_covering_projection_rows_for_canister(
             db,
-            authority,
+            authority.clone(),
             execution_plan,
             covering_metrics,
         )?

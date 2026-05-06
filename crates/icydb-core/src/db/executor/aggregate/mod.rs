@@ -153,7 +153,7 @@ impl ExecutionKernel {
         } = plan.into_streaming_parts()?;
 
         // Re-validate executor invariants at the logical boundary.
-        validate_executor_plan_for_authority(authority, &logical_plan)?;
+        validate_executor_plan_for_authority(&authority, &logical_plan)?;
         let store = executor.db.recovered_store(authority.store_path())?;
         let store_resolver = executor.db.store_resolver();
         record_plan_metrics(authority.entity_path(), &logical_plan);
@@ -263,12 +263,13 @@ impl ExecutionKernel {
         // with the original prepared descriptor and prepared aggregate inputs.
         let fold_mode = descriptor.route_plan.aggregate_fold_mode;
         let physical_fetch_hint = descriptor.route_plan.scan_hints.physical_fetch_hint;
+        let authority = prepared.authority.clone();
         let lowered_access = prepared.lowered_access()?;
 
         let fast_path_inputs = AggregateFastPathInputs {
             logical_plan: &prepared.logical_plan,
             executable_access: lowered_access.executable(),
-            authority: prepared.authority,
+            authority: authority.clone(),
             store: prepared.store,
             route_plan: &descriptor.route_plan,
             index_prefix_specs: prepared.index_prefix_specs.as_ref(),
@@ -285,17 +286,14 @@ impl ExecutionKernel {
         if let Some((aggregate_output, rows_scanned)) =
             Self::try_fast_path_aggregate(&fast_path_inputs)?
         {
-            record_rows_scanned_for_path(prepared.authority.entity_path(), rows_scanned);
+            record_rows_scanned_for_path(authority.entity_path(), rows_scanned);
             return Ok(aggregate_output);
         }
 
         // Build canonical execution inputs. This must match the load executor
         // path exactly to preserve ordering and DISTINCT behavior.
         let runtime = ExecutionRuntimeAdapter::from_stream_runtime_parts(
-            crate::db::executor::TraversalRuntime::new(
-                prepared.store,
-                prepared.authority.entity_tag(),
-            ),
+            crate::db::executor::TraversalRuntime::new(prepared.store, authority.entity_tag()),
         );
         let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputParts {
             runtime: &runtime,

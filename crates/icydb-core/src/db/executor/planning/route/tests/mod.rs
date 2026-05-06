@@ -214,7 +214,7 @@ fn build_load_route_plan_for_authority(
     continuation: &ScalarContinuationContext,
     probe_fetch_hint: Option<usize>,
 ) -> Result<ExecutionPlan, crate::error::InternalError> {
-    let finalized = finalized_plan_for_authority(authority, plan);
+    let finalized = finalized_plan_for_authority(authority.clone(), plan);
 
     build_execution_route_plan(
         &finalized,
@@ -298,7 +298,7 @@ fn build_initial_load_route_plan(
     plan: &AccessPlannedQuery,
 ) -> Result<ExecutionPlan, crate::error::InternalError> {
     let authority = route_capability_authority();
-    let finalized = finalized_plan_for_authority(authority, plan);
+    let finalized = finalized_plan_for_authority(authority.clone(), plan);
 
     build_execution_route_plan(
         &finalized,
@@ -316,7 +316,7 @@ fn derive_load_terminal_fast_path_contract_for_test(
     strict_predicate_compatible: bool,
 ) -> Option<LoadTerminalFastPathContract> {
     let authority = route_capability_authority();
-    let finalized = finalized_plan_for_authority(authority, plan);
+    let finalized = finalized_plan_for_authority(authority.clone(), plan);
 
     derive_load_terminal_fast_path_contract(authority, &finalized, strict_predicate_compatible)
 }
@@ -340,7 +340,7 @@ fn build_aggregate_spec_route(
     aggregate_expr: crate::db::query::builder::AggregateExpr,
 ) -> ExecutionPlan {
     let authority = route_capability_authority();
-    let finalized = finalized_plan_for_authority(authority, plan);
+    let finalized = finalized_plan_for_authority(authority.clone(), plan);
     let execution_preparation =
         ExecutionPreparation::from_plan(&finalized, slot_map_for_model_plan(&finalized));
 

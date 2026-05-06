@@ -67,7 +67,10 @@ where
     }
 
     if let Some(projected_rows) = try_execute_primary_store_covering_projection_rows_for_canister(
-        db, authority, plan, &covering,
+        db,
+        authority.clone(),
+        plan,
+        &covering,
     )? {
         return Ok(Some(projected_rows));
     }

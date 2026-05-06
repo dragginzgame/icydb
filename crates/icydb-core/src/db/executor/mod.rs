@@ -175,7 +175,7 @@ pub(in crate::db::executor) type ExecutionPlan = planning::route::ExecutionRoute
 
 /// Validate plans at executor boundaries using structural entity authority.
 pub(in crate::db::executor) fn validate_executor_plan_for_authority(
-    authority: EntityAuthority,
+    authority: &EntityAuthority,
     plan: &AccessPlannedQuery,
 ) -> Result<(), InternalError> {
     authority.validate_executor_plan(plan)

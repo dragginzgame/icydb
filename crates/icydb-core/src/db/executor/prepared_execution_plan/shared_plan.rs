@@ -39,7 +39,7 @@ impl SharedPreparedExecutionPlan {
         authority.finalize_planner_route_profile(&mut plan);
 
         Self {
-            authority,
+            authority: authority.clone(),
             core: build_prepared_execution_plan_core(authority, plan),
         }
     }
@@ -71,9 +71,9 @@ impl SharedPreparedExecutionPlan {
         self,
     ) -> Result<SharedPreparedProjectionRuntimeParts, InternalError> {
         let Self { authority, core } = self;
-        let prepared_projection_shape = core.get_or_init_projection_shape(authority);
+        let prepared_projection_shape = core.get_or_init_projection_shape(authority.clone());
         let retained_slot_layout = core.get_or_init_scalar_layout(
-            authority,
+            authority.clone(),
             ProjectionMaterializationMode::RetainSlotRows,
             CursorEmissionMode::Suppress,
         );
@@ -87,7 +87,7 @@ impl SharedPreparedExecutionPlan {
             return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
         }
         let scalar_runtime = PreparedScalarRuntimeParts {
-            authority,
+            authority: authority.clone(),
             execution_preparation,
             prepared_projection_shape: prepared_projection_shape.clone(),
             retained_slot_layout,

@@ -99,7 +99,7 @@ where
     C: CanisterKind,
 {
     if let Some(projected) =
-        pure::try_execute_covering_projection_rows_for_canister(db, authority, plan)?
+        pure::try_execute_covering_projection_rows_for_canister(db, authority.clone(), plan)?
     {
         return Ok(Some(CoveringProjectionRows::new(projected)));
     }

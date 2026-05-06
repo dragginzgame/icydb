@@ -51,7 +51,7 @@ pub(in crate::db::executor::projection) fn project_distinct(
                 data_rows.iter(),
                 || metrics.record_distinct_candidate_row(),
                 || metrics.record_distinct_bounded_stop(),
-                |row| project_data_row(row_layout, prepared_projection, row, metrics),
+                |row| project_data_row(row_layout.clone(), prepared_projection, row, metrics),
             )
             .map(MaterializedProjectionRows::from_row_views)
         },

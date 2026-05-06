@@ -535,9 +535,12 @@ fn wide_scalar_data_row_materialization_visits_borrowed_row_views() {
         projection_eval_data_row_for_materialize_tests(66, 17, false),
     ];
 
-    let borrowed_rows =
-        count_borrowed_data_row_views_for_test(row_layout, &prepared_projection, rows.as_slice())
-            .expect("wide scalar data-row projection should visit borrowed row views");
+    let borrowed_rows = count_borrowed_data_row_views_for_test(
+        row_layout.clone(),
+        &prepared_projection,
+        rows.as_slice(),
+    )
+    .expect("wide scalar data-row projection should visit borrowed row views");
     assert_eq!(
         borrowed_rows,
         rows.len(),

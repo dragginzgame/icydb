@@ -98,7 +98,7 @@ where
         .expect("grouped execution pipeline snapshot should build compiled query");
     let executable = crate::db::executor::PreparedExecutionPlan::from(compiled);
     validate_executor_plan_for_authority(
-        EntityAuthority::for_type::<E>(),
+        &EntityAuthority::for_type::<E>(),
         executable.logical_plan(),
     )
     .expect("grouped execution pipeline snapshot should validate executor boundary");

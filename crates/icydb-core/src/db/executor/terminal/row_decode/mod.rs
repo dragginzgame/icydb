@@ -22,7 +22,7 @@ use crate::{
         executor::terminal::{
             RetainedSlotLayout, RetainedSlotRow, RetainedSlotValueMode, page::KernelRow,
         },
-        schema::AcceptedGeneratedCompatibleRowShape,
+        schema::AcceptedRowDecodeContract,
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -38,7 +38,7 @@ use crate::{
 /// entity materialization.
 ///
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(in crate::db) struct RowLayout {
     contract: StructuralRowContract,
 }
@@ -52,20 +52,16 @@ impl RowLayout {
         }
     }
 
-    /// Build one row layout from an already-proven generated-compatible shape.
-    ///
-    /// Schema runtime owns the compatibility proof. This constructor only
-    /// projects the proof into the structural row contract consumed by the
-    /// generated decoder bridge.
+    /// Build one row layout from an accepted row-decode contract that has
+    /// already passed the generated-compatible guard.
     #[must_use]
-    pub(in crate::db) const fn from_generated_compatible_row_shape(
+    pub(in crate::db) fn from_accepted_decode_contract(
         model: &'static EntityModel,
-        row_shape: AcceptedGeneratedCompatibleRowShape,
+        accepted_decode_contract: AcceptedRowDecodeContract,
     ) -> Self {
-        let contract = StructuralRowContract::from_model_with_row_shape(
+        let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
             model,
-            row_shape.required_slot_count(),
-            row_shape.primary_key_slot_index(),
+            accepted_decode_contract,
         );
 
         Self { contract }
@@ -73,42 +69,42 @@ impl RowLayout {
 
     /// Borrow the frozen field-count authority carried by this layout.
     #[must_use]
-    pub(in crate::db) const fn field_count(self) -> usize {
+    pub(in crate::db) const fn field_count(&self) -> usize {
         self.contract.field_count()
     }
 
     /// Borrow the frozen primary-key slot authority carried by this layout.
     #[must_use]
-    pub(in crate::db) const fn primary_key_slot(self) -> usize {
+    pub(in crate::db) const fn primary_key_slot(&self) -> usize {
         self.contract.primary_key_slot()
     }
 
     /// Borrow the frozen structural row contract carried by this layout.
     #[must_use]
-    pub(in crate::db) const fn contract(self) -> StructuralRowContract {
-        self.contract
+    pub(in crate::db) const fn contract(&self) -> &StructuralRowContract {
+        &self.contract
     }
 
     /// Open one raw row through the frozen structural decode contract without
     /// retaining model-backed slot-reader seams.
-    pub(in crate::db) fn open_raw_row_with_contract(
-        self,
-        row: &RawRow,
-    ) -> Result<StructuralSlotReader<'_>, InternalError> {
-        StructuralSlotReader::from_raw_row_with_contract(row, self.contract)
+    pub(in crate::db) fn open_raw_row_with_contract<'a>(
+        &self,
+        row: &'a RawRow,
+    ) -> Result<StructuralSlotReader<'a>, InternalError> {
+        StructuralSlotReader::from_raw_row_with_contract(row, self.contract.clone())
     }
 
     /// Decode one compact sparse slot buffer directly through the frozen row
     /// contract without constructing the general structural slot reader.
     pub(in crate::db) fn decode_indexed_values(
-        self,
+        &self,
         row: &RawRow,
         expected_key: StorageKey,
         required_slots: &[usize],
     ) -> Result<Vec<Option<Value>>, InternalError> {
         decode_sparse_indexed_raw_row_with_contract(
             row,
-            self.contract,
+            self.contract.clone(),
             expected_key,
             required_slots,
         )
@@ -117,24 +113,29 @@ impl RowLayout {
     /// Decode one required structural slot directly through the frozen row
     /// contract without constructing a sparse slot buffer.
     pub(in crate::db) fn decode_required_value(
-        self,
+        &self,
         row: &RawRow,
         expected_key: StorageKey,
         required_slot: usize,
     ) -> Result<Option<Value>, InternalError> {
-        decode_sparse_required_slot_with_contract(row, self.contract, expected_key, required_slot)
+        decode_sparse_required_slot_with_contract(
+            row,
+            self.contract.clone(),
+            expected_key,
+            required_slot,
+        )
     }
 
     /// Decode one full structural row into a caller-owned reusable value buffer.
     pub(in crate::db) fn decode_full_value_row_into(
-        self,
+        &self,
         expected_key: StorageKey,
         row: &RawRow,
         values: &mut Vec<Value>,
     ) -> Result<(), InternalError> {
         values.clear();
 
-        let decoded = decode_dense_raw_row_with_contract(row, self.contract, expected_key)?;
+        let decoded = decode_dense_raw_row_with_contract(row, self.contract.clone(), expected_key)?;
         values.reserve(decoded.len());
 
         // Phase 1: dense row decode should produce every declared slot, but
@@ -144,10 +145,10 @@ impl RowLayout {
             let value = value.ok_or_else(|| {
                 let field = self
                     .contract
-                    .field_decode_contract(slot)
+                    .field_name(slot)
                     .expect("dense structural decode only returns declared slots");
 
-                InternalError::persisted_row_declared_field_missing(field.name())
+                InternalError::persisted_row_declared_field_missing(field)
             })?;
             values.push(value);
         }
@@ -222,7 +223,12 @@ impl RowDecoder {
         row: &RawRow,
         required_slot: usize,
     ) -> Result<Option<Value>, InternalError> {
-        decode_sparse_required_slot_with_contract(row, layout.contract, expected_key, required_slot)
+        decode_sparse_required_slot_with_contract(
+            row,
+            layout.contract.clone(),
+            expected_key,
+            required_slot,
+        )
     }
 
     // Decode one retained structural slot value through caller-frozen field
@@ -238,7 +244,7 @@ impl RowDecoder {
     ) -> Result<Option<Value>, InternalError> {
         decode_sparse_required_slot_with_contract_and_fields(
             row,
-            layout.contract,
+            layout.contract.clone(),
             expected_key,
             required_slot,
             required_field,
@@ -283,7 +289,7 @@ impl RowDecoder {
         // Phase 1: let dense callers stay on the dedicated direct full-row
         // decode path so compact retained layouts do not regress all-slot reads.
         if required_slots_match_full_layout(layout, retained_slot_layout.required_slots()) {
-            return decode_dense_raw_row_with_contract(row, layout.contract, expected_key);
+            return decode_dense_raw_row_with_contract(row, layout.contract.clone(), expected_key);
         }
 
         // Phase 2: reuse the canonical row-open validation boundary once, then
@@ -291,7 +297,7 @@ impl RowDecoder {
         // layout order.
         decode_sparse_indexed_raw_row_with_contract(
             row,
-            layout.contract,
+            layout.contract.clone(),
             expected_key,
             retained_slot_layout.required_slots(),
         )
@@ -324,11 +330,16 @@ fn decode_indexed_slot_values_with_value_modes(
         }
     }
     if normal_slots.is_empty() {
-        decode_sparse_indexed_raw_row_with_contract(row, layout.contract, expected_key, &[])?;
+        decode_sparse_indexed_raw_row_with_contract(
+            row,
+            layout.contract.clone(),
+            expected_key,
+            &[],
+        )?;
     } else {
         let decoded_normal_values = decode_sparse_indexed_raw_row_with_contract(
             row,
-            layout.contract,
+            layout.contract.clone(),
             expected_key,
             normal_slots.as_slice(),
         )?;
@@ -396,14 +407,14 @@ fn decode_structural_slots(
     if required_slots
         .is_none_or(|required_slots| required_slots_match_full_layout(layout, required_slots))
     {
-        return decode_dense_raw_row_with_contract(row, layout.contract, expected_key);
+        return decode_dense_raw_row_with_contract(row, layout.contract.clone(), expected_key);
     }
 
     // Phase 2: sparse callers decode only the slots their compiled plan will
     // actually touch without building the general row-reader cache.
     decode_sparse_raw_row_with_contract(
         row,
-        layout.contract,
+        layout.contract.clone(),
         expected_key,
         required_slots.expect("dense full-slot callers return earlier"),
     )

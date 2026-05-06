@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.147.x] 🪪 - 2026-05-04 - Accepted Schema Authority Closeout
 
+- `0.147.24` makes runtime row layouts carry saved schema field decode contracts for direct row reads while keeping generated bridges only where typed compatibility still needs them.
 - `0.147.23` adds the first accepted-schema field decoder, with drift guards and field-owned error messages for persisted payload decoding.
 - `0.147.22` makes the slot-reader generated-field bridge explicit and moves more row-reader and structural save checks onto field decode contracts.
 - `0.147.21` renames the remaining internal generated field-slot lookup surfaces so compatibility code clearly says when it still depends on generated field metadata.

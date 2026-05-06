@@ -186,6 +186,121 @@ impl<'a> AcceptedFieldDecodeContract<'a> {
 }
 
 ///
+/// OwnedAcceptedFieldDecodeContract
+///
+/// OwnedAcceptedFieldDecodeContract is the owned form of one accepted
+/// field-level decode contract.
+/// It exists so runtime row-layout artifacts can carry accepted field
+/// contracts beyond the borrow of the schema descriptor that produced them.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct OwnedAcceptedFieldDecodeContract {
+    field_name: String,
+    kind: PersistedFieldKind,
+    nullable: bool,
+    storage_decode: FieldStorageDecode,
+    leaf_codec: LeafCodec,
+}
+
+impl OwnedAcceptedFieldDecodeContract {
+    /// Build one owned field contract from a descriptor-borrowed contract.
+    #[must_use]
+    fn from_decode_contract(contract: AcceptedFieldDecodeContract<'_>) -> Self {
+        Self {
+            field_name: contract.field_name().to_string(),
+            kind: contract.kind().clone(),
+            nullable: contract.nullable(),
+            storage_decode: contract.storage_decode(),
+            leaf_codec: contract.leaf_codec(),
+        }
+    }
+
+    /// Borrow this owned field contract as the accepted decode contract shape.
+    #[must_use]
+    pub(in crate::db) const fn decode_contract(&self) -> AcceptedFieldDecodeContract<'_> {
+        AcceptedFieldDecodeContract {
+            field_name: self.field_name.as_str(),
+            kind: &self.kind,
+            nullable: self.nullable,
+            storage_decode: self.storage_decode,
+            leaf_codec: self.leaf_codec,
+        }
+    }
+
+    /// Borrow the accepted persisted field name.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn field_name(&self) -> &str {
+        self.field_name.as_str()
+    }
+
+    /// Borrow the owned accepted persisted field kind.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn kind(&self) -> &PersistedFieldKind {
+        &self.kind
+    }
+}
+
+///
+/// AcceptedRowDecodeContract
+///
+/// AcceptedRowDecodeContract is the owned, slot-indexed row decode contract
+/// projected from accepted schema metadata.
+/// It is the future handoff object for `RowLayout`: schema owns construction,
+/// while data/executor code will consume it without reopening generated
+/// `FieldModel` metadata.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedRowDecodeContract {
+    required_slot_count: usize,
+    primary_key_slot_index: usize,
+    fields_by_slot: Vec<Option<OwnedAcceptedFieldDecodeContract>>,
+}
+
+impl AcceptedRowDecodeContract {
+    /// Build one accepted row decode contract from descriptor field facts.
+    fn from_descriptor(descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>) -> Self {
+        let mut fields_by_slot = vec![None; descriptor.required_slot_count()];
+
+        for field in descriptor.fields() {
+            fields_by_slot[usize::from(field.slot().get())] = Some(
+                OwnedAcceptedFieldDecodeContract::from_decode_contract(field.decode_contract()),
+            );
+        }
+
+        Self {
+            required_slot_count: descriptor.required_slot_count(),
+            primary_key_slot_index: descriptor.primary_key_slot_index(),
+            fields_by_slot,
+        }
+    }
+
+    /// Return the accepted physical slot count required by this row contract.
+    #[must_use]
+    pub(in crate::db) const fn required_slot_count(&self) -> usize {
+        self.required_slot_count
+    }
+
+    /// Return the accepted primary-key physical slot index.
+    #[must_use]
+    pub(in crate::db) const fn primary_key_slot_index(&self) -> usize {
+        self.primary_key_slot_index
+    }
+
+    /// Borrow one accepted field decode contract by physical row slot.
+    #[must_use]
+    pub(in crate::db) fn field_for_slot(
+        &self,
+        slot: usize,
+    ) -> Option<&OwnedAcceptedFieldDecodeContract> {
+        self.fields_by_slot.get(slot)?.as_ref()
+    }
+}
+
+///
 /// AcceptedGeneratedCompatibleRowShape
 ///
 /// AcceptedGeneratedCompatibleRowShape is the schema-runtime proof that one
@@ -203,12 +318,14 @@ pub(in crate::db) struct AcceptedGeneratedCompatibleRowShape {
 impl AcceptedGeneratedCompatibleRowShape {
     /// Return the accepted physical slot count proven generated-compatible.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn required_slot_count(self) -> usize {
         self.required_slot_count
     }
 
     /// Return the accepted primary-key physical slot proven generated-compatible.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn primary_key_slot_index(self) -> usize {
         self.primary_key_slot_index
     }
@@ -400,6 +517,12 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
             .map(AcceptedRowLayoutRuntimeField::kind)
     }
 
+    /// Build the owned accepted row-decode contract for this descriptor.
+    #[must_use]
+    pub(in crate::db) fn row_decode_contract(&self) -> AcceptedRowDecodeContract {
+        AcceptedRowDecodeContract::from_descriptor(self)
+    }
+
     /// Return the row shape when this accepted layout can still use generated field codecs.
     ///
     /// The row decoder remains generated-codec backed until accepted-field
@@ -529,14 +652,17 @@ const fn accepted_field_absence_policy(
 mod tests {
     use crate::{
         db::{
-            data::decode_runtime_value_from_accepted_field_contract,
+            data::{
+                decode_runtime_value_from_accepted_field_contract,
+                encode_persisted_scalar_slot_payload,
+            },
             schema::{
                 AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
                 PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot,
                 SchemaFieldWritePolicy, SchemaRowLayout, SchemaVersion,
                 runtime::{
-                    AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeDescriptor,
-                    AcceptedRowLayoutRuntimeField,
+                    AcceptedFieldAbsencePolicy, AcceptedRowDecodeContract,
+                    AcceptedRowLayoutRuntimeDescriptor, AcceptedRowLayoutRuntimeField,
                 },
             },
         },
@@ -549,6 +675,7 @@ mod tests {
             index::IndexModel,
         },
         testing::entity_model_from_static,
+        value::Value,
     };
 
     static RUNTIME_ENTITY_FIELDS: [FieldModel; 2] = [
@@ -844,6 +971,53 @@ mod tests {
         ));
         assert!(nickname.nested_leaves().is_empty());
         assert!(nickname.nullable());
+    }
+
+    #[test]
+    fn accepted_row_decode_contract_owns_slot_indexed_field_contracts() {
+        let accepted = accepted_schema_fixture();
+        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+            .expect("accepted runtime descriptor should build");
+        let contract = descriptor.row_decode_contract();
+        let nickname = contract
+            .field_for_slot(9)
+            .expect("nickname field should be available by accepted row slot");
+
+        assert_eq!(contract.required_slot_count(), 10);
+        assert_eq!(contract.primary_key_slot_index(), 0);
+        assert_eq!(nickname.field_name(), "nickname");
+        assert!(
+            contract.field_for_slot(1).is_none(),
+            "accepted row decode contract should preserve row-layout gaps"
+        );
+        assert!(matches!(
+            nickname.kind(),
+            PersistedFieldKind::Text { max_len: Some(32) },
+        ));
+    }
+
+    #[test]
+    fn accepted_row_decode_contract_survives_descriptor_borrow_scope() {
+        let contract: AcceptedRowDecodeContract = {
+            let accepted = generated_compatible_accepted_schema_fixture();
+            let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+                .expect("accepted runtime descriptor should build");
+
+            descriptor.row_decode_contract()
+        };
+        let nickname_field = contract
+            .field_for_slot(1)
+            .expect("nickname field should survive as owned accepted contract");
+        let raw_value = encode_persisted_scalar_slot_payload(&"Ada".to_string(), "nickname")
+            .expect("owned accepted scalar fixture should encode");
+
+        let value = decode_runtime_value_from_accepted_field_contract(
+            nickname_field.decode_contract(),
+            raw_value.as_slice(),
+        )
+        .expect("owned accepted field contract should decode outside descriptor borrow scope");
+
+        assert_eq!(value, Value::Text("Ada".to_string()));
     }
 
     #[test]

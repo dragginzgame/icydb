@@ -4,7 +4,11 @@ use crate::{
         StructuralRowDecodeError, StructuralRowFieldBytes,
         persisted_row::{
             codec::{ScalarSlotValueRef, decode_scalar_slot_value},
-            contract::{decode_runtime_value_from_field_contract, validate_non_scalar_slot_value},
+            contract::{
+                decode_runtime_value_from_accepted_field_contract,
+                decode_runtime_value_from_field_contract, validate_non_scalar_accepted_slot_value,
+                validate_non_scalar_slot_value,
+            },
             reader::{
                 metrics::{StructuralReadProbe, finish_direct_probe},
                 primary_key::{
@@ -44,9 +48,10 @@ impl<'a> DirectStructuralRowFields<'a> {
         contract: StructuralRowContract,
         expected_key: StorageKey,
     ) -> Result<Self, InternalError> {
-        let field_bytes = StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract)
-            .map_err(StructuralRowDecodeError::into_internal_error)?;
-        validate_storage_key_from_field_bytes(contract, &field_bytes, expected_key)?;
+        let field_bytes =
+            StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract.clone())
+                .map_err(StructuralRowDecodeError::into_internal_error)?;
+        validate_storage_key_from_field_bytes(contract.clone(), &field_bytes, expected_key)?;
 
         Ok(Self {
             contract,
@@ -63,7 +68,7 @@ impl<'a> DirectStructuralRowFields<'a> {
         probe: &StructuralReadProbe,
     ) -> Result<Value, InternalError> {
         decode_selected_slot_value(
-            self.contract,
+            self.contract.clone(),
             &self.field_bytes,
             slot,
             self.expected_key,
@@ -102,7 +107,7 @@ impl<'a> DirectSparseRequiredRowField<'a> {
     ) -> Result<Self, InternalError> {
         let field_bytes = SparseRequiredRowFieldBytes::from_raw_row_with_contract(
             raw_row,
-            contract,
+            contract.clone(),
             required_slot,
         )
         .map_err(StructuralRowDecodeError::into_internal_error)?;
@@ -143,7 +148,7 @@ pub(in crate::db) fn decode_dense_raw_row_with_contract(
 ) -> Result<Vec<Option<Value>>, InternalError> {
     // Phase 1: open and key-validate the row once through the direct reader
     // boundary shared by dense and sparse decode helpers.
-    let fields = DirectStructuralRowFields::open(raw_row, contract, expected_key)?;
+    let fields = DirectStructuralRowFields::open(raw_row, contract.clone(), expected_key)?;
 
     // Phase 2: decode every declared slot in one straight-line loop.
     let mut values = Vec::with_capacity(contract.field_count());
@@ -174,7 +179,7 @@ pub(in crate::db) fn decode_sparse_raw_row_with_contract(
 ) -> Result<Vec<Option<Value>>, InternalError> {
     // Phase 1: open and key-validate the row once through the direct reader
     // boundary shared by dense and sparse decode helpers.
-    let fields = DirectStructuralRowFields::open(raw_row, contract, expected_key)?;
+    let fields = DirectStructuralRowFields::open(raw_row, contract.clone(), expected_key)?;
 
     // Phase 2: decode only the requested slots without building the general
     // lazy cache shape that sparse executor reads never reuse.
@@ -200,7 +205,7 @@ pub(in crate::db) fn decode_sparse_indexed_raw_row_with_contract(
 ) -> Result<Vec<Option<Value>>, InternalError> {
     // Phase 1: open and key-validate the row once through the direct reader
     // boundary shared by dense and sparse decode helpers.
-    let fields = DirectStructuralRowFields::open(raw_row, contract, expected_key)?;
+    let fields = DirectStructuralRowFields::open(raw_row, contract.clone(), expected_key)?;
 
     // Phase 2: decode only the requested retained slots into compact layout
     // order, matching the executor-owned retained-slot layout contract.
@@ -252,7 +257,7 @@ pub(in crate::db) fn decode_sparse_required_slot_with_contract_and_fields(
     // reader owner used only by narrow one-slot decode paths.
     let field = DirectSparseRequiredRowField::open(
         raw_row,
-        contract,
+        contract.clone(),
         expected_key,
         required_slot,
         required_field,
@@ -277,19 +282,63 @@ fn decode_selected_slot_value(
     expected_key: StorageKey,
     probe: &StructuralReadProbe,
 ) -> Result<Value, InternalError> {
-    let field = contract.field_decode_contract(slot)?;
-
+    let field_name = contract.field_name(slot)?;
     let raw_value = field_bytes
         .field(slot)
-        .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field.name()))?;
+        .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field_name))?;
 
-    decode_slot_with_field(
-        field,
+    decode_slot_with_contract(
+        &contract,
+        slot,
         raw_value,
         expected_key,
         slot == contract.primary_key_slot(),
         probe,
     )
+}
+
+// Decode one caller-selected slot through accepted field contracts when the
+// row contract carries them, falling back to the generated-compatible contract
+// for generated-only row layouts and primary-key materialization.
+fn decode_slot_with_contract(
+    contract: &StructuralRowContract,
+    slot: usize,
+    raw_value: &[u8],
+    expected_key: StorageKey,
+    is_primary: bool,
+    probe: &StructuralReadProbe,
+) -> Result<Value, InternalError> {
+    let field = contract.field_decode_contract(slot)?;
+
+    // Primary-key projection reconstructs the already validated row key from
+    // the storage boundary. Keep that path on the generated-compatible field
+    // contract until primary-key materialization accepts persisted kinds.
+    if is_primary {
+        return decode_slot_with_field(field, raw_value, expected_key, true, probe);
+    }
+
+    if let Some(accepted_field) = contract.accepted_field_decode_contract(slot) {
+        match accepted_field.leaf_codec() {
+            LeafCodec::Scalar(codec) => {
+                probe.record_validated_slot();
+
+                match decode_scalar_slot_value(raw_value, codec, accepted_field.field_name())? {
+                    ScalarSlotValueRef::Null => Ok(Value::Null),
+                    ScalarSlotValueRef::Value(value) => Ok(value.into_value()),
+                }
+            }
+            LeafCodec::StructuralFallback => {
+                probe.record_validated_slot();
+                probe.record_validated_non_scalar();
+                probe.record_materialized_non_scalar();
+                validate_non_scalar_accepted_slot_value(raw_value, accepted_field)?;
+
+                decode_runtime_value_from_accepted_field_contract(accepted_field, raw_value)
+            }
+        }
+    } else {
+        decode_slot_with_field(field, raw_value, expected_key, false, probe)
+    }
 }
 
 // Decode one caller-selected slot from raw field bytes once the caller has

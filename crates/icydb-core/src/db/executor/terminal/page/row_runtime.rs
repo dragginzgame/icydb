@@ -282,8 +282,8 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
     /// Borrow the authority-owned row layout used by raw-row materialization
     /// and direct raw-row order caching.
     #[must_use]
-    pub(in crate::db::executor) const fn row_layout(&self) -> RowLayout {
-        self.state.row_layout
+    pub(in crate::db::executor) fn row_layout(&self) -> RowLayout {
+        self.state.row_layout.clone()
     }
 
     /// Read one structural data row without decoding any slot payload.

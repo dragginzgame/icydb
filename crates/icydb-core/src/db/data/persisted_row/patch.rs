@@ -49,7 +49,7 @@ impl<'a> SerializedPatchPayloads<'a> {
 
         for entry in patch.entries() {
             let slot = entry.slot().index();
-            Self::generated_compatible_field_model_for(contract, slot)?;
+            Self::generated_compatible_field_model_for(&contract, slot)?;
             payloads[slot] = Some(entry.payload());
         }
 
@@ -59,7 +59,7 @@ impl<'a> SerializedPatchPayloads<'a> {
     // Resolve one generated-compatible field model by stable slot index for
     // typed materialization compatibility surfaces.
     fn generated_compatible_field_model(&self, slot: usize) -> Result<&FieldModel, InternalError> {
-        Self::generated_compatible_field_model_for(self.contract, slot)
+        Self::generated_compatible_field_model_for(&self.contract, slot)
     }
 
     // Resolve one field decode contract by stable slot index for runtime value
@@ -74,7 +74,7 @@ impl<'a> SerializedPatchPayloads<'a> {
     // Resolve one generated-compatible field model from a projected structural
     // row contract.
     fn generated_compatible_field_model_for(
-        contract: StructuralRowContract,
+        contract: &StructuralRowContract,
         slot: usize,
     ) -> Result<&'static FieldModel, InternalError> {
         contract.generated_compatible_field_model(slot)

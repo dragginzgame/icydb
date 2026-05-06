@@ -136,7 +136,7 @@ where
     // caller-provided commit-window bridge.
     apply_delete_commit(
         db,
-        prepared.authority.entity,
+        prepared.authority.entity.clone(),
         prepared_projection.commit.row_ops,
         "delete_row_apply",
     )?;

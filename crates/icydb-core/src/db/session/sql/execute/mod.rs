@@ -567,7 +567,7 @@ impl<C: CanisterKind> DbSession<C> {
                 .execute_global_aggregate_statement_for_authority::<E>(*command.clone(), authority),
             CompiledSqlCommand::Explain(lowered) => {
                 if let Some(explain) =
-                    self.explain_lowered_sql_execution_for_authority(lowered, authority)?
+                    self.explain_lowered_sql_execution_for_authority(lowered, authority.clone())?
                 {
                     return Ok((
                         SqlStatementResult::Explain(explain),
@@ -636,7 +636,7 @@ impl<C: CanisterKind> DbSession<C> {
             }
             CompiledSqlCommand::Explain(lowered) => {
                 if let Some(explain) =
-                    self.explain_lowered_sql_execution_for_authority(&lowered, authority)?
+                    self.explain_lowered_sql_execution_for_authority(&lowered, authority.clone())?
                 {
                     return Ok((
                         SqlStatementResult::Explain(explain),

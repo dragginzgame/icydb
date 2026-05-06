@@ -158,13 +158,14 @@ impl GroupedPathRuntimeCore {
     // Build the grouped runtime spine once from one recovered store handle and
     // its resolved structural entity authority.
     const fn from_store(store: StoreHandle, authority: EntityAuthority) -> Self {
+        let entity_tag = authority.entity_tag();
+        let entity_path = authority.entity_path();
+
         Self {
-            traversal_runtime: TraversalRuntime::new(store, authority.entity_tag()),
+            traversal_runtime: TraversalRuntime::new(store, entity_tag),
             row_store: store,
             authority,
-            output_observer: GroupedOutputRuntimeObserverBindings::for_path(
-                authority.entity_path(),
-            ),
+            output_observer: GroupedOutputRuntimeObserverBindings::for_path(entity_path),
         }
     }
 

@@ -82,10 +82,6 @@ pub(in crate::db::data::persisted_row) fn decode_runtime_value_from_field_contra
 /// `decode_runtime_value_from_field_contract(...)`. It keeps accepted
 /// `PersistedFieldKind` metadata intact for recursive payloads instead of
 /// first converting back through generated static `FieldKind` descriptors.
-#[allow(
-    dead_code,
-    reason = "accepted row readers will consume this once row layout no longer projects through generated-compatible contracts"
-)]
 pub(in crate::db) fn decode_runtime_value_from_accepted_field_contract(
     field: AcceptedFieldDecodeContract<'_>,
     raw_value: &[u8],
@@ -554,10 +550,6 @@ pub(in crate::db::data::persisted_row) fn validate_non_scalar_slot_value(
 ///
 /// The helper mirrors the generated-compatible validation boundary but keeps
 /// recursive payload validation on accepted `PersistedFieldKind` metadata.
-#[allow(
-    dead_code,
-    reason = "accepted row readers will consume this once row layout no longer projects through generated-compatible contracts"
-)]
 pub(in crate::db) fn validate_non_scalar_accepted_slot_value(
     raw_value: &[u8],
     field: AcceptedFieldDecodeContract<'_>,

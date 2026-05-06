@@ -44,7 +44,7 @@ impl PreparedScalarRuntimeParts {
         let shared = plan_core.core.into_shared();
         let execution_plan = shared.plan.clone_without_scalar_page();
         let core = build_prepared_execution_plan_core_with_lowered_access(
-            authority,
+            authority.clone(),
             execution_plan,
             shared.index_prefix_specs,
             shared.index_prefix_spec_invalid,

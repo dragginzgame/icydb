@@ -44,7 +44,7 @@ fn prepare_delete_execution_state(
     index_range_specs: Arc<[crate::db::access::LoweredIndexRangeSpec]>,
 ) -> Result<PreparedDeleteExecutionState, InternalError> {
     // Phase 1: validate the structural mutation plan before touching store access.
-    preflight_mutation_plan_for_authority(authority.entity, &logical_plan)?;
+    preflight_mutation_plan_for_authority(authority.entity.clone(), &logical_plan)?;
 
     // Phase 2: build reusable delete predicate/index preparation once.
     let route_plan = build_execution_route_plan(&logical_plan, RoutePlanRequest::MutationDelete)?;

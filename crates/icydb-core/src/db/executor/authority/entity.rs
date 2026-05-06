@@ -9,7 +9,7 @@ use crate::{
             AccessPlannedQuery, CoveringReadExecutionPlan, PlannedContinuationContract,
             covering_read_execution_plan_from_fields,
         },
-        schema::{AcceptedGeneratedCompatibleRowShape, SchemaInfo},
+        schema::{AcceptedGeneratedCompatibleRowShape, AcceptedRowDecodeContract, SchemaInfo},
     },
     error::InternalError,
     metrics::sink::{
@@ -32,7 +32,7 @@ use crate::{
 /// duplicated metadata independently.
 ///
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct EntityAuthority {
     model: &'static EntityModel,
     row_layout: RowLayout,
@@ -64,17 +64,20 @@ impl EntityAuthority {
         Self::new(E::MODEL, E::ENTITY_TAG, E::Store::PATH)
     }
 
-    /// Return authority with its row layout frozen from a checked accepted shape.
+    /// Return authority with row decode frozen from accepted schema field contracts.
     ///
-    /// Session schema handoff uses this after schema runtime has already
-    /// produced the generated-compatible proof. The executor authority only
-    /// consumes the proof and does not recompute accepted-schema semantics.
+    /// The generated-compatible proof remains an explicit input so callers
+    /// cannot attach accepted decode contracts to layouts that the current
+    /// generated write/materialization bridge cannot still handle.
     #[must_use]
-    pub(in crate::db) const fn with_generated_compatible_row_shape(
+    pub(in crate::db) fn with_accepted_row_decode_contract(
         self,
         row_shape: AcceptedGeneratedCompatibleRowShape,
+        accepted_decode_contract: AcceptedRowDecodeContract,
     ) -> Self {
-        let row_layout = RowLayout::from_generated_compatible_row_shape(self.model, row_shape);
+        let _ = row_shape;
+        let row_layout =
+            RowLayout::from_accepted_decode_contract(self.model, accepted_decode_contract);
 
         Self { row_layout, ..self }
     }
@@ -99,8 +102,8 @@ impl EntityAuthority {
 
     /// Borrow the frozen structural row-decode layout for this entity.
     #[must_use]
-    pub(in crate::db::executor) const fn row_layout(&self) -> RowLayout {
-        self.row_layout
+    pub(in crate::db::executor) fn row_layout(&self) -> RowLayout {
+        self.row_layout.clone()
     }
 
     /// Borrow the frozen structural primary-key field name for this entity.
@@ -129,7 +132,7 @@ impl EntityAuthority {
 
     /// Finalize planner-owned static execution shape through canonical entity authority.
     pub(in crate::db::executor) fn finalize_static_planning_shape(
-        self,
+        &self,
         plan: &mut AccessPlannedQuery,
     ) {
         // Cached/session planning may already have frozen static execution
@@ -154,7 +157,7 @@ impl EntityAuthority {
 
     /// Finalize planner-owned route profiling through canonical entity authority.
     pub(in crate::db::executor) fn finalize_planner_route_profile(
-        self,
+        &self,
         plan: &mut AccessPlannedQuery,
     ) {
         plan.finalize_planner_route_profile_for_model(self.model);
@@ -162,7 +165,7 @@ impl EntityAuthority {
 
     /// Validate one access-planned query against authority-owned structural contracts.
     pub(in crate::db::executor) fn validate_executor_plan(
-        self,
+        &self,
         plan: &AccessPlannedQuery,
     ) -> Result<(), InternalError> {
         validate_access_structure_model(self.schema_info(), self.model, &plan.access)
@@ -171,7 +174,7 @@ impl EntityAuthority {
 
     /// Validate and decode one scalar continuation cursor through authority-owned contracts.
     pub(in crate::db::executor) fn prepare_scalar_cursor(
-        self,
+        &self,
         contract: &PlannedContinuationContract,
         bytes: Option<&[u8]>,
     ) -> Result<PlannedCursor, CursorPlanError> {
@@ -180,7 +183,7 @@ impl EntityAuthority {
 
     /// Revalidate one scalar continuation cursor through authority-owned contracts.
     pub(in crate::db::executor) fn revalidate_scalar_cursor(
-        self,
+        &self,
         contract: &PlannedContinuationContract,
         cursor: PlannedCursor,
     ) -> Result<PlannedCursor, CursorPlanError> {
@@ -190,7 +193,7 @@ impl EntityAuthority {
     /// Derive one covering-read execution contract through authority-owned schema metadata.
     #[must_use]
     pub(in crate::db::executor) fn covering_read_execution_plan(
-        self,
+        &self,
         plan: &AccessPlannedQuery,
         strict_predicate_compatible: bool,
     ) -> Option<CoveringReadExecutionPlan> {
@@ -205,7 +208,7 @@ impl EntityAuthority {
     /// Build one structural index key from already-materialized row slots
     /// without cloning field values back out of the row cache first.
     pub(in crate::db::executor) fn index_key_from_slot_ref_reader<'a>(
-        self,
+        &self,
         storage_key: StorageKey,
         index: &IndexModel,
         read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,

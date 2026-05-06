@@ -396,7 +396,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.ensure_accepted_schema_snapshot_for_authority(EntityAuthority::for_type::<E>())
+        self.ensure_accepted_schema_snapshot_for_authority(&EntityAuthority::for_type::<E>())
     }
 
     // Ensure and return the accepted schema snapshot from already-resolved
@@ -404,7 +404,7 @@ impl<C: CanisterKind> DbSession<C> {
     // this shape after lowering has erased the concrete entity type.
     fn ensure_accepted_schema_snapshot_for_authority(
         &self,
-        authority: EntityAuthority,
+        authority: &EntityAuthority,
     ) -> Result<AcceptedSchemaSnapshot, InternalError> {
         let store = self.db.recovered_store(authority.store_path())?;
 
@@ -425,12 +425,13 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         authority: EntityAuthority,
     ) -> Result<(AcceptedSchemaSnapshot, EntityAuthority), InternalError> {
-        let accepted_schema = self.ensure_accepted_schema_snapshot_for_authority(authority)?;
+        let accepted_schema = self.ensure_accepted_schema_snapshot_for_authority(&authority)?;
         let accepted_row_layout =
             AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted_schema)?;
         let row_shape =
             accepted_row_layout.generated_compatible_row_shape_for_model(authority.model())?;
-        let authority = authority.with_generated_compatible_row_shape(row_shape);
+        let row_decode_contract = accepted_row_layout.row_decode_contract();
+        let authority = authority.with_accepted_row_decode_contract(row_shape, row_decode_contract);
 
         Ok((accepted_schema, authority))
     }

@@ -137,7 +137,7 @@ fn build_prepared_scalar_route_runtime(
     debug: bool,
 ) -> PreparedScalarRouteRuntime {
     let projection = PreparedExecutionProjection::compile(
-        authority,
+        authority.clone(),
         plan_core.plan(),
         prepared_projection_validation,
         prepared_retained_slot_layout,
@@ -194,20 +194,20 @@ where
     // Phase 1: resolve structural store authority and derive the route plan.
     let logical_plan = plan_core.plan();
     if matches!(plan_validation, ScalarPlanValidationMode::Required) {
-        validate_executor_plan_for_authority(authority, logical_plan)?;
+        validate_executor_plan_for_authority(&authority, logical_plan)?;
     }
     let store = db.recovered_store(authority.store_path())?;
     let mut route_plan = match route_plan_family {
         ScalarRoutePlanFamily::Initial => match prebuilt_route_plan {
             Some(route_plan) => route_plan,
-            None => build_initial_scalar_route_plan(logical_plan, authority)?,
+            None => build_initial_scalar_route_plan(logical_plan, authority.clone())?,
         },
         ScalarRoutePlanFamily::Resumed => build_execution_route_plan(
             logical_plan,
             RoutePlanRequest::Load {
                 continuation: &continuation,
                 probe_fetch_hint: None,
-                authority: Some(authority),
+                authority: Some(authority.clone()),
                 load_terminal_fast_path: None,
             },
         )?,

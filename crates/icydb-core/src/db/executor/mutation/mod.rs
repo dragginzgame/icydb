@@ -123,7 +123,7 @@ pub(in crate::db::executor) fn preflight_mutation_plan_for_authority(
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,
 ) -> Result<(), InternalError> {
-    validate_executor_plan_for_authority(authority, plan)?;
+    validate_executor_plan_for_authority(&authority, plan)?;
     build_execution_route_plan(plan, RoutePlanRequest::MutationDelete)?;
 
     Ok(())

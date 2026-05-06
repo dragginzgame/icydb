@@ -95,7 +95,7 @@ impl<C: CanisterKind> DbSession<C> {
         QueryError,
     > {
         let (prepared_plan, cache_attribution) =
-            self.cached_shared_query_plan_for_authority(authority, query)?;
+            self.cached_shared_query_plan_for_authority(authority.clone(), query)?;
         let projection_spec = prepared_plan
             .logical_plan()
             .projection_spec(authority.model());

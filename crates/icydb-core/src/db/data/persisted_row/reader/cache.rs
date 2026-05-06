@@ -60,7 +60,7 @@ pub(in crate::db::data::persisted_row) enum CachedSlotValue {
 // Build the initial per-slot cache shape from the static field contract only.
 // This avoids a row-open decode loop while still letting access-time readers
 // branch cheaply by leaf codec.
-pub(super) fn build_initial_slot_cache(contract: StructuralRowContract) -> Vec<CachedSlotValue> {
+pub(super) fn build_initial_slot_cache(contract: &StructuralRowContract) -> Vec<CachedSlotValue> {
     (0..contract.field_count())
         .map(|slot| {
             match contract
@@ -118,10 +118,21 @@ pub(super) fn scalar_slot_value_ref_from_validated<'a>(
     match validated {
         ValidatedScalarSlotValue::Null => Ok(ScalarSlotValueRef::Null),
         ValidatedScalarSlotValue::Blob | ValidatedScalarSlotValue::Text => {
-            let field = contract.field_decode_contract(slot)?;
+            let field_name = contract.field_name(slot)?;
             let raw_value = field_bytes
                 .field(slot)
-                .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field.name()))?;
+                .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field_name))?;
+            if let Some(accepted_field) = contract.accepted_field_decode_contract(slot) {
+                let LeafCodec::Scalar(codec) = accepted_field.leaf_codec() else {
+                    return Err(InternalError::persisted_row_decode_failed(format!(
+                        "accepted validated scalar cache routed through non-scalar field contract: slot={slot}",
+                    )));
+                };
+
+                return decode_scalar_slot_value(raw_value, codec, accepted_field.field_name());
+            }
+
+            let field = contract.field_decode_contract(slot)?;
             let LeafCodec::Scalar(codec) = field.leaf_codec() else {
                 return Err(InternalError::persisted_row_decode_failed(format!(
                     "validated scalar cache routed through non-scalar field contract: slot={slot}",

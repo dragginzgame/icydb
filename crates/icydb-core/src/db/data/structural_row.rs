@@ -4,7 +4,11 @@
 //! Boundary: runtime paths use this module when they need persisted-row structure without `E`.
 
 use crate::{
-    db::{codec::decode_row_payload_bytes, data::RawRow},
+    db::{
+        codec::decode_row_payload_bytes,
+        data::RawRow,
+        schema::{AcceptedFieldDecodeContract, AcceptedRowDecodeContract},
+    },
     error::InternalError,
     model::{
         entity::EntityModel,
@@ -12,6 +16,7 @@ use crate::{
     },
 };
 use std::borrow::Cow;
+use std::sync::Arc;
 use thiserror::Error as ThisError;
 
 type SlotSpan = Option<(usize, usize)>;
@@ -28,12 +33,13 @@ type RowFieldSpans<'a> = (Cow<'a, [u8]>, SlotSpans);
 /// through the data-layer decode boundary.
 ///
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(in crate::db) struct StructuralRowContract {
     entity_path: &'static str,
     generated_fields: &'static [FieldModel],
     field_count: usize,
     primary_key_slot: usize,
+    accepted_decode_contract: Option<Arc<AcceptedRowDecodeContract>>,
 }
 
 impl StructuralRowContract {
@@ -45,34 +51,29 @@ impl StructuralRowContract {
             generated_fields: model.fields(),
             field_count: model.fields().len(),
             primary_key_slot: model.primary_key_slot(),
+            accepted_decode_contract: None,
         }
     }
 
-    /// Build one structural row contract from a generated model plus an
-    /// accepted runtime row shape that is still generated-field compatible.
-    ///
-    /// This is the temporary bridge between accepted schema authority and the
-    /// current generated-field decoder. It lets session planning freeze slot
-    /// count and primary-key slot from accepted metadata, while still rejecting
-    /// non-generated-compatible layouts until decode can consume accepted field
-    /// contracts directly.
+    /// Build one structural row contract from a generated model plus an owned
+    /// accepted row-decode contract.
     #[must_use]
-    pub(in crate::db) const fn from_model_with_row_shape(
+    pub(in crate::db) fn from_model_with_accepted_decode_contract(
         model: &'static EntityModel,
-        field_count: usize,
-        primary_key_slot: usize,
+        accepted_decode_contract: AcceptedRowDecodeContract,
     ) -> Self {
         Self {
             entity_path: model.path(),
             generated_fields: model.fields(),
-            field_count,
-            primary_key_slot,
+            field_count: accepted_decode_contract.required_slot_count(),
+            primary_key_slot: accepted_decode_contract.primary_key_slot_index(),
+            accepted_decode_contract: Some(Arc::new(accepted_decode_contract)),
         }
     }
 
     /// Borrow the owning entity path for diagnostics.
     #[must_use]
-    pub(in crate::db) const fn entity_path(self) -> &'static str {
+    pub(in crate::db) const fn entity_path(&self) -> &'static str {
         self.entity_path
     }
 
@@ -83,7 +84,7 @@ impl StructuralRowContract {
     /// code should prefer `field_decode_contract` whenever it only needs
     /// field decode facts.
     pub(in crate::db) fn generated_compatible_field_model(
-        self,
+        &self,
         slot: usize,
     ) -> Result<&'static FieldModel, InternalError> {
         self.generated_fields.get(slot).ok_or_else(|| {
@@ -93,23 +94,46 @@ impl StructuralRowContract {
 
     /// Return the declared structural field count.
     #[must_use]
-    pub(in crate::db) const fn field_count(self) -> usize {
+    pub(in crate::db) const fn field_count(&self) -> usize {
         self.field_count
     }
 
     /// Return the authoritative primary-key slot.
     #[must_use]
-    pub(in crate::db) const fn primary_key_slot(self) -> usize {
+    pub(in crate::db) const fn primary_key_slot(&self) -> usize {
         self.primary_key_slot
+    }
+
+    /// Borrow one accepted field decode contract by physical row slot when
+    /// this row contract was built from accepted schema authority.
+    #[must_use]
+    pub(in crate::db) fn accepted_field_decode_contract(
+        &self,
+        slot: usize,
+    ) -> Option<AcceptedFieldDecodeContract<'_>> {
+        self.accepted_decode_contract
+            .as_ref()?
+            .field_for_slot(slot)
+            .map(|field| field.decode_contract())
     }
 
     /// Return the field-level decode contract for one structural slot.
     pub(in crate::db) fn field_decode_contract(
-        self,
+        &self,
         slot: usize,
     ) -> Result<StructuralFieldDecodeContract, InternalError> {
         self.generated_compatible_field_model(slot)
             .map(StructuralFieldDecodeContract::from_field_model)
+    }
+
+    /// Return the persisted field name for diagnostics at one row slot.
+    pub(in crate::db) fn field_name(&self, slot: usize) -> Result<&str, InternalError> {
+        if let Some(field) = self.accepted_field_decode_contract(slot) {
+            return Ok(field.field_name());
+        }
+
+        self.field_decode_contract(slot)
+            .map(StructuralFieldDecodeContract::name)
     }
 }
 
@@ -198,7 +222,7 @@ impl<'a> StructuralRowFieldBytes<'a> {
         contract: StructuralRowContract,
     ) -> Result<Self, StructuralRowDecodeError> {
         let payload = decode_structural_row_payload_bytes(row_bytes)?;
-        let (payload, spans) = decode_row_field_spans(payload, contract)?;
+        let (payload, spans) = decode_row_field_spans(payload, &contract)?;
 
         Ok(Self { payload, spans })
     }
@@ -254,7 +278,7 @@ impl<'a> SparseRequiredRowFieldBytes<'a> {
     ) -> Result<Self, StructuralRowDecodeError> {
         let payload = decode_structural_row_payload_bytes(raw_row.as_bytes())?;
         let (payload, required_span, primary_key_span) =
-            decode_sparse_required_row_field_spans(payload, contract, required_slot)?;
+            decode_sparse_required_row_field_spans(payload, &contract, required_slot)?;
 
         Ok(Self {
             payload,
@@ -322,10 +346,10 @@ fn decode_structural_row_payload_bytes(
 }
 
 // Decode the canonical slot-container header into slot-aligned payload spans.
-fn decode_row_field_spans(
-    payload: Cow<'_, [u8]>,
-    contract: StructuralRowContract,
-) -> Result<RowFieldSpans<'_>, StructuralRowDecodeError> {
+fn decode_row_field_spans<'payload>(
+    payload: Cow<'payload, [u8]>,
+    contract: &StructuralRowContract,
+) -> Result<RowFieldSpans<'payload>, StructuralRowDecodeError> {
     let bytes = payload.as_ref();
     let field_count_bytes = bytes
         .get(..2)
@@ -399,11 +423,11 @@ type SparseRequiredRowFieldSpans<'a> =
 
 // Decode the canonical slot-container header while retaining only one required
 // slot span plus the primary-key span for sparse direct slot reads.
-fn decode_sparse_required_row_field_spans(
-    payload: Cow<'_, [u8]>,
-    contract: StructuralRowContract,
+fn decode_sparse_required_row_field_spans<'payload>(
+    payload: Cow<'payload, [u8]>,
+    contract: &StructuralRowContract,
     required_slot: usize,
-) -> SparseRequiredRowFieldSpans<'_> {
+) -> SparseRequiredRowFieldSpans<'payload> {
     let bytes = payload.as_ref();
     let field_count_bytes = bytes
         .get(..2)

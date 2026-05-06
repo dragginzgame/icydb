@@ -430,7 +430,7 @@ fn visit_direct_data_row_views(
     // direct field slots into the reusable output buffer.
     for row in rows {
         project_data_row_from_direct_field_slots_into(
-            row_layout,
+            &row_layout,
             row,
             field_slots,
             metrics,
@@ -451,7 +451,7 @@ fn project_data_row_from_direct_field_slots(
 ) -> Result<Vec<Value>, InternalError> {
     let mut shaped = Vec::with_capacity(field_slots.len());
     project_data_row_from_direct_field_slots_into(
-        row_layout,
+        &row_layout,
         row,
         field_slots,
         metrics,
@@ -463,7 +463,7 @@ fn project_data_row_from_direct_field_slots(
 
 #[cfg(feature = "sql")]
 fn project_data_row_from_direct_field_slots_into(
-    row_layout: RowLayout,
+    row_layout: &RowLayout,
     row: &DataRow,
     field_slots: &[(String, usize)],
     metrics: ProjectionMaterializationMetricsRecorder,
@@ -502,7 +502,7 @@ fn visit_scalar_data_row_views(
         project_scalar_data_row_into(
             compiled_fields,
             row,
-            row_layout,
+            &row_layout,
             projected_slot_mask,
             metrics,
             &mut shaped,
@@ -525,7 +525,7 @@ fn project_scalar_data_row(
     project_scalar_data_row_into(
         compiled_fields,
         row,
-        row_layout,
+        &row_layout,
         projected_slot_mask,
         metrics,
         &mut shaped,
@@ -538,7 +538,7 @@ fn project_scalar_data_row(
 fn project_scalar_data_row_into(
     compiled_fields: &[CompiledExpr],
     (data_key, raw_row): &DataRow,
-    row_layout: RowLayout,
+    row_layout: &RowLayout,
     projected_slot_mask: &[bool],
     metrics: ProjectionMaterializationMetricsRecorder,
     shaped: &mut Vec<Value>,

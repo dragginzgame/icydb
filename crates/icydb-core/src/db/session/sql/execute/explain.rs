@@ -125,7 +125,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         if let Some(rendered) =
-            self.render_lowered_sql_explain_plan_or_json_for_authority(lowered, authority)?
+            self.render_lowered_sql_explain_plan_or_json_for_authority(lowered, authority.clone())?
         {
             return Ok(rendered);
         }
@@ -208,7 +208,7 @@ impl<C: CanisterKind> DbSession<C> {
         .map_err(QueryError::from_sql_lowering_error)?;
         if verbose {
             let (mut plan, cache_attribution) =
-                self.cached_sql_query_explain_plan_for_authority(authority, &structural)?;
+                self.cached_sql_query_explain_plan_for_authority(authority.clone(), &structural)?;
             let visible_indexes =
                 self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
             plan.finalize_access_choice_for_model_with_indexes(
@@ -232,7 +232,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         let (rendered, _) = self.try_map_cached_sql_query_explain_plan_for_authority(
-            authority,
+            authority.clone(),
             &structural,
             |plan| {
                 let route_facts = freeze_load_execution_route_facts(

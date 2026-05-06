@@ -175,15 +175,17 @@ pub(in crate::db::executor) struct ExecutionRuntimeAdapter {
 
 impl ExecutionRuntimeAdapter {
     /// Build one structural runtime adapter for scalar execution paths.
-    pub(in crate::db::executor) const fn from_scalar_runtime_parts(
+    pub(in crate::db::executor) fn from_scalar_runtime_parts(
         runtime: TraversalRuntime,
         store: StoreHandle,
         authority: EntityAuthority,
     ) -> Self {
+        let row_layout = authority.row_layout();
+
         Self {
             runtime,
             authority: Some(authority),
-            scalar_row_runtime: Some(ScalarRowRuntimeState::new(store, authority.row_layout())),
+            scalar_row_runtime: Some(ScalarRowRuntimeState::new(store, row_layout)),
         }
     }
 
@@ -212,7 +214,7 @@ impl ExecutionRuntimeAdapter {
     // Require structural entity authority only for runtime paths that still
     // materialize rows or covering projections through shared scalar kernels.
     fn authority(&self) -> Result<EntityAuthority, InternalError> {
-        self.authority.ok_or_else(|| {
+        self.authority.clone().ok_or_else(|| {
             InternalError::query_executor_invariant(
                 "structural entity authority is required for row materialization paths",
             )

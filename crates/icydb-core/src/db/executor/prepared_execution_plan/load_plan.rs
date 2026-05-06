@@ -47,7 +47,7 @@ impl PreparedLoadPlan {
         index_range_specs: Arc<[crate::db::executor::LoweredIndexRangeSpec]>,
     ) -> Self {
         Self {
-            authority,
+            authority: authority.clone(),
             core: build_prepared_execution_plan_core_with_shared_lowered_access(
                 authority,
                 plan,
@@ -60,8 +60,8 @@ impl PreparedLoadPlan {
     }
 
     #[must_use]
-    pub(in crate::db::executor) const fn authority(&self) -> EntityAuthority {
-        self.authority
+    pub(in crate::db::executor) fn authority(&self) -> EntityAuthority {
+        self.authority.clone()
     }
 
     #[must_use]
@@ -106,7 +106,7 @@ impl PreparedLoadPlan {
         &self,
         cursor: PlannedCursor,
     ) -> Result<PlannedCursor, InternalError> {
-        self.core.revalidate_cursor(self.authority, cursor)
+        self.core.revalidate_cursor(self.authority.clone(), cursor)
     }
 
     pub(in crate::db::executor) fn revalidate_grouped_cursor(
@@ -175,12 +175,16 @@ impl PreparedLoadPlan {
         let prepared_projection_shape = if projection_materialization.validate_projection()
             && !core.plan().projection_is_model_identity()
         {
-            core.get_or_init_projection_shape(authority)
+            core.get_or_init_projection_shape(authority.clone())
         } else {
             None
         };
         let retained_slot_layout = retained_slot_layout_override.or_else(|| {
-            core.get_or_init_scalar_layout(authority, projection_materialization, cursor_emission)
+            core.get_or_init_scalar_layout(
+                authority.clone(),
+                projection_materialization,
+                cursor_emission,
+            )
         });
         let execution_preparation = core.get_or_init_scalar_execution_preparation();
         if core.shared.index_prefix_spec_invalid {
@@ -207,7 +211,7 @@ impl PreparedLoadPlan {
     ) -> PreparedGroupedRuntimeParts {
         let Some(residents) = self
             .core
-            .get_or_init_grouped_runtime_residents(self.authority)
+            .get_or_init_grouped_runtime_residents(self.authority.clone())
         else {
             return PreparedGroupedRuntimeParts {
                 execution_preparation: None,

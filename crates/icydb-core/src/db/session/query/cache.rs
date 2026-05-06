@@ -233,7 +233,7 @@ impl<C: CanisterKind> DbSession<C> {
             .map(predicate_fingerprint_normalized);
         let cache_key =
             QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint_and_method_version(
-                authority,
+                authority.clone(),
                 schema_fingerprint,
                 visibility,
                 query,
@@ -279,7 +279,7 @@ impl<C: CanisterKind> DbSession<C> {
             &visible_indexes,
             planning_state,
         )?;
-        let prepared_plan = SharedPreparedExecutionPlan::from_plan(authority, plan);
+        let prepared_plan = SharedPreparedExecutionPlan::from_plan(authority.clone(), plan);
         let entries = self.with_query_plan_cache(|cache| {
             cache.insert(cache_key, prepared_plan.clone());
             cache.len()
@@ -303,7 +303,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
         let cache_key =
             QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint_and_method_version(
-                authority,
+                authority.clone(),
                 schema_fingerprint,
                 visibility,
                 query,
@@ -350,7 +350,7 @@ impl<C: CanisterKind> DbSession<C> {
                 "trivial scalar load fast path lost eligibility during plan build",
             ));
         };
-        let prepared_plan = SharedPreparedExecutionPlan::from_plan(authority, plan);
+        let prepared_plan = SharedPreparedExecutionPlan::from_plan(authority.clone(), plan);
         let entries = self.with_query_plan_cache(|cache| {
             cache.insert(cache_key, prepared_plan.clone());
             cache.len()
@@ -478,7 +478,7 @@ impl QueryPlanCacheKey {
     // Assemble the canonical cache-key shell once so the test and
     // normalized-predicate constructors only decide which structural query key
     // they feed into the shared session cache identity.
-    const fn from_authority_parts(
+    fn from_authority_parts(
         authority: EntityAuthority,
         schema_fingerprint: CommitSchemaFingerprint,
         visibility: QueryPlanVisibility,

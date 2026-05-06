@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     db::{
         data::{
-            CanonicalRow, RawRow, decode_structural_field_by_kind_bytes,
+            CanonicalRow, RawRow, SlotReader, decode_structural_field_by_kind_bytes,
             encode_structural_field_by_kind_bytes, with_structural_read_metrics,
         },
         schema::{
@@ -12,7 +12,10 @@ use crate::{
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    model::field::{FieldKind, FieldStorageDecode, LeafCodec},
+    model::{
+        entity::EntityModel,
+        field::{FieldKind, FieldStorageDecode, LeafCodec},
+    },
     traits::{
         EntitySchema, FieldTypeMeta, PersistedFieldSlotCodec, RuntimeValueDecode,
         RuntimeValueEncode,
@@ -109,23 +112,30 @@ fn accepted_row_decode_schema() -> AcceptedSchemaSnapshot {
     AcceptedSchemaSnapshot::new(row_decode_schema_snapshot())
 }
 
-fn generated_compatible_row_layout(
+fn accepted_row_decode_layout(
     descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
 ) -> Result<RowLayout, InternalError> {
-    let row_shape = descriptor.generated_compatible_row_shape_for_model(RowDecodeEntity::MODEL)?;
+    accepted_row_decode_layout_for_model(RowDecodeEntity::MODEL, descriptor)
+}
 
-    Ok(RowLayout::from_generated_compatible_row_shape(
-        RowDecodeEntity::MODEL,
-        row_shape,
+fn accepted_row_decode_layout_for_model(
+    model: &'static EntityModel,
+    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+) -> Result<RowLayout, InternalError> {
+    descriptor.generated_compatible_row_shape_for_model(model)?;
+
+    Ok(RowLayout::from_accepted_decode_contract(
+        model,
+        descriptor.row_decode_contract(),
     ))
 }
 
 #[test]
-fn row_layout_can_be_frozen_from_generated_compatible_row_shape() {
+fn row_layout_can_be_frozen_from_accepted_row_decode_contract() {
     let accepted = accepted_row_decode_schema();
     let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
         .expect("accepted row decode schema should project into runtime descriptor");
-    let layout = generated_compatible_row_layout(&descriptor)
+    let layout = accepted_row_decode_layout(&descriptor)
         .expect("exact accepted row layout should be generated-compatible");
 
     assert_eq!(layout.field_count(), RowDecodeEntity::MODEL.fields().len());
@@ -136,7 +146,87 @@ fn row_layout_can_be_frozen_from_generated_compatible_row_shape() {
 }
 
 #[test]
-fn row_layout_rejects_accepted_slot_reorder_until_decoder_consumes_accepted_fields() {
+fn accepted_row_layout_decode_matches_generated_layout_for_full_and_sparse_rows() {
+    let entity = RowDecodeEntity {
+        id: Ulid::from_u128(41),
+        title: "accepted-parity".to_string(),
+        tags: vec!["nested".to_string(), "list".to_string()],
+        portrait: Blob::from(vec![0xA1, 0xB2, 0xC3, 0xD4]),
+    };
+    let key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(entity.id)
+        .expect("test key construction should succeed");
+    let storage_key = key.storage_key();
+    let raw_row = CanonicalRow::from_entity(&entity)
+        .expect("test row serialization should succeed")
+        .into_raw_row();
+    let accepted = accepted_row_decode_schema();
+    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+        .expect("accepted row decode schema should project into runtime descriptor");
+    let generated_layout = RowLayout::from_model(RowDecodeEntity::MODEL);
+    let accepted_layout = accepted_row_decode_layout(&descriptor)
+        .expect("exact accepted row layout should be generated-compatible");
+
+    // Phase 1: full-row decode must produce identical logical values whether
+    // non-primary slots are decoded through accepted contracts or the generated
+    // compatibility bridge.
+    let generated_full = RowDecoder::structural()
+        .decode(&generated_layout, (key.clone(), raw_row.clone()))
+        .expect("generated full-row decode should succeed");
+    let accepted_full = RowDecoder::structural()
+        .decode(&accepted_layout, (key, raw_row.clone()))
+        .expect("accepted full-row decode should succeed");
+    for slot in 0..generated_layout.field_count() {
+        assert_eq!(
+            accepted_full.slot(slot),
+            generated_full.slot(slot),
+            "slot {slot} should decode identically through accepted and generated layouts",
+        );
+    }
+
+    // Phase 2: sparse decode is the hotter direct-row path, so compare the
+    // selected non-primary slots that now use accepted field contracts.
+    let selected_slots = [1, 2, 3];
+    let generated_sparse = RowDecoder::structural()
+        .decode_slots(
+            &generated_layout,
+            storage_key,
+            &raw_row,
+            Some(&selected_slots),
+        )
+        .expect("generated sparse-row decode should succeed");
+    let accepted_sparse = RowDecoder::structural()
+        .decode_slots(
+            &accepted_layout,
+            storage_key,
+            &raw_row,
+            Some(&selected_slots),
+        )
+        .expect("accepted sparse-row decode should succeed");
+    assert_eq!(accepted_sparse, generated_sparse);
+
+    // Phase 3: retained/lazy row readers must also stay aligned because they
+    // now validate and materialize touched slots through accepted contracts.
+    let mut generated_reader = generated_layout
+        .open_raw_row_with_contract(&raw_row)
+        .expect("generated lazy row reader should open");
+    let mut accepted_reader = accepted_layout
+        .open_raw_row_with_contract(&raw_row)
+        .expect("accepted lazy row reader should open");
+    for slot in selected_slots {
+        assert_eq!(
+            accepted_reader
+                .get_value(slot)
+                .expect("accepted lazy slot decode should succeed"),
+            generated_reader
+                .get_value(slot)
+                .expect("generated lazy slot decode should succeed"),
+            "lazy slot {slot} should decode identically through accepted and generated layouts",
+        );
+    }
+}
+
+#[test]
+fn row_layout_rejects_accepted_slot_reorder_at_generated_compatibility_proof() {
     let snapshot = row_decode_schema_snapshot();
     let changed = PersistedSchemaSnapshot::new(
         snapshot.version(),
@@ -158,14 +248,14 @@ fn row_layout_rejects_accepted_slot_reorder_until_decoder_consumes_accepted_fiel
     let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
         .expect("slot-reordered test schema should still form a descriptor");
 
-    let err = generated_compatible_row_layout(&descriptor)
+    let err = accepted_row_decode_layout(&descriptor)
         .expect_err("slot reorder must stay rejected at generated-compatible bridge");
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Store);
 }
 
 #[test]
-fn row_layout_rejects_accepted_payload_contract_drift_until_decoder_consumes_accepted_fields() {
+fn row_layout_rejects_accepted_payload_contract_drift_at_generated_compatibility_proof() {
     let snapshot = row_decode_schema_snapshot();
     let mut fields = snapshot.fields().to_vec();
     let title = fields
@@ -194,7 +284,7 @@ fn row_layout_rejects_accepted_payload_contract_drift_until_decoder_consumes_acc
     let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
         .expect("storage-decode-drift test schema should still form a descriptor");
 
-    let err = generated_compatible_row_layout(&descriptor)
+    let err = accepted_row_decode_layout(&descriptor)
         .expect_err("payload contract drift must stay rejected at generated-compatible bridge");
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Store);
@@ -211,7 +301,7 @@ fn accepted_row_layout_decoder_rejects_malformed_raw_row() {
     let accepted = accepted_row_decode_schema();
     let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
         .expect("accepted row decode schema should project into runtime descriptor");
-    let layout = generated_compatible_row_layout(&descriptor)
+    let layout = accepted_row_decode_layout(&descriptor)
         .expect("exact accepted row layout should be generated-compatible");
     let key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(Ulid::from_u128(31))
         .expect("test key construction should succeed");
@@ -328,7 +418,7 @@ fn retained_slot_decode_can_materialize_scalar_octet_lengths_without_blob_values
     let accepted = accepted_row_decode_schema();
     let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
         .expect("accepted retained-slot row decode schema should form descriptor");
-    let row_layout = generated_compatible_row_layout(&descriptor)
+    let row_layout = accepted_row_decode_layout(&descriptor)
         .expect("accepted retained-slot row layout should be generated-compatible");
 
     let values =
@@ -523,4 +613,76 @@ fn structural_row_decoder_respects_value_storage_decode_contract() {
         .expect("structural row decode should succeed");
 
     assert_eq!(decoded.slot(1), Some(entity.status.to_value()));
+}
+
+#[test]
+fn accepted_row_layout_decode_matches_generated_layout_for_value_storage_field() {
+    let entity = RowDecodeValueEntity {
+        id: Ulid::from_u128(78),
+        status: RowDecodeStatus(
+            ValueEnum::new("Settled", Some("tests::Status")).with_payload(Value::Uint(11)),
+        ),
+    };
+    let key = crate::db::data::DataKey::try_new::<RowDecodeValueEntity>(entity.id)
+        .expect("test key construction should succeed");
+    let storage_key = key.storage_key();
+    let raw_row = CanonicalRow::from_entity(&entity)
+        .expect("test row serialization should succeed")
+        .into_raw_row();
+    let accepted = AcceptedSchemaSnapshot::new(
+        compiled_schema_proposal_for_model(RowDecodeValueEntity::MODEL)
+            .initial_persisted_schema_snapshot(),
+    );
+    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+        .expect("accepted value-storage row decode schema should project into runtime descriptor");
+    let generated_layout = RowLayout::from_model(RowDecodeValueEntity::MODEL);
+    let accepted_layout =
+        accepted_row_decode_layout_for_model(RowDecodeValueEntity::MODEL, &descriptor)
+            .expect("value-storage accepted layout should be generated-compatible");
+
+    // Phase 1: full-row decode must keep `FieldStorageDecode::Value` logical
+    // values identical after accepted contracts take over the direct path.
+    let generated_full = RowDecoder::structural()
+        .decode(&generated_layout, (key.clone(), raw_row.clone()))
+        .expect("generated value-storage full-row decode should succeed");
+    let accepted_full = RowDecoder::structural()
+        .decode(&accepted_layout, (key, raw_row.clone()))
+        .expect("accepted value-storage full-row decode should succeed");
+    assert_eq!(accepted_full.slot(1), generated_full.slot(1));
+
+    // Phase 2: sparse slot decode is the accepted-contract branch that
+    // validates and materializes structural-fallback payloads directly.
+    let selected_slots = [1];
+    let generated_sparse = RowDecoder::structural()
+        .decode_slots(
+            &generated_layout,
+            storage_key,
+            &raw_row,
+            Some(&selected_slots),
+        )
+        .expect("generated value-storage sparse decode should succeed");
+    let accepted_sparse = RowDecoder::structural()
+        .decode_slots(
+            &accepted_layout,
+            storage_key,
+            &raw_row,
+            Some(&selected_slots),
+        )
+        .expect("accepted value-storage sparse decode should succeed");
+    assert_eq!(accepted_sparse, generated_sparse);
+
+    let mut generated_reader = generated_layout
+        .open_raw_row_with_contract(&raw_row)
+        .expect("generated value-storage lazy row reader should open");
+    let mut accepted_reader = accepted_layout
+        .open_raw_row_with_contract(&raw_row)
+        .expect("accepted value-storage lazy row reader should open");
+    assert_eq!(
+        accepted_reader
+            .get_value(1)
+            .expect("accepted value-storage lazy slot decode should succeed"),
+        generated_reader
+            .get_value(1)
+            .expect("generated value-storage lazy slot decode should succeed"),
+    );
 }

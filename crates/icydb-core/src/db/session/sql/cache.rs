@@ -303,7 +303,7 @@ impl<C: CanisterKind> DbSession<C> {
                 schema_fingerprint,
                 sql,
             ),
-            authority,
+            authority: authority.clone(),
             schema: SchemaInfo::from_accepted_snapshot_for_model(
                 authority.model(),
                 &accepted_schema,

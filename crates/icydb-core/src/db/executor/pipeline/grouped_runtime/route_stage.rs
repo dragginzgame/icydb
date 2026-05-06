@@ -28,7 +28,7 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
 ) -> Result<GroupedRouteStage, InternalError> {
     let authority = plan.authority();
 
-    validate_executor_plan_for_authority(authority, plan.logical_plan())?;
+    validate_executor_plan_for_authority(&authority, plan.logical_plan())?;
     let grouped_handoff = grouped_executor_handoff(plan.logical_plan())?;
     if let Some(reason) = grouped_handoff.distinct_policy_violation_for_executor() {
         return Err(reason.into_grouped_route_internal_error());

@@ -2080,7 +2080,7 @@ fn shared_query_plan_cache_key_version_mismatch_fails_closed() {
     let schema_fingerprint = commit_schema_fingerprint_for_entity::<SessionSqlEntity>();
     let authority = EntityAuthority::for_type::<SessionSqlEntity>();
     let old_key = DbSession::<SessionSqlCanister>::query_plan_cache_key_for_tests(
-        authority,
+        authority.clone(),
         schema_fingerprint,
         QueryPlanVisibility::StoreReady,
         query.query().structural(),

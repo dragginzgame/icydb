@@ -228,7 +228,7 @@ fn apply_structural_order_window_to_data_rows_inner(
     let source_rows = mem::take(rows);
     let mut cached_rows = Vec::with_capacity(source_rows.len());
     for row in source_rows {
-        let cached_values = cache_order_values_from_data_row(&row, row_layout, resolved_order)?;
+        let cached_values = cache_order_values_from_data_row(&row, &row_layout, resolved_order)?;
 
         cached_rows.push((row, cached_values));
     }
@@ -414,7 +414,7 @@ where
 // can avoid building retained-slot kernel rows only to feed the order cache.
 fn cache_order_values_from_data_row(
     row: &DataRow,
-    row_layout: RowLayout,
+    row_layout: &RowLayout,
     resolved_order: &ResolvedOrder,
 ) -> Result<CachedOrderValues, InternalError> {
     // Phase 1: pure direct-field ORDER BY terms can stay on the sparse
