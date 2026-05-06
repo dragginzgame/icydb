@@ -210,9 +210,9 @@ dependencies = [
 
 [[package]]
 name = "canic"
-version = "0.30.38"
+version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "191ca5046c4bca86ac4e282f87ff2e7c791a0a50201ad9f0816aa4ccda0555b8"
+checksum = "ecfa328e51c85f92aeadea8dc87013292d4ed037f496a774bc852783cf5d7092"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -226,9 +226,9 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.30.38"
+version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6d3744b34929ec51cffd847c2e35167e5d69dd97ebac2d59f876af3034c8a6d"
+checksum = "043df752e7a2bfefc44407e09468502083bea14f6b4daa436e8d2051d81ea30d"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -243,9 +243,9 @@ dependencies = [
 
 [[package]]
 name = "canic-core"
-version = "0.30.38"
+version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cae22c5cff64403e01cf9a5484786d0ee3c369e9a460909d97d1eeedfdd87c8b"
+checksum = "852f2ed60e52e5a861e89f26dcc03985c1c5764722191b026e0de89e55a0b947"
 dependencies = [
  "async-trait",
  "candid",
@@ -265,9 +265,9 @@ dependencies = [
 
 [[package]]
 name = "canic-macros"
-version = "0.30.38"
+version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28102282f5f952cac39b687cdf8c5384611d059862800f1cad6739eb2db2267b"
+checksum = "c1e844d4b1a8b542219cd4d6ef737d943765b41dffa3c4efeb2970237ad18200"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -276,9 +276,9 @@ dependencies = [
 
 [[package]]
 name = "canic-memory"
-version = "0.30.38"
+version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b137fd74d5e33bdfc35a07210b3d4d9678dd12658b0b2ea830d16f6fdd3e6c80"
+checksum = "825e30c1a3b30066e560bcc4c59a151e9505dc14bd853552eeb38d89788caa4b"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -290,9 +290,9 @@ dependencies = [
 
 [[package]]
 name = "canic-testkit"
-version = "0.30.38"
+version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef734691907ed208341e57d6a09ad9a80f45e1ca6d8e928ee5f945ce55c9f909"
+checksum = "126135c04658277f553f97dfb38618976f95c0b38e32753185722fe9b4be408d"
 dependencies = [
  "candid",
  "canic",

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.148.x] 🧬 - 2026-05-06 - Schema Evolution Runtime Cutover
 
+- `0.148.7` tightens schema-evolution diagnostics and comments around accepted row contracts, making unsupported additive-field errors name the missing required/default absence policy instead of implying all additive support is unavailable.
 - `0.148.6` adds recovery and write-layout tests for nullable schema additions, proving startup index rebuild, commit replay, fresh inserts, and malformed-row checks all use accepted schema contracts correctly.
 - `0.148.5` moves primary-key validation and primary-key projection onto accepted schema contracts when they are available, reducing generated-model fallback during nullable additive schema transitions.
 - `0.148.4` centralizes accepted-row normalization in the data layer and makes commit preflight, unique-index checks, and relation delete checks use accepted row contracts, so older rows follow one compatibility path across runtime boundaries.

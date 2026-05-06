@@ -59,8 +59,9 @@ impl SqlAggregateInputCapabilities {
 /// SqlCapabilities
 ///
 /// SQL operation capability projection for one persisted field kind.
-/// The projection is derived from schema metadata only; query planning will
-/// consume this later once accepted schema snapshots become live authority.
+/// The projection is derived from schema metadata only; query planning consumes
+/// this from accepted schema views so SQL capability checks do not fall back to
+/// generated field-kind tables.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

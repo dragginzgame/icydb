@@ -469,8 +469,7 @@ fn decode_non_scalar_slot_value(
 }
 
 // Decode one non-scalar slot through the accepted persisted schema contract
-// that will become the row-reader authority once generated-compatible bridges
-// are removed.
+// used by row readers while generated-compatible bridges are retired.
 fn decode_non_scalar_accepted_slot_value(
     raw_value: &[u8],
     field: AcceptedFieldDecodeContract<'_>,

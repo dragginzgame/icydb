@@ -273,10 +273,9 @@ fn schema_snapshot_structural_mismatch_detail(
     )
 }
 
-// Detect the future additive-field transition shape without accepting it yet.
-// A generated snapshot is an append-only additive candidate only when the
-// stored fields and row-layout mappings are exact prefixes of the generated
-// snapshot. Anything else remains a normal layout/field-contract rejection.
+// Detect an append-only additive-field transition shape that still cannot be
+// accepted. Nullable no-default additions are accepted earlier; this diagnostic
+// names additive fields whose absence policy is not supported yet.
 fn unsupported_generated_additive_field_detail(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
@@ -285,7 +284,7 @@ fn unsupported_generated_additive_field_detail(
     let index = actual.fields().len();
     let field = &added_fields[0];
     Some(format!(
-        "unsupported additive field transition: generated field[{index}] id={} slot={} name='{}' kind={:?} nullable={} default={:?}; accepted decode/write support is not enabled yet",
+        "unsupported additive field transition: generated field[{index}] id={} slot={} name='{}' kind={:?} nullable={} default={:?}; required/default absence support is not enabled yet",
         field.id().get(),
         field.slot().get(),
         field.name(),
@@ -1136,7 +1135,7 @@ mod tests {
 
         assert!(
             rejection.detail().contains(
-                "unsupported additive field transition: generated field[2] id=3 slot=2 name='new_score' kind=Uint nullable=false default=None; accepted decode/write support is not enabled yet"
+                "unsupported additive field transition: generated field[2] id=3 slot=2 name='new_score' kind=Uint nullable=false default=None; required/default absence support is not enabled yet"
             ),
             "additive field drift should be named as an unsupported future transition shape",
         );

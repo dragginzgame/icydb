@@ -3,7 +3,8 @@
 //! This module is the first row-decode bridge that consumes accepted schema
 //! field kind metadata directly instead of first projecting back into generated
 //! `FieldKind` values. It intentionally starts at the field boundary; row
-//! layout selection can move onto it later without changing the payload grammar.
+//! row-layout selection now hands accepted contracts to this boundary without
+//! changing the payload grammar.
 
 use crate::{
     db::{
@@ -73,8 +74,8 @@ pub(in crate::db) fn decode_structural_field_by_accepted_kind_bytes(
 }
 
 // Validate one accepted-schema by-kind field payload. This mirrors the decode
-// entrypoint so the future accepted row reader has a fail-closed validation
-// seam before it decides whether to materialize the final runtime `Value`.
+// entrypoint so accepted row readers have a fail-closed validation seam before
+// deciding whether to materialize the final runtime `Value`.
 pub(in crate::db) fn validate_structural_field_by_accepted_kind_bytes(
     raw_bytes: &[u8],
     kind: &PersistedFieldKind,

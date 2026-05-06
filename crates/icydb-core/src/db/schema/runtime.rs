@@ -20,9 +20,9 @@ use crate::{
 ///
 /// AcceptedFieldAbsencePolicy describes how runtime row materialization should
 /// treat a missing physical payload slot for one accepted field. It exists so
-/// future additive-field support has an explicit schema-owned contract instead
-/// of asking row decode code to infer missing-field behavior from nullable
-/// flags or Rust defaults.
+/// additive-field support has an explicit schema-owned contract instead of
+/// asking row decode code to infer missing-field behavior from generated
+/// nullable flags or Rust defaults.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -83,7 +83,7 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
     /// Borrow accepted nested leaf metadata rooted at this field.
     #[allow(
         dead_code,
-        reason = "nested leaf facts are part of the accepted runtime boundary before row decode consumes them directly"
+        reason = "nested leaf facts are part of the accepted runtime boundary before nested-path row decode consumes them directly"
     )]
     #[must_use]
     pub(in crate::db) const fn nested_leaves(&self) -> &'a [PersistedNestedLeafSnapshot] {
@@ -258,9 +258,9 @@ impl OwnedAcceptedFieldDecodeContract {
 ///
 /// AcceptedRowDecodeContract is the owned, slot-indexed row decode contract
 /// projected from accepted schema metadata.
-/// It is the future handoff object for `RowLayout`: schema owns construction,
-/// while data/executor code will consume it without reopening generated
-/// `FieldModel` metadata.
+/// It is the handoff object consumed by `RowLayout`: schema owns construction,
+/// while data/executor code can read accepted slot contracts without reopening
+/// generated `FieldModel` metadata.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -363,7 +363,7 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
     /// Build one runtime descriptor from an already accepted schema snapshot.
     ///
     /// The constructor still validates local row-layout completeness because
-    /// this descriptor will become a trust boundary for decode/write code. A
+    /// this descriptor is a trust boundary for decode/write code. A
     /// missing row-layout slot is reported as an internal invariant violation
     /// rather than hidden behind a partial descriptor.
     pub(in crate::db) fn from_accepted_schema(
@@ -534,10 +534,11 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
 
     /// Return the row shape when this accepted layout can still use generated field codecs.
     ///
-    /// The row decoder remains generated-codec backed until accepted-field
-    /// decoders exist. Keeping this bridge check and shape projection in the
-    /// descriptor owner makes generated compatibility a schema-runtime contract
-    /// instead of an executor side calculation.
+    /// Accepted-field decoders now own runtime payload interpretation, but
+    /// typed materialization still needs proof that the accepted layout can be
+    /// bridged back to generated field codecs. Keeping this check and shape
+    /// projection in the descriptor owner makes generated compatibility a
+    /// schema-runtime contract instead of an executor side calculation.
     pub(in crate::db) fn generated_compatible_row_shape_for_model(
         &self,
         model: &'static EntityModel,
@@ -593,9 +594,9 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
 }
 
 // Prove that one accepted field still has the exact decode contract expected by
-// its generated field codec. This is the field-level bridge that lets exact
-// schemas keep using generated decoders while additive/remapped layouts remain
-// rejected until accepted-field decoders exist.
+// its generated field codec. This is the field-level bridge that lets typed
+// materialization keep using generated decoders after accepted runtime decode
+// has already proven the persisted field contract.
 fn ensure_generated_field_decode_contract_compatible(
     accepted_field: &AcceptedRowLayoutRuntimeField<'_>,
     generated_field: &FieldModel,
