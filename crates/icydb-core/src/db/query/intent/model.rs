@@ -251,6 +251,20 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
         self
     }
 
+    /// Select one scalar field projection by canonical field id.
+    ///
+    /// SQL mutation selectors use this to ask the query-intent owner for a
+    /// primary-key-only projection without reconstructing projection-selection
+    /// variants in the session execution layer.
+    #[cfg(feature = "sql")]
+    #[must_use]
+    pub(in crate::db::query) fn select_field_id(mut self, field: impl Into<String>) -> Self {
+        self.intent
+            .set_projection_selection(ProjectionSelection::Fields(vec![FieldId::new(field)]));
+
+        self
+    }
+
     /// Override scalar projection selection with one already-lowered planner contract.
     #[cfg(feature = "sql")]
     #[must_use]

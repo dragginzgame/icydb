@@ -4,7 +4,6 @@ use crate::{
         data::{FieldSlot, StructuralPatch},
         executor::{EntityAuthority, MutationMode},
         query::intent::StructuralQuery,
-        query::plan::expr::{FieldId, ProjectionSelection},
         schema::{
             AcceptedRowLayoutRuntimeDescriptor, AcceptedRowLayoutRuntimeField,
             AcceptedSchemaSnapshot, SchemaFieldWritePolicy, SchemaInfo, ValidateError,
@@ -440,7 +439,7 @@ impl<C: CanisterKind> DbSession<C> {
         )
         .map_err(QueryError::from_sql_lowering_error)?;
 
-        Ok(selector.projection_selection(ProjectionSelection::Fields(vec![FieldId::new(pk_name)])))
+        Ok(selector.select_field_id(pk_name))
     }
 
     fn sql_insert_select_source_statement<E>(

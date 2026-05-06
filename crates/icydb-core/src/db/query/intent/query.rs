@@ -165,6 +165,17 @@ impl StructuralQuery {
         self
     }
 
+    /// Select one scalar field projection by canonical field id.
+    ///
+    /// This keeps SQL mutation execution from reconstructing projection shape
+    /// variants after lowering has already selected the mutation target query.
+    #[cfg(feature = "sql")]
+    #[must_use]
+    pub(in crate::db) fn select_field_id(mut self, field: impl Into<String>) -> Self {
+        self.intent = self.intent.select_field_id(field);
+        self
+    }
+
     pub(in crate::db) fn group_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
         self.try_map_intent(|intent| intent.push_group_field(field.as_ref()))
     }
