@@ -13,7 +13,7 @@ use crate::{
     db::{
         codec::serialize_row_payload,
         data::{
-            CanonicalRow, RawRow, StructuralFieldDecodeContract,
+            CanonicalRow, RawRow, StructuralFieldDecodeContract, StructuralRowContract,
             accepted_kind_supports_storage_key_binary, decode_storage_key_binary_value_bytes,
             decode_structural_field_by_accepted_kind_bytes, decode_structural_field_by_kind_bytes,
             decode_structural_value_storage_bytes, encode_storage_key_binary_value_bytes,
@@ -95,6 +95,59 @@ pub(in crate::db) fn decode_runtime_value_from_accepted_field_contract(
         }
         LeafCodec::StructuralFallback => decode_non_scalar_accepted_slot_value(raw_value, field),
     }
+}
+
+/// Decode one slot payload through the accepted row contract when available.
+///
+/// This is the row-contract authority boundary for decode sites that know the
+/// physical slot but should not choose between accepted and generated metadata
+/// locally. Generated field contracts remain the fallback for generated-only
+/// row contracts.
+pub(in crate::db) fn decode_runtime_value_from_row_contract(
+    contract: &StructuralRowContract,
+    slot: usize,
+    raw_value: &[u8],
+) -> Result<Value, InternalError> {
+    if let Some(accepted_field) = contract.accepted_field_decode_contract(slot) {
+        return decode_runtime_value_from_accepted_field_contract(accepted_field, raw_value);
+    }
+
+    let field = contract.field_decode_contract(slot)?;
+
+    decode_runtime_value_from_field_contract(field, raw_value)
+}
+
+/// Decode one scalar slot payload through accepted row metadata when present.
+///
+/// Callers provide context labels for invariant errors because cache
+/// validation, eager row validation, and direct scalar reads each have a
+/// different owner-local failure message when a non-scalar field reaches a
+/// scalar-only lane.
+pub(in crate::db) fn decode_scalar_slot_value_from_row_contract<'raw>(
+    contract: &StructuralRowContract,
+    slot: usize,
+    raw_value: &'raw [u8],
+    accepted_non_scalar_context: &str,
+    generated_non_scalar_context: &str,
+) -> Result<ScalarSlotValueRef<'raw>, InternalError> {
+    if let Some(accepted_field) = contract.accepted_field_decode_contract(slot) {
+        let LeafCodec::Scalar(codec) = accepted_field.leaf_codec() else {
+            return Err(InternalError::persisted_row_decode_failed(format!(
+                "{accepted_non_scalar_context}: slot={slot}",
+            )));
+        };
+
+        return decode_scalar_slot_value(raw_value, codec, accepted_field.field_name());
+    }
+
+    let field = contract.field_decode_contract(slot)?;
+    let LeafCodec::Scalar(codec) = field.leaf_codec() else {
+        return Err(InternalError::persisted_row_decode_failed(format!(
+            "{generated_non_scalar_context}: slot={slot}",
+        )));
+    };
+
+    decode_scalar_slot_value(raw_value, codec, field.name())
 }
 
 /// Encode one runtime boundary `Value` into a persisted slot payload.
@@ -579,6 +632,25 @@ pub(in crate::db) fn validate_non_scalar_accepted_slot_value(
             })
         }
     }
+}
+
+/// Validate one non-scalar slot through the accepted row contract when present.
+///
+/// This keeps accepted-vs-generated validation selection in the persisted-row
+/// contract owner instead of repeating that branch in every reader that already
+/// owns a `StructuralRowContract`.
+pub(in crate::db) fn validate_non_scalar_slot_value_with_row_contract(
+    contract: &StructuralRowContract,
+    slot: usize,
+    raw_value: &[u8],
+) -> Result<(), InternalError> {
+    if let Some(accepted_field) = contract.accepted_field_decode_contract(slot) {
+        return validate_non_scalar_accepted_slot_value(raw_value, accepted_field);
+    }
+
+    let field = contract.field_decode_contract(slot)?;
+
+    validate_non_scalar_slot_value(raw_value, field)
 }
 
 // Nullable non-storage-key by-kind leaves share the structural null sentinel,

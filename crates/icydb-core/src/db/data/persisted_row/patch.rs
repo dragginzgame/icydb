@@ -14,8 +14,8 @@ use crate::db::data::persisted_row::{
     codec::ScalarSlotValueRef,
     contract::{
         canonical_row_from_payload_source, canonical_row_from_runtime_value_source,
-        decode_runtime_value_from_accepted_field_contract,
-        decode_runtime_value_from_field_contract, encode_runtime_value_for_field_model,
+        decode_runtime_value_from_field_contract, decode_runtime_value_from_row_contract,
+        encode_runtime_value_for_field_model,
     },
     reader::StructuralSlotReader,
     types::{
@@ -365,24 +365,6 @@ pub(in crate::db) fn apply_serialized_structural_patch_to_raw_row(
     })
 }
 
-// Decode one already-serialized sparse patch payload through accepted row
-// metadata when the row contract carries it. Generated contracts remain the
-// fallback because patch payloads can still originate from generated-only
-// typed compatibility writers.
-fn decode_serialized_patch_payload_with_contract(
-    contract: &StructuralRowContract,
-    slot: usize,
-    raw_value: &[u8],
-) -> Result<Value, InternalError> {
-    if let Some(accepted_field) = contract.accepted_field_decode_contract(slot) {
-        return decode_runtime_value_from_accepted_field_contract(accepted_field, raw_value);
-    }
-
-    let field = contract.field_decode_contract(slot)?;
-
-    decode_runtime_value_from_field_contract(field, raw_value)
-}
-
 /// Apply one serialized structural patch through an accepted row-decode contract.
 ///
 /// This is the schema-transition counterpart to the generated-only replay
@@ -421,7 +403,7 @@ pub(in crate::db) fn apply_serialized_structural_patch_to_raw_row_with_accepted_
                 model.path()
             ))
         })?;
-        *value = decode_serialized_patch_payload_with_contract(&contract, slot, entry.payload())?;
+        *value = decode_runtime_value_from_row_contract(&contract, slot, entry.payload())?;
     }
 
     canonical_row_from_runtime_value_source(model, |slot| {

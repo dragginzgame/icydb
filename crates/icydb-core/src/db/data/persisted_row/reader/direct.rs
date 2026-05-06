@@ -7,8 +7,7 @@ use crate::{
                 codec::{ScalarSlotValueRef, decode_scalar_slot_value},
                 contract::{
                     decode_runtime_value_from_accepted_field_contract,
-                    decode_runtime_value_from_field_contract,
-                    validate_non_scalar_accepted_slot_value, validate_non_scalar_slot_value,
+                    decode_runtime_value_from_field_contract, validate_non_scalar_slot_value,
                 },
                 reader::{
                     metrics::{StructuralReadProbe, finish_direct_probe},
@@ -436,7 +435,6 @@ fn decode_slot_with_accepted_field(
             probe.record_validated_slot();
             probe.record_validated_non_scalar();
             probe.record_materialized_non_scalar();
-            validate_non_scalar_accepted_slot_value(raw_value, field)?;
 
             decode_runtime_value_from_accepted_field_contract(field, raw_value)
         }

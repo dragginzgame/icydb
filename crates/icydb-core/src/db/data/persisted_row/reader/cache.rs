@@ -1,7 +1,9 @@
 use crate::{
     db::data::{
         ScalarValueRef, StructuralRowContract, StructuralRowFieldBytes,
-        persisted_row::codec::{ScalarSlotValueRef, decode_scalar_slot_value},
+        persisted_row::{
+            codec::ScalarSlotValueRef, contract::decode_scalar_slot_value_from_row_contract,
+        },
     },
     error::InternalError,
     model::field::LeafCodec,
@@ -169,24 +171,13 @@ fn decode_payload_backed_validated_scalar_slot_value(
     raw_value: &[u8],
     slot: usize,
 ) -> Result<ScalarSlotValueRef<'_>, InternalError> {
-    if let Some(accepted_field) = contract.accepted_field_decode_contract(slot) {
-        let LeafCodec::Scalar(codec) = accepted_field.leaf_codec() else {
-            return Err(InternalError::persisted_row_decode_failed(format!(
-                "accepted validated scalar cache routed through non-scalar field contract: slot={slot}",
-            )));
-        };
-
-        return decode_scalar_slot_value(raw_value, codec, accepted_field.field_name());
-    }
-
-    let field = contract.field_decode_contract(slot)?;
-    let LeafCodec::Scalar(codec) = field.leaf_codec() else {
-        return Err(InternalError::persisted_row_decode_failed(format!(
-            "validated scalar cache routed through non-scalar field contract: slot={slot}",
-        )));
-    };
-
-    decode_scalar_slot_value(raw_value, codec, field.name())
+    decode_scalar_slot_value_from_row_contract(
+        &contract,
+        slot,
+        raw_value,
+        "accepted validated scalar cache routed through non-scalar field contract",
+        "validated scalar cache routed through non-scalar field contract",
+    )
 }
 
 // Materialize one validated scalar slot into the runtime `Value` enum.
