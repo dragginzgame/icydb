@@ -13,14 +13,14 @@ use std::borrow::Cow;
 use crate::db::data::persisted_row::{
     codec::ScalarSlotValueRef,
     contract::{
-        canonical_row_from_payload_source, canonical_row_from_runtime_value_source,
+        canonical_row_from_payload_source, canonical_row_from_runtime_value_source_with_slot_count,
         decode_runtime_value_from_field_contract, decode_runtime_value_from_row_contract,
         encode_runtime_value_for_field_model,
     },
     reader::StructuralSlotReader,
     types::{
         PersistedRow, SerializedStructuralFieldUpdate, SerializedStructuralPatch, SlotReader,
-        StructuralPatch, generated_compatible_field_model_for_slot,
+        StructuralPatch,
     },
     writer::CompleteSerializedPatchWriter,
 };
@@ -240,17 +240,22 @@ pub(in crate::db) fn canonical_row_from_structural_slot_reader(
     model: &'static EntityModel,
     row_fields: &StructuralSlotReader<'_>,
 ) -> Result<CanonicalRow, InternalError> {
-    canonical_row_from_runtime_value_source(model, |slot| {
-        row_fields
-            .required_cached_value(slot)
-            .map(Cow::Borrowed)
-            .map_err(|_| {
-                InternalError::persisted_row_encode_failed(format!(
-                    "slot {slot} is missing from the structural value cache for entity '{}'",
-                    model.path()
-                ))
-            })
-    })
+    canonical_row_from_runtime_value_source_with_slot_count(
+        model,
+        row_fields.field_count(),
+        model.path(),
+        |slot| {
+            row_fields
+                .required_cached_value(slot)
+                .map(Cow::Borrowed)
+                .map_err(|_| {
+                    InternalError::persisted_row_encode_failed(format!(
+                        "slot {slot} is missing from the structural value cache for entity '{}'",
+                        model.path()
+                    ))
+                })
+        },
+    )
 }
 
 /// Build one canonical row from raw bytes using one structural row contract.
@@ -302,6 +307,38 @@ pub(in crate::db) fn serialize_structural_patch_fields(
     model: &'static EntityModel,
     patch: &StructuralPatch,
 ) -> Result<SerializedStructuralPatch, InternalError> {
+    let contract = StructuralRowContract::from_model(model);
+
+    serialize_structural_patch_fields_for_contract(&contract, patch)
+}
+
+/// Serialize one structural patch through an accepted row-decode contract.
+///
+/// This is the accepted-schema counterpart to the generated-only serializer
+/// above. It keeps write target-slot admission on the selected persisted row
+/// contract while retaining generated field codecs as the typed compatibility
+/// bridge for value-to-bytes encoding.
+pub(in crate::db) fn serialize_structural_patch_fields_with_accepted_contract(
+    model: &'static EntityModel,
+    accepted_decode_contract: AcceptedRowDecodeContract,
+    patch: &StructuralPatch,
+) -> Result<SerializedStructuralPatch, InternalError> {
+    let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
+        model,
+        accepted_decode_contract,
+    );
+
+    serialize_structural_patch_fields_for_contract(&contract, patch)
+}
+
+// Serialize structural patch entries after the caller has selected the
+// row-shape authority. Generated-only writes validate against generated
+// layout; accepted-schema writes require the accepted field contract first and
+// only then cross the generated codec bridge.
+fn serialize_structural_patch_fields_for_contract(
+    contract: &StructuralRowContract,
+    patch: &StructuralPatch,
+) -> Result<SerializedStructuralPatch, InternalError> {
     if patch.is_empty() {
         return Ok(SerializedStructuralPatch::default());
     }
@@ -312,7 +349,18 @@ pub(in crate::db) fn serialize_structural_patch_fields(
     // canonical slot codec owner.
     for entry in patch.entries() {
         let slot = entry.slot();
-        let field = generated_compatible_field_model_for_slot(model, slot.index())?;
+        if contract.has_accepted_decode_contract()
+            && contract
+                .accepted_field_decode_contract(slot.index())
+                .is_none()
+        {
+            return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
+                contract.entity_path(),
+                slot.index(),
+            ));
+        }
+
+        let field = contract.generated_compatible_field_model(slot.index())?;
         let payload = encode_runtime_value_for_field_model(field, entry.value())?;
         entries.push(SerializedStructuralFieldUpdate::new(slot, payload));
     }
@@ -384,11 +432,11 @@ pub(in crate::db) fn apply_serialized_structural_patch_to_raw_row_with_accepted_
     );
     let row_fields =
         StructuralSlotReader::from_raw_row_with_validated_contract(raw_row, contract.clone())?;
-    let mut values = Vec::with_capacity(model.fields().len());
+    let mut values = Vec::with_capacity(contract.field_count());
 
     // Phase 1: materialize the accepted baseline into current generated slot
     // order, including any nullable appended slots that are absent on disk.
-    for slot in 0..model.fields().len() {
+    for slot in 0..contract.field_count() {
         values.push(row_fields.required_cached_value(slot)?.clone());
     }
 
@@ -406,12 +454,17 @@ pub(in crate::db) fn apply_serialized_structural_patch_to_raw_row_with_accepted_
         *value = decode_runtime_value_from_row_contract(&contract, slot, entry.payload())?;
     }
 
-    canonical_row_from_runtime_value_source(model, |slot| {
-        values.get(slot).map(Cow::Borrowed).ok_or_else(|| {
-            InternalError::persisted_row_encode_failed(format!(
-                "slot {slot} is missing from accepted structural after-image for entity '{}'",
-                model.path()
-            ))
-        })
-    })
+    canonical_row_from_runtime_value_source_with_slot_count(
+        model,
+        contract.field_count(),
+        contract.entity_path(),
+        |slot| {
+            values.get(slot).map(Cow::Borrowed).ok_or_else(|| {
+                InternalError::persisted_row_encode_failed(format!(
+                    "slot {slot} is missing from accepted structural after-image for entity '{}'",
+                    contract.entity_path()
+                ))
+            })
+        },
+    )
 }

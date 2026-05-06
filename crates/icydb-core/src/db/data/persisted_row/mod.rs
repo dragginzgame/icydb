@@ -29,6 +29,7 @@ pub(in crate::db) use patch::{
     canonical_row_from_raw_row_with_structural_contract, canonical_row_from_stored_raw_row,
     canonical_row_from_structural_slot_reader, materialize_entity_from_serialized_structural_patch,
     serialize_entity_slots_as_complete_serialized_patch, serialize_structural_patch_fields,
+    serialize_structural_patch_fields_with_accepted_contract,
 };
 #[cfg(feature = "diagnostics")]
 pub use reader::{StructuralReadMetrics, with_structural_read_metrics};

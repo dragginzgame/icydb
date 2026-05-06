@@ -292,15 +292,15 @@ fn canonicalize_slot_payload(
 // shape while callers still decide whether they start from raw payload bytes or
 // from already decoded runtime values.
 fn dense_slot_image_from_source<F>(
-    model: &'static EntityModel,
+    slot_count: usize,
     mut encode_slot: F,
 ) -> Result<Vec<Vec<u8>>, InternalError>
 where
     F: FnMut(usize) -> Result<Vec<u8>, InternalError>,
 {
-    let mut slot_payloads = Vec::with_capacity(model.fields().len());
+    let mut slot_payloads = Vec::with_capacity(slot_count);
 
-    for slot in 0..model.fields().len() {
+    for slot in 0..slot_count {
         slot_payloads.push(encode_slot(slot)?);
     }
 
@@ -312,12 +312,13 @@ where
 // the slot-by-slot canonicalization loop.
 fn dense_canonical_slot_image_from_payload_source<'a, F>(
     model: &'static EntityModel,
+    slot_count: usize,
     mut payload_for_slot: F,
 ) -> Result<Vec<Vec<u8>>, InternalError>
 where
     F: FnMut(usize) -> Result<&'a [u8], InternalError>,
 {
-    dense_slot_image_from_source(model, |slot| {
+    dense_slot_image_from_source(slot_count, |slot| {
         let payload = payload_for_slot(slot)?;
         canonicalize_slot_payload(model, slot, payload)
     })
@@ -328,12 +329,13 @@ where
 // already owns the validated structural value cache.
 fn dense_canonical_slot_image_from_runtime_value_source<'a, F>(
     model: &'static EntityModel,
+    slot_count: usize,
     mut value_for_slot: F,
 ) -> Result<Vec<Vec<u8>>, InternalError>
 where
     F: FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
 {
-    dense_slot_image_from_source(model, |slot| {
+    dense_slot_image_from_source(slot_count, |slot| {
         let field = generated_compatible_field_model_for_slot(model, slot)?;
         let value = value_for_slot(slot)?;
 
@@ -408,25 +410,33 @@ pub(in crate::db::data::persisted_row) fn canonical_row_from_payload_source<'a, 
 where
     F: FnMut(usize) -> Result<&'a [u8], InternalError>,
 {
-    let slot_payloads = dense_canonical_slot_image_from_payload_source(model, payload_for_slot)?;
+    let slot_count = model.fields().len();
+    let slot_payloads =
+        dense_canonical_slot_image_from_payload_source(model, slot_count, payload_for_slot)?;
 
-    emit_raw_row_from_slot_payloads(model, slot_payloads.as_slice())
+    emit_raw_row_from_slot_payloads(slot_count, model.path(), slot_payloads.as_slice())
 }
 
-// Build and emit one canonical row from already-decoded runtime values so
-// callers that already own the structural value cache can reuse the same
-// row-emission owner without staging the dense slot image themselves.
-pub(in crate::db::data::persisted_row) fn canonical_row_from_runtime_value_source<'a, F>(
+// Build and emit one canonical row from accepted-contract slot count plus
+// already-decoded runtime values. The generated model remains the write-codec
+// bridge for value encoding, but the emitted row shape comes from the accepted
+// runtime contract selected by the caller.
+pub(in crate::db::data::persisted_row) fn canonical_row_from_runtime_value_source_with_slot_count<
+    'a,
+    F,
+>(
     model: &'static EntityModel,
+    slot_count: usize,
+    entity_path: &str,
     value_for_slot: F,
 ) -> Result<CanonicalRow, InternalError>
 where
     F: FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
 {
     let slot_payloads =
-        dense_canonical_slot_image_from_runtime_value_source(model, value_for_slot)?;
+        dense_canonical_slot_image_from_runtime_value_source(model, slot_count, value_for_slot)?;
 
-    emit_raw_row_from_slot_payloads(model, slot_payloads.as_slice())
+    emit_raw_row_from_slot_payloads(slot_count, entity_path, slot_payloads.as_slice())
 }
 
 // Wrap one already-encoded canonical slot payload container in the shared row
@@ -443,14 +453,15 @@ fn canonical_row_from_slot_payload_bytes(
 
 // Emit one raw row from a dense canonical slot image.
 fn emit_raw_row_from_slot_payloads(
-    model: &'static EntityModel,
+    expected_slot_count: usize,
+    entity_path: &str,
     slot_payloads: &[Vec<u8>],
 ) -> Result<CanonicalRow, InternalError> {
-    if slot_payloads.len() != model.fields().len() {
+    if slot_payloads.len() != expected_slot_count {
         return Err(InternalError::persisted_row_encode_failed(format!(
             "canonical slot image expected {} slots for entity '{}', found {}",
-            model.fields().len(),
-            model.path(),
+            expected_slot_count,
+            entity_path,
             slot_payloads.len()
         )));
     }

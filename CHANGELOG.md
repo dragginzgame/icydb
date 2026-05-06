@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.148.x] 🧬 - 2026-05-06 - Schema Evolution Runtime Cutover
 
+- `0.148.13` makes accepted-schema row rebuilds and structural patch writes use the accepted row contract’s slot shape, so older rows are re-emitted in the current layout without generated slot-count decisions.
 - `0.148.12` moves structural save preflight and patch write checks onto accepted schema field kinds, so old-row update validation no longer has to reinterpret saved fields through generated field metadata.
 - `0.148.11` removes grouped and primary-key generated-field bridges, and consolidates save preflight checks so row reads and writes share narrower validation helpers.
 - `0.148.10` centralizes accepted-versus-generated row-contract scalar decode, value decode, and validation selection in the persisted-row contract layer.

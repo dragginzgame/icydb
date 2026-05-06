@@ -14,6 +14,7 @@ use crate::{
         data::{
             DataKey, PersistedRow, SerializedStructuralPatch, StructuralPatch,
             serialize_entity_slots_as_complete_serialized_patch, serialize_structural_patch_fields,
+            serialize_structural_patch_fields_with_accepted_contract,
         },
         executor::{
             Context, EntityAuthority,
@@ -21,6 +22,7 @@ use crate::{
             validate_executor_plan_for_authority,
         },
         query::plan::AccessPlannedQuery,
+        schema::AcceptedRowDecodeContract,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -78,17 +80,24 @@ impl MutationInput {
 
     /// Lower one key + structural patch pair into the shared mutation input.
     ///
-    /// This seam lands before the session/API layer adopts structural mutation
-    /// entrypoints, so the library target does not call it yet.
+    /// The optional accepted row contract keeps schema-transition structural
+    /// writes on the selected persisted row shape before bytes cross the
+    /// executor mutation boundary.
     pub(in crate::db::executor) fn from_structural_patch<E>(
         key: E::Key,
         patch: &StructuralPatch,
+        accepted_row_decode_contract: Option<AcceptedRowDecodeContract>,
     ) -> Result<Self, InternalError>
     where
         E: PersistedRow + EntityValue,
     {
         let data_key = DataKey::try_new::<E>(key)?;
-        let serialized_slots = serialize_structural_patch_fields(E::MODEL, patch)?;
+        let serialized_slots = match accepted_row_decode_contract {
+            Some(contract) => {
+                serialize_structural_patch_fields_with_accepted_contract(E::MODEL, contract, patch)?
+            }
+            None => serialize_structural_patch_fields(E::MODEL, patch)?,
+        };
 
         Ok(Self::new(data_key, serialized_slots))
     }
