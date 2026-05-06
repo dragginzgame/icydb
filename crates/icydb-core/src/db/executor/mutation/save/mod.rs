@@ -9,7 +9,12 @@ mod structural;
 mod typed;
 
 use crate::{
-    db::{Db, commit::CommitSchemaFingerprint, data::PersistedRow, schema::SchemaInfo},
+    db::{
+        Db,
+        commit::CommitSchemaFingerprint,
+        data::PersistedRow,
+        schema::{AcceptedRowDecodeContract, SchemaInfo},
+    },
     error::InternalError,
     metrics::sink::{MetricsEvent, SaveMutationKind, record},
     sanitize::{SanitizeWriteContext, SanitizeWriteMode},
@@ -42,9 +47,10 @@ enum SaveMode {
 // SaveExecutor
 //
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(in crate::db) struct SaveExecutor<E: PersistedRow + EntityValue> {
     pub(in crate::db::executor::mutation) db: Db<E::Canister>,
+    accepted_row_decode_contract: Option<AcceptedRowDecodeContract>,
 }
 
 //
@@ -154,7 +160,23 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     /// Construct one save executor bound to a database handle.
     #[must_use]
     pub(in crate::db) const fn new(db: Db<E::Canister>, _debug: bool) -> Self {
-        Self { db }
+        Self {
+            db,
+            accepted_row_decode_contract: None,
+        }
+    }
+
+    // Attach the accepted-schema row decode contract proven by the session
+    // write boundary. Typed saves use this only for old-row baseline handling;
+    // after-images are still emitted through generated-compatible typed codecs.
+    #[must_use]
+    pub(in crate::db) fn with_accepted_row_decode_contract(
+        mut self,
+        contract: AcceptedRowDecodeContract,
+    ) -> Self {
+        self.accepted_row_decode_contract = Some(contract);
+
+        self
     }
 
     // Record the committed save mode after the row mutation has crossed the

@@ -6,7 +6,10 @@ use crate::{
             CommitRowOp,
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
         },
-        data::{CanonicalRow, DataKey, PersistedRow, RawRow},
+        data::{
+            CanonicalRow, DataKey, PersistedRow, RawRow, StructuralRowContract,
+            StructuralSlotReader, canonical_row_from_structural_slot_reader,
+        },
         executor::{
             Context,
             mutation::{emit_index_delta_metrics, mutation_write_context},
@@ -49,6 +52,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
     // Build one logical row operation from a full typed after-image.
     pub(super) fn prepare_typed_entity_row_op(
+        &self,
         ctx: &Context<'_, E>,
         save_rule: SaveRule,
         entity: &E,
@@ -57,7 +61,12 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         // Phase 1: resolve key + current-store baseline from the canonical save rule.
         let data_key = DataKey::try_new::<E>(entity.id().key())?;
         let raw_key = data_key.to_raw()?;
-        let old_raw = Self::resolve_existing_row_for_rule(ctx, &data_key, save_rule, None)?;
+        let old_raw = Self::resolve_existing_row_for_rule(
+            ctx,
+            &data_key,
+            save_rule,
+            self.accepted_row_decode_contract.as_ref(),
+        )?;
 
         // Phase 2: typed save lanes already own a complete after-image, so
         // emit the canonical row directly instead of replaying a dense slot
@@ -65,7 +74,9 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let row_bytes = CanonicalRow::from_entity(entity)?
             .into_raw_row()
             .into_bytes();
-        let before_bytes = old_raw.map(<RawRow as Storable>::into_bytes);
+        let before_bytes = old_raw
+            .map(|old_raw| self.build_typed_before_image_bytes(old_raw))
+            .transpose()?;
         let row_op = CommitRowOp::new(
             E::PATH,
             raw_key,
@@ -75,6 +86,24 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         );
 
         Ok(row_op)
+    }
+
+    // Build the commit-marker before image for typed saves. Accepted-schema
+    // updates must not pass old short rows into commit preflight because index
+    // and relation delta planning consume generated-compatible dense rows.
+    fn build_typed_before_image_bytes(&self, old_row: RawRow) -> Result<Vec<u8>, InternalError> {
+        let Some(accepted_row_decode_contract) = &self.accepted_row_decode_contract else {
+            return Ok(old_row.into_bytes());
+        };
+        let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
+            E::MODEL,
+            accepted_row_decode_contract.clone(),
+        );
+        let row_fields =
+            StructuralSlotReader::from_raw_row_with_validated_contract(&old_row, contract)?;
+        let canonical = canonical_row_from_structural_slot_reader(E::MODEL, &row_fields)?;
+
+        Ok(canonical.into_raw_row().into_bytes())
     }
 
     pub(super) fn save_entity(&self, mode: SaveMode, entity: E) -> Result<E, InternalError> {
@@ -169,7 +198,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             preflight.write_context,
             preflight.authored_create_slots,
         )?;
-        let marker_row_op = Self::prepare_typed_entity_row_op(
+        let marker_row_op = self.prepare_typed_entity_row_op(
             ctx,
             save_rule,
             &entity,

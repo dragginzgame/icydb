@@ -587,14 +587,17 @@ impl<C: CanisterKind> DbSession<C> {
             SqlInsertSource::Values(_) => SqlWriteKind::Insert,
             SqlInsertSource::Select(_) => SqlWriteKind::InsertSelect,
         };
+        let row_decode_contract = descriptor.row_decode_contract();
+        let mutation_row_decode_contract = row_decode_contract.clone();
         let entities = self
-            .execute_save_with_checked_accepted_schema::<E, _, _>(
+            .execute_save_with_checked_accepted_row_contract::<E, _, _>(
+                row_decode_contract,
                 |save| {
                     save.apply_internal_lowered_structural_mutation_batch(
                         MutationMode::Insert,
                         rows,
                         write_context,
-                        Some(descriptor.row_decode_contract()),
+                        Some(mutation_row_decode_contract),
                     )
                 },
                 std::convert::identity,
@@ -645,14 +648,17 @@ impl<C: CanisterKind> DbSession<C> {
 
             rows.push((key, patch.clone()));
         }
+        let row_decode_contract = descriptor.row_decode_contract();
+        let mutation_row_decode_contract = row_decode_contract.clone();
         let entities = self
-            .execute_save_with_checked_accepted_schema::<E, _, _>(
+            .execute_save_with_checked_accepted_row_contract::<E, _, _>(
+                row_decode_contract,
                 |save| {
                     save.apply_internal_lowered_structural_mutation_batch(
                         MutationMode::Update,
                         rows,
                         write_context,
-                        Some(descriptor.row_decode_contract()),
+                        Some(mutation_row_decode_contract),
                     )
                 },
                 std::convert::identity,

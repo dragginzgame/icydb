@@ -22,10 +22,11 @@ use crate::{
         executor::{DeleteExecutor, EntityAuthority, LoadExecutor, SaveExecutor},
         query::plan::VisibleIndexes,
         schema::{
-            AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot, describe_entity_fields,
-            describe_entity_fields_with_persisted_schema, describe_entity_model,
-            describe_entity_model_with_persisted_schema, ensure_accepted_schema_snapshot,
-            show_indexes_for_model, show_indexes_for_model_with_runtime_state,
+            AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot,
+            describe_entity_fields, describe_entity_fields_with_persisted_schema,
+            describe_entity_model, describe_entity_model_with_persisted_schema,
+            ensure_accepted_schema_snapshot, show_indexes_for_model,
+            show_indexes_for_model_with_runtime_state,
         },
     },
     error::InternalError,
@@ -135,30 +136,43 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        if let Err(error) =
-            self.with_metrics(|| self.ensure_generated_compatible_accepted_schema_snapshot::<E>())
+        let contract = match self
+            .with_metrics(|| self.ensure_generated_compatible_accepted_row_decode_contract::<E>())
         {
-            self.with_metrics(|| record_exec_error_for_path(ExecKind::Save, E::PATH, &error));
+            Ok(contract) => contract,
+            Err(error) => {
+                self.with_metrics(|| record_exec_error_for_path(ExecKind::Save, E::PATH, &error));
 
-            return Err(error);
-        }
+                return Err(error);
+            }
+        };
+        let value = self.with_metrics(|| {
+            op(self
+                .save_executor::<E>()
+                .with_accepted_row_decode_contract(contract))
+        })?;
 
-        self.execute_save_with_checked_accepted_schema(op, map)
+        Ok(map(value))
     }
 
     // Execute save work after the caller has already proven that the accepted
-    // schema is generated-compatible. SQL writes use this after their
-    // pre-staging schema guard so mutation staging and save execution do not
-    // run duplicate schema-store reconciliation in the same statement.
-    fn execute_save_with_checked_accepted_schema<E, T, R>(
+    // row contract is generated-compatible. SQL and structural writes use this
+    // after their pre-staging schema guard so mutation staging and save
+    // execution do not rerun schema-store reconciliation in the same statement.
+    fn execute_save_with_checked_accepted_row_contract<E, T, R>(
         &self,
+        accepted_row_decode_contract: AcceptedRowDecodeContract,
         op: impl FnOnce(SaveExecutor<E>) -> Result<T, InternalError>,
         map: impl FnOnce(T) -> R,
     ) -> Result<R, InternalError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let value = self.with_metrics(|| op(self.save_executor::<E>()))?;
+        let value = self.with_metrics(|| {
+            op(self
+                .save_executor::<E>()
+                .with_accepted_row_decode_contract(accepted_row_decode_contract))
+        })?;
 
         Ok(map(value))
     }
@@ -440,9 +454,9 @@ impl<C: CanisterKind> DbSession<C> {
     // rows through generated field contracts. Returning only the snapshot keeps
     // SQL write type checks unchanged while the schema-runtime descriptor guard
     // rejects unsupported layout or payload drift before mutation staging.
-    fn ensure_generated_compatible_accepted_schema_snapshot<E>(
+    fn ensure_generated_compatible_accepted_row_decode_contract<E>(
         &self,
-    ) -> Result<AcceptedSchemaSnapshot, InternalError>
+    ) -> Result<AcceptedRowDecodeContract, InternalError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -451,7 +465,7 @@ impl<C: CanisterKind> DbSession<C> {
             AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted_schema)?;
         accepted_row_layout.generated_compatible_row_shape_for_model(E::MODEL)?;
 
-        Ok(accepted_schema)
+        Ok(accepted_row_layout.row_decode_contract())
     }
 
     /// Build one point-in-time storage report for observability endpoints.

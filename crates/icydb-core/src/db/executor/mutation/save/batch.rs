@@ -228,7 +228,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                     preflight.write_context,
                     preflight.authored_create_slots,
                 )?;
-                let marker_row_op = Self::prepare_typed_entity_row_op(
+                let marker_row_op = self.prepare_typed_entity_row_op(
                     &ctx,
                     save_rule,
                     &entity,

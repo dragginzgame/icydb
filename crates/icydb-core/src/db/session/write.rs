@@ -189,14 +189,13 @@ impl<C: CanisterKind> DbSession<C> {
         descriptor.generated_compatible_row_shape_for_model(E::MODEL)?;
         validate_structural_patch_schema_policy::<E>(&descriptor, &patch, mode)?;
 
-        self.execute_save_with_checked_accepted_schema(
+        let row_decode_contract = descriptor.row_decode_contract();
+        let mutation_row_decode_contract = row_decode_contract.clone();
+
+        self.execute_save_with_checked_accepted_row_contract(
+            row_decode_contract,
             |save| {
-                save.apply_structural_mutation(
-                    mode,
-                    key,
-                    patch,
-                    Some(descriptor.row_decode_contract()),
-                )
+                save.apply_structural_mutation(mode, key, patch, Some(mutation_row_decode_contract))
             },
             std::convert::identity,
         )
