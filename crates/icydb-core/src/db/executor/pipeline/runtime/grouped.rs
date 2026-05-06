@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::{DataKey, RawRow, StorageKey, StructuralFieldDecodeContract},
+        data::{DataKey, RawRow, StorageKey},
         executor::{
             ExecutionOptimization, ExecutionPreparation,
             aggregate::field::{
@@ -307,16 +307,12 @@ impl CompiledExprValueReader for RowView {
 ///
 /// SingleGroupedSlotDecode freezes the one-slot grouped row path selected for
 /// this runtime.
-/// Generated-only layouts also carry generated field-contract fallbacks so
-/// each row can avoid rediscovering them. Accepted-schema layouts intentionally
-/// leave those fields empty and let the data-layer sparse decoder consume the
-/// accepted row contract directly.
+/// The data-layer sparse decoder owns accepted/generated contract selection, so
+/// the grouped runtime only keeps the required slot selected by route staging.
 ///
 
 struct SingleGroupedSlotDecode {
     slot: usize,
-    field: Option<StructuralFieldDecodeContract>,
-    primary_key_field: Option<StructuralFieldDecodeContract>,
 }
 
 ///
@@ -360,37 +356,9 @@ impl StructuralGroupedRowRuntime {
         grouped_slot_layout: RetainedSlotLayout,
     ) -> Self {
         let single_grouped_slot_decode = match grouped_slot_layout.required_slots() {
-            [required_slot] => {
-                let contract = row_layout.contract();
-                let field = if contract
-                    .accepted_field_decode_contract(*required_slot)
-                    .is_some()
-                {
-                    None
-                } else {
-                    Some(contract.field_decode_contract(*required_slot).expect(
-                        "grouped slot layout must reference one declared structural row field",
-                    ))
-                };
-                let primary_key_field = if contract
-                    .accepted_field_decode_contract(contract.primary_key_slot())
-                    .is_some()
-                {
-                    None
-                } else {
-                    Some(
-                        contract.field_decode_contract(contract.primary_key_slot()).expect(
-                            "structural row contract must retain one declared primary-key field",
-                        ),
-                    )
-                };
-
-                Some(SingleGroupedSlotDecode {
-                    slot: *required_slot,
-                    field,
-                    primary_key_field,
-                })
-            }
+            [required_slot] => Some(SingleGroupedSlotDecode {
+                slot: *required_slot,
+            }),
             _ => None,
         };
 
@@ -454,28 +422,13 @@ impl StructuralGroupedRowRuntime {
 
     // Decode the caller-frozen single grouped slot directly from one raw row.
     // Both the single-slot row-view path and the direct grouped slot read path
-    // share this decode contract, so the selected-slot and primary-key field
-    // metadata only live in one place.
+    // share the same data-layer sparse required-slot decoder.
     fn decode_single_grouped_slot_value_from_raw_row(
         &self,
         expected_key: StorageKey,
         row: &RawRow,
         single_grouped_slot_decode: &SingleGroupedSlotDecode,
     ) -> Result<Option<Value>, InternalError> {
-        if let (Some(field), Some(primary_key_field)) = (
-            single_grouped_slot_decode.field,
-            single_grouped_slot_decode.primary_key_field,
-        ) {
-            return RowDecoder::decode_required_slot_value_with_contracts(
-                &self.row_layout,
-                expected_key,
-                row,
-                single_grouped_slot_decode.slot,
-                field,
-                primary_key_field,
-            );
-        }
-
         RowDecoder::decode_required_slot_value(
             &self.row_layout,
             expected_key,

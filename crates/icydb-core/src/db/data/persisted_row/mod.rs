@@ -38,7 +38,6 @@ pub(in crate::db) use reader::{
     StructuralSlotReader, decode_dense_raw_row_with_contract,
     decode_sparse_indexed_raw_row_with_contract, decode_sparse_raw_row_with_contract,
     decode_sparse_required_slot_with_contract,
-    decode_sparse_required_slot_with_contract_and_fields,
 };
 pub(in crate::db) use types::{CanonicalSlotReader, FieldSlot, SerializedStructuralPatch};
 pub use types::{PersistedRow, SlotReader, SlotWriter, StructuralPatch};

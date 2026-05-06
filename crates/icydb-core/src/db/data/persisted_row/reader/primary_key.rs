@@ -38,11 +38,24 @@ pub(super) fn validate_storage_key_from_field_bytes(
     expected_key: StorageKey,
 ) -> Result<(), InternalError> {
     let primary_key_slot = contract.primary_key_slot();
-    if let Some(primary_key_field) = contract.accepted_field_decode_contract(primary_key_slot) {
-        let raw_value = field_bytes.field(primary_key_slot).ok_or_else(|| {
-            InternalError::persisted_row_declared_field_missing(primary_key_field.field_name())
-        })?;
+    let primary_key_name = contract.field_name(primary_key_slot)?;
+    let raw_value = field_bytes
+        .field(primary_key_slot)
+        .ok_or_else(|| InternalError::persisted_row_declared_field_missing(primary_key_name))?;
 
+    validate_storage_key_from_primary_key_bytes_with_contract(&contract, raw_value, expected_key)
+}
+
+// Validate one raw primary-key payload through the row contract owner. Sparse
+// row readers that do not own a full field-span wrapper use this so they do not
+// repeat accepted-vs-generated primary-key selection locally.
+pub(super) fn validate_storage_key_from_primary_key_bytes_with_contract(
+    contract: &StructuralRowContract,
+    raw_value: &[u8],
+    expected_key: StorageKey,
+) -> Result<(), InternalError> {
+    let primary_key_slot = contract.primary_key_slot();
+    if let Some(primary_key_field) = contract.accepted_field_decode_contract(primary_key_slot) {
         return validate_storage_key_from_primary_key_bytes_with_accepted_field(
             raw_value,
             primary_key_field,
@@ -51,9 +64,6 @@ pub(super) fn validate_storage_key_from_field_bytes(
     }
 
     let primary_key_field = contract.field_decode_contract(primary_key_slot)?;
-    let raw_value = field_bytes.field(primary_key_slot).ok_or_else(|| {
-        InternalError::persisted_row_declared_field_missing(primary_key_field.name())
-    })?;
 
     validate_storage_key_from_primary_key_bytes_with_field(
         raw_value,
@@ -65,7 +75,7 @@ pub(super) fn validate_storage_key_from_field_bytes(
 // Validate one primary-key payload through accepted persisted schema metadata.
 // This is the schema-runtime counterpart to the generated-compatible helper
 // above and keeps accepted primary-key decode from reopening `FieldKind`.
-pub(super) fn validate_storage_key_from_primary_key_bytes_with_accepted_field(
+fn validate_storage_key_from_primary_key_bytes_with_accepted_field(
     raw_value: &[u8],
     field: AcceptedFieldDecodeContract<'_>,
     expected_key: StorageKey,
@@ -130,7 +140,7 @@ pub(super) fn validate_storage_key_from_primary_key_bytes_with_accepted_field(
 
 // Validate the persisted primary-key payload directly from caller-supplied raw
 // field bytes so both full-span and narrow sparse reads share one decode rule.
-pub(super) fn validate_storage_key_from_primary_key_bytes_with_field(
+fn validate_storage_key_from_primary_key_bytes_with_field(
     raw_value: &[u8],
     field: StructuralFieldDecodeContract,
     expected_key: StorageKey,

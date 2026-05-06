@@ -206,30 +206,14 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 continue;
             }
 
-            if !field_kind.value_kind().is_queryable() {
-                // Non-queryable structured fields are not planner-addressable.
-                continue;
-            }
-
-            let Some(field_type) = schema.field(field_name) else {
-                // Runtime-only field; treat as non-queryable.
-                continue;
-            };
-
-            if !literal_matches_type(&value, field_type) && !field_kind.accepts_value(&value) {
-                return Err(InternalError::mutation_entity_field_type_mismatch(
-                    E::PATH,
-                    field_name,
-                    &value,
-                ));
-            }
-
-            // Phase 3: enforce schema-declared scalar bounds at write boundaries.
-            Self::validate_decimal_scale_is_normalizable(field_name, &field_kind, &value)?;
-            Self::validate_text_max_len(field_name, &field_kind, &value)?;
-
-            // Phase 4: enforce deterministic collection/map encodings at runtime.
-            Self::validate_deterministic_field_value(field_name, &field_kind, &value)?;
+            // Phase 3: enforce runtime shape, scalar bounds, and deterministic
+            // collection/map encodings for user-authored values.
+            Self::validate_authored_field_value_invariants(
+                schema,
+                field_name,
+                &field_kind,
+                &value,
+            )?;
         }
 
         Ok(())
@@ -256,33 +240,81 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 continue;
             }
 
-            if !field_kind.value_kind().is_queryable() {
-                // Non-queryable structured fields are not planner-addressable.
-                continue;
-            }
-
-            let Some(field_type) = schema.field(field_name) else {
-                // Runtime-only field; treat as non-queryable.
-                continue;
-            };
-
-            if !literal_matches_type(value, field_type) && !field_kind.accepts_value(value) {
-                return Err(InternalError::mutation_entity_field_type_mismatch(
-                    E::PATH,
-                    field_name,
-                    value,
-                ));
-            }
-
-            // Phase 1: enforce schema-declared scalar bounds at write boundaries.
-            Self::validate_decimal_scale_exact(field_name, &field_kind, value)?;
-            Self::validate_text_max_len(field_name, &field_kind, value)?;
-
-            // Phase 2: enforce deterministic collection/map encodings at runtime.
-            Self::validate_deterministic_field_value(field_name, &field_kind, value)?;
+            // Phase 1: enforce runtime shape, exact scalar bounds, and
+            // deterministic collection/map encodings for already persisted rows.
+            Self::validate_persisted_field_value_invariants(
+                schema,
+                field_name,
+                &field_kind,
+                value,
+            )?;
         }
 
         Ok(())
+    }
+
+    // Validate a user-authored runtime field value before write encoding can
+    // normalize fixed-scale decimal values into the persisted field shape.
+    fn validate_authored_field_value_invariants(
+        schema: &SchemaInfo,
+        field_name: &'static str,
+        field_kind: &FieldKind,
+        value: &Value,
+    ) -> Result<(), InternalError> {
+        if !Self::validate_queryable_field_value_shape(schema, field_name, field_kind, value)? {
+            return Ok(());
+        }
+
+        Self::validate_decimal_scale_is_normalizable(field_name, field_kind, value)?;
+        Self::validate_text_max_len(field_name, field_kind, value)?;
+        Self::validate_deterministic_field_value(field_name, field_kind, value)
+    }
+
+    // Validate an already materialized persisted row value. These values have
+    // already passed storage decode, so decimal scale must be exact rather than
+    // merely normalizable.
+    fn validate_persisted_field_value_invariants(
+        schema: &SchemaInfo,
+        field_name: &'static str,
+        field_kind: &FieldKind,
+        value: &Value,
+    ) -> Result<(), InternalError> {
+        if !Self::validate_queryable_field_value_shape(schema, field_name, field_kind, value)? {
+            return Ok(());
+        }
+
+        Self::validate_decimal_scale_exact(field_name, field_kind, value)?;
+        Self::validate_text_max_len(field_name, field_kind, value)?;
+        Self::validate_deterministic_field_value(field_name, field_kind, value)
+    }
+
+    // Enforce the shared query-visible field shape checks used by both
+    // user-authored entity values and structural persisted-row validation.
+    fn validate_queryable_field_value_shape(
+        schema: &SchemaInfo,
+        field_name: &'static str,
+        field_kind: &FieldKind,
+        value: &Value,
+    ) -> Result<bool, InternalError> {
+        if !field_kind.value_kind().is_queryable() {
+            // Non-queryable structured fields are not planner-addressable.
+            return Ok(false);
+        }
+
+        let Some(field_type) = schema.field(field_name) else {
+            // Runtime-only field; treat as non-queryable.
+            return Ok(false);
+        };
+
+        if !literal_matches_type(value, field_type) && !field_kind.accepts_value(value) {
+            return Err(InternalError::mutation_entity_field_type_mismatch(
+                E::PATH,
+                field_name,
+                value,
+            ));
+        }
+
+        Ok(true)
     }
 
     /// Accept authored decimal values that can be normalized to fixed field scale.
