@@ -499,7 +499,7 @@ mod tests {
             PersistedFieldKind::Text { max_len: None }
         ));
         assert!(name.nullable());
-        assert_eq!(name.default(), SchemaFieldDefault::None);
+        assert_eq!(name.default(), &SchemaFieldDefault::None);
         assert_eq!(name.storage_decode(), FieldStorageDecode::ByKind);
         assert_eq!(name.leaf_codec(), LeafCodec::Scalar(ScalarCodec::Text));
 

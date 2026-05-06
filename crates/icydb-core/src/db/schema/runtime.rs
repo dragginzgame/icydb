@@ -28,6 +28,7 @@ use crate::{
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum AcceptedFieldAbsencePolicy {
     NullIfMissing,
+    DefaultIfMissing,
     Required,
 }
 
@@ -48,7 +49,7 @@ pub(in crate::db) struct AcceptedRowLayoutRuntimeField<'a> {
     kind: &'a PersistedFieldKind,
     nested_leaves: &'a [PersistedNestedLeafSnapshot],
     nullable: bool,
-    default: SchemaFieldDefault,
+    default: &'a SchemaFieldDefault,
     write_policy: SchemaFieldWritePolicy,
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
@@ -106,7 +107,7 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
         reason = "database defaults are part of the accepted runtime boundary before additive write support"
     )]
     #[must_use]
-    pub(in crate::db) const fn default(&self) -> SchemaFieldDefault {
+    pub(in crate::db) const fn default(&self) -> &'a SchemaFieldDefault {
         self.default
     }
 
@@ -202,6 +203,7 @@ pub(in crate::db) struct OwnedAcceptedFieldDecodeContract {
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
     absence_policy: AcceptedFieldAbsencePolicy,
+    default: SchemaFieldDefault,
 }
 
 impl OwnedAcceptedFieldDecodeContract {
@@ -217,6 +219,7 @@ impl OwnedAcceptedFieldDecodeContract {
             storage_decode: contract.storage_decode(),
             leaf_codec: contract.leaf_codec(),
             absence_policy: field.absence_policy(),
+            default: field.default().clone(),
         }
     }
 
@@ -236,6 +239,12 @@ impl OwnedAcceptedFieldDecodeContract {
     #[must_use]
     pub(in crate::db) const fn absence_policy(&self) -> AcceptedFieldAbsencePolicy {
         self.absence_policy
+    }
+
+    /// Borrow the accepted database default payload contract.
+    #[must_use]
+    pub(in crate::db) const fn default(&self) -> &SchemaFieldDefault {
+        &self.default
     }
 
     /// Borrow the accepted persisted field name.
@@ -646,11 +655,12 @@ fn ensure_generated_field_decode_contract_compatible(
 // struct defaults are deliberately absent from this calculation.
 const fn accepted_field_absence_policy(
     nullable: bool,
-    default: SchemaFieldDefault,
+    default: &SchemaFieldDefault,
 ) -> AcceptedFieldAbsencePolicy {
     match (nullable, default) {
         (true, SchemaFieldDefault::None) => AcceptedFieldAbsencePolicy::NullIfMissing,
         (false, SchemaFieldDefault::None) => AcceptedFieldAbsencePolicy::Required,
+        (_, SchemaFieldDefault::SlotPayload(_)) => AcceptedFieldAbsencePolicy::DefaultIfMissing,
     }
 }
 
@@ -938,7 +948,7 @@ mod tests {
             nickname.absence_policy(),
             AcceptedFieldAbsencePolicy::NullIfMissing
         );
-        assert_eq!(nickname.default(), SchemaFieldDefault::None);
+        assert_eq!(nickname.default(), &SchemaFieldDefault::None);
         let nickname_decode_contract = nickname.decode_contract();
         assert!(nickname_decode_contract.nullable());
         assert_eq!(

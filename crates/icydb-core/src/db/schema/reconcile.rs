@@ -587,7 +587,7 @@ mod tests {
                 LeafCodec::Scalar(ScalarCodec::Uint64),
             )],
             profile.nullable(),
-            profile.default(),
+            profile.default().clone(),
             profile.storage_decode(),
             profile.leaf_codec(),
         );

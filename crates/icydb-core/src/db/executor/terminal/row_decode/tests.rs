@@ -303,7 +303,7 @@ fn row_layout_rejects_accepted_payload_contract_drift_at_generated_compatibility
         PersistedFieldKind::Text { max_len: None },
         title.nested_leaves().to_vec(),
         title.nullable(),
-        title.default(),
+        title.default().clone(),
         FieldStorageDecode::Value,
         LeafCodec::StructuralFallback,
     );

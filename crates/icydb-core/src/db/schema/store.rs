@@ -690,7 +690,7 @@ mod tests {
             fields[1].kind().clone(),
             fields[1].nested_leaves().to_vec(),
             fields[1].nullable(),
-            fields[1].default(),
+            fields[1].default().clone(),
             fields[1].storage_decode(),
             fields[1].leaf_codec(),
         );
@@ -738,7 +738,7 @@ mod tests {
                 LeafCodec::Scalar(ScalarCodec::Blob),
             )],
             fields[1].nullable(),
-            fields[1].default(),
+            fields[1].default().clone(),
             fields[1].storage_decode(),
             fields[1].leaf_codec(),
         );
@@ -792,7 +792,7 @@ mod tests {
             fields[1].kind().clone(),
             duplicate_leaves,
             fields[1].nullable(),
-            fields[1].default(),
+            fields[1].default().clone(),
             fields[1].storage_decode(),
             fields[1].leaf_codec(),
         );

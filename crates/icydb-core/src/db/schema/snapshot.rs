@@ -366,8 +366,8 @@ impl PersistedFieldSnapshot {
 
     /// Return the database-level default contract for this field.
     #[must_use]
-    pub(in crate::db) const fn default(&self) -> SchemaFieldDefault {
-        self.default
+    pub(in crate::db) const fn default(&self) -> &SchemaFieldDefault {
+        &self.default
     }
 
     /// Return the accepted database-level write policy for this field.
@@ -461,21 +461,39 @@ impl PersistedNestedLeafSnapshot {
 /// SchemaFieldDefault
 ///
 /// Database-level default contract for one persisted field.
-/// This intentionally starts with only `None` so 0.146 does not accidentally
-/// infer database defaults from Rust struct construction defaults.
+/// Defaults are stored as already-validated slot payload bytes instead of as
+/// runtime `Value` data so persisted schema metadata remains tied to field
+/// codecs rather than to the query/runtime value union.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum SchemaFieldDefault {
     None,
+    SlotPayload(Vec<u8>),
 }
 
 impl SchemaFieldDefault {
     /// Convert runtime model default metadata into persisted schema shape.
     #[must_use]
-    pub(in crate::db) const fn from_model_default(default: FieldDatabaseDefault) -> Self {
+    pub(in crate::db) fn from_model_default(default: FieldDatabaseDefault) -> Self {
         match default {
             FieldDatabaseDefault::None => Self::None,
+            FieldDatabaseDefault::EncodedSlotPayload(bytes) => Self::SlotPayload(Vec::from(bytes)),
+        }
+    }
+
+    /// Return whether this field declares no database-level default.
+    #[must_use]
+    pub(in crate::db) const fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
+
+    /// Borrow the encoded slot payload for a persisted database default.
+    #[must_use]
+    pub(in crate::db) const fn slot_payload(&self) -> Option<&[u8]> {
+        match self {
+            Self::None => None,
+            Self::SlotPayload(bytes) => Some(bytes.as_slice()),
         }
     }
 }

@@ -72,6 +72,7 @@ struct PersistedNestedLeafSnapshotWire {
 #[derive(CandidType, Deserialize)]
 enum SchemaFieldDefaultWire {
     None,
+    SlotPayload(Vec<u8>),
 }
 
 // Candid wire container for database-level write policy metadata.
@@ -360,15 +361,18 @@ impl PersistedNestedLeafSnapshotWire {
 }
 
 impl SchemaFieldDefaultWire {
-    const fn from_default(default: SchemaFieldDefault) -> Self {
-        match default {
-            SchemaFieldDefault::None => Self::None,
+    fn from_default(default: &SchemaFieldDefault) -> Self {
+        if let Some(bytes) = default.slot_payload() {
+            Self::SlotPayload(bytes.to_vec())
+        } else {
+            Self::None
         }
     }
 
-    const fn into_default(self) -> SchemaFieldDefault {
+    fn into_default(self) -> SchemaFieldDefault {
         match self {
             Self::None => SchemaFieldDefault::None,
+            Self::SlotPayload(bytes) => SchemaFieldDefault::SlotPayload(bytes),
         }
     }
 }
@@ -735,6 +739,43 @@ mod tests {
             decoded.fields()[1].write_policy().write_management(),
             Some(FieldWriteManagement::UpdatedAt),
             "managed write policy should survive schema snapshot round-trip",
+        );
+    }
+
+    #[test]
+    fn persisted_schema_snapshot_round_trips_encoded_default_payload() {
+        let default_payload = vec![0x01, 0x02, 0x03];
+        let snapshot = PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "entities::DefaultPayload".to_string(),
+            "DefaultPayload".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
+            ),
+            vec![PersistedFieldSnapshot::new_with_write_policy(
+                FieldId::new(1),
+                "score".to_string(),
+                SchemaFieldSlot::new(0),
+                PersistedFieldKind::Uint,
+                Vec::new(),
+                false,
+                SchemaFieldDefault::SlotPayload(default_payload.clone()),
+                SchemaFieldWritePolicy::none(),
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Uint64),
+            )],
+        );
+        let encoded = encode_persisted_schema_snapshot(&snapshot)
+            .expect("schema snapshot should encode persisted default payload");
+
+        let decoded = decode_persisted_schema_snapshot(&encoded)
+            .expect("schema snapshot should decode persisted default payload");
+
+        assert_eq!(
+            decoded.fields()[0].default().slot_payload(),
+            Some(default_payload.as_slice())
         );
     }
 }

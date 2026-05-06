@@ -6,7 +6,7 @@
 use crate::{
     db::{
         codec::decode_row_payload_bytes,
-        data::RawRow,
+        data::{RawRow, decode_runtime_value_from_accepted_field_contract},
         schema::{
             AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract, AcceptedRowDecodeContract,
         },
@@ -184,6 +184,25 @@ impl StructuralRowContract {
         let field_name = self.field_name(slot)?;
         match self.accepted_field_absence_policy(slot) {
             Some(AcceptedFieldAbsencePolicy::NullIfMissing) => Ok(Value::Null),
+            Some(AcceptedFieldAbsencePolicy::DefaultIfMissing) => {
+                let field = self
+                    .accepted_decode_contract
+                    .as_ref()
+                    .and_then(|contract| contract.field_for_slot(slot))
+                    .ok_or_else(|| {
+                        InternalError::persisted_row_declared_field_missing(field_name)
+                    })?;
+                let Some(default_payload) = field.default().slot_payload() else {
+                    return Err(InternalError::persisted_row_declared_field_missing(
+                        field_name,
+                    ));
+                };
+
+                decode_runtime_value_from_accepted_field_contract(
+                    field.decode_contract(),
+                    default_payload,
+                )
+            }
             Some(AcceptedFieldAbsencePolicy::Required) | None => Err(
                 InternalError::persisted_row_declared_field_missing(field_name),
             ),

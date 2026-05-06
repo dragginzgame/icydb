@@ -5,7 +5,7 @@
 
 use crate::db::schema::{
     FieldId, PersistedFieldSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
-    SchemaFieldDefault, SchemaFieldSlot,
+    SchemaFieldSlot,
 };
 
 ///
@@ -152,7 +152,7 @@ pub(in crate::db::schema) fn decide_schema_transition(
     if let Some(added_fields) = append_only_additive_transition_fields(actual, expected)
         && added_fields
             .iter()
-            .all(field_has_nullable_missing_absence_policy)
+            .all(field_has_supported_missing_absence_policy)
     {
         return SchemaTransitionDecision::Accepted(
             SchemaTransitionPlan::append_only_nullable_fields(added_fields.len()),
@@ -164,11 +164,11 @@ pub(in crate::db::schema) fn decide_schema_transition(
     SchemaTransitionDecision::Rejected(SchemaTransitionRejection::new(kind, detail))
 }
 
-// Decide whether one added field can be absent from older physical rows. Since
-// database defaults are not persisted yet, nullable + no-default is the only
-// supported absence policy.
-const fn field_has_nullable_missing_absence_policy(field: &PersistedFieldSnapshot) -> bool {
-    field.nullable() && matches!(field.default(), SchemaFieldDefault::None)
+// Decide whether one added field can be absent from older physical rows.
+// Nullable no-default fields materialize as `NULL`; fields with explicit
+// persisted default payloads materialize from that slot payload.
+const fn field_has_supported_missing_absence_policy(field: &PersistedFieldSnapshot) -> bool {
+    (field.nullable() && field.default().is_none()) || field.default().slot_payload().is_some()
 }
 
 // Return the first human-readable schema difference between the stored
@@ -284,7 +284,7 @@ fn unsupported_generated_additive_field_detail(
     let index = actual.fields().len();
     let field = &added_fields[0];
     Some(format!(
-        "unsupported additive field transition: generated field[{index}] id={} slot={} name='{}' kind={:?} nullable={} default={:?}; required/default absence support is not enabled yet",
+        "unsupported additive field transition: generated field[{index}] id={} slot={} name='{}' kind={:?} nullable={} default={:?}; field must be nullable without a default or carry an explicit persisted default payload",
         field.id().get(),
         field.slot().get(),
         field.name(),
@@ -826,6 +826,50 @@ mod tests {
     }
 
     #[test]
+    fn schema_transition_policy_accepts_append_only_defaulted_fields() {
+        let stored = expected_snapshot();
+        let mut generated_fields = stored.fields().to_vec();
+        generated_fields.push(PersistedFieldSnapshot::new(
+            FieldId::new(3),
+            "score".to_string(),
+            SchemaFieldSlot::new(2),
+            PersistedFieldKind::Uint,
+            Vec::new(),
+            false,
+            SchemaFieldDefault::SlotPayload(vec![0x00]),
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Uint64),
+        ));
+        let generated = PersistedSchemaSnapshot::new(
+            stored.version(),
+            stored.entity_path().to_string(),
+            stored.entity_name().to_string(),
+            stored.primary_key_field_id(),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                    (FieldId::new(3), SchemaFieldSlot::new(2)),
+                ],
+            ),
+            generated_fields,
+        );
+
+        let SchemaTransitionDecision::Accepted(plan) =
+            decide_schema_transition(&stored, &generated)
+        else {
+            panic!("append-only defaulted generated field should be an accepted transition");
+        };
+
+        assert_eq!(
+            plan.kind(),
+            SchemaTransitionPlanKind::AppendOnlyNullableFields
+        );
+        assert_eq!(plan.added_field_count(), 1);
+    }
+
+    #[test]
     fn schema_transition_policy_reports_row_layout_mismatch_after_entity_identity() {
         let expected = expected_snapshot();
         let changed = PersistedSchemaSnapshot::new(
@@ -1135,7 +1179,7 @@ mod tests {
 
         assert!(
             rejection.detail().contains(
-                "unsupported additive field transition: generated field[2] id=3 slot=2 name='new_score' kind=Uint nullable=false default=None; required/default absence support is not enabled yet"
+                "unsupported additive field transition: generated field[2] id=3 slot=2 name='new_score' kind=Uint nullable=false default=None; field must be nullable without a default or carry an explicit persisted default payload"
             ),
             "additive field drift should be named as an unsupported future transition shape",
         );

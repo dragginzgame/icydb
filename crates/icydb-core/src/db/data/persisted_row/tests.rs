@@ -35,6 +35,7 @@ use crate::{
         predicate::{ComparePredicate, Predicate, PredicateProgram},
         schema::{
             AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot,
+            PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
             compiled_schema_proposal_for_model,
         },
     },
@@ -832,6 +833,46 @@ fn accepted_row_contract_for_model(model: &'static EntityModel) -> StructuralRow
     StructuralRowContract::from_model_with_accepted_decode_contract(
         model,
         accepted_row_decode_contract_for_model(model),
+    )
+}
+
+// Build one accepted row contract for the additive required-field fixture with
+// an explicit schema-owned default payload on the appended score slot.
+fn accepted_defaulted_required_score_row_contract_for_tests(
+    score_payload: Vec<u8>,
+) -> StructuralRowContract {
+    let proposal = compiled_schema_proposal_for_model(&ADDITIVE_REQUIRED_MODEL);
+    let expected = proposal.initial_persisted_schema_snapshot();
+    let mut fields = expected.fields().to_vec();
+    let score = &expected.fields()[2];
+    fields[2] = PersistedFieldSnapshot::new_with_write_policy(
+        score.id(),
+        score.name().to_string(),
+        score.slot(),
+        score.kind().clone(),
+        score.nested_leaves().to_vec(),
+        score.nullable(),
+        SchemaFieldDefault::SlotPayload(score_payload),
+        score.write_policy(),
+        score.storage_decode(),
+        score.leaf_codec(),
+    );
+    let defaulted_snapshot = PersistedSchemaSnapshot::new(
+        expected.version(),
+        expected.entity_path().to_string(),
+        expected.entity_name().to_string(),
+        expected.primary_key_field_id(),
+        expected.row_layout().clone(),
+        fields,
+    );
+    let accepted = AcceptedSchemaSnapshot::try_new(defaulted_snapshot)
+        .expect("accepted defaulted schema fixture should validate");
+    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+        .expect("accepted defaulted runtime descriptor should build");
+
+    StructuralRowContract::from_model_with_accepted_decode_contract(
+        &ADDITIVE_REQUIRED_MODEL,
+        descriptor.row_decode_contract(),
     )
 }
 
@@ -1845,6 +1886,40 @@ fn accepted_row_contract_rejects_missing_trailing_required_slots() {
         err.message.contains("declared field missing")
             || err.message.contains("missing declared field"),
         "required missing-slot rejection should stay on persisted-row missing-field taxonomy: {err:?}",
+    );
+}
+
+#[test]
+fn accepted_row_contract_reads_missing_trailing_defaulted_slots_as_default() {
+    let id = Ulid::from_u128(46);
+    let score_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Uint(99)));
+    let contract = accepted_defaulted_required_score_row_contract_for_tests(score_payload);
+    let raw_row = old_two_slot_additive_raw_row_for_tests(id);
+
+    let mut reader = StructuralSlotReader::from_raw_row_with_contract(&raw_row, contract)
+        .expect("accepted row contract should allow missing defaulted append-only slot");
+
+    assert_eq!(
+        reader.get_value(2).expect("score slot should materialize"),
+        Some(Value::Uint(99)),
+    );
+}
+
+#[test]
+fn accepted_row_contract_rejects_malformed_missing_default_payload() {
+    let id = Ulid::from_u128(47);
+    let contract = accepted_defaulted_required_score_row_contract_for_tests(vec![0xFE]);
+    let raw_row = old_two_slot_additive_raw_row_for_tests(id);
+
+    let Err(err) = StructuralSlotReader::from_raw_row_with_contract(&raw_row, contract) else {
+        panic!("malformed schema default payload should reject old row materialization");
+    };
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert!(
+        err.message.contains("field 'score'"),
+        "default payload decode error should name the defaulted field: {err:?}",
     );
 }
 

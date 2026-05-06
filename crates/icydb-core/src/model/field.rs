@@ -166,6 +166,12 @@ pub struct FieldModel {
 pub enum FieldDatabaseDefault {
     /// No database-level default is declared for this field.
     None,
+    /// Already-encoded persisted slot payload used as a database default.
+    ///
+    /// This is intentionally a field-codec payload, not a runtime `Value`.
+    /// Generated schema code may provide this once database defaults are
+    /// explicitly authored, but Rust construction defaults must not flow here.
+    EncodedSlotPayload(&'static [u8]),
 }
 
 ///
