@@ -126,6 +126,21 @@ impl StructuralRowContract {
             .map(StructuralFieldDecodeContract::from_field_model)
     }
 
+    /// Return the accepted-first leaf codec for one structural slot.
+    ///
+    /// This is the row-decode authority lookup for code paths that only need to
+    /// decide scalar-vs-structural lane shape. Accepted saved-schema contracts
+    /// take priority when present; generated-compatible fields remain the
+    /// fallback for generated-only readers and compatibility bridges.
+    pub(in crate::db) fn field_leaf_codec(&self, slot: usize) -> Result<LeafCodec, InternalError> {
+        if let Some(field) = self.accepted_field_decode_contract(slot) {
+            return Ok(field.leaf_codec());
+        }
+
+        self.field_decode_contract(slot)
+            .map(StructuralFieldDecodeContract::leaf_codec)
+    }
+
     /// Return the persisted field name for diagnostics at one row slot.
     pub(in crate::db) fn field_name(&self, slot: usize) -> Result<&str, InternalError> {
         if let Some(field) = self.accepted_field_decode_contract(slot) {

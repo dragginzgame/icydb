@@ -129,7 +129,9 @@ impl<'a> DirectSparseRequiredRowField<'a> {
     // Decode the selected slot after sparse row-open and primary-key
     // validation have already succeeded.
     fn decode(&self, probe: &StructuralReadProbe) -> Result<Value, InternalError> {
-        decode_slot_with_field(
+        decode_slot_with_contract_and_field(
+            &self.contract,
+            self.required_slot,
             self.required_field,
             self.field_bytes.required_field(),
             self.expected_key,
@@ -310,6 +312,30 @@ fn decode_slot_with_contract(
 ) -> Result<Value, InternalError> {
     let field = contract.field_decode_contract(slot)?;
 
+    decode_slot_with_contract_and_field(
+        contract,
+        slot,
+        field,
+        raw_value,
+        expected_key,
+        is_primary,
+        probe,
+    )
+}
+
+// Decode one caller-selected slot when the generated-compatible field contract
+// has already been resolved by the caller. Accepted row-layout contracts still
+// take priority for non-primary-key slots so sparse and dense direct decoders
+// share the same persisted-schema authority boundary.
+fn decode_slot_with_contract_and_field(
+    contract: &StructuralRowContract,
+    slot: usize,
+    field: StructuralFieldDecodeContract,
+    raw_value: &[u8],
+    expected_key: StorageKey,
+    is_primary: bool,
+    probe: &StructuralReadProbe,
+) -> Result<Value, InternalError> {
     // Primary-key projection reconstructs the already validated row key from
     // the storage boundary. Keep that path on the generated-compatible field
     // contract until primary-key materialization accepts persisted kinds.

@@ -1,5 +1,5 @@
 .PHONY: help version tags patch minor major release publish \
-        test build check clippy fmt fmt-check clean install-dev install-env update-dev ensure-python3 \
+        test build check clippy fmt fmt-check clean install install-dev install-env update-dev ensure-python3 \
         test-watch all ensure-clean security-check check-versioning \
         ensure-hooks install-hooks check-index-range-spec-invariants \
         wasm-size-report wasm-audit-report test-sql-parity \
@@ -37,6 +37,7 @@ help:
 	@echo "Available commands:"
 	@echo ""
 	@echo "Setup / Installation:"
+	@echo "  install          Install the local icydb CLI binary"
 	@echo "  install-env      Bootstrap a fresh Ubuntu development environment"
 	@echo "  install-all      Install both dev and canister dependencies"
 	@echo "  install-dev      Install development dependencies and ensure python/python3"
@@ -79,6 +80,10 @@ help:
 #
 # Installing
 #
+
+# Install the developer CLI as `icydb` into cargo's normal bin directory.
+install:
+	cargo install --path "$(ROOT_DIR)/crates/icydb-cli" --bin icydb --locked --force
 
 # Bootstrap a fresh Ubuntu development environment
 install-env:

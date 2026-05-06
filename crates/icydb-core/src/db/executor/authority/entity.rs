@@ -106,6 +106,12 @@ impl EntityAuthority {
         self.row_layout.clone()
     }
 
+    /// Borrow the frozen structural row-decode layout for metadata-only callers.
+    #[must_use]
+    pub(in crate::db::executor) const fn row_layout_ref(&self) -> &RowLayout {
+        &self.row_layout
+    }
+
     /// Borrow the frozen structural primary-key field name for this entity.
     #[must_use]
     pub const fn primary_key_name(&self) -> &'static str {

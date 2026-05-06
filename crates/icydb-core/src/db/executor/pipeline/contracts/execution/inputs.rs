@@ -89,7 +89,7 @@ impl PreparedExecutionProjection {
         // execution shape. Non-prepared callers still compile on demand.
         let retained_slot_layout = prepared_retained_slot_layout.or_else(|| {
             compile_retained_slot_layout_for_mode(
-                authority.model(),
+                &authority,
                 plan,
                 projection_materialization,
                 cursor_emission,

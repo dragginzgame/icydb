@@ -1,9 +1,11 @@
 use super::*;
 use crate::{
     db::{
+        codec::serialize_row_payload,
         data::{
             CanonicalRow, RawRow, SlotReader, decode_structural_field_by_kind_bytes,
-            encode_structural_field_by_kind_bytes, with_structural_read_metrics,
+            encode_structural_field_by_kind_bytes, encode_structural_value_storage_bytes,
+            with_structural_read_metrics,
         },
         schema::{
             AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot, FieldId,
@@ -128,6 +130,39 @@ fn accepted_row_decode_layout_for_model(
         model,
         descriptor.row_decode_contract(),
     ))
+}
+
+// Build one canonical raw row from already encoded slot payloads. The
+// value-storage scalar guard uses this to construct a deliberately mixed row
+// whose generated Rust field type would otherwise encode through its normal
+// by-kind lane.
+fn raw_row_from_encoded_slot_payloads(slot_payloads: &[Vec<u8>]) -> RawRow {
+    let field_count = u16::try_from(slot_payloads.len())
+        .expect("row decode test slot count should fit in row table");
+    let mut slot_table = Vec::with_capacity(slot_payloads.len());
+    let mut payload_bytes = Vec::new();
+
+    for payload in slot_payloads {
+        let start = u32::try_from(payload_bytes.len())
+            .expect("row decode test payload start should fit row table");
+        let len = u32::try_from(payload.len())
+            .expect("row decode test payload length should fit row table");
+        payload_bytes.extend_from_slice(payload);
+        slot_table.push((start, len));
+    }
+
+    let mut row_payload = Vec::with_capacity(2 + slot_payloads.len() * 8 + payload_bytes.len());
+    row_payload.extend_from_slice(&field_count.to_be_bytes());
+    for (start, len) in slot_table {
+        row_payload.extend_from_slice(&start.to_be_bytes());
+        row_payload.extend_from_slice(&len.to_be_bytes());
+    }
+    row_payload.extend_from_slice(&payload_bytes);
+
+    RawRow::from_untrusted_bytes(
+        serialize_row_payload(row_payload).expect("row decode test payload should serialize"),
+    )
+    .expect("row decode test raw row should be bounded")
 }
 
 #[test]
@@ -592,6 +627,32 @@ crate::test_entity_schema! {
     canister = RowDecodeCanister,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct RowDecodeValueTextEntity {
+    id: Ulid,
+    label: Text,
+}
+
+crate::test_entity_schema! {
+    ident = RowDecodeValueTextEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "RowDecodeValueTextEntity",
+    entity_tag = crate::testing::PROBE_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        (
+            "label",
+            FieldKind::Text { max_len: None },
+            crate::model::field::FieldStorageDecode::Value
+        ),
+    ],
+    indexes = [],
+    store = RowDecodeStore,
+    canister = RowDecodeCanister,
+}
+
 #[test]
 fn structural_row_decoder_respects_value_storage_decode_contract() {
     let entity = RowDecodeValueEntity {
@@ -671,6 +732,17 @@ fn accepted_row_layout_decode_matches_generated_layout_for_value_storage_field()
         .expect("accepted value-storage sparse decode should succeed");
     assert_eq!(accepted_sparse, generated_sparse);
 
+    // Phase 3: the narrow single-slot direct path must use the same accepted
+    // contract as the sparse slot-vector path so grouped/projection fast paths
+    // cannot fall back to generated-only value-storage semantics.
+    let generated_required =
+        RowDecoder::decode_required_slot_value(&generated_layout, storage_key, &raw_row, 1)
+            .expect("generated value-storage required-slot decode should succeed");
+    let accepted_required =
+        RowDecoder::decode_required_slot_value(&accepted_layout, storage_key, &raw_row, 1)
+            .expect("accepted value-storage required-slot decode should succeed");
+    assert_eq!(accepted_required, generated_required);
+
     let mut generated_reader = generated_layout
         .open_raw_row_with_contract(&raw_row)
         .expect("generated value-storage lazy row reader should open");
@@ -684,5 +756,44 @@ fn accepted_row_layout_decode_matches_generated_layout_for_value_storage_field()
         generated_reader
             .get_value(1)
             .expect("generated value-storage lazy slot decode should succeed"),
+    );
+}
+
+#[test]
+fn accepted_row_layout_direct_projection_value_storage_scalar_matches_generated_layout() {
+    let entity = RowDecodeValueTextEntity {
+        id: Ulid::from_u128(79),
+        label: "stored-as-value".to_string(),
+    };
+    let raw_row = raw_row_from_encoded_slot_payloads(&[
+        crate::db::encode_persisted_scalar_slot_payload(&entity.id, "id")
+            .expect("value-storage scalar test id should encode"),
+        encode_structural_value_storage_bytes(&Value::Text(entity.label.clone()))
+            .expect("value-storage scalar test label should encode"),
+    ]);
+    let accepted = AcceptedSchemaSnapshot::new(
+        compiled_schema_proposal_for_model(RowDecodeValueTextEntity::MODEL)
+            .initial_persisted_schema_snapshot(),
+    );
+    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+        .expect("accepted value-storage scalar row decode schema should form descriptor");
+    let generated_layout = RowLayout::from_model(RowDecodeValueTextEntity::MODEL);
+    let accepted_layout =
+        accepted_row_decode_layout_for_model(RowDecodeValueTextEntity::MODEL, &descriptor)
+            .expect("value-storage scalar accepted layout should be generated-compatible");
+    let generated_reader = generated_layout
+        .open_raw_row_with_contract(&raw_row)
+        .expect("generated value-storage scalar lazy row reader should open");
+    let accepted_reader = accepted_layout
+        .open_raw_row_with_contract(&raw_row)
+        .expect("accepted value-storage scalar lazy row reader should open");
+
+    assert_eq!(
+        accepted_reader
+            .required_direct_projection_value(1)
+            .expect("accepted value-storage scalar projection should decode"),
+        generated_reader
+            .required_direct_projection_value(1)
+            .expect("generated value-storage scalar projection should decode"),
     );
 }

@@ -6,9 +6,10 @@
 use crate::{
     db::{
         executor::{
+            EntityAuthority,
             pipeline::contracts::{CursorEmissionMode, ProjectionMaterializationMode},
             route::access_order_satisfied_by_route_contract,
-            terminal::{RetainedSlotLayout, RetainedSlotValueMode},
+            terminal::{RetainedSlotLayout, RetainedSlotValueMode, RowLayout},
         },
         query::plan::AccessPlannedQuery,
     },
@@ -22,13 +23,13 @@ use crate::{
 /// Compile the canonical retained-slot layout for one explicit scalar
 /// projection and cursor-emission mode pair.
 pub(in crate::db::executor) fn compile_retained_slot_layout_for_mode(
-    model: &EntityModel,
+    authority: &EntityAuthority,
     plan: &AccessPlannedQuery,
     projection_materialization: ProjectionMaterializationMode,
     cursor_emission: CursorEmissionMode,
 ) -> Option<RetainedSlotLayout> {
     compile_retained_slot_layout_for_mode_with_extra_slots(
-        model,
+        authority,
         plan,
         projection_materialization,
         cursor_emission,
@@ -40,7 +41,7 @@ pub(in crate::db::executor) fn compile_retained_slot_layout_for_mode(
 /// while adding owner-supplied terminal slots that are not part of the cached
 /// scalar projection shape.
 pub(in crate::db::executor) fn compile_retained_slot_layout_for_mode_with_extra_slots(
-    model: &EntityModel,
+    authority: &EntityAuthority,
     plan: &AccessPlannedQuery,
     projection_materialization: ProjectionMaterializationMode,
     cursor_emission: CursorEmissionMode,
@@ -51,7 +52,7 @@ pub(in crate::db::executor) fn compile_retained_slot_layout_for_mode_with_extra_
     let retain_slot_rows = projection_materialization.retain_slot_rows();
 
     compile_retained_slot_layout(
-        model,
+        authority,
         plan,
         projection_validation_enabled,
         retain_slot_rows,
@@ -65,14 +66,15 @@ pub(in crate::db::executor) fn compile_retained_slot_layout_for_mode_with_extra_
 // projection/predicate/order/cursor reachability ad hoc at each execution
 // boundary.
 fn compile_retained_slot_layout(
-    model: &EntityModel,
+    authority: &EntityAuthority,
     plan: &AccessPlannedQuery,
     projection_validation_enabled: bool,
     retain_slot_rows: bool,
     cursor_emission: CursorEmissionMode,
     extra_slots: &[usize],
 ) -> Option<RetainedSlotLayout> {
-    let mut required_slots = RetainedSlotRequirements::new(model.fields().len());
+    let row_layout = authority.row_layout_ref();
+    let mut required_slots = RetainedSlotRequirements::new(row_layout.field_count());
 
     // Phase 1: projection validation needs complete values for diagnostics.
     // Retained-slot projection materialization can keep exact
@@ -80,7 +82,7 @@ fn compile_retained_slot_layout(
     if projection_validation_enabled {
         required_slots.mark_slots(plan.projection_referenced_slots().iter().copied());
     } else if retain_slot_rows {
-        mark_projection_retained_slots(model, plan, &mut required_slots);
+        mark_projection_retained_slots(row_layout, plan, &mut required_slots);
     }
 
     // Terminal-owned consumers such as scalar aggregate reduction can require
@@ -114,7 +116,7 @@ fn compile_retained_slot_layout(
     if cursor_emission.enabled()
         && let Some(spec) = plan.access.as_index_range_path()
     {
-        required_slots.mark_index_key_item_slots(model, spec.index().key_items());
+        required_slots.mark_index_key_item_slots(authority.model(), spec.index().key_items());
     }
 
     let (required_slots, value_modes) = required_slots.into_slots_and_value_modes();
@@ -124,7 +126,7 @@ fn compile_retained_slot_layout(
     }
 
     Some(RetainedSlotLayout::compile_with_value_modes(
-        model.fields().len(),
+        row_layout.field_count(),
         required_slots,
         value_modes,
     ))
@@ -135,7 +137,7 @@ fn compile_retained_slot_layout(
 // Non-direct expressions keep normal value materialization so diagnostics and
 // fallback expression semantics stay unchanged.
 fn mark_projection_retained_slots(
-    model: &EntityModel,
+    row_layout: &RowLayout,
     plan: &AccessPlannedQuery,
     required_slots: &mut RetainedSlotRequirements,
 ) {
@@ -150,7 +152,7 @@ fn mark_projection_retained_slots(
             continue;
         };
 
-        if slot_uses_scalar_byte_length_codec(model, slot) {
+        if slot_uses_scalar_byte_length_codec(row_layout, slot) {
             required_slots.mark_slot_octet_length(slot);
         } else {
             required_slots.mark_slot(slot);
@@ -158,13 +160,16 @@ fn mark_projection_retained_slots(
     }
 }
 
-fn slot_uses_scalar_byte_length_codec(model: &EntityModel, slot: usize) -> bool {
-    model.fields().get(slot).is_some_and(|field| {
-        matches!(
-            field.leaf_codec(),
-            LeafCodec::Scalar(ScalarCodec::Blob | ScalarCodec::Text)
-        )
-    })
+fn slot_uses_scalar_byte_length_codec(row_layout: &RowLayout, slot: usize) -> bool {
+    row_layout
+        .contract()
+        .field_decode_contract(slot)
+        .is_ok_and(|field| {
+            matches!(
+                field.leaf_codec(),
+                LeafCodec::Scalar(ScalarCodec::Blob | ScalarCodec::Text)
+            )
+        })
 }
 
 ///

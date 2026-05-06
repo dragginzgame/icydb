@@ -135,22 +135,30 @@ Detailed SQL contract: [docs/contracts/SQL_SUBSET.md](docs/contracts/SQL_SUBSET.
 The repository includes a demo RPG canister with a `Character` table.
 
 ```bash
-scripts/dev/sql.sh --init
-scripts/dev/sql.sh "SELECT name, charisma FROM character ORDER BY charisma DESC LIMIT 5"
-scripts/dev/sql.sh "DESCRIBE character"
-scripts/dev/sql.sh "SHOW TABLES"
+cargo run -q -p icydb-cli -- dev init
+cargo run -q -p icydb-cli -- sql --sql "SELECT name, charisma FROM character ORDER BY charisma DESC LIMIT 5"
+cargo run -q -p icydb-cli -- sql --sql "DESCRIBE character"
+cargo run -q -p icydb-cli -- sql --sql "SHOW TABLES"
+```
+
+The `sql`, `canister`, `fixtures`, and `dev` commands default to `demo_rpg`
+when `--canister` is omitted. To inspect local canister IDs:
+
+```bash
+cargo run -q -p icydb-cli -- canister list
 ```
 
 Interactive shell:
 
 ```bash
-scripts/dev/sql.sh
+cargo run -q -p icydb-cli -- sql
 ```
 
-Direct CLI:
+Installed CLI:
 
 ```bash
-cargo run -q -p icydb-cli -- --canister demo_rpg --sql "SELECT COUNT(*) FROM character"
+make install
+icydb sql --canister demo_rpg --sql "SELECT COUNT(*) FROM character"
 ```
 
 ## Observability

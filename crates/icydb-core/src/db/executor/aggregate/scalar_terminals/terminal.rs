@@ -5,6 +5,7 @@
 use crate::{
     db::{
         executor::{
+            EntityAuthority,
             aggregate::scalar_terminals::expr_cache::intern_scalar_terminal_expr,
             pipeline::{
                 contracts::{CursorEmissionMode, ProjectionMaterializationMode},
@@ -167,7 +168,7 @@ impl PreparedScalarAggregateTerminalSet {
 
     pub(super) fn retained_slot_layout(
         &self,
-        model: &EntityModel,
+        authority: &EntityAuthority,
         plan: &AccessPlannedQuery,
     ) -> Result<RetainedSlotLayout, InternalError> {
         let mut extra_slots = Vec::with_capacity(self.terminals.len());
@@ -189,7 +190,7 @@ impl PreparedScalarAggregateTerminalSet {
         // RetainSlotRows keeps even empty-slot COUNT(*) filters row-shaped so
         // the reducer still sees one retained row per scalar input row.
         compile_retained_slot_layout_for_mode_with_extra_slots(
-            model,
+            authority,
             plan,
             ProjectionMaterializationMode::RetainSlotRows,
             CursorEmissionMode::Suppress,

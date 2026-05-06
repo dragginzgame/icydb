@@ -166,8 +166,9 @@ where
         // Phase 1: prepare the scalar plan with an execution-local retained-slot
         // layout that includes aggregate input and filter slots.
         let plan = plan.into_prepared_load_plan();
+        let authority = plan.authority();
         let retained_slot_layout =
-            terminals.retained_slot_layout(plan.authority().model(), plan.logical_plan())?;
+            terminals.retained_slot_layout(&authority, plan.logical_plan())?;
 
         // Phase 2: reduce every terminal as the scalar runtime emits its final
         // post-access/windowed row boundary, without constructing a retained-slot

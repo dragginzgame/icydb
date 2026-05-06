@@ -64,9 +64,8 @@ pub(super) fn build_initial_slot_cache(contract: &StructuralRowContract) -> Vec<
     (0..contract.field_count())
         .map(|slot| {
             match contract
-                .field_decode_contract(slot)
+                .field_leaf_codec(slot)
                 .expect("cache initialization only visits declared structural slots")
-                .leaf_codec()
             {
                 LeafCodec::Scalar(_) => CachedSlotValue::Scalar {
                     validated: OnceCell::new(),
@@ -122,24 +121,7 @@ pub(super) fn scalar_slot_value_ref_from_validated<'a>(
             let raw_value = field_bytes
                 .field(slot)
                 .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field_name))?;
-            if let Some(accepted_field) = contract.accepted_field_decode_contract(slot) {
-                let LeafCodec::Scalar(codec) = accepted_field.leaf_codec() else {
-                    return Err(InternalError::persisted_row_decode_failed(format!(
-                        "accepted validated scalar cache routed through non-scalar field contract: slot={slot}",
-                    )));
-                };
-
-                return decode_scalar_slot_value(raw_value, codec, accepted_field.field_name());
-            }
-
-            let field = contract.field_decode_contract(slot)?;
-            let LeafCodec::Scalar(codec) = field.leaf_codec() else {
-                return Err(InternalError::persisted_row_decode_failed(format!(
-                    "validated scalar cache routed through non-scalar field contract: slot={slot}",
-                )));
-            };
-
-            decode_scalar_slot_value(raw_value, codec, field.name())
+            decode_payload_backed_validated_scalar_slot_value(contract, raw_value, slot)
         }
         ValidatedScalarSlotValue::Bool(value) => {
             Ok(ScalarSlotValueRef::Value(ScalarValueRef::Bool(value)))
@@ -176,6 +158,35 @@ pub(super) fn scalar_slot_value_ref_from_validated<'a>(
         }
         ValidatedScalarSlotValue::Unit => Ok(ScalarSlotValueRef::Value(ScalarValueRef::Unit)),
     }
+}
+
+// Decode a payload-backed scalar after scalar validation has already proved the
+// slot shape. Accepted row-layout contracts remain the first authority for
+// saved-schema rows, while generated-compatible contracts are retained only for
+// generated-only readers.
+fn decode_payload_backed_validated_scalar_slot_value(
+    contract: StructuralRowContract,
+    raw_value: &[u8],
+    slot: usize,
+) -> Result<ScalarSlotValueRef<'_>, InternalError> {
+    if let Some(accepted_field) = contract.accepted_field_decode_contract(slot) {
+        let LeafCodec::Scalar(codec) = accepted_field.leaf_codec() else {
+            return Err(InternalError::persisted_row_decode_failed(format!(
+                "accepted validated scalar cache routed through non-scalar field contract: slot={slot}",
+            )));
+        };
+
+        return decode_scalar_slot_value(raw_value, codec, accepted_field.field_name());
+    }
+
+    let field = contract.field_decode_contract(slot)?;
+    let LeafCodec::Scalar(codec) = field.leaf_codec() else {
+        return Err(InternalError::persisted_row_decode_failed(format!(
+            "validated scalar cache routed through non-scalar field contract: slot={slot}",
+        )));
+    };
+
+    decode_scalar_slot_value(raw_value, codec, field.name())
 }
 
 // Materialize one validated scalar slot into the runtime `Value` enum.

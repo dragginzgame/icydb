@@ -268,7 +268,7 @@ impl PreparedExecutionPlanCore {
             .get_or_init(|| {
                 self.shared.plan.scalar_projection_plan().map(|_| {
                     Arc::new(prepare_projection_shape_from_plan(
-                        authority.model(),
+                        authority.row_layout_ref(),
                         &self.shared.plan,
                     ))
                 })
@@ -372,7 +372,7 @@ impl PreparedExecutionPlanCore {
         layout_cache
             .get_or_init(|| {
                 compile_retained_slot_layout_for_mode(
-                    authority.model(),
+                    &authority,
                     &self.shared.plan,
                     projection_materialization,
                     cursor_emission,

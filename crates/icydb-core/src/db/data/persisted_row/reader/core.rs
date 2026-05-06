@@ -1,26 +1,29 @@
 #[cfg(any(test, feature = "diagnostics"))]
 use crate::db::data::persisted_row::reader::metrics;
 use crate::{
-    db::data::{
-        DataKey, RawRow, StructuralFieldDecodeContract, StructuralRowContract,
-        StructuralRowDecodeError, StructuralRowFieldBytes, ValueStorageView,
-        persisted_row::{
-            codec::{ScalarSlotValueRef, ScalarValueRef, decode_scalar_slot_value},
-            contract::{
-                decode_runtime_value_from_accepted_field_contract,
-                decode_runtime_value_from_field_contract, validate_non_scalar_accepted_slot_value,
-                validate_non_scalar_slot_value,
-            },
-            reader::{
-                cache::{
-                    CachedSlotValue, ValidatedScalarSlotValue, build_initial_slot_cache,
-                    materialize_validated_scalar_slot_value, scalar_slot_value_ref_from_validated,
-                    validated_scalar_slot_value,
+    db::{
+        data::{
+            DataKey, RawRow, StructuralFieldDecodeContract, StructuralRowContract,
+            StructuralRowDecodeError, StructuralRowFieldBytes, ValueStorageView,
+            persisted_row::{
+                codec::{ScalarSlotValueRef, ScalarValueRef, decode_scalar_slot_value},
+                contract::{
+                    decode_runtime_value_from_accepted_field_contract,
+                    decode_runtime_value_from_field_contract,
+                    validate_non_scalar_accepted_slot_value, validate_non_scalar_slot_value,
                 },
-                primary_key::validate_storage_key_from_primary_key_bytes_with_field,
+                reader::{
+                    cache::{
+                        CachedSlotValue, ValidatedScalarSlotValue, build_initial_slot_cache,
+                        materialize_validated_scalar_slot_value,
+                        scalar_slot_value_ref_from_validated, validated_scalar_slot_value,
+                    },
+                    primary_key::validate_storage_key_from_primary_key_bytes_with_field,
+                },
+                types::{CanonicalSlotReader, SlotReader},
             },
-            types::{CanonicalSlotReader, SlotReader},
         },
+        schema::{AcceptedFieldDecodeContract, PersistedFieldKind},
     },
     error::InternalError,
     model::{
@@ -150,6 +153,41 @@ impl<'a> StructuralSlotReader<'a> {
         self.contract.generated_compatible_field_model(slot)
     }
 
+    // Decode one scalar slot through the accepted row-layout contract when it
+    // exists, otherwise through the generated-compatible field contract. Both
+    // scalar cache validation and fail-closed all-slot validation share this
+    // helper so accepted/generate scalar decode cannot drift locally.
+    fn decode_scalar_slot_value_for_contract<'raw>(
+        &self,
+        slot: usize,
+        field: StructuralFieldDecodeContract,
+        raw_value: &'raw [u8],
+        accepted_non_scalar_context: &str,
+        generated_non_scalar_context: &str,
+    ) -> Result<ScalarSlotValueRef<'raw>, InternalError> {
+        if let Some(accepted_field) = self.contract.accepted_field_decode_contract(slot) {
+            let LeafCodec::Scalar(accepted_codec) = accepted_field.leaf_codec() else {
+                return Err(InternalError::persisted_row_decode_failed(format!(
+                    "{accepted_non_scalar_context}: slot={slot}",
+                )));
+            };
+
+            return decode_scalar_slot_value(
+                raw_value,
+                accepted_codec,
+                accepted_field.field_name(),
+            );
+        }
+
+        let LeafCodec::Scalar(codec) = field.leaf_codec() else {
+            return Err(InternalError::persisted_row_decode_failed(format!(
+                "{generated_non_scalar_context}: slot={slot}",
+            )));
+        };
+
+        decode_scalar_slot_value(raw_value, codec, field.name())
+    }
+
     // Validate one scalar slot at most once and freeze the compact validated
     // scalar cache state shared by both scalar reads and semantic materialization.
     fn required_validated_scalar_slot_value(
@@ -163,29 +201,16 @@ impl<'a> StructuralSlotReader<'a> {
         }
 
         let raw_value = self.required_field_bytes(slot, field.name())?;
-        let LeafCodec::Scalar(codec) = field.leaf_codec() else {
-            return Err(InternalError::persisted_row_decode_failed(format!(
-                "validated scalar cache routed through non-scalar field contract: slot={slot}",
-            )));
-        };
         #[cfg(any(test, feature = "diagnostics"))]
         self.metrics.record_validated_slot();
-        let validated_value = if let Some(accepted_field) =
-            self.contract.accepted_field_decode_contract(slot)
-        {
-            let LeafCodec::Scalar(accepted_codec) = accepted_field.leaf_codec() else {
-                return Err(InternalError::persisted_row_decode_failed(format!(
-                    "accepted scalar cache routed through non-scalar field contract: slot={slot}",
-                )));
-            };
-            validated_scalar_slot_value(decode_scalar_slot_value(
+        let validated_value =
+            validated_scalar_slot_value(self.decode_scalar_slot_value_for_contract(
+                slot,
+                field,
                 raw_value,
-                accepted_codec,
-                accepted_field.field_name(),
-            )?)
-        } else {
-            validated_scalar_slot_value(decode_scalar_slot_value(raw_value, codec, field.name())?)
-        };
+                "accepted scalar cache routed through non-scalar field contract",
+                "validated scalar cache routed through non-scalar field contract",
+            )?);
         let _ = validated.set(validated_value);
 
         Ok(validated_value)
@@ -339,6 +364,95 @@ impl<'a> StructuralSlotReader<'a> {
         Ok(Some(ScalarSlotValueRef::Value(value)))
     }
 
+    // Accepted-schema counterpart to the generated-field value-storage scalar
+    // fast path. Exact-match layouts make both contracts equivalent today, but
+    // this keeps the fast path from reopening generated kind metadata once a
+    // saved row-layout contract is present.
+    fn try_value_storage_non_null_accepted_scalar_slot_value<'view>(
+        field: AcceptedFieldDecodeContract<'_>,
+        view: &ValueStorageView<'view>,
+    ) -> Result<Option<ScalarSlotValueRef<'view>>, InternalError> {
+        let value = match field.kind() {
+            PersistedFieldKind::Bool if view.is_bool() => {
+                ScalarValueRef::Bool(view.as_bool().map_err(|err| {
+                    InternalError::persisted_row_field_kind_decode_failed(
+                        field.field_name(),
+                        field.kind(),
+                        err,
+                    )
+                })?)
+            }
+            PersistedFieldKind::Int if view.is_i64() => {
+                ScalarValueRef::Int(view.as_i64().map_err(|err| {
+                    InternalError::persisted_row_field_kind_decode_failed(
+                        field.field_name(),
+                        field.kind(),
+                        err,
+                    )
+                })?)
+            }
+            PersistedFieldKind::Text { .. } if view.is_text() => {
+                ScalarValueRef::Text(view.as_text().map_err(|err| {
+                    InternalError::persisted_row_field_kind_decode_failed(
+                        field.field_name(),
+                        field.kind(),
+                        err,
+                    )
+                })?)
+            }
+            PersistedFieldKind::Uint if view.is_u64() => {
+                ScalarValueRef::Uint(view.as_u64().map_err(|err| {
+                    InternalError::persisted_row_field_kind_decode_failed(
+                        field.field_name(),
+                        field.kind(),
+                        err,
+                    )
+                })?)
+            }
+            _ => return Ok(None),
+        };
+
+        Ok(Some(ScalarSlotValueRef::Value(value)))
+    }
+
+    // Borrow a scalar directly from a value-storage payload using the accepted
+    // field contract. The generated-field branch remains only for readers that
+    // do not yet carry accepted row-layout contracts.
+    fn required_accepted_value_storage_scalar(
+        &self,
+        slot: usize,
+        field: AcceptedFieldDecodeContract<'_>,
+    ) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
+        if !matches!(field.storage_decode(), FieldStorageDecode::Value) {
+            return Ok(None);
+        }
+
+        let raw_value = self.required_field_bytes(slot, field.field_name())?;
+        let view = ValueStorageView::from_raw_validated(raw_value).map_err(|err| {
+            InternalError::persisted_row_field_kind_decode_failed(
+                field.field_name(),
+                field.kind(),
+                err,
+            )
+        })?;
+
+        let value = if view.is_null() {
+            Some(ScalarSlotValueRef::Null)
+        } else {
+            Self::try_value_storage_non_null_accepted_scalar_slot_value(field, &view)?
+        };
+
+        if value.is_some() {
+            #[cfg(any(test, feature = "diagnostics"))]
+            {
+                self.metrics.record_validated_slot();
+                self.metrics.record_validated_non_scalar();
+            }
+        }
+
+        Ok(value)
+    }
+
     // Borrow one declared slot payload, treating absence as a persisted-row
     // invariant violation instead of a normal structural branch.
     pub(in crate::db) fn required_field_bytes(
@@ -360,25 +474,17 @@ impl<'a> StructuralSlotReader<'a> {
             let field_name = self.contract.field_name(slot)?;
             let raw_value = self.required_field_bytes(slot, field_name)?;
 
-            match field.leaf_codec() {
-                LeafCodec::Scalar(codec) => {
+            match self.contract.field_leaf_codec(slot)? {
+                LeafCodec::Scalar(_) => {
                     #[cfg(any(test, feature = "diagnostics"))]
                     self.metrics.record_validated_slot();
-                    if let Some(accepted_field) = self.contract.accepted_field_decode_contract(slot)
-                    {
-                        let LeafCodec::Scalar(accepted_codec) = accepted_field.leaf_codec() else {
-                            return Err(InternalError::persisted_row_decode_failed(format!(
-                                "accepted all-slot validation routed scalar cache through non-scalar field contract: slot={slot}",
-                            )));
-                        };
-                        decode_scalar_slot_value(
-                            raw_value,
-                            accepted_codec,
-                            accepted_field.field_name(),
-                        )?;
-                    } else {
-                        decode_scalar_slot_value(raw_value, codec, field.name())?;
-                    }
+                    self.decode_scalar_slot_value_for_contract(
+                        slot,
+                        field,
+                        raw_value,
+                        "accepted all-slot validation routed scalar cache through non-scalar field contract",
+                        "all-slot validation routed scalar cache through non-scalar field contract",
+                    )?;
                 }
                 LeafCodec::StructuralFallback => {
                     #[cfg(any(test, feature = "diagnostics"))]
@@ -463,6 +569,10 @@ impl CanonicalSlotReader for StructuralSlotReader<'_> {
         &self,
         slot: usize,
     ) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
+        if let Some(accepted_field) = self.contract.accepted_field_decode_contract(slot) {
+            return self.required_accepted_value_storage_scalar(slot, accepted_field);
+        }
+
         let field = self.field_decode_contract(slot)?;
         if !matches!(field.storage_decode(), FieldStorageDecode::Value) {
             return Ok(None);

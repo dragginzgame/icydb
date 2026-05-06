@@ -8,16 +8,14 @@ use crate::{
         executor::projection::eval::{
             ProjectionEvalError, eval_compiled_expr_with_value_ref_reader,
         },
+        executor::terminal::RowLayout,
         query::plan::{
             AccessPlannedQuery,
             expr::{CompiledExpr, ProjectionSpec},
         },
     },
     error::InternalError,
-    model::{
-        entity::EntityModel,
-        field::{LeafCodec, ScalarCodec},
-    },
+    model::field::{LeafCodec, ScalarCodec},
     value::Value,
 };
 
@@ -164,7 +162,7 @@ pub(in crate::db::executor) trait ProjectionValidationRow {
 /// Build one executor-owned prepared projection shape from planner-frozen metadata.
 #[must_use]
 pub(in crate::db) fn prepare_projection_shape_from_plan(
-    model: &'static EntityModel,
+    row_layout: &RowLayout,
     plan: &AccessPlannedQuery,
 ) -> PreparedProjectionShape {
     let projection = plan.frozen_projection_spec().clone();
@@ -179,7 +177,7 @@ pub(in crate::db) fn prepare_projection_shape_from_plan(
         );
     let retained_slot_direct_octet_length_projection_slots =
         retained_slot_direct_octet_length_projection_slots_from_compiled(
-            model,
+            row_layout,
             &compiled_projection,
         );
     let data_row_direct_projection_field_slots =
@@ -189,7 +187,7 @@ pub(in crate::db) fn prepare_projection_shape_from_plan(
         );
     #[cfg(any(test, feature = "diagnostics"))]
     let projected_slot_mask =
-        projected_slot_mask_from_slots(model.fields().len(), plan.projected_slot_mask());
+        projected_slot_mask_from_slots(row_layout.field_count(), plan.projected_slot_mask());
 
     PreparedProjectionShape {
         projection,
@@ -266,7 +264,7 @@ fn data_row_direct_projection_field_slots_from_projection(
 }
 
 fn retained_slot_direct_octet_length_projection_slots_from_compiled(
-    model: &EntityModel,
+    row_layout: &RowLayout,
     compiled_projection: &[CompiledExpr],
 ) -> Vec<Option<usize>> {
     let mut slots = Vec::with_capacity(compiled_projection.len());
@@ -274,7 +272,7 @@ fn retained_slot_direct_octet_length_projection_slots_from_compiled(
 
     for expr in compiled_projection {
         let slot = expr.direct_octet_length_slot().and_then(|(slot, _field)| {
-            slot_uses_scalar_byte_length_codec(model, slot).then_some(slot)
+            slot_uses_scalar_byte_length_codec(row_layout, slot).then_some(slot)
         });
         has_direct_octet_length |= slot.is_some();
         slots.push(slot);
@@ -287,13 +285,16 @@ fn retained_slot_direct_octet_length_projection_slots_from_compiled(
     }
 }
 
-fn slot_uses_scalar_byte_length_codec(model: &EntityModel, slot: usize) -> bool {
-    model.fields().get(slot).is_some_and(|field| {
-        matches!(
-            field.leaf_codec(),
-            LeafCodec::Scalar(ScalarCodec::Blob | ScalarCodec::Text)
-        )
-    })
+fn slot_uses_scalar_byte_length_codec(row_layout: &RowLayout, slot: usize) -> bool {
+    row_layout
+        .contract()
+        .field_decode_contract(slot)
+        .is_ok_and(|field| {
+            matches!(
+                field.leaf_codec(),
+                LeafCodec::Scalar(ScalarCodec::Blob | ScalarCodec::Text)
+            )
+        })
 }
 
 #[cfg(any(test, feature = "diagnostics"))]
