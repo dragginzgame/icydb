@@ -4,7 +4,10 @@
 //! Boundary: data helpers used by store/executor decode paths.
 
 use crate::{
-    db::data::{DataKey, PersistedRow, RawRow},
+    db::data::{
+        DataKey, PersistedRow, RawRow, StructuralRowContract,
+        canonical_row_from_raw_row_with_structural_contract,
+    },
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
@@ -41,6 +44,32 @@ where
     }
 
     Ok((expected_key, entity))
+}
+
+/// Decode one row through generated decode, falling back to structural normalization.
+///
+/// The structural contract is used only after the ordinary generated decode
+/// rejects the raw bytes. That keeps current-layout rows on the direct typed
+/// decoder while allowing accepted-schema callers to normalize older row
+/// layouts before returning typed entities.
+pub(in crate::db) fn decode_raw_row_for_entity_key_with_structural_contract<E>(
+    data_key: &DataKey,
+    raw_row: &RawRow,
+    contract: StructuralRowContract,
+) -> Result<(E::Key, E), InternalError>
+where
+    E: PersistedRow + EntityValue,
+{
+    match decode_raw_row_for_entity_key::<E>(data_key, raw_row) {
+        Ok(decoded) => Ok(decoded),
+        Err(original_err) => {
+            let canonical =
+                canonical_row_from_raw_row_with_structural_contract(E::MODEL, raw_row, contract)?
+                    .into_raw_row();
+
+            decode_raw_row_for_entity_key::<E>(data_key, &canonical).map_err(|_| original_err)
+        }
+    }
 }
 
 // Build the canonical row-decode failure message for one persisted row.

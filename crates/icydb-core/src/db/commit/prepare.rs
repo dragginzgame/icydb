@@ -23,7 +23,10 @@ use crate::{
             ReverseRelationSourceInfo,
             prepare_reverse_relation_index_mutations_for_source_slot_readers,
         },
-        schema::commit_schema_fingerprint_for_entity,
+        schema::{
+            AcceptedRowLayoutRuntimeDescriptor, commit_schema_fingerprint_for_entity,
+            ensure_accepted_schema_snapshot,
+        },
     },
     error::{ErrorClass, InternalError},
     metrics::sink::{MetricsEvent, record},
@@ -219,10 +222,12 @@ fn decode_commit_marker_rows_for_preflight<'a>(
     data_key: &DataKey,
     before: Option<&'a RawRow>,
     after: Option<&'a RawRow>,
-    model: &'static EntityModel,
+    row_contract: StructuralRowContract,
 ) -> Result<DecodedCommitRows<'a>, InternalError> {
-    let old_slots = decode_optional_commit_marker_row_slots(data_key, before, "before", model)?;
-    let new_slots = decode_optional_commit_marker_row_slots(data_key, after, "after", model)?;
+    let old_slots =
+        decode_optional_commit_marker_row_slots(data_key, before, "before", row_contract.clone())?;
+    let new_slots =
+        decode_optional_commit_marker_row_slots(data_key, after, "after", row_contract)?;
 
     Ok(DecodedCommitRows {
         old_slots,
@@ -246,6 +251,7 @@ where
     // Phase 1: resolve nongeneric marker authority before any model-driven row
     // decode runs so miswired hooks fail on path/schema mismatch first.
     let structural = prepare_row_commit_structural_inputs(op, &authority)?;
+    let row_contract = accepted_commit_row_contract(db, &authority)?;
 
     // Phase 2: decode the persisted row images once through the structural
     // slot-reader boundary before any forward-index planning runs.
@@ -254,7 +260,7 @@ where
             &structural.data_key,
             structural.old_row.as_ref(),
             structural.new_row.as_ref(),
-            authority.model,
+            row_contract.clone(),
         )?;
 
         // Phase 3: derive forward index work from the already validated
@@ -267,6 +273,7 @@ where
                 &authority,
                 row_reader,
                 index_reader,
+                &row_contract,
                 &structural.data_key,
                 &mut decoded,
             )?
@@ -318,6 +325,7 @@ fn prepare_forward_index_commit_leaf<C>(
     authority: &CommitPrepareAuthority,
     row_reader: &dyn StructuralPrimaryRowReader,
     index_reader: &dyn StructuralIndexEntryReader,
+    row_contract: &StructuralRowContract,
     data_key: &DataKey,
     decoded: &mut DecodedCommitRows<'_>,
 ) -> Result<IndexMutationPlan, InternalError>
@@ -337,6 +345,7 @@ where
         authority.entity_tag,
         authority.model,
         &read_view,
+        row_contract,
         decoded.old_slots.as_ref().map(|_| storage_key),
         decoded
             .old_slots
@@ -365,9 +374,9 @@ fn decode_optional_commit_marker_row_slots<'a>(
     data_key: &DataKey,
     row: Option<&'a RawRow>,
     label: &str,
-    model: &'static EntityModel,
+    row_contract: StructuralRowContract,
 ) -> Result<Option<StructuralSlotReader<'a>>, InternalError> {
-    row.map(|row| decode_commit_marker_structural_slots(data_key, row, label, model))
+    row.map(|row| decode_commit_marker_structural_slots(data_key, row, label, row_contract))
         .transpose()
 }
 
@@ -377,25 +386,55 @@ fn decode_commit_marker_structural_slots<'a>(
     data_key: &DataKey,
     row: &'a RawRow,
     label: &str,
-    model: &'static EntityModel,
+    row_contract: StructuralRowContract,
 ) -> Result<StructuralSlotReader<'a>, InternalError> {
-    let slots = StructuralSlotReader::from_raw_row_with_validated_contract(
-        row,
-        StructuralRowContract::from_model(model),
-    )
-    .map_err(|err| {
-        let message = format!("commit marker {label} row: {err}");
-        if err.class() == ErrorClass::IncompatiblePersistedFormat {
-            InternalError::serialize_incompatible_persisted_format(message)
-        } else {
-            InternalError::serialize_corruption(message)
-        }
-    })?;
+    let slots = StructuralSlotReader::from_raw_row_with_validated_contract(row, row_contract)
+        .map_err(|err| {
+            let message = format!("commit marker {label} row: {err}");
+            if err.class() == ErrorClass::IncompatiblePersistedFormat {
+                InternalError::serialize_incompatible_persisted_format(message)
+            } else {
+                InternalError::serialize_corruption(message)
+            }
+        })?;
     slots.validate_storage_key(data_key).map_err(|err| {
         InternalError::store_corruption(format!("commit marker {label} row key mismatch: {err}"))
     })?;
 
     Ok(slots)
+}
+
+// Build the accepted-schema row contract used by commit preflight.
+//
+// Commit preparation may need to inspect committed rows while rebuilding
+// unique-index proofs and reverse-index mutations. Those storage reads must use
+// the same accepted contract as mutation staging so append-only nullable rows
+// do not fail on generated-only slot-count validation during preflight.
+fn accepted_commit_row_contract<C>(
+    db: &Db<C>,
+    authority: &CommitPrepareAuthority,
+) -> Result<StructuralRowContract, InternalError>
+where
+    C: CanisterKind,
+{
+    let store = db.with_store_registry(|reg| reg.try_get_store(authority.data_store_path))?;
+    let accepted = store.with_schema_mut(|schema_store| {
+        ensure_accepted_schema_snapshot(
+            schema_store,
+            authority.entity_tag,
+            authority.entity_path,
+            authority.model,
+        )
+    })?;
+    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)?;
+    descriptor.generated_compatible_row_shape_for_model(authority.model)?;
+
+    Ok(
+        StructuralRowContract::from_model_with_accepted_decode_contract(
+            authority.model,
+            descriptor.row_decode_contract(),
+        ),
+    )
 }
 
 // Decode structural commit inputs before the typed forward-index leaf runs.

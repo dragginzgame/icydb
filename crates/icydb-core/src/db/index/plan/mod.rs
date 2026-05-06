@@ -10,7 +10,7 @@ mod unique;
 
 use crate::{
     db::{
-        data::{CanonicalSlotReader, StorageKey},
+        data::{CanonicalSlotReader, StorageKey, StructuralRowContract},
         index::{IndexEntry, IndexEntryCorruption, IndexKey, canonical_index_predicate},
         predicate::PredicateProgram,
     },
@@ -158,6 +158,7 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
     entity_tag: EntityTag,
     model: &'static EntityModel,
     read_view: &dyn IndexPlanReadView,
+    row_contract: &StructuralRowContract,
     old_storage_key: Option<StorageKey>,
     old_slots: Option<&mut dyn CanonicalSlotReader>,
     new_storage_key: Option<StorageKey>,
@@ -168,6 +169,7 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
         entity_tag,
         model,
         read_view,
+        row_contract,
         old_storage_key,
         old_slots,
         new_storage_key,
@@ -183,6 +185,7 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
     entity_tag: EntityTag,
     model: &'static EntityModel,
     read_view: &dyn IndexPlanReadView,
+    row_contract: &StructuralRowContract,
     old_storage_key: Option<StorageKey>,
     mut old_slots: Option<&mut dyn CanonicalSlotReader>,
     new_storage_key: Option<StorageKey>,
@@ -247,6 +250,7 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
             entity_tag,
             model,
             read_view,
+            row_contract,
             index,
             &index_fields,
             if new_key.is_some() {

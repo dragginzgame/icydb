@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.148.x] 🧬 - 2026-05-06 - Schema Evolution Runtime Cutover
 
+- `0.148.4` centralizes accepted-row normalization in the data layer and makes commit preflight, unique-index checks, and relation delete checks use accepted row contracts, so older rows follow one compatibility path across runtime boundaries.
 - `0.148.3` makes typed saves and batch saves normalize old before-images during nullable additive schema transitions, so older rows can be updated, replaced, or rejected as conflicts without falling back to generated-only decoding.
 - `0.148.2` extends nullable additive schema transitions to typed fluent load, paging, ranking, and delete-row responses, so old rows returned through typed APIs materialize appended nullable fields as `None`.
 - `0.148.1` lets SQL `UPDATE` and `DELETE` safely work on older rows after a nullable field is added, normalizing mutation commit images to the current row layout.

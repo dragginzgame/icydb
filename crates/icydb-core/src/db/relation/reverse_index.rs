@@ -88,8 +88,6 @@ struct ReverseRelationMutationTarget {
 
 struct ReverseRelationSourceTransition<'row, 'slots> {
     source_model: &'static EntityModel,
-    old_row: Option<&'row RawRow>,
-    new_row: Option<&'row RawRow>,
     old_row_fields: Option<&'slots StructuralSlotReader<'row>>,
     new_row_fields: Option<&'slots StructuralSlotReader<'row>>,
 }
@@ -161,25 +159,6 @@ pub(super) fn reverse_index_key_for_target_storage_key(
     Ok(Some(key))
 }
 
-/// Read relation-target raw keys directly from one persisted source row.
-///
-/// This structural path exists for delete validation, where the runtime only
-/// needs the relation field payload and should not decode the full typed
-/// entity inside the hot blocked-delete proof loop.
-pub(super) fn relation_target_raw_keys_for_source_row(
-    raw_row: &RawRow,
-    source_model: &'static EntityModel,
-    source_info: ReverseRelationSourceInfo,
-    relation: StrongRelationInfo,
-) -> Result<Vec<RawDataKey>, InternalError> {
-    let row_fields = StructuralSlotReader::from_raw_row_with_validated_contract(
-        raw_row,
-        StructuralRowContract::from_model(source_model),
-    )?;
-
-    relation_target_raw_keys_for_source_slots(&row_fields, source_info, relation)
-}
-
 // Read relation-target raw keys directly from one already-decoded structural
 // source row so commit preflight can reuse slot readers it has already
 // validated for forward-index planning.
@@ -201,15 +180,13 @@ fn relation_target_raw_keys_for_source_slots(
 /// canonicalized target-key set.
 pub(in crate::db::relation) fn source_row_references_relation_target(
     raw_row: &RawRow,
-    source_model: &'static EntityModel,
+    source_row_contract: StructuralRowContract,
     source_info: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
     target_key: StorageKey,
 ) -> Result<bool, InternalError> {
-    let row_fields = StructuralSlotReader::from_raw_row_with_validated_contract(
-        raw_row,
-        StructuralRowContract::from_model(source_model),
-    )?;
+    let row_fields =
+        StructuralSlotReader::from_raw_row_with_validated_contract(raw_row, source_row_contract)?;
 
     source_slots_reference_relation_target(&row_fields, source_info, relation, target_key)
 }
@@ -549,8 +526,6 @@ where
     let mut target_store = |relation| relation_target_store(db, source, relation);
     let source_rows = ReverseRelationSourceTransition {
         source_model,
-        old_row: None,
-        new_row: None,
         old_row_fields,
         new_row_fields,
     };
@@ -566,7 +541,6 @@ where
 
 // Keep the reverse-index mutation loop nongeneric once the source entity has
 // already been lowered onto one structural target-store lookup callback.
-#[expect(clippy::too_many_lines)]
 fn prepare_reverse_relation_index_mutations_for_source_rows_impl(
     target_store_for_relation: &mut dyn FnMut(
         StrongRelationInfo,
@@ -595,20 +569,10 @@ fn prepare_reverse_relation_index_mutations_for_source_rows_impl(
                 err.source(),
             )
         })?;
-        let old_targets = relation_target_keys_for_transition_side(
-            &source_rows,
-            source_rows.old_row_fields,
-            source_rows.old_row,
-            source,
-            relation,
-        )?;
-        let new_targets = relation_target_keys_for_transition_side(
-            &source_rows,
-            source_rows.new_row_fields,
-            source_rows.new_row,
-            source,
-            relation,
-        )?;
+        let old_targets =
+            relation_target_keys_for_transition_side(source_rows.old_row_fields, source, relation)?;
+        let new_targets =
+            relation_target_keys_for_transition_side(source_rows.new_row_fields, source, relation)?;
         let target_store = target_store_for_relation(relation)?;
         let mut old_index = 0usize;
         let mut new_index = 0usize;
@@ -696,25 +660,15 @@ fn prepare_reverse_relation_index_mutations_for_source_rows_impl(
     Ok(ops)
 }
 
-// Resolve relation targets for one old/new source-row side, preferring the
-// already-decoded slot-reader view when commit preflight has one available.
+// Resolve relation targets for one old/new source-row side from the decoded
+// slot-reader view prepared by commit preflight.
 fn relation_target_keys_for_transition_side(
-    source_rows: &ReverseRelationSourceTransition<'_, '_>,
     row_fields: Option<&StructuralSlotReader<'_>>,
-    row: Option<&RawRow>,
     source: ReverseRelationSourceInfo,
     relation: StrongRelationInfo,
 ) -> Result<Vec<RawDataKey>, InternalError> {
     match row_fields {
         Some(row_fields) => relation_target_raw_keys_for_source_slots(row_fields, source, relation),
-        None => match row {
-            Some(row) => relation_target_raw_keys_for_source_row(
-                row,
-                source_rows.source_model,
-                source,
-                relation,
-            ),
-            None => Ok(Vec::new()),
-        },
+        None => Ok(Vec::new()),
     }
 }

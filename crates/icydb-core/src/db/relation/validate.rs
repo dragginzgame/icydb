@@ -6,7 +6,7 @@
 use crate::{
     db::{
         Db,
-        data::{DataKey, RawDataKey},
+        data::{DataKey, RawDataKey, StructuralRowContract},
         registry::StoreHandle,
         relation::{
             RelationTargetDecodeContext, RelationTargetMismatchPolicy,
@@ -18,6 +18,7 @@ use crate::{
                 source_row_references_relation_target,
             },
         },
+        schema::{AcceptedRowLayoutRuntimeDescriptor, ensure_accepted_schema_snapshot},
     },
     error::InternalError,
     metrics::sink::{MetricsEvent, record},
@@ -82,6 +83,7 @@ where
 
     // Phase 2: resolve the source store once before the structural proof loop.
     let source_store = db.with_store_registry(|reg| reg.try_get_store(S::Store::PATH))?;
+    let source_row_contract = accepted_source_row_contract::<S>(source_store)?;
 
     // Phase 3: run the heavy blocked-delete proof loop without `S`.
     let Some(blocked) = validate_delete_strong_relations_structural(
@@ -89,6 +91,7 @@ where
         source_info,
         S::PATH,
         S::MODEL,
+        source_row_contract,
         target_path,
         source_store,
         deleted_target_keys,
@@ -102,11 +105,13 @@ where
 }
 
 /// Prove whether one delete would violate a strong source relation without `S`.
+#[expect(clippy::too_many_arguments)]
 fn validate_delete_strong_relations_structural<C>(
     db: &Db<C>,
     source_info: ReverseRelationSourceInfo,
     source_path: &'static str,
     source_model: &'static EntityModel,
+    source_row_contract: StructuralRowContract,
     target_path: &str,
     source_store: StoreHandle,
     deleted_target_keys: &BTreeSet<RawDataKey>,
@@ -186,7 +191,7 @@ where
 
                 let still_references_target = source_row_references_relation_target(
                     &source_raw_row,
-                    source_model,
+                    source_row_contract.clone(),
                     source_info,
                     relation,
                     target_storage_key,
@@ -209,6 +214,32 @@ where
     }
 
     Ok(None)
+}
+
+// Build the accepted-schema row contract used by delete relation validation.
+//
+// Relation validation reads source rows directly from storage, not from commit
+// marker before-images. It must therefore decode old source rows through the
+// accepted layout so appended nullable fields do not make unrelated relation
+// checks fail on generated-only slot-count validation.
+fn accepted_source_row_contract<S>(
+    source_store: StoreHandle,
+) -> Result<StructuralRowContract, InternalError>
+where
+    S: EntityKind,
+{
+    let accepted = source_store.with_schema_mut(|schema_store| {
+        ensure_accepted_schema_snapshot(schema_store, S::ENTITY_TAG, S::PATH, S::MODEL)
+    })?;
+    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)?;
+    descriptor.generated_compatible_row_shape_for_model(S::MODEL)?;
+
+    Ok(
+        StructuralRowContract::from_model_with_accepted_decode_contract(
+            S::MODEL,
+            descriptor.row_decode_contract(),
+        ),
+    )
 }
 
 /// Format operator-facing blocked-delete diagnostics with actionable context.

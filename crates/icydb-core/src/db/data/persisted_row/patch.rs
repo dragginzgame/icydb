@@ -252,6 +252,22 @@ pub(in crate::db) fn canonical_row_from_structural_slot_reader(
     })
 }
 
+/// Build one canonical row from raw bytes using one structural row contract.
+///
+/// This is the accepted-schema counterpart to generated-only raw-row
+/// canonicalization. Callers pass the already-selected row contract, and the
+/// data layer owns the exact sequence of structural decode, slot validation,
+/// and dense row emission.
+pub(in crate::db) fn canonical_row_from_raw_row_with_structural_contract(
+    model: &'static EntityModel,
+    raw_row: &RawRow,
+    contract: StructuralRowContract,
+) -> Result<CanonicalRow, InternalError> {
+    let row_fields = StructuralSlotReader::from_raw_row_with_validated_contract(raw_row, contract)?;
+
+    canonical_row_from_structural_slot_reader(model, &row_fields)
+}
+
 // Rebuild one full canonical row image from an existing raw row before it
 // crosses a storage write boundary.
 pub(in crate::db) fn canonical_row_from_raw_row(

@@ -8,7 +8,7 @@ use crate::{
         },
         data::{
             CanonicalRow, DataKey, PersistedRow, RawRow, StructuralRowContract,
-            StructuralSlotReader, canonical_row_from_structural_slot_reader,
+            canonical_row_from_raw_row_with_structural_contract,
         },
         executor::{
             Context,
@@ -99,9 +99,8 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             E::MODEL,
             accepted_row_decode_contract.clone(),
         );
-        let row_fields =
-            StructuralSlotReader::from_raw_row_with_validated_contract(&old_row, contract)?;
-        let canonical = canonical_row_from_structural_slot_reader(E::MODEL, &row_fields)?;
+        let canonical =
+            canonical_row_from_raw_row_with_structural_contract(E::MODEL, &old_row, contract)?;
 
         Ok(canonical.into_raw_row().into_bytes())
     }

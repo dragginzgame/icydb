@@ -7,7 +7,7 @@ use crate::{
     db::{
         Db,
         commit::CommitRowOp,
-        data::{RawDataKey, RawRow, canonical_row_from_structural_slot_reader},
+        data::{RawDataKey, RawRow, canonical_row_from_raw_row_with_structural_contract},
         executor::{
             EntityAuthority,
             delete::types::{DeleteExecutionAuthority, PreparedDeleteCommit},
@@ -32,9 +32,11 @@ fn delete_before_image_bytes(
     raw_row: &RawRow,
 ) -> Result<Vec<u8>, InternalError> {
     let row_layout = authority.entity.row_layout();
-    let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
-    let canonical =
-        canonical_row_from_structural_slot_reader(authority.entity.model(), &row_fields)?;
+    let canonical = canonical_row_from_raw_row_with_structural_contract(
+        authority.entity.model(),
+        raw_row,
+        row_layout.contract().clone(),
+    )?;
 
     Ok(canonical.into_raw_row().into_bytes())
 }

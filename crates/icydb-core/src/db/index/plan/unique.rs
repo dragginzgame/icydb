@@ -22,6 +22,7 @@ pub(super) fn validate_unique_constraint_structural(
     entity_tag: EntityTag,
     model: &'static EntityModel,
     read_view: &dyn IndexPlanReadView,
+    row_contract: &StructuralRowContract,
     index: &IndexModel,
     index_fields: &str,
     new_storage_key: Option<StorageKey>,
@@ -89,7 +90,7 @@ pub(super) fn validate_unique_constraint_structural(
     let row = read_view
         .read_primary_row(&data_key)?
         .ok_or_else(|| InternalError::index_unique_validation_row_required(&data_key))?;
-    let row_fields = decode_unique_row_slots(&data_key, &row, model)?;
+    let row_fields = decode_unique_row_slots(&data_key, &row, row_contract)?;
 
     let Some(stored_index_key) = build_unique_index_key_from_row_slots(
         entity_tag,
@@ -128,15 +129,13 @@ pub(super) fn validate_unique_constraint_structural(
 fn decode_unique_row_slots<'a>(
     data_key: &DataKey,
     row: &'a crate::db::data::RawRow,
-    model: &'static EntityModel,
+    row_contract: &StructuralRowContract,
 ) -> Result<StructuralSlotReader<'a>, InternalError> {
-    let row_fields = StructuralSlotReader::from_raw_row_with_validated_contract(
-        row,
-        StructuralRowContract::from_model(model),
-    )
-    .map_err(|source| {
-        InternalError::index_unique_validation_row_deserialize_failed(data_key, source)
-    })?;
+    let row_fields =
+        StructuralSlotReader::from_raw_row_with_validated_contract(row, row_contract.clone())
+            .map_err(|source| {
+                InternalError::index_unique_validation_row_deserialize_failed(data_key, source)
+            })?;
     row_fields
         .validate_storage_key(data_key)
         .map_err(|source| {

@@ -6,10 +6,7 @@
 use crate::{
     db::{
         PersistedRow,
-        data::{
-            DataKey, DataRow, RawRow, canonical_row_from_structural_slot_reader,
-            decode_raw_row_for_entity_key,
-        },
+        data::{DataKey, DataRow, RawRow, decode_raw_row_for_entity_key_with_structural_contract},
         executor::{CursorPage, PageCursor, terminal::RowLayout},
         response::{EntityResponse, Row},
     },
@@ -50,16 +47,11 @@ pub(in crate::db::executor) fn decode_data_row_entity_with_layout<E>(
 where
     E: PersistedRow + EntityValue,
 {
-    match decode_raw_row_for_entity_key::<E>(data_key, raw_row) {
-        Ok(decoded) => Ok(decoded),
-        Err(original_err) => {
-            let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
-            let canonical =
-                canonical_row_from_structural_slot_reader(E::MODEL, &row_fields)?.into_raw_row();
-
-            decode_raw_row_for_entity_key::<E>(data_key, &canonical).map_err(|_| original_err)
-        }
-    }
+    decode_raw_row_for_entity_key_with_structural_contract::<E>(
+        data_key,
+        raw_row,
+        row_layout.contract().clone(),
+    )
 }
 
 // Decode one structural data row into one typed response row.
