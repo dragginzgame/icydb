@@ -135,17 +135,26 @@ Detailed SQL contract: [docs/contracts/SQL_SUBSET.md](docs/contracts/SQL_SUBSET.
 The repository includes a demo RPG canister with a `Character` table.
 
 ```bash
-cargo run -q -p icydb-cli -- dev init
+cargo run -q -p icydb-cli -- demo fresh
 cargo run -q -p icydb-cli -- sql --sql "SELECT name, charisma FROM character ORDER BY charisma DESC LIMIT 5"
 cargo run -q -p icydb-cli -- sql --sql "DESCRIBE character"
 cargo run -q -p icydb-cli -- sql --sql "SHOW TABLES"
 ```
 
-The `sql`, `canister`, `fixtures`, and `dev` commands default to `demo_rpg`
-when `--canister` is omitted. To inspect local canister IDs:
+The `sql`, `canister`, and `demo` commands default to `demo_rpg` when
+`--canister` is omitted. To inspect local canister IDs:
 
 ```bash
 cargo run -q -p icydb-cli -- canister list
+```
+
+`icydb sql` only queries the current canister state. It does not create or load
+demo data automatically. Use `demo fresh` for a fresh reinstall and seed, or
+`demo reload` when the canister already exists and should keep its installed
+wasm:
+
+```bash
+cargo run -q -p icydb-cli -- demo reload
 ```
 
 Interactive shell:

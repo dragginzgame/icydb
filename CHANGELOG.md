@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.147.x] 🪪 - 2026-05-04 - Accepted Schema Authority Closeout
 
-- `0.147.26` moves the developer CLI onto explicit `sql`, `canister`, `fixtures`, and `dev` command families, lists local canisters, improves default-demo setup errors, removes the old shell wrapper, and adds `make install` so local builds can install an `icydb` command.
+- `0.147.27` reduces local and Pocket-IC test noise while tightening raw-row decode validation through saved-schema row contracts.
+- `0.147.26` moves the developer CLI onto explicit `sql`, `canister`, and `demo` command families, lists local canisters, improves default-demo setup errors, removes the old shell wrapper, and adds `make install` so local builds can install an `icydb` command.
 - `0.147.25` makes retained-slot, projection byte-length, and lazy value-storage reads use saved row-layout field contracts instead of generated field tables.
 - `0.147.24` makes runtime row layouts carry saved schema field decode contracts for direct row reads while keeping generated bridges only where typed compatibility still needs them.
 - `0.147.23` adds the first accepted-schema field decoder, with drift guards and field-owned error messages for persisted payload decoding.

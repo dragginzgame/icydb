@@ -22,6 +22,7 @@ use thiserror::Error as ThisError;
 type SlotSpan = Option<(usize, usize)>;
 type SlotSpans = Vec<SlotSpan>;
 type RowFieldSpans<'a> = (Cow<'a, [u8]>, SlotSpans);
+type RowSlotTableSections<'a> = (usize, &'a [u8], &'a [u8]);
 
 ///
 /// StructuralRowContract
@@ -366,32 +367,7 @@ fn decode_row_field_spans<'payload>(
     contract: &StructuralRowContract,
 ) -> Result<RowFieldSpans<'payload>, StructuralRowDecodeError> {
     let bytes = payload.as_ref();
-    let field_count_bytes = bytes
-        .get(..2)
-        .ok_or_else(|| StructuralRowDecodeError::corruption("row decode: truncated slot header"))?;
-    let field_count = usize::from(u16::from_be_bytes([
-        field_count_bytes[0],
-        field_count_bytes[1],
-    ]));
-    if field_count != contract.field_count() {
-        return Err(StructuralRowDecodeError::corruption(format!(
-            "row decode: slot count mismatch: expected {}, found {}",
-            contract.field_count(),
-            field_count,
-        )));
-    }
-    let table_len = field_count
-        .checked_mul(8)
-        .ok_or_else(|| StructuralRowDecodeError::corruption("row decode: slot table overflow"))?;
-    let data_start = 2usize.checked_add(table_len).ok_or_else(|| {
-        StructuralRowDecodeError::corruption("row decode: slot payload header overflow")
-    })?;
-    let table = bytes
-        .get(2..data_start)
-        .ok_or_else(|| StructuralRowDecodeError::corruption("row decode: truncated slot table"))?;
-    let data_section = bytes
-        .get(data_start..)
-        .ok_or_else(|| StructuralRowDecodeError::corruption("row decode: missing slot payloads"))?;
+    let (data_start, table, data_section) = decode_slot_table_sections(bytes, contract)?;
     let mut spans: SlotSpans = vec![None; contract.field_count()];
 
     for (slot, span) in spans.iter_mut().enumerate() {
@@ -444,32 +420,7 @@ fn decode_sparse_required_row_field_spans<'payload>(
     required_slot: usize,
 ) -> SparseRequiredRowFieldSpans<'payload> {
     let bytes = payload.as_ref();
-    let field_count_bytes = bytes
-        .get(..2)
-        .ok_or_else(|| StructuralRowDecodeError::corruption("row decode: truncated slot header"))?;
-    let field_count = usize::from(u16::from_be_bytes([
-        field_count_bytes[0],
-        field_count_bytes[1],
-    ]));
-    if field_count != contract.field_count() {
-        return Err(StructuralRowDecodeError::corruption(format!(
-            "row decode: slot count mismatch: expected {}, found {}",
-            contract.field_count(),
-            field_count,
-        )));
-    }
-    let table_len = field_count
-        .checked_mul(8)
-        .ok_or_else(|| StructuralRowDecodeError::corruption("row decode: slot table overflow"))?;
-    let data_start = 2usize.checked_add(table_len).ok_or_else(|| {
-        StructuralRowDecodeError::corruption("row decode: slot payload header overflow")
-    })?;
-    let table = bytes
-        .get(2..data_start)
-        .ok_or_else(|| StructuralRowDecodeError::corruption("row decode: truncated slot table"))?;
-    let data_section = bytes
-        .get(data_start..)
-        .ok_or_else(|| StructuralRowDecodeError::corruption("row decode: missing slot payloads"))?;
+    let (data_start, table, data_section) = decode_slot_table_sections(bytes, contract)?;
     let primary_key_slot = contract.primary_key_slot();
     let mut required_span = None;
     let mut primary_key_span = None;
@@ -526,4 +477,42 @@ fn decode_sparse_required_row_field_spans<'payload>(
     };
 
     Ok((payload, required_span, primary_key_span))
+}
+
+// Decode the shared slot-table header and validate that the physical row slot
+// count matches the structural contract before any full or sparse slot scanner
+// walks the table. This keeps raw-row shape authority in one place for both
+// generated-only and accepted-layout row contracts.
+fn decode_slot_table_sections<'bytes>(
+    bytes: &'bytes [u8],
+    contract: &StructuralRowContract,
+) -> Result<RowSlotTableSections<'bytes>, StructuralRowDecodeError> {
+    let field_count_bytes = bytes
+        .get(..2)
+        .ok_or_else(|| StructuralRowDecodeError::corruption("row decode: truncated slot header"))?;
+    let field_count = usize::from(u16::from_be_bytes([
+        field_count_bytes[0],
+        field_count_bytes[1],
+    ]));
+    if field_count != contract.field_count() {
+        return Err(StructuralRowDecodeError::corruption(format!(
+            "row decode: slot count mismatch: expected {}, found {}",
+            contract.field_count(),
+            field_count,
+        )));
+    }
+    let table_len = field_count
+        .checked_mul(8)
+        .ok_or_else(|| StructuralRowDecodeError::corruption("row decode: slot table overflow"))?;
+    let data_start = 2usize.checked_add(table_len).ok_or_else(|| {
+        StructuralRowDecodeError::corruption("row decode: slot payload header overflow")
+    })?;
+    let table = bytes
+        .get(2..data_start)
+        .ok_or_else(|| StructuralRowDecodeError::corruption("row decode: truncated slot table"))?;
+    let data_section = bytes
+        .get(data_start..)
+        .ok_or_else(|| StructuralRowDecodeError::corruption("row decode: missing slot payloads"))?;
+
+    Ok((data_start, table, data_section))
 }

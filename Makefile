@@ -200,8 +200,8 @@ publish: ensure-clean fmt-check clippy check
 test: clippy test-unit
 
 test-unit:
-	POCKET_IC_BIN="$$(bash scripts/ci/ensure-pocket-ic-bin.sh)" $(CARGO_WORK_ENV) cargo test --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql --verbose
-	POCKET_IC_BIN="$$(bash scripts/ci/ensure-pocket-ic-bin.sh)" $(CARGO_WORK_ENV) cargo test -p canister_test_sql --lib --verbose
+	POCKET_IC_BIN="$$(bash scripts/ci/ensure-pocket-ic-bin.sh)" $(CARGO_WORK_ENV) cargo test --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql
+	POCKET_IC_BIN="$$(bash scripts/ci/ensure-pocket-ic-bin.sh)" $(CARGO_WORK_ENV) cargo test -p canister_test_sql --lib
 
 wasm-size-report:
 	$(CARGO_WORK_ENV) bash scripts/ci/wasm-size-report.sh

@@ -5,7 +5,7 @@ use icydb::db::sql::{SqlGroupedRowsOutput, SqlQueryRowsOutput};
 use serde_json::json;
 
 use crate::{
-    cli::{CanisterCommand, CliArgs, CliCommand, DEFAULT_CANISTER, DevCommand, FixturesCommand},
+    cli::{CanisterCommand, CliArgs, CliCommand, DEFAULT_CANISTER, DemoCommand},
     shell::{
         ShellConfig, ShellPerfAttribution, drain_complete_shell_statements,
         finalize_successful_command_output, is_shell_help_command,
@@ -305,22 +305,33 @@ fn cli_args_group_canister_list_under_canister_keyword() {
 }
 
 #[test]
-fn cli_args_group_fixture_reload_under_fixtures_keyword() {
-    let args = CliArgs::try_parse_from(["icydb", "fixtures", "reload", "--canister", "demo"])
-        .expect("fixtures reload should parse");
-    let CliCommand::Fixtures(FixturesCommand::Reload(target)) = args.command else {
-        panic!("expected fixtures reload command");
+fn cli_args_group_canister_status_under_canister_keyword() {
+    let args = CliArgs::try_parse_from(["icydb", "canister", "status", "--canister", "demo"])
+        .expect("canister status should parse");
+    let CliCommand::Canister(CanisterCommand::Status(target)) = args.command else {
+        panic!("expected canister status command");
     };
 
     assert_eq!(target.canister_name(), "demo");
 }
 
 #[test]
-fn cli_args_group_dev_init_under_dev_keyword() {
-    let args = CliArgs::try_parse_from(["icydb", "dev", "init", "--canister", "demo"])
-        .expect("dev init should parse");
-    let CliCommand::Dev(DevCommand::Init(target)) = args.command else {
-        panic!("expected dev init command");
+fn cli_args_group_demo_reload_under_demo_keyword() {
+    let args = CliArgs::try_parse_from(["icydb", "demo", "reload", "--canister", "demo"])
+        .expect("demo reload should parse");
+    let CliCommand::Demo(DemoCommand::Reload(target)) = args.command else {
+        panic!("expected demo reload command");
+    };
+
+    assert_eq!(target.canister_name(), "demo");
+}
+
+#[test]
+fn cli_args_group_demo_fresh_under_demo_keyword() {
+    let args = CliArgs::try_parse_from(["icydb", "demo", "fresh", "--canister", "demo"])
+        .expect("demo fresh should parse");
+    let CliCommand::Demo(DemoCommand::Fresh(target)) = args.command else {
+        panic!("expected demo fresh command");
     };
 
     assert_eq!(target.canister_name(), "demo");

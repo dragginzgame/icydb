@@ -6,7 +6,8 @@ use crate::{
         executor::terminal::RowLayout,
         index::IndexKey,
         query::plan::{
-            AccessPlannedQuery, CoveringReadExecutionPlan, PlannedContinuationContract,
+            AccessPlannedQuery, CoveringReadExecutionPlan, CoveringReadPlan,
+            PlannedContinuationContract, covering_hybrid_projection_plan_from_fields,
             covering_read_execution_plan_from_fields,
         },
         schema::{AcceptedGeneratedCompatibleRowShape, AcceptedRowDecodeContract, SchemaInfo},
@@ -209,6 +210,15 @@ impl EntityAuthority {
             self.primary_key_name,
             strict_predicate_compatible,
         )
+    }
+
+    /// Derive one hybrid covering projection contract through authority-owned schema metadata.
+    #[must_use]
+    pub(in crate::db::executor) fn covering_hybrid_projection_plan(
+        &self,
+        plan: &AccessPlannedQuery,
+    ) -> Option<CoveringReadPlan> {
+        covering_hybrid_projection_plan_from_fields(self.fields(), plan, self.primary_key_name)
     }
 
     /// Build one structural index key from already-materialized row slots

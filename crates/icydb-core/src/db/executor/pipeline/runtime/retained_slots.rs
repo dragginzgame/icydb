@@ -11,13 +11,10 @@ use crate::{
             route::access_order_satisfied_by_route_contract,
             terminal::{RetainedSlotLayout, RetainedSlotValueMode, RowLayout},
         },
+        predicate::IndexCompileTarget,
         query::plan::AccessPlannedQuery,
     },
-    model::{
-        entity::EntityModel,
-        field::{LeafCodec, ScalarCodec},
-        index::IndexKeyItemsRef,
-    },
+    model::field::{LeafCodec, ScalarCodec},
 };
 
 /// Compile the canonical retained-slot layout for one explicit scalar
@@ -114,9 +111,10 @@ fn compile_retained_slot_layout(
     // no longer force shared validation state, so keep these slots explicit
     // for cursor-emitting index-range paths.
     if cursor_emission.enabled()
-        && let Some(spec) = plan.access.as_index_range_path()
+        && plan.access.as_index_range_path().is_some()
+        && let Some(index_compile_targets) = plan.index_compile_targets()
     {
-        required_slots.mark_index_key_item_slots(authority.model(), spec.index().key_items());
+        required_slots.mark_index_compile_target_slots(index_compile_targets);
     }
 
     let (required_slots, value_modes) = required_slots.into_slots_and_value_modes();
@@ -237,23 +235,11 @@ impl RetainedSlotRequirements {
     }
 
     // Mark the slots needed to reconstruct index-range cursor anchors from the
-    // full index key item set instead of only the outward order fields.
-    fn mark_index_key_item_slots(&mut self, model: &EntityModel, key_items: IndexKeyItemsRef) {
-        match key_items {
-            IndexKeyItemsRef::Fields(fields) => {
-                for field in fields {
-                    if let Some(slot) = model.resolve_field_slot(field) {
-                        self.mark_slot(slot);
-                    }
-                }
-            }
-            IndexKeyItemsRef::Items(items) => {
-                for key_item in items {
-                    if let Some(slot) = model.resolve_field_slot(key_item.field()) {
-                        self.mark_slot(slot);
-                    }
-                }
-            }
+    // planner-frozen key-item compile targets instead of reopening generated
+    // model field-slot resolution during retained-layout compilation.
+    fn mark_index_compile_target_slots(&mut self, targets: &[IndexCompileTarget]) {
+        for target in targets {
+            self.mark_slot(target.field_slot);
         }
     }
 

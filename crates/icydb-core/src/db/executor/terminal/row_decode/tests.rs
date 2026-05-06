@@ -797,3 +797,35 @@ fn accepted_row_layout_direct_projection_value_storage_scalar_matches_generated_
             .expect("generated value-storage scalar projection should decode"),
     );
 }
+
+#[test]
+fn accepted_row_layout_direct_projection_rejects_malformed_value_storage_scalar() {
+    let id = Ulid::from_u128(80);
+    let raw_row = raw_row_from_encoded_slot_payloads(&[
+        crate::db::encode_persisted_scalar_slot_payload(&id, "id")
+            .expect("value-storage scalar malformed test id should encode"),
+        vec![0xFF],
+    ]);
+    let accepted = AcceptedSchemaSnapshot::new(
+        compiled_schema_proposal_for_model(RowDecodeValueTextEntity::MODEL)
+            .initial_persisted_schema_snapshot(),
+    );
+    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+        .expect("accepted value-storage scalar row decode schema should form descriptor");
+    let accepted_layout =
+        accepted_row_decode_layout_for_model(RowDecodeValueTextEntity::MODEL, &descriptor)
+            .expect("value-storage scalar accepted layout should be generated-compatible");
+    let accepted_reader = accepted_layout
+        .open_raw_row_with_contract(&raw_row)
+        .expect("accepted malformed value-storage scalar lazy row reader should open");
+    let err = accepted_reader
+        .required_direct_projection_value(1)
+        .expect_err("accepted value-storage scalar projection should reject malformed payload");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Serialize);
+    assert!(
+        err.message.contains("structural binary") || err.message.contains("field kind"),
+        "unexpected malformed value-storage scalar error: {err:?}",
+    );
+}

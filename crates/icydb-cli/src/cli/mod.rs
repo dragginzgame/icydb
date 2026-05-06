@@ -9,8 +9,7 @@ pub(crate) const DEFAULT_CANISTER: &str = "demo_rpg";
 ///
 /// CliArgs owns the top-level process argument surface for the developer CLI.
 /// The initial keyword selects a functional family so SQL execution, canister
-/// lifecycle operations, fixture management, and dev shortcuts do not share one
-/// flag namespace.
+/// lifecycle operations, and demo workflows do not share one flag namespace.
 ///
 
 #[derive(Debug, Parser)]
@@ -41,13 +40,9 @@ pub(crate) enum CliCommand {
     #[command(subcommand)]
     Canister(CanisterCommand),
 
-    /// Manage demo/test canister fixtures.
+    /// Manage demo data and fresh-demo workflows.
     #[command(subcommand)]
-    Fixtures(FixturesCommand),
-
-    /// Run combined local development workflows.
-    #[command(subcommand)]
-    Dev(DevCommand),
+    Demo(DemoCommand),
 }
 
 ///
@@ -83,7 +78,7 @@ pub(crate) struct SqlArgs {
 ///
 /// CanisterTarget is the shared target selector for dfx-backed commands. It
 /// keeps the canister default and environment override consistent across SQL,
-/// lifecycle, fixture, and dev shortcut commands.
+/// lifecycle, and demo data commands.
 ///
 
 #[derive(Args, Clone, Debug)]
@@ -117,6 +112,8 @@ pub(crate) enum CanisterCommand {
     Reinstall(CanisterTarget),
     /// Build and upgrade the canister without resetting stable memory.
     Upgrade(UpgradeArgs),
+    /// Show dfx status for the selected canister.
+    Status(CanisterTarget),
 }
 
 ///
@@ -138,33 +135,21 @@ pub(crate) struct UpgradeArgs {
 }
 
 ///
-/// FixturesCommand
+/// DemoCommand
 ///
-/// FixturesCommand owns canister fixture calls. Splitting reset, load-default,
-/// and reload keeps destructive erase-only behavior separate from reload
-/// convenience.
+/// DemoCommand owns opinionated local demo data workflows. It intentionally
+/// names destructive data operations as demo operations so canister
+/// lifecycle, SQL reads, and demo data resets stay separate.
 ///
 
 #[derive(Debug, Subcommand)]
-pub(crate) enum FixturesCommand {
-    /// Erase all fixtures.
+pub(crate) enum DemoCommand {
+    /// Erase demo data.
     Reset(CanisterTarget),
-    /// Load the default fixture set.
-    LoadDefault(CanisterTarget),
-    /// Erase all fixtures, then load the default fixture set.
+    /// Load the default demo data set.
+    Seed(CanisterTarget),
+    /// Erase demo data, then load the default demo data set.
     Reload(CanisterTarget),
-}
-
-///
-/// DevCommand
-///
-/// DevCommand owns explicit combined local-development workflows. These are
-/// convenience operations, but they stay outside `sql` so query execution does
-/// not hide lifecycle side effects.
-///
-
-#[derive(Debug, Subcommand)]
-pub(crate) enum DevCommand {
-    /// Reinstall the canister, then reload default fixtures.
-    Init(CanisterTarget),
+    /// Reinstall the demo canister, then reload default demo data.
+    Fresh(CanisterTarget),
 }

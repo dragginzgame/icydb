@@ -3,7 +3,7 @@
 use std::{
     env, fs,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Output},
 };
 
 const DEMO_RPG_CANISTER_NAME: &str = "demo_rpg";
@@ -62,14 +62,34 @@ fn package_for_canister_name(canister_name: &str) -> Result<&'static str, String
 }
 
 fn run_checked(mut command: Command, context: &str) -> Result<(), String> {
-    let status = command
-        .status()
+    let output = command
+        .output()
         .map_err(|err| format!("{context}: failed to spawn process: {err}"))?;
-    if !status.success() {
-        return Err(format!("{context}: process exited with status {status}"));
+    if !output.status.success() {
+        return Err(format_failed_process_output(context, &output));
     }
 
     Ok(())
+}
+
+// Format a failed child-process result with captured output. Successful
+// Pocket-IC canister builds stay quiet, while cargo/rustc diagnostics are still
+// visible when a nested build actually fails.
+fn format_failed_process_output(context: &str, output: &Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let mut message = format!("{context}: process exited with status {}", output.status);
+
+    if !stdout.trim().is_empty() {
+        message.push_str("\nstdout:\n");
+        message.push_str(stdout.trim_end());
+    }
+    if !stderr.trim().is_empty() {
+        message.push_str("\nstderr:\n");
+        message.push_str(stderr.trim_end());
+    }
+
+    message
 }
 
 fn should_default_to_wasm_release_profile() -> bool {

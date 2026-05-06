@@ -596,6 +596,31 @@ fn sql_projection_columns_matrix_matches_expected_labels() {
 }
 
 #[test]
+fn execute_sql_projection_select_star_empty_table_preserves_columns() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let columns = statement_projection_columns::<SessionSqlEntity>(
+        &session,
+        "SELECT * FROM SessionSqlEntity",
+    )
+    .expect("empty SELECT * should still derive projection columns");
+    let rows =
+        statement_projection_rows::<SessionSqlEntity>(&session, "SELECT * FROM SessionSqlEntity")
+            .expect("empty SELECT * should execute as an empty projection result");
+
+    assert_eq!(
+        columns,
+        vec!["id".to_string(), "name".to_string(), "age".to_string()],
+        "empty SELECT * should preserve the same model-order column contract as non-empty SELECT *",
+    );
+    assert!(
+        rows.is_empty(),
+        "empty SELECT * should return zero rows instead of rejecting the wildcard projection",
+    );
+}
+
+#[test]
 fn execute_sql_projection_selects_record_subfields() {
     reset_session_sql_store();
     let session = sql_session();

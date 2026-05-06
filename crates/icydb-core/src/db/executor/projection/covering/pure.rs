@@ -26,7 +26,6 @@ use crate::{
         query::plan::{
             AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
             CoveringReadExecutionPlan, CoveringReadFieldSource, PageSpec,
-            covering_read_execution_plan_from_fields,
         },
     },
     error::InternalError,
@@ -50,12 +49,7 @@ where
 
     // Phase 1: admit only planner-proven pure covering routes that need no
     // row-backed fields in projection materialization.
-    let Some(covering) = covering_read_execution_plan_from_fields(
-        authority.model().fields(),
-        plan,
-        authority.primary_key_name(),
-        true,
-    ) else {
+    let Some(covering) = authority.covering_read_execution_plan(plan, true) else {
         return Ok(None);
     };
     if covering

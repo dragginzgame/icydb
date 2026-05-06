@@ -13,7 +13,7 @@ use crate::{
         },
         query::plan::{
             AccessPlannedQuery, CoveringProjectionOrder, CoveringReadField,
-            CoveringReadFieldSource, PageSpec, covering_hybrid_projection_plan_from_fields,
+            CoveringReadFieldSource, PageSpec,
         },
     },
     error::InternalError,
@@ -41,11 +41,7 @@ where
 
     // Phase 1: admit only the planner-owned direct projection shapes that mix
     // covering-backed fields with row-backed sparse reads over one index path.
-    let Some(hybrid) = covering_hybrid_projection_plan_from_fields(
-        authority.model().fields(),
-        plan,
-        authority.primary_key_name(),
-    ) else {
+    let Some(hybrid) = authority.covering_hybrid_projection_plan(plan) else {
         return Ok(None);
     };
 

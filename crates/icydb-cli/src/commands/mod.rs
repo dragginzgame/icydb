@@ -1,8 +1,8 @@
 use crate::{
-    cli::{CanisterCommand, CliArgs, CliCommand, DevCommand, FixturesCommand},
+    cli::{CanisterCommand, CliArgs, CliCommand, DemoCommand},
     dfx::{
-        deploy_canister, list_canisters, load_default_fixtures, reinstall_canister,
-        reload_fixtures, reset_fixtures, upgrade_canister,
+        deploy_canister, fresh_demo, list_canisters, reinstall_canister, reload_demo_data,
+        reset_demo_data, seed_demo_data, status_canister, upgrade_canister,
     },
     shell::run_sql_command,
 };
@@ -12,8 +12,7 @@ pub(crate) fn run_cli(args: CliArgs) -> Result<(), String> {
     match args.command {
         CliCommand::Sql(args) => run_sql_command(args),
         CliCommand::Canister(args) => run_canister_command(args),
-        CliCommand::Fixtures(args) => run_fixtures_command(args),
-        CliCommand::Dev(args) => run_dev_command(args),
+        CliCommand::Demo(args) => run_demo_command(args),
     }
 }
 
@@ -25,22 +24,15 @@ fn run_canister_command(command: CanisterCommand) -> Result<(), String> {
         CanisterCommand::Upgrade(args) => {
             upgrade_canister(args.target.canister_name(), args.wasm.as_ref())
         }
+        CanisterCommand::Status(target) => status_canister(target.canister_name()),
     }
 }
 
-fn run_fixtures_command(command: FixturesCommand) -> Result<(), String> {
+fn run_demo_command(command: DemoCommand) -> Result<(), String> {
     match command {
-        FixturesCommand::Reset(target) => reset_fixtures(target.canister_name()),
-        FixturesCommand::LoadDefault(target) => load_default_fixtures(target.canister_name()),
-        FixturesCommand::Reload(target) => reload_fixtures(target.canister_name()),
-    }
-}
-
-fn run_dev_command(command: DevCommand) -> Result<(), String> {
-    match command {
-        DevCommand::Init(target) => {
-            reinstall_canister(target.canister_name())?;
-            reload_fixtures(target.canister_name())
-        }
+        DemoCommand::Reset(target) => reset_demo_data(target.canister_name()),
+        DemoCommand::Seed(target) => seed_demo_data(target.canister_name()),
+        DemoCommand::Reload(target) => reload_demo_data(target.canister_name()),
+        DemoCommand::Fresh(target) => fresh_demo(target.canister_name()),
     }
 }
