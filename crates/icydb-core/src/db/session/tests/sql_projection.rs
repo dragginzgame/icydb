@@ -655,6 +655,37 @@ fn execute_sql_projection_selects_record_subfields() {
 }
 
 #[test]
+fn execute_sql_projection_select_star_skips_non_selectable_record_roots() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_record_field_path_entities(&session, &[("Ada", 7, "seer")]);
+
+    let columns = statement_projection_columns::<SessionSqlRecordFieldPathEntity>(
+        &session,
+        "SELECT * FROM SessionSqlRecordFieldPathEntity",
+    )
+    .expect("SELECT * over mixed scalar/record schema should derive selectable columns");
+    let rows = statement_projection_rows::<SessionSqlRecordFieldPathEntity>(
+        &session,
+        "SELECT * FROM SessionSqlRecordFieldPathEntity",
+    )
+    .expect("SELECT * over mixed scalar/record schema should project selectable rows");
+
+    assert_eq!(
+        columns,
+        vec!["id".to_string(), "name".to_string()],
+        "SELECT * should preserve model order while omitting non-selectable record roots",
+    );
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0].len(),
+        2,
+        "SELECT * should only materialize selectable top-level fields",
+    );
+    assert_eq!(rows[0][1], Value::Text("Ada".to_string()));
+}
+
+#[test]
 fn execute_sql_projection_order_by_alias_matrix_matches_canonical_rows() {
     reset_session_sql_store();
     let session = sql_session();

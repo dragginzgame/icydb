@@ -1,14 +1,17 @@
 use std::{path::PathBuf, process::Command};
 
-use crate::dfx::{
-    process::{
-        call_unit_method, canister_id, canister_is_installed, run_external_command,
-        unreachable_daemon_hint,
+use crate::{
+    cli::DEFAULT_CANISTER,
+    dfx::{
+        process::{
+            call_unit_method, canister_id, canister_is_installed, run_external_command,
+            unreachable_daemon_hint,
+        },
+        project::{known_canisters, require_created_canister},
     },
-    project::{known_canisters, require_created_canister},
 };
 
-use crate::cli::DEFAULT_CANISTER;
+type CanisterListRow = (String, &'static str, &'static str, String);
 
 /// Print canisters known to the local dfx project and their local id status.
 pub(crate) fn list_canisters() -> Result<(), String> {
@@ -19,23 +22,62 @@ pub(crate) fn list_canisters() -> Result<(), String> {
         return Ok(());
     }
 
-    println!("Known IcyDB canisters:");
-    for canister in canisters {
-        let label = if canister == DEFAULT_CANISTER {
-            format!("{canister} (default)")
-        } else {
-            canister.clone()
-        };
-        match canister_id(canister.as_str()) {
-            Ok(Some(id)) => println!("  {label}: created as {id}"),
-            Err(err) if unreachable_daemon_hint(err.as_str()).is_some() => {
-                println!("  {label}: dfx local daemon is not reachable");
-            }
-            Ok(None) | Err(_) => println!("  {label}: not created locally"),
-        }
-    }
+    let rows = canisters
+        .into_iter()
+        .map(|canister| canister_list_row(canister))
+        .collect::<Vec<_>>();
+    print_canister_table(rows.as_slice());
 
     Ok(())
+}
+
+// Convert one dfx canister name into the row shape printed by `canister list`.
+fn canister_list_row(canister: String) -> CanisterListRow {
+    let default = if canister == DEFAULT_CANISTER {
+        "yes"
+    } else {
+        "no"
+    };
+
+    match canister_id(canister.as_str()) {
+        Ok(Some(id)) => (canister, default, "created", id),
+        Err(err) if unreachable_daemon_hint(err.as_str()).is_some() => (
+            canister,
+            default,
+            "unknown",
+            "dfx local daemon is not reachable".to_string(),
+        ),
+        Ok(None) | Err(_) => (canister, default, "not created", "-".to_string()),
+    }
+}
+
+// Print the local canister inventory with principal as the final column.
+fn print_canister_table(rows: &[CanisterListRow]) {
+    let canister_width = table_width(
+        "canister",
+        rows.iter().map(|(canister, _, _, _)| canister.as_str()),
+    );
+    let default_width = table_width("default", rows.iter().map(|(_, default, _, _)| *default));
+    let created_width = table_width("created", rows.iter().map(|(_, _, created, _)| *created));
+    let canister_heading = "canister";
+    let default_heading = "default";
+    let created_heading = "created";
+    let principal_heading = "principal";
+
+    println!("Known IcyDB canisters:");
+    println!(
+        "  {canister_heading:<canister_width$}  {default_heading:<default_width$}  {created_heading:<created_width$}  {principal_heading}"
+    );
+    for (canister, default, created, principal) in rows {
+        println!(
+            "  {canister:<canister_width$}  {default:<default_width$}  {created:<created_width$}  {principal}"
+        );
+    }
+}
+
+// Keep simple text tables aligned without introducing a formatting dependency.
+fn table_width<'a>(heading: &str, values: impl Iterator<Item = &'a str>) -> usize {
+    values.map(str::len).max().unwrap_or(0).max(heading.len())
 }
 
 /// Deploy a local dfx canister without forcing reinstall mode.

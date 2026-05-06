@@ -1,5 +1,7 @@
 use super::*;
 use crate::db::{
+    codec::serialize_row_payload,
+    data::{RawRow, encode_runtime_value_into_slot},
     executor::EntityAuthority,
     schema::commit_schema_fingerprint_for_entity,
     session::{query::QueryPlanVisibility, sql::SqlCompiledCommandCacheKey},
@@ -36,6 +38,92 @@ fn assert_sql_surface_rejects_statement_lanes_with_message<T, F>(
             "{surface} should preserve a surface-local lane boundary message: {sql}",
         );
     }
+}
+
+// Encode one old physical row for `SessionNullableSqlEntity` as it existed
+// before the nullable `nickname` field was appended. This lets the SQL surface
+// test prove startup transition acceptance and old-row decode together.
+fn old_nullable_sql_raw_row_for_test(id: Ulid, name: &str) -> RawRow {
+    let id_payload =
+        encode_runtime_value_into_slot(SessionNullableSqlEntity::MODEL, 0, &Value::Ulid(id))
+            .expect("old nullable SQL id payload should encode");
+    let name_payload = encode_runtime_value_into_slot(
+        SessionNullableSqlEntity::MODEL,
+        1,
+        &Value::Text(name.to_string()),
+    )
+    .expect("old nullable SQL name payload should encode");
+    let slot_payload =
+        encode_sql_surface_slot_payload_for_test(&[id_payload.as_slice(), name_payload.as_slice()]);
+
+    RawRow::try_new(serialize_row_payload(slot_payload).expect("old nullable row should serialize"))
+        .expect("old nullable row should be valid raw row bytes")
+}
+
+// Build the slot-framed row payload used by one owner-local old-row fixture.
+// Production row writers still own canonical new-row encoding.
+fn encode_sql_surface_slot_payload_for_test(slots: &[&[u8]]) -> Vec<u8> {
+    let field_count =
+        u16::try_from(slots.len()).expect("SQL surface slot fixture count should fit in u16");
+    let mut row_payload = Vec::new();
+    let mut payload_bytes = Vec::new();
+
+    row_payload.extend_from_slice(&field_count.to_be_bytes());
+    for bytes in slots {
+        let start = u32::try_from(payload_bytes.len())
+            .expect("SQL surface slot fixture start should fit in u32");
+        let len =
+            u32::try_from(bytes.len()).expect("SQL surface slot fixture length should fit in u32");
+        row_payload.extend_from_slice(&start.to_be_bytes());
+        row_payload.extend_from_slice(&len.to_be_bytes());
+        payload_bytes.extend_from_slice(bytes);
+    }
+    row_payload.extend_from_slice(payload_bytes.as_slice());
+
+    row_payload
+}
+
+// Install the accepted schema snapshot that represents `SessionNullableSqlEntity`
+// before `nickname` was added. The generated proposal remains current, so
+// reconciliation must perform the append-only nullable transition.
+fn install_nullable_sql_old_accepted_schema_prefix() {
+    let proposal =
+        compiled_schema_proposal_for_model(<SessionNullableSqlEntity as EntitySchema>::MODEL);
+    let expected = proposal.initial_persisted_schema_snapshot();
+    let stored_prefix = PersistedSchemaSnapshot::new(
+        expected.version(),
+        expected.entity_path().to_string(),
+        expected.entity_name().to_string(),
+        expected.primary_key_field_id(),
+        SchemaRowLayout::new(
+            expected.row_layout().version(),
+            vec![
+                (FieldId::new(1), SchemaFieldSlot::new(0)),
+                (FieldId::new(2), SchemaFieldSlot::new(1)),
+            ],
+        ),
+        expected.fields()[..2].to_vec(),
+    );
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
+        store
+            .insert_persisted_snapshot(SessionNullableSqlEntity::ENTITY_TAG, &stored_prefix)
+            .expect("old nullable SQL schema prefix should persist");
+    });
+}
+
+// Seed one old two-slot row directly into the data store so the SQL surface can
+// exercise accepted-schema row decode without first writing a current-layout row.
+fn insert_old_nullable_sql_row_for_test(id: Ulid, name: &str) {
+    let key = DataKey::try_new::<SessionNullableSqlEntity>(id)
+        .expect("old nullable SQL data key should build")
+        .to_raw()
+        .expect("old nullable SQL data key should encode");
+    let row = old_nullable_sql_raw_row_for_test(id, name);
+
+    SESSION_SQL_DATA_STORE.with_borrow_mut(|store| {
+        let _ = store.insert_raw_for_test(key, row);
+    });
 }
 
 // Assert that one unsupported SQL feature is surfaced with the same parser
@@ -762,6 +850,43 @@ fn execute_sql_statement_rejects_unsupported_schema_transition_before_select_com
             && err_text.contains("unsupported additive field transition"),
         "SQL SELECT should surface the schema-transition barrier: {err_text}",
     );
+}
+
+#[test]
+fn execute_sql_statement_reads_old_rows_after_nullable_additive_schema_transition() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    install_nullable_sql_old_accepted_schema_prefix();
+    let session = sql_session();
+    let id = Ulid::from_u128(1480);
+    insert_old_nullable_sql_row_for_test(id, "Ada");
+
+    let result = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
+        &session,
+        "SELECT name, nickname FROM SessionNullableSqlEntity",
+    )
+    .expect("SQL SELECT should accept nullable append-only schema transition");
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = result
+    else {
+        panic!("SQL SELECT over old nullable row should emit projection rows");
+    };
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+
+    assert_eq!(columns, vec!["name".to_string(), "nickname".to_string()]);
+    assert_eq!(
+        rows,
+        vec![vec![
+            output(Value::Text("Ada".to_string())),
+            output(Value::Null)
+        ]],
+    );
+    assert_eq!(row_count, 1);
 }
 
 #[test]

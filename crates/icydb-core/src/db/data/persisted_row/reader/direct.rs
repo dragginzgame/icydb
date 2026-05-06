@@ -284,10 +284,9 @@ fn decode_selected_slot_value(
     expected_key: StorageKey,
     probe: &StructuralReadProbe,
 ) -> Result<Value, InternalError> {
-    let field_name = contract.field_name(slot)?;
-    let raw_value = field_bytes
-        .field(slot)
-        .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field_name))?;
+    let Some(raw_value) = field_bytes.field(slot) else {
+        return contract.missing_slot_value(slot);
+    };
 
     decode_slot_with_contract(
         &contract,
@@ -316,7 +315,7 @@ fn decode_slot_with_contract(
         contract,
         slot,
         field,
-        raw_value,
+        Some(raw_value),
         expected_key,
         is_primary,
         probe,
@@ -331,11 +330,15 @@ fn decode_slot_with_contract_and_field(
     contract: &StructuralRowContract,
     slot: usize,
     field: StructuralFieldDecodeContract,
-    raw_value: &[u8],
+    raw_value: Option<&[u8]>,
     expected_key: StorageKey,
     is_primary: bool,
     probe: &StructuralReadProbe,
 ) -> Result<Value, InternalError> {
+    let Some(raw_value) = raw_value else {
+        return contract.missing_slot_value(slot);
+    };
+
     // Primary-key projection reconstructs the already validated row key from
     // the storage boundary. Keep that path on the generated-compatible field
     // contract until primary-key materialization accepts persisted kinds.

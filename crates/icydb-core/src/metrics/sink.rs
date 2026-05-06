@@ -149,6 +149,7 @@ pub enum SchemaReconcileOutcome {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[remain::sorted]
 pub enum SchemaTransitionOutcome {
+    AppendOnlyNullableFields,
     ExactMatch,
     RejectedEntityIdentity,
     RejectedFieldContract,
@@ -1206,6 +1207,11 @@ const fn record_global_schema_transition_outcome(
 
     #[remain::sorted]
     match outcome {
+        SchemaTransitionOutcome::AppendOnlyNullableFields => {
+            ops.schema_transition_append_only_nullable_fields = ops
+                .schema_transition_append_only_nullable_fields
+                .saturating_add(1);
+        }
         SchemaTransitionOutcome::ExactMatch => {
             ops.schema_transition_exact_match = ops.schema_transition_exact_match.saturating_add(1);
         }
@@ -1250,6 +1256,11 @@ const fn record_entity_schema_transition_outcome(
 
     #[remain::sorted]
     match outcome {
+        SchemaTransitionOutcome::AppendOnlyNullableFields => {
+            ops.schema_transition_append_only_nullable_fields = ops
+                .schema_transition_append_only_nullable_fields
+                .saturating_add(1);
+        }
         SchemaTransitionOutcome::ExactMatch => {
             ops.schema_transition_exact_match = ops.schema_transition_exact_match.saturating_add(1);
         }

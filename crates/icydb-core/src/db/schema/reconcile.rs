@@ -9,7 +9,8 @@ use crate::{
         schema::{
             AcceptedSchemaSnapshot, PersistedSchemaSnapshot, SchemaStore, SchemaTransitionDecision,
             SchemaTransitionPlanKind, compiled_schema_proposal_for_model, decide_schema_transition,
-            runtime::AcceptedRowLayoutRuntimeDescriptor, transition::SchemaTransitionRejectionKind,
+            runtime::AcceptedRowLayoutRuntimeDescriptor,
+            transition::{SchemaTransitionPlan, SchemaTransitionRejectionKind},
         },
     },
     error::InternalError,
@@ -84,16 +85,27 @@ pub(in crate::db) fn ensure_accepted_schema_snapshot(
     };
 
     if let Some(actual) = latest {
-        let outcome = match validate_existing_schema_snapshot(entity_path, &actual, &expected) {
-            Ok(outcome) => outcome,
+        let plan = match validate_existing_schema_snapshot(entity_path, &actual, &expected) {
+            Ok(plan) => plan,
             Err(error) => {
                 record_schema_store_footprint(schema_store, entity_tag, entity_path);
                 return Err(error);
             }
         };
-        record_schema_reconcile(entity_path, outcome);
+        let accepted_snapshot = match plan.kind() {
+            SchemaTransitionPlanKind::ExactMatch => actual,
+            SchemaTransitionPlanKind::AppendOnlyNullableFields => {
+                if let Err(error) = schema_store.insert_persisted_snapshot(entity_tag, &expected) {
+                    record_schema_store_footprint(schema_store, entity_tag, entity_path);
+                    record_schema_reconcile(entity_path, SchemaReconcileOutcome::StoreWriteError);
+                    return Err(error);
+                }
+                expected
+            }
+        };
+        record_schema_reconcile(entity_path, SchemaReconcileOutcome::ExactMatch);
         record_schema_store_footprint(schema_store, entity_tag, entity_path);
-        let accepted = AcceptedSchemaSnapshot::try_new(actual)?;
+        let accepted = AcceptedSchemaSnapshot::try_new(accepted_snapshot)?;
         validate_accepted_runtime_descriptor(&accepted)?;
         record_accepted_schema_footprint(entity_path, &accepted);
 
@@ -193,6 +205,9 @@ const fn schema_reconcile_rejection_outcome(
 // visible at the policy boundary instead of hiding them in reconciliation.
 const fn schema_transition_plan_outcome(kind: SchemaTransitionPlanKind) -> SchemaTransitionOutcome {
     match kind {
+        SchemaTransitionPlanKind::AppendOnlyNullableFields => {
+            SchemaTransitionOutcome::AppendOnlyNullableFields
+        }
         SchemaTransitionPlanKind::ExactMatch => SchemaTransitionOutcome::ExactMatch,
     }
 }
@@ -226,12 +241,12 @@ fn validate_existing_schema_snapshot(
     entity_path: &'static str,
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
-) -> Result<SchemaReconcileOutcome, InternalError> {
+) -> Result<SchemaTransitionPlan, InternalError> {
     match decide_schema_transition(actual, expected) {
         SchemaTransitionDecision::Accepted(plan) => {
             record_schema_transition(entity_path, schema_transition_plan_outcome(plan.kind()));
 
-            Ok(SchemaReconcileOutcome::ExactMatch)
+            Ok(plan)
         }
         SchemaTransitionDecision::Rejected(rejection) => {
             let outcome = schema_reconcile_rejection_outcome(rejection.kind());
@@ -336,6 +351,26 @@ mod tests {
         &NESTED_SCHEMA_INDEXES,
     );
     const NESTED_SCHEMA_ENTITY_TAG: EntityTag = EntityTag::new(0x6e65_7374_7363_6865);
+    static ADDITIVE_NULLABLE_SCHEMA_FIELDS: [FieldModel; 3] = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated("name", FieldKind::Text { max_len: None }),
+        FieldModel::generated_with_storage_decode_and_nullability(
+            "nickname",
+            FieldKind::Text { max_len: None },
+            FieldStorageDecode::ByKind,
+            true,
+        ),
+    ];
+    static ADDITIVE_NULLABLE_SCHEMA_INDEXES: [&IndexModel; 0] = [];
+    static ADDITIVE_NULLABLE_SCHEMA_MODEL: EntityModel = entity_model_from_static(
+        "schema::reconcile::tests::AdditiveNullableSchemaEntity",
+        "AdditiveNullableSchemaEntity",
+        &ADDITIVE_NULLABLE_SCHEMA_FIELDS[0],
+        0,
+        &ADDITIVE_NULLABLE_SCHEMA_FIELDS,
+        &ADDITIVE_NULLABLE_SCHEMA_INDEXES,
+    );
+    const ADDITIVE_NULLABLE_ENTITY_TAG: EntityTag = EntityTag::new(0x6164_6469_7469_7665);
 
     thread_local! {
         static RECONCILE_DATA_STORE: RefCell<DataStore> =
@@ -436,6 +471,65 @@ mod tests {
             "accepted-schema footprint should stay a replaced entity gauge instead of double-counting exact-match reconciliation",
         );
         assert_eq!(counters.ops().accepted_schema_nested_leaf_facts(), 0);
+    }
+
+    #[test]
+    fn ensure_accepted_schema_snapshot_accepts_append_only_nullable_field() {
+        let mut schema_store = SchemaStore::init(test_memory(243));
+        metrics_reset_all();
+
+        let proposal = compiled_schema_proposal_for_model(&ADDITIVE_NULLABLE_SCHEMA_MODEL);
+        let expected = proposal.initial_persisted_schema_snapshot();
+        let stored_prefix = PersistedSchemaSnapshot::new(
+            expected.version(),
+            expected.entity_path().to_string(),
+            expected.entity_name().to_string(),
+            expected.primary_key_field_id(),
+            SchemaRowLayout::new(
+                expected.row_layout().version(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            expected.fields()[..2].to_vec(),
+        );
+        schema_store
+            .insert_persisted_snapshot(ADDITIVE_NULLABLE_ENTITY_TAG, &stored_prefix)
+            .expect("stored prefix schema snapshot should encode");
+
+        let accepted = super::ensure_accepted_schema_snapshot(
+            &mut schema_store,
+            ADDITIVE_NULLABLE_ENTITY_TAG,
+            ADDITIVE_NULLABLE_SCHEMA_MODEL.path(),
+            &ADDITIVE_NULLABLE_SCHEMA_MODEL,
+        )
+        .expect("append-only nullable generated field should be accepted");
+        let latest = schema_store
+            .latest_persisted_snapshot(ADDITIVE_NULLABLE_ENTITY_TAG)
+            .expect("schema store latest snapshot should decode")
+            .expect("schema store should retain accepted additive snapshot");
+
+        assert_eq!(accepted.footprint().fields(), 3);
+        assert_eq!(latest.fields().len(), 3);
+        assert_eq!(schema_store.len(), 1);
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("schema reconciliation should record metrics");
+        assert_eq!(counters.ops().schema_transition_checks(), 1);
+        assert_eq!(
+            counters
+                .ops()
+                .schema_transition_append_only_nullable_fields(),
+            1
+        );
+        assert_eq!(
+            counters.ops().schema_transition_rejected_field_contract(),
+            0
+        );
+        assert_eq!(counters.ops().accepted_schema_fields(), 3);
     }
 
     #[test]

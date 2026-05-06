@@ -125,6 +125,7 @@ pub struct EventOps {
     pub(crate) schema_reconcile_rejected_schema_version: u64,
     pub(crate) schema_reconcile_store_write_error: u64,
     pub(crate) schema_transition_checks: u64,
+    pub(crate) schema_transition_append_only_nullable_fields: u64,
     pub(crate) schema_transition_exact_match: u64,
     pub(crate) schema_transition_rejected_entity_identity: u64,
     pub(crate) schema_transition_rejected_field_contract: u64,
@@ -438,6 +439,11 @@ impl EventOps {
     #[must_use]
     pub const fn schema_transition_checks(&self) -> u64 {
         self.schema_transition_checks
+    }
+
+    #[must_use]
+    pub const fn schema_transition_append_only_nullable_fields(&self) -> u64 {
+        self.schema_transition_append_only_nullable_fields
     }
 
     #[must_use]
@@ -990,6 +996,7 @@ pub(crate) struct EntityCounters {
     pub(crate) schema_reconcile_rejected_schema_version: u64,
     pub(crate) schema_reconcile_store_write_error: u64,
     pub(crate) schema_transition_checks: u64,
+    pub(crate) schema_transition_append_only_nullable_fields: u64,
     pub(crate) schema_transition_exact_match: u64,
     pub(crate) schema_transition_rejected_entity_identity: u64,
     pub(crate) schema_transition_rejected_field_contract: u64,
@@ -1349,6 +1356,7 @@ pub struct EntitySummary {
     schema_reconcile_rejected_schema_version: u64,
     schema_reconcile_store_write_error: u64,
     schema_transition_checks: u64,
+    schema_transition_append_only_nullable_fields: u64,
     schema_transition_exact_match: u64,
     schema_transition_rejected_entity_identity: u64,
     schema_transition_rejected_field_contract: u64,
@@ -1651,6 +1659,11 @@ impl EntitySummary {
     #[must_use]
     pub const fn schema_transition_checks(&self) -> u64 {
         self.schema_transition_checks
+    }
+
+    #[must_use]
+    pub const fn schema_transition_append_only_nullable_fields(&self) -> u64 {
+        self.schema_transition_append_only_nullable_fields
     }
 
     #[must_use]
@@ -2204,6 +2217,7 @@ impl EntitySummary {
             .saturating_add(self.schema_reconcile_rejected_schema_version)
             .saturating_add(self.schema_reconcile_store_write_error)
             .saturating_add(self.schema_transition_checks)
+            .saturating_add(self.schema_transition_append_only_nullable_fields)
             .saturating_add(self.schema_transition_exact_match)
             .saturating_add(self.schema_transition_rejected_entity_identity)
             .saturating_add(self.schema_transition_rejected_field_contract)
@@ -2352,6 +2366,8 @@ fn entity_summary_from_counters(path: &str, ops: &EntityCounters) -> EntitySumma
         schema_reconcile_rejected_schema_version: ops.schema_reconcile_rejected_schema_version,
         schema_reconcile_store_write_error: ops.schema_reconcile_store_write_error,
         schema_transition_checks: ops.schema_transition_checks,
+        schema_transition_append_only_nullable_fields: ops
+            .schema_transition_append_only_nullable_fields,
         schema_transition_exact_match: ops.schema_transition_exact_match,
         schema_transition_rejected_entity_identity: ops.schema_transition_rejected_entity_identity,
         schema_transition_rejected_field_contract: ops.schema_transition_rejected_field_contract,

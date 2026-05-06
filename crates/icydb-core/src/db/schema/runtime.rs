@@ -201,18 +201,22 @@ pub(in crate::db) struct OwnedAcceptedFieldDecodeContract {
     nullable: bool,
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
+    absence_policy: AcceptedFieldAbsencePolicy,
 }
 
 impl OwnedAcceptedFieldDecodeContract {
-    /// Build one owned field contract from a descriptor-borrowed contract.
+    /// Build one owned field contract from a full runtime field descriptor.
     #[must_use]
-    fn from_decode_contract(contract: AcceptedFieldDecodeContract<'_>) -> Self {
+    fn from_runtime_field(field: &AcceptedRowLayoutRuntimeField<'_>) -> Self {
+        let contract = field.decode_contract();
+
         Self {
             field_name: contract.field_name().to_string(),
             kind: contract.kind().clone(),
             nullable: contract.nullable(),
             storage_decode: contract.storage_decode(),
             leaf_codec: contract.leaf_codec(),
+            absence_policy: field.absence_policy(),
         }
     }
 
@@ -226,6 +230,12 @@ impl OwnedAcceptedFieldDecodeContract {
             storage_decode: self.storage_decode,
             leaf_codec: self.leaf_codec,
         }
+    }
+
+    /// Return the accepted missing-slot behavior for this field.
+    #[must_use]
+    pub(in crate::db) const fn absence_policy(&self) -> AcceptedFieldAbsencePolicy {
+        self.absence_policy
     }
 
     /// Borrow the accepted persisted field name.
@@ -266,9 +276,8 @@ impl AcceptedRowDecodeContract {
         let mut fields_by_slot = vec![None; descriptor.required_slot_count()];
 
         for field in descriptor.fields() {
-            fields_by_slot[usize::from(field.slot().get())] = Some(
-                OwnedAcceptedFieldDecodeContract::from_decode_contract(field.decode_contract()),
-            );
+            fields_by_slot[usize::from(field.slot().get())] =
+                Some(OwnedAcceptedFieldDecodeContract::from_runtime_field(field));
         }
 
         Self {

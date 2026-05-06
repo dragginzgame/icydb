@@ -21,7 +21,8 @@ use crate::{
         query::{
             intent::{QueryError, StructuralQuery},
             plan::expr::{
-                Expr, FieldPath, ProjectionSelection, derive_normalized_bool_expr_predicate_subset,
+                Expr, FieldId, FieldPath, ProjectionSelection,
+                derive_normalized_bool_expr_predicate_subset,
             },
         },
         schema::SchemaInfo,
@@ -308,8 +309,6 @@ fn apply_lowered_select_shape_with_schema(
     lowered: LoweredSelectShape,
     schema: &SchemaInfo,
 ) -> Result<StructuralQuery, SqlLoweringError> {
-    validate_lowered_select_sql_capabilities(schema, &lowered)?;
-
     let LoweredSelectShape {
         projection_selection,
         grouped_aggregates,
@@ -322,6 +321,14 @@ fn apply_lowered_select_shape_with_schema(
         offset,
     } = lowered;
     let model = query.model();
+    let projection_selection =
+        normalize_select_star_projection(schema, model, projection_selection)?;
+    validate_select_sql_capabilities(
+        schema,
+        &projection_selection,
+        group_by_fields.as_slice(),
+        order_by.as_slice(),
+    )?;
 
     // Phase 1: apply grouped declaration semantics.
     for field in group_by_fields {
@@ -355,16 +362,50 @@ fn apply_lowered_select_shape_with_schema(
     ))
 }
 
+// Expand scalar `SELECT *` to the selectable top-level field subset when a
+// mixed schema also contains structured fields that SQL cannot transport
+// directly. Simple all-selectable entities keep the compact `All` shape.
+fn normalize_select_star_projection(
+    schema: &SchemaInfo,
+    model: &'static EntityModel,
+    selection: ProjectionSelection,
+) -> Result<ProjectionSelection, SqlLoweringError> {
+    if !matches!(selection, ProjectionSelection::All)
+        || schema.first_non_sql_selectable_field().is_none()
+    {
+        return Ok(selection);
+    }
+
+    let fields = model
+        .fields()
+        .iter()
+        .filter_map(|field| {
+            schema
+                .sql_capabilities(field.name())
+                .filter(|capabilities| capabilities.selectable())
+                .map(|_| FieldId::new(field.name().to_string()))
+        })
+        .collect::<Vec<_>>();
+
+    if fields.is_empty() {
+        return Err(SqlLoweringError::unsupported_select_projection());
+    }
+
+    Ok(ProjectionSelection::Fields(fields))
+}
+
 // Validate SQL field-capability rules that can safely use the accepted schema
 // snapshot today. Runtime row-layout and path execution still stay generated
 // until live layout authority exists.
-fn validate_lowered_select_sql_capabilities(
+fn validate_select_sql_capabilities(
     schema: &SchemaInfo,
-    lowered: &LoweredSelectShape,
+    projection_selection: &ProjectionSelection,
+    group_by_fields: &[String],
+    order_by: &[LoweredSqlOrderTerm],
 ) -> Result<(), SqlLoweringError> {
-    validate_projection_sql_capabilities(schema, &lowered.projection_selection)?;
-    validate_group_by_sql_capabilities(schema, lowered.group_by_fields.as_slice())?;
-    validate_order_sql_capabilities(schema, lowered.order_by.as_slice())?;
+    validate_projection_sql_capabilities(schema, projection_selection)?;
+    validate_group_by_sql_capabilities(schema, group_by_fields)?;
+    validate_order_sql_capabilities(schema, order_by)?;
 
     Ok(())
 }

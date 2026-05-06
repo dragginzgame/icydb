@@ -31,6 +31,10 @@ use crate::{
             },
         },
         predicate::{ComparePredicate, Predicate, PredicateProgram},
+        schema::{
+            AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot,
+            compiled_schema_proposal_for_model,
+        },
     },
     error::InternalError,
     model::{
@@ -374,6 +378,21 @@ static FIELD_MODELS: [FieldModel; 2] = [
         FieldStorageDecode::Value,
     ),
 ];
+static ADDITIVE_NULLABLE_FIELD_MODELS: [FieldModel; 3] = [
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated("name", FieldKind::Text { max_len: None }),
+    FieldModel::generated_with_storage_decode_and_nullability(
+        "nickname",
+        FieldKind::Text { max_len: None },
+        FieldStorageDecode::ByKind,
+        true,
+    ),
+];
+static ADDITIVE_REQUIRED_FIELD_MODELS: [FieldModel; 3] = [
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated("name", FieldKind::Text { max_len: None }),
+    FieldModel::generated("score", FieldKind::Uint),
+];
 static LIST_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
     "tags",
     FieldKind::List(&FieldKind::Text { max_len: None }),
@@ -441,6 +460,22 @@ static TEST_MODEL: EntityModel = EntityModel::generated(
     &FIELD_MODELS[0],
     0,
     &FIELD_MODELS,
+    &INDEX_MODELS,
+);
+static ADDITIVE_NULLABLE_MODEL: EntityModel = EntityModel::generated(
+    "tests::PersistedRowAdditiveNullableEntity",
+    "persisted_row_additive_nullable_entity",
+    &ADDITIVE_NULLABLE_FIELD_MODELS[0],
+    0,
+    &ADDITIVE_NULLABLE_FIELD_MODELS,
+    &INDEX_MODELS,
+);
+static ADDITIVE_REQUIRED_MODEL: EntityModel = EntityModel::generated(
+    "tests::PersistedRowAdditiveRequiredEntity",
+    "persisted_row_additive_required_entity",
+    &ADDITIVE_REQUIRED_FIELD_MODELS[0],
+    0,
+    &ADDITIVE_REQUIRED_FIELD_MODELS,
     &INDEX_MODELS,
 );
 static LIST_MODEL: EntityModel = EntityModel::generated(
@@ -759,6 +794,48 @@ fn raw_row_from_dense_slot_payloads_for_tests(
 
     RawRow::try_new(serialize_row_payload(slot_payload).expect("serialize row payload"))
         .expect("build raw row")
+}
+
+// Build one structural row contract from the accepted schema path so tests can
+// exercise row decode against saved-schema field contracts instead of the
+// generated-only fallback.
+fn accepted_row_contract_for_model(model: &'static EntityModel) -> StructuralRowContract {
+    let snapshot = compiled_schema_proposal_for_model(model).initial_persisted_schema_snapshot();
+    let accepted =
+        AcceptedSchemaSnapshot::try_new(snapshot).expect("accepted schema fixture should validate");
+    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+        .expect("accepted runtime descriptor should build");
+
+    StructuralRowContract::from_model_with_accepted_decode_contract(
+        model,
+        descriptor.row_decode_contract(),
+    )
+}
+
+// Build an old two-slot row fixture used to test accepted additive contracts.
+// The fixture simulates a row written before the third field was appended.
+fn old_two_slot_additive_raw_row_for_tests(id: Ulid) -> RawRow {
+    let id_payload = encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(id)));
+    let name_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
+    let slot_payload = encode_slot_payload_from_parts(
+        2,
+        &[
+            (
+                0_u32,
+                u32::try_from(id_payload.len()).expect("id payload length should fit"),
+            ),
+            (
+                u32::try_from(id_payload.len()).expect("name payload start should fit"),
+                u32::try_from(name_payload.len()).expect("name payload length should fit"),
+            ),
+        ],
+        &[id_payload.as_slice(), name_payload.as_slice()].concat(),
+    )
+    .expect("old two-slot payload should encode");
+
+    RawRow::try_new(serialize_row_payload(slot_payload).expect("old two-slot row should serialize"))
+        .expect("old two-slot row should be accepted as raw bytes")
 }
 
 fn assert_direct_persisted_structured_roundtrip<T>(value: T)
@@ -1554,6 +1631,76 @@ fn structural_slot_reader_and_direct_decode_share_the_same_field_codec_boundary(
 
     assert_eq!(direct_name, cached_name);
     assert_eq!(direct_payload, cached_payload);
+}
+
+#[test]
+fn accepted_row_contract_reads_missing_trailing_nullable_slots_as_null() {
+    let id = Ulid::from_u128(147);
+    let raw_row = old_two_slot_additive_raw_row_for_tests(id);
+    let contract = accepted_row_contract_for_model(&ADDITIVE_NULLABLE_MODEL);
+
+    let mut reader =
+        StructuralSlotReader::from_raw_row_with_validated_contract(&raw_row, contract.clone())
+            .expect("accepted row contract should allow missing nullable append-only slot");
+    let dense =
+        super::decode_dense_raw_row_with_contract(&raw_row, contract.clone(), StorageKey::Ulid(id))
+            .expect("dense direct decode should synthesize null for missing nullable slot");
+    let sparse = super::decode_sparse_raw_row_with_contract(
+        &raw_row,
+        contract.clone(),
+        StorageKey::Ulid(id),
+        &[2],
+    )
+    .expect("sparse direct decode should synthesize null for missing nullable slot");
+    let compact = super::decode_sparse_indexed_raw_row_with_contract(
+        &raw_row,
+        contract.clone(),
+        StorageKey::Ulid(id),
+        &[2],
+    )
+    .expect("compact sparse direct decode should synthesize null for missing nullable slot");
+    let required =
+        decode_sparse_required_slot_with_contract(&raw_row, contract, StorageKey::Ulid(id), 2)
+            .expect(
+                "required sparse direct decode should synthesize null for missing nullable slot",
+            );
+
+    assert_eq!(
+        reader.get_value(2).expect("reader missing slot"),
+        Some(Value::Null)
+    );
+    assert!(matches!(
+        reader.get_scalar(2).expect("reader scalar missing slot"),
+        Some(ScalarSlotValueRef::Null),
+    ));
+    assert_eq!(
+        dense,
+        vec![
+            Some(Value::Ulid(id)),
+            Some(Value::Text("Ada".to_string())),
+            Some(Value::Null),
+        ],
+    );
+    assert_eq!(sparse, vec![None, None, Some(Value::Null)]);
+    assert_eq!(compact, vec![Some(Value::Null)]);
+    assert_eq!(required, Some(Value::Null));
+}
+
+#[test]
+fn accepted_row_contract_rejects_missing_trailing_required_slots() {
+    let id = Ulid::from_u128(148);
+    let raw_row = old_two_slot_additive_raw_row_for_tests(id);
+    let contract = accepted_row_contract_for_model(&ADDITIVE_REQUIRED_MODEL);
+
+    let Err(err) = StructuralSlotReader::from_raw_row_with_contract(&raw_row, contract) else {
+        panic!("accepted row contract should reject a missing required appended slot");
+    };
+
+    assert!(
+        err.message.contains("declared field missing")
+            || err.message.contains("missing declared field"),
+        "required missing-slot rejection should stay on persisted-row missing-field taxonomy: {err:?}",
+    );
 }
 
 #[test]

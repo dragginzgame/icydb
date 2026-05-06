@@ -235,6 +235,18 @@ impl<'a> StructuralSlotReader<'a> {
                 validated,
                 materialized,
             } => {
+                if self.field_bytes.field(slot).is_none() {
+                    if materialized.get().is_none() {
+                        let _ = materialized.set(self.contract.missing_slot_value(slot)?);
+                    }
+
+                    return materialized.get().ok_or_else(|| {
+                        InternalError::persisted_row_decode_failed(format!(
+                            "structural missing scalar slot failed to materialize deferred value: slot={slot}",
+                        ))
+                    });
+                }
+
                 let field = self.contract.field_decode_contract(slot)?;
                 let validated =
                     self.required_validated_scalar_slot_value(slot, field, validated)?;
@@ -255,6 +267,18 @@ impl<'a> StructuralSlotReader<'a> {
                 })
             }
             CachedSlotValue::Deferred { materialized } => {
+                if self.field_bytes.field(slot).is_none() {
+                    if materialized.get().is_none() {
+                        let _ = materialized.set(self.contract.missing_slot_value(slot)?);
+                    }
+
+                    return materialized.get().ok_or_else(|| {
+                        InternalError::persisted_row_decode_failed(format!(
+                            "structural missing deferred slot failed to materialize value: slot={slot}",
+                        ))
+                    });
+                }
+
                 let field = self.contract.field_decode_contract(slot)?;
                 let field_name = self.contract.field_name(slot)?;
                 let raw_value = self.required_field_bytes(slot, field_name)?;
@@ -426,6 +450,14 @@ impl<'a> StructuralSlotReader<'a> {
         if !matches!(field.storage_decode(), FieldStorageDecode::Value) {
             return Ok(None);
         }
+        if self.field_bytes.field(slot).is_none() {
+            return match self.contract.missing_slot_value(slot)? {
+                Value::Null => Ok(Some(ScalarSlotValueRef::Null)),
+                value => Err(InternalError::persisted_row_decode_failed(format!(
+                    "missing value-storage scalar slot materialized non-null value: slot={slot} value={value:?}",
+                ))),
+            };
+        }
 
         let raw_value = self.required_field_bytes(slot, field.field_name())?;
         let view = ValueStorageView::from_raw_validated(raw_value).map_err(|err| {
@@ -471,8 +503,10 @@ impl<'a> StructuralSlotReader<'a> {
     fn validate_all_declared_slots(&self) -> Result<(), InternalError> {
         for slot in 0..self.contract.field_count() {
             let field = self.contract.field_decode_contract(slot)?;
-            let field_name = self.contract.field_name(slot)?;
-            let raw_value = self.required_field_bytes(slot, field_name)?;
+            let Some(raw_value) = self.field_bytes.field(slot) else {
+                let _ = self.contract.missing_slot_value(slot)?;
+                continue;
+            };
 
             match self.contract.field_leaf_codec(slot)? {
                 LeafCodec::Scalar(_) => {
@@ -525,6 +559,15 @@ impl SlotReader for StructuralSlotReader<'_> {
         match field.leaf_codec() {
             LeafCodec::Scalar(_) => match self.cached_values.get(slot) {
                 Some(CachedSlotValue::Scalar { validated, .. }) => {
+                    if self.field_bytes.field(slot).is_none() {
+                        return match self.contract.missing_slot_value(slot)? {
+                            Value::Null => Ok(Some(ScalarSlotValueRef::Null)),
+                            value => Err(InternalError::persisted_row_decode_failed(format!(
+                                "missing scalar slot materialized non-null value: slot={slot} value={value:?}",
+                            ))),
+                        };
+                    }
+
                     let validated =
                         self.required_validated_scalar_slot_value(slot, field, validated)?;
 

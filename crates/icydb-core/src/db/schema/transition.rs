@@ -5,7 +5,7 @@
 
 use crate::db::schema::{
     FieldId, PersistedFieldSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
-    SchemaFieldSlot,
+    SchemaFieldDefault, SchemaFieldSlot,
 };
 
 ///
@@ -28,12 +28,13 @@ pub(in crate::db::schema) enum SchemaTransitionDecision {
 /// SchemaTransitionPlanKind
 ///
 /// SchemaTransitionPlanKind classifies accepted schema transitions. The enum
-/// is intentionally small today so future migration support must add explicit
-/// accepted cases instead of smuggling behavior through loose booleans.
+/// is intentionally small so migration support must add explicit accepted
+/// cases instead of smuggling behavior through loose booleans.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaTransitionPlanKind {
+    AppendOnlyNullableFields,
     ExactMatch,
 }
 
@@ -50,6 +51,7 @@ pub(in crate::db::schema) enum SchemaTransitionPlanKind {
 #[derive(Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaTransitionPlan {
     kind: SchemaTransitionPlanKind,
+    added_field_count: usize,
 }
 
 impl SchemaTransitionPlan {
@@ -58,6 +60,17 @@ impl SchemaTransitionPlan {
     const fn exact_match() -> Self {
         Self {
             kind: SchemaTransitionPlanKind::ExactMatch,
+            added_field_count: 0,
+        }
+    }
+
+    // Build the accepted append-only nullable transition plan. Runtime decode
+    // consumes accepted absence policies, so reconciliation only needs to
+    // publish the new generated snapshot after this schema-owned policy check.
+    const fn append_only_nullable_fields(added_field_count: usize) -> Self {
+        Self {
+            kind: SchemaTransitionPlanKind::AppendOnlyNullableFields,
+            added_field_count,
         }
     }
 
@@ -65,6 +78,12 @@ impl SchemaTransitionPlan {
     // metrics. This avoids exposing raw transition internals to callers.
     pub(in crate::db::schema) const fn kind(&self) -> SchemaTransitionPlanKind {
         self.kind
+    }
+
+    // Return how many generated fields were accepted by this transition.
+    #[cfg(test)]
+    pub(in crate::db::schema) const fn added_field_count(&self) -> usize {
+        self.added_field_count
     }
 }
 
@@ -130,9 +149,26 @@ pub(in crate::db::schema) fn decide_schema_transition(
         return SchemaTransitionDecision::Accepted(SchemaTransitionPlan::exact_match());
     }
 
+    if let Some(added_fields) = append_only_additive_transition_fields(actual, expected)
+        && added_fields
+            .iter()
+            .all(field_has_nullable_missing_absence_policy)
+    {
+        return SchemaTransitionDecision::Accepted(
+            SchemaTransitionPlan::append_only_nullable_fields(added_fields.len()),
+        );
+    }
+
     let (kind, detail) = schema_snapshot_mismatch_detail(actual, expected);
 
     SchemaTransitionDecision::Rejected(SchemaTransitionRejection::new(kind, detail))
+}
+
+// Decide whether one added field can be absent from older physical rows. Since
+// database defaults are not persisted yet, nullable + no-default is the only
+// supported absence policy.
+const fn field_has_nullable_missing_absence_policy(field: &PersistedFieldSnapshot) -> bool {
+    field.nullable() && matches!(field.default(), SchemaFieldDefault::None)
 }
 
 // Return the first human-readable schema difference between the stored
@@ -245,6 +281,28 @@ fn unsupported_generated_additive_field_detail(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
 ) -> Option<String> {
+    let added_fields = append_only_additive_transition_fields(actual, expected)?;
+    let index = actual.fields().len();
+    let field = &added_fields[0];
+    Some(format!(
+        "unsupported additive field transition: generated field[{index}] id={} slot={} name='{}' kind={:?} nullable={} default={:?}; accepted decode/write support is not enabled yet",
+        field.id().get(),
+        field.slot().get(),
+        field.name(),
+        field.kind(),
+        field.nullable(),
+        field.default(),
+    ))
+}
+
+// Return generated fields for the only additive shape that can become an
+// accepted transition: stored fields and row-layout entries must be exact
+// prefixes of the generated proposal. This helper does not decide whether the
+// added fields are safe; callers still inspect absence policy eligibility.
+fn append_only_additive_transition_fields<'a>(
+    actual: &PersistedSchemaSnapshot,
+    expected: &'a PersistedSchemaSnapshot,
+) -> Option<&'a [PersistedFieldSnapshot]> {
     if actual.fields().len() >= expected.fields().len()
         || actual.row_layout().field_to_slot().len() >= expected.row_layout().field_to_slot().len()
     {
@@ -270,17 +328,7 @@ fn unsupported_generated_additive_field_detail(
         return None;
     }
 
-    let index = actual.fields().len();
-    let field = &expected.fields()[index];
-    Some(format!(
-        "unsupported additive field transition: generated field[{index}] id={} slot={} name='{}' kind={:?} nullable={} default={:?}; accepted decode/write support is not enabled yet",
-        field.id().get(),
-        field.slot().get(),
-        field.name(),
-        field.kind(),
-        field.nullable(),
-        field.default(),
-    ))
+    Some(&expected.fields()[actual.fields().len()..])
 }
 
 // Detect the symmetric field-removal transition shape without accepting it.
@@ -710,7 +758,7 @@ mod tests {
     }
 
     #[test]
-    fn schema_transition_policy_accepts_only_exact_snapshot_match() {
+    fn schema_transition_policy_accepts_exact_snapshot_match() {
         let expected = expected_snapshot();
 
         let SchemaTransitionDecision::Accepted(plan) =
@@ -732,6 +780,50 @@ mod tests {
                 .contains("entity name changed: stored='ChangedSchemaReconcileEntity' generated='SchemaReconcileEntity'"),
             "transition rejection should retain the first schema mismatch detail",
         );
+    }
+
+    #[test]
+    fn schema_transition_policy_accepts_append_only_nullable_fields() {
+        let stored = expected_snapshot();
+        let mut generated_fields = stored.fields().to_vec();
+        generated_fields.push(PersistedFieldSnapshot::new(
+            FieldId::new(3),
+            "nickname".to_string(),
+            SchemaFieldSlot::new(2),
+            PersistedFieldKind::Text { max_len: None },
+            Vec::new(),
+            true,
+            SchemaFieldDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Text),
+        ));
+        let generated = PersistedSchemaSnapshot::new(
+            stored.version(),
+            stored.entity_path().to_string(),
+            stored.entity_name().to_string(),
+            stored.primary_key_field_id(),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                    (FieldId::new(3), SchemaFieldSlot::new(2)),
+                ],
+            ),
+            generated_fields,
+        );
+
+        let SchemaTransitionDecision::Accepted(plan) =
+            decide_schema_transition(&stored, &generated)
+        else {
+            panic!("append-only nullable generated field should be an accepted transition");
+        };
+
+        assert_eq!(
+            plan.kind(),
+            SchemaTransitionPlanKind::AppendOnlyNullableFields
+        );
+        assert_eq!(plan.added_field_count(), 1);
     }
 
     #[test]

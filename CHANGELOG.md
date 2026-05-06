@@ -6,10 +6,26 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.148.x] 🧬 - 2026-05-06 - Schema Evolution Runtime Cutover
+
+- `0.148.0` starts safe schema evolution by accepting nullable fields added at the end of an entity schema, reading older rows as `NULL` for the new field, and keeping required additions and other layout changes rejected.
+
+See detailed breakdown:
+[docs/changelog/0.148.md](docs/changelog/0.148.md)
+
+---
+
 ## [0.147.x] 🪪 - 2026-05-04 - Accepted Schema Authority Closeout
 
-- `0.147.27` reduces local and Pocket-IC test noise while tightening raw-row decode validation through saved-schema row contracts.
-- `0.147.26` moves the developer CLI onto explicit `sql`, `canister`, and `demo` command families, lists local canisters, improves default-demo setup errors, removes the old shell wrapper, and adds `make install` so local builds can install an `icydb` command.
+- `0.147.27` reduces local and Pocket-IC test noise, keeps `SELECT *` usable on mixed scalar/complex SQL schemas, and tightens raw-row decode validation through saved-schema row contracts.
+- `0.147.26` moves the developer CLI onto explicit `sql`, `canister`, and `demo` command families, lists local canisters in a status table, improves default-demo setup errors, removes the old shell wrapper, and adds `make install` so local builds can install an `icydb` command.
+
+```bash
+icydb sql --sql "SELECT name FROM character LIMIT 5"
+icydb canister list
+icydb demo fresh
+```
+
 - `0.147.25` makes retained-slot, projection byte-length, and lazy value-storage reads use saved row-layout field contracts instead of generated field tables.
 - `0.147.24` makes runtime row layouts carry saved schema field decode contracts for direct row reads while keeping generated bridges only where typed compatibility still needs them.
 - `0.147.23` adds the first accepted-schema field decoder, with drift guards and field-owned error messages for persisted payload decoding.

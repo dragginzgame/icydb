@@ -7,13 +7,16 @@ use crate::{
     db::{
         codec::decode_row_payload_bytes,
         data::RawRow,
-        schema::{AcceptedFieldDecodeContract, AcceptedRowDecodeContract},
+        schema::{
+            AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract, AcceptedRowDecodeContract,
+        },
     },
     error::InternalError,
     model::{
         entity::EntityModel,
         field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
     },
+    value::Value,
 };
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -22,7 +25,7 @@ use thiserror::Error as ThisError;
 type SlotSpan = Option<(usize, usize)>;
 type SlotSpans = Vec<SlotSpan>;
 type RowFieldSpans<'a> = (Cow<'a, [u8]>, SlotSpans);
-type RowSlotTableSections<'a> = (usize, &'a [u8], &'a [u8]);
+type RowSlotTableSections<'a> = (usize, usize, &'a [u8], &'a [u8]);
 
 ///
 /// StructuralRowContract
@@ -150,6 +153,62 @@ impl StructuralRowContract {
 
         self.field_decode_contract(slot)
             .map(StructuralFieldDecodeContract::name)
+    }
+
+    /// Return the missing-slot policy for one accepted physical slot.
+    #[must_use]
+    pub(in crate::db) fn accepted_field_absence_policy(
+        &self,
+        slot: usize,
+    ) -> Option<AcceptedFieldAbsencePolicy> {
+        let field = self
+            .accepted_decode_contract
+            .as_ref()?
+            .field_for_slot(slot)?;
+
+        Some(field.absence_policy())
+    }
+
+    /// Materialize the logical runtime value for an absent accepted slot.
+    ///
+    /// Only accepted-schema row contracts may synthesize missing fields, and
+    /// today only nullable append-only fields are eligible. Generated-only
+    /// contracts and required accepted slots remain fail-closed.
+    pub(in crate::db) fn missing_slot_value(&self, slot: usize) -> Result<Value, InternalError> {
+        let field_name = self.field_name(slot)?;
+        match self.accepted_field_absence_policy(slot) {
+            Some(AcceptedFieldAbsencePolicy::NullIfMissing) => Ok(Value::Null),
+            Some(AcceptedFieldAbsencePolicy::Required) | None => Err(
+                InternalError::persisted_row_declared_field_missing(field_name),
+            ),
+        }
+    }
+
+    // Validate that one physical row slot count can be read through this
+    // structural contract. Exact rows stay canonical; older rows may be short
+    // only when every missing trailing accepted slot is explicitly nullable.
+    fn validate_physical_slot_count(&self, physical_count: usize) -> Result<(), InternalError> {
+        if physical_count != self.field_count() && self.accepted_decode_contract.is_none() {
+            return Err(InternalError::serialize_corruption(format!(
+                "row decode: slot count mismatch: expected {}, found {}",
+                self.field_count(),
+                physical_count,
+            )));
+        }
+
+        if physical_count > self.field_count() {
+            return Err(InternalError::serialize_corruption(format!(
+                "row decode: slot count mismatch: expected {}, found {}",
+                self.field_count(),
+                physical_count,
+            )));
+        }
+
+        for slot in physical_count..self.field_count() {
+            let _ = self.missing_slot_value(slot)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -280,7 +339,7 @@ impl<'a> StructuralRowFieldBytes<'a> {
 #[derive(Clone, Debug)]
 pub(in crate::db::data) struct SparseRequiredRowFieldBytes<'a> {
     payload: Cow<'a, [u8]>,
-    required_span: (usize, usize),
+    required_span: Option<(usize, usize)>,
     primary_key_span: (usize, usize),
 }
 
@@ -305,8 +364,10 @@ impl<'a> SparseRequiredRowFieldBytes<'a> {
 
     /// Borrow the selected required field payload bytes.
     #[must_use]
-    pub(in crate::db::data) fn required_field(&self) -> &[u8] {
-        &self.payload[self.required_span.0..self.required_span.1]
+    pub(in crate::db::data) fn required_field(&self) -> Option<&[u8]> {
+        let (start, end) = self.required_span?;
+
+        Some(&self.payload[start..end])
     }
 
     /// Borrow the primary-key field payload bytes.
@@ -367,10 +428,11 @@ fn decode_row_field_spans<'payload>(
     contract: &StructuralRowContract,
 ) -> Result<RowFieldSpans<'payload>, StructuralRowDecodeError> {
     let bytes = payload.as_ref();
-    let (data_start, table, data_section) = decode_slot_table_sections(bytes, contract)?;
+    let (data_start, physical_count, table, data_section) =
+        decode_slot_table_sections(bytes, contract)?;
     let mut spans: SlotSpans = vec![None; contract.field_count()];
 
-    for (slot, span) in spans.iter_mut().enumerate() {
+    for (slot, span) in spans.iter_mut().take(physical_count).enumerate() {
         let entry_start = slot.checked_mul(8).ok_or_else(|| {
             StructuralRowDecodeError::corruption("row decode: slot index overflow")
         })?;
@@ -410,7 +472,7 @@ fn decode_row_field_spans<'payload>(
 }
 
 type SparseRequiredRowFieldSpans<'a> =
-    Result<(Cow<'a, [u8]>, (usize, usize), (usize, usize)), StructuralRowDecodeError>;
+    Result<(Cow<'a, [u8]>, Option<(usize, usize)>, (usize, usize)), StructuralRowDecodeError>;
 
 // Decode the canonical slot-container header while retaining only one required
 // slot span plus the primary-key span for sparse direct slot reads.
@@ -420,12 +482,13 @@ fn decode_sparse_required_row_field_spans<'payload>(
     required_slot: usize,
 ) -> SparseRequiredRowFieldSpans<'payload> {
     let bytes = payload.as_ref();
-    let (data_start, table, data_section) = decode_slot_table_sections(bytes, contract)?;
+    let (data_start, physical_count, table, data_section) =
+        decode_slot_table_sections(bytes, contract)?;
     let primary_key_slot = contract.primary_key_slot();
     let mut required_span = None;
     let mut primary_key_span = None;
 
-    for slot in 0..contract.field_count() {
+    for slot in 0..physical_count {
         let entry_start = slot.checked_mul(8).ok_or_else(|| {
             StructuralRowDecodeError::corruption("row decode: slot index overflow")
         })?;
@@ -461,11 +524,11 @@ fn decode_sparse_required_row_field_spans<'payload>(
         }
     }
 
-    let required_span = required_span.ok_or_else(|| {
-        StructuralRowDecodeError::corruption(format!(
-            "row decode: missing required slot span: slot={required_slot}",
-        ))
-    })?;
+    if required_span.is_none() {
+        let _ = contract
+            .missing_slot_value(required_slot)
+            .map_err(StructuralRowDecodeError::from)?;
+    }
     let primary_key_span = primary_key_span.ok_or_else(|| {
         StructuralRowDecodeError::corruption(format!(
             "row decode: missing primary-key slot span: slot={primary_key_slot}",
@@ -494,13 +557,9 @@ fn decode_slot_table_sections<'bytes>(
         field_count_bytes[0],
         field_count_bytes[1],
     ]));
-    if field_count != contract.field_count() {
-        return Err(StructuralRowDecodeError::corruption(format!(
-            "row decode: slot count mismatch: expected {}, found {}",
-            contract.field_count(),
-            field_count,
-        )));
-    }
+    contract
+        .validate_physical_slot_count(field_count)
+        .map_err(StructuralRowDecodeError::from)?;
     let table_len = field_count
         .checked_mul(8)
         .ok_or_else(|| StructuralRowDecodeError::corruption("row decode: slot table overflow"))?;
@@ -514,5 +573,5 @@ fn decode_slot_table_sections<'bytes>(
         .get(data_start..)
         .ok_or_else(|| StructuralRowDecodeError::corruption("row decode: missing slot payloads"))?;
 
-    Ok((data_start, table, data_section))
+    Ok((data_start, field_count, table, data_section))
 }
