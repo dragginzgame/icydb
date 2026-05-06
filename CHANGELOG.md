@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.148.x] 🧬 - 2026-05-06 - Schema Evolution Runtime Cutover
 
-- `0.148.9` moves the default one-slot sparse row decoder onto accepted schema contracts first, leaving generated field-contract bridges only for explicit typed compatibility paths.
+- `0.148.9` moves more one-slot decode, patch replay, grouped read, and text/blob byte-length paths onto accepted schema contracts before generated-model fallback.
 - `0.148.8` moves scalar row reads and direct row-decode fast paths further onto accepted schema field contracts, reducing generated-model fallback while keeping generated-only readers unchanged.
 - `0.148.7` tightens schema-evolution diagnostics and comments around accepted row contracts, making unsupported additive-field errors name the missing required/default absence policy instead of implying all additive support is unavailable.
 - `0.148.6` adds recovery and write-layout tests for nullable schema additions, proving startup index rebuild, commit replay, fresh inserts, and malformed-row checks all use accepted schema contracts correctly.

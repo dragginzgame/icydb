@@ -305,16 +305,18 @@ impl CompiledExprValueReader for RowView {
 ///
 /// SingleGroupedSlotDecode
 ///
-/// SingleGroupedSlotDecode freezes the field metadata needed by the common
-/// one-slot grouped row path.
-/// Grouped runtime uses this to avoid rediscovering both the selected-slot and
-/// primary-key field contracts on every row decode.
+/// SingleGroupedSlotDecode freezes the one-slot grouped row path selected for
+/// this runtime.
+/// Generated-only layouts also carry generated field-contract fallbacks so
+/// each row can avoid rediscovering them. Accepted-schema layouts intentionally
+/// leave those fields empty and let the data-layer sparse decoder consume the
+/// accepted row contract directly.
 ///
 
 struct SingleGroupedSlotDecode {
     slot: usize,
-    field: StructuralFieldDecodeContract,
-    primary_key_field: StructuralFieldDecodeContract,
+    field: Option<StructuralFieldDecodeContract>,
+    primary_key_field: Option<StructuralFieldDecodeContract>,
 }
 
 ///
@@ -360,12 +362,28 @@ impl StructuralGroupedRowRuntime {
         let single_grouped_slot_decode = match grouped_slot_layout.required_slots() {
             [required_slot] => {
                 let contract = row_layout.contract();
-                let field = contract
-                    .field_decode_contract(*required_slot)
-                    .expect("grouped slot layout must reference one declared structural row field");
-                let primary_key_field = contract
-                    .field_decode_contract(contract.primary_key_slot())
-                    .expect("structural row contract must retain one declared primary-key field");
+                let field = if contract
+                    .accepted_field_decode_contract(*required_slot)
+                    .is_some()
+                {
+                    None
+                } else {
+                    Some(contract.field_decode_contract(*required_slot).expect(
+                        "grouped slot layout must reference one declared structural row field",
+                    ))
+                };
+                let primary_key_field = if contract
+                    .accepted_field_decode_contract(contract.primary_key_slot())
+                    .is_some()
+                {
+                    None
+                } else {
+                    Some(
+                        contract.field_decode_contract(contract.primary_key_slot()).expect(
+                            "structural row contract must retain one declared primary-key field",
+                        ),
+                    )
+                };
 
                 Some(SingleGroupedSlotDecode {
                     slot: *required_slot,
@@ -444,13 +462,25 @@ impl StructuralGroupedRowRuntime {
         row: &RawRow,
         single_grouped_slot_decode: &SingleGroupedSlotDecode,
     ) -> Result<Option<Value>, InternalError> {
-        RowDecoder::decode_required_slot_value_with_contracts(
+        if let (Some(field), Some(primary_key_field)) = (
+            single_grouped_slot_decode.field,
+            single_grouped_slot_decode.primary_key_field,
+        ) {
+            return RowDecoder::decode_required_slot_value_with_contracts(
+                &self.row_layout,
+                expected_key,
+                row,
+                single_grouped_slot_decode.slot,
+                field,
+                primary_key_field,
+            );
+        }
+
+        RowDecoder::decode_required_slot_value(
             &self.row_layout,
             expected_key,
             row,
             single_grouped_slot_decode.slot,
-            single_grouped_slot_decode.field,
-            single_grouped_slot_decode.primary_key_field,
         )
     }
 

@@ -7,7 +7,10 @@ use crate::{
         },
     },
     error::InternalError,
-    model::{entity::EntityModel, field::FieldModel},
+    model::{
+        entity::EntityModel,
+        field::{FieldModel, LeafCodec},
+    },
     traits::EntityKind,
     value::Value,
 };
@@ -279,6 +282,15 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
             .map(StructuralFieldDecodeContract::from_field_model)
     }
 
+    /// Return the declared leaf codec for one slot.
+    ///
+    /// Structural readers override this when accepted row contracts can answer
+    /// scalar-vs-structural shape without reopening generated field metadata.
+    fn field_leaf_codec(&self, slot: usize) -> Result<LeafCodec, InternalError> {
+        self.field_decode_contract(slot)
+            .map(StructuralFieldDecodeContract::leaf_codec)
+    }
+
     /// Borrow one declared slot payload, erroring when the persisted row is not canonical.
     fn required_bytes(&self, slot: usize) -> Result<&[u8], InternalError> {
         let field = self.field_decode_contract(slot)?;
@@ -291,10 +303,7 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
     /// declared-slot absence.
     fn required_scalar(&self, slot: usize) -> Result<ScalarSlotValueRef<'_>, InternalError> {
         let field = self.field_decode_contract(slot)?;
-        debug_assert!(matches!(
-            field.leaf_codec(),
-            crate::model::field::LeafCodec::Scalar(_)
-        ));
+        debug_assert!(matches!(field.leaf_codec(), LeafCodec::Scalar(_)));
 
         self.get_scalar(slot)?
             .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field.name()))

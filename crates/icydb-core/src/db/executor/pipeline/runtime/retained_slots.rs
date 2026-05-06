@@ -161,10 +161,10 @@ fn mark_projection_retained_slots(
 fn slot_uses_scalar_byte_length_codec(row_layout: &RowLayout, slot: usize) -> bool {
     row_layout
         .contract()
-        .field_decode_contract(slot)
-        .is_ok_and(|field| {
+        .field_leaf_codec(slot)
+        .is_ok_and(|leaf_codec| {
             matches!(
-                field.leaf_codec(),
+                leaf_codec,
                 LeafCodec::Scalar(ScalarCodec::Blob | ScalarCodec::Text)
             )
         })

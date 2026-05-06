@@ -376,7 +376,7 @@ fn eval_direct_scalar_octet_length(
     slot: usize,
     field: &str,
 ) -> Result<Option<Value>, InternalError> {
-    let field_contract = slots.field_decode_contract(slot).map_err(|_| {
+    let leaf_codec = slots.field_leaf_codec(slot).map_err(|_| {
         ProjectionEvalError::MissingFieldValue {
             field: field.to_string(),
             index: slot,
@@ -384,7 +384,7 @@ fn eval_direct_scalar_octet_length(
         .into_invalid_logical_plan_internal_error()
     })?;
     if !matches!(
-        field_contract.leaf_codec(),
+        leaf_codec,
         LeafCodec::Scalar(ScalarCodec::Blob | ScalarCodec::Text)
     ) {
         return Ok(None);

@@ -733,6 +733,10 @@ impl CanonicalSlotReader for StructuralSlotReader<'_> {
         self.contract.field_decode_contract(slot)
     }
 
+    fn field_leaf_codec(&self, slot: usize) -> Result<LeafCodec, InternalError> {
+        self.contract.field_leaf_codec(slot)
+    }
+
     fn required_value_storage_scalar(
         &self,
         slot: usize,

@@ -14,6 +14,7 @@ use crate::db::data::persisted_row::{
     codec::ScalarSlotValueRef,
     contract::{
         canonical_row_from_payload_source, canonical_row_from_runtime_value_source,
+        decode_runtime_value_from_accepted_field_contract,
         decode_runtime_value_from_field_contract, encode_runtime_value_for_field_model,
     },
     reader::StructuralSlotReader,
@@ -364,12 +365,31 @@ pub(in crate::db) fn apply_serialized_structural_patch_to_raw_row(
     })
 }
 
+// Decode one already-serialized sparse patch payload through accepted row
+// metadata when the row contract carries it. Generated contracts remain the
+// fallback because patch payloads can still originate from generated-only
+// typed compatibility writers.
+fn decode_serialized_patch_payload_with_contract(
+    contract: &StructuralRowContract,
+    slot: usize,
+    raw_value: &[u8],
+) -> Result<Value, InternalError> {
+    if let Some(accepted_field) = contract.accepted_field_decode_contract(slot) {
+        return decode_runtime_value_from_accepted_field_contract(accepted_field, raw_value);
+    }
+
+    let field = contract.field_decode_contract(slot)?;
+
+    decode_runtime_value_from_field_contract(field, raw_value)
+}
+
 /// Apply one serialized structural patch through an accepted row-decode contract.
 ///
 /// This is the schema-transition counterpart to the generated-only replay
 /// helper above. It materializes the old row through the accepted contract first
-/// so missing append-only nullable slots become ordinary `NULL` values before
-/// the sparse patch overlays the current generated field payloads.
+/// so missing append-only nullable slots become ordinary `NULL` values, then
+/// overlays sparse current-layout patch payloads through accepted field decode
+/// contracts before falling back to generated-only compatibility metadata.
 pub(in crate::db) fn apply_serialized_structural_patch_to_raw_row_with_accepted_contract(
     model: &'static EntityModel,
     accepted_decode_contract: AcceptedRowDecodeContract,
@@ -380,7 +400,8 @@ pub(in crate::db) fn apply_serialized_structural_patch_to_raw_row_with_accepted_
         model,
         accepted_decode_contract,
     );
-    let row_fields = StructuralSlotReader::from_raw_row_with_validated_contract(raw_row, contract)?;
+    let row_fields =
+        StructuralSlotReader::from_raw_row_with_validated_contract(raw_row, contract.clone())?;
     let mut values = Vec::with_capacity(model.fields().len());
 
     // Phase 1: materialize the accepted baseline into current generated slot
@@ -389,14 +410,18 @@ pub(in crate::db) fn apply_serialized_structural_patch_to_raw_row_with_accepted_
         values.push(row_fields.required_cached_value(slot)?.clone());
     }
 
-    // Phase 2: overlay the sparse current-layout patch. Patch payloads were
-    // already encoded by the generated-compatible write codec, so decode them
-    // through the generated field contract before final canonical row emission.
+    // Phase 2: overlay the sparse current-layout patch. Payloads are already
+    // encoded bytes, so accepted field decode can materialize them directly
+    // before final canonical row emission.
     for entry in patch.entries() {
         let slot = entry.slot().index();
-        let field = generated_compatible_field_model_for_slot(model, slot)?;
-        let field = StructuralFieldDecodeContract::from_field_model(field);
-        values[slot] = decode_runtime_value_from_field_contract(field, entry.payload())?;
+        let value = values.get_mut(slot).ok_or_else(|| {
+            InternalError::persisted_row_encode_failed(format!(
+                "slot {slot} is outside the accepted structural after-image for entity '{}'",
+                model.path()
+            ))
+        })?;
+        *value = decode_serialized_patch_payload_with_contract(&contract, slot, entry.payload())?;
     }
 
     canonical_row_from_runtime_value_source(model, |slot| {
