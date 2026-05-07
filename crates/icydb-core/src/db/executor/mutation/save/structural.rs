@@ -6,9 +6,8 @@ use crate::{
         },
         data::{
             CanonicalRow, DataKey, PersistedRow, RawRow, SerializedStructuralPatch,
-            StructuralPatch, StructuralRowContract,
-            apply_serialized_structural_patch_to_raw_row_with_accepted_contract,
-            canonical_row_from_raw_row_with_structural_contract,
+            StructuralPatch, apply_serialized_structural_patch_to_raw_row_with_accepted_contract,
+            canonical_row_from_raw_row_with_accepted_decode_contract,
         },
         executor::{
             Context,
@@ -463,11 +462,11 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         old_row: &RawRow,
         accepted_row_decode_contract: &AcceptedRowDecodeContract,
     ) -> Result<Vec<u8>, InternalError> {
-        let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
+        let canonical = canonical_row_from_raw_row_with_accepted_decode_contract(
             E::MODEL,
             accepted_row_decode_contract.clone(),
-        );
-        let canonical = canonical_row_from_raw_row_with_structural_contract(old_row, contract)?;
+            old_row,
+        )?;
 
         Ok(canonical.into_raw_row().into_bytes())
     }

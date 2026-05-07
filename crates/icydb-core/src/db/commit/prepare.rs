@@ -12,7 +12,8 @@ use crate::{
         },
         data::{
             CanonicalRow, CanonicalSlotReader, DataKey, DataStore, RawDataKey, RawRow, StorageKey,
-            StructuralRowContract, StructuralSlotReader, canonical_row_from_structural_slot_reader,
+            StructuralRowContract, StructuralSlotReader,
+            canonical_row_from_structural_slot_reader_with_accepted_contract,
         },
         index::{
             IndexDelta, IndexDeltaGroup, IndexEntry, IndexMembershipDelta, IndexMutationPlan,
@@ -300,7 +301,7 @@ where
     let data_value = decoded
         .new_slots
         .as_ref()
-        .map(canonical_row_from_structural_slot_reader)
+        .map(canonical_row_from_structural_slot_reader_with_accepted_contract)
         .transpose()?;
 
     finalize_row_commit_structural(

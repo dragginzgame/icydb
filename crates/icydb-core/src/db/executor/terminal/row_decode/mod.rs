@@ -13,10 +13,11 @@ use crate::types::Ulid;
 use crate::{
     db::{
         data::{
-            CanonicalSlotReader, DataRow, RawRow, ScalarSlotValueRef, ScalarValueRef, StorageKey,
-            StructuralRowContract, StructuralSlotReader, decode_dense_raw_row_with_contract,
-            decode_sparse_indexed_raw_row_with_contract, decode_sparse_raw_row_with_contract,
-            decode_sparse_required_slot_with_contract,
+            CanonicalRow, CanonicalSlotReader, DataRow, RawRow, ScalarSlotValueRef, ScalarValueRef,
+            StorageKey, StructuralRowContract, StructuralSlotReader,
+            canonical_row_from_raw_row_with_structural_contract,
+            decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,
+            decode_sparse_raw_row_with_contract, decode_sparse_required_slot_with_contract,
         },
         executor::terminal::{
             RetainedSlotLayout, RetainedSlotRow, RetainedSlotValueMode, page::KernelRow,
@@ -82,6 +83,14 @@ impl RowLayout {
     #[must_use]
     pub(in crate::db) const fn contract(&self) -> &StructuralRowContract {
         &self.contract
+    }
+
+    /// Normalize one persisted raw row through this layout's structural contract.
+    pub(in crate::db) fn canonical_row_from_raw_row(
+        &self,
+        row: &RawRow,
+    ) -> Result<CanonicalRow, InternalError> {
+        canonical_row_from_raw_row_with_structural_contract(row, self.contract.clone())
     }
 
     /// Open one raw row through the frozen structural decode contract without

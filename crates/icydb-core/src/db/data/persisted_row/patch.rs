@@ -237,18 +237,20 @@ where
     canonical_row_from_complete_serialized_structural_patch(E::MODEL, &serialized_slots)
 }
 
-/// Build one canonical row from one already-decoded structural slot reader.
-pub(in crate::db) fn canonical_row_from_structural_slot_reader(
+/// Build one canonical row from one generated-contract structural slot reader.
+fn canonical_row_from_structural_slot_reader_with_generated_contract(
     row_fields: &StructuralSlotReader<'_>,
 ) -> Result<CanonicalRow, InternalError> {
-    if row_fields.has_accepted_decode_contract() {
-        return canonical_row_from_runtime_value_source_with_accepted_contract(
-            row_fields.contract(),
-            |slot| structural_slot_reader_value(row_fields, slot),
-        );
-    }
-
     canonical_row_from_runtime_value_source_with_generated_contract(row_fields.contract(), |slot| {
+        structural_slot_reader_value(row_fields, slot)
+    })
+}
+
+/// Build one canonical row from one accepted-contract structural slot reader.
+pub(in crate::db) fn canonical_row_from_structural_slot_reader_with_accepted_contract(
+    row_fields: &StructuralSlotReader<'_>,
+) -> Result<CanonicalRow, InternalError> {
+    canonical_row_from_runtime_value_source_with_accepted_contract(row_fields.contract(), |slot| {
         structural_slot_reader_value(row_fields, slot)
     })
 }
@@ -265,7 +267,30 @@ pub(in crate::db) fn canonical_row_from_raw_row_with_structural_contract(
 ) -> Result<CanonicalRow, InternalError> {
     let row_fields = StructuralSlotReader::from_raw_row_with_validated_contract(raw_row, contract)?;
 
-    canonical_row_from_structural_slot_reader(&row_fields)
+    if row_fields.has_accepted_decode_contract() {
+        return canonical_row_from_structural_slot_reader_with_accepted_contract(&row_fields);
+    }
+
+    canonical_row_from_structural_slot_reader_with_generated_contract(&row_fields)
+}
+
+/// Build one canonical row from raw bytes using an accepted row-decode contract.
+///
+/// This is the accepted-schema boundary used by save paths that need to
+/// normalize old before-images into generated-compatible dense row bytes before
+/// commit preflight. The data layer owns accepted row-contract projection so
+/// callers do not rebuild that plumbing locally.
+pub(in crate::db) fn canonical_row_from_raw_row_with_accepted_decode_contract(
+    model: &'static EntityModel,
+    accepted_decode_contract: AcceptedRowDecodeContract,
+    raw_row: &RawRow,
+) -> Result<CanonicalRow, InternalError> {
+    let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
+        model,
+        accepted_decode_contract,
+    );
+
+    canonical_row_from_raw_row_with_structural_contract(raw_row, contract)
 }
 
 // Rebuild one full canonical row image from an existing raw row before it

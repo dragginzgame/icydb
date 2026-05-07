@@ -7,8 +7,8 @@ use crate::{
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
         },
         data::{
-            CanonicalRow, DataKey, PersistedRow, RawRow, StructuralRowContract,
-            canonical_row_from_raw_row_with_structural_contract,
+            CanonicalRow, DataKey, PersistedRow, RawRow,
+            canonical_row_from_raw_row_with_accepted_decode_contract,
         },
         executor::{
             Context,
@@ -117,11 +117,11 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         old_row: &RawRow,
         accepted_row_decode_contract: &AcceptedRowDecodeContract,
     ) -> Result<Vec<u8>, InternalError> {
-        let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
+        let canonical = canonical_row_from_raw_row_with_accepted_decode_contract(
             E::MODEL,
             accepted_row_decode_contract.clone(),
-        );
-        let canonical = canonical_row_from_raw_row_with_structural_contract(old_row, contract)?;
+            old_row,
+        )?;
 
         Ok(canonical.into_raw_row().into_bytes())
     }
