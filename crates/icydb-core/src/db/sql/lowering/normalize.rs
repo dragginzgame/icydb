@@ -16,7 +16,7 @@ use crate::db::{
 
 pub(in crate::db::sql::lowering) fn normalize_select_statement_to_expected_entity(
     mut statement: SqlSelectStatement,
-    expected_entity: &'static str,
+    expected_entity: &str,
 ) -> Result<SqlSelectStatement, SqlLoweringError> {
     // Plain local scalar selects already arrive in the canonical scope shape
     // used by the planner, so skip the full statement rebuild when there is
@@ -57,7 +57,7 @@ pub(in crate::db::sql::lowering) fn normalize_select_statement_to_expected_entit
 
 pub(in crate::db::sql::lowering) fn normalize_delete_statement_to_expected_entity(
     mut statement: SqlDeleteStatement,
-    expected_entity: &'static str,
+    expected_entity: &str,
 ) -> SqlDeleteStatement {
     let entity_scope = sql_statement_scope_candidates(
         statement.entity.as_str(),
@@ -78,7 +78,7 @@ pub(in crate::db::sql::lowering) fn normalize_delete_statement_to_expected_entit
 
 pub(in crate::db::sql::lowering) fn normalize_update_statement_to_expected_entity(
     mut statement: SqlUpdateStatement,
-    expected_entity: &'static str,
+    expected_entity: &str,
 ) -> SqlUpdateStatement {
     let entity_scope = sql_statement_scope_candidates(
         statement.entity.as_str(),
@@ -150,7 +150,7 @@ pub(in crate::db::sql::lowering) fn adapt_sql_predicate_identifiers_to_scope(
 // and optional single-table aliases into canonical planner field names.
 fn sql_statement_scope_candidates(
     sql_entity: &str,
-    expected_entity: &'static str,
+    expected_entity: &str,
     table_alias: Option<&str>,
 ) -> Vec<String> {
     let mut out = Vec::new();
@@ -744,7 +744,7 @@ fn sql_field_expr_from_parts(parts: &[String]) -> SqlExpr {
 
 pub(in crate::db::sql::lowering) fn ensure_entity_matches_expected(
     sql_entity: &str,
-    expected_entity: &'static str,
+    expected_entity: &str,
 ) -> Result<(), SqlLoweringError> {
     if identifiers_tail_match(sql_entity, expected_entity) {
         return Ok(());

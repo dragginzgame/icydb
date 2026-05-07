@@ -1,0 +1,6 @@
+module	file	loc	duplication_families	pressure_type	risk
+db::schema::runtime	crates/icydb-core/src/db/schema/runtime.rs	486	2	generated-compatible descriptor proof authority	low-medium
+db::executor::authority::entity	crates/icydb-core/src/db/executor/authority/entity.rs	180	1	generated-compatible proof forwarding	low
+db::executor::terminal::row_decode	crates/icydb-core/src/db/executor/terminal/row_decode/mod.rs	304	1	proof-consuming generated-compatible row layout bridge	low
+db::session::sql::execute	crates/icydb-core/src/db/session/sql/execute/mod.rs	611	1	SQL execution shell repetition	low-medium
+db::query::fluent::load::terminals	crates/icydb-core/src/db/query/fluent/load/terminals.rs	778	1	same-owner public wrapper repetition	low-medium

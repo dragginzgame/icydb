@@ -221,6 +221,7 @@ pub(in crate::db) struct OwnedAcceptedFieldDecodeContract {
     nullable: bool,
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
+    write_policy: SchemaFieldWritePolicy,
     absence_policy: AcceptedFieldAbsencePolicy,
     default: SchemaFieldDefault,
 }
@@ -237,6 +238,7 @@ impl OwnedAcceptedFieldDecodeContract {
             nullable: contract.nullable(),
             storage_decode: contract.storage_decode(),
             leaf_codec: contract.leaf_codec(),
+            write_policy: field.write_policy(),
             absence_policy: field.absence_policy(),
             default: field.default().clone(),
         }
@@ -260,6 +262,12 @@ impl OwnedAcceptedFieldDecodeContract {
         self.absence_policy
     }
 
+    /// Return the accepted database write policy for this field.
+    #[must_use]
+    pub(in crate::db) const fn write_policy(&self) -> SchemaFieldWritePolicy {
+        self.write_policy
+    }
+
     /// Borrow the accepted database default payload contract.
     #[must_use]
     pub(in crate::db) const fn default(&self) -> &SchemaFieldDefault {
@@ -268,14 +276,12 @@ impl OwnedAcceptedFieldDecodeContract {
 
     /// Borrow the accepted persisted field name.
     #[must_use]
-    #[cfg(test)]
     pub(in crate::db) const fn field_name(&self) -> &str {
         self.field_name.as_str()
     }
 
     /// Borrow the owned accepted persisted field kind.
     #[must_use]
-    #[cfg(test)]
     pub(in crate::db) const fn kind(&self) -> &PersistedFieldKind {
         &self.kind
     }

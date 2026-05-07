@@ -709,7 +709,12 @@ pub(in crate::db) fn bind_sql_update_selector_query_structural_with_schema(
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
 ) -> Result<StructuralQuery, SqlLoweringError> {
-    let base_query = lower_update_selector_shape(statement, model)?;
+    let primary_key_name = schema.primary_key_name().ok_or_else(|| {
+        QueryError::invariant(
+            "SQL UPDATE selector must resolve the primary key from schema metadata",
+        )
+    })?;
+    let base_query = lower_update_selector_shape(statement, primary_key_name)?;
 
     bind_lowered_sql_base_query_structural_with_schema(model, base_query, consistency, schema)
 }
@@ -797,7 +802,7 @@ fn lower_delete_query_modifiers(
 // an explicit primary-key tie-breaker keep the historical primary-key fallback.
 fn lower_update_selector_shape(
     statement: &SqlUpdateStatement,
-    model: &'static EntityModel,
+    primary_key_name: &str,
 ) -> Result<LoweredBaseQueryShape, SqlLoweringError> {
     let Some(predicate) = statement.predicate.clone() else {
         return Err(QueryError::unsupported_query(
@@ -816,7 +821,7 @@ fn lower_update_selector_shape(
         }
     }
 
-    append_primary_key_order_fallback(&mut order_by, model.primary_key.name);
+    append_primary_key_order_fallback(&mut order_by, primary_key_name);
 
     let filter_expr = lower_sql_scalar_where_bool_expr(&predicate)?;
     let predicate_subset = lower_sql_where_expr(&predicate)?;

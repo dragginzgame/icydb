@@ -43,6 +43,15 @@ fn generated_field_by_name<'a>(
         .find(|(_, field)| field.name() == field_name)
 }
 
+// Attach generated index-membership facts to `SchemaInfo` while accepted
+// snapshots do not yet persist their own index definitions.
+fn generated_field_is_indexed(model: &EntityModel, field_name: &str) -> bool {
+    model
+        .indexes()
+        .iter()
+        .any(|index| index.fields().contains(&field_name))
+}
+
 // Convert a schema-owned row-layout slot into the usize slot surface consumed
 // by planner and executor DTOs.
 fn accepted_slot_index(slot: SchemaFieldSlot) -> usize {
@@ -72,6 +81,7 @@ struct SchemaFieldInfo {
     kind: Option<FieldKind>,
     sql_capabilities: SqlCapabilities,
     persisted_kind: Option<PersistedFieldKind>,
+    indexed: bool,
     nested_leaves: Option<Vec<PersistedNestedLeafSnapshot>>,
     nested_fields: &'static [FieldModel],
 }
@@ -79,6 +89,9 @@ struct SchemaFieldInfo {
 #[derive(Clone, Debug)]
 pub(crate) struct SchemaInfo {
     fields: Vec<SchemaFieldEntry>,
+    entity_name: Option<String>,
+    primary_key_name: Option<String>,
+    has_any_strong_relations: bool,
 }
 
 impl SchemaInfo {
@@ -98,6 +111,7 @@ impl SchemaInfo {
                             field.kind(),
                         )),
                         persisted_kind: None,
+                        indexed: false,
                         nested_leaves: None,
                         nested_fields: field.nested_fields(),
                     },
@@ -107,12 +121,26 @@ impl SchemaInfo {
 
         fields.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
 
-        Self { fields }
+        Self {
+            fields,
+            entity_name: None,
+            primary_key_name: None,
+            has_any_strong_relations: false,
+        }
     }
 
     // Build one compact field table from trusted generated entity metadata.
     fn from_trusted_entity_model(model: &EntityModel) -> Self {
-        Self::from_trusted_field_models(model.fields())
+        let mut schema = Self::from_trusted_field_models(model.fields());
+        schema.entity_name = Some(model.name().to_string());
+        schema.primary_key_name = Some(model.primary_key().name().to_string());
+        schema.has_any_strong_relations = model.has_any_strong_relations();
+
+        for (field_name, field) in &mut schema.fields {
+            field.indexed = generated_field_is_indexed(model, field_name.as_str());
+        }
+
+        schema
     }
 
     #[must_use]
@@ -134,6 +162,40 @@ impl SchemaInfo {
     #[must_use]
     pub(in crate::db) fn field_slot_index(&self, name: &str) -> Option<usize> {
         schema_field_info(self.fields.as_slice(), name).map(|field| field.slot)
+    }
+
+    /// Borrow the schema-owned entity name when this schema view was built
+    /// from an entity model or accepted persisted snapshot.
+    #[must_use]
+    pub(in crate::db) fn entity_name(&self) -> Option<&str> {
+        self.entity_name.as_deref()
+    }
+
+    /// Borrow the schema-owned primary-key field name when this schema view
+    /// was built from an entity model or accepted persisted snapshot.
+    #[must_use]
+    pub(in crate::db) fn primary_key_name(&self) -> Option<&str> {
+        self.primary_key_name.as_deref()
+    }
+
+    /// Return whether this entity has any strong relation checks.
+    ///
+    /// Relation metadata is still generated-model authority, but save
+    /// orchestration reads the reduced boolean from `SchemaInfo` so it does not
+    /// reopen `E::MODEL` at every write entrypoint.
+    #[must_use]
+    pub(in crate::db) const fn has_any_strong_relations(&self) -> bool {
+        self.has_any_strong_relations
+    }
+
+    /// Return whether one top-level field participates in any generated index.
+    ///
+    /// Accepted schema snapshots do not yet persist index definitions, so the
+    /// field-index flag remains a generated compatibility fact attached to the
+    /// schema info boundary instead of being rediscovered by write validators.
+    #[must_use]
+    pub(in crate::db) fn field_is_indexed(&self, name: &str) -> bool {
+        schema_field_info(self.fields.as_slice(), name).is_some_and(|field| field.indexed)
     }
 
     /// Return SQL operation capabilities for one top-level field.
@@ -277,6 +339,7 @@ impl SchemaInfo {
                         kind: generated_kind,
                         sql_capabilities: sql_capabilities(field.kind()),
                         persisted_kind: Some(field.kind().clone()),
+                        indexed: generated_field_is_indexed(model, field.name()),
                         nested_leaves: Some(field.nested_leaves().to_vec()),
                         nested_fields: generated_nested_fields,
                     },
@@ -286,7 +349,18 @@ impl SchemaInfo {
 
         fields.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
 
-        Self { fields }
+        let primary_key_name = snapshot
+            .fields()
+            .iter()
+            .find(|field| field.id() == snapshot.primary_key_field_id())
+            .map(|field| field.name().to_string());
+
+        Self {
+            fields,
+            entity_name: Some(schema.entity_name().to_string()),
+            primary_key_name,
+            has_any_strong_relations: model.has_any_strong_relations(),
+        }
     }
 
     /// Return one cached schema view for a trusted generated entity model.
@@ -365,6 +439,14 @@ mod tests {
         ),
     ];
     static INDEXES: [&IndexModel; 0] = [];
+    static NAME_INDEX_FIELDS: [&str; 1] = ["name"];
+    static NAME_INDEX: IndexModel = IndexModel::generated(
+        "schema_info_name",
+        "schema::info::tests::name",
+        &NAME_INDEX_FIELDS,
+        false,
+    );
+    static INDEXED_INDEXES: [&IndexModel; 1] = [&NAME_INDEX];
     static MODEL: EntityModel = entity_model_from_static(
         "schema::info::tests::Entity",
         "Entity",
@@ -380,6 +462,14 @@ mod tests {
         0,
         &PROFILE_FIELDS,
         &INDEXES,
+    );
+    static INDEXED_MODEL: EntityModel = entity_model_from_static(
+        "schema::info::tests::IndexedEntity",
+        "IndexedEntity",
+        &FIELDS[1],
+        1,
+        &FIELDS,
+        &INDEXED_INDEXES,
     );
 
     // Build one accepted schema whose second field deliberately differs from
@@ -511,6 +601,22 @@ mod tests {
 
         assert_eq!(generated.field_slot_index("name"), Some(0));
         assert_eq!(accepted.field_slot_index("name"), Some(9));
+        assert_eq!(generated.entity_name(), Some("Entity"));
+        assert_eq!(accepted.entity_name(), Some("Entity"));
+        assert_eq!(generated.primary_key_name(), Some("id"));
+        assert_eq!(accepted.primary_key_name(), Some("id"));
+    }
+
+    #[test]
+    fn schema_info_keeps_index_membership_at_schema_boundary() {
+        let generated = SchemaInfo::cached_for_entity_model(&INDEXED_MODEL);
+        let snapshot = accepted_schema_with_name_kind(PersistedFieldKind::Text { max_len: None });
+        let accepted = SchemaInfo::from_accepted_snapshot_for_model(&INDEXED_MODEL, &snapshot);
+
+        assert!(generated.field_is_indexed("name"));
+        assert!(!generated.field_is_indexed("id"));
+        assert!(accepted.field_is_indexed("name"));
+        assert!(!accepted.field_is_indexed("id"));
     }
 
     #[test]

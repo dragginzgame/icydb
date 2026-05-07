@@ -168,7 +168,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             let ctx = mutation_write_context::<E>(&self.db)?;
             let schema = Self::schema_info();
             let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
-            let validate_relations = E::MODEL.has_any_strong_relations();
+            let validate_relations = schema.has_any_strong_relations();
             let mut entities = Vec::with_capacity(items.len());
             let mut marker_row_ops = Vec::with_capacity(items.len());
             let mut seen_row_keys = HashSet::with_capacity(items.len());
@@ -233,7 +233,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 let ctx = mutation_write_context::<E>(&self.db)?;
                 let schema = Self::schema_info();
                 let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
-                let validate_relations = E::MODEL.has_any_strong_relations();
+                let validate_relations = schema.has_any_strong_relations();
                 let (entity, marker_row_op) = self.prepare_structural_mutation_row_op(
                     &ctx,
                     schema,
@@ -423,7 +423,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         accepted_row_decode_contract: AcceptedRowDecodeContract,
     ) -> Result<CanonicalRow, InternalError> {
         apply_serialized_structural_patch_to_raw_row_with_accepted_contract(
-            E::MODEL,
+            E::PATH,
             accepted_row_decode_contract,
             old_row,
             mutation.serialized_slots(),
@@ -463,7 +463,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         accepted_row_decode_contract: &AcceptedRowDecodeContract,
     ) -> Result<Vec<u8>, InternalError> {
         let canonical = canonical_row_from_raw_row_with_accepted_decode_contract(
-            E::MODEL,
+            E::PATH,
             accepted_row_decode_contract.clone(),
             old_row,
         )?;
@@ -491,7 +491,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         })?;
         let identity_key = entity.id().key();
         if identity_key != expected_key {
-            let field_name = E::MODEL.primary_key().name();
+            let field_name = Self::primary_key_name_from_schema(schema)?;
             let field_value = KeyValueCodec::to_key_value(&identity_key);
             let identity_value = KeyValueCodec::to_key_value(&expected_key);
 
@@ -537,7 +537,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 })?;
         let identity_key = entity.id().key();
         if identity_key != expected_key {
-            let field_name = E::MODEL.primary_key().name();
+            let field_name = Self::primary_key_name_from_schema(schema)?;
             let field_value = KeyValueCodec::to_key_value(&identity_key);
             let identity_value = KeyValueCodec::to_key_value(&expected_key);
 
@@ -558,5 +558,16 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         )?;
 
         Ok(entity)
+    }
+
+    // Resolve the primary-key field name from the schema boundary for
+    // structural after-image diagnostics. Structural save callers must use a
+    // schema view that carries entity-level primary-key metadata.
+    fn primary_key_name_from_schema(schema: &SchemaInfo) -> Result<&str, InternalError> {
+        schema.primary_key_name().ok_or_else(|| {
+            InternalError::executor_invariant(
+                "structural save validation requires schema primary-key metadata",
+            )
+        })
     }
 }

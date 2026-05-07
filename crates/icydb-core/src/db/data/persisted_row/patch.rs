@@ -281,14 +281,12 @@ pub(in crate::db) fn canonical_row_from_raw_row_with_structural_contract(
 /// commit preflight. The data layer owns accepted row-contract projection so
 /// callers do not rebuild that plumbing locally.
 pub(in crate::db) fn canonical_row_from_raw_row_with_accepted_decode_contract(
-    model: &'static EntityModel,
+    entity_path: &'static str,
     accepted_decode_contract: AcceptedRowDecodeContract,
     raw_row: &RawRow,
 ) -> Result<CanonicalRow, InternalError> {
-    let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
-        model,
-        accepted_decode_contract,
-    );
+    let contract =
+        StructuralRowContract::from_accepted_decode_contract(entity_path, accepted_decode_contract);
 
     canonical_row_from_raw_row_with_structural_contract(raw_row, contract)
 }
@@ -338,14 +336,12 @@ pub(in crate::db) fn serialize_structural_patch_fields(
 /// the selected persisted row contract, with no generated field fallback inside
 /// the accepted write lane.
 pub(in crate::db) fn serialize_structural_patch_fields_with_accepted_contract(
-    model: &'static EntityModel,
+    entity_path: &'static str,
     accepted_decode_contract: AcceptedRowDecodeContract,
     patch: &StructuralPatch,
 ) -> Result<SerializedStructuralPatch, InternalError> {
-    let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
-        model,
-        accepted_decode_contract,
-    );
+    let contract =
+        StructuralRowContract::from_accepted_decode_contract(entity_path, accepted_decode_contract);
 
     serialize_structural_patch_fields_for_accepted_contract(&contract, patch)
 }
@@ -358,14 +354,12 @@ pub(in crate::db) fn serialize_structural_patch_fields_with_accepted_contract(
 /// keeps insert/replace omissions on accepted database defaults instead of
 /// falling through to generated Rust construction defaults.
 pub(in crate::db) fn serialize_complete_structural_patch_fields_with_accepted_contract(
-    model: &'static EntityModel,
+    entity_path: &'static str,
     accepted_decode_contract: AcceptedRowDecodeContract,
     patch: &StructuralPatch,
 ) -> Result<SerializedStructuralPatch, InternalError> {
-    let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
-        model,
-        accepted_decode_contract,
-    );
+    let contract =
+        StructuralRowContract::from_accepted_decode_contract(entity_path, accepted_decode_contract);
 
     serialize_complete_structural_patch_fields_for_accepted_contract(&contract, patch)
 }
@@ -538,15 +532,13 @@ pub(in crate::db) fn apply_serialized_structural_patch_to_raw_row(
 /// overlays sparse current-layout patch payloads through accepted field decode
 /// contracts before final accepted-contract row emission.
 pub(in crate::db) fn apply_serialized_structural_patch_to_raw_row_with_accepted_contract(
-    model: &'static EntityModel,
+    entity_path: &'static str,
     accepted_decode_contract: AcceptedRowDecodeContract,
     raw_row: &RawRow,
     patch: &SerializedStructuralPatch,
 ) -> Result<CanonicalRow, InternalError> {
-    let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
-        model,
-        accepted_decode_contract,
-    );
+    let contract =
+        StructuralRowContract::from_accepted_decode_contract(entity_path, accepted_decode_contract);
     let row_fields =
         StructuralSlotReader::from_raw_row_with_validated_contract(raw_row, contract.clone())?;
     let mut values = Vec::with_capacity(contract.field_count());
@@ -565,7 +557,7 @@ pub(in crate::db) fn apply_serialized_structural_patch_to_raw_row_with_accepted_
         let value = values.get_mut(slot).ok_or_else(|| {
             InternalError::persisted_row_encode_failed(format!(
                 "slot {slot} is outside the accepted structural after-image for entity '{}'",
-                model.path()
+                contract.entity_path()
             ))
         })?;
         *value = decode_runtime_value_from_row_contract(&contract, slot, entry.payload())?;

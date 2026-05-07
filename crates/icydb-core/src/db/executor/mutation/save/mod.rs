@@ -179,6 +179,14 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         self
     }
 
+    // Borrow the accepted row contract selected by the session write boundary,
+    // when this save lane has one.
+    pub(in crate::db::executor::mutation) const fn accepted_row_decode_contract(
+        &self,
+    ) -> Option<&AcceptedRowDecodeContract> {
+        self.accepted_row_decode_contract.as_ref()
+    }
+
     // Record the committed save mode after the row mutation has crossed the
     // commit boundary so failed preflight attempts do not inflate write metrics.
     fn record_save_mutation(kind: SaveMutationKind, rows_touched: u64) {

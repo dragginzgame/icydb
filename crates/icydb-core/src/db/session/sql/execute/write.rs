@@ -427,28 +427,30 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let schema = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, schema);
-        let pk_name = E::MODEL.primary_key.name;
+        let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, schema);
+        let pk_name = schema_info.primary_key_name().ok_or_else(|| {
+            QueryError::invariant(
+                "SQL UPDATE selector must resolve the primary key from accepted schema metadata",
+            )
+        })?;
         let selector = bind_sql_update_selector_query_structural_with_schema(
             E::MODEL,
             statement,
             MissingRowPolicy::Ignore,
-            &schema,
+            &schema_info,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
 
         Ok(selector.select_field_id(pk_name))
     }
 
-    fn sql_insert_select_source_statement<E>(
+    fn sql_insert_select_source_statement(
+        schema: &AcceptedSchemaSnapshot,
         pk_name: &str,
         statement: &SqlInsertStatement,
-    ) -> Result<SqlSelectStatement, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
+    ) -> Result<SqlSelectStatement, QueryError> {
         let statement = SqlStatement::Insert(statement.clone());
-        let prepared = prepare_sql_statement(&statement, E::MODEL.name())
+        let prepared = prepare_sql_statement(&statement, schema.entity_name())
             .map_err(QueryError::from_sql_lowering_error)?;
         let mut select = extract_prepared_sql_insert_select_source(prepared)
             .map_err(QueryError::from_sql_lowering_error)?;
@@ -483,7 +485,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let statement = SqlStatement::Select(source.clone());
-        let prepared = prepare_sql_statement(&statement, E::MODEL.name())
+        let prepared = prepare_sql_statement(&statement, schema.entity_name())
             .map_err(QueryError::from_sql_lowering_error)?;
         let authority = EntityAuthority::for_type::<E>();
         let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, schema);
@@ -570,7 +572,7 @@ impl<C: CanisterKind> DbSession<C> {
                 }
             }
             SqlInsertSource::Select(_) => {
-                let source = Self::sql_insert_select_source_statement::<E>(pk_name, statement)?;
+                let source = Self::sql_insert_select_source_statement(&schema, pk_name, statement)?;
                 self.execute_sql_insert_select_source_patches::<E>(
                     &schema,
                     &descriptor,

@@ -104,7 +104,7 @@ impl MutationInput {
     {
         let data_key = DataKey::try_new::<E>(key)?;
         let serialized_slots = serialize_structural_patch_fields_with_accepted_contract(
-            E::MODEL,
+            E::PATH,
             accepted_row_decode_contract,
             patch,
         )?;
@@ -123,7 +123,7 @@ impl MutationInput {
     {
         let data_key = DataKey::try_new::<E>(key)?;
         let serialized_slots = serialize_complete_structural_patch_fields_with_accepted_contract(
-            E::MODEL,
+            E::PATH,
             accepted_row_decode_contract,
             patch,
         )?;

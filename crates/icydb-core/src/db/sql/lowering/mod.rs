@@ -216,7 +216,7 @@ pub(crate) enum SqlLoweringError {
     #[error("SQL entity '{sql_entity}' does not match requested entity type '{expected_entity}'")]
     EntityMismatch {
         sql_entity: String,
-        expected_entity: &'static str,
+        expected_entity: String,
     },
 
     #[error(
@@ -281,10 +281,10 @@ pub(crate) enum SqlLoweringError {
 
 impl SqlLoweringError {
     /// Construct one entity-mismatch SQL lowering error.
-    fn entity_mismatch(sql_entity: impl Into<String>, expected_entity: &'static str) -> Self {
+    fn entity_mismatch(sql_entity: impl Into<String>, expected_entity: impl Into<String>) -> Self {
         Self::EntityMismatch {
             sql_entity: sql_entity.into(),
-            expected_entity,
+            expected_entity: expected_entity.into(),
         }
     }
 

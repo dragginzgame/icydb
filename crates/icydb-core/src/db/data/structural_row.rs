@@ -67,9 +67,42 @@ impl StructuralRowContract {
         model: &'static EntityModel,
         accepted_decode_contract: AcceptedRowDecodeContract,
     ) -> Self {
+        Self::from_accepted_decode_contract_with_generated_bridge(
+            model.path(),
+            model.fields(),
+            accepted_decode_contract,
+        )
+    }
+
+    /// Build one structural row contract from accepted persisted schema only.
+    ///
+    /// Accepted runtime callers use this constructor when generated field
+    /// metadata must not be reopened. The generated field bridge remains empty
+    /// by design; any fallback to `field_decode_contract(...)` will fail closed
+    /// instead of silently using generated schema authority.
+    #[must_use]
+    pub(in crate::db) fn from_accepted_decode_contract(
+        entity_path: &'static str,
+        accepted_decode_contract: AcceptedRowDecodeContract,
+    ) -> Self {
+        Self::from_accepted_decode_contract_with_generated_bridge(
+            entity_path,
+            &[],
+            accepted_decode_contract,
+        )
+    }
+
+    /// Build one accepted row contract while explicitly retaining a generated
+    /// field bridge for typed compatibility surfaces that still need it.
+    #[must_use]
+    fn from_accepted_decode_contract_with_generated_bridge(
+        entity_path: &'static str,
+        generated_fields: &'static [FieldModel],
+        accepted_decode_contract: AcceptedRowDecodeContract,
+    ) -> Self {
         Self {
-            entity_path: model.path(),
-            generated_fields: model.fields(),
+            entity_path,
+            generated_fields,
             field_count: accepted_decode_contract.required_slot_count(),
             primary_key_slot: accepted_decode_contract.primary_key_slot_index(),
             accepted_decode_contract: Some(Arc::new(accepted_decode_contract)),

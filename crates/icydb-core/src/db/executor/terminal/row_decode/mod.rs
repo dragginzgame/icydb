@@ -22,7 +22,7 @@ use crate::{
         executor::terminal::{
             RetainedSlotLayout, RetainedSlotRow, RetainedSlotValueMode, page::KernelRow,
         },
-        schema::AcceptedRowDecodeContract,
+        schema::{AcceptedGeneratedCompatibleRowShape, AcceptedRowDecodeContract},
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -52,13 +52,18 @@ impl RowLayout {
         }
     }
 
-    /// Build one row layout from an accepted row-decode contract that has
-    /// already passed the generated-compatible guard.
+    /// Build one row layout from a generated-compatible accepted row-decode contract.
+    ///
+    /// The proof object is consumed here so callers cannot attach accepted
+    /// decode facts to an executor row layout without first proving the saved
+    /// row shape is still readable by the current generated bridge.
     #[must_use]
-    pub(in crate::db) fn from_accepted_decode_contract(
+    pub(in crate::db) fn from_generated_compatible_accepted_decode_contract(
         model: &'static EntityModel,
+        row_shape: AcceptedGeneratedCompatibleRowShape,
         accepted_decode_contract: AcceptedRowDecodeContract,
     ) -> Self {
+        let _ = row_shape;
         let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
             model,
             accepted_decode_contract,

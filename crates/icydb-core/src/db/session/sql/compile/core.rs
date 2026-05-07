@@ -41,28 +41,34 @@ impl<C: CanisterKind> DbSession<C> {
         schema: &SchemaInfo,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         let model = authority.model();
+        let entity_name = schema.entity_name().ok_or_else(|| {
+            QueryError::invariant(
+                "SQL compilation must resolve the expected entity name from schema metadata",
+            )
+        })?;
 
         match statement {
-            SqlStatement::Select(_) => Self::compile_select(statement, model, schema),
-            SqlStatement::Delete(_) => Self::compile_delete(statement, model, schema),
-            SqlStatement::Insert(_) => Self::compile_insert(statement, model),
-            SqlStatement::Update(_) => Self::compile_update(statement, model),
-            SqlStatement::Explain(_) => Self::compile_explain(statement, model),
-            SqlStatement::Describe(_) => Self::compile_describe(statement, model),
-            SqlStatement::ShowIndexes(_) => Self::compile_show_indexes(statement, model),
-            SqlStatement::ShowColumns(_) => Self::compile_show_columns(statement, model),
+            SqlStatement::Select(_) => Self::compile_select(statement, entity_name, model, schema),
+            SqlStatement::Delete(_) => Self::compile_delete(statement, entity_name, model, schema),
+            SqlStatement::Insert(_) => Self::compile_insert(statement, entity_name),
+            SqlStatement::Update(_) => Self::compile_update(statement, entity_name),
+            SqlStatement::Explain(_) => Self::compile_explain(statement, entity_name, model),
+            SqlStatement::Describe(_) => Self::compile_describe(statement, entity_name),
+            SqlStatement::ShowIndexes(_) => Self::compile_show_indexes(statement, entity_name),
+            SqlStatement::ShowColumns(_) => Self::compile_show_columns(statement, entity_name),
             SqlStatement::ShowEntities(_) => Ok(Self::compile_show_entities()),
         }
     }
 
-    // Prepare one statement against a resolved entity model while preserving
-    // the prepare-stage counter as a first-class compile artifact field.
-    fn prepare_statement_for_model(
+    // Prepare one statement against a resolved schema entity name while
+    // preserving the prepare-stage counter as a first-class compile artifact
+    // field.
+    fn prepare_statement_for_entity_name(
         statement: &SqlStatement,
-        model: &'static EntityModel,
+        entity_name: &str,
     ) -> Result<(u64, PreparedSqlStatement), QueryError> {
         measured(|| {
-            prepare_sql_statement(statement, model.name())
+            prepare_sql_statement(statement, entity_name)
                 .map_err(QueryError::from_sql_lowering_error)
         })
     }
@@ -72,11 +78,12 @@ impl<C: CanisterKind> DbSession<C> {
     // branch with different semantic assumptions.
     fn compile_select(
         statement: &SqlStatement,
+        entity_name: &str,
         model: &'static EntityModel,
         schema: &SchemaInfo,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         let (prepare_local_instructions, prepared) =
-            Self::prepare_statement_for_model(statement, model)?;
+            Self::prepare_statement_for_entity_name(statement, entity_name)?;
         let (aggregate_lane_check_local_instructions, requires_aggregate_lane) =
             measured(|| Ok(prepared.statement().is_global_aggregate_lane_shape()))?;
 
@@ -172,11 +179,12 @@ impl<C: CanisterKind> DbSession<C> {
     // SELECTs while preserving DELETE-specific RETURNING extraction.
     fn compile_delete(
         statement: &SqlStatement,
+        entity_name: &str,
         model: &'static EntityModel,
         schema: &SchemaInfo,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         let (prepare_local_instructions, prepared) =
-            Self::prepare_statement_for_model(statement, model)?;
+            Self::prepare_statement_for_entity_name(statement, entity_name)?;
         let (lower_local_instructions, delete) = measured(|| {
             lower_prepared_sql_delete_statement(prepared)
                 .map_err(QueryError::from_sql_lowering_error)
@@ -213,10 +221,10 @@ impl<C: CanisterKind> DbSession<C> {
     // the historical INSERT path has no separate lower or bind stage.
     fn compile_insert(
         statement: &SqlStatement,
-        model: &'static EntityModel,
+        entity_name: &str,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         let (prepare_local_instructions, prepared) =
-            Self::prepare_statement_for_model(statement, model)?;
+            Self::prepare_statement_for_entity_name(statement, entity_name)?;
         let statement = extract_prepared_sql_insert_statement(prepared)
             .map_err(QueryError::from_sql_lowering_error)?;
 
@@ -236,10 +244,10 @@ impl<C: CanisterKind> DbSession<C> {
     // only prepared-statement extraction here to preserve existing attribution.
     fn compile_update(
         statement: &SqlStatement,
-        model: &'static EntityModel,
+        entity_name: &str,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         let (prepare_local_instructions, prepared) =
-            Self::prepare_statement_for_model(statement, model)?;
+            Self::prepare_statement_for_entity_name(statement, entity_name)?;
         let statement = extract_prepared_sql_update_statement(prepared)
             .map_err(QueryError::from_sql_lowering_error)?;
 
@@ -259,10 +267,11 @@ impl<C: CanisterKind> DbSession<C> {
     // binding it into an executable query, matching the explain-only contract.
     fn compile_explain(
         statement: &SqlStatement,
+        entity_name: &str,
         model: &'static EntityModel,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         let (prepare_local_instructions, prepared) =
-            Self::prepare_statement_for_model(statement, model)?;
+            Self::prepare_statement_for_entity_name(statement, entity_name)?;
         let (lower_local_instructions, lowered) = measured(|| {
             lower_sql_command_from_prepared_statement(prepared, model)
                 .map_err(QueryError::from_sql_lowering_error)
@@ -282,10 +291,10 @@ impl<C: CanisterKind> DbSession<C> {
     // fixed introspection command without a lower or bind stage.
     fn compile_describe(
         statement: &SqlStatement,
-        model: &'static EntityModel,
+        entity_name: &str,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         let (prepare_local_instructions, _prepared) =
-            Self::prepare_statement_for_model(statement, model)?;
+            Self::prepare_statement_for_entity_name(statement, entity_name)?;
 
         Ok(SqlCompileArtifacts::new(
             CompiledSqlCommand::DescribeEntity,
@@ -301,10 +310,10 @@ impl<C: CanisterKind> DbSession<C> {
     // the fixed introspection command.
     fn compile_show_indexes(
         statement: &SqlStatement,
-        model: &'static EntityModel,
+        entity_name: &str,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         let (prepare_local_instructions, _prepared) =
-            Self::prepare_statement_for_model(statement, model)?;
+            Self::prepare_statement_for_entity_name(statement, entity_name)?;
 
         Ok(SqlCompileArtifacts::new(
             CompiledSqlCommand::ShowIndexesEntity,
@@ -320,10 +329,10 @@ impl<C: CanisterKind> DbSession<C> {
     // the fixed introspection command.
     fn compile_show_columns(
         statement: &SqlStatement,
-        model: &'static EntityModel,
+        entity_name: &str,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         let (prepare_local_instructions, _prepared) =
-            Self::prepare_statement_for_model(statement, model)?;
+            Self::prepare_statement_for_entity_name(statement, entity_name)?;
 
         Ok(SqlCompileArtifacts::new(
             CompiledSqlCommand::ShowColumnsEntity,

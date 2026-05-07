@@ -1,0 +1,6 @@
+decision	kind	parser_hits	lowering_hits	execution_hits	layer_count	status
+grouped_surface_recomputation	recomputed	3	22	0	2	owned
+insert_select_source_shape	recomputed	0	2	0	1	owned
+grouped_having_shape_validation	recomputed	0	9	0	1	owned
+projection_shape_selection	recomputed	0	14	0	1	owned
+grouped_surface_shape_propagation	propagated	0	10	0	1	owned

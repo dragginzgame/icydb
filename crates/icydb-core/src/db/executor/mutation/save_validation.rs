@@ -10,7 +10,7 @@ use crate::{
             CanonicalSlotReader, DataKey, RawRow, StructuralPatch, StructuralRowContract,
             StructuralSlotReader,
         },
-        executor::{EntityAuthority, mutation::save::SaveExecutor},
+        executor::{EntityAuthority, mutation::save::SaveExecutor, terminal::RowLayout},
         predicate::canonical_cmp,
         relation::validate_save_strong_relations,
         schema::{AcceptedRowDecodeContract, PersistedFieldKind, SchemaInfo, literal_matches_type},
@@ -18,7 +18,7 @@ use crate::{
     error::InternalError,
     model::field::{FieldKind, normalize_decimal_scale_for_storage},
     sanitize::{SanitizeWriteContext, sanitize_with_context},
-    traits::{EntityKind, EntityValue},
+    traits::EntityValue,
     validate::validate,
     value::Value,
 };
@@ -47,9 +47,8 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         patch: &StructuralPatch,
         accepted_row_decode_contract: &AcceptedRowDecodeContract,
     ) -> Result<(), InternalError> {
-        let authority = EntityAuthority::for_type::<E>();
-        let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
-            authority.model(),
+        let contract = StructuralRowContract::from_accepted_decode_contract(
+            E::PATH,
             accepted_row_decode_contract.clone(),
         );
 
@@ -131,10 +130,9 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         row: &RawRow,
         accepted_row_decode_contract: AcceptedRowDecodeContract,
     ) -> Result<(), InternalError> {
-        let authority = EntityAuthority::for_type::<E>();
-        let schema = authority.schema_info();
-        let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
-            authority.model(),
+        let schema = Self::schema_info();
+        let contract = StructuralRowContract::from_accepted_decode_contract(
+            E::PATH,
             accepted_row_decode_contract,
         );
         let row_fields = StructuralSlotReader::from_raw_row_with_validated_contract(row, contract)?;
@@ -160,10 +158,10 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         write_context: SanitizeWriteContext,
         authored_create_slots: Option<&[usize]>,
     ) -> Result<(), InternalError> {
-        Self::validate_create_authorship(authored_create_slots)?;
+        self.validate_create_authorship(authored_create_slots)?;
         sanitize_with_context(entity, Some(write_context))?;
         validate(entity)?;
-        Self::validate_entity_invariants(entity, schema)?;
+        self.validate_entity_invariants(entity, schema)?;
         if validate_relations {
             validate_save_strong_relations::<E>(&self.db, entity)?;
         }
@@ -175,21 +173,20 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // payloads. Every user-authorable create field must be explicitly present;
     // only generated or managed fields may be omitted by the create type.
     fn validate_create_authorship(
+        &self,
         authored_create_slots: Option<&[usize]>,
     ) -> Result<(), InternalError> {
         let Some(authored_create_slots) = authored_create_slots else {
             return Ok(());
         };
 
-        let missing_fields = EntityAuthority::for_type::<E>()
-            .fields()
-            .iter()
-            .enumerate()
-            .filter(|(_, field)| field.insert_generation().is_none())
-            .filter(|(_, field)| field.write_management().is_none())
-            .filter(|(index, _)| !authored_create_slots.contains(index))
-            .map(|(_, field)| field.name().to_string())
-            .collect::<Vec<_>>();
+        let missing_fields = match self.accepted_row_decode_contract() {
+            Some(accepted_contract) => Self::missing_authored_fields_with_accepted_contract(
+                accepted_contract,
+                authored_create_slots,
+            ),
+            None => Self::missing_authored_fields_with_generated_contract(authored_create_slots),
+        };
 
         if missing_fields.is_empty() {
             return Ok(());
@@ -201,13 +198,60 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         ))
     }
 
+    // Resolve missing authored fields from accepted schema write policy when
+    // the save lane has an accepted row contract. This keeps typed create
+    // authorship on persisted schema facts instead of generated `FieldModel`
+    // write policy metadata.
+    fn missing_authored_fields_with_accepted_contract(
+        accepted_contract: &AcceptedRowDecodeContract,
+        authored_create_slots: &[usize],
+    ) -> Vec<String> {
+        (0..accepted_contract.required_slot_count())
+            .filter_map(|slot| {
+                let field = accepted_contract.field_for_slot(slot)?;
+                let write_policy = field.write_policy();
+                let requires_authorship = write_policy.insert_generation().is_none()
+                    && write_policy.write_management().is_none();
+
+                (requires_authorship && !authored_create_slots.contains(&slot))
+                    .then(|| field.field_name().to_string())
+            })
+            .collect()
+    }
+
+    // Resolve missing authored fields from generated metadata for legacy
+    // generated-only save lanes that have not selected accepted schema
+    // authority.
+    fn missing_authored_fields_with_generated_contract(
+        authored_create_slots: &[usize],
+    ) -> Vec<String> {
+        EntityAuthority::for_type::<E>()
+            .fields()
+            .iter()
+            .enumerate()
+            .filter(|(_, field)| field.insert_generation().is_none())
+            .filter(|(_, field)| field.write_management().is_none())
+            .filter(|(index, _)| !authored_create_slots.contains(index))
+            .map(|(_, field)| field.name().to_string())
+            .collect()
+    }
+
     // Enforce trait boundary invariants for user-provided entities.
-    fn validate_entity_invariants(entity: &E, schema: &SchemaInfo) -> Result<(), InternalError> {
+    fn validate_entity_invariants(
+        &self,
+        entity: &E,
+        schema: &SchemaInfo,
+    ) -> Result<(), InternalError> {
         let authority = EntityAuthority::for_type::<E>();
-        let primary_key_name = authority.primary_key_name();
+        let (primary_key_name, pk_field_index) = match self.accepted_row_decode_contract() {
+            Some(accepted_contract) => Self::accepted_primary_key_field(accepted_contract)?,
+            None => (
+                authority.primary_key_name(),
+                authority.row_layout().primary_key_slot(),
+            ),
+        };
 
         // Phase 1: validate primary key field presence and *shape*.
-        let pk_field_index = authority.row_layout().primary_key_slot();
         let pk_value = entity.get_value_by_index(pk_field_index).ok_or_else(|| {
             InternalError::mutation_entity_primary_key_missing(E::PATH, primary_key_name)
         })?;
@@ -245,7 +289,87 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         }
 
         // Phase 2: validate field presence and runtime value shapes.
-        let row_layout = authority.row_layout();
+        if let Some(accepted_contract) = self.accepted_row_decode_contract() {
+            Self::validate_entity_field_invariants_with_accepted_contract(
+                entity,
+                schema,
+                accepted_contract,
+            )?;
+        } else {
+            Self::validate_entity_field_invariants_with_generated_contract(
+                entity,
+                schema,
+                authority.row_layout(),
+            )?;
+        }
+
+        Ok(())
+    }
+
+    // Resolve the primary-key name and physical slot from the accepted row
+    // contract. Accepted save lanes use this instead of reopening generated
+    // row layout metadata after schema compatibility has already been proven.
+    fn accepted_primary_key_field(
+        accepted_contract: &AcceptedRowDecodeContract,
+    ) -> Result<(&str, usize), InternalError> {
+        let primary_key_slot = accepted_contract.primary_key_slot_index();
+        let primary_key_field = accepted_contract
+            .field_for_slot(primary_key_slot)
+            .ok_or_else(|| {
+                InternalError::persisted_row_slot_lookup_out_of_bounds(E::PATH, primary_key_slot)
+            })?;
+
+        Ok((primary_key_field.field_name(), primary_key_slot))
+    }
+
+    // Validate typed entity field values against accepted schema field facts
+    // when the save lane has an accepted row contract. Decimal checks remain
+    // normalizing because these are authored typed values before row encoding.
+    fn validate_entity_field_invariants_with_accepted_contract(
+        entity: &E,
+        schema: &SchemaInfo,
+        accepted_contract: &AcceptedRowDecodeContract,
+    ) -> Result<(), InternalError> {
+        for field_index in 0..accepted_contract.required_slot_count() {
+            let field = accepted_contract
+                .field_for_slot(field_index)
+                .ok_or_else(|| {
+                    InternalError::persisted_row_slot_lookup_out_of_bounds(E::PATH, field_index)
+                })?;
+            let field_name = field.field_name();
+            let field_kind = field.kind();
+
+            let value = entity.get_value_by_index(field_index).ok_or_else(|| {
+                InternalError::mutation_entity_field_missing(
+                    E::PATH,
+                    field_name,
+                    schema.field_is_indexed(field_name),
+                )
+            })?;
+
+            if matches!(value, Value::Null | Value::Unit) {
+                // Null = absent, Unit = singleton sentinel; both skip type checks.
+                continue;
+            }
+
+            // Phase 3: enforce runtime shape, scalar bounds, and deterministic
+            // collection/map encodings using accepted persisted field metadata.
+            Self::validate_accepted_authored_field_value_invariants(
+                schema, field_name, field_kind, &value,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    // Validate typed entity field values against generated schema field facts
+    // only for generated-only save lanes. Accepted lanes use the accepted
+    // contract helper above to avoid drifting from selected persisted schema.
+    fn validate_entity_field_invariants_with_generated_contract(
+        entity: &E,
+        schema: &SchemaInfo,
+        row_layout: RowLayout,
+    ) -> Result<(), InternalError> {
         for field_index in 0..row_layout.field_count() {
             let field = row_layout.contract().field_decode_contract(field_index)?;
             let field_name = field.name();
@@ -255,7 +379,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 InternalError::mutation_entity_field_missing(
                     E::PATH,
                     field_name,
-                    field_is_indexed::<E>(field_name),
+                    schema.field_is_indexed(field_name),
                 )
             })?;
 
@@ -369,6 +493,27 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         Self::validate_decimal_scale_is_normalizable(field_name, field_kind, value)?;
         Self::validate_text_max_len(field_name, field_kind, value)?;
         Self::validate_deterministic_field_value(field_name, field_kind, value)
+    }
+
+    // Validate one typed entity field value against accepted schema field facts.
+    // Authored typed values still pass through write encoding after this check,
+    // so decimal scale validation uses the normalizable rule rather than the
+    // exact persisted-row rule.
+    fn validate_accepted_authored_field_value_invariants(
+        schema: &SchemaInfo,
+        field_name: &str,
+        field_kind: &PersistedFieldKind,
+        value: &Value,
+    ) -> Result<(), InternalError> {
+        if !Self::validate_accepted_queryable_field_value_shape(
+            schema, field_name, field_kind, value,
+        )? {
+            return Ok(());
+        }
+
+        Self::validate_persisted_decimal_scale_is_normalizable(field_name, field_kind, value)?;
+        Self::validate_persisted_text_max_len(field_name, field_kind, value)?;
+        Self::validate_persisted_deterministic_field_value(field_name, field_kind, value)
     }
 
     // Validate an already materialized persisted row value. These values have
@@ -982,12 +1127,4 @@ fn persisted_field_kind_accepts_value(kind: &PersistedFieldKind, value: &Value) 
         }
         _ => false,
     }
-}
-
-// Check whether the missing field participates in any declared index.
-fn field_is_indexed<E: EntityKind>(field_name: &str) -> bool {
-    E::MODEL
-        .indexes()
-        .iter()
-        .any(|index| index.fields().contains(&field_name))
 }

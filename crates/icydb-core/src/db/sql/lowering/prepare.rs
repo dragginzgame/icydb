@@ -30,7 +30,7 @@ use crate::{
 #[inline(never)]
 pub(crate) fn prepare_sql_statement(
     statement: &SqlStatement,
-    expected_entity: &'static str,
+    expected_entity: &str,
 ) -> Result<PreparedSqlStatement, SqlLoweringError> {
     let statement = prepare_statement(statement, expected_entity)?;
     validate_prepared_statement_parameters(&statement)?;
@@ -266,7 +266,7 @@ pub(crate) fn extract_prepared_sql_update_statement(
 #[inline(never)]
 fn prepare_statement(
     statement: &SqlStatement,
-    expected_entity: &'static str,
+    expected_entity: &str,
 ) -> Result<SqlStatement, SqlLoweringError> {
     // The compile boundary borrows the parsed statement, but preparation
     // returns an owned normalized statement. Clone only the selected statement
@@ -313,7 +313,7 @@ fn prepare_statement(
 
 fn prepare_explain_statement(
     statement: SqlExplainStatement,
-    expected_entity: &'static str,
+    expected_entity: &str,
 ) -> Result<SqlExplainStatement, SqlLoweringError> {
     let target = match statement.statement {
         SqlExplainTarget::Select(select_statement) => {
@@ -333,7 +333,7 @@ fn prepare_explain_statement(
 
 fn prepare_select_statement(
     statement: SqlSelectStatement,
-    expected_entity: &'static str,
+    expected_entity: &str,
 ) -> Result<SqlSelectStatement, SqlLoweringError> {
     ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
 
@@ -342,7 +342,7 @@ fn prepare_select_statement(
 
 fn prepare_delete_statement(
     statement: SqlDeleteStatement,
-    expected_entity: &'static str,
+    expected_entity: &str,
 ) -> Result<SqlDeleteStatement, SqlLoweringError> {
     ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
 
@@ -354,7 +354,7 @@ fn prepare_delete_statement(
 
 fn prepare_update_statement(
     statement: SqlUpdateStatement,
-    expected_entity: &'static str,
+    expected_entity: &str,
 ) -> Result<SqlUpdateStatement, SqlLoweringError> {
     ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
 
@@ -366,7 +366,7 @@ fn prepare_update_statement(
 
 fn prepare_insert_statement(
     mut statement: SqlInsertStatement,
-    expected_entity: &'static str,
+    expected_entity: &str,
 ) -> Result<SqlInsertStatement, SqlLoweringError> {
     ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
 
@@ -383,7 +383,7 @@ fn prepare_insert_statement(
 // Normalize one SQL INSERT SELECT source and keep it on the scalar query lane.
 fn prepare_insert_select_source(
     statement: SqlSelectStatement,
-    expected_entity: &'static str,
+    expected_entity: &str,
 ) -> Result<SqlSelectStatement, SqlLoweringError> {
     let statement = prepare_select_statement(statement, expected_entity)?;
 

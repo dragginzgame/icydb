@@ -508,7 +508,7 @@ pub(super) fn strong_relations_for_model_iter<'a>(
 impl EntityModel {
     /// Return `true` when this model declares any strong relation field.
     #[must_use]
-    pub(in crate::db) fn has_any_strong_relations(&'static self) -> bool {
+    pub(in crate::db) fn has_any_strong_relations(&self) -> bool {
         relation_descriptors_for_model_iter(self)
             .any(|descriptor| descriptor.strength() == RelationStrength::Strong)
     }

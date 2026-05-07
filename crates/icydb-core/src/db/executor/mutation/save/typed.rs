@@ -34,10 +34,11 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let authored_create_slots = materialized.authored_slots().to_vec();
         let entity = materialized.into_entity();
         let ctx = mutation_write_context::<E>(&self.db)?;
+        let schema = Self::schema_info();
         let preflight = SavePreflightInputs {
-            schema: Self::schema_info(),
+            schema,
             schema_fingerprint: commit_schema_fingerprint_for_entity::<E>(),
-            validate_relations: E::MODEL.has_any_strong_relations(),
+            validate_relations: schema.has_any_strong_relations(),
             write_context: Self::save_write_context(SaveMode::Insert, Timestamp::now()),
             authored_create_slots: Some(authored_create_slots.as_slice()),
         };
@@ -118,7 +119,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         accepted_row_decode_contract: &AcceptedRowDecodeContract,
     ) -> Result<Vec<u8>, InternalError> {
         let canonical = canonical_row_from_raw_row_with_accepted_decode_contract(
-            E::MODEL,
+            E::PATH,
             accepted_row_decode_contract.clone(),
             old_row,
         )?;
@@ -143,10 +144,11 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         write_context: SanitizeWriteContext,
         entity: E,
     ) -> Result<E, InternalError> {
+        let schema = Self::schema_info();
         let preflight = SavePreflightInputs {
-            schema: Self::schema_info(),
+            schema,
             schema_fingerprint: commit_schema_fingerprint_for_entity::<E>(),
-            validate_relations: E::MODEL.has_any_strong_relations(),
+            validate_relations: schema.has_any_strong_relations(),
             write_context,
             authored_create_slots: None,
         };

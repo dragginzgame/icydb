@@ -76,9 +76,11 @@ impl EntityAuthority {
         row_shape: AcceptedGeneratedCompatibleRowShape,
         accepted_decode_contract: AcceptedRowDecodeContract,
     ) -> Self {
-        let _ = row_shape;
-        let row_layout =
-            RowLayout::from_accepted_decode_contract(self.model, accepted_decode_contract);
+        let row_layout = RowLayout::from_generated_compatible_accepted_decode_contract(
+            self.model,
+            row_shape,
+            accepted_decode_contract,
+        );
 
         Self { row_layout, ..self }
     }
