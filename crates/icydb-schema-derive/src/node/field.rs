@@ -182,6 +182,9 @@ pub struct Field {
     pub(crate) default: Option<Arg>,
 
     #[darling(default)]
+    pub(crate) db_default: Option<Arg>,
+
+    #[darling(default)]
     pub(crate) generated: Option<FieldGeneration>,
 
     #[darling(default, skip)]
@@ -238,6 +241,7 @@ impl Field {
         // Insert-generation stays schema-owned and explicit instead of making
         // SQL omission inferable from general Rust defaults.
         self.validate_generated()?;
+        self.validate_database_default()?;
 
         Ok(())
     }
@@ -302,13 +306,19 @@ impl Field {
 
     /// Generate the database-level default contract for this field.
     ///
-    /// Rust construction defaults are intentionally ignored here. Until the
-    /// schema layer supports explicit database defaults, every generated field
-    /// emits `FieldDatabaseDefault::None`.
+    /// Explicit `db_default = ...` overrides Rust construction defaults. When
+    /// no override exists, supported literal `default = ...` values also become
+    /// persisted database defaults; function/path construction defaults stay
+    /// Rust-only.
     pub fn database_default_expr(&self) -> TokenStream {
-        let _rust_construction_default_is_not_a_database_default = self.default.is_some();
+        let Some(default) = self.effective_database_default() else {
+            return quote!(::icydb::model::field::FieldDatabaseDefault::None);
+        };
+        let bytes = database_default_slot_payload_bytes(default, &self.value)
+            .expect("field database default should have been validated before code generation");
+        let byte_tokens = bytes.iter().map(|byte| quote!(#byte));
 
-        quote!(::icydb::model::field::FieldDatabaseDefault::None)
+        quote!(::icydb::model::field::FieldDatabaseDefault::EncodedSlotPayload(&[#(#byte_tokens),*]))
     }
 
     pub fn created_at() -> Self {
@@ -319,6 +329,7 @@ impl Field {
                 ..Default::default()
             },
             default: None,
+            db_default: None,
             generated: None,
             write_management: Some(FieldWriteManagement::CreatedAt),
         }
@@ -332,6 +343,7 @@ impl Field {
                 ..Default::default()
             },
             default: None,
+            db_default: None,
             generated: None,
             write_management: Some(FieldWriteManagement::UpdatedAt),
         }
@@ -422,6 +434,24 @@ impl Field {
 
         Ok(())
     }
+
+    fn validate_database_default(&self) -> Result<(), DarlingError> {
+        let Some(default) = self.effective_database_default() else {
+            return Ok(());
+        };
+
+        database_default_slot_payload_bytes(default, &self.value)
+            .map(|_| ())
+            .map_err(|message| DarlingError::custom(message).with_span(&self.ident))
+    }
+
+    fn effective_database_default(&self) -> Option<&Arg> {
+        self.db_default.as_ref().or_else(|| {
+            self.default
+                .as_ref()
+                .filter(|arg| arg_can_imply_database_default(arg))
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -455,6 +485,202 @@ fn generated_insert_default_matches(default: &Arg, contract: GeneratedInsertCont
         GeneratedInsertContract::Timestamp => {
             matches!(default, Arg::FuncPath(path) if path_ends_with_segments(path, &["Timestamp", "now"]))
         }
+    }
+}
+
+const fn arg_can_imply_database_default(arg: &Arg) -> bool {
+    matches!(arg, Arg::Bool(_) | Arg::Number(_) | Arg::String(_))
+}
+
+fn database_default_slot_payload_bytes(default: &Arg, value: &Value) -> Result<Vec<u8>, String> {
+    if value.many {
+        return Err("db_default currently supports only single-value fields".to_string());
+    }
+
+    if value.opt {
+        return Err("db_default currently supports only required fields".to_string());
+    }
+
+    let Some(primitive) = value.item.primitive else {
+        return Err("db_default currently supports only primitive fields".to_string());
+    };
+
+    match (primitive, default) {
+        (Primitive::Bool, Arg::Bool(default)) => Ok(vec![if *default { 0x03 } else { 0x02 }]),
+        (Primitive::Text, Arg::String(default)) => {
+            encode_text_database_default_payload(default.value().as_str(), value.item.max_len)
+        }
+        (
+            Primitive::Int8 | Primitive::Int16 | Primitive::Int32 | Primitive::Int64,
+            Arg::Number(default),
+        ) => encode_int_database_default_payload(default, primitive),
+        (
+            Primitive::Nat8 | Primitive::Nat16 | Primitive::Nat32 | Primitive::Nat64,
+            Arg::Number(default),
+        ) => encode_uint_database_default_payload(default, primitive),
+        (Primitive::Float32, Arg::Number(default)) => {
+            encode_float32_database_default_payload(default)
+        }
+        (Primitive::Float64, Arg::Number(default)) => {
+            encode_float64_database_default_payload(default)
+        }
+        (
+            Primitive::Account
+            | Primitive::Blob
+            | Primitive::Date
+            | Primitive::Decimal
+            | Primitive::Duration
+            | Primitive::Int
+            | Primitive::Int128
+            | Primitive::Nat
+            | Primitive::Nat128
+            | Primitive::Principal
+            | Primitive::Subaccount
+            | Primitive::Timestamp
+            | Primitive::Ulid
+            | Primitive::Unit,
+            _,
+        ) => Err(format!(
+            "db_default currently does not support primitive {primitive:?}"
+        )),
+        _ => Err(format!(
+            "db_default value {default:?} is not compatible with primitive {primitive:?}"
+        )),
+    }
+}
+
+fn encode_text_database_default_payload(
+    value: &str,
+    max_len: Option<u32>,
+) -> Result<Vec<u8>, String> {
+    if let Some(max_len) = max_len
+        && value.len() > max_len as usize
+    {
+        return Err(format!(
+            "db_default text length {} exceeds max_len {max_len}",
+            value.len()
+        ));
+    }
+
+    let mut bytes = vec![0x12];
+    bytes.extend_from_slice(
+        &u32::try_from(value.len())
+            .map_err(|_| "db_default text length exceeds Structural Binary v1 limit".to_string())?
+            .to_be_bytes(),
+    );
+    bytes.extend_from_slice(value.as_bytes());
+
+    Ok(bytes)
+}
+
+fn encode_int_database_default_payload(
+    value: &ArgNumber,
+    primitive: Primitive,
+) -> Result<Vec<u8>, String> {
+    let value = arg_number_to_i64(value).ok_or_else(|| {
+        format!("db_default for primitive {primitive:?} requires a signed integer literal")
+    })?;
+
+    let valid = match primitive {
+        Primitive::Int8 => i8::try_from(value).is_ok(),
+        Primitive::Int16 => i16::try_from(value).is_ok(),
+        Primitive::Int32 => i32::try_from(value).is_ok(),
+        Primitive::Int64 => true,
+        _ => false,
+    };
+    if !valid {
+        return Err(format!(
+            "db_default integer value {value} is outside primitive {primitive:?} range"
+        ));
+    }
+
+    let mut bytes = vec![0x11];
+    bytes.extend_from_slice(&value.to_be_bytes());
+
+    Ok(bytes)
+}
+
+fn encode_uint_database_default_payload(
+    value: &ArgNumber,
+    primitive: Primitive,
+) -> Result<Vec<u8>, String> {
+    let value = arg_number_to_u64(value).ok_or_else(|| {
+        format!("db_default for primitive {primitive:?} requires an unsigned integer literal")
+    })?;
+
+    let valid = match primitive {
+        Primitive::Nat8 => u8::try_from(value).is_ok(),
+        Primitive::Nat16 => u16::try_from(value).is_ok(),
+        Primitive::Nat32 => u32::try_from(value).is_ok(),
+        Primitive::Nat64 => true,
+        _ => false,
+    };
+    if !valid {
+        return Err(format!(
+            "db_default unsigned integer value {value} is outside primitive {primitive:?} range"
+        ));
+    }
+
+    let mut bytes = vec![0x10];
+    bytes.extend_from_slice(&value.to_be_bytes());
+
+    Ok(bytes)
+}
+
+fn encode_float32_database_default_payload(value: &ArgNumber) -> Result<Vec<u8>, String> {
+    let value = match value {
+        ArgNumber::Float32(value) => *value,
+        _ => return Err("db_default for primitive Float32 requires a float literal".to_string()),
+    };
+    let mut bytes = vec![0x14];
+    bytes.extend_from_slice(&value.to_be_bytes());
+
+    Ok(bytes)
+}
+
+fn encode_float64_database_default_payload(value: &ArgNumber) -> Result<Vec<u8>, String> {
+    let value = match value {
+        ArgNumber::Float32(value) => f64::from(*value),
+        ArgNumber::Float64(value) => *value,
+        _ => return Err("db_default for primitive Float64 requires a float literal".to_string()),
+    };
+    let mut bytes = vec![0x15];
+    bytes.extend_from_slice(&value.to_be_bytes());
+
+    Ok(bytes)
+}
+
+fn arg_number_to_i64(value: &ArgNumber) -> Option<i64> {
+    match value {
+        ArgNumber::Int8(value) => Some(i64::from(*value)),
+        ArgNumber::Int16(value) => Some(i64::from(*value)),
+        ArgNumber::Int32(value) => Some(i64::from(*value)),
+        ArgNumber::Int64(value) => Some(*value),
+        ArgNumber::Nat8(value) => Some(i64::from(*value)),
+        ArgNumber::Nat16(value) => Some(i64::from(*value)),
+        ArgNumber::Nat32(value) => Some(i64::from(*value)),
+        ArgNumber::Nat64(value) => i64::try_from(*value).ok(),
+        ArgNumber::Float32(_)
+        | ArgNumber::Float64(_)
+        | ArgNumber::Int128(_)
+        | ArgNumber::Nat128(_) => None,
+    }
+}
+
+fn arg_number_to_u64(value: &ArgNumber) -> Option<u64> {
+    match value {
+        ArgNumber::Int8(value) => u64::try_from(*value).ok(),
+        ArgNumber::Int16(value) => u64::try_from(*value).ok(),
+        ArgNumber::Int32(value) => u64::try_from(*value).ok(),
+        ArgNumber::Int64(value) => u64::try_from(*value).ok(),
+        ArgNumber::Nat8(value) => Some(u64::from(*value)),
+        ArgNumber::Nat16(value) => Some(u64::from(*value)),
+        ArgNumber::Nat32(value) => Some(u64::from(*value)),
+        ArgNumber::Nat64(value) => Some(*value),
+        ArgNumber::Float32(_)
+        | ArgNumber::Float64(_)
+        | ArgNumber::Int128(_)
+        | ArgNumber::Nat128(_) => None,
     }
 }
 
@@ -620,6 +846,7 @@ impl HasSchemaPart for Field {
         let ident = quote_one(&self.ident, to_str_lit);
         let value = self.value.schema_part();
         let default = quote_option(self.default.as_ref(), Arg::schema_part);
+        let db_default = quote_option(self.db_default.as_ref(), Arg::schema_part);
         let generated = quote_option(self.generated.as_ref(), FieldGeneration::schema_part);
         let write_management = quote_option(
             self.write_management.as_ref(),
@@ -631,6 +858,7 @@ impl HasSchemaPart for Field {
                 #ident,
                 #value,
                 #default,
+                #db_default,
                 #generated,
                 #write_management,
             )
@@ -656,7 +884,7 @@ impl HasTypeExpr for Field {
 #[cfg(test)]
 mod tests {
     use super::{Field, FieldGeneration, FieldWriteManagement, Value};
-    use crate::node::{Arg, Item};
+    use crate::node::{Arg, ArgNumber, Item};
     use darling::{FromMeta, ast::NestedMeta};
     use icydb_schema::types::Primitive;
     use quote::format_ident;
@@ -676,6 +904,7 @@ mod tests {
                 },
             },
             default: None,
+            db_default: None,
             generated: None,
             write_management: None,
         }
@@ -729,6 +958,7 @@ mod tests {
                 },
             },
             default: Some(Arg::FuncPath(parse_quote!(String::new))),
+            db_default: None,
             generated: None,
             write_management: None,
         };
@@ -752,6 +982,7 @@ mod tests {
                 },
             },
             default: Some(Arg::FuncPath(parse_quote!(crate::Profile::default))),
+            db_default: None,
             generated: None,
             write_management: None,
         };
@@ -775,6 +1006,7 @@ mod tests {
                 },
             },
             default: Some(Arg::FuncPath(parse_quote!(Ulid::generate))),
+            db_default: None,
             generated: None,
             write_management: None,
         };
@@ -782,6 +1014,133 @@ mod tests {
         assert!(
             !field.default_matches_implicit_default(),
             "custom constructors must still force an explicit Default impl",
+        );
+    }
+
+    #[test]
+    fn database_default_expr_keeps_function_construction_defaults_rust_only() {
+        let field = Field {
+            ident: format_ident!("name"),
+            value: Value {
+                opt: false,
+                many: false,
+                item: Item {
+                    primitive: Some(Primitive::Text),
+                    unbounded: true,
+                    ..Item::default()
+                },
+            },
+            default: Some(Arg::FuncPath(parse_quote!(String::new))),
+            db_default: None,
+            generated: None,
+            write_management: None,
+        };
+
+        let tokens = field.database_default_expr().to_string();
+
+        assert!(
+            tokens.contains("FieldDatabaseDefault :: None"),
+            "function construction default must not become a database default: {tokens}",
+        );
+    }
+
+    #[test]
+    fn database_default_expr_encodes_supported_literal_construction_default() {
+        let field = Field {
+            ident: format_ident!("name"),
+            value: Value {
+                opt: false,
+                many: false,
+                item: Item {
+                    primitive: Some(Primitive::Text),
+                    unbounded: true,
+                    ..Item::default()
+                },
+            },
+            default: Some(Arg::String(parse_quote!("guest"))),
+            db_default: None,
+            generated: None,
+            write_management: None,
+        };
+
+        field
+            .validate()
+            .expect("literal text default should also be a valid database default");
+        let payload = super::database_default_slot_payload_bytes(
+            field
+                .effective_database_default()
+                .expect("literal default should imply db_default"),
+            &field.value,
+        )
+        .expect("literal construction default should encode as database default");
+
+        assert_eq!(
+            payload,
+            vec![0x12, 0, 0, 0, 5, b'g', b'u', b'e', b's', b't'],
+            "literal construction default should encode as the database default",
+        );
+    }
+
+    #[test]
+    fn database_default_expr_encodes_explicit_text_default_payload() {
+        let field = Field {
+            ident: format_ident!("nickname"),
+            value: Value {
+                opt: false,
+                many: false,
+                item: Item {
+                    primitive: Some(Primitive::Text),
+                    max_len: Some(8),
+                    ..Item::default()
+                },
+            },
+            default: None,
+            db_default: Some(Arg::String(parse_quote!("unknown"))),
+            generated: None,
+            write_management: None,
+        };
+
+        field
+            .validate()
+            .expect("text db_default within max_len should validate");
+        let payload = super::database_default_slot_payload_bytes(
+            field.db_default.as_ref().expect("db_default should exist"),
+            &field.value,
+        )
+        .expect("text db_default should encode");
+
+        assert_eq!(
+            payload,
+            vec![0x12, 0, 0, 0, 7, b'u', b'n', b'k', b'n', b'o', b'w', b'n'],
+            "db_default should encode the canonical Structural Binary text payload",
+        );
+    }
+
+    #[test]
+    fn database_default_rejects_out_of_range_numeric_default() {
+        let field = Field {
+            ident: format_ident!("rank"),
+            value: Value {
+                opt: false,
+                many: false,
+                item: Item {
+                    primitive: Some(Primitive::Nat8),
+                    ..Item::default()
+                },
+            },
+            default: None,
+            db_default: Some(Arg::Number(ArgNumber::Nat16(300))),
+            generated: None,
+            write_management: None,
+        };
+
+        let err = field
+            .validate()
+            .expect_err("db_default outside the field primitive range should fail");
+
+        assert!(
+            err.to_string().contains("outside primitive Nat8 range"),
+            "unexpected db_default range validation error: {err}",
         );
     }
 
@@ -798,6 +1157,7 @@ mod tests {
                 },
             },
             default: None,
+            db_default: None,
             generated: Some(FieldGeneration::Insert(Arg::FuncPath(parse_quote!(
                 Ulid::generate
             )))),
@@ -861,6 +1221,7 @@ mod tests {
                 },
             },
             default: Some(Arg::FuncPath(parse_quote!(Timestamp::now))),
+            db_default: None,
             generated: Some(FieldGeneration::Insert(Arg::FuncPath(parse_quote!(
                 Timestamp::now
             )))),
@@ -886,6 +1247,7 @@ mod tests {
                 },
             },
             default: None,
+            db_default: None,
             generated: Some(FieldGeneration::Insert(Arg::FuncPath(parse_quote!(
                 Ulid::generate
             )))),
@@ -915,6 +1277,7 @@ mod tests {
                 },
             },
             default: None,
+            db_default: None,
             generated: Some(FieldGeneration::Insert(Arg::FuncPath(parse_quote!(
                 Id::generate
             )))),
@@ -945,6 +1308,7 @@ mod tests {
                 },
             },
             default: Some(Arg::ConstPath(parse_quote!(Timestamp::EPOCH))),
+            db_default: None,
             generated: Some(FieldGeneration::Insert(Arg::FuncPath(parse_quote!(
                 Timestamp::now
             )))),

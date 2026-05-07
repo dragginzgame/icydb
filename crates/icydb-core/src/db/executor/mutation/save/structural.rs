@@ -291,10 +291,12 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             accepted_row_decode_contract.as_ref(),
         )?;
 
+        let complete_after_image = matches!(mode, MutationMode::Insert | MutationMode::Replace);
         let mutation = MutationInput::from_structural_patch::<E>(
             key,
             &patch,
             accepted_row_decode_contract.clone(),
+            complete_after_image,
         )?;
         let data_key = mutation.data_key().clone();
         let old_raw = Self::resolve_existing_row_for_rule(

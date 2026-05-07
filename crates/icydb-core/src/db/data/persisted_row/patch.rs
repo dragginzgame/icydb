@@ -19,8 +19,8 @@ use crate::db::data::persisted_row::{
     },
     reader::StructuralSlotReader,
     types::{
-        PersistedRow, SerializedStructuralFieldUpdate, SerializedStructuralPatch, SlotReader,
-        StructuralPatch,
+        FieldSlot, PersistedRow, SerializedStructuralFieldUpdate, SerializedStructuralPatch,
+        SlotReader, StructuralPatch,
     },
     writer::CompleteSerializedPatchWriter,
 };
@@ -331,6 +331,26 @@ pub(in crate::db) fn serialize_structural_patch_fields_with_accepted_contract(
     serialize_structural_patch_fields_for_contract(&contract, patch)
 }
 
+/// Serialize one structural insert/replace after-image through an accepted
+/// row-decode contract.
+///
+/// Unlike sparse update serialization, this fills omitted accepted slots using
+/// the schema-owned missing-slot policy before typed materialization. That
+/// keeps insert/replace omissions on accepted database defaults instead of
+/// falling through to generated Rust construction defaults.
+pub(in crate::db) fn serialize_complete_structural_patch_fields_with_accepted_contract(
+    model: &'static EntityModel,
+    accepted_decode_contract: AcceptedRowDecodeContract,
+    patch: &StructuralPatch,
+) -> Result<SerializedStructuralPatch, InternalError> {
+    let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
+        model,
+        accepted_decode_contract,
+    );
+
+    serialize_complete_structural_patch_fields_for_contract(&contract, patch)
+}
+
 // Serialize structural patch entries after the caller has selected the
 // row-shape authority. Generated-only writes validate against generated
 // layout; accepted-schema writes require the accepted field contract first and
@@ -362,6 +382,66 @@ fn serialize_structural_patch_fields_for_contract(
         };
         entries.push(SerializedStructuralFieldUpdate::new(slot, payload));
     }
+
+    Ok(SerializedStructuralPatch::new(entries))
+}
+
+// Serialize one sparse structural patch as a complete after-image by applying
+// accepted-schema default/null policy for every omitted slot. This is only used
+// at insert/replace staging, where the next materialization step expects a
+// dense logical row image rather than update-style sparse intent.
+fn serialize_complete_structural_patch_fields_for_contract(
+    contract: &StructuralRowContract,
+    patch: &StructuralPatch,
+) -> Result<SerializedStructuralPatch, InternalError> {
+    let mut payloads = vec![None; contract.field_count()];
+
+    // Phase 1: encode explicit user-provided assignments with last-write-wins
+    // semantics per physical slot.
+    for entry in patch.entries() {
+        let slot = entry.slot().index();
+        let Some(field) = contract.accepted_field_decode_contract(slot) else {
+            return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
+                contract.entity_path(),
+                slot,
+            ));
+        };
+        let payload = encode_runtime_value_for_accepted_field_contract(field, entry.value())?;
+        payloads[slot] = Some(payload);
+    }
+
+    // Phase 2: fill every omitted accepted slot using schema-owned absence
+    // policy. Required fields still fail closed here.
+    for (slot, payload) in payloads.iter_mut().enumerate() {
+        if payload.is_some() {
+            continue;
+        }
+        let Some(field) = contract.accepted_field_decode_contract(slot) else {
+            return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
+                contract.entity_path(),
+                slot,
+            ));
+        };
+        let value = contract.missing_slot_value(slot)?;
+        *payload = Some(encode_runtime_value_for_accepted_field_contract(
+            field, &value,
+        )?);
+    }
+
+    let entries = payloads
+        .into_iter()
+        .enumerate()
+        .map(|(slot, payload)| {
+            let payload = payload.ok_or_else(|| {
+                InternalError::persisted_row_slot_lookup_out_of_bounds(contract.entity_path(), slot)
+            })?;
+
+            Ok(SerializedStructuralFieldUpdate::new(
+                FieldSlot::from_validated_index(slot),
+                payload,
+            ))
+        })
+        .collect::<Result<Vec<_>, InternalError>>()?;
 
     Ok(SerializedStructuralPatch::new(entries))
 }

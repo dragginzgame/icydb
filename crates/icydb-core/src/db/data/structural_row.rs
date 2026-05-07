@@ -177,9 +177,10 @@ impl StructuralRowContract {
 
     /// Materialize the logical runtime value for an absent accepted slot.
     ///
-    /// Only accepted-schema row contracts may synthesize missing fields, and
-    /// today only nullable append-only fields are eligible. Generated-only
-    /// contracts and required accepted slots remain fail-closed.
+    /// Only accepted-schema row contracts may synthesize missing fields.
+    /// Nullable slots materialize as `NULL`, slots with explicit database
+    /// defaults materialize through the accepted default payload, and required
+    /// accepted slots remain fail-closed.
     pub(in crate::db) fn missing_slot_value(&self, slot: usize) -> Result<Value, InternalError> {
         let field_name = self.field_name(slot)?;
         match self.accepted_field_absence_policy(slot) {

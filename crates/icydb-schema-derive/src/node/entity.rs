@@ -565,6 +565,7 @@ mod tests {
                 },
             },
             default: None,
+            db_default: None,
             generated: None,
             write_management: None,
         }
@@ -583,6 +584,7 @@ mod tests {
                 },
             },
             default: None,
+            db_default: None,
             generated: None,
             write_management: None,
         }

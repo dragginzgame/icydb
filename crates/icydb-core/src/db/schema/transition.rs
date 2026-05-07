@@ -3,9 +3,15 @@
 //! Does not own: startup reconciliation orchestration or schema-store persistence.
 //! Boundary: decides whether one accepted snapshot may become another.
 
-use crate::db::schema::{
-    FieldId, PersistedFieldSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
-    SchemaFieldSlot,
+use crate::{
+    db::{
+        data::decode_structural_field_by_accepted_kind_bytes,
+        schema::{
+            FieldId, PersistedFieldSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
+            SchemaFieldSlot,
+        },
+    },
+    value::Value,
 };
 
 ///
@@ -167,8 +173,21 @@ pub(in crate::db::schema) fn decide_schema_transition(
 // Decide whether one added field can be absent from older physical rows.
 // Nullable no-default fields materialize as `NULL`; fields with explicit
 // persisted default payloads materialize from that slot payload.
-const fn field_has_supported_missing_absence_policy(field: &PersistedFieldSnapshot) -> bool {
-    (field.nullable() && field.default().is_none()) || field.default().slot_payload().is_some()
+fn field_has_supported_missing_absence_policy(field: &PersistedFieldSnapshot) -> bool {
+    (field.nullable() && field.default().is_none()) || field_default_payload_is_valid(field)
+}
+
+// Validate one accepted default payload before a schema transition can rely on
+// it for missing-slot materialization. Defaults are persisted bytes, so policy
+// must ask the accepted field-codec boundary to prove the payload is decodable
+// and non-null instead of trusting the schema metadata blindly.
+fn field_default_payload_is_valid(field: &PersistedFieldSnapshot) -> bool {
+    let Some(payload) = field.default().slot_payload() else {
+        return false;
+    };
+
+    decode_structural_field_by_accepted_kind_bytes(payload, field.kind())
+        .is_ok_and(|value| !matches!(value, Value::Null))
 }
 
 // Return the first human-readable schema difference between the stored
@@ -284,7 +303,7 @@ fn unsupported_generated_additive_field_detail(
     let index = actual.fields().len();
     let field = &added_fields[0];
     Some(format!(
-        "unsupported additive field transition: generated field[{index}] id={} slot={} name='{}' kind={:?} nullable={} default={:?}; field must be nullable without a default or carry an explicit persisted default payload",
+        "unsupported additive field transition: generated field[{index}] id={} slot={} name='{}' kind={:?} nullable={} default={:?}; field must be nullable without a default or carry a valid explicit persisted default payload",
         field.id().get(),
         field.slot().get(),
         field.name(),
@@ -836,7 +855,7 @@ mod tests {
             PersistedFieldKind::Uint,
             Vec::new(),
             false,
-            SchemaFieldDefault::SlotPayload(vec![0x00]),
+            SchemaFieldDefault::SlotPayload(vec![0x10, 0, 0, 0, 0, 0, 0, 0, 7]),
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Uint64),
         ));
@@ -867,6 +886,56 @@ mod tests {
             SchemaTransitionPlanKind::AppendOnlyNullableFields
         );
         assert_eq!(plan.added_field_count(), 1);
+    }
+
+    #[test]
+    fn schema_transition_policy_rejects_malformed_append_only_default_payloads() {
+        let stored = expected_snapshot();
+        let mut generated_fields = stored.fields().to_vec();
+        generated_fields.push(PersistedFieldSnapshot::new(
+            FieldId::new(3),
+            "score".to_string(),
+            SchemaFieldSlot::new(2),
+            PersistedFieldKind::Uint,
+            Vec::new(),
+            false,
+            SchemaFieldDefault::SlotPayload(vec![0x00]),
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Uint64),
+        ));
+        let generated = PersistedSchemaSnapshot::new(
+            stored.version(),
+            stored.entity_path().to_string(),
+            stored.entity_name().to_string(),
+            stored.primary_key_field_id(),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                    (FieldId::new(3), SchemaFieldSlot::new(2)),
+                ],
+            ),
+            generated_fields,
+        );
+
+        let SchemaTransitionDecision::Rejected(rejection) =
+            decide_schema_transition(&stored, &generated)
+        else {
+            panic!("malformed append-only default payload should be rejected");
+        };
+
+        assert_eq!(
+            rejection.kind(),
+            SchemaTransitionRejectionKind::FieldContract
+        );
+        assert!(
+            rejection
+                .detail()
+                .contains("field must be nullable without a default or carry a valid explicit persisted default payload"),
+            "unexpected malformed default payload rejection detail: {}",
+            rejection.detail(),
+        );
     }
 
     #[test]
@@ -1179,7 +1248,7 @@ mod tests {
 
         assert!(
             rejection.detail().contains(
-                "unsupported additive field transition: generated field[2] id=3 slot=2 name='new_score' kind=Uint nullable=false default=None; field must be nullable without a default or carry an explicit persisted default payload"
+                "unsupported additive field transition: generated field[2] id=3 slot=2 name='new_score' kind=Uint nullable=false default=None; field must be nullable without a default or carry a valid explicit persisted default payload"
             ),
             "additive field drift should be named as an unsupported future transition shape",
         );

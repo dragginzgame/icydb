@@ -7,6 +7,7 @@ use super::{
     decode_sparse_required_slot_with_contract, encode_persisted_slot_payload_by_kind,
     encode_persisted_structured_many_slot_payload, encode_persisted_structured_slot_payload,
     materialize_entity_from_serialized_structural_patch,
+    serialize_complete_structural_patch_fields_with_accepted_contract,
     serialize_entity_slots_as_complete_serialized_patch, serialize_structural_patch_fields,
     serialize_structural_patch_fields_with_accepted_contract, with_structural_read_metrics,
 };
@@ -838,9 +839,9 @@ fn accepted_row_contract_for_model(model: &'static EntityModel) -> StructuralRow
 
 // Build one accepted row contract for the additive required-field fixture with
 // an explicit schema-owned default payload on the appended score slot.
-fn accepted_defaulted_required_score_row_contract_for_tests(
+fn accepted_defaulted_required_score_row_decode_contract_for_tests(
     score_payload: Vec<u8>,
-) -> StructuralRowContract {
+) -> AcceptedRowDecodeContract {
     let proposal = compiled_schema_proposal_for_model(&ADDITIVE_REQUIRED_MODEL);
     let expected = proposal.initial_persisted_schema_snapshot();
     let mut fields = expected.fields().to_vec();
@@ -870,9 +871,17 @@ fn accepted_defaulted_required_score_row_contract_for_tests(
     let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
         .expect("accepted defaulted runtime descriptor should build");
 
+    descriptor.row_decode_contract()
+}
+
+// Build one accepted row contract for the additive required-field fixture with
+// an explicit schema-owned default payload on the appended score slot.
+fn accepted_defaulted_required_score_row_contract_for_tests(
+    score_payload: Vec<u8>,
+) -> StructuralRowContract {
     StructuralRowContract::from_model_with_accepted_decode_contract(
         &ADDITIVE_REQUIRED_MODEL,
-        descriptor.row_decode_contract(),
+        accepted_defaulted_required_score_row_decode_contract_for_tests(score_payload),
     )
 }
 
@@ -2307,6 +2316,42 @@ fn serialize_structural_patch_fields_with_accepted_contract_normalizes_decimal_s
 
     assert_eq!(decimal, Decimal::from_i128_with_scale(140_000, 3));
     assert_eq!(decimal.scale(), 3);
+}
+
+#[test]
+fn serialize_complete_structural_patch_with_accepted_contract_fills_missing_database_defaults() {
+    let score_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Uint(99)));
+    let accepted_decode_contract =
+        accepted_defaulted_required_score_row_decode_contract_for_tests(score_payload);
+    let id = Ulid::from_u128(149);
+    let patch = StructuralPatch::new()
+        .set(
+            FieldSlot::from_index(&ADDITIVE_REQUIRED_MODEL, 0).expect("resolve id slot"),
+            Value::Ulid(id),
+        )
+        .set(
+            FieldSlot::from_index(&ADDITIVE_REQUIRED_MODEL, 1).expect("resolve name slot"),
+            Value::Text("Ada".to_string()),
+        );
+
+    let serialized = serialize_complete_structural_patch_fields_with_accepted_contract(
+        &ADDITIVE_REQUIRED_MODEL,
+        accepted_decode_contract,
+        &patch,
+    )
+    .expect("complete accepted structural patch should fill missing defaulted slots");
+
+    assert_eq!(serialized.entries().len(), 3);
+    assert_eq!(
+        decode_slot_into_runtime_value(
+            &ADDITIVE_REQUIRED_MODEL,
+            serialized.entries()[2].slot().index(),
+            serialized.entries()[2].payload(),
+        )
+        .expect("default payload should decode"),
+        Value::Uint(99),
+    );
 }
 
 #[test]

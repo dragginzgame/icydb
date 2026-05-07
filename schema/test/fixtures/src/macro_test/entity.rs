@@ -90,6 +90,35 @@ pub struct BoundedTextEntity {}
 pub struct BoundedBlobEntity {}
 
 ///
+/// DatabaseDefaultEntity
+///
+
+#[entity(
+    store = "TestStore",
+    pk(field = "id"),
+    fields(
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            default = "Ulid::generate",
+            generated(insert = "Ulid::generate")
+        ),
+        field(
+            ident = "rank",
+            value(item(prim = "Int32")),
+            default = 3i32,
+            db_default = 7i32
+        ),
+        field(
+            ident = "label",
+            value(item(prim = "Text", max_len = 8)),
+            default = "unknown"
+        ),
+    )
+)]
+pub struct DatabaseDefaultEntity {}
+
+///
 /// ExternalPrimaryKeyEntity
 ///
 

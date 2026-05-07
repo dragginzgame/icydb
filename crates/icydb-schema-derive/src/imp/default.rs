@@ -181,6 +181,7 @@ mod tests {
                 },
             },
             default: Some(default),
+            db_default: None,
             generated: None,
             write_management: None,
         }

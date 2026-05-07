@@ -10,12 +10,13 @@ use crate::{
         },
         schema::{
             AcceptedSchemaSnapshot, PersistedFieldKind, PersistedNestedLeafSnapshot,
-            PersistedRelationStrength, SchemaFieldSlot, field_type_from_persisted_kind,
+            PersistedRelationStrength, SchemaFieldDefault, SchemaFieldSlot,
+            field_type_from_persisted_kind,
         },
     },
     model::{
         entity::EntityModel,
-        field::{FieldKind, FieldModel, RelationStrength},
+        field::{FieldDatabaseDefault, FieldKind, FieldModel, RelationStrength},
     },
 };
 use candid::CandidType;
@@ -405,8 +406,10 @@ pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
             .row_layout()
             .slot_for_field(field.id())
             .map(SchemaFieldSlot::get);
+        let mut kind = summarize_persisted_field_kind(field.kind());
+        write_schema_default_summary(&mut kind, field.default());
         let metadata = DescribeFieldMetadata::new(
-            summarize_persisted_field_kind(field.kind()),
+            kind,
             field_type_from_persisted_kind(field.kind())
                 .value_kind()
                 .is_queryable(),
@@ -479,10 +482,10 @@ fn describe_field_recursive(
     metadata_override: Option<DescribeFieldMetadata>,
 ) {
     let metadata = metadata_override.unwrap_or_else(|| {
-        DescribeFieldMetadata::new(
-            summarize_field_kind(&field.kind),
-            field.kind.value_kind().is_queryable(),
-        )
+        let mut kind = summarize_field_kind(&field.kind);
+        write_model_default_summary(&mut kind, field.database_default());
+
+        DescribeFieldMetadata::new(kind, field.kind.value_kind().is_queryable())
     });
 
     push_described_field_row(fields, name, slot, primary_key, tree_prefix, metadata);
@@ -688,6 +691,33 @@ fn write_length_bounded_field_kind_summary(
     }
 }
 
+// Append database-default metadata without decoding the stored payload back
+// into a runtime value. Schema describe owns metadata projection, while field
+// codecs own payload interpretation.
+fn write_model_default_summary(out: &mut String, default: FieldDatabaseDefault) {
+    match default {
+        FieldDatabaseDefault::None => {}
+        FieldDatabaseDefault::EncodedSlotPayload(payload) => {
+            write_encoded_default_payload_summary(out, payload);
+        }
+    }
+}
+
+// Append accepted-schema database-default metadata in the same format as the
+// generated-model path so DESCRIBE and SHOW COLUMNS remain visually aligned.
+fn write_schema_default_summary(out: &mut String, default: &SchemaFieldDefault) {
+    if let Some(payload) = default.slot_payload() {
+        write_encoded_default_payload_summary(out, payload);
+    }
+}
+
+// Keep default rendering compact and byte-oriented. Persisted schema defaults
+// are field-codec payloads, not SQL literals, so the describe surface reports
+// their presence and encoded size rather than inventing a lossy display value.
+fn write_encoded_default_payload_summary(out: &mut String, payload: &[u8]) {
+    let _ = write!(out, " default=slot_payload(bytes={})", payload.len());
+}
+
 #[cfg_attr(
     doc,
     doc = "Render one stable field-kind label from accepted persisted schema metadata."
@@ -817,7 +847,8 @@ mod tests {
         model::{
             entity::EntityModel,
             field::{
-                FieldKind, FieldModel, FieldStorageDecode, LeafCodec, RelationStrength, ScalarCodec,
+                FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode, LeafCodec,
+                RelationStrength, ScalarCodec,
             },
         },
         types::EntityTag,
@@ -1089,6 +1120,42 @@ mod tests {
     }
 
     #[test]
+    fn schema_describe_includes_generated_database_default_metadata() {
+        static DEFAULT_PAYLOAD: &[u8] = &[0x10, 7];
+        static FIELDS: [FieldModel; 2] = [
+            FieldModel::generated("id", FieldKind::Ulid),
+            FieldModel::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
+                "score",
+                FieldKind::Uint,
+                FieldStorageDecode::ByKind,
+                false,
+                None,
+                None,
+                FieldDatabaseDefault::EncodedSlotPayload(DEFAULT_PAYLOAD),
+                &[],
+            ),
+        ];
+        static INDEXES: [&crate::model::index::IndexModel; 0] = [];
+        static MODEL: EntityModel = EntityModel::generated(
+            "entities::DefaultedScore",
+            "DefaultedScore",
+            &FIELDS[0],
+            0,
+            &FIELDS,
+            &INDEXES,
+        );
+
+        let described = describe_entity_model(&MODEL);
+        let score_field = described
+            .fields()
+            .iter()
+            .find(|field| field.name() == "score")
+            .expect("database-defaulted score field should be described");
+
+        assert_eq!(score_field.kind(), "uint default=slot_payload(bytes=2)");
+    }
+
+    #[test]
     fn schema_describe_uses_accepted_top_level_field_metadata() {
         let id_slot = SchemaFieldSlot::new(0);
         let payload_slot = SchemaFieldSlot::new(7);
@@ -1123,7 +1190,7 @@ mod tests {
                     PersistedFieldKind::Blob { max_len: None },
                     Vec::new(),
                     false,
-                    SchemaFieldDefault::None,
+                    SchemaFieldDefault::SlotPayload(vec![0x10, 0x20, 0x30]),
                     FieldStorageDecode::ByKind,
                     LeafCodec::StructuralFallback,
                 ),
@@ -1148,7 +1215,7 @@ mod tests {
                 (
                     "payload".to_string(),
                     Some(7),
-                    "blob(unbounded)".to_string()
+                    "blob(unbounded) default=slot_payload(bytes=3)".to_string()
                 ),
             ],
         );

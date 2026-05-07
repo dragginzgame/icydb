@@ -55,16 +55,55 @@ mod tests {
     }
 
     #[test]
-    fn rust_construction_defaults_do_not_become_database_defaults() {
-        let explicit_rust_default = Entity::MODEL
+    fn function_construction_defaults_do_not_become_database_defaults() {
+        let generated_id_default = Entity::MODEL
+            .fields()
+            .iter()
+            .find(|field| field.name() == "id")
+            .expect("field with function construction default should be present");
+
+        assert_eq!(
+            generated_id_default.database_default(),
+            FieldDatabaseDefault::None,
+        );
+    }
+
+    #[test]
+    fn supported_literal_construction_defaults_reach_entity_model_as_slot_payloads() {
+        let literal_default = Entity::MODEL
             .fields()
             .iter()
             .find(|field| field.name() == "a")
-            .expect("field with Rust construction default should be present");
+            .expect("field with literal construction default should be present");
 
         assert_eq!(
-            explicit_rust_default.database_default(),
-            FieldDatabaseDefault::None,
+            literal_default.database_default(),
+            FieldDatabaseDefault::EncodedSlotPayload(&[0x11, 0, 0, 0, 0, 0, 0, 0, 3]),
+        );
+    }
+
+    #[test]
+    fn explicit_database_defaults_reach_entity_model_as_slot_payloads() {
+        let rank = DatabaseDefaultEntity::MODEL
+            .fields()
+            .iter()
+            .find(|field| field.name() == "rank")
+            .expect("rank field should be present");
+        let label = DatabaseDefaultEntity::MODEL
+            .fields()
+            .iter()
+            .find(|field| field.name() == "label")
+            .expect("label field should be present");
+
+        assert_eq!(
+            rank.database_default(),
+            FieldDatabaseDefault::EncodedSlotPayload(&[0x11, 0, 0, 0, 0, 0, 0, 0, 7]),
+        );
+        assert_eq!(
+            label.database_default(),
+            FieldDatabaseDefault::EncodedSlotPayload(&[
+                0x12, 0, 0, 0, 7, b'u', b'n', b'k', b'n', b'o', b'w', b'n'
+            ]),
         );
     }
 }

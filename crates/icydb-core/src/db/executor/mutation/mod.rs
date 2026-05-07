@@ -13,6 +13,7 @@ use crate::{
         commit::ensure_recovered,
         data::{
             DataKey, PersistedRow, SerializedStructuralPatch, StructuralPatch,
+            serialize_complete_structural_patch_fields_with_accepted_contract,
             serialize_entity_slots_as_complete_serialized_patch, serialize_structural_patch_fields,
             serialize_structural_patch_fields_with_accepted_contract,
         },
@@ -82,17 +83,27 @@ impl MutationInput {
     ///
     /// The optional accepted row contract keeps schema-transition structural
     /// writes on the selected persisted row shape before bytes cross the
-    /// executor mutation boundary.
+    /// executor mutation boundary. Insert/replace callers request a complete
+    /// accepted after-image so omitted defaulted slots are filled before typed
+    /// materialization, while update callers preserve sparse patch intent.
     pub(in crate::db::executor) fn from_structural_patch<E>(
         key: E::Key,
         patch: &StructuralPatch,
         accepted_row_decode_contract: Option<AcceptedRowDecodeContract>,
+        complete_after_image: bool,
     ) -> Result<Self, InternalError>
     where
         E: PersistedRow + EntityValue,
     {
         let data_key = DataKey::try_new::<E>(key)?;
         let serialized_slots = match accepted_row_decode_contract {
+            Some(contract) if complete_after_image => {
+                serialize_complete_structural_patch_fields_with_accepted_contract(
+                    E::MODEL,
+                    contract,
+                    patch,
+                )?
+            }
             Some(contract) => {
                 serialize_structural_patch_fields_with_accepted_contract(E::MODEL, contract, patch)?
             }
