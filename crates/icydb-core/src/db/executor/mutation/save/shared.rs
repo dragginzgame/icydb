@@ -7,36 +7,73 @@ use crate::{
             Context, ExecutorError,
             mutation::{
                 PreparedRowOpDelta, commit_prepared_single_save_row_op_with_window,
-                commit_save_row_ops_with_window, synchronized_store_handles_for_prepared_row_ops,
+                commit_save_row_ops_with_window,
+                save::{SaveExecutor, SaveRule},
+                synchronized_store_handles_for_prepared_row_ops,
             },
         },
+        schema::AcceptedRowDecodeContract,
     },
     error::InternalError,
     metrics::sink::Span,
     traits::EntityValue,
 };
 
-use crate::db::executor::mutation::save::{SaveExecutor, SaveRule};
-use crate::db::schema::AcceptedRowDecodeContract;
-
 impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
-    // Resolve the "before" row according to one canonical save rule.
-    pub(super) fn resolve_existing_row_for_rule(
+    // Resolve the "before" row through generated row invariants. Callers use
+    // this only after selecting generated schema authority for the mutation
+    // lane, so row lookup does not inspect accepted-schema state internally.
+    pub(super) fn resolve_existing_row_for_rule_with_generated_contract(
         ctx: &Context<'_, E>,
         data_key: &DataKey,
         save_rule: SaveRule,
-        accepted_row_decode_contract: Option<&AcceptedRowDecodeContract>,
+    ) -> Result<Option<RawRow>, InternalError> {
+        Self::resolve_existing_row_for_rule_with_identity_validator(
+            ctx,
+            data_key,
+            save_rule,
+            Self::validate_existing_row_identity_with_generated_contract,
+        )
+    }
+
+    // Resolve the "before" row through the accepted row contract selected from
+    // the stored schema snapshot. This keeps accepted identity validation
+    // explicit at the mutation lane boundary instead of optional inside lookup.
+    pub(super) fn resolve_existing_row_for_rule_with_accepted_contract(
+        ctx: &Context<'_, E>,
+        data_key: &DataKey,
+        save_rule: SaveRule,
+        accepted_row_decode_contract: &AcceptedRowDecodeContract,
+    ) -> Result<Option<RawRow>, InternalError> {
+        Self::resolve_existing_row_for_rule_with_identity_validator(
+            ctx,
+            data_key,
+            save_rule,
+            |data_key, row| {
+                Self::validate_existing_row_identity_with_accepted_contract(
+                    data_key,
+                    row,
+                    accepted_row_decode_contract,
+                )
+            },
+        )
+    }
+
+    // Resolve the "before" row according to one canonical save rule after the
+    // caller has selected the identity validator for the active schema lane.
+    fn resolve_existing_row_for_rule_with_identity_validator(
+        ctx: &Context<'_, E>,
+        data_key: &DataKey,
+        save_rule: SaveRule,
+        validate_existing_row: impl Fn(&DataKey, &RawRow) -> Result<(), InternalError>,
     ) -> Result<Option<RawRow>, InternalError> {
         let raw_key = data_key.to_raw()?;
 
         match save_rule {
             SaveRule::RequireAbsent => {
                 if let Some(existing) = ctx.with_store(|store| store.get(&raw_key))? {
-                    Self::validate_existing_row_identity(
-                        data_key,
-                        &existing,
-                        accepted_row_decode_contract,
-                    )?;
+                    validate_existing_row(data_key, &existing)?;
+
                     return Err(ExecutorError::KeyExists(data_key.clone()).into());
                 }
 
@@ -46,44 +83,19 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 let old_row = ctx
                     .with_store(|store| store.get(&raw_key))?
                     .ok_or_else(|| InternalError::store_not_found(data_key.to_string()))?;
-                Self::validate_existing_row_identity(
-                    data_key,
-                    &old_row,
-                    accepted_row_decode_contract,
-                )?;
+                validate_existing_row(data_key, &old_row)?;
 
                 Ok(Some(old_row))
             }
             SaveRule::AllowAny => {
                 let old_row = ctx.with_store(|store| store.get(&raw_key))?;
                 if let Some(old) = old_row.as_ref() {
-                    Self::validate_existing_row_identity(
-                        data_key,
-                        old,
-                        accepted_row_decode_contract,
-                    )?;
+                    validate_existing_row(data_key, old)?;
                 }
 
                 Ok(old_row)
             }
         }
-    }
-
-    // Decode an existing row and verify it is consistent with the target data key.
-    fn validate_existing_row_identity(
-        data_key: &DataKey,
-        row: &RawRow,
-        accepted_row_decode_contract: Option<&AcceptedRowDecodeContract>,
-    ) -> Result<(), InternalError> {
-        if let Some(accepted_row_decode_contract) = accepted_row_decode_contract {
-            return Self::validate_existing_row_identity_with_accepted_contract(
-                data_key,
-                row,
-                accepted_row_decode_contract,
-            );
-        }
-
-        Self::validate_existing_row_identity_with_generated_contract(data_key, row)
     }
 
     // Decode an existing generated-layout row and verify it is consistent with

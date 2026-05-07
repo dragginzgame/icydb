@@ -61,12 +61,19 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         // Phase 1: resolve key + current-store baseline from the canonical save rule.
         let data_key = DataKey::try_new::<E>(entity.id().key())?;
         let raw_key = data_key.to_raw()?;
-        let old_raw = Self::resolve_existing_row_for_rule(
-            ctx,
-            &data_key,
-            save_rule,
-            self.accepted_row_decode_contract.as_ref(),
-        )?;
+        let old_raw = match self.accepted_row_decode_contract.as_ref() {
+            Some(accepted_row_decode_contract) => {
+                Self::resolve_existing_row_for_rule_with_accepted_contract(
+                    ctx,
+                    &data_key,
+                    save_rule,
+                    accepted_row_decode_contract,
+                )?
+            }
+            None => Self::resolve_existing_row_for_rule_with_generated_contract(
+                ctx, &data_key, save_rule,
+            )?,
+        };
 
         // Phase 2: typed save lanes already own a complete after-image, so
         // emit the canonical row directly instead of replaying a dense slot
@@ -75,7 +82,15 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             .into_raw_row()
             .into_bytes();
         let before_bytes = old_raw
-            .map(|old_raw| self.build_typed_before_image_bytes(old_raw))
+            .map(|old_raw| match self.accepted_row_decode_contract.as_ref() {
+                Some(accepted_row_decode_contract) => {
+                    Self::build_typed_before_image_bytes_with_accepted_contract(
+                        &old_raw,
+                        accepted_row_decode_contract,
+                    )
+                }
+                None => Ok(Self::build_typed_before_image_bytes_with_generated_contract(old_raw)),
+            })
             .transpose()?;
         let row_op = CommitRowOp::new(
             E::PATH,
@@ -86,20 +101,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         );
 
         Ok(row_op)
-    }
-
-    // Build the commit-marker before image for typed saves. Accepted-schema
-    // updates must not pass old short rows into commit preflight because index
-    // and relation delta planning consume generated-compatible dense rows.
-    fn build_typed_before_image_bytes(&self, old_row: RawRow) -> Result<Vec<u8>, InternalError> {
-        if let Some(accepted_row_decode_contract) = &self.accepted_row_decode_contract {
-            return Self::build_typed_before_image_bytes_with_accepted_contract(
-                &old_row,
-                accepted_row_decode_contract,
-            );
-        }
-
-        Ok(Self::build_typed_before_image_bytes_with_generated_contract(old_row))
     }
 
     // Build one generated-layout before image for typed commit markers. The

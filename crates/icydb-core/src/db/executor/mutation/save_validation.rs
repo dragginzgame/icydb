@@ -25,40 +25,41 @@ use crate::{
 use std::cmp::Ordering;
 
 impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
-    // Enforce write-boundary scalar bounds before structural patch values are
-    // serialized into persisted-row payloads. This keeps user-authored
+    // Enforce generated-contract scalar bounds before structural patch values
+    // are serialized into persisted-row payloads. This keeps user-authored
     // structural writes on the same executor error taxonomy as typed writes
-    // instead of letting storage encoders report user mistakes as internal
-    // row-encode failures.
-    pub(in crate::db::executor::mutation) fn validate_structural_patch_write_bounds(
+    // without consulting accepted schema metadata in generated lanes.
+    pub(in crate::db::executor::mutation) fn validate_structural_patch_write_bounds_with_generated_contract(
         patch: &StructuralPatch,
-        accepted_row_decode_contract: Option<&AcceptedRowDecodeContract>,
     ) -> Result<(), InternalError> {
         let authority = EntityAuthority::for_type::<E>();
-        let accepted_contract = accepted_row_decode_contract.cloned().map(|contract| {
-            StructuralRowContract::from_model_with_accepted_decode_contract(
-                authority.model(),
-                contract,
-            )
-        });
-        let generated_row_layout = authority.row_layout();
-
-        if let Some(contract) = accepted_contract.as_ref() {
-            return Self::validate_structural_patch_write_bounds_with_accepted_contract(
-                patch, contract,
-            );
-        }
-
-        Self::validate_structural_patch_write_bounds_with_generated_contract(
+        Self::validate_structural_patch_write_bounds_for_generated_row_contract(
             patch,
-            generated_row_layout.contract(),
+            authority.row_layout().contract(),
         )
+    }
+
+    // Enforce accepted-contract scalar bounds before structural patch values are
+    // serialized into persisted-row payloads. The accepted lane uses only the
+    // selected schema snapshot's field contracts, so out-of-range slots fail
+    // before write encoding.
+    pub(in crate::db::executor::mutation) fn validate_structural_patch_write_bounds_with_accepted_contract(
+        patch: &StructuralPatch,
+        accepted_row_decode_contract: &AcceptedRowDecodeContract,
+    ) -> Result<(), InternalError> {
+        let authority = EntityAuthority::for_type::<E>();
+        let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
+            authority.model(),
+            accepted_row_decode_contract.clone(),
+        );
+
+        Self::validate_structural_patch_write_bounds_for_accepted_row_contract(patch, &contract)
     }
 
     // Enforce write-boundary scalar bounds for accepted structural patch input.
     // The accepted lane uses only the selected schema snapshot's field
     // contracts, so out-of-range slots fail before write encoding.
-    fn validate_structural_patch_write_bounds_with_accepted_contract(
+    fn validate_structural_patch_write_bounds_for_accepted_row_contract(
         patch: &StructuralPatch,
         contract: &StructuralRowContract,
     ) -> Result<(), InternalError> {
@@ -89,7 +90,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // Enforce write-boundary scalar bounds for generated-only structural patch
     // input. This keeps typed compatibility callers on generated field
     // metadata without mixing accepted-schema lookup into the loop.
-    fn validate_structural_patch_write_bounds_with_generated_contract(
+    fn validate_structural_patch_write_bounds_for_generated_row_contract(
         patch: &StructuralPatch,
         contract: &StructuralRowContract,
     ) -> Result<(), InternalError> {

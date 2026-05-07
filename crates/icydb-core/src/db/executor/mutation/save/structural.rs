@@ -270,6 +270,10 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // Prepare one structural mutation into a normalized row operation without
     // opening a commit window. Both the single-row and SQL batch lanes share this
     // so structural validation and after-image materialization cannot drift.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "structural mutation staging keeps schema-lane selection, row lookup, after-image validation, and commit-marker assembly together"
+    )]
     fn prepare_structural_mutation_row_op(
         &self,
         ctx: &Context<'_, E>,
@@ -286,35 +290,72 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             accepted_row_decode_contract,
         } = request;
 
-        Self::validate_structural_patch_write_bounds(
-            &patch,
-            accepted_row_decode_contract.as_ref(),
-        )?;
+        match accepted_row_decode_contract.as_ref() {
+            Some(accepted_row_decode_contract) => {
+                Self::validate_structural_patch_write_bounds_with_accepted_contract(
+                    &patch,
+                    accepted_row_decode_contract,
+                )?;
+            }
+            None => {
+                Self::validate_structural_patch_write_bounds_with_generated_contract(&patch)?;
+            }
+        }
 
-        let complete_after_image = matches!(mode, MutationMode::Insert | MutationMode::Replace);
-        let mutation = MutationInput::from_structural_patch::<E>(
-            key,
-            &patch,
-            accepted_row_decode_contract.clone(),
-            complete_after_image,
-        )?;
+        let mutation = match accepted_row_decode_contract.as_ref() {
+            Some(accepted_row_decode_contract)
+                if matches!(mode, MutationMode::Insert | MutationMode::Replace) =>
+            {
+                MutationInput::from_accepted_complete_structural_patch::<E>(
+                    key,
+                    &patch,
+                    accepted_row_decode_contract.clone(),
+                )?
+            }
+            Some(accepted_row_decode_contract) => {
+                MutationInput::from_accepted_sparse_structural_patch::<E>(
+                    key,
+                    &patch,
+                    accepted_row_decode_contract.clone(),
+                )?
+            }
+            None => MutationInput::from_generated_structural_patch::<E>(key, &patch)?,
+        };
         let data_key = mutation.data_key().clone();
-        let old_raw = Self::resolve_existing_row_for_rule(
-            ctx,
-            &data_key,
-            mode.save_rule(),
-            accepted_row_decode_contract.as_ref(),
-        )?;
+        let old_raw = match accepted_row_decode_contract.as_ref() {
+            Some(accepted_row_decode_contract) => {
+                Self::resolve_existing_row_for_rule_with_accepted_contract(
+                    ctx,
+                    &data_key,
+                    mode.save_rule(),
+                    accepted_row_decode_contract,
+                )?
+            }
+            None => Self::resolve_existing_row_for_rule_with_generated_contract(
+                ctx,
+                &data_key,
+                mode.save_rule(),
+            )?,
+        };
 
         // Phase 1: materialize and preflight the structural after-image under
         // the same save contract as typed writes.
         let entity = match mode {
             MutationMode::Update => {
-                let raw_after_image = Self::build_structural_update_after_image_row(
-                    &mutation,
-                    old_raw.as_ref(),
-                    accepted_row_decode_contract.clone(),
-                )?;
+                let baseline_row = Self::structural_update_baseline_row(old_raw.as_ref())?;
+                let raw_after_image = match accepted_row_decode_contract.as_ref() {
+                    Some(accepted_row_decode_contract) => {
+                        Self::build_structural_update_after_image_row_with_accepted_contract(
+                            &mutation,
+                            baseline_row,
+                            accepted_row_decode_contract.clone(),
+                        )?
+                    }
+                    None => Self::build_structural_update_after_image_row_with_generated_contract(
+                        &mutation,
+                        baseline_row,
+                    )?,
+                };
                 self.validate_structural_after_image(
                     &data_key,
                     &raw_after_image,
@@ -340,11 +381,14 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let row_bytes = row_bytes.into_raw_row().into_bytes();
         let before_bytes = old_raw
             .as_ref()
-            .map(|row| {
-                Self::build_structural_before_image_bytes(
-                    row,
-                    accepted_row_decode_contract.as_ref(),
-                )
+            .map(|row| match accepted_row_decode_contract.as_ref() {
+                Some(accepted_row_decode_contract) => {
+                    Self::build_structural_before_image_bytes_with_accepted_contract(
+                        row,
+                        accepted_row_decode_contract,
+                    )
+                }
+                None => Ok(Self::build_structural_before_image_bytes_with_generated_contract(row)),
             })
             .transpose()?;
         let marker_row_op = CommitRowOp::new(
@@ -358,29 +402,17 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         Ok((entity, marker_row_op))
     }
 
-    // Build a sparse structural update after-image over the existing row. When
-    // an accepted decode contract is present, old short physical rows first
-    // materialize missing nullable slots before patch overlay.
-    fn build_structural_update_after_image_row(
-        mutation: &MutationInput,
-        old_row: Option<&RawRow>,
-        accepted_row_decode_contract: Option<AcceptedRowDecodeContract>,
-    ) -> Result<CanonicalRow, InternalError> {
+    // Require the baseline row needed by structural updates before selecting
+    // accepted or generated patch replay. Keeping this check separate lets the
+    // replay helpers stay schema-lane-specific.
+    fn structural_update_baseline_row(old_row: Option<&RawRow>) -> Result<&RawRow, InternalError> {
         let Some(old_row) = old_row else {
             return Err(InternalError::executor_invariant(
                 "structural update staging requires an existing baseline row",
             ));
         };
 
-        if let Some(accepted_row_decode_contract) = accepted_row_decode_contract {
-            return Self::build_structural_update_after_image_row_with_accepted_contract(
-                mutation,
-                old_row,
-                accepted_row_decode_contract,
-            );
-        }
-
-        Self::build_structural_update_after_image_row_with_generated_contract(mutation, old_row)
+        Ok(old_row)
     }
 
     // Build a sparse structural update after-image through the accepted row
@@ -415,23 +447,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         mutation: &MutationInput,
     ) -> Result<CanonicalRow, InternalError> {
         RawRow::from_complete_serialized_structural_patch(E::MODEL, mutation.serialized_slots())
-    }
-
-    // Build the commit-marker before image. Accepted-schema updates must not
-    // hand old short rows to commit preflight because index and relation delta
-    // planning still consume generated-compatible dense row images.
-    fn build_structural_before_image_bytes(
-        old_row: &RawRow,
-        accepted_row_decode_contract: Option<&AcceptedRowDecodeContract>,
-    ) -> Result<Vec<u8>, InternalError> {
-        if let Some(accepted_row_decode_contract) = accepted_row_decode_contract {
-            return Self::build_structural_before_image_bytes_with_accepted_contract(
-                old_row,
-                accepted_row_decode_contract,
-            );
-        }
-
-        Ok(Self::build_structural_before_image_bytes_with_generated_contract(old_row))
     }
 
     // Build one generated-layout before image for commit markers. Generated
