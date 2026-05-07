@@ -9,6 +9,7 @@ use crate::{
         data::{RawRow, decode_runtime_value_from_accepted_field_contract},
         schema::{
             AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract, AcceptedRowDecodeContract,
+            AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot,
         },
     },
     error::InternalError,
@@ -73,6 +74,27 @@ impl StructuralRowContract {
             primary_key_slot: accepted_decode_contract.primary_key_slot_index(),
             accepted_decode_contract: Some(Arc::new(accepted_decode_contract)),
         }
+    }
+
+    /// Build one structural row contract from an accepted persisted schema snapshot.
+    ///
+    /// This is the data-layer owner for the repeated accepted-schema projection
+    /// sequence. It proves the accepted schema is still generated-compatible
+    /// before handing row readers a structural contract backed by accepted field
+    /// decode facts.
+    pub(in crate::db) fn from_model_with_accepted_schema_snapshot(
+        model: &'static EntityModel,
+        accepted_schema: &AcceptedSchemaSnapshot,
+    ) -> Result<Self, InternalError> {
+        let (descriptor, _) = AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(
+            accepted_schema,
+            model,
+        )?;
+
+        Ok(Self::from_model_with_accepted_decode_contract(
+            model,
+            descriptor.row_decode_contract(),
+        ))
     }
 
     /// Borrow the owning entity path for diagnostics.

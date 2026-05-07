@@ -452,6 +452,22 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
         })
     }
 
+    /// Build one descriptor and prove it remains generated-compatible.
+    ///
+    /// This is the schema-runtime owner for the common accepted-schema handoff
+    /// used by write, commit, relation, and row-layout code. Callers receive
+    /// both the accepted descriptor and the proof object, so they do not repeat
+    /// descriptor construction or forget the generated-compatible guard.
+    pub(in crate::db) fn from_generated_compatible_schema(
+        accepted: &'a AcceptedSchemaSnapshot,
+        model: &'static EntityModel,
+    ) -> Result<(Self, AcceptedGeneratedCompatibleRowShape), InternalError> {
+        let descriptor = Self::from_accepted_schema(accepted)?;
+        let row_shape = descriptor.generated_compatible_row_shape_for_model(model)?;
+
+        Ok((descriptor, row_shape))
+    }
+
     /// Return the accepted schema version backing this runtime layout.
     #[allow(
         dead_code,

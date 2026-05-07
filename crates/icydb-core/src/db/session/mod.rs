@@ -440,10 +440,11 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
     ) -> Result<(AcceptedSchemaSnapshot, EntityAuthority), InternalError> {
         let accepted_schema = self.ensure_accepted_schema_snapshot_for_authority(&authority)?;
-        let accepted_row_layout =
-            AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted_schema)?;
-        let row_shape =
-            accepted_row_layout.generated_compatible_row_shape_for_model(authority.model())?;
+        let (accepted_row_layout, row_shape) =
+            AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(
+                &accepted_schema,
+                authority.model(),
+            )?;
         let row_decode_contract = accepted_row_layout.row_decode_contract();
         let authority = authority.with_accepted_row_decode_contract(row_shape, row_decode_contract);
 
@@ -461,9 +462,11 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
-        let accepted_row_layout =
-            AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted_schema)?;
-        accepted_row_layout.generated_compatible_row_shape_for_model(E::MODEL)?;
+        let (accepted_row_layout, _) =
+            AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(
+                &accepted_schema,
+                E::MODEL,
+            )?;
 
         Ok(accepted_row_layout.row_decode_contract())
     }

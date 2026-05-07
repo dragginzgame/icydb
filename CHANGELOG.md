@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.149.x] 🧬 - 2026-05-06 - Schema Defaults And Accepted Write Encoding
 
+- `0.149.9` centralizes accepted-schema compatibility checks, so session writes, commit preflight, and relation validation all use one schema/data-owned row-contract path.
 - `0.149.8` moves accepted before-image and response-row canonicalization into named row-layout/data helpers, so save, delete, typed response, and commit preflight no longer pull apart structural contracts locally.
 - `0.149.7` gives structural mutation staging explicit accepted and generated write paths, keeping schema-lane selection out of shared payload, validation, row-lookup, patch-replay, and before-image helpers.
 - `0.149.6` separates accepted and generated row-read and structural-save helpers, reducing mixed schema-authority branches during direct projection, row decoding, and write staging.

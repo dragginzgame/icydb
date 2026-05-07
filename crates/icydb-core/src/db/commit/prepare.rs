@@ -24,10 +24,7 @@ use crate::{
             ReverseRelationSourceInfo,
             prepare_reverse_relation_index_mutations_for_source_slot_readers,
         },
-        schema::{
-            AcceptedRowLayoutRuntimeDescriptor, commit_schema_fingerprint_for_entity,
-            ensure_accepted_schema_snapshot,
-        },
+        schema::{commit_schema_fingerprint_for_entity, ensure_accepted_schema_snapshot},
     },
     error::{ErrorClass, InternalError},
     metrics::sink::{MetricsEvent, record},
@@ -427,15 +424,7 @@ where
             authority.model,
         )
     })?;
-    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)?;
-    descriptor.generated_compatible_row_shape_for_model(authority.model)?;
-
-    Ok(
-        StructuralRowContract::from_model_with_accepted_decode_contract(
-            authority.model,
-            descriptor.row_decode_contract(),
-        ),
-    )
+    StructuralRowContract::from_model_with_accepted_schema_snapshot(authority.model, &accepted)
 }
 
 // Decode structural commit inputs before the typed forward-index leaf runs.

@@ -18,7 +18,7 @@ use crate::{
                 source_row_references_relation_target,
             },
         },
-        schema::{AcceptedRowLayoutRuntimeDescriptor, ensure_accepted_schema_snapshot},
+        schema::ensure_accepted_schema_snapshot,
     },
     error::InternalError,
     metrics::sink::{MetricsEvent, record},
@@ -231,15 +231,7 @@ where
     let accepted = source_store.with_schema_mut(|schema_store| {
         ensure_accepted_schema_snapshot(schema_store, S::ENTITY_TAG, S::PATH, S::MODEL)
     })?;
-    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)?;
-    descriptor.generated_compatible_row_shape_for_model(S::MODEL)?;
-
-    Ok(
-        StructuralRowContract::from_model_with_accepted_decode_contract(
-            S::MODEL,
-            descriptor.row_decode_contract(),
-        ),
-    )
+    StructuralRowContract::from_model_with_accepted_schema_snapshot(S::MODEL, &accepted)
 }
 
 /// Format operator-facing blocked-delete diagnostics with actionable context.

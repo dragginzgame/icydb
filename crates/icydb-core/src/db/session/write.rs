@@ -184,9 +184,10 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
-        let descriptor =
-            AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted_schema)?;
-        descriptor.generated_compatible_row_shape_for_model(E::MODEL)?;
+        let (descriptor, _) = AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(
+            &accepted_schema,
+            E::MODEL,
+        )?;
         validate_structural_patch_schema_policy::<E>(&descriptor, &patch, mode)?;
 
         let row_decode_contract = descriptor.row_decode_contract();
@@ -214,9 +215,10 @@ impl<C: CanisterKind> DbSession<C> {
         S: AsRef<str>,
     {
         let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
-        let descriptor =
-            AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted_schema)?;
-        descriptor.generated_compatible_row_shape_for_model(E::MODEL)?;
+        let (descriptor, _) = AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(
+            &accepted_schema,
+            E::MODEL,
+        )?;
         let mut patch = StructuralPatch::new();
 
         // Phase 1: resolve every caller-provided field name against the

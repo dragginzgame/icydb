@@ -70,11 +70,9 @@ fn checked_accepted_write_descriptor<E>(
 where
     E: EntityKind,
 {
-    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(schema)
-        .map_err(QueryError::execute)?;
-    descriptor
-        .generated_compatible_row_shape_for_model(E::MODEL)
-        .map_err(QueryError::execute)?;
+    let (descriptor, _) =
+        AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(schema, E::MODEL)
+            .map_err(QueryError::execute)?;
 
     Ok(descriptor)
 }
