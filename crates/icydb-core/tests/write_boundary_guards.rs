@@ -73,11 +73,13 @@ fn prepared_row_write_payloads_stay_canonical() {
         "typed save after-image construction must stay CanonicalRow-backed",
     );
     assert!(
-        structural_save.contains("fn build_structural_update_after_image_row(")
+        structural_save
+            .contains("fn build_structural_update_after_image_row_with_accepted_contract(")
+            && structural_save.contains("accepted_row_decode_contract: AcceptedRowDecodeContract,")
             && structural_save
-                .contains("accepted_row_decode_contract: Option<AcceptedRowDecodeContract>,",)
+                .contains("fn build_structural_update_after_image_row_with_generated_contract(")
             && structural_save.contains(") -> Result<CanonicalRow, InternalError>"),
-        "structural update after-image builder must stay accepted-contract aware and return CanonicalRow",
+        "structural update after-image builders must stay lane-specific and return CanonicalRow",
     );
     assert!(
         structural_save.contains("fn build_normalized_structural_after_image_row(")
