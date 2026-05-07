@@ -506,10 +506,10 @@ where
     })
 }
 
-// Build one dense canonical slot image through the selected row contract.
-// Accepted row-layout contracts encode through accepted field metadata; plain
-// generated contracts keep the existing generated-compatible fallback.
-fn dense_canonical_slot_image_from_runtime_value_source_with_row_contract<'a, F>(
+// Build one dense canonical slot image through generated-compatible field
+// metadata. This is the generated-only compatibility lane for callers that
+// have not selected an accepted schema row contract.
+fn dense_canonical_slot_image_from_runtime_value_source_with_generated_contract<'a, F>(
     contract: &StructuralRowContract,
     mut value_for_slot: F,
 ) -> Result<Vec<Vec<u8>>, InternalError>
@@ -518,13 +518,32 @@ where
 {
     dense_slot_image_from_source(contract.field_count(), |slot| {
         let value = value_for_slot(slot)?;
-        if let Some(field) = contract.accepted_field_decode_contract(slot) {
-            return encode_runtime_value_for_accepted_field_contract(field, value.as_ref());
-        }
-
         let field = contract.generated_compatible_field_model(slot)?;
 
         encode_runtime_value_for_field_model(field, value.as_ref())
+    })
+}
+
+// Build one dense canonical slot image through accepted field metadata only.
+// Missing accepted field contracts are rejected at the slot boundary instead of
+// falling back to generated-compatible field models.
+fn dense_canonical_slot_image_from_runtime_value_source_with_accepted_contract<'a, F>(
+    contract: &StructuralRowContract,
+    mut value_for_slot: F,
+) -> Result<Vec<Vec<u8>>, InternalError>
+where
+    F: FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
+{
+    dense_slot_image_from_source(contract.field_count(), |slot| {
+        let value = value_for_slot(slot)?;
+        let Some(field) = contract.accepted_field_decode_contract(slot) else {
+            return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
+                contract.entity_path(),
+                slot,
+            ));
+        };
+
+        encode_runtime_value_for_accepted_field_contract(field, value.as_ref())
     })
 }
 
@@ -602,10 +621,10 @@ where
     emit_raw_row_from_slot_payloads(slot_count, model.path(), slot_payloads.as_slice())
 }
 
-// Build and emit one canonical row from runtime values using one row contract
-// as the field-codec authority. This is the accepted-schema counterpart to the
-// generated-model helper above.
-pub(in crate::db::data::persisted_row) fn canonical_row_from_runtime_value_source_with_row_contract<
+// Build and emit one canonical row from runtime values through generated field
+// metadata. This helper keeps generated-only compatibility paths explicit while
+// accepted-schema callers use the accepted-contract counterpart below.
+pub(in crate::db::data::persisted_row) fn canonical_row_from_runtime_value_source_with_generated_contract<
     'a,
     F,
 >(
@@ -615,10 +634,37 @@ pub(in crate::db::data::persisted_row) fn canonical_row_from_runtime_value_sourc
 where
     F: FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
 {
-    let slot_payloads = dense_canonical_slot_image_from_runtime_value_source_with_row_contract(
-        contract,
-        value_for_slot,
-    )?;
+    let slot_payloads =
+        dense_canonical_slot_image_from_runtime_value_source_with_generated_contract(
+            contract,
+            value_for_slot,
+        )?;
+
+    emit_raw_row_from_slot_payloads(
+        contract.field_count(),
+        contract.entity_path(),
+        slot_payloads.as_slice(),
+    )
+}
+
+// Build and emit one canonical row from runtime values through accepted field
+// contracts only. This is the accepted-schema counterpart to the generated
+// helper above and deliberately has no generated field fallback.
+pub(in crate::db::data::persisted_row) fn canonical_row_from_runtime_value_source_with_accepted_contract<
+    'a,
+    F,
+>(
+    contract: &StructuralRowContract,
+    value_for_slot: F,
+) -> Result<CanonicalRow, InternalError>
+where
+    F: FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
+{
+    let slot_payloads =
+        dense_canonical_slot_image_from_runtime_value_source_with_accepted_contract(
+            contract,
+            value_for_slot,
+        )?;
 
     emit_raw_row_from_slot_payloads(
         contract.field_count(),

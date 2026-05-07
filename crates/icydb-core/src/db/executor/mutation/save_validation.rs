@@ -43,39 +43,64 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         });
         let generated_row_layout = authority.row_layout();
 
+        if let Some(contract) = accepted_contract.as_ref() {
+            return Self::validate_structural_patch_write_bounds_with_accepted_contract(
+                patch, contract,
+            );
+        }
+
+        Self::validate_structural_patch_write_bounds_with_generated_contract(
+            patch,
+            generated_row_layout.contract(),
+        )
+    }
+
+    // Enforce write-boundary scalar bounds for accepted structural patch input.
+    // The accepted lane uses only the selected schema snapshot's field
+    // contracts, so out-of-range slots fail before write encoding.
+    fn validate_structural_patch_write_bounds_with_accepted_contract(
+        patch: &StructuralPatch,
+        contract: &StructuralRowContract,
+    ) -> Result<(), InternalError> {
         for entry in patch.entries() {
             let slot = entry.slot().index();
-            if let Some(contract) = accepted_contract.as_ref() {
-                let accepted_field =
-                    contract
-                        .accepted_field_decode_contract(slot)
-                        .ok_or_else(|| {
-                            InternalError::persisted_row_slot_lookup_out_of_bounds(E::PATH, slot)
-                        })?;
+            let accepted_field =
+                contract
+                    .accepted_field_decode_contract(slot)
+                    .ok_or_else(|| {
+                        InternalError::persisted_row_slot_lookup_out_of_bounds(E::PATH, slot)
+                    })?;
 
-                Self::validate_persisted_decimal_scale_is_normalizable(
-                    accepted_field.field_name(),
-                    accepted_field.kind(),
-                    entry.value(),
-                )?;
-                Self::validate_persisted_text_max_len(
-                    accepted_field.field_name(),
-                    accepted_field.kind(),
-                    entry.value(),
-                )?;
-            } else {
-                let contract = generated_row_layout.contract();
-                let field = contract.field_decode_contract(slot)?;
-                let field_name = field.name();
-                let field_kind = field.kind();
+            Self::validate_persisted_decimal_scale_is_normalizable(
+                accepted_field.field_name(),
+                accepted_field.kind(),
+                entry.value(),
+            )?;
+            Self::validate_persisted_text_max_len(
+                accepted_field.field_name(),
+                accepted_field.kind(),
+                entry.value(),
+            )?;
+        }
 
-                Self::validate_decimal_scale_is_normalizable(
-                    field_name,
-                    &field_kind,
-                    entry.value(),
-                )?;
-                Self::validate_text_max_len(field_name, &field_kind, entry.value())?;
-            }
+        Ok(())
+    }
+
+    // Enforce write-boundary scalar bounds for generated-only structural patch
+    // input. This keeps typed compatibility callers on generated field
+    // metadata without mixing accepted-schema lookup into the loop.
+    fn validate_structural_patch_write_bounds_with_generated_contract(
+        patch: &StructuralPatch,
+        contract: &StructuralRowContract,
+    ) -> Result<(), InternalError> {
+        for entry in patch.entries() {
+            let slot = entry.slot().index();
+            let field = contract.field_decode_contract(slot)?;
+            let field_name = field.name();
+            let field_kind = field.kind();
+
+            Self::validate_decimal_scale_is_normalizable(field_name, &field_kind, entry.value())?;
+            Self::validate_text_max_len(field_name, &field_kind, entry.value())?;
         }
 
         Ok(())
@@ -257,6 +282,21 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         row_fields: &StructuralSlotReader<'_>,
         schema: &SchemaInfo,
     ) -> Result<(), InternalError> {
+        if row_fields.has_accepted_decode_contract() {
+            return Self::validate_structural_row_invariants_with_accepted_contract(
+                row_fields, schema,
+            );
+        }
+
+        Self::validate_structural_row_invariants_with_generated_contract(row_fields, schema)
+    }
+
+    // Validate an already materialized accepted-schema structural row against
+    // the saved field contracts selected for this read/write boundary.
+    fn validate_structural_row_invariants_with_accepted_contract(
+        row_fields: &StructuralSlotReader<'_>,
+        schema: &SchemaInfo,
+    ) -> Result<(), InternalError> {
         for field_index in 0..row_fields.field_count() {
             let value = row_fields.required_cached_value(field_index)?;
 
@@ -266,29 +306,48 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             }
 
             // Phase 1: enforce runtime shape, exact scalar bounds, and
-            // deterministic collection/map encodings for already persisted rows.
-            if row_fields.has_accepted_decode_contract() {
-                let accepted_field = row_fields
-                    .accepted_field_decode_contract(field_index)
-                    .ok_or_else(|| {
-                        InternalError::persisted_row_slot_lookup_out_of_bounds(E::PATH, field_index)
-                    })?;
+            // deterministic collection/map encodings for persisted rows.
+            let accepted_field = row_fields
+                .accepted_field_decode_contract(field_index)
+                .ok_or_else(|| {
+                    InternalError::persisted_row_slot_lookup_out_of_bounds(E::PATH, field_index)
+                })?;
 
-                Self::validate_accepted_persisted_field_value_invariants(
-                    schema,
-                    accepted_field.field_name(),
-                    accepted_field.kind(),
-                    value,
-                )?;
-            } else {
-                let field = row_fields.field_decode_contract(field_index)?;
-                Self::validate_persisted_field_value_invariants(
-                    schema,
-                    field.name(),
-                    &field.kind(),
-                    value,
-                )?;
+            Self::validate_accepted_persisted_field_value_invariants(
+                schema,
+                accepted_field.field_name(),
+                accepted_field.kind(),
+                value,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    // Validate an already materialized generated-schema structural row against
+    // generated field metadata. Accepted rows use the accepted-contract helper
+    // above instead of falling through this compatibility lane.
+    fn validate_structural_row_invariants_with_generated_contract(
+        row_fields: &StructuralSlotReader<'_>,
+        schema: &SchemaInfo,
+    ) -> Result<(), InternalError> {
+        for field_index in 0..row_fields.field_count() {
+            let value = row_fields.required_cached_value(field_index)?;
+
+            if matches!(value, Value::Null | Value::Unit) {
+                // Null = absent, Unit = singleton sentinel; both skip type checks.
+                continue;
             }
+
+            // Phase 1: enforce runtime shape, exact scalar bounds, and
+            // deterministic collection/map encodings for persisted rows.
+            let field = row_fields.field_decode_contract(field_index)?;
+            Self::validate_persisted_field_value_invariants(
+                schema,
+                field.name(),
+                &field.kind(),
+                value,
+            )?;
         }
 
         Ok(())
