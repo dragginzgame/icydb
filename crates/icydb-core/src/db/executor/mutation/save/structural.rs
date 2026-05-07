@@ -407,8 +407,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             E::MODEL,
             accepted_row_decode_contract.clone(),
         );
-        let canonical =
-            canonical_row_from_raw_row_with_structural_contract(E::MODEL, old_row, contract)?;
+        let canonical = canonical_row_from_raw_row_with_structural_contract(old_row, contract)?;
 
         Ok(canonical.into_raw_row().into_bytes())
     }

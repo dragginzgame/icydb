@@ -63,9 +63,8 @@ where
     match decode_raw_row_for_entity_key::<E>(data_key, raw_row) {
         Ok(decoded) => Ok(decoded),
         Err(original_err) => {
-            let canonical =
-                canonical_row_from_raw_row_with_structural_contract(E::MODEL, raw_row, contract)?
-                    .into_raw_row();
+            let canonical = canonical_row_from_raw_row_with_structural_contract(raw_row, contract)?
+                .into_raw_row();
 
             decode_raw_row_for_entity_key::<E>(data_key, &canonical).map_err(|_| original_err)
         }

@@ -1795,12 +1795,9 @@ fn accepted_row_contract_reemits_canonical_rows_with_accepted_slot_count() {
         &ADDITIVE_NULLABLE_MODEL,
         accepted_decode_contract.clone(),
     );
-    let canonical_from_reader = canonical_row_from_raw_row_with_structural_contract(
-        &ADDITIVE_NULLABLE_MODEL,
-        &raw_row,
-        contract.clone(),
-    )
-    .expect("accepted structural contract should re-emit the current slot count");
+    let canonical_from_reader =
+        canonical_row_from_raw_row_with_structural_contract(&raw_row, contract.clone())
+            .expect("accepted structural contract should re-emit the current slot count");
     let canonical_from_patch = apply_serialized_structural_patch_to_raw_row_with_accepted_contract(
         &ADDITIVE_NULLABLE_MODEL,
         accepted_decode_contract,
@@ -1843,12 +1840,9 @@ fn accepted_row_contract_reemits_defaulted_rows_with_accepted_default() {
         &ADDITIVE_REQUIRED_MODEL,
         accepted_decode_contract.clone(),
     );
-    let canonical_from_reader = canonical_row_from_raw_row_with_structural_contract(
-        &ADDITIVE_REQUIRED_MODEL,
-        &raw_row,
-        contract.clone(),
-    )
-    .expect("accepted structural contract should re-emit defaulted slot count");
+    let canonical_from_reader =
+        canonical_row_from_raw_row_with_structural_contract(&raw_row, contract.clone())
+            .expect("accepted structural contract should re-emit defaulted slot count");
     let canonical_from_patch = apply_serialized_structural_patch_to_raw_row_with_accepted_contract(
         &ADDITIVE_REQUIRED_MODEL,
         accepted_decode_contract,

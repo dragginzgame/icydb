@@ -300,7 +300,7 @@ where
     let data_value = decoded
         .new_slots
         .as_ref()
-        .map(|slots| canonical_row_from_structural_slot_reader(authority.model, slots))
+        .map(canonical_row_from_structural_slot_reader)
         .transpose()?;
 
     finalize_row_commit_structural(

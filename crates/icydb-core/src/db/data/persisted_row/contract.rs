@@ -506,20 +506,23 @@ where
     })
 }
 
-// Build one dense canonical slot image from already-decoded runtime values.
-// This keeps row-emission paths from re-decoding raw slot bytes when a caller
-// already owns the validated structural value cache.
-fn dense_canonical_slot_image_from_runtime_value_source<'a, F>(
-    model: &'static EntityModel,
-    slot_count: usize,
+// Build one dense canonical slot image through the selected row contract.
+// Accepted row-layout contracts encode through accepted field metadata; plain
+// generated contracts keep the existing generated-compatible fallback.
+fn dense_canonical_slot_image_from_runtime_value_source_with_row_contract<'a, F>(
+    contract: &StructuralRowContract,
     mut value_for_slot: F,
 ) -> Result<Vec<Vec<u8>>, InternalError>
 where
     F: FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
 {
-    dense_slot_image_from_source(slot_count, |slot| {
-        let field = generated_compatible_field_model_for_slot(model, slot)?;
+    dense_slot_image_from_source(contract.field_count(), |slot| {
         let value = value_for_slot(slot)?;
+        if let Some(field) = contract.accepted_field_decode_contract(slot) {
+            return encode_runtime_value_for_accepted_field_contract(field, value.as_ref());
+        }
+
+        let field = contract.generated_compatible_field_model(slot)?;
 
         encode_runtime_value_for_field_model(field, value.as_ref())
     })
@@ -599,26 +602,29 @@ where
     emit_raw_row_from_slot_payloads(slot_count, model.path(), slot_payloads.as_slice())
 }
 
-// Build and emit one canonical row from accepted-contract slot count plus
-// already-decoded runtime values. The generated model remains the write-codec
-// bridge for value encoding, but the emitted row shape comes from the accepted
-// runtime contract selected by the caller.
-pub(in crate::db::data::persisted_row) fn canonical_row_from_runtime_value_source_with_slot_count<
+// Build and emit one canonical row from runtime values using one row contract
+// as the field-codec authority. This is the accepted-schema counterpart to the
+// generated-model helper above.
+pub(in crate::db::data::persisted_row) fn canonical_row_from_runtime_value_source_with_row_contract<
     'a,
     F,
 >(
-    model: &'static EntityModel,
-    slot_count: usize,
-    entity_path: &str,
+    contract: &StructuralRowContract,
     value_for_slot: F,
 ) -> Result<CanonicalRow, InternalError>
 where
     F: FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
 {
-    let slot_payloads =
-        dense_canonical_slot_image_from_runtime_value_source(model, slot_count, value_for_slot)?;
+    let slot_payloads = dense_canonical_slot_image_from_runtime_value_source_with_row_contract(
+        contract,
+        value_for_slot,
+    )?;
 
-    emit_raw_row_from_slot_payloads(slot_count, entity_path, slot_payloads.as_slice())
+    emit_raw_row_from_slot_payloads(
+        contract.field_count(),
+        contract.entity_path(),
+        slot_payloads.as_slice(),
+    )
 }
 
 // Wrap one already-encoded canonical slot payload container in the shared row

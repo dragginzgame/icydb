@@ -131,6 +131,12 @@ impl<'a> StructuralSlotReader<'a> {
         self.contract.field_count()
     }
 
+    /// Borrow the structural row contract selected for this reader.
+    #[must_use]
+    pub(in crate::db) const fn contract(&self) -> &StructuralRowContract {
+        &self.contract
+    }
+
     /// Return whether this reader is governed by accepted persisted schema.
     #[must_use]
     pub(in crate::db) const fn has_accepted_decode_contract(&self) -> bool {

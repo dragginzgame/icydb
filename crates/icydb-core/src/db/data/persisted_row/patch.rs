@@ -13,7 +13,8 @@ use std::borrow::Cow;
 use crate::db::data::persisted_row::{
     codec::ScalarSlotValueRef,
     contract::{
-        canonical_row_from_payload_source, canonical_row_from_runtime_value_source_with_slot_count,
+        canonical_row_from_payload_source,
+        canonical_row_from_runtime_value_source_with_row_contract,
         decode_runtime_value_from_field_contract, decode_runtime_value_from_row_contract,
         encode_runtime_value_for_accepted_field_contract, encode_runtime_value_for_field_model,
     },
@@ -237,25 +238,19 @@ where
 
 /// Build one canonical row from one already-decoded structural slot reader.
 pub(in crate::db) fn canonical_row_from_structural_slot_reader(
-    model: &'static EntityModel,
     row_fields: &StructuralSlotReader<'_>,
 ) -> Result<CanonicalRow, InternalError> {
-    canonical_row_from_runtime_value_source_with_slot_count(
-        model,
-        row_fields.field_count(),
-        model.path(),
-        |slot| {
-            row_fields
-                .required_cached_value(slot)
-                .map(Cow::Borrowed)
-                .map_err(|_| {
-                    InternalError::persisted_row_encode_failed(format!(
-                        "slot {slot} is missing from the structural value cache for entity '{}'",
-                        model.path()
-                    ))
-                })
-        },
-    )
+    canonical_row_from_runtime_value_source_with_row_contract(row_fields.contract(), |slot| {
+        row_fields
+            .required_cached_value(slot)
+            .map(Cow::Borrowed)
+            .map_err(|_| {
+                InternalError::persisted_row_encode_failed(format!(
+                    "slot {slot} is missing from the structural value cache for entity '{}'",
+                    row_fields.contract().entity_path()
+                ))
+            })
+    })
 }
 
 /// Build one canonical row from raw bytes using one structural row contract.
@@ -265,13 +260,12 @@ pub(in crate::db) fn canonical_row_from_structural_slot_reader(
 /// data layer owns the exact sequence of structural decode, slot validation,
 /// and dense row emission.
 pub(in crate::db) fn canonical_row_from_raw_row_with_structural_contract(
-    model: &'static EntityModel,
     raw_row: &RawRow,
     contract: StructuralRowContract,
 ) -> Result<CanonicalRow, InternalError> {
     let row_fields = StructuralSlotReader::from_raw_row_with_validated_contract(raw_row, contract)?;
 
-    canonical_row_from_structural_slot_reader(model, &row_fields)
+    canonical_row_from_structural_slot_reader(&row_fields)
 }
 
 // Rebuild one full canonical row image from an existing raw row before it
@@ -532,17 +526,12 @@ pub(in crate::db) fn apply_serialized_structural_patch_to_raw_row_with_accepted_
         *value = decode_runtime_value_from_row_contract(&contract, slot, entry.payload())?;
     }
 
-    canonical_row_from_runtime_value_source_with_slot_count(
-        model,
-        contract.field_count(),
-        contract.entity_path(),
-        |slot| {
-            values.get(slot).map(Cow::Borrowed).ok_or_else(|| {
-                InternalError::persisted_row_encode_failed(format!(
-                    "slot {slot} is missing from accepted structural after-image for entity '{}'",
-                    contract.entity_path()
-                ))
-            })
-        },
-    )
+    canonical_row_from_runtime_value_source_with_row_contract(&contract, |slot| {
+        values.get(slot).map(Cow::Borrowed).ok_or_else(|| {
+            InternalError::persisted_row_encode_failed(format!(
+                "slot {slot} is missing from accepted structural after-image for entity '{}'",
+                contract.entity_path()
+            ))
+        })
+    })
 }

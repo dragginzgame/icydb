@@ -33,7 +33,6 @@ fn delete_before_image_bytes(
 ) -> Result<Vec<u8>, InternalError> {
     let row_layout = authority.entity.row_layout();
     let canonical = canonical_row_from_raw_row_with_structural_contract(
-        authority.entity.model(),
         raw_row,
         row_layout.contract().clone(),
     )?;
