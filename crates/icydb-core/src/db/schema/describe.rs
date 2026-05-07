@@ -1121,7 +1121,7 @@ mod tests {
 
     #[test]
     fn schema_describe_includes_generated_database_default_metadata() {
-        static DEFAULT_PAYLOAD: &[u8] = &[0x10, 7];
+        static DEFAULT_PAYLOAD: &[u8] = &[0xFF, 0x01, 7, 0, 0, 0, 0, 0, 0, 0];
         static FIELDS: [FieldModel; 2] = [
             FieldModel::generated("id", FieldKind::Ulid),
             FieldModel::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
@@ -1152,7 +1152,7 @@ mod tests {
             .find(|field| field.name() == "score")
             .expect("database-defaulted score field should be described");
 
-        assert_eq!(score_field.kind(), "uint default=slot_payload(bytes=2)");
+        assert_eq!(score_field.kind(), "uint default=slot_payload(bytes=10)");
     }
 
     #[test]

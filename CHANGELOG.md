@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.149.x] 🧬 - 2026-05-06 - Schema Defaults And Accepted Write Encoding
 
+- `0.149.3` fixes database defaults to use persisted slot payload bytes end to end and adds structural insert/replace coverage for omitted defaulted fields.
 - `0.149.2` lets supported literal field defaults become database defaults, lets `db_default = ...` override them, applies accepted defaults during structural inserts and replaces, and shows database-default metadata in schema descriptions.
 - `0.149.1` adds schema-owned encoded default payloads and lets accepted row contracts read missing appended fields from those defaults.
 - `0.149.0` starts moving structural writes onto accepted schema field contracts, so runtime values are encoded through saved database field metadata instead of generated field bridges.

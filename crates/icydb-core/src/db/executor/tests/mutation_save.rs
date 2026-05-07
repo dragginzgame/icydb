@@ -955,6 +955,20 @@ fn load_decimal_scale_entity(id: Ulid) -> Option<DecimalScaleEntity> {
     })
 }
 
+fn load_database_default_write_entity(id: Ulid) -> Option<DatabaseDefaultWriteEntity> {
+    let data_key = DataKey::try_new::<DatabaseDefaultWriteEntity>(id)
+        .expect("database-default write data key should build")
+        .to_raw()
+        .expect("database-default write data key should encode");
+
+    with_data_store(SourceStore::PATH, |data_store| {
+        data_store.get(&data_key).map(|row| {
+            row.try_decode::<DatabaseDefaultWriteEntity>()
+                .expect("database-default write row decode should succeed")
+        })
+    })
+}
+
 fn accepted_structural_patch<E, I, S>(
     session: &DbSession<TestCanister>,
     fields: I,
@@ -1206,6 +1220,67 @@ crate::test_entity_schema! {
 }
 
 ///
+/// DatabaseDefaultWriteEntity
+///
+/// DatabaseDefaultWriteEntity exercises accepted-schema database-default
+/// materialization at the structural write boundary. It uses manual model
+/// storage so the test can declare a database default without relying on the
+/// derive macro's authoring surface.
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct DatabaseDefaultWriteEntity {
+    id: Ulid,
+    score: i32,
+}
+
+static DATABASE_DEFAULT_SCORE_PAYLOAD: &[u8] = &[0xFF, 0x01, 7, 0, 0, 0, 0, 0, 0, 0];
+
+crate::impl_test_entity_markers!(DatabaseDefaultWriteEntity);
+
+crate::impl_test_entity_model_storage!(
+    DatabaseDefaultWriteEntity,
+    "DatabaseDefaultWriteEntity",
+    0,
+    fields = [
+        crate::model::field::FieldModel::generated("id", FieldKind::Ulid),
+        crate::model::field::FieldModel::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
+            "score",
+            FieldKind::Int,
+            FieldStorageDecode::ByKind,
+            false,
+            None,
+            None,
+            FieldDatabaseDefault::EncodedSlotPayload(DATABASE_DEFAULT_SCORE_PAYLOAD),
+            &[],
+        ),
+    ],
+    indexes = [],
+);
+
+crate::impl_test_entity_runtime_surface!(
+    DatabaseDefaultWriteEntity,
+    Ulid,
+    "DatabaseDefaultWriteEntity",
+    MODEL_DEF
+);
+
+impl crate::traits::EntityPlacement for DatabaseDefaultWriteEntity {
+    type Store = SourceStore;
+    type Canister = TestCanister;
+}
+
+impl EntityKind for DatabaseDefaultWriteEntity {
+    const ENTITY_TAG: EntityTag = crate::testing::DATABASE_DEFAULT_WRITE_ENTITY_TAG;
+}
+
+impl crate::traits::EntityValue for DatabaseDefaultWriteEntity {
+    fn id(&self) -> Id<Self> {
+        Id::from_key(self.id)
+    }
+}
+
+///
 /// NullableAccountEventEntity
 ///
 
@@ -1350,6 +1425,14 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         SourceStore::PATH,
         prepare_row_commit_for_entity_with_structural_readers::<BoundedTextEntity>,
         validate_delete_strong_relations_for_source::<BoundedTextEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        DatabaseDefaultWriteEntity::ENTITY_TAG,
+        <DatabaseDefaultWriteEntity as crate::traits::EntitySchema>::MODEL,
+        DatabaseDefaultWriteEntity::PATH,
+        SourceStore::PATH,
+        prepare_row_commit_for_entity_with_structural_readers::<DatabaseDefaultWriteEntity>,
+        validate_delete_strong_relations_for_source::<DatabaseDefaultWriteEntity>,
     ),
     EntityRuntimeHooks::new(
         NullableAccountEventEntity::ENTITY_TAG,
@@ -3039,6 +3122,55 @@ fn structural_insert_rejects_missing_required_rust_default_fields() {
             .contains("structural patch missing required field")
             && err.message.contains("field=email"),
         "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn structural_insert_fills_omitted_database_default_fields() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let session = DbSession::new(DB);
+    let id = Ulid::from_u128(149);
+    let patch = accepted_structural_patch::<DatabaseDefaultWriteEntity, _, _>(
+        &session,
+        [("id", Value::Ulid(id))],
+    );
+
+    let inserted = session
+        .insert_structural::<DatabaseDefaultWriteEntity>(id, patch)
+        .expect("structural insert should fill omitted database default");
+
+    assert_eq!(inserted.score, 7);
+    assert_eq!(
+        load_database_default_write_entity(id).expect("inserted row should persist"),
+        DatabaseDefaultWriteEntity { id, score: 7 },
+    );
+}
+
+#[test]
+fn structural_replace_fills_omitted_database_default_fields_without_inheriting_old_values() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let session = DbSession::new(DB);
+    let id = Ulid::from_u128(150);
+    session
+        .insert(DatabaseDefaultWriteEntity { id, score: 42 })
+        .expect("baseline typed insert should succeed");
+    let patch = accepted_structural_patch::<DatabaseDefaultWriteEntity, _, _>(
+        &session,
+        [("id", Value::Ulid(id))],
+    );
+
+    let replaced = session
+        .replace_structural::<DatabaseDefaultWriteEntity>(id, patch)
+        .expect("structural replace should fill omitted database default");
+
+    assert_eq!(replaced.score, 7);
+    assert_eq!(
+        load_database_default_write_entity(id).expect("replaced row should persist"),
+        DatabaseDefaultWriteEntity { id, score: 7 },
     );
 }
 

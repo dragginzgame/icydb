@@ -1832,6 +1832,54 @@ fn accepted_row_contract_reemits_canonical_rows_with_accepted_slot_count() {
 }
 
 #[test]
+fn accepted_row_contract_reemits_defaulted_rows_with_accepted_default() {
+    let id = Ulid::from_u128(149);
+    let score_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Uint(99)));
+    let raw_row = old_two_slot_additive_raw_row_for_tests(id);
+    let accepted_decode_contract =
+        accepted_defaulted_required_score_row_decode_contract_for_tests(score_payload);
+    let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
+        &ADDITIVE_REQUIRED_MODEL,
+        accepted_decode_contract.clone(),
+    );
+    let canonical_from_reader = canonical_row_from_raw_row_with_structural_contract(
+        &ADDITIVE_REQUIRED_MODEL,
+        &raw_row,
+        contract.clone(),
+    )
+    .expect("accepted structural contract should re-emit defaulted slot count");
+    let canonical_from_patch = apply_serialized_structural_patch_to_raw_row_with_accepted_contract(
+        &ADDITIVE_REQUIRED_MODEL,
+        accepted_decode_contract,
+        &raw_row,
+        &SerializedStructuralPatch::default(),
+    )
+    .expect("accepted patch replay should re-emit defaulted slot count");
+
+    for canonical in [canonical_from_reader, canonical_from_patch] {
+        let row_payload =
+            decode_structural_row_payload(canonical.as_raw_row()).expect("decode row payload");
+        let slot_count = u16::from_be_bytes(
+            row_payload.as_ref()[0..2]
+                .try_into()
+                .expect("slot count prefix should be present"),
+        );
+        let mut reader = StructuralSlotReader::from_raw_row_with_validated_contract(
+            canonical.as_raw_row(),
+            contract.clone(),
+        )
+        .expect("canonical accepted row should reopen through accepted contract");
+
+        assert_eq!(slot_count, 3);
+        assert_eq!(
+            reader.get_value(2).expect("accepted defaulted slot"),
+            Some(Value::Uint(99)),
+        );
+    }
+}
+
+#[test]
 fn accepted_row_contract_validates_primary_key_with_accepted_contract() {
     let id = Ulid::from_u128(149);
     let raw_row = old_two_slot_additive_raw_row_for_tests(id);

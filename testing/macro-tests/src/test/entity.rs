@@ -78,7 +78,7 @@ mod tests {
 
         assert_eq!(
             literal_default.database_default(),
-            FieldDatabaseDefault::EncodedSlotPayload(&[0x11, 0, 0, 0, 0, 0, 0, 0, 3]),
+            FieldDatabaseDefault::EncodedSlotPayload(&[0xFF, 0x01, 3, 0, 0, 0, 0, 0, 0, 0]),
         );
     }
 
@@ -97,12 +97,12 @@ mod tests {
 
         assert_eq!(
             rank.database_default(),
-            FieldDatabaseDefault::EncodedSlotPayload(&[0x11, 0, 0, 0, 0, 0, 0, 0, 7]),
+            FieldDatabaseDefault::EncodedSlotPayload(&[0xFF, 0x01, 7, 0, 0, 0, 0, 0, 0, 0]),
         );
         assert_eq!(
             label.database_default(),
             FieldDatabaseDefault::EncodedSlotPayload(&[
-                0x12, 0, 0, 0, 7, b'u', b'n', b'k', b'n', b'o', b'w', b'n'
+                0xFF, 0x01, b'u', b'n', b'k', b'n', b'o', b'w', b'n'
             ]),
         );
     }

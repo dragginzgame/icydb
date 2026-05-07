@@ -126,13 +126,13 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
     /// Return the accepted field-level payload decode contract.
     #[must_use]
     pub(in crate::db) const fn decode_contract(&self) -> AcceptedFieldDecodeContract<'a> {
-        AcceptedFieldDecodeContract {
-            field_name: self.name,
-            kind: self.kind,
-            nullable: self.nullable,
-            storage_decode: self.storage_decode,
-            leaf_codec: self.leaf_codec,
-        }
+        AcceptedFieldDecodeContract::new(
+            self.name,
+            self.kind,
+            self.nullable,
+            self.storage_decode,
+            self.leaf_codec,
+        )
     }
 }
 
@@ -155,6 +155,25 @@ pub(in crate::db) struct AcceptedFieldDecodeContract<'a> {
 }
 
 impl<'a> AcceptedFieldDecodeContract<'a> {
+    /// Build one accepted field-level decode contract from persisted schema
+    /// facts selected by the owning schema module.
+    #[must_use]
+    pub(in crate::db) const fn new(
+        field_name: &'a str,
+        kind: &'a PersistedFieldKind,
+        nullable: bool,
+        storage_decode: FieldStorageDecode,
+        leaf_codec: LeafCodec,
+    ) -> Self {
+        Self {
+            field_name,
+            kind,
+            nullable,
+            storage_decode,
+            leaf_codec,
+        }
+    }
+
     /// Borrow the accepted field name that owns this decode contract.
     #[must_use]
     pub(in crate::db) const fn field_name(&self) -> &'a str {
@@ -226,13 +245,13 @@ impl OwnedAcceptedFieldDecodeContract {
     /// Borrow this owned field contract as the accepted decode contract shape.
     #[must_use]
     pub(in crate::db) const fn decode_contract(&self) -> AcceptedFieldDecodeContract<'_> {
-        AcceptedFieldDecodeContract {
-            field_name: self.field_name.as_str(),
-            kind: &self.kind,
-            nullable: self.nullable,
-            storage_decode: self.storage_decode,
-            leaf_codec: self.leaf_codec,
-        }
+        AcceptedFieldDecodeContract::new(
+            self.field_name.as_str(),
+            &self.kind,
+            self.nullable,
+            self.storage_decode,
+            self.leaf_codec,
+        )
     }
 
     /// Return the accepted missing-slot behavior for this field.

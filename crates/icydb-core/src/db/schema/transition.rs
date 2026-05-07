@@ -5,10 +5,10 @@
 
 use crate::{
     db::{
-        data::decode_structural_field_by_accepted_kind_bytes,
+        data::decode_runtime_value_from_accepted_field_contract,
         schema::{
-            FieldId, PersistedFieldSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
-            SchemaFieldSlot,
+            AcceptedFieldDecodeContract, FieldId, PersistedFieldSnapshot,
+            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
         },
     },
     value::Value,
@@ -186,7 +186,15 @@ fn field_default_payload_is_valid(field: &PersistedFieldSnapshot) -> bool {
         return false;
     };
 
-    decode_structural_field_by_accepted_kind_bytes(payload, field.kind())
+    let contract = AcceptedFieldDecodeContract::new(
+        field.name(),
+        field.kind(),
+        field.nullable(),
+        field.storage_decode(),
+        field.leaf_codec(),
+    );
+
+    decode_runtime_value_from_accepted_field_contract(contract, payload)
         .is_ok_and(|value| !matches!(value, Value::Null))
 }
 
@@ -855,7 +863,7 @@ mod tests {
             PersistedFieldKind::Uint,
             Vec::new(),
             false,
-            SchemaFieldDefault::SlotPayload(vec![0x10, 0, 0, 0, 0, 0, 0, 0, 7]),
+            SchemaFieldDefault::SlotPayload(vec![0xFF, 0x01, 7, 0, 0, 0, 0, 0, 0, 0]),
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Uint64),
         ));
@@ -1053,6 +1061,49 @@ mod tests {
                 .detail()
                 .contains("field[1] kind changed: stored=Uint generated=Text"),
             "field type drift should name the first changed field contract",
+        );
+    }
+
+    #[test]
+    fn schema_transition_policy_rejects_existing_field_default_changes() {
+        let stored = expected_snapshot();
+        let mut generated_fields = stored.fields().to_vec();
+        generated_fields[1] = PersistedFieldSnapshot::new(
+            FieldId::new(2),
+            "name".to_string(),
+            SchemaFieldSlot::new(1),
+            PersistedFieldKind::Text { max_len: None },
+            Vec::new(),
+            false,
+            SchemaFieldDefault::SlotPayload(vec![0xFF, 0x01, b'A', b'd', b'a']),
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Text),
+        );
+        let generated = PersistedSchemaSnapshot::new(
+            stored.version(),
+            stored.entity_path().to_string(),
+            stored.entity_name().to_string(),
+            stored.primary_key_field_id(),
+            stored.row_layout().clone(),
+            generated_fields,
+        );
+
+        let SchemaTransitionDecision::Rejected(rejection) =
+            decide_schema_transition(&stored, &generated)
+        else {
+            panic!("existing field default drift should be rejected");
+        };
+
+        assert_eq!(
+            rejection.kind(),
+            SchemaTransitionRejectionKind::FieldContract
+        );
+        assert!(
+            rejection
+                .detail()
+                .contains("field[1] default changed: stored=None generated=SlotPayload"),
+            "default drift should name the existing field contract: {}",
+            rejection.detail(),
         );
     }
 

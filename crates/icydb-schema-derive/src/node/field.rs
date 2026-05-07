@@ -506,7 +506,11 @@ fn database_default_slot_payload_bytes(default: &Arg, value: &Value) -> Result<V
     };
 
     match (primitive, default) {
-        (Primitive::Bool, Arg::Bool(default)) => Ok(vec![if *default { 0x03 } else { 0x02 }]),
+        (Primitive::Bool, Arg::Bool(default)) => {
+            Ok(encode_scalar_database_default_payload(&[u8::from(
+                *default,
+            )]))
+        }
         (Primitive::Text, Arg::String(default)) => {
             encode_text_database_default_payload(default.value().as_str(), value.item.max_len)
         }
@@ -562,15 +566,11 @@ fn encode_text_database_default_payload(
         ));
     }
 
-    let mut bytes = vec![0x12];
-    bytes.extend_from_slice(
-        &u32::try_from(value.len())
-            .map_err(|_| "db_default text length exceeds Structural Binary v1 limit".to_string())?
-            .to_be_bytes(),
-    );
-    bytes.extend_from_slice(value.as_bytes());
+    if u32::try_from(value.len()).is_err() {
+        return Err("db_default text length exceeds scalar slot payload limit".to_string());
+    }
 
-    Ok(bytes)
+    Ok(encode_scalar_database_default_payload(value.as_bytes()))
 }
 
 fn encode_int_database_default_payload(
@@ -594,10 +594,7 @@ fn encode_int_database_default_payload(
         ));
     }
 
-    let mut bytes = vec![0x11];
-    bytes.extend_from_slice(&value.to_be_bytes());
-
-    Ok(bytes)
+    Ok(encode_scalar_database_default_payload(&value.to_le_bytes()))
 }
 
 fn encode_uint_database_default_payload(
@@ -621,10 +618,7 @@ fn encode_uint_database_default_payload(
         ));
     }
 
-    let mut bytes = vec![0x10];
-    bytes.extend_from_slice(&value.to_be_bytes());
-
-    Ok(bytes)
+    Ok(encode_scalar_database_default_payload(&value.to_le_bytes()))
 }
 
 fn encode_float32_database_default_payload(value: &ArgNumber) -> Result<Vec<u8>, String> {
@@ -632,10 +626,9 @@ fn encode_float32_database_default_payload(value: &ArgNumber) -> Result<Vec<u8>,
         ArgNumber::Float32(value) => *value,
         _ => return Err("db_default for primitive Float32 requires a float literal".to_string()),
     };
-    let mut bytes = vec![0x14];
-    bytes.extend_from_slice(&value.to_be_bytes());
-
-    Ok(bytes)
+    Ok(encode_scalar_database_default_payload(
+        &value.to_bits().to_le_bytes(),
+    ))
 }
 
 fn encode_float64_database_default_payload(value: &ArgNumber) -> Result<Vec<u8>, String> {
@@ -644,10 +637,18 @@ fn encode_float64_database_default_payload(value: &ArgNumber) -> Result<Vec<u8>,
         ArgNumber::Float64(value) => *value,
         _ => return Err("db_default for primitive Float64 requires a float literal".to_string()),
     };
-    let mut bytes = vec![0x15];
-    bytes.extend_from_slice(&value.to_be_bytes());
+    Ok(encode_scalar_database_default_payload(
+        &value.to_bits().to_le_bytes(),
+    ))
+}
 
-    Ok(bytes)
+fn encode_scalar_database_default_payload(payload: &[u8]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(payload.len() + 2);
+    bytes.push(0xFF);
+    bytes.push(0x01);
+    bytes.extend_from_slice(payload);
+
+    bytes
 }
 
 fn arg_number_to_i64(value: &ArgNumber) -> Option<i64> {
@@ -1076,7 +1077,7 @@ mod tests {
 
         assert_eq!(
             payload,
-            vec![0x12, 0, 0, 0, 5, b'g', b'u', b'e', b's', b't'],
+            vec![0xFF, 0x01, b'g', b'u', b'e', b's', b't'],
             "literal construction default should encode as the database default",
         );
     }
@@ -1111,8 +1112,8 @@ mod tests {
 
         assert_eq!(
             payload,
-            vec![0x12, 0, 0, 0, 7, b'u', b'n', b'k', b'n', b'o', b'w', b'n'],
-            "db_default should encode the canonical Structural Binary text payload",
+            vec![0xFF, 0x01, b'u', b'n', b'k', b'n', b'o', b'w', b'n'],
+            "db_default should encode the canonical persisted scalar slot payload",
         );
     }
 
