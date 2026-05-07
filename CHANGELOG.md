@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.149.x] 🧬 - 2026-05-06 - Schema Defaults And Accepted Write Encoding
 
+- `0.149.6` separates accepted and generated row-read and structural-save helpers, reducing mixed schema-authority branches during direct projection, row decoding, and write staging.
 - `0.149.5` separates accepted and generated structural row encoding, so accepted writes no longer carry generated field fallbacks inside the same paths.
 - `0.149.4` makes accepted old-row rebuilds encode through the selected row contract, reducing generated field bridge use during schema-default transitions.
 - `0.149.3` fixes database defaults to use persisted slot payload bytes end to end and adds structural insert/replace coverage for omitted defaulted fields.

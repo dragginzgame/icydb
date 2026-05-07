@@ -373,14 +373,38 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         };
 
         if let Some(accepted_row_decode_contract) = accepted_row_decode_contract {
-            return apply_serialized_structural_patch_to_raw_row_with_accepted_contract(
-                E::MODEL,
-                accepted_row_decode_contract,
+            return Self::build_structural_update_after_image_row_with_accepted_contract(
+                mutation,
                 old_row,
-                mutation.serialized_slots(),
+                accepted_row_decode_contract,
             );
         }
 
+        Self::build_structural_update_after_image_row_with_generated_contract(mutation, old_row)
+    }
+
+    // Build a sparse structural update after-image through the accepted row
+    // contract selected for the mutation. Older short physical rows materialize
+    // missing accepted slots before the sparse patch overlay is applied.
+    fn build_structural_update_after_image_row_with_accepted_contract(
+        mutation: &MutationInput,
+        old_row: &RawRow,
+        accepted_row_decode_contract: AcceptedRowDecodeContract,
+    ) -> Result<CanonicalRow, InternalError> {
+        apply_serialized_structural_patch_to_raw_row_with_accepted_contract(
+            E::MODEL,
+            accepted_row_decode_contract,
+            old_row,
+            mutation.serialized_slots(),
+        )
+    }
+
+    // Build a sparse structural update after-image through the generated row
+    // contract used by compatibility callers without accepted schema metadata.
+    fn build_structural_update_after_image_row_with_generated_contract(
+        mutation: &MutationInput,
+        old_row: &RawRow,
+    ) -> Result<CanonicalRow, InternalError> {
         old_row.apply_serialized_structural_patch(E::MODEL, mutation.serialized_slots())
     }
 
@@ -400,9 +424,30 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         old_row: &RawRow,
         accepted_row_decode_contract: Option<&AcceptedRowDecodeContract>,
     ) -> Result<Vec<u8>, InternalError> {
-        let Some(accepted_row_decode_contract) = accepted_row_decode_contract else {
-            return Ok(old_row.clone().into_bytes());
-        };
+        if let Some(accepted_row_decode_contract) = accepted_row_decode_contract {
+            return Self::build_structural_before_image_bytes_with_accepted_contract(
+                old_row,
+                accepted_row_decode_contract,
+            );
+        }
+
+        Ok(Self::build_structural_before_image_bytes_with_generated_contract(old_row))
+    }
+
+    // Build one generated-layout before image for commit markers. Generated
+    // callers can reuse the raw row bytes directly because they already match
+    // the current generated row contract.
+    fn build_structural_before_image_bytes_with_generated_contract(old_row: &RawRow) -> Vec<u8> {
+        old_row.clone().into_bytes()
+    }
+
+    // Build one accepted-layout before image for commit markers. Accepted
+    // callers normalize older physical rows into the current generated-compatible
+    // dense layout before commit preflight sees them.
+    fn build_structural_before_image_bytes_with_accepted_contract(
+        old_row: &RawRow,
+        accepted_row_decode_contract: &AcceptedRowDecodeContract,
+    ) -> Result<Vec<u8>, InternalError> {
         let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
             E::MODEL,
             accepted_row_decode_contract.clone(),

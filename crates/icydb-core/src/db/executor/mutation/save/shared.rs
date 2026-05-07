@@ -75,16 +75,52 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         row: &RawRow,
         accepted_row_decode_contract: Option<&AcceptedRowDecodeContract>,
     ) -> Result<(), InternalError> {
-        let result = if let Some(accepted_row_decode_contract) = accepted_row_decode_contract {
+        if let Some(accepted_row_decode_contract) = accepted_row_decode_contract {
+            return Self::validate_existing_row_identity_with_accepted_contract(
+                data_key,
+                row,
+                accepted_row_decode_contract,
+            );
+        }
+
+        Self::validate_existing_row_identity_with_generated_contract(data_key, row)
+    }
+
+    // Decode an existing generated-layout row and verify it is consistent with
+    // the target data key before mutation staging treats it as the before image.
+    fn validate_existing_row_identity_with_generated_contract(
+        data_key: &DataKey,
+        row: &RawRow,
+    ) -> Result<(), InternalError> {
+        Self::map_existing_row_identity_error(
+            data_key,
+            Self::ensure_persisted_row_invariants(data_key, row),
+        )
+    }
+
+    // Decode an existing accepted-layout row and verify it is consistent with
+    // the target data key before mutation staging treats it as the before image.
+    fn validate_existing_row_identity_with_accepted_contract(
+        data_key: &DataKey,
+        row: &RawRow,
+        accepted_row_decode_contract: &AcceptedRowDecodeContract,
+    ) -> Result<(), InternalError> {
+        Self::map_existing_row_identity_error(
+            data_key,
             Self::ensure_persisted_row_invariants_with_accepted_contract(
                 data_key,
                 row,
                 accepted_row_decode_contract.clone(),
-            )
-        } else {
-            Self::ensure_persisted_row_invariants(data_key, row)
-        };
+            ),
+        )
+    }
 
+    // Preserve the existing row-identity error taxonomy while allowing accepted
+    // and generated validation lanes to stay branch-free.
+    fn map_existing_row_identity_error(
+        data_key: &DataKey,
+        result: Result<(), InternalError>,
+    ) -> Result<(), InternalError> {
         result.map_err(|err| match (err.class(), err.origin()) {
             (
                 crate::error::ErrorClass::Corruption,

@@ -306,33 +306,61 @@ impl<'a> StructuralSlotReader<'a> {
         &self,
         slot: usize,
     ) -> Result<Value, InternalError> {
+        if self.contract.has_accepted_decode_contract() {
+            return self.required_direct_projection_value_with_accepted_contract(slot);
+        }
+
+        self.required_direct_projection_value_with_generated_contract(slot)
+    }
+
+    // Project one direct value through accepted row metadata. The scalar
+    // value-storage shortcut is attempted only from accepted field contracts;
+    // cache materialization remains the fallback for mismatched value-storage
+    // tags.
+    fn required_direct_projection_value_with_accepted_contract(
+        &self,
+        slot: usize,
+    ) -> Result<Value, InternalError> {
         // Phase 1: value-storage scalar fields can project directly from the
         // validated byte view when the persisted tag matches the declared
         // scalar kind. Mismatches fall through to preserve the existing
         // permissive `FieldStorageDecode::Value` materialization behavior.
-        if let Some(accepted_field) = self.contract.accepted_field_decode_contract(slot) {
-            if let Some(value) =
+        if let Some(accepted_field) = self.contract.accepted_field_decode_contract(slot)
+            && let Some(value) =
                 self.required_accepted_value_storage_scalar(slot, accepted_field)?
+        {
+            #[cfg(any(test, feature = "diagnostics"))]
             {
-                #[cfg(any(test, feature = "diagnostics"))]
-                {
-                    self.metrics.record_materialized_non_scalar();
-                }
-
-                return Ok(scalar_slot_value_ref_into_value(value));
+                self.metrics.record_materialized_non_scalar();
             }
-        } else {
-            let field = self.contract.field_decode_contract(slot)?;
-            if matches!(field.storage_decode(), FieldStorageDecode::Value)
-                && let Some(value) = self.required_value_storage_scalar(slot)?
+
+            return Ok(scalar_slot_value_ref_into_value(value));
+        }
+
+        self.required_value_by_contract(slot)
+    }
+
+    // Project one direct value through generated-compatible field metadata.
+    // Accepted rows use the helper above so this compatibility lane no longer
+    // branches on accepted schema contracts inside the projection path.
+    fn required_direct_projection_value_with_generated_contract(
+        &self,
+        slot: usize,
+    ) -> Result<Value, InternalError> {
+        // Phase 1: value-storage scalar fields can project directly from the
+        // validated byte view when the persisted tag matches the declared
+        // scalar kind. Mismatches fall through to preserve the existing
+        // permissive `FieldStorageDecode::Value` materialization behavior.
+        let field = self.contract.field_decode_contract(slot)?;
+        if matches!(field.storage_decode(), FieldStorageDecode::Value)
+            && let Some(value) = self.required_value_storage_scalar(slot)?
+        {
+            #[cfg(any(test, feature = "diagnostics"))]
             {
-                #[cfg(any(test, feature = "diagnostics"))]
-                {
-                    self.metrics.record_materialized_non_scalar();
-                }
-
-                return Ok(scalar_slot_value_ref_into_value(value));
+                self.metrics.record_materialized_non_scalar();
             }
+
+            return Ok(scalar_slot_value_ref_into_value(value));
         }
 
         self.required_value_by_contract(slot)
@@ -554,6 +582,51 @@ impl<'a> StructuralSlotReader<'a> {
 
         Ok(())
     }
+
+    // Read a direct value-storage scalar through accepted field metadata only.
+    fn required_value_storage_scalar_with_accepted_contract(
+        &self,
+        slot: usize,
+    ) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
+        let Some(accepted_field) = self.contract.accepted_field_decode_contract(slot) else {
+            return Ok(None);
+        };
+
+        self.required_accepted_value_storage_scalar(slot, accepted_field)
+    }
+
+    // Read a direct value-storage scalar through generated-compatible field
+    // metadata only.
+    fn required_value_storage_scalar_with_generated_contract(
+        &self,
+        slot: usize,
+    ) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
+        let field = self.contract.field_decode_contract(slot)?;
+        if !matches!(field.storage_decode(), FieldStorageDecode::Value) {
+            return Ok(None);
+        }
+
+        let raw_value = self.required_field_bytes(slot, field.name())?;
+        let view = ValueStorageView::from_raw_validated(raw_value).map_err(|err| {
+            InternalError::persisted_row_field_kind_decode_failed(field.name(), field.kind(), err)
+        })?;
+
+        let value = if view.is_null() {
+            Some(ScalarSlotValueRef::Null)
+        } else {
+            Self::try_value_storage_non_null_scalar_slot_value(field, &view)?
+        };
+
+        if value.is_some() {
+            #[cfg(any(test, feature = "diagnostics"))]
+            {
+                self.metrics.record_validated_slot();
+                self.metrics.record_validated_non_scalar();
+            }
+        }
+
+        Ok(value)
+    }
 }
 
 impl SlotReader for StructuralSlotReader<'_> {
@@ -630,35 +703,11 @@ impl CanonicalSlotReader for StructuralSlotReader<'_> {
         &self,
         slot: usize,
     ) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
-        if let Some(accepted_field) = self.contract.accepted_field_decode_contract(slot) {
-            return self.required_accepted_value_storage_scalar(slot, accepted_field);
+        if self.contract.has_accepted_decode_contract() {
+            return self.required_value_storage_scalar_with_accepted_contract(slot);
         }
 
-        let field = self.field_decode_contract(slot)?;
-        if !matches!(field.storage_decode(), FieldStorageDecode::Value) {
-            return Ok(None);
-        }
-
-        let raw_value = self.required_field_bytes(slot, field.name())?;
-        let view = ValueStorageView::from_raw_validated(raw_value).map_err(|err| {
-            InternalError::persisted_row_field_kind_decode_failed(field.name(), field.kind(), err)
-        })?;
-
-        let value = if view.is_null() {
-            Some(ScalarSlotValueRef::Null)
-        } else {
-            Self::try_value_storage_non_null_scalar_slot_value(field, &view)?
-        };
-
-        if value.is_some() {
-            #[cfg(any(test, feature = "diagnostics"))]
-            {
-                self.metrics.record_validated_slot();
-                self.metrics.record_validated_non_scalar();
-            }
-        }
-
-        Ok(value)
+        self.required_value_storage_scalar_with_generated_contract(slot)
     }
 
     fn required_value_by_contract(&self, slot: usize) -> Result<Value, InternalError> {

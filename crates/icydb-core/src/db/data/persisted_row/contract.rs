@@ -109,10 +109,35 @@ pub(in crate::db) fn decode_runtime_value_from_row_contract(
     slot: usize,
     raw_value: &[u8],
 ) -> Result<Value, InternalError> {
-    if let Some(accepted_field) = contract.accepted_field_decode_contract(slot) {
-        return decode_runtime_value_from_accepted_field_contract(accepted_field, raw_value);
+    if contract.has_accepted_decode_contract() {
+        return decode_runtime_value_from_accepted_row_contract(contract, slot, raw_value);
     }
 
+    decode_runtime_value_from_generated_row_contract(contract, slot, raw_value)
+}
+
+// Decode one slot through accepted row metadata only.
+fn decode_runtime_value_from_accepted_row_contract(
+    contract: &StructuralRowContract,
+    slot: usize,
+    raw_value: &[u8],
+) -> Result<Value, InternalError> {
+    let Some(accepted_field) = contract.accepted_field_decode_contract(slot) else {
+        return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
+            contract.entity_path(),
+            slot,
+        ));
+    };
+
+    decode_runtime_value_from_accepted_field_contract(accepted_field, raw_value)
+}
+
+// Decode one slot through generated-compatible field metadata only.
+fn decode_runtime_value_from_generated_row_contract(
+    contract: &StructuralRowContract,
+    slot: usize,
+    raw_value: &[u8],
+) -> Result<Value, InternalError> {
     let field = contract.field_decode_contract(slot)?;
 
     decode_runtime_value_from_field_contract(field, raw_value)
@@ -131,20 +156,57 @@ pub(in crate::db) fn decode_scalar_slot_value_from_row_contract<'raw>(
     accepted_non_scalar_context: &str,
     generated_non_scalar_context: &str,
 ) -> Result<ScalarSlotValueRef<'raw>, InternalError> {
-    if let Some(accepted_field) = contract.accepted_field_decode_contract(slot) {
-        let LeafCodec::Scalar(codec) = accepted_field.leaf_codec() else {
-            return Err(InternalError::persisted_row_decode_failed(format!(
-                "{accepted_non_scalar_context}: slot={slot}",
-            )));
-        };
-
-        return decode_scalar_slot_value(raw_value, codec, accepted_field.field_name());
+    if contract.has_accepted_decode_contract() {
+        return decode_scalar_slot_value_from_accepted_row_contract(
+            contract,
+            slot,
+            raw_value,
+            accepted_non_scalar_context,
+        );
     }
 
+    decode_scalar_slot_value_from_generated_row_contract(
+        contract,
+        slot,
+        raw_value,
+        generated_non_scalar_context,
+    )
+}
+
+// Decode one scalar slot through accepted row metadata only.
+fn decode_scalar_slot_value_from_accepted_row_contract<'raw>(
+    contract: &StructuralRowContract,
+    slot: usize,
+    raw_value: &'raw [u8],
+    non_scalar_context: &str,
+) -> Result<ScalarSlotValueRef<'raw>, InternalError> {
+    let Some(accepted_field) = contract.accepted_field_decode_contract(slot) else {
+        return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
+            contract.entity_path(),
+            slot,
+        ));
+    };
+
+    let LeafCodec::Scalar(codec) = accepted_field.leaf_codec() else {
+        return Err(InternalError::persisted_row_decode_failed(format!(
+            "{non_scalar_context}: slot={slot}",
+        )));
+    };
+
+    decode_scalar_slot_value(raw_value, codec, accepted_field.field_name())
+}
+
+// Decode one scalar slot through generated-compatible field metadata only.
+fn decode_scalar_slot_value_from_generated_row_contract<'raw>(
+    contract: &StructuralRowContract,
+    slot: usize,
+    raw_value: &'raw [u8],
+    non_scalar_context: &str,
+) -> Result<ScalarSlotValueRef<'raw>, InternalError> {
     let field = contract.field_decode_contract(slot)?;
     let LeafCodec::Scalar(codec) = field.leaf_codec() else {
         return Err(InternalError::persisted_row_decode_failed(format!(
-            "{generated_non_scalar_context}: slot={slot}",
+            "{non_scalar_context}: slot={slot}",
         )));
     };
 
@@ -889,10 +951,38 @@ pub(in crate::db) fn validate_non_scalar_slot_value_with_row_contract(
     slot: usize,
     raw_value: &[u8],
 ) -> Result<(), InternalError> {
-    if let Some(accepted_field) = contract.accepted_field_decode_contract(slot) {
-        return validate_non_scalar_accepted_slot_value(raw_value, accepted_field);
+    if contract.has_accepted_decode_contract() {
+        return validate_non_scalar_slot_value_with_accepted_row_contract(
+            contract, slot, raw_value,
+        );
     }
 
+    validate_non_scalar_slot_value_with_generated_row_contract(contract, slot, raw_value)
+}
+
+// Validate one non-scalar slot through accepted row metadata only.
+fn validate_non_scalar_slot_value_with_accepted_row_contract(
+    contract: &StructuralRowContract,
+    slot: usize,
+    raw_value: &[u8],
+) -> Result<(), InternalError> {
+    let Some(accepted_field) = contract.accepted_field_decode_contract(slot) else {
+        return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
+            contract.entity_path(),
+            slot,
+        ));
+    };
+
+    validate_non_scalar_accepted_slot_value(raw_value, accepted_field)
+}
+
+// Validate one non-scalar slot through generated-compatible field metadata
+// only.
+fn validate_non_scalar_slot_value_with_generated_row_contract(
+    contract: &StructuralRowContract,
+    slot: usize,
+    raw_value: &[u8],
+) -> Result<(), InternalError> {
     let field = contract.field_decode_contract(slot)?;
 
     validate_non_scalar_slot_value(raw_value, field)

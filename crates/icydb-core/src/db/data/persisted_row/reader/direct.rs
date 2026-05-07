@@ -282,9 +282,9 @@ fn decode_selected_slot_value(
     )
 }
 
-// Decode one caller-selected slot through accepted field contracts when the
-// row contract carries them, falling back to the generated-compatible contract
-// for generated-only row layouts and primary-key materialization.
+// Decode one caller-selected slot after choosing the row-shape authority once.
+// Accepted rows use accepted field contracts only; generated rows use the
+// generated-compatible field contract lane below.
 fn decode_slot_with_contract(
     contract: &StructuralRowContract,
     slot: usize,
@@ -293,18 +293,56 @@ fn decode_slot_with_contract(
     is_primary: bool,
     probe: &StructuralReadProbe,
 ) -> Result<Value, InternalError> {
-    if is_primary {
-        if let Some(accepted_field) = contract.accepted_field_decode_contract(slot) {
-            return materialize_primary_key_slot_value_from_expected_key_with_accepted_field(
-                accepted_field,
-                expected_key,
-                probe,
-            );
-        }
-    } else if let Some(accepted_field) = contract.accepted_field_decode_contract(slot) {
-        return decode_slot_with_accepted_field(accepted_field, raw_value, probe);
+    if contract.has_accepted_decode_contract() {
+        return decode_slot_with_accepted_contract(
+            contract,
+            slot,
+            raw_value,
+            expected_key,
+            is_primary,
+            probe,
+        );
     }
 
+    decode_slot_with_generated_contract(contract, slot, raw_value, expected_key, is_primary, probe)
+}
+
+// Decode one caller-selected slot through accepted field contracts only.
+fn decode_slot_with_accepted_contract(
+    contract: &StructuralRowContract,
+    slot: usize,
+    raw_value: &[u8],
+    expected_key: StorageKey,
+    is_primary: bool,
+    probe: &StructuralReadProbe,
+) -> Result<Value, InternalError> {
+    let Some(accepted_field) = contract.accepted_field_decode_contract(slot) else {
+        return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
+            contract.entity_path(),
+            slot,
+        ));
+    };
+
+    if is_primary {
+        return materialize_primary_key_slot_value_from_expected_key_with_accepted_field(
+            accepted_field,
+            expected_key,
+            probe,
+        );
+    }
+
+    decode_slot_with_accepted_field(accepted_field, raw_value, probe)
+}
+
+// Decode one caller-selected slot through generated-compatible field metadata.
+fn decode_slot_with_generated_contract(
+    contract: &StructuralRowContract,
+    slot: usize,
+    raw_value: &[u8],
+    expected_key: StorageKey,
+    is_primary: bool,
+    probe: &StructuralReadProbe,
+) -> Result<Value, InternalError> {
     let field = contract.field_decode_contract(slot)?;
 
     decode_slot_with_field(field, raw_value, expected_key, is_primary, probe)

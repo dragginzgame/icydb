@@ -14,7 +14,7 @@ use crate::{
             Context,
             mutation::{emit_index_delta_metrics, mutation_write_context},
         },
-        schema::commit_schema_fingerprint_for_entity,
+        schema::{AcceptedRowDecodeContract, commit_schema_fingerprint_for_entity},
     },
     error::InternalError,
     metrics::sink::{ExecKind, Span},
@@ -92,14 +92,35 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // updates must not pass old short rows into commit preflight because index
     // and relation delta planning consume generated-compatible dense rows.
     fn build_typed_before_image_bytes(&self, old_row: RawRow) -> Result<Vec<u8>, InternalError> {
-        let Some(accepted_row_decode_contract) = &self.accepted_row_decode_contract else {
-            return Ok(old_row.into_bytes());
-        };
+        if let Some(accepted_row_decode_contract) = &self.accepted_row_decode_contract {
+            return Self::build_typed_before_image_bytes_with_accepted_contract(
+                &old_row,
+                accepted_row_decode_contract,
+            );
+        }
+
+        Ok(Self::build_typed_before_image_bytes_with_generated_contract(old_row))
+    }
+
+    // Build one generated-layout before image for typed commit markers. The
+    // stored row can be reused directly because no accepted schema overlay is
+    // required.
+    fn build_typed_before_image_bytes_with_generated_contract(old_row: RawRow) -> Vec<u8> {
+        old_row.into_bytes()
+    }
+
+    // Build one accepted-layout before image for typed commit markers. Older
+    // physical rows are normalized into the current generated-compatible dense
+    // layout before index and relation delta planning consume them.
+    fn build_typed_before_image_bytes_with_accepted_contract(
+        old_row: &RawRow,
+        accepted_row_decode_contract: &AcceptedRowDecodeContract,
+    ) -> Result<Vec<u8>, InternalError> {
         let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
             E::MODEL,
             accepted_row_decode_contract.clone(),
         );
-        let canonical = canonical_row_from_raw_row_with_structural_contract(&old_row, contract)?;
+        let canonical = canonical_row_from_raw_row_with_structural_contract(old_row, contract)?;
 
         Ok(canonical.into_raw_row().into_bytes())
     }
