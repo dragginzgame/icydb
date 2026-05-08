@@ -16,12 +16,13 @@ use crate::{
     model::entity::EntityModel,
 };
 
-/// Bind one lowered global aggregate EXPLAIN shape onto the structural query
-/// surface when the explain command carries that specialized form.
-pub(crate) fn bind_lowered_sql_explain_global_aggregate_structural(
+/// Bind one lowered global aggregate EXPLAIN shape with explicit schema
+/// projection.
+pub(crate) fn bind_lowered_sql_explain_global_aggregate_structural_with_schema(
     lowered: &LoweredSqlCommand,
     model: &'static EntityModel,
     consistency: MissingRowPolicy,
+    schema: &SchemaInfo,
 ) -> Result<Option<(SqlExplainMode, bool, SqlGlobalAggregateCommandCore)>, SqlLoweringError> {
     let LoweredSqlCommandInner::ExplainGlobalAggregate {
         mode,
@@ -39,7 +40,7 @@ pub(crate) fn bind_lowered_sql_explain_global_aggregate_structural(
             model,
             command.clone(),
             consistency,
-            SchemaInfo::cached_for_entity_model(model),
+            schema,
         )?,
     )))
 }

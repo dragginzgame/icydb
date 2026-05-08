@@ -42,7 +42,7 @@ pub(crate) use aggregate::{
     PreparedSqlScalarAggregatePlanFragment, PreparedSqlScalarAggregateStrategy,
 };
 pub(crate) use aggregate::{
-    SqlGlobalAggregateCommandCore, bind_lowered_sql_explain_global_aggregate_structural,
+    SqlGlobalAggregateCommandCore, bind_lowered_sql_explain_global_aggregate_structural_with_schema,
 };
 pub(in crate::db::sql::lowering) use analysis::{LoweredExprAnalysis, analyze_lowered_expr};
 #[cfg(test)]
@@ -59,15 +59,17 @@ pub(crate) use prepare::{
 pub(crate) use select::LoweredDeleteShape;
 pub(in crate::db::sql::lowering) use select::LoweredSqlFilter;
 #[cfg(test)]
+pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape;
+pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape_with_schema;
+#[cfg(test)]
 pub(in crate::db) use select::apply_lowered_select_shape;
 #[cfg(test)]
 pub(in crate::db) use select::bind_lowered_sql_query;
+pub(in crate::db::sql::lowering) use select::validate_base_query_sql_capabilities;
 pub(crate) use select::{LoweredBaseQueryShape, LoweredSelectShape};
-pub(in crate::db::sql::lowering) use select::{
-    apply_lowered_base_query_shape, validate_base_query_sql_capabilities,
-};
 pub(in crate::db) use select::{
-    bind_lowered_sql_delete_query_structural_with_schema, bind_lowered_sql_query_structural,
+    bind_lowered_sql_delete_query_structural_with_schema,
+    bind_lowered_sql_query_structural_with_schema,
     bind_lowered_sql_select_query_structural_with_schema,
     bind_sql_update_selector_query_structural_with_schema,
 };

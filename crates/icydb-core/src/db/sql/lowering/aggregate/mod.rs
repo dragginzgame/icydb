@@ -18,7 +18,7 @@ pub(in crate::db::sql::lowering) use command::{
     LoweredSqlGlobalAggregateCommand, lower_global_aggregate_select_shape,
 };
 pub(crate) use command::{
-    SqlGlobalAggregateCommandCore, bind_lowered_sql_explain_global_aggregate_structural,
+    SqlGlobalAggregateCommandCore, bind_lowered_sql_explain_global_aggregate_structural_with_schema,
 };
 #[cfg(test)]
 pub(in crate::db::sql::lowering) use command::{

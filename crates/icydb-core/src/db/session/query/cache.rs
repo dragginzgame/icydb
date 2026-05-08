@@ -215,18 +215,19 @@ impl<C: CanisterKind> DbSession<C> {
         let schema_fingerprint =
             accepted_schema_cache_fingerprint_for_model(authority.model(), &accepted_schema)
                 .map_err(QueryError::execute)?;
+        let schema_info =
+            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), &accepted_schema);
         if query.trivial_scalar_load_fast_path_eligible() {
             return self.cached_trivial_scalar_load_plan_for_authority(
                 authority,
                 schema_fingerprint,
+                schema_info,
                 visibility,
                 query,
             );
         }
 
         let visible_indexes = Self::visible_indexes_for_model(authority.model(), visibility);
-        let schema_info =
-            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), &accepted_schema);
         let planning_state = query.prepare_scalar_planning_state_with_schema_info(schema_info)?;
         let normalized_predicate_fingerprint = planning_state
             .normalized_predicate()
@@ -298,6 +299,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         authority: EntityAuthority,
         schema_fingerprint: CommitSchemaFingerprint,
+        schema_info: SchemaInfo,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
@@ -345,7 +347,8 @@ impl<C: CanisterKind> DbSession<C> {
             );
         }
 
-        let Some(plan) = query.try_build_trivial_scalar_load_plan()? else {
+        let Some(plan) = query.try_build_trivial_scalar_load_plan_with_schema_info(schema_info)?
+        else {
             return Err(QueryError::invariant(
                 "trivial scalar load fast path lost eligibility during plan build",
             ));

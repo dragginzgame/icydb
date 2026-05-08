@@ -12,11 +12,12 @@ use crate::db::{
         GroupedDistinctExecutionStrategy, LogicalPlan, PlannerRouteProfile,
         access_choice::{
             non_index_access_choice_snapshot_for_access_plan,
-            project_access_choice_explain_snapshot_with_indexes,
+            project_access_choice_explain_snapshot_with_indexes_and_schema,
         },
         expr::{CompiledExpr, Expr, ProjectionSelection, ProjectionSpec},
         model::OrderDirection,
     },
+    schema::SchemaInfo,
 };
 use crate::{
     error::InternalError,
@@ -513,12 +514,31 @@ impl AccessPlannedQuery {
         model: &EntityModel,
         visible_indexes: &[&'static IndexModel],
     ) {
+        self.finalize_access_choice_for_model_with_indexes_and_schema(
+            model,
+            visible_indexes,
+            SchemaInfo::cached_for_entity_model(model),
+        );
+    }
+
+    /// Freeze one explain-only access-choice snapshot with explicit schema
+    /// authority.
+    pub(in crate::db) fn finalize_access_choice_for_model_with_indexes_and_schema(
+        &mut self,
+        model: &EntityModel,
+        visible_indexes: &[&'static IndexModel],
+        schema_info: &SchemaInfo,
+    ) {
         if self.access.selected_index_model().is_none() {
             return;
         }
 
-        self.access_choice =
-            project_access_choice_explain_snapshot_with_indexes(model, visible_indexes, self);
+        self.access_choice = project_access_choice_explain_snapshot_with_indexes_and_schema(
+            model,
+            visible_indexes,
+            schema_info,
+            self,
+        );
     }
 
     /// Borrow the frozen planner-owned route profile.

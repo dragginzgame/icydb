@@ -292,10 +292,12 @@ impl StructuralQuery {
             )
     }
 
-    pub(in crate::db) fn try_build_trivial_scalar_load_plan(
+    pub(in crate::db) fn try_build_trivial_scalar_load_plan_with_schema_info(
         &self,
+        schema_info: SchemaInfo,
     ) -> Result<Option<AccessPlannedQuery>, QueryError> {
-        self.intent.try_build_trivial_scalar_load_plan()
+        self.intent
+            .try_build_trivial_scalar_load_plan_with_schema_info(schema_info)
     }
 
     #[must_use]

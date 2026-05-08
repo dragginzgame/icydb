@@ -47,10 +47,13 @@ pub(in crate::db) use self::model::{
 /// one explicit planner-visible index set.
 ///
 
+/// Project planner-owned access-choice candidate metadata for EXPLAIN using
+/// explicit schema authority.
 #[must_use]
-pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
+pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes_and_schema(
     model: &EntityModel,
     visible_indexes: &[&'static IndexModel],
+    schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> AccessChoiceExplainSnapshot {
     // Phase 1: classify chosen access family and reuse one already-frozen
@@ -65,8 +68,6 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
     let Some(chosen_index_name) = chosen_index_name else {
         return AccessChoiceExplainSnapshot::selected_index_not_projected();
     };
-
-    let schema_info = SchemaInfo::cached_for_entity_model(model);
 
     let predicate = plan.scalar_plan().predicate.as_ref();
     let order = plan.scalar_plan().order.as_ref();

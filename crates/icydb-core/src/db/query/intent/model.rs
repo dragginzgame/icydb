@@ -23,7 +23,7 @@ use crate::{
                 },
                 group_aggregate_spec_expr, grouped_having_compare_expr,
                 prepare_query_model_scalar_planning_state_with_schema_info,
-                resolve_group_field_slot, try_build_trivial_scalar_load_plan,
+                resolve_group_field_slot, try_build_trivial_scalar_load_plan_with_schema_info,
             },
         },
         schema::SchemaInfo,
@@ -464,10 +464,11 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
         )
     }
 
-    pub(in crate::db::query::intent) fn try_build_trivial_scalar_load_plan(
+    pub(in crate::db::query::intent) fn try_build_trivial_scalar_load_plan_with_schema_info(
         &self,
+        schema_info: SchemaInfo,
     ) -> Result<Option<AccessPlannedQuery>, QueryError> {
-        try_build_trivial_scalar_load_plan(self)
+        try_build_trivial_scalar_load_plan_with_schema_info(self, schema_info)
     }
 
     pub(in crate::db::query::intent) fn prepare_scalar_planning_state_with_schema_info(

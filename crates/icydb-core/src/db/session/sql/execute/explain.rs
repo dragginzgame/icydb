@@ -17,6 +17,7 @@ use crate::{
             intent::StructuralQuery,
             plan::AccessPlannedQuery,
         },
+        schema::SchemaInfo,
         session::{
             query::{QueryPlanCacheAttribution, query_plan_cache_reuse_event},
             sql::projection::annotate_sql_projection_debug_on_execution_descriptor,
@@ -24,8 +25,8 @@ use crate::{
         sql::{
             lowering::{
                 LoweredSqlCommand, LoweredSqlLaneKind, SqlGlobalAggregateCommandCore,
-                bind_lowered_sql_explain_global_aggregate_structural,
-                bind_lowered_sql_query_structural, lowered_sql_command_lane,
+                bind_lowered_sql_explain_global_aggregate_structural_with_schema,
+                bind_lowered_sql_query_structural_with_schema, lowered_sql_command_lane,
             },
             parser::SqlExplainMode,
         },
@@ -124,17 +125,26 @@ impl<C: CanisterKind> DbSession<C> {
             return Err(QueryError::unsupported_query(message));
         }
 
-        if let Some(rendered) =
-            self.render_lowered_sql_explain_plan_or_json_for_authority(lowered, authority.clone())?
-        {
+        let accepted_schema = self
+            .ensure_accepted_schema_snapshot_for_authority(&authority)
+            .map_err(QueryError::execute)?;
+        let schema_info =
+            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), &accepted_schema);
+
+        if let Some(rendered) = self.render_lowered_sql_explain_plan_or_json_for_authority(
+            lowered,
+            authority.clone(),
+            &schema_info,
+        )? {
             return Ok(rendered);
         }
 
         if let Some((mode, verbose, command)) =
-            bind_lowered_sql_explain_global_aggregate_structural(
+            bind_lowered_sql_explain_global_aggregate_structural_with_schema(
                 lowered,
                 authority.model(),
                 MissingRowPolicy::Ignore,
+                &schema_info,
             )
             .map_err(QueryError::from_sql_lowering_error)?
         {
@@ -154,6 +164,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         lowered: &LoweredSqlCommand,
         authority: EntityAuthority,
+        schema_info: &SchemaInfo,
     ) -> Result<Option<String>, QueryError> {
         let Some((mode, _, query)) = lowered.explain_query() else {
             return Ok(None);
@@ -162,10 +173,11 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(None);
         }
 
-        let structural = bind_lowered_sql_query_structural(
+        let structural = bind_lowered_sql_query_structural_with_schema(
             authority.model(),
             query.clone(),
             MissingRowPolicy::Ignore,
+            schema_info,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
         let (rendered, _) = self.try_map_cached_sql_query_explain_plan_for_authority(
@@ -200,10 +212,16 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(None);
         };
 
-        let structural = bind_lowered_sql_query_structural(
+        let accepted_schema = self
+            .ensure_accepted_schema_snapshot_for_authority(&authority)
+            .map_err(QueryError::execute)?;
+        let schema_info =
+            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), &accepted_schema);
+        let structural = bind_lowered_sql_query_structural_with_schema(
             authority.model(),
             query.clone(),
             MissingRowPolicy::Ignore,
+            &schema_info,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
         if verbose {
@@ -211,9 +229,10 @@ impl<C: CanisterKind> DbSession<C> {
                 self.cached_sql_query_explain_plan_for_authority(authority.clone(), &structural)?;
             let visible_indexes =
                 self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
-            plan.finalize_access_choice_for_model_with_indexes(
+            plan.finalize_access_choice_for_model_with_indexes_and_schema(
                 authority.model(),
                 visible_indexes.as_slice(),
+                &schema_info,
             );
             let diagnostics = structural
                 .finalized_execution_diagnostics_from_plan_with_descriptor_mutator(

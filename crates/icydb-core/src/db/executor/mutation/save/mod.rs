@@ -186,16 +186,16 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     pub(in crate::db) fn new(db: Db<E::Canister>, _debug: bool) -> Self {
         let accepted_row_decode_contract =
             AcceptedRowDecodeContract::from_generated_model_for_tests(E::MODEL);
-        let accepted_schema_info = SchemaInfo::cached_for_entity_model(E::MODEL).clone();
-        let accepted_schema_fingerprint = {
-            let proposal = crate::db::schema::compiled_schema_proposal_for_model(E::MODEL);
-            let accepted = crate::db::schema::AcceptedSchemaSnapshot::try_new(
-                proposal.initial_persisted_schema_snapshot(),
-            )
-            .expect("test save executor schema snapshot should be accepted");
+        let proposal = crate::db::schema::compiled_schema_proposal_for_model(E::MODEL);
+        let accepted = crate::db::schema::AcceptedSchemaSnapshot::try_new(
+            proposal.initial_persisted_schema_snapshot(),
+        )
+        .expect("test save executor schema snapshot should be accepted");
+        let accepted_schema_info =
+            SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted);
+        let accepted_schema_fingerprint =
             crate::db::schema::accepted_commit_schema_fingerprint_for_model(E::MODEL, &accepted)
-                .expect("test save executor schema fingerprint should derive")
-        };
+                .expect("test save executor schema fingerprint should derive");
 
         Self {
             db,

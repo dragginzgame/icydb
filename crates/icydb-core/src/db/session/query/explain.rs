@@ -13,6 +13,7 @@ use crate::{
             ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, ExplainPlan,
         },
         query::plan::{AccessPlannedQuery, QueryMode, VisibleIndexes},
+        schema::SchemaInfo,
         session::query::{QueryPlanCacheAttribution, query_plan_cache_reuse_event},
     },
     traits::{CanisterKind, EntityKind, EntityValue},
@@ -58,10 +59,18 @@ impl<C: CanisterKind> DbSession<C> {
         let (prepared_plan, cache_attribution) =
             self.cached_shared_query_plan_for_entity::<E>(query)?;
         let mut plan = prepared_plan.logical_plan().clone();
+        let accepted_schema = self
+            .ensure_accepted_schema_snapshot::<E>()
+            .map_err(QueryError::execute)?;
+        let schema_info = SchemaInfo::from_accepted_snapshot_for_model(
+            query.structural().model(),
+            &accepted_schema,
+        );
 
-        plan.finalize_access_choice_for_model_with_indexes(
+        plan.finalize_access_choice_for_model_with_indexes_and_schema(
             query.structural().model(),
             visible_indexes.as_slice(),
+            &schema_info,
         );
 
         Ok((plan, cache_attribution))

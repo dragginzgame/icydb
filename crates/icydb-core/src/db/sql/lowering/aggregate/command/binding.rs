@@ -1,4 +1,6 @@
 #[cfg(test)]
+use crate::db::sql::lowering::apply_lowered_base_query_shape;
+#[cfg(test)]
 use crate::{db::query::intent::Query, traits::EntityKind};
 use crate::{
     db::{
@@ -17,7 +19,7 @@ use crate::{
                     },
                     strategy::PreparedSqlScalarAggregateStrategy,
                 },
-                apply_lowered_base_query_shape, validate_base_query_sql_capabilities,
+                apply_lowered_base_query_shape_with_schema, validate_base_query_sql_capabilities,
             },
             parser::SqlStatement,
         },
@@ -194,7 +196,11 @@ impl LoweredSqlGlobalAggregateCommand {
         validate_base_query_sql_capabilities(schema, &query)?;
 
         Ok(SqlGlobalAggregateCommandCore {
-            query: apply_lowered_base_query_shape(StructuralQuery::new(model, consistency), query),
+            query: apply_lowered_base_query_shape_with_schema(
+                StructuralQuery::new(model, consistency),
+                query,
+                schema,
+            ),
             strategies,
             projection,
             having,

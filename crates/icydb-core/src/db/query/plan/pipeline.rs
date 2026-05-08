@@ -188,8 +188,23 @@ where
 }
 
 /// Build the no-predicate scalar-load fast path when the query shape is trivial.
+#[cfg(test)]
 pub(in crate::db::query) fn try_build_trivial_scalar_load_plan<K>(
     query: &QueryModel<'_, K>,
+) -> Result<Option<AccessPlannedQuery>, QueryError>
+where
+    K: KeyValueCodec,
+{
+    try_build_trivial_scalar_load_plan_with_schema_info(
+        query,
+        SchemaInfo::cached_for_entity_model(query.model()).clone(),
+    )
+}
+
+/// Build the no-predicate scalar-load fast path using explicit schema authority.
+pub(in crate::db::query) fn try_build_trivial_scalar_load_plan_with_schema_info<K>(
+    query: &QueryModel<'_, K>,
+    schema_info: SchemaInfo,
 ) -> Result<Option<AccessPlannedQuery>, QueryError>
 where
     K: KeyValueCodec,
@@ -224,7 +239,7 @@ where
     // Phase 3: preserve the finalized planner/executor contracts produced by
     // the general pipeline for this same simple shape.
     plan.finalize_planner_route_profile_for_model(query.model());
-    plan.finalize_static_planning_shape_for_model(query.model())
+    plan.finalize_static_planning_shape_for_model_with_schema(query.model(), &schema_info)
         .map_err(QueryError::execute)?;
 
     Ok(Some(plan))
