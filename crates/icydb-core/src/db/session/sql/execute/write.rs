@@ -597,7 +597,7 @@ impl<C: CanisterKind> DbSession<C> {
                         MutationMode::Insert,
                         rows,
                         write_context,
-                        Some(mutation_row_decode_contract),
+                        mutation_row_decode_contract,
                     )
                 },
                 std::convert::identity,
@@ -658,7 +658,7 @@ impl<C: CanisterKind> DbSession<C> {
                         MutationMode::Update,
                         rows,
                         write_context,
-                        Some(mutation_row_decode_contract),
+                        mutation_row_decode_contract,
                     )
                 },
                 std::convert::identity,

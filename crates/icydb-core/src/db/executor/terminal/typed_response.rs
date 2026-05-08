@@ -6,7 +6,7 @@
 use crate::{
     db::{
         PersistedRow,
-        data::{DataKey, DataRow, RawRow, decode_raw_row_for_entity_key},
+        data::{DataKey, DataRow, RawRow, decode_raw_row_for_entity_key_with_contract},
         executor::{CursorPage, PageCursor, terminal::RowLayout},
         response::{EntityResponse, Row},
     },
@@ -34,11 +34,9 @@ where
     Ok(EntityResponse::new(decoded_rows))
 }
 
-// Decode one structural data row into one typed entity.
-//
-// Current-layout rows stay on the ordinary generated typed decoder. If that
-// fails, accepted-schema plans get one structural normalization attempt so old
-// append-only nullable rows can still cross the public typed response boundary.
+// Decode one structural data row into one typed entity through the row layout
+// chosen by the session boundary. Accepted-schema layouts can materialize old
+// append-only rows directly without first trying a generated-only decode.
 pub(in crate::db::executor) fn decode_data_row_entity_with_layout<E>(
     row_layout: &RowLayout,
     data_key: &DataKey,
@@ -47,16 +45,11 @@ pub(in crate::db::executor) fn decode_data_row_entity_with_layout<E>(
 where
     E: PersistedRow + EntityValue,
 {
-    match decode_raw_row_for_entity_key::<E>(data_key, raw_row) {
-        Ok(decoded) => Ok(decoded),
-        Err(original_err) => {
-            let canonical = row_layout
-                .canonical_row_from_raw_row(raw_row)?
-                .into_raw_row();
-
-            decode_raw_row_for_entity_key::<E>(data_key, &canonical).map_err(|_| original_err)
-        }
-    }
+    decode_raw_row_for_entity_key_with_contract::<E>(
+        data_key,
+        raw_row,
+        row_layout.contract().clone(),
+    )
 }
 
 // Decode one structural data row into one typed response row.

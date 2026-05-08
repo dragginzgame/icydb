@@ -178,7 +178,7 @@ fn row_layout_can_be_frozen_from_accepted_row_decode_contract() {
 
     assert_eq!(layout.field_count(), RowDecodeEntity::MODEL.fields().len());
     assert_eq!(
-        layout.primary_key_slot(),
+        layout.contract().primary_key_slot(),
         RowDecodeEntity::MODEL.primary_key_slot()
     );
 }

@@ -20,22 +20,6 @@ use crate::{
 };
 
 impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
-    // Resolve the "before" row through generated row invariants. Callers use
-    // this only after selecting generated schema authority for the mutation
-    // lane, so row lookup does not inspect accepted-schema state internally.
-    pub(super) fn resolve_existing_row_for_rule_with_generated_contract(
-        ctx: &Context<'_, E>,
-        data_key: &DataKey,
-        save_rule: SaveRule,
-    ) -> Result<Option<RawRow>, InternalError> {
-        Self::resolve_existing_row_for_rule_with_identity_validator(
-            ctx,
-            data_key,
-            save_rule,
-            Self::validate_existing_row_identity_with_generated_contract,
-        )
-    }
-
     // Resolve the "before" row through the accepted row contract selected from
     // the stored schema snapshot. This keeps accepted identity validation
     // explicit at the mutation lane boundary instead of optional inside lookup.
@@ -96,18 +80,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 Ok(old_row)
             }
         }
-    }
-
-    // Decode an existing generated-layout row and verify it is consistent with
-    // the target data key before mutation staging treats it as the before image.
-    fn validate_existing_row_identity_with_generated_contract(
-        data_key: &DataKey,
-        row: &RawRow,
-    ) -> Result<(), InternalError> {
-        Self::map_existing_row_identity_error(
-            data_key,
-            Self::ensure_persisted_row_invariants(data_key, row),
-        )
     }
 
     // Decode an existing accepted-layout row and verify it is consistent with

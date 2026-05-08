@@ -1,5 +1,7 @@
 #[cfg(any(test, feature = "diagnostics"))]
 use crate::db::data::persisted_row::reader::metrics;
+#[cfg(test)]
+use crate::model::entity::EntityModel;
 use crate::{
     db::{
         data::{
@@ -26,10 +28,7 @@ use crate::{
         schema::{AcceptedFieldDecodeContract, PersistedFieldKind},
     },
     error::InternalError,
-    model::{
-        entity::EntityModel,
-        field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
-    },
+    model::field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
     value::{StorageKey, Value},
 };
 use std::{borrow::Cow, cell::OnceCell};
@@ -64,6 +63,7 @@ pub(in crate::db) struct StructuralSlotReader<'a> {
 
 impl<'a> StructuralSlotReader<'a> {
     /// Build one slot reader over one persisted row using the current structural row scanner.
+    #[cfg(test)]
     pub(in crate::db) fn from_raw_row(
         raw_row: &'a RawRow,
         model: &'static EntityModel,
@@ -108,6 +108,7 @@ impl<'a> StructuralSlotReader<'a> {
 
     // Build one slot reader over one persisted row from a generated model by
     // immediately projecting that model into the structural row contract.
+    #[cfg(test)]
     pub(in crate::db) fn from_raw_row_with_model(
         raw_row: &'a RawRow,
         model: &'static EntityModel,

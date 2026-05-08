@@ -3,20 +3,18 @@
 //! Does not own: commit-window apply mechanics or relation metadata ownership.
 //! Boundary: validation-only helpers invoked before save commit planning.
 
+#[cfg(test)]
+use crate::model::field::FieldKind;
 use crate::{
     db::{
         PersistedRow,
-        data::{
-            CanonicalSlotReader, DataKey, RawRow, StructuralPatch, StructuralRowContract,
-            StructuralSlotReader,
-        },
-        executor::{EntityAuthority, mutation::save::SaveExecutor, terminal::RowLayout},
+        data::{DataKey, RawRow, StructuralPatch, StructuralRowContract, StructuralSlotReader},
+        executor::{EntityAuthority, mutation::save::SaveExecutor},
         predicate::canonical_cmp,
         relation::validate_save_strong_relations,
         schema::{AcceptedRowDecodeContract, PersistedFieldKind, SchemaInfo, literal_matches_type},
     },
     error::InternalError,
-    model::field::{FieldKind, normalize_decimal_scale_for_storage},
     sanitize::{SanitizeWriteContext, sanitize_with_context},
     traits::EntityValue,
     validate::validate,
@@ -25,20 +23,6 @@ use crate::{
 use std::cmp::Ordering;
 
 impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
-    // Enforce generated-contract scalar bounds before structural patch values
-    // are serialized into persisted-row payloads. This keeps user-authored
-    // structural writes on the same executor error taxonomy as typed writes
-    // without consulting accepted schema metadata in generated lanes.
-    pub(in crate::db::executor::mutation) fn validate_structural_patch_write_bounds_with_generated_contract(
-        patch: &StructuralPatch,
-    ) -> Result<(), InternalError> {
-        let authority = EntityAuthority::for_type::<E>();
-        Self::validate_structural_patch_write_bounds_for_generated_row_contract(
-            patch,
-            authority.row_layout().contract(),
-        )
-    }
-
     // Enforce accepted-contract scalar bounds before structural patch values are
     // serialized into persisted-row payloads. The accepted lane uses only the
     // selected schema snapshot's field contracts, so out-of-range slots fail
@@ -86,41 +70,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         Ok(())
     }
 
-    // Enforce write-boundary scalar bounds for generated-only structural patch
-    // input. This keeps typed compatibility callers on generated field
-    // metadata without mixing accepted-schema lookup into the loop.
-    fn validate_structural_patch_write_bounds_for_generated_row_contract(
-        patch: &StructuralPatch,
-        contract: &StructuralRowContract,
-    ) -> Result<(), InternalError> {
-        for entry in patch.entries() {
-            let slot = entry.slot().index();
-            let field = contract.field_decode_contract(slot)?;
-            let field_name = field.name();
-            let field_kind = field.kind();
-
-            Self::validate_decimal_scale_is_normalizable(field_name, &field_kind, entry.value())?;
-            Self::validate_text_max_len(field_name, &field_kind, entry.value())?;
-        }
-
-        Ok(())
-    }
-
-    // Validate one persisted row against the current write-boundary invariants
-    // without rebuilding a typed entity first.
-    pub(in crate::db::executor::mutation) fn ensure_persisted_row_invariants(
-        data_key: &DataKey,
-        row: &RawRow,
-    ) -> Result<(), InternalError> {
-        let authority = EntityAuthority::for_type::<E>();
-        let schema = authority.schema_info();
-        let row_layout = authority.row_layout();
-        let row_fields = row_layout.open_raw_row_with_contract(row)?;
-        row_fields.validate_storage_key(data_key)?;
-
-        Self::validate_structural_row_invariants(&row_fields, schema)
-    }
-
     // Validate one persisted row through an accepted row-decode contract before
     // structural updates use it as a baseline. This keeps old short rows inside
     // the accepted-schema path while preserving the same storage-key and field
@@ -138,7 +87,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let row_fields = StructuralSlotReader::from_raw_row_with_validated_contract(row, contract)?;
         row_fields.validate_storage_key(data_key)?;
 
-        Self::validate_structural_row_invariants(&row_fields, schema)
+        Self::validate_structural_row_invariants_with_accepted_contract(&row_fields, schema)
     }
 
     // Load the trusted generated schema view for one entity type.
@@ -180,13 +129,10 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             return Ok(());
         };
 
-        let missing_fields = match self.accepted_row_decode_contract() {
-            Some(accepted_contract) => Self::missing_authored_fields_with_accepted_contract(
-                accepted_contract,
-                authored_create_slots,
-            ),
-            None => Self::missing_authored_fields_with_generated_contract(authored_create_slots),
-        };
+        let missing_fields = Self::missing_authored_fields_with_accepted_contract(
+            self.accepted_row_decode_contract(),
+            authored_create_slots,
+        );
 
         if missing_fields.is_empty() {
             return Ok(());
@@ -219,37 +165,15 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             .collect()
     }
 
-    // Resolve missing authored fields from generated metadata for legacy
-    // generated-only save lanes that have not selected accepted schema
-    // authority.
-    fn missing_authored_fields_with_generated_contract(
-        authored_create_slots: &[usize],
-    ) -> Vec<String> {
-        EntityAuthority::for_type::<E>()
-            .fields()
-            .iter()
-            .enumerate()
-            .filter(|(_, field)| field.insert_generation().is_none())
-            .filter(|(_, field)| field.write_management().is_none())
-            .filter(|(index, _)| !authored_create_slots.contains(index))
-            .map(|(_, field)| field.name().to_string())
-            .collect()
-    }
-
     // Enforce trait boundary invariants for user-provided entities.
     fn validate_entity_invariants(
         &self,
         entity: &E,
         schema: &SchemaInfo,
     ) -> Result<(), InternalError> {
-        let authority = EntityAuthority::for_type::<E>();
-        let (primary_key_name, pk_field_index) = match self.accepted_row_decode_contract() {
-            Some(accepted_contract) => Self::accepted_primary_key_field(accepted_contract)?,
-            None => (
-                authority.primary_key_name(),
-                authority.row_layout().primary_key_slot(),
-            ),
-        };
+        let accepted_contract = self.accepted_row_decode_contract();
+        let (primary_key_name, pk_field_index) =
+            Self::accepted_primary_key_field(accepted_contract)?;
 
         // Phase 1: validate primary key field presence and *shape*.
         let pk_value = entity.get_value_by_index(pk_field_index).ok_or_else(|| {
@@ -289,19 +213,11 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         }
 
         // Phase 2: validate field presence and runtime value shapes.
-        if let Some(accepted_contract) = self.accepted_row_decode_contract() {
-            Self::validate_entity_field_invariants_with_accepted_contract(
-                entity,
-                schema,
-                accepted_contract,
-            )?;
-        } else {
-            Self::validate_entity_field_invariants_with_generated_contract(
-                entity,
-                schema,
-                authority.row_layout(),
-            )?;
-        }
+        Self::validate_entity_field_invariants_with_accepted_contract(
+            entity,
+            schema,
+            accepted_contract,
+        )?;
 
         Ok(())
     }
@@ -362,60 +278,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         Ok(())
     }
 
-    // Validate typed entity field values against generated schema field facts
-    // only for generated-only save lanes. Accepted lanes use the accepted
-    // contract helper above to avoid drifting from selected persisted schema.
-    fn validate_entity_field_invariants_with_generated_contract(
-        entity: &E,
-        schema: &SchemaInfo,
-        row_layout: RowLayout,
-    ) -> Result<(), InternalError> {
-        for field_index in 0..row_layout.field_count() {
-            let field = row_layout.contract().field_decode_contract(field_index)?;
-            let field_name = field.name();
-            let field_kind = field.kind();
-
-            let value = entity.get_value_by_index(field_index).ok_or_else(|| {
-                InternalError::mutation_entity_field_missing(
-                    E::PATH,
-                    field_name,
-                    schema.field_is_indexed(field_name),
-                )
-            })?;
-
-            if matches!(value, Value::Null | Value::Unit) {
-                // Null = absent, Unit = singleton sentinel; both skip type checks.
-                continue;
-            }
-
-            // Phase 3: enforce runtime shape, scalar bounds, and deterministic
-            // collection/map encodings for user-authored values.
-            Self::validate_authored_field_value_invariants(
-                schema,
-                field_name,
-                &field_kind,
-                &value,
-            )?;
-        }
-
-        Ok(())
-    }
-
-    // Enforce the persisted-row write invariants directly on the structural row
-    // reader after row-shape and primary-key validation have already succeeded.
-    fn validate_structural_row_invariants(
-        row_fields: &StructuralSlotReader<'_>,
-        schema: &SchemaInfo,
-    ) -> Result<(), InternalError> {
-        if row_fields.has_accepted_decode_contract() {
-            return Self::validate_structural_row_invariants_with_accepted_contract(
-                row_fields, schema,
-            );
-        }
-
-        Self::validate_structural_row_invariants_with_generated_contract(row_fields, schema)
-    }
-
     // Validate an already materialized accepted-schema structural row against
     // the saved field contracts selected for this read/write boundary.
     fn validate_structural_row_invariants_with_accepted_contract(
@@ -449,52 +311,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         Ok(())
     }
 
-    // Validate an already materialized generated-schema structural row against
-    // generated field metadata. Accepted rows use the accepted-contract helper
-    // above instead of falling through this compatibility lane.
-    fn validate_structural_row_invariants_with_generated_contract(
-        row_fields: &StructuralSlotReader<'_>,
-        schema: &SchemaInfo,
-    ) -> Result<(), InternalError> {
-        for field_index in 0..row_fields.field_count() {
-            let value = row_fields.required_cached_value(field_index)?;
-
-            if matches!(value, Value::Null | Value::Unit) {
-                // Null = absent, Unit = singleton sentinel; both skip type checks.
-                continue;
-            }
-
-            // Phase 1: enforce runtime shape, exact scalar bounds, and
-            // deterministic collection/map encodings for persisted rows.
-            let field = row_fields.field_decode_contract(field_index)?;
-            Self::validate_persisted_field_value_invariants(
-                schema,
-                field.name(),
-                &field.kind(),
-                value,
-            )?;
-        }
-
-        Ok(())
-    }
-
-    // Validate a user-authored runtime field value before write encoding can
-    // normalize fixed-scale decimal values into the persisted field shape.
-    fn validate_authored_field_value_invariants(
-        schema: &SchemaInfo,
-        field_name: &'static str,
-        field_kind: &FieldKind,
-        value: &Value,
-    ) -> Result<(), InternalError> {
-        if !Self::validate_queryable_field_value_shape(schema, field_name, field_kind, value)? {
-            return Ok(());
-        }
-
-        Self::validate_decimal_scale_is_normalizable(field_name, field_kind, value)?;
-        Self::validate_text_max_len(field_name, field_kind, value)?;
-        Self::validate_deterministic_field_value(field_name, field_kind, value)
-    }
-
     // Validate one typed entity field value against accepted schema field facts.
     // Authored typed values still pass through write encoding after this check,
     // so decimal scale validation uses the normalizable rule rather than the
@@ -516,24 +332,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         Self::validate_persisted_deterministic_field_value(field_name, field_kind, value)
     }
 
-    // Validate an already materialized persisted row value. These values have
-    // already passed storage decode, so decimal scale must be exact rather than
-    // merely normalizable.
-    fn validate_persisted_field_value_invariants(
-        schema: &SchemaInfo,
-        field_name: &'static str,
-        field_kind: &FieldKind,
-        value: &Value,
-    ) -> Result<(), InternalError> {
-        if !Self::validate_queryable_field_value_shape(schema, field_name, field_kind, value)? {
-            return Ok(());
-        }
-
-        Self::validate_decimal_scale_exact(field_name, field_kind, value)?;
-        Self::validate_text_max_len(field_name, field_kind, value)?;
-        Self::validate_deterministic_field_value(field_name, field_kind, value)
-    }
-
     // Validate one accepted-schema persisted row value against the saved field
     // kind. Generated `FieldKind` remains the typed write fallback only when no
     // accepted row contract is attached.
@@ -552,35 +350,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         Self::validate_persisted_decimal_scale_exact(field_name, field_kind, value)?;
         Self::validate_persisted_text_max_len(field_name, field_kind, value)?;
         Self::validate_persisted_deterministic_field_value(field_name, field_kind, value)
-    }
-
-    // Enforce the shared query-visible field shape checks used by both
-    // user-authored entity values and structural persisted-row validation.
-    fn validate_queryable_field_value_shape(
-        schema: &SchemaInfo,
-        field_name: &'static str,
-        field_kind: &FieldKind,
-        value: &Value,
-    ) -> Result<bool, InternalError> {
-        if !field_kind.value_kind().is_queryable() {
-            // Non-queryable structured fields are not planner-addressable.
-            return Ok(false);
-        }
-
-        let Some(field_type) = schema.field(field_name) else {
-            // Runtime-only field; treat as non-queryable.
-            return Ok(false);
-        };
-
-        if !literal_matches_type(value, field_type) && !field_kind.accepts_value(value) {
-            return Err(InternalError::mutation_entity_field_type_mismatch(
-                E::PATH,
-                field_name,
-                value,
-            ));
-        }
-
-        Ok(true)
     }
 
     // Enforce the query-visible field shape checks using accepted persisted
@@ -612,112 +381,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         }
 
         Ok(true)
-    }
-
-    /// Accept authored decimal values that can be normalized to fixed field scale.
-    fn validate_decimal_scale_is_normalizable(
-        field_name: &'static str,
-        kind: &FieldKind,
-        value: &Value,
-    ) -> Result<(), InternalError> {
-        if matches!(value, Value::Null | Value::Unit) {
-            return Ok(());
-        }
-
-        match (kind, value) {
-            (FieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
-                normalize_decimal_scale_for_storage(*kind, value)
-                    .map(|_| ())
-                    .map_err(|_| {
-                        InternalError::mutation_decimal_scale_mismatch(
-                            E::PATH,
-                            field_name,
-                            scale,
-                            decimal.scale(),
-                        )
-                    })
-            }
-            (FieldKind::Relation { key_kind, .. }, value) => {
-                Self::validate_decimal_scale_is_normalizable(field_name, key_kind, value)
-            }
-            (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => {
-                for item in items {
-                    Self::validate_decimal_scale_is_normalizable(field_name, inner, item)?;
-                }
-
-                Ok(())
-            }
-            (
-                FieldKind::Map {
-                    key,
-                    value: map_value,
-                },
-                Value::Map(entries),
-            ) => {
-                for (entry_key, entry_value) in entries {
-                    Self::validate_decimal_scale_is_normalizable(field_name, key, entry_key)?;
-                    Self::validate_decimal_scale_is_normalizable(
-                        field_name,
-                        map_value,
-                        entry_value,
-                    )?;
-                }
-
-                Ok(())
-            }
-            _ => Ok(()),
-        }
-    }
-
-    /// Enforce fixed decimal scales across already persisted structural values.
-    fn validate_decimal_scale_exact(
-        field_name: &'static str,
-        kind: &FieldKind,
-        value: &Value,
-    ) -> Result<(), InternalError> {
-        if matches!(value, Value::Null | Value::Unit) {
-            return Ok(());
-        }
-
-        match (kind, value) {
-            (FieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
-                if decimal.scale() != *scale {
-                    return Err(InternalError::mutation_decimal_scale_mismatch(
-                        E::PATH,
-                        field_name,
-                        scale,
-                        decimal.scale(),
-                    ));
-                }
-
-                Ok(())
-            }
-            (FieldKind::Relation { key_kind, .. }, value) => {
-                Self::validate_decimal_scale_exact(field_name, key_kind, value)
-            }
-            (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => {
-                for item in items {
-                    Self::validate_decimal_scale_exact(field_name, inner, item)?;
-                }
-
-                Ok(())
-            }
-            (
-                FieldKind::Map {
-                    key,
-                    value: map_value,
-                },
-                Value::Map(entries),
-            ) => {
-                for (entry_key, entry_value) in entries {
-                    Self::validate_decimal_scale_exact(field_name, key, entry_key)?;
-                    Self::validate_decimal_scale_exact(field_name, map_value, entry_value)?;
-                }
-
-                Ok(())
-            }
-            _ => Ok(()),
-        }
     }
 
     // Accept authored decimal values against accepted persisted schema
@@ -847,58 +510,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         }
     }
 
-    /// Enforce bounded text lengths across scalar and nested collection values.
-    fn validate_text_max_len(
-        field_name: &str,
-        kind: &FieldKind,
-        value: &Value,
-    ) -> Result<(), InternalError> {
-        if matches!(value, Value::Null | Value::Unit) {
-            return Ok(());
-        }
-
-        match (kind, value) {
-            (FieldKind::Text { max_len: Some(max) }, Value::Text(text)) => {
-                let actual_len = text.chars().count();
-                if actual_len > *max as usize {
-                    return Err(InternalError::mutation_text_max_len_exceeded(
-                        E::PATH,
-                        field_name,
-                        max,
-                        actual_len,
-                    ));
-                }
-
-                Ok(())
-            }
-            (FieldKind::Relation { key_kind, .. }, value) => {
-                Self::validate_text_max_len(field_name, key_kind, value)
-            }
-            (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => {
-                for item in items {
-                    Self::validate_text_max_len(field_name, inner, item)?;
-                }
-
-                Ok(())
-            }
-            (
-                FieldKind::Map {
-                    key,
-                    value: map_value,
-                },
-                Value::Map(entries),
-            ) => {
-                for (entry_key, entry_value) in entries {
-                    Self::validate_text_max_len(field_name, key, entry_key)?;
-                    Self::validate_text_max_len(field_name, map_value, entry_value)?;
-                }
-
-                Ok(())
-            }
-            _ => Ok(()),
-        }
-    }
-
     /// Enforce accepted persisted-schema text bounds across nested values.
     fn validate_persisted_text_max_len(
         field_name: &str,
@@ -955,6 +566,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     }
 
     /// Enforce deterministic value encodings for collection-like field kinds.
+    #[cfg(test)]
     pub(in crate::db::executor) fn validate_deterministic_field_value(
         field_name: &str,
         kind: &FieldKind,

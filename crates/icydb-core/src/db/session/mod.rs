@@ -146,11 +146,7 @@ impl<C: CanisterKind> DbSession<C> {
                 return Err(error);
             }
         };
-        let value = self.with_metrics(|| {
-            op(self
-                .save_executor::<E>()
-                .with_accepted_row_decode_contract(contract))
-        })?;
+        let value = self.with_metrics(|| op(self.save_executor::<E>(contract)))?;
 
         Ok(map(value))
     }
@@ -168,11 +164,8 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let value = self.with_metrics(|| {
-            op(self
-                .save_executor::<E>()
-                .with_accepted_row_decode_contract(accepted_row_decode_contract))
-        })?;
+        let value =
+            self.with_metrics(|| op(self.save_executor::<E>(accepted_row_decode_contract)))?;
 
         Ok(map(value))
     }
@@ -510,10 +503,13 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[must_use]
-    pub(in crate::db) const fn save_executor<E>(&self) -> SaveExecutor<E>
+    pub(in crate::db) const fn save_executor<E>(
+        &self,
+        accepted_row_decode_contract: AcceptedRowDecodeContract,
+    ) -> SaveExecutor<E>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        SaveExecutor::new(self.db, self.debug)
+        SaveExecutor::new_with_accepted_contract(self.db, self.debug, accepted_row_decode_contract)
     }
 }

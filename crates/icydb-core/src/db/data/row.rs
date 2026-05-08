@@ -3,17 +3,19 @@
 //! Does not own: row-key encoding, commit-window ordering, or index updates.
 //! Boundary: data::store persists RawRow values produced by higher layers.
 
+#[cfg(test)]
 use crate::{
-    db::{
-        codec::MAX_ROW_BYTES,
-        data::{
-            DataKey, PersistedRow, SerializedStructuralPatch, StructuralSlotReader,
-            apply_serialized_structural_patch_to_raw_row, canonical_row_from_entity,
-            persisted_row::canonical_row_from_complete_serialized_structural_patch,
+    db::data::{
+        PersistedRow, SerializedStructuralPatch, StructuralSlotReader,
+        persisted_row::{
+            canonical_row_from_complete_serialized_structural_patch, canonical_row_from_entity,
         },
     },
-    error::InternalError,
     model::entity::EntityModel,
+};
+use crate::{
+    db::{codec::MAX_ROW_BYTES, data::DataKey},
+    error::InternalError,
     traits::Storable,
 };
 use canic_cdk::structures::storable::Bound;
@@ -54,6 +56,7 @@ impl CanonicalRow {
     }
 
     /// Encode one full typed entity into canonical persisted row bytes.
+    #[cfg(test)]
     pub(in crate::db) fn from_entity<E>(entity: &E) -> Result<Self, InternalError>
     where
         E: PersistedRow,
@@ -62,6 +65,7 @@ impl CanonicalRow {
     }
 
     /// Build one canonical row from one complete serialized slot image.
+    #[cfg(test)]
     pub(in crate::db) fn from_complete_serialized_structural_patch(
         model: &'static EntityModel,
         patch: &SerializedStructuralPatch,
@@ -100,6 +104,7 @@ impl From<RawRowError> for InternalError {
 /// Logical / format errors during decode.
 ///
 
+#[cfg(test)]
 #[derive(Debug, ThisError)]
 pub(in crate::db) enum RowDecodeError {
     #[error("row failed to deserialize: {source}")]
@@ -139,20 +144,12 @@ impl RawRow {
     }
 
     /// Build one raw row from one complete serialized slot image.
+    #[cfg(test)]
     pub(in crate::db) fn from_complete_serialized_structural_patch(
         model: &'static EntityModel,
         patch: &SerializedStructuralPatch,
     ) -> Result<CanonicalRow, InternalError> {
         CanonicalRow::from_complete_serialized_structural_patch(model, patch)
-    }
-
-    /// Apply one pre-serialized structural patch through the persisted-row boundary.
-    pub(in crate::db) fn apply_serialized_structural_patch(
-        &self,
-        model: &'static EntityModel,
-        patch: &SerializedStructuralPatch,
-    ) -> Result<CanonicalRow, InternalError> {
-        apply_serialized_structural_patch_to_raw_row(model, self, patch)
     }
 
     #[must_use]
@@ -167,6 +164,7 @@ impl RawRow {
     }
 
     /// Decode into an entity.
+    #[cfg(test)]
     pub(in crate::db) fn try_decode<E: PersistedRow>(&self) -> Result<E, RowDecodeError> {
         // Keep deserialize failures structured so callers can classify decode
         // boundary errors without parsing free-form strings.

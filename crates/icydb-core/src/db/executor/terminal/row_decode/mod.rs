@@ -78,12 +78,6 @@ impl RowLayout {
         self.contract.field_count()
     }
 
-    /// Borrow the frozen primary-key slot authority carried by this layout.
-    #[must_use]
-    pub(in crate::db) const fn primary_key_slot(&self) -> usize {
-        self.contract.primary_key_slot()
-    }
-
     /// Borrow the frozen structural row contract carried by this layout.
     #[must_use]
     pub(in crate::db) const fn contract(&self) -> &StructuralRowContract {

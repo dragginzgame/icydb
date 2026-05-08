@@ -69,22 +69,29 @@ fn prepared_row_write_payloads_stay_canonical() {
         "prepared row commit ops must not regress to RawRow after-images",
     );
     assert!(
-        typed_save.contains("let row_bytes = CanonicalRow::from_entity(entity)?"),
-        "typed save after-image construction must stay CanonicalRow-backed",
+        typed_save.contains("canonical_row_from_entity_with_accepted_contract(")
+            && !typed_save.contains("CanonicalRow::from_entity(entity)?"),
+        "typed save after-image construction must use accepted-contract row emission",
     );
     assert!(
         structural_save
             .contains("fn build_structural_update_after_image_row_with_accepted_contract(")
             && structural_save.contains("accepted_row_decode_contract: AcceptedRowDecodeContract,")
-            && structural_save
-                .contains("fn build_structural_update_after_image_row_with_generated_contract(")
             && structural_save.contains(") -> Result<CanonicalRow, InternalError>"),
-        "structural update after-image builders must stay lane-specific and return CanonicalRow",
+        "structural update after-image builder must stay accepted-contract aware and return CanonicalRow",
     );
     assert!(
-        structural_save.contains("fn build_normalized_structural_after_image_row(")
-            && structural_save.contains(") -> Result<CanonicalRow, InternalError>"),
-        "normalized structural save after-image builder must return CanonicalRow",
+        structural_save
+            .contains("fn build_normalized_structural_after_image_row_with_accepted_contract(")
+            && structural_save.contains("canonical_row_from_entity_with_accepted_contract(")
+            && !structural_save.contains("MutationInput::from_entity("),
+        "normalized structural save after-image builder must use accepted-contract row emission",
+    );
+    assert!(
+        structural_save
+            .contains("materialize_entity_from_serialized_structural_patch_with_accepted_contract")
+            && !structural_save.contains("materialize_entity_from_serialized_structural_patch::<"),
+        "structural insert/replace materialization must use accepted-contract decode authority",
     );
 }
 

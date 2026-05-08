@@ -383,14 +383,6 @@ impl<'a> StructuralRowFieldBytes<'a> {
         Ok(Self { payload, spans })
     }
 
-    /// Decode one raw row into model slot-aligned encoded field payload spans.
-    pub(in crate::db::data) fn from_raw_row(
-        raw_row: &'a RawRow,
-        model: &'static EntityModel,
-    ) -> Result<Self, StructuralRowDecodeError> {
-        Self::from_raw_row_with_contract(raw_row, StructuralRowContract::from_model(model))
-    }
-
     /// Decode one raw row into contract slot-aligned encoded field payload spans.
     pub(in crate::db::data) fn from_raw_row_with_contract(
         raw_row: &'a RawRow,

@@ -14,7 +14,6 @@ use crate::{
         data::{
             DataKey, PersistedRow, SerializedStructuralPatch, StructuralPatch,
             serialize_complete_structural_patch_fields_with_accepted_contract,
-            serialize_entity_slots_as_complete_serialized_patch, serialize_structural_patch_fields,
             serialize_structural_patch_fields_with_accepted_contract,
         },
         executor::{
@@ -65,32 +64,6 @@ impl MutationInput {
             data_key,
             serialized_slots,
         }
-    }
-
-    /// Lower one typed entity into the shared structural mutation input.
-    pub(in crate::db::executor) fn from_entity<E>(entity: &E) -> Result<Self, InternalError>
-    where
-        E: PersistedRow + EntityValue,
-    {
-        let key = entity.id().key();
-        let data_key = DataKey::try_new::<E>(key)?;
-        let serialized_slots = serialize_entity_slots_as_complete_serialized_patch(entity)?;
-
-        Ok(Self::new(data_key, serialized_slots))
-    }
-
-    /// Lower one generated-only key + sparse structural patch pair.
-    pub(in crate::db::executor) fn from_generated_structural_patch<E>(
-        key: E::Key,
-        patch: &StructuralPatch,
-    ) -> Result<Self, InternalError>
-    where
-        E: PersistedRow + EntityValue,
-    {
-        let data_key = DataKey::try_new::<E>(key)?;
-        let serialized_slots = serialize_structural_patch_fields(E::MODEL, patch)?;
-
-        Ok(Self::new(data_key, serialized_slots))
     }
 
     /// Lower one accepted-schema key + sparse structural patch pair.

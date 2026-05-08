@@ -7,7 +7,7 @@ use crate::{
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
         },
         data::{
-            CanonicalRow, DataKey, PersistedRow, RawRow,
+            DataKey, PersistedRow, RawRow, canonical_row_from_entity_with_accepted_contract,
             canonical_row_from_raw_row_with_accepted_decode_contract,
         },
         executor::{
@@ -62,35 +62,30 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         // Phase 1: resolve key + current-store baseline from the canonical save rule.
         let data_key = DataKey::try_new::<E>(entity.id().key())?;
         let raw_key = data_key.to_raw()?;
-        let old_raw = match self.accepted_row_decode_contract.as_ref() {
-            Some(accepted_row_decode_contract) => {
-                Self::resolve_existing_row_for_rule_with_accepted_contract(
-                    ctx,
-                    &data_key,
-                    save_rule,
-                    accepted_row_decode_contract,
-                )?
-            }
-            None => Self::resolve_existing_row_for_rule_with_generated_contract(
-                ctx, &data_key, save_rule,
-            )?,
-        };
+        let accepted_row_decode_contract = self.accepted_row_decode_contract();
+        let old_raw = Self::resolve_existing_row_for_rule_with_accepted_contract(
+            ctx,
+            &data_key,
+            save_rule,
+            accepted_row_decode_contract,
+        )?;
 
         // Phase 2: typed save lanes already own a complete after-image, so
         // emit the canonical row directly instead of replaying a dense slot
         // patch back into the same full row image.
-        let row_bytes = CanonicalRow::from_entity(entity)?
-            .into_raw_row()
-            .into_bytes();
+        let row_bytes = canonical_row_from_entity_with_accepted_contract(
+            E::PATH,
+            accepted_row_decode_contract.clone(),
+            entity,
+        )?
+        .into_raw_row()
+        .into_bytes();
         let before_bytes = old_raw
-            .map(|old_raw| match self.accepted_row_decode_contract.as_ref() {
-                Some(accepted_row_decode_contract) => {
-                    Self::build_typed_before_image_bytes_with_accepted_contract(
-                        &old_raw,
-                        accepted_row_decode_contract,
-                    )
-                }
-                None => Ok(Self::build_typed_before_image_bytes_with_generated_contract(old_raw)),
+            .map(|old_raw| {
+                Self::build_typed_before_image_bytes_with_accepted_contract(
+                    &old_raw,
+                    accepted_row_decode_contract,
+                )
             })
             .transpose()?;
         let row_op = CommitRowOp::new(
@@ -102,13 +97,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         );
 
         Ok(row_op)
-    }
-
-    // Build one generated-layout before image for typed commit markers. The
-    // stored row can be reused directly because no accepted schema overlay is
-    // required.
-    fn build_typed_before_image_bytes_with_generated_contract(old_row: RawRow) -> Vec<u8> {
-        old_row.into_bytes()
     }
 
     // Build one accepted-layout before image for typed commit markers. Older

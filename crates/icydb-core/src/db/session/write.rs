@@ -195,9 +195,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         self.execute_save_with_checked_accepted_row_contract(
             row_decode_contract,
-            |save| {
-                save.apply_structural_mutation(mode, key, patch, Some(mutation_row_decode_contract))
-            },
+            |save| save.apply_structural_mutation(mode, key, patch, mutation_row_decode_contract),
             std::convert::identity,
         )
     }

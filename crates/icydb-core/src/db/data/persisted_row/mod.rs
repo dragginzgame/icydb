@@ -14,6 +14,7 @@ mod contract;
 mod patch;
 mod reader;
 mod types;
+#[cfg(test)]
 mod writer;
 
 #[cfg(test)]
@@ -23,16 +24,20 @@ pub(in crate::db) use contract::decode_runtime_value_from_accepted_field_contrac
 #[doc(hidden)]
 pub use contract::{decode_slot_into_runtime_value, encode_runtime_value_into_slot};
 pub(in crate::db) use patch::{
-    apply_serialized_structural_patch_to_raw_row,
     apply_serialized_structural_patch_to_raw_row_with_accepted_contract,
-    canonical_row_from_complete_serialized_structural_patch, canonical_row_from_entity,
+    canonical_row_from_entity_with_accepted_contract,
     canonical_row_from_raw_row_with_accepted_decode_contract,
     canonical_row_from_raw_row_with_structural_contract, canonical_row_from_stored_raw_row,
     canonical_row_from_structural_slot_reader_with_accepted_contract,
-    materialize_entity_from_serialized_structural_patch,
+    materialize_entity_from_serialized_structural_patch_with_accepted_contract,
     serialize_complete_structural_patch_fields_with_accepted_contract,
-    serialize_entity_slots_as_complete_serialized_patch, serialize_structural_patch_fields,
     serialize_structural_patch_fields_with_accepted_contract,
+};
+#[cfg(test)]
+pub(in crate::db) use patch::{
+    canonical_row_from_complete_serialized_structural_patch, canonical_row_from_entity,
+    materialize_entity_from_serialized_structural_patch,
+    serialize_entity_slots_as_complete_serialized_patch,
 };
 #[cfg(feature = "diagnostics")]
 pub use reader::{StructuralReadMetrics, with_structural_read_metrics};

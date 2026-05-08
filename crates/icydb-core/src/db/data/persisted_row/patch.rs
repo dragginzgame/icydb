@@ -1,31 +1,35 @@
+#[cfg(test)]
+use crate::db::data::persisted_row::{
+    contract::canonical_row_from_payload_source, writer::CompleteSerializedPatchWriter,
+};
 use crate::{
-    db::data::{
-        CanonicalRow, RawRow, StructuralFieldDecodeContract, StructuralRowContract,
-        StructuralRowDecodeError, StructuralRowFieldBytes,
+    db::{
+        data::{
+            CanonicalRow, RawRow, StructuralRowContract,
+            persisted_row::{
+                codec::ScalarSlotValueRef,
+                contract::{
+                    canonical_row_from_runtime_value_source_with_accepted_contract,
+                    canonical_row_from_runtime_value_source_with_generated_contract,
+                    decode_runtime_value_from_row_contract,
+                    decode_scalar_slot_value_from_row_contract,
+                    encode_runtime_value_for_accepted_field_contract,
+                },
+                reader::StructuralSlotReader,
+                types::{
+                    FieldSlot, PersistedRow, SerializedStructuralFieldUpdate,
+                    SerializedStructuralPatch, SlotReader, StructuralPatch,
+                },
+            },
+        },
+        schema::AcceptedRowDecodeContract,
     },
-    db::schema::AcceptedRowDecodeContract,
     error::InternalError,
     model::{entity::EntityModel, field::FieldModel},
+    traits::EntityValue,
     value::Value,
 };
 use std::borrow::Cow;
-
-use crate::db::data::persisted_row::{
-    codec::ScalarSlotValueRef,
-    contract::{
-        canonical_row_from_payload_source,
-        canonical_row_from_runtime_value_source_with_accepted_contract,
-        canonical_row_from_runtime_value_source_with_generated_contract,
-        decode_runtime_value_from_field_contract, decode_runtime_value_from_row_contract,
-        encode_runtime_value_for_accepted_field_contract, encode_runtime_value_for_field_model,
-    },
-    reader::StructuralSlotReader,
-    types::{
-        FieldSlot, PersistedRow, SerializedStructuralFieldUpdate, SerializedStructuralPatch,
-        SlotReader, StructuralPatch,
-    },
-    writer::CompleteSerializedPatchWriter,
-};
 
 ///
 /// SerializedPatchPayloads
@@ -44,11 +48,37 @@ struct SerializedPatchPayloads<'a> {
 impl<'a> SerializedPatchPayloads<'a> {
     // Materialize the last-write-wins serialized patch view indexed by stable
     // slot so later replay paths do not each rebuild that policy locally.
+    #[cfg(test)]
     fn new(
         model: &'static EntityModel,
         patch: &'a SerializedStructuralPatch,
     ) -> Result<Self, InternalError> {
-        let contract = StructuralRowContract::from_model(model);
+        Self::from_contract(StructuralRowContract::from_model(model), patch)
+    }
+
+    // Materialize one patch payload view over an accepted schema row contract
+    // while retaining the generated bridge needed by typed entity materializers.
+    fn new_with_accepted_contract(
+        model: &'static EntityModel,
+        accepted_decode_contract: AcceptedRowDecodeContract,
+        patch: &'a SerializedStructuralPatch,
+    ) -> Result<Self, InternalError> {
+        Self::from_contract(
+            StructuralRowContract::from_model_with_accepted_decode_contract(
+                model,
+                accepted_decode_contract,
+            ),
+            patch,
+        )
+    }
+
+    // Materialize the slot-indexed payload view from an already selected row
+    // contract so generated and accepted materialization lanes share duplicate
+    // slot handling without sharing field-codec authority.
+    fn from_contract(
+        contract: StructuralRowContract,
+        patch: &'a SerializedStructuralPatch,
+    ) -> Result<Self, InternalError> {
         let mut payloads = vec![None; contract.field_count()];
 
         for entry in patch.entries() {
@@ -64,15 +94,6 @@ impl<'a> SerializedPatchPayloads<'a> {
     // typed materialization compatibility surfaces.
     fn generated_compatible_field_model(&self, slot: usize) -> Result<&FieldModel, InternalError> {
         Self::generated_compatible_field_model_for(&self.contract, slot)
-    }
-
-    // Resolve one field decode contract by stable slot index for runtime value
-    // materialization that no longer needs the generated `FieldModel` surface.
-    fn field_decode_contract(
-        &self,
-        slot: usize,
-    ) -> Result<StructuralFieldDecodeContract, InternalError> {
-        self.contract.field_decode_contract(slot)
     }
 
     // Resolve one generated-compatible field model from a projected structural
@@ -97,30 +118,11 @@ impl<'a> SerializedPatchPayloads<'a> {
 
     // Borrow one complete after-image payload, rejecting sparse patches at the
     // fresh-row emission boundary where every declared slot must be present.
+    #[cfg(test)]
     fn required_complete_payload(&self, slot: usize) -> Result<&[u8], InternalError> {
         self.get(slot).ok_or_else(|| {
             InternalError::persisted_row_encode_failed(format!(
                 "serialized patch did not emit slot {slot} for entity '{}'",
-                self.contract.entity_path()
-            ))
-        })
-    }
-
-    // Borrow either the sparse patch payload or the baseline row payload for
-    // one slot, keeping update overlay policy out of the final row-emission
-    // closure.
-    fn overlay_payload<'b>(
-        &'b self,
-        baseline: &'b StructuralRowFieldBytes<'_>,
-        slot: usize,
-    ) -> Result<&'b [u8], InternalError> {
-        if let Some(payload) = self.get(slot) {
-            return Ok(payload);
-        }
-
-        baseline.field(slot).ok_or_else(|| {
-            InternalError::persisted_row_encode_failed(format!(
-                "slot {slot} is missing from the baseline row for entity '{}'",
                 self.contract.entity_path()
             ))
         })
@@ -141,11 +143,31 @@ struct SerializedPatchSlotReader<'a> {
 
 impl<'a> SerializedPatchSlotReader<'a> {
     // Build one sparse patch-backed slot reader for one entity model.
+    #[cfg(test)]
     fn new(
         model: &'static EntityModel,
         patch: &'a SerializedStructuralPatch,
     ) -> Result<Self, InternalError> {
         let payloads = SerializedPatchPayloads::new(model, patch)?;
+        let decoded = vec![None; payloads.contract.field_count()];
+
+        Ok(Self { payloads, decoded })
+    }
+
+    // Build one patch-backed slot reader over the accepted row contract used by
+    // production structural insert/replace staging. The accepted contract owns
+    // scalar/value decode while the generated bridge remains only for typed
+    // field materialization callbacks.
+    fn new_with_accepted_contract(
+        model: &'static EntityModel,
+        accepted_decode_contract: AcceptedRowDecodeContract,
+        patch: &'a SerializedStructuralPatch,
+    ) -> Result<Self, InternalError> {
+        let payloads = SerializedPatchPayloads::new_with_accepted_contract(
+            model,
+            accepted_decode_contract,
+            patch,
+        )?;
         let decoded = vec![None; payloads.contract.field_count()];
 
         Ok(Self { payloads, decoded })
@@ -169,15 +191,18 @@ impl SlotReader for SerializedPatchSlotReader<'_> {
         let Some(raw_value) = self.get_bytes(slot) else {
             return Ok(None);
         };
-        let field = self.payloads.field_decode_contract(slot)?;
-        let crate::model::field::LeafCodec::Scalar(codec) = field.leaf_codec() else {
+        let crate::model::field::LeafCodec::Scalar(_) =
+            self.payloads.contract.field_leaf_codec(slot)?
+        else {
             return Ok(None);
         };
 
-        crate::db::data::persisted_row::codec::decode_scalar_slot_value(
+        decode_scalar_slot_value_from_row_contract(
+            &self.payloads.contract,
+            slot,
             raw_value,
-            codec,
-            field.name(),
+            "accepted serialized structural patch scalar read reached non-scalar slot",
+            "generated serialized structural patch scalar read reached non-scalar slot",
         )
         .map(Some)
     }
@@ -190,9 +215,9 @@ impl SlotReader for SerializedPatchSlotReader<'_> {
         if self.decoded[slot].is_none()
             && let Some(raw_value) = self.get_bytes(slot)
         {
-            let field_contract = self.payloads.field_decode_contract(slot)?;
-            self.decoded[slot] = Some(decode_runtime_value_from_field_contract(
-                field_contract,
+            self.decoded[slot] = Some(decode_runtime_value_from_row_contract(
+                &self.payloads.contract,
+                slot,
                 raw_value,
             )?);
         }
@@ -203,6 +228,7 @@ impl SlotReader for SerializedPatchSlotReader<'_> {
 
 // Materialize one typed entity directly from a sparse serialized structural
 // patch so derive-owned missing-slot semantics run before final row emission.
+#[cfg(test)]
 pub(in crate::db) fn materialize_entity_from_serialized_structural_patch<E>(
     patch: &SerializedStructuralPatch,
 ) -> Result<E, InternalError>
@@ -214,10 +240,31 @@ where
     E::materialize_from_slots(&mut slots)
 }
 
+// Materialize one typed entity from a serialized structural after-image using
+// accepted persisted schema as the decode authority. This is the production
+// insert/replace validation bridge after SQL/session has already selected and
+// serialized a complete accepted patch image.
+pub(in crate::db) fn materialize_entity_from_serialized_structural_patch_with_accepted_contract<E>(
+    patch: &SerializedStructuralPatch,
+    accepted_decode_contract: AcceptedRowDecodeContract,
+) -> Result<E, InternalError>
+where
+    E: PersistedRow,
+{
+    let mut slots = SerializedPatchSlotReader::new_with_accepted_contract(
+        E::MODEL,
+        accepted_decode_contract,
+        patch,
+    )?;
+
+    E::materialize_from_slots(&mut slots)
+}
+
 /// Build one canonical row from one complete serialized slot image.
 ///
 /// This helper is intentionally dense-image-only. Sparse structural insert and
 /// replace materialization now routes through typed preflight first.
+#[cfg(test)]
 pub(in crate::db) fn canonical_row_from_complete_serialized_structural_patch(
     model: &'static EntityModel,
     patch: &SerializedStructuralPatch,
@@ -228,6 +275,7 @@ pub(in crate::db) fn canonical_row_from_complete_serialized_structural_patch(
 }
 
 /// Build one canonical row directly from one typed entity slot writer.
+#[cfg(test)]
 pub(in crate::db) fn canonical_row_from_entity<E>(entity: &E) -> Result<CanonicalRow, InternalError>
 where
     E: PersistedRow,
@@ -235,6 +283,35 @@ where
     let serialized_slots = serialize_entity_slots_as_complete_serialized_patch(entity)?;
 
     canonical_row_from_complete_serialized_structural_patch(E::MODEL, &serialized_slots)
+}
+
+/// Build one canonical row from one typed entity through accepted field contracts.
+///
+/// This is the production save boundary for typed after-images. The concrete
+/// entity still supplies runtime values by stable slot, but the accepted schema
+/// contract owns the persisted field encoding policy for the final row bytes.
+pub(in crate::db) fn canonical_row_from_entity_with_accepted_contract<E>(
+    entity_path: &'static str,
+    accepted_decode_contract: AcceptedRowDecodeContract,
+    entity: &E,
+) -> Result<CanonicalRow, InternalError>
+where
+    E: PersistedRow + EntityValue,
+{
+    let contract =
+        StructuralRowContract::from_accepted_decode_contract(entity_path, accepted_decode_contract);
+
+    canonical_row_from_runtime_value_source_with_accepted_contract(&contract, |slot| {
+        entity
+            .get_value_by_index(slot)
+            .map(Cow::Owned)
+            .ok_or_else(|| {
+                InternalError::persisted_row_encode_failed(format!(
+                    "accepted entity row emission missing slot {slot} for entity '{}'",
+                    contract.entity_path()
+                ))
+            })
+    })
 }
 
 /// Build one canonical row from one generated-contract structural slot reader.
@@ -291,42 +368,9 @@ pub(in crate::db) fn canonical_row_from_raw_row_with_accepted_decode_contract(
     canonical_row_from_raw_row_with_structural_contract(raw_row, contract)
 }
 
-// Rebuild one full canonical row image from an existing raw row before it
-// crosses a storage write boundary.
-pub(in crate::db) fn canonical_row_from_raw_row(
-    model: &'static EntityModel,
-    raw_row: &RawRow,
-) -> Result<CanonicalRow, InternalError> {
-    let field_bytes = StructuralRowFieldBytes::from_raw_row(raw_row, model)
-        .map_err(StructuralRowDecodeError::into_internal_error)?;
-
-    canonical_row_from_payload_source(model, |slot| {
-        field_bytes.field(slot).ok_or_else(|| {
-            InternalError::persisted_row_encode_failed(format!(
-                "slot {slot} is missing from the baseline row for entity '{}'",
-                model.path()
-            ))
-        })
-    })
-}
-
 // Rewrap one row already loaded from storage as a canonical write token.
 pub(in crate::db) const fn canonical_row_from_stored_raw_row(raw_row: RawRow) -> CanonicalRow {
     CanonicalRow::from_canonical_raw_row(raw_row)
-}
-
-/// Serialize one ordered structural patch into canonical slot payload bytes.
-///
-/// This is the phase-1 partial-serialization seam for `0.64`: later mutation
-/// stages can stage or replay one field patch without rebuilding the runtime
-/// value-to-bytes contract per consumer.
-pub(in crate::db) fn serialize_structural_patch_fields(
-    model: &'static EntityModel,
-    patch: &StructuralPatch,
-) -> Result<SerializedStructuralPatch, InternalError> {
-    let contract = StructuralRowContract::from_model(model);
-
-    serialize_structural_patch_fields_for_generated_contract(&contract, patch)
 }
 
 /// Serialize one structural patch through an accepted row-decode contract.
@@ -362,31 +406,6 @@ pub(in crate::db) fn serialize_complete_structural_patch_fields_with_accepted_co
         StructuralRowContract::from_accepted_decode_contract(entity_path, accepted_decode_contract);
 
     serialize_complete_structural_patch_fields_for_accepted_contract(&contract, patch)
-}
-
-// Serialize generated-only structural patch entries through the derived
-// field-model compatibility surface. This lane exists for typed/runtime callers
-// that have not selected an accepted schema snapshot.
-fn serialize_structural_patch_fields_for_generated_contract(
-    contract: &StructuralRowContract,
-    patch: &StructuralPatch,
-) -> Result<SerializedStructuralPatch, InternalError> {
-    if patch.is_empty() {
-        return Ok(SerializedStructuralPatch::default());
-    }
-
-    let mut entries = Vec::with_capacity(patch.entries().len());
-
-    // Phase 1: validate and encode each ordered field update through the
-    // generated field-model codec owner.
-    for entry in patch.entries() {
-        let slot = entry.slot();
-        let field = contract.generated_compatible_field_model(slot.index())?;
-        let payload = encode_runtime_value_for_field_model(field, entry.value())?;
-        entries.push(SerializedStructuralFieldUpdate::new(slot, payload));
-    }
-
-    Ok(SerializedStructuralPatch::new(entries))
 }
 
 // Serialize accepted-schema structural patch entries through accepted field
@@ -485,6 +504,7 @@ fn serialize_complete_structural_patch_fields_for_accepted_contract(
 /// This keeps typed save/update APIs on the existing surface while making it
 /// explicit that the typed lane is staging a complete after-image, not a sparse
 /// structural update patch.
+#[cfg(test)]
 pub(in crate::db) fn serialize_entity_slots_as_complete_serialized_patch<E>(
     entity: &E,
 ) -> Result<SerializedStructuralPatch, InternalError>
@@ -500,28 +520,6 @@ where
     // Phase 2: require a dense slot image so save/update replay remains
     // equivalent to the existing full-row write semantics.
     writer.finish_dense_slot_image()
-}
-
-/// Apply one serialized structural patch to one raw row.
-///
-/// This mechanical replay step no longer owns any `Value -> bytes` dispatch.
-/// It only replays already encoded slot payloads over the current row layout.
-pub(in crate::db) fn apply_serialized_structural_patch_to_raw_row(
-    model: &'static EntityModel,
-    raw_row: &RawRow,
-    patch: &SerializedStructuralPatch,
-) -> Result<CanonicalRow, InternalError> {
-    if patch.is_empty() {
-        return canonical_row_from_raw_row(model, raw_row);
-    }
-
-    let field_bytes = StructuralRowFieldBytes::from_raw_row(raw_row, model)
-        .map_err(StructuralRowDecodeError::into_internal_error)?;
-    let patch_payloads = SerializedPatchPayloads::new(model, patch)?;
-
-    canonical_row_from_payload_source(model, |slot| {
-        patch_payloads.overlay_payload(&field_bytes, slot)
-    })
 }
 
 /// Apply one serialized structural patch through an accepted row-decode contract.

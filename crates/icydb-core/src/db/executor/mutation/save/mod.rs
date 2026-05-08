@@ -50,7 +50,7 @@ enum SaveMode {
 #[derive(Clone)]
 pub(in crate::db) struct SaveExecutor<E: PersistedRow + EntityValue> {
     pub(in crate::db::executor::mutation) db: Db<E::Canister>,
-    accepted_row_decode_contract: Option<AcceptedRowDecodeContract>,
+    accepted_row_decode_contract: AcceptedRowDecodeContract,
 }
 
 //
@@ -157,34 +157,43 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // Construction & configuration
     // ======================================================================
 
-    /// Construct one save executor bound to a database handle.
+    /// Construct one save executor bound to accepted schema authority.
     #[must_use]
-    pub(in crate::db) const fn new(db: Db<E::Canister>, _debug: bool) -> Self {
+    pub(in crate::db) const fn new_with_accepted_contract(
+        db: Db<E::Canister>,
+        _debug: bool,
+        accepted_row_decode_contract: AcceptedRowDecodeContract,
+    ) -> Self {
         Self {
             db,
-            accepted_row_decode_contract: None,
+            accepted_row_decode_contract,
         }
     }
 
-    // Attach the accepted-schema row decode contract proven by the session
-    // write boundary. Typed saves use this only for old-row baseline handling;
-    // after-images are still emitted through generated-compatible typed codecs.
+    /// Construct one test save executor from generated-compatible schema facts.
+    ///
+    /// Production save construction must pass an accepted schema-store contract.
+    /// Executor tests use this generated proposal bridge to keep low-level
+    /// fixtures focused on save mechanics instead of schema-store setup.
+    #[cfg(test)]
     #[must_use]
-    pub(in crate::db) fn with_accepted_row_decode_contract(
-        mut self,
-        contract: AcceptedRowDecodeContract,
-    ) -> Self {
-        self.accepted_row_decode_contract = Some(contract);
+    pub(in crate::db) fn new(db: Db<E::Canister>, _debug: bool) -> Self {
+        let accepted_row_decode_contract =
+            AcceptedRowDecodeContract::from_generated_model_for_tests(E::MODEL);
 
-        self
+        Self {
+            db,
+            accepted_row_decode_contract,
+        }
     }
 
-    // Borrow the accepted row contract selected by the session write boundary,
-    // when this save lane has one.
+    // Borrow the accepted row contract selected by the session write boundary.
+    // Save execution is no longer a dual-path generated/accepted surface: the
+    // session must prove accepted schema compatibility before constructing it.
     pub(in crate::db::executor::mutation) const fn accepted_row_decode_contract(
         &self,
-    ) -> Option<&AcceptedRowDecodeContract> {
-        self.accepted_row_decode_contract.as_ref()
+    ) -> &AcceptedRowDecodeContract {
+        &self.accepted_row_decode_contract
     }
 
     // Record the committed save mode after the row mutation has crossed the

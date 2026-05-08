@@ -517,6 +517,7 @@ fn normalize_accepted_decimal_map_entries(
 
 // Decode one slot payload and immediately re-encode it through the current
 // field contract so every row-emission path normalizes bytes at the boundary.
+#[cfg(test)]
 fn canonicalize_slot_payload(
     model: &'static EntityModel,
     slot: usize,
@@ -554,6 +555,7 @@ where
 // Build one dense canonical slot image from any slot-addressable payload source.
 // Callers keep ownership of missing-slot policy while this helper centralizes
 // the slot-by-slot canonicalization loop.
+#[cfg(test)]
 fn dense_canonical_slot_image_from_payload_source<'a, F>(
     model: &'static EntityModel,
     slot_count: usize,
@@ -669,6 +671,7 @@ where
 // Build and emit one canonical row from any slot-addressable payload source so
 // patch replay and row rebuild call sites do not have to stage the dense slot
 // image and row emission as two separate owner-local steps.
+#[cfg(test)]
 pub(in crate::db::data::persisted_row) fn canonical_row_from_payload_source<'a, F>(
     model: &'static EntityModel,
     payload_for_slot: F,

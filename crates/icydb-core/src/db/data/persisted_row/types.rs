@@ -46,6 +46,7 @@ pub(in crate::db) struct FieldSlot {
 
 impl FieldSlot {
     /// Build one stable field slot from an already validated index.
+    #[cfg(test)]
     pub(in crate::db) fn from_index(
         model: &'static EntityModel,
         index: usize,
@@ -220,12 +221,6 @@ impl SerializedStructuralPatch {
         &self,
     ) -> &[SerializedStructuralFieldUpdate] {
         self.entries.as_slice()
-    }
-
-    /// Return whether this serialized patch carries no field updates.
-    #[must_use]
-    pub(in crate::db::data::persisted_row) const fn is_empty(&self) -> bool {
-        self.entries.is_empty()
     }
 }
 

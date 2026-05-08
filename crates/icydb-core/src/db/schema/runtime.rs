@@ -321,6 +321,25 @@ impl AcceptedRowDecodeContract {
         }
     }
 
+    /// Build a generated-compatible accepted row contract for executor tests.
+    ///
+    /// Production code must source this contract from the accepted schema store.
+    /// This helper exists only so low-level executor tests can keep exercising
+    /// save mechanics without bootstrapping a session/schema store around every
+    /// fixture.
+    #[cfg(test)]
+    pub(in crate::db) fn from_generated_model_for_tests(model: &'static EntityModel) -> Self {
+        let proposal = crate::db::schema::compiled_schema_proposal_for_model(model);
+        let accepted =
+            AcceptedSchemaSnapshot::try_new(proposal.initial_persisted_schema_snapshot())
+                .expect("generated model proposal should produce an accepted test schema");
+        let (descriptor, _) =
+            AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(&accepted, model)
+                .expect("generated model accepted test schema should be generated-compatible");
+
+        descriptor.row_decode_contract()
+    }
+
     /// Return the accepted physical slot count required by this row contract.
     #[must_use]
     pub(in crate::db) const fn required_slot_count(&self) -> usize {
