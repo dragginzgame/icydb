@@ -643,6 +643,7 @@ impl InternalError {
     /// Construct a query-origin invariant violation.
     #[cold]
     #[inline(never)]
+    #[cfg(test)]
     pub(crate) fn query_invariant(message: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::InvariantViolation,

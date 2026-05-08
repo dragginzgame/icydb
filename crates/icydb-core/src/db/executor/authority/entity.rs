@@ -1,6 +1,5 @@
 use crate::{
     db::{
-        access::{AccessPlanError, validate_access_structure_model},
         cursor::{CursorPlanError, PlannedCursor},
         data::StorageKey,
         executor::terminal::RowLayout,
@@ -10,7 +9,7 @@ use crate::{
             PlannedContinuationContract, covering_hybrid_projection_plan_from_fields,
             covering_read_execution_plan_from_fields,
         },
-        schema::{AcceptedGeneratedCompatibleRowShape, AcceptedRowDecodeContract, SchemaInfo},
+        schema::{AcceptedGeneratedCompatibleRowShape, AcceptedRowDecodeContract},
     },
     error::InternalError,
     metrics::sink::{
@@ -89,12 +88,6 @@ impl EntityAuthority {
     #[must_use]
     pub const fn model(&self) -> &'static EntityModel {
         self.model
-    }
-
-    /// Borrow the cached schema authority for this entity.
-    #[must_use]
-    pub(in crate::db::executor) fn schema_info(&self) -> &'static SchemaInfo {
-        SchemaInfo::cached_for_entity_model(self.model)
     }
 
     /// Borrow the authoritative generated field table for this entity.
@@ -177,8 +170,14 @@ impl EntityAuthority {
         &self,
         plan: &AccessPlannedQuery,
     ) -> Result<(), InternalError> {
-        validate_access_structure_model(self.schema_info(), self.model, &plan.access)
-            .map_err(AccessPlanError::into_internal_error)
+        if plan.has_static_planning_shape() {
+            return Ok(());
+        }
+
+        Err(InternalError::query_executor_invariant(format!(
+            "executor plan validation requires planner-frozen static shape for '{}'",
+            self.entity_path()
+        )))
     }
 
     /// Validate and decode one scalar continuation cursor through authority-owned contracts.

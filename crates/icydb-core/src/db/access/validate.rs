@@ -3,12 +3,13 @@
 //! Does not own: access-path lowering or runtime scan semantics.
 //! Boundary: validation boundary before lowering/execution.
 
+#[cfg(test)]
+use crate::error::InternalError;
 use crate::{
     db::{
         access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
         schema::{SchemaInfo, literal_matches_type},
     },
-    error::InternalError,
     model::{entity::EntityModel, index::IndexModel},
     value::Value,
 };
@@ -54,6 +55,7 @@ pub enum AccessPlanError {
 
 impl AccessPlanError {
     /// Map access-validation failures into query-boundary runtime invariants.
+    #[cfg(test)]
     pub(crate) fn into_internal_error(self) -> InternalError {
         InternalError::query_invariant(self.to_string())
     }

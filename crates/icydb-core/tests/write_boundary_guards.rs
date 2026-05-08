@@ -364,6 +364,7 @@ fn global_distinct_grouped_runtime_keeps_prepared_authority() {
 fn generated_only_prepared_plan_constructor_is_test_only() {
     let prepared_plan = read_source("src/db/executor/prepared_execution_plan/mod.rs");
     let executor_mod = read_source("src/db/executor/mod.rs");
+    let entity_authority = read_source("src/db/executor/authority/entity.rs");
     let query_intent = read_source("src/db/query/intent/query.rs");
     let save_mod = read_source("src/db/executor/mutation/save/mod.rs");
     let save_validation = read_source("src/db/executor/mutation/save_validation.rs");
@@ -390,6 +391,15 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
     assert!(
         query_intent.contains("#[cfg(test)]\n    pub(in crate::db) fn into_plan("),
         "compiled-query plan extraction must remain test-only with the generated-only prepared-plan conversion",
+    );
+    assert!(
+        entity_authority.contains("if plan.has_static_planning_shape()")
+            && entity_authority
+                .contains("executor plan validation requires planner-frozen static shape",)
+            && !entity_authority.contains("fn schema_info(")
+            && !entity_authority.contains("SchemaInfo::cached_for_entity_model(self.model)")
+            && !entity_authority.contains("validate_access_structure_model(self.schema_info()"),
+        "executor plan validation must require planner-frozen static shape instead of reopening generated schema authority",
     );
     assert!(
         save_mod.contains("accepted_schema_info: SchemaInfo,")
