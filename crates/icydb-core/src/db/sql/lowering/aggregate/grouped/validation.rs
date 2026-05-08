@@ -1,6 +1,7 @@
 use crate::{
     db::{
         query::builder::AggregateExpr,
+        schema::SchemaInfo,
         sql::{
             lowering::{
                 SqlLoweringError,
@@ -69,11 +70,13 @@ pub(in crate::db::sql::lowering) fn resolve_having_aggregate_expr_index(
 // SQL error before grouped execution reaches its scalar compiler invariant.
 pub(in crate::db::sql::lowering::aggregate) fn validate_grouped_aggregate_scalar_subexpressions(
     model: &'static EntityModel,
+    schema: &SchemaInfo,
     aggregate: &AggregateExpr,
 ) -> Result<(), SqlLoweringError> {
     if let Some(input_expr) = aggregate.input_expr() {
         validate_model_bound_scalar_expr(
             model,
+            schema,
             input_expr,
             SqlLoweringError::unsupported_aggregate_input_expressions,
         )?;
@@ -81,6 +84,7 @@ pub(in crate::db::sql::lowering::aggregate) fn validate_grouped_aggregate_scalar
     if let Some(filter_expr) = aggregate.filter_expr() {
         validate_model_bound_scalar_expr(
             model,
+            schema,
             filter_expr,
             SqlLoweringError::unsupported_where_expression,
         )?;

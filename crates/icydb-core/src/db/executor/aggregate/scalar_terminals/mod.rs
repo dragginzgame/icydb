@@ -77,6 +77,7 @@ where
             } else {
                 scalar_aggregate_terminals.push(compile_structural_scalar_aggregate_terminal(
                     E::MODEL,
+                    request.schema_info(),
                     terminal,
                 )?);
                 scalar_aggregate_terminal_positions.push(terminal_index);

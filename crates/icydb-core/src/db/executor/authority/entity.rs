@@ -10,7 +10,7 @@ use crate::{
             PlannedContinuationContract, covering_hybrid_projection_plan_from_fields,
             covering_read_execution_plan_from_fields,
         },
-        schema::{AcceptedGeneratedCompatibleRowShape, AcceptedRowDecodeContract},
+        schema::{AcceptedGeneratedCompatibleRowShape, AcceptedRowDecodeContract, SchemaInfo},
     },
     error::InternalError,
     metrics::sink::{
@@ -21,6 +21,7 @@ use crate::{
     types::EntityTag,
     value::Value,
 };
+use std::sync::Arc;
 
 ///
 /// EntityAuthority
@@ -40,6 +41,7 @@ pub struct EntityAuthority {
     primary_key_name: &'static str,
     entity_tag: EntityTag,
     store_path: &'static str,
+    accepted_schema_info: Option<Arc<SchemaInfo>>,
 }
 
 impl EntityAuthority {
@@ -56,6 +58,7 @@ impl EntityAuthority {
             primary_key_name: model.primary_key.name,
             entity_tag,
             store_path,
+            accepted_schema_info: None,
         }
     }
 
@@ -75,6 +78,7 @@ impl EntityAuthority {
         self,
         row_shape: AcceptedGeneratedCompatibleRowShape,
         accepted_decode_contract: AcceptedRowDecodeContract,
+        accepted_schema_info: SchemaInfo,
     ) -> Self {
         let row_layout = RowLayout::from_generated_compatible_accepted_decode_contract(
             self.model.path(),
@@ -82,7 +86,22 @@ impl EntityAuthority {
             accepted_decode_contract,
         );
 
-        Self { row_layout, ..self }
+        Self {
+            row_layout,
+            accepted_schema_info: Some(Arc::new(accepted_schema_info)),
+            ..self
+        }
+    }
+
+    /// Return authority with cursor schema facts supplied by test-only
+    /// generated plan construction.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) fn with_cursor_schema_info_for_test(self, schema_info: SchemaInfo) -> Self {
+        Self {
+            accepted_schema_info: Some(Arc::new(schema_info)),
+            ..self
+        }
     }
 
     /// Borrow the entity model authority.
@@ -140,8 +159,7 @@ impl EntityAuthority {
     ) {
         // Cached/session planning may already have frozen static execution
         // metadata with accepted schema authority. Do not overwrite that
-        // schema-selected slot contract with the generated fallback while
-        // lowering the executor core.
+        // schema-selected slot contract while lowering the executor core.
         if plan.has_static_planning_shape() {
             record_prepared_shape_finalization_for_path(
                 self.entity_path(),
@@ -150,12 +168,12 @@ impl EntityAuthority {
             return;
         }
 
-        plan.finalize_static_planning_shape_for_model(self.model)
-            .expect("executable plan core requires planner-frozen static execution shape");
-        record_prepared_shape_finalization_for_path(
-            self.entity_path(),
-            PreparedShapeFinalizationOutcome::GeneratedFallback,
-        );
+        let schema_info = self
+            .accepted_schema_info
+            .as_ref()
+            .expect("executor static shape finalization requires accepted schema info");
+        plan.finalize_static_planning_shape_for_model_with_schema(self.model, schema_info)
+            .expect("executable plan core requires accepted-schema static execution shape");
     }
 
     /// Finalize planner-owned route profiling through canonical entity authority.
@@ -188,7 +206,15 @@ impl EntityAuthority {
         contract: &PlannedContinuationContract,
         bytes: Option<&[u8]>,
     ) -> Result<PlannedCursor, CursorPlanError> {
-        contract.prepare_scalar_cursor(self.entity_path(), self.entity_tag, self.model, bytes)
+        let schema_info = self.cursor_schema_info()?;
+
+        contract.prepare_scalar_cursor(
+            self.entity_path(),
+            self.entity_tag,
+            self.model,
+            schema_info,
+            bytes,
+        )
     }
 
     /// Revalidate one scalar continuation cursor through authority-owned contracts.
@@ -197,7 +223,20 @@ impl EntityAuthority {
         contract: &PlannedContinuationContract,
         cursor: PlannedCursor,
     ) -> Result<PlannedCursor, CursorPlanError> {
-        contract.revalidate_scalar_cursor(self.entity_tag, self.model, cursor)
+        let schema_info = self.cursor_schema_info()?;
+
+        contract.revalidate_scalar_cursor(self.entity_tag, self.model, schema_info, cursor)
+    }
+
+    fn cursor_schema_info(&self) -> Result<&SchemaInfo, CursorPlanError> {
+        self.accepted_schema_info
+            .as_ref()
+            .ok_or_else(|| {
+                CursorPlanError::continuation_cursor_invariant(
+                    "scalar cursor validation requires accepted schema info",
+                )
+            })
+            .map(AsRef::as_ref)
     }
 
     /// Derive one covering-read execution contract through authority-owned schema metadata.
@@ -361,25 +400,21 @@ mod tests {
     }
 
     #[test]
-    fn authority_finalization_records_generated_fallback_shape() {
+    fn authority_finalization_uses_authority_schema_when_shape_is_missing() {
         metrics_reset_all();
         let authority = EntityAuthority::new(
             &MODEL,
             EntityTag::new(0x1460_0014),
             AUTHORITY_SCHEMA_SLOT_TEST_STORE_PATH,
-        );
+        )
+        .with_cursor_schema_info_for_test(accepted_schema_with_profile_slot(SchemaFieldSlot::new(
+            7,
+        )));
         let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
         plan.projection_selection = ProjectionSelection::Fields(vec![ExprFieldId::new("profile")]);
 
         authority.finalize_static_planning_shape(&mut plan);
 
-        assert_eq!(plan.frozen_direct_projection_slots(), Some([1].as_slice()));
-
-        let report = metrics_report(None);
-        let counters = report
-            .counters()
-            .expect("authority finalization should record metrics");
-        assert_eq!(counters.ops().prepared_shape_already_finalized(), 0);
-        assert_eq!(counters.ops().prepared_shape_generated_fallback(), 1);
+        assert_eq!(plan.frozen_direct_projection_slots(), Some([7].as_slice()));
     }
 }

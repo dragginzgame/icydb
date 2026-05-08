@@ -69,7 +69,9 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
 
     #[cfg(test)]
     fn build(mut plan: AccessPlannedQuery) -> Self {
-        let authority = EntityAuthority::for_type::<E>();
+        let authority = EntityAuthority::for_type::<E>().with_cursor_schema_info_for_test(
+            crate::db::schema::SchemaInfo::cached_for_entity_model(E::MODEL).clone(),
+        );
         authority.finalize_planner_route_profile(&mut plan);
 
         Self {

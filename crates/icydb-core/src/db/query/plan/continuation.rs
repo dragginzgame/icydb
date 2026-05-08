@@ -11,6 +11,7 @@ use crate::{
             AccessPlannedQuery, ExecutionOrderContract, ExecutionShapeSignature,
             GroupedCursorPolicyViolation, grouped_cursor_policy_violation,
         },
+        schema::SchemaInfo,
     },
     value::Value,
 };
@@ -340,6 +341,7 @@ impl PlannedContinuationContract {
         entity_path: &'static str,
         entity_tag: crate::types::EntityTag,
         entity_model: &crate::model::entity::EntityModel,
+        schema_info: &SchemaInfo,
         bytes: Option<&[u8]>,
     ) -> Result<PlannedCursor, CursorPlanError> {
         if self.is_grouped() {
@@ -353,6 +355,7 @@ impl PlannedContinuationContract {
             entity_path,
             entity_tag,
             entity_model,
+            schema_info,
             self.order_contract.order_spec(),
             self.order_contract.direction(),
             self.continuation_signature(),
@@ -403,6 +406,7 @@ impl PlannedContinuationContract {
         &self,
         entity_tag: crate::types::EntityTag,
         entity_model: &crate::model::entity::EntityModel,
+        schema_info: &SchemaInfo,
         cursor: PlannedCursor,
     ) -> Result<PlannedCursor, CursorPlanError> {
         if self.is_grouped() {
@@ -415,6 +419,7 @@ impl PlannedContinuationContract {
             self.access_plan().executable_contract().as_path().cloned(),
             entity_tag,
             entity_model,
+            schema_info,
             self.order_contract.order_spec(),
             self.order_contract.direction(),
             self.expected_initial_offset(),

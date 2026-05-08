@@ -382,7 +382,8 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
     assert!(
         prepared_plan.contains("#[cfg(test)]\n    pub(in crate::db) fn new(")
             && prepared_plan.contains("#[cfg(test)]\n    fn build(")
-            && prepared_plan.contains("let authority = EntityAuthority::for_type::<E>();")
+            && prepared_plan
+                .contains("EntityAuthority::for_type::<E>().with_cursor_schema_info_for_test(")
             && executor_mod.contains(
                 "#[cfg(test)]\nimpl<E> From<CompiledQuery<E>> for PreparedExecutionPlan<E>"
             ),
@@ -461,6 +462,108 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
                 "apply_lowered_base_query_shape_with_schema("
             ),
         "session explain binding and access-choice finalization must use accepted SchemaInfo instead of generated schema fallback",
+    );
+}
+
+#[test]
+fn cursor_boundary_validation_uses_authority_schema_info() {
+    let cursor_boundary = read_source("src/db/cursor/boundary.rs");
+    let cursor_mod = read_source("src/db/cursor/mod.rs");
+    let cursor_spine = read_source("src/db/cursor/spine.rs");
+    let continuation = read_source("src/db/query/plan/continuation.rs");
+    let entity_authority = read_source("src/db/executor/authority/entity.rs");
+    let entity_authority_compact = compact_source(&entity_authority);
+    let session_mod = read_source("src/db/session/mod.rs");
+    let session_mod_compact = compact_source(&session_mod);
+
+    assert!(
+        cursor_boundary.contains("schema: &SchemaInfo,")
+            && !cursor_boundary.contains("SchemaInfo::cached_for_entity_model(model)")
+            && !cursor_boundary.contains("fn boundary_schema("),
+        "cursor boundary validation must consume caller-supplied schema info instead of reopening generated schema metadata",
+    );
+    assert!(
+        cursor_mod.contains("schema: &SchemaInfo,")
+            && cursor_spine.contains("fn schema_info(&self) -> &SchemaInfo;")
+            && continuation.contains("schema_info: &SchemaInfo,"),
+        "cursor preparation and revalidation must thread planner/session-selected schema info through the cursor spine",
+    );
+    assert!(
+        entity_authority.contains("accepted_schema_info: Option<Arc<SchemaInfo>>,")
+            && entity_authority_compact
+                .contains("fncursor_schema_info(&self)->Result<&SchemaInfo,CursorPlanError>")
+            && entity_authority.contains("contract.prepare_scalar_cursor(")
+            && entity_authority.contains("contract.revalidate_scalar_cursor(")
+            && session_mod_compact.contains(
+                "authority.with_accepted_row_decode_contract(row_shape,row_decode_contract,schema_info",
+            ),
+        "entity authority must carry accepted schema info into scalar cursor validation",
+    );
+}
+
+#[test]
+fn prepared_static_shape_finalization_uses_authority_schema_info() {
+    let entity_authority = read_source("src/db/executor/authority/entity.rs");
+    let query_plan_logical = read_source("src/db/query/plan/semantics/logical.rs");
+
+    assert!(
+        entity_authority.contains(
+            "plan.finalize_static_planning_shape_for_model_with_schema(self.model, schema_info)",
+        ) && !entity_authority.contains(".finalize_static_planning_shape_for_model(self.model)")
+            && !entity_authority.contains("PreparedShapeFinalizationOutcome::GeneratedFallback")
+            && query_plan_logical.contains(
+                "#[cfg(test)]\n    pub(in crate::db) fn finalize_static_planning_shape_for_model("
+            ),
+        "prepared execution finalization must use authority-carried schema info and keep generated static-shape finalization test-only",
+    );
+}
+
+#[test]
+fn scalar_aggregate_expression_compilation_uses_accepted_schema_info() {
+    let scalar_expr = read_source("src/db/query/plan/expr/scalar.rs");
+    let scalar_expr_mod = read_source("src/db/query/plan/expr/mod.rs");
+    let aggregate_helpers = read_source("src/db/sql/lowering/aggregate/lowering/helpers.rs");
+    let aggregate_terminal = read_source("src/db/executor/aggregate/scalar_terminals/terminal.rs");
+    let aggregate_request = read_source("src/db/executor/aggregate/scalar_terminals/request.rs");
+    let aggregate_runtime = read_source("src/db/executor/aggregate/scalar_terminals/mod.rs");
+    let session_global_aggregate = read_source("src/db/session/sql/execute/global_aggregate.rs");
+    let session_global_aggregate_compact = compact_source(&session_global_aggregate);
+
+    assert!(
+        scalar_expr.contains(
+            "#[cfg(test)]\n#[must_use]\npub(in crate::db) fn compile_scalar_projection_expr("
+        ) && scalar_expr_mod.contains(
+            "#[cfg(test)]\npub(in crate::db) use scalar::compile_scalar_projection_expr;"
+        ),
+        "generated-schema scalar projection compiler wrapper must stay test-only",
+    );
+    assert!(
+        aggregate_helpers.contains("schema: &SchemaInfo,")
+            && aggregate_helpers
+                .contains("compile_scalar_projection_expr_with_schema(model, schema, expr)",)
+            && !aggregate_helpers.contains("compile_scalar_projection_expr(model, expr)"),
+        "SQL aggregate scalar-expression validation must compile against caller-supplied schema info",
+    );
+    assert!(
+        aggregate_terminal.contains("schema: &SchemaInfo,")
+            && aggregate_terminal
+                .contains("compile_scalar_projection_expr_with_schema(model, schema, expr)",)
+            && aggregate_terminal.contains("schema.field_slot_index(field.as_str()).is_none()")
+            && !aggregate_terminal.contains("compile_scalar_projection_expr(model, expr)")
+            && !aggregate_terminal.contains("model.resolve_field_slot(field.as_str()).is_none()"),
+        "structural aggregate terminal expression compilation must use accepted schema info for scalar slot resolution",
+    );
+    assert!(
+        aggregate_request.contains("schema_info: SchemaInfo,")
+            && aggregate_request.contains("pub(super) const fn schema_info(&self) -> &SchemaInfo")
+            && aggregate_runtime.contains("request.schema_info()")
+            && session_global_aggregate_compact.contains(
+                "SchemaInfo::from_accepted_snapshot_for_model(E::MODEL,&accepted_schema)",
+            )
+            && session_global_aggregate.contains(
+                "StructuralAggregateRequest::new(terminals, projection, having, schema_info)",
+            ),
+        "session global aggregate execution must carry accepted schema info into structural aggregate runtime",
     );
 }
 

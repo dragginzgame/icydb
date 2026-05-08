@@ -158,6 +158,7 @@ impl ScalarProjectionField {
 
 /// Compile one scalar projection expression into a planner-owned slot-resolved
 /// program when it stays entirely on the scalar seam.
+#[cfg(test)]
 #[must_use]
 pub(in crate::db) fn compile_scalar_projection_expr(
     model: &EntityModel,
@@ -174,7 +175,7 @@ pub(in crate::db) fn compile_scalar_projection_expr(
 ///
 /// Accepted-schema planning paths use this helper so field and field-path root
 /// slots come from `SchemaInfo` instead of directly re-reading generated model
-/// slot order. Generated-only callers keep using `compile_scalar_projection_expr`.
+/// slot order.
 #[must_use]
 pub(in crate::db) fn compile_scalar_projection_expr_with_schema(
     model: &EntityModel,

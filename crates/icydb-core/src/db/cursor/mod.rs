@@ -23,6 +23,7 @@ use crate::{
         access::ExecutionPathPayload,
         direction::Direction,
         query::plan::{OrderSpec, validate_cursor_order_plan_shape},
+        schema::SchemaInfo,
     },
     traits::KeyValueCodec,
     types::EntityTag,
@@ -85,6 +86,7 @@ pub(in crate::db) fn prepare_cursor<K: KeyValueCodec>(
     entity_path: &'static str,
     entity_tag: EntityTag,
     model: &crate::model::entity::EntityModel,
+    schema: &SchemaInfo,
     order: Option<&OrderSpec>,
     direction: Direction,
     continuation_signature: ContinuationSignature,
@@ -99,6 +101,7 @@ pub(in crate::db) fn prepare_cursor<K: KeyValueCodec>(
         entity_path,
         entity_tag,
         model,
+        schema,
         order,
         continuation_signature,
         direction,
@@ -107,10 +110,12 @@ pub(in crate::db) fn prepare_cursor<K: KeyValueCodec>(
 }
 
 /// Revalidate executor-provided cursor state through the canonical cursor spine.
+#[expect(clippy::too_many_arguments)]
 pub(in crate::db) fn revalidate_cursor<K: KeyValueCodec>(
     access: Option<ExecutionPathPayload<'_, K>>,
     entity_tag: EntityTag,
     model: &crate::model::entity::EntityModel,
+    schema: &SchemaInfo,
     order: Option<&OrderSpec>,
     direction: Direction,
     initial_offset: u32,
@@ -127,6 +132,7 @@ pub(in crate::db) fn revalidate_cursor<K: KeyValueCodec>(
         access,
         entity_tag,
         model,
+        schema,
         order,
         direction,
         initial_offset,

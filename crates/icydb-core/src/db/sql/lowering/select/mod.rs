@@ -341,7 +341,7 @@ fn apply_lowered_select_shape_with_schema(
     }
     query = query.projection_selection(projection_selection);
     for aggregate in grouped_aggregates {
-        query = query.aggregate(lower_grouped_aggregate_call(model, aggregate)?);
+        query = query.aggregate(lower_grouped_aggregate_call(model, schema, aggregate)?);
     }
 
     // Phase 3: bind resolved HAVING expressions against grouped terminals.

@@ -97,6 +97,7 @@ impl PreparedSqlScalarAggregateStrategy {
             AggregateInput::Expr(input_expr) => {
                 validate_model_bound_scalar_expr(
                     model,
+                    schema,
                     &input_expr,
                     SqlLoweringError::unsupported_aggregate_input_expressions,
                 )?;

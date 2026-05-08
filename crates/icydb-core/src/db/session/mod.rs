@@ -453,7 +453,13 @@ impl<C: CanisterKind> DbSession<C> {
                 authority.model(),
             )?;
         let row_decode_contract = accepted_row_layout.row_decode_contract();
-        let authority = authority.with_accepted_row_decode_contract(row_shape, row_decode_contract);
+        let schema_info =
+            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), &accepted_schema);
+        let authority = authority.with_accepted_row_decode_contract(
+            row_shape,
+            row_decode_contract,
+            schema_info,
+        );
 
         Ok((accepted_schema, authority))
     }

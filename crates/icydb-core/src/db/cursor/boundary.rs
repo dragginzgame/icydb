@@ -100,18 +100,14 @@ pub(in crate::db) const fn validate_cursor_boundary_arity(
 /// Validate one cursor boundary against canonical order fields and return typed PK key.
 pub(in crate::db) fn validate_cursor_boundary_for_order<K: KeyValueCodec>(
     model: &EntityModel,
+    schema: &SchemaInfo,
     order: &OrderSpec,
     boundary: &CursorBoundary,
 ) -> Result<K, CursorPlanError> {
     validate_cursor_boundary_arity(boundary, order.fields.len())?;
-    validate_cursor_boundary_types(model, order, boundary)?;
+    validate_cursor_boundary_types(model, schema, order, boundary)?;
 
-    decode_typed_primary_key_cursor_slot::<K>(model, order, boundary)
-}
-
-// Load canonical schema information for cursor boundary validation.
-fn boundary_schema(model: &EntityModel) -> &'static SchemaInfo {
-    SchemaInfo::cached_for_entity_model(model)
+    decode_typed_primary_key_cursor_slot::<K>(model, schema, order, boundary)
 }
 
 // Resolve one plain order field type from canonical schema info.
@@ -138,11 +134,10 @@ fn primary_key_boundary_index(order: &OrderSpec, pk_field: &str) -> Result<usize
 /// Validate cursor boundary slot types against canonical order fields.
 pub(in crate::db) fn validate_cursor_boundary_types(
     model: &EntityModel,
+    schema: &SchemaInfo,
     order: &OrderSpec,
     boundary: &CursorBoundary,
 ) -> Result<(), CursorPlanError> {
-    let schema = boundary_schema(model);
-
     for (term, slot) in order.fields.iter().zip(boundary.slots.iter()) {
         let field = term.direct_field();
         let expression = field.is_none().then(|| term.expr().clone());
@@ -288,12 +283,12 @@ fn boundary_order_expression_value_matches(
 /// Decode the typed primary-key cursor slot from one validated cursor boundary.
 pub(in crate::db) fn decode_typed_primary_key_cursor_slot<K: KeyValueCodec>(
     model: &EntityModel,
+    schema: &SchemaInfo,
     order: &OrderSpec,
     boundary: &CursorBoundary,
 ) -> Result<K, CursorPlanError> {
     let pk_field = model.primary_key.name;
     let pk_index = primary_key_boundary_index(order, pk_field)?;
-    let schema = boundary_schema(model);
     let expected = boundary_order_field_type(schema, pk_field)?.to_string();
     let pk_slot = &boundary.slots[pk_index];
 

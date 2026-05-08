@@ -275,6 +275,7 @@ impl AccessPlannedQuery {
     }
 
     /// Freeze planner-owned executor metadata after logical/access planning completes.
+    #[cfg(test)]
     pub(in crate::db) fn finalize_static_planning_shape_for_model(
         &mut self,
         model: &EntityModel,

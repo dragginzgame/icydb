@@ -15,8 +15,9 @@ use crate::{
         },
         query::plan::{
             AccessPlannedQuery, AggregateKind, FieldSlot, GroupedAggregateExecutionSpec,
-            expr::{CompiledExpr, Expr, FieldId, compile_scalar_projection_expr},
+            expr::{CompiledExpr, Expr, FieldId, compile_scalar_projection_expr_with_schema},
         },
+        schema::SchemaInfo,
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -414,11 +415,12 @@ impl ResolvedStructuralAggregateTerminal<'_> {
     fn into_prepared(
         self,
         model: &EntityModel,
+        schema: &SchemaInfo,
     ) -> Result<PreparedScalarAggregateTerminal, InternalError> {
-        let input = self.input.into_prepared(model)?;
+        let input = self.input.into_prepared(model, schema)?;
         let filter = self
             .filter_expr
-            .map(|expr| compile_structural_aggregate_expr(model, expr, "filter"))
+            .map(|expr| compile_structural_aggregate_expr(model, schema, expr, "filter"))
             .transpose()?;
 
         Ok(PreparedScalarAggregateTerminal::from_validated_parts(
@@ -463,7 +465,11 @@ impl ResolvedStructuralAggregateInput<'_> {
         }
     }
 
-    fn into_prepared(self, model: &EntityModel) -> Result<ScalarAggregateInput, InternalError> {
+    fn into_prepared(
+        self,
+        model: &EntityModel,
+        schema: &SchemaInfo,
+    ) -> Result<ScalarAggregateInput, InternalError> {
         match self {
             Self::Rows => Ok(ScalarAggregateInput::Rows),
             Self::Field(target_slot) => Ok(ScalarAggregateInput::Field {
@@ -471,7 +477,7 @@ impl ResolvedStructuralAggregateInput<'_> {
                 field: target_slot.field().to_string(),
             }),
             Self::Expr(input_expr) => Ok(ScalarAggregateInput::Expr(
-                compile_structural_aggregate_expr(model, input_expr, "input")?,
+                compile_structural_aggregate_expr(model, schema, input_expr, "input")?,
             )),
             Self::MissingFieldTarget => Err(InternalError::query_executor_invariant(
                 "field-target structural aggregate terminal requires a resolved field slot",
@@ -512,9 +518,10 @@ pub(super) const fn resolve_structural_aggregate_terminal(
 
 pub(super) fn compile_structural_scalar_aggregate_terminal(
     model: &EntityModel,
+    schema: &SchemaInfo,
     terminal: &StructuralAggregateTerminal,
 ) -> Result<PreparedScalarAggregateTerminal, InternalError> {
-    resolve_structural_aggregate_terminal(terminal).into_prepared(model)
+    resolve_structural_aggregate_terminal(terminal).into_prepared(model, schema)
 }
 
 impl StructuralAggregateTerminalKind {
@@ -535,26 +542,28 @@ impl StructuralAggregateTerminalKind {
 
 fn compile_structural_aggregate_expr(
     model: &EntityModel,
+    schema: &SchemaInfo,
     expr: &Expr,
     label: &str,
 ) -> Result<CompiledExpr, InternalError> {
-    if let Some(field) = first_unknown_structural_aggregate_expr_field(model, expr) {
+    if let Some(field) = first_unknown_structural_aggregate_expr_field(schema, expr) {
         return Err(InternalError::query_executor_invariant(format!(
             "unknown expression field '{field}'",
         )));
     }
 
-    let scalar = compile_scalar_projection_expr(model, expr).ok_or_else(|| {
-        InternalError::query_executor_invariant(format!(
-            "structural aggregate {label} expression must compile on the scalar seam",
-        ))
-    })?;
+    let scalar =
+        compile_scalar_projection_expr_with_schema(model, schema, expr).ok_or_else(|| {
+            InternalError::query_executor_invariant(format!(
+                "structural aggregate {label} expression must compile on the scalar seam",
+            ))
+        })?;
 
     Ok(CompiledExpr::compile(&scalar))
 }
 
 fn first_unknown_structural_aggregate_expr_field(
-    model: &EntityModel,
+    schema: &SchemaInfo,
     expr: &Expr,
 ) -> Option<String> {
     let mut first_unknown = None;
@@ -563,7 +572,7 @@ fn first_unknown_structural_aggregate_expr_field(
             return Ok(());
         }
         if let Expr::Field(field) = node
-            && model.resolve_field_slot(field.as_str()).is_none()
+            && schema.field_slot_index(field.as_str()).is_none()
         {
             first_unknown = Some(field.as_str().to_string());
         }

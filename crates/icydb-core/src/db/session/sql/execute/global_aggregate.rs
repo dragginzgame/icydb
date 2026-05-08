@@ -11,6 +11,7 @@ use crate::{
             StructuralAggregateTerminalKind,
         },
         query::plan::AggregateKind,
+        schema::SchemaInfo,
         session::sql::{
             SqlCacheAttribution, SqlStatementResult,
             projection::{
@@ -86,6 +87,10 @@ impl<C: CanisterKind> DbSession<C> {
         let (query, strategies, projection, having) = command.into_execution_parts();
         let columns = projection_labels_from_projection_spec(&projection);
         let fixed_scales = projection_fixed_scales_from_projection_spec(&projection);
+        let accepted_schema = self
+            .ensure_accepted_schema_snapshot::<E>()
+            .map_err(QueryError::execute)?;
+        let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema);
         let terminals = strategies
             .into_iter()
             .map(|strategy| {
@@ -93,7 +98,7 @@ impl<C: CanisterKind> DbSession<C> {
                     .map_err(QueryError::invariant)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let request = StructuralAggregateRequest::new(terminals, projection, having);
+        let request = StructuralAggregateRequest::new(terminals, projection, having, schema_info);
         let query = Query::<E>::from_inner(query);
         let (prepared_plan, cache_attribution) =
             self.cached_shared_query_plan_for_entity::<E>(&query)?;

@@ -7,6 +7,7 @@ use crate::{
             },
             plan::expr::{Expr, canonicalize_aggregate_input_expr},
         },
+        schema::SchemaInfo,
         sql::{
             lowering::{
                 SqlLoweringError,
@@ -111,11 +112,12 @@ pub(in crate::db::sql::lowering) fn lower_aggregate_call(
 // subexpressions before grouped execution can compile them into reducer state.
 pub(in crate::db::sql::lowering) fn lower_grouped_aggregate_call(
     model: &'static EntityModel,
+    schema: &SchemaInfo,
     call: SqlAggregateCall,
 ) -> Result<AggregateExpr, SqlLoweringError> {
     let aggregate = lower_aggregate_call(call)?;
 
-    validate_grouped_aggregate_scalar_subexpressions(model, &aggregate)?;
+    validate_grouped_aggregate_scalar_subexpressions(model, schema, &aggregate)?;
 
     Ok(aggregate)
 }

@@ -18,6 +18,7 @@ use crate::{
         },
         direction::Direction,
         query::plan::OrderSpec,
+        schema::SchemaInfo,
     },
     model::entity::EntityModel,
     traits::KeyValueCodec,
@@ -34,6 +35,8 @@ use crate::{
 
 trait CursorPlanSurface<K: KeyValueCodec> {
     fn entity_model(&self) -> &EntityModel;
+
+    fn schema_info(&self) -> &SchemaInfo;
 
     fn order_spec(&self) -> &OrderSpec;
 
@@ -53,6 +56,7 @@ trait CursorPlanSurface<K: KeyValueCodec> {
 struct CursorPlanSurfaceAdapter<'a, K> {
     access: Option<ExecutionPathPayload<'a, K>>,
     model: &'a EntityModel,
+    schema: &'a SchemaInfo,
     order: &'a OrderSpec,
     direction: Direction,
     initial_offset: u32,
@@ -61,6 +65,10 @@ struct CursorPlanSurfaceAdapter<'a, K> {
 impl<K: KeyValueCodec> CursorPlanSurface<K> for CursorPlanSurfaceAdapter<'_, K> {
     fn entity_model(&self) -> &EntityModel {
         self.model
+    }
+
+    fn schema_info(&self) -> &SchemaInfo {
+        self.schema
     }
 
     fn order_spec(&self) -> &OrderSpec {
@@ -88,6 +96,7 @@ pub(in crate::db) fn validate_planned_cursor<K>(
     entity_path: &'static str,
     entity_tag: EntityTag,
     model: &EntityModel,
+    schema: &SchemaInfo,
     order: &OrderSpec,
     expected_signature: ContinuationSignature,
     direction: Direction,
@@ -103,6 +112,7 @@ where
     let surface = CursorPlanSurfaceAdapter {
         access,
         model,
+        schema,
         order,
         direction,
         initial_offset: expected_initial_offset,
@@ -120,11 +130,13 @@ where
 }
 
 /// Validate an executor-provided cursor state through the canonical cursor spine.
+#[expect(clippy::too_many_arguments)]
 pub(in crate::db) fn validate_planned_cursor_state<K>(
     cursor: PlannedCursor,
     access: Option<ExecutionPathPayload<'_, K>>,
     entity_tag: EntityTag,
     model: &EntityModel,
+    schema: &SchemaInfo,
     order: &OrderSpec,
     direction: Direction,
     expected_initial_offset: u32,
@@ -139,6 +151,7 @@ where
     let surface = CursorPlanSurfaceAdapter {
         access,
         model,
+        schema,
         order,
         direction,
         initial_offset: expected_initial_offset,
@@ -248,6 +261,7 @@ fn validate_cursor_boundary_anchor_invariants<K: KeyValueCodec, S: CursorPlanSur
 
     let pk_key = validate_cursor_boundary_for_order::<K>(
         surface.entity_model(),
+        surface.schema_info(),
         surface.order_spec(),
         boundary,
     )?;

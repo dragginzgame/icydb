@@ -14,6 +14,7 @@ use crate::{
             GroupedAggregateExecutionSpec,
             expr::{CompiledExpr, Expr, ProjectionField, ProjectionSpec},
         },
+        schema::SchemaInfo,
     },
     error::InternalError,
     value::Value,
@@ -52,11 +53,12 @@ impl StructuralAggregateResult {
 /// and executes these semantic expressions against a prepared scalar plan.
 ///
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub(in crate::db) struct StructuralAggregateRequest {
     terminals: Vec<StructuralAggregateTerminal>,
     projection: ProjectionSpec,
     having: Option<Expr>,
+    schema_info: SchemaInfo,
 }
 
 impl StructuralAggregateRequest {
@@ -66,16 +68,22 @@ impl StructuralAggregateRequest {
         terminals: Vec<StructuralAggregateTerminal>,
         projection: ProjectionSpec,
         having: Option<Expr>,
+        schema_info: SchemaInfo,
     ) -> Self {
         Self {
             terminals,
             projection,
             having,
+            schema_info,
         }
     }
 
     pub(super) const fn terminals(&self) -> &[StructuralAggregateTerminal] {
         self.terminals.as_slice()
+    }
+
+    pub(super) const fn schema_info(&self) -> &SchemaInfo {
+        &self.schema_info
     }
 }
 
