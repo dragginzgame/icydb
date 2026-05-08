@@ -23,7 +23,8 @@ use crate::{
                 },
                 group_aggregate_spec_expr, grouped_having_compare_expr,
                 prepare_query_model_scalar_planning_state_with_schema_info,
-                resolve_group_field_slot, try_build_trivial_scalar_load_plan_with_schema_info,
+                resolve_group_field_slot, resolve_group_field_slot_with_schema,
+                try_build_trivial_scalar_load_plan_with_schema_info,
             },
         },
         schema::SchemaInfo,
@@ -288,6 +289,20 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
         Ok(self)
     }
 
+    // Resolve one grouped field through an explicit schema view and append it
+    // to the grouped spec in declaration order.
+    pub(in crate::db::query::intent) fn push_group_field_with_schema(
+        mut self,
+        field: &str,
+        schema: &SchemaInfo,
+    ) -> Result<Self, QueryError> {
+        let field_slot = resolve_group_field_slot_with_schema(self.model, schema, field)
+            .map_err(QueryError::from)?;
+        self.intent.push_group_field_slot(field_slot);
+
+        Ok(self)
+    }
+
     // Append one grouped aggregate terminal to the grouped declarative spec.
     pub(in crate::db::query::intent) fn push_group_aggregate(
         mut self,
@@ -322,6 +337,30 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
         }
 
         let field_slot = resolve_group_field_slot(self.model, field).map_err(QueryError::from)?;
+        let value =
+            canonicalize_grouped_having_numeric_literal_for_field_kind(field_slot.kind(), &value)
+                .unwrap_or(value);
+        let expr =
+            grouped_having_compare_expr(Expr::Field(FieldId::new(field_slot.field())), op, value);
+
+        self.push_having_expr(expr)
+    }
+
+    // Append one grouped HAVING compare over one grouped key field using an
+    // explicit schema view for slot authority.
+    pub(in crate::db::query::intent) fn push_having_group_clause_with_schema(
+        self,
+        field: &str,
+        schema: &SchemaInfo,
+        op: CompareOp,
+        value: Value,
+    ) -> Result<Self, QueryError> {
+        if matches!(self.intent.mode(), QueryMode::Delete(_)) {
+            return self.push_having_expr(Expr::Literal(Value::Bool(true)));
+        }
+
+        let field_slot = resolve_group_field_slot_with_schema(self.model, schema, field)
+            .map_err(QueryError::from)?;
         let value =
             canonicalize_grouped_having_numeric_literal_for_field_kind(field_slot.kind(), &value)
                 .unwrap_or(value);

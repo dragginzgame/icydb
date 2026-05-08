@@ -420,6 +420,23 @@ impl<C: CanisterKind> DbSession<C> {
         })
     }
 
+    // Build the accepted schema-info projection for one typed entity. Fluent
+    // terminal adapters use this before constructing slot-bound descriptors so
+    // field slot authority comes from the accepted schema snapshot.
+    pub(in crate::db) fn accepted_schema_info_for_entity<E>(
+        &self,
+    ) -> Result<SchemaInfo, InternalError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
+
+        Ok(SchemaInfo::from_accepted_snapshot_for_model(
+            E::MODEL,
+            &accepted_schema,
+        ))
+    }
+
     // Ensure and return the accepted schema snapshot from already-resolved
     // structural entity authority. SQL and fluent shared-plan cache paths use
     // this shape after lowering has erased the concrete entity type.

@@ -206,6 +206,15 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
     statement: SqlSelectStatement,
     model: &'static EntityModel,
 ) -> Result<LoweredSelectShape, SqlLoweringError> {
+    lower_select_shape_with_schema(statement, model, SchemaInfo::cached_for_entity_model(model))
+}
+
+#[inline(never)]
+pub(in crate::db::sql::lowering) fn lower_select_shape_with_schema(
+    statement: SqlSelectStatement,
+    model: &'static EntityModel,
+    schema: &SchemaInfo,
+) -> Result<LoweredSelectShape, SqlLoweringError> {
     let SqlSelectStatement {
         projection,
         projection_aliases,
@@ -265,6 +274,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
         group_by.as_slice(),
         grouped_aggregates.as_slice(),
         model,
+        schema,
     )?;
 
     let filter = match predicate.as_ref() {
@@ -332,7 +342,7 @@ fn apply_lowered_select_shape_with_schema(
 
     // Phase 1: apply grouped declaration semantics.
     for field in group_by_fields {
-        query = query.group_by(field)?;
+        query = query.group_by_with_schema(field, schema)?;
     }
 
     // Phase 2: apply scalar DISTINCT and projection contracts.

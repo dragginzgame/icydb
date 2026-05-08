@@ -7,11 +7,10 @@ use crate::{
     db::{
         DbSession, PersistedRow, Query, QueryError,
         executor::{
-            EntityAuthority, StructuralAggregateRequest, StructuralAggregateTerminal,
+            StructuralAggregateRequest, StructuralAggregateTerminal,
             StructuralAggregateTerminalKind,
         },
         query::plan::AggregateKind,
-        schema::SchemaInfo,
         session::sql::{
             SqlCacheAttribution, SqlStatementResult,
             projection::{
@@ -74,12 +73,9 @@ impl<C: CanisterKind> DbSession<C> {
     // Execute one prepared SQL aggregate command through executor-owned
     // structural aggregate execution, then shape the completed rows into the
     // SQL projection payload.
-    pub(in crate::db::session::sql::execute) fn execute_global_aggregate_statement_for_authority<
-        E,
-    >(
+    pub(in crate::db::session::sql::execute) fn execute_global_aggregate_statement<E>(
         &self,
         command: SqlGlobalAggregateCommandCore,
-        _authority: EntityAuthority,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -87,10 +83,9 @@ impl<C: CanisterKind> DbSession<C> {
         let (query, strategies, projection, having) = command.into_execution_parts();
         let columns = projection_labels_from_projection_spec(&projection);
         let fixed_scales = projection_fixed_scales_from_projection_spec(&projection);
-        let accepted_schema = self
-            .ensure_accepted_schema_snapshot::<E>()
+        let schema_info = self
+            .accepted_schema_info_for_entity::<E>()
             .map_err(QueryError::execute)?;
-        let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema);
         let terminals = strategies
             .into_iter()
             .map(|strategy| {

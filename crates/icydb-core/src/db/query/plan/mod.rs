@@ -140,7 +140,8 @@ pub(in crate::db::query) use validate::{
     validate_intent_plan_shape, validate_query_semantics,
 };
 pub(in crate::db) use validate::{
-    resolve_aggregate_target_field_slot, resolve_group_field_slot, validate_cursor_order_plan_shape,
+    resolve_aggregate_target_field_slot_with_schema, resolve_group_field_slot,
+    resolve_group_field_slot_with_schema, validate_cursor_order_plan_shape,
 };
 
 /// Return true when a query mode declares an explicit load `LIMIT 0` window.

@@ -14,7 +14,10 @@ use crate::{
                     normalize_select_statement_to_expected_entity,
                     normalize_update_statement_to_expected_entity,
                 },
-                select::{lower_delete_shape, lower_delete_statement_shape, lower_select_shape},
+                select::{
+                    lower_delete_shape, lower_delete_statement_shape, lower_select_shape,
+                    lower_select_shape_with_schema,
+                },
             },
             parser::{
                 SqlAggregateCall, SqlDeleteStatement, SqlExplainMode, SqlExplainStatement,
@@ -186,18 +189,18 @@ pub(crate) fn lower_sql_command_from_prepared_statement(
     lower_prepared_statement(prepared.statement, model)
 }
 
-/// Lower one prepared SQL statement and return its SELECT query artifact.
+/// Lower one prepared SQL SELECT through an explicit schema projection.
 #[inline(never)]
-pub(crate) fn lower_prepared_sql_select_statement(
+pub(crate) fn lower_prepared_sql_select_statement_with_schema(
     prepared: PreparedSqlStatement,
     model: &'static EntityModel,
+    schema: &SchemaInfo,
 ) -> Result<LoweredSelectShape, SqlLoweringError> {
-    let lowered = lower_sql_command_from_prepared_statement(prepared, model)?;
-    let Some(select) = lowered.into_select_query() else {
+    let SqlStatement::Select(statement) = prepared.into_statement() else {
         return Err(QueryError::prepared_sql_select_lane_mismatch().into());
     };
 
-    Ok(select)
+    lower_select_shape_with_schema(statement, model, schema)
 }
 
 /// Lower one prepared SQL DELETE statement into its execution-ready artifact.
@@ -224,7 +227,7 @@ pub(in crate::db) fn bind_prepared_sql_select_statement_structural_with_schema(
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
 ) -> Result<StructuralQuery, SqlLoweringError> {
-    let select = lower_prepared_sql_select_statement(prepared, model)?;
+    let select = lower_prepared_sql_select_statement_with_schema(prepared, model, schema)?;
 
     bind_lowered_sql_select_query_structural_with_schema(model, select, consistency, schema)
 }

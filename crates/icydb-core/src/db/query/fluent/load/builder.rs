@@ -133,7 +133,12 @@ where
     /// Add one grouped key field.
     pub fn group_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
         let field = field.as_ref().to_owned();
-        self.try_map_query(|query| query.group_by(&field))
+        let schema = self
+            .session
+            .accepted_schema_info_for_entity::<E>()
+            .map_err(QueryError::execute)?;
+
+        self.try_map_query(|query| query.group_by_with_schema(&field, &schema))
     }
 
     /// Add one aggregate terminal via composable aggregate expression.
@@ -156,7 +161,12 @@ where
         value: InputValue,
     ) -> Result<Self, QueryError> {
         let field = field.as_ref().to_owned();
-        self.try_map_query(|query| query.having_group(&field, op, value))
+        let schema = self
+            .session
+            .accepted_schema_info_for_entity::<E>()
+            .map_err(QueryError::execute)?;
+
+        self.try_map_query(|query| query.having_group_with_schema(&field, &schema, op, value))
     }
 
     /// Add one grouped HAVING compare clause over one grouped aggregate output.

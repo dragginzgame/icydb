@@ -1,14 +1,14 @@
 use crate::{
     db::{
-        QueryError,
         query::{
             builder::AggregateExpr,
             plan::{
                 canonicalize_grouped_having_numeric_literal_for_field_kind,
                 expr::{BinaryOp, Expr, canonicalize_grouped_having_bool_expr},
-                resolve_group_field_slot,
+                resolve_group_field_slot_with_schema,
             },
         },
+        schema::SchemaInfo,
         sql::{
             lowering::{
                 SqlLoweringError,
@@ -34,6 +34,7 @@ pub(super) fn lower_having_clauses(
     group_by_fields: &[String],
     grouped_aggregates: &[SqlAggregateCall],
     model: &'static EntityModel,
+    schema: &SchemaInfo,
 ) -> Result<Vec<Expr>, SqlLoweringError> {
     lower_having_clauses_with_policy(
         having_exprs,
@@ -42,7 +43,7 @@ pub(super) fn lower_having_clauses(
         group_by_fields.is_empty(),
     )?
     .into_iter()
-    .map(|clause| canonicalize_grouped_having_expr_from_lowered_sql_clause(model, clause))
+    .map(|clause| canonicalize_grouped_having_expr_from_lowered_sql_clause(model, schema, clause))
     .collect()
 }
 
@@ -181,6 +182,7 @@ fn combine_having_clauses(mut clauses: Vec<Expr>) -> Expr {
 
 fn canonicalize_grouped_having_expr(
     model: &'static EntityModel,
+    schema: &SchemaInfo,
     expr: Expr,
 ) -> Result<Expr, SqlLoweringError> {
     match expr {
@@ -189,12 +191,12 @@ fn canonicalize_grouped_having_expr(
             function,
             args: args
                 .into_iter()
-                .map(|arg| canonicalize_grouped_having_expr(model, arg))
+                .map(|arg| canonicalize_grouped_having_expr(model, schema, arg))
                 .collect::<Result<Vec<_>, _>>()?,
         }),
         Expr::Unary { op, expr } => Ok(Expr::Unary {
             op,
-            expr: Box::new(canonicalize_grouped_having_expr(model, *expr)?),
+            expr: Box::new(canonicalize_grouped_having_expr(model, schema, *expr)?),
         }),
         Expr::Case {
             when_then_arms,
@@ -204,20 +206,21 @@ fn canonicalize_grouped_having_expr(
                 .into_iter()
                 .map(|arm| {
                     Ok(crate::db::query::plan::expr::CaseWhenArm::new(
-                        canonicalize_grouped_having_expr(model, arm.condition().clone())?,
-                        canonicalize_grouped_having_expr(model, arm.result().clone())?,
+                        canonicalize_grouped_having_expr(model, schema, arm.condition().clone())?,
+                        canonicalize_grouped_having_expr(model, schema, arm.result().clone())?,
                     ))
                 })
                 .collect::<Result<Vec<_>, SqlLoweringError>>()?,
-            else_expr: Box::new(canonicalize_grouped_having_expr(model, *else_expr)?),
+            else_expr: Box::new(canonicalize_grouped_having_expr(model, schema, *else_expr)?),
         }),
         Expr::Binary { op, left, right } => {
-            let left = canonicalize_grouped_having_expr(model, *left)?;
-            let right = canonicalize_grouped_having_expr(model, *right)?;
-            let canonical_left = canonicalize_grouped_having_compare_literals(model, &left, &right)
-                .unwrap_or_else(|| left.clone());
+            let left = canonicalize_grouped_having_expr(model, schema, *left)?;
+            let right = canonicalize_grouped_having_expr(model, schema, *right)?;
+            let canonical_left =
+                canonicalize_grouped_having_compare_literals(model, schema, &left, &right)
+                    .unwrap_or_else(|| left.clone());
             let canonical_right =
-                canonicalize_grouped_having_compare_literals(model, &right, &left)
+                canonicalize_grouped_having_compare_literals(model, schema, &right, &left)
                     .unwrap_or_else(|| right.clone());
 
             Ok(Expr::Binary {
@@ -228,7 +231,7 @@ fn canonicalize_grouped_having_expr(
         }
         #[cfg(test)]
         Expr::Alias { expr, name } => Ok(Expr::Alias {
-            expr: Box::new(canonicalize_grouped_having_expr(model, *expr)?),
+            expr: Box::new(canonicalize_grouped_having_expr(model, schema, *expr)?),
             name,
         }),
     }
@@ -240,9 +243,10 @@ fn canonicalize_grouped_having_expr(
 // grouped boolean candidate, proving it joined the shipped canonical family.
 fn canonicalize_grouped_having_expr_from_lowered_sql_clause(
     model: &'static EntityModel,
+    schema: &SchemaInfo,
     clause: LoweredHavingClause,
 ) -> Result<Expr, SqlLoweringError> {
-    let expr = canonicalize_grouped_having_expr(model, clause.expr)?;
+    let expr = canonicalize_grouped_having_expr(model, schema, clause.expr)?;
     let canonical = canonicalize_grouped_having_bool_expr(expr);
 
     if clause.contains_omitted_else_case && canonical.contains_case() {
@@ -272,15 +276,14 @@ fn canonicalize_grouped_global_having_clause(
 
 fn canonicalize_grouped_having_compare_literals(
     model: &'static EntityModel,
+    schema: &SchemaInfo,
     expr: &Expr,
     other: &Expr,
 ) -> Option<Expr> {
     let (Expr::Literal(value), Expr::Field(field)) = (expr, other) else {
         return None;
     };
-    let field_slot = resolve_group_field_slot(model, field.as_str())
-        .map_err(QueryError::from)
-        .ok()?;
+    let field_slot = resolve_group_field_slot_with_schema(model, schema, field.as_str()).ok()?;
     let canonical =
         canonicalize_grouped_having_numeric_literal_for_field_kind(field_slot.kind(), value)?;
 

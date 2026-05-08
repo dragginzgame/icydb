@@ -527,7 +527,7 @@ fn scalar_aggregate_expression_compilation_uses_accepted_schema_info() {
     let aggregate_request = read_source("src/db/executor/aggregate/scalar_terminals/request.rs");
     let aggregate_runtime = read_source("src/db/executor/aggregate/scalar_terminals/mod.rs");
     let session_global_aggregate = read_source("src/db/session/sql/execute/global_aggregate.rs");
-    let session_global_aggregate_compact = compact_source(&session_global_aggregate);
+    let session_sql_execute = read_source("src/db/session/sql/execute/mod.rs");
 
     assert!(
         scalar_expr.contains(
@@ -557,13 +557,83 @@ fn scalar_aggregate_expression_compilation_uses_accepted_schema_info() {
         aggregate_request.contains("schema_info: SchemaInfo,")
             && aggregate_request.contains("pub(super) const fn schema_info(&self) -> &SchemaInfo")
             && aggregate_runtime.contains("request.schema_info()")
-            && session_global_aggregate_compact.contains(
-                "SchemaInfo::from_accepted_snapshot_for_model(E::MODEL,&accepted_schema)",
-            )
+            && session_global_aggregate.contains("accepted_schema_info_for_entity::<E>()")
             && session_global_aggregate.contains(
                 "StructuralAggregateRequest::new(terminals, projection, having, schema_info)",
             ),
         "session global aggregate execution must carry accepted schema info into structural aggregate runtime",
+    );
+    assert!(
+        session_global_aggregate.contains("fn execute_global_aggregate_statement<E>")
+            && !session_global_aggregate.contains("EntityAuthority")
+            && !session_global_aggregate.contains("for_authority")
+            && session_sql_execute.contains(
+                "CompiledSqlCommand::GlobalAggregate { command } => {\n                self.execute_global_aggregate_statement::<E>(",
+            )
+            && !session_sql_execute.contains(
+                "CompiledSqlCommand::GlobalAggregate { command } => {\n                let authority = EntityAuthority::for_type::<E>();",
+            ),
+        "SQL global aggregate execution must not retain a generated EntityAuthority bootstrap lane",
+    );
+}
+
+#[test]
+fn fluent_terminal_field_slots_use_accepted_schema_info() {
+    let fluent_builder = read_source("src/db/query/fluent/load/builder.rs");
+    let fluent_validation = read_source("src/db/query/fluent/load/validation.rs");
+    let query_intent = read_source("src/db/query/intent/model.rs");
+    let sql_select = read_source("src/db/sql/lowering/select/mod.rs");
+    let sql_select_aggregate = read_source("src/db/sql/lowering/select/aggregate.rs");
+    let sql_prepare = read_source("src/db/sql/lowering/prepare.rs");
+    let session_sql_compile = read_source("src/db/session/sql/compile/core.rs");
+    let session_mod = read_source("src/db/session/mod.rs");
+    let symbols = read_source("src/db/query/plan/validate/symbols.rs");
+    let sql_aggregate_strategy = read_source("src/db/sql/lowering/aggregate/strategy.rs");
+    let session_global_aggregate = read_source("src/db/session/sql/execute/global_aggregate.rs");
+
+    assert!(
+        fluent_validation.contains("accepted_schema_info_for_entity::<E>()")
+            && fluent_validation.contains("resolve_aggregate_target_field_slot_with_schema(")
+            && !fluent_validation.contains("resolve_aggregate_target_field_slot(E::MODEL"),
+        "fluent aggregate/projection terminal field slots must resolve through accepted schema info instead of generated model slot order",
+    );
+    assert!(
+        fluent_builder.contains("query.group_by_with_schema(&field, &schema)")
+            && fluent_builder
+                .contains("query.having_group_with_schema(&field, &schema, op, value)")
+            && sql_select.contains("query.group_by_with_schema(field, schema)?")
+            && sql_select_aggregate.contains("schema: &SchemaInfo,")
+            && sql_select_aggregate.contains("resolve_group_field_slot_with_schema(")
+            && !sql_select_aggregate.contains("resolve_group_field_slot(model")
+            && query_intent.contains("fn push_group_field_with_schema(")
+            && query_intent.contains("fn push_having_group_clause_with_schema("),
+        "fluent and SQL grouped field slots must use accepted schema info at session/lowering boundaries",
+    );
+    assert!(
+        sql_prepare.contains("fn lower_prepared_sql_select_statement_with_schema(")
+            && session_sql_compile.contains("lower_prepared_sql_select_statement_with_schema("),
+        "session SQL SELECT compilation must lower grouped HAVING canonicalization with accepted schema info",
+    );
+    assert!(
+        session_mod.contains("pub(in crate::db) fn accepted_schema_info_for_entity<E>")
+            && session_mod.contains("SchemaInfo::from_accepted_snapshot_for_model(")
+            && symbols
+                .contains("pub(in crate::db) fn resolve_aggregate_target_field_slot_with_schema(")
+            && symbols.contains("pub(in crate::db) fn resolve_group_field_slot_with_schema(")
+            && symbols.contains(".field_slot_index(field)")
+            && !symbols.contains("fn resolve_aggregate_target_field_slot(")
+            && !symbols.contains("model.resolve_field_slot(field)?;"),
+        "session and planner symbol helpers must expose accepted-schema field-slot resolution",
+    );
+    assert!(
+        session_global_aggregate.contains("accepted_schema_info_for_entity::<E>()")
+            && !session_global_aggregate.contains("ensure_accepted_schema_snapshot::<E>()"),
+        "SQL global aggregate execution should reuse the session accepted-schema info helper",
+    );
+    assert!(
+        sql_aggregate_strategy.contains("resolve_aggregate_target_field_slot_with_schema(")
+            && !sql_aggregate_strategy.contains("resolve_aggregate_target_field_slot(model"),
+        "SQL aggregate field-target strategies must resolve terminal slots through accepted schema info",
     );
 }
 

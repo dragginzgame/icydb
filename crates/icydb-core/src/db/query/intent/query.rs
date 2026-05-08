@@ -180,6 +180,14 @@ impl StructuralQuery {
         self.try_map_intent(|intent| intent.push_group_field(field.as_ref()))
     }
 
+    pub(in crate::db) fn group_by_with_schema(
+        self,
+        field: impl AsRef<str>,
+        schema: &SchemaInfo,
+    ) -> Result<Self, QueryError> {
+        self.try_map_intent(|intent| intent.push_group_field_with_schema(field.as_ref(), schema))
+    }
+
     #[must_use]
     pub(in crate::db) fn aggregate(mut self, aggregate: AggregateExpr) -> Self {
         self.intent = self.intent.push_group_aggregate(aggregate);
@@ -200,6 +208,19 @@ impl StructuralQuery {
     ) -> Result<Self, QueryError> {
         let field = field.as_ref().to_owned();
         self.try_map_intent(|intent| intent.push_having_group_clause(&field, op, value))
+    }
+
+    pub(in crate::db) fn having_group_with_schema(
+        self,
+        field: impl AsRef<str>,
+        schema: &SchemaInfo,
+        op: CompareOp,
+        value: Value,
+    ) -> Result<Self, QueryError> {
+        let field = field.as_ref().to_owned();
+        self.try_map_intent(|intent| {
+            intent.push_having_group_clause_with_schema(&field, schema, op, value)
+        })
     }
 
     pub(in crate::db) fn having_aggregate(
@@ -648,6 +669,17 @@ impl<E: EntityKind> Query<E> {
         Ok(Self::from_inner(inner))
     }
 
+    pub(in crate::db) fn group_by_with_schema(
+        self,
+        field: impl AsRef<str>,
+        schema: &SchemaInfo,
+    ) -> Result<Self, QueryError> {
+        let Self { inner, .. } = self;
+        let inner = inner.group_by_with_schema(field, schema)?;
+
+        Ok(Self::from_inner(inner))
+    }
+
     /// Add one aggregate terminal via composable aggregate expression.
     #[must_use]
     pub fn aggregate(mut self, aggregate: AggregateExpr) -> Self {
@@ -671,6 +703,19 @@ impl<E: EntityKind> Query<E> {
     ) -> Result<Self, QueryError> {
         let Self { inner, .. } = self;
         let inner = inner.having_group(field, op, value.into())?;
+
+        Ok(Self::from_inner(inner))
+    }
+
+    pub(in crate::db) fn having_group_with_schema(
+        self,
+        field: impl AsRef<str>,
+        schema: &SchemaInfo,
+        op: CompareOp,
+        value: InputValue,
+    ) -> Result<Self, QueryError> {
+        let Self { inner, .. } = self;
+        let inner = inner.having_group_with_schema(field, schema, op, value.into())?;
 
         Ok(Self::from_inner(inner))
     }

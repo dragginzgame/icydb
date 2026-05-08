@@ -394,10 +394,10 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let authority = EntityAuthority::for_type::<E>();
-
         match compiled {
             CompiledSqlCommand::Select { query } => {
+                let authority = EntityAuthority::for_type::<E>();
+
                 if query.has_grouping() {
                     let (planner_local_instructions, resolved_query_plan) =
                         measure_sql_stage(|| self.sql_select_prepared_plan(query, authority));
@@ -551,10 +551,10 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let authority = EntityAuthority::for_type::<E>();
-
         match compiled {
             CompiledSqlCommand::Select { query } => {
+                let authority = EntityAuthority::for_type::<E>();
+
                 self.execute_select_compiled_sql_with_cache_attribution::<E>(query, authority)
             }
             CompiledSqlCommand::Delete { query, returning } => {
@@ -563,9 +563,12 @@ impl<C: CanisterKind> DbSession<C> {
                 record_sql_write_error::<E, C>(SqlWriteKind::Delete, &result);
                 result.map(|result| (result, SqlCacheAttribution::default()))
             }
-            CompiledSqlCommand::GlobalAggregate { command } => self
-                .execute_global_aggregate_statement_for_authority::<E>(*command.clone(), authority),
+            CompiledSqlCommand::GlobalAggregate { command } => {
+                self.execute_global_aggregate_statement::<E>(*command.clone())
+            }
             CompiledSqlCommand::Explain(lowered) => {
+                let authority = EntityAuthority::for_type::<E>();
+
                 if let Some(explain) =
                     self.explain_lowered_sql_execution_for_authority(lowered, authority.clone())?
                 {
@@ -620,11 +623,15 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let authority = EntityAuthority::for_type::<E>();
-
         match compiled {
-            CompiledSqlCommand::Select { query } => self
-                .execute_select_compiled_sql_with_cache_attribution::<E>(query.as_ref(), authority),
+            CompiledSqlCommand::Select { query } => {
+                let authority = EntityAuthority::for_type::<E>();
+
+                self.execute_select_compiled_sql_with_cache_attribution::<E>(
+                    query.as_ref(),
+                    authority,
+                )
+            }
             CompiledSqlCommand::Delete { query, returning } => {
                 let result =
                     self.execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref());
@@ -632,9 +639,11 @@ impl<C: CanisterKind> DbSession<C> {
                 result.map(|result| (result, SqlCacheAttribution::default()))
             }
             CompiledSqlCommand::GlobalAggregate { command } => {
-                self.execute_global_aggregate_statement_for_authority::<E>(*command, authority)
+                self.execute_global_aggregate_statement::<E>(*command)
             }
             CompiledSqlCommand::Explain(lowered) => {
+                let authority = EntityAuthority::for_type::<E>();
+
                 if let Some(explain) =
                     self.explain_lowered_sql_execution_for_authority(&lowered, authority.clone())?
                 {

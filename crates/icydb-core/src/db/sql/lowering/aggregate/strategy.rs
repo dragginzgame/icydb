@@ -1,6 +1,8 @@
 use crate::{
     db::{
-        query::plan::{AggregateKind, FieldSlot, expr::Expr, resolve_aggregate_target_field_slot},
+        query::plan::{
+            AggregateKind, FieldSlot, expr::Expr, resolve_aggregate_target_field_slot_with_schema,
+        },
         schema::SchemaInfo,
         sql::lowering::{
             SqlLoweringError,
@@ -90,8 +92,9 @@ impl PreparedSqlScalarAggregateStrategy {
             AggregateInput::Rows => PreparedAggregateTarget::Rows,
             AggregateInput::Field(field) => {
                 validate_field_target_sql_aggregate_capabilities(schema, field.as_str(), kind)?;
-                let target_slot = resolve_aggregate_target_field_slot(model, field.as_str())
-                    .map_err(SqlLoweringError::from)?;
+                let target_slot =
+                    resolve_aggregate_target_field_slot_with_schema(model, schema, field.as_str())
+                        .map_err(SqlLoweringError::from)?;
                 PreparedAggregateTarget::Field(target_slot)
             }
             AggregateInput::Expr(input_expr) => {

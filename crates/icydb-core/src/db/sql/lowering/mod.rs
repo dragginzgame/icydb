@@ -53,7 +53,7 @@ pub(in crate::db) use prepare::bind_prepared_sql_select_statement_structural_wit
 pub(crate) use prepare::{
     extract_prepared_sql_insert_select_source, extract_prepared_sql_insert_statement,
     extract_prepared_sql_update_statement, lower_prepared_sql_delete_statement,
-    lower_prepared_sql_select_statement, lower_sql_command_from_prepared_statement,
+    lower_prepared_sql_select_statement_with_schema, lower_sql_command_from_prepared_statement,
     prepare_sql_statement,
 };
 pub(crate) use select::LoweredDeleteShape;
@@ -86,6 +86,7 @@ pub(in crate::db) use select::{
 pub struct LoweredSqlCommand(pub(in crate::db::sql::lowering) LoweredSqlCommandInner);
 
 #[derive(Clone, Debug)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db::sql::lowering) enum LoweredSqlCommandInner {
     Query(LoweredSqlQuery),
     Explain {
@@ -147,6 +148,7 @@ impl LoweredSqlCommand {
         }
     }
 
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn into_query(self) -> Option<LoweredSqlQuery> {
         match self.0 {
@@ -158,16 +160,6 @@ impl LoweredSqlCommand {
             | LoweredSqlCommandInner::ShowColumnsEntity
             | LoweredSqlCommandInner::ShowEntities => None,
         }
-    }
-
-    /// Consume one lowered SQL command as a lowered SELECT query shape.
-    #[must_use]
-    pub(in crate::db) fn into_select_query(self) -> Option<LoweredSelectShape> {
-        let LoweredSqlQuery::Select(select) = self.into_query()? else {
-            return None;
-        };
-
-        Some(select)
     }
 
     #[must_use]

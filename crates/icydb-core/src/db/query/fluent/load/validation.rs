@@ -7,8 +7,8 @@ use crate::{
         fluent::load::FluentLoadQuery,
         intent::{IntentError, QueryError},
         plan::{
-            FieldSlot, resolve_aggregate_target_field_slot, validate_fluent_non_paged_mode,
-            validate_fluent_paged_mode,
+            FieldSlot, resolve_aggregate_target_field_slot_with_schema,
+            validate_fluent_non_paged_mode, validate_fluent_paged_mode,
         },
     },
     traits::EntityKind,
@@ -27,7 +27,12 @@ where
     ) -> Result<FieldSlot, QueryError> {
         self.ensure_non_paged_mode_ready()?;
 
-        resolve_aggregate_target_field_slot(E::MODEL, field.as_ref())
+        let schema = self
+            .session
+            .accepted_schema_info_for_entity::<E>()
+            .map_err(QueryError::execute)?;
+
+        resolve_aggregate_target_field_slot_with_schema(E::MODEL, &schema, field.as_ref())
     }
 
     pub(super) fn ensure_cursor_mode_ready(&self) -> Result<(), QueryError> {
