@@ -17,6 +17,7 @@ pub(crate) mod validate;
 pub(crate) use canonical::normalize_access_plan_value;
 pub(crate) use path::{AccessPath, SemanticIndexRangeSpec};
 pub(crate) use plan::AccessPlan;
+pub(in crate::db) use validate::validate_access_runtime_invariants_model;
 pub(crate) use validate::{AccessPlanError, validate_access_structure_model};
 
 // Boundary-local path and capability helpers.

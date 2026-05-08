@@ -393,13 +393,14 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
         "compiled-query plan extraction must remain test-only with the generated-only prepared-plan conversion",
     );
     assert!(
-        entity_authority.contains("if plan.has_static_planning_shape()")
+        entity_authority.contains("if !plan.has_static_planning_shape()")
             && entity_authority
                 .contains("executor plan validation requires planner-frozen static shape",)
+            && entity_authority.contains("validate_access_runtime_invariants_model(")
             && !entity_authority.contains("fn schema_info(")
             && !entity_authority.contains("SchemaInfo::cached_for_entity_model(self.model)")
             && !entity_authority.contains("validate_access_structure_model(self.schema_info()"),
-        "executor plan validation must require planner-frozen static shape instead of reopening generated schema authority",
+        "executor plan validation must require planner-frozen static shape and schema-free runtime access invariants instead of reopening generated schema authority",
     );
     assert!(
         save_mod.contains("accepted_schema_info: SchemaInfo,")

@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        access::validate_access_runtime_invariants_model,
         cursor::{CursorPlanError, PlannedCursor},
         data::StorageKey,
         executor::terminal::RowLayout,
@@ -170,14 +171,15 @@ impl EntityAuthority {
         &self,
         plan: &AccessPlannedQuery,
     ) -> Result<(), InternalError> {
-        if plan.has_static_planning_shape() {
-            return Ok(());
+        if !plan.has_static_planning_shape() {
+            return Err(InternalError::query_executor_invariant(format!(
+                "executor plan validation requires planner-frozen static shape for '{}'",
+                self.entity_path()
+            )));
         }
 
-        Err(InternalError::query_executor_invariant(format!(
-            "executor plan validation requires planner-frozen static shape for '{}'",
-            self.entity_path()
-        )))
+        validate_access_runtime_invariants_model(self.model, &plan.access)
+            .map_err(crate::db::access::AccessPlanError::into_internal_error)
     }
 
     /// Validate and decode one scalar continuation cursor through authority-owned contracts.

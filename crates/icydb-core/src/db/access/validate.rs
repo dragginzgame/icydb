@@ -3,13 +3,12 @@
 //! Does not own: access-path lowering or runtime scan semantics.
 //! Boundary: validation boundary before lowering/execution.
 
-#[cfg(test)]
-use crate::error::InternalError;
 use crate::{
     db::{
         access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
         schema::{SchemaInfo, literal_matches_type},
     },
+    error::InternalError,
     model::{entity::EntityModel, index::IndexModel},
     value::Value,
 };
@@ -55,9 +54,8 @@ pub enum AccessPlanError {
 
 impl AccessPlanError {
     /// Map access-validation failures into query-boundary runtime invariants.
-    #[cfg(test)]
     pub(crate) fn into_internal_error(self) -> InternalError {
-        InternalError::query_invariant(self.to_string())
+        InternalError::query_executor_invariant(self.to_string())
     }
 }
 
@@ -68,6 +66,15 @@ pub(crate) fn validate_access_structure_model(
     access: &AccessPlan<Value>,
 ) -> Result<(), AccessPlanError> {
     access.validate(schema, model)
+}
+
+/// Validate executor-owned access invariants that do not require schema
+/// type authority.
+pub(in crate::db) fn validate_access_runtime_invariants_model(
+    model: &EntityModel,
+    access: &AccessPlan<Value>,
+) -> Result<(), AccessPlanError> {
+    access.validate_runtime_invariants(model)
 }
 
 // Validate that a primary-key literal matches the entity primary-key schema.
@@ -302,6 +309,20 @@ impl AccessPlan<Value> {
             }
         }
     }
+
+    // Validate schema-free access invariants at executor runtime boundaries.
+    fn validate_runtime_invariants(&self, model: &EntityModel) -> Result<(), AccessPlanError> {
+        match self {
+            Self::Path(path) => path.validate_runtime_invariants(model),
+            Self::Union(children) | Self::Intersection(children) => {
+                for child in children {
+                    child.validate_runtime_invariants(model)?;
+                }
+
+                Ok(())
+            }
+        }
+    }
 }
 
 impl AccessPath<Value> {
@@ -331,4 +352,106 @@ impl AccessPath<Value> {
             Self::FullScan => Ok(()),
         }
     }
+
+    // Validate schema-free concrete path invariants.
+    fn validate_runtime_invariants(&self, model: &EntityModel) -> Result<(), AccessPlanError> {
+        match self {
+            Self::ByKey(_) | Self::ByKeys(_) | Self::FullScan => Ok(()),
+            Self::KeyRange { start, end } => validate_pk_range_runtime(start, end),
+            Self::IndexPrefix { index, values } => {
+                validate_index_reference_model(model, index)?;
+                validate_index_prefix_shape(index, values.len())
+            }
+            Self::IndexMultiLookup { index, values } => {
+                validate_index_reference_model(model, index)?;
+                if values.is_empty() {
+                    return Err(AccessPlanError::IndexPrefixEmpty);
+                }
+                validate_index_prefix_shape(index, 1)
+            }
+            Self::IndexRange { spec } => validate_index_range_runtime(model, spec),
+        }
+    }
+}
+
+fn validate_pk_range_runtime(start: &Value, end: &Value) -> Result<(), AccessPlanError> {
+    let ordering = Value::canonical_cmp(start, end);
+    if ordering == std::cmp::Ordering::Greater {
+        return Err(AccessPlanError::InvalidKeyRange);
+    }
+
+    Ok(())
+}
+
+fn validate_index_reference_model(
+    model: &EntityModel,
+    index: &IndexModel,
+) -> Result<(), AccessPlanError> {
+    if model.indexes.contains(&index) {
+        return Ok(());
+    }
+
+    Err(AccessPlanError::IndexNotFound { index: *index })
+}
+
+const fn validate_index_prefix_shape(
+    index: &IndexModel,
+    prefix_len: usize,
+) -> Result<(), AccessPlanError> {
+    if prefix_len == 0 {
+        return Err(AccessPlanError::IndexPrefixEmpty);
+    }
+
+    let field_len = index.fields().len();
+    if prefix_len > field_len {
+        return Err(AccessPlanError::IndexPrefixTooLong {
+            prefix_len,
+            field_len,
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_index_range_runtime(
+    model: &EntityModel,
+    spec: &SemanticIndexRangeSpec,
+) -> Result<(), AccessPlanError> {
+    let index = spec.index();
+    let prefix = spec.prefix_values();
+    let lower = spec.lower();
+    let upper = spec.upper();
+
+    validate_index_reference_model(model, index)?;
+
+    if prefix.len() >= index.fields().len() {
+        return Err(AccessPlanError::IndexPrefixTooLong {
+            prefix_len: prefix.len(),
+            field_len: index.fields().len().saturating_sub(1),
+        });
+    }
+
+    let range_slot = prefix.len();
+    if spec.field_slots().len() != prefix.len().saturating_add(1) {
+        return Err(AccessPlanError::InvalidKeyRange);
+    }
+    for (expected_slot, actual_slot) in (0..=range_slot).zip(spec.field_slots().iter().copied()) {
+        if actual_slot != expected_slot {
+            return Err(AccessPlanError::InvalidKeyRange);
+        }
+    }
+
+    let (
+        Bound::Included(lower_value) | Bound::Excluded(lower_value),
+        Bound::Included(upper_value) | Bound::Excluded(upper_value),
+    ) = (lower, upper)
+    else {
+        return Ok(());
+    };
+
+    if Value::canonical_cmp(lower_value, upper_value) == std::cmp::Ordering::Greater {
+        return Err(AccessPlanError::InvalidKeyRange);
+    }
+
+    Ok(())
 }

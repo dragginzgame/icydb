@@ -640,18 +640,6 @@ impl InternalError {
         Self::planner_invariant(Self::invalid_logical_plan_message(reason))
     }
 
-    /// Construct a query-origin invariant violation.
-    #[cold]
-    #[inline(never)]
-    #[cfg(test)]
-    pub(crate) fn query_invariant(message: impl Into<String>) -> Self {
-        Self::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Query,
-            message.into(),
-        )
-    }
-
     /// Construct a store-origin invariant violation.
     pub(crate) fn store_invariant(message: impl Into<String>) -> Self {
         Self::new(
