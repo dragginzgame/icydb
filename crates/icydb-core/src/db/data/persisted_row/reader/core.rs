@@ -700,6 +700,13 @@ impl CanonicalSlotReader for StructuralSlotReader<'_> {
         self.contract.field_leaf_codec(slot)
     }
 
+    fn required_bytes(&self, slot: usize) -> Result<&[u8], InternalError> {
+        let field_name = self.contract.field_name(slot)?;
+
+        self.get_bytes(slot)
+            .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field_name))
+    }
+
     fn required_scalar(&self, slot: usize) -> Result<ScalarSlotValueRef<'_>, InternalError> {
         let field_name = self.contract.field_name(slot)?;
         debug_assert!(matches!(

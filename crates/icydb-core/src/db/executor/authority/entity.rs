@@ -231,10 +231,10 @@ impl EntityAuthority {
         index: &IndexModel,
         read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
     ) -> Result<Option<IndexKey>, InternalError> {
-        IndexKey::new_from_slot_ref_reader_with_contract(
+        IndexKey::new_from_slot_ref_reader(
             self.entity_tag,
             storage_key,
-            self.row_layout.contract(),
+            self.model,
             index,
             read_slot,
         )

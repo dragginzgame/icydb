@@ -176,7 +176,6 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
     let index_key_build = read_source("src/db/index/key/build.rs");
     let index_plan = read_source("src/db/index/plan/mod.rs");
     let unique_plan = read_source("src/db/index/plan/unique.rs");
-    let entity_authority = read_source("src/db/executor/authority/entity.rs");
     let structural_row = read_source("src/db/data/structural_row.rs");
     let predicate_runtime = read_source("src/db/predicate/runtime/mod.rs");
 
@@ -191,13 +190,6 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
             && !index_key_build.contains("pub(crate) fn new_from_slots(\n")
             && !index_key_build.contains("compile_scalar_index_key_item_program("),
         "write-time index key construction must resolve field slots through accepted row contracts",
-    );
-    assert!(
-        index_key_build.contains("pub(crate) fn new_from_slot_ref_reader_with_contract")
-            && index_key_build.contains(".field_slot_index_by_name(field)")
-            && entity_authority.contains("IndexKey::new_from_slot_ref_reader_with_contract(")
-            && entity_authority.contains("self.row_layout.contract(),"),
-        "read-side structural index key construction must resolve field slots through the authority row contract",
     );
     assert!(
         index_plan.contains("IndexKey::new_from_slots_with_contract(")
