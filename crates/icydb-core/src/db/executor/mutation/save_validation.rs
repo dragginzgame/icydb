@@ -11,7 +11,7 @@ use crate::{
         data::{DataKey, RawRow, StructuralPatch, StructuralRowContract, StructuralSlotReader},
         executor::{EntityAuthority, mutation::save::SaveExecutor},
         predicate::canonical_cmp,
-        relation::validate_save_strong_relations,
+        relation::validate_save_strong_relations_with_accepted_contract,
         schema::{AcceptedRowDecodeContract, PersistedFieldKind, SchemaInfo, literal_matches_type},
     },
     error::InternalError,
@@ -112,7 +112,11 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         validate(entity)?;
         self.validate_entity_invariants(entity, schema)?;
         if validate_relations {
-            validate_save_strong_relations::<E>(&self.db, entity)?;
+            validate_save_strong_relations_with_accepted_contract::<E>(
+                &self.db,
+                entity,
+                self.accepted_row_decode_contract(),
+            )?;
         }
 
         Ok(())

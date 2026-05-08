@@ -6,16 +6,12 @@
 use crate::{
     MAX_INDEX_FIELDS,
     db::{
-        data::{CanonicalSlotReader, ScalarSlotValueRef, StorageKey},
+        data::{CanonicalSlotReader, StorageKey, StructuralRowContract},
         index::{
             derive_index_expression_value,
             key::ordered::encode_canonical_index_component,
-            key::{
-                IndexId, IndexKey, IndexKeyKind, OrderedValueEncodeError,
-                encode_canonical_index_component_from_scalar,
-            },
+            key::{IndexId, IndexKey, IndexKeyKind, OrderedValueEncodeError},
         },
-        scalar_expr::{compile_scalar_index_key_item_program, eval_canonical_scalar_value_program},
     },
     error::InternalError,
     model::{
@@ -72,17 +68,18 @@ fn index_component_bytes_from_slot_ref_reader<'a>(
 }
 
 impl IndexKey {
-    /// Build an index key from one structural slot reader plus runtime identity.
-    /// Plain field key items read scalar slot values directly when available.
-    pub(crate) fn new_from_slots(
+    /// Build an index key from one slot reader using accepted row-contract
+    /// field-slot authority.
+    pub(crate) fn new_from_slots_with_contract(
         entity_tag: EntityTag,
         storage_key: StorageKey,
-        entity_model: &'static EntityModel,
+        row_contract: &StructuralRowContract,
         slots: &dyn CanonicalSlotReader,
         index: &IndexModel,
     ) -> Result<Option<Self>, InternalError> {
-        let mut component_bytes =
-            |key_item| index_component_bytes_from_slots(entity_model, slots, index, key_item);
+        let mut component_bytes = |key_item| {
+            index_component_bytes_from_slots_with_contract(row_contract, slots, index, key_item)
+        };
 
         build_index_key(entity_tag, storage_key, index, &mut component_bytes)
     }
@@ -469,26 +466,17 @@ fn push_index_key_component(
     Ok(())
 }
 
-// Build one canonical index component directly from one slot reader.
-fn index_component_bytes_from_slots(
-    entity_model: &'static EntityModel,
+// Build one canonical index component from accepted row-contract slot
+// authority. This path intentionally avoids reopening `EntityModel` field slots
+// while write-time index planning is already holding an accepted contract.
+fn index_component_bytes_from_slots_with_contract(
+    row_contract: &StructuralRowContract,
     slots: &dyn CanonicalSlotReader,
     index: &IndexModel,
     key_item: IndexKeyItem,
 ) -> Result<Option<Vec<u8>>, InternalError> {
     let field = key_item.field();
-
-    if let Some(program) = compile_scalar_index_key_item_program(entity_model, key_item) {
-        let source = eval_canonical_scalar_value_program(&program, slots)?;
-
-        return encode_scalar_index_component(source.as_slot_value_ref());
-    }
-
-    let Some(field_index) = entity_model.resolve_field_slot(field) else {
-        return Err(InternalError::index_key_item_field_missing_on_entity_model(
-            field,
-        ));
-    };
+    let field_index = row_contract.field_slot_index_by_name(field)?;
 
     match key_item {
         IndexKeyItem::Field(_) => encode_value_index_component_ref(
@@ -501,25 +489,6 @@ fn index_component_bytes_from_slots(
             };
 
             encode_value_index_component(value)
-        }
-    }
-}
-
-// Encode one scalar slot value into canonical index bytes.
-fn encode_scalar_index_component(
-    source: ScalarSlotValueRef<'_>,
-) -> Result<Option<Vec<u8>>, InternalError> {
-    match source {
-        ScalarSlotValueRef::Null => Ok(None),
-        ScalarSlotValueRef::Value(source) => {
-            match encode_canonical_index_component_from_scalar(source) {
-                Ok(component) => Ok(Some(component)),
-                Err(
-                    OrderedValueEncodeError::NullNotIndexable
-                    | OrderedValueEncodeError::UnsupportedValueKind { .. },
-                ) => Ok(None),
-                Err(err) => Err(err.into()),
-            }
         }
     }
 }

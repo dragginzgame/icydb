@@ -4,12 +4,15 @@
 //! Boundary: defines lightweight relation metadata contracts consumed by schema
 //! describe, relation validators, and reverse-index maintenance.
 
+#[cfg(test)]
 use crate::{
     db::{Db, identity::EntityName},
     error::InternalError,
+    traits::CanisterKind,
+};
+use crate::{
     model::entity::EntityModel,
     model::field::{FieldKind, RelationStrength},
-    traits::CanisterKind,
     types::EntityTag,
 };
 
@@ -39,6 +42,7 @@ pub(in crate::db) enum RelationDescriptorCardinality {
 ///
 
 #[derive(Clone, Copy)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db) struct RelationDescriptor<'model> {
     field_index: usize,
     field_name: &'static str,
@@ -52,6 +56,7 @@ pub(in crate::db) struct RelationDescriptor<'model> {
     cardinality: RelationDescriptorCardinality,
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 impl<'model> RelationDescriptor<'model> {
     // Build one canonical relation descriptor from already-classified target
     // metadata and the source field metadata that owns it.
@@ -145,6 +150,7 @@ impl<'model> RelationDescriptor<'model> {
 /// callers can classify the failure at their executor-facing boundary.
 ///
 
+#[cfg(test)]
 pub(super) struct StrongRelationMetadataError {
     field_name: &'static str,
     target_path: &'static str,
@@ -152,6 +158,7 @@ pub(super) struct StrongRelationMetadataError {
     source: crate::db::identity::EntityNameError,
 }
 
+#[cfg(test)]
 impl StrongRelationMetadataError {
     /// Return the source field that declared invalid relation target metadata.
     #[must_use]
@@ -188,6 +195,8 @@ impl StrongRelationMetadataError {
 ///
 
 #[derive(Clone, Copy)]
+#[cfg(test)]
+#[allow(dead_code)]
 pub(super) struct StrongRelationTargetIdentity {
     path: &'static str,
     entity_name: EntityName,
@@ -196,6 +205,8 @@ pub(super) struct StrongRelationTargetIdentity {
     key_kind: &'static FieldKind,
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 impl StrongRelationTargetIdentity {
     // Build the validated target identity from static field metadata.
     fn try_from_descriptor(
@@ -332,6 +343,8 @@ impl StrongRelationTargetIdentity {
 ///
 
 #[derive(Clone, Copy)]
+#[cfg(test)]
+#[allow(dead_code)]
 pub(super) struct StrongRelationInfo {
     pub(super) field_index: usize,
     pub(super) field_name: &'static str,
@@ -339,6 +352,7 @@ pub(super) struct StrongRelationInfo {
     target: StrongRelationTargetIdentity,
 }
 
+#[cfg(test)]
 impl StrongRelationInfo {
     /// Return the sealed target identity for this strong relation.
     #[must_use]
@@ -470,6 +484,7 @@ pub(in crate::db) fn relation_descriptors_for_model_iter(
 }
 
 /// Resolve a strong relation descriptor into validated relation metadata.
+#[cfg(test)]
 fn strong_relation_from_descriptor(
     descriptor: RelationDescriptor<'static>,
 ) -> Result<Option<StrongRelationInfo>, StrongRelationMetadataError> {
@@ -486,6 +501,7 @@ fn strong_relation_from_descriptor(
 }
 
 /// Resolve strong relation descriptors for one source model, optionally filtered by target path.
+#[cfg(test)]
 pub(super) fn strong_relations_for_model_iter<'a>(
     model: &'static EntityModel,
     target_path_filter: Option<&'a str>,
@@ -512,15 +528,4 @@ impl EntityModel {
         relation_descriptors_for_model_iter(self)
             .any(|descriptor| descriptor.strength() == RelationStrength::Strong)
     }
-}
-
-/// Return `true` when one source model declares any strong relation to the
-/// target entity path under delete-side validation.
-pub(in crate::db) fn model_has_strong_relations_to_target(
-    model: &'static EntityModel,
-    target_path: &str,
-) -> bool {
-    relation_descriptors_for_model_iter(model).any(|descriptor| {
-        descriptor.strength() == RelationStrength::Strong && descriptor.target_path() == target_path
-    })
 }

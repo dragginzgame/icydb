@@ -8,24 +8,27 @@ mod reverse_index;
 mod save_validate;
 mod validate;
 
+#[cfg(test)]
+use crate::{db::data::DataKey, value::storage_key_from_runtime_value};
 use crate::{
     db::{
         Db,
-        data::{DataKey, RawDataKey, StorageKeyEncodeError},
+        data::{RawDataKey, StorageKeyEncodeError},
     },
     error::InternalError,
-    value::{Value, storage_key_from_runtime_value},
+    value::Value,
 };
 use std::{collections::BTreeSet, fmt::Display};
 
 pub(in crate::db) use metadata::{
-    RelationDescriptor, RelationDescriptorCardinality, model_has_strong_relations_to_target,
-    relation_descriptors_for_model_iter,
+    RelationDescriptor, RelationDescriptorCardinality, relation_descriptors_for_model_iter,
 };
 pub(crate) use reverse_index::{
     ReverseRelationSourceInfo, prepare_reverse_relation_index_mutations_for_source_slot_readers,
 };
+#[cfg(test)]
 pub(in crate::db) use save_validate::validate_save_strong_relations;
+pub(in crate::db) use save_validate::validate_save_strong_relations_with_accepted_contract;
 pub(in crate::db) use validate::validate_delete_strong_relations_for_source;
 
 ///
@@ -141,6 +144,7 @@ impl InternalError {
 }
 
 /// Convert a relation target `Value` into its canonical `RawDataKey` representation.
+#[cfg(test)]
 pub(in crate::db::relation) fn raw_relation_target_key_from_value(
     target: metadata::StrongRelationTargetIdentity,
     value: &Value,

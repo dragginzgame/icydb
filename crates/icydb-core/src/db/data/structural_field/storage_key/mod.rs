@@ -10,7 +10,9 @@ mod scalar;
 mod tests;
 
 use crate::{
-    db::data::structural_field::FieldDecodeError, error::InternalError, model::field::FieldKind,
+    db::{data::structural_field::FieldDecodeError, schema::PersistedFieldKind},
+    error::InternalError,
+    model::field::FieldKind,
     value::StorageKey,
 };
 
@@ -26,6 +28,7 @@ pub(in crate::db) use crate::db::data::structural_field::storage_key::{
 /// while the Structural Binary v1 list walker visits relation items.
 ///
 type RelationKeyDecodeState = (Vec<StorageKey>, FieldKind);
+type AcceptedRelationKeyDecodeState<'a> = (Vec<StorageKey>, &'a PersistedFieldKind);
 
 /// Return whether this field kind is owned by the Structural Binary v1
 /// storage-key lane.
@@ -52,11 +55,23 @@ pub(in crate::db) const fn supports_storage_key_binary_kind(kind: FieldKind) -> 
 ///
 /// This keeps delete validation and reverse-index maintenance on structural
 /// key forms without first rebuilding a runtime `Value` or `Value::List`.
+#[cfg(test)]
 pub(in crate::db) fn decode_relation_target_storage_keys_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<Vec<StorageKey>, FieldDecodeError> {
     crate::db::data::structural_field::storage_key::decode::decode_relation_target_storage_keys_binary_bytes(
+        raw_bytes, kind,
+    )
+}
+
+/// Decode one accepted strong-relation field payload directly into target
+/// storage keys.
+pub(in crate::db) fn decode_accepted_relation_target_storage_keys_bytes(
+    raw_bytes: &[u8],
+    kind: &PersistedFieldKind,
+) -> Result<Vec<StorageKey>, FieldDecodeError> {
+    crate::db::data::structural_field::storage_key::decode::decode_accepted_relation_target_storage_keys_binary_bytes(
         raw_bytes, kind,
     )
 }

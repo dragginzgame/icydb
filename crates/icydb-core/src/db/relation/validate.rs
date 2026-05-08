@@ -10,19 +10,17 @@ use crate::{
         registry::StoreHandle,
         relation::{
             RelationTargetDecodeContext, RelationTargetMismatchPolicy,
-            metadata::{StrongRelationInfo, strong_relations_for_model_iter},
-            model_has_strong_relations_to_target,
             reverse_index::{
-                ReverseRelationSourceInfo, decode_relation_target_data_key, decode_reverse_entry,
-                relation_target_store, reverse_index_key_for_target_storage_key,
-                source_row_references_relation_target,
+                AcceptedStrongRelationInfo, ReverseRelationSourceInfo,
+                accepted_strong_relations_for_row_contract, decode_relation_target_data_key,
+                decode_reverse_entry, relation_target_store,
+                reverse_index_key_for_target_storage_key, source_row_references_relation_target,
             },
         },
         schema::ensure_accepted_schema_snapshot,
     },
     error::InternalError,
     metrics::sink::{MetricsEvent, record},
-    model::entity::EntityModel,
     traits::{CanisterKind, EntityKind, EntityValue, Path},
     value::{StorageKey, storage_key_as_runtime_value},
 };
@@ -37,7 +35,7 @@ use std::collections::BTreeSet;
 ///
 
 struct BlockedDeleteProof {
-    relation: StrongRelationInfo,
+    relation: AcceptedStrongRelationInfo,
     source_data_key: DataKey,
     target_key: StorageKey,
 }
@@ -74,25 +72,25 @@ where
         return Ok(());
     }
 
-    // Phase 1: most source models do not own strong relations to the target
-    // being deleted, so skip store resolution and proof setup entirely when
-    // this source type cannot block the delete.
-    if !model_has_strong_relations_to_target(S::MODEL, target_path) {
+    // Phase 1: resolve accepted source row contracts and relation facts once.
+    let source_store = db.with_store_registry(|reg| reg.try_get_store(S::Store::PATH))?;
+    let source_row_contract = accepted_source_row_contract::<S>(source_store)?;
+    let relations = accepted_strong_relations_for_row_contract(
+        S::PATH,
+        &source_row_contract,
+        Some(target_path),
+    )?;
+    if relations.is_empty() {
         return Ok(());
     }
 
-    // Phase 2: resolve the source store once before the structural proof loop.
-    let source_store = db.with_store_registry(|reg| reg.try_get_store(S::Store::PATH))?;
-    let source_row_contract = accepted_source_row_contract::<S>(source_store)?;
-
-    // Phase 3: run the heavy blocked-delete proof loop without `S`.
+    // Phase 2: run the heavy blocked-delete proof loop without `S`.
     let Some(blocked) = validate_delete_strong_relations_structural(
         db,
         source_info,
         S::PATH,
-        S::MODEL,
         source_row_contract,
-        target_path,
+        relations,
         source_store,
         deleted_target_keys,
     )?
@@ -100,19 +98,17 @@ where
         return Ok(());
     };
 
-    // Phase 4: keep typed key reconstruction at the final diagnostic edge only.
+    // Phase 3: keep typed key reconstruction at the final diagnostic edge only.
     Err(blocked.into_internal_error::<S>()?)
 }
 
 /// Prove whether one delete would violate a strong source relation without `S`.
-#[expect(clippy::too_many_arguments)]
 fn validate_delete_strong_relations_structural<C>(
     db: &Db<C>,
     source_info: ReverseRelationSourceInfo,
     source_path: &'static str,
-    source_model: &'static EntityModel,
     source_row_contract: StructuralRowContract,
-    target_path: &str,
+    relations: Vec<AcceptedStrongRelationInfo>,
     source_store: StoreHandle,
     deleted_target_keys: &BTreeSet<RawDataKey>,
 ) -> Result<Option<BlockedDeleteProof>, InternalError>
@@ -120,22 +116,13 @@ where
     C: CanisterKind,
 {
     // Phase 1: resolve reverse-index candidates for each relevant relation field.
-    for relation in strong_relations_for_model_iter(source_model, Some(target_path)) {
-        let relation = relation.map_err(|err| {
-            InternalError::strong_relation_target_name_invalid(
-                source_path,
-                err.field_name(),
-                err.target_path(),
-                err.target_entity_name(),
-                err.source(),
-            )
-        })?;
-        let target_index_store = relation_target_store(db, source_info, relation)?;
+    for relation in relations {
+        let target_index_store = relation_target_store(db, source_info, &relation)?;
 
         for target_raw_key in deleted_target_keys {
             let Some(target_data_key) = decode_relation_target_data_key(
                 source_info,
-                relation,
+                &relation,
                 target_raw_key,
                 RelationTargetDecodeContext::DeleteValidation,
                 RelationTargetMismatchPolicy::Skip,
@@ -147,7 +134,7 @@ where
 
             let Some(reverse_key) = reverse_index_key_for_target_storage_key(
                 source_info,
-                relation,
+                &relation,
                 target_storage_key,
             )?
             else {
@@ -167,7 +154,7 @@ where
                 continue;
             };
 
-            let entry = decode_reverse_entry(source_info, relation, &reverse_key, &raw_entry)?;
+            let entry = decode_reverse_entry(source_info, &relation, &reverse_key, &raw_entry)?;
 
             // Phase 2: verify each candidate source row before rejecting delete.
             for source_key in entry.iter_ids() {
@@ -179,7 +166,7 @@ where
                     let target = relation.target();
                     return Err(InternalError::reverse_index_entry_corrupted(
                         source_path,
-                        relation.field_name,
+                        relation.field_name(),
                         target.path(),
                         &reverse_key,
                         format!(
@@ -193,7 +180,7 @@ where
                     &source_raw_row,
                     source_row_contract.clone(),
                     source_info,
-                    relation,
+                    &relation,
                     target_storage_key,
                 )?;
                 if still_references_target {
@@ -236,7 +223,7 @@ where
 
 /// Format operator-facing blocked-delete diagnostics with actionable context.
 fn blocked_delete_diagnostic<S>(
-    relation: StrongRelationInfo,
+    relation: AcceptedStrongRelationInfo,
     source_key: S::Key,
     target_key: StorageKey,
 ) -> String
@@ -246,7 +233,7 @@ where
     format!(
         "delete blocked by strong relation: source_entity={} source_field={} source_id={source_key:?} target_entity={} target_key={:?}; action=delete source rows or retarget relation before deleting target",
         S::PATH,
-        relation.field_name,
+        relation.field_name(),
         relation.target().path(),
         storage_key_as_runtime_value(&target_key),
     )

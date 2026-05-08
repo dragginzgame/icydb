@@ -16,6 +16,5 @@ pub(crate) use codec::{IndexKey, IndexKeyKind, RawIndexKey};
 pub(in crate::db) use expression::derive_index_expression_value;
 pub(crate) use id::IndexId;
 pub(crate) use ordered::{
-    EncodedValue, OrderedValueEncodeError, encode_canonical_index_component_from_scalar,
-    encode_canonical_index_component_from_storage_key,
+    EncodedValue, OrderedValueEncodeError, encode_canonical_index_component_from_storage_key,
 };

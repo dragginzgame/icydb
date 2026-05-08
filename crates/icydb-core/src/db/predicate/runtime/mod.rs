@@ -21,10 +21,7 @@ use crate::{
         },
         query::plan::expr::CompiledPredicate,
     },
-    model::{
-        entity::EntityModel,
-        field::{FieldKind, FieldStorageDecode, LeafCodec},
-    },
+    model::{entity::EntityModel, field::LeafCodec},
     value::{TextMode, Value},
 };
 use std::borrow::Cow;
@@ -781,9 +778,9 @@ fn scalar_compare_operands_supported_for_fast_path(
 // Reuse the scalar-leaf boundary check for compare fast paths.
 fn scalar_slot_fast_path_supported(slots: &dyn CanonicalSlotReader, field_slot: usize) -> bool {
     slots
-        .field_decode_contract(field_slot)
+        .field_leaf_codec(field_slot)
         .ok()
-        .is_some_and(|field| matches!(field.leaf_codec(), LeafCodec::Scalar(_)))
+        .is_some_and(|codec| matches!(codec, LeafCodec::Scalar(_)))
 }
 
 // Field-vs-literal compares can also use borrowed value-storage scalar views
@@ -793,17 +790,12 @@ fn compare_scalar_slot_fast_path_supported(
     slots: &dyn CanonicalSlotReader,
     field_slot: usize,
 ) -> bool {
-    slots
-        .field_decode_contract(field_slot)
-        .ok()
-        .is_some_and(|field| {
-            matches!(field.leaf_codec(), LeafCodec::Scalar(_))
-                || (matches!(field.storage_decode(), FieldStorageDecode::Value)
-                    && matches!(
-                        field.kind(),
-                        FieldKind::Bool | FieldKind::Int | FieldKind::Text { .. } | FieldKind::Uint
-                    ))
-        })
+    scalar_slot_fast_path_supported(slots, field_slot)
+        || slots
+            .required_value_storage_scalar(field_slot)
+            .ok()
+            .flatten()
+            .is_some()
 }
 
 // Share the scalar-slot read plus direct compare dispatch across the scalar-only
@@ -829,19 +821,15 @@ fn required_compare_scalar_slot(
     field_slot: usize,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<ScalarSlotValueRef<'_>>, crate::error::InternalError> {
-    let Ok(field) = slots.field_decode_contract(field_slot) else {
+    let Ok(leaf_codec) = slots.field_leaf_codec(field_slot) else {
         return Ok(None);
     };
 
-    if matches!(field.leaf_codec(), LeafCodec::Scalar(_)) {
+    if matches!(leaf_codec, LeafCodec::Scalar(_)) {
         return slots.required_scalar(field_slot).map(Some);
     }
 
-    if matches!(field.storage_decode(), FieldStorageDecode::Value) {
-        return slots.required_value_storage_scalar(field_slot);
-    }
-
-    Ok(None)
+    slots.required_value_storage_scalar(field_slot)
 }
 
 // Read two scalar slots once and route the resolved slot values through the
@@ -940,11 +928,11 @@ fn eval_structural_field_slot(
     let Some(field_slot) = field_slot else {
         return Ok(false);
     };
-    let Ok(field) = slots.field_decode_contract(field_slot) else {
+    let Ok(leaf_codec) = slots.field_leaf_codec(field_slot) else {
         return Ok(false);
     };
 
-    if matches!(field.leaf_codec(), LeafCodec::Scalar(_)) {
+    if matches!(leaf_codec, LeafCodec::Scalar(_)) {
         return eval_scalar(field_slot, slots);
     }
 

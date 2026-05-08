@@ -11,7 +11,7 @@ use crate::{
         },
         data::RawDataKey,
         index::{StructuralIndexEntryReader, StructuralPrimaryRowReader},
-        relation::{StrongRelationDeleteValidateFn, model_has_strong_relations_to_target},
+        relation::StrongRelationDeleteValidateFn,
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -193,11 +193,9 @@ pub(in crate::db) fn validate_delete_strong_relations_with_hooks<C: CanisterKind
     }
 
     // Delegate delete-side relation validation to each entity runtime hook.
+    // Each hook resolves its accepted source contract before deciding whether
+    // the source owns strong relations to the deleted target.
     for hooks in entity_runtime_hooks {
-        if !model_has_strong_relations_to_target(hooks.model, target_path) {
-            continue;
-        }
-
         (hooks.validate_delete_strong_relations)(db, target_path, deleted_target_keys)?;
     }
 

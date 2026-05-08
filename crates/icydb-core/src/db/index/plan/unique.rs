@@ -10,7 +10,7 @@ use crate::{
         index::{IndexId, IndexKey, IndexPlanReadView, plan::error::IndexPlanError},
     },
     error::InternalError,
-    model::{entity::EntityModel, index::IndexModel},
+    model::index::IndexModel,
     types::EntityTag,
 };
 use std::ops::Bound;
@@ -20,7 +20,6 @@ use std::ops::Bound;
 pub(super) fn validate_unique_constraint_structural(
     entity_path: &'static str,
     entity_tag: EntityTag,
-    model: &'static EntityModel,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
     index: &IndexModel,
@@ -97,7 +96,7 @@ pub(super) fn validate_unique_constraint_structural(
         entity_path,
         &data_key,
         existing_key,
-        model,
+        row_contract,
         &row_fields,
         index,
     )?
@@ -152,11 +151,12 @@ fn build_unique_index_key_from_row_slots(
     entity_path: &'static str,
     data_key: &DataKey,
     storage_key: StorageKey,
-    model: &'static EntityModel,
+    row_contract: &StructuralRowContract,
     row_fields: &StructuralSlotReader<'_>,
     index: &IndexModel,
 ) -> Result<Option<IndexKey>, InternalError> {
-    IndexKey::new_from_slots(entity_tag, storage_key, model, row_fields, index).map_err(|err| {
-        InternalError::index_unique_validation_key_rebuild_failed(data_key, entity_path, err)
-    })
+    IndexKey::new_from_slots_with_contract(entity_tag, storage_key, row_contract, row_fields, index)
+        .map_err(|err| {
+            InternalError::index_unique_validation_key_rebuild_failed(data_key, entity_path, err)
+        })
 }

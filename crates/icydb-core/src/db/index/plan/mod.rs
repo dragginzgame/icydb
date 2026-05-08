@@ -60,11 +60,11 @@ pub(in crate::db) fn compile_index_membership_predicate_structural(
     Some(PredicateProgram::compile(model, predicate))
 }
 
-/// Build one index key from one slot reader using structural entity authority only.
+/// Build one index key from one slot reader using accepted row-contract slot authority.
 pub(in crate::db) fn index_key_for_slot_reader_with_membership_structural(
     entity_tag: EntityTag,
-    model: &'static EntityModel,
     index: &IndexModel,
+    row_contract: &StructuralRowContract,
     predicate_program: Option<&PredicateProgram>,
     storage_key: StorageKey,
     slots: &dyn CanonicalSlotReader,
@@ -76,7 +76,13 @@ pub(in crate::db) fn index_key_for_slot_reader_with_membership_structural(
         }
     }
 
-    let index_key = IndexKey::new_from_slots(entity_tag, storage_key, model, slots, index)?;
+    let index_key = IndexKey::new_from_slots_with_contract(
+        entity_tag,
+        storage_key,
+        row_contract,
+        slots,
+        index,
+    )?;
 
     Ok(index_key)
 }
@@ -85,8 +91,8 @@ pub(in crate::db) fn index_key_for_slot_reader_with_membership_structural(
 fn load_structural_index_key(
     lane: IndexKeyLane,
     entity_tag: EntityTag,
-    model: &'static EntityModel,
     index: &IndexModel,
+    row_contract: &StructuralRowContract,
     predicate_program: Option<&PredicateProgram>,
     storage_key: Option<StorageKey>,
     slots: &dyn CanonicalSlotReader,
@@ -97,8 +103,8 @@ fn load_structural_index_key(
 
     index_key_for_slot_reader_with_membership_structural(
         entity_tag,
-        model,
         index,
+        row_contract,
         predicate_program,
         storage_key,
         slots,
@@ -205,8 +211,8 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
             Some(slots) => load_structural_index_key(
                 IndexKeyLane::Old,
                 entity_tag,
-                model,
                 index,
+                row_contract,
                 membership_program.as_ref(),
                 old_storage_key,
                 slots,
@@ -217,8 +223,8 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
             Some(slots) => load_structural_index_key(
                 IndexKeyLane::New,
                 entity_tag,
-                model,
                 index,
+                row_contract,
                 membership_program.as_ref(),
                 new_storage_key,
                 slots,
@@ -248,7 +254,6 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
         unique::validate_unique_constraint_structural(
             entity_path,
             entity_tag,
-            model,
             read_view,
             row_contract,
             index,

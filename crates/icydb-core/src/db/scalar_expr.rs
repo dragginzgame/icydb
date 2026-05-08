@@ -4,18 +4,12 @@
 //! Boundary: predicate and index runtimes use this to avoid `Value` fallback for scalar work.
 
 #[cfg(test)]
-use crate::db::data::SlotReader;
 use crate::{
-    db::data::{CanonicalSlotReader, ScalarSlotValueRef, ScalarValueRef},
+    db::data::{CanonicalSlotReader, ScalarSlotValueRef, ScalarValueRef, SlotReader},
     error::InternalError,
-    model::{
-        entity::EntityModel,
-        field::LeafCodec,
-        index::{IndexExpression, IndexKeyItem},
-    },
-    types::Date,
-    value::Value,
+    model::{entity::EntityModel, field::LeafCodec, index::IndexKeyItem},
 };
+use crate::{model::index::IndexExpression, types::Date, value::Value};
 use std::borrow::Cow;
 
 const MILLIS_PER_DAY: i64 = 86_400_000;
@@ -31,6 +25,7 @@ const EXPECTED_DATE_OR_TIMESTAMP: &str = "Date/Timestamp";
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(test)]
 pub(in crate::db) enum ScalarValueProgram {
     Field { slot: usize },
     Lower { slot: usize },
@@ -66,6 +61,7 @@ pub(in crate::db) enum ScalarIndexExpressionOp {
 
 impl ScalarIndexExpressionOp {
     // Return the stable expression label used in scalar mismatch diagnostics.
+    #[cfg(test)]
     const fn label(self) -> &'static str {
         match self {
             Self::Lower => "LOWER",
@@ -80,6 +76,7 @@ impl ScalarIndexExpressionOp {
     }
 
     // Build the canonical scalar-expression input mismatch error.
+    #[cfg(test)]
     fn input_type_mismatch(self, expected: &'static str) -> InternalError {
         let label = self.label();
 
@@ -107,6 +104,10 @@ impl ScalarIndexExpressionOp {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(
+    dead_code,
+    reason = "scalar expression results intentionally cover every scalar value kind even when a build uses only a subset"
+)]
 pub(in crate::db) enum ScalarExprValue<'a> {
     Null,
     Blob(Cow<'a, [u8]>),
@@ -123,33 +124,6 @@ pub(in crate::db) enum ScalarExprValue<'a> {
     Uint(u64),
     Ulid(crate::types::Ulid),
     Unit,
-}
-
-impl ScalarExprValue<'_> {
-    /// Borrow this expression result as the scalar slot view used by shared
-    /// predicate and index encoders.
-    #[must_use]
-    pub(in crate::db) fn as_slot_value_ref(&self) -> ScalarSlotValueRef<'_> {
-        match self {
-            Self::Null => ScalarSlotValueRef::Null,
-            Self::Blob(value) => ScalarSlotValueRef::Value(ScalarValueRef::Blob(value.as_ref())),
-            Self::Bool(value) => ScalarSlotValueRef::Value(ScalarValueRef::Bool(*value)),
-            Self::Date(value) => ScalarSlotValueRef::Value(ScalarValueRef::Date(*value)),
-            Self::Duration(value) => ScalarSlotValueRef::Value(ScalarValueRef::Duration(*value)),
-            Self::Float32(value) => ScalarSlotValueRef::Value(ScalarValueRef::Float32(*value)),
-            Self::Float64(value) => ScalarSlotValueRef::Value(ScalarValueRef::Float64(*value)),
-            Self::Int(value) => ScalarSlotValueRef::Value(ScalarValueRef::Int(*value)),
-            Self::Principal(value) => ScalarSlotValueRef::Value(ScalarValueRef::Principal(*value)),
-            Self::Subaccount(value) => {
-                ScalarSlotValueRef::Value(ScalarValueRef::Subaccount(*value))
-            }
-            Self::Text(value) => ScalarSlotValueRef::Value(ScalarValueRef::Text(value.as_ref())),
-            Self::Timestamp(value) => ScalarSlotValueRef::Value(ScalarValueRef::Timestamp(*value)),
-            Self::Uint(value) => ScalarSlotValueRef::Value(ScalarValueRef::Uint(*value)),
-            Self::Ulid(value) => ScalarSlotValueRef::Value(ScalarValueRef::Ulid(*value)),
-            Self::Unit => ScalarSlotValueRef::Value(ScalarValueRef::Unit),
-        }
-    }
 }
 
 /// Convert one shared scalar expression value into the runtime `Value` enum.
@@ -211,6 +185,7 @@ pub(in crate::db) fn compile_scalar_literal_expr_value(
 
 /// Compile one scalar field access into the shared scalar-expression program.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn compile_scalar_field_program(
     model: &EntityModel,
     field_name: &str,
@@ -227,6 +202,7 @@ pub(in crate::db) fn compile_scalar_field_program(
 /// Compile one index expression into the shared scalar-expression program when
 /// the source field remains on the scalar slot seam.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn compile_scalar_index_expression_program(
     model: &'static EntityModel,
     expression: IndexExpression,
@@ -269,6 +245,7 @@ pub(in crate::db) const fn scalar_index_expression_op(
 /// Compile one index key item into the shared scalar-expression program when
 /// the item stays entirely on the scalar slot seam.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn compile_scalar_index_key_item_program(
     model: &'static EntityModel,
     key_item: IndexKeyItem,
@@ -346,6 +323,7 @@ pub(in crate::db) fn eval_scalar_value_program<'a>(
 
 /// Evaluate one compiled scalar expression through the canonical structural
 /// slot seam where declared slots must already exist.
+#[cfg(test)]
 pub(in crate::db) fn eval_canonical_scalar_value_program<'a>(
     program: &ScalarValueProgram,
     slots: &'a dyn CanonicalSlotReader,
@@ -380,6 +358,7 @@ pub(in crate::db) fn eval_canonical_scalar_value_program<'a>(
 }
 
 // Evaluate one scalar field access through the canonical slot-reader fast path.
+#[cfg(test)]
 fn eval_canonical_scalar_field(
     slot: usize,
     slots: &dyn CanonicalSlotReader,
@@ -391,6 +370,7 @@ fn eval_canonical_scalar_field(
 }
 
 // Evaluate one scalar expression operator against the canonical slot seam.
+#[cfg(test)]
 fn eval_canonical_scalar_expression_op(
     slot: usize,
     slots: &dyn CanonicalSlotReader,
@@ -467,6 +447,7 @@ pub(in crate::db) fn derive_non_null_scalar_expression_value(
     }
 }
 
+#[cfg(test)]
 const fn scalar_expr_value_from_slot_value(value: ScalarValueRef<'_>) -> ScalarExprValue<'_> {
     match value {
         ScalarValueRef::Blob(value) => ScalarExprValue::Blob(Cow::Borrowed(value)),

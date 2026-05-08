@@ -290,7 +290,7 @@ where
         db,
         index_reader,
         authority.relation_source,
-        authority.model,
+        row_contract.clone(),
         structural.data_key.storage_key(),
         decoded.old_slots.as_ref(),
         decoded.new_slots.as_ref(),

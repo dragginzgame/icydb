@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.149.x] 🧬 - 2026-05-06 - Schema Defaults And Accepted Write Encoding
 
+- `0.149.12` makes accepted storage-row contracts drop their generated field bridge after compatibility proof, routes save-time strong relation preflight through accepted row contracts, moves reverse-index/delete-side strong relation discovery onto accepted contracts, and makes forward-index write keys resolve slots through accepted row contracts, so commit preflight, relation validation, and save relation checks no longer decode rows from generated field authority.
 - `0.149.11` makes accepted schema contracts mandatory for saves, typed responses, and final row encoding, removing generated structural-patch write fallbacks from the production path.
 - `0.149.10` hardens accepted write contracts so executor layouts, typed-create checks, typed save value checks, and SQL write routing use accepted schema authority when available.
 - `0.149.9` centralizes accepted-schema compatibility checks, so session writes, commit preflight, and relation validation all use one schema/data-owned row-contract path.

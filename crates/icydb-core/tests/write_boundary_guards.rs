@@ -96,6 +96,103 @@ fn prepared_row_write_payloads_stay_canonical() {
 }
 
 #[test]
+fn accepted_storage_row_contracts_do_not_retain_generated_field_bridge() {
+    let structural_row = read_source("src/db/data/structural_row.rs");
+
+    assert!(
+        structural_row.contains("pub(in crate::db) fn from_model_with_accepted_schema_snapshot(")
+            && structural_row.contains("Self::from_accepted_decode_contract(")
+            && !structural_row.contains(
+                "Ok(Self::from_model_with_accepted_decode_contract(\n            model,\n            descriptor.row_decode_contract(),\n        ))",
+            ),
+        "storage row readers must use accepted-only row contracts after the generated-compatibility proof",
+    );
+}
+
+#[test]
+fn save_preflight_relations_use_accepted_contracts() {
+    let save_validation = read_source("src/db/executor/mutation/save_validation.rs");
+
+    assert!(
+        save_validation.contains("validate_save_strong_relations_with_accepted_contract::<E>(")
+            && save_validation.contains("self.accepted_row_decode_contract(),")
+            && !save_validation.contains("validate_save_strong_relations::<E>(&self.db, entity)?"),
+        "save relation preflight must use accepted row contracts instead of reopening E::MODEL relation metadata",
+    );
+}
+
+#[test]
+fn reverse_relation_runtime_paths_use_accepted_contracts() {
+    let reverse_index = read_source("src/db/relation/reverse_index.rs");
+    let delete_validate = read_source("src/db/relation/validate.rs");
+    let runtime_hooks = read_source("src/db/runtime_hooks/mod.rs");
+    let commit_prepare = read_source("src/db/commit/prepare.rs");
+
+    assert!(
+        reverse_index.contains("accepted_strong_relations_for_row_contract(")
+            && reverse_index.contains("source_row_contract: StructuralRowContract,")
+            && !reverse_index.contains("strong_relations_for_model_iter")
+            && !reverse_index.contains("source_model: &'static EntityModel"),
+        "reverse-index mutation preparation must derive relation fields from accepted row contracts",
+    );
+    assert!(
+        delete_validate.contains("accepted_strong_relations_for_row_contract(")
+            && delete_validate.contains("accepted_source_row_contract::<S>(")
+            && !delete_validate.contains("model_has_strong_relations_to_target(S::MODEL"),
+        "delete-side relation validation must derive relation fields from accepted row contracts",
+    );
+    assert!(
+        !runtime_hooks.contains("model_has_strong_relations_to_target("),
+        "delete hook traversal must not use generated model relation metadata as a runtime prefilter",
+    );
+    assert!(
+        commit_prepare
+            .contains("row_contract.clone(),\n        structural.data_key.storage_key(),"),
+        "commit reverse-index preparation must receive the accepted structural row contract",
+    );
+}
+
+#[test]
+fn forward_index_write_keys_use_accepted_row_contract_slots() {
+    let index_key_build = read_source("src/db/index/key/build.rs");
+    let index_plan = read_source("src/db/index/plan/mod.rs");
+    let unique_plan = read_source("src/db/index/plan/unique.rs");
+    let structural_row = read_source("src/db/data/structural_row.rs");
+    let predicate_runtime = read_source("src/db/predicate/runtime/mod.rs");
+
+    assert!(
+        structural_row.contains("pub(in crate::db) fn field_slot_index_by_name(")
+            && structural_row.contains("self.accepted_decode_contract.is_some()"),
+        "structural row contracts must expose accepted-first field-name to slot lookup",
+    );
+    assert!(
+        index_key_build.contains("pub(crate) fn new_from_slots_with_contract(")
+            && index_key_build.contains("row_contract.field_slot_index_by_name(field)?")
+            && !index_key_build.contains("pub(crate) fn new_from_slots(\n")
+            && !index_key_build.contains("compile_scalar_index_key_item_program("),
+        "write-time index key construction must resolve field slots through accepted row contracts",
+    );
+    assert!(
+        index_plan.contains("IndexKey::new_from_slots_with_contract(")
+            && index_plan.contains("row_contract,")
+            && !index_plan.contains("IndexKey::new_from_slots("),
+        "forward-index mutation planning must pass accepted row contracts into index key construction",
+    );
+    assert!(
+        unique_plan.contains("IndexKey::new_from_slots_with_contract(")
+            && unique_plan.contains("row_contract,"),
+        "unique-index validation must rebuild stored index keys through accepted row contracts",
+    );
+    assert!(
+        predicate_runtime.contains("slots.field_leaf_codec(field_slot)")
+            && predicate_runtime.contains("slots.required_value_storage_scalar(field_slot)")
+            && !predicate_runtime.contains("slots\n        .field_decode_contract(field_slot)")
+            && !predicate_runtime.contains("slots.field_decode_contract(field_slot)"),
+        "conditional-index predicate fast paths must use accepted-aware scalar slot helpers",
+    );
+}
+
+#[test]
 fn value_stays_out_of_persisted_field_contracts() {
     let forbidden_impls = [
         "implPersistedFieldSlotCodecforValue",

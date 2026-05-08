@@ -113,8 +113,9 @@ impl StructuralRowContract {
     ///
     /// This is the data-layer owner for the repeated accepted-schema projection
     /// sequence. It proves the accepted schema is still generated-compatible
-    /// before handing row readers a structural contract backed by accepted field
-    /// decode facts.
+    /// before handing row readers an accepted-only structural contract. Typed
+    /// materialization compatibility surfaces must use the explicit generated
+    /// bridge constructor instead.
     pub(in crate::db) fn from_model_with_accepted_schema_snapshot(
         model: &'static EntityModel,
         accepted_schema: &AcceptedSchemaSnapshot,
@@ -124,8 +125,8 @@ impl StructuralRowContract {
             model,
         )?;
 
-        Ok(Self::from_model_with_accepted_decode_contract(
-            model,
+        Ok(Self::from_accepted_decode_contract(
+            model.path(),
             descriptor.row_decode_contract(),
         ))
     }
@@ -214,6 +215,36 @@ impl StructuralRowContract {
 
         self.field_decode_contract(slot)
             .map(StructuralFieldDecodeContract::name)
+    }
+
+    /// Return one field's physical row slot by persisted field name.
+    ///
+    /// Accepted contracts own this lookup when present. Generated field
+    /// metadata remains a compatibility fallback only for generated-only row
+    /// readers and tests.
+    pub(in crate::db) fn field_slot_index_by_name(
+        &self,
+        field_name: &str,
+    ) -> Result<usize, InternalError> {
+        if self.accepted_decode_contract.is_some() {
+            for slot in 0..self.field_count() {
+                let Some(field) = self.accepted_field_decode_contract(slot) else {
+                    continue;
+                };
+                if field.field_name() == field_name {
+                    return Ok(slot);
+                }
+            }
+
+            return Err(InternalError::persisted_row_declared_field_missing(
+                field_name,
+            ));
+        }
+
+        self.generated_fields
+            .iter()
+            .position(|field| field.name() == field_name)
+            .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field_name))
     }
 
     /// Return the missing-slot policy for one accepted physical slot.

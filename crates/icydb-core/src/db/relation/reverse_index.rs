@@ -10,20 +10,18 @@ use crate::{
         data::{
             CanonicalSlotReader, DataKey, RawDataKey, RawRow, ScalarSlotValueRef, ScalarValueRef,
             StorageKey, StructuralRowContract, StructuralSlotReader,
-            decode_relation_target_storage_keys_bytes, supports_storage_key_binary_kind,
+            decode_accepted_relation_target_storage_keys_bytes,
         },
+        identity::EntityName,
         index::{
             IndexEntry, IndexId, IndexKeyKind, IndexStore, RawIndexEntry, RawIndexKey,
             StructuralIndexEntryReader, encode_canonical_index_component_from_storage_key,
             raw_keys_for_component_prefix_with_kind,
         },
-        relation::{
-            RelationTargetDecodeContext, RelationTargetMismatchPolicy,
-            metadata::{StrongRelationInfo, strong_relations_for_model_iter},
-        },
+        relation::{RelationTargetDecodeContext, RelationTargetMismatchPolicy},
+        schema::{PersistedFieldKind, PersistedRelationStrength},
     },
     error::InternalError,
-    model::{entity::EntityModel, field::FieldKind},
     traits::{CanisterKind, EntityKind},
     types::EntityTag,
 };
@@ -87,9 +85,175 @@ struct ReverseRelationMutationTarget {
 ///
 
 struct ReverseRelationSourceTransition<'row, 'slots> {
-    source_model: &'static EntityModel,
+    source_row_contract: StructuralRowContract,
     old_row_fields: Option<&'slots StructuralSlotReader<'row>>,
     new_row_fields: Option<&'slots StructuralSlotReader<'row>>,
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::db::relation) struct AcceptedStrongRelationInfo {
+    field_index: usize,
+    field_name: String,
+    field_kind: PersistedFieldKind,
+    target: AcceptedStrongRelationTargetIdentity,
+}
+
+impl AcceptedStrongRelationInfo {
+    #[must_use]
+    pub(in crate::db::relation) const fn field_name(&self) -> &str {
+        self.field_name.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::relation) const fn field_index(&self) -> usize {
+        self.field_index
+    }
+
+    #[must_use]
+    const fn field_kind(&self) -> &PersistedFieldKind {
+        &self.field_kind
+    }
+
+    #[must_use]
+    pub(in crate::db::relation) const fn target(&self) -> &AcceptedStrongRelationTargetIdentity {
+        &self.target
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::db::relation) struct AcceptedStrongRelationTargetIdentity {
+    path: String,
+    entity_name: EntityName,
+    entity_tag: EntityTag,
+    store_path: String,
+    key_kind: PersistedFieldKind,
+}
+
+impl AcceptedStrongRelationTargetIdentity {
+    fn try_new(
+        source_path: &str,
+        field_name: &str,
+        target_path: &str,
+        target_entity_name: &str,
+        target_entity_tag: EntityTag,
+        target_store_path: &str,
+        key_kind: &PersistedFieldKind,
+    ) -> Result<Self, InternalError> {
+        let entity_name = EntityName::try_from_str(target_entity_name).map_err(|err| {
+            InternalError::strong_relation_target_name_invalid(
+                source_path,
+                field_name,
+                target_path,
+                target_entity_name,
+                err,
+            )
+        })?;
+
+        Ok(Self {
+            path: target_path.to_string(),
+            entity_name,
+            entity_tag: target_entity_tag,
+            store_path: target_store_path.to_string(),
+            key_kind: key_kind.clone(),
+        })
+    }
+
+    #[must_use]
+    pub(in crate::db::relation) const fn path(&self) -> &str {
+        self.path.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::relation) const fn entity_name(&self) -> EntityName {
+        self.entity_name
+    }
+
+    #[must_use]
+    pub(in crate::db::relation) const fn entity_tag(&self) -> EntityTag {
+        self.entity_tag
+    }
+
+    #[must_use]
+    const fn store_path(&self) -> &str {
+        self.store_path.as_str()
+    }
+
+    #[must_use]
+    const fn key_kind(&self) -> &PersistedFieldKind {
+        &self.key_kind
+    }
+
+    fn validate_against_db<C>(
+        &self,
+        db: &Db<C>,
+        source_path: &str,
+        field_name: &str,
+    ) -> Result<(), InternalError>
+    where
+        C: CanisterKind,
+    {
+        if !db.has_runtime_hooks() {
+            return Ok(());
+        }
+
+        let hook = db
+            .runtime_hook_for_entity_tag(self.entity_tag)
+            .map_err(|err| {
+                InternalError::strong_relation_target_identity_mismatch(
+                    source_path,
+                    field_name,
+                    self.path.as_str(),
+                    format!(
+                        "target_entity_tag={} is not registered: {err}",
+                        self.entity_tag.value()
+                    ),
+                )
+            })?;
+
+        if hook.entity_path != self.path {
+            return Err(InternalError::strong_relation_target_identity_mismatch(
+                source_path,
+                field_name,
+                self.path.as_str(),
+                format!(
+                    "target_entity_tag={} resolves to entity_path={} but relation declares {}",
+                    self.entity_tag.value(),
+                    hook.entity_path,
+                    self.path
+                ),
+            ));
+        }
+
+        if hook.model.name() != self.entity_name.as_str() {
+            return Err(InternalError::strong_relation_target_identity_mismatch(
+                source_path,
+                field_name,
+                self.path.as_str(),
+                format!(
+                    "target_entity_tag={} resolves to entity_name={} but relation declares {}",
+                    self.entity_tag.value(),
+                    hook.model.name(),
+                    self.entity_name.as_str(),
+                ),
+            ));
+        }
+
+        if hook.store_path != self.store_path {
+            return Err(InternalError::strong_relation_target_identity_mismatch(
+                source_path,
+                field_name,
+                self.path.as_str(),
+                format!(
+                    "target_store_path={} does not match runtime store {} for target_entity_tag={}",
+                    self.store_path,
+                    hook.store_path,
+                    self.entity_tag.value(),
+                ),
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 // Resolve the canonical relation-target decode context label used by
@@ -120,15 +284,134 @@ const fn relation_target_entity_mismatch_context_label(
     }
 }
 
+pub(in crate::db::relation) fn accepted_strong_relations_for_row_contract(
+    source_path: &str,
+    source_row_contract: &StructuralRowContract,
+    target_path_filter: Option<&str>,
+) -> Result<Vec<AcceptedStrongRelationInfo>, InternalError> {
+    let mut relations = Vec::new();
+    for slot in 0..source_row_contract.field_count() {
+        let Some(field) = source_row_contract.accepted_field_decode_contract(slot) else {
+            continue;
+        };
+        let Some(relation) = accepted_strong_relation_from_field(
+            source_path,
+            slot,
+            field.field_name(),
+            field.kind(),
+            target_path_filter,
+        )?
+        else {
+            continue;
+        };
+
+        relations.push(relation);
+    }
+
+    Ok(relations)
+}
+
+fn accepted_strong_relation_from_field(
+    source_path: &str,
+    field_index: usize,
+    field_name: &str,
+    kind: &PersistedFieldKind,
+    target_path_filter: Option<&str>,
+) -> Result<Option<AcceptedStrongRelationInfo>, InternalError> {
+    let Some((
+        target_path,
+        target_entity_name,
+        target_entity_tag,
+        target_store_path,
+        key_kind,
+        strength,
+    )) = accepted_relation_target_from_kind(kind)
+    else {
+        return Ok(None);
+    };
+    if strength != PersistedRelationStrength::Strong {
+        return Ok(None);
+    }
+    if target_path_filter.is_some_and(|filter| filter != target_path) {
+        return Ok(None);
+    }
+
+    Ok(Some(AcceptedStrongRelationInfo {
+        field_index,
+        field_name: field_name.to_string(),
+        field_kind: kind.clone(),
+        target: AcceptedStrongRelationTargetIdentity::try_new(
+            source_path,
+            field_name,
+            target_path,
+            target_entity_name,
+            target_entity_tag,
+            target_store_path,
+            key_kind,
+        )?,
+    }))
+}
+
+fn accepted_relation_target_from_kind(
+    kind: &PersistedFieldKind,
+) -> Option<(
+    &str,
+    &str,
+    EntityTag,
+    &str,
+    &PersistedFieldKind,
+    PersistedRelationStrength,
+)> {
+    fn relation_target(
+        kind: &PersistedFieldKind,
+    ) -> Option<(
+        &str,
+        &str,
+        EntityTag,
+        &str,
+        &PersistedFieldKind,
+        PersistedRelationStrength,
+    )> {
+        let PersistedFieldKind::Relation {
+            target_path,
+            target_entity_name,
+            target_entity_tag,
+            target_store_path,
+            key_kind,
+            strength,
+        } = kind
+        else {
+            return None;
+        };
+
+        Some((
+            target_path.as_str(),
+            target_entity_name.as_str(),
+            *target_entity_tag,
+            target_store_path.as_str(),
+            key_kind.as_ref(),
+            *strength,
+        ))
+    }
+
+    match kind {
+        PersistedFieldKind::Relation { .. } => relation_target(kind),
+        PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner) => {
+            relation_target(inner.as_ref())
+        }
+        _ => None,
+    }
+}
+
 /// Build the canonical reverse-index id for a `(source entity, relation field)` pair.
 fn reverse_index_id_for_relation(
     source: ReverseRelationSourceInfo,
-    relation: StrongRelationInfo,
+    relation: &AcceptedStrongRelationInfo,
 ) -> Result<IndexId, InternalError> {
-    let ordinal = u16::try_from(relation.field_index).map_err(|err| {
+    let ordinal = u16::try_from(relation.field_index()).map_err(|err| {
         InternalError::reverse_index_ordinal_overflow(
             source.path,
-            relation.field_name,
+            relation.field_name(),
             relation.target().path(),
             err,
         )
@@ -140,7 +423,7 @@ fn reverse_index_id_for_relation(
 /// Build a reverse-index key for one target storage key.
 pub(super) fn reverse_index_key_for_target_storage_key(
     source: ReverseRelationSourceInfo,
-    relation: StrongRelationInfo,
+    relation: &AcceptedStrongRelationInfo,
     target_key_value: StorageKey,
 ) -> Result<Option<RawIndexKey>, InternalError> {
     let Ok(encoded_value) = encode_canonical_index_component_from_storage_key(target_key_value)
@@ -165,7 +448,7 @@ pub(super) fn reverse_index_key_for_target_storage_key(
 fn relation_target_raw_keys_for_source_slots(
     row_fields: &StructuralSlotReader<'_>,
     source_info: ReverseRelationSourceInfo,
-    relation: StrongRelationInfo,
+    relation: &AcceptedStrongRelationInfo,
 ) -> Result<Vec<RawDataKey>, InternalError> {
     let keys = relation_target_storage_keys_for_source_slots(row_fields, source_info, relation)?;
 
@@ -182,7 +465,7 @@ pub(in crate::db::relation) fn source_row_references_relation_target(
     raw_row: &RawRow,
     source_row_contract: StructuralRowContract,
     source_info: ReverseRelationSourceInfo,
-    relation: StrongRelationInfo,
+    relation: &AcceptedStrongRelationInfo,
     target_key: StorageKey,
 ) -> Result<bool, InternalError> {
     let row_fields =
@@ -196,7 +479,7 @@ pub(in crate::db::relation) fn source_row_references_relation_target(
 fn source_slots_reference_relation_target(
     row_fields: &StructuralSlotReader<'_>,
     source_info: ReverseRelationSourceInfo,
-    relation: StrongRelationInfo,
+    relation: &AcceptedStrongRelationInfo,
     target_key: StorageKey,
 ) -> Result<bool, InternalError> {
     let keys = relation_target_storage_keys_for_source_slots(row_fields, source_info, relation)?;
@@ -213,14 +496,14 @@ fn canonicalize_relation_target_keys(keys: &mut Vec<RawDataKey>) {
 /// Decode a reverse-index entry into source-key membership.
 pub(super) fn decode_reverse_entry(
     source: ReverseRelationSourceInfo,
-    relation: StrongRelationInfo,
+    relation: &AcceptedStrongRelationInfo,
     index_key: &RawIndexKey,
     raw_entry: &RawIndexEntry,
 ) -> Result<IndexEntry, InternalError> {
     raw_entry.try_decode().map_err(|err| {
         InternalError::reverse_index_entry_corrupted(
             source.path,
-            relation.field_name,
+            relation.field_name(),
             relation.target().path(),
             index_key,
             err,
@@ -231,13 +514,13 @@ pub(super) fn decode_reverse_entry(
 /// Encode a reverse-index entry with bounded-size error mapping.
 fn encode_reverse_entry(
     source: ReverseRelationSourceInfo,
-    relation: StrongRelationInfo,
+    relation: &AcceptedStrongRelationInfo,
     entry: &IndexEntry,
 ) -> Result<RawIndexEntry, InternalError> {
     RawIndexEntry::try_from_entry(entry).map_err(|err| {
         InternalError::reverse_index_entry_encode_failed(
             source.path,
-            relation.field_name,
+            relation.field_name(),
             relation.target().path(),
             err,
         )
@@ -248,12 +531,14 @@ fn encode_reverse_entry(
 pub(super) fn relation_target_store<C>(
     db: &Db<C>,
     source: ReverseRelationSourceInfo,
-    relation: StrongRelationInfo,
+    relation: &AcceptedStrongRelationInfo,
 ) -> Result<&'static LocalKey<RefCell<IndexStore>>, InternalError>
 where
     C: CanisterKind,
 {
-    relation.validate_target_identity(db, source.path)?;
+    relation
+        .target()
+        .validate_against_db(db, source.path, relation.field_name())?;
     let target = relation.target();
 
     db.with_store_registry(|reg| reg.try_get_store(target.store_path()))
@@ -261,7 +546,7 @@ where
         .map_err(|err| {
             InternalError::relation_target_store_missing(
                 source.path,
-                relation.field_name,
+                relation.field_name(),
                 target.path(),
                 target.store_path(),
                 err,
@@ -272,7 +557,7 @@ where
 /// Decode one raw relation target key and enforce reverse-index target invariants.
 pub(in crate::db::relation) fn decode_relation_target_data_key(
     source: ReverseRelationSourceInfo,
-    relation: StrongRelationInfo,
+    relation: &AcceptedStrongRelationInfo,
     target_raw_key: &RawDataKey,
     context: RelationTargetDecodeContext,
     mismatch_policy: RelationTargetMismatchPolicy,
@@ -281,7 +566,7 @@ pub(in crate::db::relation) fn decode_relation_target_data_key(
         InternalError::relation_target_key_decode_failed(
             relation_target_key_decode_context_label(context),
             source.path,
-            relation.field_name,
+            relation.field_name(),
             relation.target().path(),
             err,
         )
@@ -296,7 +581,7 @@ pub(in crate::db::relation) fn decode_relation_target_data_key(
         return Err(InternalError::relation_target_entity_mismatch(
             relation_target_entity_mismatch_context_label(context),
             source.path,
-            relation.field_name,
+            relation.field_name(),
             target.path(),
             target.entity_name().as_str(),
             target.entity_tag().value(),
@@ -310,7 +595,7 @@ pub(in crate::db::relation) fn decode_relation_target_data_key(
 // Convert decoded relation target storage keys into canonical sorted raw keys.
 fn relation_target_raw_keys_from_storage_keys(
     source: ReverseRelationSourceInfo,
-    relation: StrongRelationInfo,
+    relation: &AcceptedStrongRelationInfo,
     keys: Vec<StorageKey>,
 ) -> Result<Vec<RawDataKey>, InternalError> {
     let mut keys = keys
@@ -328,7 +613,7 @@ fn relation_target_raw_keys_from_storage_keys(
 fn relation_target_storage_keys_for_source_slots(
     row_fields: &StructuralSlotReader<'_>,
     source: ReverseRelationSourceInfo,
-    relation: StrongRelationInfo,
+    relation: &AcceptedStrongRelationInfo,
 ) -> Result<Vec<StorageKey>, InternalError> {
     // Phase 1: keep single relation slots on the scalar fast path when the
     // persisted field already uses a storage-key-compatible leaf codec.
@@ -348,16 +633,16 @@ fn relation_target_storage_keys_for_source_slots(
 fn relation_target_storage_keys_from_field_bytes(
     row_fields: &StructuralSlotReader<'_>,
     source: ReverseRelationSourceInfo,
-    relation: StrongRelationInfo,
+    relation: &AcceptedStrongRelationInfo,
 ) -> Result<Vec<StorageKey>, InternalError> {
     validate_relation_field_kind(relation)?;
 
-    let bytes = row_fields.required_field_bytes(relation.field_index, relation.field_name)?;
-    let keys =
-        decode_relation_target_storage_keys_bytes(bytes, *relation.field_kind).map_err(|err| {
+    let bytes = row_fields.required_field_bytes(relation.field_index(), relation.field_name())?;
+    let keys = decode_accepted_relation_target_storage_keys_bytes(bytes, relation.field_kind())
+        .map_err(|err| {
             InternalError::relation_source_row_decode_failed(
                 source.path,
-                relation.field_name,
+                relation.field_name(),
                 relation.target().path(),
                 err,
             )
@@ -371,19 +656,19 @@ fn relation_target_storage_keys_from_field_bytes(
 fn relation_target_storage_keys_from_scalar_slot(
     row_fields: &StructuralSlotReader<'_>,
     source: ReverseRelationSourceInfo,
-    relation: StrongRelationInfo,
+    relation: &AcceptedStrongRelationInfo,
 ) -> Result<Option<Vec<StorageKey>>, InternalError> {
-    let FieldKind::Relation { .. } = *relation.field_kind else {
+    let PersistedFieldKind::Relation { .. } = relation.field_kind() else {
         return Ok(None);
     };
 
-    match row_fields.required_scalar(relation.field_index)? {
+    match row_fields.required_scalar(relation.field_index())? {
         ScalarSlotValueRef::Null => Ok(Some(Vec::new())),
         ScalarSlotValueRef::Value(value) => {
             let storage_key = storage_key_from_relation_scalar(value).ok_or_else(|| {
                 InternalError::relation_source_row_unsupported_scalar_relation_key(
                     source.path,
-                    relation.field_name,
+                    relation.field_name(),
                     relation.target().path(),
                 )
             })?;
@@ -418,13 +703,13 @@ const fn storage_key_from_relation_scalar(value: ScalarValueRef<'_>) -> Option<S
 // shape without materializing an intermediate runtime `Value`.
 fn raw_relation_target_key_from_storage_key(
     source: ReverseRelationSourceInfo,
-    relation: StrongRelationInfo,
+    relation: &AcceptedStrongRelationInfo,
     value: StorageKey,
 ) -> Result<RawDataKey, InternalError> {
     DataKey::raw_from_parts(relation.target().entity_tag(), value).map_err(|err| {
         InternalError::relation_source_row_decode_failed(
             source.path,
-            relation.field_name,
+            relation.field_name(),
             relation.target().path(),
             err,
         )
@@ -433,33 +718,40 @@ fn raw_relation_target_key_from_storage_key(
 
 // Enforce the narrow relation-field shapes that strong-relation structural
 // decode is allowed to accept on this path.
-fn validate_relation_field_kind(relation: StrongRelationInfo) -> Result<(), InternalError> {
-    match *relation.field_kind {
-        FieldKind::Relation { .. }
-        | FieldKind::List(FieldKind::Relation { .. })
-        | FieldKind::Set(FieldKind::Relation { .. }) => {
-            validate_relation_key_kind(*relation.target().key_kind())
-        }
+fn validate_relation_field_kind(
+    relation: &AcceptedStrongRelationInfo,
+) -> Result<(), InternalError> {
+    match relation.field_kind() {
+        PersistedFieldKind::Relation { .. }
+        | PersistedFieldKind::List(_)
+        | PersistedFieldKind::Set(_) => validate_relation_key_kind(relation.target().key_kind()),
         other => Err(InternalError::relation_source_row_invalid_field_kind(other)),
     }
 }
 
-// Enforce the storage-key-compatible relation key kinds supported by the raw
-// relation target-key builder.
-fn validate_relation_key_kind(key_kind: FieldKind) -> Result<(), InternalError> {
-    if supports_storage_key_binary_kind(key_kind) {
-        Ok(())
-    } else {
-        Err(InternalError::relation_source_row_unsupported_key_kind(
-            key_kind,
-        ))
+// Enforce the accepted storage-key-compatible relation key kinds supported by
+// the raw relation target-key builder.
+fn validate_relation_key_kind(key_kind: &PersistedFieldKind) -> Result<(), InternalError> {
+    match key_kind {
+        PersistedFieldKind::Account
+        | PersistedFieldKind::Int
+        | PersistedFieldKind::Principal
+        | PersistedFieldKind::Subaccount
+        | PersistedFieldKind::Timestamp
+        | PersistedFieldKind::Uint
+        | PersistedFieldKind::Ulid
+        | PersistedFieldKind::Unit => Ok(()),
+        PersistedFieldKind::Relation { key_kind, .. } => validate_relation_key_kind(key_kind),
+        other => Err(InternalError::relation_source_row_unsupported_key_kind(
+            other,
+        )),
     }
 }
 
 /// Build one reverse-index mutation for one touched target key.
 fn prepare_reverse_relation_index_mutation_for_target(
     source: ReverseRelationSourceInfo,
-    relation: StrongRelationInfo,
+    relation: &AcceptedStrongRelationInfo,
     target: ReverseRelationMutationTarget,
     existing: Option<&RawIndexEntry>,
     source_storage_key: StorageKey,
@@ -515,7 +807,7 @@ pub(crate) fn prepare_reverse_relation_index_mutations_for_source_slot_readers<C
     db: &Db<C>,
     index_reader: &dyn StructuralIndexEntryReader,
     source: ReverseRelationSourceInfo,
-    source_model: &'static EntityModel,
+    source_row_contract: StructuralRowContract,
     source_storage_key: StorageKey,
     old_row_fields: Option<&StructuralSlotReader<'_>>,
     new_row_fields: Option<&StructuralSlotReader<'_>>,
@@ -523,15 +815,14 @@ pub(crate) fn prepare_reverse_relation_index_mutations_for_source_slot_readers<C
 where
     C: CanisterKind,
 {
-    let mut target_store = |relation| relation_target_store(db, source, relation);
     let source_rows = ReverseRelationSourceTransition {
-        source_model,
+        source_row_contract,
         old_row_fields,
         new_row_fields,
     };
 
     prepare_reverse_relation_index_mutations_for_source_rows_impl(
-        &mut target_store,
+        db,
         index_reader,
         source,
         source_storage_key,
@@ -539,41 +830,40 @@ where
     )
 }
 
-// Keep the reverse-index mutation loop nongeneric once the source entity has
-// already been lowered onto one structural target-store lookup callback.
-fn prepare_reverse_relation_index_mutations_for_source_rows_impl(
-    target_store_for_relation: &mut dyn FnMut(
-        StrongRelationInfo,
-    ) -> Result<
-        &'static LocalKey<RefCell<IndexStore>>,
-        InternalError,
-    >,
+// Keep the reverse-index mutation loop structural once the source entity has
+// already been lowered onto accepted row contracts and source identity.
+fn prepare_reverse_relation_index_mutations_for_source_rows_impl<C>(
+    db: &Db<C>,
     index_reader: &dyn StructuralIndexEntryReader,
     source: ReverseRelationSourceInfo,
     source_storage_key: StorageKey,
     source_rows: ReverseRelationSourceTransition<'_, '_>,
-) -> Result<Vec<PreparedIndexMutation>, InternalError> {
+) -> Result<Vec<PreparedIndexMutation>, InternalError>
+where
+    C: CanisterKind,
+{
     // Phase 1: derive the single source storage key once from the already-validated
     // commit marker key instead of recomputing it through typed entity ids.
     let mut ops = Vec::new();
 
     // Phase 2: evaluate each strong relation independently and derive index deltas
     // directly from persisted row payloads.
-    for relation in strong_relations_for_model_iter(source_rows.source_model, None) {
-        let relation = relation.map_err(|err| {
-            InternalError::strong_relation_target_name_invalid(
-                source.path,
-                err.field_name(),
-                err.target_path(),
-                err.target_entity_name(),
-                err.source(),
-            )
-        })?;
-        let old_targets =
-            relation_target_keys_for_transition_side(source_rows.old_row_fields, source, relation)?;
-        let new_targets =
-            relation_target_keys_for_transition_side(source_rows.new_row_fields, source, relation)?;
-        let target_store = target_store_for_relation(relation)?;
+    for relation in accepted_strong_relations_for_row_contract(
+        source.path,
+        &source_rows.source_row_contract,
+        None,
+    )? {
+        let old_targets = relation_target_keys_for_transition_side(
+            source_rows.old_row_fields,
+            source,
+            &relation,
+        )?;
+        let new_targets = relation_target_keys_for_transition_side(
+            source_rows.new_row_fields,
+            source,
+            &relation,
+        )?;
+        let target_store = relation_target_store(db, source, &relation)?;
         let mut old_index = 0usize;
         let mut new_index = 0usize;
 
@@ -611,7 +901,7 @@ fn prepare_reverse_relation_index_mutations_for_source_rows_impl(
 
             let Some(target_data_key) = decode_relation_target_data_key(
                 source,
-                relation,
+                &relation,
                 &target_raw_key,
                 RelationTargetDecodeContext::ReverseIndexPrepare,
                 RelationTargetMismatchPolicy::Reject,
@@ -620,7 +910,7 @@ fn prepare_reverse_relation_index_mutations_for_source_rows_impl(
                 return Err(
                     InternalError::reverse_index_relation_target_decode_invariant_violated(
                         source.path,
-                        relation.field_name,
+                        relation.field_name(),
                         relation.target().path(),
                     ),
                 );
@@ -628,7 +918,7 @@ fn prepare_reverse_relation_index_mutations_for_source_rows_impl(
 
             let Some(reverse_key) = reverse_index_key_for_target_storage_key(
                 source,
-                relation,
+                &relation,
                 target_data_key.storage_key(),
             )?
             else {
@@ -644,7 +934,7 @@ fn prepare_reverse_relation_index_mutations_for_source_rows_impl(
             };
             let Some(op) = prepare_reverse_relation_index_mutation_for_target(
                 source,
-                relation,
+                &relation,
                 target,
                 existing.as_ref(),
                 source_storage_key,
@@ -665,7 +955,7 @@ fn prepare_reverse_relation_index_mutations_for_source_rows_impl(
 fn relation_target_keys_for_transition_side(
     row_fields: Option<&StructuralSlotReader<'_>>,
     source: ReverseRelationSourceInfo,
-    relation: StrongRelationInfo,
+    relation: &AcceptedStrongRelationInfo,
 ) -> Result<Vec<RawDataKey>, InternalError> {
     match row_fields {
         Some(row_fields) => relation_target_raw_keys_for_source_slots(row_fields, source, relation),

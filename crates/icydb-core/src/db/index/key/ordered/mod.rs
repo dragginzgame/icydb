@@ -11,7 +11,7 @@ mod semantics;
 #[cfg(test)]
 use crate::db::numeric::compare_numeric_or_strict_order;
 use crate::{
-    db::{data::ScalarValueRef, index::key::ordered::semantics::OrderedEncode},
+    db::index::key::ordered::semantics::OrderedEncode,
     types::{Account, Principal, Subaccount, Timestamp, Ulid},
     value::{StorageKey, Value},
 };
@@ -99,101 +99,6 @@ pub(crate) fn encode_canonical_index_component(
     encode_component_payload(&mut out, value)?;
 
     Ok(out)
-}
-
-/// Encode one scalar slot value into canonical index-component bytes without
-/// materializing an owned runtime `Value`.
-pub(crate) fn encode_canonical_index_component_from_scalar(
-    value: ScalarValueRef<'_>,
-) -> Result<Vec<u8>, OrderedValueEncodeError> {
-    let mut out = Vec::new();
-    out.push(match value {
-        ScalarValueRef::Blob(_) => Value::Blob(Vec::new()).canonical_tag().to_u8(),
-        ScalarValueRef::Bool(_) => Value::Bool(false).canonical_tag().to_u8(),
-        ScalarValueRef::Date(_) => Value::Date(crate::types::Date::EPOCH)
-            .canonical_tag()
-            .to_u8(),
-        ScalarValueRef::Duration(_) => Value::Duration(crate::types::Duration::ZERO)
-            .canonical_tag()
-            .to_u8(),
-        ScalarValueRef::Float32(_) => Value::Float32(crate::types::Float32::default())
-            .canonical_tag()
-            .to_u8(),
-        ScalarValueRef::Float64(_) => Value::Float64(crate::types::Float64::default())
-            .canonical_tag()
-            .to_u8(),
-        ScalarValueRef::Int(_) => Value::Int(0).canonical_tag().to_u8(),
-        ScalarValueRef::Principal(_) => Value::Principal(crate::types::Principal::default())
-            .canonical_tag()
-            .to_u8(),
-        ScalarValueRef::Subaccount(_) => Value::Subaccount(crate::types::Subaccount::default())
-            .canonical_tag()
-            .to_u8(),
-        ScalarValueRef::Text(_) => Value::Text(String::new()).canonical_tag().to_u8(),
-        ScalarValueRef::Timestamp(_) => Value::Timestamp(crate::types::Timestamp::EPOCH)
-            .canonical_tag()
-            .to_u8(),
-        ScalarValueRef::Uint(_) => Value::Uint(0).canonical_tag().to_u8(),
-        ScalarValueRef::Ulid(_) => Value::Ulid(crate::types::Ulid::nil())
-            .canonical_tag()
-            .to_u8(),
-        ScalarValueRef::Unit => Value::Unit.canonical_tag().to_u8(),
-    });
-
-    match value {
-        ScalarValueRef::Blob(_) => {
-            Err(OrderedValueEncodeError::UnsupportedValueKind { kind: "Blob" })
-        }
-        ScalarValueRef::Bool(value) => {
-            out.push(u8::from(value));
-            Ok(out)
-        }
-        ScalarValueRef::Date(value) => {
-            value.encode_ordered(&mut out)?;
-            Ok(out)
-        }
-        ScalarValueRef::Duration(value) => {
-            value.encode_ordered(&mut out)?;
-            Ok(out)
-        }
-        ScalarValueRef::Float32(value) => {
-            out.extend_from_slice(&semantics::ordered_f32_bytes(value.get()));
-            Ok(out)
-        }
-        ScalarValueRef::Float64(value) => {
-            out.extend_from_slice(&semantics::ordered_f64_bytes(value.get()));
-            Ok(out)
-        }
-        ScalarValueRef::Int(value) => {
-            out.extend_from_slice(&semantics::ordered_i64_bytes(value));
-            Ok(out)
-        }
-        ScalarValueRef::Principal(value) => {
-            parts::push_terminated_bytes(&mut out, value.as_slice());
-            Ok(out)
-        }
-        ScalarValueRef::Subaccount(value) => {
-            out.extend_from_slice(&value.to_bytes());
-            Ok(out)
-        }
-        ScalarValueRef::Text(value) => {
-            parts::push_terminated_bytes(&mut out, value.as_bytes());
-            Ok(out)
-        }
-        ScalarValueRef::Timestamp(value) => {
-            value.encode_ordered(&mut out)?;
-            Ok(out)
-        }
-        ScalarValueRef::Uint(value) => {
-            out.extend_from_slice(&value.to_be_bytes());
-            Ok(out)
-        }
-        ScalarValueRef::Ulid(value) => {
-            out.extend_from_slice(&value.to_bytes());
-            Ok(out)
-        }
-        ScalarValueRef::Unit => Ok(out),
-    }
 }
 
 /// Encode one storage-key value into canonical index-component bytes without
