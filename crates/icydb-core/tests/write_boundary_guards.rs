@@ -98,14 +98,33 @@ fn prepared_row_write_payloads_stay_canonical() {
 #[test]
 fn accepted_storage_row_contracts_do_not_retain_generated_field_bridge() {
     let structural_row = read_source("src/db/data/structural_row.rs");
+    let persisted_patch = read_source("src/db/data/persisted_row/patch.rs");
+    let row_decode = read_source("src/db/executor/terminal/row_decode/mod.rs");
 
     assert!(
         structural_row.contains("pub(in crate::db) fn from_model_with_accepted_schema_snapshot(")
             && structural_row.contains("Self::from_accepted_decode_contract(")
+            && structural_row.contains("#[cfg(test)]")
             && !structural_row.contains(
                 "Ok(Self::from_model_with_accepted_decode_contract(\n            model,\n            descriptor.row_decode_contract(),\n        ))",
-            ),
+        ),
         "storage row readers must use accepted-only row contracts after the generated-compatibility proof",
+    );
+    assert!(
+        row_decode
+            .contains("pub(in crate::db) fn from_generated_compatible_accepted_decode_contract(")
+            && row_decode.contains("StructuralRowContract::from_accepted_decode_contract(")
+            && !row_decode
+                .contains("StructuralRowContract::from_model_with_accepted_decode_contract("),
+        "accepted executor row layouts must not retain the generated field bridge after compatibility proof",
+    );
+    assert!(
+        persisted_patch.contains("StructuralRowContract::from_accepted_decode_contract(")
+            && persisted_patch
+                .contains("Self::validate_payload_slot(&contract, generated_fields, slot)?")
+            && !persisted_patch
+                .contains("StructuralRowContract::from_model_with_accepted_decode_contract("),
+        "accepted structural patch materialization must validate payload slots through accepted row contracts without retaining the generated field bridge",
     );
 }
 
@@ -157,6 +176,7 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
     let index_key_build = read_source("src/db/index/key/build.rs");
     let index_plan = read_source("src/db/index/plan/mod.rs");
     let unique_plan = read_source("src/db/index/plan/unique.rs");
+    let entity_authority = read_source("src/db/executor/authority/entity.rs");
     let structural_row = read_source("src/db/data/structural_row.rs");
     let predicate_runtime = read_source("src/db/predicate/runtime/mod.rs");
 
@@ -173,10 +193,18 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
         "write-time index key construction must resolve field slots through accepted row contracts",
     );
     assert!(
+        index_key_build.contains("pub(crate) fn new_from_slot_ref_reader_with_contract")
+            && index_key_build.contains(".field_slot_index_by_name(field)")
+            && entity_authority.contains("IndexKey::new_from_slot_ref_reader_with_contract(")
+            && entity_authority.contains("self.row_layout.contract(),"),
+        "read-side structural index key construction must resolve field slots through the authority row contract",
+    );
+    assert!(
         index_plan.contains("IndexKey::new_from_slots_with_contract(")
+            && index_plan.contains("PredicateProgram::compile_with_row_contract(")
             && index_plan.contains("row_contract,")
             && !index_plan.contains("IndexKey::new_from_slots("),
-        "forward-index mutation planning must pass accepted row contracts into index key construction",
+        "forward-index mutation planning must pass accepted row contracts into index key and predicate construction",
     );
     assert!(
         unique_plan.contains("IndexKey::new_from_slots_with_contract(")
@@ -189,6 +217,65 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
             && !predicate_runtime.contains("slots\n        .field_decode_contract(field_slot)")
             && !predicate_runtime.contains("slots.field_decode_contract(field_slot)"),
         "conditional-index predicate fast paths must use accepted-aware scalar slot helpers",
+    );
+}
+
+#[test]
+fn global_distinct_grouped_runtime_keeps_prepared_authority() {
+    let grouped_entrypoints = read_source("src/db/executor/pipeline/entrypoints/grouped.rs");
+    let aggregate_distinct = read_source("src/db/executor/aggregate/distinct.rs");
+    let aggregate_numeric = read_source("src/db/executor/aggregate/numeric/mod.rs");
+    let aggregate_execution = read_source("src/db/executor/aggregate/execution.rs");
+
+    assert!(
+        grouped_entrypoints.contains(
+            "fn grouped_path_runtime(\n        &self,\n        authority: EntityAuthority,"
+        ) && grouped_entrypoints.contains("self.grouped_path_runtime(authority)?")
+            && !grouped_entrypoints.contains("let authority = EntityAuthority::for_type::<E>();"),
+        "grouped runtime preparation must consume prepared accepted authority instead of reopening generated authority",
+    );
+    assert!(
+        aggregate_execution.contains("GlobalDistinct {\n        authority: EntityAuthority,")
+            && aggregate_numeric.contains("let authority = plan.authority();")
+            && aggregate_distinct
+                .contains("self.prepare_grouped_route_runtime(route, authority, None, None)?"),
+        "global DISTINCT aggregate execution must carry prepared accepted authority into grouped runtime",
+    );
+}
+
+#[test]
+fn generated_only_prepared_plan_constructor_is_test_only() {
+    let prepared_plan = read_source("src/db/executor/prepared_execution_plan/mod.rs");
+    let executor_mod = read_source("src/db/executor/mod.rs");
+    let query_intent = read_source("src/db/query/intent/query.rs");
+    let save_validation = read_source("src/db/executor/mutation/save_validation.rs");
+    let session_mod = read_source("src/db/session/mod.rs");
+
+    assert!(
+        prepared_plan.contains("#[cfg(test)]\n    pub(in crate::db) fn new(")
+            && prepared_plan.contains("#[cfg(test)]\n    fn build(")
+            && prepared_plan.contains("let authority = EntityAuthority::for_type::<E>();")
+            && executor_mod.contains(
+                "#[cfg(test)]\nimpl<E> From<CompiledQuery<E>> for PreparedExecutionPlan<E>"
+            ),
+        "generated-only PreparedExecutionPlan constructors must stay test-only so runtime plans use accepted-backed shared authority",
+    );
+    assert!(
+        query_intent.contains("#[cfg(test)]\n    pub(in crate::db) fn into_plan("),
+        "compiled-query plan extraction must remain test-only with the generated-only prepared-plan conversion",
+    );
+    assert!(
+        save_validation.contains("SchemaInfo::cached_for_entity_model(E::MODEL)")
+            && !save_validation.contains("EntityAuthority::for_type::<E>().schema_info()"),
+        "save validation metadata lookup must not construct generated executor authority",
+    );
+    assert!(
+        session_mod.contains("self.db.recovered_store(E::Store::PATH)?")
+            && session_mod.contains("ensure_accepted_schema_snapshot(schema_store, E::ENTITY_TAG, E::PATH, E::MODEL)")
+            && !session_mod.contains(
+                "self.ensure_accepted_schema_snapshot_for_authority(&EntityAuthority::for_type::<E>())",
+            ),
+        "session accepted-schema bootstrap must not construct generated executor authority just to fetch metadata",
     );
 }
 

@@ -442,8 +442,10 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    fn grouped_path_runtime(&self) -> Result<GroupedPathRuntimeCore, InternalError> {
-        let authority = EntityAuthority::for_type::<E>();
+    fn grouped_path_runtime(
+        &self,
+        authority: EntityAuthority,
+    ) -> Result<GroupedPathRuntimeCore, InternalError> {
         let store = self.db.recovered_store(authority.store_path())?;
 
         Ok(GroupedPathRuntimeCore::from_store(store, authority))
@@ -454,12 +456,13 @@ where
     pub(in crate::db::executor) fn prepare_grouped_route_runtime(
         &self,
         route: GroupedRouteStage,
+        authority: EntityAuthority,
         prepared_execution_preparation: Option<ExecutionPreparation>,
         prepared_grouped_slot_layout: Option<RetainedSlotLayout>,
     ) -> Result<PreparedGroupedRouteRuntime, InternalError> {
         Ok(PreparedGroupedRouteRuntime::new(
             route,
-            self.grouped_path_runtime()?,
+            self.grouped_path_runtime(authority)?,
             prepared_execution_preparation,
             prepared_grouped_slot_layout,
         ))
@@ -507,9 +510,11 @@ where
         };
 
         let prepared_runtime_parts = plan.cloned_grouped_runtime_parts();
+        let authority = plan.authority();
         let route = resolve_grouped_route_for_plan(plan, cursor, self.debug)?;
         let prepared = self.prepare_grouped_route_runtime(
             route,
+            authority,
             prepared_runtime_parts.execution_preparation,
             prepared_runtime_parts.grouped_slot_layout,
         )?;

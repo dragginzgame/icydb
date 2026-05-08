@@ -61,8 +61,9 @@ impl StructuralRowContract {
     }
 
     /// Build one structural row contract from a generated model plus an owned
-    /// accepted row-decode contract.
+    /// accepted row-decode contract for generated-bridge compatibility tests.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) fn from_model_with_accepted_decode_contract(
         model: &'static EntityModel,
         accepted_decode_contract: AcceptedRowDecodeContract,

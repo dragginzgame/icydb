@@ -9,7 +9,7 @@ use crate::{
     db::{
         PersistedRow,
         data::{DataKey, RawRow, StructuralPatch, StructuralRowContract, StructuralSlotReader},
-        executor::{EntityAuthority, mutation::save::SaveExecutor},
+        executor::mutation::save::SaveExecutor,
         predicate::canonical_cmp,
         relation::validate_save_strong_relations_with_accepted_contract,
         schema::{AcceptedRowDecodeContract, PersistedFieldKind, SchemaInfo, literal_matches_type},
@@ -92,7 +92,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
     // Load the trusted generated schema view for one entity type.
     pub(in crate::db::executor::mutation) fn schema_info() -> &'static SchemaInfo {
-        EntityAuthority::for_type::<E>().schema_info()
+        SchemaInfo::cached_for_entity_model(E::MODEL)
     }
 
     // Execute save preflight using already-resolved schema and relation metadata.

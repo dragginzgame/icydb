@@ -365,6 +365,7 @@ impl QueryPlanHandle {
     }
 
     #[must_use]
+    #[cfg(test)]
     fn into_inner(self) -> AccessPlannedQuery {
         *self.plan
     }
@@ -446,6 +447,7 @@ impl<E: EntityKind> CompiledQuery<E> {
     }
 
     /// Convert one compiled query back into the neutral planned-query contract.
+    #[cfg(test)]
     pub(in crate::db) fn into_plan(self) -> AccessPlannedQuery {
         self.plan.into_inner()
     }

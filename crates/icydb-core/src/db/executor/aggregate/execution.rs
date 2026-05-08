@@ -375,6 +375,7 @@ pub(in crate::db::executor) enum PreparedScalarNumericPayload<'ctx> {
         prepared: Box<PreparedAggregateStreamingInputs<'ctx>>,
     },
     GlobalDistinct {
+        authority: EntityAuthority,
         route: Box<GroupedRouteStage>,
     },
 }

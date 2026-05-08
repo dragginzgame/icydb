@@ -42,6 +42,7 @@ use std::borrow::Cow;
 
 struct SerializedPatchPayloads<'a> {
     contract: StructuralRowContract,
+    generated_fields: &'static [FieldModel],
     payloads: Vec<Option<&'a [u8]>>,
 }
 
@@ -53,21 +54,27 @@ impl<'a> SerializedPatchPayloads<'a> {
         model: &'static EntityModel,
         patch: &'a SerializedStructuralPatch,
     ) -> Result<Self, InternalError> {
-        Self::from_contract(StructuralRowContract::from_model(model), patch)
+        Self::from_contract(
+            StructuralRowContract::from_model(model),
+            model.fields(),
+            patch,
+        )
     }
 
     // Materialize one patch payload view over an accepted schema row contract
-    // while retaining the generated bridge needed by typed entity materializers.
+    // while keeping the generated field table separate for the typed
+    // materialization callback surface.
     fn new_with_accepted_contract(
         model: &'static EntityModel,
         accepted_decode_contract: AcceptedRowDecodeContract,
         patch: &'a SerializedStructuralPatch,
     ) -> Result<Self, InternalError> {
         Self::from_contract(
-            StructuralRowContract::from_model_with_accepted_decode_contract(
-                model,
+            StructuralRowContract::from_accepted_decode_contract(
+                model.path(),
                 accepted_decode_contract,
             ),
+            model.fields(),
             patch,
         )
     }
@@ -77,32 +84,57 @@ impl<'a> SerializedPatchPayloads<'a> {
     // slot handling without sharing field-codec authority.
     fn from_contract(
         contract: StructuralRowContract,
+        generated_fields: &'static [FieldModel],
         patch: &'a SerializedStructuralPatch,
     ) -> Result<Self, InternalError> {
         let mut payloads = vec![None; contract.field_count()];
 
         for entry in patch.entries() {
             let slot = entry.slot().index();
-            Self::generated_compatible_field_model_for(&contract, slot)?;
+            Self::validate_payload_slot(&contract, generated_fields, slot)?;
             payloads[slot] = Some(entry.payload());
         }
 
-        Ok(Self { contract, payloads })
+        Ok(Self {
+            contract,
+            generated_fields,
+            payloads,
+        })
     }
 
     // Resolve one generated-compatible field model by stable slot index for
     // typed materialization compatibility surfaces.
     fn generated_compatible_field_model(&self, slot: usize) -> Result<&FieldModel, InternalError> {
-        Self::generated_compatible_field_model_for(&self.contract, slot)
+        self.generated_fields.get(slot).ok_or_else(|| {
+            InternalError::persisted_row_slot_lookup_out_of_bounds(
+                self.contract.entity_path(),
+                slot,
+            )
+        })
     }
 
-    // Resolve one generated-compatible field model from a projected structural
-    // row contract.
-    fn generated_compatible_field_model_for(
+    // Validate one patch payload slot through accepted row-contract authority
+    // when available. Generated fields remain a generated-only fallback for
+    // tests and explicit generated materialization compatibility surfaces.
+    fn validate_payload_slot(
         contract: &StructuralRowContract,
+        generated_fields: &'static [FieldModel],
         slot: usize,
-    ) -> Result<&'static FieldModel, InternalError> {
-        contract.generated_compatible_field_model(slot)
+    ) -> Result<(), InternalError> {
+        if contract.has_accepted_decode_contract() {
+            if contract.accepted_field_decode_contract(slot).is_some() {
+                return Ok(());
+            }
+
+            return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
+                contract.entity_path(),
+                slot,
+            ));
+        }
+
+        generated_fields.get(slot).map(|_| ()).ok_or_else(|| {
+            InternalError::persisted_row_slot_lookup_out_of_bounds(contract.entity_path(), slot)
+        })
     }
 
     // Return whether this patch after-image currently carries a payload for
@@ -156,8 +188,8 @@ impl<'a> SerializedPatchSlotReader<'a> {
 
     // Build one patch-backed slot reader over the accepted row contract used by
     // production structural insert/replace staging. The accepted contract owns
-    // scalar/value decode while the generated bridge remains only for typed
-    // field materialization callbacks.
+    // scalar/value decode; generated fields are kept separately for typed field
+    // materialization callbacks.
     fn new_with_accepted_contract(
         model: &'static EntityModel,
         accepted_decode_contract: AcceptedRowDecodeContract,

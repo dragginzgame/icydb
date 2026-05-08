@@ -29,6 +29,11 @@ pub(in crate::db::executor) struct PreparedAggregatePlan {
 
 impl PreparedAggregatePlan {
     #[must_use]
+    pub(in crate::db::executor) fn authority(&self) -> EntityAuthority {
+        self.authority.clone()
+    }
+
+    #[must_use]
     pub(in crate::db::executor) fn execution_preparation(&self) -> ExecutionPreparation {
         self.core.get_or_init_aggregate_execution_preparation()
     }

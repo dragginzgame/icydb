@@ -128,7 +128,7 @@ fn accepted_row_decode_layout_for_model(
 
     Ok(
         RowLayout::from_generated_compatible_accepted_decode_contract(
-            model,
+            model.path(),
             row_shape,
             descriptor.row_decode_contract(),
         ),

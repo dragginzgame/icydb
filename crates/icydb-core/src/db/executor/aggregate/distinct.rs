@@ -11,7 +11,7 @@ use crate::{
     db::{
         cursor::GroupedPlannedCursor,
         executor::{
-            PreparedAggregatePlan,
+            EntityAuthority, PreparedAggregatePlan,
             aggregate::AggregateKind,
             pipeline::{
                 contracts::{GroupedCursorPage, GroupedRouteStage, LoadExecutor},
@@ -130,10 +130,11 @@ where
     // into grouped logical shape with zero group keys.
     pub(in crate::db::executor::aggregate) fn execute_prepared_global_distinct_grouped_aggregate(
         &self,
+        authority: EntityAuthority,
         route: GroupedRouteStage,
     ) -> Result<Option<Value>, InternalError> {
         let (page, _) = execute_prepared_grouped_route_runtime(
-            self.prepare_grouped_route_runtime(route, None, None)?,
+            self.prepare_grouped_route_runtime(route, authority, None, None)?,
         )?;
 
         GlobalDistinctGroupedOutputContract::decode_page(page)

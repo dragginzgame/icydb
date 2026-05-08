@@ -190,10 +190,11 @@ pub(in crate::db::executor) fn validate_executor_plan_for_authority(
 // - Corruption indicates invalid persisted bytes or store mismatches; invariant violations
 //   indicate executor/planner contract breaches.
 
+#[cfg(test)]
+use crate::{db::CompiledQuery, traits::EntityKind};
 use crate::{
-    db::{CompiledQuery, cursor::CursorPlanError, data::DataKey, query::plan::AccessPlannedQuery},
+    db::{cursor::CursorPlanError, data::DataKey, query::plan::AccessPlannedQuery},
     error::{ErrorClass, ErrorOrigin, InternalError},
-    traits::EntityKind,
 };
 use thiserror::Error as ThisError;
 
@@ -361,6 +362,7 @@ impl From<ExecutorError> for InternalError {
     }
 }
 
+#[cfg(test)]
 impl<E> From<CompiledQuery<E>> for PreparedExecutionPlan<E>
 where
     E: EntityKind,

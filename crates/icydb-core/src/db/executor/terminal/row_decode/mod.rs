@@ -56,16 +56,17 @@ impl RowLayout {
     ///
     /// The proof object is consumed here so callers cannot attach accepted
     /// decode facts to an executor row layout without first proving the saved
-    /// row shape is still readable by the current generated bridge.
+    /// row shape is still readable by the current generated bridge. The
+    /// resulting layout keeps accepted decode authority only.
     #[must_use]
     pub(in crate::db) fn from_generated_compatible_accepted_decode_contract(
-        model: &'static EntityModel,
+        entity_path: &'static str,
         row_shape: AcceptedGeneratedCompatibleRowShape,
         accepted_decode_contract: AcceptedRowDecodeContract,
     ) -> Self {
         let _ = row_shape;
-        let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
-            model,
+        let contract = StructuralRowContract::from_accepted_decode_contract(
+            entity_path,
             accepted_decode_contract,
         );
 

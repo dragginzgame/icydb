@@ -403,7 +403,11 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.ensure_accepted_schema_snapshot_for_authority(&EntityAuthority::for_type::<E>())
+        let store = self.db.recovered_store(E::Store::PATH)?;
+
+        store.with_schema_mut(|schema_store| {
+            ensure_accepted_schema_snapshot(schema_store, E::ENTITY_TAG, E::PATH, E::MODEL)
+        })
     }
 
     // Ensure and return the accepted schema snapshot from already-resolved

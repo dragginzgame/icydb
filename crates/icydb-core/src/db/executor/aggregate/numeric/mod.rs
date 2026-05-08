@@ -153,8 +153,9 @@ where
                     }
                 }
             }
-            PreparedScalarNumericPayload::GlobalDistinct { route } => {
-                let value = self.execute_prepared_global_distinct_grouped_aggregate(*route)?;
+            PreparedScalarNumericPayload::GlobalDistinct { authority, route } => {
+                let value =
+                    self.execute_prepared_global_distinct_grouped_aggregate(authority, *route)?;
 
                 decode_global_distinct_numeric_output(value, prepared_boundary.op)
             }
@@ -276,6 +277,7 @@ where
         request: ScalarNumericFieldBoundaryRequest,
     ) -> Result<PreparedScalarNumericPayload<'_>, InternalError> {
         if request.requires_global_distinct() {
+            let authority = plan.authority();
             let route = self.prepare_global_distinct_grouped_route(
                 plan,
                 aggregate_kind,
@@ -283,6 +285,7 @@ where
             )?;
 
             return Ok(PreparedScalarNumericPayload::GlobalDistinct {
+                authority,
                 route: Box::new(route),
             });
         }

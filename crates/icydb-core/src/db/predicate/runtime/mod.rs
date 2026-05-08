@@ -13,7 +13,7 @@ use crate::db::predicate::runtime::compare::{
 };
 use crate::{
     db::{
-        data::{CanonicalSlotReader, ScalarSlotValueRef, ScalarValueRef},
+        data::{CanonicalSlotReader, ScalarSlotValueRef, ScalarValueRef, StructuralRowContract},
         predicate::{
             CoercionSpec, CompareOp, ComparePredicate, ExecutableCompareOperand,
             ExecutableComparePredicate, ExecutablePredicate, Predicate, PredicateCapabilityContext,
@@ -59,7 +59,9 @@ impl PredicateProgram {
     /// Compile a predicate into a slot-based executable form using structural model data only.
     #[must_use]
     pub(in crate::db) fn compile(model: &EntityModel, predicate: &Predicate) -> Self {
-        let executable = compile_predicate_program(model, predicate);
+        let executable = compile_predicate_program_with_resolver(predicate, &|field_name| {
+            model.resolve_field_slot(field_name)
+        });
         let compiled = if compile_scalar_predicate_program(model, &executable) {
             PredicateExecutionMode::Scalar
         } else {
@@ -69,6 +71,27 @@ impl PredicateProgram {
         Self {
             executable,
             compiled,
+        }
+    }
+
+    /// Compile a predicate through accepted row-contract field-slot authority.
+    ///
+    /// This deliberately selects the generic structural execution mode. The
+    /// structural evaluator still uses accepted-aware scalar helpers where it
+    /// can, but predicate slot resolution no longer depends on generated model
+    /// field order.
+    #[must_use]
+    pub(in crate::db) fn compile_with_row_contract(
+        row_contract: &StructuralRowContract,
+        predicate: &Predicate,
+    ) -> Self {
+        let executable = compile_predicate_program_with_resolver(predicate, &|field_name| {
+            row_contract.field_slot_index_by_name(field_name).ok()
+        });
+
+        Self {
+            executable,
+            compiled: PredicateExecutionMode::Generic,
         }
     }
 
@@ -133,12 +156,12 @@ impl CompiledPredicate for PredicateProgram {
     }
 }
 
-/// Compile field-name predicates to stable field-slot predicates once per query.
-fn compile_predicate_program(model: &EntityModel, predicate: &Predicate) -> ExecutablePredicate {
-    fn resolve_field(model: &EntityModel, field_name: &str) -> Option<usize> {
-        model.resolve_field_slot(field_name)
-    }
-
+// Compile field-name predicates to stable field-slot predicates using caller
+// supplied slot authority.
+fn compile_predicate_program_with_resolver(
+    predicate: &Predicate,
+    resolve_field: &dyn Fn(&str) -> Option<usize>,
+) -> ExecutablePredicate {
     // Compile field-name predicates into slot-index predicates once per query.
     match predicate {
         Predicate::True => ExecutablePredicate::True,
@@ -146,25 +169,25 @@ fn compile_predicate_program(model: &EntityModel, predicate: &Predicate) -> Exec
         Predicate::And(children) => ExecutablePredicate::And(
             children
                 .iter()
-                .map(|child| compile_predicate_program(model, child))
+                .map(|child| compile_predicate_program_with_resolver(child, resolve_field))
                 .collect::<Vec<_>>(),
         ),
         Predicate::Or(children) => ExecutablePredicate::Or(
             children
                 .iter()
-                .map(|child| compile_predicate_program(model, child))
+                .map(|child| compile_predicate_program_with_resolver(child, resolve_field))
                 .collect::<Vec<_>>(),
         ),
-        Predicate::Not(inner) => {
-            ExecutablePredicate::Not(Box::new(compile_predicate_program(model, inner)))
-        }
+        Predicate::Not(inner) => ExecutablePredicate::Not(Box::new(
+            compile_predicate_program_with_resolver(inner, resolve_field),
+        )),
         Predicate::Compare(ComparePredicate {
             field,
             op,
             value,
             coercion,
         }) => ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
-            resolve_field(model, field),
+            resolve_field(field),
             *op,
             value.clone(),
             coercion.clone(),
@@ -175,32 +198,32 @@ fn compile_predicate_program(model: &EntityModel, predicate: &Predicate) -> Exec
             right_field,
             coercion,
         }) => ExecutablePredicate::Compare(ExecutableComparePredicate::field_field(
-            resolve_field(model, left_field),
+            resolve_field(left_field),
             *op,
-            resolve_field(model, right_field),
+            resolve_field(right_field),
             coercion.clone(),
         )),
         Predicate::IsNull { field } => ExecutablePredicate::IsNull {
-            field_slot: resolve_field(model, field),
+            field_slot: resolve_field(field),
         },
         Predicate::IsNotNull { field } => ExecutablePredicate::IsNotNull {
-            field_slot: resolve_field(model, field),
+            field_slot: resolve_field(field),
         },
         Predicate::IsMissing { field } => ExecutablePredicate::IsMissing {
-            field_slot: resolve_field(model, field),
+            field_slot: resolve_field(field),
         },
         Predicate::IsEmpty { field } => ExecutablePredicate::IsEmpty {
-            field_slot: resolve_field(model, field),
+            field_slot: resolve_field(field),
         },
         Predicate::IsNotEmpty { field } => ExecutablePredicate::IsNotEmpty {
-            field_slot: resolve_field(model, field),
+            field_slot: resolve_field(field),
         },
         Predicate::TextContains { field, value } => ExecutablePredicate::TextContains {
-            field_slot: resolve_field(model, field),
+            field_slot: resolve_field(field),
             value: value.clone(),
         },
         Predicate::TextContainsCi { field, value } => ExecutablePredicate::TextContainsCi {
-            field_slot: resolve_field(model, field),
+            field_slot: resolve_field(field),
             value: value.clone(),
         },
     }

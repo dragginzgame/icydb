@@ -77,7 +77,7 @@ impl EntityAuthority {
         accepted_decode_contract: AcceptedRowDecodeContract,
     ) -> Self {
         let row_layout = RowLayout::from_generated_compatible_accepted_decode_contract(
-            self.model,
+            self.model.path(),
             row_shape,
             accepted_decode_contract,
         );
@@ -231,10 +231,10 @@ impl EntityAuthority {
         index: &IndexModel,
         read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
     ) -> Result<Option<IndexKey>, InternalError> {
-        IndexKey::new_from_slot_ref_reader(
+        IndexKey::new_from_slot_ref_reader_with_contract(
             self.entity_tag,
             storage_key,
-            self.model,
+            self.row_layout.contract(),
             index,
             read_slot,
         )

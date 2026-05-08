@@ -62,10 +62,12 @@ pub(in crate::db) struct PreparedExecutionPlan<E: EntityKind> {
 }
 
 impl<E: EntityKind> PreparedExecutionPlan<E> {
+    #[cfg(test)]
     pub(in crate::db) fn new(plan: AccessPlannedQuery) -> Self {
         Self::build(plan)
     }
 
+    #[cfg(test)]
     fn build(mut plan: AccessPlannedQuery) -> Self {
         let authority = EntityAuthority::for_type::<E>();
         authority.finalize_planner_route_profile(&mut plan);
