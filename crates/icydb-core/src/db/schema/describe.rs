@@ -570,7 +570,7 @@ fn describe_persisted_nested_leaves(
 
 // Project the relation-owned descriptor into the stable describe DTO surface.
 fn relation_description_from_descriptor(
-    descriptor: RelationDescriptor<'_>,
+    descriptor: RelationDescriptor,
 ) -> EntityRelationDescription {
     let strength = match descriptor.strength() {
         RelationStrength::Strong => EntityRelationStrength::Strong,

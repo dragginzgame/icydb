@@ -35,9 +35,8 @@ pub(in crate::db) use describe::{
     describe_entity_fields, describe_entity_fields_with_persisted_schema, describe_entity_model,
     describe_entity_model_with_persisted_schema,
 };
-pub(in crate::db) use fingerprint::accepted_schema_cache_fingerprint_for_model;
-pub(crate) use fingerprint::{
-    commit_schema_fingerprint_for_entity, commit_schema_fingerprint_for_model,
+pub(in crate::db) use fingerprint::{
+    accepted_commit_schema_fingerprint_for_model, accepted_schema_cache_fingerprint_for_model,
 };
 pub(in crate::db) use format::{show_indexes_for_model, show_indexes_for_model_with_runtime_state};
 pub(in crate::db) use identity::FieldId;

@@ -3,120 +3,52 @@
 //! Does not own: commit marker persistence or recovery orchestration.
 //! Boundary: schema identity hashing consumed by commit preparation and replay guards.
 
+#[cfg(test)]
+use crate::{
+    db::schema::{SchemaFieldWritePolicy, compiled_schema_proposal_for_model},
+    model::field::{FieldInsertGeneration, FieldKind, FieldWriteManagement},
+};
 use crate::{
     db::{
         codec::{finalize_hash_sha256, new_hash_sha256},
         commit::CommitSchemaFingerprint,
         index::canonical_index_predicate,
         predicate::hash_predicate,
-        schema::{
-            AcceptedSchemaSnapshot, SchemaFieldWritePolicy, compiled_schema_proposal_for_model,
-            encode_persisted_schema_snapshot,
-        },
+        schema::{AcceptedSchemaSnapshot, encode_persisted_schema_snapshot},
     },
     error::InternalError,
     model::{
         EntityModel,
-        field::{FieldInsertGeneration, FieldKind, FieldWriteManagement},
         index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
     },
-    traits::EntityKind,
 };
 use sha2::{Digest, Sha256};
-use std::{any::TypeId, cell::RefCell, collections::HashMap};
-
-thread_local! {
-    static ENTITY_COMMIT_SCHEMA_FINGERPRINT_CACHE:
-        RefCell<HashMap<TypeId, CommitSchemaFingerprint>> = RefCell::new(HashMap::new());
-}
-
+#[cfg(test)]
 const COMMIT_SCHEMA_FINGERPRINT_VERSION: u8 = 3;
-const ACCEPTED_SCHEMA_CACHE_FINGERPRINT_VERSION: u8 = 1;
+const ACCEPTED_SCHEMA_RUNTIME_FINGERPRINT_VERSION: u8 = 1;
 
 const INDEX_KEY_ITEM_FIELD_TAG: u8 = 0x00;
 const INDEX_KEY_ITEM_EXPRESSION_TAG: u8 = 0x01;
 
 const INDEX_PREDICATE_NONE_TAG: u8 = 0x00;
 const INDEX_PREDICATE_SEMANTIC_TAG: u8 = 0x01;
+#[cfg(test)]
 const FIELD_INSERT_GENERATION_NONE_TAG: u8 = 0x00;
+#[cfg(test)]
 const FIELD_INSERT_GENERATION_ULID_TAG: u8 = 0x01;
+#[cfg(test)]
 const FIELD_INSERT_GENERATION_TIMESTAMP_TAG: u8 = 0x02;
+#[cfg(test)]
 const FIELD_WRITE_MANAGEMENT_NONE_TAG: u8 = 0x00;
+#[cfg(test)]
 const FIELD_WRITE_MANAGEMENT_CREATED_AT_TAG: u8 = 0x01;
+#[cfg(test)]
 const FIELD_WRITE_MANAGEMENT_UPDATED_AT_TAG: u8 = 0x02;
-
-/// SchemaFingerprint
-///
-/// This structural identity fingerprint represents:
-/// - entity identity
-/// - field layout (names + count)
-/// - index definitions
-///
-/// It does NOT represent:
-/// - field type compatibility
-/// - nullability
-/// - decimal scale
-/// - storage encoding
-///
-/// It does represent schema-level bounded-text limits because those affect
-/// write admissibility without changing field order or storage encoding.
-/// It also represents generated and managed write policy because those decide
-/// which fields may be omitted or explicitly written.
-///
-/// Therefore, this is a structural identity fingerprint, not a full
-/// compatibility hash.
-///
-/// Compute one deterministic schema/index fingerprint for an entity commit planner.
-#[must_use]
-pub(crate) fn commit_schema_fingerprint_for_entity<E: EntityKind + 'static>()
--> CommitSchemaFingerprint {
-    // Phase 1: check the per-entity memoized fingerprint so repeated SQL
-    // compile/cache lookups inside one canister lifetime do not keep rehashing
-    // the same schema contract.
-    let cache_key = TypeId::of::<E>();
-    let cached = ENTITY_COMMIT_SCHEMA_FINGERPRINT_CACHE
-        .with(|cache| cache.borrow().get(&cache_key).copied());
-
-    if let Some(fingerprint) = cached {
-        return fingerprint;
-    }
-
-    // Phase 2: compute the deterministic schema contract fingerprint once,
-    // then retain it for future lookups of the same entity type.
-    let fingerprint = commit_schema_fingerprint_for_model(E::PATH, E::MODEL);
-    ENTITY_COMMIT_SCHEMA_FINGERPRINT_CACHE.with(|cache| {
-        cache.borrow_mut().insert(cache_key, fingerprint);
-    });
-
-    fingerprint
-}
-
-/// Compute one deterministic schema/index fingerprint from resolved authority.
-#[must_use]
-pub(crate) fn commit_schema_fingerprint_for_model(
-    entity_path: &'static str,
-    model: &'static EntityModel,
-) -> CommitSchemaFingerprint {
-    // Phase 1: version the fingerprint contract and hash top-level identity.
-    let mut hasher = new_hash_sha256();
-    hasher.update([COMMIT_SCHEMA_FINGERPRINT_VERSION]);
-    hash_labeled_str(&mut hasher, "entity_path", entity_path);
-
-    // Phase 2: hash the macro-generated entity schema contract consumed by
-    // prepare/replay planning. Today's contract tracks entity identity, primary
-    // key name, field slot names/count, bounded-text limits, write policy, and index definitions.
-    // It intentionally does not track general field kind, nullability, decimal
-    // scale, or storage decode; tests below pin that behavior before any future
-    // contract expansion.
-    hash_entity_model_for_commit(&mut hasher, model);
-
-    truncate_sha256_commit_schema_fingerprint(hasher)
-}
 
 /// Compute one accepted-schema fingerprint for runtime cache identity.
 ///
-/// Unlike the commit fingerprint, this cache fingerprint follows the accepted
-/// persisted snapshot that planning and SQL admission consume at runtime. It
+/// Unlike the generated commit fingerprint, this cache fingerprint follows the
+/// accepted persisted snapshot that planning and SQL admission consume at runtime. It
 /// intentionally includes the encoded accepted schema payload and generated
 /// index contract so in-heap SQL/query caches miss when either the live schema
 /// authority or planner-visible index metadata changes.
@@ -124,8 +56,28 @@ pub(in crate::db) fn accepted_schema_cache_fingerprint_for_model(
     model: &'static EntityModel,
     schema: &AcceptedSchemaSnapshot,
 ) -> Result<CommitSchemaFingerprint, InternalError> {
+    accepted_schema_runtime_fingerprint_for_model(model, schema)
+}
+
+/// Compute one accepted-schema fingerprint for commit marker validation.
+///
+/// Commit markers must follow the same accepted persisted schema authority as
+/// row decode and write validation. Index metadata remains generated until
+/// index declarations are persisted, so this fingerprint combines the accepted
+/// schema payload with the generated index contract.
+pub(in crate::db) fn accepted_commit_schema_fingerprint_for_model(
+    model: &'static EntityModel,
+    schema: &AcceptedSchemaSnapshot,
+) -> Result<CommitSchemaFingerprint, InternalError> {
+    accepted_schema_runtime_fingerprint_for_model(model, schema)
+}
+
+fn accepted_schema_runtime_fingerprint_for_model(
+    model: &'static EntityModel,
+    schema: &AcceptedSchemaSnapshot,
+) -> Result<CommitSchemaFingerprint, InternalError> {
     let mut hasher = new_hash_sha256();
-    hasher.update([ACCEPTED_SCHEMA_CACHE_FINGERPRINT_VERSION]);
+    hasher.update([ACCEPTED_SCHEMA_RUNTIME_FINGERPRINT_VERSION]);
     hash_labeled_str(&mut hasher, "model_path", model.path());
     let encoded_snapshot = encode_persisted_schema_snapshot(schema.persisted_snapshot())?;
     hash_labeled_len(
@@ -139,6 +91,7 @@ pub(in crate::db) fn accepted_schema_cache_fingerprint_for_model(
     Ok(truncate_sha256_commit_schema_fingerprint(hasher))
 }
 
+#[cfg(test)]
 fn hash_entity_model_for_commit(hasher: &mut Sha256, model: &EntityModel) {
     let proposal = compiled_schema_proposal_for_model(model);
 
@@ -169,6 +122,7 @@ fn hash_model_index_contract_for_cache(hasher: &mut Sha256, model: &EntityModel)
     }
 }
 
+#[cfg(test)]
 fn hash_field_text_max_len_contract(hasher: &mut Sha256, kind: &FieldKind) {
     match kind {
         FieldKind::Text {
@@ -184,6 +138,7 @@ fn hash_field_text_max_len_contract(hasher: &mut Sha256, kind: &FieldKind) {
     }
 }
 
+#[cfg(test)]
 fn hash_field_write_policy_contract(hasher: &mut Sha256, policy: SchemaFieldWritePolicy) {
     let insert_generation_tag = match policy.insert_generation() {
         Some(FieldInsertGeneration::Ulid) => FIELD_INSERT_GENERATION_ULID_TAG,

@@ -51,6 +51,8 @@ enum SaveMode {
 pub(in crate::db) struct SaveExecutor<E: PersistedRow + EntityValue> {
     pub(in crate::db::executor::mutation) db: Db<E::Canister>,
     accepted_row_decode_contract: AcceptedRowDecodeContract,
+    accepted_schema_info: SchemaInfo,
+    accepted_schema_fingerprint: CommitSchemaFingerprint,
 }
 
 //
@@ -163,10 +165,14 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         db: Db<E::Canister>,
         _debug: bool,
         accepted_row_decode_contract: AcceptedRowDecodeContract,
+        accepted_schema_info: SchemaInfo,
+        accepted_schema_fingerprint: CommitSchemaFingerprint,
     ) -> Self {
         Self {
             db,
             accepted_row_decode_contract,
+            accepted_schema_info,
+            accepted_schema_fingerprint,
         }
     }
 
@@ -180,10 +186,22 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     pub(in crate::db) fn new(db: Db<E::Canister>, _debug: bool) -> Self {
         let accepted_row_decode_contract =
             AcceptedRowDecodeContract::from_generated_model_for_tests(E::MODEL);
+        let accepted_schema_info = SchemaInfo::cached_for_entity_model(E::MODEL).clone();
+        let accepted_schema_fingerprint = {
+            let proposal = crate::db::schema::compiled_schema_proposal_for_model(E::MODEL);
+            let accepted = crate::db::schema::AcceptedSchemaSnapshot::try_new(
+                proposal.initial_persisted_schema_snapshot(),
+            )
+            .expect("test save executor schema snapshot should be accepted");
+            crate::db::schema::accepted_commit_schema_fingerprint_for_model(E::MODEL, &accepted)
+                .expect("test save executor schema fingerprint should derive")
+        };
 
         Self {
             db,
             accepted_row_decode_contract,
+            accepted_schema_info,
+            accepted_schema_fingerprint,
         }
     }
 
@@ -194,6 +212,23 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         &self,
     ) -> &AcceptedRowDecodeContract {
         &self.accepted_row_decode_contract
+    }
+
+    // Borrow the accepted schema info selected by the session write boundary.
+    // Save validation uses this schema view instead of reopening generated
+    // model metadata after accepted schema compatibility has already been
+    // established.
+    pub(in crate::db::executor::mutation) const fn accepted_schema_info(&self) -> &SchemaInfo {
+        &self.accepted_schema_info
+    }
+
+    // Borrow the accepted schema fingerprint selected by the session write
+    // boundary. Commit markers emitted by save lanes use this value so replay
+    // validation follows the same accepted schema snapshot as row validation.
+    pub(in crate::db::executor::mutation) const fn accepted_schema_fingerprint(
+        &self,
+    ) -> CommitSchemaFingerprint {
+        self.accepted_schema_fingerprint
     }
 
     // Record the committed save mode after the row mutation has crossed the

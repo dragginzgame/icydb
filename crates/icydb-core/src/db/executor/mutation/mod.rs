@@ -31,7 +31,7 @@ use crate::{
 pub(super) use commit_window::{
     PreparedRowOpDelta, commit_delete_row_ops_with_window,
     commit_delete_row_ops_with_window_for_path, commit_prepared_single_save_row_op_with_window,
-    commit_save_row_ops_with_window, emit_index_delta_metrics,
+    commit_save_row_ops_with_window_and_schema_fingerprint, emit_index_delta_metrics,
     synchronized_store_handles_for_prepared_row_ops,
 };
 

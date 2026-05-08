@@ -26,9 +26,10 @@ use crate::{
         predicate::MissingRowPolicy,
         query::plan::AccessPlannedQuery,
         registry::StoreHandle,
+        schema::{accepted_commit_schema_fingerprint_for_model, ensure_accepted_schema_snapshot},
     },
     error::InternalError,
-    traits::EntityValue,
+    traits::{EntityValue, Path},
 };
 use std::sync::Arc;
 
@@ -74,7 +75,16 @@ where
     validate_delete_plan_shape(&plan)?;
 
     let prepared = plan.into_access_plan_parts()?;
-    let authority = DeleteExecutionAuthority::from_entity_authority::<E>(prepared.authority);
+    let accepted_schema = {
+        let store = db.recovered_store(E::Store::PATH)?;
+        store.with_schema_mut(|schema_store| {
+            ensure_accepted_schema_snapshot(schema_store, E::ENTITY_TAG, E::PATH, E::MODEL)
+        })?
+    };
+    let schema_fingerprint =
+        accepted_commit_schema_fingerprint_for_model(E::MODEL, &accepted_schema)?;
+    let authority =
+        DeleteExecutionAuthority::from_entity_authority(prepared.authority, schema_fingerprint);
     let prepared = prepare_delete_execution_state(
         authority,
         prepared.plan,

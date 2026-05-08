@@ -10,7 +10,7 @@ use crate::{
         data::{DataKey, RawDataKey, RawRow},
         index::{IndexState, IndexStore, RawIndexEntry, RawIndexKey},
         registry::StoreHandle,
-        schema::commit_schema_fingerprint_for_model,
+        schema::{accepted_commit_schema_fingerprint_for_model, ensure_accepted_schema_snapshot},
     },
     error::InternalError,
     traits::CanisterKind,
@@ -131,12 +131,22 @@ fn rebuild_secondary_indexes_in_place(
                 InternalError::startup_index_rebuild_invalid_data_key(store_path, err)
             })?;
             let hooks = db.runtime_hook_for_entity_tag(data_key.entity_tag())?;
+            let accepted_schema = handle.with_schema_mut(|schema_store| {
+                ensure_accepted_schema_snapshot(
+                    schema_store,
+                    hooks.entity_tag,
+                    hooks.entity_path,
+                    hooks.model,
+                )
+            })?;
+            let schema_fingerprint =
+                accepted_commit_schema_fingerprint_for_model(hooks.model, &accepted_schema)?;
             let row_op = CommitRowOp::new(
                 hooks.entity_path,
                 raw_key,
                 None,
                 Some(raw_row.as_bytes().to_vec()),
-                commit_schema_fingerprint_for_model(hooks.entity_path, hooks.model),
+                schema_fingerprint,
             );
             let prepared = db.prepare_row_commit_op(&row_op).map_err(|err| {
                 let message = format!(

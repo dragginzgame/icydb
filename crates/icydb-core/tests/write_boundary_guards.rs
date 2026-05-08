@@ -112,9 +112,9 @@ fn accepted_storage_row_contracts_do_not_retain_generated_field_bridge() {
     let row_decode = read_source("src/db/executor/terminal/row_decode/mod.rs");
 
     assert!(
-        structural_row.contains("pub(in crate::db) fn from_model_with_accepted_schema_snapshot(")
+        structural_row.contains("pub(in crate::db) fn from_accepted_schema_snapshot(")
             && structural_row.contains("Self::from_accepted_decode_contract(")
-            && structural_row.contains("#[cfg(test)]")
+            && !structural_row.contains("fn from_model_with_accepted_schema_snapshot(")
             && !structural_row.contains(
                 "Ok(Self::from_model_with_accepted_decode_contract(\n            model,\n            descriptor.row_decode_contract(),\n        ))",
         ),
@@ -138,9 +138,9 @@ fn accepted_storage_row_contracts_do_not_retain_generated_field_bridge() {
     );
     assert!(
         structural_row_compact.contains("required_accepted_field_decode_contract(&self,slot:usize")
-            && structural_row_compact.contains(
-                "InternalError::persisted_row_slot_lookup_out_of_bounds(self.entity_path(),slot",
-            )
+            && structural_row_compact
+                .contains(".required_field_for_slot(self.entity_path(),slot)?")
+            && !structural_row_compact.contains("fnaccepted_field_decode_contract(")
             && structural_row_compact.contains(
                 "ifself.accepted_decode_contract.is_some(){letfield=self.required_accepted_field_decode_contract(slot)?;returnOk(field.leaf_codec());}",
             )
@@ -191,14 +191,77 @@ fn accepted_storage_row_contracts_do_not_retain_generated_field_bridge() {
 }
 
 #[test]
+fn commit_and_delete_relation_row_contracts_use_accepted_snapshots() {
+    let structural_row = read_source("src/db/data/structural_row.rs");
+    let commit_prepare = read_source("src/db/commit/prepare.rs");
+    let relation_validate = read_source("src/db/relation/validate.rs");
+
+    assert!(
+        structural_row.contains("pub(in crate::db) fn from_accepted_schema_snapshot(")
+            && !structural_row.contains("fn from_model_with_accepted_schema_snapshot("),
+        "structural row contracts must expose accepted-snapshot construction without retaining the generated-compatible snapshot constructor",
+    );
+    assert!(
+        commit_prepare.contains(
+            "StructuralRowContract::from_accepted_schema_snapshot(authority.entity_path, &accepted)",
+        ) && relation_validate
+            .contains("StructuralRowContract::from_accepted_schema_snapshot(S::PATH, &accepted)")
+            && !commit_prepare
+                .contains("StructuralRowContract::from_model_with_accepted_schema_snapshot")
+            && !relation_validate
+                .contains("StructuralRowContract::from_model_with_accepted_schema_snapshot"),
+        "commit preflight and delete relation validation must build accepted-only row contracts after schema acceptance",
+    );
+}
+
+#[test]
+fn accepted_row_decode_contract_runtime_lookups_fail_closed() {
+    let schema_runtime = read_source("src/db/schema/runtime.rs");
+    let schema_runtime_compact = compact_source(&schema_runtime);
+    let relation_save_validate = read_source("src/db/relation/save_validate.rs");
+    let relation_save_validate_compact = compact_source(&relation_save_validate);
+    let save_validation = read_source("src/db/executor/mutation/save_validation.rs");
+    let save_validation_compact = compact_source(&save_validation);
+
+    assert!(
+        schema_runtime_compact.contains("pub(incrate::db)fnrequired_field_for_slot(")
+            && schema_runtime_compact.contains(
+                "InternalError::persisted_row_slot_lookup_out_of_bounds(entity_path,slot)",
+            ),
+        "accepted row-decode contracts must expose a required slot lookup for accepted runtime authority",
+    );
+    assert!(
+        save_validation_compact
+            .contains("accepted_contract.required_field_for_slot(E::PATH,slot)?")
+            && save_validation_compact
+                .contains("accepted_contract.required_field_for_slot(E::PATH,primary_key_slot)?")
+            && save_validation_compact
+                .contains("accepted_contract.required_field_for_slot(E::PATH,field_index)?")
+            && relation_save_validate_compact
+                .contains("accepted_row_decode_contract.required_field_for_slot(E::PATH,slot)?")
+            && !save_validation_compact.contains(".field_for_slot(primary_key_slot).ok_or_else(")
+            && !save_validation_compact.contains(".field_for_slot(field_index).ok_or_else("),
+        "accepted typed-save validation must use required accepted row-decode field lookup",
+    );
+}
+
+#[test]
 fn save_preflight_relations_use_accepted_contracts() {
     let save_validation = read_source("src/db/executor/mutation/save_validation.rs");
+    let relation_save_validate = read_source("src/db/relation/save_validate.rs");
 
     assert!(
         save_validation.contains("validate_save_strong_relations_with_accepted_contract::<E>(")
             && save_validation.contains("self.accepted_row_decode_contract(),")
             && !save_validation.contains("validate_save_strong_relations::<E>(&self.db, entity)?"),
         "save relation preflight must use accepted row contracts instead of reopening E::MODEL relation metadata",
+    );
+    assert!(
+        relation_save_validate
+            .contains("validate_save_strong_relations_with_accepted_contract<E>",)
+            && !relation_save_validate.contains("strong_relations_for_model_iter")
+            && !relation_save_validate.contains("E::MODEL"),
+        "save relation validation must derive relation metadata from accepted row contracts",
     );
 }
 
@@ -302,7 +365,11 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
     let prepared_plan = read_source("src/db/executor/prepared_execution_plan/mod.rs");
     let executor_mod = read_source("src/db/executor/mod.rs");
     let query_intent = read_source("src/db/query/intent/query.rs");
+    let save_mod = read_source("src/db/executor/mutation/save/mod.rs");
     let save_validation = read_source("src/db/executor/mutation/save_validation.rs");
+    let save_typed = read_source("src/db/executor/mutation/save/typed.rs");
+    let save_batch = read_source("src/db/executor/mutation/save/batch.rs");
+    let save_structural = read_source("src/db/executor/mutation/save/structural.rs");
     let session_mod = read_source("src/db/session/mod.rs");
 
     assert!(
@@ -319,17 +386,29 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
         "compiled-query plan extraction must remain test-only with the generated-only prepared-plan conversion",
     );
     assert!(
-        save_validation.contains("SchemaInfo::cached_for_entity_model(E::MODEL)")
+        save_mod.contains("accepted_schema_info: SchemaInfo,")
+            && save_mod
+                .contains("pub(in crate::db::executor::mutation) const fn accepted_schema_info(")
+            && save_validation.contains("schema: &SchemaInfo,")
+            && save_typed.contains("let schema = self.accepted_schema_info();")
+            && save_batch.contains("let schema = self.accepted_schema_info();")
+            && save_structural.contains("let schema = self.accepted_schema_info();")
+            && !save_validation.contains("SchemaInfo::cached_for_entity_model(E::MODEL)")
+            && !save_typed.contains("Self::schema_info()")
+            && !save_batch.contains("Self::schema_info()")
+            && !save_structural.contains("Self::schema_info()")
             && !save_validation.contains("EntityAuthority::for_type::<E>().schema_info()"),
-        "save validation metadata lookup must not construct generated executor authority",
+        "save validation metadata lookup must use session-selected accepted SchemaInfo instead of reopening generated schema authority",
     );
     assert!(
         session_mod.contains("self.db.recovered_store(E::Store::PATH)?")
             && session_mod.contains("ensure_accepted_schema_snapshot(schema_store, E::ENTITY_TAG, E::PATH, E::MODEL)")
+            && session_mod.contains("SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema)")
+            && session_mod.contains("self.save_executor::<E>(contract, schema_info, schema_fingerprint)")
             && !session_mod.contains(
                 "self.ensure_accepted_schema_snapshot_for_authority(&EntityAuthority::for_type::<E>())",
             ),
-        "session accepted-schema bootstrap must not construct generated executor authority just to fetch metadata",
+        "session save bootstrap must pass accepted schema metadata into SaveExecutor without constructing generated executor authority",
     );
 }
 

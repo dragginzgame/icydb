@@ -11,7 +11,7 @@ use crate::{
         diagnostics::{IntegrityReport, IntegrityStoreSnapshot, IntegrityTotals},
         index::IndexKey,
         registry::StoreHandle,
-        schema::commit_schema_fingerprint_for_model,
+        schema::{accepted_commit_schema_fingerprint_for_model, ensure_accepted_schema_snapshot},
     },
     error::{ErrorClass, InternalError},
     traits::CanisterKind,
@@ -115,13 +115,35 @@ fn scan_store_forward_integrity<C: CanisterKind>(
                     continue;
                 }
             };
+            let accepted_schema = match store_handle.with_schema_mut(|schema_store| {
+                ensure_accepted_schema_snapshot(
+                    schema_store,
+                    hooks.entity_tag,
+                    hooks.entity_path,
+                    hooks.model,
+                )
+            }) {
+                Ok(schema) => schema,
+                Err(err) => {
+                    classify_scan_error(err, snapshot)?;
+                    continue;
+                }
+            };
+            let schema_fingerprint =
+                match accepted_commit_schema_fingerprint_for_model(hooks.model, &accepted_schema) {
+                    Ok(fingerprint) => fingerprint,
+                    Err(err) => {
+                        classify_scan_error(err, snapshot)?;
+                        continue;
+                    }
+                };
 
             let marker_row = CommitRowOp::new(
                 hooks.entity_path,
                 raw_key,
                 None,
                 Some(entry.value().as_bytes().to_vec()),
-                commit_schema_fingerprint_for_model(hooks.entity_path, hooks.model),
+                schema_fingerprint,
             );
 
             // Validate the outer row envelope before typed preparation so

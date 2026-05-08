@@ -7,12 +7,12 @@ use crate::{
             Context, ExecutorError,
             mutation::{
                 PreparedRowOpDelta, commit_prepared_single_save_row_op_with_window,
-                commit_save_row_ops_with_window,
+                commit_save_row_ops_with_window_and_schema_fingerprint,
                 save::{SaveExecutor, SaveRule},
                 synchronized_store_handles_for_prepared_row_ops,
             },
         },
-        schema::AcceptedRowDecodeContract,
+        schema::{AcceptedRowDecodeContract, SchemaInfo},
     },
     error::InternalError,
     metrics::sink::Span,
@@ -28,6 +28,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         data_key: &DataKey,
         save_rule: SaveRule,
         accepted_row_decode_contract: &AcceptedRowDecodeContract,
+        accepted_schema_info: &SchemaInfo,
     ) -> Result<Option<RawRow>, InternalError> {
         Self::resolve_existing_row_for_rule_with_identity_validator(
             ctx,
@@ -38,6 +39,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                     data_key,
                     row,
                     accepted_row_decode_contract,
+                    accepted_schema_info,
                 )
             },
         )
@@ -88,6 +90,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         data_key: &DataKey,
         row: &RawRow,
         accepted_row_decode_contract: &AcceptedRowDecodeContract,
+        accepted_schema_info: &SchemaInfo,
     ) -> Result<(), InternalError> {
         Self::map_existing_row_identity_error(
             data_key,
@@ -95,6 +98,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 data_key,
                 row,
                 accepted_row_decode_contract.clone(),
+                accepted_schema_info,
             ),
         )
     }
@@ -151,13 +155,15 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     pub(super) fn commit_atomic_batch(
         db: &Db<E::Canister>,
         marker_row_ops: Vec<CommitRowOp>,
+        schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
         span: &mut Span<E>,
     ) -> Result<(), InternalError> {
         let rows_touched = u64::try_from(marker_row_ops.len()).unwrap_or(u64::MAX);
-        commit_save_row_ops_with_window::<E>(
+        commit_save_row_ops_with_window_and_schema_fingerprint::<E>(
             db,
             marker_row_ops,
             "save_batch_atomic_row_apply",
+            schema_fingerprint,
             || {
                 span.set_rows(rows_touched);
             },

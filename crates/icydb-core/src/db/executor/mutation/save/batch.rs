@@ -7,7 +7,6 @@ use crate::{
         executor::mutation::{
             PreparedRowOpDelta, emit_index_delta_metrics, mutation_write_context,
         },
-        schema::commit_schema_fingerprint_for_entity,
     },
     error::InternalError,
     metrics::sink::{ExecKind, MetricsEvent, Span, record},
@@ -32,8 +31,8 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let mut out = Vec::with_capacity(iter.size_hint().0);
         let ctx = mutation_write_context::<E>(&self.db)?;
         let save_rule = SaveRule::from_mode(mode);
-        let schema = Self::schema_info();
-        let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
+        let schema = self.accepted_schema_info();
+        let schema_fingerprint = self.accepted_schema_fingerprint();
         let validate_relations = schema.has_any_strong_relations();
         let write_context = Self::save_write_context(mode, Timestamp::now());
         let preflight = SavePreflightInputs {
@@ -200,8 +199,8 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             let mut out = Vec::with_capacity(entities.len());
             let mut marker_row_ops = Vec::with_capacity(entities.len());
             let mut seen_row_keys = HashSet::with_capacity(entities.len());
-            let schema = Self::schema_info();
-            let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
+            let schema = self.accepted_schema_info();
+            let schema_fingerprint = self.accepted_schema_fingerprint();
             let validate_relations = schema.has_any_strong_relations();
             let write_context = Self::save_write_context(
                 match save_rule {
@@ -250,7 +249,12 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             }
 
             // Phase 2: enter commit window and apply staged row ops atomically.
-            Self::commit_atomic_batch(&self.db, marker_row_ops, &mut span)?;
+            Self::commit_atomic_batch(
+                &self.db,
+                marker_row_ops,
+                preflight.schema_fingerprint,
+                &mut span,
+            )?;
             Self::record_save_mutation(
                 save_rule.save_mutation_kind(),
                 u64::try_from(out.len()).unwrap_or(u64::MAX),

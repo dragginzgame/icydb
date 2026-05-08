@@ -18,7 +18,7 @@ use crate::{
                 save::{MutationMode, SaveExecutor},
             },
         },
-        schema::{AcceptedRowDecodeContract, SchemaInfo, commit_schema_fingerprint_for_entity},
+        schema::{AcceptedRowDecodeContract, SchemaInfo},
     },
     error::InternalError,
     metrics::sink::{ExecKind, Span},
@@ -168,8 +168,8 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let mut span = Span::<E>::new(ExecKind::Save);
         let result = (|| {
             let ctx = mutation_write_context::<E>(&self.db)?;
-            let schema = Self::schema_info();
-            let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
+            let schema = self.accepted_schema_info();
+            let schema_fingerprint = self.accepted_schema_fingerprint();
             let validate_relations = schema.has_any_strong_relations();
             let mut entities = Vec::with_capacity(items.len());
             let mut marker_row_ops = Vec::with_capacity(items.len());
@@ -209,7 +209,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
 
             // Phase 2: open one marker/control-slot window and let commit preflight
             // simulate index/data overlay state across the staged row ops.
-            Self::commit_atomic_batch(&self.db, marker_row_ops, &mut span)?;
+            Self::commit_atomic_batch(&self.db, marker_row_ops, schema_fingerprint, &mut span)?;
             Self::record_save_mutation(
                 mode.save_mutation_kind(),
                 u64::try_from(entities.len()).unwrap_or(u64::MAX),
@@ -233,8 +233,8 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let result =
             (|| {
                 let ctx = mutation_write_context::<E>(&self.db)?;
-                let schema = Self::schema_info();
-                let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
+                let schema = self.accepted_schema_info();
+                let schema_fingerprint = self.accepted_schema_fingerprint();
                 let validate_relations = schema.has_any_strong_relations();
                 let (entity, marker_row_op) = self.prepare_structural_mutation_row_op(
                     &ctx,
@@ -311,6 +311,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             &data_key,
             mode.save_rule(),
             &accepted_row_decode_contract,
+            self.accepted_schema_info(),
         )?;
 
         // Phase 1: materialize and preflight the structural after-image under

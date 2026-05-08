@@ -19,14 +19,15 @@ use crate::{
         Db, EntityFieldDescription, EntityRuntimeHooks, EntitySchemaDescription, FluentDeleteQuery,
         FluentLoadQuery, IndexState, IntegrityReport, MissingRowPolicy, PersistedRow, Query,
         QueryError, StorageReport, StoreRegistry, WriteBatchResponse,
+        commit::CommitSchemaFingerprint,
         executor::{DeleteExecutor, EntityAuthority, LoadExecutor, SaveExecutor},
         query::plan::VisibleIndexes,
         schema::{
             AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot,
-            describe_entity_fields, describe_entity_fields_with_persisted_schema,
-            describe_entity_model, describe_entity_model_with_persisted_schema,
-            ensure_accepted_schema_snapshot, show_indexes_for_model,
-            show_indexes_for_model_with_runtime_state,
+            SchemaInfo, accepted_commit_schema_fingerprint_for_model, describe_entity_fields,
+            describe_entity_fields_with_persisted_schema, describe_entity_model,
+            describe_entity_model_with_persisted_schema, ensure_accepted_schema_snapshot,
+            show_indexes_for_model, show_indexes_for_model_with_runtime_state,
         },
     },
     error::InternalError,
@@ -136,17 +137,19 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let contract = match self
-            .with_metrics(|| self.ensure_generated_compatible_accepted_row_decode_contract::<E>())
+        let (contract, schema_info, schema_fingerprint) = match self
+            .with_metrics(|| self.ensure_generated_compatible_accepted_save_schema::<E>())
         {
-            Ok(contract) => contract,
+            Ok(authority) => authority,
             Err(error) => {
                 self.with_metrics(|| record_exec_error_for_path(ExecKind::Save, E::PATH, &error));
 
                 return Err(error);
             }
         };
-        let value = self.with_metrics(|| op(self.save_executor::<E>(contract)))?;
+        let value = self.with_metrics(|| {
+            op(self.save_executor::<E>(contract, schema_info, schema_fingerprint))
+        })?;
 
         Ok(map(value))
     }
@@ -158,14 +161,21 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_save_with_checked_accepted_row_contract<E, T, R>(
         &self,
         accepted_row_decode_contract: AcceptedRowDecodeContract,
+        accepted_schema_info: SchemaInfo,
+        accepted_schema_fingerprint: CommitSchemaFingerprint,
         op: impl FnOnce(SaveExecutor<E>) -> Result<T, InternalError>,
         map: impl FnOnce(T) -> R,
     ) -> Result<R, InternalError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let value =
-            self.with_metrics(|| op(self.save_executor::<E>(accepted_row_decode_contract)))?;
+        let value = self.with_metrics(|| {
+            op(self.save_executor::<E>(
+                accepted_row_decode_contract,
+                accepted_schema_info,
+                accepted_schema_fingerprint,
+            ))
+        })?;
 
         Ok(map(value))
     }
@@ -452,9 +462,16 @@ impl<C: CanisterKind> DbSession<C> {
     // rows through generated field contracts. Returning only the snapshot keeps
     // SQL write type checks unchanged while the schema-runtime descriptor guard
     // rejects unsupported layout or payload drift before mutation staging.
-    fn ensure_generated_compatible_accepted_row_decode_contract<E>(
+    fn ensure_generated_compatible_accepted_save_schema<E>(
         &self,
-    ) -> Result<AcceptedRowDecodeContract, InternalError>
+    ) -> Result<
+        (
+            AcceptedRowDecodeContract,
+            SchemaInfo,
+            CommitSchemaFingerprint,
+        ),
+        InternalError,
+    >
     where
         E: EntityKind<Canister = C>,
     {
@@ -464,8 +481,15 @@ impl<C: CanisterKind> DbSession<C> {
                 &accepted_schema,
                 E::MODEL,
             )?;
+        let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema);
+        let schema_fingerprint =
+            accepted_commit_schema_fingerprint_for_model(E::MODEL, &accepted_schema)?;
 
-        Ok(accepted_row_layout.row_decode_contract())
+        Ok((
+            accepted_row_layout.row_decode_contract(),
+            schema_info,
+            schema_fingerprint,
+        ))
     }
 
     /// Build one point-in-time storage report for observability endpoints.
@@ -510,10 +534,18 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db) const fn save_executor<E>(
         &self,
         accepted_row_decode_contract: AcceptedRowDecodeContract,
+        accepted_schema_info: SchemaInfo,
+        accepted_schema_fingerprint: CommitSchemaFingerprint,
     ) -> SaveExecutor<E>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        SaveExecutor::new_with_accepted_contract(self.db, self.debug, accepted_row_decode_contract)
+        SaveExecutor::new_with_accepted_contract(
+            self.db,
+            self.debug,
+            accepted_row_decode_contract,
+            accepted_schema_info,
+            accepted_schema_fingerprint,
+        )
     }
 }

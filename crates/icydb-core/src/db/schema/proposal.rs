@@ -27,6 +27,10 @@ use crate::{
 pub(in crate::db) struct CompiledSchemaProposal {
     entity_path: &'static str,
     entity_name: &'static str,
+    #[allow(
+        dead_code,
+        reason = "generated proposal primary-key names remain pinned by generated compatibility fingerprint tests"
+    )]
     primary_key_name: &'static str,
     primary_key_field_id: FieldId,
     fields: Vec<CompiledFieldProposal>,
@@ -47,6 +51,10 @@ impl CompiledSchemaProposal {
 
     /// Return the generated primary-key field name.
     #[must_use]
+    #[allow(
+        dead_code,
+        reason = "generated proposal primary-key names remain pinned by generated compatibility fingerprint tests"
+    )]
     pub(in crate::db) const fn primary_key_name(&self) -> &'static str {
         self.primary_key_name
     }

@@ -113,21 +113,17 @@ impl StructuralRowContract {
     /// Build one structural row contract from an accepted persisted schema snapshot.
     ///
     /// This is the data-layer owner for the repeated accepted-schema projection
-    /// sequence. It proves the accepted schema is still generated-compatible
-    /// before handing row readers an accepted-only structural contract. Typed
-    /// materialization compatibility surfaces must use the explicit generated
-    /// bridge constructor instead.
-    pub(in crate::db) fn from_model_with_accepted_schema_snapshot(
-        model: &'static EntityModel,
+    /// sequence after callers have already crossed schema reconciliation.
+    /// Runtime row readers receive an accepted-only structural contract so they
+    /// cannot fall back to generated schema metadata after acceptance.
+    pub(in crate::db) fn from_accepted_schema_snapshot(
+        entity_path: &'static str,
         accepted_schema: &AcceptedSchemaSnapshot,
     ) -> Result<Self, InternalError> {
-        let (descriptor, _) = AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(
-            accepted_schema,
-            model,
-        )?;
+        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(accepted_schema)?;
 
         Ok(Self::from_accepted_decode_contract(
-            model.path(),
+            entity_path,
             descriptor.row_decode_contract(),
         ))
     }
@@ -171,26 +167,18 @@ impl StructuralRowContract {
         self.primary_key_slot
     }
 
-    /// Borrow one accepted field decode contract by physical row slot when
-    /// this row contract was built from accepted schema authority.
-    #[must_use]
-    pub(in crate::db) fn accepted_field_decode_contract(
-        &self,
-        slot: usize,
-    ) -> Option<AcceptedFieldDecodeContract<'_>> {
-        self.accepted_decode_contract
-            .as_ref()?
-            .field_for_slot(slot)
-            .map(|field| field.decode_contract())
-    }
-
     pub(in crate::db) fn required_accepted_field_decode_contract(
         &self,
         slot: usize,
     ) -> Result<AcceptedFieldDecodeContract<'_>, InternalError> {
-        self.accepted_field_decode_contract(slot).ok_or_else(|| {
-            InternalError::persisted_row_slot_lookup_out_of_bounds(self.entity_path(), slot)
-        })
+        Ok(self
+            .accepted_decode_contract
+            .as_ref()
+            .ok_or_else(|| {
+                InternalError::persisted_row_slot_lookup_out_of_bounds(self.entity_path(), slot)
+            })?
+            .required_field_for_slot(self.entity_path(), slot)?
+            .decode_contract())
     }
 
     /// Return the field-level decode contract for one structural slot.
@@ -284,10 +272,8 @@ impl StructuralRowContract {
                 let field = self
                     .accepted_decode_contract
                     .as_ref()
-                    .and_then(|contract| contract.field_for_slot(slot))
-                    .ok_or_else(|| {
-                        InternalError::persisted_row_declared_field_missing(field_name)
-                    })?;
+                    .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field_name))?
+                    .required_field_for_slot(self.entity_path(), slot)?;
                 let Some(default_payload) = field.default().slot_payload() else {
                     return Err(InternalError::persisted_row_declared_field_missing(
                         field_name,

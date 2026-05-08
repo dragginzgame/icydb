@@ -218,7 +218,7 @@ where
     let accepted = source_store.with_schema_mut(|schema_store| {
         ensure_accepted_schema_snapshot(schema_store, S::ENTITY_TAG, S::PATH, S::MODEL)
     })?;
-    StructuralRowContract::from_model_with_accepted_schema_snapshot(S::MODEL, &accepted)
+    StructuralRowContract::from_accepted_schema_snapshot(S::PATH, &accepted)
 }
 
 /// Format operator-facing blocked-delete diagnostics with actionable context.

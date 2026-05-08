@@ -24,7 +24,7 @@ use crate::{
             ReverseRelationSourceInfo,
             prepare_reverse_relation_index_mutations_for_source_slot_readers,
         },
-        schema::{commit_schema_fingerprint_for_entity, ensure_accepted_schema_snapshot},
+        schema::{accepted_commit_schema_fingerprint_for_model, ensure_accepted_schema_snapshot},
     },
     error::{ErrorClass, InternalError},
     metrics::sink::{MetricsEvent, record},
@@ -185,13 +185,29 @@ pub(in crate::db) fn prepare_row_commit_for_entity_with_structural_readers<
     row_reader: &dyn StructuralPrimaryRowReader,
     index_reader: &dyn StructuralIndexEntryReader,
 ) -> Result<PreparedRowCommitOp, InternalError> {
+    let schema_fingerprint = accepted_commit_schema_fingerprint_for_entity::<E>(db)?;
+
     prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<E>(
         db,
         op,
         row_reader,
         index_reader,
-        commit_schema_fingerprint_for_entity::<E>(),
+        schema_fingerprint,
     )
+}
+
+fn accepted_commit_schema_fingerprint_for_entity<E>(
+    db: &Db<E::Canister>,
+) -> Result<CommitSchemaFingerprint, InternalError>
+where
+    E: EntityKind,
+{
+    let store = db.with_store_registry(|reg| reg.try_get_store(E::Store::PATH))?;
+    let accepted = store.with_schema_mut(|schema_store| {
+        ensure_accepted_schema_snapshot(schema_store, E::ENTITY_TAG, E::PATH, E::MODEL)
+    })?;
+
+    accepted_commit_schema_fingerprint_for_model(E::MODEL, &accepted)
 }
 
 /// Prepare a typed row-level commit op against nongeneric structural readers
@@ -424,7 +440,7 @@ where
             authority.model,
         )
     })?;
-    StructuralRowContract::from_model_with_accepted_schema_snapshot(authority.model, &accepted)
+    StructuralRowContract::from_accepted_schema_snapshot(authority.entity_path, &accepted)
 }
 
 // Decode structural commit inputs before the typed forward-index leaf runs.

@@ -14,7 +14,7 @@ use crate::{
             Context,
             mutation::{emit_index_delta_metrics, mutation_write_context},
         },
-        schema::{AcceptedRowDecodeContract, commit_schema_fingerprint_for_entity},
+        schema::AcceptedRowDecodeContract,
     },
     error::InternalError,
     metrics::sink::{ExecKind, Span},
@@ -34,10 +34,10 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let authored_create_slots = materialized.authored_slots().to_vec();
         let entity = materialized.into_entity();
         let ctx = mutation_write_context::<E>(&self.db)?;
-        let schema = Self::schema_info();
+        let schema = self.accepted_schema_info();
         let preflight = SavePreflightInputs {
             schema,
-            schema_fingerprint: commit_schema_fingerprint_for_entity::<E>(),
+            schema_fingerprint: self.accepted_schema_fingerprint(),
             validate_relations: schema.has_any_strong_relations(),
             write_context: Self::save_write_context(SaveMode::Insert, Timestamp::now()),
             authored_create_slots: Some(authored_create_slots.as_slice()),
@@ -68,6 +68,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             &data_key,
             save_rule,
             accepted_row_decode_contract,
+            self.accepted_schema_info(),
         )?;
 
         // Phase 2: typed save lanes already own a complete after-image, so
@@ -132,10 +133,10 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         write_context: SanitizeWriteContext,
         entity: E,
     ) -> Result<E, InternalError> {
-        let schema = Self::schema_info();
+        let schema = self.accepted_schema_info();
         let preflight = SavePreflightInputs {
             schema,
-            schema_fingerprint: commit_schema_fingerprint_for_entity::<E>(),
+            schema_fingerprint: self.accepted_schema_fingerprint(),
             validate_relations: schema.has_any_strong_relations(),
             write_context,
             authored_create_slots: None,

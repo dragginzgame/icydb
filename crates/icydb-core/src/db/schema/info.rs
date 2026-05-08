@@ -6,8 +6,9 @@
 use crate::{
     db::schema::{
         AcceptedSchemaSnapshot, FieldType, PersistedFieldKind, PersistedNestedLeafSnapshot,
-        SchemaFieldSlot, SqlCapabilities, canonicalize_strict_sql_literal_for_persisted_kind,
-        field_type_from_model_kind, field_type_from_persisted_kind, sql_capabilities,
+        PersistedRelationStrength, SchemaFieldSlot, SqlCapabilities,
+        canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_model_kind,
+        field_type_from_persisted_kind, sql_capabilities,
     },
     model::{
         canonicalize_strict_sql_literal_for_kind,
@@ -56,6 +57,18 @@ fn generated_field_is_indexed(model: &EntityModel, field_name: &str) -> bool {
 // by planner and executor DTOs.
 fn accepted_slot_index(slot: SchemaFieldSlot) -> usize {
     usize::from(slot.get())
+}
+
+fn persisted_kind_has_strong_relation(kind: &PersistedFieldKind) -> bool {
+    match kind {
+        PersistedFieldKind::Relation { strength, .. } => {
+            *strength == PersistedRelationStrength::Strong
+        }
+        PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner) => {
+            persisted_kind_has_strong_relation(inner)
+        }
+        _ => false,
+    }
 }
 
 ///
@@ -359,7 +372,10 @@ impl SchemaInfo {
             fields,
             entity_name: Some(schema.entity_name().to_string()),
             primary_key_name,
-            has_any_strong_relations: model.has_any_strong_relations(),
+            has_any_strong_relations: snapshot
+                .fields()
+                .iter()
+                .any(|field| persisted_kind_has_strong_relation(field.kind())),
         }
     }
 
@@ -408,8 +424,9 @@ mod tests {
     use crate::{
         db::schema::{
             AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
-            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
-            SchemaFieldSlot, SchemaInfo, SchemaRowLayout, SchemaVersion, literal_matches_type,
+            PersistedNestedLeafSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,
+            SchemaFieldDefault, SchemaFieldSlot, SchemaInfo, SchemaRowLayout, SchemaVersion,
+            literal_matches_type,
         },
         model::{
             entity::EntityModel,
@@ -417,6 +434,7 @@ mod tests {
             index::IndexModel,
         },
         testing::entity_model_from_static,
+        types::EntityTag,
         value::Value,
     };
 
@@ -617,6 +635,23 @@ mod tests {
         assert!(!generated.field_is_indexed("id"));
         assert!(accepted.field_is_indexed("name"));
         assert!(!accepted.field_is_indexed("id"));
+    }
+
+    #[test]
+    fn accepted_snapshot_schema_info_uses_persisted_strong_relation_authority() {
+        let generated = SchemaInfo::cached_for_entity_model(&MODEL);
+        let accepted_relation = accepted_schema_with_name_kind(PersistedFieldKind::Relation {
+            target_path: "schema::info::tests::Target".to_string(),
+            target_entity_name: "Target".to_string(),
+            target_entity_tag: EntityTag::new(7),
+            target_store_path: "schema::info::tests::target_store".to_string(),
+            key_kind: Box::new(PersistedFieldKind::Ulid),
+            strength: PersistedRelationStrength::Strong,
+        });
+        let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &accepted_relation);
+
+        assert!(!generated.has_any_strong_relations());
+        assert!(accepted.has_any_strong_relations());
     }
 
     #[test]

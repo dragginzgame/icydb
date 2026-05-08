@@ -4,7 +4,11 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::support::*;
-use crate::db::data::{DataKey, DataStore, RawDataKey};
+use crate::db::{
+    commit::CommitSchemaFingerprint,
+    data::{DataKey, DataStore, RawDataKey},
+    schema::{accepted_commit_schema_fingerprint_for_model, ensure_accepted_schema_snapshot},
+};
 use canic_cdk::structures::Storable;
 use std::borrow::Cow;
 
@@ -15,6 +19,28 @@ fn relation_source_row_bytes(entity: &RelationSourceEntity) -> Vec<u8> {
         .into_raw_row()
         .as_bytes()
         .to_vec()
+}
+
+fn relation_source_accepted_commit_schema_fingerprint() -> CommitSchemaFingerprint {
+    let store = REL_DB
+        .recovered_store(RelationSourceStore::PATH)
+        .expect("relation source store should be recovered");
+    let accepted = store
+        .with_schema_mut(|schema_store| {
+            ensure_accepted_schema_snapshot(
+                schema_store,
+                RelationSourceEntity::ENTITY_TAG,
+                RelationSourceEntity::PATH,
+                <RelationSourceEntity as crate::traits::EntitySchema>::MODEL,
+            )
+        })
+        .expect("relation source accepted schema should initialize");
+
+    accepted_commit_schema_fingerprint_for_model(
+        <RelationSourceEntity as crate::traits::EntitySchema>::MODEL,
+        &accepted,
+    )
+    .expect("relation source accepted commit fingerprint should derive")
 }
 
 #[test]
@@ -547,7 +573,7 @@ fn recovery_replays_reverse_relation_index_mutations() {
         raw_key,
         None,
         Some(row_bytes),
-        crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
+        relation_source_accepted_commit_schema_fingerprint(),
     )])
     .expect("commit marker creation should succeed");
 
@@ -842,7 +868,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         first_source_key,
         None,
         Some(first_source_row_bytes.clone()),
-        crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
+        relation_source_accepted_commit_schema_fingerprint(),
     )])
     .expect("first save marker creation should succeed");
     begin_commit(first_save_marker).expect("begin_commit should persist marker");
@@ -865,7 +891,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         second_source_key,
         None,
         Some(second_source_row_bytes),
-        crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
+        relation_source_accepted_commit_schema_fingerprint(),
     )])
     .expect("second save marker creation should succeed");
     begin_commit(second_save_marker).expect("begin_commit should persist marker");
@@ -888,7 +914,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         first_source_key,
         Some(first_source_row_bytes),
         None,
-        crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
+        relation_source_accepted_commit_schema_fingerprint(),
     )])
     .expect("delete marker creation should succeed");
     begin_commit(delete_a_marker).expect("begin_commit should persist marker");
@@ -991,7 +1017,7 @@ fn recovery_replays_retarget_update_moves_reverse_index_membership() {
         source_key,
         Some(before_row_bytes),
         Some(after_row_bytes),
-        crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
+        relation_source_accepted_commit_schema_fingerprint(),
     )])
     .expect("commit marker creation should succeed");
     begin_commit(marker).expect("begin_commit should persist marker");
@@ -1092,14 +1118,14 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
             source_key,
             Some(update_before_row_bytes),
             Some(update_after_row_bytes),
-            crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
+            relation_source_accepted_commit_schema_fingerprint(),
         ),
         crate::db::commit::CommitRowOp::new(
             RelationSourceEntity::PATH,
             malformed_raw_key,
             None,
             Some(vec![1]),
-            crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
+            relation_source_accepted_commit_schema_fingerprint(),
         ),
     ])
     .expect("commit marker creation should succeed");
@@ -1270,14 +1296,14 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
             source_1_key,
             Some(source_1_before_row_bytes),
             Some(source_1_after_row_bytes),
-            crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
+            relation_source_accepted_commit_schema_fingerprint(),
         ),
         crate::db::commit::CommitRowOp::new(
             RelationSourceEntity::PATH,
             source_2_key,
             Some(source_2_same_row_bytes.clone()),
             Some(source_2_same_row_bytes),
-            crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
+            relation_source_accepted_commit_schema_fingerprint(),
         ),
     ])
     .expect("commit marker creation should succeed");

@@ -15,7 +15,6 @@ use crate::{
         },
         predicate::MissingRowPolicy,
         query::plan::AccessPlannedQuery,
-        schema::commit_schema_fingerprint_for_entity,
     },
     error::InternalError,
     traits::EntityKind,
@@ -61,13 +60,13 @@ impl DeleteExecutionAuthority {
     /// Accepted-schema delete plans carry a frozen row layout in the authority.
     /// Delete must keep that layout when decoding old physical rows and when
     /// staging rollback bytes for commit preflight.
-    pub(in crate::db::executor::delete) fn from_entity_authority<E>(entity: EntityAuthority) -> Self
-    where
-        E: EntityKind,
-    {
+    pub(in crate::db::executor::delete) const fn from_entity_authority(
+        entity: EntityAuthority,
+        schema_fingerprint: CommitSchemaFingerprint,
+    ) -> Self {
         Self {
             entity,
-            schema_fingerprint: commit_schema_fingerprint_for_entity::<E>(),
+            schema_fingerprint,
         }
     }
 }

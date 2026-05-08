@@ -28,9 +28,9 @@ use crate::{
         registry::{StoreHandle, StoreRegistry},
         relation::validate_delete_strong_relations_for_source,
         schema::{
-            FieldId, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaRowLayout, SchemaStore,
-            SchemaVersion, commit_schema_fingerprint_for_entity,
-            compiled_schema_proposal_for_model,
+            AcceptedSchemaSnapshot, FieldId, PersistedSchemaSnapshot, SchemaFieldSlot,
+            SchemaRowLayout, SchemaStore, SchemaVersion,
+            accepted_commit_schema_fingerprint_for_model, compiled_schema_proposal_for_model,
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -735,34 +735,50 @@ fn row_op_for_path(
     after: Option<Vec<u8>>,
 ) -> CommitRowOp {
     let schema_fingerprint = match path {
-        RecoveryTestEntity::PATH => commit_schema_fingerprint_for_entity::<RecoveryTestEntity>(),
+        RecoveryTestEntity::PATH => {
+            initial_accepted_commit_schema_fingerprint_for_entity::<RecoveryTestEntity>()
+        }
         RecoveryIndexedEntity::PATH => {
-            commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>()
+            initial_accepted_commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>()
         }
         RecoveryNullableIndexedEntity::PATH => {
-            commit_schema_fingerprint_for_entity::<RecoveryNullableIndexedEntity>()
+            initial_accepted_commit_schema_fingerprint_for_entity::<RecoveryNullableIndexedEntity>()
         }
         RecoveryUniqueEntity::PATH => {
-            commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>()
+            initial_accepted_commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>()
         }
         RecoveryUniqueCasefoldEntity::PATH => {
-            commit_schema_fingerprint_for_entity::<RecoveryUniqueCasefoldEntity>()
+            initial_accepted_commit_schema_fingerprint_for_entity::<RecoveryUniqueCasefoldEntity>()
         }
         RecoveryConditionalEntity::PATH => {
-            commit_schema_fingerprint_for_entity::<RecoveryConditionalEntity>()
+            initial_accepted_commit_schema_fingerprint_for_entity::<RecoveryConditionalEntity>()
         }
         RecoveryConditionalUniqueEntity::PATH => {
-            commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueEntity>()
+            initial_accepted_commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueEntity>(
+            )
         }
         RecoveryConditionalUniqueCasefoldEntity::PATH => {
-            commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueCasefoldEntity>()
+            initial_accepted_commit_schema_fingerprint_for_entity::<
+                RecoveryConditionalUniqueCasefoldEntity,
+            >()
         }
         RecoveryConditionalUniqueEnumEntity::PATH => {
-            commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueEnumEntity>()
+            initial_accepted_commit_schema_fingerprint_for_entity::<
+                RecoveryConditionalUniqueEnumEntity,
+            >()
         }
         _ => [0u8; 16],
     };
     row_op_for_path_with_schema(path, data_key, before, after, schema_fingerprint)
+}
+
+fn initial_accepted_commit_schema_fingerprint_for_entity<E: EntityKind + 'static>() -> [u8; 16] {
+    let proposal = compiled_schema_proposal_for_model(E::MODEL);
+    let accepted = AcceptedSchemaSnapshot::try_new(proposal.initial_persisted_schema_snapshot())
+        .expect("initial recovery test schema snapshot should be accepted");
+
+    accepted_commit_schema_fingerprint_for_model(E::MODEL, &accepted)
+        .expect("initial recovery test schema fingerprint should derive")
 }
 
 fn row_bytes_for(key: &RawDataKey) -> Option<Vec<u8>> {
@@ -1937,7 +1953,9 @@ fn recovery_rejects_corrupt_marker_data_key_decode() {
             .to_le_bytes(),
     );
     marker_payload.extend_from_slice(&row_bytes);
-    marker_payload.extend_from_slice(&commit_schema_fingerprint_for_entity::<RecoveryTestEntity>());
+    marker_payload.extend_from_slice(&initial_accepted_commit_schema_fingerprint_for_entity::<
+        RecoveryTestEntity,
+    >());
 
     let marker_bytes = store::CommitStore::encode_raw_marker_envelope_for_tests(
         COMMIT_MARKER_FORMAT_VERSION_CURRENT,
@@ -2372,7 +2390,7 @@ fn recovery_replay_rejects_schema_fingerprint_mismatch() {
         key.as_bytes().to_vec(),
         None,
         Some(row),
-        commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>(),
+        initial_accepted_commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>(),
     )])
     .expect("commit marker creation should succeed");
     begin_commit(marker).expect("begin_commit should persist marker");
@@ -2587,14 +2605,14 @@ fn recovery_replay_interrupted_conflicting_unique_batch_fails_closed() {
             first_key.as_bytes().to_vec(),
             None,
             Some(first_row),
-            commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>(),
+            initial_accepted_commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>(),
         ),
         row_op_for_path_with_schema(
             RecoveryUniqueEntity::PATH,
             second_key.as_bytes().to_vec(),
             None,
             Some(second_row),
-            commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>(),
+            initial_accepted_commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>(),
         ),
     ])
     .expect("conflicting unique marker creation should succeed");
@@ -2682,14 +2700,14 @@ fn unique_conflict_classification_parity_holds_between_live_apply_and_replay() {
             replay_first_key.as_bytes().to_vec(),
             None,
             Some(replay_first_row),
-            commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>(),
+            initial_accepted_commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>(),
         ),
         row_op_for_path_with_schema(
             RecoveryUniqueEntity::PATH,
             replay_second_key.as_bytes().to_vec(),
             None,
             Some(replay_second_row),
-            commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>(),
+            initial_accepted_commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>(),
         ),
     ])
     .expect("replay unique-conflict marker should build");
@@ -2800,7 +2818,7 @@ fn unique_expression_conflict_classification_parity_holds_between_live_apply_and
                 .to_vec(),
             None,
             Some(canonical_row_bytes(&replay_first)),
-            commit_schema_fingerprint_for_entity::<RecoveryUniqueCasefoldEntity>(),
+            initial_accepted_commit_schema_fingerprint_for_entity::<RecoveryUniqueCasefoldEntity>(),
         ),
         row_op_for_path_with_schema(
             RecoveryUniqueCasefoldEntity::PATH,
@@ -2812,7 +2830,7 @@ fn unique_expression_conflict_classification_parity_holds_between_live_apply_and
                 .to_vec(),
             None,
             Some(canonical_row_bytes(&replay_second)),
-            commit_schema_fingerprint_for_entity::<RecoveryUniqueCasefoldEntity>(),
+            initial_accepted_commit_schema_fingerprint_for_entity::<RecoveryUniqueCasefoldEntity>(),
         ),
     ])
     .expect("replay casefold unique-conflict marker should build");

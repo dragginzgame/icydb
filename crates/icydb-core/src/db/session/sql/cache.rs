@@ -17,7 +17,7 @@ use crate::{
 use std::{cell::RefCell, collections::HashMap};
 
 #[cfg(test)]
-use crate::db::schema::commit_schema_fingerprint_for_entity;
+use crate::db::schema::{AcceptedSchemaSnapshot, compiled_schema_proposal_for_model};
 #[cfg(test)]
 use crate::metrics::sink::{CacheKind, record_cache_entries};
 
@@ -270,11 +270,18 @@ impl SqlCompiledCommandCacheKey {
     where
         E: PersistedRow + EntityValue,
     {
+        let proposal = compiled_schema_proposal_for_model(E::MODEL);
+        let accepted =
+            AcceptedSchemaSnapshot::try_new(proposal.initial_persisted_schema_snapshot())
+                .expect("SQL cache test schema snapshot should be accepted");
+        let schema_fingerprint = accepted_schema_cache_fingerprint_for_model(E::MODEL, &accepted)
+            .expect("SQL cache test schema fingerprint should derive");
+
         Self {
             cache_method_version,
             surface,
             entity_path: E::PATH,
-            schema_fingerprint: commit_schema_fingerprint_for_entity::<E>(),
+            schema_fingerprint,
             sql: sql.to_string(),
         }
     }

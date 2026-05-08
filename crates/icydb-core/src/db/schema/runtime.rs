@@ -360,6 +360,18 @@ impl AcceptedRowDecodeContract {
     ) -> Option<&OwnedAcceptedFieldDecodeContract> {
         self.fields_by_slot.get(slot)?.as_ref()
     }
+
+    /// Borrow one accepted field decode contract by physical row slot,
+    /// erroring when the selected accepted row contract does not own that slot.
+    pub(in crate::db) fn required_field_for_slot(
+        &self,
+        entity_path: &str,
+        slot: usize,
+    ) -> Result<&OwnedAcceptedFieldDecodeContract, InternalError> {
+        self.field_for_slot(slot).ok_or_else(|| {
+            InternalError::persisted_row_slot_lookup_out_of_bounds(entity_path, slot)
+        })
+    }
 }
 
 ///

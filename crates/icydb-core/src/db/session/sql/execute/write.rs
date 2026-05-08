@@ -7,6 +7,7 @@ use crate::{
         schema::{
             AcceptedRowLayoutRuntimeDescriptor, AcceptedRowLayoutRuntimeField,
             AcceptedSchemaSnapshot, SchemaFieldWritePolicy, SchemaInfo, ValidateError,
+            accepted_commit_schema_fingerprint_for_model,
             canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_persisted_kind,
             literal_matches_type,
         },
@@ -589,9 +590,15 @@ impl<C: CanisterKind> DbSession<C> {
         };
         let row_decode_contract = descriptor.row_decode_contract();
         let mutation_row_decode_contract = row_decode_contract.clone();
+        let accepted_schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &schema);
+        let accepted_schema_fingerprint =
+            accepted_commit_schema_fingerprint_for_model(E::MODEL, &schema)
+                .map_err(QueryError::execute)?;
         let entities = self
             .execute_save_with_checked_accepted_row_contract::<E, _, _>(
                 row_decode_contract,
+                accepted_schema_info,
+                accepted_schema_fingerprint,
                 |save| {
                     save.apply_internal_lowered_structural_mutation_batch(
                         MutationMode::Insert,
@@ -650,9 +657,15 @@ impl<C: CanisterKind> DbSession<C> {
         }
         let row_decode_contract = descriptor.row_decode_contract();
         let mutation_row_decode_contract = row_decode_contract.clone();
+        let accepted_schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &schema);
+        let accepted_schema_fingerprint =
+            accepted_commit_schema_fingerprint_for_model(E::MODEL, &schema)
+                .map_err(QueryError::execute)?;
         let entities = self
             .execute_save_with_checked_accepted_row_contract::<E, _, _>(
                 row_decode_contract,
+                accepted_schema_info,
+                accepted_schema_fingerprint,
                 |save| {
                     save.apply_internal_lowered_structural_mutation_batch(
                         MutationMode::Update,

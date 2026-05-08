@@ -6,7 +6,10 @@ use crate::{
         data::{RawRow, encode_runtime_value_into_slot},
         executor::EntityAuthority,
         response::Row,
-        schema::commit_schema_fingerprint_for_entity,
+        schema::{
+            AcceptedSchemaSnapshot, accepted_schema_cache_fingerprint_for_model,
+            compiled_schema_proposal_for_model,
+        },
         session::{query::QueryPlanVisibility, sql::SqlCompiledCommandCacheKey},
         sql::lowering::{SqlCommand, compile_sql_command},
     },
@@ -23,6 +26,15 @@ where
     for (sql, context) in cases {
         assert_unsupported_sql_surface_result(execute(sql), context);
     }
+}
+
+fn session_sql_entity_initial_accepted_schema_cache_fingerprint() -> [u8; 16] {
+    let proposal = compiled_schema_proposal_for_model(SessionSqlEntity::MODEL);
+    let accepted = AcceptedSchemaSnapshot::try_new(proposal.initial_persisted_schema_snapshot())
+        .expect("session SQL test schema snapshot should be accepted");
+
+    accepted_schema_cache_fingerprint_for_model(SessionSqlEntity::MODEL, &accepted)
+        .expect("session SQL test schema cache fingerprint should derive")
 }
 
 // Assert that one representative SQL surface keeps its own user-facing lane
@@ -3199,7 +3211,7 @@ fn shared_query_plan_cache_key_version_mismatch_fails_closed() {
         .order_term(crate::db::asc("age"))
         .order_term(crate::db::asc("id"))
         .limit(1);
-    let schema_fingerprint = commit_schema_fingerprint_for_entity::<SessionSqlEntity>();
+    let schema_fingerprint = session_sql_entity_initial_accepted_schema_cache_fingerprint();
     let authority = EntityAuthority::for_type::<SessionSqlEntity>();
     let old_key = DbSession::<SessionSqlCanister>::query_plan_cache_key_for_tests(
         authority.clone(),

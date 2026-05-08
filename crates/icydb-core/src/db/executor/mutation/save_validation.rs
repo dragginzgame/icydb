@@ -73,8 +73,8 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         data_key: &DataKey,
         row: &RawRow,
         accepted_row_decode_contract: AcceptedRowDecodeContract,
+        schema: &SchemaInfo,
     ) -> Result<(), InternalError> {
-        let schema = Self::schema_info();
         let contract = StructuralRowContract::from_accepted_decode_contract(
             E::PATH,
             accepted_row_decode_contract,
@@ -83,11 +83,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         row_fields.validate_storage_key(data_key)?;
 
         Self::validate_structural_row_invariants_with_accepted_contract(&row_fields, schema)
-    }
-
-    // Load the trusted generated schema view for one entity type.
-    pub(in crate::db::executor::mutation) fn schema_info() -> &'static SchemaInfo {
-        SchemaInfo::cached_for_entity_model(E::MODEL)
     }
 
     // Execute save preflight using already-resolved schema and relation metadata.
@@ -131,7 +126,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let missing_fields = Self::missing_authored_fields_with_accepted_contract(
             self.accepted_row_decode_contract(),
             authored_create_slots,
-        );
+        )?;
 
         if missing_fields.is_empty() {
             return Ok(());
@@ -150,18 +145,20 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     fn missing_authored_fields_with_accepted_contract(
         accepted_contract: &AcceptedRowDecodeContract,
         authored_create_slots: &[usize],
-    ) -> Vec<String> {
-        (0..accepted_contract.required_slot_count())
-            .filter_map(|slot| {
-                let field = accepted_contract.field_for_slot(slot)?;
-                let write_policy = field.write_policy();
-                let requires_authorship = write_policy.insert_generation().is_none()
-                    && write_policy.write_management().is_none();
+    ) -> Result<Vec<String>, InternalError> {
+        let mut missing = Vec::new();
+        for slot in 0..accepted_contract.required_slot_count() {
+            let field = accepted_contract.required_field_for_slot(E::PATH, slot)?;
+            let write_policy = field.write_policy();
+            let requires_authorship = write_policy.insert_generation().is_none()
+                && write_policy.write_management().is_none();
 
-                (requires_authorship && !authored_create_slots.contains(&slot))
-                    .then(|| field.field_name().to_string())
-            })
-            .collect()
+            if requires_authorship && !authored_create_slots.contains(&slot) {
+                missing.push(field.field_name().to_string());
+            }
+        }
+
+        Ok(missing)
     }
 
     // Enforce trait boundary invariants for user-provided entities.
@@ -228,11 +225,8 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         accepted_contract: &AcceptedRowDecodeContract,
     ) -> Result<(&str, usize), InternalError> {
         let primary_key_slot = accepted_contract.primary_key_slot_index();
-        let primary_key_field = accepted_contract
-            .field_for_slot(primary_key_slot)
-            .ok_or_else(|| {
-                InternalError::persisted_row_slot_lookup_out_of_bounds(E::PATH, primary_key_slot)
-            })?;
+        let primary_key_field =
+            accepted_contract.required_field_for_slot(E::PATH, primary_key_slot)?;
 
         Ok((primary_key_field.field_name(), primary_key_slot))
     }
@@ -246,11 +240,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         accepted_contract: &AcceptedRowDecodeContract,
     ) -> Result<(), InternalError> {
         for field_index in 0..accepted_contract.required_slot_count() {
-            let field = accepted_contract
-                .field_for_slot(field_index)
-                .ok_or_else(|| {
-                    InternalError::persisted_row_slot_lookup_out_of_bounds(E::PATH, field_index)
-                })?;
+            let field = accepted_contract.required_field_for_slot(E::PATH, field_index)?;
             let field_name = field.field_name();
             let field_kind = field.kind();
 

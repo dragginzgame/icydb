@@ -9,7 +9,10 @@ use crate::{
         DbSession, PersistedRow, WriteBatchResponse,
         data::{FieldSlot, StructuralPatch},
         executor::MutationMode,
-        schema::{AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeDescriptor},
+        schema::{
+            AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeDescriptor, SchemaInfo,
+            accepted_commit_schema_fingerprint_for_model,
+        },
     },
     error::InternalError,
     traits::{CanisterKind, EntityCreateInput, EntityValue},
@@ -189,12 +192,18 @@ impl<C: CanisterKind> DbSession<C> {
             E::MODEL,
         )?;
         validate_structural_patch_schema_policy::<E>(&descriptor, &patch, mode)?;
+        let accepted_schema_info =
+            SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema);
+        let accepted_schema_fingerprint =
+            accepted_commit_schema_fingerprint_for_model(E::MODEL, &accepted_schema)?;
 
         let row_decode_contract = descriptor.row_decode_contract();
         let mutation_row_decode_contract = row_decode_contract.clone();
 
         self.execute_save_with_checked_accepted_row_contract(
             row_decode_contract,
+            accepted_schema_info,
+            accepted_schema_fingerprint,
             |save| save.apply_structural_mutation(mode, key, patch, mutation_row_decode_contract),
             std::convert::identity,
         )

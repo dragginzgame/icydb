@@ -26,11 +26,14 @@ use crate::{
         },
         registry::StoreRegistry,
         relation::validate_delete_strong_relations_for_source,
-        schema::{SchemaStore, commit_schema_fingerprint_for_entity},
+        schema::{
+            AcceptedSchemaSnapshot, SchemaStore, accepted_commit_schema_fingerprint_for_model,
+            compiled_schema_proposal_for_model,
+        },
     },
     model::{field::FieldKind, index::IndexModel},
     testing::test_memory,
-    traits::{EntityKind, Path, Storable, StoreKind},
+    traits::{EntityKind, EntitySchema, Path, Storable, StoreKind},
     types::{EntityTag, Ulid},
 };
 use candid::types::{CandidType, Label, Type, TypeInner};
@@ -311,12 +314,18 @@ fn insert_integrity_expected_indexes(entity: &IntegrityIndexedEntity) {
     let raw_row = CanonicalRow::from_entity(entity)
         .expect("integrity test row should encode")
         .into_raw_row();
+    let proposal = compiled_schema_proposal_for_model(IntegrityIndexedEntity::MODEL);
+    let accepted = AcceptedSchemaSnapshot::try_new(proposal.initial_persisted_schema_snapshot())
+        .expect("integrity test schema snapshot should be accepted");
+    let schema_fingerprint =
+        accepted_commit_schema_fingerprint_for_model(IntegrityIndexedEntity::MODEL, &accepted)
+            .expect("integrity test schema fingerprint should derive");
     let row_op = CommitRowOp::new(
         IntegrityIndexedEntity::PATH,
         raw_key,
         None,
         Some(raw_row.as_bytes().to_vec()),
-        commit_schema_fingerprint_for_entity::<IntegrityIndexedEntity>(),
+        schema_fingerprint,
     );
     let prepared = DB_WITH_HOOKS
         .prepare_row_commit_op(&row_op)

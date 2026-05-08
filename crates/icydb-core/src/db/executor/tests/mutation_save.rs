@@ -26,10 +26,14 @@ use crate::{
         predicate::MissingRowPolicy,
         query::intent::Query,
         registry::StoreRegistry,
-        relation::{validate_delete_strong_relations_for_source, validate_save_strong_relations},
+        relation::{
+            validate_delete_strong_relations_for_source,
+            validate_save_strong_relations_with_accepted_contract,
+        },
         schema::{
-            FieldId, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaRowLayout, SchemaStore,
-            commit_schema_fingerprint_for_entity, compiled_schema_proposal_for_model,
+            AcceptedRowDecodeContract, FieldId, PersistedSchemaSnapshot, SchemaFieldSlot,
+            SchemaRowLayout, SchemaStore, accepted_commit_schema_fingerprint_for_model,
+            compiled_schema_proposal_for_model, ensure_accepted_schema_snapshot,
         },
     },
     error::{ErrorClass, ErrorOrigin},
@@ -1446,6 +1450,18 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
 
 static DB: Db<TestCanister> = Db::new_with_hooks(&STORE_REGISTRY, ENTITY_RUNTIME_HOOKS);
 
+fn validate_save_strong_relations_with_test_accepted_contract<E>(
+    db: &Db<E::Canister>,
+    entity: &E,
+) -> Result<(), crate::error::InternalError>
+where
+    E: PersistedRow + EntityValue,
+{
+    let accepted_contract = AcceptedRowDecodeContract::from_generated_model_for_tests(E::MODEL);
+
+    validate_save_strong_relations_with_accepted_contract::<E>(db, entity, &accepted_contract)
+}
+
 #[test]
 fn strong_relation_missing_fails_preflight() {
     let entity = SourceEntity {
@@ -1453,8 +1469,9 @@ fn strong_relation_missing_fails_preflight() {
         target: Ulid::generate(), // non-existent target
     };
 
-    let err = validate_save_strong_relations::<SourceEntity>(&DB, &entity)
-        .expect_err("expected missing strong relation to fail");
+    let err =
+        validate_save_strong_relations_with_test_accepted_contract::<SourceEntity>(&DB, &entity)
+            .expect_err("expected missing strong relation to fail");
 
     assert_eq!(
         err.class,
@@ -1479,8 +1496,10 @@ fn strong_relation_invalid_metadata_fails_internal() {
         target: Ulid::generate(),
     };
 
-    let err = validate_save_strong_relations::<InvalidRelationMetadataEntity>(&DB, &entity)
-        .expect_err("invalid relation metadata should fail deterministic preflight");
+    let err = validate_save_strong_relations_with_test_accepted_contract::<
+        InvalidRelationMetadataEntity,
+    >(&DB, &entity)
+    .expect_err("invalid relation metadata should fail deterministic preflight");
     assert_eq!(
         err.class,
         ErrorClass::Internal,
@@ -1504,8 +1523,10 @@ fn strong_relation_wrong_target_tag_fails_internal() {
         target: Ulid::generate(),
     };
 
-    let err = validate_save_strong_relations::<WrongTagRelationMetadataEntity>(&DB, &entity)
-        .expect_err("wrong relation target tag should fail deterministic preflight");
+    let err = validate_save_strong_relations_with_test_accepted_contract::<
+        WrongTagRelationMetadataEntity,
+    >(&DB, &entity)
+    .expect_err("wrong relation target tag should fail deterministic preflight");
     assert_eq!(
         err.class,
         ErrorClass::Internal,
@@ -1534,8 +1555,10 @@ fn strong_relation_wrong_target_store_path_fails_internal() {
         target: Ulid::generate(),
     };
 
-    let err = validate_save_strong_relations::<WrongStoreRelationMetadataEntity>(&DB, &entity)
-        .expect_err("wrong relation target store should fail deterministic preflight");
+    let err = validate_save_strong_relations_with_test_accepted_contract::<
+        WrongStoreRelationMetadataEntity,
+    >(&DB, &entity)
+    .expect_err("wrong relation target store should fail deterministic preflight");
     assert_eq!(
         err.class,
         ErrorClass::Internal,
@@ -1936,6 +1959,24 @@ fn insert_many_empty_batch_is_noop_for_atomic_and_non_atomic_lanes() {
     assert_eq!(rows, 0, "empty batches must not persist rows");
 }
 
+fn unique_email_accepted_commit_schema_fingerprint() -> crate::db::commit::CommitSchemaFingerprint {
+    SOURCE_SCHEMA_STORE.with_borrow_mut(|schema_store| {
+        let accepted = ensure_accepted_schema_snapshot(
+            schema_store,
+            UniqueEmailEntity::ENTITY_TAG,
+            UniqueEmailEntity::PATH,
+            <UniqueEmailEntity as crate::traits::EntitySchema>::MODEL,
+        )
+        .expect("unique email accepted schema should initialize");
+
+        accepted_commit_schema_fingerprint_for_model(
+            <UniqueEmailEntity as crate::traits::EntitySchema>::MODEL,
+            &accepted,
+        )
+        .expect("unique email accepted commit fingerprint should derive")
+    })
+}
+
 #[test]
 fn commit_window_preflight_does_not_mutate_real_stores_before_apply() {
     init_commit_store_for_tests().expect("commit store init should succeed");
@@ -1957,7 +1998,7 @@ fn commit_window_preflight_does_not_mutate_real_stores_before_apply() {
         data_key,
         None,
         Some(row.as_bytes().to_vec()),
-        commit_schema_fingerprint_for_entity::<UniqueEmailEntity>(),
+        unique_email_accepted_commit_schema_fingerprint(),
     );
 
     let baseline_index_generation =
@@ -2032,7 +2073,7 @@ fn commit_window_rejects_apply_when_index_store_generation_changes() {
         data_key,
         None,
         Some(row.as_bytes().to_vec()),
-        commit_schema_fingerprint_for_entity::<UniqueEmailEntity>(),
+        unique_email_accepted_commit_schema_fingerprint(),
     );
 
     let OpenCommitWindow {

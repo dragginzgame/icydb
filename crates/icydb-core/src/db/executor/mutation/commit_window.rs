@@ -22,7 +22,7 @@ use crate::{
             StructuralPrimaryRowReader, key_within_envelope,
         },
         registry::StoreHandle,
-        schema::commit_schema_fingerprint_for_entity,
+        schema::{accepted_commit_schema_fingerprint_for_model, ensure_accepted_schema_snapshot},
     },
     error::InternalError,
     metrics::sink::{MetricsEvent, record},
@@ -543,8 +543,30 @@ fn preflight_prepare_row_op_batch<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     row_ops: &[CommitRowOp],
 ) -> Result<PreparedRowOpBatch, InternalError> {
-    let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
+    let schema_fingerprint = accepted_commit_schema_fingerprint_for_type::<E>(db)?;
 
+    preflight_prepare_row_op_batch_with_schema_fingerprint::<E>(db, row_ops, schema_fingerprint)
+}
+
+fn accepted_commit_schema_fingerprint_for_type<E>(
+    db: &Db<E::Canister>,
+) -> Result<CommitSchemaFingerprint, InternalError>
+where
+    E: EntityKind,
+{
+    let store = db.with_store_registry(|registry| registry.try_get_store(E::Store::PATH))?;
+    let accepted = store.with_schema_mut(|schema_store| {
+        ensure_accepted_schema_snapshot(schema_store, E::ENTITY_TAG, E::PATH, E::MODEL)
+    })?;
+
+    accepted_commit_schema_fingerprint_for_model(E::MODEL, &accepted)
+}
+
+fn preflight_prepare_row_op_batch_with_schema_fingerprint<E: EntityKind + EntityValue>(
+    db: &Db<E::Canister>,
+    row_ops: &[CommitRowOp],
+    schema_fingerprint: CommitSchemaFingerprint,
+) -> Result<PreparedRowOpBatch, InternalError> {
     // Single-row writes do not need staged overlay simulation because no later
     // row op can observe earlier preflight effects.
     if let [row_op] = row_ops {
@@ -777,33 +799,52 @@ pub(in crate::db::executor) fn commit_row_ops_with_window<E: EntityKind + Entity
     Ok(())
 }
 
-/// Commit save-mode row operations through one shared commit window.
-///
-/// This helper keeps save metrics wiring (`PreparedRowOpDelta`) and commit-window
-/// sequencing aligned across single-row and batch save call sites.
-pub(in crate::db::executor) fn commit_save_row_ops_with_window<E: EntityKind + EntityValue>(
+/// Commit save-mode row operations through one shared commit window with a
+/// caller-resolved schema fingerprint.
+pub(in crate::db::executor) fn commit_save_row_ops_with_window_and_schema_fingerprint<
+    E: EntityKind + EntityValue,
+>(
     db: &Db<E::Canister>,
     row_ops: Vec<CommitRowOp>,
     apply_phase: &'static str,
+    schema_fingerprint: CommitSchemaFingerprint,
     on_data_applied: impl FnOnce(),
 ) -> Result<(), InternalError> {
     if let [row_op] = row_ops.as_slice() {
-        return commit_single_save_row_op_with_window::<E>(
+        return commit_single_save_row_op_with_window_and_schema_fingerprint::<E>(
             db,
             row_op.clone(),
             apply_phase,
+            schema_fingerprint,
             |delta| emit_index_delta_metrics::<E>(delta),
             on_data_applied,
         );
     }
 
-    commit_row_ops_with_window::<E>(
+    let PreparedRowOpBatch {
+        prepared_row_ops,
+        index_store_guards,
+        delta,
+    } = preflight_prepare_row_op_batch_with_schema_fingerprint::<E>(
         db,
-        row_ops,
+        &row_ops,
+        schema_fingerprint,
+    )?;
+    let marker = CommitMarker::new(row_ops)?;
+    let commit = begin_commit(marker)?;
+    let synchronized_store_handles =
+        synchronized_store_handles_for_prepared_row_ops(db, prepared_row_ops.as_slice());
+
+    apply_prepared_row_ops(
+        commit,
         apply_phase,
-        |delta| emit_index_delta_metrics::<E>(delta),
+        prepared_row_ops,
+        index_store_guards,
+        || emit_index_delta_metrics::<E>(&delta),
         on_data_applied,
-    )
+    )?;
+    mark_store_handles_index_ready(synchronized_store_handles.as_slice());
+    Ok(())
 }
 
 /// Commit delete-mode row operations through one typed commit window.
@@ -871,27 +912,6 @@ pub(in crate::db::executor) fn commit_delete_row_ops_with_window_for_path<C: Can
     mark_store_handles_index_ready(synchronized_store_handles.as_slice());
     Ok(())
 }
-// Commit one save-mode row operation through the single-row commit-window fast
-// path used by insert/update/replace.
-pub(in crate::db::executor) fn commit_single_save_row_op_with_window<
-    E: EntityKind + EntityValue,
->(
-    db: &Db<E::Canister>,
-    row_op: CommitRowOp,
-    apply_phase: &'static str,
-    on_index_applied: impl FnOnce(&PreparedRowOpDelta),
-    on_data_applied: impl FnOnce(),
-) -> Result<(), InternalError> {
-    commit_single_save_row_op_with_window_and_schema_fingerprint::<E>(
-        db,
-        row_op,
-        apply_phase,
-        commit_schema_fingerprint_for_entity::<E>(),
-        on_index_applied,
-        on_data_applied,
-    )
-}
-
 // Commit one save-mode row operation through the single-row fast path with a
 // caller-resolved schema fingerprint so batch save lanes do not rehash it.
 pub(in crate::db::executor) fn commit_single_save_row_op_with_window_and_schema_fingerprint<
@@ -987,7 +1007,7 @@ fn commit_single_delete_row_op_with_window<E: EntityKind + EntityValue>(
             &row_op,
             &context,
             &context,
-            commit_schema_fingerprint_for_entity::<E>(),
+            accepted_commit_schema_fingerprint_for_type::<E>(db)?,
         )?;
     let synchronized_store_handles =
         synchronized_store_handles_for_prepared_row_ops(db, std::slice::from_ref(&prepared_row_op));
