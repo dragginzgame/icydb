@@ -122,14 +122,8 @@ impl<'a> SerializedPatchPayloads<'a> {
         slot: usize,
     ) -> Result<(), InternalError> {
         if contract.has_accepted_decode_contract() {
-            if contract.accepted_field_decode_contract(slot).is_some() {
-                return Ok(());
-            }
-
-            return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
-                contract.entity_path(),
-                slot,
-            ));
+            let _ = contract.required_accepted_field_decode_contract(slot)?;
+            return Ok(());
         }
 
         generated_fields.get(slot).map(|_| ()).ok_or_else(|| {
@@ -457,12 +451,7 @@ fn serialize_structural_patch_fields_for_accepted_contract(
     // accepted field contract selected by the database schema snapshot.
     for entry in patch.entries() {
         let slot = entry.slot();
-        let Some(field) = contract.accepted_field_decode_contract(slot.index()) else {
-            return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
-                contract.entity_path(),
-                slot.index(),
-            ));
-        };
+        let field = contract.required_accepted_field_decode_contract(slot.index())?;
         let payload = encode_runtime_value_for_accepted_field_contract(field, entry.value())?;
         entries.push(SerializedStructuralFieldUpdate::new(slot, payload));
     }
@@ -484,12 +473,7 @@ fn serialize_complete_structural_patch_fields_for_accepted_contract(
     // semantics per physical slot.
     for entry in patch.entries() {
         let slot = entry.slot().index();
-        let Some(field) = contract.accepted_field_decode_contract(slot) else {
-            return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
-                contract.entity_path(),
-                slot,
-            ));
-        };
+        let field = contract.required_accepted_field_decode_contract(slot)?;
         let payload = encode_runtime_value_for_accepted_field_contract(field, entry.value())?;
         payloads[slot] = Some(payload);
     }
@@ -500,12 +484,7 @@ fn serialize_complete_structural_patch_fields_for_accepted_contract(
         if payload.is_some() {
             continue;
         }
-        let Some(field) = contract.accepted_field_decode_contract(slot) else {
-            return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
-                contract.entity_path(),
-                slot,
-            ));
-        };
+        let field = contract.required_accepted_field_decode_contract(slot)?;
         let value = contract.missing_slot_value(slot)?;
         *payload = Some(encode_runtime_value_for_accepted_field_contract(
             field, &value,

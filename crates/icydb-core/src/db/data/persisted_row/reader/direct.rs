@@ -316,12 +316,7 @@ fn decode_slot_with_accepted_contract(
     is_primary: bool,
     probe: &StructuralReadProbe,
 ) -> Result<Value, InternalError> {
-    let Some(accepted_field) = contract.accepted_field_decode_contract(slot) else {
-        return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
-            contract.entity_path(),
-            slot,
-        ));
-    };
+    let accepted_field = contract.required_accepted_field_decode_contract(slot)?;
 
     if is_primary {
         return materialize_primary_key_slot_value_from_expected_key_with_accepted_field(

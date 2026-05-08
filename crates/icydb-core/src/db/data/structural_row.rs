@@ -184,6 +184,15 @@ impl StructuralRowContract {
             .map(|field| field.decode_contract())
     }
 
+    pub(in crate::db) fn required_accepted_field_decode_contract(
+        &self,
+        slot: usize,
+    ) -> Result<AcceptedFieldDecodeContract<'_>, InternalError> {
+        self.accepted_field_decode_contract(slot).ok_or_else(|| {
+            InternalError::persisted_row_slot_lookup_out_of_bounds(self.entity_path(), slot)
+        })
+    }
+
     /// Return the field-level decode contract for one structural slot.
     pub(in crate::db) fn field_decode_contract(
         &self,
@@ -193,14 +202,14 @@ impl StructuralRowContract {
             .map(StructuralFieldDecodeContract::from_field_model)
     }
 
-    /// Return the accepted-first leaf codec for one structural slot.
+    /// Return the leaf codec for one structural slot.
     ///
-    /// This is the row-decode authority lookup for code paths that only need to
-    /// decide scalar-vs-structural lane shape. Accepted saved-schema contracts
-    /// take priority when present; generated-compatible fields remain the
-    /// fallback for generated-only readers and compatibility bridges.
+    /// Accepted saved-schema contracts own this lookup when present. Generated
+    /// field metadata remains available only for generated-only readers and
+    /// compatibility bridges.
     pub(in crate::db) fn field_leaf_codec(&self, slot: usize) -> Result<LeafCodec, InternalError> {
-        if let Some(field) = self.accepted_field_decode_contract(slot) {
+        if self.accepted_decode_contract.is_some() {
+            let field = self.required_accepted_field_decode_contract(slot)?;
             return Ok(field.leaf_codec());
         }
 
@@ -210,7 +219,8 @@ impl StructuralRowContract {
 
     /// Return the persisted field name for diagnostics at one row slot.
     pub(in crate::db) fn field_name(&self, slot: usize) -> Result<&str, InternalError> {
-        if let Some(field) = self.accepted_field_decode_contract(slot) {
+        if self.accepted_decode_contract.is_some() {
+            let field = self.required_accepted_field_decode_contract(slot)?;
             return Ok(field.field_name());
         }
 
@@ -229,9 +239,7 @@ impl StructuralRowContract {
     ) -> Result<usize, InternalError> {
         if self.accepted_decode_contract.is_some() {
             for slot in 0..self.field_count() {
-                let Some(field) = self.accepted_field_decode_contract(slot) else {
-                    continue;
-                };
+                let field = self.required_accepted_field_decode_contract(slot)?;
                 if field.field_name() == field_name {
                     return Ok(slot);
                 }

@@ -48,12 +48,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     ) -> Result<(), InternalError> {
         for entry in patch.entries() {
             let slot = entry.slot().index();
-            let accepted_field =
-                contract
-                    .accepted_field_decode_contract(slot)
-                    .ok_or_else(|| {
-                        InternalError::persisted_row_slot_lookup_out_of_bounds(E::PATH, slot)
-                    })?;
+            let accepted_field = contract.required_accepted_field_decode_contract(slot)?;
 
             Self::validate_persisted_decimal_scale_is_normalizable(
                 accepted_field.field_name(),
@@ -299,10 +294,8 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             // Phase 1: enforce runtime shape, exact scalar bounds, and
             // deterministic collection/map encodings for persisted rows.
             let accepted_field = row_fields
-                .accepted_field_decode_contract(field_index)
-                .ok_or_else(|| {
-                    InternalError::persisted_row_slot_lookup_out_of_bounds(E::PATH, field_index)
-                })?;
+                .contract()
+                .required_accepted_field_decode_contract(field_index)?;
 
             Self::validate_accepted_persisted_field_value_invariants(
                 schema,

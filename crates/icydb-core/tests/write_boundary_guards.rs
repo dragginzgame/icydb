@@ -98,7 +98,17 @@ fn prepared_row_write_payloads_stay_canonical() {
 #[test]
 fn accepted_storage_row_contracts_do_not_retain_generated_field_bridge() {
     let structural_row = read_source("src/db/data/structural_row.rs");
+    let structural_row_compact = compact_source(&structural_row);
+    let row_reader = read_source("src/db/data/persisted_row/reader/core.rs");
+    let row_reader_compact = compact_source(&row_reader);
     let persisted_patch = read_source("src/db/data/persisted_row/patch.rs");
+    let persisted_patch_compact = compact_source(&persisted_patch);
+    let primary_key_reader = read_source("src/db/data/persisted_row/reader/primary_key.rs");
+    let primary_key_reader_compact = compact_source(&primary_key_reader);
+    let reverse_index = read_source("src/db/relation/reverse_index.rs");
+    let reverse_index_compact = compact_source(&reverse_index);
+    let save_validation = read_source("src/db/executor/mutation/save_validation.rs");
+    let save_validation_compact = compact_source(&save_validation);
     let row_decode = read_source("src/db/executor/terminal/row_decode/mod.rs");
 
     assert!(
@@ -125,6 +135,58 @@ fn accepted_storage_row_contracts_do_not_retain_generated_field_bridge() {
             && !persisted_patch
                 .contains("StructuralRowContract::from_model_with_accepted_decode_contract("),
         "accepted structural patch materialization must validate payload slots through accepted row contracts without retaining the generated field bridge",
+    );
+    assert!(
+        structural_row_compact.contains("required_accepted_field_decode_contract(&self,slot:usize")
+            && structural_row_compact.contains(
+                "InternalError::persisted_row_slot_lookup_out_of_bounds(self.entity_path(),slot",
+            )
+            && structural_row_compact.contains(
+                "ifself.accepted_decode_contract.is_some(){letfield=self.required_accepted_field_decode_contract(slot)?;returnOk(field.leaf_codec());}",
+            )
+            && structural_row_compact.contains(
+                "ifself.accepted_decode_contract.is_some(){letfield=self.required_accepted_field_decode_contract(slot)?;returnOk(field.field_name());}",
+            ),
+        "accepted structural row field-name and leaf-codec lookups must fail closed instead of falling back to generated field metadata",
+    );
+    assert!(
+        row_reader_compact.contains("fnrequired_accepted_field_decode_contract(&self,slot:usize")
+            && row_reader_compact.contains(
+                "self.contract.required_accepted_field_decode_contract(slot)",
+            )
+            && row_reader_compact.contains(
+                "letaccepted_field=self.required_accepted_field_decode_contract(slot)?;ifletSome(value)=self.required_accepted_value_storage_scalar(slot,accepted_field)?",
+            )
+            && !row_reader_compact.contains("pub(incrate::db)fnaccepted_field_decode_contract")
+            && !row_reader_compact.contains(
+                "ifletSome(accepted_field)=self.contract.accepted_field_decode_contract(slot)",
+            ),
+        "accepted structural row reader scalar fast paths must fail closed instead of treating missing accepted field metadata as a non-fast-path value",
+    );
+    assert!(
+        primary_key_reader_compact.contains("ifcontract.has_accepted_decode_contract(){")
+            && primary_key_reader_compact
+                .contains("contract.required_accepted_field_decode_contract(primary_key_slot)?")
+            && !primary_key_reader_compact
+                .contains(".accepted_field_decode_contract(primary_key_slot).ok_or_else(")
+            && !primary_key_reader_compact
+                .contains("ifletSome(primary_key_field)=contract.accepted_field_decode_contract(primary_key_slot)"),
+        "accepted primary-key validation must fail closed instead of falling back to generated field metadata",
+    );
+    assert!(
+        persisted_patch_compact.contains("contract.required_accepted_field_decode_contract(slot)?")
+            && persisted_patch_compact
+                .contains("contract.required_accepted_field_decode_contract(slot.index())?"),
+        "accepted structural patch payload handling must use the shared required accepted-field contract",
+    );
+    assert!(
+        reverse_index_compact
+            .contains("source_row_contract.required_accepted_field_decode_contract(slot)?")
+            && save_validation_compact
+                .contains("contract.required_accepted_field_decode_contract(slot)?")
+            && save_validation_compact
+                .contains(".required_accepted_field_decode_contract(field_index)?"),
+        "relation and save validation accepted field scans must use the shared required accepted-field contract",
     );
 }
 

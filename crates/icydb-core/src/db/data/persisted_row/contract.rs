@@ -122,12 +122,7 @@ fn decode_runtime_value_from_accepted_row_contract(
     slot: usize,
     raw_value: &[u8],
 ) -> Result<Value, InternalError> {
-    let Some(accepted_field) = contract.accepted_field_decode_contract(slot) else {
-        return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
-            contract.entity_path(),
-            slot,
-        ));
-    };
+    let accepted_field = contract.required_accepted_field_decode_contract(slot)?;
 
     decode_runtime_value_from_accepted_field_contract(accepted_field, raw_value)
 }
@@ -180,12 +175,7 @@ fn decode_scalar_slot_value_from_accepted_row_contract<'raw>(
     raw_value: &'raw [u8],
     non_scalar_context: &str,
 ) -> Result<ScalarSlotValueRef<'raw>, InternalError> {
-    let Some(accepted_field) = contract.accepted_field_decode_contract(slot) else {
-        return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
-            contract.entity_path(),
-            slot,
-        ));
-    };
+    let accepted_field = contract.required_accepted_field_decode_contract(slot)?;
 
     let LeafCodec::Scalar(codec) = accepted_field.leaf_codec() else {
         return Err(InternalError::persisted_row_decode_failed(format!(
@@ -600,12 +590,7 @@ where
 {
     dense_slot_image_from_source(contract.field_count(), |slot| {
         let value = value_for_slot(slot)?;
-        let Some(field) = contract.accepted_field_decode_contract(slot) else {
-            return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
-                contract.entity_path(),
-                slot,
-            ));
-        };
+        let field = contract.required_accepted_field_decode_contract(slot)?;
 
         encode_runtime_value_for_accepted_field_contract(field, value.as_ref())
     })
@@ -969,12 +954,7 @@ fn validate_non_scalar_slot_value_with_accepted_row_contract(
     slot: usize,
     raw_value: &[u8],
 ) -> Result<(), InternalError> {
-    let Some(accepted_field) = contract.accepted_field_decode_contract(slot) else {
-        return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
-            contract.entity_path(),
-            slot,
-        ));
-    };
+    let accepted_field = contract.required_accepted_field_decode_contract(slot)?;
 
     validate_non_scalar_accepted_slot_value(raw_value, accepted_field)
 }

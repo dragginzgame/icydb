@@ -55,7 +55,9 @@ pub(super) fn validate_storage_key_from_primary_key_bytes_with_contract(
     expected_key: StorageKey,
 ) -> Result<(), InternalError> {
     let primary_key_slot = contract.primary_key_slot();
-    if let Some(primary_key_field) = contract.accepted_field_decode_contract(primary_key_slot) {
+    if contract.has_accepted_decode_contract() {
+        let primary_key_field =
+            contract.required_accepted_field_decode_contract(primary_key_slot)?;
         return validate_storage_key_from_primary_key_bytes_with_accepted_field(
             raw_value,
             primary_key_field,

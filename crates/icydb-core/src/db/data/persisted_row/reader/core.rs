@@ -116,14 +116,11 @@ impl<'a> StructuralSlotReader<'a> {
         Self::from_raw_row_with_contract(raw_row, StructuralRowContract::from_model(model))
     }
 
-    /// Borrow one accepted field decode contract when this reader was opened
-    /// over an accepted schema row layout.
-    #[must_use]
-    pub(in crate::db) fn accepted_field_decode_contract(
+    fn required_accepted_field_decode_contract(
         &self,
         slot: usize,
-    ) -> Option<AcceptedFieldDecodeContract<'_>> {
-        self.contract.accepted_field_decode_contract(slot)
+    ) -> Result<AcceptedFieldDecodeContract<'_>, InternalError> {
+        self.contract.required_accepted_field_decode_contract(slot)
     }
 
     /// Return the declared structural field count for this reader contract.
@@ -326,10 +323,8 @@ impl<'a> StructuralSlotReader<'a> {
         // validated byte view when the persisted tag matches the declared
         // scalar kind. Mismatches fall through to preserve the existing
         // permissive `FieldStorageDecode::Value` materialization behavior.
-        if let Some(accepted_field) = self.contract.accepted_field_decode_contract(slot)
-            && let Some(value) =
-                self.required_accepted_value_storage_scalar(slot, accepted_field)?
-        {
+        let accepted_field = self.required_accepted_field_decode_contract(slot)?;
+        if let Some(value) = self.required_accepted_value_storage_scalar(slot, accepted_field)? {
             #[cfg(any(test, feature = "diagnostics"))]
             {
                 self.metrics.record_materialized_non_scalar();
@@ -589,9 +584,7 @@ impl<'a> StructuralSlotReader<'a> {
         &self,
         slot: usize,
     ) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
-        let Some(accepted_field) = self.contract.accepted_field_decode_contract(slot) else {
-            return Ok(None);
-        };
+        let accepted_field = self.required_accepted_field_decode_contract(slot)?;
 
         self.required_accepted_value_storage_scalar(slot, accepted_field)
     }
