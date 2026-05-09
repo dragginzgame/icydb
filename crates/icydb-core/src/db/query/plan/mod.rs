@@ -234,6 +234,10 @@ impl<'a> VisibleIndexes<'a> {
             .iter()
             .copied()
             .filter(|index| {
+                if index.has_expression_key_items() {
+                    return true;
+                }
+
                 schema_info
                     .field_path_indexes()
                     .iter()

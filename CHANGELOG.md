@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.150.x] 🧭 - 2026-05-09 - Accepted Index Authority
 
-- `0.150.0` starts accepted index authority by adding persisted accepted field-path index contracts to schema snapshots, projecting generated field-path indexes into accepted field IDs and row slots during schema proposal construction, hard-cutting the schema snapshot codec to carry index contracts, routing accepted `SchemaInfo` index membership, field-path index metadata, and runtime visible-index filtering through persisted index contracts, and leaving expression index contracts explicitly deferred until their stable canonical representation lands.
+- `0.150.1` routes runtime visible-index filtering through accepted `SchemaInfo`, so store-ready session planning filters field-path planner bridge indexes by accepted contract names while preserving generated expression-index visibility until accepted expression contracts are designed.
+- `0.150.0` starts accepted index authority by adding persisted accepted field-path index contracts to schema snapshots, projecting generated field-path indexes into accepted field IDs and row slots during schema proposal construction, hard-cutting the schema snapshot codec to carry index contracts, routing accepted `SchemaInfo` index membership and field-path index metadata through persisted index contracts, and leaving expression index contracts explicitly deferred until their stable canonical representation lands.
 
 See detailed breakdown:
 [docs/changelog/0.150.md](docs/changelog/0.150.md)

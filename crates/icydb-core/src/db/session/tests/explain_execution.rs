@@ -718,7 +718,7 @@ fn session_non_ready_secondary_indexes_are_hidden_from_planning_and_execution() 
     assert_eq!(
         ready_visible_indexes.accepted_field_path_index_count(),
         Some(ready_visible_indexes.as_slice().len()),
-        "ready planner-visible indexes must be backed by accepted field-path index contracts",
+        "ready planner-visible field-path indexes must be backed by accepted field-path index contracts",
     );
     assert!(
         !ready_visible_indexes.as_slice().is_empty(),

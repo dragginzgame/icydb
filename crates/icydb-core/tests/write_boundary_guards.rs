@@ -373,7 +373,10 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
 
     assert!(
         plan_mod.contains("pub(in crate::db) fn accepted_schema_visible(")
-            && plan_mod_compact.contains(".filter(|index|{schema_info.field_path_indexes().iter().any(|accepted|accepted.name()==index.name())})")
+            && plan_mod.contains("if index.has_expression_key_items() {")
+            && plan_mod_compact.contains(
+                "schema_info.field_path_indexes().iter().any(|accepted|accepted.name()==index.name())",
+            )
             && plan_mod.contains("VisibleIndexAuthority::AcceptedSchema")
             && plan_mod.contains("accepted_field_path_index_count"),
         "VisibleIndexes must carry an accepted-schema-filtered field-path index view before runtime planning can stop using generated IndexModel authority",

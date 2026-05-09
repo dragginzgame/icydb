@@ -171,9 +171,11 @@ impl<C: CanisterKind> DbSession<C> {
             QueryPlanVisibility::StoreReady => {
                 let visible_indexes =
                     VisibleIndexes::accepted_schema_visible(model.indexes(), schema_info);
-                debug_assert_eq!(
-                    visible_indexes.accepted_field_path_index_count(),
-                    Some(visible_indexes.as_slice().len()),
+                debug_assert!(
+                    visible_indexes.as_slice().len()
+                        >= visible_indexes
+                            .accepted_field_path_index_count()
+                            .unwrap_or_default(),
                 );
 
                 visible_indexes
