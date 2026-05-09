@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.149.x] 🧬 - 2026-05-06 - Schema Defaults And Accepted Write Encoding
 
+- `0.149.27` names standalone generated-schema query-planning and access-choice finalizer wrappers as model-only while keeping session shared-plan cache fills and explain finalization on explicit accepted `SchemaInfo`, making the offline/fluent planning boundary distinct from accepted runtime planning.
 - `0.149.26` names the remaining standalone structural execution explain descriptor, route-fact path, generated SQL lowering adapters, and test-only global aggregate SQL lowering adapters as model-only while keeping session and SQL runtime guards on accepted authority, clarifying that generated helpers are not the runtime accepted-schema lane.
 - `0.149.25` was skipped in this changelog due to a versioning workflow misunderstanding; `make patch` owns Cargo version bumps and the next documented cleanup continues in `0.149.26`.
 - `0.149.24` routes executor access-plan runtime validation through authority-carried accepted `SchemaInfo` instead of generated `EntityModel`, and moves typed session `EntityAuthority` bootstrap onto an accepted-schema constructor so runtime query/SQL dispatch no longer constructs raw generated authority before attaching accepted row contracts.

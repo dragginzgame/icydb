@@ -90,11 +90,11 @@ pub(in crate::db) use order_contract::{GroupedIndexOrderMatch, grouped_index_ord
 pub(in crate::db) use order_term::index_order_terms;
 pub(in crate::db) use pipeline::PreparedScalarPlanningState;
 #[cfg(test)]
-pub(in crate::db::query) use pipeline::prepare_query_model_scalar_planning_state;
+pub(in crate::db::query) use pipeline::prepare_query_model_scalar_planning_state_for_model_only;
 #[cfg(test)]
-pub(in crate::db::query) use pipeline::try_build_trivial_scalar_load_plan;
+pub(in crate::db::query) use pipeline::try_build_trivial_scalar_load_plan_for_model_only;
 pub(in crate::db::query) use pipeline::{
-    build_query_model_plan, build_query_model_plan_with_indexes,
+    build_query_model_plan_for_model_only, build_query_model_plan_with_indexes_for_model_only,
     build_query_model_plan_with_indexes_from_scalar_planning_state,
     prepare_query_model_scalar_planning_state_with_schema_info,
     try_build_trivial_scalar_load_plan_with_schema_info,

@@ -385,6 +385,7 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
     let session_sql_explain = read_source("src/db/session/sql/execute/explain.rs");
     let session_sql_explain_compact = compact_source(&session_sql_explain);
     let sql_aggregate_binding = read_source("src/db/sql/lowering/aggregate/command/binding.rs");
+    let query_access_plan = read_source("src/db/query/plan/access_plan.rs");
 
     assert!(
         prepared_plan.contains("#[cfg(test)]\n    pub(in crate::db) fn new(")
@@ -429,17 +430,21 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
     assert!(
         session_query_cache
             .contains("query.try_build_trivial_scalar_load_plan_with_schema_info(schema_info)?")
-            && !session_query_cache.contains("query.try_build_trivial_scalar_load_plan()?"),
+            && !session_query_cache
+                .contains("query.try_build_trivial_scalar_load_plan_for_model_only()?"),
         "shared query cache trivial scalar fast path must finalize executor metadata with accepted SchemaInfo instead of generated schema fallback",
     );
     assert!(
         session_query_explain.contains(
             "plan.finalize_access_choice_for_model_with_indexes_and_schema("
         )
+            && query_access_plan.contains(
+                "fn finalize_access_choice_for_model_only_with_indexes("
+            )
             && session_query_explain_compact.contains(
                 "SchemaInfo::from_accepted_snapshot_for_model(query.structural().model(),&accepted_schema,"
             )
-            && !session_query_explain.contains("plan.finalize_access_choice_for_model_with_indexes(")
+            && !session_query_explain.contains("plan.finalize_access_choice_for_model_only_with_indexes(")
             && session_sql_explain.contains(
                 "plan.finalize_access_choice_for_model_with_indexes_and_schema("
             )
@@ -451,7 +456,7 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
             && session_sql_explain_compact.contains(
                 "SchemaInfo::from_accepted_snapshot_for_model(authority.model(),accepted_schema)"
             )
-            && !session_sql_explain.contains("plan.finalize_access_choice_for_model_with_indexes(")
+            && !session_sql_explain.contains("plan.finalize_access_choice_for_model_only_with_indexes(")
             && !session_sql_explain.contains("bind_lowered_sql_query_structural(")
             && !session_sql_explain
                 .contains("bind_lowered_sql_explain_global_aggregate_structural(")
@@ -459,6 +464,28 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
                 "apply_lowered_base_query_shape_with_schema("
             ),
         "session explain binding and access-choice finalization must use accepted SchemaInfo instead of generated schema fallback",
+    );
+}
+
+#[test]
+fn standalone_generated_query_planning_is_model_only() {
+    let query_plan_pipeline = read_source("src/db/query/plan/pipeline.rs");
+
+    assert!(
+        query_plan_pipeline.contains("fn build_query_model_plan_for_model_only")
+            && query_plan_pipeline
+                .contains("fn build_query_model_plan_with_indexes_for_model_only")
+            && query_plan_pipeline.contains("fn try_build_trivial_scalar_load_plan_for_model_only")
+            && query_plan_pipeline
+                .contains("fn prepare_query_model_scalar_planning_state_for_model_only")
+            && query_plan_pipeline
+                .contains("SchemaInfo::cached_for_entity_model(query.model()).clone()")
+            && query_plan_pipeline
+                .contains("fn prepare_query_model_scalar_planning_state_with_schema_info")
+            && !query_plan_pipeline.contains("fn build_query_model_plan<K>")
+            && !query_plan_pipeline.contains("fn build_query_model_plan_with_indexes<K>")
+            && !query_plan_pipeline.contains("fn prepare_query_model_scalar_planning_state<'"),
+        "standalone generated-schema query planning wrappers must stay explicit model-only surfaces",
     );
 }
 

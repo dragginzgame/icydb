@@ -14,7 +14,8 @@ use crate::{
             plan::{
                 AccessPlannedQuery, AccessPlanningInputs, GroupAggregateSpec,
                 LogicalPlanningInputs, OrderSpec, PreparedScalarPlanningState, QueryMode,
-                VisibleIndexes, build_query_model_plan, build_query_model_plan_with_indexes,
+                VisibleIndexes, build_query_model_plan_for_model_only,
+                build_query_model_plan_with_indexes_for_model_only,
                 build_query_model_plan_with_indexes_from_scalar_planning_state,
                 canonicalize_grouped_having_numeric_literal_for_field_kind,
                 expr::{
@@ -473,22 +474,22 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
         self
     }
 
-    /// Build a model-level logical plan using Value-based access keys.
+    /// Build a standalone model-only logical plan using Value-based access keys.
     #[inline(never)]
     pub(in crate::db::query::intent) fn build_plan_model(
         &self,
     ) -> Result<AccessPlannedQuery, QueryError> {
-        build_query_model_plan(self)
+        build_query_model_plan_for_model_only(self)
     }
 
-    /// Build a model-level logical plan using one explicit planner-visible
-    /// secondary-index set.
+    /// Build a standalone model-only logical plan using one explicit
+    /// planner-visible secondary-index set.
     #[inline(never)]
     pub(in crate::db::query::intent) fn build_plan_model_with_indexes(
         &self,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
-        build_query_model_plan_with_indexes(self, visible_indexes)
+        build_query_model_plan_with_indexes_for_model_only(self, visible_indexes)
     }
 
     pub(in crate::db::query::intent) fn build_plan_model_with_indexes_from_scalar_planning_state(

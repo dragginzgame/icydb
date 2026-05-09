@@ -61,30 +61,32 @@ impl<'a> PreparedScalarPlanningState<'a> {
     }
 }
 
-/// Build a query model plan using the schema-owned index set.
+/// Build a standalone model-only query plan using the generated schema-owned
+/// index set.
 #[inline(never)]
-pub(in crate::db::query) fn build_query_model_plan<K>(
+pub(in crate::db::query) fn build_query_model_plan_for_model_only<K>(
     query: &QueryModel<'_, K>,
 ) -> Result<AccessPlannedQuery, QueryError>
 where
     K: KeyValueCodec,
 {
-    build_query_model_plan_with_indexes(
+    build_query_model_plan_with_indexes_for_model_only(
         query,
         &VisibleIndexes::schema_owned(query.model().indexes()),
     )
 }
 
-/// Build a query model plan using one explicit planner-visible index set.
+/// Build a standalone model-only query plan using one explicit
+/// planner-visible index set.
 #[inline(never)]
-pub(in crate::db::query) fn build_query_model_plan_with_indexes<K>(
+pub(in crate::db::query) fn build_query_model_plan_with_indexes_for_model_only<K>(
     query: &QueryModel<'_, K>,
     visible_indexes: &VisibleIndexes<'_>,
 ) -> Result<AccessPlannedQuery, QueryError>
 where
     K: KeyValueCodec,
 {
-    let planning_state = prepare_query_model_scalar_planning_state(query)?;
+    let planning_state = prepare_query_model_scalar_planning_state_for_model_only(query)?;
 
     build_query_model_plan_with_indexes_from_scalar_planning_state(
         query,
@@ -187,9 +189,10 @@ where
     Ok(plan)
 }
 
-/// Build the no-predicate scalar-load fast path when the query shape is trivial.
+/// Build the model-only no-predicate scalar-load fast path when the query shape
+/// is trivial.
 #[cfg(test)]
-pub(in crate::db::query) fn try_build_trivial_scalar_load_plan<K>(
+pub(in crate::db::query) fn try_build_trivial_scalar_load_plan_for_model_only<K>(
     query: &QueryModel<'_, K>,
 ) -> Result<Option<AccessPlannedQuery>, QueryError>
 where
@@ -245,8 +248,8 @@ where
     Ok(Some(plan))
 }
 
-/// Prepare scalar planning inputs shared by cache-key and miss-path planning.
-pub(in crate::db::query) fn prepare_query_model_scalar_planning_state<'a, K>(
+/// Prepare model-only scalar planning inputs from generated schema metadata.
+pub(in crate::db::query) fn prepare_query_model_scalar_planning_state_for_model_only<'a, K>(
     query: &'a QueryModel<'_, K>,
 ) -> Result<PreparedScalarPlanningState<'a>, QueryError>
 where

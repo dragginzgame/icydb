@@ -191,7 +191,7 @@ impl StructuralQuery {
             None => self.model().indexes(),
         };
 
-        plan.finalize_access_choice_for_model_with_indexes(self.model(), visible_indexes);
+        plan.finalize_access_choice_for_model_only_with_indexes(self.model(), visible_indexes);
     }
 
     // Build one execution descriptor after resolving the caller-visible index

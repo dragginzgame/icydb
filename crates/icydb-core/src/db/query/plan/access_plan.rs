@@ -507,9 +507,10 @@ impl AccessPlannedQuery {
         &self.access_choice
     }
 
-    /// Freeze one explain-only access-choice snapshot for the caller-visible
-    /// index slice after normal planning has already selected the winner.
-    pub(in crate::db) fn finalize_access_choice_for_model_with_indexes(
+    /// Freeze one standalone model-only explain access-choice snapshot for the
+    /// caller-visible index slice after normal planning has already selected
+    /// the winner.
+    pub(in crate::db) fn finalize_access_choice_for_model_only_with_indexes(
         &mut self,
         model: &EntityModel,
         visible_indexes: &[&'static IndexModel],

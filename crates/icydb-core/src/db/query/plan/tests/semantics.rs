@@ -24,8 +24,9 @@ use crate::{
                 PlanUserError, QueryMode, VisibleIndexes, build_logical_plan,
                 build_query_model_plan_with_indexes_from_scalar_planning_state,
                 expr::{BinaryOp, Expr, FieldId, FieldPath, Function},
-                logical_query_from_logical_inputs, prepare_query_model_scalar_planning_state,
-                try_build_trivial_scalar_load_plan,
+                logical_query_from_logical_inputs,
+                prepare_query_model_scalar_planning_state_for_model_only,
+                try_build_trivial_scalar_load_plan_for_model_only,
             },
         },
         schema::{SchemaInfo, ValidateError},
@@ -117,11 +118,11 @@ fn model_with_expression_index() -> &'static EntityModel {
 
 fn assert_trivial_scalar_fast_path_matches_general(query: QueryModel<'static, Value>) {
     let visible_indexes = VisibleIndexes::planner_visible(query.model().indexes());
-    let fast = try_build_trivial_scalar_load_plan(&query)
+    let fast = try_build_trivial_scalar_load_plan_for_model_only(&query)
         .expect("trivial fast path should build")
         .expect("query should be fast-path eligible");
-    let planning_state =
-        prepare_query_model_scalar_planning_state(&query).expect("general state should prepare");
+    let planning_state = prepare_query_model_scalar_planning_state_for_model_only(&query)
+        .expect("general state should prepare");
     let general = build_query_model_plan_with_indexes_from_scalar_planning_state(
         &query,
         &visible_indexes,
@@ -176,8 +177,8 @@ fn trivial_scalar_load_fast_path_rejects_secondary_order() {
     let query = QueryModel::<Value>::new(model_with_index(), MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("tag"))
         .limit(2);
-    let fast =
-        try_build_trivial_scalar_load_plan(&query).expect("eligibility check should not fail");
+    let fast = try_build_trivial_scalar_load_plan_for_model_only(&query)
+        .expect("eligibility check should not fail");
 
     assert!(
         fast.is_none(),
@@ -269,7 +270,7 @@ fn non_index_access_choice_seed_survives_finalize_access_choice_with_indexes() {
         "seeded by-key plans should start with the concrete non-index chosen reason",
     );
 
-    plan.finalize_access_choice_for_model_with_indexes(model, model.indexes());
+    plan.finalize_access_choice_for_model_only_with_indexes(model, model.indexes());
 
     assert_eq!(
         plan.access_choice().chosen_reason.code(),
@@ -302,12 +303,12 @@ fn finalize_access_choice_prefers_stored_non_index_snapshot_over_shape_projectio
         static_planning_shape: None,
     };
 
-    plan.finalize_access_choice_for_model_with_indexes(model, model.indexes());
+    plan.finalize_access_choice_for_model_only_with_indexes(model, model.indexes());
 
     assert_eq!(
         plan.access_choice().chosen_reason.code(),
         "non_index_access",
-        "finalize_access_choice_for_model_with_indexes should now trust the stored planner-owned non-index snapshot instead of reprojecting from the selected access shape",
+        "finalize_access_choice_for_model_only_with_indexes should now trust the stored planner-owned non-index snapshot instead of reprojecting from the selected access shape",
     );
 }
 
