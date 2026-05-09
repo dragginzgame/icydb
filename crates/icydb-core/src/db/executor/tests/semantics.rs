@@ -97,11 +97,11 @@ where
         .plan()
         .expect("grouped execution pipeline snapshot should build compiled query");
     let executable = crate::db::executor::PreparedExecutionPlan::from(compiled);
-    validate_executor_plan_for_authority(
-        &EntityAuthority::for_type::<E>(),
-        executable.logical_plan(),
-    )
-    .expect("grouped execution pipeline snapshot should validate executor boundary");
+    let authority = EntityAuthority::for_type::<E>().with_cursor_schema_info_for_test(
+        crate::db::schema::SchemaInfo::cached_for_entity_model(E::MODEL).clone(),
+    );
+    validate_executor_plan_for_authority(&authority, executable.logical_plan())
+        .expect("grouped execution pipeline snapshot should validate executor boundary");
     let grouped_handoff =
         crate::db::query::plan::grouped_executor_handoff(executable.logical_plan())
             .expect("grouped execution pipeline snapshot should project grouped handoff");
