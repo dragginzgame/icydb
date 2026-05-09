@@ -372,7 +372,6 @@ fn global_distinct_grouped_runtime_keeps_prepared_authority() {
 fn generated_only_prepared_plan_constructor_is_test_only() {
     let prepared_plan = read_source("src/db/executor/prepared_execution_plan/mod.rs");
     let executor_mod = read_source("src/db/executor/mod.rs");
-    let entity_authority = read_source("src/db/executor/authority/entity.rs");
     let query_intent = read_source("src/db/query/intent/query.rs");
     let save_mod = read_source("src/db/executor/mutation/save/mod.rs");
     let save_validation = read_source("src/db/executor/mutation/save_validation.rs");
@@ -400,16 +399,6 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
     assert!(
         query_intent.contains("#[cfg(test)]\n    pub(in crate::db) fn into_plan("),
         "compiled-query plan extraction must remain test-only with the generated-only prepared-plan conversion",
-    );
-    assert!(
-        entity_authority.contains("if !plan.has_static_planning_shape()")
-            && entity_authority
-                .contains("executor plan validation requires planner-frozen static shape",)
-            && entity_authority.contains("validate_access_runtime_invariants_model(")
-            && !entity_authority.contains("fn schema_info(")
-            && !entity_authority.contains("SchemaInfo::cached_for_entity_model(self.model)")
-            && !entity_authority.contains("validate_access_structure_model(self.schema_info()"),
-        "executor plan validation must require planner-frozen static shape and schema-free runtime access invariants instead of reopening generated schema authority",
     );
     assert!(
         save_mod.contains("accepted_schema_info: SchemaInfo,")
@@ -470,6 +459,32 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
                 "apply_lowered_base_query_shape_with_schema("
             ),
         "session explain binding and access-choice finalization must use accepted SchemaInfo instead of generated schema fallback",
+    );
+}
+
+#[test]
+fn executor_plan_validation_uses_accepted_schema_info() {
+    let access_mod = read_source("src/db/access/mod.rs");
+    let access_validate = read_source("src/db/access/validate.rs");
+    let entity_authority = read_source("src/db/executor/authority/entity.rs");
+
+    assert!(
+        entity_authority.contains("if !plan.has_static_planning_shape()")
+            && entity_authority
+                .contains("executor plan validation requires planner-frozen static shape",)
+            && entity_authority.contains("executor plan validation requires accepted schema info")
+            && entity_authority.contains("validate_access_runtime_invariants_with_schema(")
+            && !entity_authority.contains("fn schema_info(")
+            && !entity_authority.contains("SchemaInfo::cached_for_entity_model(self.model)")
+            && !entity_authority.contains("validate_access_runtime_invariants_model(")
+            && !entity_authority.contains("validate_access_structure_model(self.schema_info()"),
+        "executor plan validation must require planner-frozen static shape and authority-carried accepted schema info instead of reopening generated schema authority",
+    );
+    assert!(
+        access_mod.contains("validate_access_runtime_invariants_with_schema")
+            && access_validate.contains("schema.field_is_indexed(field)")
+            && !access_validate.contains("fn validate_index_reference_model("),
+        "runtime access validation must check index references through schema info instead of generated entity model membership",
     );
 }
 
@@ -619,10 +634,17 @@ fn typed_runtime_dispatch_selects_accepted_entity_authority_at_session_boundary(
     let session_sql_execute = read_source("src/db/session/sql/execute/mod.rs");
     let session_sql_explain = read_source("src/db/session/sql/execute/explain.rs");
     let session_sql_write = read_source("src/db/session/sql/execute/write.rs");
+    let entity_authority = read_source("src/db/executor/authority/entity.rs");
 
     assert!(
         session_mod.contains("pub(in crate::db) fn accepted_entity_authority<E>")
             && session_mod.contains("pub(in crate::db) fn accepted_entity_authority_for_schema<E>")
+            && session_mod.contains("EntityAuthority::from_accepted_schema_for_type::<E>(")
+            && !session_mod.contains("EntityAuthority::for_type::<E>()")
+            && entity_authority.contains("fn from_accepted_schema_for_type<E>")
+            && entity_authority
+                .contains("AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(")
+            && entity_authority.contains("with_accepted_row_decode_contract(")
             && session_query_cache.contains("accepted_entity_authority::<E>()")
             && session_query_cache.contains("cached_shared_query_plan_for_accepted_authority(")
             && !session_query_cache.contains("EntityAuthority::for_type::<E>()")
@@ -649,8 +671,6 @@ fn cursor_boundary_validation_uses_authority_schema_info() {
     let continuation = read_source("src/db/query/plan/continuation.rs");
     let entity_authority = read_source("src/db/executor/authority/entity.rs");
     let entity_authority_compact = compact_source(&entity_authority);
-    let session_mod = read_source("src/db/session/mod.rs");
-    let session_mod_compact = compact_source(&session_mod);
 
     assert!(
         cursor_boundary.contains("schema: &SchemaInfo,")
@@ -670,7 +690,7 @@ fn cursor_boundary_validation_uses_authority_schema_info() {
                 .contains("fncursor_schema_info(&self)->Result<&SchemaInfo,CursorPlanError>")
             && entity_authority.contains("contract.prepare_scalar_cursor(")
             && entity_authority.contains("contract.revalidate_scalar_cursor(")
-            && session_mod_compact.contains(
+            && entity_authority_compact.contains(
                 "authority.with_accepted_row_decode_contract(row_shape,row_decode_contract,schema_info",
             ),
         "entity authority must carry accepted schema info into scalar cursor validation",

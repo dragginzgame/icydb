@@ -2,7 +2,7 @@
 use crate::model::field::FieldModel;
 use crate::{
     db::{
-        access::validate_access_runtime_invariants_model,
+        access::validate_access_runtime_invariants_with_schema,
         cursor::{CursorPlanError, PlannedCursor},
         data::StorageKey,
         executor::{planning::route::AggregateRouteShape, terminal::RowLayout},
@@ -12,7 +12,10 @@ use crate::{
             PlannedContinuationContract, covering_hybrid_projection_plan_with_schema_info,
             covering_read_execution_plan_with_schema_info,
         },
-        schema::{AcceptedGeneratedCompatibleRowShape, AcceptedRowDecodeContract, SchemaInfo},
+        schema::{
+            AcceptedGeneratedCompatibleRowShape, AcceptedRowDecodeContract,
+            AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot, SchemaInfo,
+        },
     },
     error::InternalError,
     metrics::sink::{
@@ -68,6 +71,36 @@ impl EntityAuthority {
     #[must_use]
     pub const fn for_type<E: EntityKind>() -> Self {
         Self::new(E::MODEL, E::ENTITY_TAG, E::Store::PATH)
+    }
+
+    /// Build typed executor authority from an accepted schema snapshot.
+    ///
+    /// The generated model remains the compatibility proof input until
+    /// accepted snapshots own every index/layout fact directly, but callers get
+    /// back only authority with accepted row decode and schema info attached.
+    pub(in crate::db) fn from_accepted_schema_for_type<E>(
+        accepted_schema: &AcceptedSchemaSnapshot,
+    ) -> Result<Self, InternalError>
+    where
+        E: EntityKind,
+    {
+        let authority = Self::for_type::<E>();
+        let (accepted_row_layout, row_shape) =
+            AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(
+                accepted_schema,
+                authority.model(),
+            )?;
+        let row_decode_contract = accepted_row_layout.row_decode_contract();
+        let schema_info =
+            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), accepted_schema);
+
+        Ok(
+            authority.with_accepted_row_decode_contract(
+                row_shape,
+                row_decode_contract,
+                schema_info,
+            ),
+        )
     }
 
     /// Return authority with row decode frozen from accepted schema field contracts.
@@ -214,7 +247,13 @@ impl EntityAuthority {
             )));
         }
 
-        validate_access_runtime_invariants_model(self.model, &plan.access)
+        let schema_info = self.accepted_schema_info.as_ref().ok_or_else(|| {
+            InternalError::query_executor_invariant(
+                "executor plan validation requires accepted schema info",
+            )
+        })?;
+
+        validate_access_runtime_invariants_with_schema(schema_info.as_ref(), &plan.access)
             .map_err(crate::db::access::AccessPlanError::into_internal_error)
     }
 

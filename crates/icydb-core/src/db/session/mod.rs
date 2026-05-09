@@ -437,31 +437,6 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    // Derive executor authority from one accepted schema snapshot. This keeps
-    // row layout, cursor schema info, and schema compatibility proof selection
-    // in the same session-owned bootstrap path.
-    fn accepted_authority_for_schema(
-        authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
-    ) -> Result<EntityAuthority, InternalError> {
-        let (accepted_row_layout, row_shape) =
-            AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(
-                accepted_schema,
-                authority.model(),
-            )?;
-        let row_decode_contract = accepted_row_layout.row_decode_contract();
-        let schema_info =
-            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), accepted_schema);
-
-        Ok(
-            authority.with_accepted_row_decode_contract(
-                row_shape,
-                row_decode_contract,
-                schema_info,
-            ),
-        )
-    }
-
     // Derive typed executor authority from an accepted snapshot the caller
     // already loaded, avoiding a second schema-store pass in SQL write/select
     // adapters that need both write descriptors and read selector authority.
@@ -471,7 +446,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        Self::accepted_authority_for_schema(EntityAuthority::for_type::<E>(), accepted_schema)
+        EntityAuthority::from_accepted_schema_for_type::<E>(accepted_schema)
     }
 
     // Load the accepted schema snapshot and derive the matching typed executor

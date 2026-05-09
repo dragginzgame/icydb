@@ -68,13 +68,13 @@ pub(crate) fn validate_access_structure_model(
     access.validate(schema, model)
 }
 
-/// Validate executor-owned access invariants that do not require schema
-/// type authority.
-pub(in crate::db) fn validate_access_runtime_invariants_model(
-    model: &EntityModel,
+/// Validate executor-owned access invariants against schema-index facts without
+/// reopening generated entity model authority.
+pub(in crate::db) fn validate_access_runtime_invariants_with_schema(
+    schema: &SchemaInfo,
     access: &AccessPlan<Value>,
 ) -> Result<(), AccessPlanError> {
-    access.validate_runtime_invariants(model)
+    access.validate_runtime_invariants(schema)
 }
 
 // Validate that a primary-key literal matches the entity primary-key schema.
@@ -310,13 +310,13 @@ impl AccessPlan<Value> {
         }
     }
 
-    // Validate schema-free access invariants at executor runtime boundaries.
-    fn validate_runtime_invariants(&self, model: &EntityModel) -> Result<(), AccessPlanError> {
+    // Validate executor-runtime access invariants through accepted schema facts.
+    fn validate_runtime_invariants(&self, schema: &SchemaInfo) -> Result<(), AccessPlanError> {
         match self {
-            Self::Path(path) => path.validate_runtime_invariants(model),
+            Self::Path(path) => path.validate_runtime_invariants(schema),
             Self::Union(children) | Self::Intersection(children) => {
                 for child in children {
-                    child.validate_runtime_invariants(model)?;
+                    child.validate_runtime_invariants(schema)?;
                 }
 
                 Ok(())
@@ -353,23 +353,23 @@ impl AccessPath<Value> {
         }
     }
 
-    // Validate schema-free concrete path invariants.
-    fn validate_runtime_invariants(&self, model: &EntityModel) -> Result<(), AccessPlanError> {
+    // Validate concrete path invariants through accepted schema facts.
+    fn validate_runtime_invariants(&self, schema: &SchemaInfo) -> Result<(), AccessPlanError> {
         match self {
             Self::ByKey(_) | Self::ByKeys(_) | Self::FullScan => Ok(()),
             Self::KeyRange { start, end } => validate_pk_range_runtime(start, end),
             Self::IndexPrefix { index, values } => {
-                validate_index_reference_model(model, index)?;
+                validate_index_reference_with_schema(schema, index)?;
                 validate_index_prefix_shape(index, values.len())
             }
             Self::IndexMultiLookup { index, values } => {
-                validate_index_reference_model(model, index)?;
+                validate_index_reference_with_schema(schema, index)?;
                 if values.is_empty() {
                     return Err(AccessPlanError::IndexPrefixEmpty);
                 }
                 validate_index_prefix_shape(index, 1)
             }
-            Self::IndexRange { spec } => validate_index_range_runtime(model, spec),
+            Self::IndexRange { spec } => validate_index_range_runtime(schema, spec),
         }
     }
 }
@@ -383,11 +383,15 @@ fn validate_pk_range_runtime(start: &Value, end: &Value) -> Result<(), AccessPla
     Ok(())
 }
 
-fn validate_index_reference_model(
-    model: &EntityModel,
+fn validate_index_reference_with_schema(
+    schema: &SchemaInfo,
     index: &IndexModel,
 ) -> Result<(), AccessPlanError> {
-    if model.indexes.contains(&index) {
+    if index
+        .fields()
+        .iter()
+        .all(|field| schema.field(field).is_some() && schema.field_is_indexed(field))
+    {
         return Ok(());
     }
 
@@ -414,7 +418,7 @@ const fn validate_index_prefix_shape(
 }
 
 fn validate_index_range_runtime(
-    model: &EntityModel,
+    schema: &SchemaInfo,
     spec: &SemanticIndexRangeSpec,
 ) -> Result<(), AccessPlanError> {
     let index = spec.index();
@@ -422,7 +426,7 @@ fn validate_index_range_runtime(
     let lower = spec.lower();
     let upper = spec.upper();
 
-    validate_index_reference_model(model, index)?;
+    validate_index_reference_with_schema(schema, index)?;
 
     if prefix.len() >= index.fields().len() {
         return Err(AccessPlanError::IndexPrefixTooLong {
