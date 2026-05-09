@@ -13,7 +13,7 @@ use crate::{
     model::{
         canonicalize_strict_sql_literal_for_kind,
         entity::EntityModel,
-        field::{FieldKind, FieldModel},
+        field::{FieldKind, FieldModel, LeafCodec},
     },
     value::Value,
 };
@@ -92,6 +92,8 @@ struct SchemaFieldInfo {
     slot: usize,
     ty: FieldType,
     kind: Option<FieldKind>,
+    nullable: bool,
+    leaf_codec: LeafCodec,
     sql_capabilities: SqlCapabilities,
     persisted_kind: Option<PersistedFieldKind>,
     indexed: bool,
@@ -120,6 +122,8 @@ impl SchemaInfo {
                         slot,
                         ty: field_type_from_model_kind(&field.kind()),
                         kind: Some(field.kind()),
+                        nullable: field.nullable(),
+                        leaf_codec: field.leaf_codec(),
                         sql_capabilities: sql_capabilities(&PersistedFieldKind::from_model_kind(
                             field.kind(),
                         )),
@@ -175,6 +179,29 @@ impl SchemaInfo {
     #[must_use]
     pub(in crate::db) fn field_slot_index(&self, name: &str) -> Option<usize> {
         schema_field_info(self.fields.as_slice(), name).map(|field| field.slot)
+    }
+
+    /// Return whether one top-level field permits explicit persisted `NULL`.
+    ///
+    /// Accepted schema views source this from persisted field snapshots, while
+    /// generated schema views retain generated field metadata for test-only
+    /// compatibility callers.
+    #[must_use]
+    pub(in crate::db) fn field_nullable(&self, name: &str) -> Option<bool> {
+        schema_field_info(self.fields.as_slice(), name).map(|field| field.nullable)
+    }
+
+    /// Return whether one top-level row slot is backed by a scalar leaf codec.
+    ///
+    /// Accepted schema views source this from persisted field snapshots, giving
+    /// predicate fast-path classification schema authority instead of generated
+    /// model field tables.
+    #[must_use]
+    pub(in crate::db) fn field_slot_has_scalar_leaf(&self, slot: usize) -> bool {
+        self.fields
+            .iter()
+            .find(|(_, field)| field.slot == slot)
+            .is_some_and(|(_, field)| matches!(field.leaf_codec, LeafCodec::Scalar(_)))
     }
 
     /// Borrow the schema-owned entity name when this schema view was built
@@ -350,6 +377,8 @@ impl SchemaInfo {
                         slot,
                         ty: field_type_from_persisted_kind(field.kind()),
                         kind: generated_kind,
+                        nullable: field.nullable(),
+                        leaf_codec: field.leaf_codec(),
                         sql_capabilities: sql_capabilities(field.kind()),
                         persisted_kind: Some(field.kind().clone()),
                         indexed: generated_field_is_indexed(model, field.name()),

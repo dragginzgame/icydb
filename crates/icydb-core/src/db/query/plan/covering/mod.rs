@@ -18,6 +18,7 @@ use crate::db::{
         AccessPlannedQuery, DeterministicSecondaryIndexOrderMatch, FieldSlot, OrderDirection,
         OrderSpec, expr::ProjectionSpec, index_order_terms,
     },
+    schema::SchemaInfo,
 };
 use crate::{
     model::{
@@ -230,6 +231,25 @@ pub(in crate::db) fn covering_read_plan_from_fields(
     )
 }
 
+/// Derive one planner-owned scalar covering-read plan from accepted schema
+/// authority plus the frozen projection contract on the plan.
+#[must_use]
+pub(in crate::db) fn covering_read_plan_with_schema_info(
+    schema: &SchemaInfo,
+    plan: &AccessPlannedQuery,
+    primary_key_name: &'static str,
+    strict_predicate_compatible: bool,
+) -> Option<CoveringReadPlan> {
+    covering_index_projection_plan(
+        |field_name| resolve_covering_field_slot_with_schema(schema, field_name),
+        plan,
+        primary_key_name,
+        strict_predicate_compatible,
+        CoveringProjectionFieldSourcePolicy::StrictCovering,
+        false,
+    )
+}
+
 /// Derive one planner-owned hybrid direct-field projection plan for projection
 /// consumers that can mix covering fields with sparse row-backed fields over
 /// the same index-backed access path.
@@ -244,6 +264,7 @@ pub(in crate::db) fn covering_read_plan_from_fields(
 /// - projected fields may still be primary-key, constant, or index-backed
 ///   alongside those row-backed fields
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn covering_hybrid_projection_plan_from_fields(
     fields: &[FieldModel],
     plan: &AccessPlannedQuery,
@@ -251,6 +272,24 @@ pub(in crate::db) fn covering_hybrid_projection_plan_from_fields(
 ) -> Option<CoveringReadPlan> {
     covering_index_projection_plan_from_fields(
         fields,
+        plan,
+        primary_key_name,
+        false,
+        CoveringProjectionFieldSourcePolicy::HybridRowFallback,
+        true,
+    )
+}
+
+/// Derive one planner-owned hybrid direct-field projection plan from accepted
+/// schema authority.
+#[must_use]
+pub(in crate::db) fn covering_hybrid_projection_plan_with_schema_info(
+    schema: &SchemaInfo,
+    plan: &AccessPlannedQuery,
+    primary_key_name: &'static str,
+) -> Option<CoveringReadPlan> {
+    covering_index_projection_plan(
+        |field_name| resolve_covering_field_slot_with_schema(schema, field_name),
         plan,
         primary_key_name,
         false,
@@ -286,6 +325,33 @@ pub(in crate::db) fn covering_read_execution_plan_from_fields(
     // store itself, so they do not inherit secondary-index stale-entry risk.
     let (covering, existing_row_mode) =
         primary_store_covering_plan_from_fields(fields, plan, primary_key_name)?;
+
+    Some(covering_read_execution_plan(covering, existing_row_mode))
+}
+
+/// Derive one execution-grade scalar covering-read plan from accepted schema
+/// authority plus the planner-owned projection contract.
+#[must_use]
+pub(in crate::db) fn covering_read_execution_plan_with_schema_info(
+    schema: &SchemaInfo,
+    plan: &AccessPlannedQuery,
+    primary_key_name: &'static str,
+    strict_predicate_compatible: bool,
+) -> Option<CoveringReadExecutionPlan> {
+    if let Some(covering) = covering_read_plan_with_schema_info(
+        schema,
+        plan,
+        primary_key_name,
+        strict_predicate_compatible,
+    ) {
+        return Some(covering_read_execution_plan(
+            covering,
+            CoveringExistingRowMode::ProvenByPlanner,
+        ));
+    }
+
+    let (covering, existing_row_mode) =
+        primary_store_covering_plan_with_schema_info(schema, plan, primary_key_name)?;
 
     Some(covering_read_execution_plan(covering, existing_row_mode))
 }
@@ -411,8 +477,8 @@ fn covering_read_execution_plan(
 // - exact primary-key lookup (`ByKey` / `ByKeys`), which still requires row
 //   presence checks because the access payload names keys rather than proving
 //   their existence
-fn primary_store_covering_plan_from_fields(
-    fields: &[FieldModel],
+fn primary_store_covering_plan(
+    mut resolve_field_slot: impl FnMut(&str) -> Option<FieldSlot>,
     plan: &AccessPlannedQuery,
     primary_key_name: &'static str,
 ) -> Option<(CoveringReadPlan, CoveringExistingRowMode)> {
@@ -443,7 +509,7 @@ fn primary_store_covering_plan_from_fields(
         source_policy: CoveringProjectionFieldSourcePolicy::StrictCovering,
     };
     let fields = covering_projection_fields_from_projection(
-        fields,
+        &mut resolve_field_slot,
         plan.frozen_projection_spec(),
         source_context,
     )?;
@@ -468,6 +534,30 @@ fn primary_store_covering_plan_from_fields(
         },
         access_facts.existing_row_mode,
     ))
+}
+
+fn primary_store_covering_plan_from_fields(
+    fields: &[FieldModel],
+    plan: &AccessPlannedQuery,
+    primary_key_name: &'static str,
+) -> Option<(CoveringReadPlan, CoveringExistingRowMode)> {
+    primary_store_covering_plan(
+        |field_name| resolve_covering_field_slot(fields, field_name),
+        plan,
+        primary_key_name,
+    )
+}
+
+fn primary_store_covering_plan_with_schema_info(
+    schema: &SchemaInfo,
+    plan: &AccessPlannedQuery,
+    primary_key_name: &'static str,
+) -> Option<(CoveringReadPlan, CoveringExistingRowMode)> {
+    primary_store_covering_plan(
+        |field_name| resolve_covering_field_slot_with_schema(schema, field_name),
+        plan,
+        primary_key_name,
+    )
 }
 
 // Resolve one constant projection value from index-prefix component bindings.
@@ -566,8 +656,8 @@ fn prepare_covering_index_projection_plan<'a>(
 
 // Derive one index-backed covering plan from the shared access/order contract
 // plus one field-source resolver for the requested covering surface.
-fn covering_index_projection_plan_from_fields(
-    fields: &[FieldModel],
+fn covering_index_projection_plan(
+    mut resolve_field_slot: impl FnMut(&str) -> Option<FieldSlot>,
     plan: &AccessPlannedQuery,
     primary_key_name: &'static str,
     residual_filter_predicate_supported: bool,
@@ -592,7 +682,7 @@ fn covering_index_projection_plan_from_fields(
         source_policy,
     };
     let fields = covering_projection_fields_from_projection(
-        fields,
+        &mut resolve_field_slot,
         plan.frozen_projection_spec(),
         source_context,
     )?;
@@ -612,6 +702,24 @@ fn covering_index_projection_plan_from_fields(
         prefix_len: metadata.prefix_len,
         order_contract,
     })
+}
+
+fn covering_index_projection_plan_from_fields(
+    fields: &[FieldModel],
+    plan: &AccessPlannedQuery,
+    primary_key_name: &'static str,
+    residual_filter_predicate_supported: bool,
+    source_policy: CoveringProjectionFieldSourcePolicy,
+    require_row_field: bool,
+) -> Option<CoveringReadPlan> {
+    covering_index_projection_plan(
+        |field_name| resolve_covering_field_slot(fields, field_name),
+        plan,
+        primary_key_name,
+        residual_filter_predicate_supported,
+        source_policy,
+        require_row_field,
+    )
 }
 
 ///
@@ -715,7 +823,7 @@ struct CoveringProjectionSourceContext<'a> {
 // one explicit policy surface so pure and hybrid covering plans share the same
 // projection-walk and field-slot resolution contract.
 fn covering_projection_fields_from_projection(
-    fields: &[FieldModel],
+    resolve_field_slot: &mut impl FnMut(&str) -> Option<FieldSlot>,
     projection: &ProjectionSpec,
     source_context: CoveringProjectionSourceContext<'_>,
 ) -> Option<Vec<CoveringReadField>> {
@@ -723,7 +831,7 @@ fn covering_projection_fields_from_projection(
 
     for projection_field in projection.fields() {
         let field_name = projection_field.direct_field_name()?;
-        let field_slot = resolve_covering_field_slot(fields, field_name)?;
+        let field_slot = resolve_field_slot(field_name)?;
         let source = covering_projection_field_source(field_name, source_context)?;
         projection_fields.push(CoveringReadField { field_slot, source });
     }
@@ -743,6 +851,19 @@ fn resolve_covering_field_slot(fields: &[FieldModel], field_name: &str) -> Optio
         index,
         field: field.name().to_string(),
         kind: Some(field.kind()),
+    })
+}
+
+// Resolve one covering field against accepted schema authority without
+// reopening the wider semantic entity model.
+fn resolve_covering_field_slot_with_schema(
+    schema: &SchemaInfo,
+    field_name: &str,
+) -> Option<FieldSlot> {
+    Some(FieldSlot {
+        index: schema.field_slot_index(field_name)?,
+        field: field_name.to_string(),
+        kind: schema.field_kind(field_name).copied(),
     })
 }
 

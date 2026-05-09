@@ -11,6 +11,8 @@ mod tests;
 use crate::db::predicate::runtime::compare::{
     eval_compare_scalar_slot, eval_compare_values, is_empty_value, text_contains_scalar,
 };
+#[cfg(test)]
+use crate::model::entity::EntityModel;
 use crate::{
     db::{
         data::{CanonicalSlotReader, ScalarSlotValueRef, ScalarValueRef, StructuralRowContract},
@@ -20,8 +22,9 @@ use crate::{
             ScalarPredicateCapability, classify_predicate_capabilities,
         },
         query::plan::expr::CompiledPredicate,
+        schema::SchemaInfo,
     },
-    model::{entity::EntityModel, field::LeafCodec},
+    model::field::LeafCodec,
     value::{TextMode, Value},
 };
 use std::borrow::Cow;
@@ -58,11 +61,21 @@ enum PredicateExecutionMode {
 impl PredicateProgram {
     /// Compile a predicate into a slot-based executable form using structural model data only.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) fn compile(model: &EntityModel, predicate: &Predicate) -> Self {
+        Self::compile_with_schema_info(SchemaInfo::cached_for_entity_model(model), predicate)
+    }
+
+    /// Compile a predicate through explicit schema field-slot and scalar-leaf authority.
+    #[must_use]
+    pub(in crate::db) fn compile_with_schema_info(
+        schema_info: &SchemaInfo,
+        predicate: &Predicate,
+    ) -> Self {
         let executable = compile_predicate_program_with_resolver(predicate, &|field_name| {
-            model.resolve_field_slot(field_name)
+            schema_info.field_slot_index(field_name)
         });
-        let compiled = if compile_scalar_predicate_program(model, &executable) {
+        let compiled = if compile_scalar_predicate_program(schema_info, &executable) {
             PredicateExecutionMode::Scalar
         } else {
             PredicateExecutionMode::Generic
@@ -231,8 +244,15 @@ fn compile_predicate_program_with_resolver(
 
 // Admit scalar fast-path execution only when the canonical executable tree
 // stays entirely on the scalar slot seam.
-fn compile_scalar_predicate_program(model: &EntityModel, predicate: &ExecutablePredicate) -> bool {
-    classify_predicate_capabilities(predicate, PredicateCapabilityContext::runtime(model)).scalar()
+fn compile_scalar_predicate_program(
+    schema_info: &SchemaInfo,
+    predicate: &ExecutablePredicate,
+) -> bool {
+    classify_predicate_capabilities(
+        predicate,
+        PredicateCapabilityContext::runtime_schema(schema_info),
+    )
+    .scalar()
         == ScalarPredicateCapability::ScalarSafe
 }
 

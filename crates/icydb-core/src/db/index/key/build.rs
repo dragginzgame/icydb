@@ -3,6 +3,8 @@
 //! Does not own: raw key byte framing (codec) or index-store writes.
 //! Boundary: planning/mutation paths call into this constructor layer.
 
+#[cfg(test)]
+use crate::model::entity::EntityModel;
 use crate::{
     MAX_INDEX_FIELDS,
     db::{
@@ -12,9 +14,9 @@ use crate::{
             key::ordered::encode_canonical_index_component,
             key::{IndexId, IndexKey, IndexKeyKind, OrderedValueEncodeError},
         },
+        schema::SchemaInfo,
     },
     error::InternalError,
-    model::entity::EntityModel,
     model::index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
     types::EntityTag,
     value::Value,
@@ -37,14 +39,14 @@ fn value_for_expression(
     })
 }
 
-fn index_component_bytes_from_slot_ref_reader<'a>(
-    entity_model: &EntityModel,
+fn index_component_bytes_from_slot_ref_reader_with_schema<'a>(
+    schema_info: &SchemaInfo,
     index: &IndexModel,
     key_item: IndexKeyItem,
     read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
 ) -> Result<Option<Vec<u8>>, InternalError> {
     let field = key_item.field();
-    let Some(field_index) = entity_model.resolve_field_slot(field) else {
+    let Some(field_index) = schema_info.field_slot_index(field) else {
         return Err(InternalError::index_key_item_field_missing_on_entity_model(
             field,
         ));
@@ -122,17 +124,22 @@ impl IndexKey {
         build_index_key(entity_tag, storage_key, index, &mut component_bytes)
     }
 
-    /// Build an index key from one structural row slot ref reader.
-    /// Returns `Ok(None)` when indexed values are non-indexable.
-    pub(crate) fn new_from_slot_ref_reader<'a>(
+    /// Build an index key from one structural row slot ref reader using
+    /// caller-selected schema authority.
+    pub(crate) fn new_from_slot_ref_reader_with_schema<'a>(
         entity_tag: EntityTag,
         storage_key: StorageKey,
-        entity_model: &EntityModel,
+        schema_info: &SchemaInfo,
         index: &IndexModel,
         read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
     ) -> Result<Option<Self>, InternalError> {
         let mut component_bytes = |key_item| {
-            index_component_bytes_from_slot_ref_reader(entity_model, index, key_item, read_slot)
+            index_component_bytes_from_slot_ref_reader_with_schema(
+                schema_info,
+                index,
+                key_item,
+                read_slot,
+            )
         };
 
         build_index_key(entity_tag, storage_key, index, &mut component_bytes)

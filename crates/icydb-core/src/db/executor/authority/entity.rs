@@ -1,14 +1,16 @@
+#[cfg(test)]
+use crate::model::field::FieldModel;
 use crate::{
     db::{
         access::validate_access_runtime_invariants_model,
         cursor::{CursorPlanError, PlannedCursor},
         data::StorageKey,
-        executor::terminal::RowLayout,
+        executor::{planning::route::AggregateRouteShape, terminal::RowLayout},
         index::IndexKey,
         query::plan::{
-            AccessPlannedQuery, CoveringReadExecutionPlan, CoveringReadPlan,
-            PlannedContinuationContract, covering_hybrid_projection_plan_from_fields,
-            covering_read_execution_plan_from_fields,
+            AccessPlannedQuery, AggregateKind, CoveringReadExecutionPlan, CoveringReadPlan,
+            PlannedContinuationContract, covering_hybrid_projection_plan_with_schema_info,
+            covering_read_execution_plan_with_schema_info,
         },
         schema::{AcceptedGeneratedCompatibleRowShape, AcceptedRowDecodeContract, SchemaInfo},
     },
@@ -16,7 +18,7 @@ use crate::{
     metrics::sink::{
         PreparedShapeFinalizationOutcome, record_prepared_shape_finalization_for_path,
     },
-    model::{entity::EntityModel, field::FieldModel, index::IndexModel},
+    model::{entity::EntityModel, index::IndexModel},
     traits::{EntityKind, Path},
     types::EntityTag,
     value::Value,
@@ -125,6 +127,7 @@ impl EntityAuthority {
 
     /// Borrow the authoritative generated field table for this entity.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn fields(&self) -> &'static [FieldModel] {
         self.model.fields()
     }
@@ -254,6 +257,25 @@ impl EntityAuthority {
             .map(AsRef::as_ref)
     }
 
+    /// Resolve one aggregate route shape through authority-owned schema metadata.
+    pub(in crate::db) fn aggregate_route_shape<'a>(
+        &self,
+        kind: AggregateKind,
+        target_field: Option<&'a str>,
+    ) -> Result<AggregateRouteShape<'a>, InternalError> {
+        let schema_info = self.accepted_schema_info.as_ref().ok_or_else(|| {
+            InternalError::query_executor_invariant(
+                "aggregate route shape derivation requires accepted schema info",
+            )
+        })?;
+
+        Ok(AggregateRouteShape::new_from_schema_info(
+            kind,
+            target_field,
+            schema_info,
+        ))
+    }
+
     /// Derive one covering-read execution contract through authority-owned schema metadata.
     #[must_use]
     pub(in crate::db::executor) fn covering_read_execution_plan(
@@ -261,8 +283,10 @@ impl EntityAuthority {
         plan: &AccessPlannedQuery,
         strict_predicate_compatible: bool,
     ) -> Option<CoveringReadExecutionPlan> {
-        covering_read_execution_plan_from_fields(
-            self.fields(),
+        let schema_info = self.accepted_schema_info.as_ref()?;
+
+        covering_read_execution_plan_with_schema_info(
+            schema_info,
             plan,
             self.primary_key_name,
             strict_predicate_compatible,
@@ -275,7 +299,9 @@ impl EntityAuthority {
         &self,
         plan: &AccessPlannedQuery,
     ) -> Option<CoveringReadPlan> {
-        covering_hybrid_projection_plan_from_fields(self.fields(), plan, self.primary_key_name)
+        let schema_info = self.accepted_schema_info.as_ref()?;
+
+        covering_hybrid_projection_plan_with_schema_info(schema_info, plan, self.primary_key_name)
     }
 
     /// Build one structural index key from already-materialized row slots
@@ -286,13 +312,26 @@ impl EntityAuthority {
         index: &IndexModel,
         read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
     ) -> Result<Option<IndexKey>, InternalError> {
-        IndexKey::new_from_slot_ref_reader(
+        let schema_info = self.index_key_schema_info()?;
+
+        IndexKey::new_from_slot_ref_reader_with_schema(
             self.entity_tag,
             storage_key,
-            self.model,
+            schema_info,
             index,
             read_slot,
         )
+    }
+
+    fn index_key_schema_info(&self) -> Result<&SchemaInfo, InternalError> {
+        self.accepted_schema_info
+            .as_ref()
+            .ok_or_else(|| {
+                InternalError::query_executor_invariant(
+                    "index cursor anchor derivation requires accepted schema info",
+                )
+            })
+            .map(AsRef::as_ref)
     }
 }
 

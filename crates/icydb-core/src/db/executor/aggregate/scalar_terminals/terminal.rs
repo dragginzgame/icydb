@@ -15,12 +15,11 @@ use crate::{
         },
         query::plan::{
             AccessPlannedQuery, AggregateKind, FieldSlot, GroupedAggregateExecutionSpec,
-            expr::{CompiledExpr, Expr, FieldId, compile_scalar_projection_expr_with_schema},
+            expr::{CompiledExpr, Expr, FieldId, compile_scalar_projection_expr_from_schema},
         },
         schema::SchemaInfo,
     },
     error::InternalError,
-    model::entity::EntityModel,
 };
 
 ///
@@ -59,7 +58,7 @@ impl StructuralAggregateTerminal {
         }
     }
 
-    pub(super) fn uses_shared_count_terminal(&self, model: &EntityModel) -> bool {
+    pub(super) fn uses_shared_count_terminal(&self, schema: &SchemaInfo) -> bool {
         match self.kind {
             StructuralAggregateTerminalKind::CountRows => {
                 self.filter_expr.is_none() && !self.distinct
@@ -71,11 +70,10 @@ impl StructuralAggregateTerminal {
                 let Some(target_slot) = self.target_slot.as_ref() else {
                     return false;
                 };
-                let Some(field) = model.fields().get(target_slot.index()) else {
-                    return false;
-                };
 
-                !field.nullable()
+                schema
+                    .field_nullable(target_slot.field())
+                    .is_some_and(|nullable| !nullable)
             }
             StructuralAggregateTerminalKind::Sum
             | StructuralAggregateTerminalKind::Avg
@@ -414,13 +412,12 @@ impl ResolvedStructuralAggregateTerminal<'_> {
 
     fn into_prepared(
         self,
-        model: &EntityModel,
         schema: &SchemaInfo,
     ) -> Result<PreparedScalarAggregateTerminal, InternalError> {
-        let input = self.input.into_prepared(model, schema)?;
+        let input = self.input.into_prepared(schema)?;
         let filter = self
             .filter_expr
-            .map(|expr| compile_structural_aggregate_expr(model, schema, expr, "filter"))
+            .map(|expr| compile_structural_aggregate_expr(schema, expr, "filter"))
             .transpose()?;
 
         Ok(PreparedScalarAggregateTerminal::from_validated_parts(
@@ -465,11 +462,7 @@ impl ResolvedStructuralAggregateInput<'_> {
         }
     }
 
-    fn into_prepared(
-        self,
-        model: &EntityModel,
-        schema: &SchemaInfo,
-    ) -> Result<ScalarAggregateInput, InternalError> {
+    fn into_prepared(self, schema: &SchemaInfo) -> Result<ScalarAggregateInput, InternalError> {
         match self {
             Self::Rows => Ok(ScalarAggregateInput::Rows),
             Self::Field(target_slot) => Ok(ScalarAggregateInput::Field {
@@ -477,7 +470,7 @@ impl ResolvedStructuralAggregateInput<'_> {
                 field: target_slot.field().to_string(),
             }),
             Self::Expr(input_expr) => Ok(ScalarAggregateInput::Expr(
-                compile_structural_aggregate_expr(model, schema, input_expr, "input")?,
+                compile_structural_aggregate_expr(schema, input_expr, "input")?,
             )),
             Self::MissingFieldTarget => Err(InternalError::query_executor_invariant(
                 "field-target structural aggregate terminal requires a resolved field slot",
@@ -517,11 +510,10 @@ pub(super) const fn resolve_structural_aggregate_terminal(
 }
 
 pub(super) fn compile_structural_scalar_aggregate_terminal(
-    model: &EntityModel,
     schema: &SchemaInfo,
     terminal: &StructuralAggregateTerminal,
 ) -> Result<PreparedScalarAggregateTerminal, InternalError> {
-    resolve_structural_aggregate_terminal(terminal).into_prepared(model, schema)
+    resolve_structural_aggregate_terminal(terminal).into_prepared(schema)
 }
 
 impl StructuralAggregateTerminalKind {
@@ -541,7 +533,6 @@ impl StructuralAggregateTerminalKind {
 }
 
 fn compile_structural_aggregate_expr(
-    model: &EntityModel,
     schema: &SchemaInfo,
     expr: &Expr,
     label: &str,
@@ -552,12 +543,11 @@ fn compile_structural_aggregate_expr(
         )));
     }
 
-    let scalar =
-        compile_scalar_projection_expr_with_schema(model, schema, expr).ok_or_else(|| {
-            InternalError::query_executor_invariant(format!(
-                "structural aggregate {label} expression must compile on the scalar seam",
-            ))
-        })?;
+    let scalar = compile_scalar_projection_expr_from_schema(schema, expr).ok_or_else(|| {
+        InternalError::query_executor_invariant(format!(
+            "structural aggregate {label} expression must compile on the scalar seam",
+        ))
+    })?;
 
     Ok(CompiledExpr::compile(&scalar))
 }

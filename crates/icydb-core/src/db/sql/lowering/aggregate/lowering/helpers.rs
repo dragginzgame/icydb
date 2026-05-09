@@ -32,7 +32,7 @@ pub(in crate::db::sql::lowering::aggregate) fn validate_model_bound_scalar_expr(
     if let Some(field) = analyze_lowered_expr(expr, Some(model)).first_unknown_field() {
         return Err(SqlLoweringError::unknown_field(field));
     }
-    if compile_scalar_projection_expr_with_schema(model, schema, expr).is_none() {
+    if compile_scalar_projection_expr_with_schema(schema, expr).is_none() {
         return Err(unsupported());
     }
 

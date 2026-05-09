@@ -5,19 +5,14 @@
 
 use crate::db::query::plan::expr::{PathSpec, UnaryOp};
 #[cfg(test)]
-use crate::db::scalar_expr::{ScalarValueProgram, compile_scalar_field_program};
-#[cfg(test)]
 use crate::db::scalar_expr::{compile_scalar_literal_expr_value, scalar_expr_value_into_value};
-use crate::value::Value;
-use crate::{
-    db::{
-        query::plan::expr::{
-            BinaryOp, CompiledPath, Expr, FieldPath, ProjectionField, ProjectionSpec,
-        },
-        schema::SchemaInfo,
-    },
-    model::entity::EntityModel,
+use crate::db::{
+    query::plan::expr::{BinaryOp, CompiledPath, Expr, FieldPath, ProjectionField, ProjectionSpec},
+    schema::SchemaInfo,
 };
+#[cfg(test)]
+use crate::model::entity::EntityModel;
+use crate::value::Value;
 
 ///
 /// ScalarProjectionExpr
@@ -138,8 +133,6 @@ impl ScalarProjectionCaseArm {
 pub(in crate::db) struct ScalarProjectionField {
     field: String,
     slot: usize,
-    #[cfg(test)]
-    program: Option<ScalarValueProgram>,
 }
 
 impl ScalarProjectionField {
@@ -164,11 +157,7 @@ pub(in crate::db) fn compile_scalar_projection_expr(
     model: &EntityModel,
     expr: &Expr,
 ) -> Option<ScalarProjectionExpr> {
-    compile_scalar_projection_expr_with_schema(
-        model,
-        SchemaInfo::cached_for_entity_model(model),
-        expr,
-    )
+    compile_scalar_projection_expr_with_schema(SchemaInfo::cached_for_entity_model(model), expr)
 }
 
 /// Compile one scalar projection expression using an explicit schema authority.
@@ -178,18 +167,37 @@ pub(in crate::db) fn compile_scalar_projection_expr(
 /// slot order.
 #[must_use]
 pub(in crate::db) fn compile_scalar_projection_expr_with_schema(
-    model: &EntityModel,
+    schema: &SchemaInfo,
+    expr: &Expr,
+) -> Option<ScalarProjectionExpr> {
+    compile_scalar_projection_expr_with_schema_authority(schema, expr)
+}
+
+/// Compile one scalar projection expression using only schema authority.
+///
+/// Runtime consumers use this explicit entrypoint when the surrounding call
+/// site wants to document that generated model metadata is outside the
+/// projection compiler boundary.
+#[must_use]
+pub(in crate::db) fn compile_scalar_projection_expr_from_schema(
+    schema: &SchemaInfo,
+    expr: &Expr,
+) -> Option<ScalarProjectionExpr> {
+    compile_scalar_projection_expr_with_schema_authority(schema, expr)
+}
+
+fn compile_scalar_projection_expr_with_schema_authority(
     schema: &SchemaInfo,
     expr: &Expr,
 ) -> Option<ScalarProjectionExpr> {
     match expr {
-        Expr::Field(field_id) => compile_scalar_field_reference(model, schema, field_id.as_str()),
+        Expr::Field(field_id) => compile_scalar_field_reference(schema, field_id.as_str()),
         Expr::FieldPath(path) => compile_scalar_field_path_reference(schema, path),
         Expr::Literal(value) => Some(compile_scalar_literal(value)),
         Expr::FunctionCall { function, args } => {
             let args = args
                 .iter()
-                .map(|arg| compile_scalar_projection_expr_with_schema(model, schema, arg))
+                .map(|arg| compile_scalar_projection_expr_with_schema_authority(schema, arg))
                 .collect::<Option<Vec<_>>>()?;
 
             Some(ScalarProjectionExpr::FunctionCall {
@@ -198,12 +206,12 @@ pub(in crate::db) fn compile_scalar_projection_expr_with_schema(
             })
         }
         Expr::Unary { op, expr } => {
-            compile_scalar_projection_expr_with_schema(model, schema, expr.as_ref()).map(|expr| {
-                ScalarProjectionExpr::Unary {
+            compile_scalar_projection_expr_with_schema_authority(schema, expr.as_ref()).map(
+                |expr| ScalarProjectionExpr::Unary {
                     op: *op,
                     expr: Box::new(expr),
-                }
-            })
+                },
+            )
         }
         Expr::Case {
             when_then_arms,
@@ -213,13 +221,16 @@ pub(in crate::db) fn compile_scalar_projection_expr_with_schema(
                 .iter()
                 .map(|arm| {
                     Some(ScalarProjectionCaseArm::new(
-                        compile_scalar_projection_expr_with_schema(model, schema, arm.condition())?,
-                        compile_scalar_projection_expr_with_schema(model, schema, arm.result())?,
+                        compile_scalar_projection_expr_with_schema_authority(
+                            schema,
+                            arm.condition(),
+                        )?,
+                        compile_scalar_projection_expr_with_schema_authority(schema, arm.result())?,
                     ))
                 })
                 .collect::<Option<Vec<_>>>()?;
             let else_expr =
-                compile_scalar_projection_expr_with_schema(model, schema, else_expr.as_ref())?;
+                compile_scalar_projection_expr_with_schema_authority(schema, else_expr.as_ref())?;
 
             Some(ScalarProjectionExpr::Case {
                 when_then_arms,
@@ -227,8 +238,9 @@ pub(in crate::db) fn compile_scalar_projection_expr_with_schema(
             })
         }
         Expr::Binary { op, left, right } => {
-            let left = compile_scalar_projection_expr_with_schema(model, schema, left.as_ref())?;
-            let right = compile_scalar_projection_expr_with_schema(model, schema, right.as_ref())?;
+            let left = compile_scalar_projection_expr_with_schema_authority(schema, left.as_ref())?;
+            let right =
+                compile_scalar_projection_expr_with_schema_authority(schema, right.as_ref())?;
 
             Some(ScalarProjectionExpr::Binary {
                 op: *op,
@@ -239,7 +251,7 @@ pub(in crate::db) fn compile_scalar_projection_expr_with_schema(
         Expr::Aggregate(_) => None,
         #[cfg(test)]
         Expr::Alias { expr, .. } => {
-            compile_scalar_projection_expr_with_schema(model, schema, expr.as_ref())
+            compile_scalar_projection_expr_with_schema_authority(schema, expr.as_ref())
         }
     }
 }
@@ -251,14 +263,13 @@ pub(in crate::db) fn compile_scalar_projection_expr_with_schema(
 /// model order.
 #[must_use]
 pub(in crate::db) fn compile_scalar_projection_plan_with_schema(
-    model: &EntityModel,
     schema: &SchemaInfo,
     projection: &ProjectionSpec,
 ) -> Option<Vec<ScalarProjectionExpr>> {
     let mut compiled_fields = Vec::with_capacity(projection.len());
 
     for field in projection.fields() {
-        compiled_fields.push(compile_scalar_projection_field(model, schema, field)?);
+        compiled_fields.push(compile_scalar_projection_field(schema, field)?);
     }
 
     Some(compiled_fields)
@@ -282,24 +293,16 @@ fn compile_scalar_field_path_reference(
 }
 
 // Field references are the only scalar projection leaves that need schema slot
-// resolution and test-only field-program derivation before recursion continues.
+// resolution before recursion continues.
 fn compile_scalar_field_reference(
-    model: &EntityModel,
     schema: &SchemaInfo,
     field_name: &str,
 ) -> Option<ScalarProjectionExpr> {
-    #[cfg(not(test))]
-    let _ = model;
-
     let slot = schema.field_slot_index(field_name)?;
-    #[cfg(test)]
-    let program = compile_scalar_field_program(model, field_name);
 
     Some(ScalarProjectionExpr::Field(ScalarProjectionField {
         field: field_name.to_string(),
         slot,
-        #[cfg(test)]
-        program,
     }))
 }
 
@@ -327,11 +330,10 @@ fn compile_scalar_literal(value: &Value) -> ScalarProjectionExpr {
 // Projection-plan compilation only admits scalar projection fields at this
 // boundary, so the field wrapper is lowered through one shared helper.
 fn compile_scalar_projection_field(
-    model: &EntityModel,
     schema: &SchemaInfo,
     field: &ProjectionField,
 ) -> Option<ScalarProjectionExpr> {
-    compile_scalar_projection_expr_with_schema(model, schema, field.expr())
+    compile_scalar_projection_expr_with_schema(schema, field.expr())
 }
 
 ///
@@ -423,7 +425,7 @@ mod tests {
     fn scalar_field_compilation_uses_schema_slot_authority() {
         let schema = accepted_schema_with_profile_slot(SchemaFieldSlot::new(9));
         let expr = Expr::Field(ExprFieldId::new("profile"));
-        let compiled = compile_scalar_projection_expr_with_schema(&MODEL, &schema, &expr)
+        let compiled = compile_scalar_projection_expr_with_schema(&schema, &expr)
             .expect("accepted schema field slot should compile");
 
         let ScalarProjectionExpr::Field(field) = compiled else {
@@ -436,7 +438,7 @@ mod tests {
     fn scalar_field_path_compilation_uses_schema_root_slot_authority() {
         let schema = accepted_schema_with_profile_slot(SchemaFieldSlot::new(7));
         let expr = Expr::FieldPath(FieldPath::new("profile", vec!["rank".to_string()]));
-        let compiled = compile_scalar_projection_expr_with_schema(&MODEL, &schema, &expr)
+        let compiled = compile_scalar_projection_expr_with_schema(&schema, &expr)
             .expect("accepted schema field-path root slot should compile");
 
         let ScalarProjectionExpr::FieldPath(path) = compiled else {

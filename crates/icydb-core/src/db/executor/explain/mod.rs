@@ -6,13 +6,13 @@
 mod descriptor;
 
 #[cfg(test)]
+use crate::db::executor::planning::route::AggregateRouteShape;
+#[cfg(test)]
 use crate::db::query::builder::AggregateExpr;
 use crate::{
     db::{
         Query, TraceReuseEvent,
-        executor::{
-            BytesByProjectionMode, PreparedExecutionPlan, planning::route::AggregateRouteShape,
-        },
+        executor::{BytesByProjectionMode, EntityAuthority, PreparedExecutionPlan},
         predicate::{CoercionId, CompareOp},
         query::{
             builder::{AggregateExplain, ProjectionExplain},
@@ -41,43 +41,17 @@ pub(in crate::db) use descriptor::{
 };
 
 impl StructuralQuery {
-    // Assemble one canonical execution descriptor from a previously built
-    // access plan so text/json/verbose explain surfaces do not each rebuild it.
-    pub(in crate::db) fn explain_execution_descriptor_from_plan(
-        &self,
+    // Assemble one finalized diagnostics artifact from route facts that were
+    // already frozen by the caller-selected schema authority.
+    fn finalized_execution_diagnostics_from_route_facts(
         plan: &AccessPlannedQuery,
-    ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        let route_facts = freeze_load_execution_route_facts(
-            self.model().fields(),
-            self.model().primary_key().name(),
-            plan,
-        )
-        .map_err(QueryError::execute)?;
-
-        Ok(assemble_load_execution_node_descriptor_from_route_facts(
-            plan,
-            &route_facts,
-        ))
-    }
-
-    // Render one verbose execution explain payload from a single access plan,
-    // freezing one immutable diagnostics artifact instead of returning one
-    // wrapper-owned line list that callers still have to extend locally.
-    fn finalized_execution_diagnostics_from_plan(
-        &self,
-        plan: &AccessPlannedQuery,
+        route_facts: &crate::db::executor::explain::descriptor::LoadExecutionRouteFacts,
         reuse: Option<TraceReuseEvent>,
-    ) -> Result<FinalizedQueryDiagnostics, QueryError> {
-        let route_facts = freeze_load_execution_route_facts(
-            self.model().fields(),
-            self.model().primary_key().name(),
-            plan,
-        )
-        .map_err(QueryError::execute)?;
+    ) -> FinalizedQueryDiagnostics {
         let descriptor =
-            assemble_load_execution_node_descriptor_from_route_facts(plan, &route_facts);
+            assemble_load_execution_node_descriptor_from_route_facts(plan, route_facts);
         let route_diagnostics =
-            assemble_load_execution_verbose_diagnostics_from_route_facts(plan, &route_facts);
+            assemble_load_execution_verbose_diagnostics_from_route_facts(plan, route_facts);
         let explain = plan.explain();
 
         // Phase 1: add descriptor-stage summaries for key execution operators.
@@ -113,23 +87,80 @@ impl StructuralQuery {
         logical_diagnostics.push(format!("diag.p.page={:?}", explain.page()));
         logical_diagnostics.push(format!("diag.p.consistency={:?}", explain.consistency()));
 
-        Ok(FinalizedQueryDiagnostics::new(
-            descriptor,
-            route_diagnostics,
-            logical_diagnostics,
+        FinalizedQueryDiagnostics::new(descriptor, route_diagnostics, logical_diagnostics, reuse)
+    }
+
+    // Assemble one canonical execution descriptor from a previously built
+    // access plan so text/json/verbose explain surfaces do not each rebuild it.
+    pub(in crate::db) fn explain_execution_descriptor_from_plan(
+        &self,
+        plan: &AccessPlannedQuery,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
+        let route_facts = freeze_load_execution_route_facts(
+            self.model().fields(),
+            self.model().primary_key().name(),
+            plan,
+        )
+        .map_err(QueryError::execute)?;
+
+        Ok(assemble_load_execution_node_descriptor_from_route_facts(
+            plan,
+            &route_facts,
+        ))
+    }
+
+    // Assemble one execution descriptor from accepted executor authority.
+    pub(in crate::db) fn explain_execution_descriptor_from_plan_with_authority(
+        &self,
+        plan: &AccessPlannedQuery,
+        authority: &EntityAuthority,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
+        debug_assert_eq!(self.model().path(), authority.entity_path());
+        let route_facts = freeze_load_execution_route_facts_for_authority(authority, plan)
+            .map_err(QueryError::execute)?;
+
+        Ok(assemble_load_execution_node_descriptor_from_route_facts(
+            plan,
+            &route_facts,
+        ))
+    }
+
+    // Render one verbose execution explain payload from a single access plan,
+    // freezing one immutable diagnostics artifact instead of returning one
+    // wrapper-owned line list that callers still have to extend locally.
+    fn finalized_execution_diagnostics_from_plan(
+        &self,
+        plan: &AccessPlannedQuery,
+        reuse: Option<TraceReuseEvent>,
+    ) -> Result<FinalizedQueryDiagnostics, QueryError> {
+        let route_facts = freeze_load_execution_route_facts(
+            self.model().fields(),
+            self.model().primary_key().name(),
+            plan,
+        )
+        .map_err(QueryError::execute)?;
+
+        Ok(Self::finalized_execution_diagnostics_from_route_facts(
+            plan,
+            &route_facts,
             reuse,
         ))
     }
 
-    /// Freeze one immutable diagnostics artifact while still allowing one
-    /// caller-owned descriptor mutation before rendering.
-    pub(in crate::db) fn finalized_execution_diagnostics_from_plan_with_descriptor_mutator(
+    /// Freeze one immutable diagnostics artifact through accepted executor
+    /// authority while still allowing one caller-owned descriptor mutation.
+    pub(in crate::db) fn finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator(
         &self,
         plan: &AccessPlannedQuery,
+        authority: &EntityAuthority,
         reuse: Option<TraceReuseEvent>,
         mutate_descriptor: impl FnOnce(&mut ExplainExecutionNodeDescriptor),
     ) -> Result<FinalizedQueryDiagnostics, QueryError> {
-        let mut diagnostics = self.finalized_execution_diagnostics_from_plan(plan, reuse)?;
+        debug_assert_eq!(self.model().path(), authority.entity_path());
+        let route_facts = freeze_load_execution_route_facts_for_authority(authority, plan)
+            .map_err(QueryError::execute)?;
+        let mut diagnostics =
+            Self::finalized_execution_diagnostics_from_route_facts(plan, &route_facts, reuse);
         mutate_descriptor(&mut diagnostics.execution);
 
         Ok(diagnostics)
@@ -261,12 +292,10 @@ where
                 "prepared fluent aggregate explain requires an explain-visible aggregate kind",
             ));
         };
-        let aggregate = AggregateRouteShape::new_from_fields(
-            kind,
-            strategy.explain_projected_field(),
-            E::MODEL.fields(),
-            E::MODEL.primary_key().name(),
-        );
+        let aggregate = self
+            .authority()
+            .aggregate_route_shape(kind, strategy.explain_projected_field())
+            .map_err(QueryError::execute)?;
         let execution =
             assemble_aggregate_terminal_execution_descriptor(self.logical_plan(), aggregate);
 

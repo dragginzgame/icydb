@@ -50,16 +50,17 @@ pub(in crate::db) use continuation::{
 pub(in crate::db) use covering::{
     CoveringExistingRowMode, CoveringProjectionContext, CoveringProjectionOrder,
     CoveringReadExecutionPlan, CoveringReadField, CoveringReadFieldSource, CoveringReadPlan,
-    constant_covering_projection_value_from_access, covering_hybrid_projection_plan_from_fields,
-    covering_index_adjacent_distinct_eligible, covering_index_projection_context,
-    covering_read_execution_plan_from_fields, covering_read_reason_code_for_load_plan,
+    constant_covering_projection_value_from_access,
+    covering_hybrid_projection_plan_with_schema_info, covering_index_adjacent_distinct_eligible,
+    covering_index_projection_context, covering_read_execution_plan_from_fields,
+    covering_read_execution_plan_with_schema_info, covering_read_reason_code_for_load_plan,
     covering_strict_predicate_compatible, index_covering_existing_rows_terminal_eligible,
 };
 pub(in crate::db) use group::{
     GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, GroupedExecutionRoute,
     PlannedProjectionLayout, grouped_aggregate_execution_specs,
     grouped_aggregate_specs_from_projection_spec, grouped_executor_handoff,
-    resolved_grouped_distinct_execution_strategy_for_model,
+    resolved_grouped_distinct_execution_strategy_with_schema_info,
 };
 pub(in crate::db) use grouped_layout::validate_grouped_projection_layout;
 pub(in crate::db::query) use logical_builder::{

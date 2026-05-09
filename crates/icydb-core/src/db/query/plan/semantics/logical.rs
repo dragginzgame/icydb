@@ -24,7 +24,7 @@ use crate::{
             lower_direct_projection_slots_with_schema, lower_projection_identity,
             lower_projection_intent, residual_query_predicate_after_access_path_bounds,
             residual_query_predicate_after_filtered_access,
-            resolved_grouped_distinct_execution_strategy_for_model,
+            resolved_grouped_distinct_execution_strategy_with_schema_info,
         },
         schema::SchemaInfo,
     },
@@ -494,16 +494,15 @@ fn project_static_planning_shape_for_model(
     let residual_filter_predicate = derive_residual_filter_predicate(plan);
     let residual_filter_expr = derive_residual_filter_expr_for_model(model, plan);
     let execution_preparation_compiled_predicate =
-        compile_optional_predicate(model, execution_preparation_predicate.as_ref());
+        compile_optional_predicate(schema_info, execution_preparation_predicate.as_ref());
     let effective_runtime_filter_program = compile_effective_runtime_filter_program(
-        model,
         schema_info,
         residual_filter_expr.as_ref(),
         residual_filter_predicate.as_ref(),
     )?;
     let scalar_projection_plan = if plan.grouped_plan().is_none() {
         Some(
-                compile_scalar_projection_plan_with_schema(model, schema_info, &projection_spec)
+                compile_scalar_projection_plan_with_schema(schema_info, &projection_spec)
                     .ok_or_else(|| {
                         InternalError::query_executor_invariant(
                             "scalar projection program must compile during static planning finalization",
@@ -517,7 +516,7 @@ fn project_static_planning_shape_for_model(
         None
     };
     let (grouped_aggregate_execution_specs, grouped_distinct_execution_strategy) =
-        resolve_grouped_static_planning_semantics(model, schema_info, plan, &projection_spec)?;
+        resolve_grouped_static_planning_semantics(schema_info, plan, &projection_spec)?;
     let projection_direct_slots = lower_direct_projection_slots_with_schema(
         model,
         schema_info,
@@ -535,7 +534,7 @@ fn project_static_planning_shape_for_model(
     let projected_slot_mask =
         projected_slot_mask_for_spec(model, projection_direct_slots.as_deref());
     let projection_is_model_identity = projection_spec.is_model_identity_for(model);
-    let resolved_order = resolved_order_for_plan(model, schema_info, plan)?;
+    let resolved_order = resolved_order_for_plan(schema_info, plan)?;
     let order_referenced_slots = order_referenced_slots_for_resolved_order(resolved_order.as_ref());
     let slot_map = slot_map_for_schema_plan(schema_info, plan);
     let index_compile_targets = index_compile_targets_for_schema_plan(schema_info, plan);
@@ -567,7 +566,6 @@ fn project_static_planning_shape_for_model(
 // planner-derived residual artifacts so runtime never has to rediscover
 // residual presence or shape from semantic/filter/pushdown state.
 fn compile_effective_runtime_filter_program(
-    model: &EntityModel,
     schema_info: &SchemaInfo,
     residual_filter_expr: Option<&Expr>,
     residual_filter_predicate: Option<&Predicate>,
@@ -578,12 +576,12 @@ fn compile_effective_runtime_filter_program(
     // longer exists.
     if let Some(predicate) = residual_filter_predicate {
         return Ok(Some(EffectiveRuntimeFilterProgram::predicate(
-            PredicateProgram::compile(model, predicate),
+            PredicateProgram::compile_with_schema_info(schema_info, predicate),
         )));
     }
 
     if let Some(filter_expr) = residual_filter_expr {
-        let compiled = compile_scalar_projection_expr_with_schema(model, schema_info, filter_expr)
+        let compiled = compile_scalar_projection_expr_with_schema(schema_info, filter_expr)
             .ok_or_else(|| {
                 InternalError::query_invalid_logical_plan(
                     "effective runtime scalar filter expression must compile during static planning finalization",
@@ -693,17 +691,16 @@ const fn derive_semantic_filter_fully_satisfied_by_access_contract_for_model(
 // Compile one optional planner-frozen predicate program while keeping the
 // static planning assembly path free of repeated `Option` mapping boilerplate.
 fn compile_optional_predicate(
-    model: &EntityModel,
+    schema_info: &SchemaInfo,
     predicate: Option<&Predicate>,
 ) -> Option<PredicateProgram> {
-    predicate.map(|predicate| PredicateProgram::compile(model, predicate))
+    predicate.map(|predicate| PredicateProgram::compile_with_schema_info(schema_info, predicate))
 }
 
 // Resolve the grouped-only static planning semantics bundle once so grouped
 // aggregate execution specs and grouped DISTINCT strategy stay derived under
 // one shared grouped-plan branch.
 fn resolve_grouped_static_planning_semantics(
-    model: &EntityModel,
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
     projection_spec: &ProjectionSpec,
@@ -726,18 +723,17 @@ fn resolve_grouped_static_planning_semantics(
     extend_grouped_having_aggregate_specs(&mut aggregate_specs, grouped)?;
 
     let grouped_aggregate_execution_specs = Some(grouped_aggregate_execution_specs(
-        model,
         schema_info,
         aggregate_specs.as_slice(),
     )?);
-    let grouped_distinct_execution_strategy =
-        Some(resolved_grouped_distinct_execution_strategy_for_model(
-            model,
+    let grouped_distinct_execution_strategy = Some(
+        resolved_grouped_distinct_execution_strategy_with_schema_info(
             schema_info,
             grouped.group.group_fields.as_slice(),
             grouped.group.aggregates.as_slice(),
             grouped.having_expr.as_ref(),
-        )?);
+        )?,
+    );
 
     Ok((
         grouped_aggregate_execution_specs,
@@ -801,7 +797,6 @@ fn projected_slot_mask_for_spec(
 }
 
 fn resolved_order_for_plan(
-    model: &EntityModel,
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Result<Option<ResolvedOrder>, InternalError> {
@@ -816,7 +811,7 @@ fn resolved_order_for_plan(
     let mut fields = Vec::with_capacity(order.fields.len());
     for term in &order.fields {
         fields.push(ResolvedOrderField::new(
-            resolved_order_value_source_for_term(model, schema_info, term)?,
+            resolved_order_value_source_for_term(schema_info, term)?,
             term.direction(),
         ));
     }
@@ -825,14 +820,13 @@ fn resolved_order_for_plan(
 }
 
 fn resolved_order_value_source_for_term(
-    model: &EntityModel,
     schema_info: &SchemaInfo,
     term: &crate::db::query::plan::OrderTerm,
 ) -> Result<ResolvedOrderValueSource, InternalError> {
     if term.direct_field().is_none() {
         let rendered = term.rendered_label();
         validate_resolved_order_expr_fields(schema_info, term.expr(), rendered.as_str())?;
-        let compiled = compile_scalar_projection_expr_with_schema(model, schema_info, term.expr())
+        let compiled = compile_scalar_projection_expr_with_schema(schema_info, term.expr())
             .ok_or_else(|| order_expression_scalar_seam_error(rendered.as_str()))?;
 
         return Ok(ResolvedOrderValueSource::expression(CompiledExpr::compile(

@@ -3,13 +3,12 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::{
-    db::{
-        executor::aggregate::capability::field_kind_supports_aggregate_ordering,
-        query::plan::AggregateKind,
-    },
-    model::field::FieldModel,
+use crate::db::{
+    executor::aggregate::capability::field_kind_supports_aggregate_ordering,
+    query::plan::AggregateKind, schema::SchemaInfo,
 };
+#[cfg(test)]
+use crate::model::field::FieldModel;
 
 ///
 /// FastPathOrder
@@ -94,6 +93,7 @@ impl<'a> AggregateRouteShape<'a> {
 
     /// Construct one route-owned aggregate shape from field-table semantics.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) fn new_from_fields(
         kind: AggregateKind,
         target_field: Option<&'a str>,
@@ -115,6 +115,35 @@ impl<'a> AggregateRouteShape<'a> {
         });
         let target_field_is_primary_key =
             target_field.is_some_and(|target_field| target_field == primary_key_name);
+
+        Self::new_resolved(
+            kind,
+            target_field,
+            target_field_known,
+            target_field_orderable,
+            target_field_is_primary_key,
+        )
+    }
+
+    /// Construct one route-owned aggregate shape from schema-info authority.
+    #[must_use]
+    pub(in crate::db) fn new_from_schema_info(
+        kind: AggregateKind,
+        target_field: Option<&'a str>,
+        schema: &SchemaInfo,
+    ) -> Self {
+        let target_field_known =
+            target_field.is_none_or(|target_field| schema.field_slot_index(target_field).is_some());
+        let target_field_orderable = target_field.is_some_and(|target_field| {
+            schema
+                .field_kind(target_field)
+                .is_some_and(field_kind_supports_aggregate_ordering)
+        });
+        let target_field_is_primary_key = target_field.is_some_and(|target_field| {
+            schema
+                .primary_key_name()
+                .is_some_and(|primary_key| target_field == primary_key)
+        });
 
         Self::new_resolved(
             kind,

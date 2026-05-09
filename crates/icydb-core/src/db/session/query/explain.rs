@@ -7,7 +7,7 @@ use crate::{
     db::{
         DbSession, Query, QueryError, QueryTracePlan, TraceExecutionFamily,
         access::summarize_executable_access_plan,
-        executor::ExecutionFamily,
+        executor::{EntityAuthority, ExecutionFamily},
         query::builder::{AggregateExplain, ProjectionExplain},
         query::explain::{
             ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, ExplainPlan,
@@ -52,7 +52,14 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: &Query<E>,
         visible_indexes: &VisibleIndexes<'_>,
-    ) -> Result<(AccessPlannedQuery, QueryPlanCacheAttribution), QueryError>
+    ) -> Result<
+        (
+            AccessPlannedQuery,
+            EntityAuthority,
+            QueryPlanCacheAttribution,
+        ),
+        QueryError,
+    >
     where
         E: EntityKind<Canister = C>,
     {
@@ -72,8 +79,10 @@ impl<C: CanisterKind> DbSession<C> {
             visible_indexes.as_slice(),
             &schema_info,
         );
+        let authority = Self::accepted_entity_authority_for_schema::<E>(&accepted_schema)
+            .map_err(QueryError::execute)?;
 
-        Ok((plan, cache_attribution))
+        Ok((plan, authority, cache_attribution))
     }
 
     // Project one logical explain payload using only planner-visible indexes.
@@ -109,11 +118,12 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityValue + EntityKind<Canister = C>,
     {
         self.with_query_visible_indexes(query, |query, visible_indexes| {
-            let (plan, _) = self.cached_execution_explain_plan::<E>(query, visible_indexes)?;
+            let (plan, authority, _) =
+                self.cached_execution_explain_plan::<E>(query, visible_indexes)?;
 
             query
                 .structural()
-                .explain_execution_descriptor_from_plan(&plan)
+                .explain_execution_descriptor_from_plan_with_authority(&plan, &authority)
         })
     }
 
@@ -127,13 +137,14 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityValue + EntityKind<Canister = C>,
     {
         self.with_query_visible_indexes(query, |query, visible_indexes| {
-            let (plan, cache_attribution) =
+            let (plan, authority, cache_attribution) =
                 self.cached_execution_explain_plan::<E>(query, visible_indexes)?;
 
             query
                 .structural()
-                .finalized_execution_diagnostics_from_plan_with_descriptor_mutator(
+                .finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator(
                     &plan,
+                    &authority,
                     Some(query_plan_cache_reuse_event(cache_attribution)),
                     |_| {},
                 )

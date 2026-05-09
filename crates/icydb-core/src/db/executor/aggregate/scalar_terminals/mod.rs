@@ -66,7 +66,7 @@ where
         // count boundary and stage all remaining terminals for the aggregate
         // reducer sink. Both paths stay under executor ownership.
         for (terminal_index, terminal) in request.terminals().iter().enumerate() {
-            if terminal.uses_shared_count_terminal(E::MODEL) {
+            if terminal.uses_shared_count_terminal(request.schema_info()) {
                 let count = self
                     .execute_scalar_terminal_request(
                         shared_plan.typed_clone::<E>(),
@@ -76,7 +76,6 @@ where
                 unique_values[terminal_index] = Some(finalize_count(u64::from(count)));
             } else {
                 scalar_aggregate_terminals.push(compile_structural_scalar_aggregate_terminal(
-                    E::MODEL,
                     request.schema_info(),
                     terminal,
                 )?);

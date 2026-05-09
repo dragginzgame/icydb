@@ -466,10 +466,9 @@ fn grouped_execution_specs<const N: usize>(
 ) -> [GroupedAggregateExecutionSpec; N] {
     aggregate_exprs.map(|aggregate_expr| {
         GroupedAggregateExecutionSpec::from_aggregate_expr(&aggregate_expr)
-            .resolve_for_model(
+            .resolve_with_schema_info(SchemaInfo::cached_for_entity_model(
                 ProjectionEvalEntity::MODEL,
-                SchemaInfo::cached_for_entity_model(ProjectionEvalEntity::MODEL),
-            )
+            ))
             .expect("grouped execution spec should lower from aggregate expression")
     })
 }

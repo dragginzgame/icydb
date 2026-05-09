@@ -140,6 +140,12 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         &self.core.plan().access
     }
 
+    /// Borrow canonical executor authority for descriptor-only runtime helpers.
+    #[must_use]
+    pub(in crate::db::executor) fn authority(&self) -> EntityAuthority {
+        self.authority.clone()
+    }
+
     /// Borrow scalar row-consistency policy for runtime row reads.
     #[must_use]
     pub(in crate::db) fn consistency(&self) -> MissingRowPolicy {

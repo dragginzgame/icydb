@@ -2,12 +2,15 @@
 //! Defines the predicate capability classifiers used to choose scalar,
 //! index-backed, or full-scan evaluation paths.
 
+#[cfg(test)]
+use crate::model::entity::EntityModel;
 use crate::{
     db::{
         index::derive_index_expression_value,
         predicate::{CoercionId, CompareOp, ExecutableComparePredicate, ExecutablePredicate},
+        schema::SchemaInfo,
     },
-    model::{entity::EntityModel, field::LeafCodec, index::IndexKeyItem},
+    model::index::IndexKeyItem,
     value::Value,
 };
 
@@ -43,23 +46,34 @@ pub(in crate::db) enum IndexPredicateCapability {
 /// PredicateCapabilityContext
 ///
 /// Optional capability inputs available at one predicate boundary.
-/// Runtime classification needs a model to prove scalar-slot execution.
+/// Runtime classification needs schema info to prove scalar-slot execution.
 /// Index classification needs the active index slot projection.
 ///
 #[derive(Clone, Copy, Debug, Default)]
 pub(in crate::db) struct PredicateCapabilityContext<'a> {
     compile_targets: Option<&'a [IndexCompileTarget]>,
-    model: Option<&'a EntityModel>,
+    schema_info: Option<&'a SchemaInfo>,
     index_slots: Option<&'a [usize]>,
 }
 
 impl<'a> PredicateCapabilityContext<'a> {
     /// Construct one runtime capability context.
     #[must_use]
-    pub(in crate::db) const fn runtime(model: &'a EntityModel) -> Self {
+    #[cfg(test)]
+    pub(in crate::db) fn runtime(model: &'a EntityModel) -> Self {
         Self {
             compile_targets: None,
-            model: Some(model),
+            schema_info: Some(SchemaInfo::cached_for_entity_model(model)),
+            index_slots: None,
+        }
+    }
+
+    /// Construct one runtime capability context from explicit schema authority.
+    #[must_use]
+    pub(in crate::db) const fn runtime_schema(schema_info: &'a SchemaInfo) -> Self {
+        Self {
+            compile_targets: None,
+            schema_info: Some(schema_info),
             index_slots: None,
         }
     }
@@ -69,7 +83,7 @@ impl<'a> PredicateCapabilityContext<'a> {
     pub(in crate::db) const fn index_compile(index_slots: &'a [usize]) -> Self {
         Self {
             compile_targets: None,
-            model: None,
+            schema_info: None,
             index_slots: Some(index_slots),
         }
     }
@@ -126,9 +140,9 @@ pub(in crate::db) fn classify_predicate_capabilities(
     context: PredicateCapabilityContext<'_>,
 ) -> PredicateCapabilityProfile {
     PredicateCapabilityProfile {
-        scalar: context.model.map_or(
+        scalar: context.schema_info.map_or(
             ScalarPredicateCapability::RequiresGenericEvaluation,
-            |model| classify_scalar_capability(model, predicate),
+            |schema_info| classify_scalar_capability(schema_info, predicate),
         ),
         index: if let Some(compile_targets) = context.compile_targets {
             classify_index_capability_for_targets(predicate, compile_targets)
@@ -223,10 +237,10 @@ pub(in crate::db) fn lower_index_starts_with_prefix_for_target(
 
 // Classify whether one executable predicate can stay on the scalar slot seam.
 fn classify_scalar_capability(
-    model: &EntityModel,
+    schema_info: &SchemaInfo,
     predicate: &ExecutablePredicate,
 ) -> ScalarPredicateCapability {
-    if predicate_is_scalar_safe(model, predicate) {
+    if predicate_is_scalar_safe(schema_info, predicate) {
         ScalarPredicateCapability::ScalarSafe
     } else {
         ScalarPredicateCapability::RequiresGenericEvaluation
@@ -336,45 +350,45 @@ fn merge_and_index_capability(
 }
 
 // Predicate classification remains exhaustive over the canonical executable tree.
-fn predicate_is_scalar_safe(model: &EntityModel, predicate: &ExecutablePredicate) -> bool {
+fn predicate_is_scalar_safe(schema_info: &SchemaInfo, predicate: &ExecutablePredicate) -> bool {
     match predicate {
         ExecutablePredicate::True
         | ExecutablePredicate::False
         | ExecutablePredicate::IsMissing { .. } => true,
         ExecutablePredicate::And(children) | ExecutablePredicate::Or(children) => children
             .iter()
-            .all(|child| predicate_is_scalar_safe(model, child)),
-        ExecutablePredicate::Not(inner) => predicate_is_scalar_safe(model, inner),
-        ExecutablePredicate::Compare(cmp) => compare_is_scalar_safe(model, cmp),
+            .all(|child| predicate_is_scalar_safe(schema_info, child)),
+        ExecutablePredicate::Not(inner) => predicate_is_scalar_safe(schema_info, inner),
+        ExecutablePredicate::Compare(cmp) => compare_is_scalar_safe(schema_info, cmp),
         ExecutablePredicate::IsNull { field_slot }
         | ExecutablePredicate::IsNotNull { field_slot }
         | ExecutablePredicate::IsEmpty { field_slot }
         | ExecutablePredicate::IsNotEmpty { field_slot } => {
-            scalar_field_slot_supported(model, *field_slot)
+            scalar_field_slot_supported(schema_info, *field_slot)
         }
         ExecutablePredicate::TextContains { field_slot, value }
         | ExecutablePredicate::TextContainsCi { field_slot, value } => {
-            scalar_field_slot_supported(model, *field_slot) && matches!(value, Value::Text(_))
+            scalar_field_slot_supported(schema_info, *field_slot) && matches!(value, Value::Text(_))
         }
     }
 }
 
 // Classify whether one compare node can stay on the scalar slot seam.
-fn compare_is_scalar_safe(model: &EntityModel, cmp: &ExecutableComparePredicate) -> bool {
+fn compare_is_scalar_safe(schema_info: &SchemaInfo, cmp: &ExecutableComparePredicate) -> bool {
     match (
         cmp.left_field_slot(),
         cmp.right_literal(),
         cmp.right_field_slot(),
     ) {
         (Some(left_field_slot), Some(value), None) => {
-            scalar_field_slot_supported(model, Some(left_field_slot))
+            scalar_field_slot_supported(schema_info, Some(left_field_slot))
                 && scalar_compare_op_supported(cmp.op)
                 && scalar_compare_literal_coercion_supported(cmp.coercion.id)
                 && scalar_compare_literal_supported(cmp.op, value)
         }
         (Some(left_field_slot), None, Some(right_field_slot)) => {
-            scalar_field_slot_supported(model, Some(left_field_slot))
-                && scalar_field_slot_supported(model, Some(right_field_slot))
+            scalar_field_slot_supported(schema_info, Some(left_field_slot))
+                && scalar_field_slot_supported(schema_info, Some(right_field_slot))
                 && scalar_field_compare_op_supported(cmp.op)
                 && scalar_compare_field_coercion_supported(cmp.coercion.id)
         }
@@ -472,15 +486,12 @@ const fn scalar_field_compare_op_supported(op: CompareOp) -> bool {
 }
 
 // Scalar fast-path execution is only valid for scalar leaf codecs.
-fn scalar_field_slot_supported(model: &EntityModel, field_slot: Option<usize>) -> bool {
+fn scalar_field_slot_supported(schema_info: &SchemaInfo, field_slot: Option<usize>) -> bool {
     let Some(field_slot) = field_slot else {
         return false;
     };
-    let Some(field_model) = model.fields().get(field_slot) else {
-        return false;
-    };
 
-    matches!(field_model.leaf_codec(), LeafCodec::Scalar(_))
+    schema_info.field_slot_has_scalar_leaf(field_slot)
 }
 
 // Scalar comparison literals must stay within the direct scalar value subset.

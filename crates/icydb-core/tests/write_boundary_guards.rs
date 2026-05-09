@@ -317,6 +317,14 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
         "write-time index key construction must resolve field slots through accepted row contracts",
     );
     assert!(
+        index_key_build.contains("pub(crate) fn new_from_slot_ref_reader_with_schema")
+            && index_key_build.contains("schema_info.field_slot_index(field)")
+            && !index_key_build.contains("pub(crate) fn new_from_slot_ref_reader(")
+            && predicate_runtime.contains("slots.field_leaf_codec(field_slot)")
+            && predicate_runtime.contains("slots.required_value_storage_scalar(field_slot)"),
+        "cursor anchor and predicate index-key paths must use accepted schema/row-contract slot authority instead of generated model slot lookup",
+    );
+    assert!(
         index_plan.contains("IndexKey::new_from_slots_with_contract(")
             && index_plan.contains("PredicateProgram::compile_with_row_contract(")
             && index_plan.contains("row_contract,")
@@ -468,6 +476,10 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
 #[test]
 fn raw_entity_authority_bootstrap_stays_layout_free() {
     let entity_authority = read_source("src/db/executor/authority/entity.rs");
+    let executor_explain = read_source("src/db/executor/explain/mod.rs");
+    let route_shape = read_source("src/db/executor/planning/route/contracts/shape.rs");
+    let query_plan_covering = read_source("src/db/query/plan/covering/mod.rs");
+    let session_query_explain = read_source("src/db/session/query/explain.rs");
     let prepared_plan = read_source("src/db/executor/prepared_execution_plan/mod.rs");
     let session_sql_explain = read_source("src/db/session/sql/execute/explain.rs");
 
@@ -485,9 +497,52 @@ fn raw_entity_authority_bootstrap_stays_layout_free() {
     assert!(
         prepared_plan.contains("assemble_load_execution_node_descriptor_for_authority(")
             && !prepared_plan.contains("self.authority.fields(),")
+            && executor_explain.contains("explain_execution_descriptor_from_plan_with_authority(")
+            && executor_explain.contains(
+                "finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator("
+            )
+            && session_query_explain
+                .contains("accepted_entity_authority_for_schema::<E>(&accepted_schema)")
+            && session_query_explain.contains(
+                ".explain_execution_descriptor_from_plan_with_authority(&plan, &authority)"
+            )
+            && session_query_explain.contains(
+                ".finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator("
+            )
+            && !session_query_explain.contains(".explain_execution_descriptor_from_plan(&plan)")
             && session_sql_explain.contains("freeze_load_execution_route_facts_for_authority(")
+            && session_sql_explain.contains(
+                ".finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator("
+            )
             && !session_sql_explain.contains("authority.fields(),"),
-        "prepared descriptors and SQL EXPLAIN route facts must consume accepted authority instead of split generated field metadata",
+        "prepared/session descriptors and SQL EXPLAIN route facts must consume accepted authority instead of split generated field metadata",
+    );
+    assert!(
+        entity_authority.contains("covering_read_execution_plan_with_schema_info(")
+            && entity_authority.contains("covering_hybrid_projection_plan_with_schema_info(")
+            && !entity_authority.contains("covering_read_execution_plan_from_fields(")
+            && !entity_authority.contains("covering_hybrid_projection_plan_from_fields(")
+            && query_plan_covering.contains("fn resolve_covering_field_slot_with_schema(")
+            && query_plan_covering.contains("schema.field_slot_index(field_name)?")
+            && query_plan_covering.contains("schema.field_kind(field_name).copied()"),
+        "authority-owned covering read and hybrid projection planning must resolve projected field slots from accepted SchemaInfo",
+    );
+    assert!(
+        entity_authority.contains("pub(in crate::db) fn aggregate_route_shape")
+            || entity_authority.contains("pub(in crate::db) fn aggregate_route_shape<'")
+    );
+    assert!(
+        entity_authority.contains("AggregateRouteShape::new_from_schema_info(")
+            && executor_explain
+                .contains(".aggregate_route_shape(kind, strategy.explain_projected_field())")
+            && !executor_explain
+                .contains("strategy.explain_projected_field(),\n            E::MODEL.fields(),")
+            && session_sql_explain.contains(".aggregate_route_shape(")
+            && !session_sql_explain.contains("model.fields(),")
+            && route_shape.contains("pub(in crate::db) fn new_from_schema_info(")
+            && route_shape.contains("schema.field_slot_index(target_field)")
+            && route_shape.contains(".primary_key_name()"),
+        "aggregate execution explain route shapes must use accepted SchemaInfo instead of generated field tables",
     );
 }
 
@@ -626,6 +681,9 @@ fn cursor_boundary_validation_uses_authority_schema_info() {
 fn prepared_static_shape_finalization_uses_authority_schema_info() {
     let entity_authority = read_source("src/db/executor/authority/entity.rs");
     let query_plan_logical = read_source("src/db/query/plan/semantics/logical.rs");
+    let predicate_runtime = read_source("src/db/predicate/runtime/mod.rs");
+    let predicate_capability = read_source("src/db/predicate/capability.rs");
+    let schema_info = read_source("src/db/schema/info.rs");
 
     assert!(
         entity_authority.contains(
@@ -636,6 +694,20 @@ fn prepared_static_shape_finalization_uses_authority_schema_info() {
                 "#[cfg(test)]\n    pub(in crate::db) fn finalize_static_planning_shape_for_model("
             ),
         "prepared execution finalization must use authority-carried schema info and keep generated static-shape finalization test-only",
+    );
+    assert!(
+        schema_info.contains("leaf_codec: LeafCodec,")
+            && schema_info.contains("pub(in crate::db) fn field_slot_has_scalar_leaf")
+            && predicate_runtime.contains("pub(in crate::db) fn compile_with_schema_info(")
+            && predicate_runtime.contains("schema_info.field_slot_index(field_name)")
+            && predicate_runtime
+                .contains("PredicateCapabilityContext::runtime_schema(schema_info)")
+            && query_plan_logical
+                .contains("PredicateProgram::compile_with_schema_info(schema_info, predicate)")
+            && !query_plan_logical.contains("PredicateProgram::compile(model, predicate)")
+            && predicate_runtime.contains("#[cfg(test)]\n    pub(in crate::db) fn compile(")
+            && predicate_capability.contains("#[cfg(test)]\n    pub(in crate::db) fn runtime("),
+        "prepared predicate compilation and scalar fast-path classification must use schema info, keeping generated model wrappers test-only",
     );
 }
 
@@ -659,17 +731,30 @@ fn scalar_aggregate_expression_compilation_uses_accepted_schema_info() {
         "generated-schema scalar projection compiler wrapper must stay test-only",
     );
     assert!(
+        scalar_expr.contains(
+            "pub(in crate::db) fn compile_scalar_projection_expr_with_schema(\n    schema: &SchemaInfo,"
+        ) && scalar_expr.contains(
+            "pub(in crate::db) fn compile_scalar_projection_plan_with_schema(\n    schema: &SchemaInfo,"
+        ) && !scalar_expr.contains(
+            "pub(in crate::db) fn compile_scalar_projection_expr_with_schema(\n    model:"
+        ) && !scalar_expr.contains(
+            "pub(in crate::db) fn compile_scalar_projection_plan_with_schema(\n    model:"
+        ),
+        "shared scalar projection compilers must take schema info directly without generated model parameters",
+    );
+    assert!(
         aggregate_helpers.contains("schema: &SchemaInfo,")
             && aggregate_helpers
-                .contains("compile_scalar_projection_expr_with_schema(model, schema, expr)",)
+                .contains("compile_scalar_projection_expr_with_schema(schema, expr)",)
             && !aggregate_helpers.contains("compile_scalar_projection_expr(model, expr)"),
         "SQL aggregate scalar-expression validation must compile against caller-supplied schema info",
     );
     assert!(
         aggregate_terminal.contains("schema: &SchemaInfo,")
             && aggregate_terminal
-                .contains("compile_scalar_projection_expr_with_schema(model, schema, expr)",)
+                .contains("compile_scalar_projection_expr_from_schema(schema, expr)",)
             && aggregate_terminal.contains("schema.field_slot_index(field.as_str()).is_none()")
+            && !aggregate_terminal.contains("EntityModel")
             && !aggregate_terminal.contains("compile_scalar_projection_expr(model, expr)")
             && !aggregate_terminal.contains("model.resolve_field_slot(field.as_str()).is_none()"),
         "structural aggregate terminal expression compilation must use accepted schema info for scalar slot resolution",
@@ -678,6 +763,17 @@ fn scalar_aggregate_expression_compilation_uses_accepted_schema_info() {
         aggregate_request.contains("schema_info: SchemaInfo,")
             && aggregate_request.contains("pub(super) const fn schema_info(&self) -> &SchemaInfo")
             && aggregate_runtime.contains("request.schema_info()")
+            && aggregate_runtime
+                .contains("terminal.uses_shared_count_terminal(request.schema_info())")
+            && !aggregate_runtime.contains("terminal.uses_shared_count_terminal(E::MODEL)")
+            && !aggregate_runtime.contains(
+                "compile_structural_scalar_aggregate_terminal(\n                    E::MODEL,"
+            )
+            && aggregate_terminal
+                .contains("pub(super) fn uses_shared_count_terminal(&self, schema: &SchemaInfo)")
+            && aggregate_terminal
+                .contains("schema\n                    .field_nullable(target_slot.field())")
+            && !aggregate_terminal.contains("model.fields().get(target_slot.index())")
             && session_global_aggregate.contains("accepted_schema_info_for_entity::<E>()")
             && session_global_aggregate.contains(
                 "StructuralAggregateRequest::new(terminals, projection, having, schema_info)",
@@ -709,6 +805,8 @@ fn fluent_terminal_field_slots_use_accepted_schema_info() {
     let session_sql_compile = read_source("src/db/session/sql/compile/core.rs");
     let session_mod = read_source("src/db/session/mod.rs");
     let symbols = read_source("src/db/query/plan/validate/symbols.rs");
+    let query_plan_group = read_source("src/db/query/plan/group.rs");
+    let query_plan_logical = read_source("src/db/query/plan/semantics/logical.rs");
     let sql_aggregate_strategy = read_source("src/db/sql/lowering/aggregate/strategy.rs");
     let session_global_aggregate = read_source("src/db/session/sql/execute/global_aggregate.rs");
 
@@ -755,6 +853,21 @@ fn fluent_terminal_field_slots_use_accepted_schema_info() {
         sql_aggregate_strategy.contains("resolve_aggregate_target_field_slot_with_schema(")
             && !sql_aggregate_strategy.contains("resolve_aggregate_target_field_slot(model"),
         "SQL aggregate field-target strategies must resolve terminal slots through accepted schema info",
+    );
+    assert!(
+        query_plan_group.contains("pub(in crate::db) fn resolve_with_schema_info(")
+            && query_plan_group.contains("pub(in crate::db) fn grouped_aggregate_execution_specs(\n    schema_info: &SchemaInfo,")
+            && query_plan_group.contains(
+                "pub(in crate::db) fn resolved_grouped_distinct_execution_strategy_with_schema_info("
+            )
+            && query_plan_group.contains("kind: schema_info.field_kind(field).copied(),")
+            && !query_plan_group.contains("resolve_for_model(")
+            && !query_plan_group.contains("resolved_grouped_distinct_execution_strategy_for_model")
+            && !query_plan_group.contains("model_field.name()")
+            && query_plan_logical.contains("grouped_aggregate_execution_specs(\n        schema_info,")
+            && query_plan_logical
+                .contains("resolved_grouped_distinct_execution_strategy_with_schema_info("),
+        "grouped aggregate execution specs and grouped DISTINCT target slots must resolve through schema info, not generated model fields",
     );
 }
 

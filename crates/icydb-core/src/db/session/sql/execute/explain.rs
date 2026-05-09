@@ -9,7 +9,7 @@ use crate::{
         executor::{
             EntityAuthority, assemble_load_execution_node_descriptor_from_route_facts,
             explain::assemble_scalar_aggregate_execution_descriptor_with_projection,
-            freeze_load_execution_route_facts_for_authority, planning::route::AggregateRouteShape,
+            freeze_load_execution_route_facts_for_authority,
         },
         query::{
             builder::scalar_projection::render_scalar_projection_expr_plan_label,
@@ -252,8 +252,9 @@ impl<C: CanisterKind> DbSession<C> {
                 &schema_info,
             );
             let diagnostics = structural
-                .finalized_execution_diagnostics_from_plan_with_descriptor_mutator(
+                .finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator(
                     &plan,
+                    &authority,
                     Some(query_plan_cache_reuse_event(cache_attribution)),
                     |descriptor| {
                         annotate_sql_projection_debug_on_execution_descriptor(
@@ -322,7 +323,6 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         accepted_schema: &AcceptedSchemaSnapshot,
     ) -> Result<String, QueryError> {
-        let model = command.query().model();
         let strategies = command.strategies();
 
         match mode {
@@ -337,7 +337,7 @@ impl<C: CanisterKind> DbSession<C> {
                 let _ = verbose;
 
                 self.try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority(
-                    authority,
+                    authority.clone(),
                     accepted_schema,
                     &command,
                     |plan| {
@@ -348,12 +348,12 @@ impl<C: CanisterKind> DbSession<C> {
                             let mut execution =
                                 assemble_scalar_aggregate_execution_descriptor_with_projection(
                                     plan,
-                                    AggregateRouteShape::new_from_fields(
-                                        strategy.aggregate_kind(),
-                                        strategy.projected_field(),
-                                        model.fields(),
-                                        model.primary_key().name(),
-                                    ),
+                                    authority
+                                        .aggregate_route_shape(
+                                            strategy.aggregate_kind(),
+                                            strategy.projected_field(),
+                                        )
+                                        .map_err(QueryError::execute)?,
                                     strategy.aggregate_kind(),
                                     strategy.projected_field(),
                                 );
