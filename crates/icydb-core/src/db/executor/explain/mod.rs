@@ -37,7 +37,8 @@ pub(in crate::db) use descriptor::{
     assemble_load_execution_node_descriptor_for_authority,
     assemble_load_execution_node_descriptor_from_route_facts,
     assemble_scalar_aggregate_execution_descriptor_with_projection,
-    freeze_load_execution_route_facts, freeze_load_execution_route_facts_for_authority,
+    freeze_load_execution_route_facts_for_authority,
+    freeze_load_execution_route_facts_for_model_only,
 };
 
 impl StructuralQuery {
@@ -90,13 +91,14 @@ impl StructuralQuery {
         FinalizedQueryDiagnostics::new(descriptor, route_diagnostics, logical_diagnostics, reuse)
     }
 
-    // Assemble one canonical execution descriptor from a previously built
-    // access plan so text/json/verbose explain surfaces do not each rebuild it.
-    pub(in crate::db) fn explain_execution_descriptor_from_plan(
+    // Assemble one model-only execution descriptor from a previously built
+    // access plan so standalone text/json/verbose explain surfaces do not each
+    // rebuild it.
+    pub(in crate::db) fn explain_execution_descriptor_from_model_only_plan(
         &self,
         plan: &AccessPlannedQuery,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        let route_facts = freeze_load_execution_route_facts(
+        let route_facts = freeze_load_execution_route_facts_for_model_only(
             self.model().fields(),
             self.model().primary_key().name(),
             plan,
@@ -125,15 +127,16 @@ impl StructuralQuery {
         ))
     }
 
-    // Render one verbose execution explain payload from a single access plan,
-    // freezing one immutable diagnostics artifact instead of returning one
-    // wrapper-owned line list that callers still have to extend locally.
-    fn finalized_execution_diagnostics_from_plan(
+    // Render one standalone model-only verbose execution explain payload from
+    // a single access plan, freezing one immutable diagnostics artifact instead
+    // of returning one wrapper-owned line list that callers still have to
+    // extend locally.
+    fn finalized_execution_diagnostics_from_model_only_plan(
         &self,
         plan: &AccessPlannedQuery,
         reuse: Option<TraceReuseEvent>,
     ) -> Result<FinalizedQueryDiagnostics, QueryError> {
-        let route_facts = freeze_load_execution_route_facts(
+        let route_facts = freeze_load_execution_route_facts_for_model_only(
             self.model().fields(),
             self.model().primary_key().name(),
             plan,
@@ -172,7 +175,7 @@ impl StructuralQuery {
         &self,
         plan: &AccessPlannedQuery,
     ) -> Result<String, QueryError> {
-        self.finalized_execution_diagnostics_from_plan(plan, None)
+        self.finalized_execution_diagnostics_from_model_only_plan(plan, None)
             .map(|diagnostics| diagnostics.render_text_verbose())
     }
 
@@ -203,7 +206,7 @@ impl StructuralQuery {
         };
         self.finalize_explain_access_choice_for_visibility(&mut plan, visible_indexes);
 
-        self.explain_execution_descriptor_from_plan(&plan)
+        self.explain_execution_descriptor_from_model_only_plan(&plan)
     }
 
     // Render one verbose execution payload after resolving the caller-visible

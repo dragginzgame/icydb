@@ -524,7 +524,11 @@ fn raw_entity_authority_bootstrap_stays_layout_free() {
             && session_query_explain.contains(
                 ".finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator("
             )
-            && !session_query_explain.contains(".explain_execution_descriptor_from_plan(&plan)")
+            && executor_explain.contains("explain_execution_descriptor_from_model_only_plan(")
+            && executor_explain.contains("freeze_load_execution_route_facts_for_model_only(")
+            && !executor_explain.contains("freeze_load_execution_route_facts(")
+            && !session_query_explain
+                .contains(".explain_execution_descriptor_from_model_only_plan(&plan)")
             && session_sql_explain.contains("freeze_load_execution_route_facts_for_authority(")
             && session_sql_explain.contains(
                 ".finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator("
@@ -596,6 +600,8 @@ fn sql_command_lowering_uses_accepted_schema_for_runtime_explain() {
     let sql_compile_core = read_source("src/db/session/sql/compile/core.rs");
     let sql_lowering_prepare = read_source("src/db/sql/lowering/prepare.rs");
     let sql_lowering_select = read_source("src/db/sql/lowering/select/mod.rs");
+    let sql_global_aggregate_binding =
+        read_source("src/db/sql/lowering/aggregate/command/binding.rs");
 
     assert!(
         sql_compile_core.contains("Self::compile_explain(statement, entity_name, model, schema)",)
@@ -607,22 +613,43 @@ fn sql_command_lowering_uses_accepted_schema_for_runtime_explain() {
         "runtime SQL EXPLAIN compilation must lower with accepted SchemaInfo instead of generated model schema fallback",
     );
     assert!(
-        sql_lowering_prepare
-            .contains("#[cfg(test)]\npub(crate) fn lower_sql_command_from_prepared_statement(")
-            && sql_lowering_prepare
-                .contains("pub(crate) fn lower_sql_command_from_prepared_statement_with_schema(")
+        sql_lowering_prepare.contains(
+            "#[cfg(test)]\npub(crate) fn lower_sql_command_from_prepared_statement_for_model_only("
+        ) && sql_lowering_prepare
+            .contains("pub(crate) fn lower_sql_command_from_prepared_statement_with_schema(")
+            && sql_lowering_prepare.contains("fn lower_prepared_statement_for_model_only(")
             && sql_lowering_prepare.contains("fn lower_prepared_statement_with_schema(")
+            && sql_lowering_prepare.contains("fn lower_explain_select_prepared_for_model_only(")
             && sql_lowering_prepare.contains("fn lower_explain_select_prepared_with_schema(")
             && sql_lowering_prepare
                 .contains("lower_select_shape_with_schema(statement.clone(), model, schema)"),
-        "shared SQL command lowering must keep generated-schema command lowering test-only and expose an accepted-schema runtime path",
+        "shared SQL command lowering must keep generated-schema command lowering test-only/model-only and expose an accepted-schema runtime path",
     );
     assert!(
-        sql_lowering_select
-            .contains("#[cfg(test)]\npub(in crate::db::sql::lowering) fn lower_select_shape(")
-            && sql_lowering_select
-                .contains("pub(in crate::db::sql::lowering) fn lower_select_shape_with_schema(",),
-        "generated-schema SELECT lowering must remain test-only while runtime callers use explicit SchemaInfo",
+        sql_lowering_select.contains(
+            "#[cfg(test)]\npub(in crate::db::sql::lowering) fn lower_select_shape_for_model_only("
+        ) && sql_lowering_select
+            .contains("pub(in crate::db::sql::lowering) fn lower_select_shape_with_schema(",),
+        "generated-schema SELECT lowering must remain test-only/model-only while runtime callers use explicit SchemaInfo",
+    );
+    assert!(
+        sql_global_aggregate_binding.contains("#[cfg(test)]\n    fn into_typed_for_model_only")
+            && sql_global_aggregate_binding
+                .contains("compile_sql_global_aggregate_command_for_model_only")
+            && sql_global_aggregate_binding
+                .contains("compile_sql_global_aggregate_command_from_prepared_for_model_only")
+            && sql_global_aggregate_binding
+                .contains("bind_lowered_sql_global_aggregate_command_for_model_only")
+            && sql_global_aggregate_binding
+                .contains("compile_sql_global_aggregate_command_core_from_prepared_with_schema")
+            && !sql_global_aggregate_binding.contains("fn into_typed<E:")
+            && !sql_global_aggregate_binding
+                .contains("pub(crate) fn compile_sql_global_aggregate_command<E:")
+            && !sql_global_aggregate_binding
+                .contains("pub(crate) fn compile_sql_global_aggregate_command_from_prepared<E:")
+            && !sql_global_aggregate_binding
+                .contains("fn bind_lowered_sql_global_aggregate_command<E:"),
+        "generated-schema SQL global aggregate lowering must be explicitly test-only/model-only while runtime aggregate binding uses explicit SchemaInfo",
     );
 }
 

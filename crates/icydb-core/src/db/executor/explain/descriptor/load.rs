@@ -160,8 +160,8 @@ struct GroupedRouteObservabilityProjection {
     execution_mode: &'static str,
 }
 
-// Assemble one canonical scalar load execution descriptor tree through one
-// field-table and primary-key explain boundary.
+// Assemble one canonical scalar load execution descriptor tree through the
+// standalone model-only explain boundary.
 #[inline(never)]
 #[cfg(test)]
 pub(in crate::db) fn assemble_load_execution_node_descriptor(
@@ -169,7 +169,8 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor(
     primary_key_name: &'static str,
     plan: &AccessPlannedQuery,
 ) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
-    let route_facts = freeze_load_execution_route_facts(fields, primary_key_name, plan)?;
+    let route_facts =
+        freeze_load_execution_route_facts_for_model_only(fields, primary_key_name, plan)?;
 
     Ok(assemble_load_execution_node_descriptor_from_route_facts(
         plan,
@@ -518,9 +519,9 @@ fn candidate_residual_burden_label(candidate: &AccessChoiceCandidateExplainSumma
     candidate.residual_burden.label().to_string()
 }
 
-/// Freeze load execution route facts for descriptor and verbose explain
-/// consumers.
-pub(in crate::db) fn freeze_load_execution_route_facts(
+/// Freeze load execution route facts for standalone model-only explain
+/// consumers that do not have accepted executor authority.
+pub(in crate::db) fn freeze_load_execution_route_facts_for_model_only(
     fields: &'static [FieldModel],
     primary_key_name: &'static str,
     plan: &AccessPlannedQuery,

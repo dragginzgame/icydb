@@ -203,7 +203,7 @@ impl LoweredDeleteShape {
 
 #[inline(never)]
 #[cfg(test)]
-pub(in crate::db::sql::lowering) fn lower_select_shape(
+pub(in crate::db::sql::lowering) fn lower_select_shape_for_model_only(
     statement: SqlSelectStatement,
     model: &'static EntityModel,
 ) -> Result<LoweredSelectShape, SqlLoweringError> {
@@ -306,7 +306,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape_with_schema(
 
 #[inline(never)]
 #[cfg(test)]
-pub(in crate::db) fn apply_lowered_select_shape(
+pub(in crate::db) fn apply_lowered_select_shape_for_model_only(
     query: StructuralQuery,
     lowered: LoweredSelectShape,
 ) -> Result<StructuralQuery, SqlLoweringError> {
@@ -560,7 +560,7 @@ pub(in crate::db::sql::lowering) fn validate_base_query_sql_capabilities(
 }
 
 #[cfg(test)]
-pub(in crate::db::sql::lowering) fn apply_lowered_base_query_shape(
+pub(in crate::db::sql::lowering) fn apply_lowered_base_query_shape_for_model_only(
     query: StructuralQuery,
     lowered: LoweredBaseQueryShape,
 ) -> StructuralQuery {
@@ -605,7 +605,7 @@ pub(in crate::db::sql::lowering) fn apply_lowered_base_query_shape_with_schema(
 }
 
 #[cfg(test)]
-pub(in crate::db) fn bind_lowered_sql_query_structural(
+pub(in crate::db) fn bind_lowered_sql_query_structural_for_model_only(
     model: &'static EntityModel,
     lowered: crate::db::sql::lowering::LoweredSqlQuery,
     consistency: MissingRowPolicy,
@@ -714,11 +714,12 @@ pub(in crate::db) fn bind_sql_update_selector_query_structural_with_schema(
 // Test-only typed SQL lowering still uses this adapter to compare the
 // generic-free structural SQL lane with public typed query behavior.
 #[cfg(test)]
-pub(in crate::db) fn bind_lowered_sql_query<E: EntityKind>(
+pub(in crate::db) fn bind_lowered_sql_query_for_model_only<E: EntityKind>(
     lowered: crate::db::sql::lowering::LoweredSqlQuery,
     consistency: MissingRowPolicy,
 ) -> Result<Query<E>, SqlLoweringError> {
-    let structural = bind_lowered_sql_query_structural(E::MODEL, lowered, consistency)?;
+    let structural =
+        bind_lowered_sql_query_structural_for_model_only(E::MODEL, lowered, consistency)?;
 
     Ok(Query::from_inner(structural))
 }

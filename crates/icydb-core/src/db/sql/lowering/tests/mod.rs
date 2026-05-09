@@ -24,10 +24,10 @@ use crate::{
             lowering::{
                 PreparedSqlScalarAggregateDescriptorShape, PreparedSqlScalarAggregatePlanFragment,
                 PreparedSqlScalarAggregateStrategy, SqlCommand, SqlLoweringError,
-                compile_sql_command, compile_sql_global_aggregate_command,
+                compile_sql_command, compile_sql_global_aggregate_command_for_model_only,
                 lower_grouped_post_aggregate_order_expr_text,
-                lower_sql_command_from_prepared_statement, lower_supported_order_expr_text,
-                prepare_sql_statement,
+                lower_sql_command_from_prepared_statement_for_model_only,
+                lower_supported_order_expr_text, prepare_sql_statement,
             },
             parser::{
                 SqlAggregateCall, SqlAggregateKind, SqlExplainMode, SqlExpr, SqlExprBinaryOp,
@@ -288,8 +288,9 @@ fn lower_sql_select_shape_for_test(
         .unwrap_or_else(|err| panic!("{context} should parse: {err:?}"));
     let prepared = prepare_sql_statement(&statement, SqlLowerEntity::MODEL.name())
         .unwrap_or_else(|err| panic!("{context} should prepare: {err:?}"));
-    let lowered = lower_sql_command_from_prepared_statement(prepared, SqlLowerEntity::MODEL)
-        .unwrap_or_else(|err| panic!("{context} should lower: {err:?}"));
+    let lowered =
+        lower_sql_command_from_prepared_statement_for_model_only(prepared, SqlLowerEntity::MODEL)
+            .unwrap_or_else(|err| panic!("{context} should lower: {err:?}"));
     let Some(crate::db::sql::lowering::LoweredSqlQuery::Select(select)) = lowered.into_query()
     else {
         panic!("{context} should lower to one SELECT query shape");
@@ -308,8 +309,9 @@ fn lower_sql_delete_shape_for_test(
         .unwrap_or_else(|err| panic!("{context} should parse: {err:?}"));
     let prepared = prepare_sql_statement(&statement, SqlLowerEntity::MODEL.name())
         .unwrap_or_else(|err| panic!("{context} should prepare: {err:?}"));
-    let lowered = lower_sql_command_from_prepared_statement(prepared, SqlLowerEntity::MODEL)
-        .unwrap_or_else(|err| panic!("{context} should lower: {err:?}"));
+    let lowered =
+        lower_sql_command_from_prepared_statement_for_model_only(prepared, SqlLowerEntity::MODEL)
+            .unwrap_or_else(|err| panic!("{context} should lower: {err:?}"));
     let Some(crate::db::sql::lowering::LoweredSqlQuery::Delete(delete)) = lowered.into_query()
     else {
         panic!("{context} should lower to one DELETE query shape");
@@ -444,8 +446,11 @@ fn compile_sql_lower_global_aggregate_command(
     sql: &str,
     context: &str,
 ) -> crate::db::sql::lowering::SqlGlobalAggregateCommand<SqlLowerEntity> {
-    compile_sql_global_aggregate_command::<SqlLowerEntity>(sql, MissingRowPolicy::Ignore)
-        .unwrap_or_else(|err| panic!("{context} should lower: {err:?}"))
+    compile_sql_global_aggregate_command_for_model_only::<SqlLowerEntity>(
+        sql,
+        MissingRowPolicy::Ignore,
+    )
+    .unwrap_or_else(|err| panic!("{context} should lower: {err:?}"))
 }
 
 // Strip semantic scalar filter ownership when parity tests only care about the
@@ -5251,7 +5256,7 @@ fn compile_sql_command_rejects_entity_mismatch() {
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_count_star_lowers() {
+fn compile_sql_global_aggregate_command_for_model_only_count_star_lowers() {
     let command = compile_sql_lower_global_aggregate_command(
         "SELECT COUNT(*) FROM SqlLowerEntity WHERE age >= 21",
         "global aggregate count SQL",
@@ -5265,7 +5270,7 @@ fn compile_sql_global_aggregate_command_count_star_lowers() {
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_count_sum_avg_min_max_lower() {
+fn compile_sql_global_aggregate_command_for_model_only_count_sum_avg_min_max_lower() {
     let count_by_command = compile_sql_lower_global_aggregate_command(
         "SELECT COUNT(age) FROM SqlLowerEntity",
         "COUNT(field) SQL",
@@ -5324,7 +5329,7 @@ fn compile_sql_global_aggregate_with_schema_rejects_non_numeric_accepted_sum_fie
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_multiple_terminals_lower() {
+fn compile_sql_global_aggregate_command_for_model_only_multiple_terminals_lower() {
     let command = compile_sql_lower_global_aggregate_command(
         "SELECT MIN(age), MAX(age) FROM SqlLowerEntity",
         "multiple global aggregate terminals",
@@ -5340,7 +5345,8 @@ fn compile_sql_global_aggregate_command_multiple_terminals_lower() {
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_duplicate_terminals_dedup_to_unique_terminal_remap() {
+fn compile_sql_global_aggregate_command_for_model_only_duplicate_terminals_dedup_to_unique_terminal_remap()
+ {
     let command = compile_sql_lower_global_aggregate_command(
         "SELECT COUNT(age), COUNT(age), SUM(age), COUNT(age) FROM SqlLowerEntity",
         "duplicate global aggregate terminals",
@@ -5361,7 +5367,8 @@ fn compile_sql_global_aggregate_command_duplicate_terminals_dedup_to_unique_term
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_mixed_duplicate_terminals_preserve_unique_order_remap() {
+fn compile_sql_global_aggregate_command_for_model_only_mixed_duplicate_terminals_preserve_unique_order_remap()
+ {
     let command = compile_sql_lower_global_aggregate_command(
         "SELECT COUNT(age), SUM(age), COUNT(age), SUM(age), MAX(age) FROM SqlLowerEntity",
         "mixed duplicate global aggregate terminals",
@@ -5383,7 +5390,8 @@ fn compile_sql_global_aggregate_command_mixed_duplicate_terminals_preserve_uniqu
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_distinct_terminals_do_not_collapse_into_plain_count() {
+fn compile_sql_global_aggregate_command_for_model_only_distinct_terminals_do_not_collapse_into_plain_count()
+ {
     let command = compile_sql_lower_global_aggregate_command(
         "SELECT COUNT(age), COUNT(DISTINCT age), COUNT(age) FROM SqlLowerEntity",
         "distinct and non-distinct global aggregate terminals",
@@ -5404,7 +5412,7 @@ fn compile_sql_global_aggregate_command_distinct_terminals_do_not_collapse_into_
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_extrema_distinct_dedupes_by_semantics() {
+fn compile_sql_global_aggregate_command_for_model_only_extrema_distinct_dedupes_by_semantics() {
     let command = compile_sql_lower_global_aggregate_command(
         "SELECT MIN(age), MIN(DISTINCT age), MAX(DISTINCT age), MAX(age) FROM SqlLowerEntity",
         "extrema DISTINCT aggregate semantic terminals",
@@ -5425,7 +5433,8 @@ fn compile_sql_global_aggregate_command_extrema_distinct_dedupes_by_semantics() 
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_qualified_and_unqualified_duplicates_collapse() {
+fn compile_sql_global_aggregate_command_for_model_only_qualified_and_unqualified_duplicates_collapse()
+ {
     let command = compile_sql_lower_global_aggregate_command(
         "SELECT COUNT(age), COUNT(SqlLowerEntity.age), COUNT(age) FROM SqlLowerEntity",
         "qualified and unqualified duplicate global aggregate terminals",
@@ -5445,7 +5454,8 @@ fn compile_sql_global_aggregate_command_qualified_and_unqualified_duplicates_col
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_qualified_field_lowers_to_unqualified_terminal() {
+fn compile_sql_global_aggregate_command_for_model_only_qualified_field_lowers_to_unqualified_terminal()
+ {
     let command = compile_sql_lower_global_aggregate_command(
         "SELECT SUM(SqlLowerEntity.age) FROM SqlLowerEntity",
         "qualified global aggregate field SQL",
@@ -5455,7 +5465,7 @@ fn compile_sql_global_aggregate_command_qualified_field_lowers_to_unqualified_te
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_accepts_expression_input_terminals() {
+fn compile_sql_global_aggregate_command_for_model_only_accepts_expression_input_terminals() {
     let command = compile_sql_lower_global_aggregate_command(
         "SELECT COUNT(1), SUM(age + 1), AVG(age + 1) FROM SqlLowerEntity",
         "aggregate input expressions",
@@ -5472,7 +5482,8 @@ fn compile_sql_global_aggregate_command_accepts_expression_input_terminals() {
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_accepts_chained_expression_input_terminals() {
+fn compile_sql_global_aggregate_command_for_model_only_accepts_chained_expression_input_terminals()
+{
     let command = compile_sql_lower_global_aggregate_command(
         "SELECT AVG(age + 1 * 2), ROUND(AVG((age + age) / 2), 2) FROM SqlLowerEntity",
         "chained aggregate input expressions",
@@ -5500,7 +5511,8 @@ fn compile_sql_global_aggregate_command_accepts_chained_expression_input_termina
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_accepts_post_aggregate_projection_expressions() {
+fn compile_sql_global_aggregate_command_for_model_only_accepts_post_aggregate_projection_expressions()
+ {
     let command = compile_sql_lower_global_aggregate_command(
         "SELECT ROUND(AVG(age), 4), COUNT(*) + 1, MAX(age) - MIN(age) FROM SqlLowerEntity",
         "post-aggregate scalar wrappers",
@@ -5523,7 +5535,7 @@ fn compile_sql_global_aggregate_command_accepts_post_aggregate_projection_expres
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_ignores_singleton_output_order_by_alias() {
+fn compile_sql_global_aggregate_command_for_model_only_ignores_singleton_output_order_by_alias() {
     let ordered = compile_sql_lower_global_aggregate_command(
         "SELECT AVG(age) AS avg_age FROM SqlLowerEntity ORDER BY avg_age DESC",
         "ordered singleton global aggregate output",
@@ -5543,7 +5555,8 @@ fn compile_sql_global_aggregate_command_ignores_singleton_output_order_by_alias(
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_ignores_singleton_wrapped_output_order_by_alias() {
+fn compile_sql_global_aggregate_command_for_model_only_ignores_singleton_wrapped_output_order_by_alias()
+ {
     let ordered = compile_sql_lower_global_aggregate_command(
         "SELECT ROUND(AVG(age), 2) AS avg_age FROM SqlLowerEntity ORDER BY avg_age DESC",
         "ordered singleton wrapped global aggregate output",
@@ -5563,7 +5576,7 @@ fn compile_sql_global_aggregate_command_ignores_singleton_wrapped_output_order_b
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_deduplicates_expression_input_terminals() {
+fn compile_sql_global_aggregate_command_for_model_only_deduplicates_expression_input_terminals() {
     let command = compile_sql_lower_global_aggregate_command(
         "SELECT COUNT(1), SUM(age + 1), COUNT(1), SUM(age + 1) FROM SqlLowerEntity",
         "duplicate expression aggregate inputs",
@@ -5584,7 +5597,8 @@ fn compile_sql_global_aggregate_command_deduplicates_expression_input_terminals(
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_constant_folds_expression_input_terminals_before_dedup() {
+fn compile_sql_global_aggregate_command_for_model_only_constant_folds_expression_input_terminals_before_dedup()
+ {
     let command = compile_sql_lower_global_aggregate_command(
         "SELECT SUM(2 * 3), SUM(6), AVG(ROUND(2 * 3, 1)), AVG(6.0) FROM SqlLowerEntity",
         "constant aggregate input expressions",
@@ -5651,7 +5665,7 @@ fn compile_sql_command_accepts_grouped_aggregate_input_expressions() {
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_accepts_case_input_expressions() {
+fn compile_sql_global_aggregate_command_for_model_only_accepts_case_input_expressions() {
     let command = compile_sql_lower_global_aggregate_command(
         "SELECT SUM(CASE WHEN age >= 21 THEN 1 ELSE 0 END) FROM SqlLowerEntity",
         "searched CASE aggregate inputs",
@@ -5843,7 +5857,8 @@ fn assert_prepared_sql_scalar_strategy(expected: &ExpectedPreparedSqlScalarAggre
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_field_and_row_shapes() {
+fn compile_sql_global_aggregate_command_for_model_only_prepares_scalar_strategies_for_field_and_row_shapes()
+ {
     for expected in [
         ExpectedPreparedSqlScalarAggregateStrategy {
             sql: "SELECT COUNT(*) FROM SqlLowerEntity",
@@ -5891,7 +5906,8 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_field_and
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_distinct_field_shapes() {
+fn compile_sql_global_aggregate_command_for_model_only_prepares_scalar_strategies_for_distinct_field_shapes()
+ {
     for expected in [
         ExpectedPreparedSqlScalarAggregateStrategy {
             sql: "SELECT COUNT(DISTINCT age) FROM SqlLowerEntity",
@@ -5955,8 +5971,8 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_distinct_
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_distinct_expression_shapes()
-{
+fn compile_sql_global_aggregate_command_for_model_only_prepares_scalar_strategies_for_distinct_expression_shapes()
+ {
     let sum_terminal = compile_sql_lower_global_aggregate_command(
         "SELECT SUM(DISTINCT age + 1) FROM SqlLowerEntity",
         "distinct SUM expression aggregate input",
@@ -5975,8 +5991,8 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_distinct_
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_preserves_base_query_window_semantics() {
-    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+fn compile_sql_global_aggregate_command_for_model_only_preserves_base_query_window_semantics() {
+    let command = compile_sql_global_aggregate_command_for_model_only::<SqlLowerEntity>(
         "SELECT SUM(age) FROM SqlLowerEntity WHERE age >= 21 ORDER BY age DESC LIMIT 2 OFFSET 1",
         MissingRowPolicy::Ignore,
     )
@@ -6004,9 +6020,10 @@ fn compile_sql_global_aggregate_command_preserves_base_query_window_semantics() 
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_parity_matches_fluent_query_and_executable_identity() {
+fn compile_sql_global_aggregate_command_for_model_only_parity_matches_fluent_query_and_executable_identity()
+ {
     // Phase 1: lower equivalent global aggregate SQL and fluent scalar base query intent.
-    let sql_command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+    let sql_command = compile_sql_global_aggregate_command_for_model_only::<SqlLowerEntity>(
         "SELECT SUM(age) \
          FROM SqlLowerEntity \
          WHERE age >= 21 \
@@ -6049,14 +6066,16 @@ fn compile_sql_global_aggregate_command_parity_matches_fluent_query_and_executab
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_rejects_unsupported_shapes() {
+fn compile_sql_global_aggregate_command_for_model_only_rejects_unsupported_shapes() {
     for sql in [
         "SELECT age FROM SqlLowerEntity",
         "SELECT COUNT(*), age FROM SqlLowerEntity",
     ] {
-        let err =
-            compile_sql_global_aggregate_command::<SqlLowerEntity>(sql, MissingRowPolicy::Ignore)
-                .expect_err("unsupported global aggregate SQL shape should fail closed");
+        let err = compile_sql_global_aggregate_command_for_model_only::<SqlLowerEntity>(
+            sql,
+            MissingRowPolicy::Ignore,
+        )
+        .expect_err("unsupported global aggregate SQL shape should fail closed");
 
         assert!(
             matches!(err, SqlLoweringError::UnsupportedGlobalAggregateProjection),
@@ -6064,7 +6083,7 @@ fn compile_sql_global_aggregate_command_rejects_unsupported_shapes() {
         );
     }
 
-    let err = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+    let err = compile_sql_global_aggregate_command_for_model_only::<SqlLowerEntity>(
         "SELECT age, COUNT(*) FROM SqlLowerEntity GROUP BY age",
         MissingRowPolicy::Ignore,
     )
@@ -6077,8 +6096,8 @@ fn compile_sql_global_aggregate_command_rejects_unsupported_shapes() {
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_accepts_global_aggregate_having() {
-    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+fn compile_sql_global_aggregate_command_for_model_only_accepts_global_aggregate_having() {
+    let command = compile_sql_global_aggregate_command_for_model_only::<SqlLowerEntity>(
         "SELECT COUNT(*) FROM SqlLowerEntity HAVING COUNT(*) > 1",
         MissingRowPolicy::Ignore,
     )
@@ -6097,8 +6116,8 @@ fn compile_sql_global_aggregate_command_accepts_global_aggregate_having() {
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_without_else_canonicalizes_to_null_family() {
-    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+fn compile_sql_global_aggregate_command_for_model_only_without_else_canonicalizes_to_null_family() {
+    let command = compile_sql_global_aggregate_command_for_model_only::<SqlLowerEntity>(
         "SELECT COUNT(*) \
          FROM SqlLowerEntity \
          HAVING CASE WHEN COUNT(*) > 1 THEN TRUE END",
@@ -6126,15 +6145,16 @@ fn compile_sql_global_aggregate_command_without_else_canonicalizes_to_null_famil
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_without_else_truth_wrapper_keeps_same_null_family_shape() {
-    let canonical = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+fn compile_sql_global_aggregate_command_for_model_only_without_else_truth_wrapper_keeps_same_null_family_shape()
+ {
+    let canonical = compile_sql_global_aggregate_command_for_model_only::<SqlLowerEntity>(
         "SELECT COUNT(*) \
          FROM SqlLowerEntity \
          HAVING CASE WHEN COUNT(*) > 1 THEN TRUE ELSE NULL END",
         MissingRowPolicy::Ignore,
     )
     .expect("global aggregate explicit ELSE NULL grouped boolean HAVING should lower");
-    let wrapped = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+    let wrapped = compile_sql_global_aggregate_command_for_model_only::<SqlLowerEntity>(
         "SELECT COUNT(*) \
          FROM SqlLowerEntity \
          HAVING CASE WHEN (COUNT(*) > 1) = TRUE THEN TRUE END",
@@ -6155,8 +6175,8 @@ fn compile_sql_global_aggregate_command_without_else_truth_wrapper_keeps_same_nu
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_rejects_value_case_without_else() {
-    let err = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+fn compile_sql_global_aggregate_command_for_model_only_rejects_value_case_without_else() {
+    let err = compile_sql_global_aggregate_command_for_model_only::<SqlLowerEntity>(
         "SELECT COUNT(*) \
          FROM SqlLowerEntity \
          HAVING CASE WHEN COUNT(*) > 1 THEN 1 END = 1",
@@ -6174,7 +6194,7 @@ fn compile_sql_global_aggregate_command_rejects_value_case_without_else() {
 
 #[test]
 fn compile_sql_global_aggregate_having_matches_fluent_global_aggregate_intent() {
-    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+    let command = compile_sql_global_aggregate_command_for_model_only::<SqlLowerEntity>(
         "SELECT COUNT(*) FROM SqlLowerEntity HAVING COUNT(*) > 1",
         MissingRowPolicy::Ignore,
     )
@@ -6202,8 +6222,8 @@ fn compile_sql_global_aggregate_having_matches_fluent_global_aggregate_intent() 
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_rejects_direct_field_global_having() {
-    let err = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+fn compile_sql_global_aggregate_command_for_model_only_rejects_direct_field_global_having() {
+    let err = compile_sql_global_aggregate_command_for_model_only::<SqlLowerEntity>(
         "SELECT COUNT(*) FROM SqlLowerEntity HAVING age > 1",
         MissingRowPolicy::Ignore,
     )
@@ -6216,8 +6236,9 @@ fn compile_sql_global_aggregate_command_rejects_direct_field_global_having() {
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_rejection_message_names_global_aggregate_list_support() {
-    let err = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+fn compile_sql_global_aggregate_command_for_model_only_rejection_message_names_global_aggregate_list_support()
+ {
+    let err = compile_sql_global_aggregate_command_for_model_only::<SqlLowerEntity>(
         "SELECT MIN(age), name FROM SqlLowerEntity",
         MissingRowPolicy::Ignore,
     )

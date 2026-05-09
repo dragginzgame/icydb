@@ -1,5 +1,5 @@
 #[cfg(test)]
-use crate::db::sql::lowering::select::lower_select_shape;
+use crate::db::sql::lowering::select::lower_select_shape_for_model_only;
 use crate::{
     db::{
         MissingRowPolicy, QueryError,
@@ -185,11 +185,11 @@ fn first_expr_parameter_index(expr: &SqlExpr) -> Option<usize> {
 /// Lower one prepared SQL statement into one shared generic-free command shape.
 #[inline(never)]
 #[cfg(test)]
-pub(crate) fn lower_sql_command_from_prepared_statement(
+pub(crate) fn lower_sql_command_from_prepared_statement_for_model_only(
     prepared: PreparedSqlStatement,
     model: &'static EntityModel,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
-    lower_prepared_statement(prepared.statement, model)
+    lower_prepared_statement_for_model_only(prepared.statement, model)
 }
 
 /// Lower one prepared SQL statement through an explicit schema projection.
@@ -426,13 +426,13 @@ fn prepare_insert_select_source(
 
 #[inline(never)]
 #[cfg(test)]
-fn lower_prepared_statement(
+fn lower_prepared_statement_for_model_only(
     statement: SqlStatement,
     model: &'static EntityModel,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
     match statement {
         SqlStatement::Select(statement) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Query(
-            LoweredSqlQuery::Select(lower_select_shape(statement, model)?),
+            LoweredSqlQuery::Select(lower_select_shape_for_model_only(statement, model)?),
         ))),
         SqlStatement::Delete(statement) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Query(
             LoweredSqlQuery::Delete(lower_delete_shape(statement)?),
@@ -440,7 +440,7 @@ fn lower_prepared_statement(
         SqlStatement::Insert(_) | SqlStatement::Update(_) => {
             Err(SqlLoweringError::unexpected_query_lane_statement())
         }
-        SqlStatement::Explain(statement) => lower_explain_prepared(statement, model),
+        SqlStatement::Explain(statement) => lower_explain_prepared_for_model_only(statement, model),
         SqlStatement::Describe(_) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::DescribeEntity)),
         SqlStatement::ShowIndexes(_) => {
             Ok(LoweredSqlCommand(LoweredSqlCommandInner::ShowIndexesEntity))
@@ -486,7 +486,7 @@ fn lower_prepared_statement_with_schema(
 }
 
 #[cfg(test)]
-fn lower_explain_prepared(
+fn lower_explain_prepared_for_model_only(
     statement: SqlExplainStatement,
     model: &'static EntityModel,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
@@ -495,7 +495,7 @@ fn lower_explain_prepared(
 
     match statement.statement {
         SqlExplainTarget::Select(select_statement) => {
-            lower_explain_select_prepared(select_statement, mode, verbose, model)
+            lower_explain_select_prepared_for_model_only(select_statement, mode, verbose, model)
         }
         SqlExplainTarget::Delete(delete_statement) => {
             Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
@@ -534,7 +534,7 @@ fn lower_explain_prepared_with_schema(
 }
 
 #[cfg(test)]
-fn lower_explain_select_prepared(
+fn lower_explain_select_prepared_for_model_only(
     statement: SqlSelectStatement,
     mode: SqlExplainMode,
     verbose: bool,
@@ -552,7 +552,7 @@ fn lower_explain_select_prepared(
         ));
     }
 
-    match lower_select_shape(statement.clone(), model) {
+    match lower_select_shape_for_model_only(statement.clone(), model) {
         Ok(query) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
             mode,
             verbose,

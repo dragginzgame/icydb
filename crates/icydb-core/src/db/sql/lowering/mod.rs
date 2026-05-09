@@ -36,7 +36,7 @@ pub(in crate::db) use aggregate::compile_sql_global_aggregate_command_core_from_
 #[cfg(test)]
 pub(crate) use aggregate::{
     PreparedSqlScalarAggregateDescriptorShape, SqlGlobalAggregateCommand,
-    compile_sql_global_aggregate_command,
+    compile_sql_global_aggregate_command_for_model_only,
 };
 pub(crate) use aggregate::{
     PreparedSqlScalarAggregatePlanFragment, PreparedSqlScalarAggregateStrategy,
@@ -51,7 +51,7 @@ pub(in crate::db) use order_expr::{
 };
 pub(in crate::db) use prepare::bind_prepared_sql_select_statement_structural_with_schema;
 #[cfg(test)]
-pub(crate) use prepare::lower_sql_command_from_prepared_statement;
+pub(crate) use prepare::lower_sql_command_from_prepared_statement_for_model_only;
 pub(crate) use prepare::{
     extract_prepared_sql_insert_select_source, extract_prepared_sql_insert_statement,
     extract_prepared_sql_update_statement, lower_prepared_sql_delete_statement,
@@ -61,12 +61,12 @@ pub(crate) use prepare::{
 pub(crate) use select::LoweredDeleteShape;
 pub(in crate::db::sql::lowering) use select::LoweredSqlFilter;
 #[cfg(test)]
-pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape;
+pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape_for_model_only;
 pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape_with_schema;
 #[cfg(test)]
-pub(in crate::db) use select::apply_lowered_select_shape;
+pub(in crate::db) use select::apply_lowered_select_shape_for_model_only;
 #[cfg(test)]
-pub(in crate::db) use select::bind_lowered_sql_query;
+pub(in crate::db) use select::bind_lowered_sql_query_for_model_only;
 pub(in crate::db::sql::lowering) use select::validate_base_query_sql_capabilities;
 pub(crate) use select::{LoweredBaseQueryShape, LoweredSelectShape};
 pub(in crate::db) use select::{
@@ -435,22 +435,21 @@ pub(crate) fn compile_sql_command<E: EntityKind>(
 
     if prepared.statement().is_global_aggregate_lane_shape() {
         return Ok(SqlCommand::GlobalAggregate(
-            aggregate::compile_sql_global_aggregate_command_from_prepared::<E>(
+            aggregate::compile_sql_global_aggregate_command_from_prepared_for_model_only::<E>(
                 prepared,
                 consistency,
             )?,
         ));
     }
 
-    let lowered = lower_sql_command_from_prepared_statement(prepared, E::MODEL)?;
+    let lowered = lower_sql_command_from_prepared_statement_for_model_only(prepared, E::MODEL)?;
 
     // Keep the test-only typed envelope local to the single public test entry
     // point instead of preserving a private forwarding chain.
     match lowered.0 {
-        LoweredSqlCommandInner::Query(query) => Ok(SqlCommand::Query(bind_lowered_sql_query::<E>(
-            query,
-            consistency,
-        )?)),
+        LoweredSqlCommandInner::Query(query) => Ok(SqlCommand::Query(
+            bind_lowered_sql_query_for_model_only::<E>(query, consistency)?,
+        )),
         LoweredSqlCommandInner::ExplainGlobalAggregate {
             mode,
             verbose,
@@ -458,7 +457,7 @@ pub(crate) fn compile_sql_command<E: EntityKind>(
         } => Ok(SqlCommand::ExplainGlobalAggregate {
             mode,
             verbose,
-            command: aggregate::bind_lowered_sql_global_aggregate_command::<E>(
+            command: aggregate::bind_lowered_sql_global_aggregate_command_for_model_only::<E>(
                 command,
                 consistency,
             )?,
@@ -470,7 +469,7 @@ pub(crate) fn compile_sql_command<E: EntityKind>(
         } => Ok(SqlCommand::Explain {
             mode,
             verbose,
-            query: bind_lowered_sql_query::<E>(query, consistency)?,
+            query: bind_lowered_sql_query_for_model_only::<E>(query, consistency)?,
         }),
         LoweredSqlCommandInner::DescribeEntity => Ok(SqlCommand::DescribeEntity),
         LoweredSqlCommandInner::ShowIndexesEntity => Ok(SqlCommand::ShowIndexesEntity),

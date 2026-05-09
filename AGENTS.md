@@ -6,6 +6,7 @@ Keep this file small. Open detailed governance docs only when the task needs the
 
 - No Python: use existing Rust/shell patterns for tooling, scripts, tests, and build helpers.
 - Do not run `git commit` or `git push`.
+- Do not edit Cargo workspace/package version numbers in `Cargo.toml` or `Cargo.lock`; `make patch` owns version bumps.
 - Do not revert user or unrelated dirty-worktree changes; re-read affected files and continue.
 - Do not start or stop `dfx`; the user manages its lifecycle elsewhere.
 - Use absolute filesystem paths in final file references.

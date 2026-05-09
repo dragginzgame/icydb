@@ -18,6 +18,7 @@ pub(in crate::db) use self::{
     load::{
         LoadExecutionRouteFacts, assemble_load_execution_node_descriptor_for_authority,
         assemble_load_execution_node_descriptor_from_route_facts,
-        freeze_load_execution_route_facts, freeze_load_execution_route_facts_for_authority,
+        freeze_load_execution_route_facts_for_authority,
+        freeze_load_execution_route_facts_for_model_only,
     },
 };

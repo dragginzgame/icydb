@@ -11,9 +11,9 @@ use crate::db::sql::parser::{SqlProjection, SqlSelectItem, SqlSelectStatement, S
 
 #[cfg(test)]
 pub(crate) use command::SqlGlobalAggregateCommand;
-#[cfg(test)]
-pub(crate) use command::compile_sql_global_aggregate_command;
 pub(in crate::db) use command::compile_sql_global_aggregate_command_core_from_prepared_with_schema;
+#[cfg(test)]
+pub(crate) use command::compile_sql_global_aggregate_command_for_model_only;
 pub(in crate::db::sql::lowering) use command::{
     LoweredSqlGlobalAggregateCommand, lower_global_aggregate_select_shape,
 };
@@ -22,7 +22,8 @@ pub(crate) use command::{
 };
 #[cfg(test)]
 pub(in crate::db::sql::lowering) use command::{
-    bind_lowered_sql_global_aggregate_command, compile_sql_global_aggregate_command_from_prepared,
+    bind_lowered_sql_global_aggregate_command_for_model_only,
+    compile_sql_global_aggregate_command_from_prepared_for_model_only,
 };
 pub(in crate::db::sql::lowering) use grouped::{
     extend_unique_sql_expr_aggregate_calls, grouped_projection_aggregate_calls,

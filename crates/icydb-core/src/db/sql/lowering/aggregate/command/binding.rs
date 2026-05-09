@@ -1,5 +1,5 @@
 #[cfg(test)]
-use crate::db::sql::lowering::apply_lowered_base_query_shape;
+use crate::db::sql::lowering::apply_lowered_base_query_shape_for_model_only;
 #[cfg(test)]
 use crate::{db::query::intent::Query, traits::EntityKind};
 use crate::{
@@ -133,7 +133,7 @@ impl SqlGlobalAggregateCommandCore {
 impl LoweredSqlGlobalAggregateCommand {
     /// Bind this lowered aggregate command onto one entity-owned typed query.
     #[cfg(test)]
-    fn into_typed<E: EntityKind>(
+    fn into_typed_for_model_only<E: EntityKind>(
         self,
         consistency: MissingRowPolicy,
     ) -> Result<SqlGlobalAggregateCommand<E>, SqlLoweringError> {
@@ -157,7 +157,7 @@ impl LoweredSqlGlobalAggregateCommand {
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(SqlGlobalAggregateCommand {
-            query: Query::from_inner(apply_lowered_base_query_shape(
+            query: Query::from_inner(apply_lowered_base_query_shape_for_model_only(
                 StructuralQuery::new(E::MODEL, consistency),
                 query,
             )),
@@ -210,21 +210,21 @@ impl LoweredSqlGlobalAggregateCommand {
 
 /// Parse and lower one SQL statement into global aggregate execution command for `E`.
 #[cfg(test)]
-pub(crate) fn compile_sql_global_aggregate_command<E: EntityKind>(
+pub(crate) fn compile_sql_global_aggregate_command_for_model_only<E: EntityKind>(
     sql: &str,
     consistency: MissingRowPolicy,
 ) -> Result<SqlGlobalAggregateCommand<E>, SqlLoweringError> {
     let statement = crate::db::sql::parser::parse_sql(sql)?;
     let prepared = crate::db::sql::lowering::prepare_sql_statement(&statement, E::MODEL.name())?;
 
-    compile_sql_global_aggregate_command_from_prepared::<E>(prepared, consistency)
+    compile_sql_global_aggregate_command_from_prepared_for_model_only::<E>(prepared, consistency)
 }
 
 // Lower one already-prepared SQL statement into the constrained global
 // aggregate command envelope so callers that already parsed and routed the
 // statement do not pay the parser again.
 #[cfg(test)]
-pub(crate) fn compile_sql_global_aggregate_command_from_prepared<E: EntityKind>(
+pub(crate) fn compile_sql_global_aggregate_command_from_prepared_for_model_only<E: EntityKind>(
     prepared: PreparedSqlStatement,
     consistency: MissingRowPolicy,
 ) -> Result<SqlGlobalAggregateCommand<E>, SqlLoweringError> {
@@ -232,7 +232,7 @@ pub(crate) fn compile_sql_global_aggregate_command_from_prepared<E: EntityKind>(
         return Err(SqlLoweringError::unsupported_select_projection());
     };
 
-    bind_lowered_sql_global_aggregate_command::<E>(
+    bind_lowered_sql_global_aggregate_command_for_model_only::<E>(
         lower_global_aggregate_select_shape(statement)?,
         consistency,
     )
@@ -259,11 +259,13 @@ pub(in crate::db) fn compile_sql_global_aggregate_command_core_from_prepared_wit
 }
 
 #[cfg(test)]
-pub(in crate::db::sql::lowering) fn bind_lowered_sql_global_aggregate_command<E: EntityKind>(
+pub(in crate::db::sql::lowering) fn bind_lowered_sql_global_aggregate_command_for_model_only<
+    E: EntityKind,
+>(
     lowered: LoweredSqlGlobalAggregateCommand,
     consistency: MissingRowPolicy,
 ) -> Result<SqlGlobalAggregateCommand<E>, SqlLoweringError> {
-    lowered.into_typed::<E>(consistency)
+    lowered.into_typed_for_model_only::<E>(consistency)
 }
 
 pub(in crate::db::sql::lowering::aggregate) fn bind_lowered_sql_global_aggregate_command_structural(
