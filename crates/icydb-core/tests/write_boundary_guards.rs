@@ -409,8 +409,8 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
             && save_typed.contains("let schema = self.accepted_schema_info();")
             && save_batch.contains("let schema = self.accepted_schema_info();")
             && save_structural.contains("let schema = self.accepted_schema_info();")
-            && !save_mod.contains("SchemaInfo::cached_for_entity_model(E::MODEL)")
-            && !save_validation.contains("SchemaInfo::cached_for_entity_model(E::MODEL)")
+            && !save_mod.contains("SchemaInfo::cached_for_generated_entity_model(E::MODEL)")
+            && !save_validation.contains("SchemaInfo::cached_for_generated_entity_model(E::MODEL)")
             && !save_typed.contains("Self::schema_info()")
             && !save_batch.contains("Self::schema_info()")
             && !save_structural.contains("Self::schema_info()")
@@ -470,6 +470,7 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
 #[test]
 fn standalone_generated_query_planning_is_model_only() {
     let query_plan_pipeline = read_source("src/db/query/plan/pipeline.rs");
+    let schema_info = read_source("src/db/schema/info.rs");
 
     assert!(
         query_plan_pipeline.contains("fn build_query_model_plan_for_model_only")
@@ -479,7 +480,9 @@ fn standalone_generated_query_planning_is_model_only() {
             && query_plan_pipeline
                 .contains("fn prepare_query_model_scalar_planning_state_for_model_only")
             && query_plan_pipeline
-                .contains("SchemaInfo::cached_for_entity_model(query.model()).clone()")
+                .contains("SchemaInfo::cached_for_generated_entity_model(query.model()).clone()")
+            && schema_info.contains("fn cached_for_generated_entity_model(")
+            && !schema_info.contains("fn cached_for_entity_model(")
             && query_plan_pipeline
                 .contains("fn prepare_query_model_scalar_planning_state_with_schema_info")
             && !query_plan_pipeline.contains("fn build_query_model_plan<K>")
@@ -502,7 +505,8 @@ fn executor_plan_validation_uses_accepted_schema_info() {
             && entity_authority.contains("executor plan validation requires accepted schema info")
             && entity_authority.contains("validate_access_runtime_invariants_with_schema(")
             && !entity_authority.contains("fn schema_info(")
-            && !entity_authority.contains("SchemaInfo::cached_for_entity_model(self.model)")
+            && !entity_authority
+                .contains("SchemaInfo::cached_for_generated_entity_model(self.model)")
             && !entity_authority.contains("validate_access_runtime_invariants_model(")
             && !entity_authority.contains("validate_access_structure_model(self.schema_info()"),
         "executor plan validation must require planner-frozen static shape and authority-carried accepted schema info instead of reopening generated schema authority",
@@ -728,7 +732,7 @@ fn cursor_boundary_validation_uses_authority_schema_info() {
 
     assert!(
         cursor_boundary.contains("schema: &SchemaInfo,")
-            && !cursor_boundary.contains("SchemaInfo::cached_for_entity_model(model)")
+            && !cursor_boundary.contains("SchemaInfo::cached_for_generated_entity_model(model)")
             && !cursor_boundary.contains("fn boundary_schema("),
         "cursor boundary validation must consume caller-supplied schema info instead of reopening generated schema metadata",
     );
@@ -762,12 +766,12 @@ fn prepared_static_shape_finalization_uses_authority_schema_info() {
     assert!(
         entity_authority.contains(
             "plan.finalize_static_planning_shape_for_model_with_schema(self.model, schema_info)",
-        ) && !entity_authority.contains(".finalize_static_planning_shape_for_model(self.model)")
+        ) && !entity_authority.contains(".finalize_static_planning_shape_for_model_only(self.model)")
             && !entity_authority.contains("PreparedShapeFinalizationOutcome::GeneratedFallback")
             && query_plan_logical.contains(
-                "#[cfg(test)]\n    pub(in crate::db) fn finalize_static_planning_shape_for_model("
+                "#[cfg(test)]\n    pub(in crate::db) fn finalize_static_planning_shape_for_model_only("
             ),
-        "prepared execution finalization must use authority-carried schema info and keep generated static-shape finalization test-only",
+        "prepared execution finalization must use authority-carried schema info and keep generated static-shape finalization model-only and test-only",
     );
     assert!(
         schema_info.contains("leaf_codec: LeafCodec,")
@@ -778,10 +782,13 @@ fn prepared_static_shape_finalization_uses_authority_schema_info() {
                 .contains("PredicateCapabilityContext::runtime_schema(schema_info)")
             && query_plan_logical
                 .contains("PredicateProgram::compile_with_schema_info(schema_info, predicate)")
-            && !query_plan_logical.contains("PredicateProgram::compile(model, predicate)")
-            && predicate_runtime.contains("#[cfg(test)]\n    pub(in crate::db) fn compile(")
-            && predicate_capability.contains("#[cfg(test)]\n    pub(in crate::db) fn runtime("),
-        "prepared predicate compilation and scalar fast-path classification must use schema info, keeping generated model wrappers test-only",
+            && !query_plan_logical
+                .contains("PredicateProgram::compile_for_model_only(model, predicate)")
+            && predicate_runtime
+                .contains("#[cfg(test)]\n    pub(in crate::db) fn compile_for_model_only(")
+            && predicate_capability
+                .contains("#[cfg(test)]\n    pub(in crate::db) fn runtime_for_model_only("),
+        "prepared predicate compilation and scalar fast-path classification must use schema info, keeping generated model wrappers model-only and test-only",
     );
 }
 
@@ -798,11 +805,11 @@ fn scalar_aggregate_expression_compilation_uses_accepted_schema_info() {
 
     assert!(
         scalar_expr.contains(
-            "#[cfg(test)]\n#[must_use]\npub(in crate::db) fn compile_scalar_projection_expr("
+            "#[cfg(test)]\n#[must_use]\npub(in crate::db) fn compile_scalar_projection_expr_for_model_only("
         ) && scalar_expr_mod.contains(
-            "#[cfg(test)]\npub(in crate::db) use scalar::compile_scalar_projection_expr;"
+            "#[cfg(test)]\npub(in crate::db) use scalar::compile_scalar_projection_expr_for_model_only;"
         ),
-        "generated-schema scalar projection compiler wrapper must stay test-only",
+        "generated-schema scalar projection compiler wrapper must stay explicitly model-only and test-only",
     );
     assert!(
         scalar_expr.contains(
@@ -820,7 +827,8 @@ fn scalar_aggregate_expression_compilation_uses_accepted_schema_info() {
         aggregate_helpers.contains("schema: &SchemaInfo,")
             && aggregate_helpers
                 .contains("compile_scalar_projection_expr_with_schema(schema, expr)",)
-            && !aggregate_helpers.contains("compile_scalar_projection_expr(model, expr)"),
+            && !aggregate_helpers
+                .contains("compile_scalar_projection_expr_for_model_only(model, expr)"),
         "SQL aggregate scalar-expression validation must compile against caller-supplied schema info",
     );
     assert!(
@@ -829,7 +837,8 @@ fn scalar_aggregate_expression_compilation_uses_accepted_schema_info() {
                 .contains("compile_scalar_projection_expr_from_schema(schema, expr)",)
             && aggregate_terminal.contains("schema.field_slot_index(field.as_str()).is_none()")
             && !aggregate_terminal.contains("EntityModel")
-            && !aggregate_terminal.contains("compile_scalar_projection_expr(model, expr)")
+            && !aggregate_terminal
+                .contains("compile_scalar_projection_expr_for_model_only(model, expr)")
             && !aggregate_terminal.contains("model.resolve_field_slot(field.as_str()).is_none()"),
         "structural aggregate terminal expression compilation must use accepted schema info for scalar slot resolution",
     );

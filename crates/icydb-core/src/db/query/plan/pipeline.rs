@@ -200,7 +200,7 @@ where
 {
     try_build_trivial_scalar_load_plan_with_schema_info(
         query,
-        SchemaInfo::cached_for_entity_model(query.model()).clone(),
+        SchemaInfo::cached_for_generated_entity_model(query.model()).clone(),
     )
 }
 
@@ -257,7 +257,7 @@ where
 {
     prepare_query_model_scalar_planning_state_with_schema_info(
         query,
-        SchemaInfo::cached_for_entity_model(query.model()).clone(),
+        SchemaInfo::cached_for_generated_entity_model(query.model()).clone(),
     )
 }
 

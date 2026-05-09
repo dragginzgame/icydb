@@ -2175,7 +2175,7 @@ fn structural_slot_reader_predicate_compares_value_storage_scalar_without_cache_
         "payload".to_string(),
         Value::Text("payload".to_string()),
     ));
-    let program = PredicateProgram::compile(&TEST_MODEL, &predicate);
+    let program = PredicateProgram::compile_for_model_only(&TEST_MODEL, &predicate);
 
     let reader = StructuralSlotReader::from_raw_row(&raw_row, &TEST_MODEL)
         .expect("row-open structural envelope decode should succeed");

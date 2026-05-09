@@ -9,7 +9,7 @@ use crate::db::query::plan::expr::CompiledExpr;
 #[cfg(test)]
 use crate::db::query::plan::expr::ProjectionSpec;
 #[cfg(test)]
-use crate::db::query::plan::expr::compile_scalar_projection_expr;
+use crate::db::query::plan::expr::compile_scalar_projection_expr_for_model_only;
 #[cfg(test)]
 use crate::{
     db::response::ProjectedRow,
@@ -578,9 +578,10 @@ where
 {
     let mut compiled_fields = Vec::with_capacity(projection.len());
     for field in projection.fields() {
-        let compiled = compile_scalar_projection_expr(E::MODEL, field.expr()).expect(
-            "test projection materialization helpers require scalar-compilable expressions",
-        );
+        let compiled = compile_scalar_projection_expr_for_model_only(E::MODEL, field.expr())
+            .expect(
+                "test projection materialization helpers require scalar-compilable expressions",
+            );
         compiled_fields.push(CompiledExpr::compile(&compiled));
     }
     let prepared = PreparedProjectionPlan::Scalar(compiled_fields);

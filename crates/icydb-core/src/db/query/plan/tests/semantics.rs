@@ -224,7 +224,7 @@ fn finalized_static_shape_carries_explicit_expression_only_residual_filter_state
     };
 
     plan.finalize_planner_route_profile_for_model(model);
-    plan.finalize_static_planning_shape_for_model(model)
+    plan.finalize_static_planning_shape_for_model_only(model)
         .expect("expression-only residual filter should finalize into static planning shape");
 
     assert!(
@@ -364,7 +364,7 @@ fn finalized_static_shape_keeps_expression_residual_when_predicate_subset_also_e
     };
 
     plan.finalize_planner_route_profile_for_model(model);
-    plan.finalize_static_planning_shape_for_model(model)
+    plan.finalize_static_planning_shape_for_model_only(model)
         .expect("mixed semantic filter should finalize into explicit residual state");
 
     assert!(
@@ -381,7 +381,7 @@ fn finalized_static_shape_keeps_expression_residual_when_predicate_subset_also_e
 fn plan_rejects_unorderable_field() {
     let model = <PlanValidateListEntity as EntitySchema>::MODEL;
 
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
@@ -419,7 +419,7 @@ fn plan_rejects_unorderable_field() {
 #[test]
 fn plan_rejects_nested_path_order_field() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
@@ -460,7 +460,7 @@ fn plan_rejects_nested_path_order_field() {
 #[test]
 fn plan_rejects_nested_path_inside_order_expression() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
@@ -507,7 +507,7 @@ fn plan_rejects_nested_path_inside_order_expression() {
 #[test]
 fn plan_rejects_duplicate_non_primary_order_field() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
@@ -550,7 +550,7 @@ fn plan_rejects_duplicate_non_primary_order_field() {
 #[test]
 fn plan_rejects_index_prefix_too_long() {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
@@ -586,7 +586,7 @@ fn plan_rejects_index_prefix_too_long() {
 #[test]
 fn plan_rejects_empty_index_prefix() {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
@@ -622,7 +622,7 @@ fn plan_rejects_empty_index_prefix() {
 #[test]
 fn plan_accepts_model_based_validation() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
@@ -650,7 +650,7 @@ fn plan_accepts_model_based_validation() {
 #[test]
 fn plan_rejects_empty_order_spec() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
@@ -683,7 +683,7 @@ fn plan_rejects_empty_order_spec() {
 #[test]
 fn delete_limit_requires_order() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Delete(DeleteSpec::new()),
@@ -783,7 +783,7 @@ fn scalar_distinct_execution_strategy_is_planner_lowered_from_access_shape() {
 #[test]
 fn delete_plan_rejects_pagination() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Delete(DeleteSpec::new()),
@@ -825,7 +825,7 @@ fn delete_plan_rejects_pagination() {
 #[test]
 fn load_plan_rejects_delete_limit() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
@@ -867,7 +867,7 @@ fn load_plan_rejects_delete_limit() {
 #[test]
 fn plan_rejects_unordered_pagination() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
@@ -904,7 +904,7 @@ fn plan_rejects_unordered_pagination() {
 #[test]
 fn plan_rejects_limit_without_order() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
@@ -970,7 +970,7 @@ fn continuation_cursor_paging_requires_order_and_limit() {
 #[test]
 fn plan_accepts_ordered_pagination() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
@@ -1006,7 +1006,7 @@ fn plan_accepts_ordered_pagination() {
 #[test]
 fn plan_accepts_expression_order_when_access_satisfies_matching_index() {
     let model = model_with_expression_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let mut plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
@@ -1050,7 +1050,7 @@ fn plan_accepts_expression_order_when_access_satisfies_matching_index() {
 #[test]
 fn plan_rejects_expression_order_without_access_satisfied_index_contract() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let mut plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
@@ -1206,7 +1206,7 @@ fn grouped_plan_without_order_uses_grouped_canonical_ordering_contract() {
 #[test]
 fn plan_rejects_order_without_terminal_primary_key_tie_break() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
@@ -1244,7 +1244,7 @@ fn plan_rejects_order_without_terminal_primary_key_tie_break() {
 #[test]
 fn plan_rejects_map_field_predicates_during_planning_validation() {
     let model = <PlanValidateMapEntity as EntitySchema>::MODEL;
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),

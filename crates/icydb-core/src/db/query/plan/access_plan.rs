@@ -518,7 +518,7 @@ impl AccessPlannedQuery {
         self.finalize_access_choice_for_model_with_indexes_and_schema(
             model,
             visible_indexes,
-            SchemaInfo::cached_for_entity_model(model),
+            SchemaInfo::cached_for_generated_entity_model(model),
         );
     }
 

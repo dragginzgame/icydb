@@ -43,7 +43,7 @@ fn strict_scalar_compare_is_scalar_safe_and_indexable_when_indexed() {
     ));
     let scalar_profile = classify_predicate_capabilities(
         &predicate,
-        PredicateCapabilityContext::runtime(&CAPABILITY_MODEL),
+        PredicateCapabilityContext::runtime_for_model_only(&CAPABILITY_MODEL),
     );
     let index_profile = classify_predicate_capabilities(
         &predicate,
@@ -68,7 +68,7 @@ fn scalar_text_contains_requires_full_scan() {
     };
     let scalar_profile = classify_predicate_capabilities(
         &predicate,
-        PredicateCapabilityContext::runtime(&CAPABILITY_MODEL),
+        PredicateCapabilityContext::runtime_for_model_only(&CAPABILITY_MODEL),
     );
     let index_profile = classify_predicate_capabilities(
         &predicate,

@@ -149,15 +149,18 @@ impl ScalarProjectionField {
     }
 }
 
-/// Compile one scalar projection expression into a planner-owned slot-resolved
-/// program when it stays entirely on the scalar seam.
+/// Compile one model-only scalar projection expression into a planner-owned
+/// slot-resolved program when it stays entirely on the scalar seam.
 #[cfg(test)]
 #[must_use]
-pub(in crate::db) fn compile_scalar_projection_expr(
+pub(in crate::db) fn compile_scalar_projection_expr_for_model_only(
     model: &EntityModel,
     expr: &Expr,
 ) -> Option<ScalarProjectionExpr> {
-    compile_scalar_projection_expr_with_schema(SchemaInfo::cached_for_entity_model(model), expr)
+    compile_scalar_projection_expr_with_schema(
+        SchemaInfo::cached_for_generated_entity_model(model),
+        expr,
+    )
 }
 
 /// Compile one scalar projection expression using an explicit schema authority.

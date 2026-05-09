@@ -137,7 +137,7 @@ pub(in crate::db) use projection_eval::{
 };
 pub(in crate::db) use rewrite::rewrite_affine_numeric_compare_expr;
 #[cfg(test)]
-pub(in crate::db) use scalar::compile_scalar_projection_expr;
+pub(in crate::db) use scalar::compile_scalar_projection_expr_for_model_only;
 pub(in crate::db) use scalar::{
     ScalarProjectionCaseArm, ScalarProjectionExpr, compile_scalar_projection_expr_from_schema,
     compile_scalar_projection_expr_with_schema, compile_scalar_projection_plan_with_schema,

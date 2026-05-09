@@ -61,7 +61,7 @@ use crate::db::{
         eval_compiled_expr_with_required_slot_reader_cow, eval_compiled_expr_with_value_reader,
         eval_effective_runtime_filter_program_with_slot_reader,
     },
-    query::plan::expr::compile_scalar_projection_expr,
+    query::plan::expr::compile_scalar_projection_expr_for_model_only,
 };
 
 const EMPTY_INDEX_FIELDS: [&str; 0] = [];
@@ -397,7 +397,7 @@ fn eval_scalar_expr_for_row(
     expr: &Expr,
     row: &ProjectionEvalEntity,
 ) -> Result<Value, InternalError> {
-    let compiled = compile_scalar_projection_expr(ProjectionEvalEntity::MODEL, expr)
+    let compiled = compile_scalar_projection_expr_for_model_only(ProjectionEvalEntity::MODEL, expr)
         .expect("expression should compile onto scalar projection seam");
     let raw_row = CanonicalRow::from_entity(row)
         .expect("persisted row should encode")
@@ -412,7 +412,7 @@ fn eval_canonical_scalar_expr_for_row(
     expr: &Expr,
     row: &ProjectionEvalEntity,
 ) -> Result<Value, InternalError> {
-    let compiled = compile_scalar_projection_expr(ProjectionEvalEntity::MODEL, expr)
+    let compiled = compile_scalar_projection_expr_for_model_only(ProjectionEvalEntity::MODEL, expr)
         .expect("expression should compile onto scalar projection seam");
     let raw_row = CanonicalRow::from_entity(row)
         .expect("persisted row should encode")
@@ -433,7 +433,7 @@ fn eval_scalar_filter_expr_for_row(
     expr: &Expr,
     row: &ProjectionEvalEntity,
 ) -> Result<bool, InternalError> {
-    let compiled = compile_scalar_projection_expr(ProjectionEvalEntity::MODEL, expr)
+    let compiled = compile_scalar_projection_expr_for_model_only(ProjectionEvalEntity::MODEL, expr)
         .expect("filter expression should compile onto scalar projection seam");
     let raw_row = CanonicalRow::from_entity(row)
         .expect("persisted row should encode")
@@ -451,7 +451,7 @@ fn eval_canonical_scalar_expr_with_required_reader(
     expr: &Expr,
     read_slot: &mut dyn FnMut(usize) -> Result<Value, InternalError>,
 ) -> Result<Value, InternalError> {
-    let compiled = compile_scalar_projection_expr(ProjectionEvalEntity::MODEL, expr)
+    let compiled = compile_scalar_projection_expr_for_model_only(ProjectionEvalEntity::MODEL, expr)
         .expect("expression should compile onto scalar projection seam");
     let value = eval_canonical_scalar_projection_expr_with_required_value_reader_cow(
         &compiled,
@@ -466,7 +466,7 @@ fn grouped_execution_specs<const N: usize>(
 ) -> [GroupedAggregateExecutionSpec; N] {
     aggregate_exprs.map(|aggregate_expr| {
         GroupedAggregateExecutionSpec::from_aggregate_expr(&aggregate_expr)
-            .resolve_with_schema_info(SchemaInfo::cached_for_entity_model(
+            .resolve_with_schema_info(SchemaInfo::cached_for_generated_entity_model(
                 ProjectionEvalEntity::MODEL,
             ))
             .expect("grouped execution spec should lower from aggregate expression")

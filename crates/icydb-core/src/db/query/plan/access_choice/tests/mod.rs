@@ -102,11 +102,11 @@ static ACCESS_CHOICE_RANGE_MODEL: EntityModel = entity_model_from_static(
 );
 
 fn schema() -> &'static SchemaInfo {
-    SchemaInfo::cached_for_entity_model(&ACCESS_CHOICE_MODEL)
+    SchemaInfo::cached_for_generated_entity_model(&ACCESS_CHOICE_MODEL)
 }
 
 fn range_schema() -> &'static SchemaInfo {
-    SchemaInfo::cached_for_entity_model(&ACCESS_CHOICE_RANGE_MODEL)
+    SchemaInfo::cached_for_generated_entity_model(&ACCESS_CHOICE_RANGE_MODEL)
 }
 
 #[test]

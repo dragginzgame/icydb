@@ -57,13 +57,13 @@ pub(in crate::db) struct PredicateCapabilityContext<'a> {
 }
 
 impl<'a> PredicateCapabilityContext<'a> {
-    /// Construct one runtime capability context.
+    /// Construct one model-only runtime capability context.
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db) fn runtime(model: &'a EntityModel) -> Self {
+    pub(in crate::db) fn runtime_for_model_only(model: &'a EntityModel) -> Self {
         Self {
             compile_targets: None,
-            schema_info: Some(SchemaInfo::cached_for_entity_model(model)),
+            schema_info: Some(SchemaInfo::cached_for_generated_entity_model(model)),
             index_slots: None,
         }
     }

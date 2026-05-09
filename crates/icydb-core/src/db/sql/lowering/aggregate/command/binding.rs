@@ -150,7 +150,7 @@ impl LoweredSqlGlobalAggregateCommand {
             .map(|terminal| {
                 PreparedSqlScalarAggregateStrategy::from_lowered_terminal_with_schema(
                     E::MODEL,
-                    SchemaInfo::cached_for_entity_model(E::MODEL),
+                    SchemaInfo::cached_for_generated_entity_model(E::MODEL),
                     terminal,
                 )
             })

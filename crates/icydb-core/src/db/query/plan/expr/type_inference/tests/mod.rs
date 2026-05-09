@@ -82,7 +82,7 @@ static PROFILE_MODEL: EntityModel = entity_model_from_static(
 
 fn schema() -> &'static SchemaInfo {
     let model: &'static EntityModel = <ExprInferenceEntity as crate::traits::EntitySchema>::MODEL;
-    SchemaInfo::cached_for_entity_model(model)
+    SchemaInfo::cached_for_generated_entity_model(model)
 }
 
 fn accepted_profile_schema_with_nested_rank(kind: PersistedFieldKind) -> SchemaInfo {

@@ -298,7 +298,7 @@ fn predicate_and_projection_comparisons_match_for_shared_supported_cases() {
     ];
 
     for ((predicate, expected), projected) in predicate_cases.into_iter().zip(projection_row) {
-        let program = PredicateProgram::compile(SessionSqlEntity::MODEL, &predicate);
+        let program = PredicateProgram::compile_for_model_only(SessionSqlEntity::MODEL, &predicate);
         let mut read_slot = |slot| {
             values
                 .iter()
@@ -330,7 +330,7 @@ fn predicate_documents_unsupported_ne_projection_drift() {
         Value::Uint(20),
         CoercionId::Strict,
     ));
-    let program = PredicateProgram::compile(SessionSqlEntity::MODEL, &predicate);
+    let program = PredicateProgram::compile_for_model_only(SessionSqlEntity::MODEL, &predicate);
     let values = [(1_usize, Value::Text("cmp-drift".to_string()))];
     let mut read_slot = |slot| {
         values

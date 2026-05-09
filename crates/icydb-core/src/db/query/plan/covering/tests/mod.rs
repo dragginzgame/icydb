@@ -58,7 +58,7 @@ fn covering_read_model() -> &'static crate::model::entity::EntityModel {
 fn finalized_covering_read_plan(plan: &AccessPlannedQuery) -> AccessPlannedQuery {
     let mut finalized = plan.clone();
     finalized
-        .finalize_static_planning_shape_for_model(covering_read_model())
+        .finalize_static_planning_shape_for_model_only(covering_read_model())
         .expect("covering tests require planner-frozen projection metadata");
 
     finalized

@@ -53,8 +53,9 @@ fn required_projection_eval_preserves_internal_slot_errors() {
 #[test]
 fn canonical_scalar_projection_preserves_missing_declared_slot_corruption() {
     let expr = Expr::Field(FieldId::new("rank"));
-    let compiled = compile_scalar_projection_expr(ProjectionEvalEntity::MODEL, &expr)
-        .expect("rank field should compile onto scalar seam");
+    let compiled =
+        compile_scalar_projection_expr_for_model_only(ProjectionEvalEntity::MODEL, &expr)
+            .expect("rank field should compile onto scalar seam");
     let err =
         eval_canonical_scalar_projection_expr(&compiled, &ProjectionMissingDeclaredSlotReader)
             .expect_err("canonical scalar projection should fail closed on missing declared slot");

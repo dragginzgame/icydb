@@ -18,7 +18,7 @@ fn assert_expression_starts_with_range_case(
     expected_lower: &str,
 ) {
     let model = model_factory();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = compare_text_casefold(
         "email",
         CompareOp::StartsWith,
@@ -51,7 +51,7 @@ fn assert_strict_text_starts_with_range_case(
     expected_upper: Bound<Value>,
 ) {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = compare_strict(
         "tag",
         CompareOp::StartsWith,
@@ -75,7 +75,7 @@ fn assert_starts_with_equivalent_range_case(
     equivalent_range: Predicate,
 ) {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let starts_with_plan = plan_access_for_test(model, schema, Some(&starts_with))
         .expect("starts_with plan should build");
     let equivalent_range_plan = plan_access_for_test(model, schema, Some(&equivalent_range))
@@ -97,7 +97,7 @@ fn assert_composite_index_range_case(
     expected_upper: Bound<Value>,
 ) {
     let model = model_with_range_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
@@ -116,7 +116,7 @@ fn assert_composite_index_range_case(
 // emit an index-range access path.
 fn assert_rejected_composite_index_range_case(label: &str, predicate: Predicate) {
     let model = model_with_range_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert!(
@@ -135,7 +135,7 @@ fn assert_equivalent_access_plan_case(
     expected_plan: AccessPlan<Value>,
 ) {
     let model = model_factory();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let left_plan =
         plan_access_for_test(model, schema, Some(&left)).expect("left plan should build");
     let right_plan =
@@ -160,7 +160,7 @@ fn assert_access_plan_case(
     expected_plan: AccessPlan<Value>,
 ) {
     let model = model_factory();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
@@ -172,7 +172,7 @@ fn assert_access_plan_case(
 #[test]
 fn plan_access_full_scan_without_predicate() {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan = plan_access_for_test(model, schema, None).expect("plan should build");
 
     assert_eq!(plan, AccessPlan::full_scan());
@@ -181,7 +181,7 @@ fn plan_access_full_scan_without_predicate() {
 #[test]
 fn plan_access_primary_key_is_null_lowers_to_empty_by_keys() {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = Predicate::IsNull {
         field: "id".to_string(),
     };
@@ -198,7 +198,7 @@ fn plan_access_primary_key_is_null_lowers_to_empty_by_keys() {
 #[test]
 fn plan_access_secondary_is_null_retains_full_scan_fallback() {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = Predicate::IsNull {
         field: "tag".to_string(),
     };
@@ -215,7 +215,7 @@ fn plan_access_secondary_is_null_retains_full_scan_fallback() {
 #[test]
 fn plan_access_secondary_is_null_can_compile_scalar_while_still_full_scanning() {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = Predicate::IsNull {
         field: "tag".to_string(),
     };
@@ -237,7 +237,7 @@ fn plan_access_secondary_is_null_can_compile_scalar_while_still_full_scanning() 
 #[test]
 fn plan_access_primary_key_is_null_or_secondary_eq_collapses_to_secondary_branch() {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = Predicate::Or(vec![
         Predicate::IsNull {
             field: "id".to_string(),
@@ -260,7 +260,7 @@ fn plan_access_primary_key_is_null_or_secondary_eq_collapses_to_secondary_branch
 #[test]
 fn plan_access_primary_key_is_null_or_primary_key_is_null_stays_empty() {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = Predicate::Or(vec![
         Predicate::IsNull {
             field: "id".to_string(),
@@ -282,7 +282,7 @@ fn plan_access_primary_key_is_null_or_primary_key_is_null_stays_empty() {
 #[test]
 fn plan_access_uses_primary_key_lookup() {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let key = Ulid::generate();
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "id",
@@ -299,7 +299,7 @@ fn plan_access_uses_primary_key_lookup() {
 #[test]
 fn plan_access_primary_key_half_open_bounds_lower_to_key_range() {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let lower = Ulid::from_u128(9_811);
     let upper = Ulid::from_u128(9_813);
     let predicate = Predicate::And(vec![
@@ -332,7 +332,7 @@ fn plan_access_primary_key_half_open_bounds_lower_to_key_range() {
 #[test]
 fn plan_access_uses_index_prefix_for_exact_match() {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "tag",
         CompareOp::Eq,
@@ -354,7 +354,7 @@ fn plan_access_uses_index_prefix_for_exact_match() {
 #[test]
 fn plan_access_filtered_index_requires_query_implication_for_predicate() {
     let model = model_with_filtered_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
 
     let missing_implication =
         compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string()));
@@ -385,7 +385,7 @@ fn plan_access_filtered_index_requires_query_implication_for_predicate() {
 #[test]
 fn plan_access_filtered_numeric_index_requires_lower_bound_implication() {
     let model = model_with_filtered_numeric_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
 
     let weaker = compare_strict("score", CompareOp::Gte, Value::Uint(5));
     let weaker_plan =
@@ -413,7 +413,7 @@ fn plan_access_filtered_numeric_index_requires_lower_bound_implication() {
 #[test]
 fn plan_access_filtered_expression_index_requires_predicate_implication() {
     let model = model_with_filtered_expression_casefold_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
 
     let missing_implication = compare_text_casefold(
         "email",
@@ -451,7 +451,7 @@ fn plan_access_filtered_expression_index_requires_predicate_implication() {
 #[test]
 fn plan_access_filtered_expression_prefix_requires_predicate_implication() {
     let model = model_with_filtered_expression_casefold_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
 
     let missing_implication = compare_text_casefold(
         "email",
@@ -494,7 +494,7 @@ fn plan_access_filtered_expression_prefix_requires_predicate_implication() {
 #[test]
 fn plan_access_uses_index_multi_lookup_for_secondary_in() {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = compare_strict(
         "tag",
         CompareOp::In,
@@ -521,7 +521,7 @@ fn plan_access_uses_index_multi_lookup_for_secondary_in() {
 #[test]
 fn plan_access_text_casefold_eq_uses_expression_index_prefix() {
     let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = compare_text_casefold(
         "email",
         CompareOp::Eq,
@@ -543,7 +543,7 @@ fn plan_access_text_casefold_eq_uses_expression_index_prefix() {
 #[test]
 fn plan_access_text_casefold_eq_uses_upper_expression_index_prefix() {
     let model = model_with_expression_upper_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = compare_text_casefold(
         "email",
         CompareOp::Eq,
@@ -565,7 +565,7 @@ fn plan_access_text_casefold_eq_uses_upper_expression_index_prefix() {
 #[test]
 fn plan_access_text_casefold_eq_rejects_unsupported_expression_lookup_kind() {
     let model = model_with_expression_unsupported_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = compare_text_casefold(
         "email",
         CompareOp::Eq,
@@ -584,7 +584,7 @@ fn plan_access_text_casefold_eq_rejects_unsupported_expression_lookup_kind() {
 #[test]
 fn plan_access_text_casefold_in_uses_upper_expression_index_multi_lookup() {
     let model = model_with_expression_upper_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = compare_text_casefold(
         "email",
         CompareOp::In,
@@ -612,7 +612,7 @@ fn plan_access_text_casefold_in_uses_upper_expression_index_multi_lookup() {
 #[test]
 fn plan_access_text_casefold_in_rejects_unsupported_expression_lookup_kind() {
     let model = model_with_expression_unsupported_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = compare_text_casefold(
         "email",
         CompareOp::In,
@@ -634,7 +634,7 @@ fn plan_access_text_casefold_in_rejects_unsupported_expression_lookup_kind() {
 #[test]
 fn plan_access_text_casefold_in_uses_expression_index_multi_lookup() {
     let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = compare_text_casefold(
         "email",
         CompareOp::In,
@@ -663,7 +663,7 @@ fn plan_access_text_casefold_in_uses_expression_index_multi_lookup() {
 #[test]
 fn plan_access_gt_rejects_expression_index() {
     let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = compare_strict("email", CompareOp::Gt, Value::Text("a@x.io".to_string()));
 
     let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
@@ -717,7 +717,7 @@ fn plan_access_text_casefold_starts_with_expression_range_matrix() {
 #[test]
 fn plan_access_text_casefold_starts_with_rejects_unsupported_expression_lookup_kind() {
     let model = model_with_expression_unsupported_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = compare_text_casefold(
         "email",
         CompareOp::StartsWith,
@@ -736,7 +736,7 @@ fn plan_access_text_casefold_starts_with_rejects_unsupported_expression_lookup_k
 #[test]
 fn plan_access_text_casefold_starts_with_empty_prefix_falls_back_to_full_scan() {
     let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate =
         compare_text_casefold("email", CompareOp::StartsWith, Value::Text(String::new()));
 
@@ -752,7 +752,7 @@ fn plan_access_text_casefold_starts_with_empty_prefix_falls_back_to_full_scan() 
 #[test]
 fn plan_access_text_contains_can_compile_scalar_while_still_full_scanning() {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = Predicate::TextContains {
         field: "tag".to_string(),
         value: Value::Text("alp".to_string()),
@@ -775,7 +775,7 @@ fn plan_access_text_contains_can_compile_scalar_while_still_full_scanning() {
 #[test]
 fn plan_access_stability_text_casefold_starts_with_case_variants_share_access_plan() {
     let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let upper = compare_text_casefold(
         "email",
         CompareOp::StartsWith,
@@ -799,7 +799,7 @@ fn plan_access_stability_text_casefold_starts_with_case_variants_share_access_pl
 #[test]
 fn plan_access_starts_with_rejects_expression_index() {
     let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = compare_strict(
         "email",
         CompareOp::StartsWith,
@@ -1031,7 +1031,7 @@ fn plan_access_in_normalization_matrix() {
 #[test]
 fn plan_access_secondary_in_empty_remains_distinct_from_false_before_constant_folding() {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let secondary_in_empty = compare_strict("tag", CompareOp::In, Value::List(Vec::new()));
 
     let plan_from_empty_in =
@@ -1058,7 +1058,7 @@ fn plan_access_secondary_in_empty_remains_distinct_from_false_before_constant_fo
 #[test]
 fn plan_access_text_between_equivalent_bounds_lowers_to_index_range() {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = Predicate::And(vec![
         compare_strict("tag", CompareOp::Gte, Value::Text("alpha".to_string())),
         compare_strict("tag", CompareOp::Lte, Value::Text("omega".to_string())),
@@ -1075,7 +1075,7 @@ fn plan_access_text_between_equivalent_bounds_lowers_to_index_range() {
 #[test]
 fn plan_access_text_between_equal_bounds_still_canonicalizes_to_eq() {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let between_equal_bounds = Predicate::And(vec![
         compare_strict("tag", CompareOp::Gte, Value::Text("alpha".to_string())),
         compare_strict("tag", CompareOp::Lte, Value::Text("alpha".to_string())),
@@ -1095,7 +1095,7 @@ fn plan_access_text_between_equal_bounds_still_canonicalizes_to_eq() {
 #[test]
 fn plan_access_starts_with_empty_prefix_falls_back_to_full_scan() {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text(String::new()));
 
     let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
@@ -1166,7 +1166,7 @@ fn plan_access_stability_starts_with_equivalent_range_matrix() {
 #[test]
 fn plan_access_text_gt_lowers_to_index_range() {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = compare_strict("tag", CompareOp::Gt, Value::Text("alpha".to_string()));
 
     let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
@@ -1180,7 +1180,7 @@ fn plan_access_text_gt_lowers_to_index_range() {
 #[test]
 fn plan_access_text_lte_lowers_to_index_range() {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = compare_strict("tag", CompareOp::Lte, Value::Text("omega".to_string()));
 
     let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
@@ -1194,7 +1194,7 @@ fn plan_access_text_lte_lowers_to_index_range() {
 #[test]
 fn plan_access_ignores_non_strict_predicates() {
     let model = model_with_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "tag",
         CompareOp::Eq,
@@ -1210,7 +1210,7 @@ fn plan_access_ignores_non_strict_predicates() {
 #[test]
 fn plan_access_emits_only_one_composite_index_range_for_and_eq_plus_gt() {
     let model = model_with_range_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = Predicate::And(vec![
         compare_strict("a", CompareOp::Eq, Value::Uint(1)),
         compare_strict("b", CompareOp::Gt, Value::Uint(5)),
@@ -1375,7 +1375,7 @@ fn plan_access_rejects_invalid_composite_range_shapes_matrix() {
 #[test]
 fn plan_access_merges_duplicate_lower_bounds_to_stricter_value() {
     let model = model_with_range_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = Predicate::And(vec![
         compare_strict("a", CompareOp::Eq, Value::Uint(7)),
         compare_strict("b", CompareOp::Gte, Value::Uint(50)),
@@ -1392,7 +1392,7 @@ fn plan_access_merges_duplicate_lower_bounds_to_stricter_value() {
 #[test]
 fn plan_access_stability_equivalent_predicates_share_identical_access_plan() {
     let model = model_with_range_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate_a = Predicate::And(vec![
         compare_strict("a", CompareOp::Eq, Value::Uint(7)),
         compare_strict("b", CompareOp::Gte, Value::Uint(100)),
@@ -1417,7 +1417,7 @@ fn plan_access_stability_equivalent_predicates_share_identical_access_plan() {
 #[test]
 fn plan_access_stability_contradictory_and_predicate_matches_constant_false_shape() {
     let model = model_with_range_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let contradictory = Predicate::And(vec![
         compare_strict("a", CompareOp::Eq, Value::Uint(7)),
         compare_strict("b", CompareOp::Gt, Value::Uint(100)),

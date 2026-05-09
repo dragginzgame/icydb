@@ -207,7 +207,11 @@ pub(in crate::db::sql::lowering) fn lower_select_shape_for_model_only(
     statement: SqlSelectStatement,
     model: &'static EntityModel,
 ) -> Result<LoweredSelectShape, SqlLoweringError> {
-    lower_select_shape_with_schema(statement, model, SchemaInfo::cached_for_entity_model(model))
+    lower_select_shape_with_schema(
+        statement,
+        model,
+        SchemaInfo::cached_for_generated_entity_model(model),
+    )
 }
 
 #[inline(never)]
@@ -310,7 +314,7 @@ pub(in crate::db) fn apply_lowered_select_shape_for_model_only(
     query: StructuralQuery,
     lowered: LoweredSelectShape,
 ) -> Result<StructuralQuery, SqlLoweringError> {
-    let schema = SchemaInfo::cached_for_entity_model(query.model());
+    let schema = SchemaInfo::cached_for_generated_entity_model(query.model());
 
     apply_lowered_select_shape_with_schema(query, lowered, schema)
 }
@@ -564,7 +568,7 @@ pub(in crate::db::sql::lowering) fn apply_lowered_base_query_shape_for_model_onl
     query: StructuralQuery,
     lowered: LoweredBaseQueryShape,
 ) -> StructuralQuery {
-    let schema = SchemaInfo::cached_for_entity_model(query.model());
+    let schema = SchemaInfo::cached_for_generated_entity_model(query.model());
 
     apply_lowered_base_query_shape_with_schema(query, lowered, schema)
 }
@@ -614,7 +618,7 @@ pub(in crate::db) fn bind_lowered_sql_query_structural_for_model_only(
         model,
         lowered,
         consistency,
-        SchemaInfo::cached_for_entity_model(model),
+        SchemaInfo::cached_for_generated_entity_model(model),
     )
 }
 

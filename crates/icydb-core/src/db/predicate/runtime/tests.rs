@@ -175,8 +175,10 @@ fn predicate_program_dispatches_scalar_only_predicates_once() {
         coercion: CoercionSpec::new(CoercionId::CollectionElement),
     });
 
-    let scalar_program = PredicateProgram::compile(&PREDICATE_MODEL, &scalar_predicate);
-    let generic_program = PredicateProgram::compile(&PREDICATE_MODEL, &generic_predicate);
+    let scalar_program =
+        PredicateProgram::compile_for_model_only(&PREDICATE_MODEL, &scalar_predicate);
+    let generic_program =
+        PredicateProgram::compile_for_model_only(&PREDICATE_MODEL, &generic_predicate);
 
     assert!(scalar_program.uses_scalar_program());
     assert!(!generic_program.uses_scalar_program());
@@ -191,7 +193,7 @@ fn predicate_program_dispatches_scalar_field_to_field_compare_once() {
             "score",
             CoercionId::NumericWiden,
         ));
-    let program = PredicateProgram::compile(&PREDICATE_MODEL, &predicate);
+    let program = PredicateProgram::compile_for_model_only(&PREDICATE_MODEL, &predicate);
     let slots = PredicateTestSlotReader {
         score: Some(ScalarSlotValueRef::Value(ScalarValueRef::Int(7))),
         name: None,
@@ -226,7 +228,7 @@ fn scalar_predicate_program_reuses_canonical_executable_tree() {
         }),
     ]);
 
-    let program = PredicateProgram::compile(&PREDICATE_MODEL, &predicate);
+    let program = PredicateProgram::compile_for_model_only(&PREDICATE_MODEL, &predicate);
     let ExecutablePredicate::And(children) = program.executable() else {
         panic!("expected executable and-predicate");
     };
@@ -292,8 +294,10 @@ fn scalar_predicate_not_bool_equality_treats_null_and_missing_as_not_true_or_fal
         Value::Bool(false),
         CoercionId::Strict,
     )));
-    let is_not_true_program = PredicateProgram::compile(&PREDICATE_MODEL, &is_not_true);
-    let is_not_false_program = PredicateProgram::compile(&PREDICATE_MODEL, &is_not_false);
+    let is_not_true_program =
+        PredicateProgram::compile_for_model_only(&PREDICATE_MODEL, &is_not_true);
+    let is_not_false_program =
+        PredicateProgram::compile_for_model_only(&PREDICATE_MODEL, &is_not_false);
     let null_slots = PredicateTestSlotReader {
         score: Some(ScalarSlotValueRef::Null),
         name: None,
@@ -361,7 +365,7 @@ fn scalar_predicate_program_handles_scalar_non_compare_nodes() {
             value: Value::Text("alp".to_string()),
         },
     ]);
-    let program = PredicateProgram::compile(&PREDICATE_MODEL, &predicate);
+    let program = PredicateProgram::compile_for_model_only(&PREDICATE_MODEL, &predicate);
     let slots = PredicateTestSlotReader {
         score: Some(ScalarSlotValueRef::Value(ScalarValueRef::Int(7))),
         name: Some(ScalarSlotValueRef::Value(ScalarValueRef::Text("Alpha"))),
@@ -389,7 +393,7 @@ fn predicate_program_accepts_mixed_cow_slot_readers() {
             value: Value::Text("alp".to_string()),
         },
     ]);
-    let program = PredicateProgram::compile(&PREDICATE_MODEL, &predicate);
+    let program = PredicateProgram::compile_for_model_only(&PREDICATE_MODEL, &predicate);
     let borrowed_score = Value::Int(7);
 
     let mut read_slot = |slot| match slot {
@@ -513,7 +517,7 @@ fn scalar_predicate_program_matches_generic_value_reader_for_core_semantics() {
     ];
 
     for (context, predicate, slots, values) in cases {
-        let program = PredicateProgram::compile(&PREDICATE_MODEL, &predicate);
+        let program = PredicateProgram::compile_for_model_only(&PREDICATE_MODEL, &predicate);
         assert!(
             program.uses_scalar_program(),
             "{context} should stay on scalar predicate dispatch",
@@ -567,7 +571,7 @@ fn generic_predicate_program_value_readers_match_for_fallback_shapes() {
     ];
 
     for (context, predicate, values) in cases {
-        let program = PredicateProgram::compile(&PREDICATE_MODEL, &predicate);
+        let program = PredicateProgram::compile_for_model_only(&PREDICATE_MODEL, &predicate);
         assert!(
             !program.uses_scalar_program(),
             "{context} should stay on generic predicate dispatch",
@@ -597,7 +601,7 @@ fn scalar_predicate_program_compiles_text_prefix_suffix_compares() {
             coercion: CoercionSpec::new(CoercionId::TextCasefold),
         }),
     ]);
-    let program = PredicateProgram::compile(&PREDICATE_MODEL, &predicate);
+    let program = PredicateProgram::compile_for_model_only(&PREDICATE_MODEL, &predicate);
     let slots = PredicateTestSlotReader {
         score: None,
         name: Some(ScalarSlotValueRef::Value(ScalarValueRef::Text("Alpha"))),
@@ -693,7 +697,7 @@ fn scalar_predicate_program_audit_covers_expected_scalar_shapes() {
     ];
 
     for predicate in scalar_predicates {
-        let program = PredicateProgram::compile(&PREDICATE_MODEL, &predicate);
+        let program = PredicateProgram::compile_for_model_only(&PREDICATE_MODEL, &predicate);
         assert!(
             program.uses_scalar_program(),
             "expected scalar program for predicate: {predicate:?}"
@@ -740,7 +744,7 @@ fn scalar_predicate_program_audit_preserves_expected_generic_shapes() {
     ];
 
     for predicate in generic_predicates {
-        let program = PredicateProgram::compile(&PREDICATE_MODEL, &predicate);
+        let program = PredicateProgram::compile_for_model_only(&PREDICATE_MODEL, &predicate);
         assert!(
             !program.uses_scalar_program(),
             "expected generic program for predicate: {predicate:?}"

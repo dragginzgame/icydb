@@ -54,7 +54,7 @@ fn canonical_order(fields: &[(&str, OrderDirection)]) -> OrderSpec {
 #[test]
 fn planner_order_only_filtered_index_fails_closed_without_guard_predicate() {
     let model = model_with_filtered_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let order = canonical_order(&[("tag", OrderDirection::Asc), ("id", OrderDirection::Asc)]);
 
     let planner_shape = plan_access_for_test_with_order(model, schema, None, Some(order))
@@ -70,7 +70,7 @@ fn planner_order_only_filtered_index_fails_closed_without_guard_predicate() {
 #[test]
 fn planner_order_only_filtered_index_uses_index_range_when_query_implies_guard() {
     let model = model_with_filtered_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = compare_strict(
         "active",
         crate::db::predicate::CompareOp::Eq,
@@ -98,7 +98,7 @@ fn planner_order_only_filtered_index_uses_index_range_when_query_implies_guard()
 #[test]
 fn planner_filtered_index_accepts_strict_text_prefix_when_query_implies_guard() {
     let model = model_with_filtered_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = Predicate::And(vec![
         compare_strict(
             "active",
@@ -133,7 +133,7 @@ fn planner_filtered_index_accepts_strict_text_prefix_when_query_implies_guard() 
 #[test]
 fn planner_order_only_expression_index_falls_back_to_index_range() {
     let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let order = canonical_order(&[
         ("LOWER(email)", OrderDirection::Asc),
         ("id", OrderDirection::Asc),
@@ -158,7 +158,7 @@ fn planner_order_only_expression_index_falls_back_to_index_range() {
 #[test]
 fn planner_order_only_expression_desc_index_falls_back_to_index_range() {
     let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let order = canonical_order(&[
         ("LOWER(email)", OrderDirection::Desc),
         ("id", OrderDirection::Desc),
@@ -183,7 +183,7 @@ fn planner_order_only_expression_desc_index_falls_back_to_index_range() {
 #[test]
 fn planner_order_only_expression_index_fails_closed_for_raw_field_order() {
     let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let order = canonical_order(&[("email", OrderDirection::Asc), ("id", OrderDirection::Asc)]);
 
     let planner_shape = plan_access_for_test_with_order(model, schema, None, Some(order))
@@ -199,7 +199,7 @@ fn planner_order_only_expression_index_fails_closed_for_raw_field_order() {
 #[test]
 fn planner_order_only_filtered_expression_index_fails_closed_without_guard_predicate() {
     let model = model_with_filtered_expression_casefold_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let order = canonical_order(&[
         ("LOWER(email)", OrderDirection::Asc),
         ("id", OrderDirection::Asc),
@@ -218,7 +218,7 @@ fn planner_order_only_filtered_expression_index_fails_closed_without_guard_predi
 #[test]
 fn planner_order_only_filtered_expression_index_uses_index_range_when_query_implies_guard() {
     let model = model_with_filtered_expression_casefold_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = compare_strict(
         "active",
         crate::db::predicate::CompareOp::Eq,
@@ -249,7 +249,7 @@ fn planner_order_only_filtered_expression_index_uses_index_range_when_query_impl
 #[test]
 fn planner_order_only_filtered_expression_desc_index_uses_index_range_when_query_implies_guard() {
     let model = model_with_filtered_expression_casefold_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = compare_strict(
         "active",
         crate::db::predicate::CompareOp::Eq,
@@ -280,7 +280,7 @@ fn planner_order_only_filtered_expression_desc_index_uses_index_range_when_query
 #[test]
 fn planner_expression_text_range_uses_expression_index_range() {
     let model = model_with_expression_casefold_index();
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = compare_text_casefold(
         "email",
         crate::db::predicate::CompareOp::Gte,

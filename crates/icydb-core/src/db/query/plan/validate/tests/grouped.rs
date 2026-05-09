@@ -207,7 +207,7 @@ fn scalar_plan(distinct: bool) -> ScalarPlan {
 }
 
 fn schema() -> &'static SchemaInfo {
-    SchemaInfo::cached_for_entity_model(model())
+    SchemaInfo::cached_for_generated_entity_model(model())
 }
 
 // Build an accepted schema where the live row layout assigns `team` to a

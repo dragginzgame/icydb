@@ -59,11 +59,17 @@ enum PredicateExecutionMode {
 }
 
 impl PredicateProgram {
-    /// Compile a predicate into a slot-based executable form using structural model data only.
+    /// Compile a predicate into a model-only slot-based executable form.
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db) fn compile(model: &EntityModel, predicate: &Predicate) -> Self {
-        Self::compile_with_schema_info(SchemaInfo::cached_for_entity_model(model), predicate)
+    pub(in crate::db) fn compile_for_model_only(
+        model: &EntityModel,
+        predicate: &Predicate,
+    ) -> Self {
+        Self::compile_with_schema_info(
+            SchemaInfo::cached_for_generated_entity_model(model),
+            predicate,
+        )
     }
 
     /// Compile a predicate through explicit schema field-slot and scalar-leaf authority.

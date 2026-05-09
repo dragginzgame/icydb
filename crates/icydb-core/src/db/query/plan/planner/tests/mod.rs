@@ -462,7 +462,7 @@ fn assert_order_only_fallback_index_range(
     expected_index: &IndexModel,
     context: &str,
 ) {
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let planner_shape =
         plan_access_for_test_with_order(model, schema, None, Some(canonical_order(order)))
             .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
@@ -488,7 +488,7 @@ fn assert_order_compatible_prefix_choice(
     expected_values: &[Value],
     context: &str,
 ) {
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let planner_shape = plan_access_for_test_with_order(
         model,
         schema,
@@ -531,7 +531,7 @@ fn assert_order_compatible_range_choice(
     expected_upper: Bound<Value>,
     context: &str,
 ) {
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let planner_shape = plan_access_for_test_with_order(
         model,
         schema,
@@ -567,7 +567,7 @@ fn assert_order_compatible_order_only_choice(
     expected_index_fields: &[&str],
     context: &str,
 ) {
-    let schema = SchemaInfo::cached_for_entity_model(model);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let planner_shape =
         plan_access_for_test_with_order(model, schema, None, Some(canonical_order(order)))
             .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
@@ -591,7 +591,7 @@ fn assert_order_compatible_order_only_choice(
 
 #[test]
 fn planner_field_to_field_compare_stays_residual_while_literal_clause_keeps_prefix_access() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANKING_MODEL);
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_RANKING_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::eq("tier".to_string(), "gold".into()),
         Predicate::gt_fields("handle".to_string(), "label".to_string()),
@@ -612,7 +612,7 @@ fn planner_field_to_field_compare_stays_residual_while_literal_clause_keeps_pref
 
 #[test]
 fn planner_filtered_index_preferred_when_guarded_candidate_ties_unfiltered_sibling() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_FILTERED_RANKING_MODEL);
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_FILTERED_RANKING_MODEL);
     let predicate = Predicate::And(vec![
         active_true_predicate().clone(),
         Predicate::eq("tier".to_string(), "gold".into()),
@@ -633,7 +633,7 @@ fn planner_filtered_index_preferred_when_guarded_candidate_ties_unfiltered_sibli
 
 #[test]
 fn planner_residual_burden_prefers_stronger_filtered_guard_when_structural_scores_tie() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RESIDUAL_RANKING_MODEL);
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_RESIDUAL_RANKING_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::eq("active".to_string(), true.into()),
         Predicate::eq("archived".to_string(), false.into()),
@@ -655,7 +655,7 @@ fn planner_residual_burden_prefers_stronger_filtered_guard_when_structural_score
 
 #[test]
 fn planner_primary_key_child_access_outranks_broader_secondary_range_candidate() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_RANKING_MODEL);
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_RANGE_RANKING_MODEL);
     let selected_id = Ulid::from_u128(77);
     let predicate = Predicate::And(vec![
         Predicate::eq("id".to_string(), Value::Ulid(selected_id)),
@@ -675,7 +675,7 @@ fn planner_primary_key_child_access_outranks_broader_secondary_range_candidate()
 
 #[test]
 fn planner_empty_child_access_outranks_broader_secondary_range_candidate() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_RANKING_MODEL);
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_RANGE_RANKING_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::eq("tier".to_string(), "gold".into()),
         Predicate::gt("score".to_string(), 10u64.into()),
@@ -699,7 +699,7 @@ fn planner_empty_child_access_outranks_broader_secondary_range_candidate() {
 
 #[test]
 fn planner_conflicting_primary_key_children_outrank_broader_secondary_range_candidate() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_RANKING_MODEL);
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_RANGE_RANKING_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::eq("id".to_string(), Value::Ulid(Ulid::from_u128(77))),
         Predicate::eq("id".to_string(), Value::Ulid(Ulid::from_u128(88))),
@@ -730,7 +730,7 @@ fn planner_conflicting_primary_key_children_outrank_broader_secondary_range_cand
 
 #[test]
 fn planner_primary_key_range_subset_survives_mixed_and_children() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_MODEL);
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_ORDER_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::gte("id".to_string(), Value::Ulid(Ulid::from_u128(70))),
         Predicate::lt("id".to_string(), Value::Ulid(Ulid::from_u128(90))),
@@ -752,7 +752,7 @@ fn planner_primary_key_range_subset_survives_mixed_and_children() {
 
 #[test]
 fn planner_primary_key_range_prefers_primary_key_order_over_unordered_secondary_prefix() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_RANKING_MODEL);
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_RANGE_RANKING_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::gte("id".to_string(), Value::Ulid(Ulid::from_u128(70))),
         Predicate::lt("id".to_string(), Value::Ulid(Ulid::from_u128(90))),
@@ -780,7 +780,7 @@ fn planner_primary_key_range_prefers_primary_key_order_over_unordered_secondary_
 
 #[test]
 fn planner_secondary_prefix_still_beats_primary_key_range_without_required_order() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_RANKING_MODEL);
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_RANGE_RANKING_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::gte("id".to_string(), Value::Ulid(Ulid::from_u128(70))),
         Predicate::lt("id".to_string(), Value::Ulid(Ulid::from_u128(90))),
@@ -802,7 +802,7 @@ fn planner_secondary_prefix_still_beats_primary_key_range_without_required_order
 
 #[test]
 fn planner_range_selection_prefers_stronger_bounds_before_lexicographic_tiebreak() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_STRENGTH_MODEL);
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_RANGE_STRENGTH_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::eq("tier".to_string(), "gold".into()),
         Predicate::gt("score".to_string(), 10u64.into()),
@@ -883,7 +883,7 @@ fn planner_and_intent_access_canonicalization_match_for_single_key_set() {
         Value::List(vec![Value::Ulid(key)]),
         CoercionId::Strict,
     ));
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_CANONICAL_MODEL);
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_CANONICAL_MODEL);
 
     let planner_shape = plan_access_for_test(&PLANNER_CANONICAL_MODEL, schema, Some(&predicate))
         .expect("planner access shape should build for strict single-key IN predicate");
@@ -908,7 +908,7 @@ fn planner_non_pk_in_empty_lowers_to_empty_by_keys() {
         Value::List(Vec::new()),
         CoercionId::Strict,
     ));
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_IN_EMPTY_MODEL);
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_IN_EMPTY_MODEL);
 
     let planner_shape = plan_access_for_test(&PLANNER_IN_EMPTY_MODEL, schema, Some(&predicate))
         .expect("planner access shape should build for strict IN-empty predicate");
@@ -1146,7 +1146,8 @@ fn planner_composite_order_only_selection_desc_prefers_order_compatible_index_ov
 
 #[test]
 fn planner_filtered_composite_index_accepts_guarded_text_prefix_with_equality_prefix() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_FILTERED_COMPOSITE_MODEL);
+    let schema =
+        SchemaInfo::cached_for_generated_entity_model(&PLANNER_ORDER_FILTERED_COMPOSITE_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::Compare(ComparePredicate::with_coercion(
             "active",
@@ -1202,7 +1203,8 @@ fn planner_filtered_composite_index_accepts_guarded_text_prefix_with_equality_pr
 
 #[test]
 fn planner_filtered_composite_index_drops_redundant_guard_compare_under_prefix_access() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_FILTERED_COMPOSITE_MODEL);
+    let schema =
+        SchemaInfo::cached_for_generated_entity_model(&PLANNER_ORDER_FILTERED_COMPOSITE_MODEL);
     let predicate = Predicate::And(vec![
         Predicate::Compare(ComparePredicate::with_coercion(
             "active",
@@ -1244,7 +1246,7 @@ fn planner_filtered_composite_index_drops_redundant_guard_compare_under_prefix_a
 
 #[test]
 fn planner_single_field_index_accepts_strict_text_prefix_predicate() {
-    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_MODEL);
+    let schema = SchemaInfo::cached_for_generated_entity_model(&PLANNER_ORDER_MODEL);
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "name",
         CompareOp::StartsWith,
@@ -1282,8 +1284,9 @@ fn planner_single_field_index_accepts_strict_text_prefix_predicate() {
 
 #[test]
 fn planner_filtered_composite_expression_text_range_uses_index_range_when_query_implies_guard() {
-    let schema =
-        SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_MODEL);
+    let schema = SchemaInfo::cached_for_generated_entity_model(
+        &PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_MODEL,
+    );
     let predicate = Predicate::And(vec![
         Predicate::Compare(ComparePredicate::with_coercion(
             "active",

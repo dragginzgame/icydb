@@ -274,15 +274,15 @@ impl AccessPlannedQuery {
         self.set_planner_route_profile(project_planner_route_profile_for_model(model, self));
     }
 
-    /// Freeze planner-owned executor metadata after logical/access planning completes.
+    /// Freeze model-only executor metadata after logical/access planning completes.
     #[cfg(test)]
-    pub(in crate::db) fn finalize_static_planning_shape_for_model(
+    pub(in crate::db) fn finalize_static_planning_shape_for_model_only(
         &mut self,
         model: &EntityModel,
     ) -> Result<(), InternalError> {
         self.finalize_static_planning_shape_for_model_with_schema(
             model,
-            SchemaInfo::cached_for_entity_model(model),
+            SchemaInfo::cached_for_generated_entity_model(model),
         )
     }
 

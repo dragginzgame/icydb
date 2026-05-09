@@ -409,7 +409,7 @@ impl SchemaInfo {
     }
 
     /// Return one cached schema view for a trusted generated entity model.
-    pub(crate) fn cached_for_entity_model(model: &EntityModel) -> &'static Self {
+    pub(crate) fn cached_for_generated_entity_model(model: &EntityModel) -> &'static Self {
         static CACHE: OnceLock<Mutex<CachedSchemaEntries>> = OnceLock::new();
 
         let cache = CACHE.get_or_init(|| Mutex::new(CachedSchemaEntries::new()));
@@ -578,9 +578,9 @@ mod tests {
     }
 
     #[test]
-    fn cached_for_entity_model_reuses_one_schema_instance() {
-        let first = SchemaInfo::cached_for_entity_model(&MODEL);
-        let second = SchemaInfo::cached_for_entity_model(&MODEL);
+    fn cached_for_generated_entity_model_reuses_one_schema_instance() {
+        let first = SchemaInfo::cached_for_generated_entity_model(&MODEL);
+        let second = SchemaInfo::cached_for_generated_entity_model(&MODEL);
 
         assert!(std::ptr::eq(first, second));
         assert!(first.field("id").is_some());
@@ -603,7 +603,7 @@ mod tests {
 
     #[test]
     fn accepted_snapshot_schema_info_canonicalizes_sql_literals_from_persisted_kind() {
-        let generated = SchemaInfo::cached_for_entity_model(&MODEL);
+        let generated = SchemaInfo::cached_for_generated_entity_model(&MODEL);
         let snapshot = accepted_schema_with_name_kind(PersistedFieldKind::Uint);
         let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
 
@@ -619,7 +619,7 @@ mod tests {
 
     #[test]
     fn accepted_snapshot_schema_info_uses_persisted_sql_capabilities() {
-        let generated = SchemaInfo::cached_for_entity_model(&MODEL);
+        let generated = SchemaInfo::cached_for_generated_entity_model(&MODEL);
         let snapshot = accepted_schema_with_name_kind(PersistedFieldKind::Blob { max_len: None });
         let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
 
@@ -638,7 +638,7 @@ mod tests {
 
     #[test]
     fn accepted_snapshot_schema_info_uses_row_layout_slot_authority() {
-        let generated = SchemaInfo::cached_for_entity_model(&MODEL);
+        let generated = SchemaInfo::cached_for_generated_entity_model(&MODEL);
         let snapshot = accepted_schema_with_name_kind_and_slots(
             PersistedFieldKind::Text { max_len: None },
             SchemaFieldSlot::new(9),
@@ -656,7 +656,7 @@ mod tests {
 
     #[test]
     fn schema_info_keeps_index_membership_at_schema_boundary() {
-        let generated = SchemaInfo::cached_for_entity_model(&INDEXED_MODEL);
+        let generated = SchemaInfo::cached_for_generated_entity_model(&INDEXED_MODEL);
         let snapshot = accepted_schema_with_name_kind(PersistedFieldKind::Text { max_len: None });
         let accepted = SchemaInfo::from_accepted_snapshot_for_model(&INDEXED_MODEL, &snapshot);
 
@@ -668,7 +668,7 @@ mod tests {
 
     #[test]
     fn accepted_snapshot_schema_info_uses_persisted_strong_relation_authority() {
-        let generated = SchemaInfo::cached_for_entity_model(&MODEL);
+        let generated = SchemaInfo::cached_for_generated_entity_model(&MODEL);
         let accepted_relation = accepted_schema_with_name_kind(PersistedFieldKind::Relation {
             target_path: "schema::info::tests::Target".to_string(),
             target_entity_name: "Target".to_string(),
