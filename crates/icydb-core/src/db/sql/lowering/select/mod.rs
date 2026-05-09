@@ -202,6 +202,7 @@ impl LoweredDeleteShape {
 }
 
 #[inline(never)]
+#[cfg(test)]
 pub(in crate::db::sql::lowering) fn lower_select_shape(
     statement: SqlSelectStatement,
     model: &'static EntityModel,

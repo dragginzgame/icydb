@@ -98,12 +98,11 @@ pub(in crate::db) fn decode_runtime_value_from_accepted_field_contract(
     }
 }
 
-/// Decode one slot payload through the accepted row contract when available.
+/// Decode one slot payload through the accepted row contract.
 ///
 /// This is the row-contract authority boundary for decode sites that know the
-/// physical slot but should not choose between accepted and generated metadata
-/// locally. Generated field contracts remain the fallback for generated-only
-/// row contracts.
+/// physical slot. Production row-contract decode must already be accepted
+/// schema backed; generated row-contract decode remains test-only.
 pub(in crate::db) fn decode_runtime_value_from_row_contract(
     contract: &StructuralRowContract,
     slot: usize,
@@ -113,7 +112,19 @@ pub(in crate::db) fn decode_runtime_value_from_row_contract(
         return decode_runtime_value_from_accepted_row_contract(contract, slot, raw_value);
     }
 
-    decode_runtime_value_from_generated_row_contract(contract, slot, raw_value)
+    #[cfg(test)]
+    {
+        decode_runtime_value_from_generated_row_contract(contract, slot, raw_value)
+    }
+
+    #[cfg(not(test))]
+    {
+        let _ = (slot, raw_value);
+        Err(generated_row_contract_reached_runtime_boundary(
+            contract,
+            "runtime row value decode",
+        ))
+    }
 }
 
 // Decode one slot through accepted row metadata only.
@@ -128,6 +139,7 @@ fn decode_runtime_value_from_accepted_row_contract(
 }
 
 // Decode one slot through generated-compatible field metadata only.
+#[cfg(test)]
 fn decode_runtime_value_from_generated_row_contract(
     contract: &StructuralRowContract,
     slot: usize,
@@ -138,12 +150,13 @@ fn decode_runtime_value_from_generated_row_contract(
     decode_runtime_value_from_field_contract(field, raw_value)
 }
 
-/// Decode one scalar slot payload through accepted row metadata when present.
+/// Decode one scalar slot payload through accepted row metadata.
 ///
 /// Callers provide context labels for invariant errors because cache
 /// validation, eager row validation, and direct scalar reads each have a
 /// different owner-local failure message when a non-scalar field reaches a
-/// scalar-only lane.
+/// scalar-only lane. The generated context is retained for test-only
+/// generated row-contract coverage.
 pub(in crate::db) fn decode_scalar_slot_value_from_row_contract<'raw>(
     contract: &StructuralRowContract,
     slot: usize,
@@ -160,12 +173,24 @@ pub(in crate::db) fn decode_scalar_slot_value_from_row_contract<'raw>(
         );
     }
 
-    decode_scalar_slot_value_from_generated_row_contract(
-        contract,
-        slot,
-        raw_value,
-        generated_non_scalar_context,
-    )
+    #[cfg(test)]
+    {
+        decode_scalar_slot_value_from_generated_row_contract(
+            contract,
+            slot,
+            raw_value,
+            generated_non_scalar_context,
+        )
+    }
+
+    #[cfg(not(test))]
+    {
+        let _ = (slot, raw_value, generated_non_scalar_context);
+        Err(generated_row_contract_reached_runtime_boundary(
+            contract,
+            "runtime scalar slot decode",
+        ))
+    }
 }
 
 // Decode one scalar slot through accepted row metadata only.
@@ -187,6 +212,7 @@ fn decode_scalar_slot_value_from_accepted_row_contract<'raw>(
 }
 
 // Decode one scalar slot through generated-compatible field metadata only.
+#[cfg(test)]
 fn decode_scalar_slot_value_from_generated_row_contract<'raw>(
     contract: &StructuralRowContract,
     slot: usize,
@@ -563,6 +589,7 @@ where
 // Build one dense canonical slot image through generated-compatible field
 // metadata. This is the generated-only compatibility lane for callers that
 // have not selected an accepted schema row contract.
+#[cfg(test)]
 fn dense_canonical_slot_image_from_runtime_value_source_with_generated_contract<'a, F>(
     contract: &StructuralRowContract,
     mut value_for_slot: F,
@@ -674,6 +701,7 @@ where
 // Build and emit one canonical row from runtime values through generated field
 // metadata. This helper keeps generated-only compatibility paths explicit while
 // accepted-schema callers use the accepted-contract counterpart below.
+#[cfg(test)]
 pub(in crate::db::data::persisted_row) fn canonical_row_from_runtime_value_source_with_generated_contract<
     'a,
     F,
@@ -929,11 +957,10 @@ pub(in crate::db) fn validate_non_scalar_accepted_slot_value(
     }
 }
 
-/// Validate one non-scalar slot through the accepted row contract when present.
+/// Validate one non-scalar slot through the accepted row contract.
 ///
-/// This keeps accepted-vs-generated validation selection in the persisted-row
-/// contract owner instead of repeating that branch in every reader that already
-/// owns a `StructuralRowContract`.
+/// Production row-contract validation must already be accepted schema backed;
+/// generated row-contract validation remains test-only.
 pub(in crate::db) fn validate_non_scalar_slot_value_with_row_contract(
     contract: &StructuralRowContract,
     slot: usize,
@@ -945,7 +972,19 @@ pub(in crate::db) fn validate_non_scalar_slot_value_with_row_contract(
         );
     }
 
-    validate_non_scalar_slot_value_with_generated_row_contract(contract, slot, raw_value)
+    #[cfg(test)]
+    {
+        validate_non_scalar_slot_value_with_generated_row_contract(contract, slot, raw_value)
+    }
+
+    #[cfg(not(test))]
+    {
+        let _ = (slot, raw_value);
+        Err(generated_row_contract_reached_runtime_boundary(
+            contract,
+            "runtime non-scalar slot validation",
+        ))
+    }
 }
 
 // Validate one non-scalar slot through accepted row metadata only.
@@ -961,6 +1000,7 @@ fn validate_non_scalar_slot_value_with_accepted_row_contract(
 
 // Validate one non-scalar slot through generated-compatible field metadata
 // only.
+#[cfg(test)]
 fn validate_non_scalar_slot_value_with_generated_row_contract(
     contract: &StructuralRowContract,
     slot: usize,
@@ -969,6 +1009,17 @@ fn validate_non_scalar_slot_value_with_generated_row_contract(
     let field = contract.field_decode_contract(slot)?;
 
     validate_non_scalar_slot_value(raw_value, field)
+}
+
+#[cfg(not(test))]
+fn generated_row_contract_reached_runtime_boundary(
+    contract: &StructuralRowContract,
+    context: &str,
+) -> InternalError {
+    InternalError::store_invariant(format!(
+        "{context} requires accepted row contract for entity '{}'",
+        contract.entity_path(),
+    ))
 }
 
 // Nullable non-storage-key by-kind leaves share the structural null sentinel,

@@ -1,6 +1,10 @@
 #[cfg(test)]
 use crate::db::data::persisted_row::{
-    contract::canonical_row_from_payload_source, writer::CompleteSerializedPatchWriter,
+    contract::{
+        canonical_row_from_payload_source,
+        canonical_row_from_runtime_value_source_with_generated_contract,
+    },
+    writer::CompleteSerializedPatchWriter,
 };
 use crate::{
     db::{
@@ -10,7 +14,6 @@ use crate::{
                 codec::ScalarSlotValueRef,
                 contract::{
                     canonical_row_from_runtime_value_source_with_accepted_contract,
-                    canonical_row_from_runtime_value_source_with_generated_contract,
                     decode_runtime_value_from_row_contract,
                     decode_scalar_slot_value_from_row_contract,
                     encode_runtime_value_for_accepted_field_contract,
@@ -341,6 +344,7 @@ where
 }
 
 /// Build one canonical row from one generated-contract structural slot reader.
+#[cfg(test)]
 fn canonical_row_from_structural_slot_reader_with_generated_contract(
     row_fields: &StructuralSlotReader<'_>,
 ) -> Result<CanonicalRow, InternalError> {
@@ -360,10 +364,9 @@ pub(in crate::db) fn canonical_row_from_structural_slot_reader_with_accepted_con
 
 /// Build one canonical row from raw bytes using one structural row contract.
 ///
-/// This is the accepted-schema counterpart to generated-only raw-row
-/// canonicalization. Callers pass the already-selected row contract, and the
-/// data layer owns the exact sequence of structural decode, slot validation,
-/// and dense row emission.
+/// Production callers must pass an accepted-schema row contract. Generated
+/// raw-row canonicalization remains available only to tests that explicitly
+/// construct generated row contracts.
 pub(in crate::db) fn canonical_row_from_raw_row_with_structural_contract(
     raw_row: &RawRow,
     contract: StructuralRowContract,
@@ -374,7 +377,16 @@ pub(in crate::db) fn canonical_row_from_raw_row_with_structural_contract(
         return canonical_row_from_structural_slot_reader_with_accepted_contract(&row_fields);
     }
 
-    canonical_row_from_structural_slot_reader_with_generated_contract(&row_fields)
+    #[cfg(test)]
+    {
+        canonical_row_from_structural_slot_reader_with_generated_contract(&row_fields)
+    }
+
+    #[cfg(not(test))]
+    Err(InternalError::store_invariant(format!(
+        "raw row canonicalization requires accepted row contract for entity '{}'",
+        row_fields.contract().entity_path(),
+    )))
 }
 
 /// Build one canonical row from raw bytes using an accepted row-decode contract.

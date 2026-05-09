@@ -492,6 +492,71 @@ fn raw_entity_authority_bootstrap_stays_layout_free() {
 }
 
 #[test]
+fn generated_row_contract_runtime_fallbacks_are_test_only() {
+    let persisted_row_contract = read_source("src/db/data/persisted_row/contract.rs");
+    let persisted_row_patch = read_source("src/db/data/persisted_row/patch.rs");
+
+    assert!(
+        persisted_row_contract
+            .contains("#[cfg(test)]\nfn decode_runtime_value_from_generated_row_contract(")
+            && persisted_row_contract
+                .contains("#[cfg(test)]\nfn decode_scalar_slot_value_from_generated_row_contract",)
+            && persisted_row_contract.contains(
+                "#[cfg(test)]\nfn validate_non_scalar_slot_value_with_generated_row_contract(",
+            )
+            && persisted_row_contract.contains(
+                "#[cfg(test)]\npub(in crate::db::data::persisted_row) fn canonical_row_from_runtime_value_source_with_generated_contract",
+            )
+            && persisted_row_contract
+                .contains("#[cfg(not(test))]\nfn generated_row_contract_reached_runtime_boundary(")
+            && persisted_row_contract.contains("requires accepted row contract for entity",),
+        "row-contract runtime decode/validation must fail closed in production instead of falling back to generated field metadata",
+    );
+    assert!(
+        persisted_row_patch.contains(
+            "#[cfg(test)]\nfn canonical_row_from_structural_slot_reader_with_generated_contract(",
+        ) && persisted_row_patch
+            .contains("raw row canonicalization requires accepted row contract for entity",),
+        "raw-row canonicalization must not retain a production generated-contract fallback",
+    );
+}
+
+#[test]
+fn sql_command_lowering_uses_accepted_schema_for_runtime_explain() {
+    let sql_compile_core = read_source("src/db/session/sql/compile/core.rs");
+    let sql_lowering_prepare = read_source("src/db/sql/lowering/prepare.rs");
+    let sql_lowering_select = read_source("src/db/sql/lowering/select/mod.rs");
+
+    assert!(
+        sql_compile_core.contains("Self::compile_explain(statement, entity_name, model, schema)",)
+            && sql_compile_core.contains(
+                "lower_sql_command_from_prepared_statement_with_schema(prepared, model, schema)",
+            )
+            && !sql_compile_core
+                .contains("lower_sql_command_from_prepared_statement(prepared, model)"),
+        "runtime SQL EXPLAIN compilation must lower with accepted SchemaInfo instead of generated model schema fallback",
+    );
+    assert!(
+        sql_lowering_prepare
+            .contains("#[cfg(test)]\npub(crate) fn lower_sql_command_from_prepared_statement(")
+            && sql_lowering_prepare
+                .contains("pub(crate) fn lower_sql_command_from_prepared_statement_with_schema(")
+            && sql_lowering_prepare.contains("fn lower_prepared_statement_with_schema(")
+            && sql_lowering_prepare.contains("fn lower_explain_select_prepared_with_schema(")
+            && sql_lowering_prepare
+                .contains("lower_select_shape_with_schema(statement.clone(), model, schema)"),
+        "shared SQL command lowering must keep generated-schema command lowering test-only and expose an accepted-schema runtime path",
+    );
+    assert!(
+        sql_lowering_select
+            .contains("#[cfg(test)]\npub(in crate::db::sql::lowering) fn lower_select_shape(")
+            && sql_lowering_select
+                .contains("pub(in crate::db::sql::lowering) fn lower_select_shape_with_schema(",),
+        "generated-schema SELECT lowering must remain test-only while runtime callers use explicit SchemaInfo",
+    );
+}
+
+#[test]
 fn typed_runtime_dispatch_selects_accepted_entity_authority_at_session_boundary() {
     let session_mod = read_source("src/db/session/mod.rs");
     let session_query_cache = read_source("src/db/session/query/cache.rs");

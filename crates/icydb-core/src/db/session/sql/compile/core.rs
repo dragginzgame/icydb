@@ -24,7 +24,7 @@ use crate::{
                 extract_prepared_sql_insert_statement, extract_prepared_sql_update_statement,
                 lower_prepared_sql_delete_statement,
                 lower_prepared_sql_select_statement_with_schema,
-                lower_sql_command_from_prepared_statement, prepare_sql_statement,
+                lower_sql_command_from_prepared_statement_with_schema, prepare_sql_statement,
             },
             parser::SqlStatement,
         },
@@ -53,7 +53,9 @@ impl<C: CanisterKind> DbSession<C> {
             SqlStatement::Delete(_) => Self::compile_delete(statement, entity_name, model, schema),
             SqlStatement::Insert(_) => Self::compile_insert(statement, entity_name),
             SqlStatement::Update(_) => Self::compile_update(statement, entity_name),
-            SqlStatement::Explain(_) => Self::compile_explain(statement, entity_name, model),
+            SqlStatement::Explain(_) => {
+                Self::compile_explain(statement, entity_name, model, schema)
+            }
             SqlStatement::Describe(_) => Self::compile_describe(statement, entity_name),
             SqlStatement::ShowIndexes(_) => Self::compile_show_indexes(statement, entity_name),
             SqlStatement::ShowColumns(_) => Self::compile_show_columns(statement, entity_name),
@@ -270,11 +272,12 @@ impl<C: CanisterKind> DbSession<C> {
         statement: &SqlStatement,
         entity_name: &str,
         model: &'static EntityModel,
+        schema: &SchemaInfo,
     ) -> Result<SqlCompileArtifacts, QueryError> {
         let (prepare_local_instructions, prepared) =
             Self::prepare_statement_for_entity_name(statement, entity_name)?;
         let (lower_local_instructions, lowered) = measured(|| {
-            lower_sql_command_from_prepared_statement(prepared, model)
+            lower_sql_command_from_prepared_statement_with_schema(prepared, model, schema)
                 .map_err(QueryError::from_sql_lowering_error)
         })?;
 
