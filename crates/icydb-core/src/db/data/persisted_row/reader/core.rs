@@ -113,7 +113,10 @@ impl<'a> StructuralSlotReader<'a> {
         raw_row: &'a RawRow,
         model: &'static EntityModel,
     ) -> Result<Self, InternalError> {
-        Self::from_raw_row_with_contract(raw_row, StructuralRowContract::from_model(model))
+        Self::from_raw_row_with_contract(
+            raw_row,
+            StructuralRowContract::from_generated_model_for_test(model),
+        )
     }
 
     fn required_accepted_field_decode_contract(

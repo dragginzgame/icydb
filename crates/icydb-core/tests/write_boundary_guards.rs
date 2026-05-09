@@ -114,18 +114,24 @@ fn accepted_storage_row_contracts_do_not_retain_generated_field_bridge() {
     assert!(
         structural_row.contains("pub(in crate::db) fn from_accepted_schema_snapshot(")
             && structural_row.contains("Self::from_accepted_decode_contract(")
+            && structural_row.contains("fn from_generated_model_for_test(")
+            && structural_row
+                .contains("fn from_generated_model_with_accepted_decode_contract_for_test(")
+            && !structural_row.contains("fn from_model(")
+            && !structural_row.contains("fn from_model_with_accepted_decode_contract(")
             && !structural_row.contains("fn from_model_with_accepted_schema_snapshot(")
             && !structural_row.contains(
-                "Ok(Self::from_model_with_accepted_decode_contract(\n            model,\n            descriptor.row_decode_contract(),\n        ))",
+                "Ok(Self::from_generated_model_with_accepted_decode_contract_for_test(\n            model,\n            descriptor.row_decode_contract(),\n        ))",
         ),
         "storage row readers must use accepted-only row contracts after the generated-compatibility proof",
     );
     assert!(
         row_decode
             .contains("pub(in crate::db) fn from_generated_compatible_accepted_decode_contract(")
+            && row_decode.contains("fn from_generated_model_for_test(")
             && row_decode.contains("StructuralRowContract::from_accepted_decode_contract(")
             && !row_decode
-                .contains("StructuralRowContract::from_model_with_accepted_decode_contract("),
+                .contains("StructuralRowContract::from_generated_model_with_accepted_decode_contract_for_test("),
         "accepted executor row layouts must not retain the generated field bridge after compatibility proof",
     );
     assert!(
@@ -133,7 +139,7 @@ fn accepted_storage_row_contracts_do_not_retain_generated_field_bridge() {
             && persisted_patch
                 .contains("Self::validate_payload_slot(&contract, generated_fields, slot)?")
             && !persisted_patch
-                .contains("StructuralRowContract::from_model_with_accepted_decode_contract("),
+                .contains("StructuralRowContract::from_generated_model_with_accepted_decode_contract_for_test("),
         "accepted structural patch materialization must validate payload slots through accepted row contracts without retaining the generated field bridge",
     );
     assert!(
@@ -207,9 +213,9 @@ fn commit_and_delete_relation_row_contracts_use_accepted_snapshots() {
         ) && relation_validate
             .contains("StructuralRowContract::from_accepted_schema_snapshot(S::PATH, &accepted)")
             && !commit_prepare
-                .contains("StructuralRowContract::from_model_with_accepted_schema_snapshot")
+                .contains("StructuralRowContract::from_generated_model_for_test_with_accepted_schema_snapshot")
             && !relation_validate
-                .contains("StructuralRowContract::from_model_with_accepted_schema_snapshot"),
+                .contains("StructuralRowContract::from_generated_model_for_test_with_accepted_schema_snapshot"),
         "commit preflight and delete relation validation must build accepted-only row contracts after schema acceptance",
     );
 }
@@ -356,7 +362,8 @@ fn global_distinct_grouped_runtime_keeps_prepared_authority() {
         grouped_entrypoints.contains(
             "fn grouped_path_runtime(\n        &self,\n        authority: EntityAuthority,"
         ) && grouped_entrypoints.contains("self.grouped_path_runtime(authority)?")
-            && !grouped_entrypoints.contains("let authority = EntityAuthority::for_type::<E>();"),
+            && !grouped_entrypoints
+                .contains("let authority = EntityAuthority::for_generated_type_for_test::<E>();"),
         "grouped runtime preparation must consume prepared accepted authority instead of reopening generated authority",
     );
     assert!(
@@ -371,6 +378,7 @@ fn global_distinct_grouped_runtime_keeps_prepared_authority() {
 #[test]
 fn generated_only_prepared_plan_constructor_is_test_only() {
     let prepared_plan = read_source("src/db/executor/prepared_execution_plan/mod.rs");
+    let entity_authority = read_source("src/db/executor/authority/entity.rs");
     let executor_mod = read_source("src/db/executor/mod.rs");
     let query_intent = read_source("src/db/query/intent/query.rs");
     let save_mod = read_source("src/db/executor/mutation/save/mod.rs");
@@ -390,8 +398,12 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
     assert!(
         prepared_plan.contains("#[cfg(test)]\n    pub(in crate::db) fn new(")
             && prepared_plan.contains("#[cfg(test)]\n    fn build(")
-            && prepared_plan
-                .contains("EntityAuthority::for_type::<E>().with_cursor_schema_info_for_test(")
+            && prepared_plan.contains("EntityAuthority::for_generated_type_for_test::<E>()")
+            && prepared_plan.contains(".with_cursor_schema_info_for_test(")
+            && entity_authority.contains(
+                "#[cfg(test)]\n    pub(in crate::db) const fn for_generated_type_for_test"
+            )
+            && !entity_authority.contains("pub const fn for_type")
             && executor_mod.contains(
                 "#[cfg(test)]\nimpl<E> From<CompiledQuery<E>> for PreparedExecutionPlan<E>"
             ),
@@ -414,7 +426,8 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
             && !save_typed.contains("Self::schema_info()")
             && !save_batch.contains("Self::schema_info()")
             && !save_structural.contains("Self::schema_info()")
-            && !save_validation.contains("EntityAuthority::for_type::<E>().schema_info()"),
+            && !save_validation
+                .contains("EntityAuthority::for_generated_type_for_test::<E>().schema_info()"),
         "save validation metadata lookup must use session-selected accepted SchemaInfo instead of reopening generated schema authority",
     );
     assert!(
@@ -423,7 +436,7 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
             && session_mod.contains("SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema)")
             && session_mod.contains("self.save_executor::<E>(contract, schema_info, schema_fingerprint)")
             && !session_mod.contains(
-                "self.ensure_accepted_schema_snapshot_for_authority(&EntityAuthority::for_type::<E>())",
+                "self.ensure_accepted_schema_snapshot_for_authority(&EntityAuthority::for_generated_type_for_test::<E>())",
             ),
         "session save bootstrap must pass accepted schema metadata into SaveExecutor without constructing generated executor authority",
     );
@@ -533,11 +546,11 @@ fn raw_entity_authority_bootstrap_stays_layout_free() {
         entity_authority.contains("row_layout: Option<RowLayout>,")
             && entity_authority.contains("row_layout: None,")
             && entity_authority.contains("fn with_generated_row_layout_for_test(")
-            && entity_authority.contains("row_layout: Some(RowLayout::from_model(self.model))")
+            && entity_authority.contains("row_layout: Some(RowLayout::from_generated_model_for_test(self.model))")
             && entity_authority.contains(
                 "entity authority row layout must be selected from accepted schema or explicit test layout",
             )
-            && !entity_authority.contains("row_layout: RowLayout::from_model(model)"),
+            && !entity_authority.contains("row_layout: RowLayout::from_generated_model_for_test(model)"),
         "raw EntityAuthority bootstrap must not attach generated row layout outside explicit test layout construction",
     );
     assert!(
@@ -698,25 +711,25 @@ fn typed_runtime_dispatch_selects_accepted_entity_authority_at_session_boundary(
         session_mod.contains("pub(in crate::db) fn accepted_entity_authority<E>")
             && session_mod.contains("pub(in crate::db) fn accepted_entity_authority_for_schema<E>")
             && session_mod.contains("EntityAuthority::from_accepted_schema_for_type::<E>(")
-            && !session_mod.contains("EntityAuthority::for_type::<E>()")
+            && !session_mod.contains("EntityAuthority::for_generated_type_for_test::<E>()")
             && entity_authority.contains("fn from_accepted_schema_for_type<E>")
             && entity_authority
                 .contains("AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(")
             && entity_authority.contains("with_accepted_row_decode_contract(")
             && session_query_cache.contains("accepted_entity_authority::<E>()")
             && session_query_cache.contains("cached_shared_query_plan_for_accepted_authority(")
-            && !session_query_cache.contains("EntityAuthority::for_type::<E>()")
+            && !session_query_cache.contains("EntityAuthority::for_generated_type_for_test::<E>()")
             && session_sql_cache.contains("accepted_entity_authority::<E>()")
-            && !session_sql_cache.contains("EntityAuthority::for_type::<E>()")
+            && !session_sql_cache.contains("EntityAuthority::for_generated_type_for_test::<E>()")
             && session_sql_execute.contains("sql_select_prepared_plan_for_entity::<E>(query)")
             && session_sql_execute.contains("accepted_entity_authority::<E>()")
-            && !session_sql_execute.contains("EntityAuthority::for_type::<E>()")
+            && !session_sql_execute.contains("EntityAuthority::for_generated_type_for_test::<E>()")
             && session_sql_explain.contains("accepted_schema: &AcceptedSchemaSnapshot")
             && session_sql_explain.contains("cached_shared_query_plan_for_accepted_authority(")
             && !session_sql_explain.contains("ensure_accepted_schema_snapshot_for_authority(")
             && !session_sql_explain.contains("cached_shared_query_plan_for_authority(")
             && session_sql_write.contains("accepted_entity_authority_for_schema::<E>")
-            && !session_sql_write.contains("EntityAuthority::for_type::<E>()"),
+            && !session_sql_write.contains("EntityAuthority::for_generated_type_for_test::<E>()"),
         "typed runtime SQL/query dispatch must select accepted EntityAuthority at the session boundary instead of passing generated authority to lower helpers",
     );
 }
@@ -871,7 +884,7 @@ fn scalar_aggregate_expression_compilation_uses_accepted_schema_info() {
                 "CompiledSqlCommand::GlobalAggregate { command } => {\n                self.execute_global_aggregate_statement::<E>(",
             )
             && !session_sql_execute.contains(
-                "CompiledSqlCommand::GlobalAggregate { command } => {\n                let authority = EntityAuthority::for_type::<E>();",
+                "CompiledSqlCommand::GlobalAggregate { command } => {\n                let authority = EntityAuthority::for_generated_type_for_test::<E>();",
             ),
         "SQL global aggregate execution must not retain a generated EntityAuthority bootstrap lane",
     );

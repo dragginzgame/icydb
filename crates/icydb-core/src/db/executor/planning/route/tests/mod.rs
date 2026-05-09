@@ -190,21 +190,23 @@ fn initial_scalar_continuation_context() -> ScalarContinuationContext {
 }
 
 fn route_capability_authority() -> EntityAuthority {
-    EntityAuthority::for_type::<RouteCapabilityEntity>().with_cursor_schema_info_for_test(
-        crate::db::schema::SchemaInfo::cached_for_generated_entity_model(
-            RouteCapabilityEntity::MODEL,
+    EntityAuthority::for_generated_type_for_test::<RouteCapabilityEntity>()
+        .with_cursor_schema_info_for_test(
+            crate::db::schema::SchemaInfo::cached_for_generated_entity_model(
+                RouteCapabilityEntity::MODEL,
+            )
+            .clone(),
         )
-        .clone(),
-    )
 }
 
 fn unique_route_capability_authority() -> EntityAuthority {
-    EntityAuthority::for_type::<UniqueRouteCapabilityEntity>().with_cursor_schema_info_for_test(
-        crate::db::schema::SchemaInfo::cached_for_generated_entity_model(
-            UniqueRouteCapabilityEntity::MODEL,
+    EntityAuthority::for_generated_type_for_test::<UniqueRouteCapabilityEntity>()
+        .with_cursor_schema_info_for_test(
+            crate::db::schema::SchemaInfo::cached_for_generated_entity_model(
+                UniqueRouteCapabilityEntity::MODEL,
+            )
+            .clone(),
         )
-        .clone(),
-    )
 }
 
 fn finalized_plan_for_authority(

@@ -869,7 +869,7 @@ mod tests {
         let (_result, metrics) = with_structural_read_metrics(|| {
             apply_structural_order_window_to_data_rows(
                 &mut rows,
-                RowLayout::from_model(OrderWindowEntity::MODEL),
+                RowLayout::from_generated_model_for_test(OrderWindowEntity::MODEL),
                 &resolved_order(&[(1, OrderDirection::Asc)]),
                 None,
             )

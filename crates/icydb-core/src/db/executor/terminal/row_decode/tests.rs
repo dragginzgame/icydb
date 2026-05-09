@@ -72,7 +72,10 @@ fn decode_test_row(entity: &RowDecodeEntity) -> KernelRow {
         .into_raw_row();
 
     RowDecoder::structural()
-        .decode(&RowLayout::from_model(RowDecodeEntity::MODEL), (key, row))
+        .decode(
+            &RowLayout::from_generated_model_for_test(RowDecodeEntity::MODEL),
+            (key, row),
+        )
         .expect("structural row decode should succeed")
 }
 
@@ -95,7 +98,7 @@ fn decode_required_test_slots_with_metrics(
     with_structural_read_metrics(|| {
         RowDecoder::structural()
             .decode_slots(
-                &RowLayout::from_model(RowDecodeEntity::MODEL),
+                &RowLayout::from_generated_model_for_test(RowDecodeEntity::MODEL),
                 key.storage_key(),
                 &row,
                 Some(required_slots),
@@ -200,7 +203,7 @@ fn accepted_row_layout_decode_matches_generated_layout_for_full_and_sparse_rows(
     let accepted = accepted_row_decode_schema();
     let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
         .expect("accepted row decode schema should project into runtime descriptor");
-    let generated_layout = RowLayout::from_model(RowDecodeEntity::MODEL);
+    let generated_layout = RowLayout::from_generated_model_for_test(RowDecodeEntity::MODEL);
     let accepted_layout = accepted_row_decode_layout(&descriptor)
         .expect("exact accepted row layout should be generated-compatible");
 
@@ -484,7 +487,7 @@ fn structural_row_decoder_rejects_primary_key_mismatch() {
         .expect("test row serialization should succeed")
         .into_raw_row();
     let Err(err) = RowDecoder::structural().decode(
-        &RowLayout::from_model(RowDecodeEntity::MODEL),
+        &RowLayout::from_generated_model_for_test(RowDecodeEntity::MODEL),
         (wrong_key, row),
     ) else {
         panic!("key mismatch must fail closed")
@@ -671,7 +674,7 @@ fn structural_row_decoder_respects_value_storage_decode_contract() {
         .into_raw_row();
     let decoded = RowDecoder::structural()
         .decode(
-            &RowLayout::from_model(RowDecodeValueEntity::MODEL),
+            &RowLayout::from_generated_model_for_test(RowDecodeValueEntity::MODEL),
             (key, row),
         )
         .expect("structural row decode should succeed");
@@ -699,7 +702,7 @@ fn accepted_row_layout_decode_matches_generated_layout_for_value_storage_field()
     );
     let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
         .expect("accepted value-storage row decode schema should project into runtime descriptor");
-    let generated_layout = RowLayout::from_model(RowDecodeValueEntity::MODEL);
+    let generated_layout = RowLayout::from_generated_model_for_test(RowDecodeValueEntity::MODEL);
     let accepted_layout =
         accepted_row_decode_layout_for_model(RowDecodeValueEntity::MODEL, &descriptor)
             .expect("value-storage accepted layout should be generated-compatible");
@@ -780,7 +783,8 @@ fn accepted_row_layout_direct_projection_value_storage_scalar_matches_generated_
     );
     let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
         .expect("accepted value-storage scalar row decode schema should form descriptor");
-    let generated_layout = RowLayout::from_model(RowDecodeValueTextEntity::MODEL);
+    let generated_layout =
+        RowLayout::from_generated_model_for_test(RowDecodeValueTextEntity::MODEL);
     let accepted_layout =
         accepted_row_decode_layout_for_model(RowDecodeValueTextEntity::MODEL, &descriptor)
             .expect("value-storage scalar accepted layout should be generated-compatible");

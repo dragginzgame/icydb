@@ -3212,7 +3212,7 @@ fn shared_query_plan_cache_key_version_mismatch_fails_closed() {
         .order_term(crate::db::asc("id"))
         .limit(1);
     let schema_fingerprint = session_sql_entity_initial_accepted_schema_cache_fingerprint();
-    let authority = EntityAuthority::for_type::<SessionSqlEntity>();
+    let authority = EntityAuthority::for_generated_type_for_test::<SessionSqlEntity>();
     let old_key = DbSession::<SessionSqlCanister>::query_plan_cache_key_for_tests(
         authority.clone(),
         schema_fingerprint,

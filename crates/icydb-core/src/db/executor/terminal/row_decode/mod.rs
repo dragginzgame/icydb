@@ -46,11 +46,11 @@ impl RowLayout {
     /// Build one structural row layout from model metadata.
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db) const fn from_model(
+    pub(in crate::db) const fn from_generated_model_for_test(
         model: &'static crate::model::entity::EntityModel,
     ) -> Self {
         Self {
-            contract: StructuralRowContract::from_model(model),
+            contract: StructuralRowContract::from_generated_model_for_test(model),
         }
     }
 

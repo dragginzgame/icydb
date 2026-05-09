@@ -831,7 +831,7 @@ fn accepted_row_decode_contract_for_model(
 // exercise row decode against saved-schema field contracts instead of the
 // generated-only fallback.
 fn accepted_row_contract_for_model(model: &'static EntityModel) -> StructuralRowContract {
-    StructuralRowContract::from_model_with_accepted_decode_contract(
+    StructuralRowContract::from_generated_model_with_accepted_decode_contract_for_test(
         model,
         accepted_row_decode_contract_for_model(model),
     )
@@ -921,7 +921,7 @@ fn accepted_defaulted_required_score_row_decode_contract_for_tests(
 fn accepted_defaulted_required_score_row_contract_for_tests(
     score_payload: Vec<u8>,
 ) -> StructuralRowContract {
-    StructuralRowContract::from_model_with_accepted_decode_contract(
+    StructuralRowContract::from_generated_model_with_accepted_decode_contract_for_test(
         &ADDITIVE_REQUIRED_MODEL,
         accepted_defaulted_required_score_row_decode_contract_for_tests(score_payload),
     )
@@ -1749,12 +1749,12 @@ fn structural_slot_reader_and_direct_decode_share_the_same_field_codec_boundary(
 
     let direct_slots = StructuralSlotReader::from_raw_row_with_contract(
         &raw_row,
-        StructuralRowContract::from_model(&TEST_MODEL),
+        StructuralRowContract::from_generated_model_for_test(&TEST_MODEL),
     )
     .expect("decode row");
     let mut cached_slots = StructuralSlotReader::from_raw_row_with_contract(
         &raw_row,
-        StructuralRowContract::from_model(&TEST_MODEL),
+        StructuralRowContract::from_generated_model_for_test(&TEST_MODEL),
     )
     .expect("decode row");
 
@@ -1833,10 +1833,11 @@ fn accepted_row_contract_reemits_canonical_rows_with_accepted_slot_count() {
     let id = Ulid::from_u128(148);
     let raw_row = old_two_slot_additive_raw_row_for_tests(id);
     let accepted_decode_contract = accepted_row_decode_contract_for_model(&ADDITIVE_NULLABLE_MODEL);
-    let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
-        &ADDITIVE_NULLABLE_MODEL,
-        accepted_decode_contract.clone(),
-    );
+    let contract =
+        StructuralRowContract::from_generated_model_with_accepted_decode_contract_for_test(
+            &ADDITIVE_NULLABLE_MODEL,
+            accepted_decode_contract.clone(),
+        );
     let canonical_from_reader =
         canonical_row_from_raw_row_with_structural_contract(&raw_row, contract.clone())
             .expect("accepted structural contract should re-emit the current slot count");
@@ -1878,10 +1879,11 @@ fn accepted_row_contract_reemits_defaulted_rows_with_accepted_default() {
     let raw_row = old_two_slot_additive_raw_row_for_tests(id);
     let accepted_decode_contract =
         accepted_defaulted_required_score_row_decode_contract_for_tests(score_payload);
-    let contract = StructuralRowContract::from_model_with_accepted_decode_contract(
-        &ADDITIVE_REQUIRED_MODEL,
-        accepted_decode_contract.clone(),
-    );
+    let contract =
+        StructuralRowContract::from_generated_model_with_accepted_decode_contract_for_test(
+            &ADDITIVE_REQUIRED_MODEL,
+            accepted_decode_contract.clone(),
+        );
     let canonical_from_reader =
         canonical_row_from_raw_row_with_structural_contract(&raw_row, contract.clone())
             .expect("accepted structural contract should re-emit defaulted slot count");
@@ -2028,7 +2030,7 @@ fn structural_slot_reader_validates_declared_slots_but_defers_non_scalar_materia
 
     let mut reader = StructuralSlotReader::from_raw_row_with_contract(
         &raw_row,
-        StructuralRowContract::from_model(&TEST_MODEL),
+        StructuralRowContract::from_generated_model_for_test(&TEST_MODEL),
     )
     .expect("row-open structural envelope decode should succeed");
 
@@ -2212,7 +2214,7 @@ fn structural_slot_reader_metrics_report_zero_non_scalar_materializations_for_sc
     let (_scalar_read, metrics) = with_structural_read_metrics(|| {
         let reader = StructuralSlotReader::from_raw_row_with_contract(
             &raw_row,
-            StructuralRowContract::from_model(&TEST_MODEL),
+            StructuralRowContract::from_generated_model_for_test(&TEST_MODEL),
         )
         .expect("row-open structural envelope decode should succeed");
 
@@ -2247,7 +2249,7 @@ fn structural_slot_reader_metrics_report_one_non_scalar_materialization_on_first
     let (_value, metrics) = with_structural_read_metrics(|| {
         let mut reader = StructuralSlotReader::from_raw_row_with_contract(
             &raw_row,
-            StructuralRowContract::from_model(&TEST_MODEL),
+            StructuralRowContract::from_generated_model_for_test(&TEST_MODEL),
         )
         .expect("row-open structural envelope decode should succeed");
 
@@ -2277,7 +2279,7 @@ fn structural_slot_reader_rejects_malformed_unused_value_storage_slot_on_first_a
 
     let mut reader = StructuralSlotReader::from_raw_row_with_contract(
         &raw_row,
-        StructuralRowContract::from_model(&TEST_MODEL),
+        StructuralRowContract::from_generated_model_for_test(&TEST_MODEL),
     )
     .expect("row-open structural envelope decode should succeed");
     let err = reader
@@ -2662,7 +2664,7 @@ fn dense_row_decode_materializes_relation_primary_key_from_authoritative_storage
 
     let decoded = super::decode_dense_raw_row_with_contract(
         &raw_row,
-        StructuralRowContract::from_model(&RELATION_PK_MODEL),
+        StructuralRowContract::from_generated_model_for_test(&RELATION_PK_MODEL),
         StorageKey::Ulid(token_id),
     )
     .expect("relation primary-key row decode should succeed");
@@ -2694,7 +2696,7 @@ fn sparse_required_slot_decode_materializes_relation_primary_key_from_authoritat
 
     let decoded = decode_sparse_required_slot_with_contract(
         &raw_row,
-        StructuralRowContract::from_model(&RELATION_PK_MODEL),
+        StructuralRowContract::from_generated_model_for_test(&RELATION_PK_MODEL),
         StorageKey::Ulid(token_id),
         0,
     )

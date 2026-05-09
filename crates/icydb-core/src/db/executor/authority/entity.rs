@@ -67,9 +67,10 @@ impl EntityAuthority {
         }
     }
 
-    /// Build authority from one resolved entity type.
+    /// Build raw generated authority from one resolved entity type for tests.
     #[must_use]
-    pub const fn for_type<E: EntityKind>() -> Self {
+    #[cfg(test)]
+    pub(in crate::db) const fn for_generated_type_for_test<E: EntityKind>() -> Self {
         Self::new(E::MODEL, E::ENTITY_TAG, E::Store::PATH)
     }
 
@@ -84,7 +85,7 @@ impl EntityAuthority {
     where
         E: EntityKind,
     {
-        let authority = Self::for_type::<E>();
+        let authority = Self::new(E::MODEL, E::ENTITY_TAG, E::Store::PATH);
         let (accepted_row_layout, row_shape) =
             AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(
                 accepted_schema,
@@ -134,7 +135,7 @@ impl EntityAuthority {
     #[must_use]
     pub(in crate::db) fn with_generated_row_layout_for_test(self) -> Self {
         Self {
-            row_layout: Some(RowLayout::from_model(self.model)),
+            row_layout: Some(RowLayout::from_generated_model_for_test(self.model)),
             ..self
         }
     }

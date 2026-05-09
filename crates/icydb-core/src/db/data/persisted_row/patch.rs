@@ -58,7 +58,7 @@ impl<'a> SerializedPatchPayloads<'a> {
         patch: &'a SerializedStructuralPatch,
     ) -> Result<Self, InternalError> {
         Self::from_contract(
-            StructuralRowContract::from_model(model),
+            StructuralRowContract::from_generated_model_for_test(model),
             model.fields(),
             patch,
         )

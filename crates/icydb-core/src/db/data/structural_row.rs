@@ -48,7 +48,7 @@ impl StructuralRowContract {
     /// Build one structural row contract from the generated entity model.
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db) const fn from_model(
+    pub(in crate::db) const fn from_generated_model_for_test(
         model: &'static crate::model::entity::EntityModel,
     ) -> Self {
         Self {
@@ -64,7 +64,7 @@ impl StructuralRowContract {
     /// accepted row-decode contract for generated-bridge compatibility tests.
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db) fn from_model_with_accepted_decode_contract(
+    pub(in crate::db) fn from_generated_model_with_accepted_decode_contract_for_test(
         model: &'static crate::model::entity::EntityModel,
         accepted_decode_contract: AcceptedRowDecodeContract,
     ) -> Self {

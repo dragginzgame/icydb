@@ -264,7 +264,7 @@ fn row(
 
 #[cfg(feature = "sql")]
 pub(in crate::db) fn projection_eval_row_layout_for_materialize_tests() -> RowLayout {
-    RowLayout::from_model(ProjectionEvalEntity::MODEL)
+    RowLayout::from_generated_model_for_test(ProjectionEvalEntity::MODEL)
 }
 
 #[cfg(feature = "sql")]
