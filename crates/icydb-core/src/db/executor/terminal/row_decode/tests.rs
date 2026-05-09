@@ -67,7 +67,7 @@ crate::test_entity_schema! {
 fn decode_test_row(entity: &RowDecodeEntity) -> KernelRow {
     let key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(entity.id)
         .expect("test key construction should succeed");
-    let row = CanonicalRow::from_entity(entity)
+    let row = CanonicalRow::from_generated_entity_for_test(entity)
         .expect("test row serialization should succeed")
         .into_raw_row();
 
@@ -91,7 +91,7 @@ fn decode_required_test_slots_with_metrics(
 ) -> (Vec<Option<Value>>, crate::db::data::StructuralReadMetrics) {
     let key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(entity.id)
         .expect("test key construction should succeed");
-    let row = CanonicalRow::from_entity(entity)
+    let row = CanonicalRow::from_generated_entity_for_test(entity)
         .expect("test row serialization should succeed")
         .into_raw_row();
 
@@ -197,7 +197,7 @@ fn accepted_row_layout_decode_matches_generated_layout_for_full_and_sparse_rows(
     let key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(entity.id)
         .expect("test key construction should succeed");
     let storage_key = key.storage_key();
-    let raw_row = CanonicalRow::from_entity(&entity)
+    let raw_row = CanonicalRow::from_generated_entity_for_test(&entity)
         .expect("test row serialization should succeed")
         .into_raw_row();
     let accepted = accepted_row_decode_schema();
@@ -445,7 +445,7 @@ fn retained_slot_decode_can_materialize_scalar_octet_lengths_without_blob_values
     };
     let key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(entity.id)
         .expect("test key construction should succeed");
-    let row = CanonicalRow::from_entity(&entity)
+    let row = CanonicalRow::from_generated_entity_for_test(&entity)
         .expect("test row serialization should succeed")
         .into_raw_row();
     let layout = RetainedSlotLayout::compile_with_value_modes(
@@ -483,7 +483,7 @@ fn structural_row_decoder_rejects_primary_key_mismatch() {
     };
     let wrong_key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(Ulid::from_u128(10))
         .expect("wrong test key construction should succeed");
-    let row = CanonicalRow::from_entity(&entity)
+    let row = CanonicalRow::from_generated_entity_for_test(&entity)
         .expect("test row serialization should succeed")
         .into_raw_row();
     let Err(err) = RowDecoder::structural().decode(
@@ -669,7 +669,7 @@ fn structural_row_decoder_respects_value_storage_decode_contract() {
     };
     let key = crate::db::data::DataKey::try_new::<RowDecodeValueEntity>(entity.id)
         .expect("test key construction should succeed");
-    let row = CanonicalRow::from_entity(&entity)
+    let row = CanonicalRow::from_generated_entity_for_test(&entity)
         .expect("test row serialization should succeed")
         .into_raw_row();
     let decoded = RowDecoder::structural()
@@ -693,7 +693,7 @@ fn accepted_row_layout_decode_matches_generated_layout_for_value_storage_field()
     let key = crate::db::data::DataKey::try_new::<RowDecodeValueEntity>(entity.id)
         .expect("test key construction should succeed");
     let storage_key = key.storage_key();
-    let raw_row = CanonicalRow::from_entity(&entity)
+    let raw_row = CanonicalRow::from_generated_entity_for_test(&entity)
         .expect("test row serialization should succeed")
         .into_raw_row();
     let accepted = AcceptedSchemaSnapshot::new(

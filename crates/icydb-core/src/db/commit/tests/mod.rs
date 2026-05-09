@@ -1071,7 +1071,7 @@ fn conditional_unique_enum_row_bytes(entity: &RecoveryConditionalUniqueEnumEntit
 }
 
 fn canonical_row_bytes<E: crate::db::PersistedRow>(entity: &E) -> Vec<u8> {
-    CanonicalRow::from_entity(entity)
+    CanonicalRow::from_generated_entity_for_test(entity)
         .expect("canonical row encoding should succeed")
         .into_raw_row()
         .as_bytes()
@@ -1079,7 +1079,7 @@ fn canonical_row_bytes<E: crate::db::PersistedRow>(entity: &E) -> Vec<u8> {
 }
 
 fn canonical_row_payload_bytes<E: crate::db::PersistedRow>(entity: &E) -> Vec<u8> {
-    let row = CanonicalRow::from_entity(entity)
+    let row = CanonicalRow::from_generated_entity_for_test(entity)
         .expect("canonical row encoding should succeed")
         .into_raw_row();
 

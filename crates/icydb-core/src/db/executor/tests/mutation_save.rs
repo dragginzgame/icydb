@@ -606,7 +606,7 @@ fn load_structured_selection_entity(id: Ulid) -> Option<StructuredSelectionEntit
 
     with_data_store(SourceStore::PATH, |data_store| {
         data_store.get(&data_key).map(|row| {
-            row.try_decode::<StructuredSelectionEntity>()
+            row.try_decode_with_generated_model_for_test::<StructuredSelectionEntity>()
                 .expect("structured selection row decode should succeed")
         })
     })
@@ -738,7 +738,7 @@ fn load_structured_selection_set_entity(id: Ulid) -> Option<StructuredSelectionS
 
     with_data_store(SourceStore::PATH, |data_store| {
         data_store.get(&data_key).map(|row| {
-            row.try_decode::<StructuredSelectionSetEntity>()
+            row.try_decode_with_generated_model_for_test::<StructuredSelectionSetEntity>()
                 .expect("structured selection set row decode should succeed")
         })
     })
@@ -894,7 +894,7 @@ fn load_structured_selection_map_entity(id: Ulid) -> Option<StructuredSelectionM
 
     with_data_store(SourceStore::PATH, |data_store| {
         data_store.get(&data_key).map(|row| {
-            row.try_decode::<StructuredSelectionMapEntity>()
+            row.try_decode_with_generated_model_for_test::<StructuredSelectionMapEntity>()
                 .expect("structured selection map row decode should succeed")
         })
     })
@@ -939,7 +939,7 @@ fn load_unique_email_entity(id: Ulid) -> Option<UniqueEmailEntity> {
 
     with_data_store(SourceStore::PATH, |data_store| {
         data_store.get(&data_key).map(|row| {
-            row.try_decode::<UniqueEmailEntity>()
+            row.try_decode_with_generated_model_for_test::<UniqueEmailEntity>()
                 .expect("unique email row decode should succeed")
         })
     })
@@ -953,7 +953,7 @@ fn load_decimal_scale_entity(id: Ulid) -> Option<DecimalScaleEntity> {
 
     with_data_store(SourceStore::PATH, |data_store| {
         data_store.get(&data_key).map(|row| {
-            row.try_decode::<DecimalScaleEntity>()
+            row.try_decode_with_generated_model_for_test::<DecimalScaleEntity>()
                 .expect("decimal scale row decode should succeed")
         })
     })
@@ -967,7 +967,7 @@ fn load_database_default_write_entity(id: Ulid) -> Option<DatabaseDefaultWriteEn
 
     with_data_store(SourceStore::PATH, |data_store| {
         data_store.get(&data_key).map(|row| {
-            row.try_decode::<DatabaseDefaultWriteEntity>()
+            row.try_decode_with_generated_model_for_test::<DatabaseDefaultWriteEntity>()
                 .expect("database-default write row decode should succeed")
         })
     })
@@ -1031,7 +1031,7 @@ fn load_source_set_entity(id: Ulid) -> Option<SourceSetEntity> {
 
     with_data_store(SourceStore::PATH, |data_store| {
         data_store.get(&data_key).map(|row| {
-            row.try_decode::<SourceSetEntity>()
+            row.try_decode_with_generated_model_for_test::<SourceSetEntity>()
                 .expect("source-set row decode should succeed")
         })
     })
@@ -1045,7 +1045,7 @@ fn load_self_relation_entity(id: Ulid) -> Option<SelfRelationEntity> {
 
     with_data_store(SourceStore::PATH, |data_store| {
         data_store.get(&data_key).map(|row| {
-            row.try_decode::<SelfRelationEntity>()
+            row.try_decode_with_generated_model_for_test::<SelfRelationEntity>()
                 .expect("self-relation row decode should succeed")
         })
     })
@@ -1059,7 +1059,7 @@ fn load_nullable_account_event_entity(id: Ulid) -> Option<NullableAccountEventEn
 
     with_data_store(SourceStore::PATH, |data_store| {
         data_store.get(&data_key).map(|row| {
-            row.try_decode::<NullableAccountEventEntity>()
+            row.try_decode_with_generated_model_for_test::<NullableAccountEventEntity>()
                 .expect("nullable account event row decode should succeed")
         })
     })
@@ -1990,7 +1990,7 @@ fn commit_window_preflight_does_not_mutate_real_stores_before_apply() {
         .expect("data key should build for preflight test")
         .to_raw()
         .expect("data key should encode for preflight test");
-    let row = CanonicalRow::from_entity(&entity)
+    let row = CanonicalRow::from_generated_entity_for_test(&entity)
         .expect("row encoding should succeed for preflight test")
         .into_raw_row();
     let row_op = CommitRowOp::new(
@@ -2065,7 +2065,7 @@ fn commit_window_rejects_apply_when_index_store_generation_changes() {
         .expect("data key should build for generation guard test")
         .to_raw()
         .expect("data key should encode for generation guard test");
-    let row = CanonicalRow::from_entity(&entity)
+    let row = CanonicalRow::from_generated_entity_for_test(&entity)
         .expect("row encoding should succeed for generation guard test")
         .into_raw_row();
     let row_op = CommitRowOp::new(
@@ -2784,7 +2784,7 @@ fn unique_index_row_key_mismatch_surfaces_store_invariant_violation() {
         id: Ulid::from_u128(511),
         email: "alice@example.com".to_string(),
     };
-    let raw_row = CanonicalRow::from_entity(&mismatched_row)
+    let raw_row = CanonicalRow::from_generated_entity_for_test(&mismatched_row)
         .expect("mismatched row should encode")
         .into_raw_row();
     with_data_store_mut(SourceStore::PATH, |data_store| {

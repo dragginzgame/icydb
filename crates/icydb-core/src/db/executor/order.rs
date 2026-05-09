@@ -811,7 +811,7 @@ mod tests {
     fn direct_data_row(entity: &OrderWindowEntity) -> DataRow {
         let key = crate::db::data::DataKey::try_new::<OrderWindowEntity>(entity.id)
             .expect("test key construction should succeed");
-        let row = CanonicalRow::from_entity(entity)
+        let row = CanonicalRow::from_generated_entity_for_test(entity)
             .expect("test row serialization should succeed")
             .into_raw_row();
 
@@ -875,8 +875,20 @@ mod tests {
             )
         });
 
-        assert_eq!(rows[0].1.try_decode::<OrderWindowEntity>().unwrap(), alpha);
-        assert_eq!(rows[1].1.try_decode::<OrderWindowEntity>().unwrap(), beta);
+        assert_eq!(
+            rows[0]
+                .1
+                .try_decode_with_generated_model_for_test::<OrderWindowEntity>()
+                .unwrap(),
+            alpha
+        );
+        assert_eq!(
+            rows[1]
+                .1
+                .try_decode_with_generated_model_for_test::<OrderWindowEntity>()
+                .unwrap(),
+            beta
+        );
         assert_eq!(metrics.rows_opened, 2);
         assert_eq!(
             metrics.declared_slots_validated, 2,

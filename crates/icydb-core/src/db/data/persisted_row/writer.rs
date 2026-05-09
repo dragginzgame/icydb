@@ -83,7 +83,9 @@ pub(in crate::db::data::persisted_row) struct CompleteSerializedPatchWriter {
 
 impl CompleteSerializedPatchWriter {
     /// Build one empty serialized patch writer for one entity model.
-    pub(in crate::db::data::persisted_row) fn for_model(model: &'static EntityModel) -> Self {
+    pub(in crate::db::data::persisted_row) fn for_generated_model_for_test(
+        model: &'static EntityModel,
+    ) -> Self {
         Self {
             model,
             slots: vec![StagedSlotPayload::Missing; model.fields().len()],

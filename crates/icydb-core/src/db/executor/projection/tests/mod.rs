@@ -276,7 +276,7 @@ pub(in crate::db) fn projection_eval_data_row_for_materialize_tests(
     let (entity_id, entity) = row(id, rank, flag);
     let data_key = DataKey::try_new::<ProjectionEvalEntity>(entity_id.key())
         .expect("projection eval test key should encode");
-    let raw_row = CanonicalRow::from_entity(&entity)
+    let raw_row = CanonicalRow::from_generated_entity_for_test(&entity)
         .expect("projection eval test row should encode")
         .into_raw_row();
 
@@ -399,11 +399,14 @@ fn eval_scalar_expr_for_row(
 ) -> Result<Value, InternalError> {
     let compiled = compile_scalar_projection_expr_for_model_only(ProjectionEvalEntity::MODEL, expr)
         .expect("expression should compile onto scalar projection seam");
-    let raw_row = CanonicalRow::from_entity(row)
+    let raw_row = CanonicalRow::from_generated_entity_for_test(row)
         .expect("persisted row should encode")
         .into_raw_row();
-    let mut row_fields = StructuralSlotReader::from_raw_row(&raw_row, ProjectionEvalEntity::MODEL)
-        .expect("persisted row should decode structurally");
+    let mut row_fields = StructuralSlotReader::from_raw_row_with_generated_model_for_test(
+        &raw_row,
+        ProjectionEvalEntity::MODEL,
+    )
+    .expect("persisted row should decode structurally");
 
     eval_scalar_projection_expr(&compiled, &mut row_fields)
 }
@@ -414,11 +417,14 @@ fn eval_canonical_scalar_expr_for_row(
 ) -> Result<Value, InternalError> {
     let compiled = compile_scalar_projection_expr_for_model_only(ProjectionEvalEntity::MODEL, expr)
         .expect("expression should compile onto scalar projection seam");
-    let raw_row = CanonicalRow::from_entity(row)
+    let raw_row = CanonicalRow::from_generated_entity_for_test(row)
         .expect("persisted row should encode")
         .into_raw_row();
-    let row_fields = StructuralSlotReader::from_raw_row(&raw_row, ProjectionEvalEntity::MODEL)
-        .expect("persisted row should decode structurally");
+    let row_fields = StructuralSlotReader::from_raw_row_with_generated_model_for_test(
+        &raw_row,
+        ProjectionEvalEntity::MODEL,
+    )
+    .expect("persisted row should decode structurally");
     let mut record_slot = |_| {};
     let value = eval_canonical_scalar_projection_expr_with_required_slot_reader_cow(
         &compiled,
@@ -435,11 +441,14 @@ fn eval_scalar_filter_expr_for_row(
 ) -> Result<bool, InternalError> {
     let compiled = compile_scalar_projection_expr_for_model_only(ProjectionEvalEntity::MODEL, expr)
         .expect("filter expression should compile onto scalar projection seam");
-    let raw_row = CanonicalRow::from_entity(row)
+    let raw_row = CanonicalRow::from_generated_entity_for_test(row)
         .expect("persisted row should encode")
         .into_raw_row();
-    let row_fields = StructuralSlotReader::from_raw_row(&raw_row, ProjectionEvalEntity::MODEL)
-        .expect("persisted row should decode structurally");
+    let row_fields = StructuralSlotReader::from_raw_row_with_generated_model_for_test(
+        &raw_row,
+        ProjectionEvalEntity::MODEL,
+    )
+    .expect("persisted row should decode structurally");
 
     eval_effective_runtime_filter_program_with_slot_reader(
         &EffectiveRuntimeFilterProgram::expression(CompiledExpr::compile(&compiled)),

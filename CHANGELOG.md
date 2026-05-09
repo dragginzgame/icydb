@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.149.x] 🧬 - 2026-05-06 - Schema Defaults And Accepted Write Encoding
 
+- `0.149.30` closes the generated persisted-row bridge cleanup by naming test-only generated serialized patch materializers, dense row emitters, raw-row readers, and row convenience helpers as generated/test surfaces, while documenting accepted index persistence and standalone accepted planning/explain entrypoints as 0.150 design work instead of keeping them implicit in 0.149.
 - `0.149.29` makes raw generated typed `EntityAuthority`, row layout, and structural row-contract bootstraps explicit test-only generated helpers, so production accepted authority and row decode construction cannot return to neutral generated shortcuts.
 - `0.149.28` names the generated-schema `SchemaInfo` cache, static-shape finalizer, scalar projection compiler, and predicate compile/capability wrappers as generated/model-only surfaces and keeps the compiler/finalizer wrappers test-only, while runtime projection, aggregate, planner, and predicate paths stay on explicit accepted `SchemaInfo` entrypoints.
 - `0.149.27` names standalone generated-schema query-planning and access-choice finalizer wrappers as model-only while keeping session shared-plan cache fills and explain finalization on explicit accepted `SchemaInfo`, making the offline/fluent planning boundary distinct from accepted runtime planning.

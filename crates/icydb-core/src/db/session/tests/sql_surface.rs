@@ -1149,7 +1149,7 @@ fn compiled_sql_update_rewrites_old_rows_after_nullable_additive_schema_transiti
     };
     let raw_row = nullable_sql_raw_row_for_test(id);
     let decoded = raw_row
-        .try_decode::<SessionNullableSqlEntity>()
+        .try_decode_with_generated_model_for_test::<SessionNullableSqlEntity>()
         .expect("compiled SQL UPDATE should write back a current-layout row");
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
@@ -1459,7 +1459,7 @@ fn structural_update_rewrites_old_rows_after_nullable_additive_schema_transition
         .expect("structural update should rewrite old row through accepted nullable transition");
     let raw_row = nullable_sql_raw_row_for_test(id);
     let decoded = raw_row
-        .try_decode::<SessionNullableSqlEntity>()
+        .try_decode_with_generated_model_for_test::<SessionNullableSqlEntity>()
         .expect("structural update should write back a current-layout row");
     let selected = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
         &session,
@@ -1505,7 +1505,7 @@ fn structural_update_sets_appended_nullable_field_after_nullable_additive_schema
         .expect("structural update should set appended nullable field on old row");
     let raw_row = nullable_sql_raw_row_for_test(id);
     let decoded = raw_row
-        .try_decode::<SessionNullableSqlEntity>()
+        .try_decode_with_generated_model_for_test::<SessionNullableSqlEntity>()
         .expect("structural update of appended field should write current-layout row");
     let selected = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
         &session,
@@ -1549,7 +1549,7 @@ fn typed_update_rewrites_old_rows_after_nullable_additive_schema_transition() {
         .expect("typed update should rewrite old row through accepted nullable transition");
     let raw_row = nullable_sql_raw_row_for_test(id);
     let decoded = raw_row
-        .try_decode::<SessionNullableSqlEntity>()
+        .try_decode_with_generated_model_for_test::<SessionNullableSqlEntity>()
         .expect("typed update should write back a current-layout row");
     let selected = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
         &session,
@@ -1593,7 +1593,7 @@ fn typed_replace_rewrites_old_rows_after_nullable_additive_schema_transition() {
         .expect("typed replace should rewrite old row through accepted nullable transition");
     let raw_row = nullable_sql_raw_row_for_test(id);
     let decoded = raw_row
-        .try_decode::<SessionNullableSqlEntity>()
+        .try_decode_with_generated_model_for_test::<SessionNullableSqlEntity>()
         .expect("typed replace should write back a current-layout row");
     let selected = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
         &session,
@@ -1636,7 +1636,7 @@ fn typed_insert_writes_current_layout_after_nullable_additive_schema_transition(
         .expect("typed insert should write current layout after nullable transition");
     let raw_row = nullable_sql_raw_row_for_test(id);
     let decoded = raw_row
-        .try_decode::<SessionNullableSqlEntity>()
+        .try_decode_with_generated_model_for_test::<SessionNullableSqlEntity>()
         .expect("typed insert should emit a current-layout row");
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
@@ -1715,10 +1715,10 @@ fn typed_update_many_atomic_rewrites_old_rows_after_nullable_additive_schema_tra
         ])
         .expect("typed atomic update batch should rewrite old rows through accepted nullable transition");
     let first_decoded = nullable_sql_raw_row_for_test(first_id)
-        .try_decode::<SessionNullableSqlEntity>()
+        .try_decode_with_generated_model_for_test::<SessionNullableSqlEntity>()
         .expect("typed atomic update batch should rewrite first row to current layout");
     let second_decoded = nullable_sql_raw_row_for_test(second_id)
-        .try_decode::<SessionNullableSqlEntity>()
+        .try_decode_with_generated_model_for_test::<SessionNullableSqlEntity>()
         .expect("typed atomic update batch should rewrite second row to current layout");
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
@@ -1756,10 +1756,10 @@ fn typed_replace_many_non_atomic_rewrites_old_rows_after_nullable_additive_schem
         ])
         .expect("typed non-atomic replace batch should rewrite old rows through accepted nullable transition");
     let first_decoded = nullable_sql_raw_row_for_test(first_id)
-        .try_decode::<SessionNullableSqlEntity>()
+        .try_decode_with_generated_model_for_test::<SessionNullableSqlEntity>()
         .expect("typed non-atomic replace batch should rewrite first row to current layout");
     let second_decoded = nullable_sql_raw_row_for_test(second_id)
-        .try_decode::<SessionNullableSqlEntity>()
+        .try_decode_with_generated_model_for_test::<SessionNullableSqlEntity>()
         .expect("typed non-atomic replace batch should rewrite second row to current layout");
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
@@ -1790,7 +1790,7 @@ fn execute_sql_update_rewrites_old_rows_after_nullable_additive_schema_transitio
     };
     let raw_row = nullable_sql_raw_row_for_test(id);
     let decoded = raw_row
-        .try_decode::<SessionNullableSqlEntity>()
+        .try_decode_with_generated_model_for_test::<SessionNullableSqlEntity>()
         .expect("SQL UPDATE should rewrite the old short row as a current-layout row");
     let selected = execute_sql_statement_for_tests::<SessionNullableSqlEntity>(
         &session,

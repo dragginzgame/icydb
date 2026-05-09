@@ -53,7 +53,7 @@ impl<'a> SerializedPatchPayloads<'a> {
     // Materialize the last-write-wins serialized patch view indexed by stable
     // slot so later replay paths do not each rebuild that policy locally.
     #[cfg(test)]
-    fn new(
+    fn new_for_generated_model_for_test(
         model: &'static EntityModel,
         patch: &'a SerializedStructuralPatch,
     ) -> Result<Self, InternalError> {
@@ -177,7 +177,7 @@ impl<'a> SerializedPatchSlotReader<'a> {
         model: &'static EntityModel,
         patch: &'a SerializedStructuralPatch,
     ) -> Result<Self, InternalError> {
-        let payloads = SerializedPatchPayloads::new(model, patch)?;
+        let payloads = SerializedPatchPayloads::new_for_generated_model_for_test(model, patch)?;
         let decoded = vec![None; payloads.contract.field_count()];
 
         Ok(Self { payloads, decoded })
@@ -258,7 +258,9 @@ impl SlotReader for SerializedPatchSlotReader<'_> {
 // Materialize one typed entity directly from a sparse serialized structural
 // patch so derive-owned missing-slot semantics run before final row emission.
 #[cfg(test)]
-pub(in crate::db) fn materialize_entity_from_serialized_structural_patch<E>(
+pub(in crate::db) fn materialize_entity_from_serialized_structural_patch_for_generated_model_for_test<
+    E,
+>(
     patch: &SerializedStructuralPatch,
 ) -> Result<E, InternalError>
 where
@@ -294,24 +296,30 @@ where
 /// This helper is intentionally dense-image-only. Sparse structural insert and
 /// replace materialization now routes through typed preflight first.
 #[cfg(test)]
-pub(in crate::db) fn canonical_row_from_complete_serialized_structural_patch(
+pub(in crate::db) fn canonical_row_from_complete_serialized_structural_patch_for_generated_model_for_test(
     model: &'static EntityModel,
     patch: &SerializedStructuralPatch,
 ) -> Result<CanonicalRow, InternalError> {
-    let patch_payloads = SerializedPatchPayloads::new(model, patch)?;
+    let patch_payloads = SerializedPatchPayloads::new_for_generated_model_for_test(model, patch)?;
 
     canonical_row_from_payload_source(model, |slot| patch_payloads.required_complete_payload(slot))
 }
 
 /// Build one canonical row directly from one typed entity slot writer.
 #[cfg(test)]
-pub(in crate::db) fn canonical_row_from_entity<E>(entity: &E) -> Result<CanonicalRow, InternalError>
+pub(in crate::db) fn canonical_row_from_entity_for_generated_model_for_test<E>(
+    entity: &E,
+) -> Result<CanonicalRow, InternalError>
 where
     E: PersistedRow,
 {
-    let serialized_slots = serialize_entity_slots_as_complete_serialized_patch(entity)?;
+    let serialized_slots =
+        serialize_entity_slots_as_complete_serialized_patch_for_generated_model_for_test(entity)?;
 
-    canonical_row_from_complete_serialized_structural_patch(E::MODEL, &serialized_slots)
+    canonical_row_from_complete_serialized_structural_patch_for_generated_model_for_test(
+        E::MODEL,
+        &serialized_slots,
+    )
 }
 
 /// Build one canonical row from one typed entity through accepted field contracts.
@@ -528,13 +536,15 @@ fn serialize_complete_structural_patch_fields_for_accepted_contract(
 /// explicit that the typed lane is staging a complete after-image, not a sparse
 /// structural update patch.
 #[cfg(test)]
-pub(in crate::db) fn serialize_entity_slots_as_complete_serialized_patch<E>(
+pub(in crate::db) fn serialize_entity_slots_as_complete_serialized_patch_for_generated_model_for_test<
+    E,
+>(
     entity: &E,
 ) -> Result<SerializedStructuralPatch, InternalError>
 where
     E: PersistedRow,
 {
-    let mut writer = CompleteSerializedPatchWriter::for_model(E::MODEL);
+    let mut writer = CompleteSerializedPatchWriter::for_generated_model_for_test(E::MODEL);
 
     // Phase 1: let the derive-owned persisted-row writer emit the complete
     // structural slot image for this entity.

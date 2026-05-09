@@ -70,7 +70,8 @@ fn prepared_row_write_payloads_stay_canonical() {
     );
     assert!(
         typed_save.contains("canonical_row_from_entity_with_accepted_contract(")
-            && !typed_save.contains("CanonicalRow::from_entity(entity)?"),
+            && !typed_save.contains("CanonicalRow::from_entity(entity)?")
+            && !typed_save.contains("CanonicalRow::from_generated_entity_for_test(entity)?"),
         "typed save after-image construction must use accepted-contract row emission",
     );
     assert!(
@@ -90,7 +91,7 @@ fn prepared_row_write_payloads_stay_canonical() {
     assert!(
         structural_save
             .contains("materialize_entity_from_serialized_structural_patch_with_accepted_contract")
-            && !structural_save.contains("materialize_entity_from_serialized_structural_patch::<"),
+            && !structural_save.contains("materialize_entity_from_serialized_structural_patch_for_generated_model_for_test::<"),
         "structural insert/replace materialization must use accepted-contract decode authority",
     );
 }
@@ -193,6 +194,80 @@ fn accepted_storage_row_contracts_do_not_retain_generated_field_bridge() {
             && save_validation_compact
                 .contains(".required_accepted_field_decode_contract(field_index)?"),
         "relation and save validation accepted field scans must use the shared required accepted-field contract",
+    );
+}
+
+#[test]
+fn generated_persisted_row_bridge_helpers_are_named_test_only() {
+    let persisted_row_mod = read_source("src/db/data/persisted_row/mod.rs");
+    let persisted_patch = read_source("src/db/data/persisted_row/patch.rs");
+    let persisted_patch_compact = compact_source(&persisted_patch);
+    let data_row = read_source("src/db/data/row.rs");
+    let data_row_compact = compact_source(&data_row);
+    let row_reader = read_source("src/db/data/persisted_row/reader/core.rs");
+    let row_reader_compact = compact_source(&row_reader);
+    let patch_writer = read_source("src/db/data/persisted_row/writer.rs");
+    let patch_writer_compact = compact_source(&patch_writer);
+
+    assert!(
+        persisted_row_mod.contains("#[cfg(test)]\nmod writer;")
+            && persisted_row_mod.contains(
+                "materialize_entity_from_serialized_structural_patch_for_generated_model_for_test",
+            )
+            && persisted_row_mod.contains(
+                "serialize_entity_slots_as_complete_serialized_patch_for_generated_model_for_test",
+            ),
+        "generated persisted-row writer and patch bridges must stay behind test-only exports",
+    );
+    assert!(
+        persisted_patch.contains("fn new_for_generated_model_for_test(")
+            && persisted_patch.contains(
+                "fn materialize_entity_from_serialized_structural_patch_for_generated_model_for_test",
+            )
+            && persisted_patch.contains(
+                "fn canonical_row_from_complete_serialized_structural_patch_for_generated_model_for_test",
+            )
+            && persisted_patch.contains("fn canonical_row_from_entity_for_generated_model_for_test")
+            && persisted_patch.contains(
+                "fn serialize_entity_slots_as_complete_serialized_patch_for_generated_model_for_test",
+            )
+            && persisted_patch.contains(
+                "fn materialize_entity_from_serialized_structural_patch_with_accepted_contract",
+            )
+            && persisted_patch.contains("fn canonical_row_from_entity_with_accepted_contract")
+            && !persisted_patch.contains("SerializedPatchPayloads::new(")
+            && !persisted_patch_compact
+                .contains("fnmaterialize_entity_from_serialized_structural_patch<E>")
+            && !persisted_patch_compact
+                .contains("fncanonical_row_from_complete_serialized_structural_patch(")
+            && !persisted_patch_compact.contains("fncanonical_row_from_entity<E>")
+            && !persisted_patch_compact
+                .contains("fnserialize_entity_slots_as_complete_serialized_patch<E>"),
+        "generated serialized patch materialization and row-emission helpers must not keep neutral production-looking names",
+    );
+    assert!(
+        data_row.contains("fn from_generated_entity_for_test")
+            && data_row.contains(
+                "fn from_complete_serialized_structural_patch_for_generated_model_for_test",
+            )
+            && data_row.contains("fn try_decode_with_generated_model_for_test")
+            && !data_row_compact.contains("fnfrom_entity<E>")
+            && !data_row_compact.contains("fnfrom_complete_serialized_structural_patch(")
+            && !data_row_compact.contains("fntry_decode<E"),
+        "test-only raw row helpers must make generated-model decode authority explicit",
+    );
+    assert!(
+        row_reader.contains("fn from_raw_row_with_generated_model_for_test(")
+            && row_reader.contains("fn from_raw_row_with_unvalidated_generated_model_for_test(",)
+            && row_reader.contains("fn from_raw_row_with_validated_contract(")
+            && !row_reader_compact.contains("pub(incrate::db)fnfrom_raw_row(")
+            && !row_reader_compact.contains("fnfrom_raw_row_with_model("),
+        "generated structural slot-reader construction must stay named as a generated test bridge",
+    );
+    assert!(
+        patch_writer.contains("fn for_generated_model_for_test(")
+            && !patch_writer_compact.contains("fnfor_model("),
+        "generated complete serialized patch writers must not expose neutral for_model construction",
     );
 }
 

@@ -64,11 +64,11 @@ pub(in crate::db) struct StructuralSlotReader<'a> {
 impl<'a> StructuralSlotReader<'a> {
     /// Build one slot reader over one persisted row using the current structural row scanner.
     #[cfg(test)]
-    pub(in crate::db) fn from_raw_row(
+    pub(in crate::db) fn from_raw_row_with_generated_model_for_test(
         raw_row: &'a RawRow,
         model: &'static EntityModel,
     ) -> Result<Self, InternalError> {
-        let reader = Self::from_raw_row_with_model(raw_row, model)?;
+        let reader = Self::from_raw_row_with_unvalidated_generated_model_for_test(raw_row, model)?;
         reader.validate_all_declared_slots()?;
 
         Ok(reader)
@@ -109,7 +109,7 @@ impl<'a> StructuralSlotReader<'a> {
     // Build one slot reader over one persisted row from a generated model by
     // immediately projecting that model into the structural row contract.
     #[cfg(test)]
-    pub(in crate::db) fn from_raw_row_with_model(
+    pub(in crate::db) fn from_raw_row_with_unvalidated_generated_model_for_test(
         raw_row: &'a RawRow,
         model: &'static EntityModel,
     ) -> Result<Self, InternalError> {
