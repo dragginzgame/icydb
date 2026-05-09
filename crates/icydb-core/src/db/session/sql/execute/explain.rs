@@ -244,8 +244,11 @@ impl<C: CanisterKind> DbSession<C> {
                     accepted_schema,
                     &structural,
                 )?;
-            let visible_indexes =
-                self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
+            let visible_indexes = self.visible_indexes_for_store_accepted_schema(
+                authority.store_path(),
+                authority.model(),
+                &schema_info,
+            )?;
             plan.finalize_access_choice_for_model_with_indexes_and_schema(
                 authority.model(),
                 visible_indexes.as_slice(),

@@ -364,6 +364,40 @@ fn accepted_schema_info_index_membership_uses_persisted_index_contracts() {
 }
 
 #[test]
+fn runtime_visible_indexes_are_accepted_schema_filtered() {
+    let plan_mod = read_source("src/db/query/plan/mod.rs");
+    let plan_mod_compact = compact_source(&plan_mod);
+    let session_cache = read_source("src/db/session/query/cache.rs");
+    let session_cache_compact = compact_source(&session_cache);
+    let session_mod = read_source("src/db/session/mod.rs");
+
+    assert!(
+        plan_mod.contains("pub(in crate::db) fn accepted_schema_visible(")
+            && plan_mod_compact.contains(".filter(|index|{schema_info.field_path_indexes().iter().any(|accepted|accepted.name()==index.name())})")
+            && plan_mod.contains("VisibleIndexAuthority::AcceptedSchema")
+            && plan_mod.contains("accepted_field_path_index_count"),
+        "VisibleIndexes must carry an accepted-schema-filtered field-path index view before runtime planning can stop using generated IndexModel authority",
+    );
+    assert!(
+        session_cache.contains("fn visible_indexes_for_accepted_schema(")
+            && session_cache
+                .contains("VisibleIndexes::accepted_schema_visible(model.indexes(), schema_info)")
+            && session_cache_compact.contains(
+                "SchemaInfo::from_accepted_snapshot_for_model(E::MODEL,&accepted_schema)"
+            )
+            && !session_cache.contains("fn visible_indexes_for_model("),
+        "shared query planning must build visible indexes from accepted SchemaInfo, not raw generated model indexes",
+    );
+    assert!(
+        session_mod.contains("fn visible_indexes_for_store_accepted_schema(")
+            && session_mod
+                .contains("VisibleIndexes::accepted_schema_visible(model.indexes(), schema_info)")
+            && !session_mod.contains("fn visible_indexes_for_store_model("),
+        "session explain planning must resolve visible indexes through accepted schema metadata",
+    );
+}
+
+#[test]
 fn save_preflight_relations_use_accepted_contracts() {
     let save_validation = read_source("src/db/executor/mutation/save_validation.rs");
     let relation_save_validate = read_source("src/db/relation/save_validate.rs");

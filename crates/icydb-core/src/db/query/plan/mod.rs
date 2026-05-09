@@ -25,7 +25,8 @@ mod semantics;
 mod tests;
 pub(crate) mod validate;
 
-use crate::{db::Predicate, model::index::IndexModel};
+use crate::{db::Predicate, db::schema::SchemaInfo, model::index::IndexModel};
+use std::borrow::Cow;
 
 pub(in crate::db) use crate::model::{
     canonicalize_filter_literal_for_kind,
@@ -186,28 +187,82 @@ pub(crate) use validate::{PlanPolicyError, PlanUserError};
 ///
 
 #[derive(Clone, Copy, Debug)]
+pub(in crate::db) enum VisibleIndexAuthority {
+    StoreNotReady,
+    GeneratedModelOnly,
+    AcceptedSchema { field_path_indexes: usize },
+}
+
+#[derive(Clone, Debug)]
 pub(in crate::db) struct VisibleIndexes<'a> {
-    indexes: &'a [&'static IndexModel],
+    indexes: Cow<'a, [&'static IndexModel]>,
+    authority: VisibleIndexAuthority,
 }
 
 impl<'a> VisibleIndexes<'a> {
     #[must_use]
     pub(in crate::db) const fn none() -> Self {
-        Self { indexes: &[] }
+        Self {
+            indexes: Cow::Borrowed(&[]),
+            authority: VisibleIndexAuthority::StoreNotReady,
+        }
     }
 
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn planner_visible(indexes: &'a [&'static IndexModel]) -> Self {
-        Self { indexes }
+        Self {
+            indexes: Cow::Borrowed(indexes),
+            authority: VisibleIndexAuthority::GeneratedModelOnly,
+        }
     }
 
     #[must_use]
     pub(in crate::db) const fn schema_owned(indexes: &'a [&'static IndexModel]) -> Self {
-        Self { indexes }
+        Self {
+            indexes: Cow::Borrowed(indexes),
+            authority: VisibleIndexAuthority::GeneratedModelOnly,
+        }
     }
 
     #[must_use]
-    pub(in crate::db) const fn as_slice(&self) -> &'a [&'static IndexModel] {
-        self.indexes
+    pub(in crate::db) fn accepted_schema_visible(
+        indexes: &'a [&'static IndexModel],
+        schema_info: &SchemaInfo,
+    ) -> Self {
+        let accepted_indexes = indexes
+            .iter()
+            .copied()
+            .filter(|index| {
+                schema_info
+                    .field_path_indexes()
+                    .iter()
+                    .any(|accepted| accepted.name() == index.name())
+            })
+            .collect();
+
+        Self {
+            indexes: Cow::Owned(accepted_indexes),
+            authority: VisibleIndexAuthority::AcceptedSchema {
+                field_path_indexes: schema_info.field_path_index_count(),
+            },
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) fn as_slice(&self) -> &[&'static IndexModel] {
+        self.indexes.as_ref()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn accepted_field_path_index_count(&self) -> Option<usize> {
+        match self.authority {
+            VisibleIndexAuthority::AcceptedSchema { field_path_indexes } => {
+                Some(field_path_indexes)
+            }
+            VisibleIndexAuthority::GeneratedModelOnly | VisibleIndexAuthority::StoreNotReady => {
+                None
+            }
+        }
     }
 }

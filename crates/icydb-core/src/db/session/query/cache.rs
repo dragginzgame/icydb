@@ -162,12 +162,22 @@ impl<C: CanisterKind> DbSession<C> {
         })
     }
 
-    pub(in crate::db::session) const fn visible_indexes_for_model(
+    pub(in crate::db::session) fn visible_indexes_for_accepted_schema(
         model: &'static EntityModel,
+        schema_info: &SchemaInfo,
         visibility: QueryPlanVisibility,
     ) -> VisibleIndexes<'static> {
         match visibility {
-            QueryPlanVisibility::StoreReady => VisibleIndexes::planner_visible(model.indexes()),
+            QueryPlanVisibility::StoreReady => {
+                let visible_indexes =
+                    VisibleIndexes::accepted_schema_visible(model.indexes(), schema_info);
+                debug_assert_eq!(
+                    visible_indexes.accepted_field_path_index_count(),
+                    Some(visible_indexes.as_slice().len()),
+                );
+
+                visible_indexes
+            }
             QueryPlanVisibility::StoreNotReady => VisibleIndexes::none(),
         }
     }
@@ -225,7 +235,8 @@ impl<C: CanisterKind> DbSession<C> {
             );
         }
 
-        let visible_indexes = Self::visible_indexes_for_model(authority.model(), visibility);
+        let visible_indexes =
+            Self::visible_indexes_for_accepted_schema(authority.model(), &schema_info, visibility);
         let planning_state = query.prepare_scalar_planning_state_with_schema_info(schema_info)?;
         let normalized_predicate_fingerprint = planning_state
             .normalized_predicate()
@@ -394,7 +405,12 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         let visibility = self.query_plan_visibility_for_store_path(E::Store::PATH)?;
-        let visible_indexes = Self::visible_indexes_for_model(E::MODEL, visibility);
+        let accepted_schema = self
+            .ensure_accepted_schema_snapshot::<E>()
+            .map_err(QueryError::execute)?;
+        let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema);
+        let visible_indexes =
+            Self::visible_indexes_for_accepted_schema(E::MODEL, &schema_info, visibility);
 
         op(query, &visible_indexes)
     }

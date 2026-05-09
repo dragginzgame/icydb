@@ -348,10 +348,11 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Resolve the exact secondary-index set that is visible to planner-owned
     // query planning for one recovered store/model pair.
-    fn visible_indexes_for_store_model(
+    fn visible_indexes_for_store_accepted_schema(
         &self,
         store_path: &str,
         model: &'static EntityModel,
+        schema_info: &SchemaInfo,
     ) -> Result<VisibleIndexes<'static>, QueryError> {
         // Phase 1: resolve the recovered store state once at the session
         // boundary so query/executor planning does not reopen lifecycle checks.
@@ -365,9 +366,17 @@ impl<C: CanisterKind> DbSession<C> {
         }
         debug_assert_eq!(state, IndexState::Ready);
 
-        // Phase 2: planner-visible indexes are exactly the model-owned index
-        // declarations once the recovered store is query-visible.
-        Ok(VisibleIndexes::planner_visible(model.indexes()))
+        // Phase 2: planner-visible field-path indexes are the accepted schema
+        // contracts once the recovered store is query-visible. The returned
+        // `IndexModel` slice is still the planner bridge until access-choice
+        // routing consumes accepted index DTOs directly.
+        let visible_indexes = VisibleIndexes::accepted_schema_visible(model.indexes(), schema_info);
+        debug_assert_eq!(
+            visible_indexes.accepted_field_path_index_count(),
+            Some(visible_indexes.as_slice().len()),
+        );
+
+        Ok(visible_indexes)
     }
 
     /// Return one generated-model schema description for the entity.

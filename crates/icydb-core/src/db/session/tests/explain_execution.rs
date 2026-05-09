@@ -705,15 +705,36 @@ fn session_non_ready_secondary_indexes_are_hidden_from_planning_and_execution() 
         .order_term(crate::db::asc("id"))
         .limit(1);
 
+    let schema_info = session
+        .accepted_schema_info_for_entity::<IndexedSessionSqlEntity>()
+        .expect("indexed entity accepted schema info should resolve");
+    let ready_visible_indexes = session
+        .visible_indexes_for_store_accepted_schema(
+            IndexedSessionSqlStore::PATH,
+            <IndexedSessionSqlEntity as crate::traits::EntitySchema>::MODEL,
+            &schema_info,
+        )
+        .expect("ready store should resolve accepted planner-visible index slice");
+    assert_eq!(
+        ready_visible_indexes.accepted_field_path_index_count(),
+        Some(ready_visible_indexes.as_slice().len()),
+        "ready planner-visible indexes must be backed by accepted field-path index contracts",
+    );
+    assert!(
+        !ready_visible_indexes.as_slice().is_empty(),
+        "ready indexed store should expose accepted field-path index contracts",
+    );
+
     INDEXED_SESSION_SQL_DB
         .recovered_store(IndexedSessionSqlStore::PATH)
         .expect("indexed SQL store should recover")
         .mark_index_building();
 
     let visible_indexes = session
-        .visible_indexes_for_store_model(
+        .visible_indexes_for_store_accepted_schema(
             IndexedSessionSqlStore::PATH,
             <IndexedSessionSqlEntity as crate::traits::EntitySchema>::MODEL,
+            &schema_info,
         )
         .expect("non-ready store should still resolve planner-visible index slice");
     assert!(
