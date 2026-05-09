@@ -7,7 +7,7 @@
 use crate::{
     db::{
         executor::{
-            ExecutionPreparation,
+            EntityAuthority, ExecutionPreparation,
             planning::{preparation::slot_map_for_model_plan, route::GroupedExecutionMode},
             route::{
                 ExecutionRoutePlan, LoadTerminalFastPathContract, RoutePlanRequest, TopNSeekSpec,
@@ -163,12 +163,27 @@ struct GroupedRouteObservabilityProjection {
 // Assemble one canonical scalar load execution descriptor tree through one
 // field-table and primary-key explain boundary.
 #[inline(never)]
+#[cfg(test)]
 pub(in crate::db) fn assemble_load_execution_node_descriptor(
     fields: &'static [FieldModel],
     primary_key_name: &'static str,
     plan: &AccessPlannedQuery,
 ) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
     let route_facts = freeze_load_execution_route_facts(fields, primary_key_name, plan)?;
+
+    Ok(assemble_load_execution_node_descriptor_from_route_facts(
+        plan,
+        &route_facts,
+    ))
+}
+
+// Assemble one canonical scalar load execution descriptor tree through
+// accepted executor authority.
+pub(in crate::db) fn assemble_load_execution_node_descriptor_for_authority(
+    authority: &EntityAuthority,
+    plan: &AccessPlannedQuery,
+) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
+    let route_facts = freeze_load_execution_route_facts_for_authority(authority, plan)?;
 
     Ok(assemble_load_execution_node_descriptor_from_route_facts(
         plan,
@@ -537,6 +552,49 @@ pub(in crate::db) fn freeze_load_execution_route_facts(
             explain_preparation.strict_predicate_compatible,
         )
         .map(LoadTerminalFastPathContract::CoveringRead)
+    } else {
+        None
+    };
+
+    Ok(LoadExecutionRouteFacts {
+        route_plan: build_execution_route_plan(
+            plan,
+            RoutePlanRequest::Load {
+                continuation: &crate::db::executor::ScalarContinuationContext::initial(),
+                probe_fetch_hint: None,
+                authority: None,
+                load_terminal_fast_path,
+            },
+        )?,
+        explain_preparation,
+    })
+}
+
+/// Freeze load execution route facts using accepted executor authority.
+pub(in crate::db) fn freeze_load_execution_route_facts_for_authority(
+    authority: &EntityAuthority,
+    plan: &AccessPlannedQuery,
+) -> Result<LoadExecutionRouteFacts, InternalError> {
+    let explain_preparation = LoadExplainPreparation::from_plan(plan);
+
+    if plan.grouped_plan().is_some() {
+        let grouped_handoff = grouped_executor_handoff(plan)?;
+
+        return Ok(LoadExecutionRouteFacts {
+            route_plan: build_execution_route_plan(
+                grouped_handoff.base(),
+                RoutePlanRequest::Grouped {
+                    grouped_plan_strategy: grouped_handoff.grouped_plan_strategy(),
+                },
+            )?,
+            explain_preparation,
+        });
+    }
+
+    let load_terminal_fast_path = if plan.scalar_plan().mode.is_load() {
+        authority
+            .covering_read_execution_plan(plan, explain_preparation.strict_predicate_compatible)
+            .map(LoadTerminalFastPathContract::CoveringRead)
     } else {
         None
     };

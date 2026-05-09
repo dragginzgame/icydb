@@ -13,7 +13,7 @@ use crate::{
             intent::StructuralQuery,
             plan::{AccessPlannedQuery, VisibleIndexes},
         },
-        schema::{SchemaInfo, accepted_schema_cache_fingerprint_for_model},
+        schema::{AcceptedSchemaSnapshot, SchemaInfo, accepted_schema_cache_fingerprint_for_model},
     },
     metrics::sink::{
         CacheKind, CacheMissReason, CacheOutcome, record_cache_entries,
@@ -203,20 +203,18 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(visibility)
     }
 
-    pub(in crate::db) fn cached_shared_query_plan_for_authority(
+    pub(in crate::db) fn cached_shared_query_plan_for_accepted_authority(
         &self,
         authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
         query: &StructuralQuery,
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
-        let (accepted_schema, authority) = self
-            .ensure_accepted_schema_snapshot_and_authority(authority)
-            .map_err(QueryError::execute)?;
         let schema_fingerprint =
-            accepted_schema_cache_fingerprint_for_model(authority.model(), &accepted_schema)
+            accepted_schema_cache_fingerprint_for_model(authority.model(), accepted_schema)
                 .map_err(QueryError::execute)?;
         let schema_info =
-            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), &accepted_schema);
+            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), accepted_schema);
         if query.trivial_scalar_load_fast_path_eligible() {
             return self.cached_trivial_scalar_load_plan_for_authority(
                 authority,
@@ -422,8 +420,13 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.cached_shared_query_plan_for_authority(
-            EntityAuthority::for_type::<E>(),
+        let (accepted_schema, authority) = self
+            .accepted_entity_authority::<E>()
+            .map_err(QueryError::execute)?;
+
+        self.cached_shared_query_plan_for_accepted_authority(
+            authority,
+            &accepted_schema,
             query.structural(),
         )
     }
@@ -442,22 +445,6 @@ impl<C: CanisterKind> DbSession<C> {
         let (prepared_plan, _) = self.cached_shared_query_plan_for_entity::<E>(query)?;
 
         map(&prepared_plan)
-    }
-
-    // Borrow one cached shared plan for a structural authority. SQL explain/hash
-    // adapters use this when they only need immutable plan facts but still need
-    // the cache attribution for diagnostics.
-    pub(in crate::db::session) fn try_map_cached_shared_query_plan_ref_for_authority<T>(
-        &self,
-        authority: EntityAuthority,
-        query: &StructuralQuery,
-        map: impl FnOnce(&SharedPreparedExecutionPlan) -> Result<T, QueryError>,
-    ) -> Result<(T, QueryPlanCacheAttribution), QueryError> {
-        let (prepared_plan, attribution) =
-            self.cached_shared_query_plan_for_authority(authority, query)?;
-        let mapped = map(&prepared_plan)?;
-
-        Ok((mapped, attribution))
     }
 
     // Map one typed query onto one cached lower prepared plan so session-owned

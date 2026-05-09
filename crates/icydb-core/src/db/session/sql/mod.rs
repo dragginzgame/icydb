@@ -29,6 +29,8 @@ use crate::{
         DbSession, PersistedRow, QueryError,
         executor::{EntityAuthority, SharedPreparedExecutionPlan},
         query::intent::StructuralQuery,
+        schema::AcceptedSchemaSnapshot,
+        session::query::QueryPlanCacheAttribution,
         session::sql::projection::{
             projection_fixed_scales_from_projection_spec, projection_labels_from_projection_spec,
         },
@@ -80,12 +82,14 @@ fn measured<T>(stage: impl FnOnce() -> Result<T, QueryError>) -> Result<(u64, T)
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    // Resolve one SQL SELECT entirely through the shared lower query-plan
-    // cache and derive only the outward SQL projection contract locally.
-    fn sql_select_prepared_plan(
+    // Resolve one SQL SELECT through a caller-selected accepted authority and
+    // accepted schema snapshot. Typed SQL entrypoints use this to avoid passing
+    // generated authority through the runtime cache boundary.
+    fn sql_select_prepared_plan_for_accepted_authority(
         &self,
         query: &StructuralQuery,
         authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
     ) -> Result<
         (
             SharedPreparedExecutionPlan,
@@ -94,8 +98,51 @@ impl<C: CanisterKind> DbSession<C> {
         ),
         QueryError,
     > {
-        let (prepared_plan, cache_attribution) =
-            self.cached_shared_query_plan_for_authority(authority.clone(), query)?;
+        let (prepared_plan, cache_attribution) = self
+            .cached_shared_query_plan_for_accepted_authority(
+                authority.clone(),
+                accepted_schema,
+                query,
+            )?;
+        Ok(Self::sql_select_projection_from_prepared_plan(
+            prepared_plan,
+            authority,
+            cache_attribution,
+        ))
+    }
+
+    // Resolve one typed SQL SELECT through accepted schema authority selected
+    // at the session boundary.
+    fn sql_select_prepared_plan_for_entity<E>(
+        &self,
+        query: &StructuralQuery,
+    ) -> Result<
+        (
+            SharedPreparedExecutionPlan,
+            SqlProjectionContract,
+            SqlCacheAttribution,
+        ),
+        QueryError,
+    >
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (accepted_schema, authority) = self
+            .accepted_entity_authority::<E>()
+            .map_err(QueryError::execute)?;
+
+        self.sql_select_prepared_plan_for_accepted_authority(query, authority, &accepted_schema)
+    }
+
+    fn sql_select_projection_from_prepared_plan(
+        prepared_plan: SharedPreparedExecutionPlan,
+        authority: EntityAuthority,
+        cache_attribution: QueryPlanCacheAttribution,
+    ) -> (
+        SharedPreparedExecutionPlan,
+        SqlProjectionContract,
+        SqlCacheAttribution,
+    ) {
         let projection_spec = prepared_plan
             .logical_plan()
             .projection_spec(authority.model());
@@ -104,11 +151,11 @@ impl<C: CanisterKind> DbSession<C> {
             projection_fixed_scales_from_projection_spec(&projection_spec),
         );
 
-        Ok((
+        (
             prepared_plan,
             projection,
             SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
-        ))
+        )
     }
 
     // Keep query/update surface gating owned by one helper so the SQL

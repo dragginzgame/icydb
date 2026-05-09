@@ -13,10 +13,7 @@ use crate::{
         },
     },
     error::InternalError,
-    model::{
-        entity::EntityModel,
-        field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
-    },
+    model::field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
     value::Value,
 };
 use std::borrow::Cow;
@@ -49,8 +46,11 @@ pub(in crate::db) struct StructuralRowContract {
 
 impl StructuralRowContract {
     /// Build one structural row contract from the generated entity model.
+    #[cfg(test)]
     #[must_use]
-    pub(in crate::db) const fn from_model(model: &'static EntityModel) -> Self {
+    pub(in crate::db) const fn from_model(
+        model: &'static crate::model::entity::EntityModel,
+    ) -> Self {
         Self {
             entity_path: model.path(),
             generated_fields: model.fields(),
@@ -65,7 +65,7 @@ impl StructuralRowContract {
     #[must_use]
     #[cfg(test)]
     pub(in crate::db) fn from_model_with_accepted_decode_contract(
-        model: &'static EntityModel,
+        model: &'static crate::model::entity::EntityModel,
         accepted_decode_contract: AcceptedRowDecodeContract,
     ) -> Self {
         Self::from_accepted_decode_contract_with_generated_bridge(

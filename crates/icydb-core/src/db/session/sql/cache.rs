@@ -297,7 +297,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let (accepted_schema, authority) = self
-            .ensure_accepted_schema_snapshot_and_authority(EntityAuthority::for_type::<E>())
+            .accepted_entity_authority::<E>()
             .map_err(QueryError::execute)?;
         let schema_fingerprint =
             accepted_schema_cache_fingerprint_for_model(authority.model(), &accepted_schema)

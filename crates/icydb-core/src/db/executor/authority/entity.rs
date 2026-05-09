@@ -37,7 +37,7 @@ use std::sync::Arc;
 #[derive(Clone, Debug)]
 pub struct EntityAuthority {
     model: &'static EntityModel,
-    row_layout: RowLayout,
+    row_layout: Option<RowLayout>,
     primary_key_name: &'static str,
     entity_tag: EntityTag,
     store_path: &'static str,
@@ -54,7 +54,7 @@ impl EntityAuthority {
     ) -> Self {
         Self {
             model,
-            row_layout: RowLayout::from_model(model),
+            row_layout: None,
             primary_key_name: model.primary_key.name,
             entity_tag,
             store_path,
@@ -87,8 +87,19 @@ impl EntityAuthority {
         );
 
         Self {
-            row_layout,
+            row_layout: Some(row_layout),
             accepted_schema_info: Some(Arc::new(accepted_schema_info)),
+            ..self
+        }
+    }
+
+    /// Return authority with generated row decode attached for test-only
+    /// prepared plan construction.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) fn with_generated_row_layout_for_test(self) -> Self {
+        Self {
+            row_layout: Some(RowLayout::from_model(self.model)),
             ..self
         }
     }
@@ -98,9 +109,11 @@ impl EntityAuthority {
     #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn with_cursor_schema_info_for_test(self, schema_info: SchemaInfo) -> Self {
+        let authority = self.with_generated_row_layout_for_test();
+
         Self {
             accepted_schema_info: Some(Arc::new(schema_info)),
-            ..self
+            ..authority
         }
     }
 
@@ -119,13 +132,15 @@ impl EntityAuthority {
     /// Borrow the frozen structural row-decode layout for this entity.
     #[must_use]
     pub(in crate::db::executor) fn row_layout(&self) -> RowLayout {
-        self.row_layout.clone()
+        self.row_layout_ref().clone()
     }
 
     /// Borrow the frozen structural row-decode layout for metadata-only callers.
     #[must_use]
     pub(in crate::db::executor) const fn row_layout_ref(&self) -> &RowLayout {
-        &self.row_layout
+        self.row_layout.as_ref().expect(
+            "entity authority row layout must be selected from accepted schema or explicit test layout",
+        )
     }
 
     /// Borrow the frozen structural primary-key field name for this entity.

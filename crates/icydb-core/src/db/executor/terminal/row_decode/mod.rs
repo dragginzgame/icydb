@@ -25,7 +25,6 @@ use crate::{
         schema::{AcceptedGeneratedCompatibleRowShape, AcceptedRowDecodeContract},
     },
     error::InternalError,
-    model::entity::EntityModel,
     value::Value,
 };
 
@@ -45,8 +44,11 @@ pub(in crate::db) struct RowLayout {
 
 impl RowLayout {
     /// Build one structural row layout from model metadata.
+    #[cfg(test)]
     #[must_use]
-    pub(in crate::db) const fn from_model(model: &'static EntityModel) -> Self {
+    pub(in crate::db) const fn from_model(
+        model: &'static crate::model::entity::EntityModel,
+    ) -> Self {
         Self {
             contract: StructuralRowContract::from_model(model),
         }

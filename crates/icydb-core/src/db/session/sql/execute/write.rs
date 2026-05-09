@@ -2,7 +2,7 @@ use crate::{
     db::{
         DbSession, MissingRowPolicy, PersistedRow, Query, QueryError,
         data::{FieldSlot, StructuralPatch},
-        executor::{EntityAuthority, MutationMode},
+        executor::MutationMode,
         query::intent::StructuralQuery,
         schema::{
             AcceptedRowLayoutRuntimeDescriptor, AcceptedRowLayoutRuntimeField,
@@ -488,7 +488,8 @@ impl<C: CanisterKind> DbSession<C> {
         let statement = SqlStatement::Select(source.clone());
         let prepared = prepare_sql_statement(&statement, schema.entity_name())
             .map_err(QueryError::from_sql_lowering_error)?;
-        let authority = EntityAuthority::for_type::<E>();
+        let authority =
+            Self::accepted_entity_authority_for_schema::<E>(schema).map_err(QueryError::execute)?;
         let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, schema);
         let query = bind_prepared_sql_select_statement_structural_with_schema(
             prepared,
@@ -499,7 +500,7 @@ impl<C: CanisterKind> DbSession<C> {
         .map_err(QueryError::from_sql_lowering_error)?;
         let (payload, _) = self
             .execute_sql_projection_from_structural_query_without_sql_compiled_cache(
-                query, authority,
+                query, authority, schema,
             )?;
         let (_, _, projected_rows, _) = payload.into_parts();
         rows.reserve(projected_rows.len());
@@ -636,10 +637,11 @@ impl<C: CanisterKind> DbSession<C> {
         let selector = Self::sql_update_selector_query::<E>(&schema, statement)?;
         let patch = Self::sql_structural_patch(&descriptor, statement)?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());
-        let authority = EntityAuthority::for_type::<E>();
+        let authority = Self::accepted_entity_authority_for_schema::<E>(&schema)
+            .map_err(QueryError::execute)?;
         let (payload, _) = self
             .execute_sql_projection_from_structural_query_without_sql_compiled_cache(
-                selector, authority,
+                selector, authority, &schema,
             )?;
         let (_, _, projected_rows, _) = payload.into_parts();
         let matched_rows = usize_to_u64_saturating(projected_rows.len());

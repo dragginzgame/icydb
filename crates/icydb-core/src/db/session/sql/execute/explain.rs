@@ -9,7 +9,7 @@ use crate::{
         executor::{
             EntityAuthority, assemble_load_execution_node_descriptor_from_route_facts,
             explain::assemble_scalar_aggregate_execution_descriptor_with_projection,
-            freeze_load_execution_route_facts, planning::route::AggregateRouteShape,
+            freeze_load_execution_route_facts_for_authority, planning::route::AggregateRouteShape,
         },
         query::{
             builder::scalar_projection::render_scalar_projection_expr_plan_label,
@@ -17,7 +17,7 @@ use crate::{
             intent::StructuralQuery,
             plan::AccessPlannedQuery,
         },
-        schema::SchemaInfo,
+        schema::{AcceptedSchemaSnapshot, SchemaInfo},
         session::{
             query::{QueryPlanCacheAttribution, query_plan_cache_reuse_event},
             sql::projection::annotate_sql_projection_debug_on_execution_descriptor,
@@ -74,28 +74,38 @@ fn render_sql_execution_explain(diagnostics: &FinalizedQueryDiagnostics) -> Stri
 impl<C: CanisterKind> DbSession<C> {
     // Borrow one lowered SQL query plan from the shared prepared-plan cache when
     // the explain renderer only needs immutable logical/route facts.
-    fn try_map_cached_sql_query_explain_plan_for_authority<T>(
+    fn try_map_cached_sql_query_explain_plan_for_accepted_authority<T>(
         &self,
         authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
         structural: &StructuralQuery,
         map: impl FnOnce(&AccessPlannedQuery) -> Result<T, QueryError>,
     ) -> Result<(T, QueryPlanCacheAttribution), QueryError> {
-        self.try_map_cached_shared_query_plan_ref_for_authority(
-            authority,
-            structural,
-            |prepared_plan| map(prepared_plan.logical_plan()),
-        )
+        let (prepared_plan, cache_attribution) = self
+            .cached_shared_query_plan_for_accepted_authority(
+                authority,
+                accepted_schema,
+                structural,
+            )?;
+        let mapped = map(prepared_plan.logical_plan())?;
+
+        Ok((mapped, cache_attribution))
     }
 
     // Resolve one lowered SQL query through the shared prepared-plan cache and
     // return an owned logical plan for explain-only descriptor mutation.
-    fn cached_sql_query_explain_plan_for_authority(
+    fn cached_sql_query_explain_plan_for_accepted_authority(
         &self,
         authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
         structural: &StructuralQuery,
     ) -> Result<(AccessPlannedQuery, QueryPlanCacheAttribution), QueryError> {
-        let (prepared_plan, cache_attribution) =
-            self.cached_shared_query_plan_for_authority(authority, structural)?;
+        let (prepared_plan, cache_attribution) = self
+            .cached_shared_query_plan_for_accepted_authority(
+                authority,
+                accepted_schema,
+                structural,
+            )?;
 
         Ok((prepared_plan.logical_plan().clone(), cache_attribution))
     }
@@ -104,6 +114,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         lowered: &LoweredSqlCommand,
         authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
     ) -> Result<String, QueryError> {
         let lane = match lowered_sql_command_lane(lowered) {
             LoweredSqlLaneKind::Query => ExplainSqlLane::Query,
@@ -125,15 +136,13 @@ impl<C: CanisterKind> DbSession<C> {
             return Err(QueryError::unsupported_query(message));
         }
 
-        let accepted_schema = self
-            .ensure_accepted_schema_snapshot_for_authority(&authority)
-            .map_err(QueryError::execute)?;
         let schema_info =
-            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), &accepted_schema);
+            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), accepted_schema);
 
         if let Some(rendered) = self.render_lowered_sql_explain_plan_or_json_for_authority(
             lowered,
             authority.clone(),
+            accepted_schema,
             &schema_info,
         )? {
             return Ok(rendered);
@@ -149,7 +158,11 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::from_sql_lowering_error)?
         {
             return self.explain_sql_global_aggregate_structural_for_authority(
-                mode, verbose, command, authority,
+                mode,
+                verbose,
+                command,
+                authority,
+                accepted_schema,
             );
         }
 
@@ -164,6 +177,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         lowered: &LoweredSqlCommand,
         authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
         schema_info: &SchemaInfo,
     ) -> Result<Option<String>, QueryError> {
         let Some((mode, _, query)) = lowered.explain_query() else {
@@ -180,8 +194,9 @@ impl<C: CanisterKind> DbSession<C> {
             schema_info,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
-        let (rendered, _) = self.try_map_cached_sql_query_explain_plan_for_authority(
+        let (rendered, _) = self.try_map_cached_sql_query_explain_plan_for_accepted_authority(
             authority,
+            accepted_schema,
             &structural,
             |plan| {
                 let explain = plan.explain();
@@ -207,16 +222,14 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         lowered: &LoweredSqlCommand,
         authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
     ) -> Result<Option<String>, QueryError> {
         let Some((SqlExplainMode::Execution, verbose, query)) = lowered.explain_query() else {
             return Ok(None);
         };
 
-        let accepted_schema = self
-            .ensure_accepted_schema_snapshot_for_authority(&authority)
-            .map_err(QueryError::execute)?;
         let schema_info =
-            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), &accepted_schema);
+            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), accepted_schema);
         let structural = bind_lowered_sql_query_structural_with_schema(
             authority.model(),
             query.clone(),
@@ -225,8 +238,12 @@ impl<C: CanisterKind> DbSession<C> {
         )
         .map_err(QueryError::from_sql_lowering_error)?;
         if verbose {
-            let (mut plan, cache_attribution) =
-                self.cached_sql_query_explain_plan_for_authority(authority.clone(), &structural)?;
+            let (mut plan, cache_attribution) = self
+                .cached_sql_query_explain_plan_for_accepted_authority(
+                    authority.clone(),
+                    accepted_schema,
+                    &structural,
+                )?;
             let visible_indexes =
                 self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
             plan.finalize_access_choice_for_model_with_indexes_and_schema(
@@ -250,16 +267,13 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(Some(render_sql_execution_explain(&diagnostics)));
         }
 
-        let (rendered, _) = self.try_map_cached_sql_query_explain_plan_for_authority(
+        let (rendered, _) = self.try_map_cached_sql_query_explain_plan_for_accepted_authority(
             authority.clone(),
+            accepted_schema,
             &structural,
             |plan| {
-                let route_facts = freeze_load_execution_route_facts(
-                    authority.fields(),
-                    authority.primary_key_name(),
-                    plan,
-                )
-                .map_err(QueryError::execute)?;
+                let route_facts = freeze_load_execution_route_facts_for_authority(&authority, plan)
+                    .map_err(QueryError::execute)?;
                 let mut descriptor =
                     assemble_load_execution_node_descriptor_from_route_facts(plan, &route_facts);
                 annotate_sql_projection_debug_on_execution_descriptor(
@@ -280,14 +294,16 @@ impl<C: CanisterKind> DbSession<C> {
     // Resolve one global aggregate base query through the same shared
     // prepared-plan cache as runtime aggregate execution, then borrow immutable
     // logical facts for aggregate descriptor assembly.
-    fn try_map_cached_sql_global_aggregate_explain_plan_for_authority<T>(
+    fn try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority<T>(
         &self,
         authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
         command: &SqlGlobalAggregateCommandCore,
         map: impl FnOnce(&AccessPlannedQuery) -> Result<T, QueryError>,
     ) -> Result<T, QueryError> {
-        let (mapped, _) = self.try_map_cached_sql_query_explain_plan_for_authority(
+        let (mapped, _) = self.try_map_cached_sql_query_explain_plan_for_accepted_authority(
             authority,
+            accepted_schema,
             command.query(),
             map,
         )?;
@@ -304,22 +320,25 @@ impl<C: CanisterKind> DbSession<C> {
         verbose: bool,
         command: SqlGlobalAggregateCommandCore,
         authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
     ) -> Result<String, QueryError> {
         let model = command.query().model();
         let strategies = command.strategies();
 
         match mode {
             SqlExplainMode::Plan => self
-                .try_map_cached_sql_global_aggregate_explain_plan_for_authority(
+                .try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority(
                     authority,
+                    accepted_schema,
                     &command,
                     |plan| Ok(plan.explain().render_text_canonical()),
                 ),
             SqlExplainMode::Execution => {
                 let _ = verbose;
 
-                self.try_map_cached_sql_global_aggregate_explain_plan_for_authority(
+                self.try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority(
                     authority,
+                    accepted_schema,
                     &command,
                     |plan| {
                         let mut rendered = Vec::with_capacity(strategies.len());
@@ -365,8 +384,9 @@ impl<C: CanisterKind> DbSession<C> {
                 )
             }
             SqlExplainMode::Json => self
-                .try_map_cached_sql_global_aggregate_explain_plan_for_authority(
+                .try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority(
                     authority,
+                    accepted_schema,
                     &command,
                     |plan| Ok(plan.explain().render_json_canonical()),
                 ),

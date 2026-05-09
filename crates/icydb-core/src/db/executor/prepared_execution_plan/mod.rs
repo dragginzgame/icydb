@@ -18,7 +18,8 @@ use crate::{
     db::{
         cursor::{GroupedPlannedCursor, PlannedCursor},
         executor::{
-            EntityAuthority, ExecutorPlanError, explain::assemble_load_execution_node_descriptor,
+            EntityAuthority, ExecutorPlanError,
+            explain::assemble_load_execution_node_descriptor_for_authority,
         },
         predicate::MissingRowPolicy,
         query::{
@@ -95,11 +96,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
             );
         }
 
-        assemble_load_execution_node_descriptor(
-            self.authority.fields(),
-            self.authority.primary_key_name(),
-            self.core.plan(),
-        )
+        assemble_load_execution_node_descriptor_for_authority(&self.authority, self.core.plan())
     }
 
     /// Validate and decode a continuation cursor into executor-ready cursor state.

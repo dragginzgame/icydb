@@ -3,7 +3,7 @@ use crate::{
         access::LoweredKey,
         codec::hex::encode_hex_lower,
         executor::{
-            EntityAuthority, PreparedExecutionPlan,
+            PreparedExecutionPlan,
             planning::route::{
                 LoadTerminalFastPathContract, derive_load_terminal_fast_path_contract_for_plan,
             },
@@ -23,7 +23,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
     {
         // Phase 1: project all executor-owned summary fields from the logical plan.
         let plan = self.core.plan();
-        let authority = EntityAuthority::for_type::<E>();
+        let authority = self.authority.clone();
         let projection_spec = plan.frozen_projection_spec();
         let projection_selection = if plan.grouped_plan().is_some()
             || projection_spec.len() != authority.row_layout().field_count()

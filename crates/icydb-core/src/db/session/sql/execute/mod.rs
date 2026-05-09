@@ -26,6 +26,7 @@ use crate::{
         },
         query::intent::StructuralQuery,
         response::ResponseError,
+        schema::AcceptedSchemaSnapshot,
         session::{
             finalize_structural_grouped_projection_result,
             sql::{
@@ -291,9 +292,10 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: StructuralQuery,
         authority: EntityAuthority,
+        accepted_schema: &AcceptedSchemaSnapshot,
     ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
-        let (prepared_plan, projection, cache_attribution) =
-            self.sql_select_prepared_plan(&query, authority)?;
+        let (prepared_plan, projection, cache_attribution) = self
+            .sql_select_prepared_plan_for_accepted_authority(&query, authority, accepted_schema)?;
 
         self.execute_sql_projection_from_structural_prepared_plan(
             prepared_plan,
@@ -396,11 +398,9 @@ impl<C: CanisterKind> DbSession<C> {
     {
         match compiled {
             CompiledSqlCommand::Select { query } => {
-                let authority = EntityAuthority::for_type::<E>();
-
                 if query.has_grouping() {
                     let (planner_local_instructions, resolved_query_plan) =
-                        measure_sql_stage(|| self.sql_select_prepared_plan(query, authority));
+                        measure_sql_stage(|| self.sql_select_prepared_plan_for_entity::<E>(query));
                     let (prepared_plan, projection, cache_attribution) = resolved_query_plan?;
 
                     let ((execute_local_instructions, store_local_instructions), statement_result) =
@@ -458,7 +458,7 @@ impl<C: CanisterKind> DbSession<C> {
                 }
 
                 let (planner_local_instructions, resolved_query_plan) =
-                    measure_sql_stage(|| self.sql_select_prepared_plan(query, authority));
+                    measure_sql_stage(|| self.sql_select_prepared_plan_for_entity::<E>(query));
                 let (prepared_plan, projection, cache_attribution) = resolved_query_plan?;
 
                 let ((execute_local_instructions, store_local_instructions), payload) =
@@ -511,14 +511,13 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_select_compiled_sql_with_cache_attribution<E>(
         &self,
         query: &StructuralQuery,
-        authority: EntityAuthority,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         if query.has_grouping() {
             let (prepared_plan, projection, cache_attribution) =
-                self.sql_select_prepared_plan(query, authority)?;
+                self.sql_select_prepared_plan_for_entity::<E>(query)?;
             let (statement_result, ()) = self.execute_grouped_sql_statement_from_prepared_plan(
                 prepared_plan,
                 projection,
@@ -534,7 +533,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         let (prepared_plan, projection, cache_attribution) =
-            self.sql_select_prepared_plan(query, authority)?;
+            self.sql_select_prepared_plan_for_entity::<E>(query)?;
 
         self.execute_sql_statement_from_structural_prepared_plan(
             prepared_plan,
@@ -553,9 +552,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         match compiled {
             CompiledSqlCommand::Select { query } => {
-                let authority = EntityAuthority::for_type::<E>();
-
-                self.execute_select_compiled_sql_with_cache_attribution::<E>(query, authority)
+                self.execute_select_compiled_sql_with_cache_attribution::<E>(query)
             }
             CompiledSqlCommand::Delete { query, returning } => {
                 let result =
@@ -567,18 +564,22 @@ impl<C: CanisterKind> DbSession<C> {
                 self.execute_global_aggregate_statement::<E>(*command.clone())
             }
             CompiledSqlCommand::Explain(lowered) => {
-                let authority = EntityAuthority::for_type::<E>();
+                let (accepted_schema, authority) = self
+                    .accepted_entity_authority::<E>()
+                    .map_err(QueryError::execute)?;
 
-                if let Some(explain) =
-                    self.explain_lowered_sql_execution_for_authority(lowered, authority.clone())?
-                {
+                if let Some(explain) = self.explain_lowered_sql_execution_for_authority(
+                    lowered,
+                    authority.clone(),
+                    &accepted_schema,
+                )? {
                     return Ok((
                         SqlStatementResult::Explain(explain),
                         SqlCacheAttribution::default(),
                     ));
                 }
 
-                self.explain_lowered_sql_for_authority(lowered, authority)
+                self.explain_lowered_sql_for_authority(lowered, authority, &accepted_schema)
                     .map(SqlStatementResult::Explain)
                     .map(|result| (result, SqlCacheAttribution::default()))
             }
@@ -625,12 +626,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         match compiled {
             CompiledSqlCommand::Select { query } => {
-                let authority = EntityAuthority::for_type::<E>();
-
-                self.execute_select_compiled_sql_with_cache_attribution::<E>(
-                    query.as_ref(),
-                    authority,
-                )
+                self.execute_select_compiled_sql_with_cache_attribution::<E>(query.as_ref())
             }
             CompiledSqlCommand::Delete { query, returning } => {
                 let result =
@@ -642,18 +638,22 @@ impl<C: CanisterKind> DbSession<C> {
                 self.execute_global_aggregate_statement::<E>(*command)
             }
             CompiledSqlCommand::Explain(lowered) => {
-                let authority = EntityAuthority::for_type::<E>();
+                let (accepted_schema, authority) = self
+                    .accepted_entity_authority::<E>()
+                    .map_err(QueryError::execute)?;
 
-                if let Some(explain) =
-                    self.explain_lowered_sql_execution_for_authority(&lowered, authority.clone())?
-                {
+                if let Some(explain) = self.explain_lowered_sql_execution_for_authority(
+                    &lowered,
+                    authority.clone(),
+                    &accepted_schema,
+                )? {
                     return Ok((
                         SqlStatementResult::Explain(explain),
                         SqlCacheAttribution::default(),
                     ));
                 }
 
-                self.explain_lowered_sql_for_authority(&lowered, authority)
+                self.explain_lowered_sql_for_authority(&lowered, authority, &accepted_schema)
                     .map(SqlStatementResult::Explain)
                     .map(|result| (result, SqlCacheAttribution::default()))
             }

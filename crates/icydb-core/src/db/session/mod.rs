@@ -437,46 +437,54 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    // Ensure and return the accepted schema snapshot from already-resolved
-    // structural entity authority. SQL and fluent shared-plan cache paths use
-    // this shape after lowering has erased the concrete entity type.
-    fn ensure_accepted_schema_snapshot_for_authority(
-        &self,
-        authority: &EntityAuthority,
-    ) -> Result<AcceptedSchemaSnapshot, InternalError> {
-        let store = self.db.recovered_store(authority.store_path())?;
-
-        store.with_schema_mut(|schema_store| {
-            ensure_accepted_schema_snapshot(
-                schema_store,
-                authority.entity_tag(),
-                authority.entity_path(),
-                authority.model(),
-            )
-        })
-    }
-
-    // Ensure accepted schema metadata and derive the execution authority that
-    // consumes it. Keeping the pair together prevents session call sites from
-    // mixing a live-schema fingerprint with a generated-only row layout.
-    fn ensure_accepted_schema_snapshot_and_authority(
-        &self,
+    // Derive executor authority from one accepted schema snapshot. This keeps
+    // row layout, cursor schema info, and schema compatibility proof selection
+    // in the same session-owned bootstrap path.
+    fn accepted_authority_for_schema(
         authority: EntityAuthority,
-    ) -> Result<(AcceptedSchemaSnapshot, EntityAuthority), InternalError> {
-        let accepted_schema = self.ensure_accepted_schema_snapshot_for_authority(&authority)?;
+        accepted_schema: &AcceptedSchemaSnapshot,
+    ) -> Result<EntityAuthority, InternalError> {
         let (accepted_row_layout, row_shape) =
             AcceptedRowLayoutRuntimeDescriptor::from_generated_compatible_schema(
-                &accepted_schema,
+                accepted_schema,
                 authority.model(),
             )?;
         let row_decode_contract = accepted_row_layout.row_decode_contract();
         let schema_info =
-            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), &accepted_schema);
-        let authority = authority.with_accepted_row_decode_contract(
-            row_shape,
-            row_decode_contract,
-            schema_info,
-        );
+            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), accepted_schema);
+
+        Ok(
+            authority.with_accepted_row_decode_contract(
+                row_shape,
+                row_decode_contract,
+                schema_info,
+            ),
+        )
+    }
+
+    // Derive typed executor authority from an accepted snapshot the caller
+    // already loaded, avoiding a second schema-store pass in SQL write/select
+    // adapters that need both write descriptors and read selector authority.
+    pub(in crate::db) fn accepted_entity_authority_for_schema<E>(
+        accepted_schema: &AcceptedSchemaSnapshot,
+    ) -> Result<EntityAuthority, InternalError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        Self::accepted_authority_for_schema(EntityAuthority::for_type::<E>(), accepted_schema)
+    }
+
+    // Load the accepted schema snapshot and derive the matching typed executor
+    // authority as one pair so typed session entrypoints cannot accidentally
+    // mix accepted schema fingerprints with generated row-layout authority.
+    pub(in crate::db) fn accepted_entity_authority<E>(
+        &self,
+    ) -> Result<(AcceptedSchemaSnapshot, EntityAuthority), InternalError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
+        let authority = Self::accepted_entity_authority_for_schema::<E>(&accepted_schema)?;
 
         Ok((accepted_schema, authority))
     }

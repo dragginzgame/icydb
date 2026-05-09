@@ -452,7 +452,7 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
                 "bind_lowered_sql_explain_global_aggregate_structural_with_schema("
             )
             && session_sql_explain_compact.contains(
-                "SchemaInfo::from_accepted_snapshot_for_model(authority.model(),&accepted_schema)"
+                "SchemaInfo::from_accepted_snapshot_for_model(authority.model(),accepted_schema)"
             )
             && !session_sql_explain.contains("plan.finalize_access_choice_for_model_with_indexes(")
             && !session_sql_explain.contains("bind_lowered_sql_query_structural(")
@@ -462,6 +462,62 @@ fn generated_only_prepared_plan_constructor_is_test_only() {
                 "apply_lowered_base_query_shape_with_schema("
             ),
         "session explain binding and access-choice finalization must use accepted SchemaInfo instead of generated schema fallback",
+    );
+}
+
+#[test]
+fn raw_entity_authority_bootstrap_stays_layout_free() {
+    let entity_authority = read_source("src/db/executor/authority/entity.rs");
+    let prepared_plan = read_source("src/db/executor/prepared_execution_plan/mod.rs");
+    let session_sql_explain = read_source("src/db/session/sql/execute/explain.rs");
+
+    assert!(
+        entity_authority.contains("row_layout: Option<RowLayout>,")
+            && entity_authority.contains("row_layout: None,")
+            && entity_authority.contains("fn with_generated_row_layout_for_test(")
+            && entity_authority.contains("row_layout: Some(RowLayout::from_model(self.model))")
+            && entity_authority.contains(
+                "entity authority row layout must be selected from accepted schema or explicit test layout",
+            )
+            && !entity_authority.contains("row_layout: RowLayout::from_model(model)"),
+        "raw EntityAuthority bootstrap must not attach generated row layout outside explicit test layout construction",
+    );
+    assert!(
+        prepared_plan.contains("assemble_load_execution_node_descriptor_for_authority(")
+            && !prepared_plan.contains("self.authority.fields(),")
+            && session_sql_explain.contains("freeze_load_execution_route_facts_for_authority(")
+            && !session_sql_explain.contains("authority.fields(),"),
+        "prepared descriptors and SQL EXPLAIN route facts must consume accepted authority instead of split generated field metadata",
+    );
+}
+
+#[test]
+fn typed_runtime_dispatch_selects_accepted_entity_authority_at_session_boundary() {
+    let session_mod = read_source("src/db/session/mod.rs");
+    let session_query_cache = read_source("src/db/session/query/cache.rs");
+    let session_sql_cache = read_source("src/db/session/sql/cache.rs");
+    let session_sql_execute = read_source("src/db/session/sql/execute/mod.rs");
+    let session_sql_explain = read_source("src/db/session/sql/execute/explain.rs");
+    let session_sql_write = read_source("src/db/session/sql/execute/write.rs");
+
+    assert!(
+        session_mod.contains("pub(in crate::db) fn accepted_entity_authority<E>")
+            && session_mod.contains("pub(in crate::db) fn accepted_entity_authority_for_schema<E>")
+            && session_query_cache.contains("accepted_entity_authority::<E>()")
+            && session_query_cache.contains("cached_shared_query_plan_for_accepted_authority(")
+            && !session_query_cache.contains("EntityAuthority::for_type::<E>()")
+            && session_sql_cache.contains("accepted_entity_authority::<E>()")
+            && !session_sql_cache.contains("EntityAuthority::for_type::<E>()")
+            && session_sql_execute.contains("sql_select_prepared_plan_for_entity::<E>(query)")
+            && session_sql_execute.contains("accepted_entity_authority::<E>()")
+            && !session_sql_execute.contains("EntityAuthority::for_type::<E>()")
+            && session_sql_explain.contains("accepted_schema: &AcceptedSchemaSnapshot")
+            && session_sql_explain.contains("cached_shared_query_plan_for_accepted_authority(")
+            && !session_sql_explain.contains("ensure_accepted_schema_snapshot_for_authority(")
+            && !session_sql_explain.contains("cached_shared_query_plan_for_authority(")
+            && session_sql_write.contains("accepted_entity_authority_for_schema::<E>")
+            && !session_sql_write.contains("EntityAuthority::for_type::<E>()"),
+        "typed runtime SQL/query dispatch must select accepted EntityAuthority at the session boundary instead of passing generated authority to lower helpers",
     );
 }
 

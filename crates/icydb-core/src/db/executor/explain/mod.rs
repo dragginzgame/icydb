@@ -29,12 +29,15 @@ use crate::{
     value::Value,
 };
 
+#[cfg(test)]
+pub(in crate::db) use descriptor::assemble_load_execution_node_descriptor;
 use descriptor::assemble_load_execution_verbose_diagnostics_from_route_facts;
 pub(in crate::db) use descriptor::{
-    assemble_aggregate_terminal_execution_descriptor, assemble_load_execution_node_descriptor,
+    assemble_aggregate_terminal_execution_descriptor,
+    assemble_load_execution_node_descriptor_for_authority,
     assemble_load_execution_node_descriptor_from_route_facts,
     assemble_scalar_aggregate_execution_descriptor_with_projection,
-    freeze_load_execution_route_facts,
+    freeze_load_execution_route_facts, freeze_load_execution_route_facts_for_authority,
 };
 
 impl StructuralQuery {
