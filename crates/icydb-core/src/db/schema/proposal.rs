@@ -5,13 +5,15 @@
 
 use crate::{
     db::schema::{
-        FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedNestedLeafSnapshot,
+        FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot,
+        PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
         PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy,
         SchemaRowLayout, SchemaVersion, sql_capabilities,
     },
     model::{
         entity::EntityModel,
         field::{FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
+        index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
     },
 };
 
@@ -34,6 +36,7 @@ pub(in crate::db) struct CompiledSchemaProposal {
     primary_key_name: &'static str,
     primary_key_field_id: FieldId,
     fields: Vec<CompiledFieldProposal>,
+    indexes: Vec<CompiledIndexProposal>,
 }
 
 impl CompiledSchemaProposal {
@@ -71,6 +74,13 @@ impl CompiledSchemaProposal {
         self.fields.as_slice()
     }
 
+    /// Return generated field-path index proposals that can already be
+    /// represented as accepted schema contracts.
+    #[must_use]
+    pub(in crate::db) const fn indexes(&self) -> &[CompiledIndexProposal] {
+        self.indexes.as_slice()
+    }
+
     /// Build the initial row layout implied by this compiled proposal.
     ///
     /// This uses proposal-assigned IDs only for first initialization. Once a
@@ -100,13 +110,20 @@ impl CompiledSchemaProposal {
             .map(CompiledFieldProposal::initial_persisted_field_snapshot)
             .collect::<Vec<_>>();
 
-        PersistedSchemaSnapshot::new(
+        let indexes = self
+            .indexes()
+            .iter()
+            .map(CompiledIndexProposal::initial_persisted_index_snapshot)
+            .collect::<Vec<_>>();
+
+        PersistedSchemaSnapshot::new_with_indexes(
             SchemaVersion::initial(),
             self.entity_path().to_string(),
             self.entity_name().to_string(),
             self.primary_key_field_id(),
             self.initial_row_layout(),
             fields,
+            indexes,
         )
     }
 }
@@ -216,6 +233,138 @@ impl CompiledFieldProposal {
     }
 }
 
+///
+/// CompiledIndexProposal
+///
+/// One generated field-path index projected into accepted schema terms. This
+/// intentionally excludes expression key items until the 0.150 expression
+/// contract is designed.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db) struct CompiledIndexProposal {
+    ordinal: u16,
+    name: &'static str,
+    store: &'static str,
+    unique: bool,
+    fields: Vec<CompiledIndexFieldPathProposal>,
+    predicate_sql: Option<&'static str>,
+}
+
+impl CompiledIndexProposal {
+    /// Return the generated stable index ordinal.
+    #[must_use]
+    pub(in crate::db) const fn ordinal(&self) -> u16 {
+        self.ordinal
+    }
+
+    /// Return the generated stable index name.
+    #[must_use]
+    pub(in crate::db) const fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// Return the generated backing index store path.
+    #[must_use]
+    pub(in crate::db) const fn store(&self) -> &'static str {
+        self.store
+    }
+
+    /// Return whether this index enforces value uniqueness.
+    #[must_use]
+    pub(in crate::db) const fn unique(&self) -> bool {
+        self.unique
+    }
+
+    /// Borrow accepted field-path key-item proposals.
+    #[must_use]
+    pub(in crate::db) const fn fields(&self) -> &[CompiledIndexFieldPathProposal] {
+        self.fields.as_slice()
+    }
+
+    /// Borrow optional schema-declared predicate SQL display metadata.
+    #[must_use]
+    pub(in crate::db) const fn predicate_sql(&self) -> Option<&'static str> {
+        self.predicate_sql
+    }
+
+    /// Build the initial persisted index snapshot implied by this proposal.
+    #[must_use]
+    pub(in crate::db) fn initial_persisted_index_snapshot(&self) -> PersistedIndexSnapshot {
+        PersistedIndexSnapshot::new(
+            self.ordinal(),
+            self.name().to_string(),
+            self.store().to_string(),
+            self.unique(),
+            PersistedIndexKeySnapshot::FieldPath(
+                self.fields()
+                    .iter()
+                    .map(CompiledIndexFieldPathProposal::initial_persisted_field_path_snapshot)
+                    .collect(),
+            ),
+            self.predicate_sql().map(str::to_string),
+        )
+    }
+}
+
+///
+/// CompiledIndexFieldPathProposal
+///
+/// One generated index field path resolved to accepted field identity and row
+/// slot metadata.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db) struct CompiledIndexFieldPathProposal {
+    field_id: FieldId,
+    slot: SchemaFieldSlot,
+    path: Vec<String>,
+    kind: PersistedFieldKind,
+    nullable: bool,
+}
+
+impl CompiledIndexFieldPathProposal {
+    /// Return the accepted top-level field identity.
+    #[must_use]
+    pub(in crate::db) const fn field_id(&self) -> FieldId {
+        self.field_id
+    }
+
+    /// Return the accepted top-level row slot.
+    #[must_use]
+    pub(in crate::db) const fn slot(&self) -> SchemaFieldSlot {
+        self.slot
+    }
+
+    /// Borrow the full accepted field path.
+    #[must_use]
+    pub(in crate::db) const fn path(&self) -> &[String] {
+        self.path.as_slice()
+    }
+
+    /// Borrow the accepted persisted field kind at this path.
+    #[must_use]
+    pub(in crate::db) const fn kind(&self) -> &PersistedFieldKind {
+        &self.kind
+    }
+
+    /// Return whether this field path permits explicit `NULL`.
+    #[must_use]
+    pub(in crate::db) const fn nullable(&self) -> bool {
+        self.nullable
+    }
+
+    fn initial_persisted_field_path_snapshot(&self) -> PersistedIndexFieldPathSnapshot {
+        PersistedIndexFieldPathSnapshot::new(
+            self.field_id(),
+            self.slot(),
+            self.path().to_vec(),
+            self.kind().clone(),
+            self.nullable(),
+        )
+    }
+}
+
 /// Build the compiled schema proposal for one trusted generated entity model.
 #[must_use]
 pub(in crate::db) fn compiled_schema_proposal_for_model(
@@ -227,6 +376,11 @@ pub(in crate::db) fn compiled_schema_proposal_for_model(
         .enumerate()
         .map(compiled_field_proposal_from_model_field)
         .collect::<Vec<_>>();
+    let indexes = model
+        .indexes()
+        .iter()
+        .filter_map(|index| compiled_field_path_index_proposal_from_model_index(index, &fields))
+        .collect::<Vec<_>>();
 
     let proposal = CompiledSchemaProposal {
         entity_path: model.path(),
@@ -234,6 +388,7 @@ pub(in crate::db) fn compiled_schema_proposal_for_model(
         primary_key_name: model.primary_key().name(),
         primary_key_field_id: FieldId::from_initial_slot(model.primary_key_slot()),
         fields,
+        indexes,
     };
 
     debug_assert_compiled_schema_proposal_invariants(model, &proposal);
@@ -267,6 +422,7 @@ fn debug_assert_compiled_schema_proposal_invariants(
     );
     debug_assert_eq!(snapshot.row_layout(), &layout);
     debug_assert_eq!(snapshot.fields().len(), proposal.fields().len());
+    debug_assert_eq!(snapshot.indexes().len(), proposal.indexes().len());
 
     for field in snapshot.fields() {
         let _ = (
@@ -313,6 +469,18 @@ fn debug_assert_compiled_schema_proposal_invariants(
             field.initial_persisted_field_snapshot(),
         );
     }
+
+    for index in proposal.indexes() {
+        let _ = (
+            index.ordinal(),
+            index.name(),
+            index.store(),
+            index.unique(),
+            index.fields(),
+            index.predicate_sql(),
+            index.initial_persisted_index_snapshot(),
+        );
+    }
 }
 
 // Project one generated field and its generated slot into the compiled schema
@@ -338,6 +506,74 @@ fn compiled_field_proposal_from_model_field(
         storage_decode: field.storage_decode(),
         leaf_codec: field.leaf_codec(),
     }
+}
+
+// Project one generated field-path index into accepted schema terms. Expression
+// key items are intentionally skipped until 0.150 defines their stable accepted
+// representation.
+fn compiled_field_path_index_proposal_from_model_index(
+    index: &IndexModel,
+    fields: &[CompiledFieldProposal],
+) -> Option<CompiledIndexProposal> {
+    let key_fields = match index.key_items() {
+        IndexKeyItemsRef::Fields(field_names) => field_names
+            .iter()
+            .map(|field_name| compiled_index_field_path_proposal_from_name(field_name, fields))
+            .collect::<Option<Vec<_>>>()?,
+        IndexKeyItemsRef::Items(items) => items
+            .iter()
+            .map(|item| match item {
+                IndexKeyItem::Field(field_name) => {
+                    compiled_index_field_path_proposal_from_name(field_name, fields)
+                }
+                IndexKeyItem::Expression(_) => None,
+            })
+            .collect::<Option<Vec<_>>>()?,
+    };
+
+    Some(CompiledIndexProposal {
+        ordinal: index.ordinal(),
+        name: index.name(),
+        store: index.store(),
+        unique: index.is_unique(),
+        fields: key_fields,
+        predicate_sql: index.predicate(),
+    })
+}
+
+fn compiled_index_field_path_proposal_from_name(
+    field_name: &str,
+    fields: &[CompiledFieldProposal],
+) -> Option<CompiledIndexFieldPathProposal> {
+    let path = field_name
+        .split('.')
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let (top_level, relative_path) = path.split_first()?;
+    let field = fields.iter().find(|field| field.name() == top_level)?;
+
+    if relative_path.is_empty() {
+        return Some(CompiledIndexFieldPathProposal {
+            field_id: field.id(),
+            slot: field.slot(),
+            path,
+            kind: PersistedFieldKind::from_model_kind(field.kind()),
+            nullable: field.nullable(),
+        });
+    }
+
+    let nested = field
+        .nested_leaves()
+        .iter()
+        .find(|leaf| leaf.path() == relative_path)?;
+
+    Some(CompiledIndexFieldPathProposal {
+        field_id: field.id(),
+        slot: field.slot(),
+        path,
+        kind: nested.kind().clone(),
+        nullable: nested.nullable(),
+    })
 }
 
 // Flatten generated nested field metadata into path-addressed persisted leaf
@@ -393,7 +629,7 @@ mod tests {
                 FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode, LeafCodec,
                 ScalarCodec,
             },
-            index::IndexModel,
+            index::{IndexExpression, IndexKeyItem, IndexModel},
         },
         testing::entity_model_from_static,
     };
@@ -421,7 +657,26 @@ mod tests {
             &PROFILE_FIELDS,
         ),
     ];
-    static INDEXES: [&IndexModel; 0] = [];
+    static NAME_INDEX: IndexModel =
+        IndexModel::generated_with_ordinal(1, "Entity|name", "entity::name", &["name"], false);
+    static PROFILE_NICKNAME_INDEX: IndexModel = IndexModel::generated_with_ordinal(
+        2,
+        "Entity|profile.nickname",
+        "entity::profile_nickname",
+        &["profile.nickname"],
+        false,
+    );
+    static EXPRESSION_KEY_ITEMS: [IndexKeyItem; 1] =
+        [IndexKeyItem::Expression(IndexExpression::Lower("name"))];
+    static EXPRESSION_INDEX: IndexModel = IndexModel::generated_with_ordinal_and_key_items(
+        3,
+        "Entity|lower_name",
+        "entity::lower_name",
+        &["name"],
+        &EXPRESSION_KEY_ITEMS,
+        false,
+    );
+    static INDEXES: [&IndexModel; 3] = [&NAME_INDEX, &PROFILE_NICKNAME_INDEX, &EXPRESSION_INDEX];
     static MODEL: EntityModel = entity_model_from_static(
         "schema::proposal::tests::Entity",
         "Entity",
@@ -439,6 +694,11 @@ mod tests {
         assert_eq!(proposal.entity_name(), "Entity");
         assert_eq!(proposal.primary_key_field_id(), FieldId::new(1));
         assert_eq!(proposal.fields().len(), 4);
+        assert_eq!(
+            proposal.indexes().len(),
+            2,
+            "field-path indexes should be accepted-index proposals; expression indexes wait for the expression contract slice",
+        );
 
         let ids = proposal
             .fields()
@@ -497,6 +757,7 @@ mod tests {
         assert_eq!(snapshot.entity_name(), "Entity");
         assert_eq!(snapshot.primary_key_field_id(), FieldId::new(1));
         assert_eq!(snapshot.fields().len(), 4);
+        assert_eq!(snapshot.indexes().len(), 2);
 
         let name = &snapshot.fields()[1];
         assert_eq!(name.id(), FieldId::new(2));
@@ -523,6 +784,39 @@ mod tests {
         assert!(matches!(
             profile.nested_leaves()[1].kind(),
             PersistedFieldKind::Uint
+        ));
+
+        let name_index = &snapshot.indexes()[0];
+        assert_eq!(name_index.ordinal(), 1);
+        assert_eq!(name_index.name(), "Entity|name");
+        assert!(!name_index.unique());
+        assert_eq!(name_index.key().field_paths().len(), 1);
+        assert_eq!(
+            name_index.key().field_paths()[0].field_id(),
+            FieldId::new(2)
+        );
+        assert_eq!(
+            name_index.key().field_paths()[0].slot(),
+            SchemaFieldSlot::from_generated_index(1)
+        );
+        assert_eq!(
+            name_index.key().field_paths()[0].path(),
+            &["name".to_string()]
+        );
+
+        let nested_index = &snapshot.indexes()[1];
+        assert_eq!(nested_index.name(), "Entity|profile.nickname");
+        assert_eq!(
+            nested_index.key().field_paths()[0].field_id(),
+            FieldId::new(4)
+        );
+        assert_eq!(
+            nested_index.key().field_paths()[0].path(),
+            &["profile".to_string(), "nickname".to_string()]
+        );
+        assert!(matches!(
+            nested_index.key().field_paths()[0].kind(),
+            PersistedFieldKind::Text { max_len: None }
         ));
     }
 }

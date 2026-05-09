@@ -94,7 +94,7 @@ fn format_failed_process_output(context: &str, output: &Output) -> String {
 
 fn should_default_to_wasm_release_profile() -> bool {
     matches!(
-        env::var("DFX_NETWORK").ok().as_deref(),
+        env::var("ICP_ENVIRONMENT").ok().as_deref(),
         Some("mainnet" | "staging" | "ic")
     )
 }
@@ -244,7 +244,7 @@ fn build_canister_package(
 /// Build one supported SQL canister WASM and return the built wasm path.
 ///
 /// Build profile selection:
-/// - `wasm-release` when `DFX_NETWORK` is `mainnet`, `staging`, or `ic`
+/// - `wasm-release` when `ICP_ENVIRONMENT` is `mainnet`, `staging`, or `ic`
 /// - `debug` otherwise
 /// - overridden by `ICYDB_CANISTER_WASM_PROFILE=debug|release|wasm-release`
 ///
@@ -259,31 +259,31 @@ pub fn build_canister(canister_name: &str) -> Result<PathBuf, String> {
 }
 
 ///
-/// stage_canister_for_dfx
+/// stage_canister_for_icp
 ///
 /// Build one supported canister and stage `.wasm` + `.did` artifacts into
-/// `.dfx/local/canisters/<canister_name>/`.
+/// `.icp/local/canisters/<canister_name>/`.
 ///
 
-pub fn stage_canister_for_dfx(canister_name: &str) -> Result<(PathBuf, Option<PathBuf>), String> {
+pub fn stage_canister_for_icp(canister_name: &str) -> Result<(PathBuf, Option<PathBuf>), String> {
     let root = workspace_root();
     let package_name = package_for_canister_name(canister_name)?;
     let profile = selected_canister_wasm_profile()?;
     let built_wasm_path = build_canister_package(
         package_name,
         profile,
-        &format!("canister build for dfx staging ({canister_name}, {profile})"),
+        &format!("canister build for ICP staging ({canister_name}, {profile})"),
     )?;
 
-    let dfx_canister_dir = root.join(".dfx/local/canisters").join(canister_name);
-    fs::create_dir_all(&dfx_canister_dir).map_err(|err| {
+    let icp_canister_dir = root.join(".icp/local/canisters").join(canister_name);
+    fs::create_dir_all(&icp_canister_dir).map_err(|err| {
         format!(
-            "failed to create dfx canister output directory {}: {err}",
-            dfx_canister_dir.display()
+            "failed to create ICP canister output directory {}: {err}",
+            icp_canister_dir.display()
         )
     })?;
 
-    let staged_wasm_path = dfx_canister_dir.join(format!("{canister_name}.wasm"));
+    let staged_wasm_path = icp_canister_dir.join(format!("{canister_name}.wasm"));
     fs::copy(&built_wasm_path, &staged_wasm_path).map_err(|err| {
         format!(
             "failed to copy built wasm from {} to {}: {err}",
@@ -292,7 +292,7 @@ pub fn stage_canister_for_dfx(canister_name: &str) -> Result<(PathBuf, Option<Pa
         )
     })?;
 
-    let staged_did_path = dfx_canister_dir.join(format!("{canister_name}.did"));
+    let staged_did_path = icp_canister_dir.join(format!("{canister_name}.did"));
 
     let candid_output = Command::new("candid-extractor")
         .arg(&staged_wasm_path)

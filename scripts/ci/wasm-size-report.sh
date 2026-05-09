@@ -23,9 +23,9 @@ CANISTER_NAME="${WASM_CANISTER_NAME}"
 mkdir -p "$OUT_DIR"
 
 # The wasm size report consumes locally staged canister artifacts under
-# `.dfx/local/canisters/<name>/`, but the staging step is owned by
-# `build_fixture_canister` and does not require `dfx` or a live local replica.
-# Keep this script independent from the local dfx environment so CI can run
+# `.icp/local/canisters/<name>/`, but the staging step is owned by
+# `build_fixture_canister` and does not require `icp` or a live local replica.
+# Keep this script independent from the local ICP environment so CI can run
 # wasm-size measurements without provisioning replica tooling it never uses.
 
 case "$SQL_VARIANTS_MODE" in
@@ -68,24 +68,24 @@ build_variant() {
         cargo run -p icydb-testing-integration --bin build_fixture_canister --locked -- "$CANISTER_NAME"
     )
 
-    DFX_DIR="$ROOT/.dfx/local/canisters/$CANISTER_NAME"
-    RAW_WASM="$DFX_DIR/$CANISTER_NAME.wasm"
-    RAW_GZ_EMITTED="$DFX_DIR/$CANISTER_NAME.wasm.gz"
-    RAW_DID="$DFX_DIR/$CANISTER_NAME.did"
+    ICP_DIR="$ROOT/.icp/local/canisters/$CANISTER_NAME"
+    RAW_WASM="$ICP_DIR/$CANISTER_NAME.wasm"
+    RAW_GZ_EMITTED="$ICP_DIR/$CANISTER_NAME.wasm.gz"
+    RAW_DID="$ICP_DIR/$CANISTER_NAME.did"
 
     if [[ ! -f "$RAW_WASM" ]]; then
         echo "[wasm-size] expected wasm missing: $RAW_WASM" >&2
         exit 1
     fi
 
-    RAW_COPY="$OUT_DIR/${stem}.dfx-built.wasm"
-    RAW_GZ_DETERMINISTIC="$OUT_DIR/${stem}.dfx-built.wasm.gz"
-    RAW_GZ_EMITTED_COPY="$OUT_DIR/${stem}.dfx-emitted.wasm.gz"
+    RAW_COPY="$OUT_DIR/${stem}.icp-built.wasm"
+    RAW_GZ_DETERMINISTIC="$OUT_DIR/${stem}.icp-built.wasm.gz"
+    RAW_GZ_EMITTED_COPY="$OUT_DIR/${stem}.icp-emitted.wasm.gz"
     DID_COPY="$OUT_DIR/${stem}.did"
-    SHRUNK_WASM="$OUT_DIR/${stem}.dfx-shrunk.wasm"
-    SHRUNK_GZ="$OUT_DIR/${stem}.dfx-shrunk.wasm.gz"
-    RAW_INFO="$OUT_DIR/${stem}.dfx-built.info.txt"
-    SHRUNK_INFO="$OUT_DIR/${stem}.dfx-shrunk.info.txt"
+    SHRUNK_WASM="$OUT_DIR/${stem}.icp-shrunk.wasm"
+    SHRUNK_GZ="$OUT_DIR/${stem}.icp-shrunk.wasm.gz"
+    RAW_INFO="$OUT_DIR/${stem}.icp-built.info.txt"
+    SHRUNK_INFO="$OUT_DIR/${stem}.icp-shrunk.info.txt"
     REPORT_JSON="$OUT_DIR/${stem}.report.json"
     SUMMARY_MD="$OUT_DIR/${stem}.summary.md"
 
@@ -187,15 +187,15 @@ report = {
     "artifacts": {
         "did": file_meta(did_path) if did_path.exists() else None,
         "candid_export": "available" if did_path.exists() else "unavailable",
-        "dfx_built_wasm": raw_wasm_meta,
-        "dfx_built_wasm_gz_deterministic": raw_gz_meta,
-        "dfx_built_wasm_gz_emitted": emitted_gz_meta,
-        "dfx_shrunk_wasm": shrunk_wasm_meta,
-        "dfx_shrunk_wasm_gz": shrunk_gz_meta,
+        "icp_built_wasm": raw_wasm_meta,
+        "icp_built_wasm_gz_deterministic": raw_gz_meta,
+        "icp_built_wasm_gz_emitted": emitted_gz_meta,
+        "icp_shrunk_wasm": shrunk_wasm_meta,
+        "icp_shrunk_wasm_gz": shrunk_gz_meta,
     },
     "analysis": {
-        "dfx_built": raw_info_meta,
-        "dfx_shrunk": shrunk_info_meta,
+        "icp_built": raw_info_meta,
+        "icp_shrunk": shrunk_info_meta,
     },
     "deltas": {
         "shrink_wasm_bytes": raw_wasm_meta["bytes"] - shrunk_wasm_meta["bytes"],
@@ -210,13 +210,13 @@ summary_lines = [
     "",
     "| Artifact | Bytes |",
     "| --- | ---: |",
-    f"| dfx-built `.wasm` | {raw_wasm_meta['bytes']} |",
-    f"| dfx-built deterministic `.wasm.gz` | {raw_gz_meta['bytes']} |",
+    f"| icp-built `.wasm` | {raw_wasm_meta['bytes']} |",
+    f"| icp-built deterministic `.wasm.gz` | {raw_gz_meta['bytes']} |",
 ]
 
 if emitted_gz_meta is not None:
     summary_lines.append(
-        f"| dfx-emitted `.wasm.gz` | {emitted_gz_meta['bytes']} |"
+        f"| icp-emitted `.wasm.gz` | {emitted_gz_meta['bytes']} |"
     )
 
 summary_lines.append(
@@ -225,8 +225,8 @@ summary_lines.append(
 
 summary_lines.extend(
     [
-        f"| dfx-shrunk `.wasm` (canonical) | {shrunk_wasm_meta['bytes']} |",
-        f"| dfx-shrunk `.wasm.gz` (canonical) | {shrunk_gz_meta['bytes']} |",
+        f"| icp-shrunk `.wasm` (canonical) | {shrunk_wasm_meta['bytes']} |",
+        f"| icp-shrunk `.wasm.gz` (canonical) | {shrunk_gz_meta['bytes']} |",
         f"| Shrink delta `.wasm` | {report['deltas']['shrink_wasm_bytes']} |",
         f"| Shrink delta `.wasm.gz` | {report['deltas']['shrink_wasm_gz_bytes']} |",
         "",

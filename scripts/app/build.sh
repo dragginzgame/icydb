@@ -24,12 +24,12 @@ PKG="${2:-$CAN}"
 # Build Wasm
 #
 
-mkdir -p "$ROOT/.dfx/local/canisters/$CAN"
-WASM_TARGET="$ROOT/.dfx/local/canisters/$CAN/$CAN.wasm"
+mkdir -p "$ROOT/.icp/local/canisters/$CAN"
+WASM_TARGET="$ROOT/.icp/local/canisters/$CAN/$CAN.wasm"
 
 cargo build --target wasm32-unknown-unknown -p "$PKG"
 cp -f "$CARGO_TARGET_DIR/wasm32-unknown-unknown/debug/$PKG.wasm" "$WASM_TARGET"
 
 # extract candid
 candid-extractor "$WASM_TARGET" \
-    > "$ROOT/.dfx/local/canisters/$CAN/${CAN}.did"
+    > "$ROOT/.icp/local/canisters/$CAN/${CAN}.did"

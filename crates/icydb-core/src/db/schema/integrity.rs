@@ -3,7 +3,9 @@
 //! Does not own: reconciliation policy, schema transition decisions, or raw codec parsing.
 //! Boundary: reports local metadata inconsistencies before snapshots become accepted authority.
 
-use crate::db::schema::{FieldId, PersistedFieldSnapshot, SchemaRowLayout, SchemaVersion};
+use crate::db::schema::{
+    FieldId, PersistedFieldSnapshot, PersistedIndexSnapshot, SchemaRowLayout, SchemaVersion,
+};
 
 // Build the first deterministic persisted-schema integrity diagnostic. Callers
 // decide whether the detail represents a typed caller invariant or raw payload
@@ -72,6 +74,93 @@ pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
             "{subject} primary key field missing from fields: field_id={}",
             primary_key_field_id.get(),
         ));
+    }
+
+    None
+}
+
+// Build the first deterministic accepted-index integrity diagnostic. Index
+// contracts are validated separately from row-layout integrity so existing
+// field-only callers can keep their narrow checks.
+pub(in crate::db::schema) fn schema_snapshot_index_integrity_detail(
+    subject: &str,
+    row_layout: &SchemaRowLayout,
+    fields: &[PersistedFieldSnapshot],
+    indexes: &[PersistedIndexSnapshot],
+) -> Option<String> {
+    for (index_offset, index) in indexes.iter().enumerate() {
+        if index.name().is_empty() {
+            return Some(format!(
+                "{subject} empty index name: index_offset={index_offset}",
+            ));
+        }
+
+        if index.store().is_empty() {
+            return Some(format!(
+                "{subject} empty index store: index='{}'",
+                index.name(),
+            ));
+        }
+
+        for other in &indexes[index_offset + 1..] {
+            if index.ordinal() == other.ordinal() {
+                return Some(format!(
+                    "{subject} duplicate index ordinal: ordinal={}",
+                    index.ordinal(),
+                ));
+            }
+
+            if index.name() == other.name() {
+                return Some(format!(
+                    "{subject} duplicate index name: name='{}'",
+                    index.name(),
+                ));
+            }
+        }
+
+        let paths = index.key().field_paths();
+        if paths.is_empty() {
+            return Some(format!(
+                "{subject} empty index key: index='{}'",
+                index.name(),
+            ));
+        }
+
+        for path in paths {
+            let Some(row_layout_slot) = row_layout.slot_for_field(path.field_id()) else {
+                return Some(format!(
+                    "{subject} index field missing from row layout: index='{}' field_id={}",
+                    index.name(),
+                    path.field_id().get(),
+                ));
+            };
+
+            if row_layout_slot != path.slot() {
+                return Some(format!(
+                    "{subject} index field slot mismatch: index='{}' field_id={} index_slot={} row_layout_slot={}",
+                    index.name(),
+                    path.field_id().get(),
+                    path.slot().get(),
+                    row_layout_slot.get(),
+                ));
+            }
+
+            if path.path().is_empty() {
+                return Some(format!(
+                    "{subject} empty index field path: index='{}' field_id={}",
+                    index.name(),
+                    path.field_id().get(),
+                ));
+            }
+
+            if !fields.iter().any(|field| field.id() == path.field_id()) {
+                return Some(format!(
+                    "{subject} index field missing from fields: index='{}' field_id={}",
+                    index.name(),
+                    path.field_id().get(),
+                ));
+            }
+        }
     }
 
     None

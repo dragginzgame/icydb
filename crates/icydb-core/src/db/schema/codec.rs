@@ -6,9 +6,10 @@
 use crate::{
     db::schema::{
         FieldId, PersistedEnumVariant, PersistedFieldKind, PersistedFieldSnapshot,
+        PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
         PersistedNestedLeafSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,
         SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout,
-        SchemaVersion, schema_snapshot_integrity_detail,
+        SchemaVersion, schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
     },
     error::InternalError,
     model::field::{
@@ -19,7 +20,7 @@ use crate::{
 use candid::{CandidType, Decode, Encode};
 use serde::Deserialize;
 
-const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 2;
+const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 3;
 
 // Candid wire container for one persisted schema snapshot.
 //
@@ -34,6 +35,7 @@ struct PersistedSchemaSnapshotWire {
     primary_key_field_id: u32,
     row_layout: SchemaRowLayoutWire,
     fields: Vec<PersistedFieldSnapshotWire>,
+    indexes: Vec<PersistedIndexSnapshotWire>,
 }
 
 // Candid wire container for schema row-layout identity.
@@ -66,6 +68,33 @@ struct PersistedNestedLeafSnapshotWire {
     nullable: bool,
     storage_decode: FieldStorageDecodeWire,
     leaf_codec: LeafCodecWire,
+}
+
+// Candid wire container for one accepted index contract.
+#[derive(CandidType, Deserialize)]
+struct PersistedIndexSnapshotWire {
+    ordinal: u16,
+    name: String,
+    store: String,
+    unique: bool,
+    key: PersistedIndexKeySnapshotWire,
+    predicate_sql: Option<String>,
+}
+
+// Candid wire enum for accepted index key contracts.
+#[derive(CandidType, Deserialize)]
+enum PersistedIndexKeySnapshotWire {
+    FieldPath(Vec<PersistedIndexFieldPathSnapshotWire>),
+}
+
+// Candid wire container for one accepted field-path index key item.
+#[derive(CandidType, Deserialize)]
+struct PersistedIndexFieldPathSnapshotWire {
+    field_id: u32,
+    slot: u16,
+    path: Vec<String>,
+    kind: PersistedFieldKindWire,
+    nullable: bool,
 }
 
 // Candid wire enum for database-level default metadata.
@@ -236,6 +265,11 @@ impl PersistedSchemaSnapshotWire {
                 .iter()
                 .map(PersistedFieldSnapshotWire::from_field)
                 .collect(),
+            indexes: snapshot
+                .indexes()
+                .iter()
+                .map(PersistedIndexSnapshotWire::from_index)
+                .collect(),
         }
     }
 
@@ -255,6 +289,11 @@ impl PersistedSchemaSnapshotWire {
             .map(PersistedFieldSnapshotWire::into_field)
             .collect::<Result<Vec<_>, _>>()?;
         let primary_key_field_id = FieldId::new(self.primary_key_field_id);
+        let indexes = self
+            .indexes
+            .into_iter()
+            .map(PersistedIndexSnapshotWire::into_index)
+            .collect::<Result<Vec<_>, _>>()?;
         if let Some(detail) = schema_snapshot_integrity_detail(
             "persisted schema snapshot",
             version,
@@ -265,13 +304,23 @@ impl PersistedSchemaSnapshotWire {
             return Err(InternalError::store_corruption(detail));
         }
 
-        Ok(PersistedSchemaSnapshot::new(
+        if let Some(detail) = schema_snapshot_index_integrity_detail(
+            "persisted schema snapshot",
+            &row_layout,
+            &fields,
+            &indexes,
+        ) {
+            return Err(InternalError::store_corruption(detail));
+        }
+
+        Ok(PersistedSchemaSnapshot::new_with_indexes(
             version,
             self.entity_path,
             self.entity_name,
             primary_key_field_id,
             row_layout,
             fields,
+            indexes,
         ))
     }
 }
@@ -356,6 +405,76 @@ impl PersistedNestedLeafSnapshotWire {
             self.nullable,
             self.storage_decode.into_storage_decode(),
             self.leaf_codec.into_leaf_codec(),
+        ))
+    }
+}
+
+impl PersistedIndexSnapshotWire {
+    fn from_index(index: &PersistedIndexSnapshot) -> Self {
+        Self {
+            ordinal: index.ordinal(),
+            name: index.name().to_string(),
+            store: index.store().to_string(),
+            unique: index.unique(),
+            key: PersistedIndexKeySnapshotWire::from_key(index.key()),
+            predicate_sql: index.predicate_sql().map(str::to_string),
+        }
+    }
+
+    fn into_index(self) -> Result<PersistedIndexSnapshot, InternalError> {
+        Ok(PersistedIndexSnapshot::new(
+            self.ordinal,
+            self.name,
+            self.store,
+            self.unique,
+            self.key.into_key()?,
+            self.predicate_sql,
+        ))
+    }
+}
+
+impl PersistedIndexKeySnapshotWire {
+    fn from_key(key: &PersistedIndexKeySnapshot) -> Self {
+        match key {
+            PersistedIndexKeySnapshot::FieldPath(paths) => Self::FieldPath(
+                paths
+                    .iter()
+                    .map(PersistedIndexFieldPathSnapshotWire::from_path)
+                    .collect(),
+            ),
+        }
+    }
+
+    fn into_key(self) -> Result<PersistedIndexKeySnapshot, InternalError> {
+        match self {
+            Self::FieldPath(paths) => Ok(PersistedIndexKeySnapshot::FieldPath(
+                paths
+                    .into_iter()
+                    .map(PersistedIndexFieldPathSnapshotWire::into_path)
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
+        }
+    }
+}
+
+impl PersistedIndexFieldPathSnapshotWire {
+    fn from_path(path: &PersistedIndexFieldPathSnapshot) -> Self {
+        Self {
+            field_id: path.field_id().get(),
+            slot: path.slot().get(),
+            path: path.path().to_vec(),
+            kind: PersistedFieldKindWire::from_kind(path.kind()),
+            nullable: path.nullable(),
+        }
+    }
+
+    fn into_path(self) -> Result<PersistedIndexFieldPathSnapshot, InternalError> {
+        Ok(PersistedIndexFieldPathSnapshot::new(
+            FieldId::new(self.field_id),
+            SchemaFieldSlot::new(self.slot),
+            self.path,
+            self.kind.into_kind()?,
+            self.nullable,
         ))
     }
 }
@@ -645,7 +764,8 @@ impl ScalarCodecWire {
 mod tests {
     use crate::{
         db::schema::{
-            FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedSchemaSnapshot,
+            FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot,
+            PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
             SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout,
             SchemaVersion, decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
         },
@@ -777,5 +897,78 @@ mod tests {
             decoded.fields()[0].default().slot_payload(),
             Some(default_payload.as_slice())
         );
+    }
+
+    #[test]
+    fn persisted_schema_snapshot_round_trips_field_path_indexes() {
+        let snapshot = PersistedSchemaSnapshot::new_with_indexes(
+            SchemaVersion::initial(),
+            "entities::Indexed".to_string(),
+            "Indexed".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new_with_write_policy(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    SchemaFieldWritePolicy::none(),
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new_with_write_policy(
+                    FieldId::new(2),
+                    "email".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Text { max_len: None },
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    SchemaFieldWritePolicy::none(),
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Text),
+                ),
+            ],
+            vec![PersistedIndexSnapshot::new(
+                7,
+                "Indexed|email".to_string(),
+                "indexed::email".to_string(),
+                true,
+                PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["email".to_string()],
+                    PersistedFieldKind::Text { max_len: None },
+                    false,
+                )]),
+                Some("email IS NOT NULL".to_string()),
+            )],
+        );
+        let encoded = encode_persisted_schema_snapshot(&snapshot)
+            .expect("schema snapshot should encode accepted index contracts");
+
+        let decoded = decode_persisted_schema_snapshot(&encoded)
+            .expect("schema snapshot should decode accepted index contracts");
+
+        assert_eq!(decoded.indexes().len(), 1);
+        let index = &decoded.indexes()[0];
+        assert_eq!(index.ordinal(), 7);
+        assert_eq!(index.name(), "Indexed|email");
+        assert_eq!(index.store(), "indexed::email");
+        assert!(index.unique());
+        assert_eq!(index.predicate_sql(), Some("email IS NOT NULL"));
+        assert_eq!(index.key().field_paths()[0].field_id(), FieldId::new(2));
+        assert_eq!(index.key().field_paths()[0].slot(), SchemaFieldSlot::new(1));
+        assert_eq!(index.key().field_paths()[0].path(), &["email".to_string()]);
     }
 }

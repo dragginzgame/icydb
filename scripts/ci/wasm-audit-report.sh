@@ -58,6 +58,19 @@ def display_path(root: Path, path: Path) -> str:
         return str(path)
 
 
+def has_icp_size_metrics(report: dict) -> bool:
+    artifacts = report.get("artifacts")
+    return isinstance(artifacts, dict) and all(
+        key in artifacts
+        for key in (
+            "icp_built_wasm",
+            "icp_built_wasm_gz_deterministic",
+            "icp_shrunk_wasm",
+            "icp_shrunk_wasm_gz",
+        )
+    )
+
+
 def load_baseline_metrics(root: Path, baseline_path: str, artifact_scope: str, canister: str, profile: str, sql_variant: str):
     if baseline_path == "N/A":
         return None, None
@@ -72,7 +85,10 @@ def load_baseline_metrics(root: Path, baseline_path: str, artifact_scope: str, c
 
     for candidate in candidates:
         if candidate.exists():
-            return json.loads(candidate.read_text(encoding="utf-8")), candidate
+            report = json.loads(candidate.read_text(encoding="utf-8"))
+            if has_icp_size_metrics(report):
+                return report, candidate
+            return None, candidate
 
     return None, None
 
@@ -120,17 +136,17 @@ for canister in canisters:
         all_baselines_available = False
 
     previous_shrunk = (
-        baseline_metrics["artifacts"]["dfx_shrunk_wasm"]["bytes"]
+        baseline_metrics["artifacts"]["icp_shrunk_wasm"]["bytes"]
         if baseline_metrics is not None
         else None
     )
-    current_shrunk = current["artifacts"]["dfx_shrunk_wasm"]["bytes"]
+    current_shrunk = current["artifacts"]["icp_shrunk_wasm"]["bytes"]
     previous_gz = (
-        baseline_metrics["artifacts"]["dfx_shrunk_wasm_gz"]["bytes"]
+        baseline_metrics["artifacts"]["icp_shrunk_wasm_gz"]["bytes"]
         if baseline_metrics is not None
         else None
     )
-    current_gz = current["artifacts"]["dfx_shrunk_wasm_gz"]["bytes"]
+    current_gz = current["artifacts"]["icp_shrunk_wasm_gz"]["bytes"]
 
     if baseline_path == "N/A":
         status = "PARTIAL"
@@ -290,7 +306,7 @@ fi
 ARTIFACT_DIR="$ROOT/artifacts/wasm-size"
 SIZE_REPORT_JSON="$ARTIFACT_DIR/${CANISTER_NAME}.${PROFILE}${SIZE_REPORT_SUFFIX}.report.json"
 SIZE_SUMMARY_MD="$ARTIFACT_DIR/${CANISTER_NAME}.${PROFILE}${SIZE_REPORT_SUFFIX}.summary.md"
-SHRUNK_WASM="$ARTIFACT_DIR/${CANISTER_NAME}.${PROFILE}${SIZE_REPORT_SUFFIX}.dfx-shrunk.wasm"
+SHRUNK_WASM="$ARTIFACT_DIR/${CANISTER_NAME}.${PROFILE}${SIZE_REPORT_SUFFIX}.icp-shrunk.wasm"
 
 for required in "$SIZE_REPORT_JSON" "$SIZE_SUMMARY_MD" "$SHRUNK_WASM"; do
     if [[ ! -f "$required" ]]; then
@@ -369,6 +385,19 @@ def display_path(path):
         return str(path)
 
 
+def has_icp_size_metrics(report: dict) -> bool:
+    artifacts = report.get("artifacts")
+    return isinstance(artifacts, dict) and all(
+        key in artifacts
+        for key in (
+            "icp_built_wasm",
+            "icp_built_wasm_gz_deterministic",
+            "icp_shrunk_wasm",
+            "icp_shrunk_wasm_gz",
+        )
+    )
+
+
 root = Path(os.environ["ROOT"])
 report_path = Path(os.environ["REPORT_PATH"])
 baseline_path = os.environ["BASELINE_PATH"]
@@ -398,7 +427,9 @@ if baseline_path != "N/A":
     )
     if baseline_artifact.exists():
         baseline_artifact_path = baseline_artifact
-        baseline_metrics = json.loads(baseline_artifact.read_text(encoding="utf-8"))
+        loaded_baseline = json.loads(baseline_artifact.read_text(encoding="utf-8"))
+        if has_icp_size_metrics(loaded_baseline):
+            baseline_metrics = loaded_baseline
 
 try:
     snapshot = (
@@ -416,7 +447,7 @@ if baseline_path == "N/A":
     comparability = "comparable"
 elif baseline_metrics is None:
     comparability = (
-        "non-comparable (baseline report exists but baseline size artifact is missing)"
+        "non-comparable (baseline report exists but compatible ICP size artifact is missing)"
     )
 else:
     comparability = "comparable"
@@ -439,30 +470,30 @@ def metric_from(report, key):
 
 
 current_metrics = {
-    "dfx_built_wasm": metric_from(current, "dfx_built_wasm"),
-    "dfx_built_wasm_gz_deterministic": metric_from(
-        current, "dfx_built_wasm_gz_deterministic"
+    "icp_built_wasm": metric_from(current, "icp_built_wasm"),
+    "icp_built_wasm_gz_deterministic": metric_from(
+        current, "icp_built_wasm_gz_deterministic"
     ),
-    "dfx_shrunk_wasm": metric_from(current, "dfx_shrunk_wasm"),
-    "dfx_shrunk_wasm_gz": metric_from(current, "dfx_shrunk_wasm_gz"),
+    "icp_shrunk_wasm": metric_from(current, "icp_shrunk_wasm"),
+    "icp_shrunk_wasm_gz": metric_from(current, "icp_shrunk_wasm_gz"),
 }
 
 previous_metrics = None
 if baseline_metrics is not None:
     previous_metrics = {
-        "dfx_built_wasm": metric_from(baseline_metrics, "dfx_built_wasm"),
-        "dfx_built_wasm_gz_deterministic": metric_from(
-            baseline_metrics, "dfx_built_wasm_gz_deterministic"
+        "icp_built_wasm": metric_from(baseline_metrics, "icp_built_wasm"),
+        "icp_built_wasm_gz_deterministic": metric_from(
+            baseline_metrics, "icp_built_wasm_gz_deterministic"
         ),
-        "dfx_shrunk_wasm": metric_from(baseline_metrics, "dfx_shrunk_wasm"),
-        "dfx_shrunk_wasm_gz": metric_from(baseline_metrics, "dfx_shrunk_wasm_gz"),
+        "icp_shrunk_wasm": metric_from(baseline_metrics, "icp_shrunk_wasm"),
+        "icp_shrunk_wasm_gz": metric_from(baseline_metrics, "icp_shrunk_wasm_gz"),
     }
 
 size_rows = [
-    ("dfx-built `.wasm`", "dfx_built_wasm"),
-    ("dfx-built deterministic `.wasm.gz`", "dfx_built_wasm_gz_deterministic"),
-    ("dfx-shrunk `.wasm`", "dfx_shrunk_wasm"),
-    ("dfx-shrunk `.wasm.gz`", "dfx_shrunk_wasm_gz"),
+    ("icp-built `.wasm`", "icp_built_wasm"),
+    ("icp-built deterministic `.wasm.gz`", "icp_built_wasm_gz_deterministic"),
+    ("icp-shrunk `.wasm`", "icp_shrunk_wasm"),
+    ("icp-shrunk `.wasm.gz`", "icp_shrunk_wasm_gz"),
 ]
 
 check_rows = [
@@ -552,32 +583,32 @@ lines.extend(
         "",
         "## Structural Snapshot (ic-wasm)",
         "",
-        "| Metric | dfx-built | dfx-shrunk |",
+        "| Metric | icp-built | icp-shrunk |",
         "| --- | ---: | ---: |",
         (
             "| Function count | "
-            f"{fmt_int(analysis['dfx_built']['function_count'])} | "
-            f"{fmt_int(analysis['dfx_shrunk']['function_count'])} |"
+            f"{fmt_int(analysis['icp_built']['function_count'])} | "
+            f"{fmt_int(analysis['icp_shrunk']['function_count'])} |"
         ),
         (
             "| Callback count | "
-            f"{fmt_int(analysis['dfx_built']['callback_count'])} | "
-            f"{fmt_int(analysis['dfx_shrunk']['callback_count'])} |"
+            f"{fmt_int(analysis['icp_built']['callback_count'])} | "
+            f"{fmt_int(analysis['icp_shrunk']['callback_count'])} |"
         ),
         (
             "| Data section count | "
-            f"{fmt_int(analysis['dfx_built']['data_section_count'])} | "
-            f"{fmt_int(analysis['dfx_shrunk']['data_section_count'])} |"
+            f"{fmt_int(analysis['icp_built']['data_section_count'])} | "
+            f"{fmt_int(analysis['icp_shrunk']['data_section_count'])} |"
         ),
         (
             "| Data section bytes | "
-            f"{fmt_int(analysis['dfx_built']['data_section_bytes'])} | "
-            f"{fmt_int(analysis['dfx_shrunk']['data_section_bytes'])} |"
+            f"{fmt_int(analysis['icp_built']['data_section_bytes'])} | "
+            f"{fmt_int(analysis['icp_shrunk']['data_section_bytes'])} |"
         ),
         (
             "| Exported methods | "
-            f"{fmt_int(analysis['dfx_built']['exported_method_count'])} | "
-            f"{fmt_int(analysis['dfx_shrunk']['exported_method_count'])} |"
+            f"{fmt_int(analysis['icp_built']['exported_method_count'])} | "
+            f"{fmt_int(analysis['icp_shrunk']['exported_method_count'])} |"
         ),
         "",
         "## Twiggy Top Offenders (Shallow Size)",

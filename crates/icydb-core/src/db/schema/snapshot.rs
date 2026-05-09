@@ -5,7 +5,8 @@
 
 use crate::{
     db::schema::{
-        FieldId, SchemaFieldSlot, SchemaRowLayout, SchemaVersion, schema_snapshot_integrity_detail,
+        FieldId, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
+        schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
     },
     error::InternalError,
     model::field::{
@@ -79,6 +80,15 @@ impl AcceptedSchemaSnapshot {
             snapshot.primary_key_field_id(),
             snapshot.row_layout(),
             snapshot.fields(),
+        ) {
+            return Err(InternalError::store_invariant(detail));
+        }
+
+        if let Some(detail) = schema_snapshot_index_integrity_detail(
+            "accepted schema snapshot",
+            snapshot.row_layout(),
+            snapshot.fields(),
+            snapshot.indexes(),
         ) {
             return Err(InternalError::store_invariant(detail));
         }
@@ -181,11 +191,16 @@ pub(in crate::db) struct PersistedSchemaSnapshot {
     primary_key_field_id: FieldId,
     row_layout: SchemaRowLayout,
     fields: Vec<PersistedFieldSnapshot>,
+    indexes: Vec<PersistedIndexSnapshot>,
 }
 
 impl PersistedSchemaSnapshot {
     /// Build one persisted schema snapshot from already-validated pieces.
     #[must_use]
+    #[allow(
+        dead_code,
+        reason = "owner-local tests build field-only snapshots while production now preserves accepted index contracts through new_with_indexes"
+    )]
     pub(in crate::db) const fn new(
         version: SchemaVersion,
         entity_path: String,
@@ -194,6 +209,28 @@ impl PersistedSchemaSnapshot {
         row_layout: SchemaRowLayout,
         fields: Vec<PersistedFieldSnapshot>,
     ) -> Self {
+        Self::new_with_indexes(
+            version,
+            entity_path,
+            entity_name,
+            primary_key_field_id,
+            row_layout,
+            fields,
+            Vec::new(),
+        )
+    }
+
+    /// Build one persisted schema snapshot with accepted index contracts.
+    #[must_use]
+    pub(in crate::db) const fn new_with_indexes(
+        version: SchemaVersion,
+        entity_path: String,
+        entity_name: String,
+        primary_key_field_id: FieldId,
+        row_layout: SchemaRowLayout,
+        fields: Vec<PersistedFieldSnapshot>,
+        indexes: Vec<PersistedIndexSnapshot>,
+    ) -> Self {
         Self {
             version,
             entity_path,
@@ -201,6 +238,7 @@ impl PersistedSchemaSnapshot {
             primary_key_field_id,
             row_layout,
             fields,
+            indexes,
         }
     }
 
@@ -238,6 +276,181 @@ impl PersistedSchemaSnapshot {
     #[must_use]
     pub(in crate::db) const fn fields(&self) -> &[PersistedFieldSnapshot] {
         self.fields.as_slice()
+    }
+
+    /// Borrow accepted field-path index contracts for this schema snapshot.
+    #[must_use]
+    pub(in crate::db) const fn indexes(&self) -> &[PersistedIndexSnapshot] {
+        self.indexes.as_slice()
+    }
+}
+
+///
+/// PersistedIndexSnapshot
+///
+/// Accepted schema metadata for one index contract. The first 0.150 slice only
+/// persists field-path index keys; expression index contracts need their own
+/// stable canonical expression metadata before they become accepted authority.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct PersistedIndexSnapshot {
+    ordinal: u16,
+    name: String,
+    store: String,
+    unique: bool,
+    key: PersistedIndexKeySnapshot,
+    predicate_sql: Option<String>,
+}
+
+impl PersistedIndexSnapshot {
+    /// Build one accepted field-path index snapshot.
+    #[must_use]
+    pub(in crate::db) const fn new(
+        ordinal: u16,
+        name: String,
+        store: String,
+        unique: bool,
+        key: PersistedIndexKeySnapshot,
+        predicate_sql: Option<String>,
+    ) -> Self {
+        Self {
+            ordinal,
+            name,
+            store,
+            unique,
+            key,
+            predicate_sql,
+        }
+    }
+
+    /// Return the accepted stable per-entity index ordinal.
+    #[must_use]
+    pub(in crate::db) const fn ordinal(&self) -> u16 {
+        self.ordinal
+    }
+
+    /// Borrow the accepted stable index name.
+    #[must_use]
+    pub(in crate::db) const fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// Borrow the accepted backing index store path.
+    #[must_use]
+    pub(in crate::db) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    /// Return whether this accepted index enforces value uniqueness.
+    #[must_use]
+    pub(in crate::db) const fn unique(&self) -> bool {
+        self.unique
+    }
+
+    /// Borrow the accepted index key contract.
+    #[must_use]
+    pub(in crate::db) const fn key(&self) -> &PersistedIndexKeySnapshot {
+        &self.key
+    }
+
+    /// Borrow optional schema-declared predicate SQL display metadata.
+    #[must_use]
+    pub(in crate::db) const fn predicate_sql(&self) -> Option<&str> {
+        match &self.predicate_sql {
+            Some(sql) => Some(sql.as_str()),
+            None => None,
+        }
+    }
+}
+
+///
+/// PersistedIndexKeySnapshot
+///
+/// Accepted index-key contract. Field-path keys can be accepted from row
+/// schema metadata now. Expression keys deliberately remain absent until 0.150
+/// defines stable canonical expression contracts.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum PersistedIndexKeySnapshot {
+    FieldPath(Vec<PersistedIndexFieldPathSnapshot>),
+}
+
+impl PersistedIndexKeySnapshot {
+    /// Borrow accepted field-path key items when this is a field-path index.
+    #[must_use]
+    pub(in crate::db) const fn field_paths(&self) -> &[PersistedIndexFieldPathSnapshot] {
+        match self {
+            Self::FieldPath(paths) => paths.as_slice(),
+        }
+    }
+}
+
+///
+/// PersistedIndexFieldPathSnapshot
+///
+/// Accepted key-item metadata for one field-path index component. The top-level
+/// field ID plus accepted row slot are persisted together so later runtime key
+/// construction can stop reopening generated field order.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct PersistedIndexFieldPathSnapshot {
+    field_id: FieldId,
+    slot: SchemaFieldSlot,
+    path: Vec<String>,
+    kind: PersistedFieldKind,
+    nullable: bool,
+}
+
+impl PersistedIndexFieldPathSnapshot {
+    /// Build one accepted field-path key-item snapshot.
+    #[must_use]
+    pub(in crate::db) const fn new(
+        field_id: FieldId,
+        slot: SchemaFieldSlot,
+        path: Vec<String>,
+        kind: PersistedFieldKind,
+        nullable: bool,
+    ) -> Self {
+        Self {
+            field_id,
+            slot,
+            path,
+            kind,
+            nullable,
+        }
+    }
+
+    /// Return the accepted top-level field identity.
+    #[must_use]
+    pub(in crate::db) const fn field_id(&self) -> FieldId {
+        self.field_id
+    }
+
+    /// Return the accepted top-level row slot.
+    #[must_use]
+    pub(in crate::db) const fn slot(&self) -> SchemaFieldSlot {
+        self.slot
+    }
+
+    /// Borrow the full accepted field path for this key item.
+    #[must_use]
+    pub(in crate::db) const fn path(&self) -> &[String] {
+        self.path.as_slice()
+    }
+
+    /// Borrow the accepted persisted field kind at this key item path.
+    #[must_use]
+    pub(in crate::db) const fn kind(&self) -> &PersistedFieldKind {
+        &self.kind
+    }
+
+    /// Return whether this accepted field path permits explicit `NULL`.
+    #[must_use]
+    pub(in crate::db) const fn nullable(&self) -> bool {
+        self.nullable
     }
 }
 
@@ -873,6 +1086,70 @@ mod tests {
             err.message()
                 .contains("accepted schema snapshot primary key field missing from row layout"),
             "accepted schema construction should report the integrity failure"
+        );
+    }
+
+    #[test]
+    fn accepted_schema_snapshot_try_new_rejects_invalid_index_contract() {
+        let snapshot = PersistedSchemaSnapshot::new_with_indexes(
+            SchemaVersion::initial(),
+            "schema::snapshot::tests::Indexed".to_string(),
+            "Indexed".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "email".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Text { max_len: None },
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Text),
+                ),
+            ],
+            vec![PersistedIndexSnapshot::new(
+                1,
+                "Indexed|email".to_string(),
+                "indexed::email".to_string(),
+                false,
+                PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(7),
+                    vec!["email".to_string()],
+                    PersistedFieldKind::Text { max_len: None },
+                    false,
+                )]),
+                None,
+            )],
+        );
+
+        let err = AcceptedSchemaSnapshot::try_new(snapshot)
+            .expect_err("accepted schema construction should reject invalid index metadata");
+
+        assert!(
+            err.message()
+                .contains("accepted schema snapshot index field slot mismatch"),
+            "accepted schema construction should reject index slots that diverge from row layout"
         );
     }
 }

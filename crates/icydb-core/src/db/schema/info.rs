@@ -5,8 +5,9 @@
 
 use crate::{
     db::schema::{
-        AcceptedSchemaSnapshot, FieldType, PersistedFieldKind, PersistedNestedLeafSnapshot,
-        PersistedRelationStrength, SchemaFieldSlot, SqlCapabilities,
+        AcceptedSchemaSnapshot, FieldId, FieldType, PersistedFieldKind, PersistedFieldSnapshot,
+        PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedRelationStrength,
+        PersistedSchemaSnapshot, SchemaFieldSlot, SqlCapabilities,
         canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_model_kind,
         field_type_from_persisted_kind, sql_capabilities,
     },
@@ -14,6 +15,7 @@ use crate::{
         canonicalize_strict_sql_literal_for_kind,
         entity::EntityModel,
         field::{FieldKind, FieldModel, LeafCodec},
+        index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
     },
     value::Value,
 };
@@ -44,13 +46,33 @@ fn generated_field_by_name<'a>(
         .find(|(_, field)| field.name() == field_name)
 }
 
-// Attach generated index-membership facts to `SchemaInfo` while accepted
-// snapshots do not yet persist their own index definitions.
+// Attach generated index-membership facts to generated `SchemaInfo` views.
 fn generated_field_is_indexed(model: &EntityModel, field_name: &str) -> bool {
     model
         .indexes()
         .iter()
         .any(|index| index.fields().contains(&field_name))
+}
+
+// Resolve top-level index membership from accepted persisted index contracts.
+// Runtime accepted schema views must not reopen generated `EntityModel`
+// indexes after schema acceptance.
+fn accepted_field_is_indexed(snapshot: &PersistedSchemaSnapshot, field_id: FieldId) -> bool {
+    snapshot.indexes().iter().any(|index| {
+        index
+            .key()
+            .field_paths()
+            .iter()
+            .any(|path| path.field_id() == field_id)
+    })
+}
+
+fn accepted_field_name(snapshot: &PersistedSchemaSnapshot, field_id: FieldId) -> Option<&str> {
+    snapshot
+        .fields()
+        .iter()
+        .find(|field| field.id() == field_id)
+        .map(PersistedFieldSnapshot::name)
 }
 
 // Convert a schema-owned row-layout slot into the usize slot surface consumed
@@ -101,9 +123,152 @@ struct SchemaFieldInfo {
     nested_fields: &'static [FieldModel],
 }
 
+///
+/// SchemaIndexInfo
+///
+/// Compact field-path index contract exposed by `SchemaInfo`.
+/// Accepted schema views source this from persisted index snapshots; generated
+/// schema views source it from generated field-only index metadata for
+/// proposal/model-only compatibility callers.
+///
+#[derive(Clone, Debug)]
+#[allow(
+    dead_code,
+    reason = "0.150 staged accepted-index authority surface; planner/explain routing consumes this DTO in the next runtime slice"
+)]
+pub(in crate::db) struct SchemaIndexInfo {
+    ordinal: u16,
+    name: String,
+    store: String,
+    unique: bool,
+    fields: Vec<SchemaIndexFieldPathInfo>,
+    predicate_sql: Option<String>,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.150 staged accepted-index authority surface; planner/explain routing consumes this DTO in the next runtime slice"
+)]
+impl SchemaIndexInfo {
+    /// Return the accepted or generated stable per-entity index ordinal.
+    #[must_use]
+    pub(in crate::db) const fn ordinal(&self) -> u16 {
+        self.ordinal
+    }
+
+    /// Borrow the stable index name.
+    #[must_use]
+    pub(in crate::db) const fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// Borrow the backing index store path.
+    #[must_use]
+    pub(in crate::db) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    /// Return whether this index enforces value uniqueness.
+    #[must_use]
+    pub(in crate::db) const fn unique(&self) -> bool {
+        self.unique
+    }
+
+    /// Borrow accepted field-path key item metadata for this index.
+    #[must_use]
+    pub(in crate::db) const fn fields(&self) -> &[SchemaIndexFieldPathInfo] {
+        self.fields.as_slice()
+    }
+
+    /// Borrow optional predicate SQL display metadata.
+    #[must_use]
+    pub(in crate::db) const fn predicate_sql(&self) -> Option<&str> {
+        match &self.predicate_sql {
+            Some(sql) => Some(sql.as_str()),
+            None => None,
+        }
+    }
+}
+
+///
+/// SchemaIndexFieldPathInfo
+///
+/// Compact key-item contract for one field-path index component.
+/// Accepted schema views carry durable field IDs and persisted kinds; generated
+/// compatibility views omit field IDs until generated metadata is reconciled.
+///
+#[derive(Clone, Debug)]
+#[allow(
+    dead_code,
+    reason = "0.150 staged accepted-index authority surface; planner/explain routing consumes this DTO in the next runtime slice"
+)]
+pub(in crate::db) struct SchemaIndexFieldPathInfo {
+    field_id: Option<FieldId>,
+    field_name: String,
+    slot: usize,
+    path: Vec<String>,
+    ty: FieldType,
+    persisted_kind: Option<PersistedFieldKind>,
+    nullable: bool,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.150 staged accepted-index authority surface; planner/explain routing consumes this DTO in the next runtime slice"
+)]
+impl SchemaIndexFieldPathInfo {
+    /// Return the accepted durable top-level field ID, when this came from a
+    /// persisted schema snapshot.
+    #[must_use]
+    pub(in crate::db) const fn field_id(&self) -> Option<FieldId> {
+        self.field_id
+    }
+
+    /// Borrow the top-level field name for this key item.
+    #[must_use]
+    pub(in crate::db) const fn field_name(&self) -> &str {
+        self.field_name.as_str()
+    }
+
+    /// Return the schema-owned top-level row slot for this key item.
+    #[must_use]
+    pub(in crate::db) const fn slot(&self) -> usize {
+        self.slot
+    }
+
+    /// Borrow the accepted field path for this key item.
+    #[must_use]
+    pub(in crate::db) const fn path(&self) -> &[String] {
+        self.path.as_slice()
+    }
+
+    /// Borrow reduced predicate/query type metadata for this key item.
+    #[must_use]
+    pub(in crate::db) const fn ty(&self) -> &FieldType {
+        &self.ty
+    }
+
+    /// Borrow the persisted field kind, when this key item came from accepted
+    /// schema authority.
+    #[must_use]
+    pub(in crate::db) const fn persisted_kind(&self) -> Option<&PersistedFieldKind> {
+        match &self.persisted_kind {
+            Some(kind) => Some(kind),
+            None => None,
+        }
+    }
+
+    /// Return whether this key item permits explicit persisted `NULL`.
+    #[must_use]
+    pub(in crate::db) const fn nullable(&self) -> bool {
+        self.nullable
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct SchemaInfo {
     fields: Vec<SchemaFieldEntry>,
+    indexes: Vec<SchemaIndexInfo>,
     entity_name: Option<String>,
     primary_key_name: Option<String>,
     has_any_strong_relations: bool,
@@ -140,6 +305,7 @@ impl SchemaInfo {
 
         Self {
             fields,
+            indexes: Vec::new(),
             entity_name: None,
             primary_key_name: None,
             has_any_strong_relations: false,
@@ -156,6 +322,11 @@ impl SchemaInfo {
         for (field_name, field) in &mut schema.fields {
             field.indexed = generated_field_is_indexed(model, field_name.as_str());
         }
+        schema.indexes = model
+            .indexes()
+            .iter()
+            .filter_map(|index| schema_index_info_from_generated_index(index, &schema.fields))
+            .collect();
 
         schema
     }
@@ -228,14 +399,28 @@ impl SchemaInfo {
         self.has_any_strong_relations
     }
 
-    /// Return whether one top-level field participates in any generated index.
+    /// Return whether one top-level field participates in any index.
     ///
-    /// Accepted schema snapshots do not yet persist index definitions, so the
-    /// field-index flag remains a generated compatibility fact attached to the
-    /// schema info boundary instead of being rediscovered by write validators.
+    /// Accepted schema views source this from persisted index contracts.
+    /// Generated schema views source it from generated index metadata for
+    /// proposal/model-only callers.
     #[must_use]
     pub(in crate::db) fn field_is_indexed(&self, name: &str) -> bool {
         schema_field_info(self.fields.as_slice(), name).is_some_and(|field| field.indexed)
+    }
+
+    /// Borrow field-path index contracts visible through this schema view.
+    ///
+    /// Accepted schema views source this from persisted index contracts.
+    /// Generated schema views source it from generated field-only indexes for
+    /// proposal/model-only compatibility.
+    #[must_use]
+    #[allow(
+        dead_code,
+        reason = "0.150 staged accepted-index authority surface; planner/explain routing consumes this accessor in the next runtime slice"
+    )]
+    pub(in crate::db) const fn field_path_indexes(&self) -> &[SchemaIndexInfo] {
+        self.indexes.as_slice()
     }
 
     /// Return SQL operation capabilities for one top-level field.
@@ -381,7 +566,7 @@ impl SchemaInfo {
                         leaf_codec: field.leaf_codec(),
                         sql_capabilities: sql_capabilities(field.kind()),
                         persisted_kind: Some(field.kind().clone()),
-                        indexed: generated_field_is_indexed(model, field.name()),
+                        indexed: accepted_field_is_indexed(snapshot, field.id()),
                         nested_leaves: Some(field.nested_leaves().to_vec()),
                         nested_fields: generated_nested_fields,
                     },
@@ -399,6 +584,11 @@ impl SchemaInfo {
 
         Self {
             fields,
+            indexes: snapshot
+                .indexes()
+                .iter()
+                .map(|index| schema_index_info_from_accepted_index(index, snapshot))
+                .collect(),
             entity_name: Some(schema.entity_name().to_string()),
             primary_key_name,
             has_any_strong_relations: snapshot
@@ -428,6 +618,83 @@ impl SchemaInfo {
     }
 }
 
+fn schema_index_info_from_generated_index(
+    index: &IndexModel,
+    fields: &[SchemaFieldEntry],
+) -> Option<SchemaIndexInfo> {
+    let key_fields = generated_index_field_names(index)?
+        .into_iter()
+        .map(|field_name| {
+            let field = schema_field_info(fields, field_name)?;
+            Some(SchemaIndexFieldPathInfo {
+                field_id: None,
+                field_name: field_name.to_string(),
+                slot: field.slot,
+                path: vec![field_name.to_string()],
+                ty: field.ty.clone(),
+                persisted_kind: None,
+                nullable: field.nullable,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+
+    Some(SchemaIndexInfo {
+        ordinal: index.ordinal(),
+        name: index.name().to_string(),
+        store: index.store().to_string(),
+        unique: index.is_unique(),
+        fields: key_fields,
+        predicate_sql: index.predicate().map(str::to_string),
+    })
+}
+
+fn generated_index_field_names(index: &IndexModel) -> Option<Vec<&'static str>> {
+    match index.key_items() {
+        IndexKeyItemsRef::Fields(fields) => Some(fields.to_vec()),
+        IndexKeyItemsRef::Items(items) => items
+            .iter()
+            .map(|item| match item {
+                IndexKeyItem::Field(field) => Some(*field),
+                IndexKeyItem::Expression(_) => None,
+            })
+            .collect(),
+    }
+}
+
+fn schema_index_info_from_accepted_index(
+    index: &PersistedIndexSnapshot,
+    snapshot: &PersistedSchemaSnapshot,
+) -> SchemaIndexInfo {
+    SchemaIndexInfo {
+        ordinal: index.ordinal(),
+        name: index.name().to_string(),
+        store: index.store().to_string(),
+        unique: index.unique(),
+        fields: index
+            .key()
+            .field_paths()
+            .iter()
+            .map(|path| {
+                let field_name = accepted_field_name(snapshot, path.field_id())
+                    .or_else(|| path.path().first().map(String::as_str))
+                    .unwrap_or_default()
+                    .to_string();
+
+                SchemaIndexFieldPathInfo {
+                    field_id: Some(path.field_id()),
+                    field_name,
+                    slot: accepted_slot_index(path.slot()),
+                    path: path.path().to_vec(),
+                    ty: field_type_from_persisted_kind(path.kind()),
+                    persisted_kind: Some(path.kind().clone()),
+                    nullable: path.nullable(),
+                }
+            })
+            .collect(),
+        predicate_sql: index.predicate_sql().map(str::to_string),
+    }
+}
+
 // Resolve generated nested metadata for compile-time-only schema views. Accepted
 // schema views use persisted nested leaf descriptors before this fallback is
 // considered.
@@ -453,6 +720,7 @@ mod tests {
     use crate::{
         db::schema::{
             AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
+            PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
             PersistedNestedLeafSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,
             SchemaFieldDefault, SchemaFieldSlot, SchemaInfo, SchemaRowLayout, SchemaVersion,
             literal_matches_type,
@@ -577,6 +845,60 @@ mod tests {
         ))
     }
 
+    fn accepted_schema_with_name_index() -> AcceptedSchemaSnapshot {
+        AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new_with_indexes(
+            SchemaVersion::initial(),
+            "schema::info::tests::Entity".to_string(),
+            "Entity".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "name".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Text { max_len: None },
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+            ],
+            vec![PersistedIndexSnapshot::new(
+                1,
+                "schema_info_name".to_string(),
+                "schema::info::tests::name".to_string(),
+                false,
+                PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["name".to_string()],
+                    PersistedFieldKind::Text { max_len: None },
+                    false,
+                )]),
+                None,
+            )],
+        ))
+    }
+
     #[test]
     fn cached_for_generated_entity_model_reuses_one_schema_instance() {
         let first = SchemaInfo::cached_for_generated_entity_model(&MODEL);
@@ -655,15 +977,52 @@ mod tests {
     }
 
     #[test]
-    fn schema_info_keeps_index_membership_at_schema_boundary() {
+    fn accepted_snapshot_schema_info_uses_persisted_index_membership() {
         let generated = SchemaInfo::cached_for_generated_entity_model(&INDEXED_MODEL);
-        let snapshot = accepted_schema_with_name_kind(PersistedFieldKind::Text { max_len: None });
-        let accepted = SchemaInfo::from_accepted_snapshot_for_model(&INDEXED_MODEL, &snapshot);
+        let unindexed_snapshot =
+            accepted_schema_with_name_kind(PersistedFieldKind::Text { max_len: None });
+        let indexed_snapshot = accepted_schema_with_name_index();
+        let accepted_unindexed =
+            SchemaInfo::from_accepted_snapshot_for_model(&INDEXED_MODEL, &unindexed_snapshot);
+        let accepted_indexed =
+            SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &indexed_snapshot);
 
         assert!(generated.field_is_indexed("name"));
         assert!(!generated.field_is_indexed("id"));
-        assert!(accepted.field_is_indexed("name"));
-        assert!(!accepted.field_is_indexed("id"));
+        assert!(
+            !accepted_unindexed.field_is_indexed("name"),
+            "accepted SchemaInfo must not inherit generated index membership when the accepted snapshot has no index contract",
+        );
+        assert!(accepted_indexed.field_is_indexed("name"));
+        assert!(!accepted_indexed.field_is_indexed("id"));
+        assert!(accepted_unindexed.field_path_indexes().is_empty());
+    }
+
+    #[test]
+    fn accepted_snapshot_schema_info_exposes_persisted_field_path_indexes() {
+        let snapshot = accepted_schema_with_name_index();
+        let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
+        let indexes = accepted.field_path_indexes();
+
+        assert_eq!(indexes.len(), 1);
+        assert_eq!(indexes[0].ordinal(), 1);
+        assert_eq!(indexes[0].name(), "schema_info_name");
+        assert_eq!(indexes[0].store(), "schema::info::tests::name");
+        assert!(!indexes[0].unique());
+        assert_eq!(indexes[0].predicate_sql(), None);
+
+        let fields = indexes[0].fields();
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].field_id(), Some(FieldId::new(2)));
+        assert_eq!(fields[0].field_name(), "name");
+        assert_eq!(fields[0].slot(), 1);
+        assert_eq!(fields[0].path(), &["name".to_string()]);
+        assert_eq!(
+            fields[0].persisted_kind(),
+            Some(&PersistedFieldKind::Text { max_len: None })
+        );
+        assert!(fields[0].ty().is_text());
+        assert!(!fields[0].nullable());
     }
 
     #[test]

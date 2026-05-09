@@ -327,6 +327,43 @@ fn accepted_row_decode_contract_runtime_lookups_fail_closed() {
 }
 
 #[test]
+fn accepted_schema_info_index_membership_uses_persisted_index_contracts() {
+    let schema_info = read_source("src/db/schema/info.rs");
+    let schema_info_compact = compact_source(&schema_info);
+    let schema_snapshot = read_source("src/db/schema/snapshot.rs");
+
+    assert!(
+        schema_snapshot
+            .contains("pub(in crate::db) const fn indexes(&self) -> &[PersistedIndexSnapshot]")
+            && schema_snapshot.contains("pub(in crate::db) enum PersistedIndexKeySnapshot")
+            && schema_snapshot.contains("pub(in crate::db) struct PersistedIndexFieldPathSnapshot"),
+        "accepted schema snapshots must expose persisted index contracts before SchemaInfo can use accepted index authority",
+    );
+    assert!(
+        schema_info.contains("fn accepted_field_is_indexed(")
+            && schema_info.contains("snapshot.indexes().iter().any(|index|")
+            && schema_info.contains("indexed: accepted_field_is_indexed(snapshot, field.id()),")
+            && schema_info.contains("fn generated_field_is_indexed(")
+            && schema_info.contains(
+                "field.indexed = generated_field_is_indexed(model, field_name.as_str());"
+            )
+            && !schema_info.contains("indexed: generated_field_is_indexed(model, field.name()),"),
+        "accepted SchemaInfo construction must source index membership from persisted index contracts, leaving generated index membership only on generated schema views",
+    );
+    assert!(
+        schema_info.contains("pub(in crate::db) struct SchemaIndexInfo")
+            && schema_info.contains("pub(in crate::db) struct SchemaIndexFieldPathInfo")
+            && schema_info.contains(
+                "pub(in crate::db) const fn field_path_indexes(&self) -> &[SchemaIndexInfo]",
+            )
+            && schema_info.contains("fn schema_index_info_from_accepted_index(")
+            && schema_info_compact.contains("indexes:snapshot.indexes().iter().map(|index|schema_index_info_from_accepted_index(index,snapshot)).collect(),")
+            && schema_info.contains("fn schema_index_info_from_generated_index("),
+        "accepted SchemaInfo must expose field-path index metadata from persisted contracts while keeping generated projection isolated to generated schema views",
+    );
+}
+
+#[test]
 fn save_preflight_relations_use_accepted_contracts() {
     let save_validation = read_source("src/db/executor/mutation/save_validation.rs");
     let relation_save_validate = read_source("src/db/relation/save_validate.rs");
