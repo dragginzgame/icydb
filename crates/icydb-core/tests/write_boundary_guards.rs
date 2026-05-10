@@ -365,6 +365,10 @@ fn accepted_schema_info_index_membership_uses_persisted_index_contracts() {
 
 #[test]
 fn runtime_visible_indexes_are_accepted_schema_filtered() {
+    let access_planner = read_source("src/db/query/plan/access_planner.rs");
+    let order_contract = read_source("src/db/query/plan/order_contract.rs");
+    let planner_mod = read_source("src/db/query/plan/planner/mod.rs");
+    let order_select = read_source("src/db/query/plan/planner/order_select.rs");
     let plan_mod = read_source("src/db/query/plan/mod.rs");
     let plan_mod_compact = compact_source(&plan_mod);
     let session_cache = read_source("src/db/session/query/cache.rs");
@@ -373,13 +377,47 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
 
     assert!(
         plan_mod.contains("pub(in crate::db) fn accepted_schema_visible(")
+            && plan_mod.contains("pub(in crate::db) struct AcceptedPlannerFieldPathIndex")
+            && plan_mod.contains("generated_index_bridge: &'static IndexModel")
+            && plan_mod.contains("accepted_field_path_indexes: Vec<AcceptedPlannerFieldPathIndex>")
+            && plan_mod.contains("AcceptedPlannerFieldPathIndex::from_schema_index")
             && plan_mod.contains("if index.has_expression_key_items() {")
             && plan_mod_compact.contains(
                 "schema_info.field_path_indexes().iter().any(|accepted|accepted.name()==index.name())",
             )
             && plan_mod.contains("VisibleIndexAuthority::AcceptedSchema")
             && plan_mod.contains("accepted_field_path_index_count"),
-        "VisibleIndexes must carry an accepted-schema-filtered field-path index view before runtime planning can stop using generated IndexModel authority",
+        "VisibleIndexes must carry accepted field-path planner contracts before runtime planning can stop using generated IndexModel authority",
+    );
+    assert!(
+        access_planner.contains("visible_indexes: &VisibleIndexes<'_>,")
+            && access_planner.contains("visible_indexes.accepted_field_path_indexes()")
+            && access_planner
+                .contains("visible_indexes.accepted_field_path_index_count().is_some()")
+            && access_planner.contains("plan_access_selection_with_order_and_accepted_indexes("),
+        "runtime access planning must use accepted visible-index contracts when accepted authority is present without breaking generated/model-only planning",
+    );
+    assert!(
+        planner_mod.contains("fn plan_access_selection_with_order_and_accepted_indexes(")
+            && planner_mod.contains("enum OrderFallbackIndexAuthority")
+            && planner_mod.contains("OrderFallbackIndexAuthority::GeneratedModelOnly")
+            && planner_mod.contains("OrderFallbackIndexAuthority::AcceptedFieldPathIndexes")
+            && planner_mod
+                .contains("accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],",)
+            && planner_mod.contains("order_fallback_selection(")
+            && planner_mod.contains("index_range_from_order_with_accepted_indexes(")
+            && order_select.contains("let accepted_order_terms = accepted.order_terms();")
+            && order_select.contains("deterministic_secondary_index_order_terms_satisfied(",)
+            && order_select.contains("grouped_index_order_terms_satisfied(")
+            && order_select.contains("if !index.has_expression_key_items() {")
+            && order_select.contains("fn index_range_from_order_for_generated_model_only(")
+            && !order_select.contains("fn index_range_from_order("),
+        "order-only field-path access fallback must match ORDER BY against accepted index terms and keep generated order matching only for expression indexes",
+    );
+    assert!(
+        order_contract.contains("fn deterministic_secondary_index_order_terms_satisfied(")
+            && order_contract.contains("fn grouped_index_order_terms_satisfied("),
+        "accepted field-path order fallback must expose order-contract helpers that consume accepted index terms directly",
     );
     assert!(
         session_cache.contains("fn visible_indexes_for_accepted_schema(")

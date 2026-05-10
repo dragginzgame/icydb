@@ -720,6 +720,15 @@ fn session_non_ready_secondary_indexes_are_hidden_from_planning_and_execution() 
         Some(ready_visible_indexes.as_slice().len()),
         "ready planner-visible field-path indexes must be backed by accepted field-path index contracts",
     );
+    assert_eq!(
+        ready_visible_indexes.accepted_field_path_indexes().len(),
+        ready_visible_indexes.as_slice().len(),
+        "ready field-path visible indexes must carry one accepted planner contract per generated bridge",
+    );
+    assert!(
+        ready_visible_indexes.accepted_field_path_contracts_are_consistent(),
+        "accepted planner index contracts must stay internally consistent with their temporary generated bridge",
+    );
     assert!(
         !ready_visible_indexes.as_slice().is_empty(),
         "ready indexed store should expose accepted field-path index contracts",

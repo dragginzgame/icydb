@@ -260,6 +260,20 @@ pub(in crate::db) fn deterministic_secondary_index_order_satisfied(
         .is_satisfied()
 }
 
+/// Return whether accepted field-path index order terms satisfy one
+/// deterministic scalar ORDER BY contract after the equality-bound prefix.
+#[must_use]
+pub(in crate::db) fn deterministic_secondary_index_order_terms_satisfied(
+    order_contract: &DeterministicSecondaryOrderContract,
+    index_terms: &[String],
+    prefix_len: usize,
+) -> bool {
+    !matches!(
+        order_contract.classify_index_match(index_terms, prefix_len),
+        DeterministicSecondaryIndexOrderMatch::None
+    )
+}
+
 // Empty non-unique prefix scans still interleave several leading-key groups, so
 // their traversal order cannot satisfy arbitrary suffix ordering on its own.
 const fn prefix_order_contract_safe(access_capabilities: &AccessCapabilities) -> bool {
@@ -406,6 +420,20 @@ pub(in crate::db) fn grouped_index_order_satisfied(
 ) -> bool {
     !matches!(
         grouped_index_order_match(order_contract, index, prefix_len),
+        GroupedIndexOrderMatch::None
+    )
+}
+
+/// Return whether accepted field-path index order terms satisfy one grouped
+/// ORDER BY contract after the equality-bound prefix.
+#[must_use]
+pub(in crate::db) fn grouped_index_order_terms_satisfied(
+    order_contract: &GroupedIndexOrderContract,
+    index_terms: &[String],
+    prefix_len: usize,
+) -> bool {
+    !matches!(
+        order_contract.classify_index_match(index_terms, prefix_len),
         GroupedIndexOrderMatch::None
     )
 }

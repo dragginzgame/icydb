@@ -9,13 +9,14 @@ use crate::{
         access::AccessPlan,
         predicate::{Predicate, normalize, normalize_enum_literals},
         query::plan::{
-            OrderSpec, PlannedAccessSelection, PlannerError, canonicalize_order_spec_for_grouping,
-            plan_access_selection_with_order,
+            OrderSpec, PlannedAccessSelection, PlannerError, VisibleIndexes,
+            canonicalize_order_spec_for_grouping, plan_access_selection_with_order,
+            plan_access_selection_with_order_and_accepted_indexes,
         },
         query::predicate::reject_unsupported_query_features,
         schema::{SchemaInfo, ValidateError},
     },
-    model::{entity::EntityModel, index::IndexModel},
+    model::entity::EntityModel,
     value::Value,
 };
 
@@ -88,7 +89,7 @@ pub(in crate::db::query) fn normalize_query_predicate(
 // overrides before falling back to predicate-derived access planning.
 pub(in crate::db::query) fn plan_query_access(
     model: &EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    visible_indexes: &VisibleIndexes<'_>,
     schema_info: &SchemaInfo,
     normalized_predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
@@ -103,13 +104,25 @@ pub(in crate::db::query) fn plan_query_access(
     } else {
         let canonical_order = canonicalize_order_spec_for_grouping(model, order.cloned(), grouped);
 
-        plan_access_selection_with_order(
-            model,
-            visible_indexes,
-            schema_info,
-            normalized_predicate,
-            canonical_order.as_ref(),
-            grouped,
-        )
+        if visible_indexes.accepted_field_path_index_count().is_some() {
+            plan_access_selection_with_order_and_accepted_indexes(
+                model,
+                visible_indexes.as_slice(),
+                visible_indexes.accepted_field_path_indexes(),
+                schema_info,
+                normalized_predicate,
+                canonical_order.as_ref(),
+                grouped,
+            )
+        } else {
+            plan_access_selection_with_order(
+                model,
+                visible_indexes.as_slice(),
+                schema_info,
+                normalized_predicate,
+                canonical_order.as_ref(),
+                grouped,
+            )
+        }
     }
 }

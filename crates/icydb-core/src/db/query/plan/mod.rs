@@ -84,7 +84,9 @@ pub(in crate::db) use order_contract::{
     ExecutionOrderContract, ExecutionOrdering,
     access_satisfies_deterministic_secondary_order_contract,
     deterministic_secondary_index_order_compatibility,
-    deterministic_secondary_index_order_satisfied, grouped_index_order_satisfied,
+    deterministic_secondary_index_order_satisfied,
+    deterministic_secondary_index_order_terms_satisfied, grouped_index_order_satisfied,
+    grouped_index_order_terms_satisfied,
 };
 #[cfg(test)]
 pub(in crate::db) use order_contract::{GroupedIndexOrderMatch, grouped_index_order_match};
@@ -102,7 +104,10 @@ pub(in crate::db::query) use pipeline::{
 };
 #[cfg(test)]
 pub(in crate::db) use planner::plan_access;
-pub(in crate::db::query) use planner::{PlannedAccessSelection, plan_access_selection_with_order};
+pub(in crate::db::query) use planner::{
+    PlannedAccessSelection, plan_access_selection_with_order,
+    plan_access_selection_with_order_and_accepted_indexes,
+};
 pub(in crate::db::query) use planner::{PlannerError, plan_access_with_order};
 pub(in crate::db) use planner::{
     residual_query_predicate_after_access_path_bounds,
@@ -196,7 +201,155 @@ pub(in crate::db) enum VisibleIndexAuthority {
 #[derive(Clone, Debug)]
 pub(in crate::db) struct VisibleIndexes<'a> {
     indexes: Cow<'a, [&'static IndexModel]>,
+    accepted_field_path_indexes: Vec<AcceptedPlannerFieldPathIndex>,
     authority: VisibleIndexAuthority,
+}
+
+///
+/// AcceptedPlannerFieldPathIndex
+///
+/// Planner-facing accepted field-path index contract.
+/// This owns the accepted schema metadata needed by field-path planner
+/// decisions while carrying the generated `IndexModel` bridge only so current
+/// access-path DTOs can still be assembled until they stop storing `IndexModel`.
+///
+#[derive(Clone, Debug)]
+pub(in crate::db) struct AcceptedPlannerFieldPathIndex {
+    name: String,
+    store: String,
+    unique: bool,
+    fields: Vec<AcceptedPlannerFieldPathIndexField>,
+    generated_index_bridge: &'static IndexModel,
+}
+
+impl AcceptedPlannerFieldPathIndex {
+    fn from_schema_index(
+        accepted: &crate::db::schema::SchemaIndexInfo,
+        generated_index_bridge: &'static IndexModel,
+    ) -> Self {
+        Self {
+            name: accepted.name().to_string(),
+            store: accepted.store().to_string(),
+            unique: accepted.unique(),
+            fields: accepted
+                .fields()
+                .iter()
+                .map(AcceptedPlannerFieldPathIndexField::from_schema_field)
+                .collect(),
+            generated_index_bridge,
+        }
+    }
+
+    /// Borrow the accepted stable index name.
+    #[must_use]
+    pub(in crate::db) const fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// Borrow the accepted backing index store path.
+    #[must_use]
+    pub(in crate::db) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    /// Return whether this accepted index enforces uniqueness.
+    #[must_use]
+    pub(in crate::db) const fn unique(&self) -> bool {
+        self.unique
+    }
+
+    /// Borrow accepted field-path key components.
+    #[must_use]
+    pub(in crate::db) const fn fields(&self) -> &[AcceptedPlannerFieldPathIndexField] {
+        self.fields.as_slice()
+    }
+
+    /// Borrow the generated index bridge used by current access-path DTOs.
+    #[must_use]
+    pub(in crate::db) const fn generated_index_bridge(&self) -> &'static IndexModel {
+        self.generated_index_bridge
+    }
+
+    /// Return accepted order terms for this field-path index.
+    #[must_use]
+    pub(in crate::db) fn order_terms(&self) -> Vec<String> {
+        self.fields
+            .iter()
+            .map(AcceptedPlannerFieldPathIndexField::term)
+            .collect()
+    }
+
+    fn debug_contract_consistent(&self) -> bool {
+        !self.name().is_empty()
+            && !self.store().is_empty()
+            && self.generated_index_bridge().name() == self.name()
+            && self.generated_index_bridge().store() == self.store()
+            && self.generated_index_bridge().is_unique() == self.unique()
+            && !self.fields().is_empty()
+            && self.order_terms().len() == self.fields().len()
+            && self
+                .fields()
+                .iter()
+                .all(AcceptedPlannerFieldPathIndexField::debug_contract_consistent)
+    }
+}
+
+///
+/// AcceptedPlannerFieldPathIndexField
+///
+/// Planner-facing accepted field-path index key component.
+///
+#[derive(Clone, Debug)]
+pub(in crate::db) struct AcceptedPlannerFieldPathIndexField {
+    field_name: String,
+    slot: usize,
+    path: Vec<String>,
+}
+
+impl AcceptedPlannerFieldPathIndexField {
+    fn from_schema_field(field: &crate::db::schema::SchemaIndexFieldPathInfo) -> Self {
+        Self {
+            field_name: field.field_name().to_string(),
+            slot: field.slot(),
+            path: field.path().to_vec(),
+        }
+    }
+
+    /// Borrow the accepted top-level field name.
+    #[must_use]
+    pub(in crate::db) const fn field_name(&self) -> &str {
+        self.field_name.as_str()
+    }
+
+    /// Return the accepted row-layout slot for this key component.
+    #[must_use]
+    pub(in crate::db) const fn slot(&self) -> usize {
+        self.slot
+    }
+
+    /// Borrow the accepted field path for this key component.
+    #[must_use]
+    pub(in crate::db) const fn path(&self) -> &[String] {
+        self.path.as_slice()
+    }
+
+    fn term(&self) -> String {
+        if self.path.len() <= 1 {
+            return self.field_name.clone();
+        }
+
+        self.path.join(".")
+    }
+
+    fn debug_contract_consistent(&self) -> bool {
+        !self.field_name().is_empty()
+            && !self.path().is_empty()
+            && self
+                .path()
+                .first()
+                .is_some_and(|root| root == self.field_name())
+            && self.slot() < usize::MAX
+    }
 }
 
 impl<'a> VisibleIndexes<'a> {
@@ -204,6 +357,7 @@ impl<'a> VisibleIndexes<'a> {
     pub(in crate::db) const fn none() -> Self {
         Self {
             indexes: Cow::Borrowed(&[]),
+            accepted_field_path_indexes: Vec::new(),
             authority: VisibleIndexAuthority::StoreNotReady,
         }
     }
@@ -213,6 +367,7 @@ impl<'a> VisibleIndexes<'a> {
     pub(in crate::db) const fn planner_visible(indexes: &'a [&'static IndexModel]) -> Self {
         Self {
             indexes: Cow::Borrowed(indexes),
+            accepted_field_path_indexes: Vec::new(),
             authority: VisibleIndexAuthority::GeneratedModelOnly,
         }
     }
@@ -221,6 +376,7 @@ impl<'a> VisibleIndexes<'a> {
     pub(in crate::db) const fn schema_owned(indexes: &'a [&'static IndexModel]) -> Self {
         Self {
             indexes: Cow::Borrowed(indexes),
+            accepted_field_path_indexes: Vec::new(),
             authority: VisibleIndexAuthority::GeneratedModelOnly,
         }
     }
@@ -230,6 +386,19 @@ impl<'a> VisibleIndexes<'a> {
         indexes: &'a [&'static IndexModel],
         schema_info: &SchemaInfo,
     ) -> Self {
+        let accepted_field_path_indexes = schema_info
+            .field_path_indexes()
+            .iter()
+            .filter_map(|accepted| {
+                indexes
+                    .iter()
+                    .copied()
+                    .find(|index| {
+                        !index.has_expression_key_items() && index.name() == accepted.name()
+                    })
+                    .map(|index| AcceptedPlannerFieldPathIndex::from_schema_index(accepted, index))
+            })
+            .collect::<Vec<_>>();
         let accepted_indexes = indexes
             .iter()
             .copied()
@@ -244,11 +413,13 @@ impl<'a> VisibleIndexes<'a> {
                     .any(|accepted| accepted.name() == index.name())
             })
             .collect();
+        let accepted_field_path_index_count = accepted_field_path_indexes.len();
 
         Self {
             indexes: Cow::Owned(accepted_indexes),
+            accepted_field_path_indexes,
             authority: VisibleIndexAuthority::AcceptedSchema {
-                field_path_indexes: schema_info.field_path_index_count(),
+                field_path_indexes: accepted_field_path_index_count,
             },
         }
     }
@@ -256,6 +427,23 @@ impl<'a> VisibleIndexes<'a> {
     #[must_use]
     pub(in crate::db) fn as_slice(&self) -> &[&'static IndexModel] {
         self.indexes.as_ref()
+    }
+
+    /// Borrow accepted planner-facing field-path index contracts.
+    #[must_use]
+    pub(in crate::db) const fn accepted_field_path_indexes(
+        &self,
+    ) -> &[AcceptedPlannerFieldPathIndex] {
+        self.accepted_field_path_indexes.as_slice()
+    }
+
+    /// Return whether accepted field-path planner contracts are internally
+    /// consistent with their temporary generated index bridge.
+    #[must_use]
+    pub(in crate::db) fn accepted_field_path_contracts_are_consistent(&self) -> bool {
+        self.accepted_field_path_indexes()
+            .iter()
+            .all(AcceptedPlannerFieldPathIndex::debug_contract_consistent)
     }
 
     #[must_use]

@@ -177,6 +177,7 @@ impl<C: CanisterKind> DbSession<C> {
                             .accepted_field_path_index_count()
                             .unwrap_or_default(),
                 );
+                debug_assert!(visible_indexes.accepted_field_path_contracts_are_consistent());
 
                 visible_indexes
             }

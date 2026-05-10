@@ -319,7 +319,7 @@ where
 
     plan_query_access(
         query.model(),
-        visible_indexes.as_slice(),
+        visible_indexes,
         schema_info,
         normalized_predicate,
         order,

@@ -423,16 +423,6 @@ impl SchemaInfo {
         self.indexes.as_slice()
     }
 
-    /// Return the number of field-path index contracts visible through this
-    /// schema view.
-    ///
-    /// Accepted schema views count persisted index contracts; generated schema
-    /// views count generated field-only index metadata.
-    #[must_use]
-    pub(in crate::db) const fn field_path_index_count(&self) -> usize {
-        self.indexes.len()
-    }
-
     /// Return SQL operation capabilities for one top-level field.
     ///
     /// Accepted live schema views derive this from persisted field kinds so SQL

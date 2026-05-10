@@ -21,7 +21,9 @@ use crate::{
     db::{
         access::{AccessPlan, normalize_access_plan_value},
         predicate::Predicate,
-        query::plan::{OrderSpec, PlanError, PlannedNonIndexAccessReason},
+        query::plan::{
+            AcceptedPlannerFieldPathIndex, OrderSpec, PlanError, PlannedNonIndexAccessReason,
+        },
         schema::SchemaInfo,
     },
     error::InternalError,
@@ -157,6 +159,55 @@ pub(in crate::db::query) fn plan_access_selection_with_order(
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> Result<PlannedAccessSelection, PlannerError> {
+    plan_access_selection_with_order_from_authority(
+        model,
+        visible_indexes,
+        schema,
+        predicate,
+        order,
+        grouped,
+        OrderFallbackIndexAuthority::GeneratedModelOnly,
+    )
+}
+
+// Runtime planner entrypoint that preserves accepted field-path index
+// contracts for order-only fallback while predicate access planning still uses
+// the generated `IndexModel` bridge.
+pub(in crate::db::query) fn plan_access_selection_with_order_and_accepted_indexes(
+    model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
+    accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
+    schema: &SchemaInfo,
+    predicate: Option<&Predicate>,
+    order: Option<&OrderSpec>,
+    grouped: bool,
+) -> Result<PlannedAccessSelection, PlannerError> {
+    plan_access_selection_with_order_from_authority(
+        model,
+        visible_indexes,
+        schema,
+        predicate,
+        order,
+        grouped,
+        OrderFallbackIndexAuthority::AcceptedFieldPathIndexes(accepted_field_path_indexes),
+    )
+}
+
+#[derive(Clone, Copy)]
+enum OrderFallbackIndexAuthority<'a> {
+    GeneratedModelOnly,
+    AcceptedFieldPathIndexes(&'a [AcceptedPlannerFieldPathIndex]),
+}
+
+fn plan_access_selection_with_order_from_authority(
+    model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
+    schema: &SchemaInfo,
+    predicate: Option<&Predicate>,
+    order: Option<&OrderSpec>,
+    grouped: bool,
+    order_fallback_authority: OrderFallbackIndexAuthority<'_>,
+) -> Result<PlannedAccessSelection, PlannerError> {
     let Some(predicate) = predicate else {
         let true_predicate = Predicate::True;
         let eligible_indexes = sorted_indexes(visible_indexes, &true_predicate);
@@ -166,6 +217,7 @@ pub(in crate::db::query) fn plan_access_selection_with_order(
             eligible_indexes.as_slice(),
             order,
             grouped,
+            order_fallback_authority,
         ));
     };
 
@@ -197,18 +249,22 @@ pub(in crate::db::query) fn plan_access_selection_with_order(
         return Ok(PlannedAccessSelection::new(plan, planned_non_index_reason));
     }
 
-    Ok(
-        order_select::index_range_from_order(model, eligible_indexes.as_slice(), order, grouped)
-            .map_or_else(
-                || {
-                    PlannedAccessSelection::new(
-                        plan,
-                        Some(PlannedNonIndexAccessReason::PlannerFullScanFallback),
-                    )
-                },
-                |access| PlannedAccessSelection::new(access, None),
-            ),
+    Ok(index_range_from_order_with_authority(
+        model,
+        eligible_indexes.as_slice(),
+        order,
+        grouped,
+        order_fallback_authority,
     )
+    .map_or_else(
+        || {
+            PlannedAccessSelection::new(
+                plan,
+                Some(PlannedNonIndexAccessReason::PlannerFullScanFallback),
+            )
+        },
+        |access| PlannedAccessSelection::new(access, None),
+    ))
 }
 
 // Order-only planning is the final planner-owned fallback once predicate
@@ -218,8 +274,16 @@ fn order_fallback_selection(
     eligible_indexes: &[&'static IndexModel],
     order: Option<&OrderSpec>,
     grouped: bool,
+    order_fallback_authority: OrderFallbackIndexAuthority<'_>,
 ) -> PlannedAccessSelection {
-    order_select::index_range_from_order(model, eligible_indexes, order, grouped).map_or_else(
+    index_range_from_order_with_authority(
+        model,
+        eligible_indexes,
+        order,
+        grouped,
+        order_fallback_authority,
+    )
+    .map_or_else(
         || {
             PlannedAccessSelection::new(
                 AccessPlan::full_scan(),
@@ -228,4 +292,32 @@ fn order_fallback_selection(
         },
         |access| PlannedAccessSelection::new(access, None),
     )
+}
+
+fn index_range_from_order_with_authority(
+    model: &EntityModel,
+    eligible_indexes: &[&'static IndexModel],
+    order: Option<&OrderSpec>,
+    grouped: bool,
+    order_fallback_authority: OrderFallbackIndexAuthority<'_>,
+) -> Option<AccessPlan<Value>> {
+    match order_fallback_authority {
+        OrderFallbackIndexAuthority::GeneratedModelOnly => {
+            order_select::index_range_from_order_for_generated_model_only(
+                model,
+                eligible_indexes,
+                order,
+                grouped,
+            )
+        }
+        OrderFallbackIndexAuthority::AcceptedFieldPathIndexes(accepted_field_path_indexes) => {
+            order_select::index_range_from_order_with_accepted_indexes(
+                model,
+                eligible_indexes,
+                accepted_field_path_indexes,
+                order,
+                grouped,
+            )
+        }
+    }
 }
