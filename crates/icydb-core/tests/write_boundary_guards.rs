@@ -566,7 +566,6 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
     let index_plan = read_source("src/db/index/plan/mod.rs");
     let index_plan_read = read_source("src/db/index/plan/read.rs");
     let index_readers = read_source("src/db/index/readers.rs");
-    let unique_plan = read_source("src/db/index/plan/unique.rs");
     let structural_row = read_source("src/db/data/structural_row.rs");
 
     assert!(
@@ -615,16 +614,25 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
     );
     assert!(
         index_plan.contains("IndexKey::new_from_slots_with_contract(")
-            && index_plan.contains("accepted_field_path_index_for_generated_index(")
-            && index_plan.contains("accepted_index: Option<&SchemaIndexInfo>")
+            && index_plan.contains("for accepted_index in schema_info.field_path_indexes()")
+            && index_plan.contains("fn generated_predicate_program_for_accepted_field_path_index(")
+            && index_plan.contains("fn expression_indexes(")
+            && index_plan.contains(".filter(|index| index.has_expression_key_items())")
+            && index_plan
+                .contains("plan_accepted_field_path_index_mutation_for_slot_reader_structural(")
+            && index_plan
+                .contains("plan_generated_expression_index_mutation_for_slot_reader_structural(")
+            && index_plan.contains("accepted_index: &SchemaIndexInfo")
+            && !index_plan.contains("accepted_index: Option<&SchemaIndexInfo>")
+            && !index_plan.contains("predicate_bridge: Option<&IndexModel>")
             && index_plan.contains("IndexKey::new_from_slots_with_accepted_field_path_index(")
             && index_plan.contains("fn accepted_index_fields_csv(")
-            && index_plan.contains("SchemaIndexInfo::store")
-            && index_plan.contains("SchemaIndexInfo::unique")
+            && index_plan.contains("let index_store = accepted_index.store();")
+            && index_plan.contains("let index_is_unique = accepted_index.unique();")
             && index_plan.contains("PredicateProgram::compile_with_row_contract(")
             && index_plan.contains("row_contract,")
             && !index_plan.contains("IndexKey::new_from_slots("),
-        "forward-index mutation planning must pass accepted index and row contracts into field-path index key, store, uniqueness, and predicate construction",
+        "forward-index mutation planning must iterate accepted field-path index contracts directly while keeping generated indexes only for expression indexes and filtered predicate bridging",
     );
     assert!(
         index_plan_read.contains("index: IndexReadContract<'_>")
@@ -634,15 +642,6 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
             && index_readers.contains("fields: &'a str")
             && !index_readers.contains("model::index::IndexModel"),
         "preflight index readers must consume reduced accepted index contract facts instead of generated IndexModel definitions",
-    );
-    assert!(
-        unique_plan.contains("IndexKey::new_from_slots_with_contract(")
-            && unique_plan.contains("accepted_index: Option<&SchemaIndexInfo>")
-            && unique_plan.contains("read_contract: IndexReadContract<'_>")
-            && unique_plan.contains("read_contract.unique()")
-            && unique_plan.contains("IndexKey::new_from_slots_with_accepted_field_path_index(")
-            && unique_plan.contains("row_contract,"),
-        "unique-index validation must rebuild stored field-path index keys through accepted index and row contracts and consume accepted uniqueness",
     );
     assert!(
         commit_prepare.contains("struct AcceptedCommitSchemaContracts")
@@ -657,6 +656,25 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
             && commit_prepare.contains("index.has_expression_key_items()")
             && !commit_prepare.contains("authority.model.indexes().is_empty()"),
         "commit preflight must carry accepted schema info beside the accepted row contract and gate field-path forward-index planning on accepted index contracts",
+    );
+}
+
+#[test]
+fn unique_index_validation_splits_accepted_and_generated_authority() {
+    let unique_plan = read_source("src/db/index/plan/unique.rs");
+
+    assert!(
+        unique_plan.contains("IndexKey::new_from_slots_with_contract(")
+            && unique_plan.contains("enum UniqueKeyAuthority")
+            && unique_plan.contains("AcceptedFieldPath(&'a SchemaIndexInfo)")
+            && unique_plan.contains("GeneratedExpression(&'a IndexModel)")
+            && unique_plan
+                .contains("fn validate_unique_constraint_accepted_field_path_structural(")
+            && unique_plan.contains("read_contract: IndexReadContract<'_>")
+            && unique_plan.contains("read_contract.unique()")
+            && unique_plan.contains("IndexKey::new_from_slots_with_accepted_field_path_index(")
+            && unique_plan.contains("row_contract,"),
+        "unique-index validation must rebuild stored field-path index keys through accepted index and row contracts and consume accepted uniqueness",
     );
 }
 

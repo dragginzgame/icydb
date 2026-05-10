@@ -10,7 +10,7 @@ use crate::{
         index::{
             IndexId, IndexKey, IndexPlanReadView, IndexReadContract, plan::error::IndexPlanError,
         },
-        schema::SchemaIndexInfo,
+        schema::{SchemaIndexFieldPathInfo, SchemaIndexInfo},
     },
     error::InternalError,
     model::index::IndexModel,
@@ -18,7 +18,89 @@ use crate::{
 };
 use std::ops::Bound;
 
-/// Validate one unique index constraint using structural entity authority only.
+enum UniqueKeyAuthority<'a> {
+    AcceptedFieldPath(&'a SchemaIndexInfo),
+    GeneratedExpression(&'a IndexModel),
+}
+
+impl UniqueKeyAuthority<'_> {
+    const fn index_id(&self, entity_tag: EntityTag) -> IndexId {
+        match self {
+            Self::AcceptedFieldPath(index) => IndexId::new(entity_tag, index.ordinal()),
+            Self::GeneratedExpression(index) => IndexId::new(entity_tag, index.ordinal()),
+        }
+    }
+
+    fn build_index_key_from_row_slots(
+        &self,
+        entity_tag: EntityTag,
+        storage_key: StorageKey,
+        row_contract: &StructuralRowContract,
+        row_fields: &StructuralSlotReader<'_>,
+    ) -> Result<Option<IndexKey>, InternalError> {
+        match self {
+            Self::AcceptedFieldPath(index) => {
+                IndexKey::new_from_slots_with_accepted_field_path_index(
+                    entity_tag,
+                    storage_key,
+                    index,
+                    row_fields,
+                )
+            }
+            Self::GeneratedExpression(index) => IndexKey::new_from_slots_with_contract(
+                entity_tag,
+                storage_key,
+                row_contract,
+                row_fields,
+                index,
+            ),
+        }
+    }
+
+    fn unique_violation(&self, entity_path: &'static str) -> IndexPlanError {
+        match self {
+            Self::AcceptedFieldPath(index) => {
+                let fields = index
+                    .fields()
+                    .iter()
+                    .map(SchemaIndexFieldPathInfo::field_name)
+                    .collect::<Vec<_>>();
+                IndexPlanError::unique_violation(entity_path, &fields)
+            }
+            Self::GeneratedExpression(index) => {
+                IndexPlanError::unique_violation(entity_path, index.fields())
+            }
+        }
+    }
+}
+
+/// Validate one accepted field-path unique index constraint.
+#[expect(clippy::too_many_arguments)]
+pub(super) fn validate_unique_constraint_accepted_field_path_structural(
+    entity_path: &'static str,
+    entity_tag: EntityTag,
+    read_view: &dyn IndexPlanReadView,
+    row_contract: &StructuralRowContract,
+    accepted_index: &SchemaIndexInfo,
+    read_contract: IndexReadContract<'_>,
+    index_fields: &str,
+    new_storage_key: Option<StorageKey>,
+    new_index_key: Option<&IndexKey>,
+) -> Result<(), IndexPlanError> {
+    validate_unique_constraint_structural_impl(
+        entity_path,
+        entity_tag,
+        read_view,
+        row_contract,
+        UniqueKeyAuthority::AcceptedFieldPath(accepted_index),
+        read_contract,
+        index_fields,
+        new_storage_key,
+        new_index_key,
+    )
+}
+
+/// Validate one generated expression unique index constraint.
 #[expect(clippy::too_many_arguments)]
 pub(super) fn validate_unique_constraint_structural(
     entity_path: &'static str,
@@ -26,7 +108,31 @@ pub(super) fn validate_unique_constraint_structural(
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
     index: &IndexModel,
-    accepted_index: Option<&SchemaIndexInfo>,
+    read_contract: IndexReadContract<'_>,
+    index_fields: &str,
+    new_storage_key: Option<StorageKey>,
+    new_index_key: Option<&IndexKey>,
+) -> Result<(), IndexPlanError> {
+    validate_unique_constraint_structural_impl(
+        entity_path,
+        entity_tag,
+        read_view,
+        row_contract,
+        UniqueKeyAuthority::GeneratedExpression(index),
+        read_contract,
+        index_fields,
+        new_storage_key,
+        new_index_key,
+    )
+}
+
+#[expect(clippy::too_many_arguments)]
+fn validate_unique_constraint_structural_impl(
+    entity_path: &'static str,
+    entity_tag: EntityTag,
+    read_view: &dyn IndexPlanReadView,
+    row_contract: &StructuralRowContract,
+    key_authority: UniqueKeyAuthority<'_>,
     read_contract: IndexReadContract<'_>,
     index_fields: &str,
     new_storage_key: Option<StorageKey>,
@@ -46,10 +152,7 @@ pub(super) fn validate_unique_constraint_structural(
         return Err(InternalError::index_unique_validation_entity_key_required().into());
     };
 
-    let index_id = IndexId::new(
-        entity_tag,
-        accepted_index.map_or_else(|| index.ordinal(), SchemaIndexInfo::ordinal),
-    );
+    let index_id = key_authority.index_id(entity_tag);
     if new_index_key.index_id() != &index_id {
         return Err(InternalError::index_unique_validation_corruption(
             entity_path,
@@ -106,8 +209,7 @@ pub(super) fn validate_unique_constraint_structural(
         existing_key,
         row_contract,
         &row_fields,
-        index,
-        accepted_index,
+        &key_authority,
     )?
     else {
         return Err(InternalError::index_unique_validation_corruption(
@@ -126,10 +228,7 @@ pub(super) fn validate_unique_constraint_structural(
         .into());
     }
 
-    Err(IndexPlanError::unique_violation(
-        entity_path,
-        index.fields(),
-    ))
+    Err(key_authority.unique_violation(entity_path))
 }
 
 // Decode one stored row through the canonical structural persisted-row scanner
@@ -155,7 +254,6 @@ fn decode_unique_row_slots<'a>(
 
 // Build the canonical stored unique index key from one structural row slot
 // reader without reconstructing the full typed entity.
-#[expect(clippy::too_many_arguments)]
 fn build_unique_index_key_from_row_slots(
     entity_tag: EntityTag,
     entity_path: &'static str,
@@ -163,25 +261,14 @@ fn build_unique_index_key_from_row_slots(
     storage_key: StorageKey,
     row_contract: &StructuralRowContract,
     row_fields: &StructuralSlotReader<'_>,
-    index: &IndexModel,
-    accepted_index: Option<&SchemaIndexInfo>,
+    key_authority: &UniqueKeyAuthority<'_>,
 ) -> Result<Option<IndexKey>, InternalError> {
-    let key = if let Some(accepted_index) = accepted_index {
-        IndexKey::new_from_slots_with_accepted_field_path_index(
-            entity_tag,
-            storage_key,
-            accepted_index,
-            row_fields,
-        )
-    } else {
-        IndexKey::new_from_slots_with_contract(
-            entity_tag,
-            storage_key,
-            row_contract,
-            row_fields,
-            index,
-        )
-    };
+    let key = key_authority.build_index_key_from_row_slots(
+        entity_tag,
+        storage_key,
+        row_contract,
+        row_fields,
+    );
 
     key.map_err(|err| {
         InternalError::index_unique_validation_key_rebuild_failed(data_key, entity_path, err)

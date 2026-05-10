@@ -78,34 +78,50 @@ pub(in crate::db) fn compile_index_membership_predicate_structural(
     ))
 }
 
-fn accepted_field_path_index_for_generated_index<'a>(
-    schema_info: &'a SchemaInfo,
-    index: &IndexModel,
+fn generated_predicate_program_for_accepted_field_path_index(
+    indexes: &[&'static IndexModel],
+    accepted_index: &SchemaIndexInfo,
     entity_path: &'static str,
-) -> Result<Option<&'a SchemaIndexInfo>, IndexPlanError> {
-    if index.has_expression_key_items() {
+    row_contract: &StructuralRowContract,
+) -> Result<Option<PredicateProgram>, IndexPlanError> {
+    if accepted_index.predicate_sql().is_none() {
         return Ok(None);
     }
 
-    schema_info
-        .field_path_indexes()
+    let index = indexes
         .iter()
-        .find(|accepted| accepted.name() == index.name())
+        .copied()
+        .find(|index| !index.has_expression_key_items() && index.name() == accepted_index.name())
+        .ok_or_else(|| {
+            InternalError::index_plan_index_corruption(format!(
+                "filtered accepted index contract for '{entity_path}' index '{}' requires generated predicate bridge",
+                accepted_index.name(),
+            ))
+        })?;
+
+    compile_index_membership_predicate_structural(entity_path, index, row_contract)
         .map(Some)
         .ok_or_else(|| {
             InternalError::index_plan_index_corruption(format!(
-                "missing accepted index contract for '{entity_path}' index '{}'",
-                index.name(),
+                "filtered accepted index contract for '{entity_path}' index '{}' requires generated predicate program",
+                accepted_index.name(),
             ))
             .into()
         })
 }
 
-/// Build one index key from one slot reader using accepted row-contract slot authority.
-pub(in crate::db) fn index_key_for_slot_reader_with_membership_structural(
+fn expression_indexes(model: &'static EntityModel) -> Vec<&'static IndexModel> {
+    model
+        .indexes()
+        .iter()
+        .copied()
+        .filter(|index| index.has_expression_key_items())
+        .collect()
+}
+
+fn generated_index_key_for_slot_reader_with_membership_structural(
     entity_tag: EntityTag,
     index: &IndexModel,
-    accepted_index: Option<&SchemaIndexInfo>,
     row_contract: &StructuralRowContract,
     predicate_program: Option<&PredicateProgram>,
     storage_key: StorageKey,
@@ -118,27 +134,44 @@ pub(in crate::db) fn index_key_for_slot_reader_with_membership_structural(
         }
     }
 
-    let index_key = if let Some(accepted_index) = accepted_index {
-        IndexKey::new_from_slots_with_accepted_field_path_index(
-            entity_tag,
-            storage_key,
-            accepted_index,
-            slots,
-        )?
-    } else {
-        IndexKey::new_from_slots_with_contract(entity_tag, storage_key, row_contract, slots, index)?
-    };
+    let index_key = IndexKey::new_from_slots_with_contract(
+        entity_tag,
+        storage_key,
+        row_contract,
+        slots,
+        index,
+    )?;
 
     Ok(index_key)
 }
 
+fn accepted_field_path_index_key_for_slot_reader_with_membership_structural(
+    entity_tag: EntityTag,
+    accepted_index: &SchemaIndexInfo,
+    predicate_program: Option<&PredicateProgram>,
+    storage_key: StorageKey,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<Option<IndexKey>, InternalError> {
+    if let Some(predicate_program) = predicate_program {
+        let keep_row = predicate_program.eval_with_structural_slot_reader(slots)?;
+        if !keep_row {
+            return Ok(None);
+        }
+    }
+
+    IndexKey::new_from_slots_with_accepted_field_path_index(
+        entity_tag,
+        storage_key,
+        accepted_index,
+        slots,
+    )
+}
+
 // Build one optional structural index key for the requested planner lane.
-#[expect(clippy::too_many_arguments)]
 fn load_structural_index_key(
     lane: IndexKeyLane,
     entity_tag: EntityTag,
     index: &IndexModel,
-    accepted_index: Option<&SchemaIndexInfo>,
     row_contract: &StructuralRowContract,
     predicate_program: Option<&PredicateProgram>,
     storage_key: Option<StorageKey>,
@@ -148,11 +181,31 @@ fn load_structural_index_key(
         return Err(lane.missing_entity_key_error());
     };
 
-    index_key_for_slot_reader_with_membership_structural(
+    generated_index_key_for_slot_reader_with_membership_structural(
         entity_tag,
         index,
-        accepted_index,
         row_contract,
+        predicate_program,
+        storage_key,
+        slots,
+    )
+}
+
+fn load_structural_accepted_field_path_index_key(
+    lane: IndexKeyLane,
+    entity_tag: EntityTag,
+    accepted_index: &SchemaIndexInfo,
+    predicate_program: Option<&PredicateProgram>,
+    storage_key: Option<StorageKey>,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<Option<IndexKey>, InternalError> {
+    let Some(storage_key) = storage_key else {
+        return Err(lane.missing_entity_key_error());
+    };
+
+    accepted_field_path_index_key_for_slot_reader_with_membership_structural(
+        entity_tag,
+        accepted_index,
         predicate_program,
         storage_key,
         slots,
@@ -248,98 +301,236 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
     new_storage_key: Option<StorageKey>,
     mut new_slots: Option<&mut dyn CanonicalSlotReader>,
 ) -> Result<IndexMutationPlan, IndexPlanError> {
-    let indexes = model.indexes();
-    let mut groups = Vec::with_capacity(indexes.len());
+    let expression_indexes = expression_indexes(model);
+    let mut groups =
+        Vec::with_capacity(schema_info.field_path_indexes().len() + expression_indexes.len());
 
-    // Phase 1: per-index load, validate, and synthesize index-domain deltas
-    // from slot-reader projections only.
-    for index in indexes {
-        let accepted_index =
-            accepted_field_path_index_for_generated_index(schema_info, index, entity_path)?;
-        let index_fields =
-            accepted_index.map_or_else(|| index_fields_csv(index), accepted_index_fields_csv);
-        let index_store = accepted_index.map_or_else(|| index.store(), SchemaIndexInfo::store);
-        let index_is_unique =
-            accepted_index.map_or_else(|| index.is_unique(), SchemaIndexInfo::unique);
-        let read_contract = IndexReadContract::new(index_store, index_is_unique, &index_fields);
-        let membership_program =
-            compile_index_membership_predicate_structural(entity_path, index, row_contract);
-
-        let old_key = match old_slots.as_deref_mut() {
-            Some(slots) => load_structural_index_key(
-                IndexKeyLane::Old,
-                entity_tag,
-                index,
-                accepted_index,
-                row_contract,
-                membership_program.as_ref(),
-                old_storage_key,
-                slots,
-            )?,
-            None => None,
-        };
-        let new_key = match new_slots.as_deref_mut() {
-            Some(slots) => load_structural_index_key(
-                IndexKeyLane::New,
-                entity_tag,
-                index,
-                accepted_index,
-                row_contract,
-                membership_program.as_ref(),
-                new_storage_key,
-                slots,
-            )?,
-            None => None,
-        };
-
-        let old_entry = load_existing_entry_structural(
+    for accepted_index in schema_info.field_path_indexes() {
+        let predicate_program = generated_predicate_program_for_accepted_field_path_index(
+            model.indexes(),
+            accepted_index,
+            entity_path,
+            row_contract,
+        )?;
+        plan_accepted_field_path_index_mutation_for_slot_reader_structural(
+            &mut groups,
+            entity_path,
+            entity_tag,
             read_view,
-            read_contract,
-            &index_fields,
-            old_key.as_ref(),
-            entity_path,
-        )?;
-
-        // Phase 2: ensure any existing old membership is still present before
-        // commit-phase mutations become mechanical.
-        validate_existing_old_index_membership(
-            entity_path,
-            &index_fields,
-            index_is_unique,
+            row_contract,
+            accepted_index,
+            predicate_program.as_ref(),
             old_storage_key,
-            old_key.as_ref(),
-            old_entry.as_ref(),
+            old_slots
+                .as_mut()
+                .map(|slots| &mut **slots as &mut dyn CanonicalSlotReader),
+            new_storage_key,
+            new_slots
+                .as_mut()
+                .map(|slots| &mut **slots as &mut dyn CanonicalSlotReader),
         )?;
+    }
 
-        unique::validate_unique_constraint_structural(
+    for index in expression_indexes {
+        plan_generated_expression_index_mutation_for_slot_reader_structural(
+            &mut groups,
             entity_path,
             entity_tag,
             read_view,
             row_contract,
             index,
-            accepted_index,
-            read_contract,
-            &index_fields,
-            if new_key.is_some() {
-                new_storage_key
-            } else {
-                None
-            },
-            new_key.as_ref(),
-        )?;
-
-        push_index_delta_group(
-            &mut groups,
-            index_store,
-            index_fields,
-            old_key,
-            new_key,
             old_storage_key,
+            old_slots
+                .as_mut()
+                .map(|slots| &mut **slots as &mut dyn CanonicalSlotReader),
             new_storage_key,
+            new_slots
+                .as_mut()
+                .map(|slots| &mut **slots as &mut dyn CanonicalSlotReader),
         )?;
     }
 
     Ok(IndexMutationPlan::new(groups))
+}
+
+#[expect(clippy::too_many_arguments)]
+fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
+    groups: &mut Vec<IndexDeltaGroup>,
+    entity_path: &'static str,
+    entity_tag: EntityTag,
+    read_view: &dyn IndexPlanReadView,
+    row_contract: &StructuralRowContract,
+    accepted_index: &SchemaIndexInfo,
+    predicate_program: Option<&PredicateProgram>,
+    old_storage_key: Option<StorageKey>,
+    old_slots: Option<&mut dyn CanonicalSlotReader>,
+    new_storage_key: Option<StorageKey>,
+    new_slots: Option<&mut dyn CanonicalSlotReader>,
+) -> Result<(), IndexPlanError> {
+    let index_fields = accepted_index_fields_csv(accepted_index);
+    let index_store = accepted_index.store();
+    let index_is_unique = accepted_index.unique();
+    let read_contract = IndexReadContract::new(index_store, index_is_unique, &index_fields);
+    let old_key = match old_slots {
+        Some(slots) => load_structural_accepted_field_path_index_key(
+            IndexKeyLane::Old,
+            entity_tag,
+            accepted_index,
+            predicate_program,
+            old_storage_key,
+            slots,
+        )?,
+        None => None,
+    };
+    let new_key = match new_slots {
+        Some(slots) => load_structural_accepted_field_path_index_key(
+            IndexKeyLane::New,
+            entity_tag,
+            accepted_index,
+            predicate_program,
+            new_storage_key,
+            slots,
+        )?,
+        None => None,
+    };
+
+    let old_entry = load_existing_entry_structural(
+        read_view,
+        read_contract,
+        &index_fields,
+        old_key.as_ref(),
+        entity_path,
+    )?;
+
+    validate_existing_old_index_membership(
+        entity_path,
+        &index_fields,
+        index_is_unique,
+        old_storage_key,
+        old_key.as_ref(),
+        old_entry.as_ref(),
+    )?;
+
+    unique::validate_unique_constraint_accepted_field_path_structural(
+        entity_path,
+        entity_tag,
+        read_view,
+        row_contract,
+        accepted_index,
+        read_contract,
+        &index_fields,
+        if new_key.is_some() {
+            new_storage_key
+        } else {
+            None
+        },
+        new_key.as_ref(),
+    )?;
+
+    push_index_delta_group(
+        groups,
+        index_store,
+        index_fields,
+        old_key,
+        new_key,
+        old_storage_key,
+        new_storage_key,
+    )?;
+
+    Ok(())
+}
+
+#[expect(clippy::too_many_arguments)]
+fn plan_generated_expression_index_mutation_for_slot_reader_structural(
+    groups: &mut Vec<IndexDeltaGroup>,
+    entity_path: &'static str,
+    entity_tag: EntityTag,
+    read_view: &dyn IndexPlanReadView,
+    row_contract: &StructuralRowContract,
+    index: &'static IndexModel,
+    old_storage_key: Option<StorageKey>,
+    old_slots: Option<&mut dyn CanonicalSlotReader>,
+    new_storage_key: Option<StorageKey>,
+    new_slots: Option<&mut dyn CanonicalSlotReader>,
+) -> Result<(), IndexPlanError> {
+    let index_fields = index_fields_csv(index);
+    let index_store = index.store();
+    let index_is_unique = index.is_unique();
+    let read_contract = IndexReadContract::new(index_store, index_is_unique, &index_fields);
+    let membership_program =
+        compile_index_membership_predicate_structural(entity_path, index, row_contract);
+
+    let old_key = match old_slots {
+        Some(slots) => load_structural_index_key(
+            IndexKeyLane::Old,
+            entity_tag,
+            index,
+            row_contract,
+            membership_program.as_ref(),
+            old_storage_key,
+            slots,
+        )?,
+        None => None,
+    };
+    let new_key = match new_slots {
+        Some(slots) => load_structural_index_key(
+            IndexKeyLane::New,
+            entity_tag,
+            index,
+            row_contract,
+            membership_program.as_ref(),
+            new_storage_key,
+            slots,
+        )?,
+        None => None,
+    };
+
+    let old_entry = load_existing_entry_structural(
+        read_view,
+        read_contract,
+        &index_fields,
+        old_key.as_ref(),
+        entity_path,
+    )?;
+
+    // Phase 2: ensure any existing old membership is still present before
+    // commit-phase mutations become mechanical.
+    validate_existing_old_index_membership(
+        entity_path,
+        &index_fields,
+        index_is_unique,
+        old_storage_key,
+        old_key.as_ref(),
+        old_entry.as_ref(),
+    )?;
+
+    unique::validate_unique_constraint_structural(
+        entity_path,
+        entity_tag,
+        read_view,
+        row_contract,
+        index,
+        read_contract,
+        &index_fields,
+        if new_key.is_some() {
+            new_storage_key
+        } else {
+            None
+        },
+        new_key.as_ref(),
+    )?;
+
+    push_index_delta_group(
+        groups,
+        index_store,
+        index_fields,
+        old_key,
+        new_key,
+        old_storage_key,
+        new_storage_key,
+    )?;
+
+    Ok(())
 }
 
 // Convert one validated old/new key transition into index-domain membership
