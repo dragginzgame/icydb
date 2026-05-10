@@ -4,7 +4,6 @@
 
 use crate::{
     db::access::{AccessPath, AccessPathKind, IndexShapeDetails},
-    model::index::IndexModel,
     value::Value,
 };
 use std::ops::Bound;
@@ -25,16 +24,14 @@ pub(in crate::db) enum ExecutionPathPayload<'a, K> {
         end: &'a K,
     },
     IndexPrefix {
-        index: IndexModel,
-        prefix_len: usize,
+        index: IndexShapeDetails,
     },
     IndexMultiLookup {
-        index: IndexModel,
+        index: IndexShapeDetails,
         value_count: usize,
     },
     IndexRange {
-        index: IndexModel,
-        prefix_len: usize,
+        index: IndexShapeDetails,
         prefix_values: &'a [Value],
         lower: &'a Bound<Value>,
         upper: &'a Bound<Value>,
@@ -57,20 +54,18 @@ impl<'a, K> ExecutionPathPayload<'a, K> {
         }
         if let Some((index, values)) = path.as_index_prefix() {
             return Self::IndexPrefix {
-                index: *index,
-                prefix_len: values.len(),
+                index: IndexShapeDetails::new(*index, values.len()),
             };
         }
         if let Some((index, values)) = path.as_index_multi_lookup() {
             return Self::IndexMultiLookup {
-                index: *index,
+                index: IndexShapeDetails::new(*index, 1),
                 value_count: values.len(),
             };
         }
         if let Some(spec) = path.as_index_range() {
             return Self::IndexRange {
-                index: *spec.index(),
-                prefix_len: spec.prefix_values().len(),
+                index: IndexShapeDetails::new(*spec.index(), spec.prefix_values().len()),
                 prefix_values: spec.prefix_values(),
                 lower: spec.lower(),
                 upper: spec.upper(),
@@ -121,10 +116,7 @@ impl<'a, K> ExecutionPathPayload<'a, K> {
     #[must_use]
     pub(in crate::db) const fn index_prefix_details(&self) -> Option<IndexShapeDetails> {
         match self {
-            Self::IndexPrefix { index, prefix_len } => {
-                Some(IndexShapeDetails::new(*index, *prefix_len))
-            }
-            Self::IndexMultiLookup { index, .. } => Some(IndexShapeDetails::new(*index, 1)),
+            Self::IndexPrefix { index, .. } | Self::IndexMultiLookup { index, .. } => Some(*index),
             Self::ByKey(_)
             | Self::ByKeys(_)
             | Self::KeyRange { .. }
@@ -137,9 +129,7 @@ impl<'a, K> ExecutionPathPayload<'a, K> {
     #[must_use]
     pub(in crate::db) const fn index_range_details(&self) -> Option<IndexShapeDetails> {
         match self {
-            Self::IndexRange {
-                index, prefix_len, ..
-            } => Some(IndexShapeDetails::new(*index, *prefix_len)),
+            Self::IndexRange { index, .. } => Some(*index),
             Self::ByKey(_)
             | Self::ByKeys(_)
             | Self::KeyRange { .. }

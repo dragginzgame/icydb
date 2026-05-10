@@ -796,7 +796,7 @@ where
             direction,
             usize::MAX,
             &[component_index],
-            |index| prepared.store_resolver.try_get_store(index.store()),
+            |store_path| prepared.store_resolver.try_get_store(store_path),
         )
     }
 }

@@ -124,12 +124,21 @@ pub(in crate::db) fn build_index_bounds(
     index: &IndexModel,
     spec: IndexBoundsSpec<'_>,
 ) -> Result<(Bound<RawIndexKey>, Bound<RawIndexKey>), IndexRangeBoundEncodeError> {
+    build_index_bounds_for_arity(index_id, index.fields().len(), spec)
+}
+
+/// Build raw index-key bounds from reduced index key arity facts.
+pub(in crate::db) fn build_index_bounds_for_arity(
+    index_id: &IndexId,
+    index_len: usize,
+    spec: IndexBoundsSpec<'_>,
+) -> Result<(Bound<RawIndexKey>, Bound<RawIndexKey>), IndexRangeBoundEncodeError> {
     match spec {
         IndexBoundsSpec::Prefix { values } => {
             let encoded_prefix = EncodedValue::try_encode_all(values)
                 .map_err(|_| IndexRangeBoundEncodeError::Prefix)?;
             let (lower, upper) =
-                raw_keys_for_encoded_prefix(index_id, index, encoded_prefix.as_slice());
+                raw_keys_for_encoded_prefix(index_id, index_len, encoded_prefix.as_slice());
 
             Ok((Bound::Included(lower), Bound::Included(upper)))
         }
@@ -137,7 +146,9 @@ pub(in crate::db) fn build_index_bounds(
             prefix,
             lower,
             upper,
-        } => raw_bounds_for_semantic_index_component_range(index_id, index, prefix, lower, upper),
+        } => {
+            raw_bounds_for_semantic_index_component_range(index_id, index_len, prefix, lower, upper)
+        }
         IndexBoundsSpec::TextPrefixRange {
             prefix,
             text_prefix,
@@ -147,7 +158,9 @@ pub(in crate::db) fn build_index_bounds(
                 return Err(IndexRangeBoundEncodeError::Lower);
             };
 
-            raw_bounds_for_semantic_index_component_range(index_id, index, prefix, &lower, &upper)
+            raw_bounds_for_semantic_index_component_range(
+                index_id, index_len, prefix, &lower, &upper,
+            )
         }
     }
 }
@@ -212,15 +225,10 @@ fn text_prefix_mode_for_component_bounds<'a>(
 #[must_use]
 fn raw_keys_for_encoded_prefix(
     index_id: &IndexId,
-    index: &IndexModel,
+    index_len: usize,
     prefix: &[EncodedValue],
 ) -> (RawIndexKey, RawIndexKey) {
-    raw_keys_for_encoded_prefix_with_kind(
-        index_id,
-        IndexKeyKind::User,
-        index.fields().len(),
-        prefix,
-    )
+    raw_keys_for_encoded_prefix_with_kind(index_id, IndexKeyKind::User, index_len, prefix)
 }
 
 ///
@@ -261,7 +269,7 @@ pub(in crate::db) fn raw_keys_for_component_prefix_with_kind<C: AsRef<[u8]>>(
 
 fn raw_bounds_for_encoded_index_component_range(
     index_id: &IndexId,
-    index: &IndexModel,
+    index_len: usize,
     prefix: &[EncodedValue],
     lower: &Bound<EncodedValue>,
     upper: &Bound<EncodedValue>,
@@ -270,7 +278,7 @@ fn raw_bounds_for_encoded_index_component_range(
     let upper_component = encoded_component_bound(upper);
     let (start, end) = IndexKey::bounds_for_prefix_component_range(
         index_id,
-        index.fields().len(),
+        index_len,
         prefix,
         &lower_component,
         &upper_component,
@@ -288,7 +296,7 @@ fn raw_bounds_for_encoded_index_component_range(
 
 fn raw_bounds_for_semantic_index_component_range(
     index_id: &IndexId,
-    index: &IndexModel,
+    index_len: usize,
     prefix: &[Value],
     lower: &Bound<Value>,
     upper: &Bound<Value>,
@@ -302,7 +310,7 @@ fn raw_bounds_for_semantic_index_component_range(
     // Phase 2: lower encoded bounds to canonical raw index-key bounds.
     Ok(raw_bounds_for_encoded_index_component_range(
         index_id,
-        index,
+        index_len,
         encoded_prefix.as_slice(),
         &encoded_lower,
         &encoded_upper,

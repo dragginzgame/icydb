@@ -334,7 +334,7 @@ impl AccessPlannedQuery {
             logical,
             access.clone(),
             ProjectionSelection::All,
-            if access.selected_index_model().is_some() {
+            if access.has_selected_index_access_path() {
                 AccessChoiceExplainSnapshot::selected_index_not_projected()
             } else {
                 non_index_access_choice_snapshot_for_access_plan(&access)
@@ -380,7 +380,7 @@ impl AccessPlannedQuery {
         projection_selection: ProjectionSelection,
         planned_non_index_reason: Option<PlannedNonIndexAccessReason>,
     ) -> Self {
-        let access_choice = if access.selected_index_model().is_some() {
+        let access_choice = if access.has_selected_index_access_path() {
             AccessChoiceExplainSnapshot::selected_index_not_projected()
         } else if let Some(reason) = planned_non_index_reason {
             AccessChoiceExplainSnapshot::from_planned_non_index_reason(reason)
@@ -404,7 +404,7 @@ impl AccessPlannedQuery {
             logical,
             access.clone(),
             ProjectionSelection::All,
-            if access.selected_index_model().is_some() {
+            if access.has_selected_index_access_path() {
                 AccessChoiceExplainSnapshot::selected_index_not_projected()
             } else {
                 non_index_access_choice_snapshot_for_access_plan(&access)
@@ -428,7 +428,7 @@ impl AccessPlannedQuery {
             logical,
             access.clone(),
             projection_selection,
-            if access.selected_index_model().is_some() {
+            if access.has_selected_index_access_path() {
                 AccessChoiceExplainSnapshot::selected_index_not_projected()
             } else {
                 non_index_access_choice_snapshot_for_access_plan(&access)

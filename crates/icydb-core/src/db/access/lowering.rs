@@ -119,6 +119,7 @@ pub(in crate::db) fn lower_access<K>(
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct LoweredIndexScanContract {
     name: &'static str,
+    store_path: &'static str,
     unique: bool,
 }
 
@@ -127,6 +128,7 @@ impl LoweredIndexScanContract {
     const fn from_index(index: &IndexModel) -> Self {
         Self {
             name: index.name(),
+            store_path: index.store(),
             unique: index.is_unique(),
         }
     }
@@ -134,6 +136,11 @@ impl LoweredIndexScanContract {
     #[must_use]
     pub(in crate::db) const fn name(self) -> &'static str {
         self.name
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn store_path(self) -> &'static str {
+        self.store_path
     }
 
     #[must_use]
@@ -151,7 +158,6 @@ impl LoweredIndexScanContract {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct LoweredIndexPrefixSpec {
-    index: IndexModel,
     scan_contract: LoweredIndexScanContract,
     lower: Bound<LoweredKey>,
     upper: Bound<LoweredKey>,
@@ -167,16 +173,10 @@ impl LoweredIndexPrefixSpec {
         upper: Bound<LoweredKey>,
     ) -> Self {
         Self {
-            index,
             scan_contract: LoweredIndexScanContract::from_index(&index),
             lower,
             upper,
         }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn index(&self) -> &IndexModel {
-        &self.index
     }
 
     #[must_use]
@@ -210,7 +210,6 @@ impl LoweredIndexPrefixSpec {
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct LoweredIndexRangeSpec {
-    index: IndexModel,
     scan_contract: LoweredIndexScanContract,
     lower: Bound<LoweredKey>,
     upper: Bound<LoweredKey>,
@@ -226,16 +225,10 @@ impl LoweredIndexRangeSpec {
         upper: Bound<LoweredKey>,
     ) -> Self {
         Self {
-            index,
             scan_contract: LoweredIndexScanContract::from_index(&index),
             lower,
             upper,
         }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn index(&self) -> &IndexModel {
-        &self.index
     }
 
     #[must_use]

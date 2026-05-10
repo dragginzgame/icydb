@@ -624,8 +624,16 @@ fn lowered_executor_scans_use_reduced_index_scan_facts() {
 
     assert!(
         access_lowering.contains("pub(in crate::db) struct LoweredIndexScanContract")
+            && access_lowering.contains("store_path: &'static str")
             && access_lowering.contains("scan_contract: LoweredIndexScanContract")
             && access_lowering.contains("pub(in crate::db) const fn scan_contract(")
+            && access_lowering.contains("pub(in crate::db) const fn store_path(")
+            && !access_lowering.contains(
+                "pub(in crate::db) struct LoweredIndexPrefixSpec {\n    index: IndexModel"
+            )
+            && !access_lowering.contains(
+                "pub(in crate::db) struct LoweredIndexRangeSpec {\n    index: IndexModel"
+            )
             && index_scan.contains("index: LoweredIndexScanContract")
             && index_scan.contains("spec.scan_contract()")
             && index_scan.contains("index.unique()")
@@ -639,17 +647,27 @@ fn lowered_executor_scans_use_reduced_index_scan_facts() {
 #[test]
 fn runtime_access_capabilities_use_reduced_index_shape_facts() {
     let access_capabilities = read_source("src/db/access/capabilities.rs");
+    let execution_path_payload = read_source("src/db/access/execution_contract/types.rs");
     let route_pushdown = read_source("src/db/executor/planning/route/pushdown.rs");
     let aggregate_capability = read_source("src/db/executor/aggregate/capability.rs");
     let logical_semantics = read_source("src/db/query/plan/semantics/logical.rs");
+    let access_plan = read_source("src/db/query/plan/access_plan.rs");
 
     assert!(
         access_capabilities.contains("pub(in crate::db) struct IndexShapeDetails")
             && access_capabilities.contains("name: &'static str")
+            && access_capabilities.contains("ordinal: u16")
             && access_capabilities.contains("unique: bool")
             && access_capabilities.contains("key_items: IndexKeyItemsRef")
             && !access_capabilities.contains("index: IndexModel,\n    slot_arity: usize"),
         "runtime access capabilities must carry reduced index shape facts instead of exposing generated IndexModel",
+    );
+    assert!(
+        execution_path_payload.contains("index: IndexShapeDetails")
+            && execution_path_payload.contains("IndexShapeDetails::new(*index")
+            && !execution_path_payload.contains("model::index::IndexModel")
+            && !execution_path_payload.contains("index: IndexModel"),
+        "executable access payloads must carry reduced index shape facts instead of generated IndexModel",
     );
     assert!(
         route_pushdown.contains("details.key_items()")
@@ -663,6 +681,11 @@ fn runtime_access_capabilities_use_reduced_index_shape_facts() {
         logical_semantics.contains("index_key_items_for_slot_map()")
             && !logical_semantics.contains("selected_index_model()?;"),
         "logical runtime semantics must compile index slot targets from reduced executable access facts",
+    );
+    assert!(
+        access_plan.contains("access.has_selected_index_access_path()")
+            && !access_plan.contains("access.selected_index_model().is_some()"),
+        "access-planned query shells must detect index-backed shapes through reduced access capabilities",
     );
 }
 

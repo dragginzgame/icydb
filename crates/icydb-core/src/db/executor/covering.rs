@@ -19,7 +19,6 @@ use crate::{
         registry::StoreHandle,
     },
     error::InternalError,
-    model::index::IndexModel,
     types::EntityTag,
     types::Ulid,
     value::{Value, ValueTag},
@@ -86,15 +85,16 @@ pub(in crate::db::executor) fn resolve_covering_projection_components_from_lower
     mut resolve_store_for_index: F,
 ) -> Result<CoveringProjectionComponentRows, InternalError>
 where
-    F: FnMut(&IndexModel) -> Result<StoreHandle, InternalError>,
+    F: FnMut(&str) -> Result<StoreHandle, InternalError>,
 {
     let continuation = IndexScanContinuationInput::new(None, direction);
 
     if let [spec] = index_prefix_specs {
+        let scan_contract = spec.scan_contract();
         return resolve_covering_projection_components_for_index_bounds(
-            resolve_store_for_index(spec.index())?,
+            resolve_store_for_index(scan_contract.store_path())?,
             entity_tag,
-            spec.scan_contract(),
+            scan_contract,
             (spec.lower(), spec.upper()),
             continuation,
             limit,
@@ -108,10 +108,11 @@ where
     }
 
     if let [spec] = index_range_specs {
+        let scan_contract = spec.scan_contract();
         return resolve_covering_projection_components_for_index_bounds(
-            resolve_store_for_index(spec.index())?,
+            resolve_store_for_index(scan_contract.store_path())?,
             entity_tag,
-            spec.scan_contract(),
+            scan_contract,
             (spec.lower(), spec.upper()),
             continuation,
             limit,

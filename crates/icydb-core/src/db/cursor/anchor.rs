@@ -10,7 +10,7 @@ use crate::{
         direction::Direction,
         index::{
             IndexBoundsSpec, IndexId, IndexKey, IndexKeyKind, IndexRangeBoundEncodeError,
-            KeyEnvelope, PrimaryKeyEquivalenceError, RawIndexKey, build_index_bounds,
+            KeyEnvelope, PrimaryKeyEquivalenceError, RawIndexKey, build_index_bounds_for_arity,
             primary_key_matches_value,
         },
     },
@@ -138,7 +138,7 @@ fn decode_canonical_cursor_anchor(
 fn validate_anchor_identity(
     anchor: ValidatedIdentityIndexRangeCursorAnchor,
     entity_tag: EntityTag,
-    index: &crate::model::index::IndexModel,
+    index: crate::db::access::IndexShapeDetails,
 ) -> Result<ValidatedIdentityIndexRangeCursorAnchor, CursorPlanError> {
     let decoded_key = anchor.decoded_key();
     let expected_index_id = IndexId::new(entity_tag, index.ordinal());
@@ -149,7 +149,7 @@ fn validate_anchor_identity(
     if decoded_key.key_kind() != IndexKeyKind::User {
         return Err(CursorPlanError::index_range_anchor_key_namespace_mismatch());
     }
-    if decoded_key.component_count() != index.fields().len() {
+    if decoded_key.component_count() != index.key_arity() {
         return Err(CursorPlanError::index_range_anchor_component_arity_mismatch());
     }
 
@@ -160,7 +160,7 @@ fn validate_anchor_identity(
 fn validate_anchor_in_envelope(
     anchor: ValidatedIdentityIndexRangeCursorAnchor,
     entity_tag: EntityTag,
-    index: &crate::model::index::IndexModel,
+    index: crate::db::access::IndexShapeDetails,
     prefix: &[crate::value::Value],
     lower: &std::ops::Bound<crate::value::Value>,
     upper: &std::ops::Bound<crate::value::Value>,
@@ -183,16 +183,16 @@ fn validate_anchor_in_envelope(
 // containment checks. Cursor owns the scope-specific reason mapping.
 fn lower_cursor_anchor_index_range_bounds(
     entity_tag: EntityTag,
-    index: &crate::model::index::IndexModel,
+    index: crate::db::access::IndexShapeDetails,
     prefix: &[crate::value::Value],
     lower: &std::ops::Bound<crate::value::Value>,
     upper: &std::ops::Bound<crate::value::Value>,
 ) -> Result<(std::ops::Bound<RawIndexKey>, std::ops::Bound<RawIndexKey>), &'static str> {
     let index_id = IndexId::new(entity_tag, index.ordinal());
 
-    build_index_bounds(
+    build_index_bounds_for_arity(
         &index_id,
-        index,
+        index.key_arity(),
         IndexBoundsSpec::component_range(prefix, lower, upper),
     )
     .map_err(IndexRangeBoundEncodeError::cursor_anchor_not_indexable_reason)
@@ -236,11 +236,11 @@ pub(in crate::db) fn validate_index_range_anchor<K>(
 
         // Phase 1: decode and classify anchor key-space shape.
         let validated_identity =
-            validate_anchor_identity(decode_canonical_cursor_anchor(anchor)?, entity_tag, index)?;
+            validate_anchor_identity(decode_canonical_cursor_anchor(anchor)?, entity_tag, *index)?;
         let validated_in_envelope = validate_anchor_in_envelope(
             validated_identity,
             entity_tag,
-            index,
+            *index,
             prefix,
             lower,
             upper,

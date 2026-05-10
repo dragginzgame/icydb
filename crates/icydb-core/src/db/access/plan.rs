@@ -187,6 +187,18 @@ impl<K> AccessPlan<K> {
         self.as_path().and_then(|path| path.selected_index_model())
     }
 
+    /// Return true when this plan selects one secondary-index access shape.
+    #[must_use]
+    pub(crate) fn has_selected_index_access_path(&self) -> bool {
+        self.capabilities()
+            .single_path_index_prefix_details()
+            .is_some()
+            || self
+                .capabilities()
+                .single_path_index_range_details()
+                .is_some()
+    }
+
     /// Project this semantic access tree into one executable contract.
     #[must_use]
     pub(in crate::db) fn executable_contract(&self) -> ExecutableAccessPlan<'_, K> {

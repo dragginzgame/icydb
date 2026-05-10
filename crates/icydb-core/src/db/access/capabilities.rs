@@ -89,6 +89,7 @@ impl SinglePathAccessCapabilities {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct IndexShapeDetails {
     name: &'static str,
+    ordinal: u16,
     unique: bool,
     key_items: IndexKeyItemsRef,
     slot_arity: usize,
@@ -99,6 +100,7 @@ impl IndexShapeDetails {
     pub(in crate::db) const fn new(index: IndexModel, slot_arity: usize) -> Self {
         Self {
             name: index.name(),
+            ordinal: index.ordinal(),
             unique: index.is_unique(),
             key_items: index.key_items(),
             slot_arity,
@@ -108,6 +110,11 @@ impl IndexShapeDetails {
     #[must_use]
     pub(in crate::db) const fn name(self) -> &'static str {
         self.name
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn ordinal(self) -> u16 {
+        self.ordinal
     }
 
     #[must_use]

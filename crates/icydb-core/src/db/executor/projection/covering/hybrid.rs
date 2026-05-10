@@ -78,7 +78,7 @@ where
         scan_direction,
         scan_limit,
         component_indices.as_slice(),
-        |index| db.recovered_store(index.store()),
+        |store_path| db.recovered_store(store_path),
     )?;
 
     // Phase 3: assemble final projected rows by mixing decoded covering

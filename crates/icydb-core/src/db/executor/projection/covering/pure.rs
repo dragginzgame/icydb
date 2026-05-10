@@ -97,7 +97,7 @@ where
         scan_direction,
         scan_limit,
         component_indices.as_slice(),
-        |index| db.recovered_store(index.store()),
+        |store_path| db.recovered_store(store_path),
     )?;
     let page = plan.scalar_plan().page.as_ref();
     let order_contract = covering.order_contract;
