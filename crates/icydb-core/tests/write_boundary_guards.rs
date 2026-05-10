@@ -514,12 +514,8 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
     let index_plan = read_source("src/db/index/plan/mod.rs");
     let index_plan_read = read_source("src/db/index/plan/read.rs");
     let index_readers = read_source("src/db/index/readers.rs");
-    let access_lowering = read_source("src/db/access/lowering.rs");
-    let index_scan = read_source("src/db/executor/stream/access/scan.rs");
-    let physical_access = read_source("src/db/executor/stream/access/physical.rs");
     let unique_plan = read_source("src/db/index/plan/unique.rs");
     let structural_row = read_source("src/db/data/structural_row.rs");
-    let predicate_runtime = read_source("src/db/predicate/runtime/mod.rs");
 
     assert!(
         structural_row.contains("pub(in crate::db) fn field_slot_index_by_name(")
@@ -544,9 +540,7 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
                 .contains("pub(crate) fn new_from_slot_ref_reader_with_accepted_field_path_index")
             && index_key_build.contains("accepted_index.fields()")
             && index_key_build.contains("IndexId::new(entity_tag, accepted_index.ordinal())")
-            && !index_key_build.contains("pub(crate) fn new_from_slot_ref_reader(")
-            && predicate_runtime.contains("slots.field_leaf_codec(field_slot)")
-            && predicate_runtime.contains("slots.required_value_storage_scalar(field_slot)"),
+            && !index_key_build.contains("pub(crate) fn new_from_slot_ref_reader("),
         "cursor anchor and predicate index-key paths must use accepted schema/index/row-contract slot authority instead of generated model slot lookup",
     );
     assert!(
@@ -585,18 +579,6 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
         "preflight index readers must consume reduced accepted index contract facts instead of generated IndexModel definitions",
     );
     assert!(
-        access_lowering.contains("pub(in crate::db) struct LoweredIndexScanContract")
-            && access_lowering.contains("scan_contract: LoweredIndexScanContract")
-            && access_lowering.contains("pub(in crate::db) const fn scan_contract(")
-            && index_scan.contains("index: LoweredIndexScanContract")
-            && index_scan.contains("spec.scan_contract()")
-            && index_scan.contains("index.unique()")
-            && index_scan.contains("index.name()")
-            && physical_access.contains("index: LoweredIndexScanContract")
-            && physical_access.contains("spec.scan_contract()"),
-        "lowered executor scan specs must reduce generated index models to scan facts after raw bounds are materialized",
-    );
-    assert!(
         unique_plan.contains("IndexKey::new_from_slots_with_contract(")
             && unique_plan.contains("accepted_index: Option<&SchemaIndexInfo>")
             && unique_plan.contains("read_contract: IndexReadContract<'_>")
@@ -619,12 +601,38 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
             && !commit_prepare.contains("authority.model.indexes().is_empty()"),
         "commit preflight must carry accepted schema info beside the accepted row contract and gate field-path forward-index planning on accepted index contracts",
     );
+}
+
+#[test]
+fn predicate_fast_paths_use_accepted_scalar_slot_helpers() {
+    let predicate_runtime = read_source("src/db/predicate/runtime/mod.rs");
+
     assert!(
         predicate_runtime.contains("slots.field_leaf_codec(field_slot)")
             && predicate_runtime.contains("slots.required_value_storage_scalar(field_slot)")
             && !predicate_runtime.contains("slots\n        .field_decode_contract(field_slot)")
             && !predicate_runtime.contains("slots.field_decode_contract(field_slot)"),
         "conditional-index predicate fast paths must use accepted-aware scalar slot helpers",
+    );
+}
+
+#[test]
+fn lowered_executor_scans_use_reduced_index_scan_facts() {
+    let access_lowering = read_source("src/db/access/lowering.rs");
+    let index_scan = read_source("src/db/executor/stream/access/scan.rs");
+    let physical_access = read_source("src/db/executor/stream/access/physical.rs");
+
+    assert!(
+        access_lowering.contains("pub(in crate::db) struct LoweredIndexScanContract")
+            && access_lowering.contains("scan_contract: LoweredIndexScanContract")
+            && access_lowering.contains("pub(in crate::db) const fn scan_contract(")
+            && index_scan.contains("index: LoweredIndexScanContract")
+            && index_scan.contains("spec.scan_contract()")
+            && index_scan.contains("index.unique()")
+            && index_scan.contains("index.name()")
+            && physical_access.contains("index: LoweredIndexScanContract")
+            && physical_access.contains("spec.scan_contract()"),
+        "lowered executor scan specs must reduce generated index models to scan facts after raw bounds are materialized",
     );
 }
 
