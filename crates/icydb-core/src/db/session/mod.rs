@@ -372,7 +372,7 @@ impl<C: CanisterKind> DbSession<C> {
         // routing consumes accepted index DTOs directly.
         let visible_indexes = VisibleIndexes::accepted_schema_visible(model.indexes(), schema_info);
         debug_assert!(
-            visible_indexes.as_slice().len()
+            visible_indexes.generated_static_bridge_indexes().len()
                 >= visible_indexes
                     .accepted_field_path_index_count()
                     .unwrap_or_default(),

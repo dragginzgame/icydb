@@ -161,7 +161,7 @@ where
     let preferred_access = if visible_indexes.accepted_field_path_index_count().is_some() {
         rerank_access_plan_by_residual_burden_with_accepted_indexes(
             query.model(),
-            visible_indexes.as_slice(),
+            visible_indexes.generated_static_bridge_indexes(),
             visible_indexes.accepted_field_path_indexes(),
             &schema_info,
             &plan,
@@ -169,7 +169,7 @@ where
     } else {
         rerank_access_plan_by_residual_burden_with_indexes(
             query.model(),
-            visible_indexes.as_slice(),
+            visible_indexes.generated_static_bridge_indexes(),
             &schema_info,
             &plan,
         )

@@ -27,6 +27,37 @@ fn assert_primary_key_covering_descriptor(
     );
 }
 
+fn assert_ready_visible_index_bridge_contracts(
+    ready_visible_indexes: &crate::db::query::plan::VisibleIndexes<'_>,
+) {
+    assert_eq!(
+        ready_visible_indexes.accepted_field_path_index_count(),
+        Some(
+            ready_visible_indexes
+                .generated_static_bridge_indexes()
+                .len()
+        ),
+        "ready planner-visible field-path indexes must be backed by accepted field-path index contracts",
+    );
+    assert_eq!(
+        ready_visible_indexes.accepted_field_path_indexes().len(),
+        ready_visible_indexes
+            .generated_static_bridge_indexes()
+            .len(),
+        "ready field-path visible indexes must carry one accepted planner contract per generated bridge",
+    );
+    assert!(
+        ready_visible_indexes.accepted_field_path_contracts_are_consistent(),
+        "accepted planner index contracts must stay internally consistent with their temporary generated bridge",
+    );
+    assert!(
+        !ready_visible_indexes
+            .generated_static_bridge_indexes()
+            .is_empty(),
+        "ready indexed store should expose accepted field-path index contracts",
+    );
+}
+
 #[test]
 fn session_sql_global_aggregate_explain_execution_stays_off_secondary_authority_surface() {
     reset_session_sql_store();
@@ -715,24 +746,7 @@ fn session_non_ready_secondary_indexes_are_hidden_from_planning_and_execution() 
             &schema_info,
         )
         .expect("ready store should resolve accepted planner-visible index slice");
-    assert_eq!(
-        ready_visible_indexes.accepted_field_path_index_count(),
-        Some(ready_visible_indexes.as_slice().len()),
-        "ready planner-visible field-path indexes must be backed by accepted field-path index contracts",
-    );
-    assert_eq!(
-        ready_visible_indexes.accepted_field_path_indexes().len(),
-        ready_visible_indexes.as_slice().len(),
-        "ready field-path visible indexes must carry one accepted planner contract per generated bridge",
-    );
-    assert!(
-        ready_visible_indexes.accepted_field_path_contracts_are_consistent(),
-        "accepted planner index contracts must stay internally consistent with their temporary generated bridge",
-    );
-    assert!(
-        !ready_visible_indexes.as_slice().is_empty(),
-        "ready indexed store should expose accepted field-path index contracts",
-    );
+    assert_ready_visible_index_bridge_contracts(&ready_visible_indexes);
 
     INDEXED_SESSION_SQL_DB
         .recovered_store(IndexedSessionSqlStore::PATH)
@@ -747,7 +761,7 @@ fn session_non_ready_secondary_indexes_are_hidden_from_planning_and_execution() 
         )
         .expect("non-ready store should still resolve planner-visible index slice");
     assert!(
-        visible_indexes.as_slice().is_empty(),
+        visible_indexes.generated_static_bridge_indexes().is_empty(),
         "planner boundary must hide non-ready secondary indexes before access selection",
     );
 

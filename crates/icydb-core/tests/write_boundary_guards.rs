@@ -389,9 +389,16 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && !plan_mod.contains("generated_index_bridge")
             && plan_mod.contains("accepted_field_path_indexes: Vec<AcceptedPlannerFieldPathIndex>")
             && plan_mod.contains("accepted_schema_info: Option<SchemaInfo>")
+            && plan_mod.contains("generated_static_bridge_indexes: Cow")
+            && plan_mod.contains(
+                "pub(in crate::db) fn generated_static_bridge_indexes(&self)",
+            )
             && plan_mod.contains("pub(in crate::db) const fn accepted_schema_info(")
             && plan_mod.contains("accepted_schema_info: Some(schema_info.clone())")
             && plan_mod.contains("AcceptedPlannerFieldPathIndex::from_schema_index")
+            && plan_mod
+                .contains("fn generated_static_contract_bridge_for_accepted_field_path_index")
+            && plan_mod.contains("generated_static_contract_bridge: &'static IndexModel")
             && plan_mod.contains("if index.has_expression_key_items() {")
             && plan_mod_compact.contains(
                 "schema_info.field_path_indexes().iter().any(|accepted|accepted.name()==index.name())",
@@ -495,7 +502,9 @@ fn runtime_access_choice_projection_uses_accepted_visible_indexes() {
             && access_choice.contains(
                 "fn project_access_choice_explain_snapshot_with_accepted_indexes_and_schema(",
             )
+            && access_choice.contains("generated_static_bridge_indexes: &[&'static IndexModel]",)
             && access_choice.contains("plan_access_selection_with_order_and_accepted_indexes(")
+            && pipeline.contains("visible_indexes.generated_static_bridge_indexes()")
             && pipeline.contains("rerank_access_plan_by_residual_burden_with_accepted_indexes(")
             && access_plan
                 .contains("fn finalize_access_choice_for_model_with_accepted_indexes_and_schema(",)

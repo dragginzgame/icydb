@@ -175,7 +175,7 @@ pub(in crate::db::query) fn plan_access_selection_with_order(
 // the generated `IndexModel` bridge.
 pub(in crate::db::query) fn plan_access_selection_with_order_and_accepted_indexes(
     model: &EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    generated_static_bridge_indexes: &[&'static IndexModel],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
@@ -184,7 +184,7 @@ pub(in crate::db::query) fn plan_access_selection_with_order_and_accepted_indexe
 ) -> Result<PlannedAccessSelection, PlannerError> {
     plan_access_selection_with_order_from_authority(
         model,
-        visible_indexes,
+        generated_static_bridge_indexes,
         schema,
         predicate,
         order,

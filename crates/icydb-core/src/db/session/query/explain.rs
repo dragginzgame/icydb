@@ -76,7 +76,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         plan.finalize_access_choice_for_model_with_accepted_indexes_and_schema(
             query.structural().model(),
-            visible_indexes.as_slice(),
+            visible_indexes.generated_static_bridge_indexes(),
             visible_indexes.accepted_field_path_indexes(),
             &schema_info,
         );

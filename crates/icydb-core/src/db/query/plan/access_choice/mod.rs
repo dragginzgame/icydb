@@ -71,14 +71,14 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes_and_sch
 #[must_use]
 pub(in crate::db) fn project_access_choice_explain_snapshot_with_accepted_indexes_and_schema(
     model: &EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    generated_static_bridge_indexes: &[&'static IndexModel],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> AccessChoiceExplainSnapshot {
     project_access_choice_explain_snapshot_from_authority(
         model,
-        visible_indexes,
+        generated_static_bridge_indexes,
         accepted_field_path_indexes,
         schema_info,
         plan,
@@ -277,14 +277,14 @@ pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_indexes(
 #[must_use]
 pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_accepted_indexes(
     model: &EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    generated_static_bridge_indexes: &[&'static IndexModel],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Option<AccessPlan<Value>> {
     rerank_access_plan_by_residual_burden_from_authority(
         model,
-        visible_indexes,
+        generated_static_bridge_indexes,
         accepted_field_path_indexes,
         schema_info,
         plan,
