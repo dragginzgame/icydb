@@ -406,7 +406,7 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && !plan_mod.contains("generated_predicate_bridge: Option<&'static IndexModel>")
             && access_path.contains("accepted_index_predicate_semantics(")
             && access_path.contains("parse_sql_predicate(predicate_sql)")
-            && access_path.contains("unwrap_or(Predicate::False)")
+            && access_path.contains("map_or(Predicate::False")
             && access_path.contains("SemanticIndexKeyItems::Fields(")
             && plan_mod.contains(".filter(|index| index.has_expression_key_items())")
             && !plan_mod_compact.contains(
