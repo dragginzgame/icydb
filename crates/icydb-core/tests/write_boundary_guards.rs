@@ -275,6 +275,7 @@ fn generated_persisted_row_bridge_helpers_are_named_test_only() {
 fn commit_and_delete_relation_row_contracts_use_accepted_snapshots() {
     let structural_row = read_source("src/db/data/structural_row.rs");
     let commit_prepare = read_source("src/db/commit/prepare.rs");
+    let commit_prepare_compact = compact_source(&commit_prepare);
     let relation_validate = read_source("src/db/relation/validate.rs");
 
     assert!(
@@ -283,14 +284,19 @@ fn commit_and_delete_relation_row_contracts_use_accepted_snapshots() {
         "structural row contracts must expose accepted-snapshot construction without retaining the generated-compatible snapshot constructor",
     );
     assert!(
-        commit_prepare.contains(
-            "StructuralRowContract::from_accepted_schema_snapshot(authority.entity_path, &accepted)",
-        ) && relation_validate
-            .contains("StructuralRowContract::from_accepted_schema_snapshot(S::PATH, &accepted)")
-            && !commit_prepare
-                .contains("StructuralRowContract::from_generated_model_for_test_with_accepted_schema_snapshot")
-            && !relation_validate
-                .contains("StructuralRowContract::from_generated_model_for_test_with_accepted_schema_snapshot"),
+        commit_prepare_compact.contains(
+            "StructuralRowContract::from_accepted_schema_snapshot(authority.entity_path,&accepted,)",
+        ) && commit_prepare_compact
+            .contains("SchemaInfo::from_accepted_snapshot_for_model(authority.model,&accepted)",)
+            && relation_validate.contains(
+                "StructuralRowContract::from_accepted_schema_snapshot(S::PATH, &accepted)"
+            )
+            && !commit_prepare.contains(
+                "StructuralRowContract::from_generated_model_for_test_with_accepted_schema_snapshot"
+            )
+            && !relation_validate.contains(
+                "StructuralRowContract::from_generated_model_for_test_with_accepted_schema_snapshot"
+            ),
         "commit preflight and delete relation validation must build accepted-only row contracts after schema acceptance",
     );
 }
