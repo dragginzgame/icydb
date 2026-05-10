@@ -419,9 +419,12 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && order_select.contains("whole_index_ordered_range_scan_from_contract(")
             && order_select.contains("deterministic_secondary_index_order_terms_satisfied(",)
             && order_select.contains("grouped_index_order_terms_satisfied(")
+            && order_select.contains("index_key_item_order_terms(index_contract.key_items())")
             && order_select
                 .contains("let index_contract = SemanticIndexAccessContract::from_index(*index);")
             && order_select.contains("if !index_contract.has_expression_key_items() {")
+            && !order_select.contains("deterministic_secondary_index_order_satisfied(")
+            && !order_select.contains("grouped_index_order_satisfied(")
             && !order_select.contains("accepted.generated_index_bridge()")
             && order_select.contains("fn index_range_from_order_for_generated_model_only(")
             && !order_select.contains("fn index_range_from_order("),

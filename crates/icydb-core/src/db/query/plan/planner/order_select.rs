@@ -8,9 +8,8 @@ use crate::{
         access::{AccessPlan, SemanticIndexAccessContract, SemanticIndexRangeSpec},
         query::plan::{
             AcceptedPlannerFieldPathIndex, OrderSpec,
-            deterministic_secondary_index_order_satisfied,
-            deterministic_secondary_index_order_terms_satisfied, grouped_index_order_satisfied,
-            grouped_index_order_terms_satisfied,
+            deterministic_secondary_index_order_terms_satisfied,
+            grouped_index_order_terms_satisfied, index_key_item_order_terms,
         },
     },
     model::{entity::EntityModel, index::IndexModel},
@@ -37,23 +36,29 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_for_generated_
         .and_then(|order| order.deterministic_secondary_order_contract(model.primary_key.name));
 
     for &index in candidate_indexes {
+        let index_contract = SemanticIndexAccessContract::from_index(*index);
+        let index_order_terms = index_key_item_order_terms(index_contract.key_items());
         if grouped {
             let Some(order_contract) = grouped_order_contract.as_ref() else {
                 continue;
             };
-            if !grouped_index_order_satisfied(order_contract, index, 0) {
+            if !grouped_index_order_terms_satisfied(order_contract, &index_order_terms, 0) {
                 continue;
             }
         } else {
             let Some(order_contract) = scalar_order_contract.as_ref() else {
                 continue;
             };
-            if !deterministic_secondary_index_order_satisfied(order_contract, index, 0) {
+            if !deterministic_secondary_index_order_terms_satisfied(
+                order_contract,
+                &index_order_terms,
+                0,
+            ) {
                 continue;
             }
         }
 
-        return Some(whole_index_ordered_range_scan(index));
+        return Some(whole_index_ordered_range_scan_from_contract(index_contract));
     }
 
     None
@@ -116,41 +121,31 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_with_accepted_
         if !index_contract.has_expression_key_items() {
             continue;
         }
+        let index_order_terms = index_key_item_order_terms(index_contract.key_items());
         if grouped {
             let Some(order_contract) = grouped_order_contract.as_ref() else {
                 continue;
             };
-            if !grouped_index_order_satisfied(order_contract, index, 0) {
+            if !grouped_index_order_terms_satisfied(order_contract, &index_order_terms, 0) {
                 continue;
             }
         } else {
             let Some(order_contract) = scalar_order_contract.as_ref() else {
                 continue;
             };
-            if !deterministic_secondary_index_order_satisfied(order_contract, index, 0) {
+            if !deterministic_secondary_index_order_terms_satisfied(
+                order_contract,
+                &index_order_terms,
+                0,
+            ) {
                 continue;
             }
         }
 
-        return Some(whole_index_ordered_range_scan(index));
+        return Some(whole_index_ordered_range_scan_from_contract(index_contract));
     }
 
     None
-}
-
-fn whole_index_ordered_range_scan(index: &'static IndexModel) -> AccessPlan<Value> {
-    // Encode one whole-index ordered scan as an unbounded index-range with
-    // zero equality prefix. The first index slot becomes the range anchor
-    // while lower layers own forward vs reverse traversal from ORDER BY.
-    let spec = SemanticIndexRangeSpec::new(
-        *index,
-        vec![0usize],
-        Vec::new(),
-        Bound::Unbounded,
-        Bound::Unbounded,
-    );
-
-    AccessPlan::index_range(spec)
 }
 
 fn whole_index_ordered_range_scan_from_contract(

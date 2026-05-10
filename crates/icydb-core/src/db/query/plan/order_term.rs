@@ -3,10 +3,13 @@
 //! Does not own: query expression parsing or executor slot resolution.
 //! Boundary: keeps index-key canonicalization in one place.
 
-use crate::model::index::{IndexKeyItem, IndexKeyItemsRef, IndexModel};
+#[cfg(test)]
+use crate::model::index::IndexModel;
+use crate::model::index::{IndexKeyItem, IndexKeyItemsRef};
 
 /// Return one canonical ORDER BY term list for an index key sequence.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn index_order_terms(index: &IndexModel) -> Vec<String> {
     index_key_item_order_terms(index.key_items())
 }

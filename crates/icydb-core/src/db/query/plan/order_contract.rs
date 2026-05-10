@@ -3,16 +3,15 @@
 //! Does not own: runtime order application mechanics or cursor wire token encoding.
 //! Boundary: exposes immutable order contracts consumed across planner/executor boundaries.
 
+#[cfg(test)]
+use crate::{db::query::plan::order_term::index_order_terms, model::index::IndexModel};
 use crate::{
     db::{
         access::AccessCapabilities,
         direction::Direction,
-        query::plan::{
-            OrderDirection, OrderSpec,
-            order_term::{index_key_item_order_terms, index_order_terms},
-        },
+        query::plan::{OrderDirection, OrderSpec, order_term::index_key_item_order_terms},
     },
-    model::index::{IndexKeyItemsRef, IndexModel},
+    model::index::IndexKeyItemsRef,
 };
 
 ///
@@ -243,6 +242,7 @@ impl DeterministicSecondaryOrderContract {
 
 /// Return the shared scalar secondary-index order compatibility fact.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn deterministic_secondary_index_order_compatibility(
     order_contract: &DeterministicSecondaryOrderContract,
     index: &IndexModel,
@@ -269,6 +269,7 @@ pub(in crate::db) fn deterministic_secondary_index_key_items_order_compatibility
 /// Return whether one deterministic scalar ORDER BY contract is satisfied by
 /// one secondary-index traversal after the equality-bound prefix.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn deterministic_secondary_index_order_satisfied(
     order_contract: &DeterministicSecondaryOrderContract,
     index: &IndexModel,
@@ -434,6 +435,7 @@ impl GroupedIndexOrderContract {
 
 /// Return the shared grouped secondary-index order match classification.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn grouped_index_order_match(
     order_contract: &GroupedIndexOrderContract,
     index: &IndexModel,
@@ -442,20 +444,6 @@ pub(in crate::db) fn grouped_index_order_match(
     let index_terms = index_order_terms(index);
 
     order_contract.classify_index_match(&index_terms, prefix_len)
-}
-
-/// Return whether one grouped ORDER BY contract is satisfied by one
-/// secondary-index traversal after the equality-bound prefix.
-#[must_use]
-pub(in crate::db) fn grouped_index_order_satisfied(
-    order_contract: &GroupedIndexOrderContract,
-    index: &IndexModel,
-    prefix_len: usize,
-) -> bool {
-    !matches!(
-        grouped_index_order_match(order_contract, index, prefix_len),
-        GroupedIndexOrderMatch::None
-    )
 }
 
 /// Return whether accepted field-path index order terms satisfy one grouped

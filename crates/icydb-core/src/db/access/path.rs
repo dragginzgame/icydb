@@ -187,6 +187,7 @@ pub(crate) struct SemanticIndexRangeSpec {
 
 impl SemanticIndexRangeSpec {
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn new(
         index: IndexModel,
         field_slots: Vec<usize>,
