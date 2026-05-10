@@ -32,19 +32,17 @@ fn assert_ready_visible_index_bridge_contracts(
 ) {
     assert_eq!(
         ready_visible_indexes.accepted_field_path_index_count(),
-        Some(
-            ready_visible_indexes
-                .generated_candidate_bridge_indexes()
-                .len()
-        ),
+        Some(ready_visible_indexes.accepted_field_path_indexes().len()),
         "ready planner-visible field-path indexes must be backed by accepted field-path index contracts",
     );
     assert_eq!(
-        ready_visible_indexes.accepted_field_path_indexes().len(),
         ready_visible_indexes
             .generated_candidate_bridge_indexes()
-            .len(),
-        "ready field-path visible indexes must carry one accepted planner contract per generated bridge",
+            .iter()
+            .filter(|index| !index.has_expression_key_items())
+            .count(),
+        0,
+        "ready field-path visible indexes must not re-enter the generated candidate bridge",
     );
     assert!(
         ready_visible_indexes.accepted_field_path_contracts_are_consistent(),
@@ -52,7 +50,7 @@ fn assert_ready_visible_index_bridge_contracts(
     );
     assert!(
         !ready_visible_indexes
-            .generated_candidate_bridge_indexes()
+            .accepted_field_path_indexes()
             .is_empty(),
         "ready indexed store should expose accepted field-path index contracts",
     );

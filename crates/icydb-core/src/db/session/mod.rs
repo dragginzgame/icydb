@@ -366,16 +366,15 @@ impl<C: CanisterKind> DbSession<C> {
         }
         debug_assert_eq!(state, IndexState::Ready);
 
-        // Phase 2: planner-visible field-path indexes are the accepted schema
-        // contracts once the recovered store is query-visible. The returned
-        // `IndexModel` slice is still the planner bridge until access-choice
-        // routing consumes accepted index DTOs directly.
+        // Phase 2: planner-visible field-path indexes are accepted schema
+        // contracts once the recovered store is query-visible. The remaining
+        // generated candidate bridge is expression-index only.
         let visible_indexes = VisibleIndexes::accepted_schema_visible(model.indexes(), schema_info);
         debug_assert!(
-            visible_indexes.generated_candidate_bridge_indexes().len()
-                >= visible_indexes
-                    .accepted_field_path_index_count()
-                    .unwrap_or_default(),
+            visible_indexes
+                .generated_candidate_bridge_indexes()
+                .iter()
+                .all(|index| index.has_expression_key_items()),
         );
         debug_assert!(visible_indexes.accepted_field_path_contracts_are_consistent());
 
