@@ -7,12 +7,11 @@ use crate::{
     db::{
         access::SemanticIndexAccessContract,
         query::plan::{
-            OrderSpec, deterministic_secondary_index_order_satisfied,
-            deterministic_secondary_index_order_terms_satisfied, grouped_index_order_satisfied,
+            OrderSpec, deterministic_secondary_index_order_terms_satisfied,
             grouped_index_order_terms_satisfied, index_key_item_order_terms,
         },
     },
-    model::{entity::EntityModel, index::IndexModel},
+    model::entity::EntityModel,
 };
 use std::ops::Bound;
 
@@ -181,34 +180,6 @@ pub(in crate::db::query::plan) const fn range_bound_count<T>(
     }
 
     count
-}
-
-// Project whether one index candidate can preserve the canonical deterministic
-// secondary ordering contract after consuming `prefix_len` equality-bound key
-// items.
-#[must_use]
-pub(in crate::db::query::plan) fn candidate_satisfies_secondary_order(
-    model: &EntityModel,
-    order: Option<&OrderSpec>,
-    index: &IndexModel,
-    prefix_len: usize,
-    grouped: bool,
-) -> bool {
-    if grouped {
-        let Some(order_contract) = order.and_then(OrderSpec::grouped_index_order_contract) else {
-            return false;
-        };
-
-        return grouped_index_order_satisfied(&order_contract, index, prefix_len);
-    }
-
-    let Some(order_contract) = order
-        .and_then(|order| order.deterministic_secondary_order_contract(model.primary_key.name))
-    else {
-        return false;
-    };
-
-    deterministic_secondary_index_order_satisfied(&order_contract, index, prefix_len)
 }
 
 /// Project whether one selected access contract can preserve the canonical

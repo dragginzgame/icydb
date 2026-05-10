@@ -434,33 +434,3 @@ fn query_clause_implies_required(query: &ComparePredicate, required: &ComparePre
 fn compare_values(left: &Value, right: &Value) -> Option<Ordering> {
     compare_numeric_or_strict_order(left, right)
 }
-
-impl IndexModel {
-    /// Return true when this index can structurally support the field/operator pair.
-    #[must_use]
-    pub(in crate::db::query::plan) fn is_field_indexable(
-        &self,
-        field: &str,
-        op: CompareOp,
-    ) -> bool {
-        // Field-key indexability helper only.
-        // Expression-key eligibility is owned by key-item lowering paths.
-        if self.has_expression_key_items() {
-            return false;
-        }
-        if !self.fields().contains(&field) {
-            return false;
-        }
-
-        matches!(
-            op,
-            CompareOp::Eq
-                | CompareOp::In
-                | CompareOp::Gt
-                | CompareOp::Gte
-                | CompareOp::Lt
-                | CompareOp::Lte
-                | CompareOp::StartsWith
-        )
-    }
-}

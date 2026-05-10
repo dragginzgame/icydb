@@ -10,10 +10,7 @@ use crate::{
         predicate::{CoercionId, CompareOp, ComparePredicate},
         query::plan::{
             OrderSpec,
-            key_item_match::{
-                eq_lookup_value_for_key_item, leading_index_key_item,
-                starts_with_lookup_value_for_key_item,
-            },
+            key_item_match::{eq_lookup_value_for_key_item, starts_with_lookup_value_for_key_item},
             planner::{
                 AccessCandidateScore, access_candidate_score_from_index_contract,
                 access_candidate_score_outranks, index_literal_matches_schema,
@@ -206,7 +203,8 @@ fn plan_starts_with_compare(
         Bound<Value>,
     )> = None;
     for index in candidate_indexes {
-        let Some(leading_key_item) = leading_index_key_item(index) else {
+        let index_contract = SemanticIndexAccessContract::from_index(**index);
+        let Some(leading_key_item) = index_contract.key_item_at(0) else {
             continue;
         };
         let Some(prefix) = starts_with_lookup_value_for_key_item(
@@ -235,7 +233,6 @@ fn plan_starts_with_compare(
             },
         )?;
 
-        let index_contract = SemanticIndexAccessContract::from_index(**index);
         let score = access_candidate_score_from_index_contract(
             model,
             order,
@@ -288,10 +285,10 @@ fn plan_ordered_compare(
         Bound<Value>,
     )> = None;
     for index in candidate_indexes {
-        let Some(leading_key_item) = leading_index_key_item(index) else {
+        let index_contract = SemanticIndexAccessContract::from_index(**index);
+        let Some(leading_key_item) = index_contract.key_item_at(0) else {
             continue;
         };
-        let index_contract = SemanticIndexAccessContract::from_index(**index);
         if index_contract.key_arity() != 1 {
             continue;
         }
@@ -309,8 +306,16 @@ fn plan_ordered_compare(
         match leading_key_item {
             crate::model::index::IndexKeyItem::Field(_) => {
                 if cmp.coercion.id != CoercionId::Strict
-                    || index.fields().first() != Some(&cmp.field.as_str())
-                    || !index.is_field_indexable(cmp.field.as_str(), cmp.op)
+                    || !matches!(
+                        index_contract.key_item_at(0),
+                        Some(crate::model::index::IndexKeyItem::Field(field))
+                            if field == cmp.field.as_str()
+                    )
+                    || !field_key_contract_supports_operator(
+                        index_contract,
+                        cmp.field.as_str(),
+                        cmp.op,
+                    )
                 {
                     continue;
                 }
@@ -359,4 +364,37 @@ fn plan_ordered_compare(
             upper,
         ))
     })
+}
+
+fn field_key_contract_supports_operator(
+    index_contract: SemanticIndexAccessContract,
+    field: &str,
+    op: CompareOp,
+) -> bool {
+    if index_contract.has_expression_key_items() {
+        return false;
+    }
+    if !contract_contains_field_key(index_contract, field) {
+        return false;
+    }
+
+    matches!(
+        op,
+        CompareOp::Eq
+            | CompareOp::In
+            | CompareOp::Gt
+            | CompareOp::Gte
+            | CompareOp::Lt
+            | CompareOp::Lte
+            | CompareOp::StartsWith
+    )
+}
+
+fn contract_contains_field_key(index_contract: SemanticIndexAccessContract, field: &str) -> bool {
+    match index_contract.key_items() {
+        crate::model::index::IndexKeyItemsRef::Fields(fields) => fields.contains(&field),
+        crate::model::index::IndexKeyItemsRef::Items(items) => items.iter().any(|item| {
+            matches!(item, crate::model::index::IndexKeyItem::Field(key_field) if key_field == &field)
+        }),
+    }
 }

@@ -37,9 +37,8 @@ pub(super) fn sorted_indexes(indexes: &[&'static IndexModel]) -> Vec<&'static In
 }
 
 #[derive(Clone, Copy)]
-struct CandidateScoringIndex<'a> {
+struct CandidateScoringIndex {
     contract: SemanticIndexAccessContract,
-    generated: &'a IndexModel,
 }
 
 pub(super) fn evaluate_index_candidate(
@@ -54,7 +53,6 @@ pub(super) fn evaluate_index_candidate(
     let index_contract = SemanticIndexAccessContract::from_index(*index);
     let scoring_index = CandidateScoringIndex {
         contract: index_contract,
-        generated: index,
     };
 
     if matches!(family, AccessChoiceFamily::Range) && predicate.is_none() && order.is_some() {
@@ -94,7 +92,7 @@ pub(super) fn evaluate_index_candidate(
 // ordering. The canonical score still carries order compatibility so explain
 // can report why one visible index won the fallback.
 fn evaluate_order_only_range_candidate(
-    scoring_index: CandidateScoringIndex<'_>,
+    scoring_index: CandidateScoringIndex,
     model: &EntityModel,
     order: Option<&OrderSpec>,
     grouped: bool,
@@ -114,7 +112,7 @@ fn augment_candidate_with_order_compatibility(
     evaluation: CandidateEvaluation,
     model: &EntityModel,
     order: Option<&OrderSpec>,
-    scoring_index: CandidateScoringIndex<'_>,
+    scoring_index: CandidateScoringIndex,
     grouped: bool,
 ) -> CandidateEvaluation {
     match evaluation {
@@ -139,23 +137,19 @@ fn augment_candidate_with_order_compatibility(
 fn candidate_score_with_order_compatibility(
     model: &EntityModel,
     order: Option<&OrderSpec>,
-    scoring_index: CandidateScoringIndex<'_>,
+    scoring_index: CandidateScoringIndex,
     prefix_len: usize,
     exact: bool,
     range_bound_count: u8,
     grouped: bool,
 ) -> crate::db::query::plan::planner::AccessCandidateScore {
-    crate::db::query::plan::planner::AccessCandidateScore::new(
+    crate::db::query::plan::planner::access_candidate_score_from_index_contract(
+        model,
+        order,
+        scoring_index.contract,
         prefix_len,
         exact,
-        scoring_index.contract.is_filtered(),
         range_bound_count,
-        crate::db::query::plan::planner::candidate_satisfies_secondary_order(
-            model,
-            order,
-            scoring_index.generated,
-            prefix_len,
-            grouped,
-        ),
+        grouped,
     )
 }

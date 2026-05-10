@@ -20,7 +20,7 @@ use crate::{
     },
     model::{
         entity::EntityModel,
-        index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
+        index::{IndexKeyItem, IndexModel},
     },
     value::Value,
 };
@@ -187,23 +187,29 @@ fn index_range_candidate_for_index(
     schema: &SchemaInfo,
     compares: &[CachedCompare<'_>],
 ) -> Option<(usize, Vec<Value>, RangeConstraint)> {
-    match index.key_items() {
-        IndexKeyItemsRef::Fields(fields) => index_range_candidate_for_key_items(
-            index,
+    let index_contract = SemanticIndexAccessContract::from_index(*index);
+    match index_contract.key_items() {
+        crate::model::index::IndexKeyItemsRef::Fields(fields) => {
+            index_range_candidate_for_key_items(
+                index_contract,
+                schema,
+                fields.iter().copied().map(IndexKeyItem::Field),
+                compares,
+            )
+        }
+        crate::model::index::IndexKeyItemsRef::Items(items) => index_range_candidate_for_key_items(
+            index_contract,
             schema,
-            fields.iter().copied().map(IndexKeyItem::Field),
+            items.iter().copied(),
             compares,
         ),
-        IndexKeyItemsRef::Items(items) => {
-            index_range_candidate_for_key_items(index, schema, items.iter().copied(), compares)
-        }
     }
 }
 
 // Field-only and mixed key-item indexes share the same prefix/range slot walk;
 // only the source iterator for canonical key items differs.
 fn index_range_candidate_for_key_items<I>(
-    index: &'static IndexModel,
+    index_contract: SemanticIndexAccessContract,
     schema: &SchemaInfo,
     key_items: I,
     compares: &[CachedCompare<'_>],
@@ -216,7 +222,8 @@ where
     let mut range_position = None;
 
     for (position, key_item) in key_items.into_iter().enumerate() {
-        let constraint = key_item_constraint_for_index_slot(index, schema, key_item, compares)?;
+        let constraint =
+            key_item_constraint_for_index_slot(index_contract, schema, key_item, compares)?;
         if !consume_index_slot_constraint(
             &mut prefix,
             &mut range,
@@ -231,7 +238,7 @@ where
     let (Some(range_position), Some(range)) = (range_position, range) else {
         return None;
     };
-    if prefix.len() >= index.fields().len() {
+    if prefix.len() >= index_contract.key_arity() {
         return None;
     }
 
@@ -266,7 +273,7 @@ fn consume_index_slot_constraint(
 // Build the effective constraint class for one canonical index slot from the
 // compare predicates that can lower onto that slot.
 fn key_item_constraint_for_index_slot(
-    index: &'static IndexModel,
+    index_contract: SemanticIndexAccessContract,
     schema: &SchemaInfo,
     key_item: IndexKeyItem,
     compares: &[CachedCompare<'_>],
@@ -318,7 +325,7 @@ fn key_item_constraint_for_index_slot(
             },
             CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
                 merge_ordered_compare_constraint_for_key_item(
-                    index,
+                    index_contract,
                     key_item,
                     cached,
                     &mut constraint,
@@ -364,7 +371,7 @@ fn key_item_constraint_for_index_slot(
 // This keeps Eq/In/prefix/range on the same canonical literal-lowering path
 // for both raw field keys and the accepted TextCasefold expression keys.
 fn merge_ordered_compare_constraint_for_key_item(
-    index: &'static IndexModel,
+    index_contract: SemanticIndexAccessContract,
     key_item: IndexKeyItem,
     cached: &CachedCompare<'_>,
     constraint: &mut IndexFieldConstraint,
@@ -381,7 +388,7 @@ fn merge_ordered_compare_constraint_for_key_item(
     match key_item {
         IndexKeyItem::Field(_) => {
             if cmp.coercion.id != CoercionId::Strict
-                || !index.is_field_indexable(key_item.field(), cmp.op)
+                || !field_key_contract_supports_operator(index_contract, key_item.field(), cmp.op)
             {
                 return Some(());
             }
@@ -404,4 +411,37 @@ fn merge_ordered_compare_constraint_for_key_item(
 
     *constraint = IndexFieldConstraint::Range(range);
     Some(())
+}
+
+fn field_key_contract_supports_operator(
+    index_contract: SemanticIndexAccessContract,
+    field: &str,
+    op: CompareOp,
+) -> bool {
+    if index_contract.has_expression_key_items() {
+        return false;
+    }
+    if !contract_contains_field_key(index_contract, field) {
+        return false;
+    }
+
+    matches!(
+        op,
+        CompareOp::Eq
+            | CompareOp::In
+            | CompareOp::Gt
+            | CompareOp::Gte
+            | CompareOp::Lt
+            | CompareOp::Lte
+            | CompareOp::StartsWith
+    )
+}
+
+fn contract_contains_field_key(index_contract: SemanticIndexAccessContract, field: &str) -> bool {
+    match index_contract.key_items() {
+        crate::model::index::IndexKeyItemsRef::Fields(fields) => fields.contains(&field),
+        crate::model::index::IndexKeyItemsRef::Items(items) => items
+            .iter()
+            .any(|item| matches!(item, IndexKeyItem::Field(key_field) if key_field == &field)),
+    }
 }

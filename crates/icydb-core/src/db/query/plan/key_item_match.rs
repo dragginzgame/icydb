@@ -5,32 +5,9 @@
 
 use crate::{
     db::{index::derive_index_expression_value, predicate::CoercionId},
-    model::index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
+    model::index::{IndexExpression, IndexKeyItem},
     value::Value,
 };
-
-/// Return the canonical leading key-item for one index model.
-#[must_use]
-pub(in crate::db::query::plan) const fn leading_index_key_item(
-    index: &IndexModel,
-) -> Option<IndexKeyItem> {
-    match index.key_items() {
-        IndexKeyItemsRef::Fields(fields) => {
-            if fields.is_empty() {
-                None
-            } else {
-                Some(IndexKeyItem::Field(fields[0]))
-            }
-        }
-        IndexKeyItemsRef::Items(items) => {
-            if items.is_empty() {
-                None
-            } else {
-                Some(items[0])
-            }
-        }
-    }
-}
 
 /// Return whether one key-item can match a predicate field/coercion pair.
 #[must_use]

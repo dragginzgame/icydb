@@ -786,7 +786,8 @@ fn access_choice_candidate_scores_use_reduced_index_contract_facts() {
             && planner_ranking.contains("index.is_filtered()")
             && planner_ranking.contains("selected_index_contract_satisfies_secondary_order(")
             && evaluator.contains("SemanticIndexAccessContract::from_index(*index)")
-            && evaluator.contains("scoring_index.contract.is_filtered()")
+            && evaluator.contains("access_candidate_score_from_index_contract(")
+            && !evaluator.contains("candidate_satisfies_secondary_order(")
             && evaluator_prefix.contains("SemanticIndexAccessContract::from_index(*index)")
             && evaluator_prefix.contains("index_contract.key_arity()")
             && evaluator_prefix.contains("index_contract.is_filtered()")
@@ -815,8 +816,16 @@ fn access_choice_candidate_scores_use_reduced_index_contract_facts() {
             && !planner_range.contains("index.predicate().is_some()")
             && !planner_prefix.contains("candidate_satisfies_secondary_order(")
             && !planner_compare.contains("candidate_satisfies_secondary_order(")
-            && !planner_range.contains("candidate_satisfies_secondary_order("),
-        "planner candidate ranking must score filtered and order-compatibility facts through reduced semantic index contracts",
+            && !planner_range.contains("candidate_satisfies_secondary_order(")
+            && !planner_prefix.contains("leading_index_key_item")
+            && !planner_prefix.contains("index.key_items()")
+            && !planner_compare.contains("leading_index_key_item")
+            && !planner_compare.contains("index.fields()")
+            && !planner_compare.contains("index.is_field_indexable")
+            && !planner_range.contains("index.key_items()")
+            && !planner_range.contains("index.fields()")
+            && !planner_range.contains("index.is_field_indexable"),
+        "planner candidate ranking and key-shape extraction must use reduced semantic index contracts",
     );
 }
 
