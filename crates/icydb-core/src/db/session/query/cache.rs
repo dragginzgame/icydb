@@ -172,10 +172,10 @@ impl<C: CanisterKind> DbSession<C> {
                 let visible_indexes =
                     VisibleIndexes::accepted_schema_visible(model.indexes(), schema_info);
                 debug_assert!(
-                    visible_indexes.generated_candidate_bridge_indexes().len()
-                        >= visible_indexes
-                            .accepted_field_path_index_count()
-                            .unwrap_or_default(),
+                    visible_indexes
+                        .generated_candidate_bridge_indexes()
+                        .iter()
+                        .all(|index| index.has_expression_key_items()),
                 );
                 debug_assert!(visible_indexes.accepted_field_path_contracts_are_consistent());
 
