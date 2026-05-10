@@ -23,7 +23,7 @@ use crate::{
     },
     model::{
         entity::EntityModel,
-        index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
+        index::{IndexKeyItem, IndexKeyItemsRef},
     },
     value::Value,
 };
@@ -90,7 +90,7 @@ pub(in crate::db::query::plan::planner) fn primary_key_range_from_and(
 //   slots after k must be unconstrained.
 pub(in crate::db::query::plan::planner) fn index_range_from_and(
     model: &EntityModel,
-    candidate_indexes: &[&'static IndexModel],
+    candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     children: &[Predicate],
     order: Option<&OrderSpec>,
@@ -134,7 +134,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
 
     let mut best: Option<(
         AccessCandidateScore,
-        &'static IndexModel,
+        SemanticIndexAccessContract,
         usize,
         Vec<Value>,
         RangeConstraint,
@@ -147,23 +147,22 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
         };
 
         let prefix_len = prefix.len();
-        let index_contract = SemanticIndexAccessContract::from_index(**index);
         let score = access_candidate_score_from_index_contract(
             model,
             order,
-            index_contract.clone(),
+            index.clone(),
             prefix_len,
             false,
             range_bound_count(&range.lower, &range.upper),
             grouped,
         );
         match best {
-            None => best = Some((score, index, range_slot, prefix, range)),
+            None => best = Some((score, index.clone(), range_slot, prefix, range)),
             Some((best_score, best_index, _, _, _))
                 if access_candidate_score_outranks(score, best_score, false)
                     || (score == best_score && index.name() < best_index.name()) =>
             {
-                best = Some((score, index, range_slot, prefix, range));
+                best = Some((score, index.clone(), range_slot, prefix, range));
             }
             _ => {}
         }
@@ -173,7 +172,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
         let field_slots = (0..=range_slot).collect();
 
         SemanticIndexRangeSpec::from_access_contract(
-            SemanticIndexAccessContract::from_index(*index),
+            index,
             field_slots,
             prefix,
             range.lower,
@@ -186,14 +185,13 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
 // key slots directly instead of field names. That keeps mixed field/expression
 // indexes on the same planner contract as field-only indexes.
 fn index_range_candidate_for_index(
-    index: &'static IndexModel,
+    index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
     compares: &[CachedCompare<'_>],
 ) -> Option<(usize, Vec<Value>, RangeConstraint)> {
-    let index_contract = SemanticIndexAccessContract::from_index(*index);
     match index_contract.key_items() {
         SemanticIndexKeyItemsRef::Fields(fields) => index_range_candidate_for_key_items(
-            &index_contract,
+            index_contract,
             schema,
             fields
                 .iter()
@@ -202,7 +200,7 @@ fn index_range_candidate_for_index(
         ),
         SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
             index_range_candidate_for_key_items(
-                &index_contract,
+                index_contract,
                 schema,
                 fields.iter().copied().map(SemanticIndexKeyItemRef::Field),
                 compares,
@@ -210,7 +208,7 @@ fn index_range_candidate_for_index(
         }
         SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => {
             index_range_candidate_for_key_items(
-                &index_contract,
+                index_contract,
                 schema,
                 items.iter().copied().map(Into::into),
                 compares,

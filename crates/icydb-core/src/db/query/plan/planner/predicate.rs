@@ -18,7 +18,7 @@ use crate::{
         schema::SchemaInfo,
     },
     error::InternalError,
-    model::{entity::EntityModel, index::IndexModel},
+    model::entity::EntityModel,
     value::Value,
 };
 
@@ -28,7 +28,7 @@ use crate::{
 )]
 pub(super) fn plan_predicate(
     model: &EntityModel,
-    candidate_indexes: &[&'static IndexModel],
+    candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     predicate: &Predicate,
     order: Option<&OrderSpec>,

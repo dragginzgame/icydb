@@ -111,13 +111,14 @@ pub(in crate::db::query) use pipeline::{
     prepare_query_model_scalar_planning_state_with_schema_info,
     try_build_trivial_scalar_load_plan_with_schema_info,
 };
+pub(in crate::db::query) use planner::PlannerError;
 #[cfg(test)]
 pub(in crate::db) use planner::plan_access;
 pub(in crate::db::query) use planner::{
     PlannedAccessSelection, plan_access_selection_with_order,
     plan_access_selection_with_order_and_accepted_indexes,
+    plan_access_selection_with_order_and_semantic_indexes,
 };
-pub(in crate::db::query) use planner::{PlannerError, plan_access_with_order};
 pub(in crate::db) use planner::{
     residual_query_predicate_after_access_path_bounds,
     residual_query_predicate_after_filtered_access_contract,
@@ -430,16 +431,7 @@ impl<'a> VisibleIndexes<'a> {
         let accepted_indexes = indexes
             .iter()
             .copied()
-            .filter(|index| {
-                if index.has_expression_key_items() {
-                    return true;
-                }
-
-                schema_info
-                    .field_path_indexes()
-                    .iter()
-                    .any(|accepted| accepted.name() == index.name())
-            })
+            .filter(|index| index.has_expression_key_items())
             .collect();
         let accepted_field_path_index_count = accepted_field_path_indexes.len();
 

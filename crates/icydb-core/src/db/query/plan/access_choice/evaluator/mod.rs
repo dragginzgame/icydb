@@ -19,7 +19,7 @@ use crate::{
         },
         schema::SchemaInfo,
     },
-    model::{entity::EntityModel, index::IndexModel},
+    model::entity::EntityModel,
 };
 
 #[cfg(test)]
@@ -32,8 +32,12 @@ pub(in crate::db::query::plan::access_choice) use ranking::{
     chosen_access_shape_projection, chosen_selection_reason, ranked_rejection_reason,
 };
 
-pub(super) fn sorted_indexes(indexes: &[&'static IndexModel]) -> Vec<&'static IndexModel> {
-    crate::db::query::plan::planner::sorted_model_indexes(indexes)
+pub(super) fn sorted_indexes(
+    indexes: &[SemanticIndexAccessContract],
+) -> Vec<SemanticIndexAccessContract> {
+    let mut indexes = indexes.to_vec();
+    indexes.sort_unstable_by(|left, right| left.name().cmp(right.name()));
+    indexes
 }
 
 #[derive(Clone)]
@@ -43,16 +47,15 @@ struct CandidateScoringIndex {
 
 pub(super) fn evaluate_index_candidate(
     family: AccessChoiceFamily,
-    index: &IndexModel,
+    index: SemanticIndexAccessContract,
     model: &EntityModel,
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> CandidateEvaluation {
-    let index_contract = SemanticIndexAccessContract::from_index(*index);
     let scoring_index = CandidateScoringIndex {
-        contract: index_contract,
+        contract: index.clone(),
     };
 
     if matches!(family, AccessChoiceFamily::Range) && predicate.is_none() && order.is_some() {
@@ -65,17 +68,17 @@ pub(super) fn evaluate_index_candidate(
 
     match family {
         AccessChoiceFamily::Prefix => augment_candidate_with_order_compatibility(
-            prefix::evaluate_prefix_candidate(index, schema, predicate),
+            prefix::evaluate_prefix_candidate(&index, schema, predicate),
             model,
             order,
             scoring_index,
             grouped,
         ),
         AccessChoiceFamily::MultiLookup => {
-            prefix::evaluate_multi_lookup_candidate(index, schema, predicate)
+            prefix::evaluate_multi_lookup_candidate_from_contract(&index, schema, predicate)
         }
         AccessChoiceFamily::Range => augment_candidate_with_order_compatibility(
-            range::evaluate_range_candidate(index, schema, predicate),
+            range::evaluate_range_candidate_from_contract(index, schema, predicate),
             model,
             order,
             scoring_index,

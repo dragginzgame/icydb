@@ -226,7 +226,7 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_access_choice_node_
     );
     node.node_properties.insert(
         "acc_alts",
-        value_list(access_choice.alternatives.iter().copied()),
+        value_list(access_choice.alternatives.iter().cloned()),
     );
     node.node_properties.insert(
         "acc_reject",

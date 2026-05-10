@@ -19,7 +19,7 @@ mod tests;
 
 use crate::{
     db::{
-        access::{AccessPlan, normalize_access_plan_value},
+        access::{AccessPlan, SemanticIndexAccessContract, normalize_access_plan_value},
         predicate::Predicate,
         query::plan::{
             AcceptedPlannerFieldPathIndex, OrderSpec, PlanError, PlannedNonIndexAccessReason,
@@ -33,7 +33,7 @@ use crate::{
 use thiserror::Error as ThisError;
 
 pub(in crate::db::query::plan) use index_select::{
-    index_literal_matches_schema, sorted_indexes, sorted_model_indexes,
+    index_literal_matches_schema, sorted_index_contracts,
 };
 pub(in crate::db) use index_select::{
     residual_query_predicate_after_access_path_bounds,
@@ -128,6 +128,7 @@ pub(in crate::db) fn plan_access(
 
 /// Planner entrypoint that also considers a pre-canonicalized ORDER BY
 /// fallback when predicate planning alone would full-scan.
+#[cfg(test)]
 pub(in crate::db::query) fn plan_access_with_order(
     model: &EntityModel,
     visible_indexes: &[&'static IndexModel],
@@ -159,9 +160,10 @@ pub(in crate::db::query) fn plan_access_selection_with_order(
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> Result<PlannedAccessSelection, PlannerError> {
+    let candidate_indexes = semantic_candidate_indexes_from_generated(visible_indexes);
     plan_access_selection_with_order_from_authority(
         model,
-        visible_indexes,
+        candidate_indexes.as_slice(),
         schema,
         predicate,
         order,
@@ -182,14 +184,39 @@ pub(in crate::db::query) fn plan_access_selection_with_order_and_accepted_indexe
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> Result<PlannedAccessSelection, PlannerError> {
+    let candidate_indexes = semantic_candidate_indexes_from_authority(
+        generated_candidate_bridge_indexes,
+        accepted_field_path_indexes,
+    );
     plan_access_selection_with_order_from_authority(
         model,
-        generated_candidate_bridge_indexes,
+        candidate_indexes.as_slice(),
         schema,
         predicate,
         order,
         grouped,
         OrderFallbackIndexAuthority::AcceptedFieldPathIndexes(accepted_field_path_indexes),
+    )
+}
+
+// Access-choice projection/reranking already works with reduced semantic
+// candidates; keep its single-candidate rebuild path from reopening IndexModel.
+pub(in crate::db::query) fn plan_access_selection_with_order_and_semantic_indexes(
+    model: &EntityModel,
+    semantic_candidate_indexes: &[SemanticIndexAccessContract],
+    schema: &SchemaInfo,
+    predicate: Option<&Predicate>,
+    order: Option<&OrderSpec>,
+    grouped: bool,
+) -> Result<PlannedAccessSelection, PlannerError> {
+    plan_access_selection_with_order_from_authority(
+        model,
+        semantic_candidate_indexes,
+        schema,
+        predicate,
+        order,
+        grouped,
+        OrderFallbackIndexAuthority::GeneratedModelOnly,
     )
 }
 
@@ -199,9 +226,37 @@ enum OrderFallbackIndexAuthority<'a> {
     AcceptedFieldPathIndexes(&'a [AcceptedPlannerFieldPathIndex]),
 }
 
+fn semantic_candidate_indexes_from_generated(
+    generated_indexes: &[&'static IndexModel],
+) -> Vec<SemanticIndexAccessContract> {
+    generated_indexes
+        .iter()
+        .copied()
+        .map(|index| SemanticIndexAccessContract::from_index(*index))
+        .collect()
+}
+
+fn semantic_candidate_indexes_from_authority(
+    generated_candidate_bridge_indexes: &[&'static IndexModel],
+    accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
+) -> Vec<SemanticIndexAccessContract> {
+    let mut indexes = accepted_field_path_indexes
+        .iter()
+        .map(AcceptedPlannerFieldPathIndex::semantic_access_contract)
+        .collect::<Vec<_>>();
+    indexes.extend(
+        generated_candidate_bridge_indexes
+            .iter()
+            .copied()
+            .map(|index| SemanticIndexAccessContract::from_index(*index)),
+    );
+
+    indexes
+}
+
 fn plan_access_selection_with_order_from_authority(
     model: &EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    visible_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
@@ -210,7 +265,7 @@ fn plan_access_selection_with_order_from_authority(
 ) -> Result<PlannedAccessSelection, PlannerError> {
     let Some(predicate) = predicate else {
         let true_predicate = Predicate::True;
-        let eligible_indexes = sorted_indexes(visible_indexes, &true_predicate);
+        let eligible_indexes = sorted_index_contracts(visible_indexes, &true_predicate);
 
         return Ok(order_fallback_selection(
             model,
@@ -221,7 +276,7 @@ fn plan_access_selection_with_order_from_authority(
         ));
     };
 
-    let eligible_indexes = sorted_indexes(visible_indexes, predicate);
+    let eligible_indexes = sorted_index_contracts(visible_indexes, predicate);
 
     // Planner determinism guarantee:
     // Given a validated EntityModel and canonical predicate, planning is pure and deterministic.
@@ -271,7 +326,7 @@ fn plan_access_selection_with_order_from_authority(
 // access either does not exist or degenerates to a full scan.
 fn order_fallback_selection(
     model: &EntityModel,
-    eligible_indexes: &[&'static IndexModel],
+    eligible_indexes: &[SemanticIndexAccessContract],
     order: Option<&OrderSpec>,
     grouped: bool,
     order_fallback_authority: OrderFallbackIndexAuthority<'_>,
@@ -296,7 +351,7 @@ fn order_fallback_selection(
 
 fn index_range_from_order_with_authority(
     model: &EntityModel,
-    eligible_indexes: &[&'static IndexModel],
+    eligible_indexes: &[SemanticIndexAccessContract],
     order: Option<&OrderSpec>,
     grouped: bool,
     order_fallback_authority: OrderFallbackIndexAuthority<'_>,

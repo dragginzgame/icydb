@@ -4,35 +4,24 @@
 use crate::{
     db::{
         access::{AccessPath, SemanticIndexAccessContract},
-        index::canonical_index_predicate,
         numeric::compare_numeric_or_strict_order,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         schema::{SchemaInfo, literal_matches_type},
     },
-    model::index::IndexModel,
     value::Value,
 };
 use std::cmp::Ordering;
 
-pub(in crate::db::query::plan) fn sorted_indexes(
-    indexes: &[&'static IndexModel],
+pub(in crate::db::query::plan) fn sorted_index_contracts(
+    indexes: &[SemanticIndexAccessContract],
     query_predicate: &Predicate,
-) -> Vec<&'static IndexModel> {
-    sorted_model_indexes(indexes)
-        .into_iter()
-        .filter(|index| index_predicate_implied_by_query(index, query_predicate))
-        .collect()
-}
-
-pub(in crate::db::query::plan) fn sorted_model_indexes(
-    indexes: &[&'static IndexModel],
-) -> Vec<&'static IndexModel> {
+) -> Vec<SemanticIndexAccessContract> {
     let mut indexes = indexes.to_vec();
-    // Schema validation rejects duplicate index names, so deterministic
-    // lexicographic ordering does not require a stable sort here.
     indexes.sort_unstable_by(|left, right| left.name().cmp(right.name()));
-
     indexes
+        .into_iter()
+        .filter(|index| index_contract_predicate_implied_by_query(index, query_predicate))
+        .collect()
 }
 
 pub(in crate::db::query::plan) fn index_literal_matches_schema(
@@ -53,12 +42,15 @@ pub(in crate::db::query::plan) fn index_literal_matches_schema(
 // Filtered indexes are eligible only when the full query predicate implies the
 // index predicate. This check is intentionally conservative and fail-closed:
 // unsupported predicate forms are treated as non-implying.
-fn index_predicate_implied_by_query(index: &IndexModel, query_predicate: &Predicate) -> bool {
-    if index.predicate().is_none() {
+fn index_contract_predicate_implied_by_query(
+    index: &SemanticIndexAccessContract,
+    query_predicate: &Predicate,
+) -> bool {
+    let Some(index_predicate) = index.predicate_semantics() else {
         return true;
-    }
+    };
 
-    filtered_index_predicate_query_relation(index, query_predicate)
+    predicate_implies_predicate_for_planner(query_predicate, index_predicate)
 }
 
 pub(in crate::db) fn residual_query_predicate_after_filtered_access_contract(
@@ -102,20 +94,6 @@ pub(in crate::db) fn residual_query_predicate_after_access_path_bounds(
     // Phase 2: strip only clauses already implied by those fixed equality
     // bounds so execution does not retain redundant post-access filtering.
     strip_query_clauses_satisfied_by_access_bounds(query_predicate, &implied_equalities)
-}
-
-fn filtered_index_predicate_query_relation(
-    index: &IndexModel,
-    query_predicate: &Predicate,
-) -> bool {
-    if index.predicate().is_none() {
-        return false;
-    }
-    let Some(index_predicate) = canonical_index_predicate(index) else {
-        return false;
-    };
-
-    predicate_implies_predicate_for_planner(query_predicate, index_predicate)
 }
 
 pub(in crate::db::query::plan) fn predicate_implies_predicate_for_planner(

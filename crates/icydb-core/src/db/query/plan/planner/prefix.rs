@@ -20,10 +20,7 @@ use crate::{
         },
         schema::SchemaInfo,
     },
-    model::{
-        entity::EntityModel,
-        index::{IndexKeyItemsRef, IndexModel},
-    },
+    model::{entity::EntityModel, index::IndexKeyItemsRef},
     value::Value,
 };
 
@@ -47,7 +44,7 @@ fn leading_index_prefix_lookup_value(
 )]
 pub(super) fn index_prefix_for_eq(
     model: &EntityModel,
-    candidate_indexes: &[&'static IndexModel],
+    candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     field: &str,
     value: &Value,
@@ -57,51 +54,43 @@ pub(super) fn index_prefix_for_eq(
 ) -> Option<AccessPlan<Value>> {
     let literal_compatible = index_literal_matches_schema(schema, field, value);
 
-    let mut best: Option<(AccessCandidateScore, &'static IndexModel, Value)> = None;
+    let mut best: Option<(AccessCandidateScore, SemanticIndexAccessContract, Value)> = None;
     for index in candidate_indexes {
-        let index_contract = SemanticIndexAccessContract::from_index(**index);
-        let Some(lookup_value) = leading_index_prefix_lookup_value(
-            &index_contract,
-            field,
-            value,
-            coercion,
-            literal_compatible,
-        ) else {
+        let Some(lookup_value) =
+            leading_index_prefix_lookup_value(index, field, value, coercion, literal_compatible)
+        else {
             continue;
         };
 
         let score = access_candidate_score_from_index_contract(
             model,
             order,
-            index_contract.clone(),
+            index.clone(),
             1,
-            index_contract.key_arity() == 1,
+            index.key_arity() == 1,
             0,
             grouped,
         );
         match best {
-            None => best = Some((score, index, lookup_value)),
+            None => best = Some((score, index.clone(), lookup_value)),
             Some((best_score, best_index, _))
                 if access_candidate_score_outranks(score, best_score, true)
                     || (score == best_score && index.name() < best_index.name()) =>
             {
-                best = Some((score, index, lookup_value));
+                best = Some((score, index.clone(), lookup_value));
             }
             _ => {}
         }
     }
 
     best.map(|(_, index, lookup_value)| {
-        AccessPlan::index_prefix_from_contract(
-            SemanticIndexAccessContract::from_index(*index),
-            vec![lookup_value],
-        )
+        AccessPlan::index_prefix_from_contract(index, vec![lookup_value])
     })
 }
 
 pub(super) fn index_multi_lookup_for_in(
     _model: &EntityModel,
-    candidate_indexes: &[&'static IndexModel],
+    candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     field: &str,
     values: &[Value],
@@ -116,11 +105,10 @@ pub(super) fn index_multi_lookup_for_in(
 
     let mut out = Vec::new();
     for index in candidate_indexes {
-        let index_contract = SemanticIndexAccessContract::from_index(**index);
         let mut lookup_values = Vec::with_capacity(values.len());
         for (value, literal_compatible) in &cached_values {
             let Some(lookup_value) = leading_index_prefix_lookup_value(
-                &index_contract,
+                index,
                 field,
                 value,
                 coercion,
@@ -137,7 +125,7 @@ pub(super) fn index_multi_lookup_for_in(
         }
 
         out.push(AccessPlan::index_multi_lookup_from_contract(
-            index_contract.clone(),
+            index.clone(),
             lookup_values,
         ));
     }
@@ -147,7 +135,7 @@ pub(super) fn index_multi_lookup_for_in(
 
 pub(super) fn index_prefix_from_and(
     model: &EntityModel,
-    candidate_indexes: &[&'static IndexModel],
+    candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     children: &[Predicate],
     order: Option<&OrderSpec>,
@@ -178,10 +166,13 @@ pub(super) fn index_prefix_from_and(
         });
     }
 
-    let mut best: Option<(AccessCandidateScore, &IndexModel, Vec<Value>)> = None;
+    let mut best: Option<(
+        AccessCandidateScore,
+        SemanticIndexAccessContract,
+        Vec<Value>,
+    )> = None;
     for index in candidate_indexes {
-        let index_contract = SemanticIndexAccessContract::from_index(**index);
-        let Some(prefix) = build_index_eq_prefix(&index_contract, &field_values) else {
+        let Some(prefix) = build_index_eq_prefix(index, &field_values) else {
             continue;
         };
         if prefix.is_empty() {
@@ -191,30 +182,25 @@ pub(super) fn index_prefix_from_and(
         let score = access_candidate_score_from_index_contract(
             model,
             order,
-            index_contract.clone(),
+            index.clone(),
             prefix.len(),
-            prefix.len() == index_contract.key_arity(),
+            prefix.len() == index.key_arity(),
             0,
             grouped,
         );
         match &best {
-            None => best = Some((score, index, prefix)),
+            None => best = Some((score, index.clone(), prefix)),
             Some((best_score, best_index, _))
                 if access_candidate_score_outranks(score, *best_score, true)
                     || (score == *best_score && index.name() < best_index.name()) =>
             {
-                best = Some((score, index, prefix));
+                best = Some((score, index.clone(), prefix));
             }
             Some(_) => {}
         }
     }
 
-    best.map(|(_, index, values)| {
-        AccessPlan::index_prefix_from_contract(
-            SemanticIndexAccessContract::from_index(*index),
-            values,
-        )
-    })
+    best.map(|(_, index, values)| AccessPlan::index_prefix_from_contract(index, values))
 }
 
 ///

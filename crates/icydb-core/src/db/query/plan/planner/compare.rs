@@ -23,14 +23,14 @@ use crate::{
         },
         schema::{FieldType, SchemaInfo, literal_matches_type},
     },
-    model::{entity::EntityModel, index::IndexModel},
+    model::entity::EntityModel,
     value::Value,
 };
 use std::ops::Bound;
 
 pub(super) fn plan_compare(
     model: &EntityModel,
-    candidate_indexes: &[&'static IndexModel],
+    candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
     order: Option<&OrderSpec>,
@@ -186,7 +186,7 @@ fn plan_pk_compare(
 
 fn plan_starts_with_compare(
     model: &EntityModel,
-    candidate_indexes: &[&'static IndexModel],
+    candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
     order: Option<&OrderSpec>,
@@ -201,13 +201,12 @@ fn plan_starts_with_compare(
     let literal_compatible = index_literal_matches_schema(schema, &cmp.field, &cmp.value);
     let mut best: Option<(
         AccessCandidateScore,
-        &'static IndexModel,
+        SemanticIndexAccessContract,
         Bound<Value>,
         Bound<Value>,
     )> = None;
     for index in candidate_indexes {
-        let index_contract = SemanticIndexAccessContract::from_index(**index);
-        let Some(leading_key_item) = index_contract.key_item_at(0) else {
+        let Some(leading_key_item) = index.key_item_at(0) else {
             continue;
         };
         let Some(prefix) = starts_with_lookup_value_for_key_item(
@@ -236,19 +235,19 @@ fn plan_starts_with_compare(
         let score = access_candidate_score_from_index_contract(
             model,
             order,
-            index_contract.clone(),
+            index.clone(),
             0,
             false,
             range_bound_count(&lower, &upper),
             grouped,
         );
         match best {
-            None => best = Some((score, index, lower, upper)),
+            None => best = Some((score, index.clone(), lower, upper)),
             Some((best_score, best_index, _, _))
                 if access_candidate_score_outranks(score, best_score, false)
                     || (score == best_score && index.name() < best_index.name()) =>
             {
-                best = Some((score, index, lower, upper));
+                best = Some((score, index.clone(), lower, upper));
             }
             _ => {}
         }
@@ -256,7 +255,7 @@ fn plan_starts_with_compare(
 
     best.map(|(_, index, lower, upper)| {
         AccessPlan::index_range(SemanticIndexRangeSpec::from_access_contract(
-            SemanticIndexAccessContract::from_index(*index),
+            index,
             vec![0usize],
             Vec::new(),
             lower,
@@ -267,7 +266,7 @@ fn plan_starts_with_compare(
 
 fn plan_ordered_compare(
     model: &EntityModel,
-    candidate_indexes: &[&'static IndexModel],
+    candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
     order: Option<&OrderSpec>,
@@ -280,16 +279,15 @@ fn plan_ordered_compare(
 
     let mut best: Option<(
         AccessCandidateScore,
-        &'static IndexModel,
+        SemanticIndexAccessContract,
         Bound<Value>,
         Bound<Value>,
     )> = None;
     for index in candidate_indexes {
-        let index_contract = SemanticIndexAccessContract::from_index(**index);
-        let Some(leading_key_item) = index_contract.key_item_at(0) else {
+        let Some(leading_key_item) = index.key_item_at(0) else {
             continue;
         };
-        if index_contract.key_arity() != 1 {
+        if index.key_arity() != 1 {
             continue;
         }
 
@@ -307,15 +305,11 @@ fn plan_ordered_compare(
             SemanticIndexKeyItemRef::Field(_) => {
                 if cmp.coercion.id != CoercionId::Strict
                     || !matches!(
-                        index_contract.key_item_at(0),
+                        index.key_item_at(0),
                         Some(SemanticIndexKeyItemRef::Field(field))
                             if field == cmp.field.as_str()
                     )
-                    || !field_key_contract_supports_operator(
-                        &index_contract,
-                        cmp.field.as_str(),
-                        cmp.op,
-                    )
+                    || !field_key_contract_supports_operator(index, cmp.field.as_str(), cmp.op)
                 {
                     continue;
                 }
@@ -337,19 +331,19 @@ fn plan_ordered_compare(
         let score = access_candidate_score_from_index_contract(
             model,
             order,
-            index_contract.clone(),
+            index.clone(),
             0,
             false,
             range_bound_count(&lower, &upper),
             grouped,
         );
         match best {
-            None => best = Some((score, index, lower, upper)),
+            None => best = Some((score, index.clone(), lower, upper)),
             Some((best_score, best_index, _, _))
                 if access_candidate_score_outranks(score, best_score, false)
                     || (score == best_score && index.name() < best_index.name()) =>
             {
-                best = Some((score, index, lower, upper));
+                best = Some((score, index.clone(), lower, upper));
             }
             _ => {}
         }
@@ -357,7 +351,7 @@ fn plan_ordered_compare(
 
     best.map(|(_, index, lower, upper)| {
         AccessPlan::index_range(SemanticIndexRangeSpec::from_access_contract(
-            SemanticIndexAccessContract::from_index(*index),
+            index,
             vec![0usize],
             Vec::new(),
             lower,

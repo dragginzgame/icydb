@@ -19,7 +19,7 @@ pub(super) use crate::db::query::plan::planner::AccessCandidateScore as Candidat
 pub(in crate::db) struct AccessChoiceExplainSnapshot {
     pub(in crate::db) chosen_reason: AccessChoiceSelectedReason,
     pub(in crate::db) candidates: Vec<AccessChoiceCandidateExplainSummary>,
-    pub(in crate::db) alternatives: Vec<&'static str>,
+    pub(in crate::db) alternatives: Vec<String>,
     pub(in crate::db) rejected: Vec<String>,
 }
 
@@ -319,7 +319,7 @@ impl AccessChoiceRejectedReason {
     }
 
     #[must_use]
-    pub(in crate::db) fn render_for_index(self, index_name: &'static str) -> String {
+    pub(in crate::db) fn render_for_index(self, index_name: &str) -> String {
         let reason = self.code();
         let mut out = String::with_capacity("index:".len() + index_name.len() + 1 + reason.len());
         out.push_str("index:");

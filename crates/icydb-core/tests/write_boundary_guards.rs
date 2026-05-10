@@ -405,13 +405,13 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && plan_mod.contains("fn generated_predicate_bridge_for_accepted_field_path_index")
             && plan_mod.contains("generated_predicate_bridge: Option<&'static IndexModel>")
             && access_path.contains("SemanticIndexKeyItems::Fields(")
-            && plan_mod.contains("if index.has_expression_key_items() {")
-            && plan_mod_compact.contains(
+            && plan_mod.contains(".filter(|index| index.has_expression_key_items())")
+            && !plan_mod_compact.contains(
                 "schema_info.field_path_indexes().iter().any(|accepted|accepted.name()==index.name())",
             )
             && plan_mod.contains("VisibleIndexAuthority::AcceptedSchema")
             && plan_mod.contains("accepted_field_path_index_count"),
-        "VisibleIndexes must carry accepted field-path planner contracts before runtime planning can stop using generated IndexModel authority",
+        "VisibleIndexes must carry accepted field-path planner contracts while keeping the generated candidate bridge expression-only",
     );
     assert!(
         access_planner.contains("visible_indexes: &VisibleIndexes<'_>,")
@@ -428,6 +428,9 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && planner_mod.contains("OrderFallbackIndexAuthority::AcceptedFieldPathIndexes")
             && planner_mod
                 .contains("accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],",)
+            && planner_mod.contains("fn semantic_candidate_indexes_from_authority(")
+            && planner_mod
+                .contains(".map(AcceptedPlannerFieldPathIndex::semantic_access_contract)")
             && planner_mod.contains("order_fallback_selection(")
             && planner_mod.contains("index_range_from_order_with_accepted_indexes(")
             && order_select.contains("let accepted_order_terms = accepted.order_terms();")
@@ -436,7 +439,7 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && order_select.contains("deterministic_secondary_index_order_terms_satisfied(",)
             && order_select.contains("grouped_index_order_terms_satisfied(")
             && order_select.contains("index_key_item_order_terms(index_contract.key_items())")
-            && order_select
+            && !order_select
                 .contains("let index_contract = SemanticIndexAccessContract::from_index(*index);")
             && order_select.contains("if !index_contract.has_expression_key_items() {")
             && !order_select.contains("deterministic_secondary_index_order_satisfied(")
@@ -510,7 +513,10 @@ fn runtime_access_choice_projection_uses_accepted_visible_indexes() {
             )
             && access_choice
                 .contains("generated_candidate_bridge_indexes: &[&'static IndexModel]",)
-            && access_choice.contains("plan_access_selection_with_order_and_accepted_indexes(")
+            && access_choice.contains("fn semantic_candidate_indexes_from_authority(")
+            && access_choice
+                .contains(".map(AcceptedPlannerFieldPathIndex::semantic_access_contract)")
+            && access_choice.contains("plan_access_selection_with_order_and_semantic_indexes(")
             && pipeline.contains("visible_indexes.generated_candidate_bridge_indexes()")
             && pipeline.contains("rerank_access_plan_by_residual_burden_with_accepted_indexes(")
             && access_plan
@@ -840,13 +846,13 @@ fn access_choice_candidate_scores_use_reduced_index_contract_facts() {
             && planner_ranking.contains("fn access_candidate_score_from_index_contract(")
             && planner_ranking.contains("index.is_filtered()")
             && planner_ranking.contains("selected_index_contract_satisfies_secondary_order(")
-            && evaluator.contains("SemanticIndexAccessContract::from_index(*index)")
+            && evaluator.contains("index: SemanticIndexAccessContract")
             && evaluator.contains("access_candidate_score_from_index_contract(")
             && !evaluator.contains("candidate_satisfies_secondary_order(")
-            && evaluator_prefix.contains("SemanticIndexAccessContract::from_index(*index)")
+            && evaluator_prefix.contains("evaluate_prefix_compare_candidate_from_contract(")
             && evaluator_prefix.contains("index_contract.key_arity()")
             && evaluator_prefix.contains("index_contract.is_filtered()")
-            && evaluator_range.contains("SemanticIndexAccessContract::from_index(*index)")
+            && evaluator_range.contains("evaluate_range_candidate_from_contract(")
             && evaluator_range.contains("index_contract.is_filtered()")
             && evaluator_range.contains("single_range_compare_bound_count(&index_contract")
             && !evaluator.contains("index.predicate().is_some()")

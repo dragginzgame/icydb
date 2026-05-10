@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::model::index::IndexModel;
 use crate::{
     db::{
         access::{SemanticIndexAccessContract, SemanticIndexKeyItemRef, SemanticIndexKeyItemsRef},
@@ -11,26 +13,28 @@ use crate::{
         },
         schema::SchemaInfo,
     },
-    model::index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
+    model::index::{IndexKeyItem, IndexKeyItemsRef},
     value::Value,
 };
 
 pub(super) fn evaluate_prefix_candidate(
-    index: &IndexModel,
+    index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
     predicate: &Predicate,
 ) -> CandidateEvaluation {
     match predicate {
-        Predicate::Compare(cmp) => evaluate_prefix_compare_candidate(index, schema, cmp),
-        Predicate::And(children) => evaluate_prefix_and_candidate(index, schema, children),
+        Predicate::Compare(cmp) => {
+            evaluate_prefix_compare_candidate_from_contract(index_contract, schema, cmp)
+        }
+        Predicate::And(children) => evaluate_prefix_and_candidate(index_contract, schema, children),
         _ => CandidateEvaluation::Rejected(
             AccessChoiceRejectedReason::PredicateShapeNotPrefixEligible,
         ),
     }
 }
 
-pub(in crate::db::query::plan::access_choice) fn evaluate_prefix_compare_candidate(
-    index: &IndexModel,
+pub(super) fn evaluate_prefix_compare_candidate_from_contract(
+    index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
 ) -> CandidateEvaluation {
@@ -43,9 +47,8 @@ pub(in crate::db::query::plan::access_choice) fn evaluate_prefix_compare_candida
     if !index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()) {
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LiteralIncompatible);
     }
-    let index_contract = SemanticIndexAccessContract::from_index(*index);
     let Ok(leading_key_item) =
-        resolve_leading_lookup_key_item(&index_contract, cmp.field.as_str(), cmp.coercion.id)
+        resolve_leading_lookup_key_item(index_contract, cmp.field.as_str(), cmp.coercion.id)
     else {
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch);
     };
@@ -61,11 +64,11 @@ pub(in crate::db::query::plan::access_choice) fn evaluate_prefix_compare_candida
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch);
     }
 
-    eligible_single_lookup_candidate(index_contract)
+    eligible_single_lookup_candidate(index_contract.clone())
 }
 
 fn evaluate_prefix_and_candidate(
-    index: &IndexModel,
+    index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
     children: &[Predicate],
 ) -> CandidateEvaluation {
@@ -74,8 +77,7 @@ fn evaluate_prefix_and_candidate(
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::NoEqConstraints);
     }
 
-    let index_contract = SemanticIndexAccessContract::from_index(*index);
-    let prefix_len = match evaluate_prefix_len_for_key_items(&index_contract, &eq_constraints) {
+    let prefix_len = match evaluate_prefix_len_for_key_items(index_contract, &eq_constraints) {
         Ok(prefix_len) => prefix_len,
         Err(reason) => return CandidateEvaluation::Rejected(reason),
     };
@@ -212,8 +214,8 @@ fn match_eq_constraint_value_for_key_item<'a>(
     Ok(None)
 }
 
-pub(in crate::db::query::plan::access_choice) fn evaluate_multi_lookup_candidate(
-    index: &IndexModel,
+pub(super) fn evaluate_multi_lookup_candidate_from_contract(
+    index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
     predicate: &Predicate,
 ) -> CandidateEvaluation {
@@ -228,9 +230,8 @@ pub(in crate::db::query::plan::access_choice) fn evaluate_multi_lookup_candidate
     if cmp.op != CompareOp::In {
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::OperatorNotMultiLookupIn);
     }
-    let index_contract = SemanticIndexAccessContract::from_index(*index);
     let Ok(leading_key_item) =
-        resolve_leading_lookup_key_item(&index_contract, cmp.field.as_str(), cmp.coercion.id)
+        resolve_leading_lookup_key_item(index_contract, cmp.field.as_str(), cmp.coercion.id)
     else {
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch);
     };
@@ -258,7 +259,33 @@ pub(in crate::db::query::plan::access_choice) fn evaluate_multi_lookup_candidate
         }
     }
 
-    eligible_single_lookup_candidate(index_contract)
+    eligible_single_lookup_candidate(index_contract.clone())
+}
+
+#[cfg(test)]
+pub(in crate::db::query::plan::access_choice) fn evaluate_prefix_compare_candidate(
+    index: &IndexModel,
+    schema: &SchemaInfo,
+    cmp: &ComparePredicate,
+) -> CandidateEvaluation {
+    evaluate_prefix_compare_candidate_from_contract(
+        &SemanticIndexAccessContract::from_index(*index),
+        schema,
+        cmp,
+    )
+}
+
+#[cfg(test)]
+pub(in crate::db::query::plan::access_choice) fn evaluate_multi_lookup_candidate(
+    index: &IndexModel,
+    schema: &SchemaInfo,
+    predicate: &Predicate,
+) -> CandidateEvaluation {
+    evaluate_multi_lookup_candidate_from_contract(
+        &SemanticIndexAccessContract::from_index(*index),
+        schema,
+        predicate,
+    )
 }
 
 // Keep single-field lookup families on one shared coercion gate so prefix and

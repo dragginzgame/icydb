@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::model::index::IndexModel;
 use crate::{
     db::{
         access::{SemanticIndexAccessContract, SemanticIndexKeyItemRef, SemanticIndexKeyItemsRef},
@@ -15,15 +17,14 @@ use crate::{
         },
         schema::SchemaInfo,
     },
-    model::index::{IndexKeyItemsRef, IndexModel},
+    model::index::IndexKeyItemsRef,
 };
 
-pub(in crate::db::query::plan::access_choice) fn evaluate_range_candidate(
-    index: &IndexModel,
+pub(super) fn evaluate_range_candidate_from_contract(
+    index_contract: SemanticIndexAccessContract,
     schema: &SchemaInfo,
     predicate: &Predicate,
 ) -> CandidateEvaluation {
-    let index_contract = SemanticIndexAccessContract::from_index(*index);
     match predicate {
         Predicate::Compare(cmp) => evaluate_range_compare_candidate(index_contract, schema, cmp),
         Predicate::And(children) => evaluate_range_and_candidate(index_contract, schema, children),
@@ -31,6 +32,19 @@ pub(in crate::db::query::plan::access_choice) fn evaluate_range_candidate(
             AccessChoiceRejectedReason::PredicateShapeNotRangeEligible,
         ),
     }
+}
+
+#[cfg(test)]
+pub(in crate::db::query::plan::access_choice) fn evaluate_range_candidate(
+    index: &IndexModel,
+    schema: &SchemaInfo,
+    predicate: &Predicate,
+) -> CandidateEvaluation {
+    evaluate_range_candidate_from_contract(
+        SemanticIndexAccessContract::from_index(*index),
+        schema,
+        predicate,
+    )
 }
 
 fn evaluate_range_compare_candidate(

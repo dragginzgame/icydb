@@ -12,7 +12,7 @@ use crate::{
             grouped_index_order_terms_satisfied, index_key_item_order_terms,
         },
     },
-    model::{entity::EntityModel, index::IndexModel},
+    model::entity::EntityModel,
     value::Value,
 };
 use std::ops::Bound;
@@ -22,7 +22,7 @@ use std::ops::Bound;
 #[must_use]
 pub(in crate::db::query::plan::planner) fn index_range_from_order_for_generated_model_only(
     model: &EntityModel,
-    candidate_indexes: &[&'static IndexModel],
+    candidate_indexes: &[SemanticIndexAccessContract],
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> Option<AccessPlan<Value>> {
@@ -35,8 +35,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_for_generated_
         .flatten()
         .and_then(|order| order.deterministic_secondary_order_contract(model.primary_key.name));
 
-    for &index in candidate_indexes {
-        let index_contract = SemanticIndexAccessContract::from_index(*index);
+    for index_contract in candidate_indexes {
         let index_order_terms = index_key_item_order_terms(index_contract.key_items());
         if grouped {
             let Some(order_contract) = grouped_order_contract.as_ref() else {
@@ -58,7 +57,9 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_for_generated_
             }
         }
 
-        return Some(whole_index_ordered_range_scan_from_contract(index_contract));
+        return Some(whole_index_ordered_range_scan_from_contract(
+            index_contract.clone(),
+        ));
     }
 
     None
@@ -70,7 +71,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_for_generated_
 #[must_use]
 pub(in crate::db::query::plan::planner) fn index_range_from_order_with_accepted_indexes(
     model: &EntityModel,
-    candidate_indexes: &[&'static IndexModel],
+    candidate_indexes: &[SemanticIndexAccessContract],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     order: Option<&OrderSpec>,
     grouped: bool,
@@ -88,11 +89,11 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_with_accepted_
     // already carries one uniform-direction `..., primary_key` tie-break
     // shape. The caller prefilters candidate indexes so filtered guards are
     // checked once at the planner entry boundary.
-    for &index in candidate_indexes {
-        let index_contract = SemanticIndexAccessContract::from_index(*index);
-        if let Some(accepted) =
-            accepted_field_path_index_for_candidate(accepted_field_path_indexes, index.name())
-        {
+    for index_contract in candidate_indexes {
+        if let Some(accepted) = accepted_field_path_index_for_candidate(
+            accepted_field_path_indexes,
+            index_contract.name(),
+        ) {
             let accepted_order_terms = accepted.order_terms();
             if grouped {
                 let Some(order_contract) = grouped_order_contract.as_ref() else {
@@ -142,7 +143,9 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_with_accepted_
             }
         }
 
-        return Some(whole_index_ordered_range_scan_from_contract(index_contract));
+        return Some(whole_index_ordered_range_scan_from_contract(
+            index_contract.clone(),
+        ));
     }
 
     None
