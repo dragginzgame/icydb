@@ -28,21 +28,21 @@ pub(in crate::db) trait AccessPlanProjection<K> {
     fn key_range(&mut self, start: &K, end: &K) -> Self::Output;
     fn index_prefix(
         &mut self,
-        index_name: &'static str,
-        index_fields: &[&'static str],
+        index_name: &str,
+        index_fields: &[String],
         prefix_len: usize,
         values: &[Value],
     ) -> Self::Output;
     fn index_multi_lookup(
         &mut self,
-        index_name: &'static str,
-        index_fields: &[&'static str],
+        index_name: &str,
+        index_fields: &[String],
         values: &[Value],
     ) -> Self::Output;
     fn index_range(
         &mut self,
-        index_name: &'static str,
-        index_fields: &[&'static str],
+        index_name: &str,
+        index_fields: &[String],
         prefix_len: usize,
         prefix: &[Value],
         lower: &Bound<Value>,
@@ -99,18 +99,18 @@ impl<K> AccessPath<K> {
             Self::ByKeys(keys) => projection.by_keys(keys),
             Self::KeyRange { start, end } => projection.key_range(start, end),
             Self::IndexPrefix { index, values } => {
-                let fields = index_contract_key_fields(*index);
+                let fields = index_contract_key_fields(index);
 
                 projection.index_prefix(index.name(), fields.as_slice(), values.len(), values)
             }
             Self::IndexMultiLookup { index, values } => {
-                let fields = index_contract_key_fields(*index);
+                let fields = index_contract_key_fields(index);
 
                 projection.index_multi_lookup(index.name(), fields.as_slice(), values)
             }
             Self::IndexRange { spec } => {
                 let contract = spec.index();
-                let fields = index_contract_key_fields(contract);
+                let fields = index_contract_key_fields(&contract);
 
                 projection.index_range(
                     contract.name(),
@@ -126,13 +126,15 @@ impl<K> AccessPath<K> {
     }
 }
 
-fn index_contract_key_fields(index: SemanticIndexAccessContract) -> Vec<&'static str> {
+fn index_contract_key_fields(index: &SemanticIndexAccessContract) -> Vec<String> {
     match index.key_items() {
-        IndexKeyItemsRef::Fields(fields) => fields.to_vec(),
-        IndexKeyItemsRef::Items(items) => items
-            .iter()
-            .map(crate::model::index::IndexKeyItem::field)
-            .collect(),
+        crate::db::access::SemanticIndexKeyItemsRef::Fields(fields) => fields.to_vec(),
+        crate::db::access::SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
+            fields.iter().copied().map(str::to_string).collect()
+        }
+        crate::db::access::SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => {
+            items.iter().map(|item| item.field().to_string()).collect()
+        }
     }
 }
 
@@ -216,8 +218,8 @@ impl<K> AccessPlanProjection<K> for AccessStrategyLabelProjection {
 
     fn index_prefix(
         &mut self,
-        index_name: &'static str,
-        _index_fields: &[&'static str],
+        index_name: &str,
+        _index_fields: &[String],
         _prefix_len: usize,
         _values: &[Value],
     ) -> Self::Output {
@@ -229,8 +231,8 @@ impl<K> AccessPlanProjection<K> for AccessStrategyLabelProjection {
 
     fn index_multi_lookup(
         &mut self,
-        index_name: &'static str,
-        _index_fields: &[&'static str],
+        index_name: &str,
+        _index_fields: &[String],
         _values: &[Value],
     ) -> Self::Output {
         let mut label = String::new();
@@ -241,8 +243,8 @@ impl<K> AccessPlanProjection<K> for AccessStrategyLabelProjection {
 
     fn index_range(
         &mut self,
-        index_name: &'static str,
-        _index_fields: &[&'static str],
+        index_name: &str,
+        _index_fields: &[String],
         _prefix_len: usize,
         _prefix: &[Value],
         _lower: &Bound<Value>,
@@ -313,8 +315,8 @@ impl AccessPlanProjection<Value> for ExplainAccessKindProjection {
 
     fn index_prefix(
         &mut self,
-        _index_name: &'static str,
-        _index_fields: &[&'static str],
+        _index_name: &str,
+        _index_fields: &[String],
         _prefix_len: usize,
         _values: &[Value],
     ) -> Self::Output {
@@ -323,8 +325,8 @@ impl AccessPlanProjection<Value> for ExplainAccessKindProjection {
 
     fn index_multi_lookup(
         &mut self,
-        _index_name: &'static str,
-        _index_fields: &[&'static str],
+        _index_name: &str,
+        _index_fields: &[String],
         _values: &[Value],
     ) -> Self::Output {
         "index_multi_lookup"
@@ -332,8 +334,8 @@ impl AccessPlanProjection<Value> for ExplainAccessKindProjection {
 
     fn index_range(
         &mut self,
-        _index_name: &'static str,
-        _index_fields: &[&'static str],
+        _index_name: &str,
+        _index_fields: &[String],
         _prefix_len: usize,
         _prefix: &[Value],
         _lower: &Bound<Value>,
@@ -400,7 +402,7 @@ mod access_projection_tests {
         events: Vec<&'static str>,
         union_child_counts: Vec<usize>,
         intersection_child_counts: Vec<usize>,
-        seen_index: Option<(&'static str, usize, usize, usize)>,
+        seen_index: Option<(String, usize, usize, usize)>,
     }
 
     impl AccessPlanProjection<u64> for AccessPlanEventProjection {
@@ -422,36 +424,46 @@ mod access_projection_tests {
 
         fn index_prefix(
             &mut self,
-            index_name: &'static str,
-            index_fields: &[&'static str],
+            index_name: &str,
+            index_fields: &[String],
             prefix_len: usize,
             values: &[Value],
         ) -> Self::Output {
             self.events.push("index_prefix");
-            self.seen_index = Some((index_name, index_fields.len(), prefix_len, values.len()));
+            self.seen_index = Some((
+                index_name.to_string(),
+                index_fields.len(),
+                prefix_len,
+                values.len(),
+            ));
         }
 
         fn index_multi_lookup(
             &mut self,
-            index_name: &'static str,
-            index_fields: &[&'static str],
+            index_name: &str,
+            index_fields: &[String],
             values: &[Value],
         ) -> Self::Output {
             self.events.push("index_multi_lookup");
-            self.seen_index = Some((index_name, index_fields.len(), 1, values.len()));
+            self.seen_index = Some((index_name.to_string(), index_fields.len(), 1, values.len()));
         }
 
         fn index_range(
             &mut self,
-            index_name: &'static str,
-            index_fields: &[&'static str],
+            index_name: &str,
+            index_fields: &[String],
             prefix_len: usize,
             prefix: &[Value],
             lower: &Bound<Value>,
             upper: &Bound<Value>,
         ) -> Self::Output {
             self.events.push("index_range");
-            self.seen_index = Some((index_name, index_fields.len(), prefix_len, prefix.len()));
+            self.seen_index = Some((
+                index_name.to_string(),
+                index_fields.len(),
+                prefix_len,
+                prefix.len(),
+            ));
             assert_eq!(lower, &Bound::Included(Value::Uint(8)));
             assert_eq!(upper, &Bound::Excluded(Value::Uint(12)));
         }
@@ -502,7 +514,10 @@ mod access_projection_tests {
 
         assert_eq!(projection.union_child_counts, vec![7]);
         assert_eq!(projection.intersection_child_counts, vec![2]);
-        assert_eq!(projection.seen_index, Some((TEST_INDEX.name(), 2, 1, 1)));
+        assert_eq!(
+            projection.seen_index,
+            Some((TEST_INDEX.name().to_string(), 2, 1, 1))
+        );
         assert!(
             projection.events.contains(&"by_key"),
             "projection must visit by-key variants"
@@ -538,7 +553,7 @@ mod access_projection_tests {
         events: Vec<&'static str>,
         union_child_counts: Vec<usize>,
         intersection_child_counts: Vec<usize>,
-        seen_index: Option<(&'static str, usize, usize, usize)>,
+        seen_index: Option<(String, usize, usize, usize)>,
     }
 
     impl AccessPlanProjection<Value> for ExplainAccessEventProjection {
@@ -561,36 +576,46 @@ mod access_projection_tests {
 
         fn index_prefix(
             &mut self,
-            index_name: &'static str,
-            index_fields: &[&'static str],
+            index_name: &str,
+            index_fields: &[String],
             prefix_len: usize,
             values: &[Value],
         ) -> Self::Output {
             self.events.push("index_prefix");
-            self.seen_index = Some((index_name, index_fields.len(), prefix_len, values.len()));
+            self.seen_index = Some((
+                index_name.to_string(),
+                index_fields.len(),
+                prefix_len,
+                values.len(),
+            ));
         }
 
         fn index_multi_lookup(
             &mut self,
-            index_name: &'static str,
-            index_fields: &[&'static str],
+            index_name: &str,
+            index_fields: &[String],
             values: &[Value],
         ) -> Self::Output {
             self.events.push("index_multi_lookup");
-            self.seen_index = Some((index_name, index_fields.len(), 1, values.len()));
+            self.seen_index = Some((index_name.to_string(), index_fields.len(), 1, values.len()));
         }
 
         fn index_range(
             &mut self,
-            index_name: &'static str,
-            index_fields: &[&'static str],
+            index_name: &str,
+            index_fields: &[String],
             prefix_len: usize,
             prefix: &[Value],
             lower: &Bound<Value>,
             upper: &Bound<Value>,
         ) -> Self::Output {
             self.events.push("index_range");
-            self.seen_index = Some((index_name, index_fields.len(), prefix_len, prefix.len()));
+            self.seen_index = Some((
+                index_name.to_string(),
+                index_fields.len(),
+                prefix_len,
+                prefix.len(),
+            ));
             assert_eq!(lower, &Bound::Included(Value::Uint(8)));
             assert_eq!(upper, &Bound::Excluded(Value::Uint(12)));
         }
@@ -624,19 +649,19 @@ mod access_projection_tests {
                 end: Value::Uint(90),
             },
             ExplainAccessPath::IndexPrefix {
-                name: TEST_INDEX.name(),
-                fields: vec!["group", "rank"],
+                name: TEST_INDEX.name().to_string(),
+                fields: vec!["group".to_string(), "rank".to_string()],
                 prefix_len: 1,
                 values: vec![Value::Uint(7)],
             },
             ExplainAccessPath::IndexMultiLookup {
-                name: TEST_INDEX.name(),
-                fields: vec!["group", "rank"],
+                name: TEST_INDEX.name().to_string(),
+                fields: vec!["group".to_string(), "rank".to_string()],
                 values: vec![Value::Uint(7), Value::Uint(9)],
             },
             ExplainAccessPath::IndexRange {
-                name: TEST_INDEX.name(),
-                fields: vec!["group", "rank"],
+                name: TEST_INDEX.name().to_string(),
+                fields: vec!["group".to_string(), "rank".to_string()],
                 prefix_len: 1,
                 prefix: vec![Value::Uint(7)],
                 lower: Bound::Included(Value::Uint(8)),
@@ -655,7 +680,10 @@ mod access_projection_tests {
 
         assert_eq!(projection.union_child_counts, vec![7]);
         assert_eq!(projection.intersection_child_counts, vec![2]);
-        assert_eq!(projection.seen_index, Some((TEST_INDEX.name(), 2, 1, 1)));
+        assert_eq!(
+            projection.seen_index,
+            Some((TEST_INDEX.name().to_string(), 2, 1, 1))
+        );
         assert!(
             projection.events.contains(&"by_key"),
             "projection must visit by-key variants"

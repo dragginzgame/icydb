@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{AccessPlan, ExecutableAccessPlan},
+        access::{AccessPlan, ExecutableAccessPlan, SemanticIndexKeyItemsRef},
         predicate::{IndexCompileTarget, MissingRowPolicy, Predicate, PredicateProgram},
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
@@ -29,7 +29,10 @@ use crate::{
         schema::SchemaInfo,
     },
     error::InternalError,
-    model::{entity::EntityModel, index::IndexKeyItemsRef},
+    model::{
+        entity::EntityModel,
+        index::{IndexKeyItem, IndexKeyItemsRef},
+    },
 };
 
 impl QueryMode {
@@ -922,15 +925,22 @@ fn resolved_index_slots_for_access_path(
     let key_items = path_capabilities.index_key_items_for_slot_map()?;
     let mut slots = Vec::new();
 
-    match key_items {
-        IndexKeyItemsRef::Fields(fields) => {
+    match key_items.key_items() {
+        SemanticIndexKeyItemsRef::Fields(fields) => {
+            slots.reserve(fields.len());
+            for field_name in fields {
+                let slot = schema_info.field_slot_index(field_name)?;
+                slots.push(slot);
+            }
+        }
+        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
             slots.reserve(fields.len());
             for &field_name in fields {
                 let slot = schema_info.field_slot_index(field_name)?;
                 slots.push(slot);
             }
         }
-        IndexKeyItemsRef::Items(items) => {
+        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => {
             slots.reserve(items.len());
             for key_item in items {
                 let slot = schema_info.field_slot_index(key_item.field())?;
@@ -951,18 +961,19 @@ fn index_compile_targets_for_schema_plan(
     let key_items = path.capabilities().index_key_items_for_slot_map()?;
     let mut targets = Vec::new();
 
-    match key_items {
-        IndexKeyItemsRef::Fields(fields) => {
+    match key_items.key_items() {
+        SemanticIndexKeyItemsRef::Fields(_fields) => return None,
+        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
             for (component_index, &field_name) in fields.iter().enumerate() {
                 let field_slot = schema_info.field_slot_index(field_name)?;
                 targets.push(IndexCompileTarget {
                     component_index,
                     field_slot,
-                    key_item: crate::model::index::IndexKeyItem::Field(field_name),
+                    key_item: IndexKeyItem::Field(field_name),
                 });
             }
         }
-        IndexKeyItemsRef::Items(items) => {
+        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => {
             for (component_index, &key_item) in items.iter().enumerate() {
                 let field_slot = schema_info.field_slot_index(key_item.field())?;
                 targets.push(IndexCompileTarget {

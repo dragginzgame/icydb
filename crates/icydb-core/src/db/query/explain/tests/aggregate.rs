@@ -73,8 +73,8 @@ fn explain_aggregate_terminal_seek_route_public_contract_is_stable() {
         AggregateKind::Min,
         ExplainExecutionDescriptor {
             access_strategy: ExplainAccessPath::IndexPrefix {
-                name: "explain::pushdown_tag",
-                fields: vec!["tag"],
+                name: "explain::pushdown_tag".to_string(),
+                fields: vec!["tag".to_string()],
                 prefix_len: 1,
                 values: vec![Value::Text("alpha".to_string())],
             },
@@ -92,8 +92,8 @@ fn explain_aggregate_terminal_seek_route_public_contract_is_stable() {
     assert!(matches!(
         terminal_plan.query().access(),
         ExplainAccessPath::IndexPrefix { name, fields, prefix_len, values }
-            if *name == "explain::pushdown_tag"
-                && fields == &vec!["tag"]
+            if name == "explain::pushdown_tag"
+                && fields == &vec!["tag".to_string()]
                 && *prefix_len == 1
                 && values == &vec![Value::Text("alpha".to_string())]
     ));

@@ -189,7 +189,7 @@ impl StructuralQuery {
         if let Some(schema_info) = visible_indexes.accepted_schema_info() {
             plan.finalize_access_choice_for_model_with_accepted_indexes_and_schema(
                 self.model(),
-                visible_indexes.generated_static_bridge_indexes(),
+                visible_indexes.generated_candidate_bridge_indexes(),
                 visible_indexes.accepted_field_path_indexes(),
                 schema_info,
             );
@@ -198,7 +198,7 @@ impl StructuralQuery {
 
         plan.finalize_access_choice_for_model_only_with_indexes(
             self.model(),
-            visible_indexes.generated_static_bridge_indexes(),
+            visible_indexes.generated_candidate_bridge_indexes(),
         );
     }
 

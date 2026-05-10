@@ -4,21 +4,35 @@
 //! Boundary: canonical field/expression key-item lookup compatibility and literal lowering.
 
 use crate::{
-    db::{index::derive_index_expression_value, predicate::CoercionId},
+    db::{
+        access::SemanticIndexKeyItemRef, index::derive_index_expression_value,
+        predicate::CoercionId,
+    },
     model::index::{IndexExpression, IndexKeyItem},
     value::Value,
 };
 
+impl From<IndexKeyItem> for SemanticIndexKeyItemRef<'_> {
+    fn from(value: IndexKeyItem) -> Self {
+        match value {
+            IndexKeyItem::Field(field) => Self::Field(field),
+            IndexKeyItem::Expression(expression) => Self::Expression(expression),
+        }
+    }
+}
+
 /// Return whether one key-item can match a predicate field/coercion pair.
 #[must_use]
-pub(in crate::db::query::plan) fn key_item_matches_field_and_coercion(
-    key_item: IndexKeyItem,
+pub(in crate::db::query::plan) fn key_item_matches_field_and_coercion<'a>(
+    key_item: impl Into<SemanticIndexKeyItemRef<'a>>,
     field: &str,
     coercion: CoercionId,
 ) -> bool {
-    match key_item {
-        IndexKeyItem::Field(key_field) => key_field == field && coercion == CoercionId::Strict,
-        IndexKeyItem::Expression(expression) => {
+    match key_item.into() {
+        SemanticIndexKeyItemRef::Field(key_field) => {
+            key_field == field && coercion == CoercionId::Strict
+        }
+        SemanticIndexKeyItemRef::Expression(expression) => {
             expression.field() == field && expression_supports_lookup_coercion(expression, coercion)
         }
     }
@@ -36,34 +50,34 @@ const fn expression_supports_lookup_coercion(
 
 /// Try to lower one predicate literal into a canonical key-item lookup value.
 #[must_use]
-pub(in crate::db::query::plan) fn eq_lookup_value_for_key_item(
-    key_item: IndexKeyItem,
+pub(in crate::db::query::plan) fn eq_lookup_value_for_key_item<'a>(
+    key_item: impl Into<SemanticIndexKeyItemRef<'a>>,
     field: &str,
     value: &Value,
     coercion: CoercionId,
     literal_compatible: bool,
 ) -> Option<Value> {
-    lower_lookup_value_for_key_item(key_item, field, value, coercion, literal_compatible)
+    lower_lookup_value_for_key_item(key_item.into(), field, value, coercion, literal_compatible)
 }
 
 // Lower one predicate literal into the canonical key-item value once so the
 // equality and prefix lookup paths share the same field/coercion/literal gate.
 fn lower_lookup_value_for_key_item(
-    key_item: IndexKeyItem,
+    key_item: SemanticIndexKeyItemRef<'_>,
     field: &str,
     value: &Value,
     coercion: CoercionId,
     literal_compatible: bool,
 ) -> Option<Value> {
     match key_item {
-        IndexKeyItem::Field(key_field) => {
+        SemanticIndexKeyItemRef::Field(key_field) => {
             if key_field != field || coercion != CoercionId::Strict || !literal_compatible {
                 return None;
             }
 
             Some(value.clone())
         }
-        IndexKeyItem::Expression(expression) => {
+        SemanticIndexKeyItemRef::Expression(expression) => {
             if expression.field() != field
                 || !expression_supports_lookup_coercion(expression, coercion)
                 || !literal_compatible
@@ -80,15 +94,20 @@ fn lower_lookup_value_for_key_item(
 
 /// Try to lower one starts-with predicate literal into a canonical key-item prefix value.
 #[must_use]
-pub(in crate::db::query::plan) fn starts_with_lookup_value_for_key_item(
-    key_item: IndexKeyItem,
+pub(in crate::db::query::plan) fn starts_with_lookup_value_for_key_item<'a>(
+    key_item: impl Into<SemanticIndexKeyItemRef<'a>>,
     field: &str,
     value: &Value,
     coercion: CoercionId,
     literal_compatible: bool,
 ) -> Option<String> {
-    let lowered =
-        lower_lookup_value_for_key_item(key_item, field, value, coercion, literal_compatible)?;
+    let lowered = lower_lookup_value_for_key_item(
+        key_item.into(),
+        field,
+        value,
+        coercion,
+        literal_compatible,
+    )?;
     let Value::Text(prefix) = lowered else {
         return None;
     };

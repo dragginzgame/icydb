@@ -557,7 +557,7 @@ impl IndexRangeKeyStream {
         let chunk = IndexScan::chunk_structural(
             self.store,
             self.entity_tag,
-            self.index,
+            self.index.clone(),
             &self.lower,
             &self.upper,
             continuation,
@@ -638,7 +638,8 @@ fn resolve_physical_key_stream(
     request: PhysicalStreamBindings<'_>,
     runtime: &KeyAccessRuntime,
 ) -> Result<OrderedKeyStreamBox, InternalError> {
-    let primary_scan_fetch_hint = if primary_scan_fetch_hint_shape_supported(path.capabilities()) {
+    let path_capabilities = path.capabilities();
+    let primary_scan_fetch_hint = if primary_scan_fetch_hint_shape_supported(&path_capabilities) {
         request.physical_fetch_hint
     } else {
         None

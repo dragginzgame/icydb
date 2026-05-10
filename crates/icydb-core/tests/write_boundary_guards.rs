@@ -370,7 +370,12 @@ fn accepted_schema_info_index_membership_uses_persisted_index_contracts() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "source-boundary guard keeps related accepted visible-index assertions together"
+)]
 fn runtime_visible_indexes_are_accepted_schema_filtered() {
+    let access_path = read_source("src/db/access/path.rs");
     let access_planner = read_source("src/db/query/plan/access_planner.rs");
     let order_contract = read_source("src/db/query/plan/order_contract.rs");
     let planner_mod = read_source("src/db/query/plan/planner/mod.rs");
@@ -389,16 +394,17 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && !plan_mod.contains("generated_index_bridge")
             && plan_mod.contains("accepted_field_path_indexes: Vec<AcceptedPlannerFieldPathIndex>")
             && plan_mod.contains("accepted_schema_info: Option<SchemaInfo>")
-            && plan_mod.contains("generated_static_bridge_indexes: Cow")
+            && plan_mod.contains("generated_candidate_bridge_indexes: Cow")
             && plan_mod.contains(
-                "pub(in crate::db) fn generated_static_bridge_indexes(&self)",
+                "pub(in crate::db) fn generated_candidate_bridge_indexes(&self)",
             )
             && plan_mod.contains("pub(in crate::db) const fn accepted_schema_info(")
             && plan_mod.contains("accepted_schema_info: Some(schema_info.clone())")
             && plan_mod.contains("AcceptedPlannerFieldPathIndex::from_schema_index")
-            && plan_mod
-                .contains("fn generated_static_contract_bridge_for_accepted_field_path_index")
-            && plan_mod.contains("generated_static_contract_bridge: &'static IndexModel")
+            && plan_mod.contains("SemanticIndexAccessContract::from_accepted_field_path_index")
+            && plan_mod.contains("fn generated_predicate_bridge_for_accepted_field_path_index")
+            && plan_mod.contains("generated_predicate_bridge: Option<&'static IndexModel>")
+            && access_path.contains("SemanticIndexKeyItems::Fields(")
             && plan_mod.contains("if index.has_expression_key_items() {")
             && plan_mod_compact.contains(
                 "schema_info.field_path_indexes().iter().any(|accepted|accepted.name()==index.name())",
@@ -502,9 +508,10 @@ fn runtime_access_choice_projection_uses_accepted_visible_indexes() {
             && access_choice.contains(
                 "fn project_access_choice_explain_snapshot_with_accepted_indexes_and_schema(",
             )
-            && access_choice.contains("generated_static_bridge_indexes: &[&'static IndexModel]",)
+            && access_choice
+                .contains("generated_candidate_bridge_indexes: &[&'static IndexModel]",)
             && access_choice.contains("plan_access_selection_with_order_and_accepted_indexes(")
-            && pipeline.contains("visible_indexes.generated_static_bridge_indexes()")
+            && pipeline.contains("visible_indexes.generated_candidate_bridge_indexes()")
             && pipeline.contains("rerank_access_plan_by_residual_burden_with_accepted_indexes(")
             && access_plan
                 .contains("fn finalize_access_choice_for_model_with_accepted_indexes_and_schema(",)
@@ -708,9 +715,9 @@ fn lowered_executor_scans_use_reduced_index_scan_facts() {
 
     assert!(
         access_lowering.contains("pub(in crate::db) struct LoweredIndexScanContract")
-            && access_lowering.contains("store_path: &'static str")
+            && access_lowering.contains("store_path: String")
             && access_lowering.contains("scan_contract: LoweredIndexScanContract")
-            && access_lowering.contains("pub(in crate::db) const fn scan_contract(")
+            && access_lowering.contains("pub(in crate::db) fn scan_contract(")
             && access_lowering.contains("pub(in crate::db) const fn store_path(")
             && !access_lowering.contains(
                 "pub(in crate::db) struct LoweredIndexPrefixSpec {\n    index: IndexModel"
@@ -746,10 +753,10 @@ fn runtime_access_capabilities_use_reduced_index_shape_facts() {
 
     assert!(
         access_capabilities.contains("pub(in crate::db) struct IndexShapeDetails")
-            && access_capabilities.contains("name: &'static str")
-            && access_capabilities.contains("ordinal: u16")
-            && access_capabilities.contains("unique: bool")
-            && access_capabilities.contains("key_items: IndexKeyItemsRef")
+            && access_capabilities.contains("index: SemanticIndexAccessContract")
+            && access_capabilities.contains("fn name(&self) -> &str")
+            && access_capabilities.contains("fn key_items(&self) -> SemanticIndexKeyItemsRef")
+            && access_capabilities.contains("fn key_arity(&self) -> usize")
             && !access_capabilities.contains("index: IndexModel,\n    slot_arity: usize"),
         "runtime access capabilities must carry reduced index shape facts instead of exposing generated IndexModel",
     );
@@ -829,7 +836,7 @@ fn access_choice_candidate_scores_use_reduced_index_contract_facts() {
     let planner_order_select = read_source("src/db/query/plan/planner/order_select.rs");
 
     assert!(
-        access_path.contains("pub(in crate::db) const fn is_filtered(")
+        access_path.contains("pub(in crate::db) fn is_filtered(")
             && planner_ranking.contains("fn access_candidate_score_from_index_contract(")
             && planner_ranking.contains("index.is_filtered()")
             && planner_ranking.contains("selected_index_contract_satisfies_secondary_order(")
@@ -841,7 +848,7 @@ fn access_choice_candidate_scores_use_reduced_index_contract_facts() {
             && evaluator_prefix.contains("index_contract.is_filtered()")
             && evaluator_range.contains("SemanticIndexAccessContract::from_index(*index)")
             && evaluator_range.contains("index_contract.is_filtered()")
-            && evaluator_range.contains("single_range_compare_bound_count(index_contract")
+            && evaluator_range.contains("single_range_compare_bound_count(&index_contract")
             && !evaluator.contains("index.predicate().is_some()")
             && !evaluator_prefix.contains("index.predicate().is_some()")
             && !evaluator_prefix.contains("leading_index_key_item")

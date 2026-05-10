@@ -27,7 +27,7 @@ use crate::db::executor::planning::route::{
 /// Return whether this access path can produce an ordered key-stream window directly.
 #[must_use]
 pub(in crate::db::executor) const fn ordered_key_stream_window_shape_supported(
-    capabilities: SinglePathAccessCapabilities,
+    capabilities: &SinglePathAccessCapabilities,
 ) -> bool {
     matches!(
         capabilities.kind(),
@@ -42,7 +42,7 @@ pub(in crate::db::executor) const fn ordered_key_stream_window_shape_supported(
 /// Return whether this access path is a primary-key stream-window shape.
 #[must_use]
 pub(in crate::db::executor) const fn primary_key_stream_window_shape_supported(
-    capabilities: SinglePathAccessCapabilities,
+    capabilities: &SinglePathAccessCapabilities,
 ) -> bool {
     matches!(
         capabilities.kind(),
@@ -53,7 +53,7 @@ pub(in crate::db::executor) const fn primary_key_stream_window_shape_supported(
 /// Return whether this access path directly addresses primary-key values.
 #[must_use]
 pub(in crate::db::executor) const fn direct_primary_key_lookup_shape_supported(
-    capabilities: SinglePathAccessCapabilities,
+    capabilities: &SinglePathAccessCapabilities,
 ) -> bool {
     matches!(
         capabilities.kind(),
@@ -64,7 +64,7 @@ pub(in crate::db::executor) const fn direct_primary_key_lookup_shape_supported(
 /// Return whether this path requires one top-N lookahead row in unpaged mode.
 #[must_use]
 pub(in crate::db::executor) const fn top_n_seek_lookahead_required_for_shape(
-    capabilities: SinglePathAccessCapabilities,
+    capabilities: &SinglePathAccessCapabilities,
 ) -> bool {
     matches!(
         capabilities.kind(),
@@ -75,7 +75,7 @@ pub(in crate::db::executor) const fn top_n_seek_lookahead_required_for_shape(
 /// Return whether this path can use a primary-scan fetch hint.
 #[must_use]
 pub(in crate::db::executor) const fn primary_scan_fetch_hint_shape_supported(
-    capabilities: SinglePathAccessCapabilities,
+    capabilities: &SinglePathAccessCapabilities,
 ) -> bool {
     matches!(
         capabilities.kind(),
@@ -86,7 +86,7 @@ pub(in crate::db::executor) const fn primary_scan_fetch_hint_shape_supported(
 /// Return whether COUNT can use a direct structural pushdown for this shape.
 #[must_use]
 pub(in crate::db::executor) const fn count_pushdown_shape_supported(
-    capabilities: SinglePathAccessCapabilities,
+    capabilities: &SinglePathAccessCapabilities,
 ) -> bool {
     primary_key_stream_window_shape_supported(capabilities)
 }
@@ -94,7 +94,7 @@ pub(in crate::db::executor) const fn count_pushdown_shape_supported(
 /// Return whether numeric field aggregates can use one direct key-stream fold.
 #[must_use]
 pub(in crate::db::executor) const fn streaming_numeric_fold_shape_supported(
-    capabilities: SinglePathAccessCapabilities,
+    capabilities: &SinglePathAccessCapabilities,
 ) -> bool {
     matches!(
         capabilities.kind(),
@@ -110,7 +110,7 @@ pub(in crate::db::executor) const fn streaming_numeric_fold_shape_supported(
 /// Return whether numeric field aggregates can fold paged primary-key windows.
 #[must_use]
 pub(in crate::db::executor) const fn paged_primary_key_numeric_fold_shape_supported(
-    capabilities: SinglePathAccessCapabilities,
+    capabilities: &SinglePathAccessCapabilities,
 ) -> bool {
     matches!(
         capabilities.kind(),
@@ -354,7 +354,7 @@ pub(super) const fn desc_physical_reverse_traversal_supported(
         && access_capabilities.all_paths_support_reverse_traversal()
 }
 
-pub(super) const fn count_pushdown_existing_rows_shape_supported(
+pub(super) fn count_pushdown_existing_rows_shape_supported(
     access_capabilities: &crate::db::access::AccessCapabilities,
 ) -> bool {
     access_capabilities

@@ -45,12 +45,12 @@ where
     project_access_plan(access, &mut visitor);
 }
 
-fn write_access_fields(hasher: &mut Sha256, tag: u8, name: &'static str, fields: &[&'static str]) {
+fn write_access_fields(hasher: &mut Sha256, tag: u8, name: &str, fields: &[String]) {
     write_tag(hasher, tag);
     write_str(hasher, name);
     write_u32(hasher, fields.len() as u32);
     for field in fields {
-        write_str(hasher, field);
+        write_str(hasher, field.as_str());
     }
 }
 
@@ -95,8 +95,8 @@ where
 
     fn index_prefix(
         &mut self,
-        name: &'static str,
-        fields: &[&'static str],
+        name: &str,
+        fields: &[String],
         prefix_len: usize,
         values: &[Value],
     ) -> Self::Output {
@@ -107,8 +107,8 @@ where
 
     fn index_multi_lookup(
         &mut self,
-        name: &'static str,
-        fields: &[&'static str],
+        name: &str,
+        fields: &[String],
         values: &[Value],
     ) -> Self::Output {
         write_access_fields(self.hasher, ACCESS_TAG_INDEX_MULTI_LOOKUP, name, fields);
@@ -117,8 +117,8 @@ where
 
     fn index_range(
         &mut self,
-        name: &'static str,
-        fields: &[&'static str],
+        name: &str,
+        fields: &[String],
         prefix_len: usize,
         prefix: &[Value],
         lower: &Bound<Value>,

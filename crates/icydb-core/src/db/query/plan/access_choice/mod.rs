@@ -16,7 +16,7 @@ mod tests;
 
 use crate::{
     db::{
-        access::{AccessPlan, SemanticIndexAccessContract},
+        access::AccessPlan,
         predicate::Predicate,
         query::plan::{
             AcceptedPlannerFieldPathIndex, AccessPlannedQuery,
@@ -71,14 +71,14 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes_and_sch
 #[must_use]
 pub(in crate::db) fn project_access_choice_explain_snapshot_with_accepted_indexes_and_schema(
     model: &EntityModel,
-    generated_static_bridge_indexes: &[&'static IndexModel],
+    generated_candidate_bridge_indexes: &[&'static IndexModel],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> AccessChoiceExplainSnapshot {
     project_access_choice_explain_snapshot_from_authority(
         model,
-        generated_static_bridge_indexes,
+        generated_candidate_bridge_indexes,
         accepted_field_path_indexes,
         schema_info,
         plan,
@@ -111,7 +111,7 @@ fn project_access_choice_explain_snapshot_from_authority(
     let chosen_score = chosen_score_for_visible_indexes(
         family,
         chosen_score_hint,
-        chosen_index_name,
+        chosen_index_name.as_str(),
         model,
         visible_indexes,
         schema_info,
@@ -139,7 +139,7 @@ fn project_access_choice_explain_snapshot_from_authority(
         match evaluate_index_candidate(family, index, model, schema_info, predicate, order, grouped)
         {
             self::model::CandidateEvaluation::Eligible(score)
-                if index_name == chosen_index_name =>
+                if index_name == chosen_index_name.as_str() =>
             {
                 candidates.push(project_candidate_explain_summary(
                     score,
@@ -166,7 +166,7 @@ fn project_access_choice_explain_snapshot_from_authority(
                 }
                 let rejected_on_residual_burden = residual_burden_rejected_indexes
                     .as_ref()
-                    .is_some_and(|indexes| indexes.contains(&index_name));
+                    .is_some_and(|indexes| indexes.iter().any(|name| name == index_name));
                 rejected.push(
                     ranked_rejection_reason(
                         family,
@@ -277,14 +277,14 @@ pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_indexes(
 #[must_use]
 pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_accepted_indexes(
     model: &EntityModel,
-    generated_static_bridge_indexes: &[&'static IndexModel],
+    generated_candidate_bridge_indexes: &[&'static IndexModel],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Option<AccessPlan<Value>> {
     rerank_access_plan_by_residual_burden_from_authority(
         model,
-        generated_static_bridge_indexes,
+        generated_candidate_bridge_indexes,
         accepted_field_path_indexes,
         schema_info,
         plan,
@@ -346,7 +346,7 @@ fn same_score_competing_residual_rejection_indexes(
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
-) -> Option<Vec<&'static str>> {
+) -> Option<Vec<String>> {
     let chosen_burden = residual_burden_for_plan(plan);
     let rejected = same_score_competing_candidate_plans(
         model,
@@ -361,7 +361,7 @@ fn same_score_competing_residual_rejection_indexes(
         candidate
             .access
             .selected_index_contract()
-            .map(SemanticIndexAccessContract::name)
+            .map(|contract| contract.name().to_string())
     })
     .collect::<Vec<_>>();
 
@@ -564,7 +564,7 @@ fn same_score_competing_candidate_plans(
     let chosen_score = chosen_score_for_visible_indexes(
         family,
         chosen_score_hint,
-        chosen_index_name,
+        chosen_index_name.as_str(),
         model,
         visible_indexes,
         schema_info,
@@ -575,7 +575,7 @@ fn same_score_competing_candidate_plans(
 
     let mut candidates = Vec::new();
     for index in sorted_indexes(visible_indexes) {
-        if index.name() == chosen_index_name {
+        if index.name() == chosen_index_name.as_str() {
             continue;
         }
         let self::model::CandidateEvaluation::Eligible(score) =
@@ -596,8 +596,8 @@ fn same_score_competing_candidate_plans(
         )?;
         let candidate_access_name = candidate_access
             .selected_index_contract()
-            .map(SemanticIndexAccessContract::name);
-        if candidate_access_name != Some(index.name()) {
+            .map(|contract| contract.name().to_string());
+        if candidate_access_name.as_deref() != Some(index.name()) {
             continue;
         }
 

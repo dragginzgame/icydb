@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.150.x] 🧭 - 2026-05-09 - Accepted Index Authority
 
+- `0.150.15` makes accepted field-path runtime planner contracts carry owned accepted index names, store paths, uniqueness, and field-path key items inside `SemanticIndexAccessContract`, narrows the accepted generated bridge to filtered predicate semantics, renames the remaining generated visible-index slice to `generated_candidate_bridge_indexes`, and updates diagnostics, fingerprints, route pushdown, lowering, validation, and scan facts to consume owned accepted index metadata instead of static generated key-shape strings.
 - `0.150.14` names the remaining generated static-contract bridge used by accepted runtime visible-index field-path planner contracts and exposes runtime visible-index/access-choice bridge consumers through explicit `generated_static_bridge_indexes` naming until access-path contracts can carry owned accepted index metadata.
 - `0.150.13` makes forward-index mutation planning iterate accepted field-path index contracts directly, keeping generated indexes only for expression-index planning and precompiled filtered accepted-index predicate bridging.
 - `0.150.12` carries accepted `SchemaInfo` inside runtime `VisibleIndexes` and routes query-owned visible-index execution explain access-choice finalization through accepted index contracts instead of the generated model-only finalizer.

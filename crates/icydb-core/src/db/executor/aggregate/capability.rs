@@ -194,7 +194,7 @@ pub(in crate::db::executor) fn derive_aggregate_execution_policy(
     AggregateExecutionPolicy {
         count_pushdown_shape_supported: access_capabilities
             .single_path_capabilities()
-            .is_some_and(count_pushdown_shape_supported),
+            .is_some_and(|capabilities| count_pushdown_shape_supported(&capabilities)),
         composite_aggregate_fast_path_eligible: access_capabilities.is_composite()
             && !inputs.residual_filter_present()
             && !inputs.requires_post_access_sort(),
@@ -291,7 +291,7 @@ fn field_extrema_target_has_matching_index(
         return false;
     };
     if aggregate.target_field_is_primary_key() {
-        return primary_key_stream_window_shape_supported(path_capabilities);
+        return primary_key_stream_window_shape_supported(&path_capabilities);
     }
     let Some(target_field) = aggregate.target_field() else {
         return false;

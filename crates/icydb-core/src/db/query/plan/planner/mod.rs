@@ -171,11 +171,11 @@ pub(in crate::db::query) fn plan_access_selection_with_order(
 }
 
 // Runtime planner entrypoint that preserves accepted field-path index
-// contracts for order-only fallback while predicate access planning still uses
-// the generated `IndexModel` bridge.
+// contracts while generated candidate bridges remain for expression-index and
+// predicate-bridge lanes that do not yet have accepted contracts.
 pub(in crate::db::query) fn plan_access_selection_with_order_and_accepted_indexes(
     model: &EntityModel,
-    generated_static_bridge_indexes: &[&'static IndexModel],
+    generated_candidate_bridge_indexes: &[&'static IndexModel],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
@@ -184,7 +184,7 @@ pub(in crate::db::query) fn plan_access_selection_with_order_and_accepted_indexe
 ) -> Result<PlannedAccessSelection, PlannerError> {
     plan_access_selection_with_order_from_authority(
         model,
-        generated_static_bridge_indexes,
+        generated_candidate_bridge_indexes,
         schema,
         predicate,
         order,

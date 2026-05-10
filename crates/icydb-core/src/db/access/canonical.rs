@@ -12,7 +12,10 @@
 //! Any change in this module must preserve fingerprint/continuation stability.
 
 use crate::{
-    db::access::{AccessPath, AccessPlan, SemanticIndexAccessContract, SemanticIndexRangeSpec},
+    db::access::{
+        AccessPath, AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemsRef,
+        SemanticIndexRangeSpec,
+    },
     model::index::IndexKeyItemsRef,
     value::{Value, canonicalize_value_set},
 };
@@ -247,12 +250,9 @@ impl AccessPath<Value> {
                     index: right_index,
                     values: right_values,
                 },
-            ) => Self::canonical_cmp_index_prefix(
-                *left_index,
-                left_values,
-                *right_index,
-                right_values,
-            ),
+            ) => {
+                Self::canonical_cmp_index_prefix(left_index, left_values, right_index, right_values)
+            }
             (
                 Self::IndexMultiLookup {
                     index: left_index,
@@ -263,9 +263,9 @@ impl AccessPath<Value> {
                     values: right_values,
                 },
             ) => Self::canonical_cmp_index_multi_lookup(
-                *left_index,
+                left_index,
                 left_values,
-                *right_index,
+                right_index,
                 right_values,
             ),
             (Self::IndexRange { spec: left_spec }, Self::IndexRange { spec: right_spec }) => {
@@ -277,7 +277,7 @@ impl AccessPath<Value> {
     }
 
     // Rank access-path variants for canonical ordering.
-    const fn canonical_rank(&self) -> AccessPathRank {
+    fn canonical_rank(&self) -> AccessPathRank {
         match self {
             Self::ByKey(_) => AccessPathRank { tier: 0, detail: 0 },
             Self::ByKeys(_) => AccessPathRank { tier: 0, detail: 1 },
@@ -313,9 +313,9 @@ impl AccessPath<Value> {
 
     // Compare one index-prefix shape after rank + variant pairing succeeds.
     fn canonical_cmp_index_prefix(
-        left_index: SemanticIndexAccessContract,
+        left_index: &SemanticIndexAccessContract,
         left_values: &[Value],
-        right_index: SemanticIndexAccessContract,
+        right_index: &SemanticIndexAccessContract,
         right_values: &[Value],
     ) -> Ordering {
         let cmp = canonical_cmp_index_identity(left_index, right_index);
@@ -333,9 +333,9 @@ impl AccessPath<Value> {
 
     // Compare one index multi-lookup shape after rank + variant pairing succeeds.
     fn canonical_cmp_index_multi_lookup(
-        left_index: SemanticIndexAccessContract,
+        left_index: &SemanticIndexAccessContract,
         left_values: &[Value],
-        right_index: SemanticIndexAccessContract,
+        right_index: &SemanticIndexAccessContract,
         right_values: &[Value],
     ) -> Ordering {
         let cmp = canonical_cmp_index_identity(left_index, right_index);
@@ -351,7 +351,9 @@ impl AccessPath<Value> {
         left_spec: &SemanticIndexRangeSpec,
         right_spec: &SemanticIndexRangeSpec,
     ) -> Ordering {
-        let cmp = canonical_cmp_index_identity(left_spec.index(), right_spec.index());
+        let left_index = left_spec.index();
+        let right_index = right_spec.index();
+        let cmp = canonical_cmp_index_identity(&left_index, &right_index);
         if cmp != Ordering::Equal {
             return cmp;
         }
@@ -400,8 +402,8 @@ fn canonical_cmp_access_path_rank_mismatch(
 
 // Compare index identity in canonical order before considering payload values.
 fn canonical_cmp_index_identity(
-    left: SemanticIndexAccessContract,
-    right: SemanticIndexAccessContract,
+    left: &SemanticIndexAccessContract,
+    right: &SemanticIndexAccessContract,
 ) -> Ordering {
     let cmp = left.name().cmp(right.name());
     if cmp != Ordering::Equal {
@@ -416,19 +418,23 @@ fn canonical_cmp_index_identity(
     canonical_cmp_index_key_items(left.key_items(), right.key_items())
 }
 
-fn canonical_cmp_index_key_items(left: IndexKeyItemsRef, right: IndexKeyItemsRef) -> Ordering {
+fn canonical_cmp_index_key_items(
+    left: SemanticIndexKeyItemsRef<'_>,
+    right: SemanticIndexKeyItemsRef<'_>,
+) -> Ordering {
     let left = canonical_index_key_items(left);
     let right = canonical_index_key_items(right);
 
     left.cmp(&right)
 }
 
-fn canonical_index_key_items(key_items: IndexKeyItemsRef) -> Vec<String> {
+fn canonical_index_key_items(key_items: SemanticIndexKeyItemsRef<'_>) -> Vec<String> {
     match key_items {
-        IndexKeyItemsRef::Fields(fields) => {
+        SemanticIndexKeyItemsRef::Fields(fields) => fields.to_vec(),
+        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
             fields.iter().map(|field| (*field).to_string()).collect()
         }
-        IndexKeyItemsRef::Items(items) => items
+        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => items
             .iter()
             .map(crate::model::index::IndexKeyItem::canonical_text)
             .collect(),

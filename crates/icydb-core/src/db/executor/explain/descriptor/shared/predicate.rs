@@ -149,8 +149,8 @@ impl AccessPlanProjection<Value> for ExplainAccessPushdownPredicateProjection {
 
     fn index_prefix(
         &mut self,
-        _index_name: &'static str,
-        index_fields: &[&'static str],
+        _index_name: &str,
+        index_fields: &[String],
         prefix_len: usize,
         values: &[Value],
     ) -> Self::Output {
@@ -159,8 +159,8 @@ impl AccessPlanProjection<Value> for ExplainAccessPushdownPredicateProjection {
 
     fn index_multi_lookup(
         &mut self,
-        _index_name: &'static str,
-        index_fields: &[&'static str],
+        _index_name: &str,
+        index_fields: &[String],
         values: &[Value],
     ) -> Self::Output {
         let field = index_fields.first()?;
@@ -173,8 +173,8 @@ impl AccessPlanProjection<Value> for ExplainAccessPushdownPredicateProjection {
 
     fn index_range(
         &mut self,
-        _index_name: &'static str,
-        index_fields: &[&'static str],
+        _index_name: &str,
+        index_fields: &[String],
         prefix_len: usize,
         prefix: &[Value],
         lower: &Bound<Value>,
@@ -196,7 +196,7 @@ impl AccessPlanProjection<Value> for ExplainAccessPushdownPredicateProjection {
     }
 }
 
-fn prefix_predicate_text(fields: &[&str], values: &[Value], prefix_len: usize) -> Option<String> {
+fn prefix_predicate_text(fields: &[String], values: &[Value], prefix_len: usize) -> Option<String> {
     let applied_len = prefix_len.min(fields.len()).min(values.len());
     if applied_len == 0 {
         return None;
@@ -214,7 +214,7 @@ fn prefix_predicate_text(fields: &[&str], values: &[Value], prefix_len: usize) -
 }
 
 fn index_range_pushdown_predicate_text(
-    fields: &[&str],
+    fields: &[String],
     prefix_len: usize,
     prefix: &[Value],
     lower: &Bound<Value>,
@@ -225,7 +225,7 @@ fn index_range_pushdown_predicate_text(
         out.push_str(&prefix_text);
     }
 
-    let range_field = fields.get(prefix_len).copied().unwrap_or("index_range");
+    let range_field = fields.get(prefix_len).map_or("index_range", String::as_str);
     match lower {
         Bound::Included(value) => {
             if !out.is_empty() {

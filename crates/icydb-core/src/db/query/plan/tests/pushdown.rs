@@ -192,7 +192,7 @@ fn secondary_order_pushdown_core_cases() {
                 Some(order_spec(&[("id", OrderDirection::Asc)])),
             ),
             expected: PushdownApplicability::Eligible {
-                index: INDEX_MODEL.name(),
+                index: INDEX_MODEL.name().to_string(),
                 prefix_len: 1,
             },
         },
@@ -207,7 +207,7 @@ fn secondary_order_pushdown_core_cases() {
             ),
             expected: PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
-                    index: INDEX_MODEL.name(),
+                    index: INDEX_MODEL.name().to_string(),
                     prefix_len: 1,
                     expected_suffix: vec![],
                     expected_full: vec!["tag".to_string()],
@@ -233,7 +233,7 @@ fn secondary_order_pushdown_core_cases() {
             ),
             expected: PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index: INDEX_MODEL.name(),
+                    index: INDEX_MODEL.name().to_string(),
                     prefix_len: 0,
                 },
             ),
@@ -250,7 +250,7 @@ fn secondary_order_pushdown_core_cases() {
                 ])),
             ),
             expected: PushdownApplicability::Eligible {
-                index: INDEX_MODEL.name(),
+                index: INDEX_MODEL.name().to_string(),
                 prefix_len: 0,
             },
         },
@@ -266,7 +266,7 @@ fn secondary_order_pushdown_core_cases() {
                 ])),
             ),
             expected: PushdownApplicability::Eligible {
-                index: INDEX_MODEL.name(),
+                index: INDEX_MODEL.name().to_string(),
                 prefix_len: 0,
             },
         },
@@ -286,7 +286,7 @@ fn secondary_order_pushdown_core_cases() {
             ),
             expected: PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index: INDEX_MODEL.name(),
+                    index: INDEX_MODEL.name().to_string(),
                     prefix_len: 0,
                 },
             ),
@@ -298,7 +298,7 @@ fn secondary_order_pushdown_core_cases() {
                 Some(order_spec(&[("id", OrderDirection::Desc)])),
             ),
             expected: PushdownApplicability::Eligible {
-                index: INDEX_MODEL.name(),
+                index: INDEX_MODEL.name().to_string(),
                 prefix_len: 1,
             },
         },
@@ -375,7 +375,7 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
             ),
             expected: PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index: INDEX_MODEL.name(),
+                    index: INDEX_MODEL.name().to_string(),
                     prefix_len: 0,
                 },
             ),
@@ -394,7 +394,7 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
                 }),
             ),
             expected: PushdownApplicability::Eligible {
-                index: INDEX_MODEL.name(),
+                index: INDEX_MODEL.name().to_string(),
                 prefix_len: 0,
             },
         },
@@ -412,7 +412,7 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
                 }),
             ),
             expected: PushdownApplicability::Eligible {
-                index: INDEX_MODEL.name(),
+                index: INDEX_MODEL.name().to_string(),
                 prefix_len: 0,
             },
         },
@@ -437,7 +437,7 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
             ),
             expected: PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index: INDEX_MODEL.name(),
+                    index: INDEX_MODEL.name().to_string(),
                     prefix_len: 0,
                 },
             ),
@@ -511,7 +511,7 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
             ),
             expected: PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
-                    index: INDEX_MODEL.name(),
+                    index: INDEX_MODEL.name().to_string(),
                     prefix_len: 1,
                     expected_suffix: vec![],
                     expected_full: vec!["tag".to_string()],
@@ -561,7 +561,7 @@ fn secondary_order_pushdown_contract_cases() {
                 Some(order_spec(&[("id", OrderDirection::Desc)])),
             ),
             expected: PushdownApplicability::Eligible {
-                index: INDEX_MODEL.name(),
+                index: INDEX_MODEL.name().to_string(),
                 prefix_len: 1,
             },
         },
@@ -575,7 +575,7 @@ fn secondary_order_pushdown_contract_cases() {
             ),
             expected: PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index: INDEX_MODEL.name(),
+                    index: INDEX_MODEL.name().to_string(),
                     prefix_len: 0,
                 },
             ),
@@ -596,7 +596,7 @@ fn secondary_order_pushdown_contract_cases() {
             ),
             expected: PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index: INDEX_MODEL.name(),
+                    index: INDEX_MODEL.name().to_string(),
                     prefix_len: 0,
                 },
             ),
@@ -702,7 +702,7 @@ fn secondary_order_pushdown_contract_accepts_expression_index_order_terms() {
             ),
         ),
         PushdownApplicability::Eligible {
-            index: EXPRESSION_INDEX_MODEL.name(),
+            index: EXPRESSION_INDEX_MODEL.name().to_string(),
             prefix_len: 0,
         },
         "expression ORDER BY should activate the same pushdown contract when one matching expression index path is selected",

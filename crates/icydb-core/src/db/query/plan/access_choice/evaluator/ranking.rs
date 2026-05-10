@@ -22,7 +22,7 @@ use crate::value::Value;
 struct ChosenAccessShapeProjection;
 
 impl AccessPlanProjection<Value> for ChosenAccessShapeProjection {
-    type Output = (AccessChoiceFamily, Option<&'static str>, CandidateScore);
+    type Output = (AccessChoiceFamily, Option<String>, CandidateScore);
 
     fn by_key(&mut self, _key: &Value) -> Self::Output {
         (
@@ -42,14 +42,14 @@ impl AccessPlanProjection<Value> for ChosenAccessShapeProjection {
 
     fn index_prefix(
         &mut self,
-        index_name: &'static str,
-        index_fields: &[&'static str],
+        index_name: &str,
+        index_fields: &[String],
         prefix_len: usize,
         _values: &[Value],
     ) -> Self::Output {
         (
             AccessChoiceFamily::Prefix,
-            Some(index_name),
+            Some(index_name.to_string()),
             CandidateScore::new(
                 prefix_len,
                 prefix_len == index_fields.len(),
@@ -62,21 +62,21 @@ impl AccessPlanProjection<Value> for ChosenAccessShapeProjection {
 
     fn index_multi_lookup(
         &mut self,
-        index_name: &'static str,
-        index_fields: &[&'static str],
+        index_name: &str,
+        index_fields: &[String],
         _values: &[Value],
     ) -> Self::Output {
         (
             AccessChoiceFamily::MultiLookup,
-            Some(index_name),
+            Some(index_name.to_string()),
             CandidateScore::new(1, index_fields.len() == 1, false, 0, false),
         )
     }
 
     fn index_range(
         &mut self,
-        index_name: &'static str,
-        _index_fields: &[&'static str],
+        index_name: &str,
+        _index_fields: &[String],
         prefix_len: usize,
         _prefix: &[Value],
         lower: &std::ops::Bound<Value>,
@@ -84,7 +84,7 @@ impl AccessPlanProjection<Value> for ChosenAccessShapeProjection {
     ) -> Self::Output {
         (
             AccessChoiceFamily::Range,
-            Some(index_name),
+            Some(index_name.to_string()),
             CandidateScore::new(
                 prefix_len,
                 false,
@@ -110,7 +110,7 @@ impl AccessPlanProjection<Value> for ChosenAccessShapeProjection {
 
 pub(in crate::db::query::plan::access_choice) fn chosen_access_shape_projection(
     access: &AccessPlan<Value>,
-) -> (AccessChoiceFamily, Option<&'static str>, CandidateScore) {
+) -> (AccessChoiceFamily, Option<String>, CandidateScore) {
     project_access_plan(access, &mut ChosenAccessShapeProjection)
 }
 

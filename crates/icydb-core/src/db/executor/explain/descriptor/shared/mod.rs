@@ -111,8 +111,8 @@ impl AccessPlanProjection<Value> for ExplainAccessNodeDescriptorProjection {
 
     fn index_prefix(
         &mut self,
-        _index_name: &'static str,
-        _index_fields: &[&'static str],
+        _index_name: &str,
+        _index_fields: &[String],
         _prefix_len: usize,
         _values: &[Value],
     ) -> Self::Output {
@@ -124,8 +124,8 @@ impl AccessPlanProjection<Value> for ExplainAccessNodeDescriptorProjection {
 
     fn index_multi_lookup(
         &mut self,
-        _index_name: &'static str,
-        _index_fields: &[&'static str],
+        _index_name: &str,
+        _index_fields: &[String],
         _values: &[Value],
     ) -> Self::Output {
         empty_execution_node_descriptor(
@@ -136,8 +136,8 @@ impl AccessPlanProjection<Value> for ExplainAccessNodeDescriptorProjection {
 
     fn index_range(
         &mut self,
-        _index_name: &'static str,
-        _index_fields: &[&'static str],
+        _index_name: &str,
+        _index_fields: &[String],
         _prefix_len: usize,
         _prefix: &[Value],
         _lower: &std::ops::Bound<Value>,

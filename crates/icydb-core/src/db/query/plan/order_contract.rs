@@ -3,16 +3,13 @@
 //! Does not own: runtime order application mechanics or cursor wire token encoding.
 //! Boundary: exposes immutable order contracts consumed across planner/executor boundaries.
 
+use crate::db::{
+    access::{AccessCapabilities, SemanticIndexKeyItemsRef},
+    direction::Direction,
+    query::plan::{OrderDirection, OrderSpec, order_term::index_key_item_order_terms},
+};
 #[cfg(test)]
 use crate::{db::query::plan::order_term::index_order_terms, model::index::IndexModel};
-use crate::{
-    db::{
-        access::AccessCapabilities,
-        direction::Direction,
-        query::plan::{OrderDirection, OrderSpec, order_term::index_key_item_order_terms},
-    },
-    model::index::IndexKeyItemsRef,
-};
 
 ///
 /// DeterministicSecondaryOrderContract
@@ -59,7 +56,7 @@ impl DeterministicSecondaryIndexOrderCompatibility {
     #[must_use]
     fn new(
         order_contract: &DeterministicSecondaryOrderContract,
-        key_items: IndexKeyItemsRef,
+        key_items: SemanticIndexKeyItemsRef<'_>,
         prefix_len: usize,
     ) -> Self {
         let index_terms = index_key_item_order_terms(key_items);
@@ -250,7 +247,7 @@ pub(in crate::db) fn deterministic_secondary_index_order_compatibility(
 ) -> DeterministicSecondaryIndexOrderCompatibility {
     deterministic_secondary_index_key_items_order_compatibility(
         order_contract,
-        index.key_items(),
+        SemanticIndexKeyItemsRef::Static(index.key_items()),
         prefix_len,
     )
 }
@@ -260,7 +257,7 @@ pub(in crate::db) fn deterministic_secondary_index_order_compatibility(
 #[must_use]
 pub(in crate::db) fn deterministic_secondary_index_key_items_order_compatibility(
     order_contract: &DeterministicSecondaryOrderContract,
-    key_items: IndexKeyItemsRef,
+    key_items: SemanticIndexKeyItemsRef<'_>,
     prefix_len: usize,
 ) -> DeterministicSecondaryIndexOrderCompatibility {
     DeterministicSecondaryIndexOrderCompatibility::new(order_contract, key_items, prefix_len)
@@ -284,7 +281,7 @@ pub(in crate::db) fn deterministic_secondary_index_order_satisfied(
 #[must_use]
 pub(in crate::db) fn deterministic_secondary_index_key_items_order_satisfied(
     order_contract: &DeterministicSecondaryOrderContract,
-    key_items: IndexKeyItemsRef,
+    key_items: SemanticIndexKeyItemsRef<'_>,
     prefix_len: usize,
 ) -> bool {
     deterministic_secondary_index_key_items_order_compatibility(
@@ -311,7 +308,7 @@ pub(in crate::db) fn deterministic_secondary_index_order_terms_satisfied(
 
 // Empty non-unique prefix scans still interleave several leading-key groups, so
 // their traversal order cannot satisfy arbitrary suffix ordering on its own.
-const fn prefix_order_contract_safe(access_capabilities: &AccessCapabilities) -> bool {
+fn prefix_order_contract_safe(access_capabilities: &AccessCapabilities) -> bool {
     let Some(details) = access_capabilities.single_path_index_prefix_details() else {
         return false;
     };

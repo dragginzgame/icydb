@@ -5,7 +5,10 @@
 
 use crate::{
     db::{
-        access::{AccessPlan, SemanticIndexAccessContract},
+        access::{
+            AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemRef,
+            SemanticIndexKeyItemsRef,
+        },
         predicate::{CoercionId, CompareOp, Predicate},
         query::plan::{
             OrderSpec,
@@ -19,13 +22,13 @@ use crate::{
     },
     model::{
         entity::EntityModel,
-        index::{IndexKeyItem, IndexModel},
+        index::{IndexKeyItemsRef, IndexModel},
     },
     value::Value,
 };
 
 fn leading_index_prefix_lookup_value(
-    index_contract: SemanticIndexAccessContract,
+    index_contract: &SemanticIndexAccessContract,
     field: &str,
     value: &Value,
     coercion: CoercionId,
@@ -58,7 +61,7 @@ pub(super) fn index_prefix_for_eq(
     for index in candidate_indexes {
         let index_contract = SemanticIndexAccessContract::from_index(**index);
         let Some(lookup_value) = leading_index_prefix_lookup_value(
-            index_contract,
+            &index_contract,
             field,
             value,
             coercion,
@@ -70,7 +73,7 @@ pub(super) fn index_prefix_for_eq(
         let score = access_candidate_score_from_index_contract(
             model,
             order,
-            index_contract,
+            index_contract.clone(),
             1,
             index_contract.key_arity() == 1,
             0,
@@ -117,7 +120,7 @@ pub(super) fn index_multi_lookup_for_in(
         let mut lookup_values = Vec::with_capacity(values.len());
         for (value, literal_compatible) in &cached_values {
             let Some(lookup_value) = leading_index_prefix_lookup_value(
-                index_contract,
+                &index_contract,
                 field,
                 value,
                 coercion,
@@ -134,7 +137,7 @@ pub(super) fn index_multi_lookup_for_in(
         }
 
         out.push(AccessPlan::index_multi_lookup_from_contract(
-            index_contract,
+            index_contract.clone(),
             lookup_values,
         ));
     }
@@ -178,7 +181,7 @@ pub(super) fn index_prefix_from_and(
     let mut best: Option<(AccessCandidateScore, &IndexModel, Vec<Value>)> = None;
     for index in candidate_indexes {
         let index_contract = SemanticIndexAccessContract::from_index(**index);
-        let Some(prefix) = build_index_eq_prefix(index_contract, &field_values) else {
+        let Some(prefix) = build_index_eq_prefix(&index_contract, &field_values) else {
             continue;
         };
         if prefix.is_empty() {
@@ -188,7 +191,7 @@ pub(super) fn index_prefix_from_and(
         let score = access_candidate_score_from_index_contract(
             model,
             order,
-            index_contract,
+            index_contract.clone(),
             prefix.len(),
             prefix.len() == index_contract.key_arity(),
             0,
@@ -228,28 +231,36 @@ struct CachedEqLiteral<'a> {
 }
 
 fn build_index_eq_prefix(
-    index_contract: SemanticIndexAccessContract,
+    index_contract: &SemanticIndexAccessContract,
     field_values: &[CachedEqLiteral<'_>],
 ) -> Option<Vec<Value>> {
     match index_contract.key_items() {
-        crate::model::index::IndexKeyItemsRef::Fields(fields) => build_index_eq_prefix_for_items(
-            fields.iter().copied().map(IndexKeyItem::Field),
+        SemanticIndexKeyItemsRef::Fields(fields) => build_index_eq_prefix_for_items(
+            fields
+                .iter()
+                .map(|field| SemanticIndexKeyItemRef::Field(field.as_str())),
             field_values,
         ),
-        crate::model::index::IndexKeyItemsRef::Items(items) => {
-            build_index_eq_prefix_for_items(items.iter().copied(), field_values)
+        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
+            build_index_eq_prefix_for_items(
+                fields.iter().copied().map(SemanticIndexKeyItemRef::Field),
+                field_values,
+            )
+        }
+        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => {
+            build_index_eq_prefix_for_items(items.iter().copied().map(Into::into), field_values)
         }
     }
 }
 
 // Field-only indexes and mixed field/expression indexes both use the same
 // equality-prefix assembly contract; only the key-item iterator differs.
-fn build_index_eq_prefix_for_items<I>(
+fn build_index_eq_prefix_for_items<'a, I>(
     key_items: I,
     field_values: &[CachedEqLiteral<'_>],
 ) -> Option<Vec<Value>>
 where
-    I: IntoIterator<Item = IndexKeyItem>,
+    I: IntoIterator<Item = SemanticIndexKeyItemRef<'a>>,
 {
     let mut prefix = Vec::new();
     for key_item in key_items {

@@ -209,7 +209,10 @@ pub(in crate::db) enum VisibleIndexAuthority {
 
 #[derive(Clone, Debug)]
 pub(in crate::db) struct VisibleIndexes<'a> {
-    generated_static_bridge_indexes: Cow<'a, [&'static IndexModel]>,
+    // Generated candidate bridges remain only for expression-index planning
+    // and filtered accepted-index predicate lookup until accepted expression
+    // and predicate contracts exist.
+    generated_candidate_bridge_indexes: Cow<'a, [&'static IndexModel]>,
     accepted_field_path_indexes: Vec<AcceptedPlannerFieldPathIndex>,
     accepted_schema_info: Option<SchemaInfo>,
     authority: VisibleIndexAuthority,
@@ -235,7 +238,7 @@ pub(in crate::db) struct AcceptedPlannerFieldPathIndex {
 impl AcceptedPlannerFieldPathIndex {
     fn from_schema_index(
         accepted: &crate::db::schema::SchemaIndexInfo,
-        generated_static_contract_bridge: &'static IndexModel,
+        generated_predicate_bridge: Option<&'static IndexModel>,
     ) -> Self {
         Self {
             name: accepted.name().to_string(),
@@ -246,8 +249,9 @@ impl AcceptedPlannerFieldPathIndex {
                 .iter()
                 .map(AcceptedPlannerFieldPathIndexField::from_schema_field)
                 .collect(),
-            semantic_access_contract: SemanticIndexAccessContract::from_index(
-                *generated_static_contract_bridge,
+            semantic_access_contract: SemanticIndexAccessContract::from_accepted_field_path_index(
+                accepted,
+                generated_predicate_bridge,
             ),
         }
     }
@@ -279,8 +283,8 @@ impl AcceptedPlannerFieldPathIndex {
     /// Return the reduced semantic access contract used by selected access
     /// paths after planner candidate discovery.
     #[must_use]
-    pub(in crate::db) const fn semantic_access_contract(&self) -> SemanticIndexAccessContract {
-        self.semantic_access_contract
+    pub(in crate::db) fn semantic_access_contract(&self) -> SemanticIndexAccessContract {
+        self.semantic_access_contract.clone()
     }
 
     /// Return accepted order terms for this field-path index.
@@ -308,7 +312,7 @@ impl AcceptedPlannerFieldPathIndex {
     }
 }
 
-fn generated_static_contract_bridge_for_accepted_field_path_index(
+fn generated_predicate_bridge_for_accepted_field_path_index(
     indexes: &[&'static IndexModel],
     accepted: &crate::db::schema::SchemaIndexInfo,
 ) -> Option<&'static IndexModel> {
@@ -380,7 +384,7 @@ impl<'a> VisibleIndexes<'a> {
     #[must_use]
     pub(in crate::db) const fn none() -> Self {
         Self {
-            generated_static_bridge_indexes: Cow::Borrowed(&[]),
+            generated_candidate_bridge_indexes: Cow::Borrowed(&[]),
             accepted_field_path_indexes: Vec::new(),
             accepted_schema_info: None,
             authority: VisibleIndexAuthority::StoreNotReady,
@@ -391,7 +395,7 @@ impl<'a> VisibleIndexes<'a> {
     #[must_use]
     pub(in crate::db) const fn planner_visible(indexes: &'a [&'static IndexModel]) -> Self {
         Self {
-            generated_static_bridge_indexes: Cow::Borrowed(indexes),
+            generated_candidate_bridge_indexes: Cow::Borrowed(indexes),
             accepted_field_path_indexes: Vec::new(),
             accepted_schema_info: None,
             authority: VisibleIndexAuthority::GeneratedModelOnly,
@@ -401,7 +405,7 @@ impl<'a> VisibleIndexes<'a> {
     #[must_use]
     pub(in crate::db) const fn schema_owned(indexes: &'a [&'static IndexModel]) -> Self {
         Self {
-            generated_static_bridge_indexes: Cow::Borrowed(indexes),
+            generated_candidate_bridge_indexes: Cow::Borrowed(indexes),
             accepted_field_path_indexes: Vec::new(),
             accepted_schema_info: None,
             authority: VisibleIndexAuthority::GeneratedModelOnly,
@@ -416,11 +420,11 @@ impl<'a> VisibleIndexes<'a> {
         let accepted_field_path_indexes = schema_info
             .field_path_indexes()
             .iter()
-            .filter_map(|accepted| {
-                generated_static_contract_bridge_for_accepted_field_path_index(indexes, accepted)
-                    .map(|bridge| {
-                        AcceptedPlannerFieldPathIndex::from_schema_index(accepted, bridge)
-                    })
+            .map(|accepted| {
+                AcceptedPlannerFieldPathIndex::from_schema_index(
+                    accepted,
+                    generated_predicate_bridge_for_accepted_field_path_index(indexes, accepted),
+                )
             })
             .collect::<Vec<_>>();
         let accepted_indexes = indexes
@@ -440,7 +444,7 @@ impl<'a> VisibleIndexes<'a> {
         let accepted_field_path_index_count = accepted_field_path_indexes.len();
 
         Self {
-            generated_static_bridge_indexes: Cow::Owned(accepted_indexes),
+            generated_candidate_bridge_indexes: Cow::Owned(accepted_indexes),
             accepted_field_path_indexes,
             accepted_schema_info: Some(schema_info.clone()),
             authority: VisibleIndexAuthority::AcceptedSchema {
@@ -450,8 +454,8 @@ impl<'a> VisibleIndexes<'a> {
     }
 
     #[must_use]
-    pub(in crate::db) fn generated_static_bridge_indexes(&self) -> &[&'static IndexModel] {
-        self.generated_static_bridge_indexes.as_ref()
+    pub(in crate::db) fn generated_candidate_bridge_indexes(&self) -> &[&'static IndexModel] {
+        self.generated_candidate_bridge_indexes.as_ref()
     }
 
     /// Borrow accepted planner-facing field-path index contracts.

@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        access::SemanticIndexAccessContract,
+        access::{SemanticIndexAccessContract, SemanticIndexKeyItemRef, SemanticIndexKeyItemsRef},
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::plan::{
             access_choice::model::{
@@ -15,7 +15,7 @@ use crate::{
         },
         schema::SchemaInfo,
     },
-    model::index::{IndexKeyItem, IndexModel},
+    model::index::{IndexKeyItemsRef, IndexModel},
 };
 
 pub(in crate::db::query::plan::access_choice) fn evaluate_range_candidate(
@@ -40,10 +40,10 @@ fn evaluate_range_compare_candidate(
 ) -> CandidateEvaluation {
     let evaluation = match classify_single_range_compare_kind(cmp.op) {
         Some(RangeCompareKind::StartsWith) => {
-            evaluate_starts_with_range_compare_candidate(index_contract, schema, cmp)
+            evaluate_starts_with_range_compare_candidate(&index_contract, schema, cmp)
         }
         Some(RangeCompareKind::Ordered) => {
-            evaluate_ordered_range_compare_candidate(index_contract, schema, cmp)
+            evaluate_ordered_range_compare_candidate(&index_contract, schema, cmp)
         }
         None => Err(AccessChoiceRejectedReason::OperatorNotRangeSupported),
     };
@@ -53,7 +53,7 @@ fn evaluate_range_compare_candidate(
             prefix_len: 0,
             exact: true,
             filtered: index_contract.is_filtered(),
-            range_bound_count: single_range_compare_bound_count(index_contract, cmp.op),
+            range_bound_count: single_range_compare_bound_count(&index_contract, cmp.op),
             order_compatible: false,
         }),
         Err(reason) => CandidateEvaluation::Rejected(reason),
@@ -134,7 +134,7 @@ fn range_candidate_score_from_compares(
             return Err(AccessChoiceRejectedReason::MissingContiguousPrefixOrRange);
         };
         let constraint =
-            classify_range_constraints_for_key_item(index_contract, schema, key_item, compares)?;
+            classify_range_constraints_for_key_item(&index_contract, schema, key_item, compares)?;
 
         if !range_seen {
             if constraint.eq_value.is_some() {
@@ -168,13 +168,16 @@ fn range_candidate_score_from_compares(
     })
 }
 
-const fn single_range_compare_bound_count(
-    index_contract: SemanticIndexAccessContract,
+fn single_range_compare_bound_count(
+    index_contract: &SemanticIndexAccessContract,
     op: CompareOp,
 ) -> u8 {
     match op {
         CompareOp::StartsWith
-            if matches!(index_contract.key_item_at(0), Some(IndexKeyItem::Field(_))) =>
+            if matches!(
+                index_contract.key_item_at(0),
+                Some(SemanticIndexKeyItemRef::Field(_))
+            ) =>
         {
             2
         }
@@ -201,7 +204,7 @@ const fn classify_single_range_compare_kind(op: CompareOp) -> Option<RangeCompar
 }
 
 fn evaluate_starts_with_range_compare_candidate(
-    index_contract: SemanticIndexAccessContract,
+    index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
 ) -> Result<(), AccessChoiceRejectedReason> {
@@ -231,7 +234,7 @@ fn evaluate_starts_with_range_compare_candidate(
 }
 
 fn evaluate_ordered_range_compare_candidate(
-    index_contract: SemanticIndexAccessContract,
+    index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
 ) -> Result<(), AccessChoiceRejectedReason> {
@@ -258,13 +261,13 @@ fn evaluate_ordered_range_compare_candidate(
     }
 
     match leading_key_item {
-        IndexKeyItem::Field(_) => {
+        SemanticIndexKeyItemRef::Field(_) => {
             if cmp.coercion.id != CoercionId::Strict {
                 return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
             }
             if !matches!(
                 index_contract.key_item_at(0),
-                Some(IndexKeyItem::Field(field)) if field == cmp.field.as_str()
+                Some(SemanticIndexKeyItemRef::Field(field)) if field == cmp.field.as_str()
             ) {
                 return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
             }
@@ -272,7 +275,7 @@ fn evaluate_ordered_range_compare_candidate(
                 return Err(AccessChoiceRejectedReason::OperatorNotSupported);
             }
         }
-        IndexKeyItem::Expression(_) => {
+        SemanticIndexKeyItemRef::Expression(_) => {
             if cmp.coercion.id != CoercionId::TextCasefold {
                 return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
             }
@@ -289,11 +292,11 @@ fn evaluate_ordered_range_compare_candidate(
 // Prepare the shared single-clause range evaluation context once so starts-with
 // and ordered range candidates keep the same coercion, leading-key, and
 // literal-compatibility gates before they diverge on operator-specific checks.
-fn prepare_single_range_compare_context(
-    index_contract: SemanticIndexAccessContract,
+fn prepare_single_range_compare_context<'a>(
+    index_contract: &'a SemanticIndexAccessContract,
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
-) -> Result<(IndexKeyItem, bool), AccessChoiceRejectedReason> {
+) -> Result<(SemanticIndexKeyItemRef<'a>, bool), AccessChoiceRejectedReason> {
     if !matches!(
         cmp.coercion.id,
         CoercionId::Strict | CoercionId::TextCasefold
@@ -304,7 +307,7 @@ fn prepare_single_range_compare_context(
     let Some(leading_key_item) = index_contract.key_item_at(0) else {
         return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
     };
-    if matches!(leading_key_item, IndexKeyItem::Expression(_))
+    if matches!(leading_key_item, SemanticIndexKeyItemRef::Expression(_))
         && cmp.coercion.id == CoercionId::Strict
     {
         return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
@@ -320,7 +323,7 @@ fn prepare_single_range_compare_context(
 // lookup attempt failed so the caller can return its own final operator reason
 // without duplicating the mismatch checks.
 fn ensure_leading_lookup_match(
-    leading_key_item: IndexKeyItem,
+    leading_key_item: SemanticIndexKeyItemRef<'_>,
     field: &str,
     coercion: CoercionId,
     literal_compatible: bool,
@@ -343,9 +346,9 @@ fn ensure_leading_lookup_match(
     reason = "range candidate classification keeps one explicit owner for rejection and bound-strength policy"
 )]
 fn classify_range_constraints_for_key_item(
-    index_contract: SemanticIndexAccessContract,
+    index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
-    key_item: IndexKeyItem,
+    key_item: SemanticIndexKeyItemRef<'_>,
     compares: &[&ComparePredicate],
 ) -> Result<RangeFieldConstraint, AccessChoiceRejectedReason> {
     let mut constraint = RangeFieldConstraint::default();
@@ -392,7 +395,7 @@ fn classify_range_constraints_for_key_item(
                 };
 
                 match key_item {
-                    IndexKeyItem::Field(_) => {
+                    SemanticIndexKeyItemRef::Field(_) => {
                         if cmp.coercion.id != CoercionId::Strict {
                             continue;
                         }
@@ -404,7 +407,7 @@ fn classify_range_constraints_for_key_item(
                             return Err(AccessChoiceRejectedReason::OperatorNotSupported);
                         }
                     }
-                    IndexKeyItem::Expression(_) => {
+                    SemanticIndexKeyItemRef::Expression(_) => {
                         if cmp.coercion.id != CoercionId::TextCasefold {
                             continue;
                         }
@@ -421,7 +424,7 @@ fn classify_range_constraints_for_key_item(
                 }
             }
             CompareOp::StartsWith => {
-                if matches!(key_item, IndexKeyItem::Expression(_))
+                if matches!(key_item, SemanticIndexKeyItemRef::Expression(_))
                     && cmp.coercion.id == CoercionId::Strict
                 {
                     return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
@@ -443,11 +446,12 @@ fn classify_range_constraints_for_key_item(
                     return Err(AccessChoiceRejectedReason::EqRangeConflict);
                 }
                 constraint.has_range = true;
-                constraint.range_bound_count = if matches!(key_item, IndexKeyItem::Field(_)) {
-                    2
-                } else {
-                    1
-                };
+                constraint.range_bound_count =
+                    if matches!(key_item, SemanticIndexKeyItemRef::Field(_)) {
+                        2
+                    } else {
+                        1
+                    };
             }
             _ => return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported),
         }
@@ -464,7 +468,7 @@ fn classify_range_constraints_for_key_item(
 }
 
 fn field_key_contract_supports_operator(
-    index_contract: SemanticIndexAccessContract,
+    index_contract: &SemanticIndexAccessContract,
     field: &str,
     op: CompareOp,
 ) -> bool {
@@ -487,11 +491,12 @@ fn field_key_contract_supports_operator(
     )
 }
 
-fn contract_contains_field_key(index_contract: SemanticIndexAccessContract, field: &str) -> bool {
+fn contract_contains_field_key(index_contract: &SemanticIndexAccessContract, field: &str) -> bool {
     match index_contract.key_items() {
-        crate::model::index::IndexKeyItemsRef::Fields(fields) => fields.contains(&field),
-        crate::model::index::IndexKeyItemsRef::Items(items) => items
+        SemanticIndexKeyItemsRef::Fields(fields) => fields.iter().any(|key_field| key_field == field),
+        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => fields.contains(&field),
+        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => items
             .iter()
-            .any(|item| matches!(item, IndexKeyItem::Field(key_field) if key_field == &field)),
+            .any(|item| matches!(item, crate::model::index::IndexKeyItem::Field(key_field) if key_field == &field)),
     }
 }

@@ -5,10 +5,10 @@
 
 use crate::{
     db::Predicate,
-    model::index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
+    model::index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
     value::Value,
 };
-use std::ops::Bound;
+use std::{ops::Bound, sync::Arc};
 
 ///
 /// AccessPathKind
@@ -36,24 +36,68 @@ pub(in crate::db) enum AccessPathKind {
 /// and key metadata instead of reopening the full generated model surface.
 ///
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct SemanticIndexAccessContract {
+    inner: Arc<SemanticIndexAccessContractInner>,
+}
+
+#[derive(Debug)]
+struct SemanticIndexAccessContractInner {
     ordinal: u16,
-    name: &'static str,
-    store_path: &'static str,
-    key_items: IndexKeyItemsRef,
+    name: String,
+    store_path: String,
+    key_items: SemanticIndexKeyItems,
     unique: bool,
     predicate_semantics: Option<fn() -> &'static Predicate>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum SemanticIndexKeyItems {
+    Fields(Vec<String>),
+    Static(IndexKeyItemsRef),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SemanticIndexKeyItemsRef<'a> {
+    Fields(&'a [String]),
+    Static(IndexKeyItemsRef),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SemanticIndexKeyItemRef<'a> {
+    Field(&'a str),
+    Expression(IndexExpression),
+}
+
+impl<'a> SemanticIndexKeyItemRef<'a> {
+    #[must_use]
+    pub(crate) const fn field(self) -> &'a str {
+        match self {
+            Self::Field(field) => field,
+            Self::Expression(expression) => expression.field(),
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn canonical_text(self) -> String {
+        match self {
+            Self::Field(field) => field.to_string(),
+            Self::Expression(expression) => expression.to_string(),
+        }
+    }
+}
+
 impl PartialEq for SemanticIndexAccessContract {
     fn eq(&self, other: &Self) -> bool {
-        self.ordinal == other.ordinal
-            && self.name == other.name
-            && self.store_path == other.store_path
-            && self.key_items == other.key_items
-            && self.unique == other.unique
-            && match (self.predicate_semantics, other.predicate_semantics) {
+        self.inner.ordinal == other.inner.ordinal
+            && self.inner.name == other.inner.name
+            && self.inner.store_path == other.inner.store_path
+            && self.inner.key_items == other.inner.key_items
+            && self.inner.unique == other.inner.unique
+            && match (
+                self.inner.predicate_semantics,
+                other.inner.predicate_semantics,
+            ) {
                 (Some(left), Some(right)) => std::ptr::fn_addr_eq(left, right),
                 (None, None) => true,
                 (Some(_), None) | (None, Some(_)) => false,
@@ -67,89 +111,155 @@ impl SemanticIndexAccessContract {
     /// Project one generated index model into the narrow access contract used
     /// past planner candidate selection.
     #[must_use]
-    pub(in crate::db) const fn from_index(index: IndexModel) -> Self {
+    pub(in crate::db) fn from_index(index: IndexModel) -> Self {
         Self {
-            ordinal: index.ordinal(),
-            name: index.name(),
-            store_path: index.store(),
-            key_items: index.key_items(),
-            unique: index.is_unique(),
-            predicate_semantics: index.predicate_resolver(),
+            inner: Arc::new(SemanticIndexAccessContractInner {
+                ordinal: index.ordinal(),
+                name: index.name().to_string(),
+                store_path: index.store().to_string(),
+                key_items: SemanticIndexKeyItems::Static(index.key_items()),
+                unique: index.is_unique(),
+                predicate_semantics: index.predicate_resolver(),
+            }),
         }
     }
 
     #[must_use]
-    pub(in crate::db) const fn ordinal(self) -> u16 {
-        self.ordinal
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn name(self) -> &'static str {
-        self.name
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn store_path(self) -> &'static str {
-        self.store_path
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn key_items(self) -> IndexKeyItemsRef {
-        self.key_items
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn key_arity(self) -> usize {
-        match self.key_items {
-            IndexKeyItemsRef::Fields(fields) => fields.len(),
-            IndexKeyItemsRef::Items(items) => items.len(),
+    pub(in crate::db) fn from_accepted_field_path_index(
+        accepted: &crate::db::schema::SchemaIndexInfo,
+        generated_predicate_bridge: Option<&'static IndexModel>,
+    ) -> Self {
+        Self {
+            inner: Arc::new(SemanticIndexAccessContractInner {
+                ordinal: accepted.ordinal(),
+                name: accepted.name().to_string(),
+                store_path: accepted.store().to_string(),
+                key_items: SemanticIndexKeyItems::Fields(
+                    accepted
+                        .fields()
+                        .iter()
+                        .map(|field| {
+                            if field.path().len() <= 1 {
+                                field.field_name().to_string()
+                            } else {
+                                field.path().join(".")
+                            }
+                        })
+                        .collect(),
+                ),
+                unique: accepted.unique(),
+                predicate_semantics: generated_predicate_bridge
+                    .and_then(IndexModel::predicate_resolver),
+            }),
         }
     }
 
     #[must_use]
-    pub(in crate::db) const fn key_item_at(self, slot: usize) -> Option<IndexKeyItem> {
-        match self.key_items {
-            IndexKeyItemsRef::Fields(fields) => {
+    pub(in crate::db) fn ordinal(&self) -> u16 {
+        self.inner.ordinal
+    }
+
+    #[must_use]
+    pub(in crate::db) fn name(&self) -> &str {
+        self.inner.name.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db) fn store_path(&self) -> &str {
+        self.inner.store_path.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db) fn key_items(&self) -> SemanticIndexKeyItemsRef<'_> {
+        match &self.inner.key_items {
+            SemanticIndexKeyItems::Fields(fields) => SemanticIndexKeyItemsRef::Fields(fields),
+            SemanticIndexKeyItems::Static(items) => SemanticIndexKeyItemsRef::Static(*items),
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) fn key_arity(&self) -> usize {
+        match &self.inner.key_items {
+            SemanticIndexKeyItems::Fields(fields) => fields.len(),
+            SemanticIndexKeyItems::Static(items) => match items {
+                IndexKeyItemsRef::Fields(fields) => fields.len(),
+                IndexKeyItemsRef::Items(items) => items.len(),
+            },
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) fn key_item_at(&self, slot: usize) -> Option<SemanticIndexKeyItemRef<'_>> {
+        match &self.inner.key_items {
+            SemanticIndexKeyItems::Fields(fields) => {
                 if slot < fields.len() {
-                    Some(IndexKeyItem::Field(fields[slot]))
+                    Some(SemanticIndexKeyItemRef::Field(fields[slot].as_str()))
                 } else {
                     None
                 }
             }
-            IndexKeyItemsRef::Items(items) => {
-                if slot < items.len() {
-                    Some(items[slot])
-                } else {
-                    None
+            SemanticIndexKeyItems::Static(items) => match items {
+                IndexKeyItemsRef::Fields(fields) => {
+                    if slot < fields.len() {
+                        Some(SemanticIndexKeyItemRef::Field(fields[slot]))
+                    } else {
+                        None
+                    }
                 }
-            }
+                IndexKeyItemsRef::Items(items) => {
+                    if slot < items.len() {
+                        Some(match items[slot] {
+                            IndexKeyItem::Field(field) => SemanticIndexKeyItemRef::Field(field),
+                            IndexKeyItem::Expression(expression) => {
+                                SemanticIndexKeyItemRef::Expression(expression)
+                            }
+                        })
+                    } else {
+                        None
+                    }
+                }
+            },
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) fn key_field_at(&self, slot: usize) -> Option<&str> {
+        match self.key_item_at(slot)? {
+            SemanticIndexKeyItemRef::Field(field) => Some(field),
+            SemanticIndexKeyItemRef::Expression(_) => None,
         }
     }
 
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db) fn fields(self) -> Vec<&'static str> {
-        match self.key_items {
-            IndexKeyItemsRef::Fields(fields) => fields.to_vec(),
-            IndexKeyItemsRef::Items(items) => items.iter().map(IndexKeyItem::field).collect(),
+    pub(in crate::db) fn fields(&self) -> Vec<String> {
+        match self.key_items() {
+            SemanticIndexKeyItemsRef::Fields(fields) => fields.to_vec(),
+            SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
+                fields.iter().copied().map(str::to_string).collect()
+            }
+            SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => {
+                items.iter().map(|item| item.field().to_string()).collect()
+            }
         }
     }
 
     #[must_use]
-    pub(in crate::db) const fn is_unique(self) -> bool {
-        self.unique
+    pub(in crate::db) fn is_unique(&self) -> bool {
+        self.inner.unique
     }
 
     #[must_use]
-    pub(in crate::db) const fn is_filtered(self) -> bool {
-        self.predicate_semantics.is_some()
+    pub(in crate::db) fn is_filtered(&self) -> bool {
+        self.inner.predicate_semantics.is_some()
     }
 
     #[must_use]
-    pub(in crate::db) const fn has_expression_key_items(self) -> bool {
-        match self.key_items {
-            IndexKeyItemsRef::Fields(_) => false,
-            IndexKeyItemsRef::Items(items) => {
+    pub(in crate::db) fn has_expression_key_items(&self) -> bool {
+        match &self.inner.key_items {
+            SemanticIndexKeyItems::Fields(_)
+            | SemanticIndexKeyItems::Static(IndexKeyItemsRef::Fields(_)) => false,
+            SemanticIndexKeyItems::Static(IndexKeyItemsRef::Items(items)) => {
                 let mut index = 0usize;
                 while index < items.len() {
                     if matches!(items[index], IndexKeyItem::Expression(_)) {
@@ -164,8 +274,8 @@ impl SemanticIndexAccessContract {
     }
 
     #[must_use]
-    pub(in crate::db) fn predicate_semantics(self) -> Option<&'static Predicate> {
-        self.predicate_semantics.map(|resolver| resolver())
+    pub(in crate::db) fn predicate_semantics(&self) -> Option<&'static Predicate> {
+        self.inner.predicate_semantics.map(|resolver| resolver())
     }
 }
 
@@ -264,8 +374,8 @@ impl SemanticIndexRangeSpec {
     }
 
     #[must_use]
-    pub(crate) const fn index(&self) -> SemanticIndexAccessContract {
-        self.index
+    pub(crate) fn index(&self) -> SemanticIndexAccessContract {
+        self.index.clone()
     }
 
     #[must_use]
@@ -421,22 +531,22 @@ impl<K> AccessPath<K> {
 
     /// Borrow reduced index-prefix details when this path is `IndexPrefix`.
     #[must_use]
-    pub(in crate::db) const fn as_index_prefix_contract(
+    pub(in crate::db) fn as_index_prefix_contract(
         &self,
     ) -> Option<(SemanticIndexAccessContract, &[Value])> {
         match self {
-            Self::IndexPrefix { index, values } => Some((*index, values.as_slice())),
+            Self::IndexPrefix { index, values } => Some((index.clone(), values.as_slice())),
             _ => None,
         }
     }
 
     /// Borrow reduced index multi-lookup details when this path is `IndexMultiLookup`.
     #[must_use]
-    pub(in crate::db) const fn as_index_multi_lookup_contract(
+    pub(in crate::db) fn as_index_multi_lookup_contract(
         &self,
     ) -> Option<(SemanticIndexAccessContract, &[Value])> {
         match self {
-            Self::IndexMultiLookup { index, values } => Some((*index, values.as_slice())),
+            Self::IndexMultiLookup { index, values } => Some((index.clone(), values.as_slice())),
             _ => None,
         }
     }
@@ -452,11 +562,11 @@ impl<K> AccessPath<K> {
 
     /// Borrow the reduced selected secondary-index contract when this path uses one.
     #[must_use]
-    pub(in crate::db) const fn selected_index_contract(
-        &self,
-    ) -> Option<SemanticIndexAccessContract> {
+    pub(in crate::db) fn selected_index_contract(&self) -> Option<SemanticIndexAccessContract> {
         match self {
-            Self::IndexPrefix { index, .. } | Self::IndexMultiLookup { index, .. } => Some(*index),
+            Self::IndexPrefix { index, .. } | Self::IndexMultiLookup { index, .. } => {
+                Some(index.clone())
+            }
             Self::IndexRange { spec } => Some(spec.index()),
             Self::ByKey(_) | Self::ByKeys(_) | Self::KeyRange { .. } | Self::FullScan => None,
         }

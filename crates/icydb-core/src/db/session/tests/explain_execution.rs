@@ -34,7 +34,7 @@ fn assert_ready_visible_index_bridge_contracts(
         ready_visible_indexes.accepted_field_path_index_count(),
         Some(
             ready_visible_indexes
-                .generated_static_bridge_indexes()
+                .generated_candidate_bridge_indexes()
                 .len()
         ),
         "ready planner-visible field-path indexes must be backed by accepted field-path index contracts",
@@ -42,7 +42,7 @@ fn assert_ready_visible_index_bridge_contracts(
     assert_eq!(
         ready_visible_indexes.accepted_field_path_indexes().len(),
         ready_visible_indexes
-            .generated_static_bridge_indexes()
+            .generated_candidate_bridge_indexes()
             .len(),
         "ready field-path visible indexes must carry one accepted planner contract per generated bridge",
     );
@@ -52,7 +52,7 @@ fn assert_ready_visible_index_bridge_contracts(
     );
     assert!(
         !ready_visible_indexes
-            .generated_static_bridge_indexes()
+            .generated_candidate_bridge_indexes()
             .is_empty(),
         "ready indexed store should expose accepted field-path index contracts",
     );
@@ -761,7 +761,9 @@ fn session_non_ready_secondary_indexes_are_hidden_from_planning_and_execution() 
         )
         .expect("non-ready store should still resolve planner-visible index slice");
     assert!(
-        visible_indexes.generated_static_bridge_indexes().is_empty(),
+        visible_indexes
+            .generated_candidate_bridge_indexes()
+            .is_empty(),
         "planner boundary must hide non-ready secondary indexes before access selection",
     );
 

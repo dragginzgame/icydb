@@ -5,7 +5,10 @@
 
 use crate::{
     db::{
-        access::{AccessPlan, SemanticIndexAccessContract, SemanticIndexRangeSpec},
+        access::{
+            AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemRef,
+            SemanticIndexKeyItemsRef, SemanticIndexRangeSpec,
+        },
         index::{TextPrefixBoundMode, starts_with_component_bounds},
         predicate::{CoercionId, CompareOp, ComparePredicate},
         query::plan::{
@@ -223,10 +226,7 @@ fn plan_starts_with_compare(
         // relies on residual filter evaluation for exact prefix semantics.
         let (lower, upper) = starts_with_component_bounds(
             &prefix,
-            if matches!(
-                leading_key_item,
-                crate::model::index::IndexKeyItem::Expression(_)
-            ) {
+            if matches!(leading_key_item, SemanticIndexKeyItemRef::Expression(_)) {
                 TextPrefixBoundMode::LowerOnly
             } else {
                 TextPrefixBoundMode::Strict
@@ -236,7 +236,7 @@ fn plan_starts_with_compare(
         let score = access_candidate_score_from_index_contract(
             model,
             order,
-            index_contract,
+            index_contract.clone(),
             0,
             false,
             range_bound_count(&lower, &upper),
@@ -304,15 +304,15 @@ fn plan_ordered_compare(
         };
 
         match leading_key_item {
-            crate::model::index::IndexKeyItem::Field(_) => {
+            SemanticIndexKeyItemRef::Field(_) => {
                 if cmp.coercion.id != CoercionId::Strict
                     || !matches!(
                         index_contract.key_item_at(0),
-                        Some(crate::model::index::IndexKeyItem::Field(field))
+                        Some(SemanticIndexKeyItemRef::Field(field))
                             if field == cmp.field.as_str()
                     )
                     || !field_key_contract_supports_operator(
-                        index_contract,
+                        &index_contract,
                         cmp.field.as_str(),
                         cmp.op,
                     )
@@ -320,7 +320,7 @@ fn plan_ordered_compare(
                     continue;
                 }
             }
-            crate::model::index::IndexKeyItem::Expression(_) => {
+            SemanticIndexKeyItemRef::Expression(_) => {
                 if cmp.coercion.id != CoercionId::TextCasefold {
                     continue;
                 }
@@ -337,7 +337,7 @@ fn plan_ordered_compare(
         let score = access_candidate_score_from_index_contract(
             model,
             order,
-            index_contract,
+            index_contract.clone(),
             0,
             false,
             range_bound_count(&lower, &upper),
@@ -367,7 +367,7 @@ fn plan_ordered_compare(
 }
 
 fn field_key_contract_supports_operator(
-    index_contract: SemanticIndexAccessContract,
+    index_contract: &SemanticIndexAccessContract,
     field: &str,
     op: CompareOp,
 ) -> bool {
@@ -390,10 +390,13 @@ fn field_key_contract_supports_operator(
     )
 }
 
-fn contract_contains_field_key(index_contract: SemanticIndexAccessContract, field: &str) -> bool {
+fn contract_contains_field_key(index_contract: &SemanticIndexAccessContract, field: &str) -> bool {
     match index_contract.key_items() {
-        crate::model::index::IndexKeyItemsRef::Fields(fields) => fields.contains(&field),
-        crate::model::index::IndexKeyItemsRef::Items(items) => items.iter().any(|item| {
+        SemanticIndexKeyItemsRef::Fields(fields) => fields.iter().any(|key_field| key_field == field),
+        SemanticIndexKeyItemsRef::Static(crate::model::index::IndexKeyItemsRef::Fields(fields)) => {
+            fields.contains(&field)
+        }
+        SemanticIndexKeyItemsRef::Static(crate::model::index::IndexKeyItemsRef::Items(items)) => items.iter().any(|item| {
             matches!(item, crate::model::index::IndexKeyItem::Field(key_field) if key_field == &field)
         }),
     }

@@ -5,23 +5,37 @@
 
 #[cfg(test)]
 use crate::model::index::IndexModel;
-use crate::model::index::{IndexKeyItem, IndexKeyItemsRef};
+use crate::{
+    db::access::{SemanticIndexKeyItemRef, SemanticIndexKeyItemsRef},
+    model::index::{IndexKeyItem, IndexKeyItemsRef},
+};
 
 /// Return one canonical ORDER BY term list for an index key sequence.
 #[must_use]
 #[cfg(test)]
 pub(in crate::db) fn index_order_terms(index: &IndexModel) -> Vec<String> {
-    index_key_item_order_terms(index.key_items())
+    index_key_item_order_terms(SemanticIndexKeyItemsRef::Static(index.key_items()))
 }
 
 /// Return one canonical ORDER BY term list from reduced index key-item facts.
 #[must_use]
-pub(in crate::db) fn index_key_item_order_terms(key_items: IndexKeyItemsRef) -> Vec<String> {
+pub(in crate::db) fn index_key_item_order_terms(
+    key_items: SemanticIndexKeyItemsRef<'_>,
+) -> Vec<String> {
     match key_items {
-        IndexKeyItemsRef::Fields(fields) => {
-            canonical_index_order_terms(fields.iter().copied().map(IndexKeyItem::Field))
+        SemanticIndexKeyItemsRef::Fields(fields) => fields.to_vec(),
+        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
+            canonical_index_order_terms(
+                fields
+                    .iter()
+                    .copied()
+                    .map(IndexKeyItem::Field)
+                    .map(SemanticIndexKeyItemRef::from),
+            )
         }
-        IndexKeyItemsRef::Items(items) => canonical_index_order_terms(items.iter().copied()),
+        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => {
+            canonical_index_order_terms(items.iter().copied().map(SemanticIndexKeyItemRef::from))
+        }
     }
 }
 
@@ -29,10 +43,10 @@ pub(in crate::db) fn index_key_item_order_terms(key_items: IndexKeyItemsRef) -> 
 // ORDER BY rendering contract; only the source iterator for key items differs.
 fn canonical_index_order_terms<I>(key_items: I) -> Vec<String>
 where
-    I: IntoIterator<Item = IndexKeyItem>,
+    I: IntoIterator<Item = SemanticIndexKeyItemRef<'static>>,
 {
     key_items
         .into_iter()
-        .map(|key_item| key_item.canonical_text())
+        .map(SemanticIndexKeyItemRef::canonical_text)
         .collect()
 }

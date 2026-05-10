@@ -11,7 +11,9 @@
 mod tests;
 
 use crate::db::{
-    access::{AccessPlan, SemanticIndexAccessContract},
+    access::{
+        AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemRef, SemanticIndexKeyItemsRef,
+    },
     direction::Direction,
     predicate::IndexPredicateCapability,
     query::plan::{
@@ -20,13 +22,7 @@ use crate::db::{
     },
     schema::SchemaInfo,
 };
-use crate::{
-    model::{
-        field::FieldModel,
-        index::{IndexKeyItem, IndexKeyItemsRef},
-    },
-    value::Value,
-};
+use crate::{model::field::FieldModel, value::Value};
 
 ///
 /// CoveringProjectionOrder
@@ -370,7 +366,7 @@ pub(in crate::db) fn covering_index_projection_context<K>(
     let component_index = metadata
         .coverable_component_fields
         .iter()
-        .position(|field| field.is_some_and(|field| field == target_field))?;
+        .position(|field| field.as_deref().is_some_and(|field| field == target_field))?;
     let order_contract = covering_projection_order_contract(
         order,
         order_terms.as_slice(),
@@ -562,7 +558,7 @@ fn primary_store_covering_plan_with_schema_info(
 
 // Resolve one constant projection value from index-prefix component bindings.
 fn constant_covering_projection_value_from_prefix(
-    coverable_component_fields: &[Option<&'static str>],
+    coverable_component_fields: &[Option<String>],
     prefix_values: &[Value],
     target_field: &str,
 ) -> Option<Value> {
@@ -571,6 +567,7 @@ fn constant_covering_projection_value_from_prefix(
         .zip(prefix_values.iter())
         .find_map(|(field, value)| {
             field
+                .as_deref()
                 .is_some_and(|field| field == target_field)
                 .then(|| value.clone())
         })
@@ -586,7 +583,7 @@ fn constant_covering_projection_value_from_prefix(
 
 struct CoveringAccessMetadata<'a> {
     order_terms: Vec<String>,
-    coverable_component_fields: Vec<Option<&'static str>>,
+    coverable_component_fields: Vec<Option<String>>,
     prefix_values: &'a [Value],
     prefix_len: usize,
     path_kind_is_range: bool,
@@ -814,7 +811,7 @@ enum CoveringProjectionFieldSourcePolicy {
 
 #[derive(Clone, Copy)]
 struct CoveringProjectionSourceContext<'a> {
-    coverable_component_fields: &'a [Option<&'static str>],
+    coverable_component_fields: &'a [Option<String>],
     prefix_values: &'a [Value],
     primary_key_name: &'static str,
     source_policy: CoveringProjectionFieldSourcePolicy,
@@ -889,7 +886,7 @@ fn covering_projection_field_source(
     source_context
         .coverable_component_fields
         .iter()
-        .position(|field| field.is_some_and(|field| field == field_name))
+        .position(|field| field.as_deref().is_some_and(|field| field == field_name))
         .map(|component_index| CoveringReadFieldSource::IndexComponent { component_index })
         .or_else(|| {
             matches!(
@@ -906,15 +903,25 @@ fn covering_projection_field_source(
 // derived component bytes.
 fn coverable_component_fields_for_contract(
     index: SemanticIndexAccessContract,
-) -> Vec<Option<&'static str>> {
+) -> Vec<Option<String>> {
     match index.key_items() {
-        IndexKeyItemsRef::Fields(fields) => fields.iter().copied().map(Some).collect(),
-        IndexKeyItemsRef::Items(items) => items
-            .iter()
-            .map(|item| match item {
-                IndexKeyItem::Field(field) => Some(*field),
-                IndexKeyItem::Expression(_) => None,
-            })
-            .collect(),
+        SemanticIndexKeyItemsRef::Fields(fields) => {
+            fields.iter().map(|field| Some(field.clone())).collect()
+        }
+        SemanticIndexKeyItemsRef::Static(crate::model::index::IndexKeyItemsRef::Fields(fields)) => {
+            fields
+                .iter()
+                .map(|field| Some((*field).to_string()))
+                .collect()
+        }
+        SemanticIndexKeyItemsRef::Static(crate::model::index::IndexKeyItemsRef::Items(items)) => {
+            items
+                .iter()
+                .map(|item| match SemanticIndexKeyItemRef::from(*item) {
+                    SemanticIndexKeyItemRef::Field(field) => Some(field.to_string()),
+                    SemanticIndexKeyItemRef::Expression(_) => None,
+                })
+                .collect()
+        }
     }
 }

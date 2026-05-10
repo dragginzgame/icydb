@@ -51,13 +51,13 @@ where
 
     fn index_prefix(
         &mut self,
-        index_name: &'static str,
-        index_fields: &[&'static str],
+        index_name: &str,
+        index_fields: &[String],
         prefix_len: usize,
         values: &[Value],
     ) -> Self::Output {
         ExplainAccessPath::IndexPrefix {
-            name: index_name,
+            name: index_name.to_string(),
             fields: index_fields.to_vec(),
             prefix_len,
             values: values.to_vec(),
@@ -66,12 +66,12 @@ where
 
     fn index_multi_lookup(
         &mut self,
-        index_name: &'static str,
-        index_fields: &[&'static str],
+        index_name: &str,
+        index_fields: &[String],
         values: &[Value],
     ) -> Self::Output {
         ExplainAccessPath::IndexMultiLookup {
-            name: index_name,
+            name: index_name.to_string(),
             fields: index_fields.to_vec(),
             values: values.to_vec(),
         }
@@ -79,15 +79,15 @@ where
 
     fn index_range(
         &mut self,
-        index_name: &'static str,
-        index_fields: &[&'static str],
+        index_name: &str,
+        index_fields: &[String],
         prefix_len: usize,
         prefix: &[Value],
         lower: &std::ops::Bound<Value>,
         upper: &std::ops::Bound<Value>,
     ) -> Self::Output {
         ExplainAccessPath::IndexRange {
-            name: index_name,
+            name: index_name.to_string(),
             fields: index_fields.to_vec(),
             prefix_len,
             prefix: prefix.to_vec(),
@@ -155,8 +155,8 @@ impl AccessPlanProjection<Value> for ExplainAccessJsonProjection {
 
     fn index_prefix(
         &mut self,
-        index_name: &'static str,
-        index_fields: &[&'static str],
+        index_name: &str,
+        index_fields: &[String],
         prefix_len: usize,
         values: &[Value],
     ) -> Self::Output {
@@ -174,8 +174,8 @@ impl AccessPlanProjection<Value> for ExplainAccessJsonProjection {
 
     fn index_multi_lookup(
         &mut self,
-        index_name: &'static str,
-        index_fields: &[&'static str],
+        index_name: &str,
+        index_fields: &[String],
         values: &[Value],
     ) -> Self::Output {
         let mut out = String::new();
@@ -191,8 +191,8 @@ impl AccessPlanProjection<Value> for ExplainAccessJsonProjection {
 
     fn index_range(
         &mut self,
-        index_name: &'static str,
-        index_fields: &[&'static str],
+        index_name: &str,
+        index_fields: &[String],
         prefix_len: usize,
         prefix: &[Value],
         lower: &std::ops::Bound<Value>,

@@ -3,17 +3,14 @@
 //! Does not own: logical ORDER BY validation semantics.
 //! Boundary: route-owned capability assessment over validated logical+access plans.
 
-use crate::{
-    db::{
-        access::AccessCapabilities,
-        executor::route::{PushdownApplicability, SecondaryOrderPushdownRejection},
-        query::plan::{
-            AccessPlannedQuery, DeterministicSecondaryOrderContract, LogicalPushdownEligibility,
-            PlannerRouteProfile, access_satisfies_deterministic_secondary_order_contract,
-            deterministic_secondary_index_key_items_order_compatibility,
-        },
+use crate::db::{
+    access::{AccessCapabilities, SemanticIndexKeyItemsRef},
+    executor::route::{PushdownApplicability, SecondaryOrderPushdownRejection},
+    query::plan::{
+        AccessPlannedQuery, DeterministicSecondaryOrderContract, LogicalPushdownEligibility,
+        PlannerRouteProfile, access_satisfies_deterministic_secondary_order_contract,
+        deterministic_secondary_index_key_items_order_compatibility,
     },
-    model::index::IndexKeyItemsRef,
 };
 
 fn validated_secondary_order_contract(
@@ -41,8 +38,8 @@ pub(in crate::db) fn derive_secondary_pushdown_applicability_from_contract(
 // Core matcher for secondary ORDER BY pushdown eligibility.
 fn match_secondary_order_pushdown_core(
     order_contract: &DeterministicSecondaryOrderContract,
-    index_name: &'static str,
-    key_items: IndexKeyItemsRef,
+    index_name: &str,
+    key_items: SemanticIndexKeyItemsRef<'_>,
     prefix_len: usize,
 ) -> PushdownApplicability {
     let compatibility = deterministic_secondary_index_key_items_order_compatibility(
@@ -52,14 +49,14 @@ fn match_secondary_order_pushdown_core(
     );
     if compatibility.is_satisfied() {
         return PushdownApplicability::Eligible {
-            index: index_name,
+            index: index_name.to_string(),
             prefix_len,
         };
     }
 
     PushdownApplicability::Rejected(
         SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
-            index: index_name,
+            index: index_name.to_string(),
             prefix_len,
             expected_suffix: compatibility.index_suffix_terms(prefix_len),
             expected_full: compatibility.index_terms().to_vec(),
@@ -79,7 +76,7 @@ fn secondary_order_pushdown_applicability(
         if let Some(details) = access_capabilities.first_index_range_details() {
             return PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index: details.name(),
+                    index: details.name().to_string(),
                     prefix_len: details.slot_arity(),
                 },
             );
@@ -128,7 +125,7 @@ fn secondary_order_pushdown_applicability(
             PushdownApplicability::Eligible { .. } => applicability,
             PushdownApplicability::Rejected(_) => PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index: index_name,
+                    index: index_name.to_string(),
                     prefix_len,
                 },
             ),

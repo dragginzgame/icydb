@@ -163,10 +163,7 @@ fn access_bound_equalities(
     (0..values.len())
         .zip(values.iter())
         .filter_map(|(slot, value)| {
-            let Some(crate::model::index::IndexKeyItem::Field(field)) = index.key_item_at(slot)
-            else {
-                return None;
-            };
+            let field = index.key_field_at(slot)?;
 
             Some(ComparePredicate::with_coercion(
                 field,

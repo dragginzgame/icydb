@@ -3,12 +3,9 @@
 //! Does not own: planner semantics or physical stream execution behavior.
 //! Boundary: access-layer shape authority consumed by executor route/load/stream modules.
 
-use crate::{
-    db::access::{
-        AccessPath, AccessPathKind, AccessPlan, ExecutableAccessNode, ExecutableAccessPlan,
-        ExecutionPathPayload, SemanticIndexAccessContract,
-    },
-    model::index::{IndexKeyItem, IndexKeyItemsRef},
+use crate::db::access::{
+    AccessPath, AccessPathKind, AccessPlan, ExecutableAccessNode, ExecutableAccessPlan,
+    ExecutionPathPayload, SemanticIndexAccessContract, SemanticIndexKeyItemsRef,
 };
 
 // Project whether traversal can safely reverse the underlying access shape.
@@ -25,13 +22,13 @@ const fn has_reversible_traversal_shape_for_path_kind(kind: AccessPathKind) -> b
 /// re-matching raw access variants.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SinglePathAccessCapabilities {
     kind: AccessPathKind,
     is_by_keys_empty: bool,
     index_prefix_details: Option<IndexShapeDetails>,
     index_range_details: Option<IndexShapeDetails>,
-    index_key_items_for_slot_map: Option<IndexKeyItemsRef>,
+    index_key_items_for_slot_map: Option<IndexShapeDetails>,
     index_prefix_spec_count: usize,
     consumes_index_range_spec: bool,
 }
@@ -54,18 +51,18 @@ impl SinglePathAccessCapabilities {
     }
 
     #[must_use]
-    pub(in crate::db) const fn index_prefix_details(&self) -> Option<IndexShapeDetails> {
-        self.index_prefix_details
+    pub(in crate::db) fn index_prefix_details(&self) -> Option<IndexShapeDetails> {
+        self.index_prefix_details.clone()
     }
 
     #[must_use]
-    pub(in crate::db) const fn index_range_details(&self) -> Option<IndexShapeDetails> {
-        self.index_range_details
+    pub(in crate::db) fn index_range_details(&self) -> Option<IndexShapeDetails> {
+        self.index_range_details.clone()
     }
 
     #[must_use]
-    pub(in crate::db) const fn index_key_items_for_slot_map(&self) -> Option<IndexKeyItemsRef> {
-        self.index_key_items_for_slot_map
+    pub(in crate::db) fn index_key_items_for_slot_map(&self) -> Option<IndexShapeDetails> {
+        self.index_key_items_for_slot_map.clone()
     }
 
     #[must_use]
@@ -86,12 +83,9 @@ impl SinglePathAccessCapabilities {
 /// Carries index identity together with slot arity to avoid tuple-position drift.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct IndexShapeDetails {
-    name: &'static str,
-    ordinal: u16,
-    unique: bool,
-    key_items: IndexKeyItemsRef,
+    index: SemanticIndexAccessContract,
     slot_arity: usize,
 }
 
@@ -101,73 +95,48 @@ impl IndexShapeDetails {
         index: SemanticIndexAccessContract,
         slot_arity: usize,
     ) -> Self {
-        Self {
-            name: index.name(),
-            ordinal: index.ordinal(),
-            unique: index.is_unique(),
-            key_items: index.key_items(),
-            slot_arity,
-        }
+        Self { index, slot_arity }
     }
 
     #[must_use]
-    pub(in crate::db) const fn name(self) -> &'static str {
-        self.name
+    pub(in crate::db) fn name(&self) -> &str {
+        self.index.name()
     }
 
     #[must_use]
-    pub(in crate::db) const fn ordinal(self) -> u16 {
-        self.ordinal
+    pub(in crate::db) fn ordinal(&self) -> u16 {
+        self.index.ordinal()
     }
 
     #[must_use]
-    pub(in crate::db) const fn is_unique(self) -> bool {
-        self.unique
+    pub(in crate::db) fn is_unique(&self) -> bool {
+        self.index.is_unique()
     }
 
     #[must_use]
-    pub(in crate::db) const fn key_items(self) -> IndexKeyItemsRef {
-        self.key_items
+    pub(in crate::db) fn key_items(&self) -> SemanticIndexKeyItemsRef<'_> {
+        self.index.key_items()
     }
 
     #[must_use]
-    pub(in crate::db) const fn key_arity(self) -> usize {
-        match self.key_items {
-            IndexKeyItemsRef::Fields(fields) => fields.len(),
-            IndexKeyItemsRef::Items(items) => items.len(),
-        }
+    pub(in crate::db) fn key_arity(&self) -> usize {
+        self.index.key_arity()
     }
 
     #[must_use]
-    pub(in crate::db) const fn key_field_at(self, component_index: usize) -> Option<&'static str> {
-        match self.key_items {
-            IndexKeyItemsRef::Fields(fields) => {
-                if component_index < fields.len() {
-                    Some(fields[component_index])
-                } else {
-                    None
-                }
-            }
-            IndexKeyItemsRef::Items(items) => {
-                if component_index < items.len() {
-                    Some(match items[component_index] {
-                        IndexKeyItem::Field(field) => field,
-                        IndexKeyItem::Expression(expression) => expression.field(),
-                    })
-                } else {
-                    None
-                }
-            }
-        }
+    pub(in crate::db) fn key_field_at(&self, component_index: usize) -> Option<&str> {
+        self.index
+            .key_item_at(component_index)
+            .map(crate::db::access::SemanticIndexKeyItemRef::field)
     }
 
     #[must_use]
-    pub(in crate::db) const fn first_key_field(self) -> Option<&'static str> {
+    pub(in crate::db) fn first_key_field(&self) -> Option<&str> {
         self.key_field_at(0)
     }
 
     #[must_use]
-    pub(in crate::db) const fn slot_arity(self) -> usize {
+    pub(in crate::db) const fn slot_arity(&self) -> usize {
         self.slot_arity
     }
 }
@@ -180,7 +149,7 @@ impl IndexShapeDetails {
 /// leaving route, aggregate, and fetch-hint policy outside the access layer.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AccessCapabilities {
     single_path: Option<SinglePathAccessCapabilities>,
     first_index_range_details: Option<IndexShapeDetails>,
@@ -190,10 +159,8 @@ pub(in crate::db) struct AccessCapabilities {
 impl AccessCapabilities {
     /// Borrow the single-path capability snapshot when this access plan is one path.
     #[must_use]
-    pub(in crate::db) const fn single_path_capabilities(
-        &self,
-    ) -> Option<SinglePathAccessCapabilities> {
-        self.single_path
+    pub(in crate::db) fn single_path_capabilities(&self) -> Option<SinglePathAccessCapabilities> {
+        self.single_path.clone()
     }
 
     #[must_use]
@@ -202,8 +169,8 @@ impl AccessCapabilities {
     }
 
     #[must_use]
-    pub(in crate::db) const fn first_index_range_details(&self) -> Option<IndexShapeDetails> {
-        self.first_index_range_details
+    pub(in crate::db) fn first_index_range_details(&self) -> Option<IndexShapeDetails> {
+        self.first_index_range_details.clone()
     }
 
     #[must_use]
@@ -217,18 +184,16 @@ impl AccessCapabilities {
     }
 
     #[must_use]
-    pub(in crate::db) const fn single_path_index_prefix_details(
-        &self,
-    ) -> Option<IndexShapeDetails> {
-        match self.single_path {
+    pub(in crate::db) fn single_path_index_prefix_details(&self) -> Option<IndexShapeDetails> {
+        match &self.single_path {
             Some(path) => path.index_prefix_details(),
             None => None,
         }
     }
 
     #[must_use]
-    pub(in crate::db) const fn single_path_index_range_details(&self) -> Option<IndexShapeDetails> {
-        match self.single_path {
+    pub(in crate::db) fn single_path_index_range_details(&self) -> Option<IndexShapeDetails> {
+        match &self.single_path {
             Some(path) => path.index_range_details(),
             None => None,
         }
@@ -251,18 +216,19 @@ const fn index_prefix_spec_count_from_payload<K>(payload: &ExecutionPathPayload<
     }
 }
 
-const fn derive_capabilities_from_parts(
+fn derive_capabilities_from_parts(
     kind: AccessPathKind,
     is_by_keys_empty: bool,
     index_prefix_details: Option<IndexShapeDetails>,
     index_range_details: Option<IndexShapeDetails>,
     index_prefix_spec_count: usize,
 ) -> SinglePathAccessCapabilities {
-    let index_key_items_for_slot_map = match (index_prefix_details, index_range_details) {
-        (Some(details), None) | (None, Some(details)) => Some(details.key_items()),
+    let index_key_items_for_slot_map = match (&index_prefix_details, &index_range_details) {
+        (Some(details), None) | (None, Some(details)) => Some(details.clone()),
         (None, None) => None,
-        (Some(prefix_details), Some(_)) => Some(prefix_details.key_items()),
+        (Some(prefix_details), Some(_)) => Some(prefix_details.clone()),
     };
+    let consumes_index_range_spec = index_range_details.is_some();
 
     SinglePathAccessCapabilities {
         kind,
@@ -271,13 +237,13 @@ const fn derive_capabilities_from_parts(
         index_range_details,
         index_key_items_for_slot_map,
         index_prefix_spec_count,
-        consumes_index_range_spec: index_range_details.is_some(),
+        consumes_index_range_spec,
     }
 }
 
 /// Derive immutable access-shape facts for one executable access path.
 #[must_use]
-const fn derive_access_path_capabilities<K>(
+fn derive_access_path_capabilities<K>(
     path: &ExecutionPathPayload<'_, K>,
 ) -> SinglePathAccessCapabilities {
     // Phase 1: derive fact projection from execution-path shape.
@@ -298,7 +264,7 @@ const fn derive_access_path_capabilities<K>(
 
 /// Derive immutable access-shape facts for one semantic access path.
 #[must_use]
-const fn derive_semantic_access_path_capabilities<K>(
+fn derive_semantic_access_path_capabilities<K>(
     path: &AccessPath<K>,
 ) -> SinglePathAccessCapabilities {
     let payload = ExecutionPathPayload::from_access_path(path);
@@ -409,7 +375,7 @@ fn derive_semantic_access_capabilities<K>(access: &AccessPlan<K>) -> AccessCapab
 impl<K> AccessPath<K> {
     /// Project immutable access-shape facts for this semantic access path.
     #[must_use]
-    pub(in crate::db) const fn capabilities(&self) -> SinglePathAccessCapabilities {
+    pub(in crate::db) fn capabilities(&self) -> SinglePathAccessCapabilities {
         derive_semantic_access_path_capabilities(self)
     }
 }
@@ -425,7 +391,7 @@ impl<K> AccessPlan<K> {
 impl<K> ExecutionPathPayload<'_, K> {
     /// Project immutable access-shape facts for this executable access path.
     #[must_use]
-    pub(in crate::db) const fn capabilities(&self) -> SinglePathAccessCapabilities {
+    pub(in crate::db) fn capabilities(&self) -> SinglePathAccessCapabilities {
         derive_access_path_capabilities(self)
     }
 }

@@ -82,7 +82,7 @@ where
         } => {
             if let Some(details) = path.index_range_details() {
                 let prefix_len = details.slot_arity();
-                let prefix = summarize_index_prefix_terms(details, prefix_values);
+                let prefix = summarize_index_prefix_terms(&details, prefix_values);
                 let interval = summarize_interval(lower, upper);
 
                 if let Some(range_field) = details.key_field_at(prefix_len) {
@@ -108,7 +108,7 @@ where
 }
 
 fn summarize_index_prefix_terms(
-    details: crate::db::access::IndexShapeDetails,
+    details: &crate::db::access::IndexShapeDetails,
     values: &[Value],
 ) -> String {
     let mut summary = String::new();

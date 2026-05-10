@@ -116,35 +116,35 @@ pub(in crate::db) fn lower_access<K>(
 /// membership validation; they must not reopen generated key-shape authority.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct LoweredIndexScanContract {
-    name: &'static str,
-    store_path: &'static str,
+    name: String,
+    store_path: String,
     unique: bool,
 }
 
 impl LoweredIndexScanContract {
     #[must_use]
-    const fn from_access_contract(index: crate::db::access::SemanticIndexAccessContract) -> Self {
+    fn from_access_contract(index: crate::db::access::SemanticIndexAccessContract) -> Self {
         Self {
-            name: index.name(),
-            store_path: index.store_path(),
+            name: index.name().to_string(),
+            store_path: index.store_path().to_string(),
             unique: index.is_unique(),
         }
     }
 
     #[must_use]
-    pub(in crate::db) const fn name(self) -> &'static str {
-        self.name
+    pub(in crate::db) const fn name(&self) -> &str {
+        self.name.as_str()
     }
 
     #[must_use]
-    pub(in crate::db) const fn store_path(self) -> &'static str {
-        self.store_path
+    pub(in crate::db) const fn store_path(&self) -> &str {
+        self.store_path.as_str()
     }
 
     #[must_use]
-    pub(in crate::db) const fn unique(self) -> bool {
+    pub(in crate::db) const fn unique(&self) -> bool {
         self.unique
     }
 }
@@ -167,7 +167,7 @@ impl LoweredIndexPrefixSpec {
     const INVALID_REASON: &str = "validated index-prefix plan could not be lowered to raw bounds";
 
     #[must_use]
-    pub(in crate::db) const fn new(
+    pub(in crate::db) fn new(
         index: crate::db::access::SemanticIndexAccessContract,
         lower: Bound<LoweredKey>,
         upper: Bound<LoweredKey>,
@@ -180,8 +180,8 @@ impl LoweredIndexPrefixSpec {
     }
 
     #[must_use]
-    pub(in crate::db) const fn scan_contract(&self) -> LoweredIndexScanContract {
-        self.scan_contract
+    pub(in crate::db) fn scan_contract(&self) -> LoweredIndexScanContract {
+        self.scan_contract.clone()
     }
 
     #[must_use]
@@ -219,7 +219,7 @@ impl LoweredIndexRangeSpec {
     const INVALID_REASON: &str = "validated index-range plan could not be lowered to raw bounds";
 
     #[must_use]
-    pub(in crate::db) const fn new(
+    pub(in crate::db) fn new(
         index: crate::db::access::SemanticIndexAccessContract,
         lower: Bound<LoweredKey>,
         upper: Bound<LoweredKey>,
@@ -232,8 +232,8 @@ impl LoweredIndexRangeSpec {
     }
 
     #[must_use]
-    pub(in crate::db) const fn scan_contract(&self) -> LoweredIndexScanContract {
-        self.scan_contract
+    pub(in crate::db) fn scan_contract(&self) -> LoweredIndexScanContract {
+        self.scan_contract.clone()
     }
 
     #[must_use]
@@ -330,14 +330,19 @@ fn lower_index_specs_for_path<K>(
 ) -> Result<(), LoweredAccessError> {
     match path {
         AccessPath::IndexPrefix { index, values } => {
-            lower_index_prefix_values_for_specs(entity_tag, *index, values, index_prefix_specs)
-                .map_err(LoweredAccessError::IndexPrefix)?;
+            lower_index_prefix_values_for_specs(
+                entity_tag,
+                index.clone(),
+                values,
+                index_prefix_specs,
+            )
+            .map_err(LoweredAccessError::IndexPrefix)?;
         }
         AccessPath::IndexMultiLookup { index, values } => {
             for value in values {
                 lower_index_prefix_values_for_specs(
                     entity_tag,
-                    *index,
+                    index.clone(),
                     std::slice::from_ref(value),
                     index_prefix_specs,
                 )

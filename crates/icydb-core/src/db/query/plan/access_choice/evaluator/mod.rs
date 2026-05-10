@@ -36,7 +36,7 @@ pub(super) fn sorted_indexes(indexes: &[&'static IndexModel]) -> Vec<&'static In
     crate::db::query::plan::planner::sorted_model_indexes(indexes)
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct CandidateScoringIndex {
     contract: SemanticIndexAccessContract,
 }

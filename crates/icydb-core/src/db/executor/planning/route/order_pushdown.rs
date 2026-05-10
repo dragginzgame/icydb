@@ -21,10 +21,7 @@ use crate::db::query::explain::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum PushdownApplicability {
     NotApplicable,
-    Eligible {
-        index: &'static str,
-        prefix_len: usize,
-    },
+    Eligible { index: String, prefix_len: usize },
     Rejected(SecondaryOrderPushdownRejection),
 }
 
@@ -49,11 +46,9 @@ impl PushdownApplicability {
 
     /// Return eligible secondary-index details for descriptor projection.
     #[must_use]
-    pub(in crate::db::executor) const fn eligible_secondary_index(
-        &self,
-    ) -> Option<(&'static str, usize)> {
+    pub(in crate::db::executor) const fn eligible_secondary_index(&self) -> Option<(&str, usize)> {
         match self {
-            Self::Eligible { index, prefix_len } => Some((index, *prefix_len)),
+            Self::Eligible { index, prefix_len } => Some((index.as_str(), *prefix_len)),
             Self::NotApplicable | Self::Rejected(_) => None,
         }
     }
@@ -80,7 +75,7 @@ impl From<PushdownApplicability> for ExplainOrderPushdown {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum SecondaryOrderPushdownRejection {
     AccessPathIndexRangeUnsupported {
-        index: &'static str,
+        index: String,
         prefix_len: usize,
     },
     InvalidIndexPrefixBounds {
@@ -88,7 +83,7 @@ pub(in crate::db) enum SecondaryOrderPushdownRejection {
         index_field_len: usize,
     },
     OrderFieldsDoNotMatchIndex {
-        index: &'static str,
+        index: String,
         prefix_len: usize,
         expected_suffix: Vec<String>,
         expected_full: Vec<String>,

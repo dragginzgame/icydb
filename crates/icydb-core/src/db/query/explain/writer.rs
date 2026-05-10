@@ -71,14 +71,18 @@ impl<'a> JsonWriter<'a> {
         self.out.push_str("null");
     }
 
-    pub(in crate::db::query::explain) fn field_str_slice(&mut self, key: &str, values: &[&str]) {
+    pub(in crate::db::query::explain) fn field_str_slice<S: AsRef<str>>(
+        &mut self,
+        key: &str,
+        values: &[S],
+    ) {
         self.field_with(key, |out| {
             out.push('[');
             for (index, value) in values.iter().enumerate() {
                 if index > 0 {
                     out.push(',');
                 }
-                write_json_string(out, value);
+                write_json_string(out, value.as_ref());
             }
             out.push(']');
         });

@@ -326,10 +326,7 @@ impl ExplainGroupHaving {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplainOrderPushdown {
     MissingModelContext,
-    EligibleSecondaryIndex {
-        index: &'static str,
-        prefix_len: usize,
-    },
+    EligibleSecondaryIndex { index: String, prefix_len: usize },
     Rejected(SecondaryOrderPushdownRejection),
 }
 
@@ -345,7 +342,7 @@ pub enum SecondaryOrderPushdownRejection {
     NoOrderBy,
     AccessPathNotSingleIndexPrefix,
     AccessPathIndexRangeUnsupported {
-        index: &'static str,
+        index: String,
         prefix_len: usize,
     },
     InvalidIndexPrefixBounds {
@@ -362,7 +359,7 @@ pub enum SecondaryOrderPushdownRejection {
         field: String,
     },
     OrderFieldsDoNotMatchIndex {
-        index: &'static str,
+        index: String,
         prefix_len: usize,
         expected_suffix: Vec<String>,
         expected_full: Vec<String>,
@@ -390,19 +387,19 @@ pub enum ExplainAccessPath {
         end: Value,
     },
     IndexPrefix {
-        name: &'static str,
-        fields: Vec<&'static str>,
+        name: String,
+        fields: Vec<String>,
         prefix_len: usize,
         values: Vec<Value>,
     },
     IndexMultiLookup {
-        name: &'static str,
-        fields: Vec<&'static str>,
+        name: String,
+        fields: Vec<String>,
         values: Vec<Value>,
     },
     IndexRange {
-        name: &'static str,
-        fields: Vec<&'static str>,
+        name: String,
+        fields: Vec<String>,
         prefix_len: usize,
         prefix: Vec<Value>,
         lower: Bound<Value>,

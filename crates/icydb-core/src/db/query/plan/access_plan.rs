@@ -549,7 +549,7 @@ impl AccessPlannedQuery {
     pub(in crate::db) fn finalize_access_choice_for_model_with_accepted_indexes_and_schema(
         &mut self,
         model: &EntityModel,
-        generated_static_bridge_indexes: &[&'static IndexModel],
+        generated_candidate_bridge_indexes: &[&'static IndexModel],
         accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
         schema_info: &SchemaInfo,
     ) {
@@ -560,7 +560,7 @@ impl AccessPlannedQuery {
         self.access_choice =
             project_access_choice_explain_snapshot_with_accepted_indexes_and_schema(
                 model,
-                generated_static_bridge_indexes,
+                generated_candidate_bridge_indexes,
                 accepted_field_path_indexes,
                 schema_info,
                 self,

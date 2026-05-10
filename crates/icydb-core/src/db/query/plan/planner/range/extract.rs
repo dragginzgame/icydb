@@ -1,6 +1,9 @@
 use crate::{
     db::{
-        access::{AccessPlan, SemanticIndexAccessContract, SemanticIndexRangeSpec},
+        access::{
+            AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemRef,
+            SemanticIndexKeyItemsRef, SemanticIndexRangeSpec,
+        },
         index::{TextPrefixBoundMode, starts_with_component_bounds},
         predicate::{CoercionId, CompareOp, Predicate, canonical_cmp},
         query::plan::{
@@ -20,7 +23,7 @@ use crate::{
     },
     model::{
         entity::EntityModel,
-        index::{IndexKeyItem, IndexModel},
+        index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
     },
     value::Value,
 };
@@ -148,7 +151,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
         let score = access_candidate_score_from_index_contract(
             model,
             order,
-            index_contract,
+            index_contract.clone(),
             prefix_len,
             false,
             range_bound_count(&range.lower, &range.upper),
@@ -189,33 +192,43 @@ fn index_range_candidate_for_index(
 ) -> Option<(usize, Vec<Value>, RangeConstraint)> {
     let index_contract = SemanticIndexAccessContract::from_index(*index);
     match index_contract.key_items() {
-        crate::model::index::IndexKeyItemsRef::Fields(fields) => {
+        SemanticIndexKeyItemsRef::Fields(fields) => index_range_candidate_for_key_items(
+            &index_contract,
+            schema,
+            fields
+                .iter()
+                .map(|field| SemanticIndexKeyItemRef::Field(field.as_str())),
+            compares,
+        ),
+        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
             index_range_candidate_for_key_items(
-                index_contract,
+                &index_contract,
                 schema,
-                fields.iter().copied().map(IndexKeyItem::Field),
+                fields.iter().copied().map(SemanticIndexKeyItemRef::Field),
                 compares,
             )
         }
-        crate::model::index::IndexKeyItemsRef::Items(items) => index_range_candidate_for_key_items(
-            index_contract,
-            schema,
-            items.iter().copied(),
-            compares,
-        ),
+        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => {
+            index_range_candidate_for_key_items(
+                &index_contract,
+                schema,
+                items.iter().copied().map(Into::into),
+                compares,
+            )
+        }
     }
 }
 
 // Field-only and mixed key-item indexes share the same prefix/range slot walk;
 // only the source iterator for canonical key items differs.
-fn index_range_candidate_for_key_items<I>(
-    index_contract: SemanticIndexAccessContract,
+fn index_range_candidate_for_key_items<'a, I>(
+    index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
     key_items: I,
     compares: &[CachedCompare<'_>],
 ) -> Option<(usize, Vec<Value>, RangeConstraint)>
 where
-    I: IntoIterator<Item = IndexKeyItem>,
+    I: IntoIterator<Item = SemanticIndexKeyItemRef<'a>>,
 {
     let mut prefix = Vec::new();
     let mut range: Option<RangeConstraint> = None;
@@ -273,9 +286,9 @@ fn consume_index_slot_constraint(
 // Build the effective constraint class for one canonical index slot from the
 // compare predicates that can lower onto that slot.
 fn key_item_constraint_for_index_slot(
-    index_contract: SemanticIndexAccessContract,
+    index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
-    key_item: IndexKeyItem,
+    key_item: SemanticIndexKeyItemRef<'_>,
     compares: &[CachedCompare<'_>],
 ) -> Option<IndexFieldConstraint> {
     let mut constraint = IndexFieldConstraint::None;
@@ -286,7 +299,7 @@ fn key_item_constraint_for_index_slot(
         if cmp.field.as_str() != key_item.field() {
             continue;
         }
-        if matches!(key_item, IndexKeyItem::Field(_))
+        if matches!(key_item, SemanticIndexKeyItemRef::Field(_))
             && cmp.coercion.id == CoercionId::Strict
             && !field_type.is_orderable()
         {
@@ -345,8 +358,8 @@ fn key_item_constraint_for_index_slot(
                 let (lower, upper) = starts_with_component_bounds(
                     &prefix,
                     match key_item {
-                        IndexKeyItem::Field(_) => TextPrefixBoundMode::Strict,
-                        IndexKeyItem::Expression(_) => TextPrefixBoundMode::LowerOnly,
+                        SemanticIndexKeyItemRef::Field(_) => TextPrefixBoundMode::Strict,
+                        SemanticIndexKeyItemRef::Expression(_) => TextPrefixBoundMode::LowerOnly,
                     },
                 )?;
                 let candidate = RangeConstraint { lower, upper };
@@ -371,8 +384,8 @@ fn key_item_constraint_for_index_slot(
 // This keeps Eq/In/prefix/range on the same canonical literal-lowering path
 // for both raw field keys and the accepted TextCasefold expression keys.
 fn merge_ordered_compare_constraint_for_key_item(
-    index_contract: SemanticIndexAccessContract,
-    key_item: IndexKeyItem,
+    index_contract: &SemanticIndexAccessContract,
+    key_item: SemanticIndexKeyItemRef<'_>,
     cached: &CachedCompare<'_>,
     constraint: &mut IndexFieldConstraint,
 ) -> Option<()> {
@@ -386,14 +399,14 @@ fn merge_ordered_compare_constraint_for_key_item(
     )?;
 
     match key_item {
-        IndexKeyItem::Field(_) => {
+        SemanticIndexKeyItemRef::Field(_) => {
             if cmp.coercion.id != CoercionId::Strict
                 || !field_key_contract_supports_operator(index_contract, key_item.field(), cmp.op)
             {
                 return Some(());
             }
         }
-        IndexKeyItem::Expression(_) => {
+        SemanticIndexKeyItemRef::Expression(_) => {
             if cmp.coercion.id != CoercionId::TextCasefold {
                 return Some(());
             }
@@ -414,7 +427,7 @@ fn merge_ordered_compare_constraint_for_key_item(
 }
 
 fn field_key_contract_supports_operator(
-    index_contract: SemanticIndexAccessContract,
+    index_contract: &SemanticIndexAccessContract,
     field: &str,
     op: CompareOp,
 ) -> bool {
@@ -437,10 +450,15 @@ fn field_key_contract_supports_operator(
     )
 }
 
-fn contract_contains_field_key(index_contract: SemanticIndexAccessContract, field: &str) -> bool {
+fn contract_contains_field_key(index_contract: &SemanticIndexAccessContract, field: &str) -> bool {
     match index_contract.key_items() {
-        crate::model::index::IndexKeyItemsRef::Fields(fields) => fields.contains(&field),
-        crate::model::index::IndexKeyItemsRef::Items(items) => items
+        SemanticIndexKeyItemsRef::Fields(fields) => {
+            fields.iter().any(|key_field| key_field == field)
+        }
+        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
+            fields.contains(&field)
+        }
+        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => items
             .iter()
             .any(|item| matches!(item, IndexKeyItem::Field(key_field) if key_field == &field)),
     }

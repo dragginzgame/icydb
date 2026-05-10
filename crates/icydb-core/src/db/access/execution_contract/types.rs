@@ -15,7 +15,7 @@ use std::ops::Bound;
 /// This contract intentionally excludes planner semantics.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum ExecutionPathPayload<'a, K> {
     ByKey(&'a K),
     ByKeys(&'a [K]),
@@ -42,7 +42,7 @@ pub(in crate::db) enum ExecutionPathPayload<'a, K> {
 impl<'a, K> ExecutionPathPayload<'a, K> {
     /// Project one semantic access path into its execution-facing payload.
     #[must_use]
-    pub(in crate::db::access) const fn from_access_path(path: &'a AccessPath<K>) -> Self {
+    pub(in crate::db::access) fn from_access_path(path: &'a AccessPath<K>) -> Self {
         if let Some(key) = path.as_by_key() {
             return Self::ByKey(key);
         }
@@ -117,9 +117,11 @@ impl<'a, K> ExecutionPathPayload<'a, K> {
 
     /// Borrow index-prefix details when this path is index-prefix.
     #[must_use]
-    pub(in crate::db) const fn index_prefix_details(&self) -> Option<IndexShapeDetails> {
+    pub(in crate::db) fn index_prefix_details(&self) -> Option<IndexShapeDetails> {
         match self {
-            Self::IndexPrefix { index, .. } | Self::IndexMultiLookup { index, .. } => Some(*index),
+            Self::IndexPrefix { index, .. } | Self::IndexMultiLookup { index, .. } => {
+                Some(index.clone())
+            }
             Self::ByKey(_)
             | Self::ByKeys(_)
             | Self::KeyRange { .. }
@@ -130,9 +132,9 @@ impl<'a, K> ExecutionPathPayload<'a, K> {
 
     /// Borrow index-range details when this path is index-range.
     #[must_use]
-    pub(in crate::db) const fn index_range_details(&self) -> Option<IndexShapeDetails> {
+    pub(in crate::db) fn index_range_details(&self) -> Option<IndexShapeDetails> {
         match self {
-            Self::IndexRange { index, .. } => Some(*index),
+            Self::IndexRange { index, .. } => Some(index.clone()),
             Self::ByKey(_)
             | Self::ByKeys(_)
             | Self::KeyRange { .. }

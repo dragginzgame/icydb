@@ -96,7 +96,7 @@ pub(super) fn execute_prepared_scalar_path_execution(
     let top_n_seek_requires_lookahead = plan
         .access_capabilities()
         .single_path_capabilities()
-        .is_some_and(top_n_seek_lookahead_required_for_shape);
+        .is_some_and(|capabilities| top_n_seek_lookahead_required_for_shape(&capabilities));
     prepare_scalar_route_for_execution(
         &mut route_plan,
         &continuation,

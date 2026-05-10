@@ -15,7 +15,10 @@ pub(crate) mod validate;
 
 // Canonical planner access surface.
 pub(crate) use canonical::normalize_access_plan_value;
-pub(crate) use path::{AccessPath, SemanticIndexAccessContract, SemanticIndexRangeSpec};
+pub(crate) use path::{
+    AccessPath, SemanticIndexAccessContract, SemanticIndexKeyItemRef, SemanticIndexKeyItemsRef,
+    SemanticIndexRangeSpec,
+};
 pub(crate) use plan::AccessPlan;
 pub(in crate::db) use validate::validate_access_runtime_invariants_with_schema;
 pub(crate) use validate::{AccessPlanError, validate_access_structure_model};

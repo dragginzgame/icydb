@@ -153,7 +153,7 @@ impl IndexScan {
 
                     Self::decode_index_entry_and_push_with_components(
                         entity_tag,
-                        index,
+                        &index,
                         raw_key,
                         value,
                         &mut out,
@@ -248,7 +248,7 @@ impl IndexScan {
 
                     Self::decode_index_entry_and_push(
                         entity_tag,
-                        index,
+                        &index,
                         raw_key,
                         value,
                         &mut keys,
@@ -301,7 +301,7 @@ impl IndexScan {
 
                     if Self::decode_index_entry_and_push(
                         entity_tag,
-                        index,
+                        &index,
                         raw_key,
                         value,
                         &mut keys,
@@ -333,7 +333,7 @@ impl IndexScan {
     #[expect(clippy::too_many_arguments)]
     fn decode_index_entry_and_push(
         entity: EntityTag,
-        index: LoweredIndexScanContract,
+        index: &LoweredIndexScanContract,
         raw_key: &RawIndexKey,
         value: &RawIndexEntry,
         out: &mut Vec<DataKey>,
@@ -409,7 +409,7 @@ impl IndexScan {
     #[expect(clippy::too_many_arguments)]
     fn decode_index_entry_and_push_with_components(
         entity: EntityTag,
-        index: LoweredIndexScanContract,
+        index: &LoweredIndexScanContract,
         raw_key: &RawIndexKey,
         value: &RawIndexEntry,
         out: &mut IndexComponentRows,

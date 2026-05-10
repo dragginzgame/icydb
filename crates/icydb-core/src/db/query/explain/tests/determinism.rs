@@ -133,8 +133,8 @@ fn explain_reports_deterministic_index_choice() {
             prefix_len,
             ..
         } => {
-            assert_eq!(*name, "explain::idx_a");
-            assert_eq!(fields.as_slice(), vec!["idx_a"]);
+            assert_eq!(name, "explain::idx_a");
+            assert_eq!(fields.as_slice(), vec!["idx_a".to_string()]);
             assert_eq!(*prefix_len, 1);
         }
         _ => panic!("expected index prefix"),

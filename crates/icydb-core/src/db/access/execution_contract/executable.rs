@@ -47,7 +47,7 @@ impl<'a, K> ExecutableAccessPlan<'a, K> {
 
     /// Project one semantic access path into a path-backed execution contract.
     #[must_use]
-    pub(in crate::db::access) const fn from_access_path(path: &'a AccessPath<K>) -> Self {
+    pub(in crate::db::access) fn from_access_path(path: &'a AccessPath<K>) -> Self {
         Self::for_path(ExecutionPathPayload::from_access_path(path))
     }
 

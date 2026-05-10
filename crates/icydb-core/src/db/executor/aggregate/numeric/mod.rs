@@ -198,13 +198,13 @@ where
             return false;
         };
         let capabilities = path.capabilities();
-        if !streaming_numeric_fold_shape_supported(capabilities) {
+        if !streaming_numeric_fold_shape_supported(&capabilities) {
             return false;
         }
 
         Self::aggregate_page_window_safe(
             prepared,
-            paged_primary_key_numeric_fold_shape_supported(capabilities),
+            paged_primary_key_numeric_fold_shape_supported(&capabilities),
         )
     }
 

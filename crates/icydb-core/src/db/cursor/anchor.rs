@@ -235,12 +235,15 @@ pub(in crate::db) fn validate_index_range_anchor<K>(
         };
 
         // Phase 1: decode and classify anchor key-space shape.
-        let validated_identity =
-            validate_anchor_identity(decode_canonical_cursor_anchor(anchor)?, entity_tag, *index)?;
+        let validated_identity = validate_anchor_identity(
+            decode_canonical_cursor_anchor(anchor)?,
+            entity_tag,
+            index.clone(),
+        )?;
         let validated_in_envelope = validate_anchor_in_envelope(
             validated_identity,
             entity_tag,
-            *index,
+            index.clone(),
             prefix,
             lower,
             upper,
