@@ -8,7 +8,7 @@ use crate::{
         AccessPath, AccessPathKind, AccessPlan, ExecutableAccessNode, ExecutableAccessPlan,
         ExecutionPathPayload,
     },
-    model::index::IndexModel,
+    model::index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
 };
 
 // Project whether traversal can safely reverse the underlying access shape.
@@ -31,7 +31,7 @@ pub(in crate::db) struct SinglePathAccessCapabilities {
     is_by_keys_empty: bool,
     index_prefix_details: Option<IndexShapeDetails>,
     index_range_details: Option<IndexShapeDetails>,
-    index_fields_for_slot_map: Option<&'static [&'static str]>,
+    index_key_items_for_slot_map: Option<IndexKeyItemsRef>,
     index_prefix_spec_count: usize,
     consumes_index_range_spec: bool,
 }
@@ -64,8 +64,8 @@ impl SinglePathAccessCapabilities {
     }
 
     #[must_use]
-    pub(in crate::db) const fn index_fields_for_slot_map(&self) -> Option<&'static [&'static str]> {
-        self.index_fields_for_slot_map
+    pub(in crate::db) const fn index_key_items_for_slot_map(&self) -> Option<IndexKeyItemsRef> {
+        self.index_key_items_for_slot_map
     }
 
     #[must_use]
@@ -88,19 +88,72 @@ impl SinglePathAccessCapabilities {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct IndexShapeDetails {
-    index: IndexModel,
+    name: &'static str,
+    unique: bool,
+    key_items: IndexKeyItemsRef,
     slot_arity: usize,
 }
 
 impl IndexShapeDetails {
     #[must_use]
     pub(in crate::db) const fn new(index: IndexModel, slot_arity: usize) -> Self {
-        Self { index, slot_arity }
+        Self {
+            name: index.name(),
+            unique: index.is_unique(),
+            key_items: index.key_items(),
+            slot_arity,
+        }
     }
 
     #[must_use]
-    pub(in crate::db) const fn index(self) -> IndexModel {
-        self.index
+    pub(in crate::db) const fn name(self) -> &'static str {
+        self.name
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn is_unique(self) -> bool {
+        self.unique
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn key_items(self) -> IndexKeyItemsRef {
+        self.key_items
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn key_arity(self) -> usize {
+        match self.key_items {
+            IndexKeyItemsRef::Fields(fields) => fields.len(),
+            IndexKeyItemsRef::Items(items) => items.len(),
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn key_field_at(self, component_index: usize) -> Option<&'static str> {
+        match self.key_items {
+            IndexKeyItemsRef::Fields(fields) => {
+                if component_index < fields.len() {
+                    Some(fields[component_index])
+                } else {
+                    None
+                }
+            }
+            IndexKeyItemsRef::Items(items) => {
+                if component_index < items.len() {
+                    Some(match items[component_index] {
+                        IndexKeyItem::Field(field) => field,
+                        IndexKeyItem::Expression(expression) => expression.field(),
+                    })
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn first_key_field(self) -> Option<&'static str> {
+        self.key_field_at(0)
     }
 
     #[must_use]
@@ -195,10 +248,10 @@ const fn derive_capabilities_from_parts(
     index_range_details: Option<IndexShapeDetails>,
     index_prefix_spec_count: usize,
 ) -> SinglePathAccessCapabilities {
-    let index_fields_for_slot_map = match (index_prefix_details, index_range_details) {
-        (Some(details), None) | (None, Some(details)) => Some(details.index().fields()),
+    let index_key_items_for_slot_map = match (index_prefix_details, index_range_details) {
+        (Some(details), None) | (None, Some(details)) => Some(details.key_items()),
         (None, None) => None,
-        (Some(prefix_details), Some(_)) => Some(prefix_details.index().fields()),
+        (Some(prefix_details), Some(_)) => Some(prefix_details.key_items()),
     };
 
     SinglePathAccessCapabilities {
@@ -206,7 +259,7 @@ const fn derive_capabilities_from_parts(
         is_by_keys_empty,
         index_prefix_details,
         index_range_details,
-        index_fields_for_slot_map,
+        index_key_items_for_slot_map,
         index_prefix_spec_count,
         consumes_index_range_spec: index_range_details.is_some(),
     }

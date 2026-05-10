@@ -917,12 +917,24 @@ fn resolved_index_slots_for_access_path(
 ) -> Option<Vec<usize>> {
     let path = access.as_path()?;
     let path_capabilities = path.capabilities();
-    let index_fields = path_capabilities.index_fields_for_slot_map()?;
-    let mut slots = Vec::with_capacity(index_fields.len());
+    let key_items = path_capabilities.index_key_items_for_slot_map()?;
+    let mut slots = Vec::new();
 
-    for field_name in index_fields {
-        let slot = schema_info.field_slot_index(field_name)?;
-        slots.push(slot);
+    match key_items {
+        IndexKeyItemsRef::Fields(fields) => {
+            slots.reserve(fields.len());
+            for &field_name in fields {
+                let slot = schema_info.field_slot_index(field_name)?;
+                slots.push(slot);
+            }
+        }
+        IndexKeyItemsRef::Items(items) => {
+            slots.reserve(items.len());
+            for key_item in items {
+                let slot = schema_info.field_slot_index(key_item.field())?;
+                slots.push(slot);
+            }
+        }
     }
 
     Some(slots)
@@ -932,10 +944,12 @@ fn index_compile_targets_for_schema_plan(
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Option<Vec<IndexCompileTarget>> {
-    let index = plan.access.as_path()?.selected_index_model()?;
+    let executable = plan.access.executable_contract();
+    let path = executable.as_path()?;
+    let key_items = path.capabilities().index_key_items_for_slot_map()?;
     let mut targets = Vec::new();
 
-    match index.key_items() {
+    match key_items {
         IndexKeyItemsRef::Fields(fields) => {
             for (component_index, &field_name) in fields.iter().enumerate() {
                 let field_slot = schema_info.field_slot_index(field_name)?;

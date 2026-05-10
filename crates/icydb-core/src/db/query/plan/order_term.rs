@@ -8,7 +8,13 @@ use crate::model::index::{IndexKeyItem, IndexKeyItemsRef, IndexModel};
 /// Return one canonical ORDER BY term list for an index key sequence.
 #[must_use]
 pub(in crate::db) fn index_order_terms(index: &IndexModel) -> Vec<String> {
-    match index.key_items() {
+    index_key_item_order_terms(index.key_items())
+}
+
+/// Return one canonical ORDER BY term list from reduced index key-item facts.
+#[must_use]
+pub(in crate::db) fn index_key_item_order_terms(key_items: IndexKeyItemsRef) -> Vec<String> {
+    match key_items {
         IndexKeyItemsRef::Fields(fields) => {
             canonical_index_order_terms(fields.iter().copied().map(IndexKeyItem::Field))
         }

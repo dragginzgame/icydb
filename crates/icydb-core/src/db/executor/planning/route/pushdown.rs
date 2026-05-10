@@ -10,10 +10,10 @@ use crate::{
         query::plan::{
             AccessPlannedQuery, DeterministicSecondaryOrderContract, LogicalPushdownEligibility,
             PlannerRouteProfile, access_satisfies_deterministic_secondary_order_contract,
-            deterministic_secondary_index_order_compatibility,
+            deterministic_secondary_index_key_items_order_compatibility,
         },
     },
-    model::index::IndexModel,
+    model::index::IndexKeyItemsRef,
 };
 
 fn validated_secondary_order_contract(
@@ -42,11 +42,14 @@ pub(in crate::db) fn derive_secondary_pushdown_applicability_from_contract(
 fn match_secondary_order_pushdown_core(
     order_contract: &DeterministicSecondaryOrderContract,
     index_name: &'static str,
-    index: &IndexModel,
+    key_items: IndexKeyItemsRef,
     prefix_len: usize,
 ) -> PushdownApplicability {
-    let compatibility =
-        deterministic_secondary_index_order_compatibility(order_contract, index, prefix_len);
+    let compatibility = deterministic_secondary_index_key_items_order_compatibility(
+        order_contract,
+        key_items,
+        prefix_len,
+    );
     if compatibility.is_satisfied() {
         return PushdownApplicability::Eligible {
             index: index_name,
@@ -76,7 +79,7 @@ fn secondary_order_pushdown_applicability(
         if let Some(details) = access_capabilities.first_index_range_details() {
             return PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index: details.index().name(),
+                    index: details.name(),
                     prefix_len: details.slot_arity(),
                 },
             );
@@ -86,42 +89,46 @@ fn secondary_order_pushdown_applicability(
     }
 
     if let Some(details) = access_capabilities.single_path_index_prefix_details() {
-        let index = details.index();
+        let index_name = details.name();
         let prefix_len = details.slot_arity();
-        if prefix_len > index.fields().len() {
+        if prefix_len > details.key_arity() {
             return PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
                     prefix_len,
-                    index_field_len: index.fields().len(),
+                    index_field_len: details.key_arity(),
                 },
             );
         }
         return match_secondary_order_pushdown_core(
             order_contract,
-            index.name(),
-            &index,
+            index_name,
+            details.key_items(),
             prefix_len,
         );
     }
 
     if let Some(details) = access_capabilities.single_path_index_range_details() {
-        let index = details.index();
+        let index_name = details.name();
         let prefix_len = details.slot_arity();
-        if prefix_len > index.fields().len() {
+        if prefix_len > details.key_arity() {
             return PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
                     prefix_len,
-                    index_field_len: index.fields().len(),
+                    index_field_len: details.key_arity(),
                 },
             );
         }
-        let applicability =
-            match_secondary_order_pushdown_core(order_contract, index.name(), &index, prefix_len);
+        let applicability = match_secondary_order_pushdown_core(
+            order_contract,
+            index_name,
+            details.key_items(),
+            prefix_len,
+        );
         return match applicability {
             PushdownApplicability::Eligible { .. } => applicability,
             PushdownApplicability::Rejected(_) => PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index: index.name(),
+                    index: index_name,
                     prefix_len,
                 },
             ),
@@ -146,7 +153,6 @@ pub(super) fn index_range_limit_pushdown_shape_supported_for_order_contract(
     let Some(details) = access_capabilities.single_path_index_range_details() else {
         return false;
     };
-    let index = details.index();
     let prefix_len = details.slot_arity();
 
     if !order_present {
@@ -155,8 +161,12 @@ pub(super) fn index_range_limit_pushdown_shape_supported_for_order_contract(
     let Some(order_contract) = order_contract else {
         return false;
     };
-    deterministic_secondary_index_order_compatibility(order_contract, &index, prefix_len)
-        .is_satisfied()
+    deterministic_secondary_index_key_items_order_compatibility(
+        order_contract,
+        details.key_items(),
+        prefix_len,
+    )
+    .is_satisfied()
 }
 
 /// Return whether planner logical pushdown eligibility allows route-level

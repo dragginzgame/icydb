@@ -38,13 +38,12 @@ pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
     let Some(details) = path_capabilities.index_prefix_details() else {
         return Ok(None);
     };
-    let index = details.index();
     let Some(index_prefix_spec) = index_prefix_spec else {
         return Err(InternalError::secondary_index_prefix_spec_required());
     };
     debug_assert_eq!(
-        index_prefix_spec.index(),
-        &index,
+        index_prefix_spec.scan_contract().name(),
+        details.name(),
         "secondary fast-path spec/index alignment must be validated by resolver",
     );
 

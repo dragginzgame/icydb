@@ -637,6 +637,36 @@ fn lowered_executor_scans_use_reduced_index_scan_facts() {
 }
 
 #[test]
+fn runtime_access_capabilities_use_reduced_index_shape_facts() {
+    let access_capabilities = read_source("src/db/access/capabilities.rs");
+    let route_pushdown = read_source("src/db/executor/planning/route/pushdown.rs");
+    let aggregate_capability = read_source("src/db/executor/aggregate/capability.rs");
+    let logical_semantics = read_source("src/db/query/plan/semantics/logical.rs");
+
+    assert!(
+        access_capabilities.contains("pub(in crate::db) struct IndexShapeDetails")
+            && access_capabilities.contains("name: &'static str")
+            && access_capabilities.contains("unique: bool")
+            && access_capabilities.contains("key_items: IndexKeyItemsRef")
+            && !access_capabilities.contains("index: IndexModel,\n    slot_arity: usize"),
+        "runtime access capabilities must carry reduced index shape facts instead of exposing generated IndexModel",
+    );
+    assert!(
+        route_pushdown.contains("details.key_items()")
+            && route_pushdown.contains("details.key_arity()")
+            && !route_pushdown.contains("model::index::IndexModel")
+            && aggregate_capability.contains("index: Option<IndexShapeDetails>")
+            && !aggregate_capability.contains("index::IndexModel"),
+        "route and aggregate capability checks must consume reduced index facts",
+    );
+    assert!(
+        logical_semantics.contains("index_key_items_for_slot_map()")
+            && !logical_semantics.contains("selected_index_model()?;"),
+        "logical runtime semantics must compile index slot targets from reduced executable access facts",
+    );
+}
+
+#[test]
 fn global_distinct_grouped_runtime_keeps_prepared_authority() {
     let grouped_entrypoints = read_source("src/db/executor/pipeline/entrypoints/grouped.rs");
     let aggregate_distinct = read_source("src/db/executor/aggregate/distinct.rs");

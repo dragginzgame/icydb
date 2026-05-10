@@ -83,13 +83,16 @@ pub(in crate::db) use order_contract::{
     DeterministicSecondaryIndexOrderMatch, DeterministicSecondaryOrderContract,
     ExecutionOrderContract, ExecutionOrdering,
     access_satisfies_deterministic_secondary_order_contract,
-    deterministic_secondary_index_order_compatibility,
+    deterministic_secondary_index_key_items_order_compatibility,
     deterministic_secondary_index_order_satisfied,
     deterministic_secondary_index_order_terms_satisfied, grouped_index_order_satisfied,
     grouped_index_order_terms_satisfied,
 };
 #[cfg(test)]
-pub(in crate::db) use order_contract::{GroupedIndexOrderMatch, grouped_index_order_match};
+pub(in crate::db) use order_contract::{
+    GroupedIndexOrderMatch, deterministic_secondary_index_order_compatibility,
+    grouped_index_order_match,
+};
 pub(in crate::db) use order_term::index_order_terms;
 pub(in crate::db) use pipeline::PreparedScalarPlanningState;
 #[cfg(test)]

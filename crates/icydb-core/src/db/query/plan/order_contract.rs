@@ -7,9 +7,12 @@ use crate::{
     db::{
         access::AccessCapabilities,
         direction::Direction,
-        query::plan::{OrderDirection, OrderSpec, order_term::index_order_terms},
+        query::plan::{
+            OrderDirection, OrderSpec,
+            order_term::{index_key_item_order_terms, index_order_terms},
+        },
     },
-    model::index::IndexModel,
+    model::index::{IndexKeyItemsRef, IndexModel},
 };
 
 ///
@@ -57,10 +60,10 @@ impl DeterministicSecondaryIndexOrderCompatibility {
     #[must_use]
     fn new(
         order_contract: &DeterministicSecondaryOrderContract,
-        index: &IndexModel,
+        key_items: IndexKeyItemsRef,
         prefix_len: usize,
     ) -> Self {
-        let index_terms = index_order_terms(index);
+        let index_terms = index_key_item_order_terms(key_items);
         let match_kind = order_contract.classify_index_match(&index_terms, prefix_len);
 
         Self {
@@ -245,7 +248,22 @@ pub(in crate::db) fn deterministic_secondary_index_order_compatibility(
     index: &IndexModel,
     prefix_len: usize,
 ) -> DeterministicSecondaryIndexOrderCompatibility {
-    DeterministicSecondaryIndexOrderCompatibility::new(order_contract, index, prefix_len)
+    deterministic_secondary_index_key_items_order_compatibility(
+        order_contract,
+        index.key_items(),
+        prefix_len,
+    )
+}
+
+/// Return the shared scalar secondary-index order compatibility fact from
+/// reduced key-item facts.
+#[must_use]
+pub(in crate::db) fn deterministic_secondary_index_key_items_order_compatibility(
+    order_contract: &DeterministicSecondaryOrderContract,
+    key_items: IndexKeyItemsRef,
+    prefix_len: usize,
+) -> DeterministicSecondaryIndexOrderCompatibility {
+    DeterministicSecondaryIndexOrderCompatibility::new(order_contract, key_items, prefix_len)
 }
 
 /// Return whether one deterministic scalar ORDER BY contract is satisfied by
@@ -258,6 +276,22 @@ pub(in crate::db) fn deterministic_secondary_index_order_satisfied(
 ) -> bool {
     deterministic_secondary_index_order_compatibility(order_contract, index, prefix_len)
         .is_satisfied()
+}
+
+/// Return whether reduced key-item facts satisfy one deterministic scalar
+/// ORDER BY contract after the equality-bound prefix.
+#[must_use]
+pub(in crate::db) fn deterministic_secondary_index_key_items_order_satisfied(
+    order_contract: &DeterministicSecondaryOrderContract,
+    key_items: IndexKeyItemsRef,
+    prefix_len: usize,
+) -> bool {
+    deterministic_secondary_index_key_items_order_compatibility(
+        order_contract,
+        key_items,
+        prefix_len,
+    )
+    .is_satisfied()
 }
 
 /// Return whether accepted field-path index order terms satisfy one
@@ -281,7 +315,7 @@ const fn prefix_order_contract_safe(access_capabilities: &AccessCapabilities) ->
         return false;
     };
 
-    details.index().is_unique() || details.slot_arity() > 0
+    details.is_unique() || details.slot_arity() > 0
 }
 
 /// Return whether one deterministic scalar ORDER BY contract is satisfied by
@@ -297,9 +331,9 @@ pub(in crate::db) fn access_satisfies_deterministic_secondary_order_contract(
 
     if let Some(details) = access_capabilities.single_path_index_prefix_details() {
         return prefix_order_contract_safe(access_capabilities)
-            && deterministic_secondary_index_order_satisfied(
+            && deterministic_secondary_index_key_items_order_satisfied(
                 order_contract,
-                &details.index(),
+                details.key_items(),
                 details.slot_arity(),
             );
     }
@@ -307,9 +341,9 @@ pub(in crate::db) fn access_satisfies_deterministic_secondary_order_contract(
     access_capabilities
         .single_path_index_range_details()
         .is_some_and(|details| {
-            deterministic_secondary_index_order_satisfied(
+            deterministic_secondary_index_key_items_order_satisfied(
                 order_contract,
-                &details.index(),
+                details.key_items(),
                 details.slot_arity(),
             )
         })

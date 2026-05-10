@@ -5,7 +5,6 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::db::{
-    access::IndexShapeDetails,
     direction::Direction,
     executor::{
         aggregate::field_target_is_tie_free_probe_target,
@@ -104,10 +103,9 @@ fn field_target_max_probe_shape_is_tie_free(
     aggregate: AggregateRouteShape<'_>,
 ) -> bool {
     let access_capabilities = plan.access_capabilities();
-    let index_model = access_capabilities
+    let index = access_capabilities
         .single_path_index_prefix_details()
-        .or_else(|| access_capabilities.single_path_index_range_details())
-        .map(IndexShapeDetails::index);
+        .or_else(|| access_capabilities.single_path_index_range_details());
 
-    field_target_is_tie_free_probe_target(aggregate, index_model)
+    field_target_is_tie_free_probe_target(aggregate, index)
 }

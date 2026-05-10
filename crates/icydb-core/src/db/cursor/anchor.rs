@@ -219,8 +219,10 @@ pub(in crate::db) fn validate_index_range_anchor<K>(
         return Ok(None);
     };
 
-    if let Some(details) = access.index_range_details() {
-        let index = details.index();
+    if access.index_range_details().is_some() {
+        let ExecutionPathPayload::IndexRange { index, .. } = access else {
+            return Err(CursorPlanError::unexpected_index_range_anchor_for_non_range_path());
+        };
         let Some((prefix, lower, upper)) = access.index_range_semantic_bounds() else {
             return Err(CursorPlanError::index_range_anchor_semantic_bounds_required());
         };
@@ -234,11 +236,11 @@ pub(in crate::db) fn validate_index_range_anchor<K>(
 
         // Phase 1: decode and classify anchor key-space shape.
         let validated_identity =
-            validate_anchor_identity(decode_canonical_cursor_anchor(anchor)?, entity_tag, &index)?;
+            validate_anchor_identity(decode_canonical_cursor_anchor(anchor)?, entity_tag, index)?;
         let validated_in_envelope = validate_anchor_in_envelope(
             validated_identity,
             entity_tag,
-            &index,
+            index,
             prefix,
             lower,
             upper,

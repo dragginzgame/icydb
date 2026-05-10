@@ -37,13 +37,12 @@ pub(in crate::db::executor) fn execute_index_range_fast_stream_route(
     let Some(details) = path_capabilities.index_range_details() else {
         return Ok(None);
     };
-    let index = details.index();
     let Some(index_range_spec) = index_range_spec else {
         return Err(InternalError::index_range_limit_spec_required());
     };
     debug_assert_eq!(
-        index_range_spec.index(),
-        &index,
+        index_range_spec.scan_contract().name(),
+        details.name(),
         "index-range fast-path spec/index alignment must be validated by resolver",
     );
 

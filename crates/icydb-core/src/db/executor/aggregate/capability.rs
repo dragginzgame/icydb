@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        access::IndexShapeDetails,
         direction::Direction,
         executor::{
             aggregate::AggregateKind,
@@ -15,7 +16,7 @@ use crate::{
         },
         query::plan::AccessPlannedQuery,
     },
-    model::{classify_field_kind, field::FieldKind, index::IndexModel},
+    model::{classify_field_kind, field::FieldKind},
 };
 
 /// Return true when the field kind is eligible for deterministic aggregate ordering.
@@ -300,10 +301,8 @@ fn field_extrema_target_has_matching_index(
         .or_else(|| access_capabilities.single_path_index_range_details())
         .is_some_and(|details| {
             details
-                .index()
-                .fields()
-                .first()
-                .is_some_and(|field| field == &target_field)
+                .first_key_field()
+                .is_some_and(|field| field == target_field)
         })
 }
 
@@ -320,24 +319,23 @@ const fn field_target_is_primary_key(aggregate: AggregateRouteShape<'_>) -> bool
 #[must_use]
 pub(in crate::db::executor) fn field_target_is_tie_free_probe_target(
     aggregate: AggregateRouteShape<'_>,
-    index_model: Option<IndexModel>,
+    index: Option<IndexShapeDetails>,
 ) -> bool {
     field_target_is_primary_key(aggregate)
         || aggregate.target_field().is_some_and(|target_field| {
-            field_target_is_unique_single_field_index_head(target_field, index_model)
+            field_target_is_unique_single_field_index_head(target_field, index)
         })
 }
 
 fn field_target_is_unique_single_field_index_head(
     target_field: &str,
-    index_model: Option<IndexModel>,
+    index: Option<IndexShapeDetails>,
 ) -> bool {
-    index_model.is_some_and(|index_model| {
-        index_model.is_unique()
-            && index_model.fields().len() == 1
-            && index_model
-                .fields()
-                .first()
-                .is_some_and(|field| *field == target_field)
+    index.is_some_and(|index| {
+        index.is_unique()
+            && index.key_arity() == 1
+            && index
+                .first_key_field()
+                .is_some_and(|field| field == target_field)
     })
 }

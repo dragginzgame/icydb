@@ -399,9 +399,7 @@ fn grouped_access_path_proves_group_order<K>(
     else {
         return false;
     };
-    let index = details.index();
     let prefix_len = details.slot_arity();
-    let index_fields = index.fields();
     let mut cursor = 0usize;
 
     // Equality-bound prefix fields are fixed constants during traversal, so
@@ -410,12 +408,14 @@ fn grouped_access_path_proves_group_order<K>(
     // ordered grouping.
     for group_field in group_fields {
         while cursor < prefix_len
-            && cursor < index_fields.len()
-            && index_fields[cursor] != group_field.field()
+            && cursor < details.key_arity()
+            && details.key_field_at(cursor) != Some(group_field.field())
         {
             cursor = cursor.saturating_add(1);
         }
-        if cursor >= index_fields.len() || index_fields[cursor] != group_field.field() {
+        if cursor >= details.key_arity()
+            || details.key_field_at(cursor) != Some(group_field.field())
+        {
             return false;
         }
         cursor = cursor.saturating_add(1);

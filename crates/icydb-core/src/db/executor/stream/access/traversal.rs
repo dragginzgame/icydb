@@ -197,9 +197,8 @@ impl AccessPlanStreamResolver {
     ) -> Result<(), InternalError> {
         let path_capabilities = path.capabilities();
         if let Some(details) = path_capabilities.index_prefix_details() {
-            let index = details.index();
             for spec in index_prefix_specs {
-                if spec.index() != &index {
+                if spec.scan_contract().name() != details.name() {
                     return Err(InternalError::query_executor_invariant(
                         "index-prefix spec does not match access path index",
                     ));

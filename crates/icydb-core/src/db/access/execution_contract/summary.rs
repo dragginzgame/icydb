@@ -57,12 +57,11 @@ where
         }
         ExecutionPathPayload::IndexPrefix { .. } => {
             if let Some(details) = path.index_prefix_details() {
-                let index = details.index();
                 let prefix_len = details.slot_arity();
                 if prefix_len == 0 {
-                    format!("IndexPrefix({})", index.name())
+                    format!("IndexPrefix({})", details.name())
                 } else {
-                    format!("IndexPrefix({} prefix_len={prefix_len})", index.name())
+                    format!("IndexPrefix({} prefix_len={prefix_len})", details.name())
                 }
             } else {
                 "IndexPrefix".to_string()
@@ -70,8 +69,7 @@ where
         }
         ExecutionPathPayload::IndexMultiLookup { value_count, .. } => {
             if let Some(details) = path.index_prefix_details() {
-                let index = details.index();
-                format!("IndexMultiLookup({} values={value_count})", index.name())
+                format!("IndexMultiLookup({} values={value_count})", details.name())
             } else {
                 format!("IndexMultiLookup(values={value_count})")
             }
@@ -83,12 +81,11 @@ where
             ..
         } => {
             if let Some(details) = path.index_range_details() {
-                let index = details.index();
                 let prefix_len = details.slot_arity();
-                let prefix = summarize_index_prefix_terms(index.fields(), prefix_values);
+                let prefix = summarize_index_prefix_terms(details, prefix_values);
                 let interval = summarize_interval(lower, upper);
 
-                if let Some(range_field) = index.fields().get(prefix_len) {
+                if let Some(range_field) = details.key_field_at(prefix_len) {
                     if prefix.is_empty() {
                         format!("IndexRange({range_field} {interval})")
                     } else {
@@ -110,10 +107,16 @@ where
     }
 }
 
-fn summarize_index_prefix_terms(index_fields: &[&'static str], values: &[Value]) -> String {
+fn summarize_index_prefix_terms(
+    details: crate::db::access::IndexShapeDetails,
+    values: &[Value],
+) -> String {
     let mut summary = String::new();
 
-    for (field, value) in index_fields.iter().copied().zip(values.iter()) {
+    for (component_index, value) in values.iter().enumerate() {
+        let Some(field) = details.key_field_at(component_index) else {
+            break;
+        };
         if !summary.is_empty() {
             summary.push_str(", ");
         }

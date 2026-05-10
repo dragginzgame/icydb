@@ -12,7 +12,7 @@ use std::{
 
 use crate::{
     db::access::{AccessPathKind, AccessPlan, SemanticIndexRangeSpec},
-    model::index::IndexModel,
+    model::index::{IndexKeyItemsRef, IndexModel},
     value::Value,
 };
 
@@ -66,11 +66,11 @@ fn access_capabilities_preserve_pure_index_range_shape_facts() {
         .expect("index-range test plan should expose index range details");
 
     assert_eq!(path.kind(), AccessPathKind::IndexRange);
-    assert_eq!(range_details.index().name(), CAPABILITY_TEST_INDEX.name());
+    assert_eq!(range_details.name(), CAPABILITY_TEST_INDEX.name());
     assert_eq!(range_details.slot_arity(), 1);
     assert_eq!(
-        path.index_fields_for_slot_map(),
-        Some(&CAPABILITY_TEST_INDEX_FIELDS[..])
+        path.index_key_items_for_slot_map(),
+        Some(IndexKeyItemsRef::Fields(&CAPABILITY_TEST_INDEX_FIELDS[..]))
     );
     assert_eq!(path.index_prefix_spec_count(), 0);
     assert!(path.consumes_index_range_spec());
