@@ -186,6 +186,16 @@ impl StructuralQuery {
         plan: &mut AccessPlannedQuery,
         visible_indexes: &VisibleIndexes<'_>,
     ) {
+        if let Some(schema_info) = visible_indexes.accepted_schema_info() {
+            plan.finalize_access_choice_for_model_with_accepted_indexes_and_schema(
+                self.model(),
+                visible_indexes.as_slice(),
+                visible_indexes.accepted_field_path_indexes(),
+                schema_info,
+            );
+            return;
+        }
+
         plan.finalize_access_choice_for_model_only_with_indexes(
             self.model(),
             visible_indexes.as_slice(),

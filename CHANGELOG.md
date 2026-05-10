@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.150.x] 🧭 - 2026-05-09 - Accepted Index Authority
 
+- `0.150.12` carries accepted `SchemaInfo` inside runtime `VisibleIndexes` and routes query-owned visible-index execution explain access-choice finalization through accepted index contracts instead of the generated model-only finalizer.
 - `0.150.11` routes generated/model-only order fallback and the explicit expression-index order lane through reduced semantic index contract order terms, keeping generated index order compatibility helpers test-only.
 - `0.150.10` routes access-choice explain/rerank candidate score rebuilding and planner prefix/compare/range key-shape extraction through reduced `SemanticIndexAccessContract` metadata, removing the generated `IndexModel` payload from the local scoring context and stopping direct generated secondary-order/key-shape matching in those paths.
 - `0.150.9` moves access-choice and planner candidate filtered-index, key-arity, and order-compatibility score facts onto reduced `SemanticIndexAccessContract` metadata, so prefix, multi-lookup, compare, range, and order-compatible candidate scoring no longer reopen generated `IndexModel::predicate()` or generated secondary-order matching to decide score state.

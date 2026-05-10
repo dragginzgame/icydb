@@ -211,6 +211,7 @@ pub(in crate::db) enum VisibleIndexAuthority {
 pub(in crate::db) struct VisibleIndexes<'a> {
     indexes: Cow<'a, [&'static IndexModel]>,
     accepted_field_path_indexes: Vec<AcceptedPlannerFieldPathIndex>,
+    accepted_schema_info: Option<SchemaInfo>,
     authority: VisibleIndexAuthority,
 }
 
@@ -371,6 +372,7 @@ impl<'a> VisibleIndexes<'a> {
         Self {
             indexes: Cow::Borrowed(&[]),
             accepted_field_path_indexes: Vec::new(),
+            accepted_schema_info: None,
             authority: VisibleIndexAuthority::StoreNotReady,
         }
     }
@@ -381,6 +383,7 @@ impl<'a> VisibleIndexes<'a> {
         Self {
             indexes: Cow::Borrowed(indexes),
             accepted_field_path_indexes: Vec::new(),
+            accepted_schema_info: None,
             authority: VisibleIndexAuthority::GeneratedModelOnly,
         }
     }
@@ -390,6 +393,7 @@ impl<'a> VisibleIndexes<'a> {
         Self {
             indexes: Cow::Borrowed(indexes),
             accepted_field_path_indexes: Vec::new(),
+            accepted_schema_info: None,
             authority: VisibleIndexAuthority::GeneratedModelOnly,
         }
     }
@@ -431,6 +435,7 @@ impl<'a> VisibleIndexes<'a> {
         Self {
             indexes: Cow::Owned(accepted_indexes),
             accepted_field_path_indexes,
+            accepted_schema_info: Some(schema_info.clone()),
             authority: VisibleIndexAuthority::AcceptedSchema {
                 field_path_indexes: accepted_field_path_index_count,
             },
@@ -448,6 +453,12 @@ impl<'a> VisibleIndexes<'a> {
         &self,
     ) -> &[AcceptedPlannerFieldPathIndex] {
         self.accepted_field_path_indexes.as_slice()
+    }
+
+    /// Borrow the accepted schema info that authorized this visible-index view.
+    #[must_use]
+    pub(in crate::db) const fn accepted_schema_info(&self) -> Option<&SchemaInfo> {
+        self.accepted_schema_info.as_ref()
     }
 
     /// Return whether accepted field-path planner contracts are internally

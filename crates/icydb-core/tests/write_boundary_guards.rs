@@ -388,6 +388,9 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && plan_mod.contains("semantic_access_contract: SemanticIndexAccessContract")
             && !plan_mod.contains("generated_index_bridge")
             && plan_mod.contains("accepted_field_path_indexes: Vec<AcceptedPlannerFieldPathIndex>")
+            && plan_mod.contains("accepted_schema_info: Option<SchemaInfo>")
+            && plan_mod.contains("pub(in crate::db) const fn accepted_schema_info(")
+            && plan_mod.contains("accepted_schema_info: Some(schema_info.clone())")
             && plan_mod.contains("AcceptedPlannerFieldPathIndex::from_schema_index")
             && plan_mod.contains("if index.has_expression_key_items() {")
             && plan_mod_compact.contains(
@@ -461,6 +464,21 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && !executor_explain.contains("fn finalize_explain_access_choice_for_visibility(")
             && !executor_explain.contains("None => self.model().indexes()"),
         "runtime explain access-choice finalization must use caller-resolved visible indexes, keeping generated model indexes only on the explicit model-only explain lane",
+    );
+}
+
+#[test]
+fn query_owned_visible_explain_uses_accepted_schema_info() {
+    let executor_explain = read_source("src/db/executor/explain/mod.rs");
+
+    assert!(
+        executor_explain
+            .contains("if let Some(schema_info) = visible_indexes.accepted_schema_info()")
+            && executor_explain.contains(
+                "plan.finalize_access_choice_for_model_with_accepted_indexes_and_schema("
+            )
+            && executor_explain.contains("visible_indexes.accepted_field_path_indexes()"),
+        "query-owned visible-index explain must reuse accepted SchemaInfo when visibility was derived from accepted schema",
     );
 }
 
