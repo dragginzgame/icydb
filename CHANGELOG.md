@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.150.x] 🧭 - 2026-05-09 - Accepted Index Authority
 
+- `0.150.8` removes the retained generated `IndexModel` bridge from accepted planner field-path index contracts, routes selected prefix/multi-lookup/range access construction through reduced semantic contracts after candidate selection, and uses accepted contracts for runtime access-choice reranking and verbose explain candidate rebuilds while keeping generated lanes explicit for model-only and expression-index paths.
 - `0.150.7` removes full generated `IndexModel` retention from selected access-path DTO storage, so selected prefix, multi-lookup, and range paths carry reduced semantic index contracts through residual access-bound stripping, covering metadata, cache-key projection, access-choice diagnostics, diagnostics-facing access projection, and cursor-anchor key construction instead.
 - `0.150.6` removes full generated `IndexModel` retention from lowered executor prefix/range specs after raw bounds are materialized and from executable access payload index facts, carrying reduced index name, ordinal, store path, key-item, arity, and uniqueness facts through cursor-anchor validation, covering scans, physical scan leaves, and access-planned query shell index-shape detection instead.
 - `0.150.5` was a version-only publish step with no separate code cleanup notes; the next documented accepted-index cleanup continues in `0.150.6`.

@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        access::{AccessPlan, SemanticIndexRangeSpec},
+        access::{AccessPlan, SemanticIndexAccessContract, SemanticIndexRangeSpec},
         index::{TextPrefixBoundMode, starts_with_component_bounds},
         predicate::{CoercionId, CompareOp, Predicate, canonical_cmp},
         query::plan::{
@@ -166,7 +166,13 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
     best.map(|(_, index, range_slot, prefix, range)| {
         let field_slots = (0..=range_slot).collect();
 
-        SemanticIndexRangeSpec::new(*index, field_slots, prefix, range.lower, range.upper)
+        SemanticIndexRangeSpec::from_access_contract(
+            SemanticIndexAccessContract::from_index(*index),
+            field_slots,
+            prefix,
+            range.lower,
+            range.upper,
+        )
     })
 }
 

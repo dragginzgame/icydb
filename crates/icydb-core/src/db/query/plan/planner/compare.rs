@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{AccessPlan, SemanticIndexRangeSpec},
+        access::{AccessPlan, SemanticIndexAccessContract, SemanticIndexRangeSpec},
         index::{TextPrefixBoundMode, starts_with_component_bounds},
         predicate::{CoercionId, CompareOp, ComparePredicate},
         query::plan::{
@@ -255,8 +255,8 @@ fn plan_starts_with_compare(
     }
 
     best.map(|(_, index, lower, upper)| {
-        AccessPlan::index_range(SemanticIndexRangeSpec::new(
-            *index,
+        AccessPlan::index_range(SemanticIndexRangeSpec::from_access_contract(
+            SemanticIndexAccessContract::from_index(*index),
             vec![0usize],
             Vec::new(),
             lower,
@@ -345,8 +345,8 @@ fn plan_ordered_compare(
     }
 
     best.map(|(_, index, lower, upper)| {
-        AccessPlan::index_range(SemanticIndexRangeSpec::new(
-            *index,
+        AccessPlan::index_range(SemanticIndexRangeSpec::from_access_contract(
+            SemanticIndexAccessContract::from_index(*index),
             vec![0usize],
             Vec::new(),
             lower,

@@ -7,7 +7,6 @@ use crate::{
     db::access::{
         AccessPath, ExecutableAccessPlan, SemanticIndexAccessContract, SemanticIndexRangeSpec,
     },
-    model::index::IndexModel,
     traits::KeyValueCodec,
     value::Value,
 };
@@ -49,22 +48,23 @@ impl<K> AccessPlan<K> {
         Self::path(AccessPath::KeyRange { start, end })
     }
 
-    /// Construct an index-prefix access plan.
+    /// Construct an index-prefix access plan from one reduced access contract.
     #[must_use]
-    pub(crate) fn index_prefix(index: IndexModel, values: Vec<Value>) -> Self {
-        Self::path(AccessPath::IndexPrefix {
-            index: SemanticIndexAccessContract::from_index(index),
-            values,
-        })
+    pub(crate) fn index_prefix_from_contract(
+        index: SemanticIndexAccessContract,
+        values: Vec<Value>,
+    ) -> Self {
+        Self::path(AccessPath::IndexPrefix { index, values })
     }
 
-    /// Construct an index multi-lookup access plan.
+    /// Construct an index multi-lookup access plan from one reduced access
+    /// contract.
     #[must_use]
-    pub(crate) fn index_multi_lookup(index: IndexModel, values: Vec<Value>) -> Self {
-        Self::path(AccessPath::IndexMultiLookup {
-            index: SemanticIndexAccessContract::from_index(index),
-            values,
-        })
+    pub(crate) fn index_multi_lookup_from_contract(
+        index: SemanticIndexAccessContract,
+        values: Vec<Value>,
+    ) -> Self {
+        Self::path(AccessPath::IndexMultiLookup { index, values })
     }
 
     /// Construct an index-range access plan from one semantic range descriptor.

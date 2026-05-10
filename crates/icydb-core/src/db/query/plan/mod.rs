@@ -25,17 +25,23 @@ mod semantics;
 mod tests;
 pub(crate) mod validate;
 
-use crate::{db::Predicate, db::schema::SchemaInfo, model::index::IndexModel};
+use crate::{
+    db::{Predicate, access::SemanticIndexAccessContract, schema::SchemaInfo},
+    model::index::IndexModel,
+};
 use std::borrow::Cow;
 
 pub(in crate::db) use crate::model::{
     canonicalize_filter_literal_for_kind,
     canonicalize_grouped_having_numeric_literal_for_field_kind,
 };
-pub(in crate::db::query) use access_choice::rerank_access_plan_by_residual_burden_with_indexes;
 pub(in crate::db) use access_choice::{
     AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot, AccessChoiceResidualBurden,
     AccessChoiceSelectedReason,
+};
+pub(in crate::db::query) use access_choice::{
+    rerank_access_plan_by_residual_burden_with_accepted_indexes,
+    rerank_access_plan_by_residual_burden_with_indexes,
 };
 pub(in crate::db) use access_plan::AccessPlannedQuery;
 pub(in crate::db) use access_plan::{
@@ -215,8 +221,8 @@ pub(in crate::db) struct VisibleIndexes<'a> {
 ///
 /// Planner-facing accepted field-path index contract.
 /// This owns the accepted schema metadata needed by field-path planner
-/// decisions while carrying the generated `IndexModel` bridge only so current
-/// access-path DTOs can still be assembled until they stop storing `IndexModel`.
+/// decisions plus a reduced semantic access contract for selected-path
+/// construction without retaining the full generated `IndexModel`.
 ///
 #[derive(Clone, Debug)]
 pub(in crate::db) struct AcceptedPlannerFieldPathIndex {
@@ -224,13 +230,13 @@ pub(in crate::db) struct AcceptedPlannerFieldPathIndex {
     store: String,
     unique: bool,
     fields: Vec<AcceptedPlannerFieldPathIndexField>,
-    generated_index_bridge: &'static IndexModel,
+    semantic_access_contract: SemanticIndexAccessContract,
 }
 
 impl AcceptedPlannerFieldPathIndex {
     fn from_schema_index(
         accepted: &crate::db::schema::SchemaIndexInfo,
-        generated_index_bridge: &'static IndexModel,
+        generated_index_model: &'static IndexModel,
     ) -> Self {
         Self {
             name: accepted.name().to_string(),
@@ -241,7 +247,9 @@ impl AcceptedPlannerFieldPathIndex {
                 .iter()
                 .map(AcceptedPlannerFieldPathIndexField::from_schema_field)
                 .collect(),
-            generated_index_bridge,
+            semantic_access_contract: SemanticIndexAccessContract::from_index(
+                *generated_index_model,
+            ),
         }
     }
 
@@ -269,10 +277,11 @@ impl AcceptedPlannerFieldPathIndex {
         self.fields.as_slice()
     }
 
-    /// Borrow the generated index bridge used by current access-path DTOs.
+    /// Return the reduced semantic access contract used by selected access
+    /// paths after planner candidate discovery.
     #[must_use]
-    pub(in crate::db) const fn generated_index_bridge(&self) -> &'static IndexModel {
-        self.generated_index_bridge
+    pub(in crate::db) const fn semantic_access_contract(&self) -> SemanticIndexAccessContract {
+        self.semantic_access_contract
     }
 
     /// Return accepted order terms for this field-path index.
@@ -287,9 +296,10 @@ impl AcceptedPlannerFieldPathIndex {
     fn debug_contract_consistent(&self) -> bool {
         !self.name().is_empty()
             && !self.store().is_empty()
-            && self.generated_index_bridge().name() == self.name()
-            && self.generated_index_bridge().store() == self.store()
-            && self.generated_index_bridge().is_unique() == self.unique()
+            && self.semantic_access_contract().name() == self.name()
+            && self.semantic_access_contract().store_path() == self.store()
+            && self.semantic_access_contract().is_unique() == self.unique()
+            && self.semantic_access_contract().key_arity() == self.fields().len()
             && !self.fields().is_empty()
             && self.order_terms().len() == self.fields().len()
             && self

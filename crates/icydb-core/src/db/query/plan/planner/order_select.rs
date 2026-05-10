@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{AccessPlan, SemanticIndexRangeSpec},
+        access::{AccessPlan, SemanticIndexAccessContract, SemanticIndexRangeSpec},
         query::plan::{
             AcceptedPlannerFieldPathIndex, OrderSpec,
             deterministic_secondary_index_order_satisfied,
@@ -84,8 +84,8 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_with_accepted_
     // shape. The caller prefilters candidate indexes so filtered guards are
     // checked once at the planner entry boundary.
     for &index in candidate_indexes {
-        let selected_index = if let Some(accepted) =
-            accepted_field_path_index_for_bridge(accepted_field_path_indexes, index)
+        if let Some(accepted) =
+            accepted_field_path_index_for_candidate(accepted_field_path_indexes, index.name())
         {
             let accepted_order_terms = accepted.order_terms();
             if grouped {
@@ -108,31 +108,30 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_with_accepted_
                 }
             }
 
-            accepted.generated_index_bridge()
-        } else {
-            if !index.has_expression_key_items() {
+            return Some(whole_index_ordered_range_scan_from_contract(
+                accepted.semantic_access_contract(),
+            ));
+        }
+        if !index.has_expression_key_items() {
+            continue;
+        }
+        if grouped {
+            let Some(order_contract) = grouped_order_contract.as_ref() else {
+                continue;
+            };
+            if !grouped_index_order_satisfied(order_contract, index, 0) {
                 continue;
             }
-            if grouped {
-                let Some(order_contract) = grouped_order_contract.as_ref() else {
-                    continue;
-                };
-                if !grouped_index_order_satisfied(order_contract, index, 0) {
-                    continue;
-                }
-            } else {
-                let Some(order_contract) = scalar_order_contract.as_ref() else {
-                    continue;
-                };
-                if !deterministic_secondary_index_order_satisfied(order_contract, index, 0) {
-                    continue;
-                }
+        } else {
+            let Some(order_contract) = scalar_order_contract.as_ref() else {
+                continue;
+            };
+            if !deterministic_secondary_index_order_satisfied(order_contract, index, 0) {
+                continue;
             }
+        }
 
-            index
-        };
-
-        return Some(whole_index_ordered_range_scan(selected_index));
+        return Some(whole_index_ordered_range_scan(index));
     }
 
     None
@@ -153,11 +152,28 @@ fn whole_index_ordered_range_scan(index: &'static IndexModel) -> AccessPlan<Valu
     AccessPlan::index_range(spec)
 }
 
-fn accepted_field_path_index_for_bridge<'a>(
+fn whole_index_ordered_range_scan_from_contract(
+    index: SemanticIndexAccessContract,
+) -> AccessPlan<Value> {
+    // Encode one whole-index ordered scan as an unbounded index-range with
+    // zero equality prefix. The first index slot becomes the range anchor
+    // while lower layers own forward vs reverse traversal from ORDER BY.
+    let spec = SemanticIndexRangeSpec::from_access_contract(
+        index,
+        vec![0usize],
+        Vec::new(),
+        Bound::Unbounded,
+        Bound::Unbounded,
+    );
+
+    AccessPlan::index_range(spec)
+}
+
+fn accepted_field_path_index_for_candidate<'a>(
     accepted_field_path_indexes: &'a [AcceptedPlannerFieldPathIndex],
-    index: &IndexModel,
+    index_name: &str,
 ) -> Option<&'a AcceptedPlannerFieldPathIndex> {
     accepted_field_path_indexes
         .iter()
-        .find(|accepted| accepted.generated_index_bridge().name() == index.name())
+        .find(|accepted| accepted.name() == index_name)
 }

@@ -249,9 +249,10 @@ impl<C: CanisterKind> DbSession<C> {
                 authority.model(),
                 &schema_info,
             )?;
-            plan.finalize_access_choice_for_model_with_indexes_and_schema(
+            plan.finalize_access_choice_for_model_with_accepted_indexes_and_schema(
                 authority.model(),
                 visible_indexes.as_slice(),
+                visible_indexes.accepted_field_path_indexes(),
                 &schema_info,
             );
             let diagnostics = structural

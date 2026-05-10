@@ -8,10 +8,12 @@ use crate::db::{
     direction::Direction,
     predicate::{IndexCompileTarget, Predicate, PredicateProgram},
     query::plan::{
-        AccessChoiceExplainSnapshot, GroupPlan, GroupSpec, GroupedAggregateExecutionSpec,
-        GroupedDistinctExecutionStrategy, LogicalPlan, PlannerRouteProfile,
+        AcceptedPlannerFieldPathIndex, AccessChoiceExplainSnapshot, GroupPlan, GroupSpec,
+        GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, LogicalPlan,
+        PlannerRouteProfile,
         access_choice::{
             non_index_access_choice_snapshot_for_access_plan,
+            project_access_choice_explain_snapshot_with_accepted_indexes_and_schema,
             project_access_choice_explain_snapshot_with_indexes_and_schema,
         },
         expr::{CompiledExpr, Expr, ProjectionSelection, ProjectionSpec},
@@ -540,6 +542,29 @@ impl AccessPlannedQuery {
             schema_info,
             self,
         );
+    }
+
+    /// Freeze one explain-only access-choice snapshot using accepted field-path
+    /// index contracts where runtime accepted authority exists.
+    pub(in crate::db) fn finalize_access_choice_for_model_with_accepted_indexes_and_schema(
+        &mut self,
+        model: &EntityModel,
+        visible_indexes: &[&'static IndexModel],
+        accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
+        schema_info: &SchemaInfo,
+    ) {
+        if !self.access.has_selected_index_access_path() {
+            return;
+        }
+
+        self.access_choice =
+            project_access_choice_explain_snapshot_with_accepted_indexes_and_schema(
+                model,
+                visible_indexes,
+                accepted_field_path_indexes,
+                schema_info,
+                self,
+            );
     }
 
     /// Borrow the frozen planner-owned route profile.

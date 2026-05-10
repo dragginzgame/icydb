@@ -385,7 +385,8 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
     assert!(
         plan_mod.contains("pub(in crate::db) fn accepted_schema_visible(")
             && plan_mod.contains("pub(in crate::db) struct AcceptedPlannerFieldPathIndex")
-            && plan_mod.contains("generated_index_bridge: &'static IndexModel")
+            && plan_mod.contains("semantic_access_contract: SemanticIndexAccessContract")
+            && !plan_mod.contains("generated_index_bridge")
             && plan_mod.contains("accepted_field_path_indexes: Vec<AcceptedPlannerFieldPathIndex>")
             && plan_mod.contains("AcceptedPlannerFieldPathIndex::from_schema_index")
             && plan_mod.contains("if index.has_expression_key_items() {")
@@ -414,12 +415,15 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && planner_mod.contains("order_fallback_selection(")
             && planner_mod.contains("index_range_from_order_with_accepted_indexes(")
             && order_select.contains("let accepted_order_terms = accepted.order_terms();")
+            && order_select.contains("accepted.semantic_access_contract()")
+            && order_select.contains("whole_index_ordered_range_scan_from_contract(")
             && order_select.contains("deterministic_secondary_index_order_terms_satisfied(",)
             && order_select.contains("grouped_index_order_terms_satisfied(")
             && order_select.contains("if !index.has_expression_key_items() {")
+            && !order_select.contains("accepted.generated_index_bridge()")
             && order_select.contains("fn index_range_from_order_for_generated_model_only(")
             && !order_select.contains("fn index_range_from_order("),
-        "order-only field-path access fallback must match ORDER BY against accepted index terms and keep generated order matching only for expression indexes",
+        "order-only field-path access fallback must match ORDER BY against accepted index terms, build field-path access from reduced contracts, and keep generated order matching only for expression indexes",
     );
     assert!(
         order_contract.contains("fn deterministic_secondary_index_order_terms_satisfied(")
@@ -452,6 +456,31 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && !executor_explain.contains("fn finalize_explain_access_choice_for_visibility(")
             && !executor_explain.contains("None => self.model().indexes()"),
         "runtime explain access-choice finalization must use caller-resolved visible indexes, keeping generated model indexes only on the explicit model-only explain lane",
+    );
+}
+
+#[test]
+fn runtime_access_choice_projection_uses_accepted_visible_indexes() {
+    let access_choice = read_source("src/db/query/plan/access_choice/mod.rs");
+    let access_plan = read_source("src/db/query/plan/access_plan.rs");
+    let pipeline = read_source("src/db/query/plan/pipeline.rs");
+    let session_query_explain = read_source("src/db/session/query/explain.rs");
+    let session_sql_explain = read_source("src/db/session/sql/execute/explain.rs");
+
+    assert!(
+        access_choice.contains("fn rerank_access_plan_by_residual_burden_with_accepted_indexes(")
+            && access_choice.contains(
+                "fn project_access_choice_explain_snapshot_with_accepted_indexes_and_schema(",
+            )
+            && access_choice.contains("plan_access_selection_with_order_and_accepted_indexes(")
+            && pipeline.contains("rerank_access_plan_by_residual_burden_with_accepted_indexes(")
+            && access_plan
+                .contains("fn finalize_access_choice_for_model_with_accepted_indexes_and_schema(",)
+            && session_query_explain
+                .contains("finalize_access_choice_for_model_with_accepted_indexes_and_schema(")
+            && session_sql_explain
+                .contains("finalize_access_choice_for_model_with_accepted_indexes_and_schema("),
+        "runtime access-choice reranking and explain projection must rebuild candidate access with accepted field-path contracts when accepted authority is present",
     );
 }
 
@@ -658,8 +687,12 @@ fn runtime_access_capabilities_use_reduced_index_shape_facts() {
     let logical_semantics = read_source("src/db/query/plan/semantics/logical.rs");
     let access_plan = read_source("src/db/query/plan/access_plan.rs");
     let access_path = read_source("src/db/access/path.rs");
+    let access_plan_core = read_source("src/db/access/plan.rs");
     let access_choice = read_source("src/db/query/plan/access_choice/mod.rs");
     let cache_key = read_source("src/db/query/intent/cache_key.rs");
+    let planner_prefix = read_source("src/db/query/plan/planner/prefix.rs");
+    let planner_compare = read_source("src/db/query/plan/planner/compare.rs");
+    let planner_range = read_source("src/db/query/plan/planner/range/extract.rs");
 
     assert!(
         access_capabilities.contains("pub(in crate::db) struct IndexShapeDetails")
@@ -697,6 +730,7 @@ fn runtime_access_capabilities_use_reduced_index_shape_facts() {
     );
     assert!(
         access_path.contains("pub(crate) struct SemanticIndexAccessContract")
+            && access_path.contains("fn from_access_contract(")
             && access_path.contains("index: SemanticIndexAccessContract")
             && access_path.contains(
                 "pub(crate) struct SemanticIndexRangeSpec {\n    index: SemanticIndexAccessContract"
@@ -714,6 +748,21 @@ fn runtime_access_capabilities_use_reduced_index_shape_facts() {
             && cache_key.contains("as_index_prefix_contract()")
             && cache_key.contains("as_index_multi_lookup_contract()"),
         "selected runtime access-path consumers must use reduced semantic index contracts instead of selected generated IndexModel accessors",
+    );
+    assert!(
+        access_plan_core.contains("fn index_prefix_from_contract(")
+            && access_plan_core.contains("fn index_multi_lookup_from_contract(")
+            && !access_plan_core.contains("fn index_prefix(index: IndexModel")
+            && !access_plan_core.contains("fn index_multi_lookup(index: IndexModel")
+            && planner_prefix.contains("AccessPlan::index_prefix_from_contract(")
+            && planner_prefix.contains("AccessPlan::index_multi_lookup_from_contract(")
+            && planner_compare.contains("SemanticIndexRangeSpec::from_access_contract(")
+            && planner_range.contains("SemanticIndexRangeSpec::from_access_contract(")
+            && !planner_prefix.contains("AccessPlan::index_prefix(*index")
+            && !planner_prefix.contains("AccessPlan::index_multi_lookup(**index")
+            && !planner_compare.contains("SemanticIndexRangeSpec::new(\n            *index")
+            && !planner_range.contains("SemanticIndexRangeSpec::new(*index"),
+        "selected predicate planner construction must convert chosen index candidates into reduced semantic contracts before building access paths",
     );
 }
 

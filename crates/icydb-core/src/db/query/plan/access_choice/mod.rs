@@ -19,7 +19,7 @@ use crate::{
         access::{AccessPlan, SemanticIndexAccessContract},
         predicate::Predicate,
         query::plan::{
-            AccessPlannedQuery,
+            AcceptedPlannerFieldPathIndex, AccessPlannedQuery,
             access_choice::{
                 evaluator::{
                     chosen_access_shape_projection, chosen_selection_reason,
@@ -27,7 +27,8 @@ use crate::{
                 },
                 model::AccessChoiceFamily,
             },
-            access_plan_label as planner_access_plan_label, plan_access_with_order,
+            access_plan_label as planner_access_plan_label,
+            plan_access_selection_with_order_and_accepted_indexes, plan_access_with_order,
         },
         schema::SchemaInfo,
     },
@@ -56,6 +57,41 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes_and_sch
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> AccessChoiceExplainSnapshot {
+    project_access_choice_explain_snapshot_from_authority(
+        model,
+        visible_indexes,
+        &[],
+        schema_info,
+        plan,
+    )
+}
+
+/// Project planner-owned access-choice candidate metadata for EXPLAIN using
+/// accepted field-path index contracts where runtime accepted authority exists.
+#[must_use]
+pub(in crate::db) fn project_access_choice_explain_snapshot_with_accepted_indexes_and_schema(
+    model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
+    accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
+    schema_info: &SchemaInfo,
+    plan: &AccessPlannedQuery,
+) -> AccessChoiceExplainSnapshot {
+    project_access_choice_explain_snapshot_from_authority(
+        model,
+        visible_indexes,
+        accepted_field_path_indexes,
+        schema_info,
+        plan,
+    )
+}
+
+fn project_access_choice_explain_snapshot_from_authority(
+    model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
+    accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
+    schema_info: &SchemaInfo,
+    plan: &AccessPlannedQuery,
+) -> AccessChoiceExplainSnapshot {
     // Phase 1: classify chosen access family and reuse one already-frozen
     // planner-owned non-index snapshot when the selected route never entered
     // index candidate projection at all.
@@ -72,31 +108,28 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes_and_sch
     let predicate = plan.scalar_plan().predicate.as_ref();
     let order = plan.scalar_plan().order.as_ref();
     let grouped = plan.grouped_plan().is_some();
-    let chosen_score = visible_indexes
-        .iter()
-        .copied()
-        .find(|index| index.name() == chosen_index_name)
-        .and_then(|index| {
-            match evaluate_index_candidate(
-                family,
-                index,
-                model,
-                schema_info,
-                predicate,
-                order,
-                grouped,
-            ) {
-                self::model::CandidateEvaluation::Eligible(score) => Some(score),
-                self::model::CandidateEvaluation::Rejected(_) => None,
-            }
-        })
-        .unwrap_or(chosen_score_hint);
+    let chosen_score = chosen_score_for_visible_indexes(
+        family,
+        chosen_score_hint,
+        chosen_index_name,
+        model,
+        visible_indexes,
+        schema_info,
+        predicate,
+        order,
+        grouped,
+    );
     let mut alternatives = Vec::new();
     let mut candidates = Vec::new();
     let mut rejected = Vec::new();
     let mut eligible_other_scores = Vec::new();
-    let residual_burden_rejected_indexes =
-        same_score_competing_residual_rejection_indexes(model, visible_indexes, schema_info, plan);
+    let residual_burden_rejected_indexes = same_score_competing_residual_rejection_indexes(
+        model,
+        visible_indexes,
+        accepted_field_path_indexes,
+        schema_info,
+        plan,
+    );
 
     // Phase 2: walk deterministic model order once so alternative/rejection
     // projection stays under one evaluation owner after the chosen score has
@@ -117,9 +150,13 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes_and_sch
             self::model::CandidateEvaluation::Eligible(score) => {
                 alternatives.push(index_name);
                 eligible_other_scores.push(score);
-                if let Some(candidate_access) =
-                    eligible_candidate_access_for_index(model, schema_info, plan, index)
-                {
+                if let Some(candidate_access) = eligible_candidate_access_for_index(
+                    model,
+                    accepted_field_path_indexes,
+                    schema_info,
+                    plan,
+                    index,
+                ) {
                     let candidate_plan = candidate_plan_with_access(plan, candidate_access.clone());
                     candidates.push(project_candidate_explain_summary(
                         score,
@@ -146,8 +183,13 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes_and_sch
         }
     }
 
-    let residual_burden_preferred =
-        chosen_access_prefers_lower_residual_burden(model, visible_indexes, schema_info, plan);
+    let residual_burden_preferred = chosen_access_prefers_lower_residual_burden(
+        model,
+        visible_indexes,
+        accepted_field_path_indexes,
+        schema_info,
+        plan,
+    );
 
     // Phase 3: derive deterministic winner/rejection reason codes from the
     // one-pass candidate evaluation results above.
@@ -221,9 +263,45 @@ pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_indexes(
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Option<AccessPlan<Value>> {
+    rerank_access_plan_by_residual_burden_from_authority(
+        model,
+        visible_indexes,
+        &[],
+        schema_info,
+        plan,
+    )
+}
+
+/// Return one reranked access plan using accepted field-path index contracts
+/// for candidate access reconstruction where runtime accepted authority exists.
+#[must_use]
+pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_accepted_indexes(
+    model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
+    accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
+    schema_info: &SchemaInfo,
+    plan: &AccessPlannedQuery,
+) -> Option<AccessPlan<Value>> {
+    rerank_access_plan_by_residual_burden_from_authority(
+        model,
+        visible_indexes,
+        accepted_field_path_indexes,
+        schema_info,
+        plan,
+    )
+}
+
+fn rerank_access_plan_by_residual_burden_from_authority(
+    model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
+    accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
+    schema_info: &SchemaInfo,
+    plan: &AccessPlannedQuery,
+) -> Option<AccessPlan<Value>> {
     let preferred = preferred_same_score_competing_access_by_residual_burden(
         model,
         visible_indexes,
+        accepted_field_path_indexes,
         schema_info,
         plan,
     )?;
@@ -236,20 +314,28 @@ pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_indexes(
 fn chosen_access_prefers_lower_residual_burden(
     model: &EntityModel,
     visible_indexes: &[&'static IndexModel],
+    accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> bool {
     preferred_same_score_competing_access_by_residual_burden(
         model,
         visible_indexes,
+        accepted_field_path_indexes,
         schema_info,
         plan,
     )
     .is_none()
-        && same_score_competing_candidate_plans(model, visible_indexes, schema_info, plan)
-            .into_iter()
-            .flatten()
-            .any(|candidate| candidate.residual_burden > residual_burden_for_plan(plan))
+        && same_score_competing_candidate_plans(
+            model,
+            visible_indexes,
+            accepted_field_path_indexes,
+            schema_info,
+            plan,
+        )
+        .into_iter()
+        .flatten()
+        .any(|candidate| candidate.residual_burden > residual_burden_for_plan(plan))
 }
 
 // Return the index names for same-score competing routes that lose on
@@ -257,20 +343,27 @@ fn chosen_access_prefers_lower_residual_burden(
 fn same_score_competing_residual_rejection_indexes(
     model: &EntityModel,
     visible_indexes: &[&'static IndexModel],
+    accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Option<Vec<&'static str>> {
     let chosen_burden = residual_burden_for_plan(plan);
-    let rejected = same_score_competing_candidate_plans(model, visible_indexes, schema_info, plan)?
-        .into_iter()
-        .filter(|candidate| candidate.residual_burden > chosen_burden)
-        .filter_map(|candidate| {
-            candidate
-                .access
-                .selected_index_contract()
-                .map(SemanticIndexAccessContract::name)
-        })
-        .collect::<Vec<_>>();
+    let rejected = same_score_competing_candidate_plans(
+        model,
+        visible_indexes,
+        accepted_field_path_indexes,
+        schema_info,
+        plan,
+    )?
+    .into_iter()
+    .filter(|candidate| candidate.residual_burden > chosen_burden)
+    .filter_map(|candidate| {
+        candidate
+            .access
+            .selected_index_contract()
+            .map(SemanticIndexAccessContract::name)
+    })
+    .collect::<Vec<_>>();
 
     (!rejected.is_empty()).then_some(rejected)
 }
@@ -314,15 +407,22 @@ struct ResidualComparableCandidate {
 fn preferred_same_score_competing_access_by_residual_burden(
     model: &EntityModel,
     visible_indexes: &[&'static IndexModel],
+    accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Option<ResidualComparableCandidate> {
     let chosen_burden = residual_burden_for_plan(plan);
     let mut best: Option<ResidualComparableCandidate> = None;
 
-    for candidate in same_score_competing_candidate_plans(model, visible_indexes, schema_info, plan)
-        .into_iter()
-        .flatten()
+    for candidate in same_score_competing_candidate_plans(
+        model,
+        visible_indexes,
+        accepted_field_path_indexes,
+        schema_info,
+        plan,
+    )
+    .into_iter()
+    .flatten()
     {
         if candidate.residual_burden >= chosen_burden {
             continue;
@@ -340,14 +440,65 @@ fn preferred_same_score_competing_access_by_residual_burden(
     best
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "access-choice scoring keeps candidate authority and query shape explicit"
+)]
+fn chosen_score_for_visible_indexes(
+    family: AccessChoiceFamily,
+    chosen_score_hint: crate::db::query::plan::planner::AccessCandidateScore,
+    chosen_index_name: &str,
+    model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
+    schema_info: &SchemaInfo,
+    predicate: Option<&Predicate>,
+    order: Option<&crate::db::query::plan::OrderSpec>,
+    grouped: bool,
+) -> crate::db::query::plan::planner::AccessCandidateScore {
+    visible_indexes
+        .iter()
+        .copied()
+        .find(|index| index.name() == chosen_index_name)
+        .and_then(|index| {
+            match evaluate_index_candidate(
+                family,
+                index,
+                model,
+                schema_info,
+                predicate,
+                order,
+                grouped,
+            ) {
+                self::model::CandidateEvaluation::Eligible(score) => Some(score),
+                self::model::CandidateEvaluation::Rejected(_) => None,
+            }
+        })
+        .unwrap_or(chosen_score_hint)
+}
+
 // Build one candidate access plan through the existing single-index planner
 // entry so explain and reranking consume the same planner-owned route shape.
 fn eligible_candidate_access_for_index(
     model: &EntityModel,
+    accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
     index: &'static IndexModel,
 ) -> Option<AccessPlan<Value>> {
+    if !accepted_field_path_indexes.is_empty() {
+        return plan_access_selection_with_order_and_accepted_indexes(
+            model,
+            &[index],
+            accepted_field_path_indexes,
+            schema_info,
+            plan.scalar_plan().predicate.as_ref(),
+            plan.scalar_plan().order.as_ref(),
+            plan.grouped_plan().is_some(),
+        )
+        .ok()
+        .map(super::planner::PlannedAccessSelection::into_access);
+    }
+
     plan_access_with_order(
         model,
         &[index],
@@ -396,6 +547,7 @@ fn project_candidate_explain_summary(
 fn same_score_competing_candidate_plans(
     model: &EntityModel,
     visible_indexes: &[&'static IndexModel],
+    accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Option<Vec<ResidualComparableCandidate>> {
@@ -409,25 +561,17 @@ fn same_score_competing_candidate_plans(
     let predicate = plan.scalar_plan().predicate.as_ref();
     let order = plan.scalar_plan().order.as_ref();
     let grouped = plan.grouped_plan().is_some();
-    let chosen_score = visible_indexes
-        .iter()
-        .copied()
-        .find(|index| index.name() == chosen_index_name)
-        .and_then(|index| {
-            match evaluate_index_candidate(
-                family,
-                index,
-                model,
-                schema_info,
-                predicate,
-                order,
-                grouped,
-            ) {
-                self::model::CandidateEvaluation::Eligible(score) => Some(score),
-                self::model::CandidateEvaluation::Rejected(_) => None,
-            }
-        })
-        .unwrap_or(chosen_score_hint);
+    let chosen_score = chosen_score_for_visible_indexes(
+        family,
+        chosen_score_hint,
+        chosen_index_name,
+        model,
+        visible_indexes,
+        schema_info,
+        predicate,
+        order,
+        grouped,
+    );
 
     let mut candidates = Vec::new();
     for index in sorted_indexes(visible_indexes) {
@@ -443,8 +587,13 @@ fn same_score_competing_candidate_plans(
             continue;
         }
 
-        let candidate_access =
-            eligible_candidate_access_for_index(model, schema_info, plan, index)?;
+        let candidate_access = eligible_candidate_access_for_index(
+            model,
+            accepted_field_path_indexes,
+            schema_info,
+            plan,
+            index,
+        )?;
         let candidate_access_name = candidate_access
             .selected_index_contract()
             .map(SemanticIndexAccessContract::name);

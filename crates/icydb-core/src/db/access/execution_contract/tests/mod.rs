@@ -3,7 +3,7 @@
 //! lowered executable access plans.
 
 use crate::{
-    db::access::{AccessPlan, summarize_executable_access_plan},
+    db::access::{AccessPlan, SemanticIndexAccessContract, summarize_executable_access_plan},
     model::index::IndexModel,
     value::Value,
 };
@@ -46,8 +46,10 @@ fn executable_access_summary_reports_index_multi_lookup_shape() {
         &INDEX_MULTI_LOOKUP_TEST_FIELDS,
         false,
     );
-    let plan: AccessPlan<u64> =
-        AccessPlan::index_multi_lookup(index, vec![Value::Uint(7), Value::Uint(9)]);
+    let plan: AccessPlan<u64> = AccessPlan::index_multi_lookup_from_contract(
+        SemanticIndexAccessContract::from_index(index),
+        vec![Value::Uint(7), Value::Uint(9)],
+    );
     let executable = plan.executable_contract();
 
     assert!(

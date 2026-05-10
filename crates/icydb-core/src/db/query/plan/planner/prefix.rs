@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::AccessPlan,
+        access::{AccessPlan, SemanticIndexAccessContract},
         predicate::{CoercionId, CompareOp, Predicate},
         query::plan::{
             OrderSpec,
@@ -83,7 +83,12 @@ pub(super) fn index_prefix_for_eq(
         }
     }
 
-    best.map(|(_, index, lookup_value)| AccessPlan::index_prefix(*index, vec![lookup_value]))
+    best.map(|(_, index, lookup_value)| {
+        AccessPlan::index_prefix_from_contract(
+            SemanticIndexAccessContract::from_index(*index),
+            vec![lookup_value],
+        )
+    })
 }
 
 pub(super) fn index_multi_lookup_for_in(
@@ -122,7 +127,10 @@ pub(super) fn index_multi_lookup_for_in(
             continue;
         }
 
-        out.push(AccessPlan::index_multi_lookup(**index, lookup_values));
+        out.push(AccessPlan::index_multi_lookup_from_contract(
+            SemanticIndexAccessContract::from_index(**index),
+            lookup_values,
+        ));
     }
 
     if out.is_empty() { None } else { Some(out) }
@@ -189,7 +197,12 @@ pub(super) fn index_prefix_from_and(
         }
     }
 
-    best.map(|(_, index, values)| AccessPlan::index_prefix(*index, values))
+    best.map(|(_, index, values)| {
+        AccessPlan::index_prefix_from_contract(
+            SemanticIndexAccessContract::from_index(*index),
+            values,
+        )
+    })
 }
 
 ///

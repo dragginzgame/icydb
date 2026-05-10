@@ -212,6 +212,37 @@ impl SemanticIndexRangeSpec {
         }
     }
 
+    #[must_use]
+    pub(crate) fn from_access_contract(
+        index: SemanticIndexAccessContract,
+        field_slots: Vec<usize>,
+        prefix_values: Vec<Value>,
+        lower: Bound<Value>,
+        upper: Bound<Value>,
+    ) -> Self {
+        debug_assert!(
+            !field_slots.is_empty(),
+            "semantic index-range field slots must include the range slot",
+        );
+        debug_assert_eq!(
+            field_slots.len(),
+            prefix_values.len().saturating_add(1),
+            "semantic index-range slots must include one slot per prefix field plus range slot",
+        );
+        debug_assert!(
+            prefix_values.len() < index.key_arity(),
+            "semantic index-range prefix must be shorter than index arity",
+        );
+
+        Self {
+            index,
+            field_slots,
+            prefix_values,
+            lower,
+            upper,
+        }
+    }
+
     #[cfg(test)]
     #[must_use]
     pub(crate) fn from_prefix_and_bounds(

@@ -14,8 +14,10 @@ use crate::{
                 OrderSpec, PlannedAccessSelection, PlannedNonIndexAccessReason, VisibleIndexes,
                 build_logical_plan, fold_constant_predicate, is_limit_zero_load_window,
                 logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
-                predicate_is_constant_false, rerank_access_plan_by_residual_burden_with_indexes,
-                validate_group_query_semantics, validate_query_semantics,
+                predicate_is_constant_false,
+                rerank_access_plan_by_residual_burden_with_accepted_indexes,
+                rerank_access_plan_by_residual_burden_with_indexes, validate_group_query_semantics,
+                validate_query_semantics,
             },
         },
         schema::SchemaInfo,
@@ -156,12 +158,23 @@ where
         query.scalar_projection_selection().clone(),
         planned_non_index_reason,
     );
-    if let Some(preferred_access) = rerank_access_plan_by_residual_burden_with_indexes(
-        query.model(),
-        visible_indexes.as_slice(),
-        &schema_info,
-        &plan,
-    ) {
+    let preferred_access = if visible_indexes.accepted_field_path_index_count().is_some() {
+        rerank_access_plan_by_residual_burden_with_accepted_indexes(
+            query.model(),
+            visible_indexes.as_slice(),
+            visible_indexes.accepted_field_path_indexes(),
+            &schema_info,
+            &plan,
+        )
+    } else {
+        rerank_access_plan_by_residual_burden_with_indexes(
+            query.model(),
+            visible_indexes.as_slice(),
+            &schema_info,
+            &plan,
+        )
+    };
+    if let Some(preferred_access) = preferred_access {
         plan = AccessPlannedQuery::from_planned_parts_with_projection(
             plan.logical.clone(),
             preferred_access,

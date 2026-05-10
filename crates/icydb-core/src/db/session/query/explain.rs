@@ -74,9 +74,10 @@ impl<C: CanisterKind> DbSession<C> {
             &accepted_schema,
         );
 
-        plan.finalize_access_choice_for_model_with_indexes_and_schema(
+        plan.finalize_access_choice_for_model_with_accepted_indexes_and_schema(
             query.structural().model(),
             visible_indexes.as_slice(),
+            visible_indexes.accepted_field_path_indexes(),
             &schema_info,
         );
         let authority = Self::accepted_entity_authority_for_schema::<E>(&accepted_schema)
