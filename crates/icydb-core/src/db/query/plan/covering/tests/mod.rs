@@ -95,7 +95,9 @@ fn covering_hybrid_projection_plan(
 fn covering_read_plan_with_group_prefix() -> AccessPlannedQuery {
     AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(COVERING_READ_INDEX),
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+                COVERING_READ_INDEX,
+            ),
             values: vec![Value::Uint(7)],
         },
         MissingRowPolicy::Ignore,
@@ -118,7 +120,7 @@ fn lower_label_order_term(direction: OrderDirection) -> crate::db::query::plan::
 fn covering_projection_context_accepts_suffix_index_order() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
                 crate::model::index::IndexModel::generated(
                     "idx",
                     "tests::Entity",
@@ -161,7 +163,7 @@ fn covering_projection_context_accepts_suffix_index_order() {
 fn covering_projection_context_accepts_primary_key_order() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
                 crate::model::index::IndexModel::generated(
                     "idx",
                     "tests::Entity",
@@ -202,7 +204,7 @@ fn covering_projection_context_accepts_primary_key_order() {
 fn covering_projection_context_rejects_mixed_order_directions() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
                 crate::model::index::IndexModel::generated(
                     "idx",
                     "tests::Entity",
@@ -272,7 +274,7 @@ fn covering_projection_context_rejects_range_full_order_contract() {
 #[test]
 fn constant_covering_projection_value_from_access_resolves_prefix_binding() {
     let access = AccessPath::<u64>::IndexPrefix {
-        index: crate::db::access::SemanticIndexAccessContract::from_index(
+        index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
             crate::model::index::IndexModel::generated(
                 "idx",
                 "tests::Entity",
@@ -310,7 +312,7 @@ fn constant_covering_projection_value_from_access_uses_range_prefix_components()
 #[test]
 fn constant_covering_projection_value_from_access_returns_none_when_target_unbound() {
     let access = AccessPath::<u64>::IndexPrefix {
-        index: crate::db::access::SemanticIndexAccessContract::from_index(
+        index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
             crate::model::index::IndexModel::generated(
                 "idx",
                 "tests::Entity",
@@ -357,7 +359,9 @@ fn covering_read_plan_accepts_direct_index_component_projection() {
 fn covering_read_plan_accepts_multi_component_projection() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(COVERING_READ_INDEX),
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+                COVERING_READ_INDEX,
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -445,7 +449,7 @@ fn covering_read_plan_accepts_prefix_bound_constant_projection() {
 fn covering_read_plan_accepts_pk_plus_constant_projection_on_expression_suffix_order() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
                 crate::model::index::IndexModel::generated_with_key_items(
                     "idx_expr",
                     "tests::Entity",
@@ -492,7 +496,7 @@ fn covering_read_plan_accepts_pk_plus_constant_projection_on_expression_suffix_o
 fn covering_read_plan_rejects_original_field_projection_on_expression_suffix_order() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
                 crate::model::index::IndexModel::generated_with_key_items(
                     "idx_expr",
                     "tests::Entity",
@@ -537,7 +541,9 @@ fn covering_read_plan_rejects_non_coverable_row_field_projection() {
 fn covering_hybrid_projection_plan_accepts_covering_plus_row_field_projection() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(COVERING_READ_INDEX),
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+                COVERING_READ_INDEX,
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -577,7 +583,9 @@ fn covering_hybrid_projection_plan_accepts_covering_plus_row_field_projection() 
 fn covering_hybrid_projection_plan_rejects_fully_covering_projection() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(COVERING_READ_INDEX),
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+                COVERING_READ_INDEX,
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,

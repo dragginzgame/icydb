@@ -490,11 +490,15 @@ mod access_projection_tests {
             AccessPlan::path(AccessPath::ByKeys(vec![2, 3])),
             AccessPlan::path(AccessPath::KeyRange { start: 4, end: 9 }),
             AccessPlan::path(AccessPath::IndexPrefix {
-                index: crate::db::access::SemanticIndexAccessContract::from_index(TEST_INDEX),
+                index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+                    TEST_INDEX,
+                ),
                 values: vec![Value::Uint(7)],
             }),
             AccessPlan::path(AccessPath::IndexMultiLookup {
-                index: crate::db::access::SemanticIndexAccessContract::from_index(TEST_INDEX),
+                index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+                    TEST_INDEX,
+                ),
                 values: vec![Value::Uint(7), Value::Uint(9)],
             }),
             AccessPlan::path(AccessPath::index_range(

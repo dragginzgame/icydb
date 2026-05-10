@@ -7810,7 +7810,7 @@ fn load_secondary_order_top_n_seek_trace_optimization_is_explicit() {
 
     let mut logical_plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
                 UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
             ),
             values: vec![Value::Uint(20)],
@@ -7855,7 +7855,7 @@ fn load_secondary_order_trace_reports_non_top_n_variant_without_page_limit() {
 
     let mut logical_plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
                 UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
             ),
             values: vec![Value::Uint(20)],
@@ -9513,7 +9513,7 @@ fn load_secondary_order_top_n_seek_residual_underfill_widens_expression_owned_fi
     // fallback full scan with the same expression-owned residual filter.
     let mut fast_logical = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
                 PUSHDOWN_PARITY_INDEX_MODELS[0],
             ),
             values: vec![Value::Uint(7)],

@@ -198,7 +198,7 @@ impl StructuralQuery {
 
         plan.finalize_access_choice_for_model_only_with_indexes(
             self.model(),
-            visible_indexes.generated_expression_candidate_indexes(),
+            visible_indexes.generated_model_only_indexes(),
         );
     }
 

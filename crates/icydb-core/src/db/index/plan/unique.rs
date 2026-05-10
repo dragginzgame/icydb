@@ -8,19 +8,19 @@ use crate::{
     db::{
         data::{DataKey, StorageKey, StructuralRowContract, StructuralSlotReader},
         index::{
-            IndexId, IndexKey, IndexPlanReadView, IndexReadContract, plan::error::IndexPlanError,
+            IndexId, IndexKey, IndexPlanReadView, IndexReadContract,
+            plan::{GeneratedExpressionIndex, error::IndexPlanError},
         },
         schema::{SchemaIndexFieldPathInfo, SchemaIndexInfo},
     },
     error::InternalError,
-    model::index::IndexModel,
     types::EntityTag,
 };
 use std::ops::Bound;
 
 enum UniqueKeyAuthority<'a> {
     AcceptedFieldPath(&'a SchemaIndexInfo),
-    GeneratedExpression(&'a IndexModel),
+    GeneratedExpression(GeneratedExpressionIndex<'a>),
 }
 
 impl UniqueKeyAuthority<'_> {
@@ -52,7 +52,7 @@ impl UniqueKeyAuthority<'_> {
                 storage_key,
                 row_contract,
                 row_fields,
-                index,
+                index.model_index(),
             ),
         }
     }
@@ -102,12 +102,12 @@ pub(super) fn validate_unique_constraint_accepted_field_path_structural(
 
 /// Validate one generated expression unique index constraint.
 #[expect(clippy::too_many_arguments)]
-pub(super) fn validate_unique_constraint_structural(
+pub(super) fn validate_unique_constraint_generated_expression_structural(
     entity_path: &'static str,
     entity_tag: EntityTag,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
-    index: &IndexModel,
+    index: GeneratedExpressionIndex<'_>,
     read_contract: IndexReadContract<'_>,
     index_fields: &str,
     new_storage_key: Option<StorageKey>,

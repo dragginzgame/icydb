@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.150.x] 🧭 - 2026-05-09 - Accepted Index Authority
 
+- `0.150.19` splits runtime visible-index generated metadata into explicit model-only indexes and accepted-runtime expression-index candidates, names generated semantic index projection as `from_generated_index`, and wraps generated expression write indexes so standalone/model-only and deferred expression lanes no longer share raw generated index flow.
 - `0.150.18` removes the accepted field-path write-time generated predicate bridge by compiling filtered-index membership predicates from accepted `SchemaIndexInfo::predicate_sql()` against accepted row contracts, and renames the remaining generated visible-index candidate lane as expression-only.
 - `0.150.17` removes the accepted field-path filtered-index generated predicate bridge by parsing accepted `predicate_sql` into owned semantic predicate contracts, leaving generated predicate semantics only on generated/model-only and expression-index lanes.
 - `0.150.16` makes runtime predicate planning and access-choice explain/rerank candidate projection iterate reduced semantic index contracts directly, so accepted field-path indexes no longer travel through the generated candidate bridge for predicate candidate discovery while generated expression indexes remain on their explicit deferred lane.

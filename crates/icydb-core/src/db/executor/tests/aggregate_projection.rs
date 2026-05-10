@@ -1128,7 +1128,7 @@ fn aggregate_projection_bytes_by_projection_mode_classifier_matches_bounded_rout
     let covering_index_plan = {
         let mut logical_plan = AccessPlannedQuery::new(
             AccessPath::IndexPrefix {
-                index: crate::db::access::SemanticIndexAccessContract::from_index(
+                index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
                     PUSHDOWN_PARITY_INDEX_MODELS[0],
                 ),
                 values: vec![Value::Uint(7)],
@@ -1160,7 +1160,7 @@ fn aggregate_projection_bytes_by_projection_mode_classifier_matches_bounded_rout
     let constant_covering_plan =
         PreparedExecutionPlan::<PushdownParityEntity>::new(AccessPlannedQuery::new(
             AccessPath::IndexPrefix {
-                index: crate::db::access::SemanticIndexAccessContract::from_index(
+                index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
                     PUSHDOWN_PARITY_INDEX_MODELS[0],
                 ),
                 values: vec![Value::Uint(7), Value::Uint(20)],
@@ -1183,7 +1183,7 @@ fn aggregate_projection_bytes_by_projection_mode_classifier_matches_bounded_rout
 
     let strict_plan = PreparedExecutionPlan::<PushdownParityEntity>::new(AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
                 PUSHDOWN_PARITY_INDEX_MODELS[0],
             ),
             values: vec![Value::Uint(7), Value::Uint(20)],

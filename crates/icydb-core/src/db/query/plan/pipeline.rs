@@ -169,7 +169,7 @@ where
     } else {
         rerank_access_plan_by_residual_burden_with_indexes(
             query.model(),
-            visible_indexes.generated_expression_candidate_indexes(),
+            visible_indexes.generated_model_only_indexes(),
             &schema_info,
             &plan,
         )

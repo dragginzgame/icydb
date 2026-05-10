@@ -269,7 +269,7 @@ pub(in crate::db::query::plan::access_choice) fn evaluate_prefix_compare_candida
     cmp: &ComparePredicate,
 ) -> CandidateEvaluation {
     evaluate_prefix_compare_candidate_from_contract(
-        &SemanticIndexAccessContract::from_index(*index),
+        &SemanticIndexAccessContract::from_generated_index(*index),
         schema,
         cmp,
     )
@@ -282,7 +282,7 @@ pub(in crate::db::query::plan::access_choice) fn evaluate_multi_lookup_candidate
     predicate: &Predicate,
 ) -> CandidateEvaluation {
     evaluate_multi_lookup_candidate_from_contract(
-        &SemanticIndexAccessContract::from_index(*index),
+        &SemanticIndexAccessContract::from_generated_index(*index),
         schema,
         predicate,
     )

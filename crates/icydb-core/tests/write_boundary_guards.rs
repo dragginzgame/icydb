@@ -394,6 +394,8 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && !plan_mod.contains("generated_index_bridge")
             && plan_mod.contains("accepted_field_path_indexes: Vec<AcceptedPlannerFieldPathIndex>")
             && plan_mod.contains("accepted_schema_info: Option<SchemaInfo>")
+            && plan_mod.contains("generated_model_only_indexes: Cow")
+            && plan_mod.contains("pub(in crate::db) fn generated_model_only_indexes(&self)")
             && plan_mod.contains("generated_expression_candidate_indexes: Cow")
             && plan_mod.contains(
                 "pub(in crate::db) fn generated_expression_candidate_indexes(&self)",
@@ -432,7 +434,9 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && planner_mod.contains("OrderFallbackIndexAuthority::AcceptedFieldPathIndexes")
             && planner_mod
                 .contains("accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],",)
-            && planner_mod.contains("fn semantic_candidate_indexes_from_authority(")
+            && planner_mod.contains("fn semantic_candidate_indexes_from_generated_model_only(")
+            && planner_mod
+                .contains("fn semantic_candidate_indexes_from_accepted_and_generated_expression(")
             && planner_mod
                 .contains(".map(AcceptedPlannerFieldPathIndex::semantic_access_contract)")
             && planner_mod.contains("order_fallback_selection(")
@@ -443,8 +447,9 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && order_select.contains("deterministic_secondary_index_order_terms_satisfied(",)
             && order_select.contains("grouped_index_order_terms_satisfied(")
             && order_select.contains("index_key_item_order_terms(index_contract.key_items())")
-            && !order_select
-                .contains("let index_contract = SemanticIndexAccessContract::from_index(*index);")
+            && !order_select.contains(
+                "let index_contract = SemanticIndexAccessContract::from_generated_index(*index);"
+            )
             && order_select.contains("if !index_contract.has_expression_key_items() {")
             && !order_select.contains("deterministic_secondary_index_order_satisfied(")
             && !order_select.contains("grouped_index_order_satisfied(")
@@ -518,7 +523,9 @@ fn runtime_access_choice_projection_uses_accepted_visible_indexes() {
             && access_choice
                 .contains("generated_expression_candidate_indexes: &[&'static IndexModel]",)
             && !access_choice.contains("generated_candidate_bridge_indexes")
-            && access_choice.contains("fn semantic_candidate_indexes_from_authority(")
+            && access_choice.contains("fn semantic_candidate_indexes_from_generated_model_only(")
+            && access_choice
+                .contains("fn semantic_candidate_indexes_from_accepted_and_generated_expression(")
             && access_choice
                 .contains(".map(AcceptedPlannerFieldPathIndex::semantic_access_contract)")
             && access_choice.contains("plan_access_selection_with_order_and_semantic_indexes(")
@@ -586,6 +593,10 @@ fn reverse_relation_runtime_paths_use_accepted_contracts() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "source-boundary guard keeps related forward-index assertions together"
+)]
 fn forward_index_write_keys_use_accepted_row_contract_slots() {
     let entity_authority = read_source("src/db/executor/authority/entity.rs");
     let commit_prepare = read_source("src/db/commit/prepare.rs");
@@ -643,8 +654,12 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
         index_plan.contains("IndexKey::new_from_slots_with_contract(")
             && index_plan.contains("for accepted_index in schema_info.field_path_indexes()")
             && index_plan.contains("fn accepted_predicate_program_for_accepted_field_path_index(")
-            && index_plan.contains("fn expression_indexes(")
-            && index_plan.contains(".filter(|index| index.has_expression_key_items())")
+            && index_plan.contains("struct GeneratedExpressionIndex")
+            && index_plan.contains("fn from_model(model: &'a EntityModel) -> Vec<Self>")
+            && index_plan.contains("index.has_expression_key_items().then_some(Self { index })")
+            && index_plan
+                .contains("let expression_indexes = GeneratedExpressionIndex::from_model(model);")
+            && index_plan.contains("index: GeneratedExpressionIndex<'_>,")
             && index_plan
                 .contains("plan_accepted_field_path_index_mutation_for_slot_reader_structural(")
             && index_plan
@@ -654,6 +669,7 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
             && !index_plan.contains("predicate_bridge: Option<&IndexModel>")
             && index_plan.contains("IndexKey::new_from_slots_with_accepted_field_path_index(")
             && index_plan.contains("fn accepted_index_fields_csv(")
+            && index_plan.contains("fn generated_expression_index_fields_csv(")
             && index_plan.contains("let index_store = accepted_index.store();")
             && index_plan.contains("let index_is_unique = accepted_index.unique();")
             && index_plan.contains("PredicateProgram::compile_with_row_contract(")
@@ -713,13 +729,18 @@ fn unique_index_validation_splits_accepted_and_generated_authority() {
         unique_plan.contains("IndexKey::new_from_slots_with_contract(")
             && unique_plan.contains("enum UniqueKeyAuthority")
             && unique_plan.contains("AcceptedFieldPath(&'a SchemaIndexInfo)")
-            && unique_plan.contains("GeneratedExpression(&'a IndexModel)")
+            && unique_plan.contains("GeneratedExpression(GeneratedExpressionIndex<'a>)")
             && unique_plan
                 .contains("fn validate_unique_constraint_accepted_field_path_structural(")
+            && unique_plan
+                .contains("fn validate_unique_constraint_generated_expression_structural(")
             && unique_plan.contains("read_contract: IndexReadContract<'_>")
             && unique_plan.contains("read_contract.unique()")
             && unique_plan.contains("IndexKey::new_from_slots_with_accepted_field_path_index(")
-            && unique_plan.contains("row_contract,"),
+            && unique_plan.contains("index.model_index()")
+            && unique_plan.contains("row_contract,")
+            && !unique_plan.contains("GeneratedExpression(&'a IndexModel)")
+            && !unique_plan.contains("model::index::IndexModel"),
         "unique-index validation must rebuild stored field-path index keys through accepted index and row contracts and consume accepted uniqueness",
     );
 }
@@ -817,8 +838,11 @@ fn runtime_access_capabilities_use_reduced_index_shape_facts() {
     );
     assert!(
         access_path.contains("pub(crate) struct SemanticIndexAccessContract")
+            && access_path.contains("fn from_generated_index(index: IndexModel)")
             && access_path.contains("fn from_access_contract(")
             && access_path.contains("index: SemanticIndexAccessContract")
+            && !access_path.contains("fn from_index(index: IndexModel)")
+            && !access_path.contains("SemanticIndexAccessContract::from_index")
             && access_path.contains(
                 "pub(crate) struct SemanticIndexRangeSpec {\n    index: SemanticIndexAccessContract"
             )
@@ -1060,6 +1084,8 @@ fn standalone_generated_query_planning_is_model_only() {
         query_plan_pipeline.contains("fn build_query_model_plan_for_model_only")
             && query_plan_pipeline
                 .contains("fn build_query_model_plan_with_indexes_for_model_only")
+            && query_plan_pipeline
+                .contains("&VisibleIndexes::schema_owned(query.model().indexes())")
             && query_plan_pipeline.contains("fn try_build_trivial_scalar_load_plan_for_model_only")
             && query_plan_pipeline
                 .contains("fn prepare_query_model_scalar_planning_state_for_model_only")
@@ -1073,6 +1099,42 @@ fn standalone_generated_query_planning_is_model_only() {
             && !query_plan_pipeline.contains("fn build_query_model_plan_with_indexes<K>")
             && !query_plan_pipeline.contains("fn prepare_query_model_scalar_planning_state<'"),
         "standalone generated-schema query planning wrappers must stay explicit model-only surfaces",
+    );
+}
+
+#[test]
+fn remaining_runtime_generated_index_sets_are_named_model_or_expression_only() {
+    let executor_explain = read_source("src/db/executor/explain/mod.rs");
+    let query_plan_pipeline = read_source("src/db/query/plan/pipeline.rs");
+    let query_plan = read_source("src/db/query/plan/mod.rs");
+    let session_mod = read_source("src/db/session/mod.rs");
+    let session_query_cache = read_source("src/db/session/query/cache.rs");
+
+    assert!(
+        executor_explain.contains("fn finalize_explain_access_choice_for_model_only(")
+            && executor_explain.contains("self.model().indexes()")
+            && executor_explain.contains("fn explain_execution_descriptor_for_model_only(")
+            && executor_explain.contains("fn explain_execution_for_model_only(")
+            && executor_explain.contains("&VisibleIndexes::schema_owned(E::MODEL.indexes())")
+            && query_plan_pipeline.contains("fn build_query_model_plan_for_model_only")
+            && query_plan_pipeline
+                .contains("&VisibleIndexes::schema_owned(query.model().indexes())"),
+        "remaining generated index-set fallbacks must stay on explicit model-only explain/planning surfaces",
+    );
+    assert!(
+        query_plan.contains("generated_expression_candidate_indexes: Cow")
+            && query_plan.contains("generated_model_only_indexes: Cow")
+            && query_plan.contains("pub(in crate::db) fn generated_model_only_indexes(&self)")
+            && query_plan.contains(".filter(|index| index.has_expression_key_items())")
+            && query_plan.contains("generated_model_only_indexes: Cow::Borrowed(indexes)")
+            && query_plan.contains("generated_model_only_indexes: Cow::Borrowed(&[])")
+            && session_mod
+                .contains("VisibleIndexes::accepted_schema_visible(model.indexes(), schema_info)")
+            && session_query_cache
+                .contains("VisibleIndexes::accepted_schema_visible(model.indexes(), schema_info)")
+            && session_mod.contains(".generated_expression_candidate_indexes()")
+            && session_query_cache.contains(".generated_expression_candidate_indexes()"),
+        "accepted runtime visible indexes may receive generated model indexes only to filter the explicit expression-index candidate lane",
     );
 }
 

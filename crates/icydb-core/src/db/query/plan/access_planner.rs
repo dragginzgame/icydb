@@ -117,7 +117,7 @@ pub(in crate::db::query) fn plan_query_access(
         } else {
             plan_access_selection_with_order(
                 model,
-                visible_indexes.generated_expression_candidate_indexes(),
+                visible_indexes.generated_model_only_indexes(),
                 schema_info,
                 normalized_predicate,
                 canonical_order.as_ref(),

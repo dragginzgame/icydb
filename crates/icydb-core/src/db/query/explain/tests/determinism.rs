@@ -119,7 +119,7 @@ fn explain_reports_deterministic_index_choice() {
 
     let plan: AccessPlannedQuery = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(chosen),
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(chosen),
             values: vec![Value::Text("alpha".to_string())],
         },
         MissingRowPolicy::Ignore,

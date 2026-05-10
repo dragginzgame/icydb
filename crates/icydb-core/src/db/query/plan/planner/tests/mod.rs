@@ -603,7 +603,7 @@ fn planner_field_to_field_compare_stays_residual_while_literal_clause_keeps_pref
     assert_eq!(
         plan,
         AccessPlan::path(AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
                 PLANNER_RANKING_INDEXES[0]
             ),
             values: vec![Value::Text("gold".to_string())],
@@ -626,7 +626,7 @@ fn planner_filtered_index_preferred_when_guarded_candidate_ties_unfiltered_sibli
     assert_eq!(
         plan,
         AccessPlan::path(AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
                 PLANNER_FILTERED_RANKING_INDEXES[1]
             ),
             values: vec![Value::Text("gold".to_string())],
@@ -650,7 +650,7 @@ fn planner_residual_burden_prefers_stronger_filtered_guard_when_structural_score
     assert_eq!(
         plan,
         AccessPlan::path(AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
                 PLANNER_RESIDUAL_RANKING_INDEXES[1]
             ),
             values: vec![Value::Text("gold".to_string())],
@@ -799,7 +799,7 @@ fn planner_secondary_prefix_still_beats_primary_key_range_without_required_order
     assert_eq!(
         plan,
         AccessPlan::path(AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
                 PLANNER_RANGE_RANKING_INDEXES[0]
             ),
             values: vec![Value::Text("gold".to_string())],

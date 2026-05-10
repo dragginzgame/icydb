@@ -41,17 +41,17 @@ pub(in crate::db) use self::model::{
     AccessChoiceSelectedReason,
 };
 
-fn semantic_candidate_indexes_from_generated(
+fn semantic_candidate_indexes_from_generated_model_only(
     generated_indexes: &[&'static IndexModel],
 ) -> Vec<SemanticIndexAccessContract> {
     generated_indexes
         .iter()
         .copied()
-        .map(|index| SemanticIndexAccessContract::from_index(*index))
+        .map(|index| SemanticIndexAccessContract::from_generated_index(*index))
         .collect()
 }
 
-fn semantic_candidate_indexes_from_authority(
+fn semantic_candidate_indexes_from_accepted_and_generated_expression(
     generated_expression_candidate_indexes: &[&'static IndexModel],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
 ) -> Vec<SemanticIndexAccessContract> {
@@ -63,7 +63,7 @@ fn semantic_candidate_indexes_from_authority(
         generated_expression_candidate_indexes
             .iter()
             .copied()
-            .map(|index| SemanticIndexAccessContract::from_index(*index)),
+            .map(|index| SemanticIndexAccessContract::from_generated_index(*index)),
     );
 
     indexes
@@ -81,13 +81,14 @@ fn semantic_candidate_indexes_from_authority(
 #[must_use]
 pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes_and_schema(
     model: &EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    generated_model_only_indexes: &[&'static IndexModel],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> AccessChoiceExplainSnapshot {
     project_access_choice_explain_snapshot_from_authority(
         model,
-        semantic_candidate_indexes_from_generated(visible_indexes).as_slice(),
+        semantic_candidate_indexes_from_generated_model_only(generated_model_only_indexes)
+            .as_slice(),
         schema_info,
         plan,
     )
@@ -105,7 +106,7 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_accepted_indexe
 ) -> AccessChoiceExplainSnapshot {
     project_access_choice_explain_snapshot_from_authority(
         model,
-        semantic_candidate_indexes_from_authority(
+        semantic_candidate_indexes_from_accepted_and_generated_expression(
             generated_expression_candidate_indexes,
             accepted_field_path_indexes,
         )
@@ -281,13 +282,14 @@ pub(in crate::db) fn non_index_access_choice_snapshot_for_access_plan<K>(
 #[must_use]
 pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_indexes(
     model: &EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    generated_model_only_indexes: &[&'static IndexModel],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Option<AccessPlan<Value>> {
     rerank_access_plan_by_residual_burden_from_authority(
         model,
-        semantic_candidate_indexes_from_generated(visible_indexes).as_slice(),
+        semantic_candidate_indexes_from_generated_model_only(generated_model_only_indexes)
+            .as_slice(),
         schema_info,
         plan,
     )
@@ -305,7 +307,7 @@ pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_accepted_
 ) -> Option<AccessPlan<Value>> {
     rerank_access_plan_by_residual_burden_from_authority(
         model,
-        semantic_candidate_indexes_from_authority(
+        semantic_candidate_indexes_from_accepted_and_generated_expression(
             generated_expression_candidate_indexes,
             accepted_field_path_indexes,
         )

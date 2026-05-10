@@ -515,11 +515,11 @@ impl AccessPlannedQuery {
     pub(in crate::db) fn finalize_access_choice_for_model_only_with_indexes(
         &mut self,
         model: &EntityModel,
-        visible_indexes: &[&'static IndexModel],
+        generated_model_only_indexes: &[&'static IndexModel],
     ) {
         self.finalize_access_choice_for_model_with_indexes_and_schema(
             model,
-            visible_indexes,
+            generated_model_only_indexes,
             SchemaInfo::cached_for_generated_entity_model(model),
         );
     }
@@ -529,7 +529,7 @@ impl AccessPlannedQuery {
     pub(in crate::db) fn finalize_access_choice_for_model_with_indexes_and_schema(
         &mut self,
         model: &EntityModel,
-        visible_indexes: &[&'static IndexModel],
+        generated_model_only_indexes: &[&'static IndexModel],
         schema_info: &SchemaInfo,
     ) {
         if !self.access.has_selected_index_access_path() {
@@ -538,7 +538,7 @@ impl AccessPlannedQuery {
 
         self.access_choice = project_access_choice_explain_snapshot_with_indexes_and_schema(
             model,
-            visible_indexes,
+            generated_model_only_indexes,
             schema_info,
             self,
         );

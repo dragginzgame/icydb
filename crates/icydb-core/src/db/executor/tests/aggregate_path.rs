@@ -269,7 +269,7 @@ fn secondary_group_rank_order_plan(
 ) -> PreparedExecutionPlan<PushdownParityEntity> {
     let mut logical_plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
                 PUSHDOWN_PARITY_INDEX_MODELS[0],
             ),
             values: vec![Value::Uint(7)],
@@ -782,7 +782,7 @@ fn aggregate_path_bytes_path_parity_index_prefix_and_full_scan_equivalent_rows()
 
     let mut index_logical = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
                 PUSHDOWN_PARITY_INDEX_MODELS[0],
             ),
             values: vec![Value::Uint(7)],
@@ -860,7 +860,7 @@ fn aggregate_path_bytes_by_path_parity_index_prefix_and_full_scan_equivalent_row
 
     let mut index_logical = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_index(
+            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
                 PUSHDOWN_PARITY_INDEX_MODELS[0],
             ),
             values: vec![Value::Uint(7)],
@@ -940,7 +940,7 @@ fn aggregate_path_bytes_by_index_order_page_window_matches_full_scan() {
     let build_index_plan = || {
         let mut logical = AccessPlannedQuery::new(
             AccessPath::IndexPrefix {
-                index: crate::db::access::SemanticIndexAccessContract::from_index(
+                index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
                     PUSHDOWN_PARITY_INDEX_MODELS[0],
                 ),
                 values: vec![Value::Uint(7)],

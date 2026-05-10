@@ -107,7 +107,7 @@ impl SemanticIndexAccessContract {
     /// Project one generated index model into the narrow access contract used
     /// past planner candidate selection.
     #[must_use]
-    pub(in crate::db) fn from_index(index: IndexModel) -> Self {
+    pub(in crate::db) fn from_generated_index(index: IndexModel) -> Self {
         Self {
             inner: Arc::new(SemanticIndexAccessContractInner {
                 ordinal: index.ordinal(),
@@ -325,7 +325,7 @@ impl SemanticIndexRangeSpec {
         );
 
         Self {
-            index: SemanticIndexAccessContract::from_index(index),
+            index: SemanticIndexAccessContract::from_generated_index(index),
             field_slots,
             prefix_values,
             lower,

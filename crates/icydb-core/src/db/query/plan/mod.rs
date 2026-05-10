@@ -210,6 +210,10 @@ pub(in crate::db) enum VisibleIndexAuthority {
 
 #[derive(Clone, Debug)]
 pub(in crate::db) struct VisibleIndexes<'a> {
+    // Generated model-only index sets are used by standalone query/explain
+    // surfaces that intentionally do not have accepted runtime schema
+    // authority.
+    generated_model_only_indexes: Cow<'a, [&'static IndexModel]>,
     // Generated candidate indexes remain only for expression-index planning
     // until accepted expression-index contracts exist.
     generated_expression_candidate_indexes: Cow<'a, [&'static IndexModel]>,
@@ -370,6 +374,7 @@ impl<'a> VisibleIndexes<'a> {
     #[must_use]
     pub(in crate::db) const fn none() -> Self {
         Self {
+            generated_model_only_indexes: Cow::Borrowed(&[]),
             generated_expression_candidate_indexes: Cow::Borrowed(&[]),
             accepted_field_path_indexes: Vec::new(),
             accepted_schema_info: None,
@@ -381,7 +386,8 @@ impl<'a> VisibleIndexes<'a> {
     #[must_use]
     pub(in crate::db) const fn planner_visible(indexes: &'a [&'static IndexModel]) -> Self {
         Self {
-            generated_expression_candidate_indexes: Cow::Borrowed(indexes),
+            generated_model_only_indexes: Cow::Borrowed(indexes),
+            generated_expression_candidate_indexes: Cow::Borrowed(&[]),
             accepted_field_path_indexes: Vec::new(),
             accepted_schema_info: None,
             authority: VisibleIndexAuthority::GeneratedModelOnly,
@@ -391,7 +397,8 @@ impl<'a> VisibleIndexes<'a> {
     #[must_use]
     pub(in crate::db) const fn schema_owned(indexes: &'a [&'static IndexModel]) -> Self {
         Self {
-            generated_expression_candidate_indexes: Cow::Borrowed(indexes),
+            generated_model_only_indexes: Cow::Borrowed(indexes),
+            generated_expression_candidate_indexes: Cow::Borrowed(&[]),
             accepted_field_path_indexes: Vec::new(),
             accepted_schema_info: None,
             authority: VisibleIndexAuthority::GeneratedModelOnly,
@@ -416,6 +423,7 @@ impl<'a> VisibleIndexes<'a> {
         let accepted_field_path_index_count = accepted_field_path_indexes.len();
 
         Self {
+            generated_model_only_indexes: Cow::Borrowed(&[]),
             generated_expression_candidate_indexes: Cow::Owned(generated_expression_indexes),
             accepted_field_path_indexes,
             accepted_schema_info: Some(schema_info.clone()),
@@ -423,6 +431,11 @@ impl<'a> VisibleIndexes<'a> {
                 field_path_indexes: accepted_field_path_index_count,
             },
         }
+    }
+
+    #[must_use]
+    pub(in crate::db) fn generated_model_only_indexes(&self) -> &[&'static IndexModel] {
+        self.generated_model_only_indexes.as_ref()
     }
 
     #[must_use]

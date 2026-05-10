@@ -119,11 +119,18 @@ impl From<InternalError> for PlannerError {
 #[cfg(test)]
 pub(in crate::db) fn plan_access(
     model: &EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    generated_model_only_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
 ) -> Result<AccessPlan<Value>, PlannerError> {
-    plan_access_with_order(model, visible_indexes, schema, predicate, None, false)
+    plan_access_with_order(
+        model,
+        generated_model_only_indexes,
+        schema,
+        predicate,
+        None,
+        false,
+    )
 }
 
 /// Planner entrypoint that also considers a pre-canonicalized ORDER BY
@@ -131,36 +138,35 @@ pub(in crate::db) fn plan_access(
 #[cfg(test)]
 pub(in crate::db::query) fn plan_access_with_order(
     model: &EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    generated_model_only_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> Result<AccessPlan<Value>, PlannerError> {
-    Ok(
-        plan_access_selection_with_order(
-            model,
-            visible_indexes,
-            schema,
-            predicate,
-            order,
-            grouped,
-        )?
-        .into_access(),
-    )
+    Ok(plan_access_selection_with_order(
+        model,
+        generated_model_only_indexes,
+        schema,
+        predicate,
+        order,
+        grouped,
+    )?
+    .into_access())
 }
 
 // Planner entrypoint that preserves planner-owned non-index winner reasons for
 // higher layers that need to freeze explain metadata from the selected route.
 pub(in crate::db::query) fn plan_access_selection_with_order(
     model: &EntityModel,
-    visible_indexes: &[&'static IndexModel],
+    generated_model_only_indexes: &[&'static IndexModel],
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> Result<PlannedAccessSelection, PlannerError> {
-    let candidate_indexes = semantic_candidate_indexes_from_generated(visible_indexes);
+    let candidate_indexes =
+        semantic_candidate_indexes_from_generated_model_only(generated_model_only_indexes);
     plan_access_selection_with_order_from_authority(
         model,
         candidate_indexes.as_slice(),
@@ -184,7 +190,7 @@ pub(in crate::db::query) fn plan_access_selection_with_order_and_accepted_indexe
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> Result<PlannedAccessSelection, PlannerError> {
-    let candidate_indexes = semantic_candidate_indexes_from_authority(
+    let candidate_indexes = semantic_candidate_indexes_from_accepted_and_generated_expression(
         generated_expression_candidate_indexes,
         accepted_field_path_indexes,
     );
@@ -226,17 +232,17 @@ enum OrderFallbackIndexAuthority<'a> {
     AcceptedFieldPathIndexes(&'a [AcceptedPlannerFieldPathIndex]),
 }
 
-fn semantic_candidate_indexes_from_generated(
+fn semantic_candidate_indexes_from_generated_model_only(
     generated_indexes: &[&'static IndexModel],
 ) -> Vec<SemanticIndexAccessContract> {
     generated_indexes
         .iter()
         .copied()
-        .map(|index| SemanticIndexAccessContract::from_index(*index))
+        .map(|index| SemanticIndexAccessContract::from_generated_index(*index))
         .collect()
 }
 
-fn semantic_candidate_indexes_from_authority(
+fn semantic_candidate_indexes_from_accepted_and_generated_expression(
     generated_expression_candidate_indexes: &[&'static IndexModel],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
 ) -> Vec<SemanticIndexAccessContract> {
@@ -248,7 +254,7 @@ fn semantic_candidate_indexes_from_authority(
         generated_expression_candidate_indexes
             .iter()
             .copied()
-            .map(|index| SemanticIndexAccessContract::from_index(*index)),
+            .map(|index| SemanticIndexAccessContract::from_generated_index(*index)),
     );
 
     indexes

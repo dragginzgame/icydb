@@ -47,8 +47,52 @@ impl IndexKeyLane {
     }
 }
 
+/// Generated expression indexes intentionally remain generated-backed until
+/// accepted expression-index contracts exist. This wrapper keeps that
+/// compatibility lane expression-only after accepted schema authority is
+/// available.
+#[derive(Clone, Copy)]
+pub(super) struct GeneratedExpressionIndex<'a> {
+    index: &'a IndexModel,
+}
+
+impl<'a> GeneratedExpressionIndex<'a> {
+    fn from_index(index: &'a IndexModel) -> Option<Self> {
+        index.has_expression_key_items().then_some(Self { index })
+    }
+
+    fn from_model(model: &'a EntityModel) -> Vec<Self> {
+        model
+            .indexes()
+            .iter()
+            .copied()
+            .filter_map(Self::from_index)
+            .collect()
+    }
+
+    pub(super) const fn model_index(self) -> &'a IndexModel {
+        self.index
+    }
+
+    pub(super) const fn ordinal(self) -> u16 {
+        self.index.ordinal()
+    }
+
+    pub(super) const fn store(self) -> &'static str {
+        self.index.store()
+    }
+
+    pub(super) const fn fields(self) -> &'static [&'static str] {
+        self.index.fields()
+    }
+
+    pub(super) const fn is_unique(self) -> bool {
+        self.index.is_unique()
+    }
+}
+
 // Format the canonical human-readable index field list once at the plan boundary.
-pub(super) fn index_fields_csv(index: &IndexModel) -> String {
+pub(super) fn generated_expression_index_fields_csv(index: GeneratedExpressionIndex<'_>) -> String {
     index.fields().join(", ")
 }
 
@@ -63,14 +107,14 @@ fn accepted_index_fields_csv(index: &SchemaIndexInfo) -> String {
         .join(", ")
 }
 
-/// Compile the optional conditional-index predicate from structural entity
-/// authority only.
-pub(in crate::db) fn compile_index_membership_predicate_structural(
+/// Compile the optional conditional expression-index predicate from structural
+/// entity authority only.
+fn compile_generated_expression_index_membership_predicate_structural(
     _entity_path: &'static str,
-    index: &IndexModel,
+    index: GeneratedExpressionIndex<'_>,
     row_contract: &StructuralRowContract,
 ) -> Option<PredicateProgram> {
-    let predicate = canonical_index_predicate(index)?;
+    let predicate = canonical_index_predicate(index.model_index())?;
 
     Some(PredicateProgram::compile_with_row_contract(
         row_contract,
@@ -92,18 +136,9 @@ fn accepted_predicate_program_for_accepted_field_path_index(
     ))
 }
 
-fn expression_indexes(model: &'static EntityModel) -> Vec<&'static IndexModel> {
-    model
-        .indexes()
-        .iter()
-        .copied()
-        .filter(|index| index.has_expression_key_items())
-        .collect()
-}
-
-fn generated_index_key_for_slot_reader_with_membership_structural(
+fn generated_expression_index_key_for_slot_reader_with_membership_structural(
     entity_tag: EntityTag,
-    index: &IndexModel,
+    index: GeneratedExpressionIndex<'_>,
     row_contract: &StructuralRowContract,
     predicate_program: Option<&PredicateProgram>,
     storage_key: StorageKey,
@@ -121,7 +156,7 @@ fn generated_index_key_for_slot_reader_with_membership_structural(
         storage_key,
         row_contract,
         slots,
-        index,
+        index.model_index(),
     )?;
 
     Ok(index_key)
@@ -153,7 +188,7 @@ fn accepted_field_path_index_key_for_slot_reader_with_membership_structural(
 fn load_structural_index_key(
     lane: IndexKeyLane,
     entity_tag: EntityTag,
-    index: &IndexModel,
+    index: GeneratedExpressionIndex<'_>,
     row_contract: &StructuralRowContract,
     predicate_program: Option<&PredicateProgram>,
     storage_key: Option<StorageKey>,
@@ -163,7 +198,7 @@ fn load_structural_index_key(
         return Err(lane.missing_entity_key_error());
     };
 
-    generated_index_key_for_slot_reader_with_membership_structural(
+    generated_expression_index_key_for_slot_reader_with_membership_structural(
         entity_tag,
         index,
         row_contract,
@@ -283,7 +318,7 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
     new_storage_key: Option<StorageKey>,
     mut new_slots: Option<&mut dyn CanonicalSlotReader>,
 ) -> Result<IndexMutationPlan, IndexPlanError> {
-    let expression_indexes = expression_indexes(model);
+    let expression_indexes = GeneratedExpressionIndex::from_model(model);
     let mut groups =
         Vec::with_capacity(schema_info.field_path_indexes().len() + expression_indexes.len());
 
@@ -425,18 +460,21 @@ fn plan_generated_expression_index_mutation_for_slot_reader_structural(
     entity_tag: EntityTag,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
-    index: &'static IndexModel,
+    index: GeneratedExpressionIndex<'_>,
     old_storage_key: Option<StorageKey>,
     old_slots: Option<&mut dyn CanonicalSlotReader>,
     new_storage_key: Option<StorageKey>,
     new_slots: Option<&mut dyn CanonicalSlotReader>,
 ) -> Result<(), IndexPlanError> {
-    let index_fields = index_fields_csv(index);
+    let index_fields = generated_expression_index_fields_csv(index);
     let index_store = index.store();
     let index_is_unique = index.is_unique();
     let read_contract = IndexReadContract::new(index_store, index_is_unique, &index_fields);
-    let membership_program =
-        compile_index_membership_predicate_structural(entity_path, index, row_contract);
+    let membership_program = compile_generated_expression_index_membership_predicate_structural(
+        entity_path,
+        index,
+        row_contract,
+    );
 
     let old_key = match old_slots {
         Some(slots) => load_structural_index_key(
@@ -482,7 +520,7 @@ fn plan_generated_expression_index_mutation_for_slot_reader_structural(
         old_entry.as_ref(),
     )?;
 
-    unique::validate_unique_constraint_structural(
+    unique::validate_unique_constraint_generated_expression_structural(
         entity_path,
         entity_tag,
         read_view,
