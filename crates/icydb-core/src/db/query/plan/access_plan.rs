@@ -530,7 +530,7 @@ impl AccessPlannedQuery {
         visible_indexes: &[&'static IndexModel],
         schema_info: &SchemaInfo,
     ) {
-        if self.access.selected_index_model().is_none() {
+        if !self.access.has_selected_index_access_path() {
             return;
         }
 

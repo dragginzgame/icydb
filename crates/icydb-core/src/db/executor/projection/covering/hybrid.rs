@@ -35,7 +35,9 @@ where
     // Phase 0: hybrid projection mixes index-backed covering components
     // with sparse row-backed field reads, so it only applies to genuine
     // secondary-index access paths.
-    if plan.access.as_index_prefix_path().is_none() && plan.access.as_index_range_path().is_none() {
+    if plan.access.as_index_prefix_contract_path().is_none()
+        && plan.access.as_index_range_path().is_none()
+    {
         return Ok(None);
     }
 

@@ -4,7 +4,9 @@
 //! Boundary: query planner emits these plans for executor routing.
 
 use crate::{
-    db::access::{AccessPath, ExecutableAccessPlan, SemanticIndexRangeSpec},
+    db::access::{
+        AccessPath, ExecutableAccessPlan, SemanticIndexAccessContract, SemanticIndexRangeSpec,
+    },
     model::index::IndexModel,
     traits::KeyValueCodec,
     value::Value,
@@ -50,13 +52,19 @@ impl<K> AccessPlan<K> {
     /// Construct an index-prefix access plan.
     #[must_use]
     pub(crate) fn index_prefix(index: IndexModel, values: Vec<Value>) -> Self {
-        Self::path(AccessPath::IndexPrefix { index, values })
+        Self::path(AccessPath::IndexPrefix {
+            index: SemanticIndexAccessContract::from_index(index),
+            values,
+        })
     }
 
     /// Construct an index multi-lookup access plan.
     #[must_use]
     pub(crate) fn index_multi_lookup(index: IndexModel, values: Vec<Value>) -> Self {
-        Self::path(AccessPath::IndexMultiLookup { index, values })
+        Self::path(AccessPath::IndexMultiLookup {
+            index: SemanticIndexAccessContract::from_index(index),
+            values,
+        })
     }
 
     /// Construct an index-range access plan from one semantic range descriptor.
@@ -149,10 +157,14 @@ impl<K> AccessPlan<K> {
         path.as_by_key().is_some() || path.as_by_keys().is_some_and(|keys| keys.len() <= 1)
     }
 
-    /// Borrow index-prefix access details when this is a single IndexPrefix path.
+    /// Borrow reduced index-prefix access details when this is a single
+    /// `IndexPrefix` path.
     #[must_use]
-    pub(crate) fn as_index_prefix_path(&self) -> Option<(&IndexModel, &[Value])> {
-        self.as_path().and_then(|path| path.as_index_prefix())
+    pub(in crate::db) fn as_index_prefix_contract_path(
+        &self,
+    ) -> Option<(SemanticIndexAccessContract, &[Value])> {
+        self.as_path()
+            .and_then(|path| path.as_index_prefix_contract())
     }
 
     /// Borrow index-range access details when this is a single IndexRange path.
@@ -180,11 +192,11 @@ impl<K> AccessPlan<K> {
         self.as_path().and_then(|path| path.as_by_keys())
     }
 
-    /// Borrow the selected secondary index model when this is a single
-    /// secondary-index access path.
+    /// Borrow the reduced selected secondary-index contract when this is a
+    /// single secondary-index access path.
     #[must_use]
-    pub(crate) fn selected_index_model(&self) -> Option<&IndexModel> {
-        self.as_path().and_then(|path| path.selected_index_model())
+    pub(in crate::db) fn selected_index_contract(&self) -> Option<SemanticIndexAccessContract> {
+        self.as_path().and_then(AccessPath::selected_index_contract)
     }
 
     /// Return true when this plan selects one secondary-index access shape.

@@ -421,6 +421,15 @@ impl IndexModel {
         self.predicate.map(|predicate| predicate.semantics())
     }
 
+    /// Return the canonical generated conditional index predicate resolver.
+    #[must_use]
+    pub(crate) const fn predicate_resolver(&self) -> Option<GeneratedIndexPredicateResolver> {
+        match self.predicate {
+            Some(predicate) => Some(predicate.semantics),
+            None => None,
+        }
+    }
+
     /// Whether this index's field prefix matches the start of another index.
     #[must_use]
     pub fn is_prefix_of(&self, other: &Self) -> bool {

@@ -5,7 +5,6 @@
 
 use crate::{
     db::index::{EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexKey},
-    model::index::IndexModel,
     value::Value,
 };
 use std::ops::Bound;
@@ -118,14 +117,6 @@ impl IndexRangeBoundEncodeError {
 /// This is the only function that should lower semantic prefix/range/prefix-text
 /// requests into executable raw index-key scan bounds.
 ///
-
-pub(in crate::db) fn build_index_bounds(
-    index_id: &IndexId,
-    index: &IndexModel,
-    spec: IndexBoundsSpec<'_>,
-) -> Result<(Bound<RawIndexKey>, Bound<RawIndexKey>), IndexRangeBoundEncodeError> {
-    build_index_bounds_for_arity(index_id, index.fields().len(), spec)
-}
 
 /// Build raw index-key bounds from reduced index key arity facts.
 pub(in crate::db) fn build_index_bounds_for_arity(

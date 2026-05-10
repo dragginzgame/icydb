@@ -140,7 +140,9 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
 fn route_plan_grouped_wrapper_reports_prefix_mismatch_for_misaligned_grouped_order() {
     let mut grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -180,7 +182,9 @@ fn route_plan_grouped_wrapper_reports_prefix_mismatch_for_misaligned_grouped_ord
 fn route_plan_grouped_wrapper_reports_non_admissible_reason_for_computed_grouped_order() {
     let mut grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -256,7 +260,9 @@ fn route_plan_grouped_wrapper_projects_top_k_group_strategy_for_aggregate_order(
 fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_prefix_shape() {
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -291,7 +297,9 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_prefix_sh
 fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_count_field_index_prefix_shape() {
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -328,7 +336,9 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_count_field_ind
 fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_sum_field_index_prefix_shape() {
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -365,7 +375,9 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_sum_field_index
 fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_avg_field_index_prefix_shape() {
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -402,7 +414,9 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_avg_field_index
 fn route_plan_grouped_wrapper_preserves_ordered_strategy_for_fully_indexable_predicate_shape() {
     let mut grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![Value::Uint(7)],
         },
         MissingRowPolicy::Ignore,
@@ -475,7 +489,9 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_range_sha
 fn route_plan_grouped_wrapper_downgrades_ordered_strategy_when_residual_filter_predicate_exists() {
     let mut grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -510,7 +526,9 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_when_residual_filter_p
 fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_non_streaming_having_expr() {
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -722,7 +740,9 @@ fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
 fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_route() {
     let ordered_grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -749,7 +769,9 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
 
     let having_rejected_grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -915,7 +937,9 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_mixed_count_and
     let group_field = grouped_field_slot("rank");
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -984,7 +1008,9 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
     };
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,

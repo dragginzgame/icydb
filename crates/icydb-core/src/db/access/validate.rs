@@ -5,11 +5,11 @@
 
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
+        access::{AccessPath, AccessPlan, SemanticIndexAccessContract, SemanticIndexRangeSpec},
         schema::{SchemaInfo, literal_matches_type},
     },
     error::InternalError,
-    model::{entity::EntityModel, index::IndexModel},
+    model::entity::EntityModel,
     value::Value,
 };
 use std::ops::Bound;
@@ -25,7 +25,7 @@ use thiserror::Error as ThisError;
 pub enum AccessPlanError {
     /// Access plan references an index not declared on the entity.
     #[error("index '{index}' not found on entity")]
-    IndexNotFound { index: IndexModel },
+    IndexNotFound { index: &'static str },
 
     /// Index prefix exceeds the number of indexed fields.
     #[error("index prefix length {prefix_len} exceeds index field count {field_len}")]
@@ -111,25 +111,37 @@ fn validate_pk_literal(
 fn validate_index_prefix(
     schema: &SchemaInfo,
     model: &EntityModel,
-    index: &IndexModel,
+    index: SemanticIndexAccessContract,
     values: &[Value],
 ) -> Result<(), AccessPlanError> {
-    if !model.indexes.contains(&index) {
-        return Err(AccessPlanError::IndexNotFound { index: *index });
+    if !model
+        .indexes
+        .iter()
+        .any(|candidate| candidate.name() == index.name())
+    {
+        return Err(AccessPlanError::IndexNotFound {
+            index: index.name(),
+        });
     }
 
     if values.is_empty() {
         return Err(AccessPlanError::IndexPrefixEmpty);
     }
 
-    if values.len() > index.fields().len() {
+    if values.len() > index.key_arity() {
         return Err(AccessPlanError::IndexPrefixTooLong {
             prefix_len: values.len(),
-            field_len: index.fields().len(),
+            field_len: index.key_arity(),
         });
     }
 
-    for (field, value) in index.fields().iter().zip(values.iter()) {
+    for (slot, value) in values.iter().enumerate() {
+        let Some(field) = index.key_item_at(slot).map(|key_item| key_item.field()) else {
+            return Err(AccessPlanError::IndexPrefixTooLong {
+                prefix_len: values.len(),
+                field_len: index.key_arity(),
+            });
+        };
         let field_type =
             schema
                 .field(field)
@@ -151,18 +163,24 @@ fn validate_index_prefix(
 fn validate_index_multi_lookup(
     schema: &SchemaInfo,
     model: &EntityModel,
-    index: &IndexModel,
+    index: SemanticIndexAccessContract,
     values: &[Value],
 ) -> Result<(), AccessPlanError> {
-    if !model.indexes.contains(&index) {
-        return Err(AccessPlanError::IndexNotFound { index: *index });
+    if !model
+        .indexes
+        .iter()
+        .any(|candidate| candidate.name() == index.name())
+    {
+        return Err(AccessPlanError::IndexNotFound {
+            index: index.name(),
+        });
     }
 
     if values.is_empty() {
         return Err(AccessPlanError::IndexPrefixEmpty);
     }
 
-    let Some(field) = index.fields().first() else {
+    let Some(field) = index.key_item_at(0).map(|key_item| key_item.field()) else {
         return Err(AccessPlanError::IndexPrefixTooLong {
             prefix_len: 1,
             field_len: 0,
@@ -197,14 +215,20 @@ fn validate_index_range(
     let lower = spec.lower();
     let upper = spec.upper();
 
-    if !model.indexes.contains(&index) {
-        return Err(AccessPlanError::IndexNotFound { index: *index });
+    if !model
+        .indexes
+        .iter()
+        .any(|candidate| candidate.name() == index.name())
+    {
+        return Err(AccessPlanError::IndexNotFound {
+            index: index.name(),
+        });
     }
 
-    if prefix.len() >= index.fields().len() {
+    if prefix.len() >= index.key_arity() {
         return Err(AccessPlanError::IndexPrefixTooLong {
             prefix_len: prefix.len(),
-            field_len: index.fields().len().saturating_sub(1),
+            field_len: index.key_arity().saturating_sub(1),
         });
     }
 
@@ -218,7 +242,13 @@ fn validate_index_range(
         }
     }
 
-    for (field, value) in index.fields().iter().zip(prefix.iter()) {
+    for (slot, value) in prefix.iter().enumerate() {
+        let Some(field) = index.key_item_at(slot).map(|key_item| key_item.field()) else {
+            return Err(AccessPlanError::IndexPrefixTooLong {
+                prefix_len: prefix.len(),
+                field_len: index.key_arity(),
+            });
+        };
         let field_type =
             schema
                 .field(field)
@@ -233,7 +263,15 @@ fn validate_index_range(
         }
     }
 
-    let range_field = index.fields()[range_slot];
+    let Some(range_field) = index
+        .key_item_at(range_slot)
+        .map(|key_item| key_item.field())
+    else {
+        return Err(AccessPlanError::IndexPrefixTooLong {
+            prefix_len: prefix.len(),
+            field_len: index.key_arity(),
+        });
+    };
     validate_index_range_bound_value(schema, range_field, lower)?;
     validate_index_range_bound_value(schema, range_field, upper)?;
 
@@ -343,10 +381,10 @@ impl AccessPath<Value> {
             }
             Self::KeyRange { start, end } => validate_pk_range(schema, model, start, end),
             Self::IndexPrefix { index, values } => {
-                validate_index_prefix(schema, model, index, values)
+                validate_index_prefix(schema, model, *index, values)
             }
             Self::IndexMultiLookup { index, values } => {
-                validate_index_multi_lookup(schema, model, index, values)
+                validate_index_multi_lookup(schema, model, *index, values)
             }
             Self::IndexRange { spec } => validate_index_range(schema, model, spec),
             Self::FullScan => Ok(()),
@@ -359,15 +397,15 @@ impl AccessPath<Value> {
             Self::ByKey(_) | Self::ByKeys(_) | Self::FullScan => Ok(()),
             Self::KeyRange { start, end } => validate_pk_range_runtime(start, end),
             Self::IndexPrefix { index, values } => {
-                validate_index_reference_with_schema(schema, index)?;
-                validate_index_prefix_shape(index, values.len())
+                validate_index_reference_with_schema(schema, *index)?;
+                validate_index_prefix_shape(*index, values.len())
             }
             Self::IndexMultiLookup { index, values } => {
-                validate_index_reference_with_schema(schema, index)?;
+                validate_index_reference_with_schema(schema, *index)?;
                 if values.is_empty() {
                     return Err(AccessPlanError::IndexPrefixEmpty);
                 }
-                validate_index_prefix_shape(index, 1)
+                validate_index_prefix_shape(*index, 1)
             }
             Self::IndexRange { spec } => validate_index_range_runtime(schema, spec),
         }
@@ -385,28 +423,32 @@ fn validate_pk_range_runtime(start: &Value, end: &Value) -> Result<(), AccessPla
 
 fn validate_index_reference_with_schema(
     schema: &SchemaInfo,
-    index: &IndexModel,
+    index: SemanticIndexAccessContract,
 ) -> Result<(), AccessPlanError> {
-    if index
-        .fields()
-        .iter()
-        .all(|field| schema.field(field).is_some() && schema.field_is_indexed(field))
-    {
+    if (0..index.key_arity()).all(|slot| {
+        index.key_item_at(slot).is_some_and(|key_item| {
+            let field = key_item.field();
+
+            schema.field(field).is_some() && schema.field_is_indexed(field)
+        })
+    }) {
         return Ok(());
     }
 
-    Err(AccessPlanError::IndexNotFound { index: *index })
+    Err(AccessPlanError::IndexNotFound {
+        index: index.name(),
+    })
 }
 
 const fn validate_index_prefix_shape(
-    index: &IndexModel,
+    index: SemanticIndexAccessContract,
     prefix_len: usize,
 ) -> Result<(), AccessPlanError> {
     if prefix_len == 0 {
         return Err(AccessPlanError::IndexPrefixEmpty);
     }
 
-    let field_len = index.fields().len();
+    let field_len = index.key_arity();
     if prefix_len > field_len {
         return Err(AccessPlanError::IndexPrefixTooLong {
             prefix_len,
@@ -428,10 +470,10 @@ fn validate_index_range_runtime(
 
     validate_index_reference_with_schema(schema, index)?;
 
-    if prefix.len() >= index.fields().len() {
+    if prefix.len() >= index.key_arity() {
         return Err(AccessPlanError::IndexPrefixTooLong {
             prefix_len: prefix.len(),
-            field_len: index.fields().len().saturating_sub(1),
+            field_len: index.key_arity().saturating_sub(1),
         });
     }
 

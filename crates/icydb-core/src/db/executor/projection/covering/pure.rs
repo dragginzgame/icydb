@@ -70,7 +70,9 @@ where
     }
 
     // Phase 2: the remaining pure covering shortcut owns index-backed scans.
-    if plan.access.as_index_prefix_path().is_none() && plan.access.as_index_range_path().is_none() {
+    if plan.access.as_index_prefix_contract_path().is_none()
+        && plan.access.as_index_range_path().is_none()
+    {
         return Ok(None);
     }
 

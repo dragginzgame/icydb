@@ -4,15 +4,15 @@
 
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan},
+        access::{AccessPath, AccessPlan, SemanticIndexAccessContract},
         predicate::Predicate,
         query::plan::{
             OrderSpec, PlannedNonIndexAccessReason,
-            key_item_match::{eq_lookup_value_for_key_item, index_key_item_at},
+            key_item_match::eq_lookup_value_for_key_item,
             planner::{
                 AndFamilyCandidateScore, AndFamilyPriorityClass, PlannedAccessSelection,
-                and_family_candidate_score_outranks, candidate_satisfies_secondary_order, compare,
-                index_literal_matches_schema, index_predicate_guarantees_compare, prefix, range,
+                and_family_candidate_score_outranks, compare, index_literal_matches_schema, prefix,
+                range, selected_index_contract_satisfies_secondary_order,
             },
         },
         schema::SchemaInfo,
@@ -369,7 +369,7 @@ fn planned_non_index_reason_for_access(
     if access.is_single_full_scan() {
         return Some(PlannedNonIndexAccessReason::PlannerFullScanFallback);
     }
-    if access.selected_index_model().is_none() {
+    if !access.has_selected_index_access_path() {
         return Some(PlannedNonIndexAccessReason::PlannerCompositeNonIndex);
     }
 
@@ -413,8 +413,8 @@ fn access_preserves_required_order(
     if access.as_primary_key_range_path().is_some() {
         return order.is_primary_key_only(model.primary_key.name);
     }
-    if let Some((index, prefix_values)) = access.as_index_prefix_path() {
-        return candidate_satisfies_secondary_order(
+    if let Some((index, prefix_values)) = access.as_index_prefix_contract_path() {
+        return selected_index_contract_satisfies_secondary_order(
             model,
             Some(order),
             index,
@@ -423,7 +423,7 @@ fn access_preserves_required_order(
         );
     }
     if let Some(spec) = access.as_index_range_path() {
-        return candidate_satisfies_secondary_order(
+        return selected_index_contract_satisfies_secondary_order(
             model,
             Some(order),
             spec.index(),
@@ -458,8 +458,8 @@ fn child_is_redundant_under_selected_index_access(
     }
 
     path.as_ref()
-        .selected_index_model()
-        .is_some_and(|index| index_predicate_guarantees_compare(index, cmp))
+        .selected_index_contract()
+        .is_some_and(|index| index_contract_predicate_guarantees_compare(index, cmp))
 }
 
 // Selected index prefix and selected index range both carry an equality prefix
@@ -470,7 +470,7 @@ fn selected_index_prefix_guarantees_eq_compare(
     selected_path: &AccessPath<Value>,
     cmp: &crate::db::predicate::ComparePredicate,
 ) -> bool {
-    let selected_prefix = selected_path.as_index_prefix().or_else(|| {
+    let selected_prefix = selected_path.as_index_prefix_contract().or_else(|| {
         selected_path
             .as_index_range()
             .map(|spec| (spec.index(), spec.prefix_values()))
@@ -487,7 +487,7 @@ fn selected_index_prefix_guarantees_eq_compare(
 // already prove.
 fn index_prefix_guarantees_eq_compare(
     schema: &SchemaInfo,
-    index: &IndexModel,
+    index: SemanticIndexAccessContract,
     prefix_values: &[Value],
     cmp: &crate::db::predicate::ComparePredicate,
 ) -> bool {
@@ -497,7 +497,7 @@ fn index_prefix_guarantees_eq_compare(
         .iter()
         .enumerate()
         .any(|(slot, expected_value)| {
-            let Some(key_item) = index_key_item_at(index, slot) else {
+            let Some(key_item) = index.key_item_at(slot) else {
                 return false;
             };
             let Some(candidate) = eq_lookup_value_for_key_item(
@@ -512,4 +512,18 @@ fn index_prefix_guarantees_eq_compare(
 
             candidate == *expected_value
         })
+}
+
+fn index_contract_predicate_guarantees_compare(
+    index: SemanticIndexAccessContract,
+    cmp: &crate::db::predicate::ComparePredicate,
+) -> bool {
+    let Some(index_predicate) = index.predicate_semantics() else {
+        return false;
+    };
+
+    crate::db::query::plan::planner::index_select::predicate_implies_predicate_for_planner(
+        index_predicate,
+        &Predicate::Compare(cmp.clone()),
+    )
 }

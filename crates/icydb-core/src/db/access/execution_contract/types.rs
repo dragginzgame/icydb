@@ -52,20 +52,23 @@ impl<'a, K> ExecutionPathPayload<'a, K> {
         if let Some((start, end)) = path.as_key_range() {
             return Self::KeyRange { start, end };
         }
-        if let Some((index, values)) = path.as_index_prefix() {
+        if let Some((index, values)) = path.as_index_prefix_contract() {
             return Self::IndexPrefix {
-                index: IndexShapeDetails::new(*index, values.len()),
+                index: IndexShapeDetails::from_access_contract(index, values.len()),
             };
         }
-        if let Some((index, values)) = path.as_index_multi_lookup() {
+        if let Some((index, values)) = path.as_index_multi_lookup_contract() {
             return Self::IndexMultiLookup {
-                index: IndexShapeDetails::new(*index, 1),
+                index: IndexShapeDetails::from_access_contract(index, 1),
                 value_count: values.len(),
             };
         }
         if let Some(spec) = path.as_index_range() {
             return Self::IndexRange {
-                index: IndexShapeDetails::new(*spec.index(), spec.prefix_values().len()),
+                index: IndexShapeDetails::from_access_contract(
+                    spec.index(),
+                    spec.prefix_values().len(),
+                ),
                 prefix_values: spec.prefix_values(),
                 lower: spec.lower(),
                 upper: spec.upper(),

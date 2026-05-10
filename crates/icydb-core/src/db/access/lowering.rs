@@ -7,11 +7,11 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan, ExecutableAccessPlan},
         index::{
-            IndexBoundsSpec, IndexId, IndexRangeBoundEncodeError, RawIndexKey, build_index_bounds,
+            IndexBoundsSpec, IndexId, IndexRangeBoundEncodeError, RawIndexKey,
+            build_index_bounds_for_arity,
         },
     },
     error::InternalError,
-    model::index::IndexModel,
     types::EntityTag,
     value::Value,
 };
@@ -125,10 +125,10 @@ pub(in crate::db) struct LoweredIndexScanContract {
 
 impl LoweredIndexScanContract {
     #[must_use]
-    const fn from_index(index: &IndexModel) -> Self {
+    const fn from_access_contract(index: crate::db::access::SemanticIndexAccessContract) -> Self {
         Self {
             name: index.name(),
-            store_path: index.store(),
+            store_path: index.store_path(),
             unique: index.is_unique(),
         }
     }
@@ -168,12 +168,12 @@ impl LoweredIndexPrefixSpec {
 
     #[must_use]
     pub(in crate::db) const fn new(
-        index: IndexModel,
+        index: crate::db::access::SemanticIndexAccessContract,
         lower: Bound<LoweredKey>,
         upper: Bound<LoweredKey>,
     ) -> Self {
         Self {
-            scan_contract: LoweredIndexScanContract::from_index(&index),
+            scan_contract: LoweredIndexScanContract::from_access_contract(index),
             lower,
             upper,
         }
@@ -220,12 +220,12 @@ impl LoweredIndexRangeSpec {
 
     #[must_use]
     pub(in crate::db) const fn new(
-        index: IndexModel,
+        index: crate::db::access::SemanticIndexAccessContract,
         lower: Bound<LoweredKey>,
         upper: Bound<LoweredKey>,
     ) -> Self {
         Self {
-            scan_contract: LoweredIndexScanContract::from_index(&index),
+            scan_contract: LoweredIndexScanContract::from_access_contract(index),
             lower,
             upper,
         }
@@ -263,16 +263,16 @@ impl LoweredIndexRangeSpec {
 // Lower one semantic range envelope into byte bounds with stable reason mapping.
 fn lower_index_range_bounds_for_scope(
     entity_tag: EntityTag,
-    index: &IndexModel,
+    index: crate::db::access::SemanticIndexAccessContract,
     prefix: &[Value],
     lower: &Bound<Value>,
     upper: &Bound<Value>,
 ) -> Result<(Bound<LoweredKey>, Bound<LoweredKey>), InternalError> {
     let index_id = IndexId::new(entity_tag, index.ordinal());
 
-    build_index_bounds(
+    build_index_bounds_for_arity(
         &index_id,
-        index,
+        index.key_arity(),
         IndexBoundsSpec::component_range(prefix, lower, upper),
     )
     .map_err(LoweredIndexRangeSpec::validated_spec_not_indexable)
@@ -358,7 +358,7 @@ fn lower_index_specs_for_path<K>(
                 spec.upper(),
             )
             .map_err(LoweredAccessError::IndexRange)?;
-            index_range_specs.push(LoweredIndexRangeSpec::new(*spec.index(), lower, upper));
+            index_range_specs.push(LoweredIndexRangeSpec::new(spec.index(), lower, upper));
         }
         AccessPath::ByKey(_)
         | AccessPath::ByKeys(_)
@@ -371,15 +371,19 @@ fn lower_index_specs_for_path<K>(
 
 fn lower_index_prefix_values_for_specs(
     entity_tag: EntityTag,
-    index: IndexModel,
+    index: crate::db::access::SemanticIndexAccessContract,
     values: &[Value],
     specs: &mut Vec<LoweredIndexPrefixSpec>,
 ) -> Result<(), InternalError> {
     let index_id = IndexId::new(entity_tag, index.ordinal());
-    let (lower, upper) = build_index_bounds(&index_id, &index, IndexBoundsSpec::Prefix { values })
-        .map_err(|_| {
-            InternalError::query_executor_invariant("validated index-prefix value is not indexable")
-        })?;
+    let (lower, upper) = build_index_bounds_for_arity(
+        &index_id,
+        index.key_arity(),
+        IndexBoundsSpec::Prefix { values },
+    )
+    .map_err(|_| {
+        InternalError::query_executor_invariant("validated index-prefix value is not indexable")
+    })?;
     specs.push(LoweredIndexPrefixSpec::new(index, lower, upper));
 
     Ok(())

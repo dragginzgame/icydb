@@ -68,7 +68,10 @@ fn full_scan_query() -> AccessPlannedQuery {
 
 fn index_prefix_query(index: IndexModel, values: Vec<Value>) -> AccessPlannedQuery {
     AccessPlannedQuery::new(
-        AccessPath::IndexPrefix { index, values },
+        AccessPath::IndexPrefix {
+            index: crate::db::access::SemanticIndexAccessContract::from_index(index),
+            values,
+        },
         MissingRowPolicy::Ignore,
     )
 }

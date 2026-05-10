@@ -4,7 +4,7 @@ use super::*;
 fn explain_does_not_evaluate_order_pushdown() {
     let mut plan: AccessPlannedQuery = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: PUSHDOWN_INDEX,
+            index: crate::db::access::SemanticIndexAccessContract::from_index(PUSHDOWN_INDEX),
             values: vec![Value::Text("alpha".to_string())],
         },
         MissingRowPolicy::Ignore,
@@ -26,7 +26,7 @@ fn explain_does_not_evaluate_order_pushdown() {
 fn explain_does_not_evaluate_descending_pushdown() {
     let mut plan: AccessPlannedQuery = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: PUSHDOWN_INDEX,
+            index: crate::db::access::SemanticIndexAccessContract::from_index(PUSHDOWN_INDEX),
             values: vec![Value::Text("alpha".to_string())],
         },
         MissingRowPolicy::Ignore,
@@ -90,7 +90,7 @@ fn explain_does_not_evaluate_composite_pushdown_rejections() {
 fn explain_without_model_reports_missing_model_context() {
     let mut plan: AccessPlannedQuery = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: PUSHDOWN_INDEX,
+            index: crate::db::access::SemanticIndexAccessContract::from_index(PUSHDOWN_INDEX),
             values: vec![Value::Text("alpha".to_string())],
         },
         MissingRowPolicy::Ignore,

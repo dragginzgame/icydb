@@ -12,8 +12,8 @@
 //! Any change in this module must preserve fingerprint/continuation stability.
 
 use crate::{
-    db::access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
-    model::index::IndexModel,
+    db::access::{AccessPath, AccessPlan, SemanticIndexAccessContract, SemanticIndexRangeSpec},
+    model::index::IndexKeyItemsRef,
     value::{Value, canonicalize_value_set},
 };
 use std::cmp::Ordering;
@@ -247,9 +247,12 @@ impl AccessPath<Value> {
                     index: right_index,
                     values: right_values,
                 },
-            ) => {
-                Self::canonical_cmp_index_prefix(left_index, left_values, right_index, right_values)
-            }
+            ) => Self::canonical_cmp_index_prefix(
+                *left_index,
+                left_values,
+                *right_index,
+                right_values,
+            ),
             (
                 Self::IndexMultiLookup {
                     index: left_index,
@@ -260,9 +263,9 @@ impl AccessPath<Value> {
                     values: right_values,
                 },
             ) => Self::canonical_cmp_index_multi_lookup(
-                left_index,
+                *left_index,
                 left_values,
-                right_index,
+                *right_index,
                 right_values,
             ),
             (Self::IndexRange { spec: left_spec }, Self::IndexRange { spec: right_spec }) => {
@@ -282,7 +285,7 @@ impl AccessPath<Value> {
             Self::IndexRange { .. } => AccessPathRank { tier: 1, detail: 0 },
             Self::IndexPrefix { index, values } => AccessPathRank {
                 tier: 1,
-                detail: if values.len() == index.fields().len() {
+                detail: if values.len() == index.key_arity() {
                     1
                 } else {
                     2
@@ -310,12 +313,12 @@ impl AccessPath<Value> {
 
     // Compare one index-prefix shape after rank + variant pairing succeeds.
     fn canonical_cmp_index_prefix(
-        left_index: &IndexModel,
+        left_index: SemanticIndexAccessContract,
         left_values: &[Value],
-        right_index: &IndexModel,
+        right_index: SemanticIndexAccessContract,
         right_values: &[Value],
     ) -> Ordering {
-        let cmp = canonical_cmp_index_identity(*left_index, *right_index);
+        let cmp = canonical_cmp_index_identity(left_index, right_index);
         if cmp != Ordering::Equal {
             return cmp;
         }
@@ -330,12 +333,12 @@ impl AccessPath<Value> {
 
     // Compare one index multi-lookup shape after rank + variant pairing succeeds.
     fn canonical_cmp_index_multi_lookup(
-        left_index: &IndexModel,
+        left_index: SemanticIndexAccessContract,
         left_values: &[Value],
-        right_index: &IndexModel,
+        right_index: SemanticIndexAccessContract,
         right_values: &[Value],
     ) -> Ordering {
-        let cmp = canonical_cmp_index_identity(*left_index, *right_index);
+        let cmp = canonical_cmp_index_identity(left_index, right_index);
         if cmp != Ordering::Equal {
             return cmp;
         }
@@ -348,7 +351,7 @@ impl AccessPath<Value> {
         left_spec: &SemanticIndexRangeSpec,
         right_spec: &SemanticIndexRangeSpec,
     ) -> Ordering {
-        let cmp = canonical_cmp_index_identity(*left_spec.index(), *right_spec.index());
+        let cmp = canonical_cmp_index_identity(left_spec.index(), right_spec.index());
         if cmp != Ordering::Equal {
             return cmp;
         }
@@ -396,13 +399,40 @@ fn canonical_cmp_access_path_rank_mismatch(
 }
 
 // Compare index identity in canonical order before considering payload values.
-fn canonical_cmp_index_identity(left: IndexModel, right: IndexModel) -> Ordering {
+fn canonical_cmp_index_identity(
+    left: SemanticIndexAccessContract,
+    right: SemanticIndexAccessContract,
+) -> Ordering {
     let cmp = left.name().cmp(right.name());
     if cmp != Ordering::Equal {
         return cmp;
     }
 
-    left.fields().cmp(right.fields())
+    let cmp = left.ordinal().cmp(&right.ordinal());
+    if cmp != Ordering::Equal {
+        return cmp;
+    }
+
+    canonical_cmp_index_key_items(left.key_items(), right.key_items())
+}
+
+fn canonical_cmp_index_key_items(left: IndexKeyItemsRef, right: IndexKeyItemsRef) -> Ordering {
+    let left = canonical_index_key_items(left);
+    let right = canonical_index_key_items(right);
+
+    left.cmp(&right)
+}
+
+fn canonical_index_key_items(key_items: IndexKeyItemsRef) -> Vec<String> {
+    match key_items {
+        IndexKeyItemsRef::Fields(fields) => {
+            fields.iter().map(|field| (*field).to_string()).collect()
+        }
+        IndexKeyItemsRef::Items(items) => items
+            .iter()
+            .map(crate::model::index::IndexKeyItem::canonical_text)
+            .collect(),
+    }
 }
 
 /// Lexicographic comparison of value lists.
@@ -516,14 +546,14 @@ mod tests {
     fn normalize_index_multi_lookup_singleton_collapses_to_index_prefix() {
         let normalized =
             normalize_access_plan_value(AccessPlan::path(AccessPath::IndexMultiLookup {
-                index: TEST_INDEX,
+                index: crate::db::access::SemanticIndexAccessContract::from_index(TEST_INDEX),
                 values: vec![Value::Uint(7)],
             }));
 
         assert_eq!(
             normalized,
             AccessPlan::path(AccessPath::IndexPrefix {
-                index: TEST_INDEX,
+                index: crate::db::access::SemanticIndexAccessContract::from_index(TEST_INDEX),
                 values: vec![Value::Uint(7)],
             }),
         );
@@ -533,14 +563,14 @@ mod tests {
     fn normalize_index_multi_lookup_canonicalizes_value_set() {
         let normalized =
             normalize_access_plan_value(AccessPlan::path(AccessPath::IndexMultiLookup {
-                index: TEST_INDEX,
+                index: crate::db::access::SemanticIndexAccessContract::from_index(TEST_INDEX),
                 values: vec![Value::Uint(9), Value::Uint(7), Value::Uint(9)],
             }));
 
         assert_eq!(
             normalized,
             AccessPlan::path(AccessPath::IndexMultiLookup {
-                index: TEST_INDEX,
+                index: crate::db::access::SemanticIndexAccessContract::from_index(TEST_INDEX),
                 values: vec![Value::Uint(7), Value::Uint(9)],
             }),
         );

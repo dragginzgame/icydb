@@ -23,7 +23,7 @@ use crate::{
             lower_data_row_direct_projection_slots_with_schema,
             lower_direct_projection_slots_with_schema, lower_projection_identity,
             lower_projection_intent, residual_query_predicate_after_access_path_bounds,
-            residual_query_predicate_after_filtered_access,
+            residual_query_predicate_after_filtered_access_contract,
             resolved_grouped_distinct_execution_strategy_with_schema_info,
         },
         schema::SchemaInfo,
@@ -602,8 +602,10 @@ fn compile_effective_runtime_filter_program(
 fn derive_execution_preparation_predicate(plan: &AccessPlannedQuery) -> Option<Predicate> {
     let query_predicate = plan.scalar_plan().predicate.as_ref()?;
 
-    match plan.access.selected_index_model() {
-        Some(index) => residual_query_predicate_after_filtered_access(index, query_predicate),
+    match plan.access.selected_index_contract() {
+        Some(index) => {
+            residual_query_predicate_after_filtered_access_contract(index, query_predicate)
+        }
         None => Some(query_predicate.clone()),
     }
 }

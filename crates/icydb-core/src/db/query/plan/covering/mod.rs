@@ -11,19 +11,19 @@
 mod tests;
 
 use crate::db::{
-    access::AccessPlan,
+    access::{AccessPlan, SemanticIndexAccessContract},
     direction::Direction,
     predicate::IndexPredicateCapability,
     query::plan::{
         AccessPlannedQuery, DeterministicSecondaryIndexOrderMatch, FieldSlot, OrderDirection,
-        OrderSpec, expr::ProjectionSpec, index_order_terms,
+        OrderSpec, expr::ProjectionSpec, index_key_item_order_terms,
     },
     schema::SchemaInfo,
 };
 use crate::{
     model::{
         field::FieldModel,
-        index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
+        index::{IndexKeyItem, IndexKeyItemsRef},
     },
     value::Value,
 };
@@ -171,8 +171,8 @@ pub(in crate::db) fn covering_read_reason_code_for_load_plan(
     if plan.scalar_plan().order.is_some() {
         return "order_mat";
     }
-    let index_shape_supported =
-        plan.access.as_index_prefix_path().is_some() || plan.access.as_index_range_path().is_some();
+    let index_shape_supported = plan.access.as_index_prefix_contract_path().is_some()
+        || plan.access.as_index_range_path().is_some();
     if !index_shape_supported {
         return "access_not_cov";
     }
@@ -200,8 +200,8 @@ pub(in crate::db) fn index_covering_existing_rows_terminal_eligible(
         return false;
     }
 
-    let index_shape_supported =
-        plan.access.as_index_prefix_path().is_some() || plan.access.as_index_range_path().is_some();
+    let index_shape_supported = plan.access.as_index_prefix_contract_path().is_some()
+        || plan.access.as_index_range_path().is_some();
     if !index_shape_supported {
         return false;
     }
@@ -594,19 +594,20 @@ struct CoveringAccessMetadata<'a> {
 
 // Project one immutable covering-access metadata bundle from one access shape.
 fn covering_access_metadata<K>(access: &AccessPlan<K>) -> Option<CoveringAccessMetadata<'_>> {
-    if let Some((index, values)) = access.as_index_prefix_path() {
+    if let Some((index, values)) = access.as_index_prefix_contract_path() {
         return Some(CoveringAccessMetadata {
-            order_terms: index_order_terms(index),
-            coverable_component_fields: coverable_component_fields_for_index(index),
+            order_terms: index_key_item_order_terms(index.key_items()),
+            coverable_component_fields: coverable_component_fields_for_contract(index),
             prefix_values: values,
             prefix_len: values.len(),
             path_kind_is_range: false,
         });
     }
     if let Some(spec) = access.as_index_range_path() {
+        let index = spec.index();
         return Some(CoveringAccessMetadata {
-            order_terms: index_order_terms(spec.index()),
-            coverable_component_fields: coverable_component_fields_for_index(spec.index()),
+            order_terms: index_key_item_order_terms(index.key_items()),
+            coverable_component_fields: coverable_component_fields_for_contract(index),
             prefix_values: spec.prefix_values(),
             prefix_len: spec.prefix_values().len(),
             path_kind_is_range: true,
@@ -903,7 +904,9 @@ fn covering_projection_field_source(
 // raw entity fields. Expression key items intentionally map to `None` here so
 // covering reads do not claim the original field can be reconstructed from the
 // derived component bytes.
-fn coverable_component_fields_for_index(index: &IndexModel) -> Vec<Option<&'static str>> {
+fn coverable_component_fields_for_contract(
+    index: SemanticIndexAccessContract,
+) -> Vec<Option<&'static str>> {
     match index.key_items() {
         IndexKeyItemsRef::Fields(fields) => fields.iter().copied().map(Some).collect(),
         IndexKeyItemsRef::Items(items) => items

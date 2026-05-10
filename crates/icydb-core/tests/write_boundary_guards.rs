@@ -534,12 +534,15 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
         "write-time field-path index key construction must resolve key shape through accepted index contracts and slots through accepted row contracts",
     );
     assert!(
-        index_key_build.contains("pub(crate) fn new_from_slot_ref_reader_with_schema")
+        index_key_build.contains("pub(crate) fn new_from_slot_ref_reader_with_access_contract")
             && index_key_build.contains("schema_info.field_slot_index(field)")
+            && index_key_build.contains("build_index_key_from_access_contract(")
             && index_key_build
                 .contains("pub(crate) fn new_from_slot_ref_reader_with_accepted_field_path_index")
             && index_key_build.contains("accepted_index.fields()")
             && index_key_build.contains("IndexId::new(entity_tag, accepted_index.ordinal())")
+            && index_key_build.contains("IndexId::new(entity_tag, index.ordinal())")
+            && !index_key_build.contains("pub(crate) fn new_from_slot_ref_reader_with_schema")
             && !index_key_build.contains("pub(crate) fn new_from_slot_ref_reader("),
         "cursor anchor and predicate index-key paths must use accepted schema/index/row-contract slot authority instead of generated model slot lookup",
     );
@@ -551,6 +554,8 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
             && entity_authority.contains(".field_path_indexes()")
             && entity_authority
                 .contains("IndexKey::new_from_slot_ref_reader_with_accepted_field_path_index(")
+            && entity_authority
+                .contains("IndexKey::new_from_slot_ref_reader_with_access_contract(")
             && entity_authority.contains("let index = index_range.index();")
             && entity_authority.contains("if index.has_expression_key_items() {")
             && !entity_authority.contains("fn index_key_from_slot_ref_reader"),
@@ -652,6 +657,9 @@ fn runtime_access_capabilities_use_reduced_index_shape_facts() {
     let aggregate_capability = read_source("src/db/executor/aggregate/capability.rs");
     let logical_semantics = read_source("src/db/query/plan/semantics/logical.rs");
     let access_plan = read_source("src/db/query/plan/access_plan.rs");
+    let access_path = read_source("src/db/access/path.rs");
+    let access_choice = read_source("src/db/query/plan/access_choice/mod.rs");
+    let cache_key = read_source("src/db/query/intent/cache_key.rs");
 
     assert!(
         access_capabilities.contains("pub(in crate::db) struct IndexShapeDetails")
@@ -664,7 +672,7 @@ fn runtime_access_capabilities_use_reduced_index_shape_facts() {
     );
     assert!(
         execution_path_payload.contains("index: IndexShapeDetails")
-            && execution_path_payload.contains("IndexShapeDetails::new(*index")
+            && execution_path_payload.contains("IndexShapeDetails::from_access_contract(")
             && !execution_path_payload.contains("model::index::IndexModel")
             && !execution_path_payload.contains("index: IndexModel"),
         "executable access payloads must carry reduced index shape facts instead of generated IndexModel",
@@ -686,6 +694,26 @@ fn runtime_access_capabilities_use_reduced_index_shape_facts() {
         access_plan.contains("access.has_selected_index_access_path()")
             && !access_plan.contains("access.selected_index_model().is_some()"),
         "access-planned query shells must detect index-backed shapes through reduced access capabilities",
+    );
+    assert!(
+        access_path.contains("pub(crate) struct SemanticIndexAccessContract")
+            && access_path.contains("index: SemanticIndexAccessContract")
+            && access_path.contains(
+                "pub(crate) struct SemanticIndexRangeSpec {\n    index: SemanticIndexAccessContract"
+            )
+            && !access_path.contains("IndexPrefix {\n        index: IndexModel")
+            && !access_path.contains("IndexMultiLookup {\n        index: IndexModel")
+            && !access_path.contains("selected_index_model")
+            && !access_path.contains("as_index_prefix(&self)")
+            && !access_path.contains("as_index_multi_lookup(&self)")
+            && logical_semantics
+                .contains("residual_query_predicate_after_filtered_access_contract")
+            && !logical_semantics.contains("selected_index_model")
+            && access_choice.contains("selected_index_contract()")
+            && !access_choice.contains("selected_index_model")
+            && cache_key.contains("as_index_prefix_contract()")
+            && cache_key.contains("as_index_multi_lookup_contract()"),
+        "selected runtime access-path consumers must use reduced semantic index contracts instead of selected generated IndexModel accessors",
     );
 }
 

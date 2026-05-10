@@ -3,7 +3,11 @@
 //! Does not own: path validation or canonicalization policy.
 //! Boundary: used by access-plan construction and executor interpretation.
 
-use crate::{model::index::IndexModel, value::Value};
+use crate::{
+    db::Predicate,
+    model::index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
+    value::Value,
+};
 use std::ops::Bound;
 
 ///
@@ -25,6 +29,142 @@ pub(in crate::db) enum AccessPathKind {
 }
 
 ///
+/// SemanticIndexAccessContract
+///
+/// Reduced secondary-index facts carried after planner selection.
+/// Keeps runtime access consumers on accepted/schema-shaped index identity
+/// and key metadata instead of reopening the full generated model surface.
+///
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SemanticIndexAccessContract {
+    ordinal: u16,
+    name: &'static str,
+    store_path: &'static str,
+    key_items: IndexKeyItemsRef,
+    unique: bool,
+    predicate_semantics: Option<fn() -> &'static Predicate>,
+}
+
+impl PartialEq for SemanticIndexAccessContract {
+    fn eq(&self, other: &Self) -> bool {
+        self.ordinal == other.ordinal
+            && self.name == other.name
+            && self.store_path == other.store_path
+            && self.key_items == other.key_items
+            && self.unique == other.unique
+            && match (self.predicate_semantics, other.predicate_semantics) {
+                (Some(left), Some(right)) => std::ptr::fn_addr_eq(left, right),
+                (None, None) => true,
+                (Some(_), None) | (None, Some(_)) => false,
+            }
+    }
+}
+
+impl Eq for SemanticIndexAccessContract {}
+
+impl SemanticIndexAccessContract {
+    /// Project one generated index model into the narrow access contract used
+    /// past planner candidate selection.
+    #[must_use]
+    pub(in crate::db) const fn from_index(index: IndexModel) -> Self {
+        Self {
+            ordinal: index.ordinal(),
+            name: index.name(),
+            store_path: index.store(),
+            key_items: index.key_items(),
+            unique: index.is_unique(),
+            predicate_semantics: index.predicate_resolver(),
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn ordinal(self) -> u16 {
+        self.ordinal
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn name(self) -> &'static str {
+        self.name
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn store_path(self) -> &'static str {
+        self.store_path
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn key_items(self) -> IndexKeyItemsRef {
+        self.key_items
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn key_arity(self) -> usize {
+        match self.key_items {
+            IndexKeyItemsRef::Fields(fields) => fields.len(),
+            IndexKeyItemsRef::Items(items) => items.len(),
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn key_item_at(self, slot: usize) -> Option<IndexKeyItem> {
+        match self.key_items {
+            IndexKeyItemsRef::Fields(fields) => {
+                if slot < fields.len() {
+                    Some(IndexKeyItem::Field(fields[slot]))
+                } else {
+                    None
+                }
+            }
+            IndexKeyItemsRef::Items(items) => {
+                if slot < items.len() {
+                    Some(items[slot])
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) fn fields(self) -> Vec<&'static str> {
+        match self.key_items {
+            IndexKeyItemsRef::Fields(fields) => fields.to_vec(),
+            IndexKeyItemsRef::Items(items) => items.iter().map(IndexKeyItem::field).collect(),
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn is_unique(self) -> bool {
+        self.unique
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn has_expression_key_items(self) -> bool {
+        match self.key_items {
+            IndexKeyItemsRef::Fields(_) => false,
+            IndexKeyItemsRef::Items(items) => {
+                let mut index = 0usize;
+                while index < items.len() {
+                    if matches!(items[index], IndexKeyItem::Expression(_)) {
+                        return true;
+                    }
+                    index = index.saturating_add(1);
+                }
+
+                false
+            }
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) fn predicate_semantics(self) -> Option<&'static Predicate> {
+        self.predicate_semantics.map(|resolver| resolver())
+    }
+}
+
+///
 /// SemanticIndexRangeSpec
 ///
 /// Semantic index-range request for one secondary index path.
@@ -33,7 +173,7 @@ pub(in crate::db) enum AccessPathKind {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SemanticIndexRangeSpec {
-    index: IndexModel,
+    index: SemanticIndexAccessContract,
     field_slots: Vec<usize>,
     prefix_values: Vec<Value>,
     lower: Bound<Value>,
@@ -64,7 +204,7 @@ impl SemanticIndexRangeSpec {
         );
 
         Self {
-            index,
+            index: SemanticIndexAccessContract::from_index(index),
             field_slots,
             prefix_values,
             lower,
@@ -87,8 +227,8 @@ impl SemanticIndexRangeSpec {
     }
 
     #[must_use]
-    pub(crate) const fn index(&self) -> &IndexModel {
-        &self.index
+    pub(crate) const fn index(&self) -> SemanticIndexAccessContract {
+        self.index
     }
 
     #[must_use]
@@ -137,7 +277,7 @@ pub(crate) enum AccessPath<K> {
     /// - `values.len() <= index.fields().len()`
     /// - All values correspond to strict coercions
     IndexPrefix {
-        index: IndexModel,
+        index: SemanticIndexAccessContract,
         values: Vec<Value>,
     },
 
@@ -148,7 +288,7 @@ pub(crate) enum AccessPath<K> {
     /// - each value targets the leading index slot (`prefix_len == 1`)
     /// - execution semantics are equivalent to a union of one-field index-prefix lookups
     IndexMultiLookup {
-        index: IndexModel,
+        index: SemanticIndexAccessContract,
         values: Vec<Value>,
     },
 
@@ -242,20 +382,24 @@ impl<K> AccessPath<K> {
         }
     }
 
-    /// Borrow index-prefix details when this path is `IndexPrefix`.
+    /// Borrow reduced index-prefix details when this path is `IndexPrefix`.
     #[must_use]
-    pub(crate) const fn as_index_prefix(&self) -> Option<(&IndexModel, &[Value])> {
+    pub(in crate::db) const fn as_index_prefix_contract(
+        &self,
+    ) -> Option<(SemanticIndexAccessContract, &[Value])> {
         match self {
-            Self::IndexPrefix { index, values } => Some((index, values.as_slice())),
+            Self::IndexPrefix { index, values } => Some((*index, values.as_slice())),
             _ => None,
         }
     }
 
-    /// Borrow index multi-lookup details when this path is `IndexMultiLookup`.
+    /// Borrow reduced index multi-lookup details when this path is `IndexMultiLookup`.
     #[must_use]
-    pub(crate) const fn as_index_multi_lookup(&self) -> Option<(&IndexModel, &[Value])> {
+    pub(in crate::db) const fn as_index_multi_lookup_contract(
+        &self,
+    ) -> Option<(SemanticIndexAccessContract, &[Value])> {
         match self {
-            Self::IndexMultiLookup { index, values } => Some((index, values.as_slice())),
+            Self::IndexMultiLookup { index, values } => Some((*index, values.as_slice())),
             _ => None,
         }
     }
@@ -269,11 +413,13 @@ impl<K> AccessPath<K> {
         }
     }
 
-    /// Borrow the selected secondary index model when this path uses one.
+    /// Borrow the reduced selected secondary-index contract when this path uses one.
     #[must_use]
-    pub(crate) const fn selected_index_model(&self) -> Option<&IndexModel> {
+    pub(in crate::db) const fn selected_index_contract(
+        &self,
+    ) -> Option<SemanticIndexAccessContract> {
         match self {
-            Self::IndexPrefix { index, .. } | Self::IndexMultiLookup { index, .. } => Some(index),
+            Self::IndexPrefix { index, .. } | Self::IndexMultiLookup { index, .. } => Some(*index),
             Self::IndexRange { spec } => Some(spec.index()),
             Self::ByKey(_) | Self::ByKeys(_) | Self::KeyRange { .. } | Self::FullScan => None,
         }

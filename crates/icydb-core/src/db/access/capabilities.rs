@@ -6,9 +6,9 @@
 use crate::{
     db::access::{
         AccessPath, AccessPathKind, AccessPlan, ExecutableAccessNode, ExecutableAccessPlan,
-        ExecutionPathPayload,
+        ExecutionPathPayload, SemanticIndexAccessContract,
     },
-    model::index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
+    model::index::{IndexKeyItem, IndexKeyItemsRef},
 };
 
 // Project whether traversal can safely reverse the underlying access shape.
@@ -97,7 +97,10 @@ pub(in crate::db) struct IndexShapeDetails {
 
 impl IndexShapeDetails {
     #[must_use]
-    pub(in crate::db) const fn new(index: IndexModel, slot_arity: usize) -> Self {
+    pub(in crate::db) const fn from_access_contract(
+        index: SemanticIndexAccessContract,
+        slot_arity: usize,
+    ) -> Self {
         Self {
             name: index.name(),
             ordinal: index.ordinal(),

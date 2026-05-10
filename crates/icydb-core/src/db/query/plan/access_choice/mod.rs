@@ -16,7 +16,7 @@ mod tests;
 
 use crate::{
     db::{
-        access::AccessPlan,
+        access::{AccessPlan, SemanticIndexAccessContract},
         predicate::Predicate,
         query::plan::{
             AccessPlannedQuery,
@@ -169,7 +169,7 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes_and_sch
 pub(in crate::db) fn non_index_access_choice_snapshot_for_access_plan<K>(
     access: &AccessPlan<K>,
 ) -> AccessChoiceExplainSnapshot {
-    if access.selected_index_model().is_some() {
+    if access.has_selected_index_access_path() {
         return AccessChoiceExplainSnapshot::selected_index_not_projected();
     }
     if access.as_by_key_path().is_some() {
@@ -267,8 +267,8 @@ fn same_score_competing_residual_rejection_indexes(
         .filter_map(|candidate| {
             candidate
                 .access
-                .selected_index_model()
-                .map(IndexModel::name)
+                .selected_index_contract()
+                .map(SemanticIndexAccessContract::name)
         })
         .collect::<Vec<_>>();
 
@@ -446,8 +446,8 @@ fn same_score_competing_candidate_plans(
         let candidate_access =
             eligible_candidate_access_for_index(model, schema_info, plan, index)?;
         let candidate_access_name = candidate_access
-            .selected_index_model()
-            .map(crate::model::index::IndexModel::name);
+            .selected_index_contract()
+            .map(SemanticIndexAccessContract::name);
         if candidate_access_name != Some(index.name()) {
             continue;
         }

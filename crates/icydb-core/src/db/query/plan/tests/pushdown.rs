@@ -124,7 +124,7 @@ fn order_spec(fields: &[(&str, OrderDirection)]) -> OrderSpec {
 fn load_index_prefix_plan(values: Vec<Value>, order: Option<OrderSpec>) -> AccessPlannedQuery {
     load_plan(
         AccessPlan::path(AccessPath::IndexPrefix {
-            index: INDEX_MODEL,
+            index: crate::db::access::SemanticIndexAccessContract::from_index(INDEX_MODEL),
             values,
         }),
         order,
@@ -329,7 +329,7 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
             name: "no_order_by_none",
             plan: load_plan(
                 AccessPlan::path(AccessPath::IndexPrefix {
-                    index: INDEX_MODEL,
+                    index: crate::db::access::SemanticIndexAccessContract::from_index(INDEX_MODEL),
                     values: vec![Value::Text("a".to_string())],
                 }),
                 None,
@@ -340,7 +340,7 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
             name: "no_order_by_empty_fields",
             plan: load_plan(
                 AccessPlan::path(AccessPath::IndexPrefix {
-                    index: INDEX_MODEL,
+                    index: crate::db::access::SemanticIndexAccessContract::from_index(INDEX_MODEL),
                     values: vec![Value::Text("a".to_string())],
                 }),
                 Some(OrderSpec { fields: vec![] }),
@@ -446,7 +446,7 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
             name: "invalid_index_prefix_bounds",
             plan: load_plan(
                 AccessPlan::path(AccessPath::IndexPrefix {
-                    index: INDEX_MODEL,
+                    index: crate::db::access::SemanticIndexAccessContract::from_index(INDEX_MODEL),
                     values: vec![Value::Text("a".to_string()), Value::Text("b".to_string())],
                 }),
                 Some(OrderSpec {
@@ -467,7 +467,7 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
             name: "missing_primary_key_tie_break",
             plan: load_plan(
                 AccessPlan::path(AccessPath::IndexPrefix {
-                    index: INDEX_MODEL,
+                    index: crate::db::access::SemanticIndexAccessContract::from_index(INDEX_MODEL),
                     values: vec![Value::Text("a".to_string())],
                 }),
                 Some(OrderSpec {
@@ -483,7 +483,7 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
             name: "mixed_direction_not_eligible",
             plan: load_plan(
                 AccessPlan::path(AccessPath::IndexPrefix {
-                    index: INDEX_MODEL,
+                    index: crate::db::access::SemanticIndexAccessContract::from_index(INDEX_MODEL),
                     values: vec![Value::Text("a".to_string())],
                 }),
                 Some(OrderSpec {
@@ -499,7 +499,7 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
             name: "order_fields_do_not_match_index",
             plan: load_plan(
                 AccessPlan::path(AccessPath::IndexPrefix {
-                    index: INDEX_MODEL,
+                    index: crate::db::access::SemanticIndexAccessContract::from_index(INDEX_MODEL),
                     values: vec![Value::Text("a".to_string())],
                 }),
                 Some(OrderSpec {

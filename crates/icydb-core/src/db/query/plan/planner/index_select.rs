@@ -3,7 +3,7 @@
 
 use crate::{
     db::{
-        access::AccessPath,
+        access::{AccessPath, SemanticIndexAccessContract},
         index::canonical_index_predicate,
         numeric::compare_numeric_or_strict_order,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
@@ -61,38 +61,18 @@ fn index_predicate_implied_by_query(index: &IndexModel, query_predicate: &Predic
     filtered_index_predicate_query_relation(index, query_predicate)
 }
 
-pub(in crate::db::query::plan) fn index_predicate_guarantees_compare(
-    index: &IndexModel,
-    cmp: &ComparePredicate,
-) -> bool {
-    let Some(index_predicate) = canonical_index_predicate(index) else {
-        return false;
-    };
-
-    predicate_implies_predicate(index_predicate, &Predicate::Compare(cmp.clone()))
-}
-
-pub(in crate::db) fn residual_query_predicate_after_filtered_access(
-    index: &IndexModel,
+pub(in crate::db) fn residual_query_predicate_after_filtered_access_contract(
+    index: SemanticIndexAccessContract,
     query_predicate: &Predicate,
 ) -> Option<Predicate> {
-    if index.predicate().is_none() {
-        return Some(query_predicate.clone());
-    }
-    let Some(index_predicate) = canonical_index_predicate(index) else {
+    let Some(index_predicate) = index.predicate_semantics() else {
         return Some(query_predicate.clone());
     };
 
-    // Phase 1: only strip filtered-guard clauses after the full query has
-    // already proven the index predicate. Otherwise execution must keep the
-    // original predicate intact and fail closed.
-    if !predicate_implies_predicate(query_predicate, index_predicate) {
+    if !predicate_implies_predicate_for_planner(query_predicate, index_predicate) {
         return Some(query_predicate.clone());
     }
 
-    // Phase 2: remove only the query clauses the filtered guard itself
-    // guarantees. Stronger user predicates must remain, even when they also
-    // imply the guard, because index membership alone does not satisfy them.
     strip_query_clauses_satisfied_by_filtered_guard(query_predicate, index_predicate)
 }
 
@@ -108,7 +88,7 @@ pub(in crate::db) fn residual_query_predicate_after_access_path_bounds(
     // already guarantees. Range and multi-lookup paths intentionally keep
     // their open bounds as residual semantics unless they appear in the fixed
     // equality prefix.
-    let implied_equalities = if let Some((index, values)) = access_path.as_index_prefix() {
+    let implied_equalities = if let Some((index, values)) = access_path.as_index_prefix_contract() {
         access_bound_equalities(index, values)
     } else if let Some(spec) = access_path.as_index_range() {
         access_bound_equalities(spec.index(), spec.prefix_values())
@@ -135,10 +115,13 @@ fn filtered_index_predicate_query_relation(
         return false;
     };
 
-    predicate_implies_predicate(query_predicate, index_predicate)
+    predicate_implies_predicate_for_planner(query_predicate, index_predicate)
 }
 
-fn predicate_implies_predicate(implying: &Predicate, required: &Predicate) -> bool {
+pub(in crate::db::query::plan) fn predicate_implies_predicate_for_planner(
+    implying: &Predicate,
+    required: &Predicate,
+) -> bool {
     let Some(required) = required_compare_clauses(required) else {
         return false;
     };
@@ -166,22 +149,31 @@ fn strip_query_clauses_satisfied_by_filtered_guard(
 ) -> Option<Predicate> {
     strip_query_clauses(query_predicate, |cmp| {
         compare_clause_supported(cmp)
-            && predicate_implies_predicate(index_predicate, &Predicate::Compare(cmp.clone()))
+            && predicate_implies_predicate_for_planner(
+                index_predicate,
+                &Predicate::Compare(cmp.clone()),
+            )
     })
 }
 
-fn access_bound_equalities(index: &IndexModel, values: &[Value]) -> Vec<ComparePredicate> {
-    index
-        .fields()
-        .iter()
+fn access_bound_equalities(
+    index: SemanticIndexAccessContract,
+    values: &[Value],
+) -> Vec<ComparePredicate> {
+    (0..values.len())
         .zip(values.iter())
-        .map(|(field, value)| {
-            ComparePredicate::with_coercion(
-                *field,
+        .filter_map(|(slot, value)| {
+            let Some(crate::model::index::IndexKeyItem::Field(field)) = index.key_item_at(slot)
+            else {
+                return None;
+            };
+
+            Some(ComparePredicate::with_coercion(
+                field,
                 CompareOp::Eq,
                 value.clone(),
                 CoercionId::Strict,
-            )
+            ))
         })
         .collect()
 }

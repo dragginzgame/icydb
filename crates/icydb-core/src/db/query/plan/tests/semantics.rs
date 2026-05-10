@@ -564,7 +564,7 @@ fn plan_rejects_index_prefix_too_long() {
             consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::IndexPrefix {
-            index: INDEX_MODEL,
+            index: crate::db::access::SemanticIndexAccessContract::from_index(INDEX_MODEL),
             values: vec![Value::Text("a".to_string()), Value::Text("b".to_string())],
         }),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
@@ -600,7 +600,7 @@ fn plan_rejects_empty_index_prefix() {
             consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::IndexPrefix {
-            index: INDEX_MODEL,
+            index: crate::db::access::SemanticIndexAccessContract::from_index(INDEX_MODEL),
             values: vec![],
         }),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
@@ -763,7 +763,7 @@ fn scalar_distinct_execution_strategy_is_planner_lowered_from_access_shape() {
     );
 
     composite_plan.access = AccessPlan::path(AccessPath::IndexMultiLookup {
-        index: INDEX_MODEL,
+        index: crate::db::access::SemanticIndexAccessContract::from_index(INDEX_MODEL),
         values: vec![Value::from(7_u64), Value::from(8_u64)],
     });
     assert_eq!(

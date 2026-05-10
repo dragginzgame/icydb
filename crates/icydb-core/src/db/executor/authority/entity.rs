@@ -356,7 +356,7 @@ impl EntityAuthority {
         let index = index_range.index();
 
         if index.has_expression_key_items() {
-            return IndexKey::new_from_slot_ref_reader_with_schema(
+            return IndexKey::new_from_slot_ref_reader_with_access_contract(
                 self.entity_tag,
                 storage_key,
                 schema_info,

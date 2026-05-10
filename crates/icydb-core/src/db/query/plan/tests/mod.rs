@@ -292,7 +292,7 @@ fn compare_text_casefold(field: &str, op: CompareOp, value: Value) -> Predicate 
 }
 
 type IndexRangeView<'a> = (
-    &'a IndexModel,
+    crate::db::access::SemanticIndexAccessContract,
     &'a [Value],
     &'a Bound<Value>,
     &'a Bound<Value>,

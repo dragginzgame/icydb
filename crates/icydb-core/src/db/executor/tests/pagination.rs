@@ -3877,11 +3877,12 @@ fn load_index_range_cursor_anchor_matches_last_emitted_row_after_post_access_pip
         .expect("comparison plan should remain on index-range access")
         .index();
     let expected_anchor = crate::db::cursor::cursor_anchor_from_raw_index_key(
-        &crate::db::index::IndexKey::new(last_entity, index_model)
+        &crate::db::index::IndexKey::new(last_entity, &PUSHDOWN_PARITY_INDEX_MODELS[0])
             .expect("index key derivation should succeed")
             .expect("last emitted row should be indexable")
             .to_raw(),
     );
+    assert_eq!(index_model.name(), PUSHDOWN_PARITY_INDEX_MODELS[0].name());
     let emitted_anchor = scalar_cursor
         .index_range_anchor()
         .expect("index-range cursor should carry a raw-key anchor");
@@ -7809,7 +7810,9 @@ fn load_secondary_order_top_n_seek_trace_optimization_is_explicit() {
 
     let mut logical_plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
+            ),
             values: vec![Value::Uint(20)],
         },
         MissingRowPolicy::Ignore,
@@ -7852,7 +7855,9 @@ fn load_secondary_order_trace_reports_non_top_n_variant_without_page_limit() {
 
     let mut logical_plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
+            ),
             values: vec![Value::Uint(20)],
         },
         MissingRowPolicy::Ignore,
@@ -9508,7 +9513,9 @@ fn load_secondary_order_top_n_seek_residual_underfill_widens_expression_owned_fi
     // fallback full scan with the same expression-owned residual filter.
     let mut fast_logical = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                PUSHDOWN_PARITY_INDEX_MODELS[0],
+            ),
             values: vec![Value::Uint(7)],
         },
         MissingRowPolicy::Ignore,

@@ -450,14 +450,14 @@ impl AccessPathCacheKey {
                     end: ValueCacheKey::from_value(end),
                 },
             ),
-            AccessPathKind::IndexPrefix => path.as_index_prefix().map_or_else(
+            AccessPathKind::IndexPrefix => path.as_index_prefix_contract().map_or_else(
                 || Self::invalid_access_path_projection(kind),
                 |(index, values)| Self::IndexPrefix {
                     index: index.name().to_string(),
                     values: Self::value_list_cache_key(values),
                 },
             ),
-            AccessPathKind::IndexMultiLookup => path.as_index_multi_lookup().map_or_else(
+            AccessPathKind::IndexMultiLookup => path.as_index_multi_lookup_contract().map_or_else(
                 || Self::invalid_access_path_projection(kind),
                 |(index, values)| Self::IndexMultiLookup {
                     index: index.name().to_string(),
@@ -467,8 +467,10 @@ impl AccessPathCacheKey {
             AccessPathKind::IndexRange => path.as_index_range().map_or_else(
                 || Self::invalid_access_path_projection(kind),
                 |spec| {
+                    let index = spec.index();
+
                     Self::IndexRange(IndexRangeCacheKey {
-                        index: spec.index().name().to_string(),
+                        index: index.name().to_string(),
                         field_slots: spec.field_slots().to_vec(),
                         prefix_values: Self::value_list_cache_key(spec.prefix_values()),
                         lower: RangeBoundCacheKey::from_range_bound(spec.lower()),

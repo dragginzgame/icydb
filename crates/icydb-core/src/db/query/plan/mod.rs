@@ -93,6 +93,8 @@ pub(in crate::db) use order_contract::{
     GroupedIndexOrderMatch, deterministic_secondary_index_order_compatibility,
     grouped_index_order_match,
 };
+pub(in crate::db) use order_term::index_key_item_order_terms;
+#[cfg(test)]
 pub(in crate::db) use order_term::index_order_terms;
 pub(in crate::db) use pipeline::PreparedScalarPlanningState;
 #[cfg(test)]
@@ -114,7 +116,7 @@ pub(in crate::db::query) use planner::{
 pub(in crate::db::query) use planner::{PlannerError, plan_access_with_order};
 pub(in crate::db) use planner::{
     residual_query_predicate_after_access_path_bounds,
-    residual_query_predicate_after_filtered_access,
+    residual_query_predicate_after_filtered_access_contract,
 };
 pub(in crate::db) use projection::lower_global_aggregate_projection;
 pub(in crate::db::query) use projection::{

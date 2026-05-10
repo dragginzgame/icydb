@@ -33,17 +33,17 @@ use crate::{
 use thiserror::Error as ThisError;
 
 pub(in crate::db::query::plan) use index_select::{
-    index_literal_matches_schema, index_predicate_guarantees_compare, sorted_indexes,
-    sorted_model_indexes,
+    index_literal_matches_schema, sorted_indexes, sorted_model_indexes,
 };
 pub(in crate::db) use index_select::{
     residual_query_predicate_after_access_path_bounds,
-    residual_query_predicate_after_filtered_access,
+    residual_query_predicate_after_filtered_access_contract,
 };
 pub(in crate::db::query::plan) use ranking::{
     AccessCandidateScore, AndFamilyCandidateScore, AndFamilyPriorityClass,
     access_candidate_score_outranks, and_family_candidate_score_outranks,
     candidate_satisfies_secondary_order, range_bound_count,
+    selected_index_contract_satisfies_secondary_order,
 };
 
 ///

@@ -376,7 +376,9 @@ fn build_aggregate_spec_route(
 fn secondary_order_covering_plan() -> AccessPlannedQuery {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -402,7 +404,9 @@ fn secondary_order_covering_plan() -> AccessPlannedQuery {
 fn composite_secondary_order_covering_plan(direction: OrderDirection) -> AccessPlannedQuery {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -788,7 +792,9 @@ fn route_capabilities_index_range_with_empty_order_rejects_limit_pushdown_shape(
 fn route_capabilities_non_unique_index_prefix_order_requires_post_access_sort() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -814,7 +820,9 @@ fn route_capabilities_non_unique_index_prefix_order_requires_post_access_sort() 
 fn route_capabilities_bound_non_unique_index_prefix_order_is_streaming_safe() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![Value::Uint(10)],
         },
         MissingRowPolicy::Ignore,
@@ -930,7 +938,9 @@ fn route_primary_order_satisfaction_stays_primary_access_only() {
 
     let mut index_plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -1459,7 +1469,9 @@ fn route_matrix_load_non_pk_order_disables_scan_budget_hint() {
 fn route_matrix_load_unique_secondary_order_limit_one_uses_bounded_scan_budget_hint() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: UNIQUE_ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                UNIQUE_ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -1495,7 +1507,9 @@ fn route_matrix_load_unique_secondary_order_limit_one_uses_bounded_scan_budget_h
 fn route_matrix_load_unique_secondary_order_offset_uses_bounded_top_n_seek() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: UNIQUE_ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                UNIQUE_ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -1540,7 +1554,9 @@ fn route_matrix_load_unique_secondary_order_offset_uses_bounded_top_n_seek() {
 fn route_matrix_load_bound_non_unique_secondary_order_offset_uses_bounded_top_n_seek() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
+            ),
             values: vec![Value::Uint(10)],
         },
         MissingRowPolicy::Ignore,
@@ -1585,7 +1601,9 @@ fn route_matrix_load_bound_non_unique_secondary_order_offset_uses_bounded_top_n_
 fn route_matrix_load_bound_non_unique_secondary_order_desc_offset_fails_closed_before_top_n() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
+            ),
             values: vec![Value::Uint(10)],
         },
         MissingRowPolicy::Ignore,
@@ -1635,7 +1653,9 @@ fn route_matrix_load_bound_non_unique_secondary_order_desc_offset_fails_closed_b
 fn route_matrix_load_non_unique_secondary_order_desc_limit_one_fails_closed_before_top_n() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -1684,7 +1704,9 @@ fn route_matrix_load_non_unique_secondary_order_desc_limit_one_fails_closed_befo
 fn route_matrix_load_non_unique_secondary_order_desc_offset_fails_closed_before_top_n() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -1729,7 +1751,9 @@ fn route_matrix_load_non_unique_secondary_order_desc_offset_fails_closed_before_
 fn route_matrix_load_unique_secondary_order_desc_offset_uses_bounded_top_n_seek() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: UNIQUE_ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                UNIQUE_ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -1774,7 +1798,9 @@ fn route_matrix_load_unique_secondary_order_desc_offset_uses_bounded_top_n_seek(
 fn route_matrix_load_bound_non_unique_secondary_order_distinct_requires_materialized_boundary() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_COMPOSITE_INDEX_MODEL,
+            ),
             values: vec![Value::Uint(10)],
         },
         MissingRowPolicy::Ignore,
@@ -1820,7 +1846,9 @@ fn route_matrix_load_bound_non_unique_secondary_order_distinct_requires_material
 fn route_matrix_load_non_unique_secondary_order_desc_distinct_fails_closed_before_top_n() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,
@@ -1866,7 +1894,9 @@ fn route_matrix_load_non_unique_secondary_order_desc_distinct_fails_closed_befor
 fn route_matrix_load_secondary_order_with_residual_filter_fails_closed_before_top_n() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![],
         },
         MissingRowPolicy::Ignore,

@@ -5,9 +5,10 @@
 
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan},
+        access::{AccessPath, AccessPlan, SemanticIndexAccessContract},
         query::explain::ExplainAccessPath,
     },
+    model::index::IndexKeyItemsRef,
     value::Value,
 };
 use std::{fmt::Write, ops::Bound};
@@ -98,21 +99,40 @@ impl<K> AccessPath<K> {
             Self::ByKeys(keys) => projection.by_keys(keys),
             Self::KeyRange { start, end } => projection.key_range(start, end),
             Self::IndexPrefix { index, values } => {
-                projection.index_prefix(index.name(), index.fields(), values.len(), values)
+                let fields = index_contract_key_fields(*index);
+
+                projection.index_prefix(index.name(), fields.as_slice(), values.len(), values)
             }
             Self::IndexMultiLookup { index, values } => {
-                projection.index_multi_lookup(index.name(), index.fields(), values)
+                let fields = index_contract_key_fields(*index);
+
+                projection.index_multi_lookup(index.name(), fields.as_slice(), values)
             }
-            Self::IndexRange { spec } => projection.index_range(
-                spec.index().name(),
-                spec.index().fields(),
-                spec.prefix_values().len(),
-                spec.prefix_values(),
-                spec.lower(),
-                spec.upper(),
-            ),
+            Self::IndexRange { spec } => {
+                let contract = spec.index();
+                let fields = index_contract_key_fields(contract);
+
+                projection.index_range(
+                    contract.name(),
+                    fields.as_slice(),
+                    spec.prefix_values().len(),
+                    spec.prefix_values(),
+                    spec.lower(),
+                    spec.upper(),
+                )
+            }
             Self::FullScan => projection.full_scan(),
         }
+    }
+}
+
+fn index_contract_key_fields(index: SemanticIndexAccessContract) -> Vec<&'static str> {
+    match index.key_items() {
+        IndexKeyItemsRef::Fields(fields) => fields.to_vec(),
+        IndexKeyItemsRef::Items(items) => items
+            .iter()
+            .map(crate::model::index::IndexKeyItem::field)
+            .collect(),
     }
 }
 
@@ -458,11 +478,11 @@ mod access_projection_tests {
             AccessPlan::path(AccessPath::ByKeys(vec![2, 3])),
             AccessPlan::path(AccessPath::KeyRange { start: 4, end: 9 }),
             AccessPlan::path(AccessPath::IndexPrefix {
-                index: TEST_INDEX,
+                index: crate::db::access::SemanticIndexAccessContract::from_index(TEST_INDEX),
                 values: vec![Value::Uint(7)],
             }),
             AccessPlan::path(AccessPath::IndexMultiLookup {
-                index: TEST_INDEX,
+                index: crate::db::access::SemanticIndexAccessContract::from_index(TEST_INDEX),
                 values: vec![Value::Uint(7), Value::Uint(9)],
             }),
             AccessPlan::path(AccessPath::index_range(

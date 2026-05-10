@@ -74,7 +74,9 @@ fn route_matrix_numeric_field_aggregate_fold_mode_contract_maps_sum_avg_to_exist
 fn route_matrix_aggregate_count_secondary_shape_streams_with_existing_rows() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![Value::Uint(7)],
         },
         MissingRowPolicy::Ignore,
@@ -98,7 +100,9 @@ fn route_matrix_aggregate_count_secondary_shape_streams_with_existing_rows() {
 fn route_matrix_aggregate_count_secondary_shape_with_strict_predicate_streams() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![Value::Uint(7)],
         },
         MissingRowPolicy::Ignore,
@@ -117,7 +121,9 @@ fn route_matrix_aggregate_count_secondary_shape_with_strict_predicate_streams() 
 fn route_matrix_aggregate_count_secondary_shape_with_strict_uncertainty_materializes() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![Value::Uint(7)],
         },
         MissingRowPolicy::Ignore,
@@ -230,7 +236,9 @@ fn route_matrix_aggregate_by_keys_desc_disables_probe_hint_without_reverse_suppo
 fn route_matrix_aggregate_secondary_extrema_probe_hints_lock_offset_plus_one() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![Value::Uint(7)],
         },
         MissingRowPolicy::Ignore,
@@ -360,7 +368,9 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
 
     let mut secondary = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![Value::Uint(7)],
         },
         MissingRowPolicy::Ignore,
@@ -406,7 +416,9 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
 fn route_matrix_secondary_extrema_probe_eligibility_is_min_max_only() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![Value::Uint(7)],
         },
         MissingRowPolicy::Ignore,
@@ -575,7 +587,9 @@ fn route_matrix_aggregate_strict_compile_uncertainty_forces_materialized_executi
 fn route_matrix_aggregate_exists_secondary_order_prefix_shape_stays_materialized() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            index: crate::db::access::SemanticIndexAccessContract::from_index(
+                ROUTE_CAPABILITY_INDEX_MODELS[0],
+            ),
             values: vec![Value::Uint(7)],
         },
         MissingRowPolicy::Ignore,

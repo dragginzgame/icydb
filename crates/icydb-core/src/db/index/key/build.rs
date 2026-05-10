@@ -8,6 +8,7 @@ use crate::model::entity::EntityModel;
 use crate::{
     MAX_INDEX_FIELDS,
     db::{
+        access::SemanticIndexAccessContract,
         data::{CanonicalSlotReader, StorageKey, StructuralRowContract},
         index::{
             derive_index_expression_value,
@@ -31,10 +32,18 @@ fn value_for_expression(
     expression: IndexExpression,
     source: Value,
 ) -> Result<Option<Value>, InternalError> {
+    value_for_expression_with_index_name(index.name(), expression, source)
+}
+
+fn value_for_expression_with_index_name(
+    index_name: &'static str,
+    expression: IndexExpression,
+    source: Value,
+) -> Result<Option<Value>, InternalError> {
     let source_label = source.canonical_tag().label();
     derive_index_expression_value(expression, source).map_err(|expected| {
         InternalError::index_expression_source_type_mismatch(
-            index.name(),
+            index_name,
             expression,
             expected,
             source_label,
@@ -42,9 +51,9 @@ fn value_for_expression(
     })
 }
 
-fn index_component_bytes_from_slot_ref_reader_with_schema<'a>(
+fn index_component_bytes_from_slot_ref_reader_with_access_contract<'a>(
     schema_info: &SchemaInfo,
-    index: &IndexModel,
+    index: SemanticIndexAccessContract,
     key_item: IndexKeyItem,
     read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
 ) -> Result<Option<Vec<u8>>, InternalError> {
@@ -64,7 +73,7 @@ fn index_component_bytes_from_slot_ref_reader_with_schema<'a>(
     match key_item {
         IndexKeyItem::Field(_) => encode_value_index_component_ref(source),
         IndexKeyItem::Expression(expression) => {
-            value_for_expression(index, expression, source.clone())?
+            value_for_expression_with_index_name(index.name(), expression, source.clone())?
                 .map_or(Ok(None), encode_value_index_component)
         }
     }
@@ -143,17 +152,17 @@ impl IndexKey {
         build_index_key(entity_tag, storage_key, index, &mut component_bytes)
     }
 
-    /// Build an index key from one structural row slot ref reader using
-    /// caller-selected schema authority.
-    pub(crate) fn new_from_slot_ref_reader_with_schema<'a>(
+    /// Build an index key from one structural row slot ref reader using the
+    /// reduced selected access contract.
+    pub(crate) fn new_from_slot_ref_reader_with_access_contract<'a>(
         entity_tag: EntityTag,
         storage_key: StorageKey,
         schema_info: &SchemaInfo,
-        index: &IndexModel,
+        index: SemanticIndexAccessContract,
         read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
     ) -> Result<Option<Self>, InternalError> {
         let mut component_bytes = |key_item| {
-            index_component_bytes_from_slot_ref_reader_with_schema(
+            index_component_bytes_from_slot_ref_reader_with_access_contract(
                 schema_info,
                 index,
                 key_item,
@@ -161,7 +170,7 @@ impl IndexKey {
             )
         };
 
-        build_index_key(entity_tag, storage_key, index, &mut component_bytes)
+        build_index_key_from_access_contract(entity_tag, storage_key, index, &mut component_bytes)
     }
 
     /// Build a field-path index key from one structural row slot ref reader
@@ -598,6 +607,55 @@ fn build_index_key(
     }
 
     // Phase 3: encode the primary key once and assemble the final user key.
+    let primary_key = storage_key.to_bytes()?.to_vec();
+
+    Ok(Some(IndexKey {
+        key_kind: IndexKeyKind::User,
+        index_id: IndexId::new(entity_tag, index.ordinal()),
+        components,
+        primary_key,
+    }))
+}
+
+fn build_index_key_from_access_contract(
+    entity_tag: EntityTag,
+    storage_key: StorageKey,
+    index: SemanticIndexAccessContract,
+    component_bytes: &mut dyn FnMut(IndexKeyItem) -> Result<Option<Vec<u8>>, InternalError>,
+) -> Result<Option<IndexKey>, InternalError> {
+    let index_component_count = index.key_arity();
+    if index_component_count > MAX_INDEX_FIELDS {
+        return Err(InternalError::index_key_field_count_exceeds_max(
+            index.name(),
+            index_component_count,
+            MAX_INDEX_FIELDS,
+        ));
+    }
+
+    let mut components = Vec::with_capacity(index_component_count);
+
+    match index.key_items() {
+        IndexKeyItemsRef::Fields(fields) => {
+            for &field in fields {
+                let key_item = IndexKeyItem::Field(field);
+                let Some(component) = component_bytes(key_item)? else {
+                    return Ok(None);
+                };
+
+                push_index_key_component(&mut components, key_item, component)?;
+            }
+        }
+        IndexKeyItemsRef::Items(items) => {
+            for &key_item in items {
+                let Some(component) = component_bytes(key_item)? else {
+                    return Ok(None);
+                };
+
+                push_index_key_component(&mut components, key_item, component)?;
+            }
+        }
+    }
+
     let primary_key = storage_key.to_bytes()?.to_vec();
 
     Ok(Some(IndexKey {
