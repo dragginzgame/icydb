@@ -41,8 +41,8 @@ pub(in crate::db) use index_select::{
 };
 pub(in crate::db::query::plan) use ranking::{
     AccessCandidateScore, AndFamilyCandidateScore, AndFamilyPriorityClass,
-    access_candidate_score_outranks, and_family_candidate_score_outranks,
-    candidate_satisfies_secondary_order, range_bound_count,
+    access_candidate_score_from_index_contract, access_candidate_score_outranks,
+    and_family_candidate_score_outranks, candidate_satisfies_secondary_order, range_bound_count,
     selected_index_contract_satisfies_secondary_order,
 };
 

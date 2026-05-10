@@ -84,6 +84,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_with_accepted_
     // shape. The caller prefilters candidate indexes so filtered guards are
     // checked once at the planner entry boundary.
     for &index in candidate_indexes {
+        let index_contract = SemanticIndexAccessContract::from_index(*index);
         if let Some(accepted) =
             accepted_field_path_index_for_candidate(accepted_field_path_indexes, index.name())
         {
@@ -112,7 +113,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_with_accepted_
                 accepted.semantic_access_contract(),
             ));
         }
-        if !index.has_expression_key_items() {
+        if !index_contract.has_expression_key_items() {
             continue;
         }
         if grouped {

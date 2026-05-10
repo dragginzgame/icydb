@@ -9,12 +9,10 @@ use crate::{
         predicate::{CoercionId, CompareOp, Predicate},
         query::plan::{
             OrderSpec,
-            key_item_match::{
-                eq_lookup_value_for_key_item, index_key_item_count, leading_index_key_item,
-            },
+            key_item_match::{eq_lookup_value_for_key_item, leading_index_key_item},
             planner::{
-                AccessCandidateScore, access_candidate_score_outranks,
-                candidate_satisfies_secondary_order, index_literal_matches_schema,
+                AccessCandidateScore, access_candidate_score_from_index_contract,
+                access_candidate_score_outranks, index_literal_matches_schema,
             },
         },
         schema::SchemaInfo,
@@ -64,12 +62,15 @@ pub(super) fn index_prefix_for_eq(
             continue;
         };
 
-        let score = AccessCandidateScore::new(
+        let index_contract = SemanticIndexAccessContract::from_index(**index);
+        let score = access_candidate_score_from_index_contract(
+            model,
+            order,
+            index_contract,
             1,
-            index_key_item_count(index) == 1,
-            index.predicate().is_some(),
+            index_contract.key_arity() == 1,
             0,
-            candidate_satisfies_secondary_order(model, order, index, 1, grouped),
+            grouped,
         );
         match best {
             None => best = Some((score, index, lookup_value)),
@@ -178,12 +179,15 @@ pub(super) fn index_prefix_from_and(
             continue;
         }
 
-        let score = AccessCandidateScore::new(
+        let index_contract = SemanticIndexAccessContract::from_index(**index);
+        let score = access_candidate_score_from_index_contract(
+            model,
+            order,
+            index_contract,
             prefix.len(),
-            prefix.len() == index_key_item_count(index),
-            index.predicate().is_some(),
+            prefix.len() == index_contract.key_arity(),
             0,
-            candidate_satisfies_secondary_order(model, order, index, prefix.len(), grouped),
+            grouped,
         );
         match &best {
             None => best = Some((score, index, prefix)),

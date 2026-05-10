@@ -11,12 +11,12 @@ use crate::{
         query::plan::{
             OrderSpec,
             key_item_match::{
-                eq_lookup_value_for_key_item, index_key_item_count, leading_index_key_item,
+                eq_lookup_value_for_key_item, leading_index_key_item,
                 starts_with_lookup_value_for_key_item,
             },
             planner::{
-                AccessCandidateScore, access_candidate_score_outranks,
-                candidate_satisfies_secondary_order, index_literal_matches_schema,
+                AccessCandidateScore, access_candidate_score_from_index_contract,
+                access_candidate_score_outranks, index_literal_matches_schema,
                 prefix::{index_multi_lookup_for_in, index_prefix_for_eq},
                 range_bound_count,
             },
@@ -235,12 +235,15 @@ fn plan_starts_with_compare(
             },
         )?;
 
-        let score = AccessCandidateScore::new(
+        let index_contract = SemanticIndexAccessContract::from_index(**index);
+        let score = access_candidate_score_from_index_contract(
+            model,
+            order,
+            index_contract,
             0,
             false,
-            index.predicate().is_some(),
             range_bound_count(&lower, &upper),
-            candidate_satisfies_secondary_order(model, order, index, 0, grouped),
+            grouped,
         );
         match best {
             None => best = Some((score, index, lower, upper)),
@@ -288,7 +291,8 @@ fn plan_ordered_compare(
         let Some(leading_key_item) = leading_index_key_item(index) else {
             continue;
         };
-        if index_key_item_count(index) != 1 {
+        let index_contract = SemanticIndexAccessContract::from_index(**index);
+        if index_contract.key_arity() != 1 {
             continue;
         }
 
@@ -325,12 +329,14 @@ fn plan_ordered_compare(
             CompareOp::Lte => (Bound::Unbounded, Bound::Included(bound_value)),
             _ => unreachable!("ordered compare helper must receive one of Gt/Gte/Lt/Lte"),
         };
-        let score = AccessCandidateScore::new(
+        let score = access_candidate_score_from_index_contract(
+            model,
+            order,
+            index_contract,
             0,
             false,
-            index.predicate().is_some(),
             range_bound_count(&lower, &upper),
-            candidate_satisfies_secondary_order(model, order, index, 0, grouped),
+            grouped,
         );
         match best {
             None => best = Some((score, index, lower, upper)),

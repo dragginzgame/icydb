@@ -7,8 +7,8 @@ use crate::{
             OrderSpec,
             key_item_match::{eq_lookup_value_for_key_item, starts_with_lookup_value_for_key_item},
             planner::{
-                AccessCandidateScore, access_candidate_score_outranks,
-                candidate_satisfies_secondary_order, index_literal_matches_schema,
+                AccessCandidateScore, access_candidate_score_from_index_contract,
+                access_candidate_score_outranks, index_literal_matches_schema,
                 range::{
                     CachedCompare, IndexFieldConstraint, RangeConstraint,
                     bounds::{merge_range_constraint, merge_range_constraint_bounds},
@@ -144,12 +144,15 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
         };
 
         let prefix_len = prefix.len();
-        let score = AccessCandidateScore::new(
+        let index_contract = SemanticIndexAccessContract::from_index(**index);
+        let score = access_candidate_score_from_index_contract(
+            model,
+            order,
+            index_contract,
             prefix_len,
             false,
-            index.predicate().is_some(),
             range_bound_count(&range.lower, &range.upper),
-            candidate_satisfies_secondary_order(model, order, index, prefix_len, grouped),
+            grouped,
         );
         match best {
             None => best = Some((score, index, range_slot, prefix, range)),

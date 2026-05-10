@@ -9,6 +9,7 @@ mod ranking;
 
 use crate::{
     db::{
+        access::SemanticIndexAccessContract,
         predicate::Predicate,
         query::plan::{
             OrderSpec,
@@ -35,6 +36,12 @@ pub(super) fn sorted_indexes(indexes: &[&'static IndexModel]) -> Vec<&'static In
     crate::db::query::plan::planner::sorted_model_indexes(indexes)
 }
 
+#[derive(Clone, Copy)]
+struct CandidateScoringIndex<'a> {
+    contract: SemanticIndexAccessContract,
+    generated: &'a IndexModel,
+}
+
 pub(super) fn evaluate_index_candidate(
     family: AccessChoiceFamily,
     index: &IndexModel,
@@ -44,8 +51,14 @@ pub(super) fn evaluate_index_candidate(
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> CandidateEvaluation {
+    let index_contract = SemanticIndexAccessContract::from_index(*index);
+    let scoring_index = CandidateScoringIndex {
+        contract: index_contract,
+        generated: index,
+    };
+
     if matches!(family, AccessChoiceFamily::Range) && predicate.is_none() && order.is_some() {
-        return evaluate_order_only_range_candidate(index, model, order, grouped);
+        return evaluate_order_only_range_candidate(scoring_index, model, order, grouped);
     }
 
     let Some(predicate) = predicate else {
@@ -57,7 +70,7 @@ pub(super) fn evaluate_index_candidate(
             prefix::evaluate_prefix_candidate(index, schema, predicate),
             model,
             order,
-            index,
+            scoring_index,
             grouped,
         ),
         AccessChoiceFamily::MultiLookup => {
@@ -67,7 +80,7 @@ pub(super) fn evaluate_index_candidate(
             range::evaluate_range_candidate(index, schema, predicate),
             model,
             order,
-            index,
+            scoring_index,
             grouped,
         ),
         AccessChoiceFamily::NonIndex => {
@@ -81,13 +94,19 @@ pub(super) fn evaluate_index_candidate(
 // ordering. The canonical score still carries order compatibility so explain
 // can report why one visible index won the fallback.
 fn evaluate_order_only_range_candidate(
-    index: &IndexModel,
+    scoring_index: CandidateScoringIndex<'_>,
     model: &EntityModel,
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> CandidateEvaluation {
     CandidateEvaluation::Eligible(candidate_score_with_order_compatibility(
-        model, order, index, 0, false, 0, grouped,
+        model,
+        order,
+        scoring_index,
+        0,
+        false,
+        0,
+        grouped,
     ))
 }
 
@@ -95,7 +114,7 @@ fn augment_candidate_with_order_compatibility(
     evaluation: CandidateEvaluation,
     model: &EntityModel,
     order: Option<&OrderSpec>,
-    index: &IndexModel,
+    scoring_index: CandidateScoringIndex<'_>,
     grouped: bool,
 ) -> CandidateEvaluation {
     match evaluation {
@@ -103,7 +122,7 @@ fn augment_candidate_with_order_compatibility(
             CandidateEvaluation::Eligible(candidate_score_with_order_compatibility(
                 model,
                 order,
-                index,
+                scoring_index,
                 score.prefix_len,
                 score.exact,
                 score.range_bound_count,
@@ -120,7 +139,7 @@ fn augment_candidate_with_order_compatibility(
 fn candidate_score_with_order_compatibility(
     model: &EntityModel,
     order: Option<&OrderSpec>,
-    index: &IndexModel,
+    scoring_index: CandidateScoringIndex<'_>,
     prefix_len: usize,
     exact: bool,
     range_bound_count: u8,
@@ -129,10 +148,14 @@ fn candidate_score_with_order_compatibility(
     crate::db::query::plan::planner::AccessCandidateScore::new(
         prefix_len,
         exact,
-        index.predicate().is_some(),
+        scoring_index.contract.is_filtered(),
         range_bound_count,
         crate::db::query::plan::planner::candidate_satisfies_secondary_order(
-            model, order, index, prefix_len, grouped,
+            model,
+            order,
+            scoring_index.generated,
+            prefix_len,
+            grouped,
         ),
     )
 }

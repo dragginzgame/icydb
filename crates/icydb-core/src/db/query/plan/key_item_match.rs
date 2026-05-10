@@ -9,15 +9,6 @@ use crate::{
     value::Value,
 };
 
-/// Return the canonical key-item count for one index model.
-#[must_use]
-pub(in crate::db::query::plan) const fn index_key_item_count(index: &IndexModel) -> usize {
-    match index.key_items() {
-        IndexKeyItemsRef::Fields(fields) => fields.len(),
-        IndexKeyItemsRef::Items(items) => items.len(),
-    }
-}
-
 /// Return the canonical leading key-item for one index model.
 #[must_use]
 pub(in crate::db::query::plan) const fn leading_index_key_item(
@@ -36,30 +27,6 @@ pub(in crate::db::query::plan) const fn leading_index_key_item(
                 None
             } else {
                 Some(items[0])
-            }
-        }
-    }
-}
-
-/// Return the canonical key-item at one stable zero-based slot.
-#[must_use]
-pub(in crate::db::query::plan) const fn index_key_item_at(
-    index: &IndexModel,
-    slot: usize,
-) -> Option<IndexKeyItem> {
-    match index.key_items() {
-        IndexKeyItemsRef::Fields(fields) => {
-            if slot < fields.len() {
-                Some(IndexKeyItem::Field(fields[slot]))
-            } else {
-                None
-            }
-        }
-        IndexKeyItemsRef::Items(items) => {
-            if slot < items.len() {
-                Some(items[slot])
-            } else {
-                None
             }
         }
     }

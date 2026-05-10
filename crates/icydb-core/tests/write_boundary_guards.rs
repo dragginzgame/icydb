@@ -419,7 +419,9 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && order_select.contains("whole_index_ordered_range_scan_from_contract(")
             && order_select.contains("deterministic_secondary_index_order_terms_satisfied(",)
             && order_select.contains("grouped_index_order_terms_satisfied(")
-            && order_select.contains("if !index.has_expression_key_items() {")
+            && order_select
+                .contains("let index_contract = SemanticIndexAccessContract::from_index(*index);")
+            && order_select.contains("if !index_contract.has_expression_key_items() {")
             && !order_select.contains("accepted.generated_index_bridge()")
             && order_select.contains("fn index_range_from_order_for_generated_model_only(")
             && !order_select.contains("fn index_range_from_order("),
@@ -763,6 +765,58 @@ fn runtime_access_capabilities_use_reduced_index_shape_facts() {
             && !planner_compare.contains("SemanticIndexRangeSpec::new(\n            *index")
             && !planner_range.contains("SemanticIndexRangeSpec::new(*index"),
         "selected predicate planner construction must convert chosen index candidates into reduced semantic contracts before building access paths",
+    );
+}
+
+#[test]
+fn access_choice_candidate_scores_use_reduced_index_contract_facts() {
+    let access_path = read_source("src/db/access/path.rs");
+    let evaluator = read_source("src/db/query/plan/access_choice/evaluator/mod.rs");
+    let evaluator_prefix = read_source("src/db/query/plan/access_choice/evaluator/prefix.rs");
+    let evaluator_range = read_source("src/db/query/plan/access_choice/evaluator/range.rs");
+    let planner_ranking = read_source("src/db/query/plan/planner/ranking.rs");
+    let planner_prefix = read_source("src/db/query/plan/planner/prefix.rs");
+    let planner_compare = read_source("src/db/query/plan/planner/compare.rs");
+    let planner_range = read_source("src/db/query/plan/planner/range/extract.rs");
+    let planner_order_select = read_source("src/db/query/plan/planner/order_select.rs");
+
+    assert!(
+        access_path.contains("pub(in crate::db) const fn is_filtered(")
+            && planner_ranking.contains("fn access_candidate_score_from_index_contract(")
+            && planner_ranking.contains("index.is_filtered()")
+            && planner_ranking.contains("selected_index_contract_satisfies_secondary_order(")
+            && evaluator.contains("SemanticIndexAccessContract::from_index(*index)")
+            && evaluator.contains("scoring_index.contract.is_filtered()")
+            && evaluator_prefix.contains("SemanticIndexAccessContract::from_index(*index)")
+            && evaluator_prefix.contains("index_contract.key_arity()")
+            && evaluator_prefix.contains("index_contract.is_filtered()")
+            && evaluator_range.contains("SemanticIndexAccessContract::from_index(*index)")
+            && evaluator_range.contains("index_contract.is_filtered()")
+            && evaluator_range.contains("single_range_compare_bound_count(index_contract")
+            && !evaluator.contains("index.predicate().is_some()")
+            && !evaluator_prefix.contains("index.predicate().is_some()")
+            && !evaluator_prefix.contains("leading_index_key_item")
+            && !evaluator_prefix.contains("index.key_items()")
+            && !evaluator_range.contains("index.predicate().is_some()")
+            && !evaluator_range.contains("leading_index_key_item")
+            && !evaluator_range.contains("index_key_item_count")
+            && !evaluator_range.contains("index_key_item_at")
+            && !evaluator_range.contains("index.fields()")
+            && !evaluator_range.contains("index.is_field_indexable"),
+        "access-choice candidate scoring must derive filtered and arity facts from reduced semantic index contracts instead of reopening generated IndexModel predicates",
+    );
+    assert!(
+        planner_prefix.contains("access_candidate_score_from_index_contract(")
+            && planner_compare.contains("access_candidate_score_from_index_contract(")
+            && planner_range.contains("access_candidate_score_from_index_contract(")
+            && planner_order_select.contains("index_contract.has_expression_key_items()")
+            && !planner_prefix.contains("index.predicate().is_some()")
+            && !planner_compare.contains("index.predicate().is_some()")
+            && !planner_range.contains("index.predicate().is_some()")
+            && !planner_prefix.contains("candidate_satisfies_secondary_order(")
+            && !planner_compare.contains("candidate_satisfies_secondary_order(")
+            && !planner_range.contains("candidate_satisfies_secondary_order("),
+        "planner candidate ranking must score filtered and order-compatibility facts through reduced semantic index contracts",
     );
 }
 

@@ -141,6 +141,11 @@ impl SemanticIndexAccessContract {
     }
 
     #[must_use]
+    pub(in crate::db) const fn is_filtered(self) -> bool {
+        self.predicate_semantics.is_some()
+    }
+
+    #[must_use]
     pub(in crate::db) const fn has_expression_key_items(self) -> bool {
         match self.key_items {
             IndexKeyItemsRef::Fields(_) => false,

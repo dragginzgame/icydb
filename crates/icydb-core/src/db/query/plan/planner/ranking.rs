@@ -247,3 +247,24 @@ pub(in crate::db::query::plan) fn selected_index_contract_satisfies_secondary_or
         prefix_len,
     )
 }
+
+/// Build one planner candidate score from the reduced semantic index contract
+/// when candidate eligibility still carries a temporary generated bridge.
+#[must_use]
+pub(in crate::db::query::plan) fn access_candidate_score_from_index_contract(
+    model: &EntityModel,
+    order: Option<&OrderSpec>,
+    index: SemanticIndexAccessContract,
+    prefix_len: usize,
+    exact: bool,
+    range_bound_count: u8,
+    grouped: bool,
+) -> AccessCandidateScore {
+    AccessCandidateScore::new(
+        prefix_len,
+        exact,
+        index.is_filtered(),
+        range_bound_count,
+        selected_index_contract_satisfies_secondary_order(model, order, index, prefix_len, grouped),
+    )
+}
