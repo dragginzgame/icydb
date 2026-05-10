@@ -15,7 +15,7 @@ use crate::{
             IndexEntry, IndexEntryCorruption, IndexKey, IndexReadContract,
             canonical_index_predicate,
         },
-        predicate::PredicateProgram,
+        predicate::{Predicate, PredicateProgram, normalize, parse_sql_predicate},
         schema::{SchemaIndexInfo, SchemaInfo},
     },
     error::InternalError,
@@ -78,36 +78,18 @@ pub(in crate::db) fn compile_index_membership_predicate_structural(
     ))
 }
 
-fn generated_predicate_program_for_accepted_field_path_index(
-    indexes: &[&'static IndexModel],
+fn accepted_predicate_program_for_accepted_field_path_index(
     accepted_index: &SchemaIndexInfo,
-    entity_path: &'static str,
     row_contract: &StructuralRowContract,
-) -> Result<Option<PredicateProgram>, IndexPlanError> {
-    if accepted_index.predicate_sql().is_none() {
-        return Ok(None);
-    }
+) -> Option<PredicateProgram> {
+    let predicate_sql = accepted_index.predicate_sql()?;
+    let predicate = parse_sql_predicate(predicate_sql)
+        .map_or(Predicate::False, |predicate| normalize(&predicate));
 
-    let index = indexes
-        .iter()
-        .copied()
-        .find(|index| !index.has_expression_key_items() && index.name() == accepted_index.name())
-        .ok_or_else(|| {
-            InternalError::index_plan_index_corruption(format!(
-                "filtered accepted index contract for '{entity_path}' index '{}' requires generated predicate bridge",
-                accepted_index.name(),
-            ))
-        })?;
-
-    compile_index_membership_predicate_structural(entity_path, index, row_contract)
-        .map(Some)
-        .ok_or_else(|| {
-            InternalError::index_plan_index_corruption(format!(
-                "filtered accepted index contract for '{entity_path}' index '{}' requires generated predicate program",
-                accepted_index.name(),
-            ))
-            .into()
-        })
+    Some(PredicateProgram::compile_with_row_contract(
+        row_contract,
+        &predicate,
+    ))
 }
 
 fn expression_indexes(model: &'static EntityModel) -> Vec<&'static IndexModel> {
@@ -306,12 +288,8 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
         Vec::with_capacity(schema_info.field_path_indexes().len() + expression_indexes.len());
 
     for accepted_index in schema_info.field_path_indexes() {
-        let predicate_program = generated_predicate_program_for_accepted_field_path_index(
-            model.indexes(),
-            accepted_index,
-            entity_path,
-            row_contract,
-        )?;
+        let predicate_program =
+            accepted_predicate_program_for_accepted_field_path_index(accepted_index, row_contract);
         plan_accepted_field_path_index_mutation_for_slot_reader_structural(
             &mut groups,
             entity_path,

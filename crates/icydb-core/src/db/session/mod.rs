@@ -368,11 +368,11 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 2: planner-visible field-path indexes are accepted schema
         // contracts once the recovered store is query-visible. The remaining
-        // generated candidate bridge is expression-index only.
+        // generated candidates are expression-index only.
         let visible_indexes = VisibleIndexes::accepted_schema_visible(model.indexes(), schema_info);
         debug_assert!(
             visible_indexes
-                .generated_candidate_bridge_indexes()
+                .generated_expression_candidate_indexes()
                 .iter()
                 .all(|index| index.has_expression_key_items()),
         );

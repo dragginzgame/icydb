@@ -173,7 +173,7 @@ impl<C: CanisterKind> DbSession<C> {
                     VisibleIndexes::accepted_schema_visible(model.indexes(), schema_info);
                 debug_assert!(
                     visible_indexes
-                        .generated_candidate_bridge_indexes()
+                        .generated_expression_candidate_indexes()
                         .iter()
                         .all(|index| index.has_expression_key_items()),
                 );

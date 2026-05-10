@@ -394,10 +394,11 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && !plan_mod.contains("generated_index_bridge")
             && plan_mod.contains("accepted_field_path_indexes: Vec<AcceptedPlannerFieldPathIndex>")
             && plan_mod.contains("accepted_schema_info: Option<SchemaInfo>")
-            && plan_mod.contains("generated_candidate_bridge_indexes: Cow")
+            && plan_mod.contains("generated_expression_candidate_indexes: Cow")
             && plan_mod.contains(
-                "pub(in crate::db) fn generated_candidate_bridge_indexes(&self)",
+                "pub(in crate::db) fn generated_expression_candidate_indexes(&self)",
             )
+            && !plan_mod.contains("generated_candidate_bridge_indexes")
             && plan_mod.contains("pub(in crate::db) const fn accepted_schema_info(")
             && plan_mod.contains("accepted_schema_info: Some(schema_info.clone())")
             && plan_mod.contains("AcceptedPlannerFieldPathIndex::from_schema_index")
@@ -515,12 +516,13 @@ fn runtime_access_choice_projection_uses_accepted_visible_indexes() {
                 "fn project_access_choice_explain_snapshot_with_accepted_indexes_and_schema(",
             )
             && access_choice
-                .contains("generated_candidate_bridge_indexes: &[&'static IndexModel]",)
+                .contains("generated_expression_candidate_indexes: &[&'static IndexModel]",)
+            && !access_choice.contains("generated_candidate_bridge_indexes")
             && access_choice.contains("fn semantic_candidate_indexes_from_authority(")
             && access_choice
                 .contains(".map(AcceptedPlannerFieldPathIndex::semantic_access_contract)")
             && access_choice.contains("plan_access_selection_with_order_and_semantic_indexes(")
-            && pipeline.contains("visible_indexes.generated_candidate_bridge_indexes()")
+            && pipeline.contains("visible_indexes.generated_expression_candidate_indexes()")
             && pipeline.contains("rerank_access_plan_by_residual_burden_with_accepted_indexes(")
             && access_plan
                 .contains("fn finalize_access_choice_for_model_with_accepted_indexes_and_schema(",)
@@ -640,7 +642,7 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
     assert!(
         index_plan.contains("IndexKey::new_from_slots_with_contract(")
             && index_plan.contains("for accepted_index in schema_info.field_path_indexes()")
-            && index_plan.contains("fn generated_predicate_program_for_accepted_field_path_index(")
+            && index_plan.contains("fn accepted_predicate_program_for_accepted_field_path_index(")
             && index_plan.contains("fn expression_indexes(")
             && index_plan.contains(".filter(|index| index.has_expression_key_items())")
             && index_plan
@@ -656,8 +658,10 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
             && index_plan.contains("let index_is_unique = accepted_index.unique();")
             && index_plan.contains("PredicateProgram::compile_with_row_contract(")
             && index_plan.contains("row_contract,")
+            && !index_plan
+                .contains("fn generated_predicate_program_for_accepted_field_path_index(")
             && !index_plan.contains("IndexKey::new_from_slots("),
-        "forward-index mutation planning must iterate accepted field-path index contracts directly while keeping generated indexes only for expression indexes and filtered predicate bridging",
+        "forward-index mutation planning must iterate accepted field-path index contracts directly while keeping generated indexes only for expression indexes",
     );
     assert!(
         index_plan_read.contains("index: IndexReadContract<'_>")
@@ -681,6 +685,23 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
             && commit_prepare.contains("index.has_expression_key_items()")
             && !commit_prepare.contains("authority.model.indexes().is_empty()"),
         "commit preflight must carry accepted schema info beside the accepted row contract and gate field-path forward-index planning on accepted index contracts",
+    );
+}
+
+#[test]
+fn forward_index_write_predicates_use_accepted_contracts() {
+    let index_plan = read_source("src/db/index/plan/mod.rs");
+
+    assert!(
+        index_plan.contains("fn accepted_predicate_program_for_accepted_field_path_index(")
+            && index_plan.contains("parse_sql_predicate(predicate_sql)")
+            && index_plan.contains("map_or(Predicate::False")
+            && index_plan.contains("PredicateProgram::compile_with_row_contract(")
+            && !index_plan.contains("requires generated predicate bridge")
+            && !index_plan.contains("requires generated predicate program")
+            && !index_plan
+                .contains("fn generated_predicate_program_for_accepted_field_path_index("),
+        "accepted field-path write predicates must compile from accepted predicate SQL instead of generated predicate metadata",
     );
 }
 

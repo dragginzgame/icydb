@@ -37,7 +37,7 @@ fn assert_ready_visible_index_bridge_contracts(
     );
     assert_eq!(
         ready_visible_indexes
-            .generated_candidate_bridge_indexes()
+            .generated_expression_candidate_indexes()
             .iter()
             .filter(|index| !index.has_expression_key_items())
             .count(),
@@ -760,7 +760,7 @@ fn session_non_ready_secondary_indexes_are_hidden_from_planning_and_execution() 
         .expect("non-ready store should still resolve planner-visible index slice");
     assert!(
         visible_indexes
-            .generated_candidate_bridge_indexes()
+            .generated_expression_candidate_indexes()
             .is_empty(),
         "planner boundary must hide non-ready secondary indexes before access selection",
     );

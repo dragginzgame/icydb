@@ -173,11 +173,11 @@ pub(in crate::db::query) fn plan_access_selection_with_order(
 }
 
 // Runtime planner entrypoint that preserves accepted field-path index
-// contracts while generated candidate bridges remain for expression-index and
-// predicate-bridge lanes that do not yet have accepted contracts.
+// contracts while generated candidates remain for expression indexes until
+// accepted expression-index contracts exist.
 pub(in crate::db::query) fn plan_access_selection_with_order_and_accepted_indexes(
     model: &EntityModel,
-    generated_candidate_bridge_indexes: &[&'static IndexModel],
+    generated_expression_candidate_indexes: &[&'static IndexModel],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
@@ -185,7 +185,7 @@ pub(in crate::db::query) fn plan_access_selection_with_order_and_accepted_indexe
     grouped: bool,
 ) -> Result<PlannedAccessSelection, PlannerError> {
     let candidate_indexes = semantic_candidate_indexes_from_authority(
-        generated_candidate_bridge_indexes,
+        generated_expression_candidate_indexes,
         accepted_field_path_indexes,
     );
     plan_access_selection_with_order_from_authority(
@@ -237,7 +237,7 @@ fn semantic_candidate_indexes_from_generated(
 }
 
 fn semantic_candidate_indexes_from_authority(
-    generated_candidate_bridge_indexes: &[&'static IndexModel],
+    generated_expression_candidate_indexes: &[&'static IndexModel],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
 ) -> Vec<SemanticIndexAccessContract> {
     let mut indexes = accepted_field_path_indexes
@@ -245,7 +245,7 @@ fn semantic_candidate_indexes_from_authority(
         .map(AcceptedPlannerFieldPathIndex::semantic_access_contract)
         .collect::<Vec<_>>();
     indexes.extend(
-        generated_candidate_bridge_indexes
+        generated_expression_candidate_indexes
             .iter()
             .copied()
             .map(|index| SemanticIndexAccessContract::from_index(*index)),

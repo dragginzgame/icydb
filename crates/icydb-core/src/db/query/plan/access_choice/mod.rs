@@ -52,7 +52,7 @@ fn semantic_candidate_indexes_from_generated(
 }
 
 fn semantic_candidate_indexes_from_authority(
-    generated_candidate_bridge_indexes: &[&'static IndexModel],
+    generated_expression_candidate_indexes: &[&'static IndexModel],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
 ) -> Vec<SemanticIndexAccessContract> {
     let mut indexes = accepted_field_path_indexes
@@ -60,7 +60,7 @@ fn semantic_candidate_indexes_from_authority(
         .map(AcceptedPlannerFieldPathIndex::semantic_access_contract)
         .collect::<Vec<_>>();
     indexes.extend(
-        generated_candidate_bridge_indexes
+        generated_expression_candidate_indexes
             .iter()
             .copied()
             .map(|index| SemanticIndexAccessContract::from_index(*index)),
@@ -98,7 +98,7 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes_and_sch
 #[must_use]
 pub(in crate::db) fn project_access_choice_explain_snapshot_with_accepted_indexes_and_schema(
     model: &EntityModel,
-    generated_candidate_bridge_indexes: &[&'static IndexModel],
+    generated_expression_candidate_indexes: &[&'static IndexModel],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
@@ -106,7 +106,7 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_accepted_indexe
     project_access_choice_explain_snapshot_from_authority(
         model,
         semantic_candidate_indexes_from_authority(
-            generated_candidate_bridge_indexes,
+            generated_expression_candidate_indexes,
             accepted_field_path_indexes,
         )
         .as_slice(),
@@ -298,7 +298,7 @@ pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_indexes(
 #[must_use]
 pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_accepted_indexes(
     model: &EntityModel,
-    generated_candidate_bridge_indexes: &[&'static IndexModel],
+    generated_expression_candidate_indexes: &[&'static IndexModel],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
@@ -306,7 +306,7 @@ pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_accepted_
     rerank_access_plan_by_residual_burden_from_authority(
         model,
         semantic_candidate_indexes_from_authority(
-            generated_candidate_bridge_indexes,
+            generated_expression_candidate_indexes,
             accepted_field_path_indexes,
         )
         .as_slice(),
