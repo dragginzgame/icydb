@@ -68,13 +68,22 @@ Requirements:
 
 Method manifest (include exactly in run metadata):
 
-* `method_version = CA-1.3`
+* `method_version = CA-1.4`
 * `runtime_metrics_generator = scripts/audit/runtime_metrics.sh`
 * `domain_taxonomy = D-2`
 * `flow_axis_model = F-1`
 * `switch_site_rule = S-1`
 * `risk_rubric = R-1`
 * `trend_filter_rule = T-1`
+
+CA-1.4 changes from CA-1.3:
+
+* introduces explicit completion status (`complete`, `partial`, `blocked`)
+* requires a status row for every step, including skipped classified sections
+* separates generator-backed mechanical risk from full overall complexity risk
+* adds a mandatory issue ledger for follow-up actions
+* adds explicit artifact naming for enum, concept, flow, invalidating-signal,
+  and risk-bucket outputs
 
 Comparability gate:
 
@@ -88,6 +97,30 @@ Comparability gate:
   * flow axis set/model
   * domain taxonomy mapping
   * switch-site rule
+
+Completion gate:
+
+* `complete` = STEP -1 through STEP 9 all have produced tables or explicit
+  `N/A` rows allowed by this method, and STEP 7 includes all risk buckets.
+* `partial` = STEP -1 completed, but one or more non-mechanical/classified
+  steps are blocked or intentionally deferred.
+* `blocked` = STEP -1 failed or the runtime metrics dataset is missing.
+* A `partial` run MUST NOT publish an unqualified "overall complexity risk
+  index"; it must publish `mechanical-only risk index` or `partial risk index`
+  and list missing sections in the report preamble.
+* A `blocked` run MUST NOT compare against a baseline except to say the run is
+  non-comparable.
+* Silent omission is forbidden: every step from STEP -1 through STEP 9 must
+  appear in the report with status `PASS`, `N/A`, or `BLOCKED`.
+
+Generator-governance note:
+
+* The preferred generator is the canonical method artifact. Codex may run its
+  embedded Python locally for audit extraction when that Python does not become
+  committed project scripts, CI, tests, build helpers, or repo tooling. If the
+  generator cannot run for environmental reasons, mark STEP -1 `BLOCKED` and
+  do not substitute ad-hoc extraction unless the report is explicitly marked
+  `non-comparable`.
 
 ---
 
@@ -111,6 +144,46 @@ crosscutting audits.
 
 Preferred generator: `scripts/audit/runtime_metrics.sh`
 
+Report preamble MUST include:
+
+| Field [M] | Value |
+| ---- | ---- |
+| `method_version` | `CA-1.4` |
+| `completion_status` | `complete` / `partial` / `blocked` |
+| `risk_index_kind` | `overall` / `partial` / `mechanical-only` / `N/A` |
+| `baseline_report` | path or `N/A` |
+| `comparability_status` | `comparable` / `comparable with caveat` / `non-comparable` |
+| `missing_sections` | comma-separated step IDs or `none` |
+
+Every report MUST include this step-status table before conclusions:
+
+| Step [M] | Status [C] | Evidence Artifact [M/C] | Comparability Impact [C] |
+| ---- | ---- | ---- | ---- |
+| STEP -1 |  |  |  |
+| STEP 0 |  |  |  |
+| STEP 1 |  |  |  |
+| STEP 2 |  |  |  |
+| STEP 2A |  |  |  |
+| STEP 3 |  |  |  |
+| STEP 4 |  |  |  |
+| STEP 4A |  |  |  |
+| STEP 4B |  |  |  |
+| STEP 5 |  |  |  |
+| STEP 5A |  |  |  |
+| STEP 6 |  |  |  |
+| STEP 7 |  |  |  |
+| STEP 8 |  |  |  |
+| STEP 8A |  |  |  |
+| STEP 8B |  |  |  |
+| STEP 9 |  |  |  |
+
+Allowed statuses:
+
+* `PASS`: table and supporting artifact/evidence are present.
+* `N/A`: method explicitly allows no prior data or no matching concept.
+* `BLOCKED`: evidence could not be produced; reason and comparability impact
+  are mandatory.
+
 Required dataset columns:
 
 * `module [M]`
@@ -123,6 +196,31 @@ Required dataset columns:
 * `max_branch_depth [M]`
 * `fanout [M]`
 * `branch_sites_total [D]`
+
+Required report artifacts:
+
+| Artifact [M] | Producer [M/C] | Required When [M] | Purpose [M] |
+| ---- | ---- | ---- | ---- |
+| `runtime-metrics.tsv` | `scripts/audit/runtime_metrics.sh` | every run | STEP -1 source dataset |
+| `module-branch-hotspots.tsv` | derived from `runtime-metrics.tsv` | every run | top branch/fanout review |
+| `enum-surface.tsv` | semi-mechanical extraction | complete run | STEP 1 variant and switch-site evidence |
+| `enum-switch-sites.tsv` | semi-mechanical extraction | complete run | STEP 1 site identities |
+| `function-branch-hotspots.tsv` | semi-mechanical extraction | complete run | STEP 2 function-level hotspots |
+| `concept-branch-summary.tsv` | semi-mechanical extraction | complete run | STEP 2A concept branch modules |
+| `concept-branch-map.tsv` | semi-mechanical extraction | complete run | STEP 2A site/module evidence |
+| `flow-constraint-ledger.tsv` | classified with evidence anchors | complete run | STEP 3 constraints |
+| `flow-counts.tsv` | classified/derived | complete run | STEP 3 effective flow totals |
+| `semantic-spread.tsv` | classified | complete run | STEP 4 role-aware concept spread |
+| `ownership-drift.tsv` | classified | complete run | STEP 4A owner trend |
+| `concentration-ratios.tsv` | derived from artifacts | complete run | STEP 5A concentration trend |
+| `invalidating-signals.tsv` | classified | complete run | STEP 8B noise handling |
+| `risk-buckets.tsv` | rubric-derived | every non-blocked run | STEP 7 scoring evidence |
+| `issue-ledger.tsv` | classified | every non-blocked run | STEP 9 follow-up accountability |
+
+If an artifact is missing, the report MUST include an "Artifact Coverage" table:
+
+| Artifact [M] | Status [C] | Reason [C] | Comparability Impact [C] |
+| ---- | ---- | ---- | ---- |
 
 ---
 
@@ -206,6 +304,10 @@ Produce:
 If no prior comparable report exists, mark previous values as `N/A` and treat
 this run as the new baseline.
 
+Do not replace this table with a shorter narrative summary. If a classified
+baseline metric cannot be recovered from the previous report, keep the row,
+set previous to `N/A`, and add a one-line reason in the step-status table.
+
 ---
 
 # STEP 1 — Variant Surface Growth + Branch Multiplier
@@ -238,6 +340,16 @@ Produce:
 | Enum [M] | Variants [M] | Switch Sites [M] | Branch Multiplier [D] | Decision Owners [C] | Domain Scope [C] | Mixed Domains? [C] | Growth Risk [C] |
 | ---- | ----: | ----: | ----: | ----: | ---- | ---- | ---- |
 
+Switch-site evidence requirement:
+
+* The report may show only the summary table, but
+  `enum-switch-sites.tsv` MUST list each counted site as
+  `enum`, `module`, `function`, `line`, `site_kind`, `included_reason`.
+* Excluded candidates that materially affect interpretation MUST be listed in
+  an `excluded_reason` note or a separate section.
+* If direct enum matching cannot be established mechanically, mark the row
+  `semi-mechanical` and cite the searched symbols.
+
 Definitions:
 
 * `branch_multiplier = variants × switch_sites`.
@@ -263,6 +375,13 @@ Produce:
 
 | Function [M] | Module [M] | Branch Layers [D] | match_count [M] | match_arms_total [M] | avg_match_arms [D] | if_chain_count [M] | max_branch_depth [M] | Axis Count [C] | Previous Branch Layers [M] | Delta [D] | Domains Mixed [C] | Risk [C] |
 | ---- | ---- | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ---- |
+
+Minimum row rule:
+
+* Include at least the top 15 functions by `branch_layers` or all functions
+  above the hotspot threshold, whichever is larger.
+* If function-level extraction is unavailable, STEP 2 is `BLOCKED`; do not
+  substitute module-level branch sites as function-level evidence.
 
 Axis coupling checklist (classified):
 
@@ -338,6 +457,8 @@ Rules:
 
 * Every removed combination MUST map to exactly one ledger row.
 * If ledger evidence is incomplete, mark section `low confidence` and run `non-comparable`.
+* If no constraint ledger is produced, STEP 3 is `BLOCKED`; do not publish
+  effective-flow totals inferred only from prose.
 
 Flag:
 
@@ -546,6 +667,19 @@ Produce:
 
 `overall_index = weighted_sum / weight_sum`
 
+Risk-index publication rule:
+
+* If every bucket is scored from complete evidence, label the result
+  `overall complexity risk index`.
+* If one or more classified buckets are blocked, label the result
+  `partial complexity risk index`, omit blocked buckets from the denominator,
+  and list omitted weights.
+* If only STEP -1/STEP 0 mechanical metrics are available, label the result
+  `mechanical-only complexity signal`; do not express it as a 1-10 overall
+  index.
+* Every bucket score must cite at least one source row from an artifact or
+  section table.
+
 Interpretation:
 
 * 1-3 = low risk / structurally healthy
@@ -615,6 +749,29 @@ If any signal is present, include explicit impact in comparability note.
 
 ---
 
+# STEP 9 — Issue Ledger (Mandatory)
+
+Evidence mode: `classified`
+
+Convert the highest-risk findings into owner-scoped actions. This prevents the
+audit from ending as a score-only narrative.
+
+Produce:
+
+| Finding [C] | Anchor Metric [M/D] | Owner Boundary [C] | Trigger Threshold [M/D] | Action [C] | Next Check [M/C] |
+| ---- | ---- | ---- | ---- | ---- | ---- |
+
+Rules:
+
+* Include at least one row for every `Risk = High` finding.
+* Include at least the top three medium-or-higher findings when no high-risk
+  finding exists.
+* Each action must name a boundary to protect or simplify; avoid broad
+  instructions like "reduce complexity".
+* Each row must cite a concrete metric, threshold, or delta.
+
+---
+
 # Required Summary
 
 0. Run metadata + comparability note
@@ -629,6 +786,7 @@ If any signal is present, include explicit impact in comparability note.
 9. Trend-interpretation filter outcomes
 10. Complexity trend table
 11. Verification readout (`PASS` / `FAIL` / `BLOCKED`)
+12. Issue ledger summary
 
 Summary bullet rule:
 
@@ -643,8 +801,9 @@ Summary bullet rule:
 Run metadata must include:
 
 * compared baseline report path (`baseline = most recent comparable run`)
-* full method manifest tags (`CA-1.3`, `D-2`, `F-1`, `S-1`, `R-1`, `T-1`)
+* full method manifest tags (`CA-1.4`, `D-2`, `F-1`, `S-1`, `R-1`, `T-1`)
 * comparability status (`comparable` or `non-comparable` with reason)
+* completion status and risk-index kind
 
 ---
 

@@ -94,7 +94,7 @@ where
         return resolve_covering_projection_components_for_index_bounds(
             resolve_store_for_index(spec.index())?,
             entity_tag,
-            spec.index(),
+            spec.scan_contract(),
             (spec.lower(), spec.upper()),
             continuation,
             limit,
@@ -111,7 +111,7 @@ where
         return resolve_covering_projection_components_for_index_bounds(
             resolve_store_for_index(spec.index())?,
             entity_tag,
-            spec.index(),
+            spec.scan_contract(),
             (spec.lower(), spec.upper()),
             continuation,
             limit,
@@ -133,7 +133,7 @@ where
 fn resolve_covering_projection_components_for_index_bounds(
     store: StoreHandle,
     entity_tag: EntityTag,
-    index: &IndexModel,
+    index: crate::db::access::LoweredIndexScanContract,
     bounds: (
         &std::ops::Bound<crate::db::index::RawIndexKey>,
         &std::ops::Bound<crate::db::index::RawIndexKey>,

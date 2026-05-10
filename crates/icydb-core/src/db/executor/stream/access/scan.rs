@@ -12,7 +12,7 @@ use crate::{
         data::{DataKey, RawDataKey},
         direction::Direction,
         executor::{
-            LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey,
+            LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract, LoweredKey,
             record_row_check_index_entry_scanned, record_row_check_index_membership_key_decoded,
             record_row_check_index_membership_multi_key_entry,
             record_row_check_index_membership_single_key_entry,
@@ -24,7 +24,6 @@ use crate::{
         registry::StoreHandle,
     },
     error::InternalError,
-    model::index::IndexModel,
     types::EntityTag,
 };
 use std::{ops::Bound, sync::Arc};
@@ -110,7 +109,7 @@ impl IndexScan {
         Self::resolve_data_values_in_raw_range_limited(
             store,
             entity_tag,
-            spec.index(),
+            spec.scan_contract(),
             spec.lower(),
             spec.upper(),
             IndexScanContinuationInput::new(None, direction),
@@ -124,7 +123,7 @@ impl IndexScan {
     pub(in crate::db::executor) fn components_structural(
         store: StoreHandle,
         entity_tag: EntityTag,
-        index: &IndexModel,
+        index: LoweredIndexScanContract,
         lower: &Bound<LoweredKey>,
         upper: &Bound<LoweredKey>,
         continuation: IndexScanContinuationInput<'_>,
@@ -182,7 +181,7 @@ impl IndexScan {
         Self::resolve_data_values_in_raw_range_limited(
             store,
             entity_tag,
-            spec.index(),
+            spec.scan_contract(),
             spec.lower(),
             spec.upper(),
             continuation,
@@ -196,7 +195,7 @@ impl IndexScan {
     pub(in crate::db::executor) fn chunk_structural(
         store: StoreHandle,
         entity_tag: EntityTag,
-        index: &IndexModel,
+        index: LoweredIndexScanContract,
         lower: &Bound<LoweredKey>,
         upper: &Bound<LoweredKey>,
         continuation: IndexScanContinuationInput<'_>,
@@ -220,7 +219,7 @@ impl IndexScan {
     fn resolve_data_values_in_raw_range_limited(
         store: StoreHandle,
         entity_tag: EntityTag,
-        index: &IndexModel,
+        index: LoweredIndexScanContract,
         lower: &Bound<LoweredKey>,
         upper: &Bound<LoweredKey>,
         continuation: IndexScanContinuationInput<'_>,
@@ -269,7 +268,7 @@ impl IndexScan {
     fn resolve_chunk(
         store: StoreHandle,
         entity_tag: EntityTag,
-        index: &IndexModel,
+        index: LoweredIndexScanContract,
         lower: &Bound<LoweredKey>,
         upper: &Bound<LoweredKey>,
         continuation: IndexScanContinuationInput<'_>,
@@ -334,7 +333,7 @@ impl IndexScan {
     #[expect(clippy::too_many_arguments)]
     fn decode_index_entry_and_push(
         entity: EntityTag,
-        index: &IndexModel,
+        index: LoweredIndexScanContract,
         raw_key: &RawIndexKey,
         value: &RawIndexEntry,
         out: &mut Vec<DataKey>,
@@ -400,7 +399,7 @@ impl IndexScan {
             }
         }
 
-        if index.is_unique() && decoded_keys != 1 {
+        if index.unique() && decoded_keys != 1 {
             return Err(InternalError::unique_index_entry_single_key_required());
         }
 
@@ -410,7 +409,7 @@ impl IndexScan {
     #[expect(clippy::too_many_arguments)]
     fn decode_index_entry_and_push_with_components(
         entity: EntityTag,
-        index: &IndexModel,
+        index: LoweredIndexScanContract,
         raw_key: &RawIndexKey,
         value: &RawIndexEntry,
         out: &mut IndexComponentRows,
@@ -497,7 +496,7 @@ impl IndexScan {
             }
         }
 
-        if index.is_unique() && decoded_keys != 1 {
+        if index.unique() && decoded_keys != 1 {
             return Err(InternalError::unique_index_entry_single_key_required());
         }
 

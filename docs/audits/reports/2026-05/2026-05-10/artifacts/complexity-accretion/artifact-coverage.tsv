@@ -1,0 +1,18 @@
+artifact	status	reason	comparability_impact
+runtime-metrics.tsv	PASS	canonical scripts/audit/runtime_metrics.sh completed after AGENTS.md clarified Codex-local Python usage	non-comparable with CA-1.3 method tag
+runtime-metrics-shell.tsv	N/A	earlier fallback artifact retained as superseded context	ignored
+module-branch-hotspots.tsv	PASS	derived from canonical runtime-metrics.tsv	non-comparable with CA-1.3 method tag
+module-branch-hotspots-shell.tsv	N/A	earlier fallback artifact retained as superseded context	ignored
+enum-surface.tsv	BLOCKED	semi-mechanical enum extraction not run in this partial audit	partial run
+enum-switch-sites.tsv	BLOCKED	semi-mechanical enum switch-site extraction not run in this partial audit	partial run
+function-branch-hotspots.tsv	BLOCKED	function-level extraction not run in this partial audit	partial run
+concept-branch-summary.tsv	BLOCKED	concept branch extraction not run in this partial audit	partial run
+concept-branch-map.tsv	BLOCKED	concept branch map extraction not run in this partial audit	partial run
+flow-constraint-ledger.tsv	BLOCKED	classified flow ledger not produced in this partial audit	partial run
+flow-counts.tsv	BLOCKED	effective flow totals require the missing flow ledger	partial run
+semantic-spread.tsv	BLOCKED	classified semantic spread table not produced in this partial audit	partial run
+ownership-drift.tsv	BLOCKED	classified ownership drift table not produced in this partial audit	partial run
+concentration-ratios.tsv	PASS	branch and fanout concentration computed from canonical runtime metrics	non-comparable with CA-1.3 method tag
+invalidating-signals.tsv	PASS	invalidating signals recorded in report body	non-comparable
+risk-buckets.tsv	PASS	mechanical-only risk signal recorded from canonical runtime metrics, not an overall score	partial run
+issue-ledger.tsv	PASS	owner-scoped follow-up rows recorded from canonical hotspots	partial run

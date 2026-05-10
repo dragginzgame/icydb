@@ -377,6 +377,7 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
     let order_select = read_source("src/db/query/plan/planner/order_select.rs");
     let plan_mod = read_source("src/db/query/plan/mod.rs");
     let plan_mod_compact = compact_source(&plan_mod);
+    let executor_explain = read_source("src/db/executor/explain/mod.rs");
     let session_cache = read_source("src/db/session/query/cache.rs");
     let session_cache_compact = compact_source(&session_cache);
     let session_mod = read_source("src/db/session/mod.rs");
@@ -442,6 +443,16 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && !session_mod.contains("fn visible_indexes_for_store_model("),
         "session explain planning must resolve visible indexes through accepted schema metadata",
     );
+    assert!(
+        executor_explain.contains("fn finalize_explain_access_choice_for_visible_indexes(")
+            && executor_explain.contains("visible_indexes: &VisibleIndexes<'_>,")
+            && executor_explain.contains("fn finalize_explain_access_choice_for_model_only(")
+            && executor_explain.contains("explain_execution_for_model_only")
+            && executor_explain.contains("explain_execution_with_visible_indexes(visible_indexes)")
+            && !executor_explain.contains("fn finalize_explain_access_choice_for_visibility(")
+            && !executor_explain.contains("None => self.model().indexes()"),
+        "runtime explain access-choice finalization must use caller-resolved visible indexes, keeping generated model indexes only on the explicit model-only explain lane",
+    );
 }
 
 #[test]
@@ -503,6 +514,9 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
     let index_plan = read_source("src/db/index/plan/mod.rs");
     let index_plan_read = read_source("src/db/index/plan/read.rs");
     let index_readers = read_source("src/db/index/readers.rs");
+    let access_lowering = read_source("src/db/access/lowering.rs");
+    let index_scan = read_source("src/db/executor/stream/access/scan.rs");
+    let physical_access = read_source("src/db/executor/stream/access/physical.rs");
     let unique_plan = read_source("src/db/index/plan/unique.rs");
     let structural_row = read_source("src/db/data/structural_row.rs");
     let predicate_runtime = read_source("src/db/predicate/runtime/mod.rs");
@@ -536,12 +550,16 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
         "cursor anchor and predicate index-key paths must use accepted schema/index/row-contract slot authority instead of generated model slot lookup",
     );
     assert!(
-        entity_authority
-            .contains("field-path index cursor anchor derivation requires accepted index contract")
+        entity_authority.contains("index_range_anchor_key_from_slot_ref_reader")
+            && entity_authority.contains(
+                "field-path index cursor anchor derivation requires accepted index contract"
+            )
             && entity_authority.contains(".field_path_indexes()")
             && entity_authority
                 .contains("IndexKey::new_from_slot_ref_reader_with_accepted_field_path_index(")
-            && entity_authority.contains("if index.has_expression_key_items() {"),
+            && entity_authority.contains("let index = index_range.index();")
+            && entity_authority.contains("if index.has_expression_key_items() {")
+            && !entity_authority.contains("fn index_key_from_slot_ref_reader"),
         "runtime field-path cursor anchors must use accepted index contracts while expression indexes stay on the explicit generated deferred lane",
     );
     assert!(
@@ -567,6 +585,18 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
         "preflight index readers must consume reduced accepted index contract facts instead of generated IndexModel definitions",
     );
     assert!(
+        access_lowering.contains("pub(in crate::db) struct LoweredIndexScanContract")
+            && access_lowering.contains("scan_contract: LoweredIndexScanContract")
+            && access_lowering.contains("pub(in crate::db) const fn scan_contract(")
+            && index_scan.contains("index: LoweredIndexScanContract")
+            && index_scan.contains("spec.scan_contract()")
+            && index_scan.contains("index.unique()")
+            && index_scan.contains("index.name()")
+            && physical_access.contains("index: LoweredIndexScanContract")
+            && physical_access.contains("spec.scan_contract()"),
+        "lowered executor scan specs must reduce generated index models to scan facts after raw bounds are materialized",
+    );
+    assert!(
         unique_plan.contains("IndexKey::new_from_slots_with_contract(")
             && unique_plan.contains("accepted_index: Option<&SchemaIndexInfo>")
             && unique_plan.contains("read_contract: IndexReadContract<'_>")
@@ -580,8 +610,14 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
             && commit_prepare.contains("accepted_commit_schema_contracts(")
             && commit_prepare.contains("SchemaInfo::from_accepted_snapshot_for_model(")
             && commit_prepare.contains("&schema_contracts.schema_info")
-            && commit_prepare.contains("&schema_contracts.row_contract"),
-        "commit preflight must carry accepted schema info beside the accepted row contract before forward-index planning",
+            && commit_prepare.contains("&schema_contracts.row_contract")
+            && commit_prepare.contains("has_accepted_field_path_indexes")
+            && commit_prepare
+                .contains("schema_contracts.schema_info.field_path_indexes().is_empty()")
+            && commit_prepare.contains("has_deferred_expression_indexes")
+            && commit_prepare.contains("index.has_expression_key_items()")
+            && !commit_prepare.contains("authority.model.indexes().is_empty()"),
+        "commit preflight must carry accepted schema info beside the accepted row contract and gate field-path forward-index planning on accepted index contracts",
     );
     assert!(
         predicate_runtime.contains("slots.field_leaf_codec(field_slot)")

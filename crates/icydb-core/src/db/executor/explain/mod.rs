@@ -179,57 +179,79 @@ impl StructuralQuery {
             .map(|diagnostics| diagnostics.render_text_verbose())
     }
 
-    // Freeze one explain-only access-choice snapshot from the effective
-    // planner-visible index slice before building descriptor diagnostics.
-    fn finalize_explain_access_choice_for_visibility(
+    // Freeze one explain-only access-choice snapshot from accepted
+    // planner-visible indexes before building descriptor diagnostics.
+    fn finalize_explain_access_choice_for_visible_indexes(
         &self,
         plan: &mut AccessPlannedQuery,
-        visible_indexes: Option<&VisibleIndexes<'_>>,
+        visible_indexes: &VisibleIndexes<'_>,
     ) {
-        let visible_indexes = match visible_indexes {
-            Some(visible_indexes) => visible_indexes.as_slice(),
-            None => self.model().indexes(),
-        };
-
-        plan.finalize_access_choice_for_model_only_with_indexes(self.model(), visible_indexes);
+        plan.finalize_access_choice_for_model_only_with_indexes(
+            self.model(),
+            visible_indexes.as_slice(),
+        );
     }
 
-    // Build one execution descriptor after resolving the caller-visible index
-    // slice so text/json explain surfaces do not each duplicate plan assembly.
-    fn explain_execution_descriptor_for_visibility(
+    // Freeze one explicit model-only access-choice snapshot for standalone
+    // query explain surfaces that intentionally do not have accepted runtime
+    // schema authority.
+    fn finalize_explain_access_choice_for_model_only(&self, plan: &mut AccessPlannedQuery) {
+        plan.finalize_access_choice_for_model_only_with_indexes(
+            self.model(),
+            self.model().indexes(),
+        );
+    }
+
+    // Build one explicit model-only execution descriptor for standalone query
+    // surfaces that are not bound to a recovered store/accepted schema.
+    fn explain_execution_descriptor_for_model_only(
         &self,
-        visible_indexes: Option<&VisibleIndexes<'_>>,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        let mut plan = match visible_indexes {
-            Some(visible_indexes) => self.build_plan_with_visible_indexes(visible_indexes)?,
-            None => self.build_plan()?,
-        };
-        self.finalize_explain_access_choice_for_visibility(&mut plan, visible_indexes);
+        let mut plan = self.build_plan()?;
+        self.finalize_explain_access_choice_for_model_only(&mut plan);
 
         self.explain_execution_descriptor_from_model_only_plan(&plan)
     }
 
-    // Render one verbose execution payload after resolving the caller-visible
-    // index slice exactly once at the structural query boundary.
-    fn explain_execution_verbose_for_visibility(
+    // Build one execution descriptor using the caller-resolved accepted visible
+    // indexes for runtime/session explain.
+    fn explain_execution_descriptor_for_visible_indexes(
         &self,
-        visible_indexes: Option<&VisibleIndexes<'_>>,
-    ) -> Result<String, QueryError> {
-        let mut plan = match visible_indexes {
-            Some(visible_indexes) => self.build_plan_with_visible_indexes(visible_indexes)?,
-            None => self.build_plan()?,
-        };
-        self.finalize_explain_access_choice_for_visibility(&mut plan, visible_indexes);
+        visible_indexes: &VisibleIndexes<'_>,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
+        let mut plan = self.build_plan_with_visible_indexes(visible_indexes)?;
+        self.finalize_explain_access_choice_for_visible_indexes(&mut plan, visible_indexes);
+
+        self.explain_execution_descriptor_from_model_only_plan(&plan)
+    }
+
+    // Render one explicit model-only verbose execution payload for standalone
+    // query surfaces that are not bound to a recovered store/accepted schema.
+    fn render_execution_verbose_for_model_only(&self) -> Result<String, QueryError> {
+        let mut plan = self.build_plan()?;
+        self.finalize_explain_access_choice_for_model_only(&mut plan);
 
         self.explain_execution_verbose_from_plan(&plan)
     }
 
-    /// Explain one load execution shape through the structural query core.
+    // Render one verbose execution payload using the caller-resolved accepted
+    // visible indexes for runtime/session explain.
+    fn explain_execution_verbose_for_visible_indexes(
+        &self,
+        visible_indexes: &VisibleIndexes<'_>,
+    ) -> Result<String, QueryError> {
+        let mut plan = self.build_plan_with_visible_indexes(visible_indexes)?;
+        self.finalize_explain_access_choice_for_visible_indexes(&mut plan, visible_indexes);
+
+        self.explain_execution_verbose_from_plan(&plan)
+    }
+
+    /// Explain one model-only load execution shape through the structural query core.
     #[inline(never)]
-    pub(in crate::db) fn explain_execution(
+    pub(in crate::db) fn explain_execution_for_model_only(
         &self,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        self.explain_execution_descriptor_for_visibility(None)
+        self.explain_execution_descriptor_for_model_only()
     }
 
     /// Explain one load execution shape using a caller-visible index slice.
@@ -238,14 +260,16 @@ impl StructuralQuery {
         &self,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        self.explain_execution_descriptor_for_visibility(Some(visible_indexes))
+        self.explain_execution_descriptor_for_visible_indexes(visible_indexes)
     }
 
-    /// Render one verbose scalar load execution payload through the shared
-    /// structural descriptor and route-diagnostics paths.
+    /// Render one model-only verbose scalar load execution payload through the
+    /// shared structural descriptor and route-diagnostics paths.
     #[inline(never)]
-    pub(in crate::db) fn explain_execution_verbose(&self) -> Result<String, QueryError> {
-        self.explain_execution_verbose_for_visibility(None)
+    pub(in crate::db) fn explain_execution_verbose_for_model_only(
+        &self,
+    ) -> Result<String, QueryError> {
+        self.render_execution_verbose_for_model_only()
     }
 
     /// Render one verbose scalar load execution payload using visible indexes.
@@ -254,7 +278,7 @@ impl StructuralQuery {
         &self,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<String, QueryError> {
-        self.explain_execution_verbose_for_visibility(Some(visible_indexes))
+        self.explain_execution_verbose_for_visible_indexes(visible_indexes)
     }
 
     /// Explain one aggregate terminal execution route without running it.
@@ -375,9 +399,9 @@ impl<E> Query<E>
 where
     E: EntityValue + EntityKind,
 {
-    // Resolve the structural execution descriptor through either the default
-    // schema-owned visibility lane or one caller-provided visible-index slice.
-    fn explain_execution_descriptor_for_visibility(
+    // Resolve the structural execution descriptor through either the explicit
+    // model-only lane or one caller-provided visible-index slice.
+    fn explain_execution_descriptor_for_model_only_or_visible_indexes(
         &self,
         visible_indexes: Option<&VisibleIndexes<'_>>,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
@@ -385,7 +409,7 @@ where
             Some(visible_indexes) => self
                 .structural()
                 .explain_execution_with_visible_indexes(visible_indexes),
-            None => self.structural().explain_execution(),
+            None => self.structural().explain_execution_for_model_only(),
         }
     }
 
@@ -396,14 +420,15 @@ where
         visible_indexes: Option<&VisibleIndexes<'_>>,
         render: impl FnOnce(ExplainExecutionNodeDescriptor) -> String,
     ) -> Result<String, QueryError> {
-        let descriptor = self.explain_execution_descriptor_for_visibility(visible_indexes)?;
+        let descriptor =
+            self.explain_execution_descriptor_for_model_only_or_visible_indexes(visible_indexes)?;
 
         Ok(render(descriptor))
     }
 
-    // Render one verbose execution explain payload after choosing the
-    // appropriate structural visibility lane once.
-    fn explain_execution_verbose_for_visibility(
+    // Render one verbose execution explain payload after choosing the explicit
+    // model-only lane or the accepted visible-index lane once.
+    fn explain_execution_verbose_for_model_only_or_visible_indexes(
         &self,
         visible_indexes: Option<&VisibleIndexes<'_>>,
     ) -> Result<String, QueryError> {
@@ -411,13 +436,13 @@ where
             Some(visible_indexes) => self
                 .structural()
                 .explain_execution_verbose_with_visible_indexes(visible_indexes),
-            None => self.structural().explain_execution_verbose(),
+            None => self.structural().explain_execution_verbose_for_model_only(),
         }
     }
 
     /// Explain executor-selected load execution shape without running it.
     pub fn explain_execution(&self) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        self.explain_execution_descriptor_for_visibility(None)
+        self.explain_execution_descriptor_for_model_only_or_visible_indexes(None)
     }
 
     /// Explain executor-selected load execution shape with caller-visible indexes.
@@ -426,7 +451,7 @@ where
         &self,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        self.explain_execution_descriptor_for_visibility(Some(visible_indexes))
+        self.explain_execution_descriptor_for_model_only_or_visible_indexes(Some(visible_indexes))
     }
 
     /// Explain executor-selected load execution shape as deterministic text.
@@ -446,7 +471,7 @@ where
     /// Explain executor-selected load execution shape with route diagnostics.
     #[inline(never)]
     pub fn explain_execution_verbose(&self) -> Result<String, QueryError> {
-        self.explain_execution_verbose_for_visibility(None)
+        self.explain_execution_verbose_for_model_only_or_visible_indexes(None)
     }
 
     /// Explain one aggregate terminal execution route without running it.

@@ -109,6 +109,40 @@ pub(in crate::db) fn lower_access<K>(
 }
 
 ///
+/// LoweredIndexScanContract
+///
+/// Reduced index facts carried after raw bounds have been materialized.
+/// Physical executor scans only need these facts for diagnostics and raw-entry
+/// membership validation; they must not reopen generated key-shape authority.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct LoweredIndexScanContract {
+    name: &'static str,
+    unique: bool,
+}
+
+impl LoweredIndexScanContract {
+    #[must_use]
+    const fn from_index(index: &IndexModel) -> Self {
+        Self {
+            name: index.name(),
+            unique: index.is_unique(),
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn name(self) -> &'static str {
+        self.name
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn unique(self) -> bool {
+        self.unique
+    }
+}
+
+///
 /// LoweredIndexPrefixSpec
 ///
 /// Lowered index-prefix contract with fully materialized byte bounds.
@@ -118,6 +152,7 @@ pub(in crate::db) fn lower_access<K>(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct LoweredIndexPrefixSpec {
     index: IndexModel,
+    scan_contract: LoweredIndexScanContract,
     lower: Bound<LoweredKey>,
     upper: Bound<LoweredKey>,
 }
@@ -133,6 +168,7 @@ impl LoweredIndexPrefixSpec {
     ) -> Self {
         Self {
             index,
+            scan_contract: LoweredIndexScanContract::from_index(&index),
             lower,
             upper,
         }
@@ -141,6 +177,11 @@ impl LoweredIndexPrefixSpec {
     #[must_use]
     pub(in crate::db) const fn index(&self) -> &IndexModel {
         &self.index
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn scan_contract(&self) -> LoweredIndexScanContract {
+        self.scan_contract
     }
 
     #[must_use]
@@ -170,6 +211,7 @@ impl LoweredIndexPrefixSpec {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct LoweredIndexRangeSpec {
     index: IndexModel,
+    scan_contract: LoweredIndexScanContract,
     lower: Bound<LoweredKey>,
     upper: Bound<LoweredKey>,
 }
@@ -185,6 +227,7 @@ impl LoweredIndexRangeSpec {
     ) -> Self {
         Self {
             index,
+            scan_contract: LoweredIndexScanContract::from_index(&index),
             lower,
             upper,
         }
@@ -193,6 +236,11 @@ impl LoweredIndexRangeSpec {
     #[must_use]
     pub(in crate::db) const fn index(&self) -> &IndexModel {
         &self.index
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn scan_contract(&self) -> LoweredIndexScanContract {
+        self.scan_contract
     }
 
     #[must_use]

@@ -2,7 +2,7 @@
 use crate::model::field::FieldModel;
 use crate::{
     db::{
-        access::validate_access_runtime_invariants_with_schema,
+        access::{SemanticIndexRangeSpec, validate_access_runtime_invariants_with_schema},
         cursor::{CursorPlanError, PlannedCursor},
         data::StorageKey,
         executor::{planning::route::AggregateRouteShape, terminal::RowLayout},
@@ -21,7 +21,7 @@ use crate::{
     metrics::sink::{
         PreparedShapeFinalizationOutcome, record_prepared_shape_finalization_for_path,
     },
-    model::{entity::EntityModel, index::IndexModel},
+    model::entity::EntityModel,
     traits::{EntityKind, Path},
     types::EntityTag,
     value::Value,
@@ -346,13 +346,14 @@ impl EntityAuthority {
 
     /// Build one structural index key from already-materialized row slots
     /// without cloning field values back out of the row cache first.
-    pub(in crate::db::executor) fn index_key_from_slot_ref_reader<'a>(
+    pub(in crate::db::executor) fn index_range_anchor_key_from_slot_ref_reader<'a>(
         &self,
         storage_key: StorageKey,
-        index: &IndexModel,
+        index_range: &SemanticIndexRangeSpec,
         read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
     ) -> Result<Option<IndexKey>, InternalError> {
         let schema_info = self.index_key_schema_info()?;
+        let index = index_range.index();
 
         if index.has_expression_key_items() {
             return IndexKey::new_from_slot_ref_reader_with_schema(

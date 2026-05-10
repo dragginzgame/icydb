@@ -1,0 +1,5 @@
+area	score	weight	weighted_score	evidence
+branching pressure mechanical signal	N/A	N/A	N/A	canonical generator found 4 modules with branch_sites_total >= 40 and total branch_sites_total = 4777
+fanout pressure mechanical signal	N/A	N/A	N/A	canonical generator found 0 modules with fanout > 12 and fanout sum = 1546
+concentration mechanical signal	N/A	N/A	N/A	top-10 branch concentration = 0.0808 and top-10 fanout concentration = 0.0408 under canonical generator
+overall complexity risk index	N/A	N/A	N/A	not published because classified CA-1.4 steps are blocked

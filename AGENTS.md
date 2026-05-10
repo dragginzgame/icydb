@@ -4,7 +4,7 @@ Keep this file small. Open detailed governance docs only when the task needs the
 
 ## Hard Rules
 
-- No Python: use existing Rust/shell patterns for tooling, scripts, tests, and build helpers.
+- Do not add Python to committed project scripts, CI, tests, build helpers, or repo tooling; Codex may use local Python for one-off analysis/audit extraction when it does not become project code.
 - Do not run `git commit` or `git push`.
 - Do not edit Cargo workspace/package version numbers in `Cargo.toml` or `Cargo.lock`; `make patch` owns version bumps.
 - Do not revert user or unrelated dirty-worktree changes; re-read affected files and continue.

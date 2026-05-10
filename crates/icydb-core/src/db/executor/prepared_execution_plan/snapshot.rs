@@ -72,7 +72,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
                 .map(|spec| {
                     format!(
                         "{{index:{},bound_type:equality,lower:{},upper:{}}}",
-                        spec.index().name(),
+                        spec.scan_contract().name(),
                         render_lowered_bound(spec.lower()),
                         render_lowered_bound(spec.upper()),
                     )
@@ -88,7 +88,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
                 .map(|spec| {
                     format!(
                         "{{index:{},lower:{},upper:{}}}",
-                        spec.index().name(),
+                        spec.scan_contract().name(),
                         render_lowered_bound(spec.lower()),
                         render_lowered_bound(spec.upper()),
                     )

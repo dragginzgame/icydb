@@ -289,7 +289,14 @@ where
 
         // Phase 3: derive forward index work from the already validated
         // structural rows when the entity owns secondary indexes.
-        let index_plan = if authority.model.indexes().is_empty() {
+        let has_accepted_field_path_indexes =
+            !schema_contracts.schema_info.field_path_indexes().is_empty();
+        let has_deferred_expression_indexes = authority
+            .model
+            .indexes()
+            .iter()
+            .any(|index| index.has_expression_key_items());
+        let index_plan = if !has_accepted_field_path_indexes && !has_deferred_expression_indexes {
             empty_forward_index_plan()
         } else {
             prepare_forward_index_commit_leaf(

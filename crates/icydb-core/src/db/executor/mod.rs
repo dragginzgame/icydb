@@ -31,7 +31,8 @@ mod util;
 mod window;
 
 use crate::db::access::{
-    LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, lower_access,
+    LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract,
+    LoweredKey, lower_access,
 };
 
 pub(in crate::db) use crate::db::access::{

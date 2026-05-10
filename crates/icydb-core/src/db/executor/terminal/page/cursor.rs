@@ -63,7 +63,6 @@ fn resolve_last_cursor_row(
 
     // Phase 2: derive the optional raw index-range anchor once for index-range paths.
     let index_anchor = if let Some(spec) = plan.access.as_index_range_path() {
-        let index = spec.index();
         let data_key = &row
             .data_row
             .as_ref()
@@ -75,7 +74,11 @@ fn resolve_last_cursor_row(
             .0;
         let mut read_slot = |slot| row.slot_ref(slot);
         authority
-            .index_key_from_slot_ref_reader(data_key.storage_key(), index, &mut read_slot)?
+            .index_range_anchor_key_from_slot_ref_reader(
+                data_key.storage_key(),
+                spec,
+                &mut read_slot,
+            )?
             .map(|key| key.to_raw())
     } else {
         None

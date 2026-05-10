@@ -1,0 +1,5 @@
+signal	present	expected_distortion	handling_rule
+canonical generator blocked	no	canonical CA-1.4 STEP -1 is available	use canonical metrics for this report
+method version changed	yes	CA-1.4 introduces completion gates and artifact coverage requirements	mark prior CA-1.3 reports non-comparable as direct baselines
+shell fallback superseded	yes	earlier fallback artifacts remain in the directory but are ignored	use runtime-metrics.tsv and module-branch-hotspots.tsv for conclusions
+dirty governance doc change	yes	working tree includes audit method edits	declare dirty-tree caveat
