@@ -3,14 +3,13 @@ use crate::{
         data::{DataKey, RawRow, StorageKey},
         direction::Direction,
         index::{
-            IndexStore, RawIndexEntry, RawIndexKey, SealedStructuralIndexEntryReader,
-            SealedStructuralPrimaryRowReader, StructuralIndexEntryReader,
-            StructuralPrimaryRowReader,
+            IndexReadContract, IndexStore, RawIndexEntry, RawIndexKey,
+            SealedStructuralIndexEntryReader, SealedStructuralPrimaryRowReader,
+            StructuralIndexEntryReader, StructuralPrimaryRowReader,
         },
         registry::StoreHandle,
     },
     error::InternalError,
-    model::index::IndexModel,
     types::EntityTag,
 };
 use std::{cell::RefCell, ops::Bound, thread::LocalKey};
@@ -39,7 +38,7 @@ impl StructuralIndexEntryReader for StoreHandle {
         _entity_path: &'static str,
         _entity_tag: EntityTag,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        index: &IndexModel,
+        index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
@@ -59,20 +58,19 @@ impl SealedStructuralIndexEntryReader for StoreHandle {}
 // Decode one raw index entry into structural storage keys for non-executor
 // preflight readers.
 fn push_index_entry_storage_keys(
-    index: &IndexModel,
+    index: IndexReadContract<'_>,
     raw_entry: &RawIndexEntry,
     out: &mut Vec<StorageKey>,
     limit: usize,
 ) -> Result<bool, InternalError> {
     raw_entry.push_membership_storage_keys_limited(
-        index.is_unique(),
+        index.unique(),
         out,
         limit,
         |err| {
             InternalError::index_plan_index_corruption(format!(
-                "index corrupted: ({}) -> {}",
-                index.fields().join(", "),
-                err
+                "index corrupted: ({}) -> {err}",
+                index.fields()
             ))
         },
         InternalError::unique_index_entry_single_key_required,

@@ -17,14 +17,18 @@ use crate::{
         },
         index::{
             IndexDelta, IndexDeltaGroup, IndexEntry, IndexMembershipDelta, IndexMutationPlan,
-            IndexPlanReadView, RawIndexEntry, RawIndexKey, StructuralIndexEntryReader,
-            StructuralPrimaryRowReader, plan_index_mutation_for_slot_reader_structural,
+            IndexPlanReadView, IndexReadContract, RawIndexEntry, RawIndexKey,
+            StructuralIndexEntryReader, StructuralPrimaryRowReader,
+            plan_index_mutation_for_slot_reader_structural,
         },
         relation::{
             ReverseRelationSourceInfo,
             prepare_reverse_relation_index_mutations_for_source_slot_readers,
         },
-        schema::{accepted_commit_schema_fingerprint_for_model, ensure_accepted_schema_snapshot},
+        schema::{
+            SchemaInfo, accepted_commit_schema_fingerprint_for_model,
+            ensure_accepted_schema_snapshot,
+        },
     },
     error::{ErrorClass, InternalError},
     metrics::sink::{MetricsEvent, record},
@@ -47,6 +51,11 @@ struct CommitPrepareAuthority {
     data_store_path: &'static str,
     relation_source: ReverseRelationSourceInfo,
     model: &'static EntityModel,
+}
+
+struct AcceptedCommitSchemaContracts {
+    row_contract: StructuralRowContract,
+    schema_info: SchemaInfo,
 }
 
 impl CommitPrepareAuthority {
@@ -110,9 +119,10 @@ struct DecodedCommitRows<'a> {
 ///
 /// CommitIndexPlanReadView
 ///
-/// Commit-owned adapter that resolves model indexes to concrete stores before
-/// delegating reads to the active preflight reader view. Keeping this adapter
-/// here prevents index planning from depending on registry or executor state.
+/// Commit-owned adapter that resolves schema index stores to concrete stores
+/// before delegating reads to the active preflight reader view. Keeping this
+/// adapter here prevents index planning from depending on registry or executor
+/// state.
 ///
 
 struct CommitIndexPlanReadView<'a, C: CanisterKind> {
@@ -125,13 +135,13 @@ impl<C> CommitIndexPlanReadView<'_, C>
 where
     C: CanisterKind,
 {
-    // Resolve the store handle for one model-owned index definition.
+    // Resolve the store handle for one schema-owned index store path.
     fn index_store(
         &self,
-        index: &crate::model::index::IndexModel,
+        index_store: &str,
     ) -> Result<&'static LocalKey<RefCell<crate::db::index::IndexStore>>, InternalError> {
         self.db
-            .with_store_registry(|registry| registry.try_get_store(index.store()))
+            .with_store_registry(|registry| registry.try_get_store(index_store))
             .map(|store| store.index_store())
     }
 }
@@ -146,10 +156,10 @@ where
 
     fn read_index_entry(
         &self,
-        index: &crate::model::index::IndexModel,
+        index: IndexReadContract<'_>,
         key: &RawIndexKey,
     ) -> Result<Option<RawIndexEntry>, InternalError> {
-        let index_store = self.index_store(index)?;
+        let index_store = self.index_store(index.store_path())?;
 
         self.index_reader
             .read_index_entry_structural(index_store, key)
@@ -159,11 +169,11 @@ where
         &self,
         entity_path: &'static str,
         entity_tag: EntityTag,
-        index: &crate::model::index::IndexModel,
+        index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
-        let index_store = self.index_store(index)?;
+        let index_store = self.index_store(index.store_path())?;
 
         self.index_reader.read_index_keys_in_raw_range_structural(
             entity_path,
@@ -265,7 +275,7 @@ where
     // Phase 1: resolve nongeneric marker authority before any model-driven row
     // decode runs so miswired hooks fail on path/schema mismatch first.
     let structural = prepare_row_commit_structural_inputs(op, &authority)?;
-    let row_contract = accepted_commit_row_contract(db, &authority)?;
+    let schema_contracts = accepted_commit_schema_contracts(db, &authority)?;
 
     // Phase 2: decode the persisted row images once through the structural
     // slot-reader boundary before any forward-index planning runs.
@@ -274,7 +284,7 @@ where
             &structural.data_key,
             structural.old_row.as_ref(),
             structural.new_row.as_ref(),
-            row_contract.clone(),
+            schema_contracts.row_contract.clone(),
         )?;
 
         // Phase 3: derive forward index work from the already validated
@@ -287,7 +297,7 @@ where
                 &authority,
                 row_reader,
                 index_reader,
-                &row_contract,
+                &schema_contracts,
                 &structural.data_key,
                 &mut decoded,
             )?
@@ -306,7 +316,7 @@ where
         db,
         index_reader,
         authority.relation_source,
-        row_contract.clone(),
+        schema_contracts.row_contract.clone(),
         structural.data_key.storage_key(),
         decoded.old_slots.as_ref(),
         decoded.new_slots.as_ref(),
@@ -339,7 +349,7 @@ fn prepare_forward_index_commit_leaf<C>(
     authority: &CommitPrepareAuthority,
     row_reader: &dyn StructuralPrimaryRowReader,
     index_reader: &dyn StructuralIndexEntryReader,
-    row_contract: &StructuralRowContract,
+    schema_contracts: &AcceptedCommitSchemaContracts,
     data_key: &DataKey,
     decoded: &mut DecodedCommitRows<'_>,
 ) -> Result<IndexMutationPlan, InternalError>
@@ -358,8 +368,9 @@ where
         authority.entity_path,
         authority.entity_tag,
         authority.model,
+        &schema_contracts.schema_info,
         &read_view,
-        row_contract,
+        &schema_contracts.row_contract,
         decoded.old_slots.as_ref().map(|_| storage_key),
         decoded
             .old_slots
@@ -418,16 +429,17 @@ fn decode_commit_marker_structural_slots<'a>(
     Ok(slots)
 }
 
-// Build the accepted-schema row contract used by commit preflight.
+// Build the accepted-schema contracts used by commit preflight.
 //
 // Commit preparation may need to inspect committed rows while rebuilding
 // unique-index proofs and reverse-index mutations. Those storage reads must use
-// the same accepted contract as mutation staging so append-only nullable rows
-// do not fail on generated-only slot-count validation during preflight.
-fn accepted_commit_row_contract<C>(
+// the same accepted row and index contracts as mutation staging so append-only
+// nullable rows do not fail on generated-only slot-count validation during
+// preflight.
+fn accepted_commit_schema_contracts<C>(
     db: &Db<C>,
     authority: &CommitPrepareAuthority,
-) -> Result<StructuralRowContract, InternalError>
+) -> Result<AcceptedCommitSchemaContracts, InternalError>
 where
     C: CanisterKind,
 {
@@ -440,7 +452,13 @@ where
             authority.model,
         )
     })?;
-    StructuralRowContract::from_accepted_schema_snapshot(authority.entity_path, &accepted)
+    Ok(AcceptedCommitSchemaContracts {
+        row_contract: StructuralRowContract::from_accepted_schema_snapshot(
+            authority.entity_path,
+            &accepted,
+        )?,
+        schema_info: SchemaInfo::from_accepted_snapshot_for_model(authority.model, &accepted),
+    })
 }
 
 // Decode structural commit inputs before the typed forward-index leaf runs.
@@ -579,7 +597,7 @@ where
     let mut remove_delta = None;
     let mut insert_delta = None;
     let index_store = db
-        .with_store_registry(|registry| registry.try_get_store(group.index_store))
+        .with_store_registry(|registry| registry.try_get_store(group.index_store.as_str()))
         .map(|store| store.index_store())?;
 
     for delta in group.deltas {

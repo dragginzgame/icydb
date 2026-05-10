@@ -11,8 +11,12 @@ mod unique;
 use crate::{
     db::{
         data::{CanonicalSlotReader, StorageKey, StructuralRowContract},
-        index::{IndexEntry, IndexEntryCorruption, IndexKey, canonical_index_predicate},
+        index::{
+            IndexEntry, IndexEntryCorruption, IndexKey, IndexReadContract,
+            canonical_index_predicate,
+        },
         predicate::PredicateProgram,
+        schema::{SchemaIndexInfo, SchemaInfo},
     },
     error::InternalError,
     model::{entity::EntityModel, index::IndexModel},
@@ -48,6 +52,17 @@ pub(super) fn index_fields_csv(index: &IndexModel) -> String {
     index.fields().join(", ")
 }
 
+// Format accepted field-path key components for corruption diagnostics without
+// reopening generated index field declarations.
+fn accepted_index_fields_csv(index: &SchemaIndexInfo) -> String {
+    index
+        .fields()
+        .iter()
+        .map(|field| field.path().join("."))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Compile the optional conditional-index predicate from structural entity
 /// authority only.
 pub(in crate::db) fn compile_index_membership_predicate_structural(
@@ -63,10 +78,34 @@ pub(in crate::db) fn compile_index_membership_predicate_structural(
     ))
 }
 
+fn accepted_field_path_index_for_generated_index<'a>(
+    schema_info: &'a SchemaInfo,
+    index: &IndexModel,
+    entity_path: &'static str,
+) -> Result<Option<&'a SchemaIndexInfo>, IndexPlanError> {
+    if index.has_expression_key_items() {
+        return Ok(None);
+    }
+
+    schema_info
+        .field_path_indexes()
+        .iter()
+        .find(|accepted| accepted.name() == index.name())
+        .map(Some)
+        .ok_or_else(|| {
+            InternalError::index_plan_index_corruption(format!(
+                "missing accepted index contract for '{entity_path}' index '{}'",
+                index.name(),
+            ))
+            .into()
+        })
+}
+
 /// Build one index key from one slot reader using accepted row-contract slot authority.
 pub(in crate::db) fn index_key_for_slot_reader_with_membership_structural(
     entity_tag: EntityTag,
     index: &IndexModel,
+    accepted_index: Option<&SchemaIndexInfo>,
     row_contract: &StructuralRowContract,
     predicate_program: Option<&PredicateProgram>,
     storage_key: StorageKey,
@@ -79,22 +118,27 @@ pub(in crate::db) fn index_key_for_slot_reader_with_membership_structural(
         }
     }
 
-    let index_key = IndexKey::new_from_slots_with_contract(
-        entity_tag,
-        storage_key,
-        row_contract,
-        slots,
-        index,
-    )?;
+    let index_key = if let Some(accepted_index) = accepted_index {
+        IndexKey::new_from_slots_with_accepted_field_path_index(
+            entity_tag,
+            storage_key,
+            accepted_index,
+            slots,
+        )?
+    } else {
+        IndexKey::new_from_slots_with_contract(entity_tag, storage_key, row_contract, slots, index)?
+    };
 
     Ok(index_key)
 }
 
 // Build one optional structural index key for the requested planner lane.
+#[expect(clippy::too_many_arguments)]
 fn load_structural_index_key(
     lane: IndexKeyLane,
     entity_tag: EntityTag,
     index: &IndexModel,
+    accepted_index: Option<&SchemaIndexInfo>,
     row_contract: &StructuralRowContract,
     predicate_program: Option<&PredicateProgram>,
     storage_key: Option<StorageKey>,
@@ -107,6 +151,7 @@ fn load_structural_index_key(
     index_key_for_slot_reader_with_membership_structural(
         entity_tag,
         index,
+        accepted_index,
         row_contract,
         predicate_program,
         storage_key,
@@ -166,6 +211,7 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
     entity_path: &'static str,
     entity_tag: EntityTag,
     model: &'static EntityModel,
+    schema_info: &SchemaInfo,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
     old_storage_key: Option<StorageKey>,
@@ -177,6 +223,7 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
         entity_path,
         entity_tag,
         model,
+        schema_info,
         read_view,
         row_contract,
         old_storage_key,
@@ -193,6 +240,7 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
     entity_path: &'static str,
     entity_tag: EntityTag,
     model: &'static EntityModel,
+    schema_info: &SchemaInfo,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
     old_storage_key: Option<StorageKey>,
@@ -206,7 +254,14 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
     // Phase 1: per-index load, validate, and synthesize index-domain deltas
     // from slot-reader projections only.
     for index in indexes {
-        let index_fields = index_fields_csv(index);
+        let accepted_index =
+            accepted_field_path_index_for_generated_index(schema_info, index, entity_path)?;
+        let index_fields =
+            accepted_index.map_or_else(|| index_fields_csv(index), accepted_index_fields_csv);
+        let index_store = accepted_index.map_or_else(|| index.store(), SchemaIndexInfo::store);
+        let index_is_unique =
+            accepted_index.map_or_else(|| index.is_unique(), SchemaIndexInfo::unique);
+        let read_contract = IndexReadContract::new(index_store, index_is_unique, &index_fields);
         let membership_program =
             compile_index_membership_predicate_structural(entity_path, index, row_contract);
 
@@ -215,6 +270,7 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
                 IndexKeyLane::Old,
                 entity_tag,
                 index,
+                accepted_index,
                 row_contract,
                 membership_program.as_ref(),
                 old_storage_key,
@@ -227,6 +283,7 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
                 IndexKeyLane::New,
                 entity_tag,
                 index,
+                accepted_index,
                 row_contract,
                 membership_program.as_ref(),
                 new_storage_key,
@@ -237,7 +294,7 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
 
         let old_entry = load_existing_entry_structural(
             read_view,
-            index,
+            read_contract,
             &index_fields,
             old_key.as_ref(),
             entity_path,
@@ -248,7 +305,7 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
         validate_existing_old_index_membership(
             entity_path,
             &index_fields,
-            index.is_unique(),
+            index_is_unique,
             old_storage_key,
             old_key.as_ref(),
             old_entry.as_ref(),
@@ -260,6 +317,8 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
             read_view,
             row_contract,
             index,
+            accepted_index,
+            read_contract,
             &index_fields,
             if new_key.is_some() {
                 new_storage_key
@@ -271,7 +330,7 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
 
         push_index_delta_group(
             &mut groups,
-            index,
+            index_store,
             index_fields,
             old_key,
             new_key,
@@ -288,7 +347,7 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
 // reader view, so this helper deliberately does not encode `RawIndexEntry`.
 fn push_index_delta_group(
     groups: &mut Vec<IndexDeltaGroup>,
-    index: &IndexModel,
+    index_store: &str,
     index_fields: String,
     old_key: Option<IndexKey>,
     new_key: Option<IndexKey>,
@@ -312,7 +371,7 @@ fn push_index_delta_group(
     }
 
     if !deltas.is_empty() {
-        groups.push(IndexDeltaGroup::new(index.store(), index_fields, deltas));
+        groups.push(IndexDeltaGroup::new(index_store, index_fields, deltas));
     }
 
     Ok(())
@@ -320,7 +379,7 @@ fn push_index_delta_group(
 
 pub(super) fn load_existing_entry_structural(
     read_view: &dyn IndexPlanReadView,
-    index: &IndexModel,
+    index: IndexReadContract<'_>,
     index_fields: &str,
     key: Option<&IndexKey>,
     entity_path: &'static str,

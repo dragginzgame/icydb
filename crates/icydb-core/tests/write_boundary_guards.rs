@@ -491,8 +491,12 @@ fn reverse_relation_runtime_paths_use_accepted_contracts() {
 
 #[test]
 fn forward_index_write_keys_use_accepted_row_contract_slots() {
+    let entity_authority = read_source("src/db/executor/authority/entity.rs");
+    let commit_prepare = read_source("src/db/commit/prepare.rs");
     let index_key_build = read_source("src/db/index/key/build.rs");
     let index_plan = read_source("src/db/index/plan/mod.rs");
+    let index_plan_read = read_source("src/db/index/plan/read.rs");
+    let index_readers = read_source("src/db/index/readers.rs");
     let unique_plan = read_source("src/db/index/plan/unique.rs");
     let structural_row = read_source("src/db/data/structural_row.rs");
     let predicate_runtime = read_source("src/db/predicate/runtime/mod.rs");
@@ -505,29 +509,73 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
     assert!(
         index_key_build.contains("pub(crate) fn new_from_slots_with_contract(")
             && index_key_build.contains("row_contract.field_slot_index_by_name(field)?")
+            && index_key_build
+                .contains("pub(crate) fn new_from_slots_with_accepted_field_path_index")
+            && index_key_build.contains("fn build_accepted_field_path_index_key_from_slots(")
+            && index_key_build.contains("accepted_field_path_component_bytes_from_slots(")
             && !index_key_build.contains("pub(crate) fn new_from_slots(\n")
             && !index_key_build.contains("compile_scalar_index_key_item_program("),
-        "write-time index key construction must resolve field slots through accepted row contracts",
+        "write-time field-path index key construction must resolve key shape through accepted index contracts and slots through accepted row contracts",
     );
     assert!(
         index_key_build.contains("pub(crate) fn new_from_slot_ref_reader_with_schema")
             && index_key_build.contains("schema_info.field_slot_index(field)")
+            && index_key_build
+                .contains("pub(crate) fn new_from_slot_ref_reader_with_accepted_field_path_index")
+            && index_key_build.contains("accepted_index.fields()")
+            && index_key_build.contains("IndexId::new(entity_tag, accepted_index.ordinal())")
             && !index_key_build.contains("pub(crate) fn new_from_slot_ref_reader(")
             && predicate_runtime.contains("slots.field_leaf_codec(field_slot)")
             && predicate_runtime.contains("slots.required_value_storage_scalar(field_slot)"),
-        "cursor anchor and predicate index-key paths must use accepted schema/row-contract slot authority instead of generated model slot lookup",
+        "cursor anchor and predicate index-key paths must use accepted schema/index/row-contract slot authority instead of generated model slot lookup",
+    );
+    assert!(
+        entity_authority
+            .contains("field-path index cursor anchor derivation requires accepted index contract")
+            && entity_authority.contains(".field_path_indexes()")
+            && entity_authority
+                .contains("IndexKey::new_from_slot_ref_reader_with_accepted_field_path_index(")
+            && entity_authority.contains("if index.has_expression_key_items() {"),
+        "runtime field-path cursor anchors must use accepted index contracts while expression indexes stay on the explicit generated deferred lane",
     );
     assert!(
         index_plan.contains("IndexKey::new_from_slots_with_contract(")
+            && index_plan.contains("accepted_field_path_index_for_generated_index(")
+            && index_plan.contains("accepted_index: Option<&SchemaIndexInfo>")
+            && index_plan.contains("IndexKey::new_from_slots_with_accepted_field_path_index(")
+            && index_plan.contains("fn accepted_index_fields_csv(")
+            && index_plan.contains("SchemaIndexInfo::store")
+            && index_plan.contains("SchemaIndexInfo::unique")
             && index_plan.contains("PredicateProgram::compile_with_row_contract(")
             && index_plan.contains("row_contract,")
             && !index_plan.contains("IndexKey::new_from_slots("),
-        "forward-index mutation planning must pass accepted row contracts into index key and predicate construction",
+        "forward-index mutation planning must pass accepted index and row contracts into field-path index key, store, uniqueness, and predicate construction",
+    );
+    assert!(
+        index_plan_read.contains("index: IndexReadContract<'_>")
+            && !index_plan_read.contains("index: &IndexModel")
+            && index_readers.contains("pub(in crate::db) struct IndexReadContract")
+            && index_readers.contains("unique: bool")
+            && index_readers.contains("fields: &'a str")
+            && !index_readers.contains("model::index::IndexModel"),
+        "preflight index readers must consume reduced accepted index contract facts instead of generated IndexModel definitions",
     );
     assert!(
         unique_plan.contains("IndexKey::new_from_slots_with_contract(")
+            && unique_plan.contains("accepted_index: Option<&SchemaIndexInfo>")
+            && unique_plan.contains("read_contract: IndexReadContract<'_>")
+            && unique_plan.contains("read_contract.unique()")
+            && unique_plan.contains("IndexKey::new_from_slots_with_accepted_field_path_index(")
             && unique_plan.contains("row_contract,"),
-        "unique-index validation must rebuild stored index keys through accepted row contracts",
+        "unique-index validation must rebuild stored field-path index keys through accepted index and row contracts and consume accepted uniqueness",
+    );
+    assert!(
+        commit_prepare.contains("struct AcceptedCommitSchemaContracts")
+            && commit_prepare.contains("accepted_commit_schema_contracts(")
+            && commit_prepare.contains("SchemaInfo::from_accepted_snapshot_for_model(")
+            && commit_prepare.contains("&schema_contracts.schema_info")
+            && commit_prepare.contains("&schema_contracts.row_contract"),
+        "commit preflight must carry accepted schema info beside the accepted row contract before forward-index planning",
     );
     assert!(
         predicate_runtime.contains("slots.field_leaf_codec(field_slot)")

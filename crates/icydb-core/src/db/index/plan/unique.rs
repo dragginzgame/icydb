@@ -7,7 +7,10 @@
 use crate::{
     db::{
         data::{DataKey, StorageKey, StructuralRowContract, StructuralSlotReader},
-        index::{IndexId, IndexKey, IndexPlanReadView, plan::error::IndexPlanError},
+        index::{
+            IndexId, IndexKey, IndexPlanReadView, IndexReadContract, plan::error::IndexPlanError,
+        },
+        schema::SchemaIndexInfo,
     },
     error::InternalError,
     model::index::IndexModel,
@@ -23,12 +26,14 @@ pub(super) fn validate_unique_constraint_structural(
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
     index: &IndexModel,
+    accepted_index: Option<&SchemaIndexInfo>,
+    read_contract: IndexReadContract<'_>,
     index_fields: &str,
     new_storage_key: Option<StorageKey>,
     new_index_key: Option<&IndexKey>,
 ) -> Result<(), IndexPlanError> {
     // Phase 1: fast exits for non-unique or non-insert/update paths.
-    if !index.is_unique() {
+    if !read_contract.unique() {
         return Ok(());
     }
 
@@ -41,7 +46,10 @@ pub(super) fn validate_unique_constraint_structural(
         return Err(InternalError::index_unique_validation_entity_key_required().into());
     };
 
-    let index_id = IndexId::new(entity_tag, index.ordinal());
+    let index_id = IndexId::new(
+        entity_tag,
+        accepted_index.map_or_else(|| index.ordinal(), SchemaIndexInfo::ordinal),
+    );
     if new_index_key.index_id() != &index_id {
         return Err(InternalError::index_unique_validation_corruption(
             entity_path,
@@ -60,7 +68,7 @@ pub(super) fn validate_unique_constraint_structural(
     let matching_storage_keys = read_view.read_index_keys_in_raw_range(
         entity_path,
         entity_tag,
-        index,
+        read_contract,
         (&lower, &upper),
         unique_probe_limit,
     )?;
@@ -99,6 +107,7 @@ pub(super) fn validate_unique_constraint_structural(
         row_contract,
         &row_fields,
         index,
+        accepted_index,
     )?
     else {
         return Err(InternalError::index_unique_validation_corruption(
@@ -146,6 +155,7 @@ fn decode_unique_row_slots<'a>(
 
 // Build the canonical stored unique index key from one structural row slot
 // reader without reconstructing the full typed entity.
+#[expect(clippy::too_many_arguments)]
 fn build_unique_index_key_from_row_slots(
     entity_tag: EntityTag,
     entity_path: &'static str,
@@ -154,9 +164,26 @@ fn build_unique_index_key_from_row_slots(
     row_contract: &StructuralRowContract,
     row_fields: &StructuralSlotReader<'_>,
     index: &IndexModel,
+    accepted_index: Option<&SchemaIndexInfo>,
 ) -> Result<Option<IndexKey>, InternalError> {
-    IndexKey::new_from_slots_with_contract(entity_tag, storage_key, row_contract, row_fields, index)
-        .map_err(|err| {
-            InternalError::index_unique_validation_key_rebuild_failed(data_key, entity_path, err)
-        })
+    let key = if let Some(accepted_index) = accepted_index {
+        IndexKey::new_from_slots_with_accepted_field_path_index(
+            entity_tag,
+            storage_key,
+            accepted_index,
+            row_fields,
+        )
+    } else {
+        IndexKey::new_from_slots_with_contract(
+            entity_tag,
+            storage_key,
+            row_contract,
+            row_fields,
+            index,
+        )
+    };
+
+    key.map_err(|err| {
+        InternalError::index_unique_validation_key_rebuild_failed(data_key, entity_path, err)
+    })
 }

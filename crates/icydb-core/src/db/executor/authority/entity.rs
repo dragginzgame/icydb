@@ -354,11 +354,30 @@ impl EntityAuthority {
     ) -> Result<Option<IndexKey>, InternalError> {
         let schema_info = self.index_key_schema_info()?;
 
-        IndexKey::new_from_slot_ref_reader_with_schema(
+        if index.has_expression_key_items() {
+            return IndexKey::new_from_slot_ref_reader_with_schema(
+                self.entity_tag,
+                storage_key,
+                schema_info,
+                index,
+                read_slot,
+            );
+        }
+
+        let accepted_index = schema_info
+            .field_path_indexes()
+            .iter()
+            .find(|accepted| accepted.name() == index.name())
+            .ok_or_else(|| {
+                InternalError::query_executor_invariant(
+                    "field-path index cursor anchor derivation requires accepted index contract",
+                )
+            })?;
+
+        IndexKey::new_from_slot_ref_reader_with_accepted_field_path_index(
             self.entity_tag,
             storage_key,
-            schema_info,
-            index,
+            accepted_index,
             read_slot,
         )
     }

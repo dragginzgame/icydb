@@ -16,17 +16,16 @@ use crate::{
         data::{DataKey, RawDataKey, RawRow, StorageKey},
         direction::Direction,
         index::{
-            IndexEntryReader, IndexStore, PrimaryRowReader, RawIndexEntry, RawIndexKey,
-            SealedIndexEntryReader, SealedPrimaryRowReader, SealedStructuralIndexEntryReader,
-            SealedStructuralPrimaryRowReader, StructuralIndexEntryReader,
-            StructuralPrimaryRowReader, key_within_envelope,
+            IndexEntryReader, IndexReadContract, IndexStore, PrimaryRowReader, RawIndexEntry,
+            RawIndexKey, SealedIndexEntryReader, SealedPrimaryRowReader,
+            SealedStructuralIndexEntryReader, SealedStructuralPrimaryRowReader,
+            StructuralIndexEntryReader, StructuralPrimaryRowReader, key_within_envelope,
         },
         registry::StoreHandle,
         schema::{accepted_commit_schema_fingerprint_for_model, ensure_accepted_schema_snapshot},
     },
     error::InternalError,
     metrics::sink::{MetricsEvent, record},
-    model::index::IndexModel,
     traits::{CanisterKind, EntityKind, EntityValue, Path},
 };
 use std::{
@@ -333,7 +332,7 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
         entity_path: &'static str,
         _entity_tag: crate::types::EntityTag,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        index: &IndexModel,
+        index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
@@ -452,7 +451,7 @@ where
     fn read_index_keys_in_raw_range(
         &self,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        index: &IndexModel,
+        index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
@@ -475,22 +474,20 @@ impl<E> SealedIndexEntryReader<E> for PreflightStoreOverlay<'_, E::Canister> whe
 // Decode one raw index entry into structural storage keys under the preflight
 // overlay's corruption mapping.
 fn push_index_entry_storage_keys(
-    index: &IndexModel,
+    index: IndexReadContract<'_>,
     raw_entry: &RawIndexEntry,
     out: &mut Vec<StorageKey>,
     limit: usize,
     entity_path: &'static str,
 ) -> Result<bool, InternalError> {
     raw_entry.push_membership_storage_keys_limited(
-        index.is_unique(),
+        index.unique(),
         out,
         limit,
         |err| {
             InternalError::index_plan_index_corruption(format!(
-                "index corrupted: {} ({}) -> {}",
-                entity_path,
-                index.fields().join(", "),
-                err
+                "index corrupted: {entity_path} ({}) -> {err}",
+                index.fields(),
             ))
         },
         InternalError::unique_index_entry_single_key_required,

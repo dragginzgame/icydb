@@ -14,7 +14,7 @@ use crate::{
             key::ordered::encode_canonical_index_component,
             key::{IndexId, IndexKey, IndexKeyKind, OrderedValueEncodeError},
         },
-        schema::SchemaInfo,
+        schema::{SchemaIndexFieldPathInfo, SchemaIndexInfo, SchemaInfo},
     },
     error::InternalError,
     model::index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
@@ -22,6 +22,9 @@ use crate::{
     value::Value,
 };
 use std::ops::Bound;
+
+type AcceptedFieldPathComponentEncoder<'a> = dyn FnMut(&SchemaIndexInfo, &SchemaIndexFieldPathInfo) -> Result<Option<Vec<u8>>, InternalError>
+    + 'a;
 
 fn value_for_expression(
     index: &IndexModel,
@@ -84,6 +87,22 @@ impl IndexKey {
         build_index_key(entity_tag, storage_key, index, &mut component_bytes)
     }
 
+    /// Build a field-path index key from one canonical slot reader using
+    /// accepted index-contract slot authority.
+    pub(crate) fn new_from_slots_with_accepted_field_path_index(
+        entity_tag: EntityTag,
+        storage_key: StorageKey,
+        accepted_index: &SchemaIndexInfo,
+        slots: &dyn CanonicalSlotReader,
+    ) -> Result<Option<Self>, InternalError> {
+        build_accepted_field_path_index_key_from_slots(
+            entity_tag,
+            storage_key,
+            accepted_index,
+            slots,
+        )
+    }
+
     /// Build an index key from one structural row slot reader plus runtime identity.
     /// Returns `Ok(None)` when indexed values are non-indexable.
     #[cfg(test)]
@@ -143,6 +162,17 @@ impl IndexKey {
         };
 
         build_index_key(entity_tag, storage_key, index, &mut component_bytes)
+    }
+
+    /// Build a field-path index key from one structural row slot ref reader
+    /// using accepted index-contract slot authority.
+    pub(crate) fn new_from_slot_ref_reader_with_accepted_field_path_index<'a>(
+        entity_tag: EntityTag,
+        storage_key: StorageKey,
+        accepted_index: &SchemaIndexInfo,
+        read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
+    ) -> Result<Option<Self>, InternalError> {
+        build_accepted_field_path_index_key(entity_tag, storage_key, accepted_index, read_slot)
     }
 
     /// Build an index key from a typed entity for test-only parity checks.
@@ -394,6 +424,131 @@ impl IndexKey {
 
         (lower_bound, upper_bound)
     }
+}
+
+fn accepted_field_path_component_bytes<'a>(
+    _accepted_index: &SchemaIndexInfo,
+    field: &SchemaIndexFieldPathInfo,
+    read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
+) -> Result<Option<Vec<u8>>, InternalError> {
+    let Some(source) = read_slot(field.slot()) else {
+        return Err(InternalError::index_key_item_field_missing_on_lookup_row(
+            field.field_name(),
+        ));
+    };
+    let Some(source) = resolve_accepted_field_path_component(source, field)? else {
+        return Ok(None);
+    };
+
+    encode_value_index_component_ref(source)
+}
+
+fn accepted_field_path_component_bytes_from_slots(
+    _accepted_index: &SchemaIndexInfo,
+    field: &SchemaIndexFieldPathInfo,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<Option<Vec<u8>>, InternalError> {
+    let source = slots.required_value_by_contract_cow(field.slot())?;
+    let Some(source) = resolve_accepted_field_path_component(source.as_ref(), field)? else {
+        return Ok(None);
+    };
+
+    encode_value_index_component_ref(source)
+}
+
+fn resolve_accepted_field_path_component<'a>(
+    root: &'a Value,
+    field: &SchemaIndexFieldPathInfo,
+) -> Result<Option<&'a Value>, InternalError> {
+    let mut current = root;
+    for segment in field.path().iter().skip(1) {
+        let entries = current.as_map().ok_or_else(|| {
+            InternalError::persisted_row_field_decode_failed(
+                field.field_name(),
+                "field-path index traversal requires a map value",
+            )
+        })?;
+        let Some((_, value)) = entries
+            .iter()
+            .find(|(key, _)| matches!(key, Value::Text(text) if text == segment))
+        else {
+            return Ok(None);
+        };
+        current = value;
+    }
+
+    Ok(Some(current))
+}
+
+fn build_accepted_field_path_index_key_from_slots(
+    entity_tag: EntityTag,
+    storage_key: StorageKey,
+    accepted_index: &SchemaIndexInfo,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<Option<IndexKey>, InternalError> {
+    build_accepted_field_path_index_key_from_components(
+        entity_tag,
+        storage_key,
+        accepted_index,
+        &mut |accepted_index, field| {
+            accepted_field_path_component_bytes_from_slots(accepted_index, field, slots)
+        },
+    )
+}
+
+fn build_accepted_field_path_index_key<'a>(
+    entity_tag: EntityTag,
+    storage_key: StorageKey,
+    accepted_index: &SchemaIndexInfo,
+    read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
+) -> Result<Option<IndexKey>, InternalError> {
+    build_accepted_field_path_index_key_from_components(
+        entity_tag,
+        storage_key,
+        accepted_index,
+        &mut |accepted_index, field| {
+            accepted_field_path_component_bytes(accepted_index, field, read_slot)
+        },
+    )
+}
+
+fn build_accepted_field_path_index_key_from_components(
+    entity_tag: EntityTag,
+    storage_key: StorageKey,
+    accepted_index: &SchemaIndexInfo,
+    component_bytes: &mut AcceptedFieldPathComponentEncoder<'_>,
+) -> Result<Option<IndexKey>, InternalError> {
+    let component_count = accepted_index.fields().len();
+    if component_count > MAX_INDEX_FIELDS {
+        return Err(InternalError::index_key_field_count_exceeds_max(
+            accepted_index.name(),
+            component_count,
+            MAX_INDEX_FIELDS,
+        ));
+    }
+
+    let mut components = Vec::with_capacity(component_count);
+    for field in accepted_index.fields() {
+        let Some(component) = component_bytes(accepted_index, field)? else {
+            return Ok(None);
+        };
+
+        if component.len() > IndexKey::MAX_COMPONENT_SIZE {
+            return Err(InternalError::index_component_exceeds_max_size(
+                field.path().join("."),
+                component.len(),
+                IndexKey::MAX_COMPONENT_SIZE,
+            ));
+        }
+        components.push(component);
+    }
+
+    Ok(Some(IndexKey {
+        key_kind: IndexKeyKind::User,
+        index_id: IndexId::new(entity_tag, accepted_index.ordinal()),
+        components,
+        primary_key: storage_key.to_bytes()?.to_vec(),
+    }))
 }
 
 // Build one user-facing index key by sharing the canonical component walk

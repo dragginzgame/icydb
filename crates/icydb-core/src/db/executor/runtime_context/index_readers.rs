@@ -9,14 +9,13 @@ use crate::{
         direction::Direction,
         executor::Context,
         index::{
-            IndexEntryReader, IndexStore, PrimaryRowReader, RawIndexEntry, RawIndexKey,
-            SealedIndexEntryReader, SealedPrimaryRowReader, SealedStructuralIndexEntryReader,
-            SealedStructuralPrimaryRowReader, StructuralIndexEntryReader,
-            StructuralPrimaryRowReader,
+            IndexEntryReader, IndexReadContract, IndexStore, PrimaryRowReader, RawIndexEntry,
+            RawIndexKey, SealedIndexEntryReader, SealedPrimaryRowReader,
+            SealedStructuralIndexEntryReader, SealedStructuralPrimaryRowReader,
+            StructuralIndexEntryReader, StructuralPrimaryRowReader,
         },
     },
     error::InternalError,
-    model::index::IndexModel,
     traits::{EntityKind, EntityValue},
     types::EntityTag,
 };
@@ -63,7 +62,7 @@ where
     fn read_index_keys_in_raw_range(
         &self,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        index: &IndexModel,
+        index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
@@ -90,7 +89,7 @@ where
         _entity_path: &'static str,
         entity_tag: EntityTag,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        index: &IndexModel,
+        index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
@@ -105,7 +104,7 @@ impl<E> SealedStructuralIndexEntryReader for Context<'_, E> where E: EntityKind 
 fn read_index_storage_keys_in_raw_range(
     _entity_tag: EntityTag,
     index_store: &'static LocalKey<RefCell<IndexStore>>,
-    index: &IndexModel,
+    index: IndexReadContract<'_>,
     bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
     limit: usize,
 ) -> Result<Vec<StorageKey>, InternalError> {
@@ -122,20 +121,19 @@ fn read_index_storage_keys_in_raw_range(
 // Decode one raw index entry into structural storage keys for executor context
 // preflight reads that are not part of a user-visible scan.
 fn push_index_entry_storage_keys(
-    index: &IndexModel,
+    index: IndexReadContract<'_>,
     raw_entry: &RawIndexEntry,
     out: &mut Vec<StorageKey>,
     limit: usize,
 ) -> Result<bool, InternalError> {
     raw_entry.push_membership_storage_keys_limited(
-        index.is_unique(),
+        index.unique(),
         out,
         limit,
         |err| {
             InternalError::index_plan_index_corruption(format!(
-                "index corrupted: ({}) -> {}",
-                index.fields().join(", "),
-                err
+                "index corrupted: ({}) -> {err}",
+                index.fields()
             ))
         },
         InternalError::unique_index_entry_single_key_required,

@@ -9,11 +9,54 @@ use crate::{
         index::{IndexStore, RawIndexEntry, RawIndexKey},
     },
     error::InternalError,
-    model::index::IndexModel,
     traits::{EntityKind, EntityValue},
     types::EntityTag,
 };
 use std::{cell::RefCell, ops::Bound, thread::LocalKey};
+
+///
+/// IndexReadContract
+///
+/// Reduced index facts needed to decode raw index-entry membership without
+/// reopening generated index definitions.
+///
+
+#[derive(Clone, Copy)]
+pub(in crate::db) struct IndexReadContract<'a> {
+    store_path: &'a str,
+    unique: bool,
+    fields: &'a str,
+}
+
+impl<'a> IndexReadContract<'a> {
+    /// Build one reduced index read contract.
+    #[must_use]
+    pub(in crate::db) const fn new(store_path: &'a str, unique: bool, fields: &'a str) -> Self {
+        Self {
+            store_path,
+            unique,
+            fields,
+        }
+    }
+
+    /// Borrow the schema-owned index store path.
+    #[must_use]
+    pub(in crate::db) const fn store_path(self) -> &'a str {
+        self.store_path
+    }
+
+    /// Return whether index entries are unique-entry encoded.
+    #[must_use]
+    pub(in crate::db) const fn unique(self) -> bool {
+        self.unique
+    }
+
+    /// Borrow the diagnostic field list.
+    #[must_use]
+    pub(in crate::db) const fn fields(self) -> &'a str {
+        self.fields
+    }
+}
 
 ///
 /// SealedPrimaryRowReader
@@ -97,7 +140,7 @@ pub(in crate::db) trait IndexEntryReader<E: EntityKind + EntityValue>:
     fn read_index_keys_in_raw_range(
         &self,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        index: &IndexModel,
+        index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError>;
@@ -127,7 +170,7 @@ pub(in crate::db) trait StructuralIndexEntryReader:
         entity_path: &'static str,
         entity_tag: EntityTag,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        index: &IndexModel,
+        index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError>;
@@ -150,7 +193,7 @@ where
         _entity_path: &'static str,
         _entity_tag: EntityTag,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        index: &IndexModel,
+        index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {

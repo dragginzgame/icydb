@@ -42,8 +42,8 @@ pub(in crate::db) use range::{
     raw_keys_for_component_prefix_with_kind, starts_with_component_bounds,
 };
 pub(in crate::db) use readers::{
-    IndexEntryReader, PrimaryRowReader, SealedIndexEntryReader, SealedPrimaryRowReader,
-    SealedStructuralIndexEntryReader, SealedStructuralPrimaryRowReader, StructuralIndexEntryReader,
-    StructuralPrimaryRowReader,
+    IndexEntryReader, IndexReadContract, PrimaryRowReader, SealedIndexEntryReader,
+    SealedPrimaryRowReader, SealedStructuralIndexEntryReader, SealedStructuralPrimaryRowReader,
+    StructuralIndexEntryReader, StructuralPrimaryRowReader,
 };
 pub use store::{IndexState, IndexStore};

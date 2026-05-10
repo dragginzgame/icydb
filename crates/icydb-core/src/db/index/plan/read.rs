@@ -6,10 +6,9 @@
 use crate::{
     db::{
         data::{DataKey, RawRow, StorageKey},
-        index::{RawIndexEntry, RawIndexKey},
+        index::{IndexReadContract, RawIndexEntry, RawIndexKey},
     },
     error::InternalError,
-    model::index::IndexModel,
     types::EntityTag,
 };
 use std::ops::Bound;
@@ -18,8 +17,9 @@ use std::ops::Bound;
 /// IndexPlanReadView
 ///
 /// Abstract preflight reads needed while deriving forward-index deltas. This
-/// port intentionally accepts index definitions instead of store handles so
-/// index planning remains independent of registry, executor, and commit state.
+/// port intentionally accepts reduced index contract facts instead of generated
+/// index definitions so index planning remains independent of registry,
+/// executor, and commit state.
 ///
 
 pub(in crate::db) trait IndexPlanReadView {
@@ -29,7 +29,7 @@ pub(in crate::db) trait IndexPlanReadView {
     /// Return the raw entry for one index key, or `None` when no entry exists.
     fn read_index_entry(
         &self,
-        index: &IndexModel,
+        index: IndexReadContract<'_>,
         key: &RawIndexKey,
     ) -> Result<Option<RawIndexEntry>, InternalError>;
 
@@ -39,7 +39,7 @@ pub(in crate::db) trait IndexPlanReadView {
         &self,
         entity_path: &'static str,
         entity_tag: EntityTag,
-        index: &IndexModel,
+        index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError>;
