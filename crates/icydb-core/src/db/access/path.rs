@@ -4,7 +4,10 @@
 //! Boundary: used by access-plan construction and executor interpretation.
 
 use crate::{
-    db::Predicate,
+    db::{
+        Predicate,
+        predicate::{normalize, parse_sql_predicate},
+    },
     model::index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
     value::Value,
 };
@@ -48,7 +51,7 @@ struct SemanticIndexAccessContractInner {
     store_path: String,
     key_items: SemanticIndexKeyItems,
     unique: bool,
-    predicate_semantics: Option<fn() -> &'static Predicate>,
+    predicate_semantics: Option<Predicate>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -94,14 +97,7 @@ impl PartialEq for SemanticIndexAccessContract {
             && self.inner.store_path == other.inner.store_path
             && self.inner.key_items == other.inner.key_items
             && self.inner.unique == other.inner.unique
-            && match (
-                self.inner.predicate_semantics,
-                other.inner.predicate_semantics,
-            ) {
-                (Some(left), Some(right)) => std::ptr::fn_addr_eq(left, right),
-                (None, None) => true,
-                (Some(_), None) | (None, Some(_)) => false,
-            }
+            && self.inner.predicate_semantics == other.inner.predicate_semantics
     }
 }
 
@@ -119,7 +115,7 @@ impl SemanticIndexAccessContract {
                 store_path: index.store().to_string(),
                 key_items: SemanticIndexKeyItems::Static(index.key_items()),
                 unique: index.is_unique(),
-                predicate_semantics: index.predicate_resolver(),
+                predicate_semantics: index.predicate_semantics().cloned(),
             }),
         }
     }
@@ -127,7 +123,6 @@ impl SemanticIndexAccessContract {
     #[must_use]
     pub(in crate::db) fn from_accepted_field_path_index(
         accepted: &crate::db::schema::SchemaIndexInfo,
-        generated_predicate_bridge: Option<&'static IndexModel>,
     ) -> Self {
         Self {
             inner: Arc::new(SemanticIndexAccessContractInner {
@@ -148,8 +143,7 @@ impl SemanticIndexAccessContract {
                         .collect(),
                 ),
                 unique: accepted.unique(),
-                predicate_semantics: generated_predicate_bridge
-                    .and_then(IndexModel::predicate_resolver),
+                predicate_semantics: accepted_index_predicate_semantics(accepted),
             }),
         }
     }
@@ -274,9 +268,20 @@ impl SemanticIndexAccessContract {
     }
 
     #[must_use]
-    pub(in crate::db) fn predicate_semantics(&self) -> Option<&'static Predicate> {
-        self.inner.predicate_semantics.map(|resolver| resolver())
+    pub(in crate::db) fn predicate_semantics(&self) -> Option<&Predicate> {
+        self.inner.predicate_semantics.as_ref()
     }
+}
+
+fn accepted_index_predicate_semantics(
+    accepted: &crate::db::schema::SchemaIndexInfo,
+) -> Option<Predicate> {
+    let predicate_sql = accepted.predicate_sql()?;
+
+    Some(
+        parse_sql_predicate(predicate_sql)
+            .map_or(Predicate::False, |predicate| normalize(&predicate)),
+    )
 }
 
 ///

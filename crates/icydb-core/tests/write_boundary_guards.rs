@@ -402,8 +402,11 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && plan_mod.contains("accepted_schema_info: Some(schema_info.clone())")
             && plan_mod.contains("AcceptedPlannerFieldPathIndex::from_schema_index")
             && plan_mod.contains("SemanticIndexAccessContract::from_accepted_field_path_index")
-            && plan_mod.contains("fn generated_predicate_bridge_for_accepted_field_path_index")
-            && plan_mod.contains("generated_predicate_bridge: Option<&'static IndexModel>")
+            && !plan_mod.contains("fn generated_predicate_bridge_for_accepted_field_path_index")
+            && !plan_mod.contains("generated_predicate_bridge: Option<&'static IndexModel>")
+            && access_path.contains("accepted_index_predicate_semantics(")
+            && access_path.contains("parse_sql_predicate(predicate_sql)")
+            && access_path.contains("unwrap_or(Predicate::False)")
             && access_path.contains("SemanticIndexKeyItems::Fields(")
             && plan_mod.contains(".filter(|index| index.has_expression_key_items())")
             && !plan_mod_compact.contains(

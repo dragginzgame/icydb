@@ -237,10 +237,7 @@ pub(in crate::db) struct AcceptedPlannerFieldPathIndex {
 }
 
 impl AcceptedPlannerFieldPathIndex {
-    fn from_schema_index(
-        accepted: &crate::db::schema::SchemaIndexInfo,
-        generated_predicate_bridge: Option<&'static IndexModel>,
-    ) -> Self {
+    fn from_schema_index(accepted: &crate::db::schema::SchemaIndexInfo) -> Self {
         Self {
             name: accepted.name().to_string(),
             store: accepted.store().to_string(),
@@ -252,7 +249,6 @@ impl AcceptedPlannerFieldPathIndex {
                 .collect(),
             semantic_access_contract: SemanticIndexAccessContract::from_accepted_field_path_index(
                 accepted,
-                generated_predicate_bridge,
             ),
         }
     }
@@ -311,16 +307,6 @@ impl AcceptedPlannerFieldPathIndex {
                 .iter()
                 .all(AcceptedPlannerFieldPathIndexField::debug_contract_consistent)
     }
-}
-
-fn generated_predicate_bridge_for_accepted_field_path_index(
-    indexes: &[&'static IndexModel],
-    accepted: &crate::db::schema::SchemaIndexInfo,
-) -> Option<&'static IndexModel> {
-    indexes
-        .iter()
-        .copied()
-        .find(|index| !index.has_expression_key_items() && index.name() == accepted.name())
 }
 
 ///
@@ -421,12 +407,7 @@ impl<'a> VisibleIndexes<'a> {
         let accepted_field_path_indexes = schema_info
             .field_path_indexes()
             .iter()
-            .map(|accepted| {
-                AcceptedPlannerFieldPathIndex::from_schema_index(
-                    accepted,
-                    generated_predicate_bridge_for_accepted_field_path_index(indexes, accepted),
-                )
-            })
+            .map(AcceptedPlannerFieldPathIndex::from_schema_index)
             .collect::<Vec<_>>();
         let accepted_indexes = indexes
             .iter()
