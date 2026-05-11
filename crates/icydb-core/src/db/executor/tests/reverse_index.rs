@@ -7,7 +7,7 @@ use super::support::*;
 use crate::db::{
     commit::CommitSchemaFingerprint,
     data::{DataKey, DataStore, RawDataKey},
-    schema::{accepted_commit_schema_fingerprint_for_model, ensure_accepted_schema_snapshot},
+    schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
 };
 use canic_cdk::structures::Storable;
 use std::borrow::Cow;
@@ -36,11 +36,8 @@ fn relation_source_accepted_commit_schema_fingerprint() -> CommitSchemaFingerpri
         })
         .expect("relation source accepted schema should initialize");
 
-    accepted_commit_schema_fingerprint_for_model(
-        <RelationSourceEntity as crate::traits::EntitySchema>::MODEL,
-        &accepted,
-    )
-    .expect("relation source accepted commit fingerprint should derive")
+    accepted_commit_schema_fingerprint(&accepted)
+        .expect("relation source accepted commit fingerprint should derive")
 }
 
 #[test]

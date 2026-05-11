@@ -10,7 +10,7 @@ use crate::{
         data::{DataKey, RawDataKey, RawRow},
         index::{IndexState, IndexStore, RawIndexEntry, RawIndexKey},
         registry::StoreHandle,
-        schema::{accepted_commit_schema_fingerprint_for_model, ensure_accepted_schema_snapshot},
+        schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
     },
     error::InternalError,
     traits::CanisterKind,
@@ -139,8 +139,7 @@ fn rebuild_secondary_indexes_in_place(
                     hooks.model,
                 )
             })?;
-            let schema_fingerprint =
-                accepted_commit_schema_fingerprint_for_model(hooks.model, &accepted_schema)?;
+            let schema_fingerprint = accepted_commit_schema_fingerprint(&accepted_schema)?;
             let row_op = CommitRowOp::new(
                 hooks.entity_path,
                 raw_key,

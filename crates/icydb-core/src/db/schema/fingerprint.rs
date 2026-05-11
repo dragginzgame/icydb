@@ -3,22 +3,24 @@
 //! Does not own: commit marker persistence or recovery orchestration.
 //! Boundary: schema identity hashing consumed by commit preparation and replay guards.
 
-#[cfg(test)]
-use crate::{
-    db::schema::{SchemaFieldWritePolicy, compiled_schema_proposal_for_model},
-    model::field::{FieldInsertGeneration, FieldKind, FieldWriteManagement},
-};
 use crate::{
     db::{
         codec::{finalize_hash_sha256, new_hash_sha256},
         commit::CommitSchemaFingerprint,
-        index::canonical_index_predicate,
-        predicate::hash_predicate,
         schema::{AcceptedSchemaSnapshot, encode_persisted_schema_snapshot},
     },
     error::InternalError,
+};
+#[cfg(test)]
+use crate::{
+    db::{
+        index::predicate::canonical_index_predicate,
+        predicate::hash_predicate,
+        schema::{SchemaFieldWritePolicy, compiled_schema_proposal_for_model},
+    },
     model::{
         EntityModel,
+        field::{FieldInsertGeneration, FieldKind, FieldWriteManagement},
         index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
     },
 };
@@ -27,10 +29,14 @@ use sha2::{Digest, Sha256};
 const COMMIT_SCHEMA_FINGERPRINT_VERSION: u8 = 3;
 const ACCEPTED_SCHEMA_RUNTIME_FINGERPRINT_VERSION: u8 = 1;
 
+#[cfg(test)]
 const INDEX_KEY_ITEM_FIELD_TAG: u8 = 0x00;
+#[cfg(test)]
 const INDEX_KEY_ITEM_EXPRESSION_TAG: u8 = 0x01;
 
+#[cfg(test)]
 const INDEX_PREDICATE_NONE_TAG: u8 = 0x00;
+#[cfg(test)]
 const INDEX_PREDICATE_SEMANTIC_TAG: u8 = 0x01;
 #[cfg(test)]
 const FIELD_INSERT_GENERATION_NONE_TAG: u8 = 0x00;
@@ -47,38 +53,30 @@ const FIELD_WRITE_MANAGEMENT_UPDATED_AT_TAG: u8 = 0x02;
 
 /// Compute one accepted-schema fingerprint for runtime cache identity.
 ///
-/// Unlike the generated commit fingerprint, this cache fingerprint follows the
-/// accepted persisted snapshot that planning and SQL admission consume at runtime. It
-/// intentionally includes the encoded accepted schema payload and generated
-/// index contract so in-heap SQL/query caches miss when either the live schema
-/// authority or planner-visible index metadata changes.
-pub(in crate::db) fn accepted_schema_cache_fingerprint_for_model(
-    model: &'static EntityModel,
+/// This cache fingerprint follows the accepted persisted snapshot that planning
+/// and SQL admission consume at runtime, including accepted index contracts.
+pub(in crate::db) fn accepted_schema_cache_fingerprint(
     schema: &AcceptedSchemaSnapshot,
 ) -> Result<CommitSchemaFingerprint, InternalError> {
-    accepted_schema_runtime_fingerprint_for_model(model, schema)
+    accepted_schema_runtime_fingerprint(schema)
 }
 
 /// Compute one accepted-schema fingerprint for commit marker validation.
 ///
 /// Commit markers must follow the same accepted persisted schema authority as
-/// row decode and write validation. Index metadata remains generated until
-/// index declarations are persisted, so this fingerprint combines the accepted
-/// schema payload with the generated index contract.
-pub(in crate::db) fn accepted_commit_schema_fingerprint_for_model(
-    model: &'static EntityModel,
+/// row decode, write validation, and index planning.
+pub(in crate::db) fn accepted_commit_schema_fingerprint(
     schema: &AcceptedSchemaSnapshot,
 ) -> Result<CommitSchemaFingerprint, InternalError> {
-    accepted_schema_runtime_fingerprint_for_model(model, schema)
+    accepted_schema_runtime_fingerprint(schema)
 }
 
-fn accepted_schema_runtime_fingerprint_for_model(
-    model: &'static EntityModel,
+fn accepted_schema_runtime_fingerprint(
     schema: &AcceptedSchemaSnapshot,
 ) -> Result<CommitSchemaFingerprint, InternalError> {
     let mut hasher = new_hash_sha256();
     hasher.update([ACCEPTED_SCHEMA_RUNTIME_FINGERPRINT_VERSION]);
-    hash_labeled_str(&mut hasher, "model_path", model.path());
+    hash_labeled_str(&mut hasher, "entity_path", schema.entity_path());
     let encoded_snapshot = encode_persisted_schema_snapshot(schema.persisted_snapshot())?;
     hash_labeled_len(
         &mut hasher,
@@ -86,7 +84,6 @@ fn accepted_schema_runtime_fingerprint_for_model(
         encoded_snapshot.len(),
     );
     hasher.update(encoded_snapshot);
-    hash_model_index_contract_for_cache(&mut hasher, model);
 
     Ok(truncate_sha256_commit_schema_fingerprint(hasher))
 }
@@ -111,6 +108,7 @@ fn hash_entity_model_for_commit(hasher: &mut Sha256, model: &EntityModel) {
     hash_model_index_contract_for_cache(hasher, model);
 }
 
+#[cfg(test)]
 fn hash_model_index_contract_for_cache(hasher: &mut Sha256, model: &EntityModel) {
     hash_labeled_len(hasher, "index_count", model.indexes.len());
     for index in model.indexes {
@@ -155,6 +153,7 @@ fn hash_field_write_policy_contract(hasher: &mut Sha256, policy: SchemaFieldWrit
     hash_labeled_tag(hasher, "field_write_management", write_management_tag);
 }
 
+#[cfg(test)]
 fn hash_index_key_items_contract(hasher: &mut Sha256, index: &IndexModel) {
     match index.key_items() {
         IndexKeyItemsRef::Fields(fields) => {
@@ -187,6 +186,7 @@ fn hash_index_key_items_contract(hasher: &mut Sha256, index: &IndexModel) {
     }
 }
 
+#[cfg(test)]
 fn hash_index_predicate_contract(hasher: &mut Sha256, index: &IndexModel) {
     match canonical_index_predicate(index) {
         None => hash_labeled_tag(hasher, "index_predicate_kind", INDEX_PREDICATE_NONE_TAG),
@@ -201,6 +201,7 @@ fn hash_index_predicate_contract(hasher: &mut Sha256, index: &IndexModel) {
     }
 }
 
+#[cfg(test)]
 fn hash_labeled_tag(hasher: &mut Sha256, label: &str, tag: u8) {
     hasher.update(label.as_bytes());
     hasher.update([tag]);

@@ -7,7 +7,7 @@ use crate::{
         executor::EntityAuthority,
         response::Row,
         schema::{
-            AcceptedSchemaSnapshot, accepted_schema_cache_fingerprint_for_model,
+            AcceptedSchemaSnapshot, accepted_schema_cache_fingerprint,
             compiled_schema_proposal_for_model,
         },
         session::{query::QueryPlanVisibility, sql::SqlCompiledCommandCacheKey},
@@ -33,7 +33,7 @@ fn session_sql_entity_initial_accepted_schema_cache_fingerprint() -> [u8; 16] {
     let accepted = AcceptedSchemaSnapshot::try_new(proposal.initial_persisted_schema_snapshot())
         .expect("session SQL test schema snapshot should be accepted");
 
-    accepted_schema_cache_fingerprint_for_model(SessionSqlEntity::MODEL, &accepted)
+    accepted_schema_cache_fingerprint(&accepted)
         .expect("session SQL test schema cache fingerprint should derive")
 }
 

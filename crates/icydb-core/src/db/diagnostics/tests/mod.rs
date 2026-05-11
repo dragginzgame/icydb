@@ -27,7 +27,7 @@ use crate::{
         registry::StoreRegistry,
         relation::validate_delete_strong_relations_for_source,
         schema::{
-            AcceptedSchemaSnapshot, SchemaStore, accepted_commit_schema_fingerprint_for_model,
+            AcceptedSchemaSnapshot, SchemaStore, accepted_commit_schema_fingerprint,
             compiled_schema_proposal_for_model,
         },
     },
@@ -318,9 +318,8 @@ fn insert_integrity_expected_indexes(entity: &IntegrityIndexedEntity) {
     let proposal = compiled_schema_proposal_for_model(IntegrityIndexedEntity::MODEL);
     let accepted = AcceptedSchemaSnapshot::try_new(proposal.initial_persisted_schema_snapshot())
         .expect("integrity test schema snapshot should be accepted");
-    let schema_fingerprint =
-        accepted_commit_schema_fingerprint_for_model(IntegrityIndexedEntity::MODEL, &accepted)
-            .expect("integrity test schema fingerprint should derive");
+    let schema_fingerprint = accepted_commit_schema_fingerprint(&accepted)
+        .expect("integrity test schema fingerprint should derive");
     let row_op = CommitRowOp::new(
         IntegrityIndexedEntity::PATH,
         raw_key,

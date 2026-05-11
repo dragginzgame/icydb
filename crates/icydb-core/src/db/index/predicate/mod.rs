@@ -9,11 +9,11 @@ mod tests;
 
 use crate::{
     db::index::{EncodedValue, IndexKey},
-    db::predicate::Predicate,
     error::InternalError,
-    model::index::IndexModel,
     value::Value,
 };
+#[cfg(test)]
+use crate::{db::predicate::Predicate, model::index::IndexModel};
 use std::cell::Cell;
 
 pub(crate) use compile::{
@@ -21,6 +21,7 @@ pub(crate) use compile::{
 };
 
 /// Resolve the canonical generated predicate semantics for one filtered index.
+#[cfg(test)]
 pub(in crate::db) fn canonical_index_predicate(index: &IndexModel) -> Option<&'static Predicate> {
     index.predicate_semantics()
 }

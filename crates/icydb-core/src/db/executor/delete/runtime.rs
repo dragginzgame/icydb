@@ -26,7 +26,7 @@ use crate::{
         predicate::MissingRowPolicy,
         query::plan::AccessPlannedQuery,
         registry::StoreHandle,
-        schema::{accepted_commit_schema_fingerprint_for_model, ensure_accepted_schema_snapshot},
+        schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
     },
     error::InternalError,
     traits::{EntityValue, Path},
@@ -81,8 +81,7 @@ where
             ensure_accepted_schema_snapshot(schema_store, E::ENTITY_TAG, E::PATH, E::MODEL)
         })?
     };
-    let schema_fingerprint =
-        accepted_commit_schema_fingerprint_for_model(E::MODEL, &accepted_schema)?;
+    let schema_fingerprint = accepted_commit_schema_fingerprint(&accepted_schema)?;
     let authority =
         DeleteExecutionAuthority::from_entity_authority(prepared.authority, schema_fingerprint);
     let prepared = prepare_delete_execution_state(

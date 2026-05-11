@@ -7,9 +7,8 @@ use crate::{
         schema::{
             AcceptedRowLayoutRuntimeDescriptor, AcceptedRowLayoutRuntimeField,
             AcceptedSchemaSnapshot, SchemaFieldWritePolicy, SchemaInfo, ValidateError,
-            accepted_commit_schema_fingerprint_for_model,
-            canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_persisted_kind,
-            literal_matches_type,
+            accepted_commit_schema_fingerprint, canonicalize_strict_sql_literal_for_persisted_kind,
+            field_type_from_persisted_kind, literal_matches_type,
         },
         session::sql::{
             SqlStatementResult,
@@ -593,8 +592,7 @@ impl<C: CanisterKind> DbSession<C> {
         let mutation_row_decode_contract = row_decode_contract.clone();
         let accepted_schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &schema);
         let accepted_schema_fingerprint =
-            accepted_commit_schema_fingerprint_for_model(E::MODEL, &schema)
-                .map_err(QueryError::execute)?;
+            accepted_commit_schema_fingerprint(&schema).map_err(QueryError::execute)?;
         let entities = self
             .execute_save_with_checked_accepted_row_contract::<E, _, _>(
                 row_decode_contract,
@@ -661,8 +659,7 @@ impl<C: CanisterKind> DbSession<C> {
         let mutation_row_decode_contract = row_decode_contract.clone();
         let accepted_schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &schema);
         let accepted_schema_fingerprint =
-            accepted_commit_schema_fingerprint_for_model(E::MODEL, &schema)
-                .map_err(QueryError::execute)?;
+            accepted_commit_schema_fingerprint(&schema).map_err(QueryError::execute)?;
         let entities = self
             .execute_save_with_checked_accepted_row_contract::<E, _, _>(
                 row_decode_contract,

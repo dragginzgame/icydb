@@ -13,7 +13,7 @@ use crate::{
             intent::StructuralQuery,
             plan::{AccessPlannedQuery, VisibleIndexes},
         },
-        schema::{AcceptedSchemaSnapshot, SchemaInfo, accepted_schema_cache_fingerprint_for_model},
+        schema::{AcceptedSchemaSnapshot, SchemaInfo, accepted_schema_cache_fingerprint},
     },
     metrics::sink::{
         CacheKind, CacheMissReason, CacheOutcome, record_cache_entries,
@@ -220,8 +220,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
         let schema_fingerprint =
-            accepted_schema_cache_fingerprint_for_model(authority.model(), accepted_schema)
-                .map_err(QueryError::execute)?;
+            accepted_schema_cache_fingerprint(accepted_schema).map_err(QueryError::execute)?;
         let schema_info = SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
             authority.model(),
             accepted_schema,

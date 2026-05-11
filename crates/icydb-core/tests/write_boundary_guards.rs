@@ -808,7 +808,7 @@ fn recovery_rebuild_expression_indexes_uses_accepted_commit_preflight() {
 
     assert!(
         commit_rebuild.contains("ensure_accepted_schema_snapshot(")
-            && commit_rebuild.contains("accepted_commit_schema_fingerprint_for_model(")
+            && commit_rebuild.contains("accepted_commit_schema_fingerprint(&accepted_schema)")
             && commit_rebuild.contains("CommitRowOp::new(")
             && commit_rebuild.contains("db.prepare_row_commit_op(&row_op)")
             && commit_rebuild.contains("for index_op in prepared.index_ops")
@@ -835,6 +835,36 @@ fn recovery_rebuild_expression_indexes_uses_accepted_commit_preflight() {
             && !index_plan
                 .contains("plan_generated_expression_index_mutation_for_slot_reader_structural("),
         "recovery rebuild reaches an accepted-expression-only forward-index planner",
+    );
+}
+
+#[test]
+fn accepted_schema_fingerprints_are_snapshot_only() {
+    let fingerprint = read_source("src/db/schema/fingerprint.rs");
+    let commit_prepare = read_source("src/db/commit/prepare.rs");
+    let session_query_cache = read_source("src/db/session/query/cache.rs");
+
+    assert!(
+        fingerprint.contains("pub(in crate::db) fn accepted_commit_schema_fingerprint(")
+            && fingerprint.contains("pub(in crate::db) fn accepted_schema_cache_fingerprint(")
+            && fingerprint.contains("fn accepted_schema_runtime_fingerprint(")
+            && fingerprint
+                .contains("hash_labeled_str(&mut hasher, \"entity_path\", schema.entity_path())")
+            && fingerprint
+                .contains("encode_persisted_schema_snapshot(schema.persisted_snapshot())?")
+            && !fingerprint.contains("accepted_commit_schema_fingerprint_for_model")
+            && !fingerprint.contains("accepted_schema_cache_fingerprint_for_model")
+            && !fingerprint.contains("fn accepted_schema_runtime_fingerprint_for_model")
+            && !fingerprint.contains("hash_model_index_contract_for_cache(&mut hasher, model)")
+            && !fingerprint.contains("hash_labeled_str(&mut hasher, \"model_path\", model.path())"),
+        "accepted commit/cache fingerprints must derive from the accepted persisted schema snapshot, not generated EntityModel index contracts",
+    );
+    assert!(
+        commit_prepare.contains("accepted_commit_schema_fingerprint(&accepted)")
+            && session_query_cache.contains("accepted_schema_cache_fingerprint(accepted_schema)")
+            && !commit_prepare.contains("accepted_commit_schema_fingerprint_for_model(")
+            && !session_query_cache.contains("accepted_schema_cache_fingerprint_for_model("),
+        "runtime commit preparation and query cache identity must call accepted-snapshot fingerprint APIs directly",
     );
 }
 

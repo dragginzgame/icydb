@@ -29,8 +29,8 @@ use crate::{
         relation::validate_delete_strong_relations_for_source,
         schema::{
             AcceptedSchemaSnapshot, FieldId, PersistedSchemaSnapshot, SchemaFieldSlot,
-            SchemaRowLayout, SchemaStore, SchemaVersion,
-            accepted_commit_schema_fingerprint_for_model, compiled_schema_proposal_for_model,
+            SchemaRowLayout, SchemaStore, SchemaVersion, accepted_commit_schema_fingerprint,
+            compiled_schema_proposal_for_model,
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -777,7 +777,7 @@ fn initial_accepted_commit_schema_fingerprint_for_entity<E: EntityKind + 'static
     let accepted = AcceptedSchemaSnapshot::try_new(proposal.initial_persisted_schema_snapshot())
         .expect("initial recovery test schema snapshot should be accepted");
 
-    accepted_commit_schema_fingerprint_for_model(E::MODEL, &accepted)
+    accepted_commit_schema_fingerprint(&accepted)
         .expect("initial recovery test schema fingerprint should derive")
 }
 

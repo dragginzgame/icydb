@@ -24,7 +24,7 @@ use crate::{
         query::plan::VisibleIndexes,
         schema::{
             AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot,
-            SchemaInfo, accepted_commit_schema_fingerprint_for_model, describe_entity_fields,
+            SchemaInfo, accepted_commit_schema_fingerprint, describe_entity_fields,
             describe_entity_fields_with_persisted_schema, describe_entity_model,
             describe_entity_model_with_persisted_schema, ensure_accepted_schema_snapshot,
             show_indexes_for_model, show_indexes_for_model_with_runtime_state,
@@ -499,8 +499,7 @@ impl<C: CanisterKind> DbSession<C> {
                 E::MODEL,
             )?;
         let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema);
-        let schema_fingerprint =
-            accepted_commit_schema_fingerprint_for_model(E::MODEL, &accepted_schema)?;
+        let schema_fingerprint = accepted_commit_schema_fingerprint(&accepted_schema)?;
 
         Ok((
             accepted_row_layout.row_decode_contract(),

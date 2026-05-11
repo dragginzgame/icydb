@@ -194,7 +194,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let accepted_schema_info =
             SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted);
         let accepted_schema_fingerprint =
-            crate::db::schema::accepted_commit_schema_fingerprint_for_model(E::MODEL, &accepted)
+            crate::db::schema::accepted_commit_schema_fingerprint(&accepted)
                 .expect("test save executor schema fingerprint should derive");
 
         Self {

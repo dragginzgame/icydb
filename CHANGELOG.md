@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.151.x] 🧩 - 2026-05-11 - Accepted Expression Index Contracts
 
+- `0.151.6` hard-cuts accepted commit/cache schema fingerprints to hash the accepted persisted schema snapshot directly, including accepted index contracts, instead of appending generated `EntityModel` index metadata to runtime fingerprint identity.
 - `0.151.5` removes the accepted-runtime generated expression candidate lane from `VisibleIndexes`, access planning, residual reranking, and explain access-choice projection, drops generated model parameters from accepted visible-index helpers, and guards startup index rebuild so accepted `SchemaInfo` expression contracts are the only runtime planner/rebuild source for expression indexes.
 - `0.151.4` removes the generated expression-index write fallback from forward-index commit preflight, deletes the now-dead generated structural index-key builder, and tightens write-boundary guards so accepted expression-index contracts are the only runtime write authority after schema acceptance.
 - `0.151.3` routes forward-index commit preflight, expression-index key construction, filtered membership predicates, and unique validation through accepted expression-index contracts when accepted schema metadata is available, leaving generated expression write indexes only as the explicit fallback lane.

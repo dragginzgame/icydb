@@ -32,7 +32,7 @@ use crate::{
         },
         schema::{
             AcceptedRowDecodeContract, FieldId, PersistedSchemaSnapshot, SchemaFieldSlot,
-            SchemaRowLayout, SchemaStore, accepted_commit_schema_fingerprint_for_model,
+            SchemaRowLayout, SchemaStore, accepted_commit_schema_fingerprint,
             compiled_schema_proposal_for_model, ensure_accepted_schema_snapshot,
         },
     },
@@ -1969,11 +1969,8 @@ fn unique_email_accepted_commit_schema_fingerprint() -> crate::db::commit::Commi
         )
         .expect("unique email accepted schema should initialize");
 
-        accepted_commit_schema_fingerprint_for_model(
-            <UniqueEmailEntity as crate::traits::EntitySchema>::MODEL,
-            &accepted,
-        )
-        .expect("unique email accepted commit fingerprint should derive")
+        accepted_commit_schema_fingerprint(&accepted)
+            .expect("unique email accepted commit fingerprint should derive")
     })
 }
 

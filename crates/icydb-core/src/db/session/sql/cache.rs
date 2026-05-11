@@ -8,7 +8,7 @@ use crate::{
         DbSession, PersistedRow, QueryError,
         commit::CommitSchemaFingerprint,
         executor::EntityAuthority,
-        schema::{SchemaInfo, accepted_schema_cache_fingerprint_for_model},
+        schema::{SchemaInfo, accepted_schema_cache_fingerprint},
         session::sql::compiled::CompiledSqlCommand,
     },
     metrics::sink::CacheMissReason,
@@ -274,7 +274,7 @@ impl SqlCompiledCommandCacheKey {
         let accepted =
             AcceptedSchemaSnapshot::try_new(proposal.initial_persisted_schema_snapshot())
                 .expect("SQL cache test schema snapshot should be accepted");
-        let schema_fingerprint = accepted_schema_cache_fingerprint_for_model(E::MODEL, &accepted)
+        let schema_fingerprint = accepted_schema_cache_fingerprint(&accepted)
             .expect("SQL cache test schema fingerprint should derive");
 
         Self {
@@ -300,8 +300,7 @@ impl<C: CanisterKind> DbSession<C> {
             .accepted_entity_authority::<E>()
             .map_err(QueryError::execute)?;
         let schema_fingerprint =
-            accepted_schema_cache_fingerprint_for_model(authority.model(), &accepted_schema)
-                .map_err(QueryError::execute)?;
+            accepted_schema_cache_fingerprint(&accepted_schema).map_err(QueryError::execute)?;
 
         Ok(SqlCompiledCommandCacheContext {
             key: SqlCompiledCommandCacheKey::new(

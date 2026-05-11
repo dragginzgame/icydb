@@ -11,7 +11,7 @@ use crate::{
         executor::MutationMode,
         schema::{
             AcceptedFieldAbsencePolicy, AcceptedRowLayoutRuntimeDescriptor, SchemaInfo,
-            accepted_commit_schema_fingerprint_for_model,
+            accepted_commit_schema_fingerprint,
         },
     },
     error::InternalError,
@@ -194,8 +194,7 @@ impl<C: CanisterKind> DbSession<C> {
         validate_structural_patch_schema_policy::<E>(&descriptor, &patch, mode)?;
         let accepted_schema_info =
             SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema);
-        let accepted_schema_fingerprint =
-            accepted_commit_schema_fingerprint_for_model(E::MODEL, &accepted_schema)?;
+        let accepted_schema_fingerprint = accepted_commit_schema_fingerprint(&accepted_schema)?;
 
         let row_decode_contract = descriptor.row_decode_contract();
         let mutation_row_decode_contract = row_decode_contract.clone();

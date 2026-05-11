@@ -22,7 +22,7 @@ use crate::{
             StructuralIndexEntryReader, StructuralPrimaryRowReader, key_within_envelope,
         },
         registry::StoreHandle,
-        schema::{accepted_commit_schema_fingerprint_for_model, ensure_accepted_schema_snapshot},
+        schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
     },
     error::InternalError,
     metrics::sink::{MetricsEvent, record},
@@ -556,7 +556,7 @@ where
         ensure_accepted_schema_snapshot(schema_store, E::ENTITY_TAG, E::PATH, E::MODEL)
     })?;
 
-    accepted_commit_schema_fingerprint_for_model(E::MODEL, &accepted)
+    accepted_commit_schema_fingerprint(&accepted)
 }
 
 fn preflight_prepare_row_op_batch_with_schema_fingerprint<E: EntityKind + EntityValue>(

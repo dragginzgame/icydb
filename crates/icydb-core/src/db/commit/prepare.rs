@@ -25,10 +25,7 @@ use crate::{
             ReverseRelationSourceInfo,
             prepare_reverse_relation_index_mutations_for_source_slot_readers,
         },
-        schema::{
-            SchemaInfo, accepted_commit_schema_fingerprint_for_model,
-            ensure_accepted_schema_snapshot,
-        },
+        schema::{SchemaInfo, accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
     },
     error::{ErrorClass, InternalError},
     metrics::sink::{MetricsEvent, record},
@@ -217,7 +214,7 @@ where
         ensure_accepted_schema_snapshot(schema_store, E::ENTITY_TAG, E::PATH, E::MODEL)
     })?;
 
-    accepted_commit_schema_fingerprint_for_model(E::MODEL, &accepted)
+    accepted_commit_schema_fingerprint(&accepted)
 }
 
 /// Prepare a typed row-level commit op against nongeneric structural readers

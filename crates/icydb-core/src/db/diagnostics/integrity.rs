@@ -11,7 +11,7 @@ use crate::{
         diagnostics::{IntegrityReport, IntegrityStoreSnapshot, IntegrityTotals},
         index::IndexKey,
         registry::StoreHandle,
-        schema::{accepted_commit_schema_fingerprint_for_model, ensure_accepted_schema_snapshot},
+        schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
     },
     error::{ErrorClass, InternalError},
     traits::CanisterKind,
@@ -129,14 +129,13 @@ fn scan_store_forward_integrity<C: CanisterKind>(
                     continue;
                 }
             };
-            let schema_fingerprint =
-                match accepted_commit_schema_fingerprint_for_model(hooks.model, &accepted_schema) {
-                    Ok(fingerprint) => fingerprint,
-                    Err(err) => {
-                        classify_scan_error(err, snapshot)?;
-                        continue;
-                    }
-                };
+            let schema_fingerprint = match accepted_commit_schema_fingerprint(&accepted_schema) {
+                Ok(fingerprint) => fingerprint,
+                Err(err) => {
+                    classify_scan_error(err, snapshot)?;
+                    continue;
+                }
+            };
 
             let marker_row = CommitRowOp::new(
                 hooks.entity_path,
