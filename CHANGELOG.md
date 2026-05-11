@@ -7,11 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.153.x] 🏗️ - 2026-05-11 - Schema Rebuild Runners
 
-- `0.153.0` starts schema rebuild runner implementation by adding internal
-  runner phase, outcome, rejection, report, staged-store visibility, and
-  checked runner input contracts plus a no-op runner adapter on top of the
-  0.152 execution preflight boundary, keeping physical rebuild execution and
-  publication widening deferred.
+- `0.153.1` adds runtime schema epoch and publication identity contracts for schema mutation runners, deriving runtime identity from accepted persisted snapshots and keeping staged rebuild state invisible until publication.
+- `0.153.0` starts schema rebuild runner implementation by adding internal runner phase, outcome, rejection, report, staged-store visibility, and checked runner input contracts plus a no-op runner adapter on top of the 0.152 execution preflight boundary, keeping physical rebuild execution and publication widening deferred.
 
 See detailed breakdown:
 [docs/changelog/0.153.md](docs/changelog/0.153.md)
