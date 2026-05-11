@@ -347,7 +347,9 @@ fn accepted_schema_info_index_membership_uses_persisted_index_contracts() {
     );
     assert!(
         schema_info.contains("fn accepted_field_is_indexed(")
-            && schema_info.contains("snapshot.indexes().iter().any(|index|")
+            && schema_info_compact.contains(
+                "snapshot.indexes().iter().any(|index|index.key().references_field(field_id))"
+            )
             && schema_info.contains("indexed: accepted_field_is_indexed(snapshot, field.id()),")
             && schema_info.contains("fn generated_field_is_indexed(")
             && schema_info.contains(
@@ -362,10 +364,20 @@ fn accepted_schema_info_index_membership_uses_persisted_index_contracts() {
             && schema_info.contains(
                 "pub(in crate::db) const fn field_path_indexes(&self) -> &[SchemaIndexInfo]",
             )
+            && schema_info.contains(
+                "pub(in crate::db) const fn expression_indexes(&self) -> &[SchemaExpressionIndexInfo]",
+            )
+            && schema_info.contains("pub(in crate::db) struct SchemaExpressionIndexInfo")
+            && schema_info.contains("pub(in crate::db) struct SchemaIndexExpressionInfo")
             && schema_info.contains("fn schema_index_info_from_accepted_index(")
-            && schema_info_compact.contains("indexes:snapshot.indexes().iter().map(|index|schema_index_info_from_accepted_index(index,snapshot)).collect(),")
+            && schema_info.contains("fn schema_expression_index_info_from_accepted_index(")
+            && schema_info_compact.contains("indexes:snapshot.indexes().iter().filter_map(|index|schema_index_info_from_accepted_index(index,snapshot)).collect(),")
+            && schema_info.contains("expression_indexes: snapshot")
+            && schema_info.contains(
+                "schema_expression_index_info_from_accepted_index(index, snapshot)"
+            )
             && schema_info.contains("fn schema_index_info_from_generated_index("),
-        "accepted SchemaInfo must expose field-path index metadata from persisted contracts while keeping generated projection isolated to generated schema views",
+        "accepted SchemaInfo must expose field-path and expression index metadata from persisted contracts while keeping generated projection isolated to generated schema views",
     );
 }
 
