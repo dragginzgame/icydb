@@ -22,7 +22,8 @@ use crate::{
         access::{AccessPlan, SemanticIndexAccessContract, normalize_access_plan_value},
         predicate::Predicate,
         query::plan::{
-            AcceptedPlannerFieldPathIndex, OrderSpec, PlanError, PlannedNonIndexAccessReason,
+            AcceptedPlannerFieldPathIndex, GeneratedExpressionCandidateIndex, OrderSpec, PlanError,
+            PlannedNonIndexAccessReason,
         },
         schema::SchemaInfo,
     },
@@ -183,7 +184,7 @@ pub(in crate::db::query) fn plan_access_selection_with_order(
 // accepted expression-index contracts exist.
 pub(in crate::db::query) fn plan_access_selection_with_order_and_accepted_indexes(
     model: &EntityModel,
-    generated_expression_candidate_indexes: &[&'static IndexModel],
+    generated_expression_candidate_indexes: &[GeneratedExpressionCandidateIndex],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
@@ -243,7 +244,7 @@ fn semantic_candidate_indexes_from_generated_model_only(
 }
 
 fn semantic_candidate_indexes_from_accepted_and_generated_expression(
-    generated_expression_candidate_indexes: &[&'static IndexModel],
+    generated_expression_candidate_indexes: &[GeneratedExpressionCandidateIndex],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
 ) -> Vec<SemanticIndexAccessContract> {
     let mut indexes = accepted_field_path_indexes
@@ -253,8 +254,7 @@ fn semantic_candidate_indexes_from_accepted_and_generated_expression(
     indexes.extend(
         generated_expression_candidate_indexes
             .iter()
-            .copied()
-            .map(|index| SemanticIndexAccessContract::from_generated_index(*index)),
+            .map(GeneratedExpressionCandidateIndex::semantic_access_contract),
     );
 
     indexes

@@ -216,10 +216,38 @@ pub(in crate::db) struct VisibleIndexes<'a> {
     generated_model_only_indexes: Cow<'a, [&'static IndexModel]>,
     // Generated candidate indexes remain only for expression-index planning
     // until accepted expression-index contracts exist.
-    generated_expression_candidate_indexes: Cow<'a, [&'static IndexModel]>,
+    generated_expression_candidate_indexes: Cow<'a, [GeneratedExpressionCandidateIndex]>,
     accepted_field_path_indexes: Vec<AcceptedPlannerFieldPathIndex>,
     accepted_schema_info: Option<SchemaInfo>,
     authority: VisibleIndexAuthority,
+}
+
+/// Generated expression index candidate retained only for the accepted runtime
+/// expression-index lane until accepted expression contracts exist.
+#[derive(Clone, Debug)]
+pub(in crate::db) struct GeneratedExpressionCandidateIndex {
+    semantic_access_contract: SemanticIndexAccessContract,
+}
+
+impl GeneratedExpressionCandidateIndex {
+    fn from_index(index: &'static IndexModel) -> Option<Self> {
+        index.has_expression_key_items().then_some(Self {
+            semantic_access_contract: SemanticIndexAccessContract::from_generated_index(*index),
+        })
+    }
+
+    /// Return true for the deferred expression-index lane invariant.
+    #[must_use]
+    pub(in crate::db) fn has_expression_key_items(&self) -> bool {
+        self.semantic_access_contract.has_expression_key_items()
+    }
+
+    /// Project this generated expression candidate into the reduced semantic
+    /// contract used past planner candidate selection.
+    #[must_use]
+    pub(in crate::db) fn semantic_access_contract(&self) -> SemanticIndexAccessContract {
+        self.semantic_access_contract.clone()
+    }
 }
 
 ///
@@ -418,7 +446,7 @@ impl<'a> VisibleIndexes<'a> {
         let generated_expression_indexes = indexes
             .iter()
             .copied()
-            .filter(|index| index.has_expression_key_items())
+            .filter_map(GeneratedExpressionCandidateIndex::from_index)
             .collect();
         let accepted_field_path_index_count = accepted_field_path_indexes.len();
 
@@ -439,7 +467,9 @@ impl<'a> VisibleIndexes<'a> {
     }
 
     #[must_use]
-    pub(in crate::db) fn generated_expression_candidate_indexes(&self) -> &[&'static IndexModel] {
+    pub(in crate::db) fn generated_expression_candidate_indexes(
+        &self,
+    ) -> &[GeneratedExpressionCandidateIndex] {
         self.generated_expression_candidate_indexes.as_ref()
     }
 

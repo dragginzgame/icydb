@@ -21,7 +21,7 @@ use crate::{
         QueryError, StorageReport, StoreRegistry, WriteBatchResponse,
         commit::CommitSchemaFingerprint,
         executor::{DeleteExecutor, EntityAuthority, LoadExecutor, SaveExecutor},
-        query::plan::VisibleIndexes,
+        query::plan::{GeneratedExpressionCandidateIndex, VisibleIndexes},
         schema::{
             AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot,
             SchemaInfo, accepted_commit_schema_fingerprint_for_model, describe_entity_fields,
@@ -374,7 +374,7 @@ impl<C: CanisterKind> DbSession<C> {
             visible_indexes
                 .generated_expression_candidate_indexes()
                 .iter()
-                .all(|index| index.has_expression_key_items()),
+                .all(GeneratedExpressionCandidateIndex::has_expression_key_items),
         );
         debug_assert!(visible_indexes.accepted_field_path_contracts_are_consistent());
 

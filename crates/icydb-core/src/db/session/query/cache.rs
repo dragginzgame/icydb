@@ -11,7 +11,7 @@ use crate::{
         predicate::predicate_fingerprint_normalized,
         query::{
             intent::StructuralQuery,
-            plan::{AccessPlannedQuery, VisibleIndexes},
+            plan::{AccessPlannedQuery, GeneratedExpressionCandidateIndex, VisibleIndexes},
         },
         schema::{AcceptedSchemaSnapshot, SchemaInfo, accepted_schema_cache_fingerprint_for_model},
     },
@@ -175,7 +175,7 @@ impl<C: CanisterKind> DbSession<C> {
                     visible_indexes
                         .generated_expression_candidate_indexes()
                         .iter()
-                        .all(|index| index.has_expression_key_items()),
+                        .all(GeneratedExpressionCandidateIndex::has_expression_key_items),
                 );
                 debug_assert!(visible_indexes.accepted_field_path_contracts_are_consistent());
 

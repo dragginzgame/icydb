@@ -6,8 +6,18 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.151.x] 🧩 - 2026-05-11 - Accepted Expression Index Contracts
+
+- `0.151.0` starts the accepted expression-index contract phase with a design and status plan for moving expression index planning, explain, fingerprints, writes, uniqueness validation, and recovery from generated runtime metadata onto accepted schema contracts.
+
+See detailed breakdown:
+[docs/changelog/0.151.md](docs/changelog/0.151.md)
+
+---
+
 ## [0.150.x] 🧭 - 2026-05-09 - Accepted Index Authority
 
+- `0.150.20` wraps accepted-runtime generated expression planner candidates in `GeneratedExpressionCandidateIndex`, so `VisibleIndexes`, accepted planner entrypoints, access-choice explain, and residual reranking no longer pass or retain raw generated `IndexModel` slices on the accepted runtime expression lane.
 - `0.150.19` splits runtime visible-index generated metadata into explicit model-only indexes and accepted-runtime expression-index candidates, names generated semantic index projection as `from_generated_index`, and wraps generated expression write indexes so standalone/model-only and deferred expression lanes no longer share raw generated index flow.
 - `0.150.18` removes the accepted field-path write-time generated predicate bridge by compiling filtered-index membership predicates from accepted `SchemaIndexInfo::predicate_sql()` against accepted row contracts, and renames the remaining generated visible-index candidate lane as expression-only.
 - `0.150.17` removes the accepted field-path filtered-index generated predicate bridge by parsing accepted `predicate_sql` into owned semantic predicate contracts, leaving generated predicate semantics only on generated/model-only and expression-index lanes.

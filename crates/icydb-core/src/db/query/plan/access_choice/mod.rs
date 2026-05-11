@@ -19,7 +19,7 @@ use crate::{
         access::{AccessPlan, SemanticIndexAccessContract},
         predicate::Predicate,
         query::plan::{
-            AcceptedPlannerFieldPathIndex, AccessPlannedQuery,
+            AcceptedPlannerFieldPathIndex, AccessPlannedQuery, GeneratedExpressionCandidateIndex,
             access_choice::{
                 evaluator::{
                     chosen_access_shape_projection, chosen_selection_reason,
@@ -52,7 +52,7 @@ fn semantic_candidate_indexes_from_generated_model_only(
 }
 
 fn semantic_candidate_indexes_from_accepted_and_generated_expression(
-    generated_expression_candidate_indexes: &[&'static IndexModel],
+    generated_expression_candidate_indexes: &[GeneratedExpressionCandidateIndex],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
 ) -> Vec<SemanticIndexAccessContract> {
     let mut indexes = accepted_field_path_indexes
@@ -62,8 +62,7 @@ fn semantic_candidate_indexes_from_accepted_and_generated_expression(
     indexes.extend(
         generated_expression_candidate_indexes
             .iter()
-            .copied()
-            .map(|index| SemanticIndexAccessContract::from_generated_index(*index)),
+            .map(GeneratedExpressionCandidateIndex::semantic_access_contract),
     );
 
     indexes
@@ -99,7 +98,7 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes_and_sch
 #[must_use]
 pub(in crate::db) fn project_access_choice_explain_snapshot_with_accepted_indexes_and_schema(
     model: &EntityModel,
-    generated_expression_candidate_indexes: &[&'static IndexModel],
+    generated_expression_candidate_indexes: &[GeneratedExpressionCandidateIndex],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
@@ -300,7 +299,7 @@ pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_indexes(
 #[must_use]
 pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_accepted_indexes(
     model: &EntityModel,
-    generated_expression_candidate_indexes: &[&'static IndexModel],
+    generated_expression_candidate_indexes: &[GeneratedExpressionCandidateIndex],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,

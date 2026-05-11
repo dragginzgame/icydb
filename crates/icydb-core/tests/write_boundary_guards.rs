@@ -397,9 +397,18 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && plan_mod.contains("generated_model_only_indexes: Cow")
             && plan_mod.contains("pub(in crate::db) fn generated_model_only_indexes(&self)")
             && plan_mod.contains("generated_expression_candidate_indexes: Cow")
+            && plan_mod.contains("struct GeneratedExpressionCandidateIndex")
             && plan_mod.contains(
-                "pub(in crate::db) fn generated_expression_candidate_indexes(&self)",
+                "struct GeneratedExpressionCandidateIndex {\n    semantic_access_contract: SemanticIndexAccessContract",
             )
+            && plan_mod.contains("fn from_index(index: &'static IndexModel) -> Option<Self>")
+            && plan_mod.contains("index.has_expression_key_items().then_some(Self {")
+            && plan_mod.contains(
+                "semantic_access_contract: SemanticIndexAccessContract::from_generated_index(*index)",
+            )
+            && plan_mod
+                .contains("fn semantic_access_contract(&self) -> SemanticIndexAccessContract")
+            && plan_mod.contains("pub(in crate::db) fn generated_expression_candidate_indexes(")
             && !plan_mod.contains("generated_candidate_bridge_indexes")
             && plan_mod.contains("pub(in crate::db) const fn accepted_schema_info(")
             && plan_mod.contains("accepted_schema_info: Some(schema_info.clone())")
@@ -411,7 +420,7 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && access_path.contains("parse_sql_predicate(predicate_sql)")
             && access_path.contains("map_or(Predicate::False")
             && access_path.contains("SemanticIndexKeyItems::Fields(")
-            && plan_mod.contains(".filter(|index| index.has_expression_key_items())")
+            && plan_mod.contains(".filter_map(GeneratedExpressionCandidateIndex::from_index)")
             && !plan_mod_compact.contains(
                 "schema_info.field_path_indexes().iter().any(|accepted|accepted.name()==index.name())",
             )
@@ -520,9 +529,12 @@ fn runtime_access_choice_projection_uses_accepted_visible_indexes() {
             && access_choice.contains(
                 "fn project_access_choice_explain_snapshot_with_accepted_indexes_and_schema(",
             )
-            && access_choice
-                .contains("generated_expression_candidate_indexes: &[&'static IndexModel]",)
+            && access_choice.contains(
+                "generated_expression_candidate_indexes: &[GeneratedExpressionCandidateIndex]",
+            )
             && !access_choice.contains("generated_candidate_bridge_indexes")
+            && access_choice
+                .contains(".map(GeneratedExpressionCandidateIndex::semantic_access_contract)")
             && access_choice.contains("fn semantic_candidate_indexes_from_generated_model_only(")
             && access_choice
                 .contains("fn semantic_candidate_indexes_from_accepted_and_generated_expression(")
@@ -1104,7 +1116,10 @@ fn standalone_generated_query_planning_is_model_only() {
 
 #[test]
 fn remaining_runtime_generated_index_sets_are_named_model_or_expression_only() {
+    let access_choice = read_source("src/db/query/plan/access_choice/mod.rs");
+    let access_plan = read_source("src/db/query/plan/access_plan.rs");
     let executor_explain = read_source("src/db/executor/explain/mod.rs");
+    let planner_mod = read_source("src/db/query/plan/planner/mod.rs");
     let query_plan_pipeline = read_source("src/db/query/plan/pipeline.rs");
     let query_plan = read_source("src/db/query/plan/mod.rs");
     let session_mod = read_source("src/db/session/mod.rs");
@@ -1123,9 +1138,14 @@ fn remaining_runtime_generated_index_sets_are_named_model_or_expression_only() {
     );
     assert!(
         query_plan.contains("generated_expression_candidate_indexes: Cow")
+            && query_plan.contains("struct GeneratedExpressionCandidateIndex")
+            && query_plan.contains("semantic_access_contract: SemanticIndexAccessContract")
+            && !query_plan
+                .contains("GeneratedExpressionCandidateIndex {\n    index: &'static IndexModel")
             && query_plan.contains("generated_model_only_indexes: Cow")
             && query_plan.contains("pub(in crate::db) fn generated_model_only_indexes(&self)")
-            && query_plan.contains(".filter(|index| index.has_expression_key_items())")
+            && query_plan.contains(".filter_map(GeneratedExpressionCandidateIndex::from_index)")
+            && query_plan.contains("SemanticIndexAccessContract::from_generated_index(*index)")
             && query_plan.contains("generated_model_only_indexes: Cow::Borrowed(indexes)")
             && query_plan.contains("generated_model_only_indexes: Cow::Borrowed(&[])")
             && session_mod
@@ -1135,6 +1155,21 @@ fn remaining_runtime_generated_index_sets_are_named_model_or_expression_only() {
             && session_mod.contains(".generated_expression_candidate_indexes()")
             && session_query_cache.contains(".generated_expression_candidate_indexes()"),
         "accepted runtime visible indexes may receive generated model indexes only to filter the explicit expression-index candidate lane",
+    );
+    assert!(
+        access_choice.contains(
+            "generated_expression_candidate_indexes: &[GeneratedExpressionCandidateIndex]"
+        ) && access_plan.contains(
+            "generated_expression_candidate_indexes: &[GeneratedExpressionCandidateIndex]"
+        ) && planner_mod.contains(
+            "generated_expression_candidate_indexes: &[GeneratedExpressionCandidateIndex]"
+        ) && !access_choice
+            .contains("generated_expression_candidate_indexes: &[&'static IndexModel]")
+            && !access_plan
+                .contains("generated_expression_candidate_indexes: &[&'static IndexModel]")
+            && !planner_mod
+                .contains("generated_expression_candidate_indexes: &[&'static IndexModel]"),
+        "accepted-runtime expression candidate entrypoints must consume wrapped reduced candidates instead of raw generated IndexModel slices",
     );
 }
 
