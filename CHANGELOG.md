@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.152.x] 🧱 - 2026-05-11 - Catalog-Native Schema Mutations
+
+- `0.152.0` starts catalog-native schema mutation groundwork by adding internal mutation-plan contracts, snapshot-delta classification, rebuild classifications, deterministic mutation-plan fingerprints, a no-rebuild publication guard for accepted reconciliation, and design docs that make SQL DDL a future frontend onto accepted snapshot mutation semantics rather than the migration authority.
+
+See detailed breakdown:
+[docs/changelog/0.152.md](docs/changelog/0.152.md)
+
+---
+
 ## [0.151.x] 🧩 - 2026-05-11 - Accepted Expression Index Contracts
 
 - `0.151.6` renames the remaining standalone generated visible-index constructors as explicit model-only surfaces, moves the generated index access-contract adapter into `access::model_only` as `model_only_from_generated_index`, shifts primary-key compare/range planner recognition to `SchemaInfo`, and tightens generated-index authority guards, so the last generated index-set lanes in planner and explain code no longer use schema-owned naming after accepted runtime index authority has moved to `SchemaInfo`.

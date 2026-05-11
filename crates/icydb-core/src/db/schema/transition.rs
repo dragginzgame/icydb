@@ -7,8 +7,10 @@ use crate::{
     db::{
         data::decode_runtime_value_from_accepted_field_contract,
         schema::{
-            AcceptedFieldDecodeContract, FieldId, PersistedFieldSnapshot,
-            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
+            AcceptedFieldDecodeContract, FieldId, MutationCompatibility, MutationPlan,
+            PersistedFieldSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
+            RebuildRequirement, SchemaFieldSlot, SchemaMutationDelta,
+            classify_schema_mutation_delta,
         },
     },
     value::Value,
@@ -20,8 +22,8 @@ use crate::{
 /// SchemaTransitionDecision is the schema-owned result of comparing a
 /// persisted accepted snapshot with the generated proposal for the same entity.
 /// It exists so reconciliation policy can distinguish accepted transitions
-/// from rejected transitions before any live migration rules are added.
-/// Today the only accepted plan is exact equality.
+/// from rejected transitions before reconciliation publishes a new accepted
+/// snapshot.
 ///
 
 #[derive(Debug, Eq, PartialEq)]
@@ -57,7 +59,7 @@ pub(in crate::db::schema) enum SchemaTransitionPlanKind {
 #[derive(Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaTransitionPlan {
     kind: SchemaTransitionPlanKind,
-    added_field_count: usize,
+    mutation_plan: MutationPlan,
 }
 
 impl SchemaTransitionPlan {
@@ -66,17 +68,17 @@ impl SchemaTransitionPlan {
     const fn exact_match() -> Self {
         Self {
             kind: SchemaTransitionPlanKind::ExactMatch,
-            added_field_count: 0,
+            mutation_plan: MutationPlan::exact_match(),
         }
     }
 
     // Build the accepted append-only nullable transition plan. Runtime decode
     // consumes accepted absence policies, so reconciliation only needs to
     // publish the new generated snapshot after this schema-owned policy check.
-    const fn append_only_nullable_fields(added_field_count: usize) -> Self {
+    fn append_only_nullable_fields(added_fields: &[PersistedFieldSnapshot]) -> Self {
         Self {
             kind: SchemaTransitionPlanKind::AppendOnlyNullableFields,
-            added_field_count,
+            mutation_plan: MutationPlan::append_only_fields(added_fields),
         }
     }
 
@@ -86,10 +88,37 @@ impl SchemaTransitionPlan {
         self.kind
     }
 
+    // Return the mutation compatibility bucket that gates snapshot publication.
+    pub(in crate::db::schema) const fn mutation_compatibility(&self) -> MutationCompatibility {
+        self.mutation_plan.compatibility()
+    }
+
+    // Return the required physical rebuild work before the transition can be
+    // published as accepted runtime schema.
+    pub(in crate::db::schema) const fn rebuild_requirement(&self) -> RebuildRequirement {
+        self.mutation_plan.rebuild_requirement()
+    }
+
+    // Return the deterministic mutation-plan audit identity.
+    #[allow(
+        dead_code,
+        reason = "0.152 stages mutation audit identity before diagnostics expose it"
+    )]
+    pub(in crate::db::schema) fn mutation_fingerprint(&self) -> [u8; 16] {
+        self.mutation_plan.fingerprint()
+    }
+
+    // Borrow the catalog-native mutation plan behind this reconciliation
+    // transition.
+    #[cfg(test)]
+    pub(in crate::db::schema) const fn mutation_plan(&self) -> &MutationPlan {
+        &self.mutation_plan
+    }
+
     // Return how many generated fields were accepted by this transition.
     #[cfg(test)]
-    pub(in crate::db::schema) const fn added_field_count(&self) -> usize {
-        self.added_field_count
+    pub(in crate::db::schema) fn added_field_count(&self) -> usize {
+        self.mutation_plan.added_field_count()
     }
 }
 
@@ -145,24 +174,26 @@ impl SchemaTransitionRejection {
 }
 
 // Decide whether one persisted snapshot may transition to the generated
-// proposal. The policy is intentionally exact-only for now, but the closed
-// decision type prevents future migration work from hiding inside diagnostics.
+// proposal. Mutation shape classification lives in schema::mutation; this
+// policy layer validates whether the classified delta can be published now.
 pub(in crate::db::schema) fn decide_schema_transition(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
 ) -> SchemaTransitionDecision {
-    if actual == expected {
-        return SchemaTransitionDecision::Accepted(SchemaTransitionPlan::exact_match());
-    }
-
-    if let Some(added_fields) = append_only_additive_transition_fields(actual, expected)
-        && added_fields
-            .iter()
-            .all(field_has_supported_missing_absence_policy)
-    {
-        return SchemaTransitionDecision::Accepted(
-            SchemaTransitionPlan::append_only_nullable_fields(added_fields.len()),
-        );
+    match classify_schema_mutation_delta(actual, expected) {
+        SchemaMutationDelta::ExactMatch => {
+            return SchemaTransitionDecision::Accepted(SchemaTransitionPlan::exact_match());
+        }
+        SchemaMutationDelta::AppendOnlyFields(added_fields)
+            if added_fields
+                .iter()
+                .all(field_has_supported_missing_absence_policy) =>
+        {
+            return SchemaTransitionDecision::Accepted(
+                SchemaTransitionPlan::append_only_nullable_fields(added_fields),
+            );
+        }
+        SchemaMutationDelta::AppendOnlyFields(_) | SchemaMutationDelta::Incompatible => {}
     }
 
     let (kind, detail) = schema_snapshot_mismatch_detail(actual, expected);
@@ -307,7 +338,11 @@ fn unsupported_generated_additive_field_detail(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
 ) -> Option<String> {
-    let added_fields = append_only_additive_transition_fields(actual, expected)?;
+    let SchemaMutationDelta::AppendOnlyFields(added_fields) =
+        classify_schema_mutation_delta(actual, expected)
+    else {
+        return None;
+    };
     let index = actual.fields().len();
     let field = &added_fields[0];
     Some(format!(
@@ -319,42 +354,6 @@ fn unsupported_generated_additive_field_detail(
         field.nullable(),
         field.default(),
     ))
-}
-
-// Return generated fields for the only additive shape that can become an
-// accepted transition: stored fields and row-layout entries must be exact
-// prefixes of the generated proposal. This helper does not decide whether the
-// added fields are safe; callers still inspect absence policy eligibility.
-fn append_only_additive_transition_fields<'a>(
-    actual: &PersistedSchemaSnapshot,
-    expected: &'a PersistedSchemaSnapshot,
-) -> Option<&'a [PersistedFieldSnapshot]> {
-    if actual.fields().len() >= expected.fields().len()
-        || actual.row_layout().field_to_slot().len() >= expected.row_layout().field_to_slot().len()
-    {
-        return None;
-    }
-
-    if !actual
-        .fields()
-        .iter()
-        .zip(expected.fields())
-        .all(|(actual_field, expected_field)| actual_field == expected_field)
-    {
-        return None;
-    }
-
-    if !actual
-        .row_layout()
-        .field_to_slot()
-        .iter()
-        .zip(expected.row_layout().field_to_slot())
-        .all(|(actual_pair, expected_pair)| actual_pair == expected_pair)
-    {
-        return None;
-    }
-
-    Some(&expected.fields()[actual.fields().len()..])
 }
 
 // Detect the symmetric field-removal transition shape without accepting it.
@@ -720,10 +719,11 @@ fn field_snapshot_storage_mismatch_detail(
 mod tests {
     use crate::{
         db::schema::{
-            FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedNestedLeafSnapshot,
-            PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout,
-            SchemaTransitionDecision, SchemaTransitionPlanKind, SchemaVersion,
-            decide_schema_transition, transition::SchemaTransitionRejectionKind,
+            FieldId, MutationCompatibility, PersistedFieldKind, PersistedFieldSnapshot,
+            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, RebuildRequirement,
+            SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaTransitionDecision,
+            SchemaTransitionPlanKind, SchemaVersion, decide_schema_transition,
+            transition::SchemaTransitionRejectionKind,
         },
         model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
     };
@@ -850,6 +850,14 @@ mod tests {
             SchemaTransitionPlanKind::AppendOnlyNullableFields
         );
         assert_eq!(plan.added_field_count(), 1);
+        assert_eq!(
+            plan.mutation_plan().compatibility(),
+            MutationCompatibility::MetadataOnlySafe
+        );
+        assert_eq!(
+            plan.mutation_plan().rebuild_requirement(),
+            RebuildRequirement::NoRebuildRequired
+        );
     }
 
     #[test]

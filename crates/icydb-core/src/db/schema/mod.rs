@@ -13,6 +13,7 @@ mod identity;
 mod info;
 mod integrity;
 mod layout;
+mod mutation;
 mod proposal;
 mod reconcile;
 mod runtime;
@@ -48,6 +49,12 @@ pub(in crate::db::schema) use integrity::{
     schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
 };
 pub(in crate::db) use layout::{SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
+#[cfg(test)]
+pub(in crate::db::schema) use mutation::SchemaMutation;
+pub(in crate::db::schema) use mutation::{
+    MutationCompatibility, MutationPlan, RebuildRequirement, SchemaMutationDelta,
+    classify_schema_mutation_delta,
+};
 pub(in crate::db) use proposal::compiled_schema_proposal_for_model;
 pub(in crate::db) use reconcile::{ensure_accepted_schema_snapshot, reconcile_runtime_schemas};
 pub(in crate::db) use runtime::{

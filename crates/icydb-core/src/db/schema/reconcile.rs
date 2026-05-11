@@ -7,8 +7,9 @@ use crate::{
     db::{
         Db, EntityRuntimeHooks,
         schema::{
-            AcceptedSchemaSnapshot, PersistedSchemaSnapshot, SchemaStore, SchemaTransitionDecision,
-            SchemaTransitionPlanKind, compiled_schema_proposal_for_model, decide_schema_transition,
+            AcceptedSchemaSnapshot, MutationCompatibility, PersistedSchemaSnapshot,
+            RebuildRequirement, SchemaStore, SchemaTransitionDecision, SchemaTransitionPlanKind,
+            compiled_schema_proposal_for_model, decide_schema_transition,
             runtime::AcceptedRowLayoutRuntimeDescriptor,
             transition::{SchemaTransitionPlan, SchemaTransitionRejectionKind},
         },
@@ -92,6 +93,11 @@ pub(in crate::db) fn ensure_accepted_schema_snapshot(
                 return Err(error);
             }
         };
+        if let Err(error) = validate_publishable_transition_plan(entity_path, &plan) {
+            record_schema_store_footprint(schema_store, entity_tag, entity_path);
+            record_schema_reconcile(entity_path, SchemaReconcileOutcome::RejectedOther);
+            return Err(error);
+        }
         let accepted_snapshot = match plan.kind() {
             SchemaTransitionPlanKind::ExactMatch => actual,
             SchemaTransitionPlanKind::AppendOnlyNullableFields => {
@@ -133,6 +139,29 @@ fn validate_accepted_runtime_descriptor(
     accepted: &AcceptedSchemaSnapshot,
 ) -> Result<(), InternalError> {
     let _descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(accepted)?;
+
+    Ok(())
+}
+
+// Keep runtime visibility fail-closed until rebuild orchestration can make
+// index/full-rewrite mutation plans physically true before publication.
+fn validate_publishable_transition_plan(
+    entity_path: &'static str,
+    plan: &SchemaTransitionPlan,
+) -> Result<(), InternalError> {
+    if plan.mutation_compatibility() != MutationCompatibility::MetadataOnlySafe {
+        return Err(InternalError::store_unsupported(format!(
+            "schema mutation plan is not metadata-safe for entity '{entity_path}': compatibility={:?}",
+            plan.mutation_compatibility(),
+        )));
+    }
+
+    if plan.rebuild_requirement() != RebuildRequirement::NoRebuildRequired {
+        return Err(InternalError::store_unsupported(format!(
+            "schema mutation plan requires rebuild before publication for entity '{entity_path}': rebuild={:?}",
+            plan.rebuild_requirement(),
+        )));
+    }
 
     Ok(())
 }
