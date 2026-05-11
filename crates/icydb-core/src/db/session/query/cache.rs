@@ -11,7 +11,7 @@ use crate::{
         predicate::predicate_fingerprint_normalized,
         query::{
             intent::StructuralQuery,
-            plan::{AccessPlannedQuery, GeneratedExpressionCandidateIndex, VisibleIndexes},
+            plan::{AccessPlannedQuery, VisibleIndexes},
         },
         schema::{AcceptedSchemaSnapshot, SchemaInfo, accepted_schema_cache_fingerprint_for_model},
     },
@@ -19,7 +19,6 @@ use crate::{
         CacheKind, CacheMissReason, CacheOutcome, record_cache_entries,
         record_cache_event_for_path, record_cache_miss_reason_for_path,
     },
-    model::entity::EntityModel,
     traits::{CanisterKind, EntityKind, Path},
 };
 use std::{cell::RefCell, collections::HashMap};
@@ -163,20 +162,12 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     pub(in crate::db::session) fn visible_indexes_for_accepted_schema(
-        model: &'static EntityModel,
         schema_info: &SchemaInfo,
         visibility: QueryPlanVisibility,
     ) -> VisibleIndexes<'static> {
         match visibility {
             QueryPlanVisibility::StoreReady => {
-                let visible_indexes =
-                    VisibleIndexes::accepted_schema_visible(model.indexes(), schema_info);
-                debug_assert!(
-                    visible_indexes
-                        .generated_expression_candidate_indexes()
-                        .iter()
-                        .all(GeneratedExpressionCandidateIndex::has_expression_key_items),
-                );
+                let visible_indexes = VisibleIndexes::accepted_schema_visible(schema_info);
                 debug_assert!(visible_indexes.accepted_field_path_contracts_are_consistent());
                 debug_assert!(visible_indexes.accepted_expression_contracts_are_consistent());
                 debug_assert_eq!(
@@ -246,8 +237,7 @@ impl<C: CanisterKind> DbSession<C> {
             );
         }
 
-        let visible_indexes =
-            Self::visible_indexes_for_accepted_schema(authority.model(), &schema_info, visibility);
+        let visible_indexes = Self::visible_indexes_for_accepted_schema(&schema_info, visibility);
         let planning_state = query.prepare_scalar_planning_state_with_schema_info(schema_info)?;
         let normalized_predicate_fingerprint = planning_state
             .normalized_predicate()
@@ -424,8 +414,7 @@ impl<C: CanisterKind> DbSession<C> {
             &accepted_schema,
             true,
         );
-        let visible_indexes =
-            Self::visible_indexes_for_accepted_schema(E::MODEL, &schema_info, visibility);
+        let visible_indexes = Self::visible_indexes_for_accepted_schema(&schema_info, visibility);
 
         op(query, &visible_indexes)
     }

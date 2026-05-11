@@ -107,7 +107,6 @@ pub(in crate::db::query) fn plan_query_access(
         if visible_indexes.accepted_field_path_index_count().is_some() {
             plan_access_selection_with_order_and_accepted_indexes(
                 model,
-                visible_indexes.generated_expression_candidate_indexes(),
                 visible_indexes.accepted_planner_indexes(),
                 schema_info,
                 normalized_predicate,

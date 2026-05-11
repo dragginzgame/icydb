@@ -36,13 +36,9 @@ fn assert_ready_visible_index_bridge_contracts(
         "ready planner-visible field-path indexes must be backed by accepted field-path index contracts",
     );
     assert_eq!(
-        ready_visible_indexes
-            .generated_expression_candidate_indexes()
-            .iter()
-            .filter(|index| !index.has_expression_key_items())
-            .count(),
-        0,
-        "ready field-path visible indexes must not re-enter the generated candidate bridge",
+        ready_visible_indexes.accepted_expression_index_count(),
+        Some(ready_visible_indexes.accepted_expression_indexes().len()),
+        "ready planner-visible expression indexes must be backed by accepted expression index contracts",
     );
     assert!(
         ready_visible_indexes.accepted_field_path_contracts_are_consistent(),
@@ -738,11 +734,7 @@ fn session_non_ready_secondary_indexes_are_hidden_from_planning_and_execution() 
         .accepted_schema_info_for_entity::<IndexedSessionSqlEntity>()
         .expect("indexed entity accepted schema info should resolve");
     let ready_visible_indexes = session
-        .visible_indexes_for_store_accepted_schema(
-            IndexedSessionSqlStore::PATH,
-            <IndexedSessionSqlEntity as crate::traits::EntitySchema>::MODEL,
-            &schema_info,
-        )
+        .visible_indexes_for_store_accepted_schema(IndexedSessionSqlStore::PATH, &schema_info)
         .expect("ready store should resolve accepted planner-visible index slice");
     assert_ready_visible_index_bridge_contracts(&ready_visible_indexes);
 
@@ -752,16 +744,11 @@ fn session_non_ready_secondary_indexes_are_hidden_from_planning_and_execution() 
         .mark_index_building();
 
     let visible_indexes = session
-        .visible_indexes_for_store_accepted_schema(
-            IndexedSessionSqlStore::PATH,
-            <IndexedSessionSqlEntity as crate::traits::EntitySchema>::MODEL,
-            &schema_info,
-        )
+        .visible_indexes_for_store_accepted_schema(IndexedSessionSqlStore::PATH, &schema_info)
         .expect("non-ready store should still resolve planner-visible index slice");
     assert!(
-        visible_indexes
-            .generated_expression_candidate_indexes()
-            .is_empty(),
+        visible_indexes.accepted_field_path_indexes().is_empty()
+            && visible_indexes.accepted_expression_indexes().is_empty(),
         "planner boundary must hide non-ready secondary indexes before access selection",
     );
 

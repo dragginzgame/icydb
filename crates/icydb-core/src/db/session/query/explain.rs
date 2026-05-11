@@ -77,7 +77,6 @@ impl<C: CanisterKind> DbSession<C> {
 
         plan.finalize_access_choice_for_model_with_accepted_indexes_and_schema(
             query.structural().model(),
-            visible_indexes.generated_expression_candidate_indexes(),
             visible_indexes.accepted_field_path_indexes(),
             visible_indexes.accepted_expression_indexes(),
             &schema_info,

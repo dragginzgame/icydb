@@ -21,7 +21,7 @@ use crate::{
         QueryError, StorageReport, StoreRegistry, WriteBatchResponse,
         commit::CommitSchemaFingerprint,
         executor::{DeleteExecutor, EntityAuthority, LoadExecutor, SaveExecutor},
-        query::plan::{GeneratedExpressionCandidateIndex, VisibleIndexes},
+        query::plan::VisibleIndexes,
         schema::{
             AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeDescriptor, AcceptedSchemaSnapshot,
             SchemaInfo, accepted_commit_schema_fingerprint_for_model, describe_entity_fields,
@@ -347,11 +347,10 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     // Resolve the exact secondary-index set that is visible to planner-owned
-    // query planning for one recovered store/model pair.
+    // query planning for one recovered store and accepted schema pair.
     fn visible_indexes_for_store_accepted_schema(
         &self,
         store_path: &str,
-        model: &'static EntityModel,
         schema_info: &SchemaInfo,
     ) -> Result<VisibleIndexes<'static>, QueryError> {
         // Phase 1: resolve the recovered store state once at the session
@@ -366,16 +365,9 @@ impl<C: CanisterKind> DbSession<C> {
         }
         debug_assert_eq!(state, IndexState::Ready);
 
-        // Phase 2: planner-visible field-path indexes are accepted schema
-        // contracts once the recovered store is query-visible. The remaining
-        // generated candidates are expression-index only.
-        let visible_indexes = VisibleIndexes::accepted_schema_visible(model.indexes(), schema_info);
-        debug_assert!(
-            visible_indexes
-                .generated_expression_candidate_indexes()
-                .iter()
-                .all(GeneratedExpressionCandidateIndex::has_expression_key_items),
-        );
+        // Phase 2: planner-visible indexes are accepted schema contracts once
+        // the recovered store is query-visible.
+        let visible_indexes = VisibleIndexes::accepted_schema_visible(schema_info);
         debug_assert!(visible_indexes.accepted_field_path_contracts_are_consistent());
         debug_assert!(visible_indexes.accepted_expression_contracts_are_consistent());
         debug_assert_eq!(

@@ -23,7 +23,7 @@ use crate::{
         predicate::Predicate,
         query::plan::{
             AcceptedPlannerExpressionIndex, AcceptedPlannerFieldPathIndex, AcceptedPlannerIndexes,
-            GeneratedExpressionCandidateIndex, OrderSpec, PlanError, PlannedNonIndexAccessReason,
+            OrderSpec, PlanError, PlannedNonIndexAccessReason,
         },
         schema::SchemaInfo,
     },
@@ -179,20 +179,17 @@ pub(in crate::db::query) fn plan_access_selection_with_order(
     )
 }
 
-// Runtime planner entrypoint that preserves accepted field-path index
-// contracts while generated candidates remain for expression indexes until
-// accepted expression-index contracts exist.
+// Runtime planner entrypoint that preserves accepted index contracts for
+// field-path and expression indexes after schema acceptance.
 pub(in crate::db::query) fn plan_access_selection_with_order_and_accepted_indexes(
     model: &EntityModel,
-    generated_expression_candidate_indexes: &[GeneratedExpressionCandidateIndex],
     accepted_indexes: AcceptedPlannerIndexes<'_>,
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> Result<PlannedAccessSelection, PlannerError> {
-    let candidate_indexes = semantic_candidate_indexes_from_accepted_and_generated_expression(
-        generated_expression_candidate_indexes,
+    let candidate_indexes = semantic_candidate_indexes_from_accepted_indexes(
         accepted_indexes.field_path_indexes(),
         accepted_indexes.expression_indexes(),
     );
@@ -246,8 +243,7 @@ fn semantic_candidate_indexes_from_generated_model_only(
         .collect()
 }
 
-fn semantic_candidate_indexes_from_accepted_and_generated_expression(
-    generated_expression_candidate_indexes: &[GeneratedExpressionCandidateIndex],
+fn semantic_candidate_indexes_from_accepted_indexes(
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     accepted_expression_indexes: &[AcceptedPlannerExpressionIndex],
 ) -> Vec<SemanticIndexAccessContract> {
@@ -259,11 +255,6 @@ fn semantic_candidate_indexes_from_accepted_and_generated_expression(
         accepted_expression_indexes
             .iter()
             .map(AcceptedPlannerExpressionIndex::semantic_access_contract),
-    );
-    indexes.extend(
-        generated_expression_candidate_indexes
-            .iter()
-            .map(GeneratedExpressionCandidateIndex::semantic_access_contract),
     );
 
     indexes

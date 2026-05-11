@@ -9,8 +9,8 @@ use crate::db::{
     predicate::{IndexCompileTarget, Predicate, PredicateProgram},
     query::plan::{
         AcceptedPlannerExpressionIndex, AcceptedPlannerFieldPathIndex, AccessChoiceExplainSnapshot,
-        GeneratedExpressionCandidateIndex, GroupPlan, GroupSpec, GroupedAggregateExecutionSpec,
-        GroupedDistinctExecutionStrategy, LogicalPlan, PlannerRouteProfile,
+        GroupPlan, GroupSpec, GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy,
+        LogicalPlan, PlannerRouteProfile,
         access_choice::{
             non_index_access_choice_snapshot_for_access_plan,
             project_access_choice_explain_snapshot_with_accepted_indexes_and_schema,
@@ -549,7 +549,6 @@ impl AccessPlannedQuery {
     pub(in crate::db) fn finalize_access_choice_for_model_with_accepted_indexes_and_schema(
         &mut self,
         model: &EntityModel,
-        generated_expression_candidate_indexes: &[GeneratedExpressionCandidateIndex],
         accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
         accepted_expression_indexes: &[AcceptedPlannerExpressionIndex],
         schema_info: &SchemaInfo,
@@ -561,7 +560,6 @@ impl AccessPlannedQuery {
         self.access_choice =
             project_access_choice_explain_snapshot_with_accepted_indexes_and_schema(
                 model,
-                generated_expression_candidate_indexes,
                 accepted_field_path_indexes,
                 accepted_expression_indexes,
                 schema_info,

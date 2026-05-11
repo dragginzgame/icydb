@@ -65,9 +65,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_for_generated_
     None
 }
 
-/// Select one whole-index range scan, using accepted field-path index contracts
-/// for field-path indexes and the explicit generated lane for expression
-/// indexes until accepted expression contracts exist.
+/// Select one whole-index range scan from accepted runtime index contracts.
 #[must_use]
 pub(in crate::db::query::plan::planner) fn index_range_from_order_with_accepted_indexes(
     model: &EntityModel,

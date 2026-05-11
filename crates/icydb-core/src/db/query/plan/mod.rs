@@ -217,41 +217,10 @@ pub(in crate::db) struct VisibleIndexes<'a> {
     // surfaces that intentionally do not have accepted runtime schema
     // authority.
     generated_model_only_indexes: Cow<'a, [&'static IndexModel]>,
-    // Generated candidate indexes remain only for expression-index planning
-    // until accepted expression-index contracts exist.
-    generated_expression_candidate_indexes: Cow<'a, [GeneratedExpressionCandidateIndex]>,
     accepted_field_path_indexes: Vec<AcceptedPlannerFieldPathIndex>,
     accepted_expression_indexes: Vec<AcceptedPlannerExpressionIndex>,
     accepted_schema_info: Option<SchemaInfo>,
     authority: VisibleIndexAuthority,
-}
-
-/// Generated expression index candidate retained only for the accepted runtime
-/// expression-index lane until accepted expression contracts exist.
-#[derive(Clone, Debug)]
-pub(in crate::db) struct GeneratedExpressionCandidateIndex {
-    semantic_access_contract: SemanticIndexAccessContract,
-}
-
-impl GeneratedExpressionCandidateIndex {
-    fn from_index(index: &'static IndexModel) -> Option<Self> {
-        index.has_expression_key_items().then_some(Self {
-            semantic_access_contract: SemanticIndexAccessContract::from_generated_index(*index),
-        })
-    }
-
-    /// Return true for the deferred expression-index lane invariant.
-    #[must_use]
-    pub(in crate::db) fn has_expression_key_items(&self) -> bool {
-        self.semantic_access_contract.has_expression_key_items()
-    }
-
-    /// Project this generated expression candidate into the reduced semantic
-    /// contract used past planner candidate selection.
-    #[must_use]
-    pub(in crate::db) fn semantic_access_contract(&self) -> SemanticIndexAccessContract {
-        self.semantic_access_contract.clone()
-    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -498,7 +467,6 @@ impl<'a> VisibleIndexes<'a> {
     pub(in crate::db) const fn none() -> Self {
         Self {
             generated_model_only_indexes: Cow::Borrowed(&[]),
-            generated_expression_candidate_indexes: Cow::Borrowed(&[]),
             accepted_field_path_indexes: Vec::new(),
             accepted_expression_indexes: Vec::new(),
             accepted_schema_info: None,
@@ -511,7 +479,6 @@ impl<'a> VisibleIndexes<'a> {
     pub(in crate::db) const fn planner_visible(indexes: &'a [&'static IndexModel]) -> Self {
         Self {
             generated_model_only_indexes: Cow::Borrowed(indexes),
-            generated_expression_candidate_indexes: Cow::Borrowed(&[]),
             accepted_field_path_indexes: Vec::new(),
             accepted_expression_indexes: Vec::new(),
             accepted_schema_info: None,
@@ -523,7 +490,6 @@ impl<'a> VisibleIndexes<'a> {
     pub(in crate::db) const fn schema_owned(indexes: &'a [&'static IndexModel]) -> Self {
         Self {
             generated_model_only_indexes: Cow::Borrowed(indexes),
-            generated_expression_candidate_indexes: Cow::Borrowed(&[]),
             accepted_field_path_indexes: Vec::new(),
             accepted_expression_indexes: Vec::new(),
             accepted_schema_info: None,
@@ -532,10 +498,7 @@ impl<'a> VisibleIndexes<'a> {
     }
 
     #[must_use]
-    pub(in crate::db) fn accepted_schema_visible(
-        indexes: &'a [&'static IndexModel],
-        schema_info: &SchemaInfo,
-    ) -> Self {
+    pub(in crate::db) fn accepted_schema_visible(schema_info: &SchemaInfo) -> Self {
         let accepted_field_path_indexes = schema_info
             .field_path_indexes()
             .iter()
@@ -546,21 +509,11 @@ impl<'a> VisibleIndexes<'a> {
             .iter()
             .map(AcceptedPlannerExpressionIndex::from_schema_index)
             .collect::<Vec<_>>();
-        let generated_expression_indexes = if accepted_expression_indexes.is_empty() {
-            indexes
-                .iter()
-                .copied()
-                .filter_map(GeneratedExpressionCandidateIndex::from_index)
-                .collect()
-        } else {
-            Vec::new()
-        };
         let accepted_field_path_index_count = accepted_field_path_indexes.len();
         let accepted_expression_index_count = accepted_expression_indexes.len();
 
         Self {
             generated_model_only_indexes: Cow::Borrowed(&[]),
-            generated_expression_candidate_indexes: Cow::Owned(generated_expression_indexes),
             accepted_field_path_indexes,
             accepted_expression_indexes,
             accepted_schema_info: Some(schema_info.clone()),
@@ -574,13 +527,6 @@ impl<'a> VisibleIndexes<'a> {
     #[must_use]
     pub(in crate::db) fn generated_model_only_indexes(&self) -> &[&'static IndexModel] {
         self.generated_model_only_indexes.as_ref()
-    }
-
-    #[must_use]
-    pub(in crate::db) fn generated_expression_candidate_indexes(
-        &self,
-    ) -> &[GeneratedExpressionCandidateIndex] {
-        self.generated_expression_candidate_indexes.as_ref()
     }
 
     /// Borrow accepted planner-facing field-path index contracts.

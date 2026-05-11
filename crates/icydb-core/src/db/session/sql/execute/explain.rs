@@ -250,14 +250,10 @@ impl<C: CanisterKind> DbSession<C> {
                     accepted_schema,
                     &structural,
                 )?;
-            let visible_indexes = self.visible_indexes_for_store_accepted_schema(
-                authority.store_path(),
-                authority.model(),
-                &schema_info,
-            )?;
+            let visible_indexes = self
+                .visible_indexes_for_store_accepted_schema(authority.store_path(), &schema_info)?;
             plan.finalize_access_choice_for_model_with_accepted_indexes_and_schema(
                 authority.model(),
-                visible_indexes.generated_expression_candidate_indexes(),
                 visible_indexes.accepted_field_path_indexes(),
                 visible_indexes.accepted_expression_indexes(),
                 &schema_info,
