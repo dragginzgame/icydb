@@ -16,7 +16,10 @@ use crate::{
             canonical_index_predicate,
         },
         predicate::{Predicate, PredicateProgram, normalize, parse_sql_predicate},
-        schema::{SchemaIndexInfo, SchemaInfo},
+        schema::{
+            SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo, SchemaIndexInfo,
+            SchemaInfo,
+        },
     },
     error::InternalError,
     model::{entity::EntityModel, index::IndexModel},
@@ -96,6 +99,26 @@ pub(super) fn generated_expression_index_fields_csv(index: GeneratedExpressionIn
     index.fields().join(", ")
 }
 
+fn accepted_expression_index_fields_csv(index: &SchemaExpressionIndexInfo) -> String {
+    index
+        .key_items()
+        .iter()
+        .map(accepted_expression_key_item_label)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+pub(super) fn accepted_expression_key_item_label(
+    key_item: &SchemaExpressionIndexKeyItemInfo,
+) -> String {
+    match key_item {
+        SchemaExpressionIndexKeyItemInfo::FieldPath(field) => field.path().join("."),
+        SchemaExpressionIndexKeyItemInfo::Expression(expression) => {
+            expression.canonical_text().to_string()
+        }
+    }
+}
+
 // Format accepted field-path key components for corruption diagnostics without
 // reopening generated index field declarations.
 fn accepted_index_fields_csv(index: &SchemaIndexInfo) -> String {
@@ -124,6 +147,20 @@ fn compile_generated_expression_index_membership_predicate_structural(
 
 fn accepted_predicate_program_for_accepted_field_path_index(
     accepted_index: &SchemaIndexInfo,
+    row_contract: &StructuralRowContract,
+) -> Option<PredicateProgram> {
+    let predicate_sql = accepted_index.predicate_sql()?;
+    let predicate = parse_sql_predicate(predicate_sql)
+        .map_or(Predicate::False, |predicate| normalize(&predicate));
+
+    Some(PredicateProgram::compile_with_row_contract(
+        row_contract,
+        &predicate,
+    ))
+}
+
+fn accepted_predicate_program_for_accepted_expression_index(
+    accepted_index: &SchemaExpressionIndexInfo,
     row_contract: &StructuralRowContract,
 ) -> Option<PredicateProgram> {
     let predicate_sql = accepted_index.predicate_sql()?;
@@ -184,6 +221,28 @@ fn accepted_field_path_index_key_for_slot_reader_with_membership_structural(
     )
 }
 
+fn accepted_expression_index_key_for_slot_reader_with_membership_structural(
+    entity_tag: EntityTag,
+    accepted_index: &SchemaExpressionIndexInfo,
+    predicate_program: Option<&PredicateProgram>,
+    storage_key: StorageKey,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<Option<IndexKey>, InternalError> {
+    if let Some(predicate_program) = predicate_program {
+        let keep_row = predicate_program.eval_with_structural_slot_reader(slots)?;
+        if !keep_row {
+            return Ok(None);
+        }
+    }
+
+    IndexKey::new_from_slots_with_accepted_expression_index(
+        entity_tag,
+        storage_key,
+        accepted_index,
+        slots,
+    )
+}
+
 // Build one optional structural index key for the requested planner lane.
 fn load_structural_index_key(
     lane: IndexKeyLane,
@@ -221,6 +280,27 @@ fn load_structural_accepted_field_path_index_key(
     };
 
     accepted_field_path_index_key_for_slot_reader_with_membership_structural(
+        entity_tag,
+        accepted_index,
+        predicate_program,
+        storage_key,
+        slots,
+    )
+}
+
+fn load_structural_accepted_expression_index_key(
+    lane: IndexKeyLane,
+    entity_tag: EntityTag,
+    accepted_index: &SchemaExpressionIndexInfo,
+    predicate_program: Option<&PredicateProgram>,
+    storage_key: Option<StorageKey>,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<Option<IndexKey>, InternalError> {
+    let Some(storage_key) = storage_key else {
+        return Err(lane.missing_entity_key_error());
+    };
+
+    accepted_expression_index_key_for_slot_reader_with_membership_structural(
         entity_tag,
         accepted_index,
         predicate_program,
@@ -318,9 +398,17 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
     new_storage_key: Option<StorageKey>,
     mut new_slots: Option<&mut dyn CanonicalSlotReader>,
 ) -> Result<IndexMutationPlan, IndexPlanError> {
-    let expression_indexes = GeneratedExpressionIndex::from_model(model);
-    let mut groups =
-        Vec::with_capacity(schema_info.field_path_indexes().len() + expression_indexes.len());
+    let accepted_expression_indexes = schema_info.expression_indexes();
+    let generated_expression_indexes = if accepted_expression_indexes.is_empty() {
+        GeneratedExpressionIndex::from_model(model)
+    } else {
+        Vec::new()
+    };
+    let mut groups = Vec::with_capacity(
+        schema_info.field_path_indexes().len()
+            + accepted_expression_indexes.len()
+            + generated_expression_indexes.len(),
+    );
 
     for accepted_index in schema_info.field_path_indexes() {
         let predicate_program =
@@ -344,7 +432,29 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
         )?;
     }
 
-    for index in expression_indexes {
+    for accepted_index in accepted_expression_indexes {
+        let predicate_program =
+            accepted_predicate_program_for_accepted_expression_index(accepted_index, row_contract);
+        plan_accepted_expression_index_mutation_for_slot_reader_structural(
+            &mut groups,
+            entity_path,
+            entity_tag,
+            read_view,
+            row_contract,
+            accepted_index,
+            predicate_program.as_ref(),
+            old_storage_key,
+            old_slots
+                .as_mut()
+                .map(|slots| &mut **slots as &mut dyn CanonicalSlotReader),
+            new_storage_key,
+            new_slots
+                .as_mut()
+                .map(|slots| &mut **slots as &mut dyn CanonicalSlotReader),
+        )?;
+    }
+
+    for index in generated_expression_indexes {
         plan_generated_expression_index_mutation_for_slot_reader_structural(
             &mut groups,
             entity_path,
@@ -425,6 +535,94 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
     )?;
 
     unique::validate_unique_constraint_accepted_field_path_structural(
+        entity_path,
+        entity_tag,
+        read_view,
+        row_contract,
+        accepted_index,
+        read_contract,
+        &index_fields,
+        if new_key.is_some() {
+            new_storage_key
+        } else {
+            None
+        },
+        new_key.as_ref(),
+    )?;
+
+    push_index_delta_group(
+        groups,
+        index_store,
+        index_fields,
+        old_key,
+        new_key,
+        old_storage_key,
+        new_storage_key,
+    )?;
+
+    Ok(())
+}
+
+#[expect(clippy::too_many_arguments)]
+fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
+    groups: &mut Vec<IndexDeltaGroup>,
+    entity_path: &'static str,
+    entity_tag: EntityTag,
+    read_view: &dyn IndexPlanReadView,
+    row_contract: &StructuralRowContract,
+    accepted_index: &SchemaExpressionIndexInfo,
+    predicate_program: Option<&PredicateProgram>,
+    old_storage_key: Option<StorageKey>,
+    old_slots: Option<&mut dyn CanonicalSlotReader>,
+    new_storage_key: Option<StorageKey>,
+    new_slots: Option<&mut dyn CanonicalSlotReader>,
+) -> Result<(), IndexPlanError> {
+    let index_fields = accepted_expression_index_fields_csv(accepted_index);
+    let index_store = accepted_index.store();
+    let index_is_unique = accepted_index.unique();
+    let read_contract = IndexReadContract::new(index_store, index_is_unique, &index_fields);
+
+    let old_key = match old_slots {
+        Some(slots) => load_structural_accepted_expression_index_key(
+            IndexKeyLane::Old,
+            entity_tag,
+            accepted_index,
+            predicate_program,
+            old_storage_key,
+            slots,
+        )?,
+        None => None,
+    };
+    let new_key = match new_slots {
+        Some(slots) => load_structural_accepted_expression_index_key(
+            IndexKeyLane::New,
+            entity_tag,
+            accepted_index,
+            predicate_program,
+            new_storage_key,
+            slots,
+        )?,
+        None => None,
+    };
+
+    let old_entry = load_existing_entry_structural(
+        read_view,
+        read_contract,
+        &index_fields,
+        old_key.as_ref(),
+        entity_path,
+    )?;
+
+    validate_existing_old_index_membership(
+        entity_path,
+        &index_fields,
+        index_is_unique,
+        old_storage_key,
+        old_key.as_ref(),
+        old_entry.as_ref(),
+    )?;
+
+    unique::validate_unique_constraint_accepted_expression_structural(
         entity_path,
         entity_tag,
         read_view,

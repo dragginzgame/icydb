@@ -286,8 +286,9 @@ fn commit_and_delete_relation_row_contracts_use_accepted_snapshots() {
     assert!(
         commit_prepare_compact.contains(
             "StructuralRowContract::from_accepted_schema_snapshot(authority.entity_path,&accepted,)",
-        ) && commit_prepare_compact
-            .contains("SchemaInfo::from_accepted_snapshot_for_model(authority.model,&accepted)",)
+        ) && commit_prepare_compact.contains(
+            "SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(authority.model,&accepted,true,)",
+        )
             && relation_validate.contains(
                 "StructuralRowContract::from_accepted_schema_snapshot(S::PATH, &accepted)"
             )
@@ -672,6 +673,8 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
             && index_key_build.contains("build_index_key_from_access_contract(")
             && index_key_build
                 .contains("pub(crate) fn new_from_slot_ref_reader_with_accepted_field_path_index")
+            && index_key_build
+                .contains("pub(crate) fn new_from_slots_with_accepted_expression_index")
             && index_key_build.contains("accepted_index.fields()")
             && index_key_build.contains("IndexId::new(entity_tag, accepted_index.ordinal())")
             && index_key_build.contains("IndexId::new(entity_tag, index.ordinal())")
@@ -697,22 +700,30 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
     assert!(
         index_plan.contains("IndexKey::new_from_slots_with_contract(")
             && index_plan.contains("for accepted_index in schema_info.field_path_indexes()")
+            && index_plan.contains("for accepted_index in accepted_expression_indexes")
             && index_plan.contains("fn accepted_predicate_program_for_accepted_field_path_index(")
+            && index_plan.contains("fn accepted_predicate_program_for_accepted_expression_index(")
             && index_plan.contains("struct GeneratedExpressionIndex")
             && index_plan.contains("fn from_model(model: &'a EntityModel) -> Vec<Self>")
             && index_plan.contains("index.has_expression_key_items().then_some(Self { index })")
             && index_plan
-                .contains("let expression_indexes = GeneratedExpressionIndex::from_model(model);")
+                .contains("let accepted_expression_indexes = schema_info.expression_indexes();")
+            && index_plan.contains("if accepted_expression_indexes.is_empty()")
             && index_plan.contains("index: GeneratedExpressionIndex<'_>,")
             && index_plan
                 .contains("plan_accepted_field_path_index_mutation_for_slot_reader_structural(")
             && index_plan
+                .contains("plan_accepted_expression_index_mutation_for_slot_reader_structural(")
+            && index_plan
                 .contains("plan_generated_expression_index_mutation_for_slot_reader_structural(")
             && index_plan.contains("accepted_index: &SchemaIndexInfo")
+            && index_plan.contains("accepted_index: &SchemaExpressionIndexInfo")
             && !index_plan.contains("accepted_index: Option<&SchemaIndexInfo>")
             && !index_plan.contains("predicate_bridge: Option<&IndexModel>")
             && index_plan.contains("IndexKey::new_from_slots_with_accepted_field_path_index(")
+            && index_plan.contains("IndexKey::new_from_slots_with_accepted_expression_index(")
             && index_plan.contains("fn accepted_index_fields_csv(")
+            && index_plan.contains("fn accepted_expression_index_fields_csv(")
             && index_plan.contains("fn generated_expression_index_fields_csv(")
             && index_plan.contains("let index_store = accepted_index.store();")
             && index_plan.contains("let index_is_unique = accepted_index.unique();")
@@ -721,7 +732,7 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
             && !index_plan
                 .contains("fn generated_predicate_program_for_accepted_field_path_index(")
             && !index_plan.contains("IndexKey::new_from_slots("),
-        "forward-index mutation planning must iterate accepted field-path index contracts directly while keeping generated indexes only for expression indexes",
+        "forward-index mutation planning must iterate accepted index contracts directly while keeping generated expression indexes only as the explicit fallback lane",
     );
     assert!(
         index_plan_read.contains("index: IndexReadContract<'_>")
@@ -735,16 +746,20 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
     assert!(
         commit_prepare.contains("struct AcceptedCommitSchemaContracts")
             && commit_prepare.contains("accepted_commit_schema_contracts(")
-            && commit_prepare.contains("SchemaInfo::from_accepted_snapshot_for_model(")
+            && commit_prepare
+                .contains("SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(")
             && commit_prepare.contains("&schema_contracts.schema_info")
             && commit_prepare.contains("&schema_contracts.row_contract")
             && commit_prepare.contains("has_accepted_field_path_indexes")
+            && commit_prepare.contains("has_accepted_expression_indexes")
             && commit_prepare
                 .contains("schema_contracts.schema_info.field_path_indexes().is_empty()")
+            && commit_prepare
+                .contains("schema_contracts.schema_info.expression_indexes().is_empty()")
             && commit_prepare.contains("has_deferred_expression_indexes")
             && commit_prepare.contains("index.has_expression_key_items()")
             && !commit_prepare.contains("authority.model.indexes().is_empty()"),
-        "commit preflight must carry accepted schema info beside the accepted row contract and gate field-path forward-index planning on accepted index contracts",
+        "commit preflight must carry expression-aware accepted schema info beside the accepted row contract and gate forward-index planning on accepted index contracts",
     );
 }
 
@@ -754,6 +769,7 @@ fn forward_index_write_predicates_use_accepted_contracts() {
 
     assert!(
         index_plan.contains("fn accepted_predicate_program_for_accepted_field_path_index(")
+            && index_plan.contains("fn accepted_predicate_program_for_accepted_expression_index(")
             && index_plan.contains("parse_sql_predicate(predicate_sql)")
             && index_plan.contains("map_or(Predicate::False")
             && index_plan.contains("PredicateProgram::compile_with_row_contract(")
@@ -761,7 +777,7 @@ fn forward_index_write_predicates_use_accepted_contracts() {
             && !index_plan.contains("requires generated predicate program")
             && !index_plan
                 .contains("fn generated_predicate_program_for_accepted_field_path_index("),
-        "accepted field-path write predicates must compile from accepted predicate SQL instead of generated predicate metadata",
+        "accepted write predicates must compile from accepted predicate SQL instead of generated predicate metadata",
     );
 }
 
@@ -773,14 +789,18 @@ fn unique_index_validation_splits_accepted_and_generated_authority() {
         unique_plan.contains("IndexKey::new_from_slots_with_contract(")
             && unique_plan.contains("enum UniqueKeyAuthority")
             && unique_plan.contains("AcceptedFieldPath(&'a SchemaIndexInfo)")
+            && unique_plan.contains("AcceptedExpression(&'a SchemaExpressionIndexInfo)")
             && unique_plan.contains("GeneratedExpression(GeneratedExpressionIndex<'a>)")
             && unique_plan
                 .contains("fn validate_unique_constraint_accepted_field_path_structural(")
+            && unique_plan
+                .contains("fn validate_unique_constraint_accepted_expression_structural(")
             && unique_plan
                 .contains("fn validate_unique_constraint_generated_expression_structural(")
             && unique_plan.contains("read_contract: IndexReadContract<'_>")
             && unique_plan.contains("read_contract.unique()")
             && unique_plan.contains("IndexKey::new_from_slots_with_accepted_field_path_index(")
+            && unique_plan.contains("IndexKey::new_from_slots_with_accepted_expression_index(")
             && unique_plan.contains("index.model_index()")
             && unique_plan.contains("row_contract,")
             && !unique_plan.contains("GeneratedExpression(&'a IndexModel)")

@@ -9,9 +9,11 @@ use crate::{
         data::{DataKey, StorageKey, StructuralRowContract, StructuralSlotReader},
         index::{
             IndexId, IndexKey, IndexPlanReadView, IndexReadContract,
-            plan::{GeneratedExpressionIndex, error::IndexPlanError},
+            plan::{
+                GeneratedExpressionIndex, accepted_expression_key_item_label, error::IndexPlanError,
+            },
         },
-        schema::{SchemaIndexFieldPathInfo, SchemaIndexInfo},
+        schema::{SchemaExpressionIndexInfo, SchemaIndexFieldPathInfo, SchemaIndexInfo},
     },
     error::InternalError,
     types::EntityTag,
@@ -20,6 +22,7 @@ use std::ops::Bound;
 
 enum UniqueKeyAuthority<'a> {
     AcceptedFieldPath(&'a SchemaIndexInfo),
+    AcceptedExpression(&'a SchemaExpressionIndexInfo),
     GeneratedExpression(GeneratedExpressionIndex<'a>),
 }
 
@@ -27,6 +30,7 @@ impl UniqueKeyAuthority<'_> {
     const fn index_id(&self, entity_tag: EntityTag) -> IndexId {
         match self {
             Self::AcceptedFieldPath(index) => IndexId::new(entity_tag, index.ordinal()),
+            Self::AcceptedExpression(index) => IndexId::new(entity_tag, index.ordinal()),
             Self::GeneratedExpression(index) => IndexId::new(entity_tag, index.ordinal()),
         }
     }
@@ -41,6 +45,14 @@ impl UniqueKeyAuthority<'_> {
         match self {
             Self::AcceptedFieldPath(index) => {
                 IndexKey::new_from_slots_with_accepted_field_path_index(
+                    entity_tag,
+                    storage_key,
+                    index,
+                    row_fields,
+                )
+            }
+            Self::AcceptedExpression(index) => {
+                IndexKey::new_from_slots_with_accepted_expression_index(
                     entity_tag,
                     storage_key,
                     index,
@@ -65,6 +77,15 @@ impl UniqueKeyAuthority<'_> {
                     .iter()
                     .map(SchemaIndexFieldPathInfo::field_name)
                     .collect::<Vec<_>>();
+                IndexPlanError::unique_violation(entity_path, &fields)
+            }
+            Self::AcceptedExpression(index) => {
+                let labels = index
+                    .key_items()
+                    .iter()
+                    .map(accepted_expression_key_item_label)
+                    .collect::<Vec<_>>();
+                let fields = labels.iter().map(String::as_str).collect::<Vec<_>>();
                 IndexPlanError::unique_violation(entity_path, &fields)
             }
             Self::GeneratedExpression(index) => {
@@ -93,6 +114,32 @@ pub(super) fn validate_unique_constraint_accepted_field_path_structural(
         read_view,
         row_contract,
         UniqueKeyAuthority::AcceptedFieldPath(accepted_index),
+        read_contract,
+        index_fields,
+        new_storage_key,
+        new_index_key,
+    )
+}
+
+/// Validate one accepted expression unique index constraint.
+#[expect(clippy::too_many_arguments)]
+pub(super) fn validate_unique_constraint_accepted_expression_structural(
+    entity_path: &'static str,
+    entity_tag: EntityTag,
+    read_view: &dyn IndexPlanReadView,
+    row_contract: &StructuralRowContract,
+    accepted_index: &SchemaExpressionIndexInfo,
+    read_contract: IndexReadContract<'_>,
+    index_fields: &str,
+    new_storage_key: Option<StorageKey>,
+    new_index_key: Option<&IndexKey>,
+) -> Result<(), IndexPlanError> {
+    validate_unique_constraint_structural_impl(
+        entity_path,
+        entity_tag,
+        read_view,
+        row_contract,
+        UniqueKeyAuthority::AcceptedExpression(accepted_index),
         read_contract,
         index_fields,
         new_storage_key,

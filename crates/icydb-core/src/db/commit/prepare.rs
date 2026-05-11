@@ -291,12 +291,18 @@ where
         // structural rows when the entity owns secondary indexes.
         let has_accepted_field_path_indexes =
             !schema_contracts.schema_info.field_path_indexes().is_empty();
-        let has_deferred_expression_indexes = authority
-            .model
-            .indexes()
-            .iter()
-            .any(|index| index.has_expression_key_items());
-        let index_plan = if !has_accepted_field_path_indexes && !has_deferred_expression_indexes {
+        let has_accepted_expression_indexes =
+            !schema_contracts.schema_info.expression_indexes().is_empty();
+        let has_deferred_expression_indexes = !has_accepted_expression_indexes
+            && authority
+                .model
+                .indexes()
+                .iter()
+                .any(|index| index.has_expression_key_items());
+        let index_plan = if !has_accepted_field_path_indexes
+            && !has_accepted_expression_indexes
+            && !has_deferred_expression_indexes
+        {
             empty_forward_index_plan()
         } else {
             prepare_forward_index_commit_leaf(
@@ -464,7 +470,11 @@ where
             authority.entity_path,
             &accepted,
         )?,
-        schema_info: SchemaInfo::from_accepted_snapshot_for_model(authority.model, &accepted),
+        schema_info: SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
+            authority.model,
+            &accepted,
+            true,
+        ),
     })
 }
 

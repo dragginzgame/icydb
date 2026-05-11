@@ -23,7 +23,9 @@ use crate::{
             scalar_expr_value_into_value,
         },
         schema::{
-            PersistedIndexExpressionOp, SchemaIndexFieldPathInfo, SchemaIndexInfo, SchemaInfo,
+            PersistedIndexExpressionOp, SchemaExpressionIndexInfo,
+            SchemaExpressionIndexKeyItemInfo, SchemaIndexFieldPathInfo, SchemaIndexInfo,
+            SchemaInfo,
         },
     },
     error::InternalError,
@@ -35,6 +37,8 @@ use std::ops::Bound;
 
 type AcceptedFieldPathComponentEncoder<'a> = dyn FnMut(&SchemaIndexInfo, &SchemaIndexFieldPathInfo) -> Result<Option<Vec<u8>>, InternalError>
     + 'a;
+type AcceptedExpressionComponentEncoder<'a> =
+    dyn FnMut(&SchemaExpressionIndexKeyItemInfo) -> Result<Option<Vec<u8>>, InternalError> + 'a;
 
 fn value_for_expression(
     index: &IndexModel,
@@ -198,6 +202,22 @@ impl IndexKey {
         slots: &dyn CanonicalSlotReader,
     ) -> Result<Option<Self>, InternalError> {
         build_accepted_field_path_index_key_from_slots(
+            entity_tag,
+            storage_key,
+            accepted_index,
+            slots,
+        )
+    }
+
+    /// Build an expression index key from one canonical slot reader using
+    /// accepted expression-index contract authority.
+    pub(crate) fn new_from_slots_with_accepted_expression_index(
+        entity_tag: EntityTag,
+        storage_key: StorageKey,
+        accepted_index: &SchemaExpressionIndexInfo,
+        slots: &dyn CanonicalSlotReader,
+    ) -> Result<Option<Self>, InternalError> {
+        build_accepted_expression_index_key_from_slots(
             entity_tag,
             storage_key,
             accepted_index,
@@ -555,6 +575,44 @@ fn accepted_field_path_component_bytes_from_slots(
     encode_value_index_component_ref(source)
 }
 
+fn accepted_expression_component_bytes_from_slots(
+    accepted_index: &SchemaExpressionIndexInfo,
+    key_item: &SchemaExpressionIndexKeyItemInfo,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<Option<Vec<u8>>, InternalError> {
+    match key_item {
+        SchemaExpressionIndexKeyItemInfo::FieldPath(field) => {
+            let source = slots.required_value_by_contract_cow(field.slot())?;
+            let Some(source) = resolve_accepted_field_path_component(source.as_ref(), field)?
+            else {
+                return Ok(None);
+            };
+
+            encode_value_index_component_ref(source)
+        }
+        SchemaExpressionIndexKeyItemInfo::Expression(expression) => {
+            let source = slots.required_value_by_contract_cow(expression.source().slot())?;
+            let semantic_expression = SemanticIndexExpression::new(
+                expression.op(),
+                accepted_field_path_term(
+                    expression.source().field_name(),
+                    expression.source().path(),
+                ),
+            );
+            let Some(value) = value_for_accepted_expression_with_index_name(
+                accepted_index.name(),
+                &semantic_expression,
+                source.into_owned(),
+            )?
+            else {
+                return Ok(None);
+            };
+
+            encode_value_index_component(value)
+        }
+    }
+}
+
 fn resolve_accepted_field_path_component<'a>(
     root: &'a Value,
     field: &SchemaIndexFieldPathInfo,
@@ -579,6 +637,25 @@ fn resolve_accepted_field_path_component<'a>(
     Ok(Some(current))
 }
 
+fn accepted_field_path_term(field_name: &str, path: &[String]) -> String {
+    if path.len() <= 1 {
+        field_name.to_string()
+    } else {
+        path.join(".")
+    }
+}
+
+fn accepted_expression_key_item_label(key_item: &SchemaExpressionIndexKeyItemInfo) -> String {
+    match key_item {
+        SchemaExpressionIndexKeyItemInfo::FieldPath(field) => {
+            accepted_field_path_term(field.field_name(), field.path())
+        }
+        SchemaExpressionIndexKeyItemInfo::Expression(expression) => {
+            expression.canonical_text().to_string()
+        }
+    }
+}
+
 fn build_accepted_field_path_index_key_from_slots(
     entity_tag: EntityTag,
     storage_key: StorageKey,
@@ -591,6 +668,22 @@ fn build_accepted_field_path_index_key_from_slots(
         accepted_index,
         &mut |accepted_index, field| {
             accepted_field_path_component_bytes_from_slots(accepted_index, field, slots)
+        },
+    )
+}
+
+fn build_accepted_expression_index_key_from_slots(
+    entity_tag: EntityTag,
+    storage_key: StorageKey,
+    accepted_index: &SchemaExpressionIndexInfo,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<Option<IndexKey>, InternalError> {
+    build_accepted_expression_index_key_from_components(
+        entity_tag,
+        storage_key,
+        accepted_index,
+        &mut |key_item| {
+            accepted_expression_component_bytes_from_slots(accepted_index, key_item, slots)
         },
     )
 }
@@ -609,6 +702,45 @@ fn build_accepted_field_path_index_key<'a>(
             accepted_field_path_component_bytes(accepted_index, field, read_slot)
         },
     )
+}
+
+fn build_accepted_expression_index_key_from_components(
+    entity_tag: EntityTag,
+    storage_key: StorageKey,
+    accepted_index: &SchemaExpressionIndexInfo,
+    component_bytes: &mut AcceptedExpressionComponentEncoder<'_>,
+) -> Result<Option<IndexKey>, InternalError> {
+    let component_count = accepted_index.key_items().len();
+    if component_count > MAX_INDEX_FIELDS {
+        return Err(InternalError::index_key_field_count_exceeds_max(
+            accepted_index.name(),
+            component_count,
+            MAX_INDEX_FIELDS,
+        ));
+    }
+
+    let mut components = Vec::with_capacity(component_count);
+    for key_item in accepted_index.key_items() {
+        let Some(component) = component_bytes(key_item)? else {
+            return Ok(None);
+        };
+
+        if component.len() > IndexKey::MAX_COMPONENT_SIZE {
+            return Err(InternalError::index_component_exceeds_max_size(
+                accepted_expression_key_item_label(key_item),
+                component.len(),
+                IndexKey::MAX_COMPONENT_SIZE,
+            ));
+        }
+        components.push(component);
+    }
+
+    Ok(Some(IndexKey {
+        key_kind: IndexKeyKind::User,
+        index_id: IndexId::new(entity_tag, accepted_index.ordinal()),
+        components,
+        primary_key: storage_key.to_bytes()?.to_vec(),
+    }))
 }
 
 fn build_accepted_field_path_index_key_from_components(

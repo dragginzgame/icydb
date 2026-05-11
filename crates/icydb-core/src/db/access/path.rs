@@ -126,6 +126,11 @@ pub(in crate::db) struct SemanticIndexExpression {
 
 impl SemanticIndexExpression {
     #[must_use]
+    pub(in crate::db) const fn new(op: PersistedIndexExpressionOp, field: String) -> Self {
+        Self { op, field }
+    }
+
+    #[must_use]
     pub(in crate::db) const fn field(&self) -> &str {
         self.field.as_str()
     }
