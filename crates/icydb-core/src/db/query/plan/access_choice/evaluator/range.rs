@@ -41,7 +41,7 @@ pub(in crate::db::query::plan::access_choice) fn evaluate_range_candidate(
     predicate: &Predicate,
 ) -> CandidateEvaluation {
     evaluate_range_candidate_from_contract(
-        SemanticIndexAccessContract::from_generated_index(*index),
+        SemanticIndexAccessContract::model_only_from_generated_index(*index),
         schema,
         predicate,
     )

@@ -52,7 +52,7 @@ pub(super) fn plan_predicate(
             // Primary keys are always keyable and therefore never representable
             // as `Value::Null`; lower this impossible shape to an empty access
             // contract instead of scanning all rows.
-            if field == model.primary_key.name
+            if schema.primary_key_name().is_some_and(|name| field == name)
                 && matches!(schema.field(field), Some(field_type) if field_type.is_keyable())
             {
                 PlannedAccessSelection::new(
@@ -70,8 +70,7 @@ pub(super) fn plan_predicate(
             // Phase 1: derive the planner-owned secondary-index candidates once
             // so child recursion can reuse the chosen index contract for
             // redundancy stripping without reopening candidate extraction.
-            let primary_key_range_access =
-                range::primary_key_range_from_and(model, schema, children);
+            let primary_key_range_access = range::primary_key_range_from_and(schema, children);
             let index_range_access = range::index_range_from_and(
                 model,
                 candidate_indexes,

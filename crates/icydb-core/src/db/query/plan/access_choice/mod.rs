@@ -47,7 +47,7 @@ fn semantic_candidate_indexes_from_generated_model_only(
     generated_indexes
         .iter()
         .copied()
-        .map(|index| SemanticIndexAccessContract::from_generated_index(*index))
+        .map(|index| SemanticIndexAccessContract::model_only_from_generated_index(*index))
         .collect()
 }
 

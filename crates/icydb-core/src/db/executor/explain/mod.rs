@@ -493,7 +493,7 @@ where
     ) -> Result<ExplainAggregateTerminalPlan, QueryError> {
         self.structural()
             .explain_aggregate_terminal_with_visible_indexes(
-                &VisibleIndexes::schema_owned(E::MODEL.indexes()),
+                &VisibleIndexes::generated_model_only(E::MODEL.indexes()),
                 AggregateRouteShape::new_from_fields(
                     aggregate.kind(),
                     aggregate.target_field(),

@@ -38,11 +38,11 @@ use std::cmp::Ordering;
 // candidate visible when sibling clauses still need residual or secondary-index
 // handling.
 pub(in crate::db::query::plan::planner) fn primary_key_range_from_and(
-    model: &EntityModel,
     schema: &SchemaInfo,
     children: &[Predicate],
 ) -> Option<AccessPlan<Value>> {
-    let field_type = schema.field(model.primary_key.name)?;
+    let primary_key_name = schema.primary_key_name()?;
+    let field_type = schema.field(primary_key_name)?;
     if !field_type.is_keyable() {
         return None;
     }
@@ -54,7 +54,7 @@ pub(in crate::db::query::plan::planner) fn primary_key_range_from_and(
         let Predicate::Compare(cmp) = child else {
             continue;
         };
-        if cmp.field != model.primary_key.name {
+        if cmp.field != primary_key_name {
             continue;
         }
         if cmp.coercion.id != CoercionId::Strict {

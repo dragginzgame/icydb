@@ -4,7 +4,7 @@ use super::*;
 fn route_plan_load_terminal_covering_read_contract_requires_coverable_projection() {
     let mut projected = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 ROUTE_CAPABILITY_INDEX_MODELS[0],
             ),
             values: vec![Value::Uint(7)],
@@ -36,7 +36,7 @@ fn route_plan_load_terminal_covering_read_contract_requires_coverable_projection
 
     let materialized = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 ROUTE_CAPABILITY_INDEX_MODELS[0],
             ),
             values: vec![Value::Uint(7)],
@@ -53,7 +53,7 @@ fn route_plan_load_terminal_covering_read_contract_requires_coverable_projection
 fn route_plan_execution_route_plan_retains_covering_read_contract() {
     let mut projected = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 ROUTE_CAPABILITY_INDEX_MODELS[0],
             ),
             values: vec![Value::Uint(7)],

@@ -59,7 +59,7 @@ fn explain_grouped_strategy_defaults_to_hash_group_for_full_scan_shapes() {
 fn explain_grouped_strategy_reports_prefix_mismatch_for_misaligned_grouped_order() {
     let mut grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_INDEX,
             ),
             values: vec![],
@@ -101,7 +101,7 @@ fn explain_grouped_strategy_reports_prefix_mismatch_for_misaligned_grouped_order
 fn explain_grouped_strategy_reports_non_admissible_reason_for_computed_grouped_order() {
     let mut grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_INDEX,
             ),
             values: vec![],
@@ -179,7 +179,7 @@ fn explain_grouped_strategy_reports_top_k_group_for_aggregate_grouped_order() {
 fn explain_grouped_strategy_reports_ordered_group_for_aligned_index_prefix_shapes() {
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_INDEX,
             ),
             values: vec![],
@@ -215,7 +215,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_aligned_index_prefix_shape
 fn explain_grouped_strategy_reports_ordered_group_for_count_field_on_aligned_index_prefix_shapes() {
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_INDEX,
             ),
             values: vec![],
@@ -253,7 +253,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_count_field_on_aligned_ind
 fn explain_grouped_strategy_reports_ordered_group_for_sum_field_on_aligned_index_prefix_shapes() {
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_INDEX,
             ),
             values: vec![],
@@ -291,7 +291,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_sum_field_on_aligned_index
 fn explain_grouped_strategy_reports_ordered_group_for_avg_field_on_aligned_index_prefix_shapes() {
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_INDEX,
             ),
             values: vec![],
@@ -329,7 +329,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_avg_field_on_aligned_index
 fn explain_grouped_strategy_preserves_ordered_group_for_fully_indexable_predicate_shapes() {
     let mut grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_INDEX,
             ),
             values: vec![Value::Text("alpha".to_string())],
@@ -405,7 +405,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_order_only_index_range_sha
 fn explain_grouped_strategy_downgrades_to_hash_for_residual_filter_predicate_shapes() {
     let mut grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_INDEX,
             ),
             values: vec![],
@@ -445,7 +445,7 @@ fn explain_grouped_strategy_downgrades_to_hash_for_residual_filter_predicate_sha
 fn explain_grouped_strategy_downgrades_to_hash_for_non_streaming_having_expr() {
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_INDEX,
             ),
             values: vec![],
@@ -505,7 +505,7 @@ fn explain_grouped_strategy_keeps_ordered_group_for_supported_having_operator() 
     };
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_INDEX,
             ),
             values: vec![],
@@ -613,7 +613,7 @@ fn explain_grouped_ordered_having_projection_shape_is_frozen() {
     };
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_INDEX,
             ),
             values: vec![],
@@ -662,7 +662,7 @@ fn explain_grouped_having_expression_projection_is_reported() {
         .expect("group field should resolve");
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_INDEX,
             ),
             values: vec![],
@@ -901,7 +901,7 @@ fn explain_grouped_plan_snapshot_for_ordered_having_shape_is_stable() {
     };
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_INDEX,
             ),
             values: vec![],

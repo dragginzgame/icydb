@@ -3,6 +3,8 @@
 //! Does not own: path validation or canonicalization policy.
 //! Boundary: used by access-plan construction and executor interpretation.
 
+#[cfg(test)]
+use crate::model::index::IndexModel;
 use crate::{
     db::{
         Predicate,
@@ -11,10 +13,10 @@ use crate::{
             PersistedIndexExpressionOp, SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo,
         },
     },
-    model::index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
+    model::index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef},
     value::Value,
 };
-use std::{ops::Bound, sync::Arc};
+use std::ops::Bound;
 
 ///
 /// AccessPathKind
@@ -44,21 +46,21 @@ pub(in crate::db) enum AccessPathKind {
 
 #[derive(Clone, Debug)]
 pub(crate) struct SemanticIndexAccessContract {
-    inner: Arc<SemanticIndexAccessContractInner>,
+    pub(in crate::db::access) inner: std::sync::Arc<SemanticIndexAccessContractInner>,
 }
 
 #[derive(Debug)]
-struct SemanticIndexAccessContractInner {
-    ordinal: u16,
-    name: String,
-    store_path: String,
-    key_items: SemanticIndexKeyItems,
-    unique: bool,
-    predicate_semantics: Option<Predicate>,
+pub(in crate::db::access) struct SemanticIndexAccessContractInner {
+    pub(in crate::db::access) ordinal: u16,
+    pub(in crate::db::access) name: String,
+    pub(in crate::db::access) store_path: String,
+    pub(in crate::db::access) key_items: SemanticIndexKeyItems,
+    pub(in crate::db::access) unique: bool,
+    pub(in crate::db::access) predicate_semantics: Option<Predicate>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum SemanticIndexKeyItems {
+pub(in crate::db::access) enum SemanticIndexKeyItems {
     Fields(Vec<String>),
     Accepted(Vec<SemanticIndexKeyItem>),
     Static(IndexKeyItemsRef),
@@ -179,28 +181,12 @@ impl PartialEq for SemanticIndexAccessContract {
 impl Eq for SemanticIndexAccessContract {}
 
 impl SemanticIndexAccessContract {
-    /// Project one generated index model into the narrow access contract used
-    /// past planner candidate selection.
-    #[must_use]
-    pub(in crate::db) fn from_generated_index(index: IndexModel) -> Self {
-        Self {
-            inner: Arc::new(SemanticIndexAccessContractInner {
-                ordinal: index.ordinal(),
-                name: index.name().to_string(),
-                store_path: index.store().to_string(),
-                key_items: SemanticIndexKeyItems::Static(index.key_items()),
-                unique: index.is_unique(),
-                predicate_semantics: index.predicate_semantics().cloned(),
-            }),
-        }
-    }
-
     #[must_use]
     pub(in crate::db) fn from_accepted_field_path_index(
         accepted: &crate::db::schema::SchemaIndexInfo,
     ) -> Self {
         Self {
-            inner: Arc::new(SemanticIndexAccessContractInner {
+            inner: std::sync::Arc::new(SemanticIndexAccessContractInner {
                 ordinal: accepted.ordinal(),
                 name: accepted.name().to_string(),
                 store_path: accepted.store().to_string(),
@@ -228,7 +214,7 @@ impl SemanticIndexAccessContract {
         accepted: &SchemaExpressionIndexInfo,
     ) -> Self {
         Self {
-            inner: Arc::new(SemanticIndexAccessContractInner {
+            inner: std::sync::Arc::new(SemanticIndexAccessContractInner {
                 ordinal: accepted.ordinal(),
                 name: accepted.name().to_string(),
                 store_path: accepted.store().to_string(),
@@ -466,7 +452,7 @@ impl SemanticIndexRangeSpec {
         );
 
         Self {
-            index: SemanticIndexAccessContract::from_generated_index(index),
+            index: SemanticIndexAccessContract::model_only_from_generated_index(index),
             field_slots,
             prefix_values,
             lower,

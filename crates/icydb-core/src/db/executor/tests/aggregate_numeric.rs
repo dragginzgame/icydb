@@ -440,9 +440,10 @@ fn aggregate_numeric_index_multi_lookup_keeps_shape_and_sum_avg_parity() {
     let build_plan = || {
         let logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
             AccessPath::IndexMultiLookup {
-                index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
-                    PUSHDOWN_PARITY_INDEX_MODELS[0],
-                ),
+                index:
+                    crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+                        PUSHDOWN_PARITY_INDEX_MODELS[0],
+                    ),
                 values: vec![Value::Uint(7), Value::Uint(8)],
             },
             MissingRowPolicy::Ignore,

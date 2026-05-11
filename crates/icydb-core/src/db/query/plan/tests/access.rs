@@ -250,7 +250,7 @@ fn plan_access_primary_key_is_null_or_secondary_eq_collapses_to_secondary_branch
     assert_eq!(
         plan,
         AccessPlan::path(AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 INDEX_MODEL
             ),
             values: vec![Value::Text("alpha".to_string())],
@@ -347,7 +347,7 @@ fn plan_access_uses_index_prefix_for_exact_match() {
     assert_eq!(
         plan,
         AccessPlan::path(AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 INDEX_MODEL
             ),
             values: vec![Value::Text("alpha".to_string())],
@@ -379,7 +379,7 @@ fn plan_access_filtered_index_requires_query_implication_for_predicate() {
     assert_eq!(
         implied_plan,
         AccessPlan::path(AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 FILTERED_INDEX_MODEL
             ),
             values: vec![Value::Text("alpha".to_string())],
@@ -447,7 +447,7 @@ fn plan_access_filtered_expression_index_requires_predicate_implication() {
     assert_eq!(
         implied_plan,
         AccessPlan::path(AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 FILTERED_EXPRESSION_CASEFOLD_INDEX_MODEL
             ),
             values: vec![Value::Text("alice@example.com".to_string())],
@@ -517,7 +517,7 @@ fn plan_access_uses_index_multi_lookup_for_secondary_in() {
     assert_eq!(
         plan,
         AccessPlan::path(AccessPath::IndexMultiLookup {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 INDEX_MODEL
             ),
             values: vec![
@@ -543,7 +543,7 @@ fn plan_access_text_casefold_eq_uses_expression_index_prefix() {
     assert_eq!(
         plan,
         AccessPlan::path(AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 EXPRESSION_CASEFOLD_INDEX_MODEL
             ),
             values: vec![Value::Text("alice@example.com".to_string())],
@@ -567,7 +567,7 @@ fn plan_access_text_casefold_eq_uses_upper_expression_index_prefix() {
     assert_eq!(
         plan,
         AccessPlan::path(AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 EXPRESSION_UPPER_INDEX_MODEL
             ),
             values: vec![Value::Text("ALICE@EXAMPLE.COM".to_string())],
@@ -613,7 +613,7 @@ fn plan_access_text_casefold_in_uses_upper_expression_index_multi_lookup() {
     assert_eq!(
         plan,
         AccessPlan::path(AccessPath::IndexMultiLookup {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 EXPRESSION_UPPER_INDEX_MODEL
             ),
             values: vec![
@@ -666,7 +666,7 @@ fn plan_access_text_casefold_in_uses_expression_index_multi_lookup() {
     assert_eq!(
         plan,
         AccessPlan::path(AccessPath::IndexMultiLookup {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 EXPRESSION_CASEFOLD_INDEX_MODEL
             ),
             values: vec![
@@ -863,9 +863,10 @@ fn plan_access_canonical_in_and_or_matrix() {
                 ]),
             ),
             AccessPlan::path(AccessPath::IndexMultiLookup {
-                index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
-                    INDEX_MODEL,
-                ),
+                index:
+                    crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+                        INDEX_MODEL,
+                    ),
                 values: vec![
                     Value::Text("alpha".to_string()),
                     Value::Text("beta".to_string()),
@@ -914,9 +915,10 @@ fn plan_access_canonical_in_and_or_matrix() {
                 ]),
             ),
             AccessPlan::path(AccessPath::IndexMultiLookup {
-                index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
-                    INDEX_MODEL,
-                ),
+                index:
+                    crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+                        INDEX_MODEL,
+                    ),
                 values: vec![
                     Value::Text("alpha".to_string()),
                     Value::Text("beta".to_string()),
@@ -953,9 +955,10 @@ fn plan_access_canonical_in_and_or_matrix() {
                 ]),
             ),
             AccessPlan::path(AccessPath::IndexMultiLookup {
-                index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
-                    EXPRESSION_CASEFOLD_INDEX_MODEL,
-                ),
+                index:
+                    crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+                        EXPRESSION_CASEFOLD_INDEX_MODEL,
+                    ),
                 values: vec![
                     Value::Text("alice@example.com".to_string()),
                     Value::Text("bob@example.com".to_string()),
@@ -1002,9 +1005,10 @@ fn plan_access_in_normalization_matrix() {
                 Value::List(vec![Value::Text("alpha".to_string())]),
             ),
             AccessPlan::path(AccessPath::IndexPrefix {
-                index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
-                    INDEX_MODEL,
-                ),
+                index:
+                    crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+                        INDEX_MODEL,
+                    ),
                 values: vec![Value::Text("alpha".to_string())],
             }),
         ),

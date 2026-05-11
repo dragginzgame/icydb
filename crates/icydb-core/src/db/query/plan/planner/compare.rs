@@ -36,9 +36,10 @@ pub(super) fn plan_compare(
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> AccessPlan<Value> {
+    let primary_key_name = schema.primary_key_name();
     if cmp.coercion.id == CoercionId::Strict
-        && cmp.field == model.primary_key.name
-        && let Some(field_type) = schema.field(model.primary_key.name)
+        && primary_key_name.is_some_and(|name| cmp.field == name)
+        && let Some(field_type) = primary_key_name.and_then(|name| schema.field(name))
         && let Some(path) = plan_pk_compare(field_type, &cmp.value, cmp.op)
     {
         return path;

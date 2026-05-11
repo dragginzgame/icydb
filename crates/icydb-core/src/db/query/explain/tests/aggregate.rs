@@ -52,7 +52,7 @@ fn explain_aggregate_terminal_seek_route_public_contract_is_stable() {
     // Phase 1: build a deterministic index-prefix query explain payload.
     let mut plan: AccessPlannedQuery = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_INDEX,
             ),
             values: vec![Value::Text("alpha".to_string())],

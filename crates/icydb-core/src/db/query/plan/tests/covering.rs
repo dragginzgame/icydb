@@ -79,7 +79,7 @@ fn index_covering_existing_rows_terminal_requires_index_shape() {
 fn index_covering_existing_rows_terminal_requires_no_order() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 COVERING_READ_INDEX,
             ),
             values: vec![Value::Uint(7)],
@@ -103,7 +103,7 @@ fn index_covering_existing_rows_terminal_requires_no_order() {
 fn index_covering_existing_rows_terminal_accepts_unordered_no_predicate() {
     let plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 COVERING_READ_INDEX,
             ),
             values: vec![Value::Uint(7)],
@@ -121,7 +121,7 @@ fn index_covering_existing_rows_terminal_accepts_unordered_no_predicate() {
 fn index_covering_existing_rows_terminal_requires_strict_predicate_when_residual_present() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 COVERING_READ_INDEX,
             ),
             values: vec![Value::Uint(7)],
@@ -144,7 +144,7 @@ fn index_covering_existing_rows_terminal_requires_strict_predicate_when_residual
 fn covering_read_execution_plan_marks_secondary_load_shapes_as_planner_proven() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 COVERING_READ_INDEX,
             ),
             values: vec![Value::Uint(7)],

@@ -556,18 +556,20 @@ mod tests {
     fn normalize_index_multi_lookup_singleton_collapses_to_index_prefix() {
         let normalized =
             normalize_access_plan_value(AccessPlan::path(AccessPath::IndexMultiLookup {
-                index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
-                    TEST_INDEX,
-                ),
+                index:
+                    crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+                        TEST_INDEX,
+                    ),
                 values: vec![Value::Uint(7)],
             }));
 
         assert_eq!(
             normalized,
             AccessPlan::path(AccessPath::IndexPrefix {
-                index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
-                    TEST_INDEX
-                ),
+                index:
+                    crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+                        TEST_INDEX
+                    ),
                 values: vec![Value::Uint(7)],
             }),
         );
@@ -577,18 +579,20 @@ mod tests {
     fn normalize_index_multi_lookup_canonicalizes_value_set() {
         let normalized =
             normalize_access_plan_value(AccessPlan::path(AccessPath::IndexMultiLookup {
-                index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
-                    TEST_INDEX,
-                ),
+                index:
+                    crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+                        TEST_INDEX,
+                    ),
                 values: vec![Value::Uint(9), Value::Uint(7), Value::Uint(9)],
             }));
 
         assert_eq!(
             normalized,
             AccessPlan::path(AccessPath::IndexMultiLookup {
-                index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
-                    TEST_INDEX
-                ),
+                index:
+                    crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+                        TEST_INDEX
+                    ),
                 values: vec![Value::Uint(7), Value::Uint(9)],
             }),
         );

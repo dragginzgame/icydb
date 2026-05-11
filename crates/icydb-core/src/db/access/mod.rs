@@ -7,6 +7,7 @@ pub(crate) mod canonical;
 pub(in crate::db) mod capabilities;
 pub(in crate::db) mod execution_contract;
 pub(crate) mod lowering;
+mod model_only;
 pub(crate) mod path;
 pub(crate) mod plan;
 #[cfg(test)]

@@ -117,7 +117,7 @@ fn model_with_expression_index() -> &'static EntityModel {
 }
 
 fn assert_trivial_scalar_fast_path_matches_general(query: QueryModel<'static, Value>) {
-    let visible_indexes = VisibleIndexes::planner_visible(query.model().indexes());
+    let visible_indexes = VisibleIndexes::generated_model_only_for_test(query.model().indexes());
     let fast = try_build_trivial_scalar_load_plan_for_model_only(&query)
         .expect("trivial fast path should build")
         .expect("query should be fast-path eligible");
@@ -564,7 +564,7 @@ fn plan_rejects_index_prefix_too_long() {
             consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 INDEX_MODEL,
             ),
             values: vec![Value::Text("a".to_string()), Value::Text("b".to_string())],
@@ -602,7 +602,7 @@ fn plan_rejects_empty_index_prefix() {
             consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 INDEX_MODEL,
             ),
             values: vec![],
@@ -767,7 +767,9 @@ fn scalar_distinct_execution_strategy_is_planner_lowered_from_access_shape() {
     );
 
     composite_plan.access = AccessPlan::path(AccessPath::IndexMultiLookup {
-        index: crate::db::access::SemanticIndexAccessContract::from_generated_index(INDEX_MODEL),
+        index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+            INDEX_MODEL,
+        ),
         values: vec![Value::from(7_u64), Value::from(8_u64)],
     });
     assert_eq!(

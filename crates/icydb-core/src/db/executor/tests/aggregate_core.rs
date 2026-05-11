@@ -253,7 +253,7 @@ fn secondary_group_rank_order_plan(
 ) -> PreparedExecutionPlan<PushdownParityEntity> {
     let mut logical_plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
-            index: crate::db::access::SemanticIndexAccessContract::from_generated_index(
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_PARITY_INDEX_MODELS[0],
             ),
             values: vec![Value::Uint(7)],

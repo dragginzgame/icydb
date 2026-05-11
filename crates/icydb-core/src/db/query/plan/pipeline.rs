@@ -74,7 +74,7 @@ where
 {
     build_query_model_plan_with_indexes_for_model_only(
         query,
-        &VisibleIndexes::schema_owned(query.model().indexes()),
+        &VisibleIndexes::generated_model_only(query.model().indexes()),
     )
 }
 

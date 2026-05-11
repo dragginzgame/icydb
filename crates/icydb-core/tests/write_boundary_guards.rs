@@ -472,7 +472,7 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && order_select.contains("grouped_index_order_terms_satisfied(")
             && order_select.contains("index_key_item_order_terms(index_contract.key_items())")
             && !order_select.contains(
-                "let index_contract = SemanticIndexAccessContract::from_generated_index(*index);"
+                "let index_contract = SemanticIndexAccessContract::model_only_from_generated_index(*index);"
             )
             && order_select.contains("if !index_contract.has_expression_key_items() {")
             && !order_select.contains("deterministic_secondary_index_order_satisfied(")
@@ -917,6 +917,7 @@ fn runtime_access_capabilities_use_reduced_index_shape_facts() {
     let aggregate_capability = read_source("src/db/executor/aggregate/capability.rs");
     let logical_semantics = read_source("src/db/query/plan/semantics/logical.rs");
     let access_plan = read_source("src/db/query/plan/access_plan.rs");
+    let access_model_only = read_source("src/db/access/model_only.rs");
     let access_path = read_source("src/db/access/path.rs");
     let access_plan_core = read_source("src/db/access/plan.rs");
     let access_choice = read_source("src/db/query/plan/access_choice/mod.rs");
@@ -961,10 +962,13 @@ fn runtime_access_capabilities_use_reduced_index_shape_facts() {
     );
     assert!(
         access_path.contains("pub(crate) struct SemanticIndexAccessContract")
-            && access_path.contains("fn from_generated_index(index: IndexModel)")
+            && access_model_only.contains("Module: access::model_only")
+            && access_model_only.contains("fn model_only_from_generated_index(index: IndexModel)")
+            && access_model_only.contains("Accepted runtime planning, explain, writes")
             && access_path.contains("fn from_access_contract(")
             && access_path.contains("index: SemanticIndexAccessContract")
             && !access_path.contains("fn from_index(index: IndexModel)")
+            && !access_path.contains("fn from_generated_index(index: IndexModel)")
             && !access_path.contains("SemanticIndexAccessContract::from_index")
             && access_path.contains(
                 "pub(crate) struct SemanticIndexRangeSpec {\n    index: SemanticIndexAccessContract"
@@ -1208,7 +1212,7 @@ fn standalone_generated_query_planning_is_model_only() {
             && query_plan_pipeline
                 .contains("fn build_query_model_plan_with_indexes_for_model_only")
             && query_plan_pipeline
-                .contains("&VisibleIndexes::schema_owned(query.model().indexes())")
+                .contains("&VisibleIndexes::generated_model_only(query.model().indexes())")
             && query_plan_pipeline.contains("fn try_build_trivial_scalar_load_plan_for_model_only")
             && query_plan_pipeline
                 .contains("fn prepare_query_model_scalar_planning_state_for_model_only")
@@ -1229,7 +1233,9 @@ fn standalone_generated_query_planning_is_model_only() {
 fn remaining_runtime_generated_index_sets_are_model_only() {
     let access_choice = read_source("src/db/query/plan/access_choice/mod.rs");
     let access_plan = read_source("src/db/query/plan/access_plan.rs");
+    let commit_prepare = read_source("src/db/commit/prepare.rs");
     let executor_explain = read_source("src/db/executor/explain/mod.rs");
+    let index_plan = read_source("src/db/index/plan/mod.rs");
     let planner_mod = read_source("src/db/query/plan/planner/mod.rs");
     let query_plan_pipeline = read_source("src/db/query/plan/pipeline.rs");
     let query_plan = read_source("src/db/query/plan/mod.rs");
@@ -1241,10 +1247,11 @@ fn remaining_runtime_generated_index_sets_are_model_only() {
             && executor_explain.contains("self.model().indexes()")
             && executor_explain.contains("fn explain_execution_descriptor_for_model_only(")
             && executor_explain.contains("fn explain_execution_for_model_only(")
-            && executor_explain.contains("&VisibleIndexes::schema_owned(E::MODEL.indexes())")
+            && executor_explain
+                .contains("&VisibleIndexes::generated_model_only(E::MODEL.indexes())")
             && query_plan_pipeline.contains("fn build_query_model_plan_for_model_only")
             && query_plan_pipeline
-                .contains("&VisibleIndexes::schema_owned(query.model().indexes())"),
+                .contains("&VisibleIndexes::generated_model_only(query.model().indexes())"),
         "remaining generated index-set fallbacks must stay on explicit model-only explain/planning surfaces",
     );
     assert!(
@@ -1252,6 +1259,10 @@ fn remaining_runtime_generated_index_sets_are_model_only() {
             && !query_plan.contains("struct GeneratedExpressionCandidateIndex")
             && query_plan.contains("semantic_access_contract: SemanticIndexAccessContract")
             && query_plan.contains("generated_model_only_indexes: Cow")
+            && query_plan.contains("pub(in crate::db) const fn generated_model_only(")
+            && query_plan.contains("fn generated_model_only_for_test(")
+            && !query_plan.contains("fn schema_owned(")
+            && !query_plan.contains("fn planner_visible(")
             && query_plan.contains("pub(in crate::db) fn generated_model_only_indexes(&self)")
             && query_plan.contains("generated_model_only_indexes: Cow::Borrowed(indexes)")
             && query_plan.contains("generated_model_only_indexes: Cow::Borrowed(&[])")
@@ -1272,6 +1283,22 @@ fn remaining_runtime_generated_index_sets_are_model_only() {
             && !access_plan.contains("GeneratedExpressionCandidateIndex")
             && !planner_mod.contains("GeneratedExpressionCandidateIndex"),
         "accepted-runtime expression candidate entrypoints must be removed rather than wrapped around generated IndexModel slices",
+    );
+    assert!(
+        access_choice.contains("fn semantic_candidate_indexes_from_generated_model_only(")
+            && access_choice
+                .contains("SemanticIndexAccessContract::model_only_from_generated_index(*index)")
+            && planner_mod.contains("fn semantic_candidate_indexes_from_generated_model_only(")
+            && planner_mod
+                .contains("SemanticIndexAccessContract::model_only_from_generated_index(*index)")
+            && !session_mod
+                .contains("SemanticIndexAccessContract::model_only_from_generated_index")
+            && !session_query_cache
+                .contains("SemanticIndexAccessContract::model_only_from_generated_index")
+            && !commit_prepare
+                .contains("SemanticIndexAccessContract::model_only_from_generated_index")
+            && !index_plan.contains("SemanticIndexAccessContract::model_only_from_generated_index"),
+        "model_only_from_generated_index must stay isolated to generated/model-only planner projection and tests, not accepted session/write/recovery runtime",
     );
 }
 

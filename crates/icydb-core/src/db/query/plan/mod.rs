@@ -476,7 +476,9 @@ impl<'a> VisibleIndexes<'a> {
 
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db) const fn planner_visible(indexes: &'a [&'static IndexModel]) -> Self {
+    pub(in crate::db) const fn generated_model_only_for_test(
+        indexes: &'a [&'static IndexModel],
+    ) -> Self {
         Self {
             generated_model_only_indexes: Cow::Borrowed(indexes),
             accepted_field_path_indexes: Vec::new(),
@@ -487,7 +489,7 @@ impl<'a> VisibleIndexes<'a> {
     }
 
     #[must_use]
-    pub(in crate::db) const fn schema_owned(indexes: &'a [&'static IndexModel]) -> Self {
+    pub(in crate::db) const fn generated_model_only(indexes: &'a [&'static IndexModel]) -> Self {
         Self {
             generated_model_only_indexes: Cow::Borrowed(indexes),
             accepted_field_path_indexes: Vec::new(),
