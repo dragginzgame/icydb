@@ -400,7 +400,6 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
     let plan_mod_compact = compact_source(&plan_mod);
     let executor_explain = read_source("src/db/executor/explain/mod.rs");
     let session_cache = read_source("src/db/session/query/cache.rs");
-    let session_cache_compact = compact_source(&session_cache);
     let session_mod = read_source("src/db/session/mod.rs");
 
     assert!(
@@ -409,6 +408,8 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && plan_mod.contains("semantic_access_contract: SemanticIndexAccessContract")
             && !plan_mod.contains("generated_index_bridge")
             && plan_mod.contains("accepted_field_path_indexes: Vec<AcceptedPlannerFieldPathIndex>")
+            && plan_mod.contains("accepted_expression_indexes: Vec<AcceptedPlannerExpressionIndex>")
+            && plan_mod.contains("pub(in crate::db) struct AcceptedPlannerExpressionIndex")
             && plan_mod.contains("accepted_schema_info: Option<SchemaInfo>")
             && plan_mod.contains("generated_model_only_indexes: Cow")
             && plan_mod.contains("pub(in crate::db) fn generated_model_only_indexes(&self)")
@@ -425,28 +426,33 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && plan_mod
                 .contains("fn semantic_access_contract(&self) -> SemanticIndexAccessContract")
             && plan_mod.contains("pub(in crate::db) fn generated_expression_candidate_indexes(")
+            && plan_mod.contains("pub(in crate::db) const fn accepted_expression_indexes(")
             && !plan_mod.contains("generated_candidate_bridge_indexes")
             && plan_mod.contains("pub(in crate::db) const fn accepted_schema_info(")
             && plan_mod.contains("accepted_schema_info: Some(schema_info.clone())")
             && plan_mod.contains("AcceptedPlannerFieldPathIndex::from_schema_index")
+            && plan_mod.contains("AcceptedPlannerExpressionIndex::from_schema_index")
             && plan_mod.contains("SemanticIndexAccessContract::from_accepted_field_path_index")
+            && plan_mod.contains("SemanticIndexAccessContract::from_accepted_expression_index")
             && !plan_mod.contains("fn generated_predicate_bridge_for_accepted_field_path_index")
             && !plan_mod.contains("generated_predicate_bridge: Option<&'static IndexModel>")
             && access_path.contains("accepted_index_predicate_semantics(")
             && access_path.contains("parse_sql_predicate(predicate_sql)")
             && access_path.contains("map_or(Predicate::False")
             && access_path.contains("SemanticIndexKeyItems::Fields(")
+            && access_path.contains("SemanticIndexKeyItems::Accepted(")
             && plan_mod.contains(".filter_map(GeneratedExpressionCandidateIndex::from_index)")
+            && plan_mod.contains("if accepted_expression_indexes.is_empty()")
             && !plan_mod_compact.contains(
                 "schema_info.field_path_indexes().iter().any(|accepted|accepted.name()==index.name())",
             )
             && plan_mod.contains("VisibleIndexAuthority::AcceptedSchema")
             && plan_mod.contains("accepted_field_path_index_count"),
-        "VisibleIndexes must carry accepted field-path planner contracts while keeping the generated candidate bridge expression-only",
+        "VisibleIndexes must carry accepted field-path and expression planner contracts while keeping the generated expression candidate bridge as an explicit fallback",
     );
     assert!(
         access_planner.contains("visible_indexes: &VisibleIndexes<'_>,")
-            && access_planner.contains("visible_indexes.accepted_field_path_indexes()")
+            && access_planner.contains("visible_indexes.accepted_planner_indexes()")
             && access_planner
                 .contains("visible_indexes.accepted_field_path_index_count().is_some()")
             && access_planner.contains("plan_access_selection_with_order_and_accepted_indexes("),
@@ -459,11 +465,15 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
             && planner_mod.contains("OrderFallbackIndexAuthority::AcceptedFieldPathIndexes")
             && planner_mod
                 .contains("accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],",)
+            && planner_mod
+                .contains("accepted_expression_indexes: &[AcceptedPlannerExpressionIndex],",)
             && planner_mod.contains("fn semantic_candidate_indexes_from_generated_model_only(")
             && planner_mod
                 .contains("fn semantic_candidate_indexes_from_accepted_and_generated_expression(")
             && planner_mod
                 .contains(".map(AcceptedPlannerFieldPathIndex::semantic_access_contract)")
+            && planner_mod
+                .contains(".map(AcceptedPlannerExpressionIndex::semantic_access_contract)")
             && planner_mod.contains("order_fallback_selection(")
             && planner_mod.contains("index_range_from_order_with_accepted_indexes(")
             && order_select.contains("let accepted_order_terms = accepted.order_terms();")
@@ -492,9 +502,9 @@ fn runtime_visible_indexes_are_accepted_schema_filtered() {
         session_cache.contains("fn visible_indexes_for_accepted_schema(")
             && session_cache
                 .contains("VisibleIndexes::accepted_schema_visible(model.indexes(), schema_info)")
-            && session_cache_compact.contains(
-                "SchemaInfo::from_accepted_snapshot_for_model(E::MODEL,&accepted_schema)"
-            )
+            && session_cache
+                .contains("SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(")
+            && session_cache.contains("true,")
             && !session_cache.contains("fn visible_indexes_for_model("),
         "shared query planning must build visible indexes from accepted SchemaInfo, not raw generated model indexes",
     );
@@ -527,7 +537,8 @@ fn query_owned_visible_explain_uses_accepted_schema_info() {
             && executor_explain.contains(
                 "plan.finalize_access_choice_for_model_with_accepted_indexes_and_schema("
             )
-            && executor_explain.contains("visible_indexes.accepted_field_path_indexes()"),
+            && executor_explain.contains("visible_indexes.accepted_field_path_indexes()")
+            && executor_explain.contains("visible_indexes.accepted_expression_indexes()"),
         "query-owned visible-index explain must reuse accepted SchemaInfo when visibility was derived from accepted schema",
     );
 }
@@ -548,6 +559,8 @@ fn runtime_access_choice_projection_uses_accepted_visible_indexes() {
             && access_choice.contains(
                 "generated_expression_candidate_indexes: &[GeneratedExpressionCandidateIndex]",
             )
+            && access_choice
+                .contains("accepted_expression_indexes: &[AcceptedPlannerExpressionIndex]",)
             && !access_choice.contains("generated_candidate_bridge_indexes")
             && access_choice
                 .contains(".map(GeneratedExpressionCandidateIndex::semantic_access_contract)")
@@ -556,8 +569,11 @@ fn runtime_access_choice_projection_uses_accepted_visible_indexes() {
                 .contains("fn semantic_candidate_indexes_from_accepted_and_generated_expression(")
             && access_choice
                 .contains(".map(AcceptedPlannerFieldPathIndex::semantic_access_contract)")
+            && access_choice
+                .contains(".map(AcceptedPlannerExpressionIndex::semantic_access_contract)")
             && access_choice.contains("plan_access_selection_with_order_and_semantic_indexes(")
             && pipeline.contains("visible_indexes.generated_expression_candidate_indexes()")
+            && pipeline.contains("visible_indexes.accepted_expression_indexes()")
             && pipeline.contains("rerank_access_plan_by_residual_burden_with_accepted_indexes(")
             && access_plan
                 .contains("fn finalize_access_choice_for_model_with_accepted_indexes_and_schema(",)
@@ -1078,7 +1094,7 @@ fn session_explain_access_choice_uses_accepted_schema_info() {
                 "fn finalize_access_choice_for_model_with_accepted_indexes_and_schema("
             )
             && session_query_explain_compact.contains(
-                "SchemaInfo::from_accepted_snapshot_for_model(query.structural().model(),&accepted_schema,"
+                "SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(query.structural().model(),&accepted_schema,true,"
             )
             && !session_query_explain.contains("plan.finalize_access_choice_for_model_only_with_indexes(")
             && session_sql_explain.contains(
@@ -1090,7 +1106,7 @@ fn session_explain_access_choice_uses_accepted_schema_info() {
                 "bind_lowered_sql_explain_global_aggregate_structural_with_schema("
             )
             && session_sql_explain_compact.contains(
-                "SchemaInfo::from_accepted_snapshot_for_model(authority.model(),accepted_schema)"
+                "SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(authority.model(),accepted_schema,true,"
             )
             && !session_sql_explain.contains("plan.finalize_access_choice_for_model_only_with_indexes(")
             && !session_sql_explain.contains("bind_lowered_sql_query_structural(")

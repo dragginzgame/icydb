@@ -22,8 +22,8 @@ use crate::{
         access::{AccessPlan, SemanticIndexAccessContract, normalize_access_plan_value},
         predicate::Predicate,
         query::plan::{
-            AcceptedPlannerFieldPathIndex, GeneratedExpressionCandidateIndex, OrderSpec, PlanError,
-            PlannedNonIndexAccessReason,
+            AcceptedPlannerExpressionIndex, AcceptedPlannerFieldPathIndex, AcceptedPlannerIndexes,
+            GeneratedExpressionCandidateIndex, OrderSpec, PlanError, PlannedNonIndexAccessReason,
         },
         schema::SchemaInfo,
     },
@@ -185,7 +185,7 @@ pub(in crate::db::query) fn plan_access_selection_with_order(
 pub(in crate::db::query) fn plan_access_selection_with_order_and_accepted_indexes(
     model: &EntityModel,
     generated_expression_candidate_indexes: &[GeneratedExpressionCandidateIndex],
-    accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
+    accepted_indexes: AcceptedPlannerIndexes<'_>,
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
@@ -193,7 +193,8 @@ pub(in crate::db::query) fn plan_access_selection_with_order_and_accepted_indexe
 ) -> Result<PlannedAccessSelection, PlannerError> {
     let candidate_indexes = semantic_candidate_indexes_from_accepted_and_generated_expression(
         generated_expression_candidate_indexes,
-        accepted_field_path_indexes,
+        accepted_indexes.field_path_indexes(),
+        accepted_indexes.expression_indexes(),
     );
     plan_access_selection_with_order_from_authority(
         model,
@@ -202,7 +203,9 @@ pub(in crate::db::query) fn plan_access_selection_with_order_and_accepted_indexe
         predicate,
         order,
         grouped,
-        OrderFallbackIndexAuthority::AcceptedFieldPathIndexes(accepted_field_path_indexes),
+        OrderFallbackIndexAuthority::AcceptedFieldPathIndexes(
+            accepted_indexes.field_path_indexes(),
+        ),
     )
 }
 
@@ -246,11 +249,17 @@ fn semantic_candidate_indexes_from_generated_model_only(
 fn semantic_candidate_indexes_from_accepted_and_generated_expression(
     generated_expression_candidate_indexes: &[GeneratedExpressionCandidateIndex],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
+    accepted_expression_indexes: &[AcceptedPlannerExpressionIndex],
 ) -> Vec<SemanticIndexAccessContract> {
     let mut indexes = accepted_field_path_indexes
         .iter()
         .map(AcceptedPlannerFieldPathIndex::semantic_access_contract)
         .collect::<Vec<_>>();
+    indexes.extend(
+        accepted_expression_indexes
+            .iter()
+            .map(AcceptedPlannerExpressionIndex::semantic_access_contract),
+    );
     indexes.extend(
         generated_expression_candidate_indexes
             .iter()

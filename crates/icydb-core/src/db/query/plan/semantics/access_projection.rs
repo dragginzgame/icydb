@@ -129,6 +129,10 @@ impl<K> AccessPath<K> {
 fn index_contract_key_fields(index: &SemanticIndexAccessContract) -> Vec<String> {
     match index.key_items() {
         crate::db::access::SemanticIndexKeyItemsRef::Fields(fields) => fields.to_vec(),
+        crate::db::access::SemanticIndexKeyItemsRef::Accepted(items) => items
+            .iter()
+            .map(|item| item.as_ref().field().to_string())
+            .collect(),
         crate::db::access::SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
             fields.iter().copied().map(str::to_string).collect()
         }

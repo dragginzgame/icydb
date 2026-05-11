@@ -198,6 +198,12 @@ fn index_range_candidate_for_index(
                 .map(|field| SemanticIndexKeyItemRef::Field(field.as_str())),
             compares,
         ),
+        SemanticIndexKeyItemsRef::Accepted(items) => index_range_candidate_for_key_items(
+            index_contract,
+            schema,
+            items.iter().map(|item| item.as_ref()),
+            compares,
+        ),
         SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
             index_range_candidate_for_key_items(
                 index_contract,
@@ -357,7 +363,10 @@ fn key_item_constraint_for_index_slot(
                     &prefix,
                     match key_item {
                         SemanticIndexKeyItemRef::Field(_) => TextPrefixBoundMode::Strict,
-                        SemanticIndexKeyItemRef::Expression(_) => TextPrefixBoundMode::LowerOnly,
+                        SemanticIndexKeyItemRef::Expression(_)
+                        | SemanticIndexKeyItemRef::AcceptedExpression(_) => {
+                            TextPrefixBoundMode::LowerOnly
+                        }
                     },
                 )?;
                 let candidate = RangeConstraint { lower, upper };
@@ -404,7 +413,7 @@ fn merge_ordered_compare_constraint_for_key_item(
                 return Some(());
             }
         }
-        SemanticIndexKeyItemRef::Expression(_) => {
+        SemanticIndexKeyItemRef::Expression(_) | SemanticIndexKeyItemRef::AcceptedExpression(_) => {
             if cmp.coercion.id != CoercionId::TextCasefold {
                 return Some(());
             }
@@ -453,6 +462,9 @@ fn contract_contains_field_key(index_contract: &SemanticIndexAccessContract, fie
         SemanticIndexKeyItemsRef::Fields(fields) => {
             fields.iter().any(|key_field| key_field == field)
         }
+        SemanticIndexKeyItemsRef::Accepted(items) => items
+            .iter()
+            .any(|item| matches!(item.as_ref(), SemanticIndexKeyItemRef::Field(key_field) if key_field == field)),
         SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
             fields.contains(&field)
         }

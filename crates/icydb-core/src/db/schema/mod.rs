@@ -40,7 +40,10 @@ pub(in crate::db) use fingerprint::{
 };
 pub(in crate::db) use format::{show_indexes_for_model, show_indexes_for_model_with_runtime_state};
 pub(in crate::db) use identity::FieldId;
-pub(in crate::db) use info::{SchemaIndexFieldPathInfo, SchemaIndexInfo, SchemaInfo};
+pub(in crate::db) use info::{
+    SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo, SchemaIndexFieldPathInfo,
+    SchemaIndexInfo, SchemaInfo,
+};
 pub(in crate::db::schema) use integrity::{
     schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
 };

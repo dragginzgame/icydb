@@ -178,6 +178,11 @@ impl<C: CanisterKind> DbSession<C> {
                         .all(GeneratedExpressionCandidateIndex::has_expression_key_items),
                 );
                 debug_assert!(visible_indexes.accepted_field_path_contracts_are_consistent());
+                debug_assert!(visible_indexes.accepted_expression_contracts_are_consistent());
+                debug_assert_eq!(
+                    visible_indexes.accepted_expression_index_count(),
+                    Some(visible_indexes.accepted_expression_indexes().len()),
+                );
 
                 visible_indexes
             }
@@ -226,8 +231,11 @@ impl<C: CanisterKind> DbSession<C> {
         let schema_fingerprint =
             accepted_schema_cache_fingerprint_for_model(authority.model(), accepted_schema)
                 .map_err(QueryError::execute)?;
-        let schema_info =
-            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), accepted_schema);
+        let schema_info = SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
+            authority.model(),
+            accepted_schema,
+            true,
+        );
         if query.trivial_scalar_load_fast_path_eligible() {
             return self.cached_trivial_scalar_load_plan_for_authority(
                 authority,
@@ -411,7 +419,11 @@ impl<C: CanisterKind> DbSession<C> {
         let accepted_schema = self
             .ensure_accepted_schema_snapshot::<E>()
             .map_err(QueryError::execute)?;
-        let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema);
+        let schema_info = SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
+            E::MODEL,
+            &accepted_schema,
+            true,
+        );
         let visible_indexes =
             Self::visible_indexes_for_accepted_schema(E::MODEL, &schema_info, visibility);
 

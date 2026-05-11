@@ -731,7 +731,7 @@ impl SchemaInfo {
     /// routing consumes it. The ordinary accepted `SchemaInfo` path is hot
     /// during query loops and should not pay for staged DTO projection.
     #[must_use]
-    fn from_accepted_snapshot_for_model_with_expression_indexes(
+    pub(in crate::db) fn from_accepted_snapshot_for_model_with_expression_indexes(
         model: &EntityModel,
         schema: &AcceptedSchemaSnapshot,
         include_expression_indexes: bool,

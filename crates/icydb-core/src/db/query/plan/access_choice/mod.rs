@@ -19,7 +19,8 @@ use crate::{
         access::{AccessPlan, SemanticIndexAccessContract},
         predicate::Predicate,
         query::plan::{
-            AcceptedPlannerFieldPathIndex, AccessPlannedQuery, GeneratedExpressionCandidateIndex,
+            AcceptedPlannerExpressionIndex, AcceptedPlannerFieldPathIndex, AccessPlannedQuery,
+            GeneratedExpressionCandidateIndex,
             access_choice::{
                 evaluator::{
                     chosen_access_shape_projection, chosen_selection_reason,
@@ -54,11 +55,17 @@ fn semantic_candidate_indexes_from_generated_model_only(
 fn semantic_candidate_indexes_from_accepted_and_generated_expression(
     generated_expression_candidate_indexes: &[GeneratedExpressionCandidateIndex],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
+    accepted_expression_indexes: &[AcceptedPlannerExpressionIndex],
 ) -> Vec<SemanticIndexAccessContract> {
     let mut indexes = accepted_field_path_indexes
         .iter()
         .map(AcceptedPlannerFieldPathIndex::semantic_access_contract)
         .collect::<Vec<_>>();
+    indexes.extend(
+        accepted_expression_indexes
+            .iter()
+            .map(AcceptedPlannerExpressionIndex::semantic_access_contract),
+    );
     indexes.extend(
         generated_expression_candidate_indexes
             .iter()
@@ -100,6 +107,7 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_accepted_indexe
     model: &EntityModel,
     generated_expression_candidate_indexes: &[GeneratedExpressionCandidateIndex],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
+    accepted_expression_indexes: &[AcceptedPlannerExpressionIndex],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> AccessChoiceExplainSnapshot {
@@ -108,6 +116,7 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_accepted_indexe
         semantic_candidate_indexes_from_accepted_and_generated_expression(
             generated_expression_candidate_indexes,
             accepted_field_path_indexes,
+            accepted_expression_indexes,
         )
         .as_slice(),
         schema_info,
@@ -301,6 +310,7 @@ pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_accepted_
     model: &EntityModel,
     generated_expression_candidate_indexes: &[GeneratedExpressionCandidateIndex],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
+    accepted_expression_indexes: &[AcceptedPlannerExpressionIndex],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Option<AccessPlan<Value>> {
@@ -309,6 +319,7 @@ pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_accepted_
         semantic_candidate_indexes_from_accepted_and_generated_expression(
             generated_expression_candidate_indexes,
             accepted_field_path_indexes,
+            accepted_expression_indexes,
         )
         .as_slice(),
         schema_info,

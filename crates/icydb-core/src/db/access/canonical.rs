@@ -431,6 +431,10 @@ fn canonical_cmp_index_key_items(
 fn canonical_index_key_items(key_items: SemanticIndexKeyItemsRef<'_>) -> Vec<String> {
     match key_items {
         SemanticIndexKeyItemsRef::Fields(fields) => fields.to_vec(),
+        SemanticIndexKeyItemsRef::Accepted(items) => items
+            .iter()
+            .map(|item| item.as_ref().canonical_text())
+            .collect(),
         SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
             fields.iter().map(|field| (*field).to_string()).collect()
         }

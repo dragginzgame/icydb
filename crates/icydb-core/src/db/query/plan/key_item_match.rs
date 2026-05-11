@@ -5,8 +5,13 @@
 
 use crate::{
     db::{
-        access::SemanticIndexKeyItemRef, index::derive_index_expression_value,
+        access::{SemanticIndexExpression, SemanticIndexKeyItemRef},
+        index::derive_index_expression_value,
         predicate::CoercionId,
+        scalar_expr::{
+            ScalarExprValue, derive_non_null_scalar_expression_value, scalar_expr_value_into_value,
+        },
+        schema::PersistedIndexExpressionOp,
     },
     model::index::{IndexExpression, IndexKeyItem},
     value::Value,
@@ -35,11 +40,25 @@ pub(in crate::db::query::plan) fn key_item_matches_field_and_coercion<'a>(
         SemanticIndexKeyItemRef::Expression(expression) => {
             expression.field() == field && expression_supports_lookup_coercion(expression, coercion)
         }
+        SemanticIndexKeyItemRef::AcceptedExpression(expression) => {
+            expression.field() == field
+                && accepted_expression_supports_lookup_coercion(expression, coercion)
+        }
     }
 }
 
 const fn expression_supports_lookup_coercion(
     expression: IndexExpression,
+    coercion: CoercionId,
+) -> bool {
+    match coercion {
+        CoercionId::TextCasefold => expression.supports_text_casefold_lookup(),
+        CoercionId::Strict | CoercionId::NumericWiden | CoercionId::CollectionElement => false,
+    }
+}
+
+const fn accepted_expression_supports_lookup_coercion(
+    expression: &SemanticIndexExpression,
     coercion: CoercionId,
 ) -> bool {
     match coercion {
@@ -89,6 +108,86 @@ fn lower_lookup_value_for_key_item(
                 .ok()
                 .flatten()
         }
+        SemanticIndexKeyItemRef::AcceptedExpression(expression) => {
+            if expression.field() != field
+                || !accepted_expression_supports_lookup_coercion(expression, coercion)
+                || !literal_compatible
+            {
+                return None;
+            }
+
+            derive_accepted_index_expression_value(expression, value.clone())
+                .ok()
+                .flatten()
+        }
+    }
+}
+
+fn derive_accepted_index_expression_value(
+    expression: &SemanticIndexExpression,
+    source: Value,
+) -> Result<Option<Value>, &'static str> {
+    match expression.op() {
+        PersistedIndexExpressionOp::Lower
+        | PersistedIndexExpressionOp::Upper
+        | PersistedIndexExpressionOp::Trim
+        | PersistedIndexExpressionOp::LowerTrim => {
+            derive_accepted_text_expression_value(expression.op(), source)
+        }
+        PersistedIndexExpressionOp::Date
+        | PersistedIndexExpressionOp::Year
+        | PersistedIndexExpressionOp::Month
+        | PersistedIndexExpressionOp::Day => {
+            derive_accepted_temporal_expression_value(expression.op(), source)
+        }
+    }
+}
+
+fn derive_accepted_text_expression_value(
+    op: PersistedIndexExpressionOp,
+    source: Value,
+) -> Result<Option<Value>, &'static str> {
+    let source = match source {
+        Value::Null => return Ok(None),
+        Value::Text(value) => ScalarExprValue::Text(value.into()),
+        _ => return Err("Text"),
+    };
+
+    derive_non_null_scalar_expression_value(accepted_expression_op(op), source)
+        .map(scalar_expr_value_into_value)
+        .map(Some)
+}
+
+fn derive_accepted_temporal_expression_value(
+    op: PersistedIndexExpressionOp,
+    source: Value,
+) -> Result<Option<Value>, &'static str> {
+    let source = match source {
+        Value::Null => return Ok(None),
+        Value::Date(value) => ScalarExprValue::Date(value),
+        Value::Timestamp(value) => ScalarExprValue::Timestamp(value),
+        _ => return Err("Date/Timestamp"),
+    };
+
+    derive_non_null_scalar_expression_value(accepted_expression_op(op), source)
+        .map(scalar_expr_value_into_value)
+        .map(Some)
+}
+
+const fn accepted_expression_op(
+    op: PersistedIndexExpressionOp,
+) -> crate::db::scalar_expr::ScalarIndexExpressionOp {
+    match op {
+        PersistedIndexExpressionOp::Lower => crate::db::scalar_expr::ScalarIndexExpressionOp::Lower,
+        PersistedIndexExpressionOp::Upper => crate::db::scalar_expr::ScalarIndexExpressionOp::Upper,
+        PersistedIndexExpressionOp::Trim => crate::db::scalar_expr::ScalarIndexExpressionOp::Trim,
+        PersistedIndexExpressionOp::LowerTrim => {
+            crate::db::scalar_expr::ScalarIndexExpressionOp::LowerTrim
+        }
+        PersistedIndexExpressionOp::Date => crate::db::scalar_expr::ScalarIndexExpressionOp::Date,
+        PersistedIndexExpressionOp::Year => crate::db::scalar_expr::ScalarIndexExpressionOp::Year,
+        PersistedIndexExpressionOp::Month => crate::db::scalar_expr::ScalarIndexExpressionOp::Month,
+        PersistedIndexExpressionOp::Day => crate::db::scalar_expr::ScalarIndexExpressionOp::Day,
     }
 }
 

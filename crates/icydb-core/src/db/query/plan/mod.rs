@@ -205,7 +205,10 @@ pub(crate) use validate::{PlanPolicyError, PlanUserError};
 pub(in crate::db) enum VisibleIndexAuthority {
     StoreNotReady,
     GeneratedModelOnly,
-    AcceptedSchema { field_path_indexes: usize },
+    AcceptedSchema {
+        field_path_indexes: usize,
+        expression_indexes: usize,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -218,6 +221,7 @@ pub(in crate::db) struct VisibleIndexes<'a> {
     // until accepted expression-index contracts exist.
     generated_expression_candidate_indexes: Cow<'a, [GeneratedExpressionCandidateIndex]>,
     accepted_field_path_indexes: Vec<AcceptedPlannerFieldPathIndex>,
+    accepted_expression_indexes: Vec<AcceptedPlannerExpressionIndex>,
     accepted_schema_info: Option<SchemaInfo>,
     authority: VisibleIndexAuthority,
 }
@@ -247,6 +251,97 @@ impl GeneratedExpressionCandidateIndex {
     #[must_use]
     pub(in crate::db) fn semantic_access_contract(&self) -> SemanticIndexAccessContract {
         self.semantic_access_contract.clone()
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(in crate::db) struct AcceptedPlannerIndexes<'a> {
+    field_path_indexes: &'a [AcceptedPlannerFieldPathIndex],
+    expression_indexes: &'a [AcceptedPlannerExpressionIndex],
+}
+
+impl<'a> AcceptedPlannerIndexes<'a> {
+    #[must_use]
+    pub(in crate::db) const fn new(
+        field_path_indexes: &'a [AcceptedPlannerFieldPathIndex],
+        expression_indexes: &'a [AcceptedPlannerExpressionIndex],
+    ) -> Self {
+        Self {
+            field_path_indexes,
+            expression_indexes,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn field_path_indexes(&self) -> &'a [AcceptedPlannerFieldPathIndex] {
+        self.field_path_indexes
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn expression_indexes(&self) -> &'a [AcceptedPlannerExpressionIndex] {
+        self.expression_indexes
+    }
+}
+
+///
+/// AcceptedPlannerExpressionIndex
+///
+/// Planner-facing accepted expression index contract. This owns the accepted
+/// expression key contract needed to migrate expression-index planning away
+/// from generated `IndexModel` values.
+///
+#[derive(Clone, Debug)]
+pub(in crate::db) struct AcceptedPlannerExpressionIndex {
+    name: String,
+    store: String,
+    unique: bool,
+    semantic_access_contract: SemanticIndexAccessContract,
+}
+
+impl AcceptedPlannerExpressionIndex {
+    fn from_schema_index(accepted: &crate::db::schema::SchemaExpressionIndexInfo) -> Self {
+        Self {
+            name: accepted.name().to_string(),
+            store: accepted.store().to_string(),
+            unique: accepted.unique(),
+            semantic_access_contract: SemanticIndexAccessContract::from_accepted_expression_index(
+                accepted,
+            ),
+        }
+    }
+
+    /// Borrow the accepted stable index name.
+    #[must_use]
+    pub(in crate::db) const fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// Borrow the accepted backing index store path.
+    #[must_use]
+    pub(in crate::db) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    /// Return whether this accepted index enforces uniqueness.
+    #[must_use]
+    pub(in crate::db) const fn unique(&self) -> bool {
+        self.unique
+    }
+
+    /// Return the reduced semantic access contract used by selected access
+    /// paths after planner candidate discovery.
+    #[must_use]
+    pub(in crate::db) fn semantic_access_contract(&self) -> SemanticIndexAccessContract {
+        self.semantic_access_contract.clone()
+    }
+
+    fn debug_contract_consistent(&self) -> bool {
+        !self.name().is_empty()
+            && !self.store().is_empty()
+            && self.semantic_access_contract().name() == self.name()
+            && self.semantic_access_contract().store_path() == self.store()
+            && self.semantic_access_contract().is_unique() == self.unique()
+            && self.semantic_access_contract().has_expression_key_items()
     }
 }
 
@@ -405,6 +500,7 @@ impl<'a> VisibleIndexes<'a> {
             generated_model_only_indexes: Cow::Borrowed(&[]),
             generated_expression_candidate_indexes: Cow::Borrowed(&[]),
             accepted_field_path_indexes: Vec::new(),
+            accepted_expression_indexes: Vec::new(),
             accepted_schema_info: None,
             authority: VisibleIndexAuthority::StoreNotReady,
         }
@@ -417,6 +513,7 @@ impl<'a> VisibleIndexes<'a> {
             generated_model_only_indexes: Cow::Borrowed(indexes),
             generated_expression_candidate_indexes: Cow::Borrowed(&[]),
             accepted_field_path_indexes: Vec::new(),
+            accepted_expression_indexes: Vec::new(),
             accepted_schema_info: None,
             authority: VisibleIndexAuthority::GeneratedModelOnly,
         }
@@ -428,6 +525,7 @@ impl<'a> VisibleIndexes<'a> {
             generated_model_only_indexes: Cow::Borrowed(indexes),
             generated_expression_candidate_indexes: Cow::Borrowed(&[]),
             accepted_field_path_indexes: Vec::new(),
+            accepted_expression_indexes: Vec::new(),
             accepted_schema_info: None,
             authority: VisibleIndexAuthority::GeneratedModelOnly,
         }
@@ -443,20 +541,32 @@ impl<'a> VisibleIndexes<'a> {
             .iter()
             .map(AcceptedPlannerFieldPathIndex::from_schema_index)
             .collect::<Vec<_>>();
-        let generated_expression_indexes = indexes
+        let accepted_expression_indexes = schema_info
+            .expression_indexes()
             .iter()
-            .copied()
-            .filter_map(GeneratedExpressionCandidateIndex::from_index)
-            .collect();
+            .map(AcceptedPlannerExpressionIndex::from_schema_index)
+            .collect::<Vec<_>>();
+        let generated_expression_indexes = if accepted_expression_indexes.is_empty() {
+            indexes
+                .iter()
+                .copied()
+                .filter_map(GeneratedExpressionCandidateIndex::from_index)
+                .collect()
+        } else {
+            Vec::new()
+        };
         let accepted_field_path_index_count = accepted_field_path_indexes.len();
+        let accepted_expression_index_count = accepted_expression_indexes.len();
 
         Self {
             generated_model_only_indexes: Cow::Borrowed(&[]),
             generated_expression_candidate_indexes: Cow::Owned(generated_expression_indexes),
             accepted_field_path_indexes,
+            accepted_expression_indexes,
             accepted_schema_info: Some(schema_info.clone()),
             authority: VisibleIndexAuthority::AcceptedSchema {
                 field_path_indexes: accepted_field_path_index_count,
+                expression_indexes: accepted_expression_index_count,
             },
         }
     }
@@ -481,6 +591,24 @@ impl<'a> VisibleIndexes<'a> {
         self.accepted_field_path_indexes.as_slice()
     }
 
+    /// Borrow accepted planner-facing expression index contracts.
+    #[must_use]
+    pub(in crate::db) const fn accepted_expression_indexes(
+        &self,
+    ) -> &[AcceptedPlannerExpressionIndex] {
+        self.accepted_expression_indexes.as_slice()
+    }
+
+    /// Borrow accepted planner-facing indexes as one grouped contract for
+    /// planning entrypoints that need both field-path and expression lanes.
+    #[must_use]
+    pub(in crate::db) const fn accepted_planner_indexes(&self) -> AcceptedPlannerIndexes<'_> {
+        AcceptedPlannerIndexes::new(
+            self.accepted_field_path_indexes(),
+            self.accepted_expression_indexes(),
+        )
+    }
+
     /// Borrow the accepted schema info that authorized this visible-index view.
     #[must_use]
     pub(in crate::db) const fn accepted_schema_info(&self) -> Option<&SchemaInfo> {
@@ -496,12 +624,33 @@ impl<'a> VisibleIndexes<'a> {
             .all(AcceptedPlannerFieldPathIndex::debug_contract_consistent)
     }
 
+    /// Return whether accepted expression planner contracts are internally
+    /// consistent with their reduced semantic access facts.
+    #[must_use]
+    pub(in crate::db) fn accepted_expression_contracts_are_consistent(&self) -> bool {
+        self.accepted_expression_indexes()
+            .iter()
+            .all(AcceptedPlannerExpressionIndex::debug_contract_consistent)
+    }
+
     #[must_use]
     pub(in crate::db) const fn accepted_field_path_index_count(&self) -> Option<usize> {
         match self.authority {
-            VisibleIndexAuthority::AcceptedSchema { field_path_indexes } => {
-                Some(field_path_indexes)
+            VisibleIndexAuthority::AcceptedSchema {
+                field_path_indexes, ..
+            } => Some(field_path_indexes),
+            VisibleIndexAuthority::GeneratedModelOnly | VisibleIndexAuthority::StoreNotReady => {
+                None
             }
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn accepted_expression_index_count(&self) -> Option<usize> {
+        match self.authority {
+            VisibleIndexAuthority::AcceptedSchema {
+                expression_indexes, ..
+            } => Some(expression_indexes),
             VisibleIndexAuthority::GeneratedModelOnly | VisibleIndexAuthority::StoreNotReady => {
                 None
             }

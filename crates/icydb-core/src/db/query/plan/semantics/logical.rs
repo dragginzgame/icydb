@@ -933,6 +933,13 @@ fn resolved_index_slots_for_access_path(
                 slots.push(slot);
             }
         }
+        SemanticIndexKeyItemsRef::Accepted(items) => {
+            slots.reserve(items.len());
+            for key_item in items {
+                let slot = schema_info.field_slot_index(key_item.as_ref().field())?;
+                slots.push(slot);
+            }
+        }
         SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
             slots.reserve(fields.len());
             for &field_name in fields {
@@ -962,7 +969,9 @@ fn index_compile_targets_for_schema_plan(
     let mut targets = Vec::new();
 
     match key_items.key_items() {
-        SemanticIndexKeyItemsRef::Fields(_fields) => return None,
+        SemanticIndexKeyItemsRef::Fields(_) | SemanticIndexKeyItemsRef::Accepted(_) => {
+            return None;
+        }
         SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
             for (component_index, &field_name) in fields.iter().enumerate() {
                 let field_slot = schema_info.field_slot_index(field_name)?;

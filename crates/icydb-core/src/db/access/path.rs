@@ -7,6 +7,9 @@ use crate::{
     db::{
         Predicate,
         predicate::{normalize, parse_sql_predicate},
+        schema::{
+            PersistedIndexExpressionOp, SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo,
+        },
     },
     model::index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
     value::Value,
@@ -57,19 +60,22 @@ struct SemanticIndexAccessContractInner {
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum SemanticIndexKeyItems {
     Fields(Vec<String>),
+    Accepted(Vec<SemanticIndexKeyItem>),
     Static(IndexKeyItemsRef),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum SemanticIndexKeyItemsRef<'a> {
+pub(in crate::db) enum SemanticIndexKeyItemsRef<'a> {
     Fields(&'a [String]),
+    Accepted(&'a [SemanticIndexKeyItem]),
     Static(IndexKeyItemsRef),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum SemanticIndexKeyItemRef<'a> {
+pub(in crate::db) enum SemanticIndexKeyItemRef<'a> {
     Field(&'a str),
     Expression(IndexExpression),
+    AcceptedExpression(&'a SemanticIndexExpression),
 }
 
 impl<'a> SemanticIndexKeyItemRef<'a> {
@@ -78,6 +84,7 @@ impl<'a> SemanticIndexKeyItemRef<'a> {
         match self {
             Self::Field(field) => field,
             Self::Expression(expression) => expression.field(),
+            Self::AcceptedExpression(expression) => expression.field(),
         }
     }
 
@@ -86,6 +93,69 @@ impl<'a> SemanticIndexKeyItemRef<'a> {
         match self {
             Self::Field(field) => field.to_string(),
             Self::Expression(expression) => expression.to_string(),
+            Self::AcceptedExpression(expression) => expression.canonical_order_text(),
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn is_expression(self) -> bool {
+        matches!(self, Self::Expression(_) | Self::AcceptedExpression(_))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum SemanticIndexKeyItem {
+    Field(String),
+    Expression(SemanticIndexExpression),
+}
+
+impl SemanticIndexKeyItem {
+    pub(crate) const fn as_ref(&self) -> SemanticIndexKeyItemRef<'_> {
+        match self {
+            Self::Field(field) => SemanticIndexKeyItemRef::Field(field.as_str()),
+            Self::Expression(expression) => SemanticIndexKeyItemRef::AcceptedExpression(expression),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct SemanticIndexExpression {
+    op: PersistedIndexExpressionOp,
+    field: String,
+}
+
+impl SemanticIndexExpression {
+    #[must_use]
+    pub(in crate::db) const fn field(&self) -> &str {
+        self.field.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn op(&self) -> PersistedIndexExpressionOp {
+        self.op
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn supports_text_casefold_lookup(&self) -> bool {
+        matches!(
+            self.op,
+            PersistedIndexExpressionOp::Lower | PersistedIndexExpressionOp::Upper
+        )
+    }
+
+    #[must_use]
+    pub(in crate::db) fn canonical_order_text(&self) -> String {
+        let field = self.field();
+
+        match self.op {
+            PersistedIndexExpressionOp::Lower => format!("LOWER({field})"),
+            PersistedIndexExpressionOp::Upper => format!("UPPER({field})"),
+            PersistedIndexExpressionOp::Trim => format!("TRIM({field})"),
+            PersistedIndexExpressionOp::LowerTrim => format!("LOWER(TRIM({field}))"),
+            PersistedIndexExpressionOp::Date => format!("DATE({field})"),
+            PersistedIndexExpressionOp::Year => format!("YEAR({field})"),
+            PersistedIndexExpressionOp::Month => format!("MONTH({field})"),
+            PersistedIndexExpressionOp::Day => format!("DAY({field})"),
         }
     }
 }
@@ -149,6 +219,30 @@ impl SemanticIndexAccessContract {
     }
 
     #[must_use]
+    pub(in crate::db) fn from_accepted_expression_index(
+        accepted: &SchemaExpressionIndexInfo,
+    ) -> Self {
+        Self {
+            inner: Arc::new(SemanticIndexAccessContractInner {
+                ordinal: accepted.ordinal(),
+                name: accepted.name().to_string(),
+                store_path: accepted.store().to_string(),
+                key_items: SemanticIndexKeyItems::Accepted(
+                    accepted
+                        .key_items()
+                        .iter()
+                        .map(accepted_expression_key_item)
+                        .collect(),
+                ),
+                unique: accepted.unique(),
+                predicate_semantics: accepted_index_predicate_semantics_from_sql(
+                    accepted.predicate_sql(),
+                ),
+            }),
+        }
+    }
+
+    #[must_use]
     pub(in crate::db) fn ordinal(&self) -> u16 {
         self.inner.ordinal
     }
@@ -167,6 +261,7 @@ impl SemanticIndexAccessContract {
     pub(in crate::db) fn key_items(&self) -> SemanticIndexKeyItemsRef<'_> {
         match &self.inner.key_items {
             SemanticIndexKeyItems::Fields(fields) => SemanticIndexKeyItemsRef::Fields(fields),
+            SemanticIndexKeyItems::Accepted(items) => SemanticIndexKeyItemsRef::Accepted(items),
             SemanticIndexKeyItems::Static(items) => SemanticIndexKeyItemsRef::Static(*items),
         }
     }
@@ -175,6 +270,7 @@ impl SemanticIndexAccessContract {
     pub(in crate::db) fn key_arity(&self) -> usize {
         match &self.inner.key_items {
             SemanticIndexKeyItems::Fields(fields) => fields.len(),
+            SemanticIndexKeyItems::Accepted(items) => items.len(),
             SemanticIndexKeyItems::Static(items) => match items {
                 IndexKeyItemsRef::Fields(fields) => fields.len(),
                 IndexKeyItemsRef::Items(items) => items.len(),
@@ -191,6 +287,9 @@ impl SemanticIndexAccessContract {
                 } else {
                     None
                 }
+            }
+            SemanticIndexKeyItems::Accepted(items) => {
+                items.get(slot).map(SemanticIndexKeyItem::as_ref)
             }
             SemanticIndexKeyItems::Static(items) => match items {
                 IndexKeyItemsRef::Fields(fields) => {
@@ -220,7 +319,8 @@ impl SemanticIndexAccessContract {
     pub(in crate::db) fn key_field_at(&self, slot: usize) -> Option<&str> {
         match self.key_item_at(slot)? {
             SemanticIndexKeyItemRef::Field(field) => Some(field),
-            SemanticIndexKeyItemRef::Expression(_) => None,
+            SemanticIndexKeyItemRef::Expression(_)
+            | SemanticIndexKeyItemRef::AcceptedExpression(_) => None,
         }
     }
 
@@ -229,6 +329,10 @@ impl SemanticIndexAccessContract {
     pub(in crate::db) fn fields(&self) -> Vec<String> {
         match self.key_items() {
             SemanticIndexKeyItemsRef::Fields(fields) => fields.to_vec(),
+            SemanticIndexKeyItemsRef::Accepted(items) => items
+                .iter()
+                .map(|item| item.as_ref().field().to_string())
+                .collect(),
             SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
                 fields.iter().copied().map(str::to_string).collect()
             }
@@ -253,6 +357,9 @@ impl SemanticIndexAccessContract {
         match &self.inner.key_items {
             SemanticIndexKeyItems::Fields(_)
             | SemanticIndexKeyItems::Static(IndexKeyItemsRef::Fields(_)) => false,
+            SemanticIndexKeyItems::Accepted(items) => items
+                .iter()
+                .any(|item| matches!(item, SemanticIndexKeyItem::Expression(_))),
             SemanticIndexKeyItems::Static(IndexKeyItemsRef::Items(items)) => {
                 let mut index = 0usize;
                 while index < items.len() {
@@ -273,10 +380,39 @@ impl SemanticIndexAccessContract {
     }
 }
 
+fn accepted_expression_key_item(item: &SchemaExpressionIndexKeyItemInfo) -> SemanticIndexKeyItem {
+    match item {
+        SchemaExpressionIndexKeyItemInfo::FieldPath(field) => {
+            SemanticIndexKeyItem::Field(accepted_field_path_term(field.field_name(), field.path()))
+        }
+        SchemaExpressionIndexKeyItemInfo::Expression(expression) => {
+            SemanticIndexKeyItem::Expression(SemanticIndexExpression {
+                op: expression.op(),
+                field: accepted_field_path_term(
+                    expression.source().field_name(),
+                    expression.source().path(),
+                ),
+            })
+        }
+    }
+}
+
+fn accepted_field_path_term(field_name: &str, path: &[String]) -> String {
+    if path.len() <= 1 {
+        field_name.to_string()
+    } else {
+        path.join(".")
+    }
+}
+
 fn accepted_index_predicate_semantics(
     accepted: &crate::db::schema::SchemaIndexInfo,
 ) -> Option<Predicate> {
-    let predicate_sql = accepted.predicate_sql()?;
+    accepted_index_predicate_semantics_from_sql(accepted.predicate_sql())
+}
+
+fn accepted_index_predicate_semantics_from_sql(predicate_sql: Option<&str>) -> Option<Predicate> {
+    let predicate_sql = predicate_sql?;
 
     Some(
         parse_sql_predicate(predicate_sql)

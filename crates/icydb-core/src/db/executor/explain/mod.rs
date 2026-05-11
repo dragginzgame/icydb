@@ -191,6 +191,7 @@ impl StructuralQuery {
                 self.model(),
                 visible_indexes.generated_expression_candidate_indexes(),
                 visible_indexes.accepted_field_path_indexes(),
+                visible_indexes.accepted_expression_indexes(),
                 schema_info,
             );
             return;

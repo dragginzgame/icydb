@@ -377,6 +377,11 @@ impl<C: CanisterKind> DbSession<C> {
                 .all(GeneratedExpressionCandidateIndex::has_expression_key_items),
         );
         debug_assert!(visible_indexes.accepted_field_path_contracts_are_consistent());
+        debug_assert!(visible_indexes.accepted_expression_contracts_are_consistent());
+        debug_assert_eq!(
+            visible_indexes.accepted_expression_index_count(),
+            Some(visible_indexes.accepted_expression_indexes().len()),
+        );
 
         Ok(visible_indexes)
     }
@@ -442,10 +447,13 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let accepted_schema = self.ensure_accepted_schema_snapshot::<E>()?;
 
-        Ok(SchemaInfo::from_accepted_snapshot_for_model(
-            E::MODEL,
-            &accepted_schema,
-        ))
+        Ok(
+            SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
+                E::MODEL,
+                &accepted_schema,
+                true,
+            ),
+        )
     }
 
     // Derive typed executor authority from an accepted snapshot the caller

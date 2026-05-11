@@ -225,7 +225,7 @@ fn plan_starts_with_compare(
         // relies on residual filter evaluation for exact prefix semantics.
         let (lower, upper) = starts_with_component_bounds(
             &prefix,
-            if matches!(leading_key_item, SemanticIndexKeyItemRef::Expression(_)) {
+            if leading_key_item.is_expression() {
                 TextPrefixBoundMode::LowerOnly
             } else {
                 TextPrefixBoundMode::Strict
@@ -314,7 +314,8 @@ fn plan_ordered_compare(
                     continue;
                 }
             }
-            SemanticIndexKeyItemRef::Expression(_) => {
+            SemanticIndexKeyItemRef::Expression(_)
+            | SemanticIndexKeyItemRef::AcceptedExpression(_) => {
                 if cmp.coercion.id != CoercionId::TextCasefold {
                     continue;
                 }
@@ -386,7 +387,12 @@ fn field_key_contract_supports_operator(
 
 fn contract_contains_field_key(index_contract: &SemanticIndexAccessContract, field: &str) -> bool {
     match index_contract.key_items() {
-        SemanticIndexKeyItemsRef::Fields(fields) => fields.iter().any(|key_field| key_field == field),
+        SemanticIndexKeyItemsRef::Fields(fields) => {
+            fields.iter().any(|key_field| key_field == field)
+        }
+        SemanticIndexKeyItemsRef::Accepted(items) => items
+            .iter()
+            .any(|item| matches!(item.as_ref(), SemanticIndexKeyItemRef::Field(key_field) if key_field == field)),
         SemanticIndexKeyItemsRef::Static(crate::model::index::IndexKeyItemsRef::Fields(fields)) => {
             fields.contains(&field)
         }

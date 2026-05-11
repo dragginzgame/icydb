@@ -289,7 +289,7 @@ fn evaluate_ordered_range_compare_candidate(
                 return Err(AccessChoiceRejectedReason::OperatorNotSupported);
             }
         }
-        SemanticIndexKeyItemRef::Expression(_) => {
+        SemanticIndexKeyItemRef::Expression(_) | SemanticIndexKeyItemRef::AcceptedExpression(_) => {
             if cmp.coercion.id != CoercionId::TextCasefold {
                 return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
             }
@@ -321,9 +321,7 @@ fn prepare_single_range_compare_context<'a>(
     let Some(leading_key_item) = index_contract.key_item_at(0) else {
         return Err(AccessChoiceRejectedReason::LeadingFieldMismatch);
     };
-    if matches!(leading_key_item, SemanticIndexKeyItemRef::Expression(_))
-        && cmp.coercion.id == CoercionId::Strict
-    {
+    if leading_key_item.is_expression() && cmp.coercion.id == CoercionId::Strict {
         return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
     }
 
@@ -421,7 +419,8 @@ fn classify_range_constraints_for_key_item(
                             return Err(AccessChoiceRejectedReason::OperatorNotSupported);
                         }
                     }
-                    SemanticIndexKeyItemRef::Expression(_) => {
+                    SemanticIndexKeyItemRef::Expression(_)
+                    | SemanticIndexKeyItemRef::AcceptedExpression(_) => {
                         if cmp.coercion.id != CoercionId::TextCasefold {
                             continue;
                         }
@@ -438,9 +437,7 @@ fn classify_range_constraints_for_key_item(
                 }
             }
             CompareOp::StartsWith => {
-                if matches!(key_item, SemanticIndexKeyItemRef::Expression(_))
-                    && cmp.coercion.id == CoercionId::Strict
-                {
+                if key_item.is_expression() && cmp.coercion.id == CoercionId::Strict {
                     return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
                 }
                 let literal_compatible =
@@ -507,10 +504,19 @@ fn field_key_contract_supports_operator(
 
 fn contract_contains_field_key(index_contract: &SemanticIndexAccessContract, field: &str) -> bool {
     match index_contract.key_items() {
-        SemanticIndexKeyItemsRef::Fields(fields) => fields.iter().any(|key_field| key_field == field),
-        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => fields.contains(&field),
-        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => items
+        SemanticIndexKeyItemsRef::Fields(fields) => {
+            fields.iter().any(|key_field| key_field == field)
+        }
+        SemanticIndexKeyItemsRef::Accepted(items) => items
             .iter()
-            .any(|item| matches!(item, crate::model::index::IndexKeyItem::Field(key_field) if key_field == &field)),
+            .any(|item| matches!(item.as_ref(), SemanticIndexKeyItemRef::Field(key_field) if key_field == field)),
+        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
+            fields.contains(&field)
+        }
+        SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Items(items)) => {
+            items.iter().any(
+                |item| matches!(item, crate::model::index::IndexKeyItem::Field(key_field) if key_field == &field),
+            )
+        }
     }
 }

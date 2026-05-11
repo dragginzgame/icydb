@@ -8,14 +8,23 @@ use crate::model::entity::EntityModel;
 use crate::{
     MAX_INDEX_FIELDS,
     db::{
-        access::{SemanticIndexAccessContract, SemanticIndexKeyItemRef, SemanticIndexKeyItemsRef},
+        access::{
+            SemanticIndexAccessContract, SemanticIndexExpression, SemanticIndexKeyItemRef,
+            SemanticIndexKeyItemsRef,
+        },
         data::{CanonicalSlotReader, StorageKey, StructuralRowContract},
         index::{
             derive_index_expression_value,
             key::ordered::encode_canonical_index_component,
             key::{IndexId, IndexKey, IndexKeyKind, OrderedValueEncodeError},
         },
-        schema::{SchemaIndexFieldPathInfo, SchemaIndexInfo, SchemaInfo},
+        scalar_expr::{
+            ScalarExprValue, ScalarIndexExpressionOp, derive_non_null_scalar_expression_value,
+            scalar_expr_value_into_value,
+        },
+        schema::{
+            PersistedIndexExpressionOp, SchemaIndexFieldPathInfo, SchemaIndexInfo, SchemaInfo,
+        },
     },
     error::InternalError,
     model::index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
@@ -51,6 +60,86 @@ fn value_for_expression_with_index_name(
     })
 }
 
+fn value_for_accepted_expression_with_index_name(
+    index_name: &str,
+    expression: &SemanticIndexExpression,
+    source: Value,
+) -> Result<Option<Value>, InternalError> {
+    let source_label = source.canonical_tag().label();
+    derive_accepted_index_expression_value(expression.op(), source).map_err(|expected| {
+        InternalError::index_expression_source_type_mismatch(
+            index_name,
+            expression.canonical_order_text(),
+            expected,
+            source_label,
+        )
+    })
+}
+
+fn derive_accepted_index_expression_value(
+    op: PersistedIndexExpressionOp,
+    source: Value,
+) -> Result<Option<Value>, &'static str> {
+    match op {
+        PersistedIndexExpressionOp::Lower
+        | PersistedIndexExpressionOp::Upper
+        | PersistedIndexExpressionOp::Trim
+        | PersistedIndexExpressionOp::LowerTrim => {
+            derive_accepted_text_expression_value(accepted_expression_op(op), source)
+        }
+        PersistedIndexExpressionOp::Date
+        | PersistedIndexExpressionOp::Year
+        | PersistedIndexExpressionOp::Month
+        | PersistedIndexExpressionOp::Day => {
+            derive_accepted_temporal_expression_value(accepted_expression_op(op), source)
+        }
+    }
+}
+
+fn derive_accepted_text_expression_value(
+    op: ScalarIndexExpressionOp,
+    source: Value,
+) -> Result<Option<Value>, &'static str> {
+    let source = match source {
+        Value::Null => return Ok(None),
+        Value::Text(value) => ScalarExprValue::Text(value.into()),
+        _ => return Err("Text"),
+    };
+
+    derive_non_null_scalar_expression_value(op, source)
+        .map(scalar_expr_value_into_value)
+        .map(Some)
+}
+
+fn derive_accepted_temporal_expression_value(
+    op: ScalarIndexExpressionOp,
+    source: Value,
+) -> Result<Option<Value>, &'static str> {
+    let source = match source {
+        Value::Null => return Ok(None),
+        Value::Date(value) => ScalarExprValue::Date(value),
+        Value::Timestamp(value) => ScalarExprValue::Timestamp(value),
+        _ => return Err("Date/Timestamp"),
+    };
+
+    derive_non_null_scalar_expression_value(op, source)
+        .map(scalar_expr_value_into_value)
+        .map(Some)
+}
+
+const fn accepted_expression_op(op: PersistedIndexExpressionOp) -> ScalarIndexExpressionOp {
+    match op {
+        PersistedIndexExpressionOp::Lower => ScalarIndexExpressionOp::Lower,
+        PersistedIndexExpressionOp::Upper => ScalarIndexExpressionOp::Upper,
+        PersistedIndexExpressionOp::Trim => ScalarIndexExpressionOp::Trim,
+        PersistedIndexExpressionOp::LowerTrim => ScalarIndexExpressionOp::LowerTrim,
+        PersistedIndexExpressionOp::Date => ScalarIndexExpressionOp::Date,
+        PersistedIndexExpressionOp::Year => ScalarIndexExpressionOp::Year,
+        PersistedIndexExpressionOp::Month => ScalarIndexExpressionOp::Month,
+        PersistedIndexExpressionOp::Day => ScalarIndexExpressionOp::Day,
+    }
+}
+
 fn index_component_bytes_from_slot_ref_reader_with_access_contract<'a>(
     schema_info: &SchemaInfo,
     index: &SemanticIndexAccessContract,
@@ -74,6 +163,10 @@ fn index_component_bytes_from_slot_ref_reader_with_access_contract<'a>(
         SemanticIndexKeyItemRef::Field(_) => encode_value_index_component_ref(source),
         SemanticIndexKeyItemRef::Expression(expression) => {
             value_for_expression_with_index_name(index.name(), expression, source.clone())?
+                .map_or(Ok(None), encode_value_index_component)
+        }
+        SemanticIndexKeyItemRef::AcceptedExpression(expression) => {
+            value_for_accepted_expression_with_index_name(index.name(), expression, source.clone())?
                 .map_or(Ok(None), encode_value_index_component)
         }
     }
@@ -650,6 +743,27 @@ fn build_index_key_from_access_contract<'a>(
                 push_index_key_component_label(
                     &mut components,
                     key_item.canonical_text(),
+                    component,
+                )?;
+            }
+        }
+        SemanticIndexKeyItemsRef::Accepted(items) => {
+            for key_item in items {
+                let semantic_key_item = key_item.as_ref();
+                let Some(component) =
+                    index_component_bytes_from_slot_ref_reader_with_access_contract(
+                        schema_info,
+                        index,
+                        semantic_key_item,
+                        read_slot,
+                    )?
+                else {
+                    return Ok(None);
+                };
+
+                push_index_key_component_label(
+                    &mut components,
+                    semantic_key_item.canonical_text(),
                     component,
                 )?;
             }

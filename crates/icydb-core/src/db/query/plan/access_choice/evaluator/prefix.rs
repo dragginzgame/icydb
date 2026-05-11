@@ -143,6 +143,15 @@ fn evaluate_prefix_len_for_key_items(
                 }
             }
         }
+        SemanticIndexKeyItemsRef::Accepted(items) => {
+            for item in items {
+                match match_eq_constraint_value_for_key_item(item.as_ref(), eq_constraints) {
+                    Ok(Some(_)) => prefix_len = prefix_len.saturating_add(1),
+                    Ok(None) => break,
+                    Err(reason) => return Err(reason),
+                }
+            }
+        }
         SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
             for &field in fields {
                 match match_eq_constraint_value_for_key_item(

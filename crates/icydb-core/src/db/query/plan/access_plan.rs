@@ -8,7 +8,7 @@ use crate::db::{
     direction::Direction,
     predicate::{IndexCompileTarget, Predicate, PredicateProgram},
     query::plan::{
-        AcceptedPlannerFieldPathIndex, AccessChoiceExplainSnapshot,
+        AcceptedPlannerExpressionIndex, AcceptedPlannerFieldPathIndex, AccessChoiceExplainSnapshot,
         GeneratedExpressionCandidateIndex, GroupPlan, GroupSpec, GroupedAggregateExecutionSpec,
         GroupedDistinctExecutionStrategy, LogicalPlan, PlannerRouteProfile,
         access_choice::{
@@ -551,6 +551,7 @@ impl AccessPlannedQuery {
         model: &EntityModel,
         generated_expression_candidate_indexes: &[GeneratedExpressionCandidateIndex],
         accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
+        accepted_expression_indexes: &[AcceptedPlannerExpressionIndex],
         schema_info: &SchemaInfo,
     ) {
         if !self.access.has_selected_index_access_path() {
@@ -562,6 +563,7 @@ impl AccessPlannedQuery {
                 model,
                 generated_expression_candidate_indexes,
                 accepted_field_path_indexes,
+                accepted_expression_indexes,
                 schema_info,
                 self,
             );

@@ -69,15 +69,17 @@ impl<C: CanisterKind> DbSession<C> {
         let accepted_schema = self
             .ensure_accepted_schema_snapshot::<E>()
             .map_err(QueryError::execute)?;
-        let schema_info = SchemaInfo::from_accepted_snapshot_for_model(
+        let schema_info = SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
             query.structural().model(),
             &accepted_schema,
+            true,
         );
 
         plan.finalize_access_choice_for_model_with_accepted_indexes_and_schema(
             query.structural().model(),
             visible_indexes.generated_expression_candidate_indexes(),
             visible_indexes.accepted_field_path_indexes(),
+            visible_indexes.accepted_expression_indexes(),
             &schema_info,
         );
         let authority = Self::accepted_entity_authority_for_schema::<E>(&accepted_schema)

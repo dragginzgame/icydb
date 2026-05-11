@@ -908,6 +908,14 @@ fn coverable_component_fields_for_contract(
         SemanticIndexKeyItemsRef::Fields(fields) => {
             fields.iter().map(|field| Some(field.clone())).collect()
         }
+        SemanticIndexKeyItemsRef::Accepted(items) => items
+            .iter()
+            .map(|item| match item.as_ref() {
+                SemanticIndexKeyItemRef::Field(field) => Some(field.to_string()),
+                SemanticIndexKeyItemRef::Expression(_)
+                | SemanticIndexKeyItemRef::AcceptedExpression(_) => None,
+            })
+            .collect(),
         SemanticIndexKeyItemsRef::Static(crate::model::index::IndexKeyItemsRef::Fields(fields)) => {
             fields
                 .iter()
@@ -919,7 +927,8 @@ fn coverable_component_fields_for_contract(
                 .iter()
                 .map(|item| match SemanticIndexKeyItemRef::from(*item) {
                     SemanticIndexKeyItemRef::Field(field) => Some(field.to_string()),
-                    SemanticIndexKeyItemRef::Expression(_) => None,
+                    SemanticIndexKeyItemRef::Expression(_)
+                    | SemanticIndexKeyItemRef::AcceptedExpression(_) => None,
                 })
                 .collect()
         }

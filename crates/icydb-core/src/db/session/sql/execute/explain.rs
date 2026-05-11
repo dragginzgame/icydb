@@ -136,8 +136,11 @@ impl<C: CanisterKind> DbSession<C> {
             return Err(QueryError::unsupported_query(message));
         }
 
-        let schema_info =
-            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), accepted_schema);
+        let schema_info = SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
+            authority.model(),
+            accepted_schema,
+            true,
+        );
 
         if let Some(rendered) = self.render_lowered_sql_explain_plan_or_json_for_authority(
             lowered,
@@ -228,8 +231,11 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(None);
         };
 
-        let schema_info =
-            SchemaInfo::from_accepted_snapshot_for_model(authority.model(), accepted_schema);
+        let schema_info = SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
+            authority.model(),
+            accepted_schema,
+            true,
+        );
         let structural = bind_lowered_sql_query_structural_with_schema(
             authority.model(),
             query.clone(),
@@ -253,6 +259,7 @@ impl<C: CanisterKind> DbSession<C> {
                 authority.model(),
                 visible_indexes.generated_expression_candidate_indexes(),
                 visible_indexes.accepted_field_path_indexes(),
+                visible_indexes.accepted_expression_indexes(),
                 &schema_info,
             );
             let diagnostics = structural

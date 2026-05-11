@@ -227,6 +227,9 @@ fn build_index_eq_prefix(
                 .map(|field| SemanticIndexKeyItemRef::Field(field.as_str())),
             field_values,
         ),
+        SemanticIndexKeyItemsRef::Accepted(items) => {
+            build_index_eq_prefix_for_items(items.iter().map(|item| item.as_ref()), field_values)
+        }
         SemanticIndexKeyItemsRef::Static(IndexKeyItemsRef::Fields(fields)) => {
             build_index_eq_prefix_for_items(
                 fields.iter().copied().map(SemanticIndexKeyItemRef::Field),
