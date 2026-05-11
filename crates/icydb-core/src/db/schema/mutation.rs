@@ -1522,6 +1522,134 @@ impl SchemaFieldPathIndexStagedValidation {
 }
 
 ///
+/// SchemaFieldPathIndexStagedStore
+///
+/// In-memory staged store image for one field-path index rebuild. This is the
+/// first writer-facing shape after staged rebuild validation: it binds raw
+/// index entries to the accepted store identity without mutating `IndexStore`
+/// or making rebuilt state runtime-visible.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages in-memory index-store writes before physical stores are mutated"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStore {
+    store: String,
+    entries: Vec<SchemaFieldPathIndexStagedEntry>,
+    validation: SchemaFieldPathIndexStagedValidation,
+    report: SchemaMutationRunnerReport,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages in-memory index-store writes before physical stores are mutated"
+)]
+impl SchemaFieldPathIndexStagedStore {
+    pub(in crate::db::schema) fn from_rebuild(
+        rebuild: &SchemaFieldPathIndexStagedRebuild,
+        execution_plan: &SchemaMutationExecutionPlan,
+    ) -> Result<Self, SchemaMutationRunnerRejection> {
+        let validation = rebuild.validate().map_err(|_| {
+            SchemaMutationRunnerRejection::validation_failed(
+                RebuildRequirement::IndexRebuildRequired,
+            )
+        })?;
+        let report = rebuild.validated_runner_report(execution_plan)?;
+
+        Ok(Self {
+            store: rebuild.target().store().to_string(),
+            entries: rebuild.entries().to_vec(),
+            validation,
+            report,
+        })
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn entries(&self) -> &[SchemaFieldPathIndexStagedEntry] {
+        self.entries.as_slice()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn validation(&self) -> SchemaFieldPathIndexStagedValidation {
+        self.validation
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn report(&self) -> &SchemaMutationRunnerReport {
+        &self.report
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
+        self.validation.store_visibility()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn physical_work_allows_publication(&self) -> bool {
+        self.report.physical_work_allows_publication()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn discard(self) -> SchemaFieldPathIndexStagedDiscardReport {
+        let store_visibility = self.store_visibility();
+        let discarded_entries = self.entries.len();
+
+        SchemaFieldPathIndexStagedDiscardReport {
+            store: self.store,
+            discarded_entries,
+            store_visibility,
+        }
+    }
+}
+
+///
+/// SchemaFieldPathIndexStagedDiscardReport
+///
+/// Typed cleanup report for discarding one in-memory staged field-path rebuild
+/// buffer. Physical rollback will later use a store-backed version of this
+/// boundary; this shape keeps staged cleanup explicit before stores are mutated.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages rebuild rollback diagnostics before physical stores are mutated"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexStagedDiscardReport {
+    store: String,
+    discarded_entries: usize,
+    store_visibility: SchemaMutationStoreVisibility,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages rebuild rollback diagnostics before physical stores are mutated"
+)]
+impl SchemaFieldPathIndexStagedDiscardReport {
+    #[must_use]
+    pub(in crate::db::schema) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn discarded_entries(&self) -> usize {
+        self.discarded_entries
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
+        self.store_visibility
+    }
+}
+
+///
 /// MutationPublicationPreflight
 ///
 /// Publication-boundary decision after consulting runner preflight. It keeps
@@ -3737,6 +3865,61 @@ mod tests {
             !report.has_completed_phase(super::SchemaMutationRunnerPhase::InvalidateRuntimeState)
         );
         assert!(!report.physical_work_allows_publication());
+    }
+
+    #[test]
+    fn field_path_rebuild_writes_validated_entries_to_staged_store_buffer() {
+        let plan = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower")
+        .lower_to_plan();
+        let request = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower to a rebuild target");
+        let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } = request else {
+            panic!("field-path index request should preserve rebuild target");
+        };
+        let first = RebuildSlotReader {
+            values: vec![None, Some(Value::Text("Ada".to_string()))],
+        };
+        let second = RebuildSlotReader {
+            values: vec![None, Some(Value::Text("Grace".to_string()))],
+        };
+        let staged = super::SchemaFieldPathIndexStagedRebuild::from_rows(
+            "test::mutation::entity",
+            EntityTag::new(7),
+            target,
+            [
+                super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(2), &second),
+                super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(1), &first),
+            ],
+        )
+        .expect("field-path rebuild rows should stage into raw index entries");
+
+        let buffer =
+            super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged, &plan.execution_plan())
+                .expect("valid staged rebuild should write into an in-memory staged store buffer");
+
+        assert_eq!(buffer.store(), "test::mutation::by_name");
+        assert_eq!(buffer.entries(), staged.entries());
+        assert_eq!(buffer.validation().entry_count(), 2);
+        assert_eq!(
+            buffer.store_visibility(),
+            super::SchemaMutationStoreVisibility::StagedOnly,
+        );
+        assert_eq!(buffer.report().rows_scanned(), 2);
+        assert_eq!(buffer.report().index_keys_written(), 2);
+        assert!(!buffer.physical_work_allows_publication());
+
+        let discard = buffer.discard();
+        assert_eq!(discard.store(), "test::mutation::by_name");
+        assert_eq!(discard.discarded_entries(), 2);
+        assert_eq!(
+            discard.store_visibility(),
+            super::SchemaMutationStoreVisibility::StagedOnly,
+        );
     }
 
     #[test]

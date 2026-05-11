@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.153.x] 🏗️ - 2026-05-11 - Schema Rebuild Runners
 
+- `0.153.4` adds an in-memory staged field-path index-store buffer and discard diagnostics, binding validated rebuild entries to accepted store identity while keeping physical `IndexStore` mutation and snapshot publication deferred.
 - `0.153.3` adds in-memory staged field-path rebuild output and runner diagnostics, deriving sorted raw index entries from accepted rebuild targets and authoritative row slots while keeping rebuilt state unpublished.
 - `0.153.2` adds accepted field-path rebuild key materialization, so future schema runners can build secondary-index keys from accepted mutation targets and row slots without generated index metadata.
 - `0.153.1` adds runtime schema epoch and publication identity contracts for schema mutation runners, deriving runtime identity from accepted persisted snapshots and keeping staged rebuild state invisible until publication.
