@@ -1,5 +1,16 @@
 # WEEKLY AUDIT — Invariant Preservation (icydb-core)
 
+Canonical report scope:
+
+* `invariant-preservation`
+
+Use this exact scope for report files:
+
+* `docs/audits/reports/YYYY-MM/YYYY-MM-DD/invariant-preservation.md`
+
+Do not introduce alternate names such as `core-invariants`,
+`runtime-invariants`, or `invariant-audit` for this recurring pass.
+
 ## Purpose
 
 Verify that **all structural, ordering, identity, and mutation invariants** in `icydb-core`:
@@ -70,6 +81,26 @@ Classify invariants into categories:
 * Replay restores exact structural shape
 * Replay error classification matches runtime
 
+### F. Accepted Runtime Authority Invariants
+
+* Accepted row contracts own runtime row decode and row emission
+* Accepted schema/index contracts own runtime planner, executor, write,
+  explain, cache, cursor, uniqueness, and recovery authority
+* Generated `EntityModel` / `IndexModel` metadata is proposal-only,
+  reconciliation-only, model-only convenience, or test-only after schema
+  acceptance
+* Runtime boundary validation consumes caller-selected `SchemaInfo`
+* Runtime fingerprints derive from accepted persisted snapshots, not generated
+  model metadata
+
+### G. Catalog Mutation Invariants
+
+* Accepted schema transitions are classified by schema-owned mutation plans
+* Metadata-safe/no-rebuild plans may publish
+* Rebuild-required plans are blocked before accepted runtime visibility
+* Unsupported or incompatible mutations fail closed before write/read staging
+* Recovery reconciles schema before rebuilding index state from rows
+
 Produce:
 
 | Invariant | Category | Subsystem(s) Impacted |
@@ -93,6 +124,10 @@ Identify all boundary crossings:
 * cursor decode → cursor planning
 * reverse-relation mutation
 * index store read → index key interpretation
+* accepted snapshot → `SchemaInfo`
+* generated proposal → accepted reconciliation
+* mutation plan → publication status
+* accepted schema fingerprint → planner/cache/commit identity
 
 For each boundary:
 
@@ -184,6 +219,22 @@ Explicitly deep-audit:
 * Enforced during recovery
 * Error classification correct
 
+## F. Accepted Runtime Authority Preservation
+
+* Accepted runtime paths do not reopen generated row/index authority
+* Runtime `SchemaInfo` comes from accepted snapshots
+* Cursor and access-plan invariant validation use accepted schema info
+* Unique/index/reverse/recovery preflight use accepted contracts
+* Model-only helpers remain explicitly named and outside runtime lanes
+
+## G. Catalog Mutation Publication Safety
+
+* Additive nullable/default-backed fields remain metadata-safe
+* Index add/drop and expression-index add remain rebuild-required and blocked
+* Unsupported nullability/type/key changes fail closed
+* Mutation-plan fingerprints are deterministic and semantic
+* Transition metrics distinguish exact, accepted, and rejected outcomes
+
 ---
 
 # Phase 5 — Enforcement Quality Evaluation
@@ -249,8 +300,31 @@ Examples:
 * Adding new index types
 * Adding new commit markers
 * Adding new error classes
+* Adding accepted schema mutation publication for rebuild-required plans
+* Adding SQL DDL frontends over schema mutations
 
 This anticipates silent invariant erosion.
+
+---
+
+# Required Verification Baseline
+
+Every run must include source inspection plus current live verification.
+
+Required commands:
+
+* `bash scripts/ci/check-memory-id-invariants.sh`
+* `bash scripts/ci/check-field-projection-invariants.sh`
+* `bash scripts/ci/check-index-range-spec-invariants.sh`
+* `cargo test -p icydb-core recovery_replay_is_idempotent --features sql -- --nocapture`
+* `cargo test -p icydb-core recovery_reconciles_schema_before_rebuilding_indexes_from_rows --features sql -- --nocapture`
+* `cargo test -p icydb-core recovery_startup_rebuild_rejects_future_row_format_fail_closed --features sql -- --nocapture`
+* `cargo test -p icydb-core schema::mutation --features sql -- --nocapture`
+* `cargo test -p icydb-core schema::reconcile --features sql -- --nocapture`
+* `cargo test -p icydb-core --test write_boundary_guards -- --nocapture`
+
+If a command is intentionally replaced because its historical target no longer
+matches live tests or files, state that in the report and name the replacement.
 
 ---
 
@@ -261,12 +335,14 @@ This anticipates silent invariant erosion.
 2. Boundary Map
 3. Enforcement Mapping Table
 4. Recovery Symmetry Table
-5. High Risk Invariants
-6. Redundant Enforcement
-7. Missing Enforcement
-8. Drift Sensitivity Summary
-9. Overall Invariant Risk Index (1–10, lower is better)
-10. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
+5. Accepted Authority Preservation Table
+6. Catalog Mutation Publication Table
+7. High Risk Invariants
+8. Redundant Enforcement
+9. Missing Enforcement
+10. Drift Sensitivity Summary
+11. Overall Invariant Risk Index (1–10, lower is better)
+12. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
 
 Run metadata must include:
 

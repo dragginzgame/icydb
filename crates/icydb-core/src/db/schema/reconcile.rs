@@ -7,9 +7,9 @@ use crate::{
     db::{
         Db, EntityRuntimeHooks,
         schema::{
-            AcceptedSchemaSnapshot, MutationCompatibility, PersistedSchemaSnapshot,
-            RebuildRequirement, SchemaStore, SchemaTransitionDecision, SchemaTransitionPlanKind,
-            compiled_schema_proposal_for_model, decide_schema_transition,
+            AcceptedSchemaSnapshot, MutationPublicationBlocker, MutationPublicationStatus,
+            PersistedSchemaSnapshot, SchemaStore, SchemaTransitionDecision,
+            SchemaTransitionPlanKind, compiled_schema_proposal_for_model, decide_schema_transition,
             runtime::AcceptedRowLayoutRuntimeDescriptor,
             transition::{SchemaTransitionPlan, SchemaTransitionRejectionKind},
         },
@@ -149,21 +149,19 @@ fn validate_publishable_transition_plan(
     entity_path: &'static str,
     plan: &SchemaTransitionPlan,
 ) -> Result<(), InternalError> {
-    if plan.mutation_compatibility() != MutationCompatibility::MetadataOnlySafe {
-        return Err(InternalError::store_unsupported(format!(
-            "schema mutation plan is not metadata-safe for entity '{entity_path}': compatibility={:?}",
-            plan.mutation_compatibility(),
-        )));
+    match plan.publication_status() {
+        MutationPublicationStatus::Publishable => Ok(()),
+        MutationPublicationStatus::Blocked(MutationPublicationBlocker::NotMetadataSafe(
+            compatibility,
+        )) => Err(InternalError::store_unsupported(format!(
+            "schema mutation plan is not metadata-safe for entity '{entity_path}': compatibility={compatibility:?}",
+        ))),
+        MutationPublicationStatus::Blocked(MutationPublicationBlocker::RebuildRequired(
+            rebuild,
+        )) => Err(InternalError::store_unsupported(format!(
+            "schema mutation plan requires rebuild before publication for entity '{entity_path}': rebuild={rebuild:?}",
+        ))),
     }
-
-    if plan.rebuild_requirement() != RebuildRequirement::NoRebuildRequired {
-        return Err(InternalError::store_unsupported(format!(
-            "schema mutation plan requires rebuild before publication for entity '{entity_path}': rebuild={:?}",
-            plan.rebuild_requirement(),
-        )));
-    }
-
-    Ok(())
 }
 
 // Keep schema reconciliation instrumentation at the reconciliation boundary so

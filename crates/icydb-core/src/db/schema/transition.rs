@@ -7,10 +7,9 @@ use crate::{
     db::{
         data::decode_runtime_value_from_accepted_field_contract,
         schema::{
-            AcceptedFieldDecodeContract, FieldId, MutationCompatibility, MutationPlan,
+            AcceptedFieldDecodeContract, FieldId, MutationPlan, MutationPublicationStatus,
             PersistedFieldSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
-            RebuildRequirement, SchemaFieldSlot, SchemaMutationDelta,
-            classify_schema_mutation_delta,
+            SchemaFieldSlot, SchemaMutationDelta, classify_schema_mutation_delta,
         },
     },
     value::Value,
@@ -88,15 +87,9 @@ impl SchemaTransitionPlan {
         self.kind
     }
 
-    // Return the mutation compatibility bucket that gates snapshot publication.
-    pub(in crate::db::schema) const fn mutation_compatibility(&self) -> MutationCompatibility {
-        self.mutation_plan.compatibility()
-    }
-
-    // Return the required physical rebuild work before the transition can be
-    // published as accepted runtime schema.
-    pub(in crate::db::schema) const fn rebuild_requirement(&self) -> RebuildRequirement {
-        self.mutation_plan.rebuild_requirement()
+    // Return the schema-owned runtime publication status for this transition.
+    pub(in crate::db::schema) const fn publication_status(&self) -> MutationPublicationStatus {
+        self.mutation_plan.publication_status()
     }
 
     // Return the deterministic mutation-plan audit identity.

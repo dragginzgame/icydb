@@ -1,5 +1,16 @@
 # Weekly Audit: Cursor Ordering & Continuation Correctness
 
+Canonical report scope:
+
+* `cursor-ordering`
+
+Use this exact scope for report files:
+
+* `docs/audits/reports/YYYY-MM/YYYY-MM-DD/cursor-ordering.md`
+
+Do not introduce alternate names such as `continuation-cursors`,
+`pagination-cursors`, or `cursor-audit` for this recurring pass.
+
 ## Scope
 
 This audit is strictly limited to correctness of continuation semantics,
@@ -68,6 +79,21 @@ Across all pages:
 4. Final-page exhaustion is deterministic.
 5. Invalid continuation state is rejected before execution.
 
+## E. Accepted Runtime Authority Invariants
+
+After accepted schema reconciliation:
+
+1. Cursor boundary type validation must consume the planner/session-selected
+   `SchemaInfo`.
+2. Runtime cursor anchor construction for accepted indexes must consume accepted
+   index contracts.
+3. Cursor continuation signatures must reflect the accepted runtime plan shape.
+4. Cursor validation must not reopen generated `EntityModel` or `IndexModel`
+   metadata for accepted-runtime boundary typing, anchor derivation, or index
+   contract identity.
+5. Generated/model-only cursor helpers are acceptable only when explicitly named
+   and outside accepted-runtime execution.
+
 ---
 
 # Current Ownership Boundary
@@ -93,11 +119,19 @@ Primary owners to inspect:
   * `continuation_advanced`
   * `key_within_envelope`
 * `db/query/plan/continuation.rs`
+* `db/schema/info.rs`
+  * accepted `SchemaInfo` field/index contract exposure used by cursor boundary
+    validation
 * `db/executor/prepared_execution_plan.rs`
 * `db/executor/planning/continuation/*`
+* `db/executor/authority/entity.rs`
+  * authority-selected `SchemaInfo` used for scalar cursor validation and
+    revalidation
 * `db/executor/pipeline/entrypoints/mod.rs`
   * `execute_paged_with_cursor_traced`
   * grouped paged continuation entrypoints when applicable
+* `crates/icydb-core/tests/write_boundary_guards.rs`
+  * cursor authority and generated-runtime fallback guards
 
 Historical targets such as `plan_cursor` are obsolete and must not be used as
 the audit frame.
@@ -169,6 +203,20 @@ Verify:
 * execution resumes from the validated boundary, not from untrusted token data
 * invalid cursors are rejected before material page execution begins
 
+## 8. Accepted Schema Cursor Authority
+
+Verify:
+
+* scalar boundary type lookup uses caller-supplied `SchemaInfo`
+* cursor preparation and revalidation thread authority-selected schema info
+  through the cursor spine
+* index-range cursor anchors use accepted index contracts after schema
+  reconciliation
+* `write_boundary_guards` prevents reintroducing generated schema/model lookup
+  in accepted-runtime cursor validation
+* generated/model-only cursor surfaces are explicitly named and excluded from
+  accepted runtime
+
 ---
 
 # Required Analysis For Each Area
@@ -213,6 +261,13 @@ Every run must reason through these scenarios explicitly:
     envelope.
 14. Anchor equals the upper bound exactly.
 15. Anchor equals the lower bound exactly.
+16. DESC anchor equals the lower bound exactly.
+17. Accepted runtime cursor boundary validation lacks `SchemaInfo`.
+18. Accepted index cursor anchor is derived from generated index metadata.
+19. Cursor replay sees a stale continuation signature after accepted schema
+    contract change.
+20. A grouped continuation token is replayed against a scalar path with the same
+    projected value shape.
 
 State explicitly whether each is:
 
@@ -228,12 +283,25 @@ State explicitly whether each is:
 
 Every run must include evidence from current tests and live source inspection.
 
-Prefer current tests from:
+Use current tests from:
 
 * `db/cursor/tests/mod.rs`
 * `db/executor/tests/cursor_validation.rs`
 * `db/executor/tests/pagination.rs`
+* `db/executor/tests/live_state.rs`
 * `db/index/envelope/tests.rs`
+* `crates/icydb-core/tests/write_boundary_guards.rs`
+
+Required live command baseline:
+
+* `cargo test -p icydb-core cursor_validation --features sql -- --nocapture`
+* `cargo test -p icydb-core pk_cursor_decode_error_mapping_is_explicit_for_all_cursor_variants --features sql -- --nocapture`
+* `cargo test -p icydb-core anchor_containment_guard_rejects_out_of_envelope_anchor --features sql -- --nocapture`
+* `cargo test -p icydb-core anchor_equal_to_upper_resumes_to_empty_envelope --features sql -- --nocapture`
+* `cargo test -p icydb-core desc_anchor_equal_to_lower_resumes_to_empty_envelope --features sql -- --nocapture`
+* `cargo test -p icydb-core load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strictly_monotonic --features sql -- --nocapture`
+* `cargo test -p icydb-core load_cursor_live_state_delete_between_pages_can_shrink_remaining_results --features sql -- --nocapture`
+* `cargo test -p icydb-core --test write_boundary_guards -- --nocapture`
 
 If a critical scenario is not covered by an existing test, call that out
 explicitly as a coverage gap.
@@ -257,6 +325,21 @@ Produce:
 
 | Boundary | Owner | Verified? | Evidence | Risk |
 | -------- | ----- | --------- | -------- | ---- |
+
+## 1A. Scalar Cursor Matrix
+
+| Scenario | Owner | Protection | Evidence | Risk |
+| -------- | ----- | ---------- | -------- | ---- |
+
+## 1B. Grouped Cursor Matrix
+
+| Scenario | Owner | Protection | Evidence | Risk |
+| -------- | ----- | ---------- | -------- | ---- |
+
+## 1C. Accepted Authority Matrix
+
+| Runtime Cursor Surface | Authority Source | Generated Fallback Possible? | Evidence | Risk |
+| ---------------------- | ---------------- | ---------------------------- | -------- | ---- |
 
 ## 2. Failure Classification Table
 

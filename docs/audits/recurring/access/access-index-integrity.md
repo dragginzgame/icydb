@@ -2,6 +2,17 @@
 
 `icydb-core`
 
+Canonical report scope:
+
+* `index-integrity`
+
+Use this exact scope for report files:
+
+* `docs/audits/reports/YYYY-MM/YYYY-MM-DD/index-integrity.md`
+
+Do not introduce alternate names such as `access-index-integrity`,
+`index-audit`, or `index-authority` for this recurring pass.
+
 ## Purpose
 
 Verify that the index subsystem preserves:
@@ -13,6 +24,8 @@ Verify that the index subsystem preserves:
 * Unique enforcement equivalence
 * Recovery idempotence
 * Row/index atomic coupling
+* Accepted schema/index authority after schema reconciliation
+* Catalog mutation readiness for index add/drop/rebuild decisions
 
 This is a correctness audit only.
 
@@ -34,8 +47,11 @@ The index layer must be:
 * Namespace-isolated
 * Idempotent under replay
 * Coupled 1:1 with row mutations
+* Authorized by accepted schema/index contracts after reconciliation
 
 If index state diverges from row state, integrity is compromised.
+If runtime index behavior reopens generated model authority after schema
+acceptance, catalog authority is compromised.
 
 ---
 
@@ -80,6 +96,25 @@ Categories:
 * Replay enforces same reverse mutation logic
 * No duplicate entry creation
 * No partial mutation replay
+
+### F. Accepted Authority Invariants
+
+* Runtime visible index selection is accepted-schema-backed
+* Runtime key construction uses accepted index contracts
+* Runtime uniqueness validation uses accepted index contracts
+* Runtime reverse index operations use accepted contracts
+* Explain/cache identity reflects accepted index fingerprints
+* Missing accepted index metadata after reconciliation fails closed
+* Generated `EntityModel` / `IndexModel` metadata is proposal-only,
+  reconciliation-only, model-only convenience, or test-only
+
+### G. Catalog Mutation Invariants
+
+* Add/drop index mutation plans classify rebuild requirements explicitly
+* Unsupported index mutations fail closed before planner/write visibility
+* Accepted snapshot rewrites do not publish half-visible indexes
+* Index fingerprint changes invalidate affected planner/cache surfaces
+* Recovery/rebuild can identify the accepted contract that owns each index
 
 Produce:
 
@@ -259,7 +294,96 @@ Produce:
 
 ---
 
-# STEP 8 — Row ↔ Index Coupling
+# STEP 8 — Accepted Runtime Index Authority
+
+Verify runtime index behavior does not consume generated model/index metadata
+after accepted schema reconciliation.
+
+Allowed generated lanes:
+
+* proposal derivation
+* reconciliation comparison
+* model-only convenience APIs
+* tests/fixtures
+
+Runtime lanes that must be accepted-schema-backed:
+
+* visible index selection
+* planner candidate construction
+* predicate/index membership
+* key shape and key encoding
+* forward index writes
+* reverse index writes
+* uniqueness validation
+* recovery/rebuild
+* explain projection
+* query cache identity/fingerprints
+
+Search targets:
+
+* `E::MODEL.indexes`
+* `EntityModel::indexes`
+* `IndexModel`
+* `from_generated_index`
+* `accepted_field_path_indexes`
+* `VisibleIndexes`
+* `SchemaInfo`
+* `fingerprint`
+* `unique`
+* `reverse_index`
+* `index_key`
+
+Produce:
+
+| Runtime Lane | Authority Source | Generated Metadata Present? | Allowed? | Risk |
+
+Required fail-closed checks:
+
+| Scenario | Expected Behavior | Evidence | Risk |
+| --- | --- | --- | --- |
+| Accepted index metadata missing after reconciliation | incompatible accepted-schema error | guard/test/source evidence | High if absent |
+| Stale accepted index fingerprint | planner/cache invalidation or rejection | guard/test/source evidence | High if absent |
+| Dropped secondary index still present in store | invisible to planning; rebuild/recovery owns cleanup plan | guard/test/source evidence | Moderate |
+| Runtime write sees generated-only index metadata | rejected or unreachable outside model-only lane | guard/test/source evidence | High if absent |
+
+---
+
+# STEP 9 — Catalog Mutation Readiness
+
+Verify index mutations are classified before any runtime visibility change.
+
+Initial mutation cases:
+
+* add non-unique field-path index
+* add non-unique deterministic expression index
+* drop non-required secondary index
+* change uniqueness
+* change key shape or key slot order
+* change partial/filter predicate
+* change expression text/fingerprint
+
+Produce:
+
+| Mutation | Compatibility | Rebuild Requirement | Runtime Visibility Boundary | Risk |
+
+Required classifications:
+
+* metadata-only safe
+* index rebuild required
+* full data rewrite required
+* unsupported pre-1.0
+* incompatible/fail-closed
+
+Verify:
+
+* mutation plans do not silently hide persisted indexes with missing metadata
+* required rebuilds are explicit even when orchestration is deferred
+* planner/cache invalidation is attached to accepted fingerprint changes
+* unsupported changes fail before accepted snapshot publication
+
+---
+
+# STEP 10 — Row ↔ Index Coupling
 
 Verify:
 
@@ -282,7 +406,7 @@ Produce:
 
 ---
 
-# STEP 9 — Recovery Replay Equivalence
+# STEP 11 — Recovery Replay Equivalence
 
 Compare:
 
@@ -311,7 +435,7 @@ Required scenario lock:
 
 ---
 
-# STEP 10 — Explicit Attack Scenarios
+# STEP 12 — Explicit Attack Scenarios
 
 Attempt to find:
 
@@ -324,6 +448,12 @@ Attempt to find:
 * Double unique insert on replay
 * Delete skipping reverse cleanup
 * Replace partial mutation
+* Runtime planner consuming generated-only index metadata
+* Runtime write consuming generated-only index metadata
+* Accepted snapshot missing required index contract metadata
+* Stale index fingerprint reused for query cache identity
+* Dropped index remaining visible to planner/explain
+* Recovery rebuild using generated model metadata instead of accepted contracts
 
 For each:
 
@@ -331,7 +461,7 @@ For each:
 
 ---
 
-# STEP 11 — High Risk Mutation Paths
+# STEP 13 — High Risk Mutation Paths
 
 Identify:
 
@@ -339,6 +469,8 @@ Identify:
 * Replace flow with dual mutation
 * Recovery mutation entry points
 * Reverse mutation code paths
+* Accepted snapshot publication after index mutation classification
+* Planner/cache invalidation after index contract fingerprint changes
 
 Produce:
 
@@ -346,7 +478,7 @@ Produce:
 
 ---
 
-# STEP 12 — Storage-Layer Assumptions
+# STEP 14 — Storage-Layer Assumptions
 
 Explicitly list assumptions such as:
 
@@ -362,7 +494,7 @@ Produce:
 
 ---
 
-# STEP 13 — Cross-Layer Continuation Stability (Executor + Index)
+# STEP 15 — Cross-Layer Continuation Stability (Executor + Index)
 
 This is not index-only. Run as a cross-layer check with cursor/ordering semantics.
 
@@ -382,6 +514,29 @@ Produce:
 
 ---
 
+# STEP 16 — Required Verification Commands
+
+Run focused checks first. If one fails, record it as `FAIL` or `BLOCKED` and do
+not keep rerunning the same failing suite in the same audit pass.
+
+Minimum verification set:
+
+* `cargo test -p icydb-core load_cursor_pagination_pk_order_inverted_key_range_returns_empty_without_scan --features sql -- --nocapture`
+* `cargo test -p icydb-core index_range_aggregate_fast_path_specs_reject_non_exact_range_arity --features sql -- --nocapture`
+* `cargo test -p icydb-core index_range_aggregate_fast_path_specs_reject_prefix_spec_presence --features sql -- --nocapture`
+* `cargo test -p icydb-core cross_layer_canonical_ordering_is_consistent --features sql -- --nocapture`
+* `cargo test -p icydb-core unique_conflict_classification_parity_holds_between_live_apply_and_replay --features sql -- --nocapture`
+* `cargo test -p icydb-core recovery_replay_interrupted_conflicting_unique_batch_fails_closed --features sql -- --nocapture`
+* `cargo test -p icydb-core load_cursor_live_state_delete_between_pages_can_shrink_remaining_results --features sql -- --nocapture`
+* `cargo test -p icydb-core --test write_boundary_guards -- --nocapture`
+
+If the audit touches mutation-readiness claims, also run:
+
+* `cargo test -p icydb-core schema::mutation --features sql -- --nocapture`
+* `cargo test -p icydb-core schema::reconcile --features sql -- --nocapture`
+
+---
+
 # Required Output Sections
 
 0. Run Metadata + Comparability Note
@@ -394,13 +549,15 @@ Produce:
 7. Unique Enforcement Equivalence
 8. Partial-Update Membership Transitions
 9. Mixed Unique+Reverse+Secondary Ordering Check
-10. Row/Index Coupling Analysis
-11. Replay Equivalence Table
-12. Cross-Layer Continuation Stability
-13. High Risk Mutation Paths
-14. Storage-Layer Assumptions
-15. Overall Index Risk Index (1–10, lower is better)
-16. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
+10. Accepted Runtime Index Authority
+11. Catalog Mutation Readiness
+12. Row/Index Coupling Analysis
+13. Replay Equivalence Table
+14. Cross-Layer Continuation Stability
+15. High Risk Mutation Paths
+16. Storage-Layer Assumptions
+17. Overall Index Risk Index (1–10, lower is better)
+18. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
 
 Run metadata must include:
 
@@ -429,6 +586,8 @@ It forces:
 * Byte-level reasoning
 * Namespace isolation proof
 * Encode/decode symmetry proof
+* Accepted runtime authority proof
+* Catalog mutation readiness proof
 * Replay equivalence proof
 * Reverse symmetry mapping
 * Mutation ordering comparison

@@ -136,6 +136,20 @@ fn anchor_equal_to_upper_resumes_to_empty_envelope() {
 }
 
 #[test]
+fn desc_anchor_equal_to_lower_resumes_to_empty_envelope() {
+    let lower = Bound::Included(raw_key(0x10));
+    let upper = Bound::Included(raw_key(0x20));
+    let anchor = raw_key(0x10);
+
+    let (resumed_lower, resumed_upper) =
+        resume_bounds_from_refs(Direction::Desc, &lower, &upper, &anchor);
+    assert!(
+        envelope_is_empty(&resumed_lower, &resumed_upper),
+        "DESC anchor==lower must resume to an empty envelope so scan can short-circuit",
+    );
+}
+
+#[test]
 fn resume_bounds_for_continuation_returns_original_bounds_without_anchor() {
     let lower = Bound::Included(raw_key(0x10));
     let upper = Bound::Excluded(raw_key(0x20));

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.152.x] 🧱 - 2026-05-11 - Catalog-Native Schema Mutations
 
+- `0.152.1` moves accepted schema mutation publication gating into a schema-owned publication status, so reconciliation consumes one fail-closed rebuild/compatibility decision instead of duplicating enum checks, and refreshes boundary, cursor-ordering, invariant-preservation, and index-integrity audit coverage around cursor envelopes, accepted runtime authority, and rebuild-required mutation publication.
 - `0.152.0` starts catalog-native schema mutation groundwork by adding internal mutation-plan contracts, snapshot-delta classification, rebuild classifications, deterministic mutation-plan fingerprints, a no-rebuild publication guard for accepted reconciliation, and design docs that make SQL DDL a future frontend onto accepted snapshot mutation semantics rather than the migration authority.
 
 See detailed breakdown:

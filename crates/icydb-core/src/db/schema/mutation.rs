@@ -1,6 +1,6 @@
 //! Module: db::schema::mutation
 //! Responsibility: catalog-native schema mutation contracts.
-//! Does not own: SQL DDL parsing, rebuild orchestration, or schema-store writes.
+//! Does not own: SQL DDL parsing, physical rebuild execution, or schema-store writes.
 //! Boundary: describes accepted snapshot changes before reconciliation persists them.
 
 use crate::db::{
@@ -91,6 +91,33 @@ pub(in crate::db::schema) enum RebuildRequirement {
     IndexRebuildRequired,
     FullDataRewriteRequired,
     Unsupported,
+}
+
+///
+/// MutationPublicationBlocker
+///
+/// Fail-closed reason preventing one mutation plan from becoming accepted
+/// runtime schema. This is intentionally separate from the compatibility and
+/// rebuild enums so reconciliation asks one schema-owned publication gate
+/// instead of reimplementing publishability rules locally.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum MutationPublicationBlocker {
+    NotMetadataSafe(MutationCompatibility),
+    RebuildRequired(RebuildRequirement),
+}
+
+///
+/// MutationPublicationStatus
+///
+/// Runtime publication decision for one mutation plan.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum MutationPublicationStatus {
+    Publishable,
+    Blocked(MutationPublicationBlocker),
 }
 
 ///
@@ -265,6 +292,25 @@ impl MutationPlan {
         self.rebuild
     }
 
+    /// Decide whether this mutation plan can be published as accepted runtime
+    /// schema without additional physical rebuild work.
+    #[must_use]
+    pub(in crate::db::schema) const fn publication_status(&self) -> MutationPublicationStatus {
+        if !matches!(self.compatibility, MutationCompatibility::MetadataOnlySafe) {
+            return MutationPublicationStatus::Blocked(
+                MutationPublicationBlocker::NotMetadataSafe(self.compatibility),
+            );
+        }
+
+        if !matches!(self.rebuild, RebuildRequirement::NoRebuildRequired) {
+            return MutationPublicationStatus::Blocked(
+                MutationPublicationBlocker::RebuildRequired(self.rebuild),
+            );
+        }
+
+        MutationPublicationStatus::Publishable
+    }
+
     /// Return how many appended fields are represented by this plan.
     #[cfg(test)]
     pub(in crate::db::schema) fn added_field_count(&self) -> usize {
@@ -437,6 +483,7 @@ mod tests {
             PersistedFieldSnapshot, PersistedSchemaSnapshot, RebuildRequirement,
             SchemaFieldDefault, SchemaFieldSlot, SchemaMutation, SchemaMutationDelta,
             SchemaRowLayout, SchemaVersion, classify_schema_mutation_delta,
+            mutation::{MutationPublicationBlocker, MutationPublicationStatus},
         },
         model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
     };
@@ -503,6 +550,12 @@ mod tests {
                 plan.rebuild_requirement(),
                 RebuildRequirement::IndexRebuildRequired
             );
+            assert_eq!(
+                plan.publication_status(),
+                MutationPublicationStatus::Blocked(MutationPublicationBlocker::NotMetadataSafe(
+                    MutationCompatibility::RequiresRebuild,
+                )),
+            );
         }
     }
 
@@ -520,12 +573,47 @@ mod tests {
             RebuildRequirement::Unsupported
         );
         assert_eq!(
+            alteration.publication_status(),
+            MutationPublicationStatus::Blocked(MutationPublicationBlocker::NotMetadataSafe(
+                MutationCompatibility::UnsupportedPreOne,
+            )),
+        );
+        assert_eq!(
             incompatible.compatibility(),
             MutationCompatibility::Incompatible
         );
         assert_eq!(
             incompatible.rebuild_requirement(),
             RebuildRequirement::FullDataRewriteRequired
+        );
+    }
+
+    #[test]
+    fn publication_gate_allows_only_metadata_safe_no_rebuild_plans() {
+        let field = nullable_text_field("nickname", 3, 2);
+        let append_only = MutationPlan::append_only_fields(&[field]);
+        let metadata_safe_but_rebuild_required = MutationPlan {
+            mutations: Vec::new(),
+            compatibility: MutationCompatibility::MetadataOnlySafe,
+            rebuild: RebuildRequirement::IndexRebuildRequired,
+        };
+        let incompatible = MutationPlan::incompatible();
+
+        assert_eq!(
+            append_only.publication_status(),
+            MutationPublicationStatus::Publishable
+        );
+        assert_eq!(
+            metadata_safe_but_rebuild_required.publication_status(),
+            MutationPublicationStatus::Blocked(MutationPublicationBlocker::RebuildRequired(
+                RebuildRequirement::IndexRebuildRequired,
+            )),
+        );
+        assert_eq!(
+            incompatible.publication_status(),
+            MutationPublicationStatus::Blocked(MutationPublicationBlocker::NotMetadataSafe(
+                MutationCompatibility::Incompatible,
+            )),
         );
     }
 

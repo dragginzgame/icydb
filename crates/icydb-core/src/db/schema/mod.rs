@@ -51,8 +51,10 @@ pub(in crate::db::schema) use integrity::{
 pub(in crate::db) use layout::{SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
 #[cfg(test)]
 pub(in crate::db::schema) use mutation::SchemaMutation;
+#[cfg(test)]
+pub(in crate::db::schema) use mutation::{MutationCompatibility, RebuildRequirement};
 pub(in crate::db::schema) use mutation::{
-    MutationCompatibility, MutationPlan, RebuildRequirement, SchemaMutationDelta,
+    MutationPlan, MutationPublicationBlocker, MutationPublicationStatus, SchemaMutationDelta,
     classify_schema_mutation_delta,
 };
 pub(in crate::db) use proposal::compiled_schema_proposal_for_model;
