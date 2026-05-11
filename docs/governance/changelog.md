@@ -239,14 +239,19 @@ Testing section rules:
 
 For each release:
 
-1. Update version in Cargo.toml.
-2. Update CHANGELOG.md.
-3. Create or update docs/changelog/<major>.<minor>.md.
-4. Commit.
-5. Tag release.
+1. Update CHANGELOG.md.
+2. Create or update docs/changelog/<major>.<minor>.md.
+3. Commit the code and changelog changes.
+4. Update version and release-surface files with `make patch`, `make minor`, or `make major`.
+5. Review the release diff.
+6. Run `make release-stage` to stage known release files.
+7. Run `make release-commit` to commit version files and tag the release.
+8. Run `make release-push` to publish the release tag.
 
 Order must be preserved.
-Typical release flow is `make patch` followed by `cargo publish`.
+After code and changelog changes are committed, the reviewable release flow is
+`make patch`, `git diff`, `make release-stage`, `make release-commit`,
+`make release-push`, then `cargo publish`.
 
 ---
 

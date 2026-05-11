@@ -149,7 +149,7 @@ struct TypeName;
 - Root changelog summaries should be plain-language, user-impact first, and concise.
 - Root minor-line summaries use exactly one bullet per patch version.
 - Put implementation detail in `docs/changelog/0.*.md`.
-- Releases use `make patch|minor|major`; never hand-edit tags.
+- Releases use `make patch|minor|major`, then `make release-stage`, `make release-commit`, and `make release-push`; never hand-edit tags.
 - Before `make patch|minor|major`, do not pre-bump package versions, `Cargo.lock`, or changelog patch entries.
 - Never modify pushed release tags.
 

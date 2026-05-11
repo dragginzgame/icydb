@@ -540,6 +540,194 @@ impl SchemaRebuildPlan {
 }
 
 ///
+/// SchemaMutationExecutionReadiness
+///
+/// Schema-owned execution readiness for one mutation plan. This names whether
+/// reconciliation can publish immediately, whether a future physical runner
+/// must execute index work first, or whether the mutation remains unsupported.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages execution-boundary contracts before physical runners consume them"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaMutationExecutionReadiness {
+    PublishableNow,
+    RequiresPhysicalRunner(RebuildRequirement),
+    Unsupported(RebuildRequirement),
+}
+
+///
+/// SchemaMutationExecutionStep
+///
+/// Ordered physical execution step implied by one mutation plan. These are
+/// contracts for a later runner, not live rebuild behavior.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages execution-boundary contracts before physical runners consume them"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaMutationExecutionStep {
+    BuildFieldPathIndex {
+        target: SchemaFieldPathIndexRebuildTarget,
+    },
+    BuildExpressionIndex {
+        target: SchemaExpressionIndexRebuildTarget,
+    },
+    DropSecondaryIndex {
+        target: SchemaSecondaryIndexDropCleanupTarget,
+    },
+    ValidatePhysicalWork,
+    InvalidateRuntimeState,
+    RewriteAllRows,
+    Unsupported {
+        reason: &'static str,
+    },
+}
+
+///
+/// SchemaMutationExecutionGate
+///
+/// Schema-owned publish gate derived from an execution plan. It is the narrow
+/// answer future callers need before deciding whether to publish, invoke a
+/// physical runner, or reject the mutation.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages execution-boundary contracts before physical runners consume them"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaMutationExecutionGate {
+    ReadyToPublish,
+    AwaitingPhysicalWork {
+        requirement: RebuildRequirement,
+        step_count: usize,
+    },
+    Rejected {
+        requirement: RebuildRequirement,
+    },
+}
+
+///
+/// SchemaMutationExecutionPlan
+///
+/// Execution-facing form of a mutation plan. It keeps the future physical
+/// runner contract separate from rebuild classification and publication
+/// policy, so adding execution cannot silently widen startup reconciliation.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages execution-boundary contracts before physical runners consume them"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaMutationExecutionPlan {
+    readiness: SchemaMutationExecutionReadiness,
+    steps: Vec<SchemaMutationExecutionStep>,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages execution-boundary contracts before physical runners consume them"
+)]
+impl SchemaMutationExecutionPlan {
+    const fn publishable_now() -> Self {
+        Self {
+            readiness: SchemaMutationExecutionReadiness::PublishableNow,
+            steps: Vec::new(),
+        }
+    }
+
+    fn from_rebuild_plan(rebuild_plan: SchemaRebuildPlan) -> Self {
+        if !rebuild_plan.requires_physical_work() {
+            return Self::publishable_now();
+        }
+
+        let readiness = match rebuild_plan.requirement() {
+            RebuildRequirement::NoRebuildRequired => {
+                SchemaMutationExecutionReadiness::PublishableNow
+            }
+            RebuildRequirement::IndexRebuildRequired => {
+                SchemaMutationExecutionReadiness::RequiresPhysicalRunner(
+                    RebuildRequirement::IndexRebuildRequired,
+                )
+            }
+            RebuildRequirement::FullDataRewriteRequired | RebuildRequirement::Unsupported => {
+                SchemaMutationExecutionReadiness::Unsupported(rebuild_plan.requirement())
+            }
+        };
+
+        let mut steps = rebuild_plan
+            .actions()
+            .iter()
+            .map(|action| match action {
+                SchemaRebuildAction::BuildFieldPathIndex { target } => {
+                    SchemaMutationExecutionStep::BuildFieldPathIndex {
+                        target: target.clone(),
+                    }
+                }
+                SchemaRebuildAction::BuildExpressionIndex { target } => {
+                    SchemaMutationExecutionStep::BuildExpressionIndex {
+                        target: target.clone(),
+                    }
+                }
+                SchemaRebuildAction::DropSecondaryIndex { target } => {
+                    SchemaMutationExecutionStep::DropSecondaryIndex {
+                        target: target.clone(),
+                    }
+                }
+                SchemaRebuildAction::RewriteAllRows => SchemaMutationExecutionStep::RewriteAllRows,
+                SchemaRebuildAction::Unsupported { reason } => {
+                    SchemaMutationExecutionStep::Unsupported { reason }
+                }
+            })
+            .collect::<Vec<_>>();
+
+        if matches!(
+            readiness,
+            SchemaMutationExecutionReadiness::RequiresPhysicalRunner(_)
+        ) {
+            steps.push(SchemaMutationExecutionStep::ValidatePhysicalWork);
+            steps.push(SchemaMutationExecutionStep::InvalidateRuntimeState);
+        }
+
+        Self { readiness, steps }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn readiness(&self) -> SchemaMutationExecutionReadiness {
+        self.readiness
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn steps(&self) -> &[SchemaMutationExecutionStep] {
+        self.steps.as_slice()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn execution_gate(&self) -> SchemaMutationExecutionGate {
+        match self.readiness {
+            SchemaMutationExecutionReadiness::PublishableNow => {
+                SchemaMutationExecutionGate::ReadyToPublish
+            }
+            SchemaMutationExecutionReadiness::RequiresPhysicalRunner(requirement) => {
+                SchemaMutationExecutionGate::AwaitingPhysicalWork {
+                    requirement,
+                    step_count: self.steps.len(),
+                }
+            }
+            SchemaMutationExecutionReadiness::Unsupported(requirement) => {
+                SchemaMutationExecutionGate::Rejected { requirement }
+            }
+        }
+    }
+}
+
+///
 /// MutationPublicationBlocker
 ///
 /// Fail-closed reason preventing one mutation plan from becoming accepted
@@ -813,6 +1001,18 @@ impl MutationPlan {
         }
 
         SchemaRebuildPlan::new(self.rebuild, actions)
+    }
+
+    /// Derive the future physical execution contract for this mutation plan.
+    /// Startup reconciliation still uses `publication_status` and remains
+    /// fail-closed for every plan that requires physical work.
+    #[allow(
+        dead_code,
+        reason = "0.152 stages execution-boundary contracts before physical runners consume them"
+    )]
+    #[must_use]
+    pub(in crate::db::schema) fn execution_plan(&self) -> SchemaMutationExecutionPlan {
+        SchemaMutationExecutionPlan::from_rebuild_plan(self.rebuild_plan())
     }
 
     /// Return how many appended fields are represented by this plan.
@@ -1490,6 +1690,107 @@ mod tests {
         assert_eq!(target.store(), "test::mutation::by_name");
         assert!(!target.unique());
         assert_eq!(target.predicate_sql(), Some("name IS NOT NULL"));
+    }
+
+    #[test]
+    fn execution_plan_keeps_metadata_only_mutations_publishable_without_steps() {
+        let field = nullable_text_field("nickname", 3, 2);
+        let plan = MutationPlan::append_only_fields(&[field]);
+        let execution = plan.execution_plan();
+
+        assert_eq!(
+            execution.readiness(),
+            super::SchemaMutationExecutionReadiness::PublishableNow,
+        );
+        assert!(execution.steps().is_empty());
+        assert_eq!(
+            execution.execution_gate(),
+            super::SchemaMutationExecutionGate::ReadyToPublish,
+        );
+        assert_eq!(
+            plan.publication_status(),
+            MutationPublicationStatus::Publishable,
+        );
+    }
+
+    #[test]
+    fn execution_plan_schedules_index_work_before_validation_and_invalidation() {
+        let drop = SchemaMutationRequest::from_accepted_non_unique_secondary_index_drop(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique secondary index should lower to drop cleanup")
+        .lower_to_plan();
+        let execution = drop.execution_plan();
+
+        assert_eq!(
+            execution.readiness(),
+            super::SchemaMutationExecutionReadiness::RequiresPhysicalRunner(
+                RebuildRequirement::IndexRebuildRequired,
+            ),
+        );
+        assert_eq!(
+            execution.execution_gate(),
+            super::SchemaMutationExecutionGate::AwaitingPhysicalWork {
+                requirement: RebuildRequirement::IndexRebuildRequired,
+                step_count: 3,
+            },
+        );
+        let [
+            super::SchemaMutationExecutionStep::DropSecondaryIndex { target },
+            super::SchemaMutationExecutionStep::ValidatePhysicalWork,
+            super::SchemaMutationExecutionStep::InvalidateRuntimeState,
+        ] = execution.steps()
+        else {
+            panic!("drop execution should schedule cleanup, validation, and invalidation");
+        };
+        assert_eq!(target.name(), "by_name");
+        assert_eq!(target.store(), "test::mutation::by_name");
+    }
+
+    #[test]
+    fn execution_plan_keeps_full_rewrite_and_unsupported_non_executable() {
+        let incompatible = SchemaMutationRequest::Incompatible.lower_to_plan();
+        let rewrite_execution = incompatible.execution_plan();
+
+        assert_eq!(
+            rewrite_execution.readiness(),
+            super::SchemaMutationExecutionReadiness::Unsupported(
+                RebuildRequirement::FullDataRewriteRequired,
+            ),
+        );
+        assert_eq!(
+            rewrite_execution.execution_gate(),
+            super::SchemaMutationExecutionGate::Rejected {
+                requirement: RebuildRequirement::FullDataRewriteRequired,
+            },
+        );
+        assert_eq!(
+            rewrite_execution.steps(),
+            &[super::SchemaMutationExecutionStep::RewriteAllRows],
+        );
+
+        let nullability = SchemaMutationRequest::AlterNullability {
+            field_id: FieldId::new(2),
+        }
+        .lower_to_plan();
+        let unsupported_execution = nullability.execution_plan();
+
+        assert_eq!(
+            unsupported_execution.readiness(),
+            super::SchemaMutationExecutionReadiness::Unsupported(RebuildRequirement::Unsupported),
+        );
+        assert_eq!(
+            unsupported_execution.execution_gate(),
+            super::SchemaMutationExecutionGate::Rejected {
+                requirement: RebuildRequirement::Unsupported,
+            },
+        );
+        assert_eq!(
+            unsupported_execution.steps(),
+            &[super::SchemaMutationExecutionStep::Unsupported {
+                reason: "alter nullability requires data proof or rewrite",
+            }],
+        );
     }
 
     #[test]
