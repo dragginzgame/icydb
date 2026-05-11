@@ -9,7 +9,8 @@ use crate::db::{
         write_hash_u32,
     },
     schema::{
-        FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexKeySnapshot,
+        FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,
+        PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
     },
 };
@@ -48,7 +49,7 @@ pub(in crate::db::schema) enum SchemaMutation {
         target: SchemaFieldPathIndexRebuildTarget,
     },
     AddExpressionIndex {
-        name: String,
+        target: SchemaExpressionIndexRebuildTarget,
     },
     DropNonRequiredSecondaryIndex {
         name: String,
@@ -78,7 +79,7 @@ pub(in crate::db::schema) enum SchemaMutationRequest<'a> {
         target: SchemaFieldPathIndexRebuildTarget,
     },
     AddExpressionIndex {
-        name: String,
+        target: SchemaExpressionIndexRebuildTarget,
     },
     DropNonRequiredSecondaryIndex {
         name: String,
@@ -107,6 +108,7 @@ pub(in crate::db::schema) enum AcceptedSchemaMutationError {
     UniqueIndexRequiresDedicatedValidation,
     UnsupportedIndexKeyShape,
     EmptyIndexKey,
+    ExpressionIndexRequiresExpressionKey,
 }
 
 ///
@@ -222,6 +224,135 @@ impl SchemaFieldPathIndexRebuildKey {
 }
 
 ///
+/// SchemaExpressionIndexRebuildTarget
+///
+/// Accepted schema-owned rebuild target for a deterministic expression index.
+/// It preserves accepted key order across field-path and expression components
+/// so a later physical rebuild runner does not need generated `IndexModel`
+/// metadata to derive key shape.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaExpressionIndexRebuildTarget {
+    ordinal: u16,
+    name: String,
+    store: String,
+    unique: bool,
+    predicate_sql: Option<String>,
+    key_items: Vec<SchemaExpressionIndexRebuildKey>,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
+)]
+impl SchemaExpressionIndexRebuildTarget {
+    #[must_use]
+    pub(in crate::db::schema) const fn ordinal(&self) -> u16 {
+        self.ordinal
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn unique(&self) -> bool {
+        self.unique
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn predicate_sql(&self) -> Option<&str> {
+        match &self.predicate_sql {
+            Some(predicate_sql) => Some(predicate_sql.as_str()),
+            None => None,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn key_items(&self) -> &[SchemaExpressionIndexRebuildKey] {
+        self.key_items.as_slice()
+    }
+}
+
+///
+/// SchemaExpressionIndexRebuildKey
+///
+/// Accepted key component required to rebuild deterministic expression indexes.
+/// Mixed indexes retain their exact accepted item order.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaExpressionIndexRebuildKey {
+    FieldPath(SchemaFieldPathIndexRebuildKey),
+    Expression(Box<SchemaExpressionIndexRebuildExpression>),
+}
+
+///
+/// SchemaExpressionIndexRebuildExpression
+///
+/// One accepted deterministic expression key component.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaExpressionIndexRebuildExpression {
+    op: PersistedIndexExpressionOp,
+    source: SchemaFieldPathIndexRebuildKey,
+    input_kind: PersistedFieldKind,
+    output_kind: PersistedFieldKind,
+    canonical_text: String,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
+)]
+impl SchemaExpressionIndexRebuildExpression {
+    #[must_use]
+    pub(in crate::db::schema) const fn op(&self) -> PersistedIndexExpressionOp {
+        self.op
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn source(&self) -> &SchemaFieldPathIndexRebuildKey {
+        &self.source
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn input_kind(&self) -> &PersistedFieldKind {
+        &self.input_kind
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn output_kind(&self) -> &PersistedFieldKind {
+        &self.output_kind
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn canonical_text(&self) -> &str {
+        self.canonical_text.as_str()
+    }
+}
+
+///
 /// MutationCompatibility
 ///
 /// Stable high-level compatibility bucket for one mutation plan. This is kept
@@ -292,6 +423,9 @@ pub(in crate::db::schema) enum SchemaRebuildIndexKind {
 pub(in crate::db::schema) enum SchemaRebuildAction {
     BuildFieldPathIndex {
         target: SchemaFieldPathIndexRebuildTarget,
+    },
+    BuildExpressionIndex {
+        target: SchemaExpressionIndexRebuildTarget,
     },
     BuildIndex {
         name: String,
@@ -508,9 +642,9 @@ impl MutationPlan {
     /// Stage an accepted deterministic expression index addition. This shares
     /// the same rebuild bucket as field-path indexes but remains a separate
     /// mutation so canonical expression metadata can be audited independently.
-    fn expression_index_addition(name: String) -> Self {
+    fn expression_index_addition(target: SchemaExpressionIndexRebuildTarget) -> Self {
         Self {
-            mutations: vec![SchemaMutation::AddExpressionIndex { name }],
+            mutations: vec![SchemaMutation::AddExpressionIndex { target }],
             compatibility: MutationCompatibility::RequiresRebuild,
             rebuild: RebuildRequirement::IndexRebuildRequired,
         }
@@ -611,10 +745,9 @@ impl MutationPlan {
                         target: target.clone(),
                     });
                 }
-                SchemaMutation::AddExpressionIndex { name } => {
-                    actions.push(SchemaRebuildAction::BuildIndex {
-                        name: name.clone(),
-                        kind: SchemaRebuildIndexKind::Expression,
+                SchemaMutation::AddExpressionIndex { target } => {
+                    actions.push(SchemaRebuildAction::BuildExpressionIndex {
+                        target: target.clone(),
                     });
                 }
                 SchemaMutation::DropNonRequiredSecondaryIndex { name } => {
@@ -710,16 +843,7 @@ impl SchemaMutationRequest<'_> {
             return Err(AcceptedSchemaMutationError::EmptyIndexKey);
         }
 
-        let key_paths = paths
-            .iter()
-            .map(|path| SchemaFieldPathIndexRebuildKey {
-                field_id: path.field_id(),
-                slot: path.slot(),
-                path: path.path().to_vec(),
-                kind: path.kind().clone(),
-                nullable: path.nullable(),
-            })
-            .collect();
+        let key_paths = paths.iter().map(field_path_rebuild_key).collect();
 
         Ok(Self::AddNonUniqueFieldPathIndex {
             target: SchemaFieldPathIndexRebuildTarget {
@@ -729,6 +853,66 @@ impl SchemaMutationRequest<'_> {
                 unique: index.unique(),
                 predicate_sql: index.predicate_sql().map(str::to_string),
                 key_paths,
+            },
+        })
+    }
+
+    /// Lower one accepted deterministic expression index snapshot into a
+    /// mutation request. Unique indexes, field-path-only keys, and empty keys
+    /// fail closed until their validators and rebuild semantics exist.
+    #[allow(
+        dead_code,
+        reason = "0.152 stages accepted expression-index mutation lowering before DDL/rebuild callers use it"
+    )]
+    pub(in crate::db::schema) fn from_accepted_expression_index(
+        index: &PersistedIndexSnapshot,
+    ) -> Result<Self, AcceptedSchemaMutationError> {
+        if index.unique() {
+            return Err(AcceptedSchemaMutationError::UniqueIndexRequiresDedicatedValidation);
+        }
+
+        let PersistedIndexKeySnapshot::Items(items) = index.key() else {
+            return Err(AcceptedSchemaMutationError::UnsupportedIndexKeyShape);
+        };
+
+        if items.is_empty() {
+            return Err(AcceptedSchemaMutationError::EmptyIndexKey);
+        }
+
+        let mut has_expression = false;
+        let key_items = items
+            .iter()
+            .map(|item| match item {
+                PersistedIndexKeyItemSnapshot::FieldPath(path) => {
+                    SchemaExpressionIndexRebuildKey::FieldPath(field_path_rebuild_key(path))
+                }
+                PersistedIndexKeyItemSnapshot::Expression(expression) => {
+                    has_expression = true;
+                    SchemaExpressionIndexRebuildKey::Expression(Box::new(
+                        SchemaExpressionIndexRebuildExpression {
+                            op: expression.op(),
+                            source: field_path_rebuild_key(expression.source()),
+                            input_kind: expression.input_kind().clone(),
+                            output_kind: expression.output_kind().clone(),
+                            canonical_text: expression.canonical_text().to_string(),
+                        },
+                    ))
+                }
+            })
+            .collect();
+
+        if !has_expression {
+            return Err(AcceptedSchemaMutationError::ExpressionIndexRequiresExpressionKey);
+        }
+
+        Ok(Self::AddExpressionIndex {
+            target: SchemaExpressionIndexRebuildTarget {
+                ordinal: index.ordinal(),
+                name: index.name().to_string(),
+                store: index.store().to_string(),
+                unique: index.unique(),
+                predicate_sql: index.predicate_sql().map(str::to_string),
+                key_items,
             },
         })
     }
@@ -743,7 +927,7 @@ impl SchemaMutationRequest<'_> {
             Self::AddNonUniqueFieldPathIndex { target } => {
                 MutationPlan::non_unique_field_path_index_addition(target)
             }
-            Self::AddExpressionIndex { name } => MutationPlan::expression_index_addition(name),
+            Self::AddExpressionIndex { target } => MutationPlan::expression_index_addition(target),
             Self::DropNonRequiredSecondaryIndex { name } => {
                 MutationPlan::secondary_index_drop(name)
             }
@@ -790,9 +974,9 @@ impl SchemaMutation {
                 write_hash_tag_u8(hasher, 3);
                 target.hash_into(hasher);
             }
-            Self::AddExpressionIndex { name } => {
+            Self::AddExpressionIndex { target } => {
                 write_hash_tag_u8(hasher, 4);
-                write_hash_str_u32(hasher, name);
+                target.hash_into(hasher);
             }
             Self::DropNonRequiredSecondaryIndex { name } => {
                 write_hash_tag_u8(hasher, 5);
@@ -880,6 +1064,66 @@ impl SchemaFieldPathIndexRebuildKey {
     }
 }
 
+impl SchemaExpressionIndexRebuildTarget {
+    #[allow(
+        dead_code,
+        reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
+    )]
+    fn hash_into(&self, hasher: &mut sha2::Sha256) {
+        write_hash_u32(hasher, u32::from(self.ordinal));
+        write_hash_str_u32(hasher, &self.name);
+        write_hash_str_u32(hasher, &self.store);
+        write_hash_bool(hasher, self.unique);
+        match &self.predicate_sql {
+            Some(predicate_sql) => {
+                write_hash_tag_u8(hasher, 1);
+                write_hash_str_u32(hasher, predicate_sql);
+            }
+            None => write_hash_tag_u8(hasher, 0),
+        }
+        write_hash_u32(
+            hasher,
+            u32::try_from(self.key_items.len()).unwrap_or(u32::MAX),
+        );
+        for key_item in &self.key_items {
+            key_item.hash_into(hasher);
+        }
+    }
+}
+
+impl SchemaExpressionIndexRebuildKey {
+    #[allow(
+        dead_code,
+        reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
+    )]
+    fn hash_into(&self, hasher: &mut sha2::Sha256) {
+        match self {
+            Self::FieldPath(path) => {
+                write_hash_tag_u8(hasher, 1);
+                path.hash_into(hasher);
+            }
+            Self::Expression(expression) => {
+                write_hash_tag_u8(hasher, 2);
+                expression.hash_into(hasher);
+            }
+        }
+    }
+}
+
+impl SchemaExpressionIndexRebuildExpression {
+    #[allow(
+        dead_code,
+        reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
+    )]
+    fn hash_into(&self, hasher: &mut sha2::Sha256) {
+        write_hash_u32(hasher, self.op as u32);
+        self.source.hash_into(hasher);
+        write_hash_str_u32(hasher, &format!("{:?}", self.input_kind));
+        write_hash_str_u32(hasher, &format!("{:?}", self.output_kind));
+        write_hash_str_u32(hasher, &self.canonical_text);
+    }
+}
+
 #[allow(
     dead_code,
     reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
@@ -901,6 +1145,18 @@ fn hash_field_identity(
 )]
 fn write_hash_bool(hasher: &mut sha2::Sha256, value: bool) {
     write_hash_tag_u8(hasher, u8::from(value));
+}
+
+fn field_path_rebuild_key(
+    path: &PersistedIndexFieldPathSnapshot,
+) -> SchemaFieldPathIndexRebuildKey {
+    SchemaFieldPathIndexRebuildKey {
+        field_id: path.field_id(),
+        slot: path.slot(),
+        path: path.path().to_vec(),
+        kind: path.kind().clone(),
+        nullable: path.nullable(),
+    }
 }
 
 // Return generated fields for the additive shape that can become an accepted
@@ -943,11 +1199,12 @@ mod tests {
     use crate::{
         db::schema::{
             AcceptedSchemaMutationError, FieldId, MutationCompatibility, MutationPlan,
-            PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot,
+            PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,
+            PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
             PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
             PersistedSchemaSnapshot, RebuildRequirement, SchemaFieldDefault, SchemaFieldSlot,
             SchemaMutation, SchemaMutationDelta, SchemaMutationRequest, SchemaRebuildAction,
-            SchemaRebuildIndexKind, SchemaRowLayout, SchemaVersion, classify_schema_mutation_delta,
+            SchemaRowLayout, SchemaVersion, classify_schema_mutation_delta,
             mutation::{MutationPublicationBlocker, MutationPublicationStatus},
             schema_mutation_request_for_snapshots,
         },
@@ -995,6 +1252,25 @@ mod tests {
         )
     }
 
+    fn expression_name_index() -> PersistedIndexSnapshot {
+        PersistedIndexSnapshot::new(
+            2,
+            "by_lower_name".to_string(),
+            "test::mutation::by_lower_name".to_string(),
+            false,
+            PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::Expression(
+                Box::new(PersistedIndexExpressionSnapshot::new(
+                    PersistedIndexExpressionOp::Lower,
+                    name_key_path(),
+                    PersistedFieldKind::Text { max_len: None },
+                    PersistedFieldKind::Text { max_len: None },
+                    "expr:v1:LOWER(name)".to_string(),
+                )),
+            )]),
+            Some("LOWER(name) IS NOT NULL".to_string()),
+        )
+    }
+
     #[test]
     fn append_only_field_mutation_plan_is_no_rebuild() {
         let field = nullable_text_field("nickname", 3, 2);
@@ -1038,10 +1314,10 @@ mod tests {
         )
         .expect("non-unique field-path index should lower")
         .lower_to_plan();
-        let expression = SchemaMutationRequest::AddExpressionIndex {
-            name: "by_lower".to_string(),
-        }
-        .lower_to_plan();
+        let expression =
+            SchemaMutationRequest::from_accepted_expression_index(&expression_name_index())
+                .expect("accepted expression index should lower")
+                .lower_to_plan();
         let drop = SchemaMutationRequest::DropNonRequiredSecondaryIndex {
             name: "by_name".to_string(),
         }
@@ -1069,10 +1345,10 @@ mod tests {
         )
         .expect("non-unique field-path index should lower")
         .lower_to_plan();
-        let expression = SchemaMutationRequest::AddExpressionIndex {
-            name: "by_lower".to_string(),
-        }
-        .lower_to_plan();
+        let expression =
+            SchemaMutationRequest::from_accepted_expression_index(&expression_name_index())
+                .expect("accepted expression index should lower")
+                .lower_to_plan();
         let drop = SchemaMutationRequest::DropNonRequiredSecondaryIndex {
             name: "by_name".to_string(),
         }
@@ -1096,13 +1372,32 @@ mod tests {
         assert_eq!(key_path.path(), &["name".to_string()]);
         assert_eq!(key_path.kind(), &PersistedFieldKind::Text { max_len: None });
         assert!(!key_path.nullable());
+        let expression_rebuild = expression.rebuild_plan();
+        let [SchemaRebuildAction::BuildExpressionIndex { target }] = expression_rebuild.actions()
+        else {
+            panic!("expression index addition should derive one expression rebuild target");
+        };
+        assert_eq!(target.ordinal(), 2);
+        assert_eq!(target.name(), "by_lower_name");
+        assert_eq!(target.store(), "test::mutation::by_lower_name");
+        assert!(!target.unique());
+        assert_eq!(target.predicate_sql(), Some("LOWER(name) IS NOT NULL"));
+        let [super::SchemaExpressionIndexRebuildKey::Expression(expression)] = target.key_items()
+        else {
+            panic!("expression rebuild target should carry one expression key");
+        };
+        assert_eq!(expression.op(), PersistedIndexExpressionOp::Lower);
+        assert_eq!(expression.canonical_text(), "expr:v1:LOWER(name)");
         assert_eq!(
-            expression.rebuild_plan().actions(),
-            &[SchemaRebuildAction::BuildIndex {
-                name: "by_lower".to_string(),
-                kind: SchemaRebuildIndexKind::Expression,
-            }],
+            expression.input_kind(),
+            &PersistedFieldKind::Text { max_len: None }
         );
+        assert_eq!(
+            expression.output_kind(),
+            &PersistedFieldKind::Text { max_len: None }
+        );
+        assert_eq!(expression.source().field_id(), FieldId::new(2));
+        assert_eq!(expression.source().slot(), SchemaFieldSlot::new(1));
         assert_eq!(
             drop.rebuild_plan().actions(),
             &[SchemaRebuildAction::DropIndex {
@@ -1150,6 +1445,54 @@ mod tests {
         );
         assert_eq!(
             SchemaMutationRequest::from_accepted_non_unique_field_path_index(&empty),
+            Err(AcceptedSchemaMutationError::EmptyIndexKey),
+        );
+    }
+
+    #[test]
+    fn expression_index_request_lowering_fails_closed_for_unsupported_indexes() {
+        let unique = PersistedIndexSnapshot::new(
+            1,
+            "unique_lower_name".to_string(),
+            "test::mutation::unique_lower_name".to_string(),
+            true,
+            expression_name_index().key().clone(),
+            None,
+        );
+        let field_path_only = non_unique_name_index();
+        let items_without_expression = PersistedIndexSnapshot::new(
+            2,
+            "items_name".to_string(),
+            "test::mutation::items_name".to_string(),
+            false,
+            PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::FieldPath(
+                name_key_path(),
+            )]),
+            None,
+        );
+        let empty = PersistedIndexSnapshot::new(
+            3,
+            "empty_expression".to_string(),
+            "test::mutation::empty_expression".to_string(),
+            false,
+            PersistedIndexKeySnapshot::Items(Vec::new()),
+            None,
+        );
+
+        assert_eq!(
+            SchemaMutationRequest::from_accepted_expression_index(&unique),
+            Err(AcceptedSchemaMutationError::UniqueIndexRequiresDedicatedValidation),
+        );
+        assert_eq!(
+            SchemaMutationRequest::from_accepted_expression_index(&field_path_only),
+            Err(AcceptedSchemaMutationError::UnsupportedIndexKeyShape),
+        );
+        assert_eq!(
+            SchemaMutationRequest::from_accepted_expression_index(&items_without_expression),
+            Err(AcceptedSchemaMutationError::ExpressionIndexRequiresExpressionKey),
+        );
+        assert_eq!(
+            SchemaMutationRequest::from_accepted_expression_index(&empty),
             Err(AcceptedSchemaMutationError::EmptyIndexKey),
         );
     }
