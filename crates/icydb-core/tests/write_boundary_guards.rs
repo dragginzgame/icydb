@@ -346,11 +346,11 @@ fn accepted_schema_info_index_membership_uses_persisted_index_contracts() {
         "accepted schema snapshots must expose persisted index contracts before SchemaInfo can use accepted index authority",
     );
     assert!(
-        schema_info.contains("fn accepted_field_is_indexed(")
-            && schema_info_compact.contains(
-                "snapshot.indexes().iter().any(|index|index.key().references_field(field_id))"
-            )
-            && schema_info.contains("indexed: accepted_field_is_indexed(snapshot, field.id()),")
+        schema_info.contains("fn accepted_indexed_field_ids(")
+            && schema_info.contains("index.key().references_field(field.id())")
+            && schema_info
+                .contains("let indexed_field_ids = accepted_indexed_field_ids(snapshot);")
+            && schema_info.contains("indexed: indexed_field_ids.contains(&field.id()),")
             && schema_info.contains("fn generated_field_is_indexed(")
             && schema_info.contains(
                 "field.indexed = generated_field_is_indexed(model, field_name.as_str());"
@@ -372,6 +372,10 @@ fn accepted_schema_info_index_membership_uses_persisted_index_contracts() {
             && schema_info.contains("fn schema_index_info_from_accepted_index(")
             && schema_info.contains("fn schema_expression_index_info_from_accepted_index(")
             && schema_info_compact.contains("indexes:snapshot.indexes().iter().filter_map(|index|schema_index_info_from_accepted_index(index,snapshot)).collect(),")
+            && schema_info.contains("include_expression_indexes: bool")
+            && schema_info.contains(
+                "from_accepted_snapshot_for_model_with_expression_indexes(model, schema, false)"
+            )
             && schema_info.contains("expression_indexes: snapshot")
             && schema_info.contains(
                 "schema_expression_index_info_from_accepted_index(index, snapshot)"

@@ -55,14 +55,21 @@ fn generated_field_is_indexed(model: &EntityModel, field_name: &str) -> bool {
         .any(|index| index.fields().contains(&field_name))
 }
 
-// Resolve top-level index membership from accepted persisted index contracts.
-// Runtime accepted schema views must not reopen generated `EntityModel`
-// indexes after schema acceptance.
-fn accepted_field_is_indexed(snapshot: &PersistedSchemaSnapshot, field_id: FieldId) -> bool {
-    snapshot
-        .indexes()
-        .iter()
-        .any(|index| index.key().references_field(field_id))
+// Resolve top-level index membership from accepted persisted index contracts
+// once per schema view. Runtime accepted schema views must not reopen generated
+// `EntityModel` indexes after schema acceptance.
+fn accepted_indexed_field_ids(snapshot: &PersistedSchemaSnapshot) -> Vec<FieldId> {
+    let mut field_ids = Vec::new();
+
+    for index in snapshot.indexes() {
+        for field in snapshot.fields() {
+            if index.key().references_field(field.id()) && !field_ids.contains(&field.id()) {
+                field_ids.push(field.id());
+            }
+        }
+    }
+
+    field_ids
 }
 
 fn accepted_field_name(snapshot: &PersistedSchemaSnapshot, field_id: FieldId) -> Option<&str> {
@@ -714,7 +721,23 @@ impl SchemaInfo {
         model: &EntityModel,
         schema: &AcceptedSchemaSnapshot,
     ) -> Self {
+        Self::from_accepted_snapshot_for_model_with_expression_indexes(model, schema, false)
+    }
+
+    /// Build one owned schema view from an accepted persisted snapshot and
+    /// optionally project accepted expression-index metadata.
+    ///
+    /// Expression-index metadata is intentionally opt-in until planner/write
+    /// routing consumes it. The ordinary accepted `SchemaInfo` path is hot
+    /// during query loops and should not pay for staged DTO projection.
+    #[must_use]
+    fn from_accepted_snapshot_for_model_with_expression_indexes(
+        model: &EntityModel,
+        schema: &AcceptedSchemaSnapshot,
+        include_expression_indexes: bool,
+    ) -> Self {
         let snapshot = schema.persisted_snapshot();
+        let indexed_field_ids = accepted_indexed_field_ids(snapshot);
         let mut fields = snapshot
             .fields()
             .iter()
@@ -740,7 +763,7 @@ impl SchemaInfo {
                         leaf_codec: field.leaf_codec(),
                         sql_capabilities: sql_capabilities(field.kind()),
                         persisted_kind: Some(field.kind().clone()),
-                        indexed: accepted_field_is_indexed(snapshot, field.id()),
+                        indexed: indexed_field_ids.contains(&field.id()),
                         nested_leaves: Some(field.nested_leaves().to_vec()),
                         nested_fields: generated_nested_fields,
                     },
@@ -767,7 +790,9 @@ impl SchemaInfo {
                 .indexes()
                 .iter()
                 .filter_map(|index| {
-                    schema_expression_index_info_from_accepted_index(index, snapshot)
+                    include_expression_indexes
+                        .then(|| schema_expression_index_info_from_accepted_index(index, snapshot))
+                        .flatten()
                 })
                 .collect(),
             entity_name: Some(schema.entity_name().to_string()),
@@ -777,6 +802,20 @@ impl SchemaInfo {
                 .iter()
                 .any(|field| persisted_kind_has_strong_relation(field.kind())),
         }
+    }
+
+    /// Build one accepted schema view with expression-index metadata projected.
+    ///
+    /// This constructor exists for the 0.151 expression-index routing slice and
+    /// tests that need to inspect accepted expression contracts without adding
+    /// allocation work to every existing accepted schema view.
+    #[must_use]
+    #[cfg(test)]
+    fn from_accepted_snapshot_for_model_including_expression_indexes(
+        model: &EntityModel,
+        schema: &AcceptedSchemaSnapshot,
+    ) -> Self {
+        Self::from_accepted_snapshot_for_model_with_expression_indexes(model, schema, true)
     }
 
     /// Return one cached schema view for a trusted generated entity model.
@@ -1333,7 +1372,9 @@ mod tests {
     #[test]
     fn accepted_snapshot_schema_info_exposes_persisted_expression_indexes() {
         let snapshot = accepted_schema_with_lower_name_index();
-        let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
+        let accepted = SchemaInfo::from_accepted_snapshot_for_model_including_expression_indexes(
+            &MODEL, &snapshot,
+        );
 
         assert!(
             accepted.field_path_indexes().is_empty(),

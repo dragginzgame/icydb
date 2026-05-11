@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.151.x] 🧩 - 2026-05-11 - Accepted Expression Index Contracts
 
-- `0.151.1` adds accepted expression index key contracts to persisted schema snapshots, projects generated expression key items into accepted source-field, operation, input/output kind, and canonical-text metadata during schema proposal construction, round-trips the new contract through the schema snapshot codec, and exposes accepted expression-index contracts through `SchemaInfo` while keeping runtime field-path index visibility filtered to field-path indexes.
+- `0.151.1` adds accepted expression index key contracts to persisted schema snapshots, projects generated expression key items into accepted source-field, operation, input/output kind, and canonical-text metadata during schema proposal construction, round-trips the new contract through the schema snapshot codec, and stages opt-in `SchemaInfo` expression-index projection while keeping runtime field-path index visibility filtered to field-path indexes.
 - `0.151.0` starts the accepted expression-index contract phase with a design and status plan for moving expression index planning, explain, fingerprints, writes, uniqueness validation, and recovery from generated runtime metadata onto accepted schema contracts.
 
 See detailed breakdown:
