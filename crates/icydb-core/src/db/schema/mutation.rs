@@ -663,6 +663,355 @@ pub(in crate::db::schema) enum SchemaMutationRunnerPreflight {
 }
 
 ///
+/// SchemaMutationRunnerPhase
+///
+/// Named phase boundary for physical schema mutation runners. 0.153 starts by
+/// making these diagnostics explicit before any runner can mutate storage.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages runner outcome diagnostics before physical runners consume them"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaMutationRunnerPhase {
+    Preflight,
+    StageStores,
+    BuildPhysicalState,
+    ValidatePhysicalState,
+    InvalidateRuntimeState,
+    PublishSnapshot,
+    Diagnostics,
+}
+
+///
+/// SchemaMutationStoreVisibility
+///
+/// Visibility state for schema mutation physical stores. Rebuilt or
+/// cleanup-affected state must remain staged-only until publication.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages staged-store visibility contracts before physical runners consume them"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaMutationStoreVisibility {
+    StagedOnly,
+    Published,
+}
+
+///
+/// SchemaMutationRunnerRejectionKind
+///
+/// Classified runner rejection category. These categories keep preflight and
+/// future physical failures distinguishable without matching error strings.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages runner rejection diagnostics before physical runners consume them"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaMutationRunnerRejectionKind {
+    MissingCapabilities,
+    UnsupportedRequirement,
+    UnsupportedExecutionStep,
+    ValidationFailed,
+    RollbackFailed,
+    PublicationFailed,
+}
+
+///
+/// SchemaMutationRunnerRejection
+///
+/// Structured rejection from a runner phase. Preflight uses it immediately;
+/// later slices can report validation, rollback, and publication failures
+/// through the same contract.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages runner rejection diagnostics before physical runners consume them"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaMutationRunnerRejection {
+    phase: SchemaMutationRunnerPhase,
+    kind: SchemaMutationRunnerRejectionKind,
+    requirement: Option<RebuildRequirement>,
+    missing_capabilities: Vec<SchemaMutationRunnerCapability>,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages runner rejection diagnostics before physical runners consume them"
+)]
+impl SchemaMutationRunnerRejection {
+    #[must_use]
+    const fn unsupported_requirement(requirement: RebuildRequirement) -> Self {
+        Self {
+            phase: SchemaMutationRunnerPhase::Preflight,
+            kind: SchemaMutationRunnerRejectionKind::UnsupportedRequirement,
+            requirement: Some(requirement),
+            missing_capabilities: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    const fn missing_runner_capabilities(
+        requirement: Option<RebuildRequirement>,
+        missing_capabilities: Vec<SchemaMutationRunnerCapability>,
+    ) -> Self {
+        Self {
+            phase: SchemaMutationRunnerPhase::Preflight,
+            kind: SchemaMutationRunnerRejectionKind::MissingCapabilities,
+            requirement,
+            missing_capabilities,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn phase(&self) -> SchemaMutationRunnerPhase {
+        self.phase
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn kind(&self) -> SchemaMutationRunnerRejectionKind {
+        self.kind
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn requirement(&self) -> Option<RebuildRequirement> {
+        self.requirement
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn missing_capabilities(
+        &self,
+    ) -> &[SchemaMutationRunnerCapability] {
+        self.missing_capabilities.as_slice()
+    }
+}
+
+///
+/// SchemaMutationRunnerReport
+///
+/// Positive runner diagnostic report. The first 0.153 slice records only
+/// preflight facts; later physical phases should extend this report instead of
+/// inventing a second diagnostics lane.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages runner diagnostics before physical runners consume them"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaMutationRunnerReport {
+    step_count: usize,
+    required_capabilities: Vec<SchemaMutationRunnerCapability>,
+    completed_phases: Vec<SchemaMutationRunnerPhase>,
+    store_visibility: Option<SchemaMutationStoreVisibility>,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages runner diagnostics before physical runners consume them"
+)]
+impl SchemaMutationRunnerReport {
+    #[must_use]
+    fn preflight_ready(
+        step_count: usize,
+        required_capabilities: Vec<SchemaMutationRunnerCapability>,
+        store_visibility: Option<SchemaMutationStoreVisibility>,
+    ) -> Self {
+        Self {
+            step_count,
+            required_capabilities,
+            completed_phases: vec![SchemaMutationRunnerPhase::Preflight],
+            store_visibility,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn step_count(&self) -> usize {
+        self.step_count
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn required_capabilities(
+        &self,
+    ) -> &[SchemaMutationRunnerCapability] {
+        self.required_capabilities.as_slice()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn completed_phases(&self) -> &[SchemaMutationRunnerPhase] {
+        self.completed_phases.as_slice()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store_visibility(
+        &self,
+    ) -> Option<SchemaMutationStoreVisibility> {
+        self.store_visibility
+    }
+}
+
+///
+/// SchemaMutationRunnerOutcome
+///
+/// Runner-facing outcome after evaluating one execution plan against the
+/// advertised runner contract. `ReadyForPhysicalWork` is not publication; it is
+/// the point where a later runner may start staged physical work.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages runner outcomes before physical runners consume them"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaMutationRunnerOutcome {
+    NoPhysicalWork(SchemaMutationRunnerReport),
+    ReadyForPhysicalWork(SchemaMutationRunnerReport),
+    Rejected(SchemaMutationRunnerRejection),
+}
+
+///
+/// SchemaMutationRunnerInputError
+///
+/// Fail-closed input construction error before a physical runner can see a
+/// schema mutation. These are catalog identity errors, not runner failures.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages checked runner inputs before physical runners consume them"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaMutationRunnerInputError {
+    EntityPath,
+    EntityName,
+    PrimaryKeyField,
+}
+
+///
+/// SchemaMutationRunnerInput
+///
+/// Accepted-schema-native input for physical mutation runners. It binds the
+/// before snapshot, after snapshot, and schema-owned execution plan together so
+/// runner code never reconstructs mutation semantics from generated metadata.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages checked runner inputs before physical runners consume them"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaMutationRunnerInput<'a> {
+    accepted_before: &'a PersistedSchemaSnapshot,
+    accepted_after: &'a PersistedSchemaSnapshot,
+    execution_plan: SchemaMutationExecutionPlan,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages checked runner inputs before physical runners consume them"
+)]
+impl<'a> SchemaMutationRunnerInput<'a> {
+    pub(in crate::db::schema) fn new(
+        accepted_before: &'a PersistedSchemaSnapshot,
+        accepted_after: &'a PersistedSchemaSnapshot,
+        execution_plan: SchemaMutationExecutionPlan,
+    ) -> Result<Self, SchemaMutationRunnerInputError> {
+        if accepted_before.entity_path() != accepted_after.entity_path() {
+            return Err(SchemaMutationRunnerInputError::EntityPath);
+        }
+
+        if accepted_before.entity_name() != accepted_after.entity_name() {
+            return Err(SchemaMutationRunnerInputError::EntityName);
+        }
+
+        if accepted_before.primary_key_field_id() != accepted_after.primary_key_field_id() {
+            return Err(SchemaMutationRunnerInputError::PrimaryKeyField);
+        }
+
+        Ok(Self {
+            accepted_before,
+            accepted_after,
+            execution_plan,
+        })
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn accepted_before(&self) -> &PersistedSchemaSnapshot {
+        self.accepted_before
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn accepted_after(&self) -> &PersistedSchemaSnapshot {
+        self.accepted_after
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn execution_plan(&self) -> &SchemaMutationExecutionPlan {
+        &self.execution_plan
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn outcome(
+        &self,
+        runner: &SchemaMutationRunnerContract,
+    ) -> SchemaMutationRunnerOutcome {
+        runner.outcome(&self.execution_plan)
+    }
+}
+
+///
+/// SchemaMutationNoopRunner
+///
+/// No-op schema mutation runner adapter. It consumes checked runner inputs and
+/// reports the preflight outcome for an empty capability contract, so metadata-
+/// only inputs can pass through while physical-work inputs fail closed until a
+/// real staged runner exists.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages the no-op runner adapter before physical runners consume inputs"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaMutationNoopRunner {
+    contract: SchemaMutationRunnerContract,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages the no-op runner adapter before physical runners consume inputs"
+)]
+impl SchemaMutationNoopRunner {
+    #[must_use]
+    pub(in crate::db::schema) fn new() -> Self {
+        Self {
+            contract: SchemaMutationRunnerContract::new(&[]),
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn run(
+        &self,
+        input: &SchemaMutationRunnerInput<'_>,
+    ) -> SchemaMutationRunnerOutcome {
+        input.outcome(&self.contract)
+    }
+}
+
+impl Default for SchemaMutationNoopRunner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+///
 /// MutationPublicationPreflight
 ///
 /// Publication-boundary decision after consulting runner preflight. It keeps
@@ -751,6 +1100,43 @@ impl SchemaMutationRunnerContract {
             }
             SchemaMutationExecutionAdmission::Rejected { requirement } => {
                 SchemaMutationRunnerPreflight::Rejected { requirement }
+            }
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn outcome(
+        &self,
+        execution_plan: &SchemaMutationExecutionPlan,
+    ) -> SchemaMutationRunnerOutcome {
+        match self.preflight(execution_plan) {
+            SchemaMutationRunnerPreflight::NoPhysicalWork => {
+                SchemaMutationRunnerOutcome::NoPhysicalWork(
+                    SchemaMutationRunnerReport::preflight_ready(0, Vec::new(), None),
+                )
+            }
+            SchemaMutationRunnerPreflight::Ready {
+                step_count,
+                required,
+            } => SchemaMutationRunnerOutcome::ReadyForPhysicalWork(
+                SchemaMutationRunnerReport::preflight_ready(
+                    step_count,
+                    required,
+                    Some(SchemaMutationStoreVisibility::StagedOnly),
+                ),
+            ),
+            SchemaMutationRunnerPreflight::MissingCapabilities { missing } => {
+                SchemaMutationRunnerOutcome::Rejected(
+                    SchemaMutationRunnerRejection::missing_runner_capabilities(
+                        execution_plan.physical_requirement(),
+                        missing,
+                    ),
+                )
+            }
+            SchemaMutationRunnerPreflight::Rejected { requirement } => {
+                SchemaMutationRunnerOutcome::Rejected(
+                    SchemaMutationRunnerRejection::unsupported_requirement(requirement),
+                )
             }
         }
     }
@@ -891,6 +1277,15 @@ impl SchemaMutationExecutionPlan {
             SchemaMutationExecutionReadiness::Unsupported(requirement) => {
                 SchemaMutationExecutionGate::Rejected { requirement }
             }
+        }
+    }
+
+    #[must_use]
+    const fn physical_requirement(&self) -> Option<RebuildRequirement> {
+        match self.execution_gate() {
+            SchemaMutationExecutionGate::ReadyToPublish => None,
+            SchemaMutationExecutionGate::AwaitingPhysicalWork { requirement, .. }
+            | SchemaMutationExecutionGate::Rejected { requirement } => Some(requirement),
         }
     }
 
@@ -2197,6 +2592,238 @@ mod tests {
     }
 
     #[test]
+    fn runner_outcome_reports_no_work_and_ready_physical_work() {
+        let metadata_only =
+            MutationPlan::append_only_fields(&[nullable_text_field("nickname", 3, 2)]);
+        let field_path = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower")
+        .lower_to_plan();
+        let runner = super::SchemaMutationRunnerContract::new(&[
+            super::SchemaMutationRunnerCapability::BuildFieldPathIndex,
+            super::SchemaMutationRunnerCapability::ValidatePhysicalWork,
+            super::SchemaMutationRunnerCapability::InvalidateRuntimeState,
+        ]);
+
+        let super::SchemaMutationRunnerOutcome::NoPhysicalWork(no_work) =
+            runner.outcome(&metadata_only.execution_plan())
+        else {
+            panic!("metadata-only mutation should not require physical work");
+        };
+        assert_eq!(no_work.step_count(), 0);
+        assert!(no_work.required_capabilities().is_empty());
+        assert_eq!(
+            no_work.completed_phases(),
+            &[super::SchemaMutationRunnerPhase::Preflight],
+        );
+        assert_eq!(no_work.store_visibility(), None);
+
+        let super::SchemaMutationRunnerOutcome::ReadyForPhysicalWork(ready) =
+            runner.outcome(&field_path.execution_plan())
+        else {
+            panic!("field-path index mutation should be ready for staged physical work");
+        };
+        assert_eq!(ready.step_count(), 3);
+        assert_eq!(
+            ready.required_capabilities(),
+            &[
+                super::SchemaMutationRunnerCapability::BuildFieldPathIndex,
+                super::SchemaMutationRunnerCapability::ValidatePhysicalWork,
+                super::SchemaMutationRunnerCapability::InvalidateRuntimeState,
+            ],
+        );
+        assert_eq!(
+            ready.completed_phases(),
+            &[super::SchemaMutationRunnerPhase::Preflight],
+        );
+        assert_eq!(
+            ready.store_visibility(),
+            Some(super::SchemaMutationStoreVisibility::StagedOnly),
+        );
+    }
+
+    #[test]
+    fn runner_outcome_classifies_missing_capabilities_and_unsupported_requirements() {
+        let field_path = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower")
+        .lower_to_plan();
+        let incompatible = SchemaMutationRequest::Incompatible.lower_to_plan();
+        let no_runner = super::SchemaMutationRunnerContract::new(&[]);
+
+        let super::SchemaMutationRunnerOutcome::Rejected(missing) =
+            no_runner.outcome(&field_path.execution_plan())
+        else {
+            panic!("missing runner capabilities should reject before physical work");
+        };
+        assert_eq!(missing.phase(), super::SchemaMutationRunnerPhase::Preflight);
+        assert_eq!(
+            missing.kind(),
+            super::SchemaMutationRunnerRejectionKind::MissingCapabilities,
+        );
+        assert_eq!(
+            missing.requirement(),
+            Some(RebuildRequirement::IndexRebuildRequired),
+        );
+        assert_eq!(
+            missing.missing_capabilities(),
+            &[
+                super::SchemaMutationRunnerCapability::BuildFieldPathIndex,
+                super::SchemaMutationRunnerCapability::ValidatePhysicalWork,
+                super::SchemaMutationRunnerCapability::InvalidateRuntimeState,
+            ],
+        );
+
+        let super::SchemaMutationRunnerOutcome::Rejected(unsupported) =
+            no_runner.outcome(&incompatible.execution_plan())
+        else {
+            panic!("full rewrite should remain rejected by runner outcome");
+        };
+        assert_eq!(
+            unsupported.kind(),
+            super::SchemaMutationRunnerRejectionKind::UnsupportedRequirement,
+        );
+        assert_eq!(
+            unsupported.requirement(),
+            Some(RebuildRequirement::FullDataRewriteRequired),
+        );
+        assert!(unsupported.missing_capabilities().is_empty());
+    }
+
+    #[test]
+    fn runner_input_binds_accepted_snapshots_to_execution_plan() {
+        let before = base_snapshot();
+        let added = nullable_text_field("nickname", 3, 2);
+        let after = append_fields_snapshot(&before, std::slice::from_ref(&added));
+        let plan = MutationPlan::append_only_fields(&[added]);
+        let input = super::SchemaMutationRunnerInput::new(&before, &after, plan.execution_plan())
+            .expect("same-entity accepted snapshots should build runner input");
+        let runner = super::SchemaMutationRunnerContract::new(&[]);
+
+        assert_eq!(input.accepted_before().entity_path(), before.entity_path());
+        assert_eq!(
+            input.accepted_after().fields().len(),
+            before.fields().len() + 1,
+        );
+        assert_eq!(
+            input.execution_plan().readiness(),
+            super::SchemaMutationExecutionReadiness::PublishableNow,
+        );
+        assert!(matches!(
+            input.outcome(&runner),
+            super::SchemaMutationRunnerOutcome::NoPhysicalWork(_),
+        ));
+    }
+
+    #[test]
+    fn runner_input_rejects_cross_entity_snapshot_pairs() {
+        let before = base_snapshot();
+        let wrong_entity = PersistedSchemaSnapshot::new(
+            before.version(),
+            "test::OtherEntity".to_string(),
+            before.entity_name().to_string(),
+            before.primary_key_field_id(),
+            before.row_layout().clone(),
+            before.fields().to_vec(),
+        );
+        let wrong_name = PersistedSchemaSnapshot::new(
+            before.version(),
+            before.entity_path().to_string(),
+            "OtherEntity".to_string(),
+            before.primary_key_field_id(),
+            before.row_layout().clone(),
+            before.fields().to_vec(),
+        );
+        let wrong_pk = PersistedSchemaSnapshot::new(
+            before.version(),
+            before.entity_path().to_string(),
+            before.entity_name().to_string(),
+            FieldId::new(99),
+            before.row_layout().clone(),
+            before.fields().to_vec(),
+        );
+
+        assert_eq!(
+            super::SchemaMutationRunnerInput::new(
+                &before,
+                &wrong_entity,
+                MutationPlan::exact_match().execution_plan(),
+            ),
+            Err(super::SchemaMutationRunnerInputError::EntityPath),
+        );
+        assert_eq!(
+            super::SchemaMutationRunnerInput::new(
+                &before,
+                &wrong_name,
+                MutationPlan::exact_match().execution_plan(),
+            ),
+            Err(super::SchemaMutationRunnerInputError::EntityName),
+        );
+        assert_eq!(
+            super::SchemaMutationRunnerInput::new(
+                &before,
+                &wrong_pk,
+                MutationPlan::exact_match().execution_plan(),
+            ),
+            Err(super::SchemaMutationRunnerInputError::PrimaryKeyField),
+        );
+    }
+
+    #[test]
+    fn noop_runner_accepts_metadata_only_input_and_rejects_physical_work() {
+        let before = base_snapshot();
+        let added = nullable_text_field("nickname", 3, 2);
+        let metadata_after = append_fields_snapshot(&before, std::slice::from_ref(&added));
+        let metadata_input = super::SchemaMutationRunnerInput::new(
+            &before,
+            &metadata_after,
+            MutationPlan::append_only_fields(&[added]).execution_plan(),
+        )
+        .expect("metadata-only same-entity input should build");
+        let index_after = snapshot_with_indexes(&before, vec![non_unique_name_index()]);
+        let index_plan = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower")
+        .lower_to_plan();
+        let index_input = super::SchemaMutationRunnerInput::new(
+            &before,
+            &index_after,
+            index_plan.execution_plan(),
+        )
+        .expect("index same-entity input should build");
+        let runner = super::SchemaMutationNoopRunner::new();
+
+        assert!(matches!(
+            runner.run(&metadata_input),
+            super::SchemaMutationRunnerOutcome::NoPhysicalWork(_),
+        ));
+
+        let super::SchemaMutationRunnerOutcome::Rejected(rejection) = runner.run(&index_input)
+        else {
+            panic!("no-op runner must reject physical index work");
+        };
+        assert_eq!(
+            rejection.kind(),
+            super::SchemaMutationRunnerRejectionKind::MissingCapabilities,
+        );
+        assert_eq!(
+            rejection.requirement(),
+            Some(RebuildRequirement::IndexRebuildRequired),
+        );
+        assert_eq!(
+            rejection.missing_capabilities(),
+            &[
+                super::SchemaMutationRunnerCapability::BuildFieldPathIndex,
+                super::SchemaMutationRunnerCapability::ValidatePhysicalWork,
+                super::SchemaMutationRunnerCapability::InvalidateRuntimeState,
+            ],
+        );
+    }
+
+    #[test]
     fn execution_plan_keeps_full_rewrite_and_unsupported_non_executable() {
         let incompatible = SchemaMutationRequest::Incompatible.lower_to_plan();
         let rewrite_execution = incompatible.execution_plan();
@@ -2531,6 +3158,47 @@ mod tests {
                     LeafCodec::Scalar(ScalarCodec::Text),
                 ),
             ],
+        )
+    }
+
+    fn append_fields_snapshot(
+        snapshot: &PersistedSchemaSnapshot,
+        fields: &[PersistedFieldSnapshot],
+    ) -> PersistedSchemaSnapshot {
+        let mut next_fields = snapshot.fields().to_vec();
+        next_fields.extend_from_slice(fields);
+
+        let mut next_layout_entries = snapshot.row_layout().field_to_slot().to_vec();
+        next_layout_entries.extend(fields.iter().map(|field| (field.id(), field.slot())));
+
+        PersistedSchemaSnapshot::new(
+            SchemaVersion::new(snapshot.version().get() + 1),
+            snapshot.entity_path().to_string(),
+            snapshot.entity_name().to_string(),
+            snapshot.primary_key_field_id(),
+            SchemaRowLayout::new(
+                SchemaVersion::new(snapshot.row_layout().version().get() + 1),
+                next_layout_entries,
+            ),
+            next_fields,
+        )
+    }
+
+    fn snapshot_with_indexes(
+        snapshot: &PersistedSchemaSnapshot,
+        indexes: Vec<PersistedIndexSnapshot>,
+    ) -> PersistedSchemaSnapshot {
+        PersistedSchemaSnapshot::new_with_indexes(
+            SchemaVersion::new(snapshot.version().get() + 1),
+            snapshot.entity_path().to_string(),
+            snapshot.entity_name().to_string(),
+            snapshot.primary_key_field_id(),
+            SchemaRowLayout::new(
+                SchemaVersion::new(snapshot.row_layout().version().get() + 1),
+                snapshot.row_layout().field_to_slot().to_vec(),
+            ),
+            snapshot.fields().to_vec(),
+            indexes,
         )
     }
 

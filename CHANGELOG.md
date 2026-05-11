@@ -5,6 +5,19 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.153.x] 🏗️ - 2026-05-11 - Schema Rebuild Runners
+
+- `0.153.0` starts schema rebuild runner implementation by adding internal
+  runner phase, outcome, rejection, report, staged-store visibility, and
+  checked runner input contracts plus a no-op runner adapter on top of the
+  0.152 execution preflight boundary, keeping physical rebuild execution and
+  publication widening deferred.
+
+See detailed breakdown:
+[docs/changelog/0.153.md](docs/changelog/0.153.md)
+
+---
+
 ## [0.152.x] 🧱 - 2026-05-11 - Catalog-Native Schema Mutations
 
 - `0.152.8` adds the `0.153` schema rebuild runner design, defining the next minor as accepted-schema-backed physical rebuild and cleanup execution with staged store visibility, validation, rollback, runtime schema identity invalidation, and publication while keeping SQL DDL and full row rewrites deferred.
