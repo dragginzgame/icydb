@@ -26,7 +26,8 @@ use crate::{
         },
         schema::{
             PersistedIndexExpressionOp, SchemaExpressionIndexInfo,
-            SchemaExpressionIndexKeyItemInfo, SchemaIndexFieldPathInfo, SchemaIndexInfo,
+            SchemaExpressionIndexKeyItemInfo, SchemaFieldPathIndexRebuildKey,
+            SchemaFieldPathIndexRebuildTarget, SchemaIndexFieldPathInfo, SchemaIndexInfo,
             SchemaInfo,
         },
     },
@@ -41,6 +42,12 @@ type AcceptedFieldPathComponentEncoder<'a> = dyn FnMut(&SchemaIndexInfo, &Schema
     + 'a;
 type AcceptedExpressionComponentEncoder<'a> =
     dyn FnMut(&SchemaExpressionIndexKeyItemInfo) -> Result<Option<Vec<u8>>, InternalError> + 'a;
+#[allow(
+    dead_code,
+    reason = "0.153 stages field-path rebuild key materialization before physical runners call it"
+)]
+type FieldPathRebuildComponentEncoder<'a> =
+    dyn FnMut(&SchemaFieldPathIndexRebuildKey) -> Result<Option<Vec<u8>>, InternalError> + 'a;
 
 #[cfg(test)]
 fn value_for_expression(
@@ -194,6 +201,24 @@ impl IndexKey {
             accepted_index,
             slots,
         )
+    }
+
+    /// Build a field-path rebuild index key from one canonical slot reader
+    /// using the accepted mutation target, not generated or runtime planner
+    /// metadata.
+    #[allow(
+        dead_code,
+        reason = "0.153 stages field-path rebuild key materialization before physical runners call it"
+    )]
+    pub(crate) fn new_from_slots_with_field_path_rebuild_target(
+        entity_tag: EntityTag,
+        storage_key: StorageKey,
+        target: &SchemaFieldPathIndexRebuildTarget,
+        slots: &dyn CanonicalSlotReader,
+    ) -> Result<Option<Self>, InternalError> {
+        build_field_path_rebuild_target_key(entity_tag, storage_key, target, &mut |field| {
+            field_path_rebuild_component_bytes_from_slots(field, slots)
+        })
     }
 
     /// Build an expression index key from one canonical slot reader using
@@ -600,6 +625,22 @@ fn accepted_expression_component_bytes_from_slots(
     }
 }
 
+#[allow(
+    dead_code,
+    reason = "0.153 stages field-path rebuild key materialization before physical runners call it"
+)]
+fn field_path_rebuild_component_bytes_from_slots(
+    field: &SchemaFieldPathIndexRebuildKey,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<Option<Vec<u8>>, InternalError> {
+    let source = slots.required_value_by_contract_cow(usize::from(field.slot().get()))?;
+    let Some(source) = resolve_field_path_rebuild_component(source.as_ref(), field)? else {
+        return Ok(None);
+    };
+
+    encode_value_index_component_ref(source)
+}
+
 fn resolve_accepted_field_path_component<'a>(
     root: &'a Value,
     field: &SchemaIndexFieldPathInfo,
@@ -610,6 +651,34 @@ fn resolve_accepted_field_path_component<'a>(
             InternalError::persisted_row_field_decode_failed(
                 field.field_name(),
                 "field-path index traversal requires a map value",
+            )
+        })?;
+        let Some((_, value)) = entries
+            .iter()
+            .find(|(key, _)| matches!(key, Value::Text(text) if text == segment))
+        else {
+            return Ok(None);
+        };
+        current = value;
+    }
+
+    Ok(Some(current))
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages field-path rebuild key materialization before physical runners call it"
+)]
+fn resolve_field_path_rebuild_component<'a>(
+    root: &'a Value,
+    field: &SchemaFieldPathIndexRebuildKey,
+) -> Result<Option<&'a Value>, InternalError> {
+    let mut current = root;
+    for segment in field.path().iter().skip(1) {
+        let entries = current.as_map().ok_or_else(|| {
+            InternalError::persisted_row_field_decode_failed(
+                field.field_name(),
+                "field-path rebuild traversal requires a map value",
             )
         })?;
         let Some((_, value)) = entries
@@ -673,6 +742,49 @@ fn build_accepted_expression_index_key_from_slots(
             accepted_expression_component_bytes_from_slots(accepted_index, key_item, slots)
         },
     )
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages field-path rebuild key materialization before physical runners call it"
+)]
+fn build_field_path_rebuild_target_key(
+    entity_tag: EntityTag,
+    storage_key: StorageKey,
+    target: &SchemaFieldPathIndexRebuildTarget,
+    component_bytes: &mut FieldPathRebuildComponentEncoder<'_>,
+) -> Result<Option<IndexKey>, InternalError> {
+    let component_count = target.key_paths().len();
+    if component_count > MAX_INDEX_FIELDS {
+        return Err(InternalError::index_key_field_count_exceeds_max(
+            target.name(),
+            component_count,
+            MAX_INDEX_FIELDS,
+        ));
+    }
+
+    let mut components = Vec::with_capacity(component_count);
+    for field in target.key_paths() {
+        let Some(component) = component_bytes(field)? else {
+            return Ok(None);
+        };
+
+        if component.len() > IndexKey::MAX_COMPONENT_SIZE {
+            return Err(InternalError::index_component_exceeds_max_size(
+                accepted_field_path_term(field.field_name(), field.path()),
+                component.len(),
+                IndexKey::MAX_COMPONENT_SIZE,
+            ));
+        }
+        components.push(component);
+    }
+
+    Ok(Some(IndexKey {
+        key_kind: IndexKeyKind::User,
+        index_id: IndexId::new(entity_tag, target.ordinal()),
+        components,
+        primary_key: storage_key.to_bytes()?.to_vec(),
+    }))
 }
 
 fn build_accepted_field_path_index_key<'a>(

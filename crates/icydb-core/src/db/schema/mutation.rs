@@ -133,7 +133,7 @@ pub(in crate::db::schema) enum AcceptedSchemaMutationError {
     reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
 )]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) struct SchemaFieldPathIndexRebuildTarget {
+pub(in crate::db) struct SchemaFieldPathIndexRebuildTarget {
     ordinal: u16,
     name: String,
     store: String,
@@ -148,27 +148,27 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexRebuildTarget {
 )]
 impl SchemaFieldPathIndexRebuildTarget {
     #[must_use]
-    pub(in crate::db::schema) const fn ordinal(&self) -> u16 {
+    pub(in crate::db) const fn ordinal(&self) -> u16 {
         self.ordinal
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn name(&self) -> &str {
+    pub(in crate::db) const fn name(&self) -> &str {
         self.name.as_str()
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn store(&self) -> &str {
+    pub(in crate::db) const fn store(&self) -> &str {
         self.store.as_str()
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn unique(&self) -> bool {
+    pub(in crate::db) const fn unique(&self) -> bool {
         self.unique
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn predicate_sql(&self) -> Option<&str> {
+    pub(in crate::db) const fn predicate_sql(&self) -> Option<&str> {
         match &self.predicate_sql {
             Some(predicate_sql) => Some(predicate_sql.as_str()),
             None => None,
@@ -176,7 +176,7 @@ impl SchemaFieldPathIndexRebuildTarget {
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn key_paths(&self) -> &[SchemaFieldPathIndexRebuildKey] {
+    pub(in crate::db) const fn key_paths(&self) -> &[SchemaFieldPathIndexRebuildKey] {
         self.key_paths.as_slice()
     }
 }
@@ -193,7 +193,7 @@ impl SchemaFieldPathIndexRebuildTarget {
     reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
 )]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) struct SchemaFieldPathIndexRebuildKey {
+pub(in crate::db) struct SchemaFieldPathIndexRebuildKey {
     field_id: FieldId,
     slot: SchemaFieldSlot,
     path: Vec<String>,
@@ -207,27 +207,32 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexRebuildKey {
 )]
 impl SchemaFieldPathIndexRebuildKey {
     #[must_use]
-    pub(in crate::db::schema) const fn field_id(&self) -> FieldId {
+    pub(in crate::db) const fn field_id(&self) -> FieldId {
         self.field_id
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn slot(&self) -> SchemaFieldSlot {
+    pub(in crate::db) const fn slot(&self) -> SchemaFieldSlot {
         self.slot
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn path(&self) -> &[String] {
+    pub(in crate::db) const fn path(&self) -> &[String] {
         self.path.as_slice()
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn kind(&self) -> &PersistedFieldKind {
+    pub(in crate::db) fn field_name(&self) -> &str {
+        self.path.first().map_or("", String::as_str)
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn kind(&self) -> &PersistedFieldKind {
         &self.kind
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn nullable(&self) -> bool {
+    pub(in crate::db) const fn nullable(&self) -> bool {
         self.nullable
     }
 }
@@ -2312,19 +2317,82 @@ fn append_only_additive_fields<'a>(
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::schema::{
-            AcceptedSchemaMutationError, FieldId, MutationCompatibility, MutationPlan,
-            PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,
-            PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
-            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-            PersistedSchemaSnapshot, RebuildRequirement, SchemaFieldDefault, SchemaFieldSlot,
-            SchemaMutation, SchemaMutationDelta, SchemaMutationRequest, SchemaRebuildAction,
-            SchemaRowLayout, SchemaVersion, classify_schema_mutation_delta,
-            mutation::{MutationPublicationBlocker, MutationPublicationStatus},
-            schema_mutation_request_for_snapshots,
+        db::{
+            data::{
+                CanonicalSlotReader, ScalarSlotValueRef, SlotReader, StructuralFieldDecodeContract,
+            },
+            index::{IndexId, IndexKey},
+            schema::{
+                AcceptedSchemaMutationError, FieldId, MutationCompatibility, MutationPlan,
+                PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,
+                PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
+                PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+                PersistedSchemaSnapshot, RebuildRequirement, SchemaFieldDefault, SchemaFieldSlot,
+                SchemaMutation, SchemaMutationDelta, SchemaMutationRequest, SchemaRebuildAction,
+                SchemaRowLayout, SchemaVersion, classify_schema_mutation_delta,
+                mutation::{MutationPublicationBlocker, MutationPublicationStatus},
+                schema_mutation_request_for_snapshots,
+            },
         },
+        error::InternalError,
+        model::field::FieldModel,
         model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
+        types::EntityTag,
+        value::Value,
     };
+    use std::borrow::Cow;
+
+    struct RebuildSlotReader {
+        values: Vec<Option<Value>>,
+    }
+
+    impl SlotReader for RebuildSlotReader {
+        fn generated_compatible_field_model(
+            &self,
+            _slot: usize,
+        ) -> Result<&FieldModel, InternalError> {
+            panic!("rebuild key test reader should not reopen generated field models")
+        }
+
+        fn has(&self, slot: usize) -> bool {
+            self.values.get(slot).is_some_and(Option::is_some)
+        }
+
+        fn get_bytes(&self, _slot: usize) -> Option<&[u8]> {
+            panic!("rebuild key test reader should not decode raw bytes")
+        }
+
+        fn get_scalar(
+            &self,
+            _slot: usize,
+        ) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
+            panic!("rebuild key test reader should not route through scalar fast paths")
+        }
+
+        fn get_value(&mut self, _slot: usize) -> Result<Option<Value>, InternalError> {
+            panic!("rebuild key test reader should not route through generated get_value")
+        }
+    }
+
+    impl CanonicalSlotReader for RebuildSlotReader {
+        fn field_decode_contract(
+            &self,
+            _slot: usize,
+        ) -> Result<StructuralFieldDecodeContract, InternalError> {
+            panic!("rebuild key test reader should not decode through field contracts")
+        }
+
+        fn required_value_by_contract_cow(
+            &self,
+            slot: usize,
+        ) -> Result<Cow<'_, Value>, InternalError> {
+            self.values
+                .get(slot)
+                .and_then(Option::as_ref)
+                .map(Cow::Borrowed)
+                .ok_or_else(|| InternalError::persisted_row_declared_field_missing("test"))
+        }
+    }
 
     fn nullable_text_field(name: &str, id: u32, slot: u16) -> PersistedFieldSnapshot {
         PersistedFieldSnapshot::new(
@@ -3039,6 +3107,38 @@ mod tests {
         );
         assert_eq!(published.visible_epoch(), published.after_epoch());
         assert_eq!(published.published_epoch(), Some(published.after_epoch()));
+    }
+
+    #[test]
+    fn field_path_rebuild_key_materializes_from_accepted_target_slots() {
+        let request = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower to a rebuild target");
+        let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } = request else {
+            panic!("field-path index request should preserve rebuild target");
+        };
+        let slots = RebuildSlotReader {
+            values: vec![None, Some(Value::Text("Ada".to_string()))],
+        };
+        let storage_key = crate::db::data::StorageKey::Uint(42);
+
+        let key = IndexKey::new_from_slots_with_field_path_rebuild_target(
+            EntityTag::new(7),
+            storage_key,
+            &target,
+            &slots,
+        )
+        .expect("accepted field-path target should build index key")
+        .expect("text key component should be indexable");
+
+        assert_eq!(key.index_id(), &IndexId::new(EntityTag::new(7), 1));
+        assert_eq!(key.component_count(), 1);
+        assert_eq!(
+            key.primary_storage_key()
+                .expect("index key should carry primary storage key"),
+            storage_key,
+        );
     }
 
     #[test]

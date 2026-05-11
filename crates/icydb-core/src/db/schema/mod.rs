@@ -62,6 +62,9 @@ pub(in crate::db::schema) use mutation::{
     MutationPublicationStatus, SchemaMutationRequest, SchemaMutationRunnerContract,
     schema_mutation_request_for_snapshots,
 };
+pub(in crate::db) use mutation::{
+    SchemaFieldPathIndexRebuildKey, SchemaFieldPathIndexRebuildTarget,
+};
 #[cfg(test)]
 pub(in crate::db::schema) use mutation::{SchemaMutationDelta, classify_schema_mutation_delta};
 pub(in crate::db) use proposal::compiled_schema_proposal_for_model;
