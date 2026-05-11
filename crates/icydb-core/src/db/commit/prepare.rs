@@ -293,16 +293,7 @@ where
             !schema_contracts.schema_info.field_path_indexes().is_empty();
         let has_accepted_expression_indexes =
             !schema_contracts.schema_info.expression_indexes().is_empty();
-        let has_deferred_expression_indexes = !has_accepted_expression_indexes
-            && authority
-                .model
-                .indexes()
-                .iter()
-                .any(|index| index.has_expression_key_items());
-        let index_plan = if !has_accepted_field_path_indexes
-            && !has_accepted_expression_indexes
-            && !has_deferred_expression_indexes
-        {
+        let index_plan = if !has_accepted_field_path_indexes && !has_accepted_expression_indexes {
             empty_forward_index_plan()
         } else {
             prepare_forward_index_commit_leaf(
@@ -380,7 +371,6 @@ where
     match plan_index_mutation_for_slot_reader_structural(
         authority.entity_path,
         authority.entity_tag,
-        authority.model,
         &schema_contracts.schema_info,
         &read_view,
         &schema_contracts.row_contract,

@@ -5,6 +5,8 @@
 
 #[cfg(test)]
 use crate::model::entity::EntityModel;
+#[cfg(test)]
+use crate::model::index::IndexModel;
 use crate::{
     MAX_INDEX_FIELDS,
     db::{
@@ -12,7 +14,7 @@ use crate::{
             SemanticIndexAccessContract, SemanticIndexExpression, SemanticIndexKeyItemRef,
             SemanticIndexKeyItemsRef,
         },
-        data::{CanonicalSlotReader, StorageKey, StructuralRowContract},
+        data::{CanonicalSlotReader, StorageKey},
         index::{
             derive_index_expression_value,
             key::ordered::encode_canonical_index_component,
@@ -29,7 +31,7 @@ use crate::{
         },
     },
     error::InternalError,
-    model::index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
+    model::index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef},
     types::EntityTag,
     value::Value,
 };
@@ -40,6 +42,7 @@ type AcceptedFieldPathComponentEncoder<'a> = dyn FnMut(&SchemaIndexInfo, &Schema
 type AcceptedExpressionComponentEncoder<'a> =
     dyn FnMut(&SchemaExpressionIndexKeyItemInfo) -> Result<Option<Vec<u8>>, InternalError> + 'a;
 
+#[cfg(test)]
 fn value_for_expression(
     index: &IndexModel,
     expression: IndexExpression,
@@ -177,22 +180,6 @@ fn index_component_bytes_from_slot_ref_reader_with_access_contract<'a>(
 }
 
 impl IndexKey {
-    /// Build an index key from one slot reader using accepted row-contract
-    /// field-slot authority.
-    pub(crate) fn new_from_slots_with_contract(
-        entity_tag: EntityTag,
-        storage_key: StorageKey,
-        row_contract: &StructuralRowContract,
-        slots: &dyn CanonicalSlotReader,
-        index: &IndexModel,
-    ) -> Result<Option<Self>, InternalError> {
-        let mut component_bytes = |key_item| {
-            index_component_bytes_from_slots_with_contract(row_contract, slots, index, key_item)
-        };
-
-        build_index_key(entity_tag, storage_key, index, &mut component_bytes)
-    }
-
     /// Build a field-path index key from one canonical slot reader using
     /// accepted index-contract slot authority.
     pub(crate) fn new_from_slots_with_accepted_field_path_index(
@@ -782,8 +769,8 @@ fn build_accepted_field_path_index_key_from_components(
     }))
 }
 
-// Build one user-facing index key by sharing the canonical component walk
-// across structural slot readers and typed slot-reader adapters.
+// Build one generated user-facing index key for the generated-model test bridge.
+#[cfg(test)]
 fn build_index_key(
     entity_tag: EntityTag,
     storage_key: StorageKey,
@@ -988,33 +975,6 @@ fn push_index_key_component_label(
 
     components.push(component);
     Ok(())
-}
-
-// Build one canonical index component from accepted row-contract slot
-// authority. This path intentionally avoids reopening `EntityModel` field slots
-// while write-time index planning is already holding an accepted contract.
-fn index_component_bytes_from_slots_with_contract(
-    row_contract: &StructuralRowContract,
-    slots: &dyn CanonicalSlotReader,
-    index: &IndexModel,
-    key_item: IndexKeyItem,
-) -> Result<Option<Vec<u8>>, InternalError> {
-    let field = key_item.field();
-    let field_index = row_contract.field_slot_index_by_name(field)?;
-
-    match key_item {
-        IndexKeyItem::Field(_) => encode_value_index_component_ref(
-            slots.required_value_by_contract_cow(field_index)?.as_ref(),
-        ),
-        IndexKeyItem::Expression(expression) => {
-            let source = slots.required_value_by_contract_cow(field_index)?;
-            let Some(value) = value_for_expression(index, expression, source.into_owned())? else {
-                return Ok(None);
-            };
-
-            encode_value_index_component(value)
-        }
-    }
 }
 
 // Encode one owned runtime value into canonical index bytes.

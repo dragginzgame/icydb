@@ -657,15 +657,18 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
         "structural row contracts must expose accepted-first field-name to slot lookup",
     );
     assert!(
-        index_key_build.contains("pub(crate) fn new_from_slots_with_contract(")
-            && index_key_build.contains("row_contract.field_slot_index_by_name(field)?")
-            && index_key_build
-                .contains("pub(crate) fn new_from_slots_with_accepted_field_path_index")
+        index_key_build.contains("pub(crate) fn new_from_slots_with_accepted_field_path_index")
             && index_key_build.contains("fn build_accepted_field_path_index_key_from_slots(")
             && index_key_build.contains("accepted_field_path_component_bytes_from_slots(")
+            && index_key_build
+                .contains("pub(crate) fn new_from_slots_with_accepted_expression_index")
+            && index_key_build.contains("fn build_accepted_expression_index_key_from_slots(")
+            && !index_key_build.contains("pub(crate) fn new_from_slots_with_contract(")
+            && !index_key_build.contains("index_component_bytes_from_slots_with_contract(")
+            && !index_key_build.contains("row_contract.field_slot_index_by_name(field)?")
             && !index_key_build.contains("pub(crate) fn new_from_slots(\n")
             && !index_key_build.contains("compile_scalar_index_key_item_program("),
-        "write-time field-path index key construction must resolve key shape through accepted index contracts and slots through accepted row contracts",
+        "write-time index key construction must resolve key shape through accepted index contracts without retaining the generated structural contract builder",
     );
     assert!(
         index_key_build.contains("pub(crate) fn new_from_slot_ref_reader_with_access_contract")
@@ -698,24 +701,16 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
         "runtime field-path cursor anchors must use accepted index contracts while expression indexes stay on the explicit generated deferred lane",
     );
     assert!(
-        index_plan.contains("IndexKey::new_from_slots_with_contract(")
-            && index_plan.contains("for accepted_index in schema_info.field_path_indexes()")
+        index_plan.contains("for accepted_index in schema_info.field_path_indexes()")
             && index_plan.contains("for accepted_index in accepted_expression_indexes")
             && index_plan.contains("fn accepted_predicate_program_for_accepted_field_path_index(")
             && index_plan.contains("fn accepted_predicate_program_for_accepted_expression_index(")
-            && index_plan.contains("struct GeneratedExpressionIndex")
-            && index_plan.contains("fn from_model(model: &'a EntityModel) -> Vec<Self>")
-            && index_plan.contains("index.has_expression_key_items().then_some(Self { index })")
             && index_plan
                 .contains("let accepted_expression_indexes = schema_info.expression_indexes();")
-            && index_plan.contains("if accepted_expression_indexes.is_empty()")
-            && index_plan.contains("index: GeneratedExpressionIndex<'_>,")
             && index_plan
                 .contains("plan_accepted_field_path_index_mutation_for_slot_reader_structural(")
             && index_plan
                 .contains("plan_accepted_expression_index_mutation_for_slot_reader_structural(")
-            && index_plan
-                .contains("plan_generated_expression_index_mutation_for_slot_reader_structural(")
             && index_plan.contains("accepted_index: &SchemaIndexInfo")
             && index_plan.contains("accepted_index: &SchemaExpressionIndexInfo")
             && !index_plan.contains("accepted_index: Option<&SchemaIndexInfo>")
@@ -724,15 +719,22 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
             && index_plan.contains("IndexKey::new_from_slots_with_accepted_expression_index(")
             && index_plan.contains("fn accepted_index_fields_csv(")
             && index_plan.contains("fn accepted_expression_index_fields_csv(")
-            && index_plan.contains("fn generated_expression_index_fields_csv(")
             && index_plan.contains("let index_store = accepted_index.store();")
             && index_plan.contains("let index_is_unique = accepted_index.unique();")
             && index_plan.contains("PredicateProgram::compile_with_row_contract(")
             && index_plan.contains("row_contract,")
+            && !index_plan.contains("struct GeneratedExpressionIndex")
+            && !index_plan.contains("GeneratedExpressionIndex")
+            && !index_plan.contains("IndexKey::new_from_slots_with_contract(")
+            && !index_plan.contains("fn generated_expression_index_fields_csv(")
+            && !index_plan
+                .contains("compile_generated_expression_index_membership_predicate_structural")
+            && !index_plan
+                .contains("plan_generated_expression_index_mutation_for_slot_reader_structural(")
             && !index_plan
                 .contains("fn generated_predicate_program_for_accepted_field_path_index(")
             && !index_plan.contains("IndexKey::new_from_slots("),
-        "forward-index mutation planning must iterate accepted index contracts directly while keeping generated expression indexes only as the explicit fallback lane",
+        "forward-index mutation planning must iterate accepted index contracts directly without a generated expression-index write fallback",
     );
     assert!(
         index_plan_read.contains("index: IndexReadContract<'_>")
@@ -756,8 +758,9 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
                 .contains("schema_contracts.schema_info.field_path_indexes().is_empty()")
             && commit_prepare
                 .contains("schema_contracts.schema_info.expression_indexes().is_empty()")
-            && commit_prepare.contains("has_deferred_expression_indexes")
-            && commit_prepare.contains("index.has_expression_key_items()")
+            && !commit_prepare.contains("has_deferred_expression_indexes")
+            && !commit_prepare.contains("authority.model.indexes()")
+            && !commit_prepare.contains("index.has_expression_key_items()")
             && !commit_prepare.contains("authority.model.indexes().is_empty()"),
         "commit preflight must carry expression-aware accepted schema info beside the accepted row contract and gate forward-index planning on accepted index contracts",
     );
@@ -786,26 +789,27 @@ fn unique_index_validation_splits_accepted_and_generated_authority() {
     let unique_plan = read_source("src/db/index/plan/unique.rs");
 
     assert!(
-        unique_plan.contains("IndexKey::new_from_slots_with_contract(")
-            && unique_plan.contains("enum UniqueKeyAuthority")
+        unique_plan.contains("enum UniqueKeyAuthority")
             && unique_plan.contains("AcceptedFieldPath(&'a SchemaIndexInfo)")
             && unique_plan.contains("AcceptedExpression(&'a SchemaExpressionIndexInfo)")
-            && unique_plan.contains("GeneratedExpression(GeneratedExpressionIndex<'a>)")
             && unique_plan
                 .contains("fn validate_unique_constraint_accepted_field_path_structural(")
             && unique_plan
                 .contains("fn validate_unique_constraint_accepted_expression_structural(")
-            && unique_plan
-                .contains("fn validate_unique_constraint_generated_expression_structural(")
             && unique_plan.contains("read_contract: IndexReadContract<'_>")
             && unique_plan.contains("read_contract.unique()")
             && unique_plan.contains("IndexKey::new_from_slots_with_accepted_field_path_index(")
             && unique_plan.contains("IndexKey::new_from_slots_with_accepted_expression_index(")
-            && unique_plan.contains("index.model_index()")
             && unique_plan.contains("row_contract,")
+            && !unique_plan.contains("GeneratedExpression(")
+            && !unique_plan.contains("GeneratedExpressionIndex")
+            && !unique_plan
+                .contains("fn validate_unique_constraint_generated_expression_structural(")
+            && !unique_plan.contains("IndexKey::new_from_slots_with_contract(")
+            && !unique_plan.contains("index.model_index()")
             && !unique_plan.contains("GeneratedExpression(&'a IndexModel)")
             && !unique_plan.contains("model::index::IndexModel"),
-        "unique-index validation must rebuild stored field-path index keys through accepted index and row contracts and consume accepted uniqueness",
+        "unique-index validation must rebuild stored index keys through accepted index contracts and consume accepted uniqueness",
     );
 }
 

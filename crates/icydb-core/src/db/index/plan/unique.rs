@@ -9,9 +9,7 @@ use crate::{
         data::{DataKey, StorageKey, StructuralRowContract, StructuralSlotReader},
         index::{
             IndexId, IndexKey, IndexPlanReadView, IndexReadContract,
-            plan::{
-                GeneratedExpressionIndex, accepted_expression_key_item_label, error::IndexPlanError,
-            },
+            plan::{accepted_expression_key_item_label, error::IndexPlanError},
         },
         schema::{SchemaExpressionIndexInfo, SchemaIndexFieldPathInfo, SchemaIndexInfo},
     },
@@ -23,7 +21,6 @@ use std::ops::Bound;
 enum UniqueKeyAuthority<'a> {
     AcceptedFieldPath(&'a SchemaIndexInfo),
     AcceptedExpression(&'a SchemaExpressionIndexInfo),
-    GeneratedExpression(GeneratedExpressionIndex<'a>),
 }
 
 impl UniqueKeyAuthority<'_> {
@@ -31,7 +28,6 @@ impl UniqueKeyAuthority<'_> {
         match self {
             Self::AcceptedFieldPath(index) => IndexId::new(entity_tag, index.ordinal()),
             Self::AcceptedExpression(index) => IndexId::new(entity_tag, index.ordinal()),
-            Self::GeneratedExpression(index) => IndexId::new(entity_tag, index.ordinal()),
         }
     }
 
@@ -39,7 +35,6 @@ impl UniqueKeyAuthority<'_> {
         &self,
         entity_tag: EntityTag,
         storage_key: StorageKey,
-        row_contract: &StructuralRowContract,
         row_fields: &StructuralSlotReader<'_>,
     ) -> Result<Option<IndexKey>, InternalError> {
         match self {
@@ -59,13 +54,6 @@ impl UniqueKeyAuthority<'_> {
                     row_fields,
                 )
             }
-            Self::GeneratedExpression(index) => IndexKey::new_from_slots_with_contract(
-                entity_tag,
-                storage_key,
-                row_contract,
-                row_fields,
-                index.model_index(),
-            ),
         }
     }
 
@@ -87,9 +75,6 @@ impl UniqueKeyAuthority<'_> {
                     .collect::<Vec<_>>();
                 let fields = labels.iter().map(String::as_str).collect::<Vec<_>>();
                 IndexPlanError::unique_violation(entity_path, &fields)
-            }
-            Self::GeneratedExpression(index) => {
-                IndexPlanError::unique_violation(entity_path, index.fields())
             }
         }
     }
@@ -140,32 +125,6 @@ pub(super) fn validate_unique_constraint_accepted_expression_structural(
         read_view,
         row_contract,
         UniqueKeyAuthority::AcceptedExpression(accepted_index),
-        read_contract,
-        index_fields,
-        new_storage_key,
-        new_index_key,
-    )
-}
-
-/// Validate one generated expression unique index constraint.
-#[expect(clippy::too_many_arguments)]
-pub(super) fn validate_unique_constraint_generated_expression_structural(
-    entity_path: &'static str,
-    entity_tag: EntityTag,
-    read_view: &dyn IndexPlanReadView,
-    row_contract: &StructuralRowContract,
-    index: GeneratedExpressionIndex<'_>,
-    read_contract: IndexReadContract<'_>,
-    index_fields: &str,
-    new_storage_key: Option<StorageKey>,
-    new_index_key: Option<&IndexKey>,
-) -> Result<(), IndexPlanError> {
-    validate_unique_constraint_structural_impl(
-        entity_path,
-        entity_tag,
-        read_view,
-        row_contract,
-        UniqueKeyAuthority::GeneratedExpression(index),
         read_contract,
         index_fields,
         new_storage_key,
@@ -254,7 +213,6 @@ fn validate_unique_constraint_structural_impl(
         entity_path,
         &data_key,
         existing_key,
-        row_contract,
         &row_fields,
         &key_authority,
     )?
@@ -306,16 +264,10 @@ fn build_unique_index_key_from_row_slots(
     entity_path: &'static str,
     data_key: &DataKey,
     storage_key: StorageKey,
-    row_contract: &StructuralRowContract,
     row_fields: &StructuralSlotReader<'_>,
     key_authority: &UniqueKeyAuthority<'_>,
 ) -> Result<Option<IndexKey>, InternalError> {
-    let key = key_authority.build_index_key_from_row_slots(
-        entity_tag,
-        storage_key,
-        row_contract,
-        row_fields,
-    );
+    let key = key_authority.build_index_key_from_row_slots(entity_tag, storage_key, row_fields);
 
     key.map_err(|err| {
         InternalError::index_unique_validation_key_rebuild_failed(data_key, entity_path, err)
