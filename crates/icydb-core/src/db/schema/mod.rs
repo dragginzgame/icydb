@@ -58,7 +58,8 @@ pub(in crate::db::schema) use mutation::SchemaRebuildAction;
 #[cfg(test)]
 pub(in crate::db::schema) use mutation::{MutationCompatibility, RebuildRequirement};
 pub(in crate::db::schema) use mutation::{
-    MutationPlan, MutationPublicationBlocker, MutationPublicationStatus, SchemaMutationRequest,
+    MutationPlan, MutationPublicationBlocker, MutationPublicationPreflight,
+    MutationPublicationStatus, SchemaMutationRequest, SchemaMutationRunnerContract,
     schema_mutation_request_for_snapshots,
 };
 #[cfg(test)]

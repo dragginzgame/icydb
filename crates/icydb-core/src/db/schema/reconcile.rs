@@ -7,9 +7,10 @@ use crate::{
     db::{
         Db, EntityRuntimeHooks,
         schema::{
-            AcceptedSchemaSnapshot, MutationPublicationBlocker, MutationPublicationStatus,
-            PersistedSchemaSnapshot, SchemaStore, SchemaTransitionDecision,
-            SchemaTransitionPlanKind, compiled_schema_proposal_for_model, decide_schema_transition,
+            AcceptedSchemaSnapshot, MutationPublicationBlocker, MutationPublicationPreflight,
+            PersistedSchemaSnapshot, SchemaMutationRunnerContract, SchemaStore,
+            SchemaTransitionDecision, SchemaTransitionPlanKind, compiled_schema_proposal_for_model,
+            decide_schema_transition,
             runtime::AcceptedRowLayoutRuntimeDescriptor,
             transition::{SchemaTransitionPlan, SchemaTransitionRejectionKind},
         },
@@ -149,14 +150,32 @@ fn validate_publishable_transition_plan(
     entity_path: &'static str,
     plan: &SchemaTransitionPlan,
 ) -> Result<(), InternalError> {
-    match plan.publication_status() {
-        MutationPublicationStatus::Publishable => Ok(()),
-        MutationPublicationStatus::Blocked(MutationPublicationBlocker::NotMetadataSafe(
+    let runner = SchemaMutationRunnerContract::new(&[]);
+
+    match plan.publication_preflight(&runner) {
+        MutationPublicationPreflight::PublishableNow => Ok(()),
+        MutationPublicationPreflight::PhysicalWorkReady {
+            step_count,
+            required,
+        } => Err(InternalError::store_unsupported(format!(
+            "schema mutation physical work is preflight-ready but execution is unavailable for entity '{entity_path}': steps={step_count} capabilities={required:?}",
+        ))),
+        MutationPublicationPreflight::MissingRunnerCapabilities { missing } => {
+            Err(InternalError::store_unsupported(format!(
+                "schema mutation plan requires runner preflight before publication for entity '{entity_path}': missing_capabilities={missing:?}",
+            )))
+        }
+        MutationPublicationPreflight::Rejected { requirement } => {
+            Err(InternalError::store_unsupported(format!(
+                "schema mutation plan is rejected before publication for entity '{entity_path}': rebuild={requirement:?}",
+            )))
+        }
+        MutationPublicationPreflight::Blocked(MutationPublicationBlocker::NotMetadataSafe(
             compatibility,
         )) => Err(InternalError::store_unsupported(format!(
             "schema mutation plan is not metadata-safe for entity '{entity_path}': compatibility={compatibility:?}",
         ))),
-        MutationPublicationStatus::Blocked(MutationPublicationBlocker::RebuildRequired(
+        MutationPublicationPreflight::Blocked(MutationPublicationBlocker::RebuildRequired(
             rebuild,
         )) => Err(InternalError::store_unsupported(format!(
             "schema mutation plan requires rebuild before publication for entity '{entity_path}': rebuild={rebuild:?}",

@@ -7,9 +7,10 @@ use crate::{
     db::{
         data::decode_runtime_value_from_accepted_field_contract,
         schema::{
-            AcceptedFieldDecodeContract, FieldId, MutationPlan, MutationPublicationStatus,
-            PersistedFieldSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
-            SchemaFieldSlot, SchemaMutationRequest, schema_mutation_request_for_snapshots,
+            AcceptedFieldDecodeContract, FieldId, MutationPlan, MutationPublicationPreflight,
+            MutationPublicationStatus, PersistedFieldSnapshot, PersistedNestedLeafSnapshot,
+            PersistedSchemaSnapshot, SchemaFieldSlot, SchemaMutationRequest,
+            SchemaMutationRunnerContract, schema_mutation_request_for_snapshots,
         },
     },
     value::Value,
@@ -81,8 +82,22 @@ impl SchemaTransitionPlan {
     }
 
     // Return the schema-owned runtime publication status for this transition.
+    #[allow(
+        dead_code,
+        reason = "0.152 keeps the raw publication status available for diagnostics while reconciliation uses preflight"
+    )]
     pub(in crate::db::schema) fn publication_status(&self) -> MutationPublicationStatus {
         self.mutation_plan.publication_status()
+    }
+
+    // Return the schema-owned publication decision after runner preflight. In
+    // 0.152 only `PublishableNow` may be stored; physical-work-ready plans still
+    // require a later execution/validation phase before publication.
+    pub(in crate::db::schema) fn publication_preflight(
+        &self,
+        runner: &SchemaMutationRunnerContract,
+    ) -> MutationPublicationPreflight {
+        self.mutation_plan.publication_preflight(runner)
     }
 
     // Return the deterministic mutation-plan audit identity.
