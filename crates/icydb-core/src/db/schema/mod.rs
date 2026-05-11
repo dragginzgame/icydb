@@ -54,9 +54,13 @@ pub(in crate::db::schema) use mutation::SchemaMutation;
 #[cfg(test)]
 pub(in crate::db::schema) use mutation::{MutationCompatibility, RebuildRequirement};
 pub(in crate::db::schema) use mutation::{
-    MutationPlan, MutationPublicationBlocker, MutationPublicationStatus, SchemaMutationDelta,
-    classify_schema_mutation_delta,
+    MutationPlan, MutationPublicationBlocker, MutationPublicationStatus, SchemaMutationRequest,
+    schema_mutation_request_for_snapshots,
 };
+#[cfg(test)]
+pub(in crate::db::schema) use mutation::{SchemaMutationDelta, classify_schema_mutation_delta};
+#[cfg(test)]
+pub(in crate::db::schema) use mutation::{SchemaRebuildAction, SchemaRebuildIndexKind};
 pub(in crate::db) use proposal::compiled_schema_proposal_for_model;
 pub(in crate::db) use reconcile::{ensure_accepted_schema_snapshot, reconcile_runtime_schemas};
 pub(in crate::db) use runtime::{

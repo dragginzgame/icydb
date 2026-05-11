@@ -56,6 +56,29 @@ pub(in crate::db::schema) enum SchemaMutation {
 }
 
 ///
+/// SchemaMutationRequest
+///
+/// Internal request vocabulary that lowers catalog-level mutation intent into
+/// a deterministic `MutationPlan`. SQL DDL and generated proposal comparison
+/// must route through this type instead of constructing plans ad hoc.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages the internal mutation request API before every request has a live caller"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaMutationRequest<'a> {
+    ExactMatch,
+    AppendOnlyFields(&'a [PersistedFieldSnapshot]),
+    AddNonUniqueIndex { name: String },
+    AddExpressionIndex { name: String },
+    DropNonRequiredSecondaryIndex { name: String },
+    AlterNullability { field_id: FieldId },
+    Incompatible,
+}
+
+///
 /// MutationCompatibility
 ///
 /// Stable high-level compatibility bucket for one mutation plan. This is kept
@@ -91,6 +114,115 @@ pub(in crate::db::schema) enum RebuildRequirement {
     IndexRebuildRequired,
     FullDataRewriteRequired,
     Unsupported,
+}
+
+///
+/// SchemaRebuildIndexKind
+///
+/// Index family that must be physically rebuilt before one mutation can become
+/// accepted runtime schema.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages rebuild orchestration contracts before execution consumes them"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaRebuildIndexKind {
+    FieldPath,
+    Expression,
+}
+
+///
+/// SchemaRebuildAction
+///
+/// One physical rebuild action implied by a catalog mutation plan. These
+/// actions are planning facts only; 0.152 still blocks publication until an
+/// executor owns the physical work and validation boundary.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages rebuild orchestration contracts before execution consumes them"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaRebuildAction {
+    BuildIndex {
+        name: String,
+        kind: SchemaRebuildIndexKind,
+    },
+    DropIndex {
+        name: String,
+    },
+    RewriteAllRows,
+    Unsupported {
+        reason: &'static str,
+    },
+}
+
+///
+/// SchemaRebuildPlan
+///
+/// Schema-owned physical work classification derived from a mutation plan.
+/// Reconciliation asks publication status before exposing a new accepted
+/// snapshot; rebuild plans are the audit/debug shape that will later feed the
+/// physical rebuild runner.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages rebuild orchestration contracts before execution consumes them"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaRebuildPlan {
+    requirement: RebuildRequirement,
+    actions: Vec<SchemaRebuildAction>,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages rebuild orchestration contracts before execution consumes them"
+)]
+impl SchemaRebuildPlan {
+    const fn no_rebuild() -> Self {
+        Self {
+            requirement: RebuildRequirement::NoRebuildRequired,
+            actions: Vec::new(),
+        }
+    }
+
+    const fn new(requirement: RebuildRequirement, actions: Vec<SchemaRebuildAction>) -> Self {
+        Self {
+            requirement,
+            actions,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn requirement(&self) -> RebuildRequirement {
+        self.requirement
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn actions(&self) -> &[SchemaRebuildAction] {
+        self.actions.as_slice()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn requires_physical_work(&self) -> bool {
+        !matches!(self.requirement, RebuildRequirement::NoRebuildRequired)
+    }
+
+    #[must_use]
+    const fn publication_blocker(&self) -> Option<MutationPublicationBlocker> {
+        if self.requires_physical_work() {
+            return Some(MutationPublicationBlocker::RebuildRequired(
+                self.requirement,
+            ));
+        }
+
+        None
+    }
 }
 
 ///
@@ -152,6 +284,16 @@ pub(in crate::db::schema) fn classify_schema_mutation_delta<'a>(
     )
 }
 
+/// Build one mutation request from the structural delta between two accepted
+/// snapshots. Policy validation remains in transition; this function only
+/// classifies the catalog operation to keep lowering centralized.
+pub(in crate::db::schema) fn schema_mutation_request_for_snapshots<'a>(
+    actual: &PersistedSchemaSnapshot,
+    expected: &'a PersistedSchemaSnapshot,
+) -> SchemaMutationRequest<'a> {
+    SchemaMutationRequest::from(classify_schema_mutation_delta(actual, expected))
+}
+
 ///
 /// MutationPlan
 ///
@@ -208,8 +350,7 @@ impl MutationPlan {
 
     /// Stage a non-unique index addition. This is a planning artifact only
     /// until rebuild orchestration can construct the physical index safely.
-    #[cfg(test)]
-    pub(in crate::db::schema) fn planned_non_unique_index_addition(name: String) -> Self {
+    fn non_unique_index_addition(name: String) -> Self {
         Self {
             mutations: vec![SchemaMutation::AddNonUniqueIndex { name }],
             compatibility: MutationCompatibility::RequiresRebuild,
@@ -220,8 +361,7 @@ impl MutationPlan {
     /// Stage an accepted deterministic expression index addition. This shares
     /// the same rebuild bucket as field-path indexes but remains a separate
     /// mutation so canonical expression metadata can be audited independently.
-    #[cfg(test)]
-    pub(in crate::db::schema) fn planned_expression_index_addition(name: String) -> Self {
+    fn expression_index_addition(name: String) -> Self {
         Self {
             mutations: vec![SchemaMutation::AddExpressionIndex { name }],
             compatibility: MutationCompatibility::RequiresRebuild,
@@ -231,8 +371,7 @@ impl MutationPlan {
 
     /// Stage a supported index drop. Runtime execution is deferred until store
     /// cleanup and planner invalidation are wired through the mutation engine.
-    #[cfg(test)]
-    pub(in crate::db::schema) fn planned_secondary_index_drop(name: String) -> Self {
+    fn secondary_index_drop(name: String) -> Self {
         Self {
             mutations: vec![SchemaMutation::DropNonRequiredSecondaryIndex { name }],
             compatibility: MutationCompatibility::RequiresRebuild,
@@ -242,8 +381,7 @@ impl MutationPlan {
 
     /// Stage a nullability alteration. Pre-1.0 this remains fail-closed because
     /// existing data must be proven or rewritten before accepting it.
-    #[cfg(test)]
-    pub(in crate::db::schema) fn unsupported_nullability_alteration(field_id: FieldId) -> Self {
+    fn nullability_alteration(field_id: FieldId) -> Self {
         Self {
             mutations: vec![SchemaMutation::AlterNullability { field_id }],
             compatibility: MutationCompatibility::UnsupportedPreOne,
@@ -253,8 +391,7 @@ impl MutationPlan {
 
     /// Build the generic incompatible plan used by guard tests and future
     /// diagnostics for rejected snapshot changes.
-    #[cfg(test)]
-    pub(in crate::db::schema) const fn incompatible() -> Self {
+    const fn incompatible() -> Self {
         Self {
             mutations: Vec::new(),
             compatibility: MutationCompatibility::Incompatible,
@@ -295,20 +432,72 @@ impl MutationPlan {
     /// Decide whether this mutation plan can be published as accepted runtime
     /// schema without additional physical rebuild work.
     #[must_use]
-    pub(in crate::db::schema) const fn publication_status(&self) -> MutationPublicationStatus {
+    pub(in crate::db::schema) fn publication_status(&self) -> MutationPublicationStatus {
         if !matches!(self.compatibility, MutationCompatibility::MetadataOnlySafe) {
             return MutationPublicationStatus::Blocked(
                 MutationPublicationBlocker::NotMetadataSafe(self.compatibility),
             );
         }
 
-        if !matches!(self.rebuild, RebuildRequirement::NoRebuildRequired) {
-            return MutationPublicationStatus::Blocked(
-                MutationPublicationBlocker::RebuildRequired(self.rebuild),
-            );
+        if let Some(blocker) = self.rebuild_plan().publication_blocker() {
+            return MutationPublicationStatus::Blocked(blocker);
         }
 
         MutationPublicationStatus::Publishable
+    }
+
+    /// Derive the physical rebuild plan required before this catalog mutation
+    /// can safely become accepted runtime schema.
+    #[must_use]
+    pub(in crate::db::schema) fn rebuild_plan(&self) -> SchemaRebuildPlan {
+        if matches!(self.rebuild, RebuildRequirement::NoRebuildRequired) {
+            return SchemaRebuildPlan::no_rebuild();
+        }
+
+        let mut actions = Vec::new();
+        for mutation in &self.mutations {
+            match mutation {
+                SchemaMutation::AddNullableField { .. }
+                | SchemaMutation::AddDefaultedField { .. } => {}
+                SchemaMutation::AddNonUniqueIndex { name } => {
+                    actions.push(SchemaRebuildAction::BuildIndex {
+                        name: name.clone(),
+                        kind: SchemaRebuildIndexKind::FieldPath,
+                    });
+                }
+                SchemaMutation::AddExpressionIndex { name } => {
+                    actions.push(SchemaRebuildAction::BuildIndex {
+                        name: name.clone(),
+                        kind: SchemaRebuildIndexKind::Expression,
+                    });
+                }
+                SchemaMutation::DropNonRequiredSecondaryIndex { name } => {
+                    actions.push(SchemaRebuildAction::DropIndex { name: name.clone() });
+                }
+                SchemaMutation::AlterNullability { .. } => {
+                    actions.push(SchemaRebuildAction::Unsupported {
+                        reason: "alter nullability requires data proof or rewrite",
+                    });
+                }
+            }
+        }
+
+        if actions.is_empty() {
+            actions.push(match self.rebuild {
+                RebuildRequirement::FullDataRewriteRequired => SchemaRebuildAction::RewriteAllRows,
+                RebuildRequirement::Unsupported => SchemaRebuildAction::Unsupported {
+                    reason: "unsupported schema mutation",
+                },
+                RebuildRequirement::IndexRebuildRequired => SchemaRebuildAction::Unsupported {
+                    reason: "index rebuild mutation lacks an index target",
+                },
+                RebuildRequirement::NoRebuildRequired => {
+                    unreachable!("no-rebuild plans returned before rebuild action derivation",)
+                }
+            });
+        }
+
+        SchemaRebuildPlan::new(self.rebuild, actions)
     }
 
     /// Return how many appended fields are represented by this plan.
@@ -349,6 +538,35 @@ impl MutationPlan {
         let mut fingerprint = [0u8; 16];
         fingerprint.copy_from_slice(&digest[..16]);
         fingerprint
+    }
+}
+
+impl SchemaMutationRequest<'_> {
+    /// Lower this request into the deterministic mutation plan consumed by
+    /// transition, publication, and future rebuild orchestration.
+    #[must_use]
+    pub(in crate::db::schema) fn lower_to_plan(self) -> MutationPlan {
+        match self {
+            Self::ExactMatch => MutationPlan::exact_match(),
+            Self::AppendOnlyFields(fields) => MutationPlan::append_only_fields(fields),
+            Self::AddNonUniqueIndex { name } => MutationPlan::non_unique_index_addition(name),
+            Self::AddExpressionIndex { name } => MutationPlan::expression_index_addition(name),
+            Self::DropNonRequiredSecondaryIndex { name } => {
+                MutationPlan::secondary_index_drop(name)
+            }
+            Self::AlterNullability { field_id } => MutationPlan::nullability_alteration(field_id),
+            Self::Incompatible => MutationPlan::incompatible(),
+        }
+    }
+}
+
+impl<'a> From<SchemaMutationDelta<'a>> for SchemaMutationRequest<'a> {
+    fn from(delta: SchemaMutationDelta<'a>) -> Self {
+        match delta {
+            SchemaMutationDelta::AppendOnlyFields(fields) => Self::AppendOnlyFields(fields),
+            SchemaMutationDelta::ExactMatch => Self::ExactMatch,
+            SchemaMutationDelta::Incompatible => Self::Incompatible,
+        }
     }
 }
 
@@ -482,8 +700,10 @@ mod tests {
             FieldId, MutationCompatibility, MutationPlan, PersistedFieldKind,
             PersistedFieldSnapshot, PersistedSchemaSnapshot, RebuildRequirement,
             SchemaFieldDefault, SchemaFieldSlot, SchemaMutation, SchemaMutationDelta,
-            SchemaRowLayout, SchemaVersion, classify_schema_mutation_delta,
+            SchemaMutationRequest, SchemaRebuildAction, SchemaRebuildIndexKind, SchemaRowLayout,
+            SchemaVersion, classify_schema_mutation_delta,
             mutation::{MutationPublicationBlocker, MutationPublicationStatus},
+            schema_mutation_request_for_snapshots,
         },
         model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
     };
@@ -540,9 +760,18 @@ mod tests {
 
     #[test]
     fn index_mutation_plans_are_rebuild_gated() {
-        let field_path = MutationPlan::planned_non_unique_index_addition("by_name".to_string());
-        let expression = MutationPlan::planned_expression_index_addition("by_lower".to_string());
-        let drop = MutationPlan::planned_secondary_index_drop("by_name".to_string());
+        let field_path = SchemaMutationRequest::AddNonUniqueIndex {
+            name: "by_name".to_string(),
+        }
+        .lower_to_plan();
+        let expression = SchemaMutationRequest::AddExpressionIndex {
+            name: "by_lower".to_string(),
+        }
+        .lower_to_plan();
+        let drop = SchemaMutationRequest::DropNonRequiredSecondaryIndex {
+            name: "by_name".to_string(),
+        }
+        .lower_to_plan();
 
         for plan in [&field_path, &expression, &drop] {
             assert_eq!(plan.compatibility(), MutationCompatibility::RequiresRebuild);
@@ -560,9 +789,69 @@ mod tests {
     }
 
     #[test]
+    fn rebuild_plan_derives_physical_index_actions() {
+        let field_path = SchemaMutationRequest::AddNonUniqueIndex {
+            name: "by_name".to_string(),
+        }
+        .lower_to_plan();
+        let expression = SchemaMutationRequest::AddExpressionIndex {
+            name: "by_lower".to_string(),
+        }
+        .lower_to_plan();
+        let drop = SchemaMutationRequest::DropNonRequiredSecondaryIndex {
+            name: "by_name".to_string(),
+        }
+        .lower_to_plan();
+
+        assert_eq!(
+            field_path.rebuild_plan().actions(),
+            &[SchemaRebuildAction::BuildIndex {
+                name: "by_name".to_string(),
+                kind: SchemaRebuildIndexKind::FieldPath,
+            }],
+        );
+        assert_eq!(
+            expression.rebuild_plan().actions(),
+            &[SchemaRebuildAction::BuildIndex {
+                name: "by_lower".to_string(),
+                kind: SchemaRebuildIndexKind::Expression,
+            }],
+        );
+        assert_eq!(
+            drop.rebuild_plan().actions(),
+            &[SchemaRebuildAction::DropIndex {
+                name: "by_name".to_string(),
+            }],
+        );
+    }
+
+    #[test]
+    fn rebuild_plan_keeps_unsupported_and_full_rewrite_shapes_explicit() {
+        let nullability = SchemaMutationRequest::AlterNullability {
+            field_id: FieldId::new(2),
+        }
+        .lower_to_plan();
+        let incompatible = SchemaMutationRequest::Incompatible.lower_to_plan();
+
+        assert_eq!(
+            nullability.rebuild_plan().actions(),
+            &[SchemaRebuildAction::Unsupported {
+                reason: "alter nullability requires data proof or rewrite",
+            }],
+        );
+        assert_eq!(
+            incompatible.rebuild_plan().actions(),
+            &[SchemaRebuildAction::RewriteAllRows],
+        );
+    }
+
+    #[test]
     fn unsupported_mutation_plans_fail_closed() {
-        let alteration = MutationPlan::unsupported_nullability_alteration(FieldId::new(2));
-        let incompatible = MutationPlan::incompatible();
+        let alteration = SchemaMutationRequest::AlterNullability {
+            field_id: FieldId::new(2),
+        }
+        .lower_to_plan();
+        let incompatible = SchemaMutationRequest::Incompatible.lower_to_plan();
 
         assert_eq!(
             alteration.compatibility(),
@@ -597,7 +886,7 @@ mod tests {
             compatibility: MutationCompatibility::MetadataOnlySafe,
             rebuild: RebuildRequirement::IndexRebuildRequired,
         };
-        let incompatible = MutationPlan::incompatible();
+        let incompatible = SchemaMutationRequest::Incompatible.lower_to_plan();
 
         assert_eq!(
             append_only.publication_status(),
@@ -686,6 +975,41 @@ mod tests {
 
         assert_eq!(added_fields.len(), 1);
         assert_eq!(added_fields[0].name(), "nickname");
+    }
+
+    #[test]
+    fn snapshot_delta_request_lowers_append_only_fields_to_mutation_plan() {
+        let stored = base_snapshot();
+        let mut fields = stored.fields().to_vec();
+        fields.push(nullable_text_field("nickname", 3, 2));
+        let generated = PersistedSchemaSnapshot::new(
+            stored.version(),
+            stored.entity_path().to_string(),
+            stored.entity_name().to_string(),
+            stored.primary_key_field_id(),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                    (FieldId::new(3), SchemaFieldSlot::new(2)),
+                ],
+            ),
+            fields,
+        );
+
+        let SchemaMutationRequest::AppendOnlyFields(added_fields) =
+            schema_mutation_request_for_snapshots(&stored, &generated)
+        else {
+            panic!("append-only snapshot change should lower into append-only request");
+        };
+
+        let plan = SchemaMutationRequest::AppendOnlyFields(added_fields).lower_to_plan();
+        assert_eq!(plan.added_field_count(), 1);
+        assert_eq!(
+            plan.publication_status(),
+            MutationPublicationStatus::Publishable
+        );
     }
 
     #[test]

@@ -9,7 +9,7 @@ use crate::{
         schema::{
             AcceptedFieldDecodeContract, FieldId, MutationPlan, MutationPublicationStatus,
             PersistedFieldSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
-            SchemaFieldSlot, SchemaMutationDelta, classify_schema_mutation_delta,
+            SchemaFieldSlot, SchemaMutationRequest, schema_mutation_request_for_snapshots,
         },
     },
     value::Value,
@@ -62,22 +62,15 @@ pub(in crate::db::schema) struct SchemaTransitionPlan {
 }
 
 impl SchemaTransitionPlan {
-    // Build the current no-op transition plan used when stored and generated
-    // schema snapshots are exactly equal.
-    const fn exact_match() -> Self {
+    // Build one transition plan from a schema-owned mutation request after
+    // transition policy has selected the accepted plan kind.
+    fn from_mutation_request(
+        kind: SchemaTransitionPlanKind,
+        request: SchemaMutationRequest<'_>,
+    ) -> Self {
         Self {
-            kind: SchemaTransitionPlanKind::ExactMatch,
-            mutation_plan: MutationPlan::exact_match(),
-        }
-    }
-
-    // Build the accepted append-only nullable transition plan. Runtime decode
-    // consumes accepted absence policies, so reconciliation only needs to
-    // publish the new generated snapshot after this schema-owned policy check.
-    fn append_only_nullable_fields(added_fields: &[PersistedFieldSnapshot]) -> Self {
-        Self {
-            kind: SchemaTransitionPlanKind::AppendOnlyNullableFields,
-            mutation_plan: MutationPlan::append_only_fields(added_fields),
+            kind,
+            mutation_plan: request.lower_to_plan(),
         }
     }
 
@@ -88,7 +81,7 @@ impl SchemaTransitionPlan {
     }
 
     // Return the schema-owned runtime publication status for this transition.
-    pub(in crate::db::schema) const fn publication_status(&self) -> MutationPublicationStatus {
+    pub(in crate::db::schema) fn publication_status(&self) -> MutationPublicationStatus {
         self.mutation_plan.publication_status()
     }
 
@@ -173,20 +166,33 @@ pub(in crate::db::schema) fn decide_schema_transition(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
 ) -> SchemaTransitionDecision {
-    match classify_schema_mutation_delta(actual, expected) {
-        SchemaMutationDelta::ExactMatch => {
-            return SchemaTransitionDecision::Accepted(SchemaTransitionPlan::exact_match());
+    match schema_mutation_request_for_snapshots(actual, expected) {
+        SchemaMutationRequest::ExactMatch => {
+            return SchemaTransitionDecision::Accepted(
+                SchemaTransitionPlan::from_mutation_request(
+                    SchemaTransitionPlanKind::ExactMatch,
+                    SchemaMutationRequest::ExactMatch,
+                ),
+            );
         }
-        SchemaMutationDelta::AppendOnlyFields(added_fields)
+        SchemaMutationRequest::AppendOnlyFields(added_fields)
             if added_fields
                 .iter()
                 .all(field_has_supported_missing_absence_policy) =>
         {
             return SchemaTransitionDecision::Accepted(
-                SchemaTransitionPlan::append_only_nullable_fields(added_fields),
+                SchemaTransitionPlan::from_mutation_request(
+                    SchemaTransitionPlanKind::AppendOnlyNullableFields,
+                    SchemaMutationRequest::AppendOnlyFields(added_fields),
+                ),
             );
         }
-        SchemaMutationDelta::AppendOnlyFields(_) | SchemaMutationDelta::Incompatible => {}
+        SchemaMutationRequest::AppendOnlyFields(_)
+        | SchemaMutationRequest::AddNonUniqueIndex { .. }
+        | SchemaMutationRequest::AddExpressionIndex { .. }
+        | SchemaMutationRequest::DropNonRequiredSecondaryIndex { .. }
+        | SchemaMutationRequest::AlterNullability { .. }
+        | SchemaMutationRequest::Incompatible => {}
     }
 
     let (kind, detail) = schema_snapshot_mismatch_detail(actual, expected);
@@ -331,8 +337,8 @@ fn unsupported_generated_additive_field_detail(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
 ) -> Option<String> {
-    let SchemaMutationDelta::AppendOnlyFields(added_fields) =
-        classify_schema_mutation_delta(actual, expected)
+    let SchemaMutationRequest::AppendOnlyFields(added_fields) =
+        schema_mutation_request_for_snapshots(actual, expected)
     else {
         return None;
     };
