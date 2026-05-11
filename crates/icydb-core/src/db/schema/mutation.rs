@@ -52,7 +52,7 @@ pub(in crate::db::schema) enum SchemaMutation {
         target: SchemaExpressionIndexRebuildTarget,
     },
     DropNonRequiredSecondaryIndex {
-        name: String,
+        target: SchemaSecondaryIndexDropCleanupTarget,
     },
     AlterNullability {
         field_id: FieldId,
@@ -82,7 +82,7 @@ pub(in crate::db::schema) enum SchemaMutationRequest<'a> {
         target: SchemaExpressionIndexRebuildTarget,
     },
     DropNonRequiredSecondaryIndex {
-        name: String,
+        target: SchemaSecondaryIndexDropCleanupTarget,
     },
     AlterNullability {
         field_id: FieldId,
@@ -353,6 +353,61 @@ impl SchemaExpressionIndexRebuildExpression {
 }
 
 ///
+/// SchemaSecondaryIndexDropCleanupTarget
+///
+/// Accepted schema-owned cleanup target for dropping a secondary index. It
+/// carries the persisted store identity that must be cleaned before a later
+/// mutation can publish a snapshot without the index.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages cleanup target contracts before a physical runner consumes them"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaSecondaryIndexDropCleanupTarget {
+    ordinal: u16,
+    name: String,
+    store: String,
+    unique: bool,
+    predicate_sql: Option<String>,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages cleanup target contracts before a physical runner consumes them"
+)]
+impl SchemaSecondaryIndexDropCleanupTarget {
+    #[must_use]
+    pub(in crate::db::schema) const fn ordinal(&self) -> u16 {
+        self.ordinal
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn unique(&self) -> bool {
+        self.unique
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn predicate_sql(&self) -> Option<&str> {
+        match &self.predicate_sql {
+            Some(predicate_sql) => Some(predicate_sql.as_str()),
+            None => None,
+        }
+    }
+}
+
+///
 /// MutationCompatibility
 ///
 /// Stable high-level compatibility bucket for one mutation plan. This is kept
@@ -391,23 +446,6 @@ pub(in crate::db::schema) enum RebuildRequirement {
 }
 
 ///
-/// SchemaRebuildIndexKind
-///
-/// Index family that must be physically rebuilt before one mutation can become
-/// accepted runtime schema.
-///
-
-#[allow(
-    dead_code,
-    reason = "0.152 stages rebuild orchestration contracts before execution consumes them"
-)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) enum SchemaRebuildIndexKind {
-    FieldPath,
-    Expression,
-}
-
-///
 /// SchemaRebuildAction
 ///
 /// One physical rebuild action implied by a catalog mutation plan. These
@@ -427,12 +465,8 @@ pub(in crate::db::schema) enum SchemaRebuildAction {
     BuildExpressionIndex {
         target: SchemaExpressionIndexRebuildTarget,
     },
-    BuildIndex {
-        name: String,
-        kind: SchemaRebuildIndexKind,
-    },
-    DropIndex {
-        name: String,
+    DropSecondaryIndex {
+        target: SchemaSecondaryIndexDropCleanupTarget,
     },
     RewriteAllRows,
     Unsupported {
@@ -652,9 +686,9 @@ impl MutationPlan {
 
     /// Stage a supported index drop. Runtime execution is deferred until store
     /// cleanup and planner invalidation are wired through the mutation engine.
-    fn secondary_index_drop(name: String) -> Self {
+    fn secondary_index_drop(target: SchemaSecondaryIndexDropCleanupTarget) -> Self {
         Self {
-            mutations: vec![SchemaMutation::DropNonRequiredSecondaryIndex { name }],
+            mutations: vec![SchemaMutation::DropNonRequiredSecondaryIndex { target }],
             compatibility: MutationCompatibility::RequiresRebuild,
             rebuild: RebuildRequirement::IndexRebuildRequired,
         }
@@ -750,8 +784,10 @@ impl MutationPlan {
                         target: target.clone(),
                     });
                 }
-                SchemaMutation::DropNonRequiredSecondaryIndex { name } => {
-                    actions.push(SchemaRebuildAction::DropIndex { name: name.clone() });
+                SchemaMutation::DropNonRequiredSecondaryIndex { target } => {
+                    actions.push(SchemaRebuildAction::DropSecondaryIndex {
+                        target: target.clone(),
+                    });
                 }
                 SchemaMutation::AlterNullability { .. } => {
                     actions.push(SchemaRebuildAction::Unsupported {
@@ -917,6 +953,31 @@ impl SchemaMutationRequest<'_> {
         })
     }
 
+    /// Lower one accepted non-unique secondary index snapshot into a cleanup
+    /// request. Unique indexes are constraints and stay fail-closed until drop
+    /// policy can prove constraint removal explicitly.
+    #[allow(
+        dead_code,
+        reason = "0.152 stages accepted index cleanup lowering before DDL/rebuild callers use it"
+    )]
+    pub(in crate::db::schema) fn from_accepted_non_unique_secondary_index_drop(
+        index: &PersistedIndexSnapshot,
+    ) -> Result<Self, AcceptedSchemaMutationError> {
+        if index.unique() {
+            return Err(AcceptedSchemaMutationError::UniqueIndexRequiresDedicatedValidation);
+        }
+
+        Ok(Self::DropNonRequiredSecondaryIndex {
+            target: SchemaSecondaryIndexDropCleanupTarget {
+                ordinal: index.ordinal(),
+                name: index.name().to_string(),
+                store: index.store().to_string(),
+                unique: index.unique(),
+                predicate_sql: index.predicate_sql().map(str::to_string),
+            },
+        })
+    }
+
     /// Lower this request into the deterministic mutation plan consumed by
     /// transition, publication, and future rebuild orchestration.
     #[must_use]
@@ -928,8 +989,8 @@ impl SchemaMutationRequest<'_> {
                 MutationPlan::non_unique_field_path_index_addition(target)
             }
             Self::AddExpressionIndex { target } => MutationPlan::expression_index_addition(target),
-            Self::DropNonRequiredSecondaryIndex { name } => {
-                MutationPlan::secondary_index_drop(name)
+            Self::DropNonRequiredSecondaryIndex { target } => {
+                MutationPlan::secondary_index_drop(target)
             }
             Self::AlterNullability { field_id } => MutationPlan::nullability_alteration(field_id),
             Self::Incompatible => MutationPlan::incompatible(),
@@ -978,9 +1039,9 @@ impl SchemaMutation {
                 write_hash_tag_u8(hasher, 4);
                 target.hash_into(hasher);
             }
-            Self::DropNonRequiredSecondaryIndex { name } => {
+            Self::DropNonRequiredSecondaryIndex { target } => {
                 write_hash_tag_u8(hasher, 5);
-                write_hash_str_u32(hasher, name);
+                target.hash_into(hasher);
             }
             Self::AlterNullability { field_id } => {
                 write_hash_tag_u8(hasher, 6);
@@ -1121,6 +1182,26 @@ impl SchemaExpressionIndexRebuildExpression {
         write_hash_str_u32(hasher, &format!("{:?}", self.input_kind));
         write_hash_str_u32(hasher, &format!("{:?}", self.output_kind));
         write_hash_str_u32(hasher, &self.canonical_text);
+    }
+}
+
+impl SchemaSecondaryIndexDropCleanupTarget {
+    #[allow(
+        dead_code,
+        reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
+    )]
+    fn hash_into(&self, hasher: &mut sha2::Sha256) {
+        write_hash_u32(hasher, u32::from(self.ordinal));
+        write_hash_str_u32(hasher, &self.name);
+        write_hash_str_u32(hasher, &self.store);
+        write_hash_bool(hasher, self.unique);
+        match &self.predicate_sql {
+            Some(predicate_sql) => {
+                write_hash_tag_u8(hasher, 1);
+                write_hash_str_u32(hasher, predicate_sql);
+            }
+            None => write_hash_tag_u8(hasher, 0),
+        }
     }
 }
 
@@ -1318,9 +1399,10 @@ mod tests {
             SchemaMutationRequest::from_accepted_expression_index(&expression_name_index())
                 .expect("accepted expression index should lower")
                 .lower_to_plan();
-        let drop = SchemaMutationRequest::DropNonRequiredSecondaryIndex {
-            name: "by_name".to_string(),
-        }
+        let drop = SchemaMutationRequest::from_accepted_non_unique_secondary_index_drop(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique secondary index should lower to drop cleanup")
         .lower_to_plan();
 
         for plan in [&field_path, &expression, &drop] {
@@ -1349,9 +1431,10 @@ mod tests {
             SchemaMutationRequest::from_accepted_expression_index(&expression_name_index())
                 .expect("accepted expression index should lower")
                 .lower_to_plan();
-        let drop = SchemaMutationRequest::DropNonRequiredSecondaryIndex {
-            name: "by_name".to_string(),
-        }
+        let drop = SchemaMutationRequest::from_accepted_non_unique_secondary_index_drop(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique secondary index should lower to drop cleanup")
         .lower_to_plan();
 
         let field_path_rebuild = field_path.rebuild_plan();
@@ -1398,12 +1481,15 @@ mod tests {
         );
         assert_eq!(expression.source().field_id(), FieldId::new(2));
         assert_eq!(expression.source().slot(), SchemaFieldSlot::new(1));
-        assert_eq!(
-            drop.rebuild_plan().actions(),
-            &[SchemaRebuildAction::DropIndex {
-                name: "by_name".to_string(),
-            }],
-        );
+        let drop_rebuild = drop.rebuild_plan();
+        let [SchemaRebuildAction::DropSecondaryIndex { target }] = drop_rebuild.actions() else {
+            panic!("secondary index drop should derive one cleanup target");
+        };
+        assert_eq!(target.ordinal(), 1);
+        assert_eq!(target.name(), "by_name");
+        assert_eq!(target.store(), "test::mutation::by_name");
+        assert!(!target.unique());
+        assert_eq!(target.predicate_sql(), Some("name IS NOT NULL"));
     }
 
     #[test]
@@ -1494,6 +1580,23 @@ mod tests {
         assert_eq!(
             SchemaMutationRequest::from_accepted_expression_index(&empty),
             Err(AcceptedSchemaMutationError::EmptyIndexKey),
+        );
+    }
+
+    #[test]
+    fn secondary_index_drop_request_lowering_fails_closed_for_unique_indexes() {
+        let unique = PersistedIndexSnapshot::new(
+            1,
+            "unique_name".to_string(),
+            "test::mutation::unique_name".to_string(),
+            true,
+            PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+            None,
+        );
+
+        assert_eq!(
+            SchemaMutationRequest::from_accepted_non_unique_secondary_index_drop(&unique),
+            Err(AcceptedSchemaMutationError::UniqueIndexRequiresDedicatedValidation),
         );
     }
 
