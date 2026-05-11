@@ -387,6 +387,43 @@ fn accepted_schema_info_index_membership_uses_persisted_index_contracts() {
 }
 
 #[test]
+fn schema_mutation_publication_boundary_uses_runner_preflight() {
+    let mutation = read_source("src/db/schema/mutation.rs");
+    let transition = read_source("src/db/schema/transition.rs");
+    let reconcile = read_source("src/db/schema/reconcile.rs");
+    let reconcile_compact = compact_source(&reconcile);
+
+    assert!(
+        mutation.contains("pub(in crate::db::schema) enum MutationPublicationPreflight")
+            && mutation.contains("PhysicalWorkReady")
+            && mutation.contains("MissingRunnerCapabilities")
+            && mutation.contains("pub(in crate::db::schema) struct SchemaMutationRunnerContract")
+            && mutation.contains("pub(in crate::db::schema) fn publication_preflight(")
+            && mutation.contains("SchemaMutationRunnerPreflight::Ready")
+            && mutation.contains("MutationPublicationPreflight::PhysicalWorkReady")
+            && mutation.contains("`PhysicalWorkReady` is still not publishable in 0.152"),
+        "schema mutation publication must expose a runner-preflight decision before any physical-work mutation can publish",
+    );
+    assert!(
+        transition.contains("pub(in crate::db::schema) fn publication_preflight(")
+            && transition.contains("runner: &SchemaMutationRunnerContract")
+            && transition.contains("self.mutation_plan.publication_preflight(runner)"),
+        "schema transition plans must expose publication preflight instead of forcing reconciliation to reopen mutation internals",
+    );
+    assert!(
+        reconcile.contains("let runner = SchemaMutationRunnerContract::new(&[]);")
+            && reconcile.contains("match plan.publication_preflight(&runner)")
+            && reconcile.contains("MutationPublicationPreflight::PublishableNow => Ok(())")
+            && reconcile.contains("MutationPublicationPreflight::MissingRunnerCapabilities")
+            && reconcile.contains("MutationPublicationPreflight::Rejected")
+            && reconcile_compact
+                .contains("MutationPublicationPreflight::PhysicalWorkReady{step_count,required,}")
+            && !reconcile.contains("match plan.publication_status()"),
+        "startup reconciliation must consult runner preflight with no physical runner installed, keeping rebuild-required mutation publication fail-closed",
+    );
+}
+
+#[test]
 #[expect(
     clippy::too_many_lines,
     reason = "source-boundary guard keeps related accepted visible-index assertions together"
