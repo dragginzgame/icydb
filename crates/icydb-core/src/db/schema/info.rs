@@ -6,8 +6,9 @@
 use crate::{
     db::schema::{
         AcceptedSchemaSnapshot, FieldId, FieldType, PersistedFieldKind, PersistedFieldSnapshot,
-        PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedRelationStrength,
-        PersistedSchemaSnapshot, SchemaFieldSlot, SqlCapabilities,
+        PersistedIndexExpressionOp, PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
+        PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
+        PersistedRelationStrength, PersistedSchemaSnapshot, SchemaFieldSlot, SqlCapabilities,
         canonicalize_strict_sql_literal_for_persisted_kind, field_type_from_model_kind,
         field_type_from_persisted_kind, sql_capabilities,
     },
@@ -58,13 +59,10 @@ fn generated_field_is_indexed(model: &EntityModel, field_name: &str) -> bool {
 // Runtime accepted schema views must not reopen generated `EntityModel`
 // indexes after schema acceptance.
 fn accepted_field_is_indexed(snapshot: &PersistedSchemaSnapshot, field_id: FieldId) -> bool {
-    snapshot.indexes().iter().any(|index| {
-        index
-            .key()
-            .field_paths()
-            .iter()
-            .any(|path| path.field_id() == field_id)
-    })
+    snapshot
+        .indexes()
+        .iter()
+        .any(|index| index.key().references_field(field_id))
 }
 
 fn accepted_field_name(snapshot: &PersistedSchemaSnapshot, field_id: FieldId) -> Option<&str> {
@@ -191,6 +189,165 @@ impl SchemaIndexInfo {
 }
 
 ///
+/// SchemaExpressionIndexInfo
+///
+/// Compact accepted expression-index contract exposed by `SchemaInfo`.
+/// Accepted schema views source this from persisted index snapshots so
+/// expression-index runtime routing can stop reopening generated `IndexModel`.
+///
+#[derive(Clone, Debug)]
+#[allow(
+    dead_code,
+    reason = "0.151 stages accepted expression-index authority for the next planner/write routing slice"
+)]
+pub(in crate::db) struct SchemaExpressionIndexInfo {
+    ordinal: u16,
+    name: String,
+    store: String,
+    unique: bool,
+    key_items: Vec<SchemaExpressionIndexKeyItemInfo>,
+    predicate_sql: Option<String>,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.151 stages accepted expression-index authority for the next planner/write routing slice"
+)]
+impl SchemaExpressionIndexInfo {
+    /// Return the accepted stable per-entity index ordinal.
+    #[must_use]
+    pub(in crate::db) const fn ordinal(&self) -> u16 {
+        self.ordinal
+    }
+
+    /// Borrow the accepted stable index name.
+    #[must_use]
+    pub(in crate::db) const fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// Borrow the accepted backing index store path.
+    #[must_use]
+    pub(in crate::db) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    /// Return whether this accepted expression index enforces uniqueness.
+    #[must_use]
+    pub(in crate::db) const fn unique(&self) -> bool {
+        self.unique
+    }
+
+    /// Borrow accepted key-item contracts in index key order.
+    #[must_use]
+    pub(in crate::db) const fn key_items(&self) -> &[SchemaExpressionIndexKeyItemInfo] {
+        self.key_items.as_slice()
+    }
+
+    /// Borrow optional accepted index-membership predicate SQL metadata.
+    #[must_use]
+    pub(in crate::db) const fn predicate_sql(&self) -> Option<&str> {
+        match &self.predicate_sql {
+            Some(sql) => Some(sql.as_str()),
+            None => None,
+        }
+    }
+}
+
+///
+/// SchemaExpressionIndexKeyItemInfo
+///
+/// Accepted expression-index key item surfaced through `SchemaInfo`.
+///
+#[derive(Clone, Debug)]
+#[allow(
+    dead_code,
+    reason = "0.151 stages accepted expression-index authority for the next planner/write routing slice"
+)]
+pub(in crate::db) enum SchemaExpressionIndexKeyItemInfo {
+    FieldPath(SchemaIndexFieldPathInfo),
+    Expression(Box<SchemaIndexExpressionInfo>),
+}
+
+#[allow(
+    dead_code,
+    reason = "0.151 stages accepted expression-index authority for the next planner/write routing slice"
+)]
+impl SchemaExpressionIndexKeyItemInfo {
+    /// Borrow this key item as a field-path component, when applicable.
+    #[must_use]
+    pub(in crate::db) const fn field_path(&self) -> Option<&SchemaIndexFieldPathInfo> {
+        match self {
+            Self::FieldPath(field_path) => Some(field_path),
+            Self::Expression(_) => None,
+        }
+    }
+
+    /// Borrow this key item as an expression component, when applicable.
+    #[must_use]
+    pub(in crate::db) fn expression(&self) -> Option<&SchemaIndexExpressionInfo> {
+        match self {
+            Self::FieldPath(_) => None,
+            Self::Expression(expression) => Some(expression.as_ref()),
+        }
+    }
+}
+
+///
+/// SchemaIndexExpressionInfo
+///
+/// Compact accepted expression key contract for one expression-index key item.
+///
+#[derive(Clone, Debug)]
+#[allow(
+    dead_code,
+    reason = "0.151 stages accepted expression-index authority for the next planner/write routing slice"
+)]
+pub(in crate::db) struct SchemaIndexExpressionInfo {
+    op: PersistedIndexExpressionOp,
+    source: SchemaIndexFieldPathInfo,
+    input_kind: PersistedFieldKind,
+    output_kind: PersistedFieldKind,
+    canonical_text: String,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.151 stages accepted expression-index authority for the next planner/write routing slice"
+)]
+impl SchemaIndexExpressionInfo {
+    /// Return the accepted expression operation.
+    #[must_use]
+    pub(in crate::db) const fn op(&self) -> PersistedIndexExpressionOp {
+        self.op
+    }
+
+    /// Borrow the accepted source field-path contract.
+    #[must_use]
+    pub(in crate::db) const fn source(&self) -> &SchemaIndexFieldPathInfo {
+        &self.source
+    }
+
+    /// Borrow the accepted expression input kind.
+    #[must_use]
+    pub(in crate::db) const fn input_kind(&self) -> &PersistedFieldKind {
+        &self.input_kind
+    }
+
+    /// Borrow the accepted expression output kind.
+    #[must_use]
+    pub(in crate::db) const fn output_kind(&self) -> &PersistedFieldKind {
+        &self.output_kind
+    }
+
+    /// Borrow the accepted canonical expression text.
+    #[must_use]
+    pub(in crate::db) const fn canonical_text(&self) -> &str {
+        self.canonical_text.as_str()
+    }
+}
+
+///
 /// SchemaIndexFieldPathInfo
 ///
 /// Compact key-item contract for one field-path index component.
@@ -269,6 +426,7 @@ impl SchemaIndexFieldPathInfo {
 pub(crate) struct SchemaInfo {
     fields: Vec<SchemaFieldEntry>,
     indexes: Vec<SchemaIndexInfo>,
+    expression_indexes: Vec<SchemaExpressionIndexInfo>,
     entity_name: Option<String>,
     primary_key_name: Option<String>,
     has_any_strong_relations: bool,
@@ -306,6 +464,7 @@ impl SchemaInfo {
         Self {
             fields,
             indexes: Vec::new(),
+            expression_indexes: Vec::new(),
             entity_name: None,
             primary_key_name: None,
             has_any_strong_relations: false,
@@ -327,6 +486,7 @@ impl SchemaInfo {
             .iter()
             .filter_map(|index| schema_index_info_from_generated_index(index, &schema.fields))
             .collect();
+        schema.expression_indexes = Vec::new();
 
         schema
     }
@@ -421,6 +581,20 @@ impl SchemaInfo {
     )]
     pub(in crate::db) const fn field_path_indexes(&self) -> &[SchemaIndexInfo] {
         self.indexes.as_slice()
+    }
+
+    /// Borrow accepted expression-index contracts visible through this schema view.
+    ///
+    /// Accepted schema views source this from persisted expression index
+    /// contracts. Generated schema views leave this empty until generated
+    /// expression indexes have been reconciled into accepted metadata.
+    #[must_use]
+    #[allow(
+        dead_code,
+        reason = "0.151 stages accepted expression-index authority for the next planner/write routing slice"
+    )]
+    pub(in crate::db) const fn expression_indexes(&self) -> &[SchemaExpressionIndexInfo] {
+        self.expression_indexes.as_slice()
     }
 
     /// Return SQL operation capabilities for one top-level field.
@@ -587,7 +761,14 @@ impl SchemaInfo {
             indexes: snapshot
                 .indexes()
                 .iter()
-                .map(|index| schema_index_info_from_accepted_index(index, snapshot))
+                .filter_map(|index| schema_index_info_from_accepted_index(index, snapshot))
+                .collect(),
+            expression_indexes: snapshot
+                .indexes()
+                .iter()
+                .filter_map(|index| {
+                    schema_expression_index_info_from_accepted_index(index, snapshot)
+                })
                 .collect(),
             entity_name: Some(schema.entity_name().to_string()),
             primary_key_name,
@@ -664,8 +845,12 @@ fn generated_index_field_names(index: &IndexModel) -> Option<Vec<&'static str>> 
 fn schema_index_info_from_accepted_index(
     index: &PersistedIndexSnapshot,
     snapshot: &PersistedSchemaSnapshot,
-) -> SchemaIndexInfo {
-    SchemaIndexInfo {
+) -> Option<SchemaIndexInfo> {
+    if !index.key().is_field_path_only() {
+        return None;
+    }
+
+    Some(SchemaIndexInfo {
         ordinal: index.ordinal(),
         name: index.name().to_string(),
         store: index.store().to_string(),
@@ -674,24 +859,79 @@ fn schema_index_info_from_accepted_index(
             .key()
             .field_paths()
             .iter()
-            .map(|path| {
-                let field_name = accepted_field_name(snapshot, path.field_id())
-                    .or_else(|| path.path().first().map(String::as_str))
-                    .unwrap_or_default()
-                    .to_string();
-
-                SchemaIndexFieldPathInfo {
-                    field_id: Some(path.field_id()),
-                    field_name,
-                    slot: accepted_slot_index(path.slot()),
-                    path: path.path().to_vec(),
-                    ty: field_type_from_persisted_kind(path.kind()),
-                    persisted_kind: Some(path.kind().clone()),
-                    nullable: path.nullable(),
-                }
-            })
+            .map(|path| schema_index_field_path_info_from_accepted(path, snapshot))
             .collect(),
         predicate_sql: index.predicate_sql().map(str::to_string),
+    })
+}
+
+fn schema_expression_index_info_from_accepted_index(
+    index: &PersistedIndexSnapshot,
+    snapshot: &PersistedSchemaSnapshot,
+) -> Option<SchemaExpressionIndexInfo> {
+    let PersistedIndexKeySnapshot::Items(items) = index.key() else {
+        return None;
+    };
+
+    if !items
+        .iter()
+        .any(|item| matches!(item, PersistedIndexKeyItemSnapshot::Expression(_)))
+    {
+        return None;
+    }
+
+    Some(SchemaExpressionIndexInfo {
+        ordinal: index.ordinal(),
+        name: index.name().to_string(),
+        store: index.store().to_string(),
+        unique: index.unique(),
+        key_items: items
+            .iter()
+            .map(|item| schema_expression_index_key_item_info(item, snapshot))
+            .collect(),
+        predicate_sql: index.predicate_sql().map(str::to_string),
+    })
+}
+
+fn schema_expression_index_key_item_info(
+    item: &PersistedIndexKeyItemSnapshot,
+    snapshot: &PersistedSchemaSnapshot,
+) -> SchemaExpressionIndexKeyItemInfo {
+    match item {
+        PersistedIndexKeyItemSnapshot::FieldPath(path) => {
+            SchemaExpressionIndexKeyItemInfo::FieldPath(schema_index_field_path_info_from_accepted(
+                path, snapshot,
+            ))
+        }
+        PersistedIndexKeyItemSnapshot::Expression(expression) => {
+            SchemaExpressionIndexKeyItemInfo::Expression(Box::new(SchemaIndexExpressionInfo {
+                op: expression.op(),
+                source: schema_index_field_path_info_from_accepted(expression.source(), snapshot),
+                input_kind: expression.input_kind().clone(),
+                output_kind: expression.output_kind().clone(),
+                canonical_text: expression.canonical_text().to_string(),
+            }))
+        }
+    }
+}
+
+fn schema_index_field_path_info_from_accepted(
+    path: &PersistedIndexFieldPathSnapshot,
+    snapshot: &PersistedSchemaSnapshot,
+) -> SchemaIndexFieldPathInfo {
+    let field_name = accepted_field_name(snapshot, path.field_id())
+        .or_else(|| path.path().first().map(String::as_str))
+        .unwrap_or_default()
+        .to_string();
+
+    SchemaIndexFieldPathInfo {
+        field_id: Some(path.field_id()),
+        field_name,
+        slot: accepted_slot_index(path.slot()),
+        path: path.path().to_vec(),
+        ty: field_type_from_persisted_kind(path.kind()),
+        persisted_kind: Some(path.kind().clone()),
+        nullable: path.nullable(),
     }
 }
 
@@ -720,10 +960,11 @@ mod tests {
     use crate::{
         db::schema::{
             AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
-            PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-            PersistedNestedLeafSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,
-            SchemaFieldDefault, SchemaFieldSlot, SchemaInfo, SchemaRowLayout, SchemaVersion,
-            literal_matches_type,
+            PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
+            PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
+            PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
+            PersistedRelationStrength, PersistedSchemaSnapshot, SchemaFieldDefault,
+            SchemaFieldSlot, SchemaInfo, SchemaRowLayout, SchemaVersion, literal_matches_type,
         },
         model::{
             entity::EntityModel,
@@ -899,6 +1140,70 @@ mod tests {
         ))
     }
 
+    fn accepted_schema_with_lower_name_index() -> AcceptedSchemaSnapshot {
+        let source = PersistedIndexFieldPathSnapshot::new(
+            FieldId::new(2),
+            SchemaFieldSlot::new(1),
+            vec!["name".to_string()],
+            PersistedFieldKind::Text { max_len: None },
+            false,
+        );
+
+        AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new_with_indexes(
+            SchemaVersion::initial(),
+            "schema::info::tests::Entity".to_string(),
+            "Entity".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "name".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Text { max_len: None },
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+            ],
+            vec![PersistedIndexSnapshot::new(
+                2,
+                "schema_info_lower_name".to_string(),
+                "schema::info::tests::lower_name".to_string(),
+                true,
+                PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::Expression(
+                    Box::new(PersistedIndexExpressionSnapshot::new(
+                        PersistedIndexExpressionOp::Lower,
+                        source,
+                        PersistedFieldKind::Text { max_len: None },
+                        PersistedFieldKind::Text { max_len: None },
+                        "expr:v1:LOWER(name)".to_string(),
+                    )),
+                )]),
+                Some("name IS NOT NULL".to_string()),
+            )],
+        ))
+    }
+
     #[test]
     fn cached_for_generated_entity_model_reuses_one_schema_instance() {
         let first = SchemaInfo::cached_for_generated_entity_model(&MODEL);
@@ -1023,6 +1328,56 @@ mod tests {
         );
         assert!(fields[0].ty().is_text());
         assert!(!fields[0].nullable());
+    }
+
+    #[test]
+    fn accepted_snapshot_schema_info_exposes_persisted_expression_indexes() {
+        let snapshot = accepted_schema_with_lower_name_index();
+        let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
+
+        assert!(
+            accepted.field_path_indexes().is_empty(),
+            "field-path visibility should stay field-path-only until expression planner routing moves over",
+        );
+        assert!(
+            accepted.field_is_indexed("name"),
+            "accepted expression indexes should still count as index membership for their source field",
+        );
+
+        let indexes = accepted.expression_indexes();
+        assert_eq!(indexes.len(), 1);
+        assert_eq!(indexes[0].ordinal(), 2);
+        assert_eq!(indexes[0].name(), "schema_info_lower_name");
+        assert_eq!(indexes[0].store(), "schema::info::tests::lower_name");
+        assert!(indexes[0].unique());
+        assert_eq!(indexes[0].predicate_sql(), Some("name IS NOT NULL"));
+
+        let key_items = indexes[0].key_items();
+        assert_eq!(key_items.len(), 1);
+        let Some(expression) = key_items[0].expression() else {
+            panic!("accepted expression index should expose an expression key item");
+        };
+        assert_eq!(expression.op(), PersistedIndexExpressionOp::Lower);
+        assert_eq!(expression.canonical_text(), "expr:v1:LOWER(name)");
+        assert_eq!(
+            expression.input_kind(),
+            &PersistedFieldKind::Text { max_len: None }
+        );
+        assert_eq!(
+            expression.output_kind(),
+            &PersistedFieldKind::Text { max_len: None }
+        );
+
+        let source = expression.source();
+        assert_eq!(source.field_id(), Some(FieldId::new(2)));
+        assert_eq!(source.field_name(), "name");
+        assert_eq!(source.slot(), 1);
+        assert_eq!(source.path(), &["name".to_string()]);
+
+        assert!(matches!(
+            &key_items[0],
+            super::SchemaExpressionIndexKeyItemInfo::Expression(_)
+        ));
     }
 
     #[test]

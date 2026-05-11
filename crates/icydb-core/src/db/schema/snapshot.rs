@@ -288,9 +288,7 @@ impl PersistedSchemaSnapshot {
 ///
 /// PersistedIndexSnapshot
 ///
-/// Accepted schema metadata for one index contract. The first 0.150 slice only
-/// persists field-path index keys; expression index contracts need their own
-/// stable canonical expression metadata before they become accepted authority.
+/// Accepted schema metadata for one index contract.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -367,22 +365,62 @@ impl PersistedIndexSnapshot {
 ///
 /// PersistedIndexKeySnapshot
 ///
-/// Accepted index-key contract. Field-path keys can be accepted from row
-/// schema metadata now. Expression keys deliberately remain absent until 0.150
-/// defines stable canonical expression contracts.
+/// Accepted index-key contract.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum PersistedIndexKeySnapshot {
     FieldPath(Vec<PersistedIndexFieldPathSnapshot>),
+    Items(Vec<PersistedIndexKeyItemSnapshot>),
 }
 
 impl PersistedIndexKeySnapshot {
+    /// Return whether this key carries only accepted field-path components.
+    #[must_use]
+    pub(in crate::db) const fn is_field_path_only(&self) -> bool {
+        matches!(self, Self::FieldPath(_))
+    }
+
     /// Borrow accepted field-path key items when this is a field-path index.
     #[must_use]
     pub(in crate::db) const fn field_paths(&self) -> &[PersistedIndexFieldPathSnapshot] {
         match self {
             Self::FieldPath(paths) => paths.as_slice(),
+            Self::Items(_) => &[],
+        }
+    }
+
+    /// Return whether any key component references the accepted field ID.
+    #[must_use]
+    pub(in crate::db) fn references_field(&self, field_id: FieldId) -> bool {
+        match self {
+            Self::FieldPath(paths) => paths.iter().any(|path| path.field_id() == field_id),
+            Self::Items(items) => items.iter().any(|item| item.references_field(field_id)),
+        }
+    }
+}
+
+///
+/// PersistedIndexKeyItemSnapshot
+///
+/// Accepted key-item metadata for one explicit index key item. Mixed keys use
+/// this shape so field-path and expression components preserve generated order
+/// after schema acceptance.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum PersistedIndexKeyItemSnapshot {
+    FieldPath(PersistedIndexFieldPathSnapshot),
+    Expression(Box<PersistedIndexExpressionSnapshot>),
+}
+
+impl PersistedIndexKeyItemSnapshot {
+    /// Return whether this key item references the accepted field ID.
+    #[must_use]
+    pub(in crate::db) fn references_field(&self, field_id: FieldId) -> bool {
+        match self {
+            Self::FieldPath(path) => path.field_id() == field_id,
+            Self::Expression(expression) => expression.source().field_id() == field_id,
         }
     }
 }
@@ -452,6 +490,93 @@ impl PersistedIndexFieldPathSnapshot {
     pub(in crate::db) const fn nullable(&self) -> bool {
         self.nullable
     }
+}
+
+///
+/// PersistedIndexExpressionSnapshot
+///
+/// Accepted key-item metadata for one deterministic expression index component.
+/// The source remains an accepted field-path contract so expression keys can be
+/// derived from persisted row-layout slots instead of generated model order.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct PersistedIndexExpressionSnapshot {
+    op: PersistedIndexExpressionOp,
+    source: PersistedIndexFieldPathSnapshot,
+    input_kind: PersistedFieldKind,
+    output_kind: PersistedFieldKind,
+    canonical_text: String,
+}
+
+impl PersistedIndexExpressionSnapshot {
+    /// Build one accepted expression key-item snapshot.
+    #[must_use]
+    pub(in crate::db) const fn new(
+        op: PersistedIndexExpressionOp,
+        source: PersistedIndexFieldPathSnapshot,
+        input_kind: PersistedFieldKind,
+        output_kind: PersistedFieldKind,
+        canonical_text: String,
+    ) -> Self {
+        Self {
+            op,
+            source,
+            input_kind,
+            output_kind,
+            canonical_text,
+        }
+    }
+
+    /// Return the accepted expression operation.
+    #[must_use]
+    pub(in crate::db) const fn op(&self) -> PersistedIndexExpressionOp {
+        self.op
+    }
+
+    /// Borrow the accepted source field-path contract.
+    #[must_use]
+    pub(in crate::db) const fn source(&self) -> &PersistedIndexFieldPathSnapshot {
+        &self.source
+    }
+
+    /// Borrow the accepted input field kind.
+    #[must_use]
+    pub(in crate::db) const fn input_kind(&self) -> &PersistedFieldKind {
+        &self.input_kind
+    }
+
+    /// Borrow the accepted expression output field kind.
+    #[must_use]
+    pub(in crate::db) const fn output_kind(&self) -> &PersistedFieldKind {
+        &self.output_kind
+    }
+
+    /// Borrow the accepted canonical expression text.
+    #[must_use]
+    pub(in crate::db) const fn canonical_text(&self) -> &str {
+        self.canonical_text.as_str()
+    }
+}
+
+///
+/// PersistedIndexExpressionOp
+///
+/// Accepted deterministic expression-index operation. This mirrors the current
+/// generated `IndexExpression` subset without retaining generated field names
+/// inside the operation itself.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum PersistedIndexExpressionOp {
+    Lower,
+    Upper,
+    Trim,
+    LowerTrim,
+    Date,
+    Year,
+    Month,
+    Day,
 }
 
 ///
@@ -1150,6 +1275,79 @@ mod tests {
             err.message()
                 .contains("accepted schema snapshot index field slot mismatch"),
             "accepted schema construction should reject index slots that diverge from row layout"
+        );
+    }
+
+    #[test]
+    fn accepted_schema_snapshot_try_new_rejects_invalid_expression_index_contract() {
+        let source = PersistedIndexFieldPathSnapshot::new(
+            FieldId::new(2),
+            SchemaFieldSlot::new(1),
+            vec!["email".to_string()],
+            PersistedFieldKind::Text { max_len: None },
+            false,
+        );
+        let snapshot = PersistedSchemaSnapshot::new_with_indexes(
+            SchemaVersion::initial(),
+            "schema::snapshot::tests::ExpressionIndexed".to_string(),
+            "ExpressionIndexed".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "email".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Text { max_len: None },
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Text),
+                ),
+            ],
+            vec![PersistedIndexSnapshot::new(
+                1,
+                "ExpressionIndexed|lower_email".to_string(),
+                "expression_indexed::lower_email".to_string(),
+                false,
+                PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::Expression(
+                    Box::new(PersistedIndexExpressionSnapshot::new(
+                        PersistedIndexExpressionOp::Lower,
+                        source,
+                        PersistedFieldKind::Text { max_len: None },
+                        PersistedFieldKind::Date,
+                        "expr:v1:LOWER(email)".to_string(),
+                    )),
+                )]),
+                None,
+            )],
+        );
+
+        let err = AcceptedSchemaSnapshot::try_new(snapshot)
+            .expect_err("accepted schema construction should reject invalid expression metadata");
+
+        assert!(
+            err.message()
+                .contains("accepted schema snapshot index expression output kind mismatch"),
+            "accepted schema construction should reject expression output-kind drift"
         );
     }
 }

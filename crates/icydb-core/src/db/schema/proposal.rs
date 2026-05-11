@@ -5,15 +5,16 @@
 
 use crate::{
     db::schema::{
-        FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot,
-        PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
-        PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy,
-        SchemaRowLayout, SchemaVersion, sql_capabilities,
+        FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,
+        PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
+        PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+        PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot,
+        SchemaFieldWritePolicy, SchemaRowLayout, SchemaVersion, sql_capabilities,
     },
     model::{
         entity::EntityModel,
         field::{FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
-        index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
+        index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
     },
 };
 
@@ -236,9 +237,7 @@ impl CompiledFieldProposal {
 ///
 /// CompiledIndexProposal
 ///
-/// One generated field-path index projected into accepted schema terms. This
-/// intentionally excludes expression key items until the 0.150 expression
-/// contract is designed.
+/// One generated index projected into accepted schema terms.
 ///
 
 #[derive(Clone, Debug)]
@@ -247,7 +246,7 @@ pub(in crate::db) struct CompiledIndexProposal {
     name: &'static str,
     store: &'static str,
     unique: bool,
-    fields: Vec<CompiledIndexFieldPathProposal>,
+    key: CompiledIndexKeyProposal,
     predicate_sql: Option<&'static str>,
 }
 
@@ -276,10 +275,10 @@ impl CompiledIndexProposal {
         self.unique
     }
 
-    /// Borrow accepted field-path key-item proposals.
+    /// Borrow the accepted key proposal.
     #[must_use]
-    pub(in crate::db) const fn fields(&self) -> &[CompiledIndexFieldPathProposal] {
-        self.fields.as_slice()
+    pub(in crate::db) const fn key(&self) -> &CompiledIndexKeyProposal {
+        &self.key
     }
 
     /// Borrow optional schema-declared predicate SQL display metadata.
@@ -296,14 +295,67 @@ impl CompiledIndexProposal {
             self.name().to_string(),
             self.store().to_string(),
             self.unique(),
-            PersistedIndexKeySnapshot::FieldPath(
-                self.fields()
+            self.key().initial_persisted_key_snapshot(),
+            self.predicate_sql().map(str::to_string),
+        )
+    }
+}
+
+///
+/// CompiledIndexKeyProposal
+///
+/// Accepted-schema projection of one generated index key. Field-path-only keys
+/// keep their compact shape; mixed or expression keys preserve explicit item
+/// order through `Items`.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db) enum CompiledIndexKeyProposal {
+    FieldPath(Vec<CompiledIndexFieldPathProposal>),
+    Items(Vec<CompiledIndexKeyItemProposal>),
+}
+
+impl CompiledIndexKeyProposal {
+    fn initial_persisted_key_snapshot(&self) -> PersistedIndexKeySnapshot {
+        match self {
+            Self::FieldPath(fields) => PersistedIndexKeySnapshot::FieldPath(
+                fields
                     .iter()
                     .map(CompiledIndexFieldPathProposal::initial_persisted_field_path_snapshot)
                     .collect(),
             ),
-            self.predicate_sql().map(str::to_string),
-        )
+            Self::Items(items) => PersistedIndexKeySnapshot::Items(
+                items
+                    .iter()
+                    .map(CompiledIndexKeyItemProposal::initial_persisted_key_item_snapshot)
+                    .collect(),
+            ),
+        }
+    }
+}
+
+///
+/// CompiledIndexKeyItemProposal
+///
+/// One accepted-schema key-item proposal for explicit generated key metadata.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db) enum CompiledIndexKeyItemProposal {
+    FieldPath(CompiledIndexFieldPathProposal),
+    Expression(CompiledIndexExpressionProposal),
+}
+
+impl CompiledIndexKeyItemProposal {
+    fn initial_persisted_key_item_snapshot(&self) -> PersistedIndexKeyItemSnapshot {
+        match self {
+            Self::FieldPath(field_path) => PersistedIndexKeyItemSnapshot::FieldPath(
+                field_path.initial_persisted_field_path_snapshot(),
+            ),
+            Self::Expression(expression) => PersistedIndexKeyItemSnapshot::Expression(Box::new(
+                expression.initial_persisted_expression_snapshot(),
+            )),
+        }
     }
 }
 
@@ -365,6 +417,33 @@ impl CompiledIndexFieldPathProposal {
     }
 }
 
+///
+/// CompiledIndexExpressionProposal
+///
+/// One generated expression key item resolved into accepted field identity,
+/// accepted row slot, and canonical expression output metadata.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db) struct CompiledIndexExpressionProposal {
+    op: PersistedIndexExpressionOp,
+    source: CompiledIndexFieldPathProposal,
+    output_kind: PersistedFieldKind,
+    canonical_text: String,
+}
+
+impl CompiledIndexExpressionProposal {
+    fn initial_persisted_expression_snapshot(&self) -> PersistedIndexExpressionSnapshot {
+        PersistedIndexExpressionSnapshot::new(
+            self.op,
+            self.source.initial_persisted_field_path_snapshot(),
+            self.source.kind().clone(),
+            self.output_kind.clone(),
+            self.canonical_text.clone(),
+        )
+    }
+}
+
 /// Build the compiled schema proposal for one trusted generated entity model.
 #[must_use]
 pub(in crate::db) fn compiled_schema_proposal_for_model(
@@ -379,7 +458,7 @@ pub(in crate::db) fn compiled_schema_proposal_for_model(
     let indexes = model
         .indexes()
         .iter()
-        .filter_map(|index| compiled_field_path_index_proposal_from_model_index(index, &fields))
+        .filter_map(|index| compiled_index_proposal_from_model_index(index, &fields))
         .collect::<Vec<_>>();
 
     let proposal = CompiledSchemaProposal {
@@ -476,7 +555,7 @@ fn debug_assert_compiled_schema_proposal_invariants(
             index.name(),
             index.store(),
             index.unique(),
-            index.fields(),
+            index.key(),
             index.predicate_sql(),
             index.initial_persisted_index_snapshot(),
         );
@@ -508,27 +587,32 @@ fn compiled_field_proposal_from_model_field(
     }
 }
 
-// Project one generated field-path index into accepted schema terms. Expression
-// key items are intentionally skipped until 0.150 defines their stable accepted
-// representation.
-fn compiled_field_path_index_proposal_from_model_index(
+// Project one generated index into accepted schema terms.
+fn compiled_index_proposal_from_model_index(
     index: &IndexModel,
     fields: &[CompiledFieldProposal],
 ) -> Option<CompiledIndexProposal> {
-    let key_fields = match index.key_items() {
-        IndexKeyItemsRef::Fields(field_names) => field_names
-            .iter()
-            .map(|field_name| compiled_index_field_path_proposal_from_name(field_name, fields))
-            .collect::<Option<Vec<_>>>()?,
+    let key = match index.key_items() {
+        IndexKeyItemsRef::Fields(field_names) => CompiledIndexKeyProposal::FieldPath(
+            field_names
+                .iter()
+                .map(|field_name| compiled_index_field_path_proposal_from_name(field_name, fields))
+                .collect::<Option<Vec<_>>>()?,
+        ),
         IndexKeyItemsRef::Items(items) => items
             .iter()
             .map(|item| match item {
                 IndexKeyItem::Field(field_name) => {
                     compiled_index_field_path_proposal_from_name(field_name, fields)
+                        .map(CompiledIndexKeyItemProposal::FieldPath)
                 }
-                IndexKeyItem::Expression(_) => None,
+                IndexKeyItem::Expression(expression) => {
+                    compiled_index_expression_proposal_from_expression(*expression, fields)
+                        .map(CompiledIndexKeyItemProposal::Expression)
+                }
             })
-            .collect::<Option<Vec<_>>>()?,
+            .collect::<Option<Vec<_>>>()
+            .map(CompiledIndexKeyProposal::Items)?,
     };
 
     Some(CompiledIndexProposal {
@@ -536,9 +620,95 @@ fn compiled_field_path_index_proposal_from_model_index(
         name: index.name(),
         store: index.store(),
         unique: index.is_unique(),
-        fields: key_fields,
+        key,
         predicate_sql: index.predicate(),
     })
+}
+
+fn compiled_index_expression_proposal_from_expression(
+    expression: IndexExpression,
+    fields: &[CompiledFieldProposal],
+) -> Option<CompiledIndexExpressionProposal> {
+    let source = compiled_index_field_path_proposal_from_name(expression.field(), fields)?;
+    let op = persisted_expression_op_from_index_expression(expression);
+    let output_kind = persisted_expression_output_kind(op, source.kind())?;
+    let canonical_text = canonical_expression_text(op, source.path());
+
+    Some(CompiledIndexExpressionProposal {
+        op,
+        source,
+        output_kind,
+        canonical_text,
+    })
+}
+
+const fn persisted_expression_op_from_index_expression(
+    expression: IndexExpression,
+) -> PersistedIndexExpressionOp {
+    match expression {
+        IndexExpression::Lower(_) => PersistedIndexExpressionOp::Lower,
+        IndexExpression::Upper(_) => PersistedIndexExpressionOp::Upper,
+        IndexExpression::Trim(_) => PersistedIndexExpressionOp::Trim,
+        IndexExpression::LowerTrim(_) => PersistedIndexExpressionOp::LowerTrim,
+        IndexExpression::Date(_) => PersistedIndexExpressionOp::Date,
+        IndexExpression::Year(_) => PersistedIndexExpressionOp::Year,
+        IndexExpression::Month(_) => PersistedIndexExpressionOp::Month,
+        IndexExpression::Day(_) => PersistedIndexExpressionOp::Day,
+    }
+}
+
+fn persisted_expression_output_kind(
+    op: PersistedIndexExpressionOp,
+    source_kind: &PersistedFieldKind,
+) -> Option<PersistedFieldKind> {
+    match op {
+        PersistedIndexExpressionOp::Lower
+        | PersistedIndexExpressionOp::Upper
+        | PersistedIndexExpressionOp::Trim
+        | PersistedIndexExpressionOp::LowerTrim => {
+            if matches!(source_kind, PersistedFieldKind::Text { .. }) {
+                Some(source_kind.clone())
+            } else {
+                None
+            }
+        }
+        PersistedIndexExpressionOp::Date => {
+            if matches!(
+                source_kind,
+                PersistedFieldKind::Date | PersistedFieldKind::Timestamp
+            ) {
+                Some(PersistedFieldKind::Date)
+            } else {
+                None
+            }
+        }
+        PersistedIndexExpressionOp::Year
+        | PersistedIndexExpressionOp::Month
+        | PersistedIndexExpressionOp::Day => {
+            if matches!(
+                source_kind,
+                PersistedFieldKind::Date | PersistedFieldKind::Timestamp
+            ) {
+                Some(PersistedFieldKind::Int)
+            } else {
+                None
+            }
+        }
+    }
+}
+
+fn canonical_expression_text(op: PersistedIndexExpressionOp, path: &[String]) -> String {
+    let path = path.join(".");
+    match op {
+        PersistedIndexExpressionOp::Lower => format!("expr:v1:LOWER({path})"),
+        PersistedIndexExpressionOp::Upper => format!("expr:v1:UPPER({path})"),
+        PersistedIndexExpressionOp::Trim => format!("expr:v1:TRIM({path})"),
+        PersistedIndexExpressionOp::LowerTrim => format!("expr:v1:LOWER(TRIM({path}))"),
+        PersistedIndexExpressionOp::Date => format!("expr:v1:DATE({path})"),
+        PersistedIndexExpressionOp::Year => format!("expr:v1:YEAR({path})"),
+        PersistedIndexExpressionOp::Month => format!("expr:v1:MONTH({path})"),
+        PersistedIndexExpressionOp::Day => format!("expr:v1:DAY({path})"),
+    }
 }
 
 fn compiled_index_field_path_proposal_from_name(
@@ -620,7 +790,8 @@ fn push_persisted_nested_leaf_snapshots(
 mod tests {
     use crate::{
         db::schema::{
-            FieldId, PersistedFieldKind, SchemaFieldDefault, SchemaFieldSlot, SchemaVersion,
+            FieldId, PersistedFieldKind, PersistedIndexExpressionOp, PersistedIndexKeyItemSnapshot,
+            PersistedIndexKeySnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaVersion,
             compiled_schema_proposal_for_model,
         },
         model::{
@@ -696,8 +867,8 @@ mod tests {
         assert_eq!(proposal.fields().len(), 4);
         assert_eq!(
             proposal.indexes().len(),
-            2,
-            "field-path indexes should be accepted-index proposals; expression indexes wait for the expression contract slice",
+            3,
+            "field-path and expression indexes should both have accepted-index proposals",
         );
 
         let ids = proposal
@@ -757,7 +928,7 @@ mod tests {
         assert_eq!(snapshot.entity_name(), "Entity");
         assert_eq!(snapshot.primary_key_field_id(), FieldId::new(1));
         assert_eq!(snapshot.fields().len(), 4);
-        assert_eq!(snapshot.indexes().len(), 2);
+        assert_eq!(snapshot.indexes().len(), 3);
 
         let name = &snapshot.fields()[1];
         assert_eq!(name.id(), FieldId::new(2));
@@ -818,5 +989,32 @@ mod tests {
             nested_index.key().field_paths()[0].kind(),
             PersistedFieldKind::Text { max_len: None }
         ));
+
+        let expression_index = &snapshot.indexes()[2];
+        assert_eq!(expression_index.ordinal(), 3);
+        assert_eq!(expression_index.name(), "Entity|lower_name");
+        let PersistedIndexKeySnapshot::Items(items) = expression_index.key() else {
+            panic!("expression index should preserve explicit key items");
+        };
+        assert_eq!(items.len(), 1);
+        let PersistedIndexKeyItemSnapshot::Expression(expression) = &items[0] else {
+            panic!("expression index key should persist an accepted expression item");
+        };
+        assert_eq!(expression.op(), PersistedIndexExpressionOp::Lower);
+        assert_eq!(expression.source().field_id(), FieldId::new(2));
+        assert_eq!(
+            expression.source().slot(),
+            SchemaFieldSlot::from_generated_index(1)
+        );
+        assert_eq!(expression.source().path(), &["name".to_string()]);
+        assert!(matches!(
+            expression.input_kind(),
+            PersistedFieldKind::Text { max_len: None }
+        ));
+        assert!(matches!(
+            expression.output_kind(),
+            PersistedFieldKind::Text { max_len: None }
+        ));
+        assert_eq!(expression.canonical_text(), "expr:v1:LOWER(name)");
     }
 }

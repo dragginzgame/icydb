@@ -6,10 +6,12 @@
 use crate::{
     db::schema::{
         FieldId, PersistedEnumVariant, PersistedFieldKind, PersistedFieldSnapshot,
-        PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-        PersistedNestedLeafSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,
-        SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout,
-        SchemaVersion, schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
+        PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
+        PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
+        PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedRelationStrength,
+        PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy,
+        SchemaRowLayout, SchemaVersion, schema_snapshot_index_integrity_detail,
+        schema_snapshot_integrity_detail,
     },
     error::InternalError,
     model::field::{
@@ -20,7 +22,7 @@ use crate::{
 use candid::{CandidType, Decode, Encode};
 use serde::Deserialize;
 
-const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 3;
+const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 4;
 
 // Candid wire container for one persisted schema snapshot.
 //
@@ -85,6 +87,14 @@ struct PersistedIndexSnapshotWire {
 #[derive(CandidType, Deserialize)]
 enum PersistedIndexKeySnapshotWire {
     FieldPath(Vec<PersistedIndexFieldPathSnapshotWire>),
+    Items(Vec<PersistedIndexKeyItemSnapshotWire>),
+}
+
+// Candid wire enum for one accepted explicit index key item.
+#[derive(CandidType, Deserialize)]
+enum PersistedIndexKeyItemSnapshotWire {
+    FieldPath(PersistedIndexFieldPathSnapshotWire),
+    Expression(Box<PersistedIndexExpressionSnapshotWire>),
 }
 
 // Candid wire container for one accepted field-path index key item.
@@ -95,6 +105,29 @@ struct PersistedIndexFieldPathSnapshotWire {
     path: Vec<String>,
     kind: PersistedFieldKindWire,
     nullable: bool,
+}
+
+// Candid wire container for one accepted expression index key item.
+#[derive(CandidType, Deserialize)]
+struct PersistedIndexExpressionSnapshotWire {
+    op: PersistedIndexExpressionOpWire,
+    source: PersistedIndexFieldPathSnapshotWire,
+    input_kind: PersistedFieldKindWire,
+    output_kind: PersistedFieldKindWire,
+    canonical_text: String,
+}
+
+// Candid wire enum for accepted expression index operations.
+#[derive(CandidType, Deserialize)]
+enum PersistedIndexExpressionOpWire {
+    Lower,
+    Upper,
+    Trim,
+    LowerTrim,
+    Date,
+    Year,
+    Month,
+    Day,
 }
 
 // Candid wire enum for database-level default metadata.
@@ -442,6 +475,12 @@ impl PersistedIndexKeySnapshotWire {
                     .map(PersistedIndexFieldPathSnapshotWire::from_path)
                     .collect(),
             ),
+            PersistedIndexKeySnapshot::Items(items) => Self::Items(
+                items
+                    .iter()
+                    .map(PersistedIndexKeyItemSnapshotWire::from_item)
+                    .collect(),
+            ),
         }
     }
 
@@ -452,6 +491,36 @@ impl PersistedIndexKeySnapshotWire {
                     .into_iter()
                     .map(PersistedIndexFieldPathSnapshotWire::into_path)
                     .collect::<Result<Vec<_>, _>>()?,
+            )),
+            Self::Items(items) => Ok(PersistedIndexKeySnapshot::Items(
+                items
+                    .into_iter()
+                    .map(PersistedIndexKeyItemSnapshotWire::into_item)
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
+        }
+    }
+}
+
+impl PersistedIndexKeyItemSnapshotWire {
+    fn from_item(item: &PersistedIndexKeyItemSnapshot) -> Self {
+        match item {
+            PersistedIndexKeyItemSnapshot::FieldPath(path) => {
+                Self::FieldPath(PersistedIndexFieldPathSnapshotWire::from_path(path))
+            }
+            PersistedIndexKeyItemSnapshot::Expression(expression) => Self::Expression(Box::new(
+                PersistedIndexExpressionSnapshotWire::from_expression(expression),
+            )),
+        }
+    }
+
+    fn into_item(self) -> Result<PersistedIndexKeyItemSnapshot, InternalError> {
+        match self {
+            Self::FieldPath(path) => {
+                Ok(PersistedIndexKeyItemSnapshot::FieldPath(path.into_path()?))
+            }
+            Self::Expression(expression) => Ok(PersistedIndexKeyItemSnapshot::Expression(
+                Box::new((*expression).into_expression()?),
             )),
         }
     }
@@ -476,6 +545,56 @@ impl PersistedIndexFieldPathSnapshotWire {
             self.kind.into_kind()?,
             self.nullable,
         ))
+    }
+}
+
+impl PersistedIndexExpressionSnapshotWire {
+    fn from_expression(expression: &PersistedIndexExpressionSnapshot) -> Self {
+        Self {
+            op: PersistedIndexExpressionOpWire::from_op(expression.op()),
+            source: PersistedIndexFieldPathSnapshotWire::from_path(expression.source()),
+            input_kind: PersistedFieldKindWire::from_kind(expression.input_kind()),
+            output_kind: PersistedFieldKindWire::from_kind(expression.output_kind()),
+            canonical_text: expression.canonical_text().to_string(),
+        }
+    }
+
+    fn into_expression(self) -> Result<PersistedIndexExpressionSnapshot, InternalError> {
+        Ok(PersistedIndexExpressionSnapshot::new(
+            self.op.into_op(),
+            self.source.into_path()?,
+            self.input_kind.into_kind()?,
+            self.output_kind.into_kind()?,
+            self.canonical_text,
+        ))
+    }
+}
+
+impl PersistedIndexExpressionOpWire {
+    const fn from_op(op: PersistedIndexExpressionOp) -> Self {
+        match op {
+            PersistedIndexExpressionOp::Lower => Self::Lower,
+            PersistedIndexExpressionOp::Upper => Self::Upper,
+            PersistedIndexExpressionOp::Trim => Self::Trim,
+            PersistedIndexExpressionOp::LowerTrim => Self::LowerTrim,
+            PersistedIndexExpressionOp::Date => Self::Date,
+            PersistedIndexExpressionOp::Year => Self::Year,
+            PersistedIndexExpressionOp::Month => Self::Month,
+            PersistedIndexExpressionOp::Day => Self::Day,
+        }
+    }
+
+    const fn into_op(self) -> PersistedIndexExpressionOp {
+        match self {
+            Self::Lower => PersistedIndexExpressionOp::Lower,
+            Self::Upper => PersistedIndexExpressionOp::Upper,
+            Self::Trim => PersistedIndexExpressionOp::Trim,
+            Self::LowerTrim => PersistedIndexExpressionOp::LowerTrim,
+            Self::Date => PersistedIndexExpressionOp::Date,
+            Self::Year => PersistedIndexExpressionOp::Year,
+            Self::Month => PersistedIndexExpressionOp::Month,
+            Self::Day => PersistedIndexExpressionOp::Day,
+        }
     }
 }
 
@@ -764,10 +883,12 @@ impl ScalarCodecWire {
 mod tests {
     use crate::{
         db::schema::{
-            FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot,
-            PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
-            SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout,
-            SchemaVersion, decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
+            FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,
+            PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
+            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+            PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy,
+            SchemaRowLayout, SchemaVersion, decode_persisted_schema_snapshot,
+            encode_persisted_schema_snapshot,
         },
         model::field::{
             FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec, ScalarCodec,
@@ -970,5 +1091,86 @@ mod tests {
         assert_eq!(index.key().field_paths()[0].field_id(), FieldId::new(2));
         assert_eq!(index.key().field_paths()[0].slot(), SchemaFieldSlot::new(1));
         assert_eq!(index.key().field_paths()[0].path(), &["email".to_string()]);
+    }
+
+    #[test]
+    fn persisted_schema_snapshot_round_trips_expression_indexes() {
+        let source = PersistedIndexFieldPathSnapshot::new(
+            FieldId::new(2),
+            SchemaFieldSlot::new(1),
+            vec!["email".to_string()],
+            PersistedFieldKind::Text { max_len: None },
+            false,
+        );
+        let snapshot = PersistedSchemaSnapshot::new_with_indexes(
+            SchemaVersion::initial(),
+            "entities::ExpressionIndexed".to_string(),
+            "ExpressionIndexed".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new_with_write_policy(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    SchemaFieldWritePolicy::none(),
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new_with_write_policy(
+                    FieldId::new(2),
+                    "email".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Text { max_len: None },
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    SchemaFieldWritePolicy::none(),
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Text),
+                ),
+            ],
+            vec![PersistedIndexSnapshot::new(
+                8,
+                "ExpressionIndexed|lower_email".to_string(),
+                "expression_indexed::lower_email".to_string(),
+                true,
+                PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::Expression(
+                    Box::new(PersistedIndexExpressionSnapshot::new(
+                        PersistedIndexExpressionOp::Lower,
+                        source,
+                        PersistedFieldKind::Text { max_len: None },
+                        PersistedFieldKind::Text { max_len: None },
+                        "expr:v1:LOWER(email)".to_string(),
+                    )),
+                )]),
+                None,
+            )],
+        );
+        let encoded = encode_persisted_schema_snapshot(&snapshot)
+            .expect("schema snapshot should encode accepted expression index contracts");
+
+        let decoded = decode_persisted_schema_snapshot(&encoded)
+            .expect("schema snapshot should decode accepted expression index contracts");
+
+        let PersistedIndexKeySnapshot::Items(items) = decoded.indexes()[0].key() else {
+            panic!("expression index should decode as explicit accepted key items");
+        };
+        let PersistedIndexKeyItemSnapshot::Expression(expression) = &items[0] else {
+            panic!("expression key item should decode as an accepted expression");
+        };
+        assert_eq!(expression.op(), PersistedIndexExpressionOp::Lower);
+        assert_eq!(expression.source().field_id(), FieldId::new(2));
+        assert_eq!(expression.canonical_text(), "expr:v1:LOWER(email)");
     }
 }

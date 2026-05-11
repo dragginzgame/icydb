@@ -53,7 +53,8 @@ pub(in crate::db) use runtime::{
 };
 pub(in crate::db) use snapshot::{
     AcceptedSchemaSnapshot, PersistedEnumVariant, PersistedFieldKind, PersistedFieldSnapshot,
-    PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+    PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
+    PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
     PersistedNestedLeafSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,
     SchemaFieldDefault, SchemaFieldWritePolicy,
 };
