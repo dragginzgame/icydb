@@ -8,6 +8,8 @@ use crate::db::{
         finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32, write_hash_tag_u8,
         write_hash_u32,
     },
+    data::{CanonicalSlotReader, StorageKey},
+    index::{IndexEntry, IndexKey, RawIndexEntry, RawIndexKey},
     schema::{
         FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
@@ -16,6 +18,7 @@ use crate::db::{
     },
 };
 use crate::error::InternalError;
+use crate::types::EntityTag;
 use sha2::Digest;
 
 #[allow(
@@ -785,6 +788,16 @@ impl SchemaMutationRunnerRejection {
     }
 
     #[must_use]
+    const fn validation_failed(requirement: RebuildRequirement) -> Self {
+        Self {
+            phase: SchemaMutationRunnerPhase::ValidatePhysicalState,
+            kind: SchemaMutationRunnerRejectionKind::ValidationFailed,
+            requirement: Some(requirement),
+            missing_capabilities: Vec::new(),
+        }
+    }
+
+    #[must_use]
     pub(in crate::db::schema) const fn phase(&self) -> SchemaMutationRunnerPhase {
         self.phase
     }
@@ -825,6 +838,9 @@ pub(in crate::db::schema) struct SchemaMutationRunnerReport {
     required_capabilities: Vec<SchemaMutationRunnerCapability>,
     completed_phases: Vec<SchemaMutationRunnerPhase>,
     store_visibility: Option<SchemaMutationStoreVisibility>,
+    rows_scanned: usize,
+    rows_skipped: usize,
+    index_keys_written: usize,
 }
 
 #[allow(
@@ -843,6 +859,31 @@ impl SchemaMutationRunnerReport {
             required_capabilities,
             completed_phases: vec![SchemaMutationRunnerPhase::Preflight],
             store_visibility,
+            rows_scanned: 0,
+            rows_skipped: 0,
+            index_keys_written: 0,
+        }
+    }
+
+    #[must_use]
+    fn field_path_index_staged(
+        step_count: usize,
+        required_capabilities: Vec<SchemaMutationRunnerCapability>,
+        validation: SchemaFieldPathIndexStagedValidation,
+    ) -> Self {
+        Self {
+            step_count,
+            required_capabilities,
+            completed_phases: vec![
+                SchemaMutationRunnerPhase::Preflight,
+                SchemaMutationRunnerPhase::StageStores,
+                SchemaMutationRunnerPhase::BuildPhysicalState,
+                SchemaMutationRunnerPhase::ValidatePhysicalState,
+            ],
+            store_visibility: Some(validation.store_visibility()),
+            rows_scanned: validation.source_rows(),
+            rows_skipped: validation.skipped_rows(),
+            index_keys_written: validation.entry_count(),
         }
     }
 
@@ -864,10 +905,41 @@ impl SchemaMutationRunnerReport {
     }
 
     #[must_use]
+    pub(in crate::db::schema) fn has_completed_phase(
+        &self,
+        phase: SchemaMutationRunnerPhase,
+    ) -> bool {
+        self.completed_phases.contains(&phase)
+    }
+
+    #[must_use]
     pub(in crate::db::schema) const fn store_visibility(
         &self,
     ) -> Option<SchemaMutationStoreVisibility> {
         self.store_visibility
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn rows_scanned(&self) -> usize {
+        self.rows_scanned
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn rows_skipped(&self) -> usize {
+        self.rows_skipped
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn index_keys_written(&self) -> usize {
+        self.index_keys_written
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn physical_work_allows_publication(&self) -> bool {
+        self.store_visibility == Some(SchemaMutationStoreVisibility::Published)
+            && self.has_completed_phase(SchemaMutationRunnerPhase::ValidatePhysicalState)
+            && self.has_completed_phase(SchemaMutationRunnerPhase::InvalidateRuntimeState)
+            && self.has_completed_phase(SchemaMutationRunnerPhase::PublishSnapshot)
     }
 }
 
@@ -1146,6 +1218,306 @@ impl SchemaMutationPublicationIdentity {
     #[must_use]
     pub(in crate::db::schema) fn changes_epoch(&self) -> bool {
         self.before != self.after
+    }
+}
+
+///
+/// SchemaFieldPathIndexRebuildRow
+///
+/// One authoritative row exposed to the field-path rebuild staging primitive.
+/// The row is already decoded behind a canonical slot-reader contract; staging
+/// must only derive accepted index keys from these row slots.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages field-path rebuild row inputs before physical runners own row iteration"
+)]
+#[derive(Clone, Copy)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexRebuildRow<'a> {
+    storage_key: StorageKey,
+    slots: &'a dyn CanonicalSlotReader,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages field-path rebuild row inputs before physical runners own row iteration"
+)]
+impl<'a> SchemaFieldPathIndexRebuildRow<'a> {
+    #[must_use]
+    pub(in crate::db::schema) const fn new(
+        storage_key: StorageKey,
+        slots: &'a dyn CanonicalSlotReader,
+    ) -> Self {
+        Self { storage_key, slots }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn storage_key(self) -> StorageKey {
+        self.storage_key
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn slots(self) -> &'a dyn CanonicalSlotReader {
+        self.slots
+    }
+}
+
+///
+/// SchemaFieldPathIndexStagedEntry
+///
+/// One raw index-store entry produced during staged field-path rebuild work.
+/// It remains in memory until later runner phases validate and publish it.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages in-memory rebuild entries before physical runners publish stores"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexStagedEntry {
+    key: RawIndexKey,
+    entry: RawIndexEntry,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages in-memory rebuild entries before physical runners publish stores"
+)]
+impl SchemaFieldPathIndexStagedEntry {
+    #[must_use]
+    pub(in crate::db::schema) const fn key(&self) -> &RawIndexKey {
+        &self.key
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn entry(&self) -> &RawIndexEntry {
+        &self.entry
+    }
+}
+
+///
+/// SchemaFieldPathIndexStagedRebuild
+///
+/// In-memory staged field-path index state. This is not a published store and
+/// must not be made planner-visible until validation and publication complete.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages in-memory field-path rebuild output before physical runners publish stores"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexStagedRebuild {
+    target: SchemaFieldPathIndexRebuildTarget,
+    entries: Vec<SchemaFieldPathIndexStagedEntry>,
+    source_rows: usize,
+    skipped_rows: usize,
+    store_visibility: SchemaMutationStoreVisibility,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages in-memory field-path rebuild output before physical runners publish stores"
+)]
+impl SchemaFieldPathIndexStagedRebuild {
+    pub(in crate::db::schema) fn from_rows<'a>(
+        entity_path: &str,
+        entity_tag: EntityTag,
+        target: SchemaFieldPathIndexRebuildTarget,
+        rows: impl IntoIterator<Item = SchemaFieldPathIndexRebuildRow<'a>>,
+    ) -> Result<Self, InternalError> {
+        let mut entries = Vec::new();
+        let mut source_rows = 0usize;
+        let mut skipped_rows = 0usize;
+
+        for row in rows {
+            source_rows = source_rows.saturating_add(1);
+            let Some(key) = IndexKey::new_from_slots_with_field_path_rebuild_target(
+                entity_tag,
+                row.storage_key(),
+                &target,
+                row.slots(),
+            )?
+            else {
+                skipped_rows = skipped_rows.saturating_add(1);
+                continue;
+            };
+            let entry = IndexEntry::new(row.storage_key());
+            let raw_entry = RawIndexEntry::try_from(&entry)
+                .map_err(|err| err.into_commit_internal_error(entity_path, target.name()))?;
+
+            entries.push(SchemaFieldPathIndexStagedEntry {
+                key: key.to_raw(),
+                entry: raw_entry,
+            });
+        }
+
+        entries.sort_by(|left, right| left.key.cmp(&right.key));
+
+        Ok(Self {
+            target,
+            entries,
+            source_rows,
+            skipped_rows,
+            store_visibility: SchemaMutationStoreVisibility::StagedOnly,
+        })
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn target(&self) -> &SchemaFieldPathIndexRebuildTarget {
+        &self.target
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn entries(&self) -> &[SchemaFieldPathIndexStagedEntry] {
+        self.entries.as_slice()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn source_rows(&self) -> usize {
+        self.source_rows
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn skipped_rows(&self) -> usize {
+        self.skipped_rows
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
+        self.store_visibility
+    }
+
+    pub(in crate::db::schema) fn validate(
+        &self,
+    ) -> Result<SchemaFieldPathIndexStagedValidation, SchemaFieldPathIndexStagedValidationError>
+    {
+        if self.store_visibility != SchemaMutationStoreVisibility::StagedOnly {
+            return Err(SchemaFieldPathIndexStagedValidationError::PublishedVisibility);
+        }
+
+        let expected_entries = self
+            .source_rows
+            .checked_sub(self.skipped_rows)
+            .ok_or(SchemaFieldPathIndexStagedValidationError::SkippedRowsExceedSourceRows)?;
+        if expected_entries != self.entries.len() {
+            return Err(SchemaFieldPathIndexStagedValidationError::EntryCountMismatch);
+        }
+
+        if !self
+            .entries
+            .windows(2)
+            .all(|pair| pair[0].key < pair[1].key)
+        {
+            return Err(SchemaFieldPathIndexStagedValidationError::UnsortedOrDuplicateEntries);
+        }
+
+        Ok(SchemaFieldPathIndexStagedValidation {
+            entry_count: self.entries.len(),
+            source_rows: self.source_rows,
+            skipped_rows: self.skipped_rows,
+            store_visibility: self.store_visibility,
+        })
+    }
+
+    pub(in crate::db::schema) fn validated_runner_report(
+        &self,
+        execution_plan: &SchemaMutationExecutionPlan,
+    ) -> Result<SchemaMutationRunnerReport, SchemaMutationRunnerRejection> {
+        let step_count = match execution_plan.execution_gate() {
+            SchemaMutationExecutionGate::AwaitingPhysicalWork {
+                requirement: RebuildRequirement::IndexRebuildRequired,
+                step_count,
+            } => step_count,
+            SchemaMutationExecutionGate::AwaitingPhysicalWork { requirement, .. }
+            | SchemaMutationExecutionGate::Rejected { requirement } => {
+                return Err(SchemaMutationRunnerRejection::unsupported_requirement(
+                    requirement,
+                ));
+            }
+            SchemaMutationExecutionGate::ReadyToPublish => {
+                return Err(SchemaMutationRunnerRejection::unsupported_requirement(
+                    RebuildRequirement::NoRebuildRequired,
+                ));
+            }
+        };
+
+        let validation = self.validate().map_err(|_| {
+            SchemaMutationRunnerRejection::validation_failed(
+                RebuildRequirement::IndexRebuildRequired,
+            )
+        })?;
+
+        Ok(SchemaMutationRunnerReport::field_path_index_staged(
+            step_count,
+            execution_plan.runner_capabilities(),
+            validation,
+        ))
+    }
+}
+
+///
+/// SchemaFieldPathIndexStagedValidationError
+///
+/// Fail-closed validation result for staged field-path rebuild output. Later
+/// runner phases must validate staged output before any store publication.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages field-path rebuild validation before physical runners publish stores"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaFieldPathIndexStagedValidationError {
+    PublishedVisibility,
+    SkippedRowsExceedSourceRows,
+    EntryCountMismatch,
+    UnsortedOrDuplicateEntries,
+}
+
+///
+/// SchemaFieldPathIndexStagedValidation
+///
+/// Positive validation report for one in-memory field-path rebuild. The report
+/// intentionally stays small until physical runner diagnostics consume it.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages field-path rebuild validation before physical runners publish stores"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexStagedValidation {
+    entry_count: usize,
+    source_rows: usize,
+    skipped_rows: usize,
+    store_visibility: SchemaMutationStoreVisibility,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages field-path rebuild validation before physical runners publish stores"
+)]
+impl SchemaFieldPathIndexStagedValidation {
+    #[must_use]
+    pub(in crate::db::schema) const fn entry_count(self) -> usize {
+        self.entry_count
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn source_rows(self) -> usize {
+        self.source_rows
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn skipped_rows(self) -> usize {
+        self.skipped_rows
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store_visibility(self) -> SchemaMutationStoreVisibility {
+        self.store_visibility
     }
 }
 
@@ -2319,7 +2691,8 @@ mod tests {
     use crate::{
         db::{
             data::{
-                CanonicalSlotReader, ScalarSlotValueRef, SlotReader, StructuralFieldDecodeContract,
+                CanonicalSlotReader, ScalarSlotValueRef, SlotReader, StorageKey,
+                StructuralFieldDecodeContract,
             },
             index::{IndexId, IndexKey},
             schema::{
@@ -2841,7 +3214,12 @@ mod tests {
             no_work.completed_phases(),
             &[super::SchemaMutationRunnerPhase::Preflight],
         );
+        assert!(no_work.has_completed_phase(super::SchemaMutationRunnerPhase::Preflight));
         assert_eq!(no_work.store_visibility(), None);
+        assert_eq!(no_work.rows_scanned(), 0);
+        assert_eq!(no_work.rows_skipped(), 0);
+        assert_eq!(no_work.index_keys_written(), 0);
+        assert!(!no_work.physical_work_allows_publication());
 
         let super::SchemaMutationRunnerOutcome::ReadyForPhysicalWork(ready) =
             runner.outcome(&field_path.execution_plan())
@@ -2865,6 +3243,10 @@ mod tests {
             ready.store_visibility(),
             Some(super::SchemaMutationStoreVisibility::StagedOnly),
         );
+        assert_eq!(ready.rows_scanned(), 0);
+        assert_eq!(ready.rows_skipped(), 0);
+        assert_eq!(ready.index_keys_written(), 0);
+        assert!(!ready.physical_work_allows_publication());
     }
 
     #[test]
@@ -3139,6 +3521,222 @@ mod tests {
                 .expect("index key should carry primary storage key"),
             storage_key,
         );
+    }
+
+    #[test]
+    fn field_path_rebuild_stages_sorted_entries_without_publication() {
+        let request = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower to a rebuild target");
+        let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } = request else {
+            panic!("field-path index request should preserve rebuild target");
+        };
+        let first = RebuildSlotReader {
+            values: vec![None, Some(Value::Text("Ada".to_string()))],
+        };
+        let skipped = RebuildSlotReader {
+            values: vec![None, Some(Value::Null)],
+        };
+        let second = RebuildSlotReader {
+            values: vec![None, Some(Value::Text("Grace".to_string()))],
+        };
+
+        let staged = super::SchemaFieldPathIndexStagedRebuild::from_rows(
+            "test::mutation::entity",
+            EntityTag::new(7),
+            target,
+            [
+                super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(2), &second),
+                super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(1), &first),
+                super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(3), &skipped),
+            ],
+        )
+        .expect("field-path rebuild rows should stage into raw index entries");
+
+        assert_eq!(staged.target().name(), "by_name");
+        assert_eq!(staged.source_rows(), 3);
+        assert_eq!(staged.skipped_rows(), 1);
+        assert_eq!(staged.entries().len(), 2);
+        assert_eq!(
+            staged.store_visibility(),
+            super::SchemaMutationStoreVisibility::StagedOnly,
+        );
+        assert!(
+            staged
+                .entries()
+                .windows(2)
+                .all(|pair| pair[0].key() <= pair[1].key())
+        );
+        let staged_members = staged
+            .entries()
+            .iter()
+            .map(|entry| {
+                entry
+                    .entry()
+                    .try_decode()
+                    .expect("staged entry should decode")
+                    .iter_ids()
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            staged_members,
+            vec![vec![StorageKey::Uint(1)], vec![StorageKey::Uint(2)]],
+        );
+
+        let validation = staged
+            .validate()
+            .expect("fresh staged rebuild output should validate");
+        assert_eq!(validation.entry_count(), 2);
+        assert_eq!(validation.source_rows(), 3);
+        assert_eq!(validation.skipped_rows(), 1);
+        assert_eq!(
+            validation.store_visibility(),
+            super::SchemaMutationStoreVisibility::StagedOnly,
+        );
+    }
+
+    #[test]
+    fn field_path_rebuild_validation_fails_closed_for_mutated_staged_state() {
+        let request = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower to a rebuild target");
+        let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } = request else {
+            panic!("field-path index request should preserve rebuild target");
+        };
+        let first = RebuildSlotReader {
+            values: vec![None, Some(Value::Text("Ada".to_string()))],
+        };
+        let second = RebuildSlotReader {
+            values: vec![None, Some(Value::Text("Grace".to_string()))],
+        };
+        let staged = super::SchemaFieldPathIndexStagedRebuild::from_rows(
+            "test::mutation::entity",
+            EntityTag::new(7),
+            target,
+            [
+                super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(1), &first),
+                super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(2), &second),
+            ],
+        )
+        .expect("field-path rebuild rows should stage into raw index entries");
+
+        let mut duplicate = staged.clone();
+        duplicate.entries[1] = duplicate.entries[0].clone();
+        assert_eq!(
+            duplicate.validate(),
+            Err(super::SchemaFieldPathIndexStagedValidationError::UnsortedOrDuplicateEntries),
+        );
+        let plan = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower to a rebuild target")
+        .lower_to_plan();
+        let rejection = duplicate
+            .validated_runner_report(&plan.execution_plan())
+            .expect_err("invalid staged state should reject runner reporting");
+        assert_eq!(
+            rejection.phase(),
+            super::SchemaMutationRunnerPhase::ValidatePhysicalState,
+        );
+        assert_eq!(
+            rejection.kind(),
+            super::SchemaMutationRunnerRejectionKind::ValidationFailed,
+        );
+        assert_eq!(
+            rejection.requirement(),
+            Some(RebuildRequirement::IndexRebuildRequired),
+        );
+
+        let mut mismatched_count = staged.clone();
+        mismatched_count.skipped_rows = 1;
+        assert_eq!(
+            mismatched_count.validate(),
+            Err(super::SchemaFieldPathIndexStagedValidationError::EntryCountMismatch),
+        );
+
+        let mut published = staged;
+        published.store_visibility = super::SchemaMutationStoreVisibility::Published;
+        assert_eq!(
+            published.validate(),
+            Err(super::SchemaFieldPathIndexStagedValidationError::PublishedVisibility),
+        );
+    }
+
+    #[test]
+    fn field_path_rebuild_validation_reports_runner_diagnostics_without_publication() {
+        let plan = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower")
+        .lower_to_plan();
+        let request = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower to a rebuild target");
+        let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } = request else {
+            panic!("field-path index request should preserve rebuild target");
+        };
+        let first = RebuildSlotReader {
+            values: vec![None, Some(Value::Text("Ada".to_string()))],
+        };
+        let skipped = RebuildSlotReader {
+            values: vec![None, Some(Value::Null)],
+        };
+        let second = RebuildSlotReader {
+            values: vec![None, Some(Value::Text("Grace".to_string()))],
+        };
+        let staged = super::SchemaFieldPathIndexStagedRebuild::from_rows(
+            "test::mutation::entity",
+            EntityTag::new(7),
+            target,
+            [
+                super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(2), &second),
+                super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(3), &skipped),
+                super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(1), &first),
+            ],
+        )
+        .expect("field-path rebuild rows should stage into raw index entries");
+
+        let report = staged
+            .validated_runner_report(&plan.execution_plan())
+            .expect("valid staged rebuild output should produce runner diagnostics");
+
+        assert_eq!(report.step_count(), 3);
+        assert_eq!(
+            report.required_capabilities(),
+            &[
+                super::SchemaMutationRunnerCapability::BuildFieldPathIndex,
+                super::SchemaMutationRunnerCapability::ValidatePhysicalWork,
+                super::SchemaMutationRunnerCapability::InvalidateRuntimeState,
+            ],
+        );
+        assert_eq!(
+            report.completed_phases(),
+            &[
+                super::SchemaMutationRunnerPhase::Preflight,
+                super::SchemaMutationRunnerPhase::StageStores,
+                super::SchemaMutationRunnerPhase::BuildPhysicalState,
+                super::SchemaMutationRunnerPhase::ValidatePhysicalState,
+            ],
+        );
+        assert_eq!(
+            report.store_visibility(),
+            Some(super::SchemaMutationStoreVisibility::StagedOnly),
+        );
+        assert_eq!(report.rows_scanned(), 3);
+        assert_eq!(report.rows_skipped(), 1);
+        assert_eq!(report.index_keys_written(), 2);
+        assert!(
+            report.has_completed_phase(super::SchemaMutationRunnerPhase::ValidatePhysicalState)
+        );
+        assert!(
+            !report.has_completed_phase(super::SchemaMutationRunnerPhase::InvalidateRuntimeState)
+        );
+        assert!(!report.physical_work_allows_publication());
     }
 
     #[test]
