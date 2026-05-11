@@ -8,7 +8,10 @@ use crate::db::{
         finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32, write_hash_tag_u8,
         write_hash_u32,
     },
-    schema::{FieldId, PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot},
+    schema::{
+        FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexKeySnapshot,
+        PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
+    },
 };
 
 #[allow(
@@ -41,8 +44,8 @@ pub(in crate::db::schema) enum SchemaMutation {
         name: String,
         slot: SchemaFieldSlot,
     },
-    AddNonUniqueIndex {
-        name: String,
+    AddNonUniqueFieldPathIndex {
+        target: SchemaFieldPathIndexRebuildTarget,
     },
     AddExpressionIndex {
         name: String,
@@ -71,11 +74,151 @@ pub(in crate::db::schema) enum SchemaMutation {
 pub(in crate::db::schema) enum SchemaMutationRequest<'a> {
     ExactMatch,
     AppendOnlyFields(&'a [PersistedFieldSnapshot]),
-    AddNonUniqueIndex { name: String },
-    AddExpressionIndex { name: String },
-    DropNonRequiredSecondaryIndex { name: String },
-    AlterNullability { field_id: FieldId },
+    AddNonUniqueFieldPathIndex {
+        target: SchemaFieldPathIndexRebuildTarget,
+    },
+    AddExpressionIndex {
+        name: String,
+    },
+    DropNonRequiredSecondaryIndex {
+        name: String,
+    },
+    AlterNullability {
+        field_id: FieldId,
+    },
     Incompatible,
+}
+
+///
+/// AcceptedSchemaMutationError
+///
+/// Fail-closed reason produced while lowering accepted schema metadata into a
+/// mutation request. These errors mean the mutation framework cannot describe
+/// a safe catalog operation yet; callers must not compensate with generated
+/// metadata.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages fail-closed mutation lowering before DDL diagnostics expose it"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum AcceptedSchemaMutationError {
+    UniqueIndexRequiresDedicatedValidation,
+    UnsupportedIndexKeyShape,
+    EmptyIndexKey,
+}
+
+///
+/// SchemaFieldPathIndexRebuildTarget
+///
+/// Accepted schema-owned rebuild target for a field-path index. It carries the
+/// persisted index store identity and key-slot contract that a later physical
+/// rebuild runner must consume before the index can become runtime-visible.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexRebuildTarget {
+    ordinal: u16,
+    name: String,
+    store: String,
+    unique: bool,
+    predicate_sql: Option<String>,
+    key_paths: Vec<SchemaFieldPathIndexRebuildKey>,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
+)]
+impl SchemaFieldPathIndexRebuildTarget {
+    #[must_use]
+    pub(in crate::db::schema) const fn ordinal(&self) -> u16 {
+        self.ordinal
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn unique(&self) -> bool {
+        self.unique
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn predicate_sql(&self) -> Option<&str> {
+        match &self.predicate_sql {
+            Some(predicate_sql) => Some(predicate_sql.as_str()),
+            None => None,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn key_paths(&self) -> &[SchemaFieldPathIndexRebuildKey] {
+        self.key_paths.as_slice()
+    }
+}
+
+///
+/// SchemaFieldPathIndexRebuildKey
+///
+/// One accepted field-path key component required to rebuild a secondary index
+/// from accepted row-layout slots.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexRebuildKey {
+    field_id: FieldId,
+    slot: SchemaFieldSlot,
+    path: Vec<String>,
+    kind: PersistedFieldKind,
+    nullable: bool,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
+)]
+impl SchemaFieldPathIndexRebuildKey {
+    #[must_use]
+    pub(in crate::db::schema) const fn field_id(&self) -> FieldId {
+        self.field_id
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn slot(&self) -> SchemaFieldSlot {
+        self.slot
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn path(&self) -> &[String] {
+        self.path.as_slice()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn kind(&self) -> &PersistedFieldKind {
+        &self.kind
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn nullable(&self) -> bool {
+        self.nullable
+    }
 }
 
 ///
@@ -147,6 +290,9 @@ pub(in crate::db::schema) enum SchemaRebuildIndexKind {
 )]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaRebuildAction {
+    BuildFieldPathIndex {
+        target: SchemaFieldPathIndexRebuildTarget,
+    },
     BuildIndex {
         name: String,
         kind: SchemaRebuildIndexKind,
@@ -348,11 +494,12 @@ impl MutationPlan {
         }
     }
 
-    /// Stage a non-unique index addition. This is a planning artifact only
-    /// until rebuild orchestration can construct the physical index safely.
-    fn non_unique_index_addition(name: String) -> Self {
+    /// Stage a non-unique field-path index addition from accepted index
+    /// metadata. This is a planning artifact only until rebuild orchestration
+    /// can construct the physical index safely.
+    fn non_unique_field_path_index_addition(target: SchemaFieldPathIndexRebuildTarget) -> Self {
         Self {
-            mutations: vec![SchemaMutation::AddNonUniqueIndex { name }],
+            mutations: vec![SchemaMutation::AddNonUniqueFieldPathIndex { target }],
             compatibility: MutationCompatibility::RequiresRebuild,
             rebuild: RebuildRequirement::IndexRebuildRequired,
         }
@@ -459,10 +606,9 @@ impl MutationPlan {
             match mutation {
                 SchemaMutation::AddNullableField { .. }
                 | SchemaMutation::AddDefaultedField { .. } => {}
-                SchemaMutation::AddNonUniqueIndex { name } => {
-                    actions.push(SchemaRebuildAction::BuildIndex {
-                        name: name.clone(),
-                        kind: SchemaRebuildIndexKind::FieldPath,
+                SchemaMutation::AddNonUniqueFieldPathIndex { target } => {
+                    actions.push(SchemaRebuildAction::BuildFieldPathIndex {
+                        target: target.clone(),
                     });
                 }
                 SchemaMutation::AddExpressionIndex { name } => {
@@ -542,6 +688,51 @@ impl MutationPlan {
 }
 
 impl SchemaMutationRequest<'_> {
+    /// Lower one accepted non-unique field-path index snapshot into a mutation
+    /// request. Unique and expression/mixed indexes fail closed until their
+    /// rebuild validators exist.
+    #[allow(
+        dead_code,
+        reason = "0.152 stages accepted index mutation lowering before DDL/rebuild callers use it"
+    )]
+    pub(in crate::db::schema) fn from_accepted_non_unique_field_path_index(
+        index: &PersistedIndexSnapshot,
+    ) -> Result<Self, AcceptedSchemaMutationError> {
+        if index.unique() {
+            return Err(AcceptedSchemaMutationError::UniqueIndexRequiresDedicatedValidation);
+        }
+
+        let PersistedIndexKeySnapshot::FieldPath(paths) = index.key() else {
+            return Err(AcceptedSchemaMutationError::UnsupportedIndexKeyShape);
+        };
+
+        if paths.is_empty() {
+            return Err(AcceptedSchemaMutationError::EmptyIndexKey);
+        }
+
+        let key_paths = paths
+            .iter()
+            .map(|path| SchemaFieldPathIndexRebuildKey {
+                field_id: path.field_id(),
+                slot: path.slot(),
+                path: path.path().to_vec(),
+                kind: path.kind().clone(),
+                nullable: path.nullable(),
+            })
+            .collect();
+
+        Ok(Self::AddNonUniqueFieldPathIndex {
+            target: SchemaFieldPathIndexRebuildTarget {
+                ordinal: index.ordinal(),
+                name: index.name().to_string(),
+                store: index.store().to_string(),
+                unique: index.unique(),
+                predicate_sql: index.predicate_sql().map(str::to_string),
+                key_paths,
+            },
+        })
+    }
+
     /// Lower this request into the deterministic mutation plan consumed by
     /// transition, publication, and future rebuild orchestration.
     #[must_use]
@@ -549,7 +740,9 @@ impl SchemaMutationRequest<'_> {
         match self {
             Self::ExactMatch => MutationPlan::exact_match(),
             Self::AppendOnlyFields(fields) => MutationPlan::append_only_fields(fields),
-            Self::AddNonUniqueIndex { name } => MutationPlan::non_unique_index_addition(name),
+            Self::AddNonUniqueFieldPathIndex { target } => {
+                MutationPlan::non_unique_field_path_index_addition(target)
+            }
             Self::AddExpressionIndex { name } => MutationPlan::expression_index_addition(name),
             Self::DropNonRequiredSecondaryIndex { name } => {
                 MutationPlan::secondary_index_drop(name)
@@ -593,9 +786,9 @@ impl SchemaMutation {
                 write_hash_tag_u8(hasher, 2);
                 hash_field_identity(hasher, *field_id, name, *slot);
             }
-            Self::AddNonUniqueIndex { name } => {
+            Self::AddNonUniqueFieldPathIndex { target } => {
                 write_hash_tag_u8(hasher, 3);
-                write_hash_str_u32(hasher, name);
+                target.hash_into(hasher);
             }
             Self::AddExpressionIndex { name } => {
                 write_hash_tag_u8(hasher, 4);
@@ -643,6 +836,50 @@ impl RebuildRequirement {
     }
 }
 
+impl SchemaFieldPathIndexRebuildTarget {
+    #[allow(
+        dead_code,
+        reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
+    )]
+    fn hash_into(&self, hasher: &mut sha2::Sha256) {
+        write_hash_u32(hasher, u32::from(self.ordinal));
+        write_hash_str_u32(hasher, &self.name);
+        write_hash_str_u32(hasher, &self.store);
+        write_hash_bool(hasher, self.unique);
+        match &self.predicate_sql {
+            Some(predicate_sql) => {
+                write_hash_tag_u8(hasher, 1);
+                write_hash_str_u32(hasher, predicate_sql);
+            }
+            None => write_hash_tag_u8(hasher, 0),
+        }
+        write_hash_u32(
+            hasher,
+            u32::try_from(self.key_paths.len()).unwrap_or(u32::MAX),
+        );
+        for key_path in &self.key_paths {
+            key_path.hash_into(hasher);
+        }
+    }
+}
+
+impl SchemaFieldPathIndexRebuildKey {
+    #[allow(
+        dead_code,
+        reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
+    )]
+    fn hash_into(&self, hasher: &mut sha2::Sha256) {
+        write_hash_u32(hasher, self.field_id.get());
+        write_hash_u32(hasher, u32::from(self.slot.get()));
+        write_hash_u32(hasher, u32::try_from(self.path.len()).unwrap_or(u32::MAX));
+        for segment in &self.path {
+            write_hash_str_u32(hasher, segment);
+        }
+        write_hash_str_u32(hasher, &format!("{:?}", self.kind));
+        write_hash_bool(hasher, self.nullable);
+    }
+}
+
 #[allow(
     dead_code,
     reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
@@ -656,6 +893,14 @@ fn hash_field_identity(
     write_hash_u32(hasher, field_id.get());
     write_hash_str_u32(hasher, name);
     write_hash_u32(hasher, u32::from(slot.get()));
+}
+
+#[allow(
+    dead_code,
+    reason = "used by mutation fingerprint tests until audit identity is surfaced in diagnostics"
+)]
+fn write_hash_bool(hasher: &mut sha2::Sha256, value: bool) {
+    write_hash_tag_u8(hasher, u8::from(value));
 }
 
 // Return generated fields for the additive shape that can become an accepted
@@ -697,11 +942,12 @@ fn append_only_additive_fields<'a>(
 mod tests {
     use crate::{
         db::schema::{
-            FieldId, MutationCompatibility, MutationPlan, PersistedFieldKind,
-            PersistedFieldSnapshot, PersistedSchemaSnapshot, RebuildRequirement,
-            SchemaFieldDefault, SchemaFieldSlot, SchemaMutation, SchemaMutationDelta,
-            SchemaMutationRequest, SchemaRebuildAction, SchemaRebuildIndexKind, SchemaRowLayout,
-            SchemaVersion, classify_schema_mutation_delta,
+            AcceptedSchemaMutationError, FieldId, MutationCompatibility, MutationPlan,
+            PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot,
+            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+            PersistedSchemaSnapshot, RebuildRequirement, SchemaFieldDefault, SchemaFieldSlot,
+            SchemaMutation, SchemaMutationDelta, SchemaMutationRequest, SchemaRebuildAction,
+            SchemaRebuildIndexKind, SchemaRowLayout, SchemaVersion, classify_schema_mutation_delta,
             mutation::{MutationPublicationBlocker, MutationPublicationStatus},
             schema_mutation_request_for_snapshots,
         },
@@ -719,6 +965,33 @@ mod tests {
             SchemaFieldDefault::None,
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Text),
+        )
+    }
+
+    fn non_unique_name_index() -> PersistedIndexSnapshot {
+        PersistedIndexSnapshot::new(
+            1,
+            "by_name".to_string(),
+            "test::mutation::by_name".to_string(),
+            false,
+            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+                FieldId::new(2),
+                SchemaFieldSlot::new(1),
+                vec!["name".to_string()],
+                PersistedFieldKind::Text { max_len: None },
+                false,
+            )]),
+            Some("name IS NOT NULL".to_string()),
+        )
+    }
+
+    fn name_key_path() -> PersistedIndexFieldPathSnapshot {
+        PersistedIndexFieldPathSnapshot::new(
+            FieldId::new(2),
+            SchemaFieldSlot::new(1),
+            vec!["name".to_string()],
+            PersistedFieldKind::Text { max_len: None },
+            false,
         )
     }
 
@@ -760,9 +1033,10 @@ mod tests {
 
     #[test]
     fn index_mutation_plans_are_rebuild_gated() {
-        let field_path = SchemaMutationRequest::AddNonUniqueIndex {
-            name: "by_name".to_string(),
-        }
+        let field_path = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower")
         .lower_to_plan();
         let expression = SchemaMutationRequest::AddExpressionIndex {
             name: "by_lower".to_string(),
@@ -790,9 +1064,10 @@ mod tests {
 
     #[test]
     fn rebuild_plan_derives_physical_index_actions() {
-        let field_path = SchemaMutationRequest::AddNonUniqueIndex {
-            name: "by_name".to_string(),
-        }
+        let field_path = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower")
         .lower_to_plan();
         let expression = SchemaMutationRequest::AddExpressionIndex {
             name: "by_lower".to_string(),
@@ -803,13 +1078,24 @@ mod tests {
         }
         .lower_to_plan();
 
-        assert_eq!(
-            field_path.rebuild_plan().actions(),
-            &[SchemaRebuildAction::BuildIndex {
-                name: "by_name".to_string(),
-                kind: SchemaRebuildIndexKind::FieldPath,
-            }],
-        );
+        let field_path_rebuild = field_path.rebuild_plan();
+        let [SchemaRebuildAction::BuildFieldPathIndex { target }] = field_path_rebuild.actions()
+        else {
+            panic!("field-path index addition should derive one field-path rebuild target");
+        };
+        assert_eq!(target.ordinal(), 1);
+        assert_eq!(target.name(), "by_name");
+        assert_eq!(target.store(), "test::mutation::by_name");
+        assert!(!target.unique());
+        assert_eq!(target.predicate_sql(), Some("name IS NOT NULL"));
+        let [key_path] = target.key_paths() else {
+            panic!("field-path rebuild target should carry one accepted key path");
+        };
+        assert_eq!(key_path.field_id(), FieldId::new(2));
+        assert_eq!(key_path.slot(), SchemaFieldSlot::new(1));
+        assert_eq!(key_path.path(), &["name".to_string()]);
+        assert_eq!(key_path.kind(), &PersistedFieldKind::Text { max_len: None });
+        assert!(!key_path.nullable());
         assert_eq!(
             expression.rebuild_plan().actions(),
             &[SchemaRebuildAction::BuildIndex {
@@ -822,6 +1108,49 @@ mod tests {
             &[SchemaRebuildAction::DropIndex {
                 name: "by_name".to_string(),
             }],
+        );
+    }
+
+    #[test]
+    fn field_path_index_request_lowering_fails_closed_for_unsupported_indexes() {
+        let unique = PersistedIndexSnapshot::new(
+            1,
+            "unique_name".to_string(),
+            "test::mutation::unique_name".to_string(),
+            true,
+            PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+            None,
+        );
+        let explicit_items = PersistedIndexSnapshot::new(
+            2,
+            "items_name".to_string(),
+            "test::mutation::items_name".to_string(),
+            false,
+            PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::FieldPath(
+                name_key_path(),
+            )]),
+            None,
+        );
+        let empty = PersistedIndexSnapshot::new(
+            3,
+            "empty_name".to_string(),
+            "test::mutation::empty_name".to_string(),
+            false,
+            PersistedIndexKeySnapshot::FieldPath(Vec::new()),
+            None,
+        );
+
+        assert_eq!(
+            SchemaMutationRequest::from_accepted_non_unique_field_path_index(&unique),
+            Err(AcceptedSchemaMutationError::UniqueIndexRequiresDedicatedValidation),
+        );
+        assert_eq!(
+            SchemaMutationRequest::from_accepted_non_unique_field_path_index(&explicit_items),
+            Err(AcceptedSchemaMutationError::UnsupportedIndexKeyShape),
+        );
+        assert_eq!(
+            SchemaMutationRequest::from_accepted_non_unique_field_path_index(&empty),
+            Err(AcceptedSchemaMutationError::EmptyIndexKey),
         );
     }
 

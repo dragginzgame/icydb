@@ -188,7 +188,7 @@ pub(in crate::db::schema) fn decide_schema_transition(
             );
         }
         SchemaMutationRequest::AppendOnlyFields(_)
-        | SchemaMutationRequest::AddNonUniqueIndex { .. }
+        | SchemaMutationRequest::AddNonUniqueFieldPathIndex { .. }
         | SchemaMutationRequest::AddExpressionIndex { .. }
         | SchemaMutationRequest::DropNonRequiredSecondaryIndex { .. }
         | SchemaMutationRequest::AlterNullability { .. }

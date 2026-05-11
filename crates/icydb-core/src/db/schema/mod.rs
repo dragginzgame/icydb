@@ -50,6 +50,8 @@ pub(in crate::db::schema) use integrity::{
 };
 pub(in crate::db) use layout::{SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
 #[cfg(test)]
+pub(in crate::db::schema) use mutation::AcceptedSchemaMutationError;
+#[cfg(test)]
 pub(in crate::db::schema) use mutation::SchemaMutation;
 #[cfg(test)]
 pub(in crate::db::schema) use mutation::{MutationCompatibility, RebuildRequirement};
