@@ -41,6 +41,17 @@ fn rust_sources_under(relative_path: &str) -> Vec<PathBuf> {
     sources
 }
 
+fn read_rust_sources_under(relative_path: &str) -> String {
+    rust_sources_under(relative_path)
+        .iter()
+        .map(|path| {
+            fs::read_to_string(path)
+                .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn compact_source(source: &str) -> String {
     source
         .chars()
@@ -460,6 +471,29 @@ fn schema_mutation_runner_publication_requires_physical_store_publish() {
     assert!(
         field_path_runner.contains("self.published_store_report.publication_readiness()"),
         "top-level field-path runner readiness must come from the published-store report, not the snapshot handoff report",
+    );
+}
+
+#[test]
+fn schema_mutation_field_path_runner_stays_accepted_schema_authority() {
+    let field_path_runner = read_rust_sources_under("src/db/schema/mutation/field_path");
+    let field_path_runner_compact = compact_source(&field_path_runner);
+
+    assert!(
+        field_path_runner.contains("SchemaMutationRunnerInput")
+            && field_path_runner.contains("SchemaFieldPathIndexRebuildTarget")
+            && field_path_runner.contains("SchemaMutationExecutionPlan")
+            && field_path_runner_compact.contains("input.accepted_after().entity_path()")
+            && field_path_runner.contains("SchemaMutationExecutionStep::BuildFieldPathIndex {",),
+        "field-path runner modules must consume schema-owned runner input, execution plans, and accepted rebuild targets",
+    );
+    assert!(
+        !field_path_runner.contains("EntityModel")
+            && !field_path_runner.contains("IndexModel")
+            && !field_path_runner.contains("model_only_from_generated_index")
+            && !field_path_runner.contains("SchemaInfo::cached_for_generated_entity_model")
+            && !field_path_runner.contains("EntityAuthority::for_generated_type_for_test"),
+        "field-path runner modules must not reopen generated model/index authority",
     );
 }
 
