@@ -1447,6 +1447,207 @@ impl SchemaFieldPathIndexSnapshotPublicationReport {
 }
 
 ///
+/// SchemaFieldPathIndexPublishedStoreError
+///
+/// Fail-closed reasons for promoting a validated staged field-path index store
+/// to published `IndexStore` visibility.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages physical index-store publication before DDL wiring consumes it"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaFieldPathIndexPublishedStoreError {
+    StoreMismatch,
+    PhysicalStateNotValidated,
+    SnapshotNotPublished,
+    StoreNotBuilding,
+    EntryCountMismatch,
+}
+
+///
+/// SchemaFieldPathIndexPublishedStorePlan
+///
+/// Final physical publication plan for one validated field-path `IndexStore`.
+/// It is constructible only after isolated physical validation and accepted
+/// snapshot publication agree on the same accepted store.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages physical index-store publication before DDL wiring consumes it"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexPublishedStorePlan {
+    store: String,
+    entry_count: usize,
+    publication_report: SchemaFieldPathIndexSnapshotPublicationReport,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages physical index-store publication before DDL wiring consumes it"
+)]
+impl SchemaFieldPathIndexPublishedStorePlan {
+    pub(in crate::db::schema) fn from_validated_publication(
+        validation: &SchemaFieldPathIndexIsolatedIndexStoreValidation,
+        publication_report: &SchemaFieldPathIndexSnapshotPublicationReport,
+    ) -> Result<Self, SchemaFieldPathIndexPublishedStoreError> {
+        if validation.store() != publication_report.store() {
+            return Err(SchemaFieldPathIndexPublishedStoreError::StoreMismatch);
+        }
+        if !validation
+            .runner_report()
+            .has_completed_phase(SchemaMutationRunnerPhase::ValidatePhysicalState)
+        {
+            return Err(SchemaFieldPathIndexPublishedStoreError::PhysicalStateNotValidated);
+        }
+        if !publication_report
+            .runner_report()
+            .physical_work_allows_publication()
+        {
+            return Err(SchemaFieldPathIndexPublishedStoreError::SnapshotNotPublished);
+        }
+        if validation.index_state() != IndexState::Building {
+            return Err(SchemaFieldPathIndexPublishedStoreError::StoreNotBuilding);
+        }
+        if validation.entry_count() != publication_report.entry_count() {
+            return Err(SchemaFieldPathIndexPublishedStoreError::EntryCountMismatch);
+        }
+
+        Ok(Self {
+            store: validation.store().to_string(),
+            entry_count: validation.entry_count(),
+            publication_report: publication_report.clone(),
+        })
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn entry_count(&self) -> usize {
+        self.entry_count
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn publication_report(
+        &self,
+    ) -> &SchemaFieldPathIndexSnapshotPublicationReport {
+        &self.publication_report
+    }
+
+    pub(in crate::db::schema) fn publish_index_store(
+        &self,
+        index_store: &mut IndexStore,
+    ) -> Result<SchemaFieldPathIndexPublishedStoreReport, SchemaFieldPathIndexPublishedStoreError>
+    {
+        if index_store.state() != IndexState::Building {
+            return Err(SchemaFieldPathIndexPublishedStoreError::StoreNotBuilding);
+        }
+
+        let entry_count = usize::try_from(index_store.len())
+            .map_err(|_| SchemaFieldPathIndexPublishedStoreError::EntryCountMismatch)?;
+        if entry_count != self.entry_count {
+            return Err(SchemaFieldPathIndexPublishedStoreError::EntryCountMismatch);
+        }
+
+        let generation_before = index_store.generation();
+        index_store.mark_ready();
+
+        Ok(SchemaFieldPathIndexPublishedStoreReport {
+            store: self.store.clone(),
+            entry_count,
+            generation_before,
+            generation_after: index_store.generation(),
+            index_state: index_store.state(),
+            store_visibility: SchemaMutationStoreVisibility::Published,
+            publication_report: self.publication_report.clone(),
+        })
+    }
+}
+
+///
+/// SchemaFieldPathIndexPublishedStoreReport
+///
+/// Positive report after a validated isolated field-path `IndexStore` has been
+/// promoted to ready, planner-visible physical state.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages physical index-store publication before DDL wiring consumes it"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexPublishedStoreReport {
+    store: String,
+    entry_count: usize,
+    generation_before: u64,
+    generation_after: u64,
+    index_state: IndexState,
+    store_visibility: SchemaMutationStoreVisibility,
+    publication_report: SchemaFieldPathIndexSnapshotPublicationReport,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages physical index-store publication before DDL wiring consumes it"
+)]
+impl SchemaFieldPathIndexPublishedStoreReport {
+    #[must_use]
+    pub(in crate::db::schema) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn entry_count(&self) -> usize {
+        self.entry_count
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn generation_before(&self) -> u64 {
+        self.generation_before
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn generation_after(&self) -> u64 {
+        self.generation_after
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn index_state(&self) -> IndexState {
+        self.index_state
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
+        self.store_visibility
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn publication_report(
+        &self,
+    ) -> &SchemaFieldPathIndexSnapshotPublicationReport {
+        &self.publication_report
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
+        self.publication_report.runner_report()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn publication_readiness(
+        &self,
+    ) -> SchemaFieldPathIndexStagedStorePublicationReadiness {
+        self.publication_report.publication_readiness()
+    }
+}
+
+///
 /// SchemaFieldPathIndexRunnerError
 ///
 /// Fail-closed field-path runner orchestration errors. These classify the
@@ -1466,6 +1667,7 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexRunnerError {
     IsolatedStoreValidationFailed,
     RuntimeInvalidationIdentity,
     SnapshotPublicationRejected,
+    PublishedStoreRejected,
 }
 
 ///
@@ -1487,6 +1689,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexRunnerReport {
     validation: SchemaFieldPathIndexIsolatedIndexStoreValidation,
     invalidation_report: SchemaFieldPathIndexRuntimeInvalidationReport,
     publication_report: SchemaFieldPathIndexSnapshotPublicationReport,
+    published_store_report: SchemaFieldPathIndexPublishedStoreReport,
 }
 
 #[allow(
@@ -1528,8 +1731,15 @@ impl SchemaFieldPathIndexRunnerReport {
     }
 
     #[must_use]
+    pub(in crate::db::schema) const fn published_store_report(
+        &self,
+    ) -> &SchemaFieldPathIndexPublishedStoreReport {
+        &self.published_store_report
+    }
+
+    #[must_use]
     pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
-        self.publication_report.runner_report()
+        self.published_store_report.runner_report()
     }
 
     #[must_use]
@@ -1582,12 +1792,16 @@ impl SchemaFieldPathIndexRunner {
             SchemaFieldPathIndexStagedStore::from_rebuild(&staged, input.execution_plan())
                 .map_err(|_| SchemaFieldPathIndexRunnerError::StagedStoreRejected)?;
         let store = staged_store.store().to_string();
-        let mut writer = SchemaFieldPathIndexIsolatedIndexStoreWriter::new(&store, index_store);
-        let batch = staged_store.write_batch(&writer);
-        let write_report = batch.write_to(&mut writer);
-        let validation = writer
-            .validate_batch(&batch)
-            .map_err(|_| SchemaFieldPathIndexRunnerError::IsolatedStoreValidationFailed)?;
+        let (write_report, validation) = {
+            let mut writer = SchemaFieldPathIndexIsolatedIndexStoreWriter::new(&store, index_store);
+            let batch = staged_store.write_batch(&writer);
+            let write_report = batch.write_to(&mut writer);
+            let validation = writer
+                .validate_batch(&batch)
+                .map_err(|_| SchemaFieldPathIndexRunnerError::IsolatedStoreValidationFailed)?;
+
+            (write_report, validation)
+        };
         let invalidation_plan =
             SchemaFieldPathIndexRuntimeInvalidationPlan::from_isolated_index_store_validation(
                 &validation,
@@ -1602,6 +1816,15 @@ impl SchemaFieldPathIndexRunner {
             )
             .map_err(|_| SchemaFieldPathIndexRunnerError::SnapshotPublicationRejected)?;
         let publication_report = publication_plan.publish_snapshot(publication_sink);
+        let published_store_plan =
+            SchemaFieldPathIndexPublishedStorePlan::from_validated_publication(
+                &validation,
+                &publication_report,
+            )
+            .map_err(|_| SchemaFieldPathIndexRunnerError::PublishedStoreRejected)?;
+        let published_store_report = published_store_plan
+            .publish_index_store(index_store)
+            .map_err(|_| SchemaFieldPathIndexRunnerError::PublishedStoreRejected)?;
 
         Ok(SchemaFieldPathIndexRunnerReport {
             store,
@@ -1609,6 +1832,7 @@ impl SchemaFieldPathIndexRunner {
             validation,
             invalidation_report,
             publication_report,
+            published_store_report,
         })
     }
 

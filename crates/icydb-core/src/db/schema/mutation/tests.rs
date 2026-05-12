@@ -1860,8 +1860,18 @@ fn field_path_runner_orchestrates_staging_to_publication_handoff() {
         report.publication_report().store_visibility(),
         super::SchemaMutationStoreVisibility::Published,
     );
+    assert_eq!(report.published_store_report().store(), report.store());
+    assert_eq!(report.published_store_report().entry_count(), 2);
+    assert_eq!(
+        report.published_store_report().index_state(),
+        IndexState::Ready,
+    );
+    assert_eq!(
+        report.published_store_report().store_visibility(),
+        super::SchemaMutationStoreVisibility::Published,
+    );
     assert_eq!(index_store.len(), 2);
-    assert_eq!(index_store.state(), IndexState::Building);
+    assert_eq!(index_store.state(), IndexState::Ready);
     assert_eq!(invalidation_sink.invalidations.len(), 1);
     assert_eq!(invalidation_sink.invalidations[0].0, report.store());
     assert_eq!(publication_sink.publications.len(), 1);
@@ -1877,6 +1887,52 @@ fn field_path_runner_orchestrates_staging_to_publication_handoff() {
     );
     assert!(report.runner_report().physical_work_allows_publication());
     assert!(report.publication_readiness().allows_publication());
+}
+
+#[test]
+fn field_path_runner_rejects_target_mismatch_before_physical_work() {
+    let mismatched_index = PersistedIndexSnapshot::new(
+        9,
+        "by_alias".to_string(),
+        "test::mutation::by_alias".to_string(),
+        false,
+        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        Some("name IS NOT NULL".to_string()),
+    );
+    let request =
+        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&mismatched_index)
+            .expect("mismatched field-path index should lower to a rebuild target");
+    let SchemaMutationRequest::AddNonUniqueFieldPathIndex {
+        target: mismatched_target,
+    } = request
+    else {
+        panic!("field-path request should carry a rebuild target");
+    };
+    let (before, after, execution_plan) = field_path_index_runner_context();
+    let input = super::SchemaMutationRunnerInput::new(&before, &after, execution_plan)
+        .expect("same-entity accepted snapshots should build runner input");
+    let mut index_store = initialized_index_store(236);
+    let mut invalidation_sink = RecordingRuntimeInvalidationSink::default();
+    let mut publication_sink = RecordingAcceptedSnapshotPublicationSink::default();
+
+    let result = super::SchemaFieldPathIndexRunner::run(
+        &input,
+        EntityTag::new(7),
+        mismatched_target,
+        std::iter::empty(),
+        &mut index_store,
+        &mut invalidation_sink,
+        &mut publication_sink,
+    );
+
+    assert_eq!(
+        result,
+        Err(super::SchemaFieldPathIndexRunnerError::TargetMismatch),
+    );
+    assert_eq!(index_store.len(), 0);
+    assert_eq!(index_store.state(), IndexState::Ready);
+    assert!(invalidation_sink.invalidations.is_empty());
+    assert!(publication_sink.publications.is_empty());
 }
 
 #[test]
