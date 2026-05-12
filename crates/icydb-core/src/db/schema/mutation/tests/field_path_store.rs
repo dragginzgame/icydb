@@ -314,6 +314,7 @@ fn field_path_rebuild_isolated_index_store_writer_writes_and_rolls_back() {
             super::SchemaFieldPathIndexStagedStorePublicationBlocker::StoreStillStaged,
             super::SchemaFieldPathIndexStagedStorePublicationBlocker::RuntimeStateNotInvalidated,
             super::SchemaFieldPathIndexStagedStorePublicationBlocker::SnapshotNotPublished,
+            super::SchemaFieldPathIndexStagedStorePublicationBlocker::PhysicalStoreNotPublished,
         ],
     );
     assert!(!publication_readiness.allows_publication());
@@ -487,13 +488,14 @@ fn field_path_rebuild_runtime_invalidation_records_epoch_handoff_without_publica
         &[
             super::SchemaFieldPathIndexStagedStorePublicationBlocker::StoreStillStaged,
             super::SchemaFieldPathIndexStagedStorePublicationBlocker::SnapshotNotPublished,
+            super::SchemaFieldPathIndexStagedStorePublicationBlocker::PhysicalStoreNotPublished,
         ],
     );
     assert!(!readiness.allows_publication());
 }
 
 #[test]
-fn field_path_rebuild_snapshot_publication_handoff_reports_publishable_runner_state() {
+fn field_path_rebuild_snapshot_publication_handoff_keeps_physical_store_staged() {
     let validation = validated_isolated_name_index_store(231);
     let (before, after, execution_plan) = field_path_index_runner_context();
     let input = super::SchemaMutationRunnerInput::new(&before, &after, execution_plan)
@@ -532,7 +534,7 @@ fn field_path_rebuild_snapshot_publication_handoff_reports_publishable_runner_st
     );
     assert_eq!(
         publication_report.store_visibility(),
-        super::SchemaMutationStoreVisibility::Published,
+        super::SchemaMutationStoreVisibility::StagedOnly,
     );
     assert_eq!(
         publication_report.publication_identity().visible_epoch(),
@@ -552,13 +554,19 @@ fn field_path_rebuild_snapshot_publication_handoff_reports_publishable_runner_st
             .has_completed_phase(super::SchemaMutationRunnerPhase::PublishSnapshot),
     );
     assert!(
-        publication_report
+        !publication_report
             .runner_report()
             .physical_work_allows_publication()
     );
     let readiness = publication_report.publication_readiness();
-    assert!(readiness.blockers().is_empty());
-    assert!(readiness.allows_publication());
+    assert_eq!(
+        readiness.blockers(),
+        &[
+            super::SchemaFieldPathIndexStagedStorePublicationBlocker::StoreStillStaged,
+            super::SchemaFieldPathIndexStagedStorePublicationBlocker::PhysicalStoreNotPublished,
+        ],
+    );
+    assert!(!readiness.allows_publication());
 }
 
 #[test]
@@ -613,6 +621,7 @@ fn field_path_rebuild_staged_overlay_writes_and_rolls_back_without_index_store()
             super::SchemaFieldPathIndexStagedStorePublicationBlocker::StoreStillStaged,
             super::SchemaFieldPathIndexStagedStorePublicationBlocker::RuntimeStateNotInvalidated,
             super::SchemaFieldPathIndexStagedStorePublicationBlocker::SnapshotNotPublished,
+            super::SchemaFieldPathIndexStagedStorePublicationBlocker::PhysicalStoreNotPublished,
         ],
     );
     assert!(!publication_readiness.allows_publication());

@@ -153,7 +153,7 @@ impl SchemaFieldPathIndexRunnerReport {
     pub(in crate::db::schema) fn publication_readiness(
         &self,
     ) -> SchemaFieldPathIndexStagedStorePublicationReadiness {
-        self.publication_report.publication_readiness()
+        self.published_store_report.publication_readiness()
     }
 }
 /// SchemaFieldPathIndexRunner

@@ -42,7 +42,13 @@ fn field_path_runner_orchestrates_staging_to_publication_handoff() {
     assert_eq!(report.invalidation_report().invalidated_epochs(), 1);
     assert_eq!(
         report.publication_report().store_visibility(),
-        super::SchemaMutationStoreVisibility::Published,
+        super::SchemaMutationStoreVisibility::StagedOnly,
+    );
+    assert!(
+        !report
+            .publication_report()
+            .runner_report()
+            .physical_work_allows_publication(),
     );
     assert_eq!(report.published_store_report().store(), report.store());
     assert_eq!(report.published_store_report().entry_count(), 2);
@@ -68,6 +74,11 @@ fn field_path_runner_orchestrates_staging_to_publication_handoff() {
         report
             .runner_report()
             .has_completed_phase(super::SchemaMutationRunnerPhase::PublishSnapshot),
+    );
+    assert!(
+        report
+            .runner_report()
+            .has_completed_phase(super::SchemaMutationRunnerPhase::PublishPhysicalStore),
     );
     assert!(report.runner_report().physical_work_allows_publication());
     assert!(report.publication_readiness().allows_publication());

@@ -150,6 +150,7 @@ pub(in crate::db::schema) enum SchemaMutationRunnerPhase {
     ValidatePhysicalState,
     InvalidateRuntimeState,
     PublishSnapshot,
+    PublishPhysicalStore,
     Diagnostics,
 }
 
@@ -355,7 +356,12 @@ impl SchemaMutationRunnerReport {
 
     #[must_use]
     pub(in crate::db::schema) fn with_snapshot_published(&self) -> Self {
-        let mut next = self.with_completed_phase(SchemaMutationRunnerPhase::PublishSnapshot);
+        self.with_completed_phase(SchemaMutationRunnerPhase::PublishSnapshot)
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn with_physical_store_published(&self) -> Self {
+        let mut next = self.with_completed_phase(SchemaMutationRunnerPhase::PublishPhysicalStore);
         next.store_visibility = Some(SchemaMutationStoreVisibility::Published);
         next
     }
@@ -413,6 +419,7 @@ impl SchemaMutationRunnerReport {
             && self.has_completed_phase(SchemaMutationRunnerPhase::ValidatePhysicalState)
             && self.has_completed_phase(SchemaMutationRunnerPhase::InvalidateRuntimeState)
             && self.has_completed_phase(SchemaMutationRunnerPhase::PublishSnapshot)
+            && self.has_completed_phase(SchemaMutationRunnerPhase::PublishPhysicalStore)
     }
 }
 

@@ -323,7 +323,7 @@ impl SchemaFieldPathIndexSnapshotPublicationPlan {
             entry_count: self.entry_count,
             accepted_after: self.accepted_after.clone(),
             publication_identity: self.publication_identity.clone(),
-            store_visibility: SchemaMutationStoreVisibility::Published,
+            store_visibility: SchemaMutationStoreVisibility::StagedOnly,
             runner_report: self.runner_report.with_snapshot_published(),
         }
     }
@@ -333,9 +333,8 @@ impl SchemaFieldPathIndexSnapshotPublicationPlan {
 /// SchemaFieldPathIndexSnapshotPublicationReport
 ///
 /// Positive report after the accepted-after snapshot publication handoff has
-/// been accepted by a sink. The report is publishable because validation,
-/// invalidation, snapshot publication, and published store visibility are all
-/// represented in the runner diagnostics.
+/// been accepted by a sink. Physical store visibility remains staged until the
+/// validated `IndexStore` is promoted through `SchemaFieldPathIndexPublishedStorePlan`.
 ///
 
 #[allow(
@@ -456,7 +455,7 @@ impl SchemaFieldPathIndexPublishedStorePlan {
         }
         if !publication_report
             .runner_report()
-            .physical_work_allows_publication()
+            .has_completed_phase(SchemaMutationRunnerPhase::PublishSnapshot)
         {
             return Err(SchemaFieldPathIndexPublishedStoreError::SnapshotNotPublished);
         }
@@ -508,6 +507,10 @@ impl SchemaFieldPathIndexPublishedStorePlan {
 
         let generation_before = index_store.generation();
         index_store.mark_ready();
+        let runner_report = self
+            .publication_report
+            .runner_report()
+            .with_physical_store_published();
 
         Ok(SchemaFieldPathIndexPublishedStoreReport {
             store: self.store.clone(),
@@ -517,6 +520,7 @@ impl SchemaFieldPathIndexPublishedStorePlan {
             index_state: index_store.state(),
             store_visibility: SchemaMutationStoreVisibility::Published,
             publication_report: self.publication_report.clone(),
+            runner_report,
         })
     }
 }
@@ -541,6 +545,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexPublishedStoreReport {
     index_state: IndexState,
     store_visibility: SchemaMutationStoreVisibility,
     publication_report: SchemaFieldPathIndexSnapshotPublicationReport,
+    runner_report: SchemaMutationRunnerReport,
 }
 
 #[allow(
@@ -587,14 +592,14 @@ impl SchemaFieldPathIndexPublishedStoreReport {
 
     #[must_use]
     pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
-        self.publication_report.runner_report()
+        &self.runner_report
     }
 
     #[must_use]
     pub(in crate::db::schema) fn publication_readiness(
         &self,
     ) -> SchemaFieldPathIndexStagedStorePublicationReadiness {
-        self.publication_report.publication_readiness()
+        SchemaFieldPathIndexStagedStorePublicationReadiness::from_published_store_report(self)
     }
 }
 
@@ -616,6 +621,7 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexStagedStorePublicationBlocker
     PhysicalStateNotValidated,
     RuntimeStateNotInvalidated,
     SnapshotNotPublished,
+    PhysicalStoreNotPublished,
 }
 
 ///
@@ -693,6 +699,16 @@ impl SchemaFieldPathIndexStagedStorePublicationReadiness {
     }
 
     #[must_use]
+    fn from_published_store_report(report: &SchemaFieldPathIndexPublishedStoreReport) -> Self {
+        Self::from_validated_parts(
+            report.store(),
+            report.entry_count(),
+            report.store_visibility(),
+            report.runner_report(),
+        )
+    }
+
+    #[must_use]
     fn from_validated_parts(
         store: &str,
         entry_count: usize,
@@ -715,6 +731,10 @@ impl SchemaFieldPathIndexStagedStorePublicationReadiness {
         }
         if !runner_report.has_completed_phase(SchemaMutationRunnerPhase::PublishSnapshot) {
             blockers.push(SchemaFieldPathIndexStagedStorePublicationBlocker::SnapshotNotPublished);
+        }
+        if !runner_report.has_completed_phase(SchemaMutationRunnerPhase::PublishPhysicalStore) {
+            blockers
+                .push(SchemaFieldPathIndexStagedStorePublicationBlocker::PhysicalStoreNotPublished);
         }
 
         Self {

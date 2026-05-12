@@ -435,6 +435,35 @@ fn schema_mutation_publication_boundary_uses_runner_preflight() {
 }
 
 #[test]
+fn schema_mutation_runner_publication_requires_physical_store_publish() {
+    let runner = read_source("src/db/schema/mutation/runner.rs");
+    let runner_compact = compact_source(&runner);
+    let field_path_runner = read_source("src/db/schema/mutation/field_path/runner.rs");
+    let field_path_publication = read_source("src/db/schema/mutation/field_path/publication.rs");
+    let field_path_publication_compact = compact_source(&field_path_publication);
+
+    assert!(
+        runner.contains("PublishPhysicalStore")
+            && runner.contains("pub(in crate::db::schema) fn with_physical_store_published(")
+            && runner_compact.contains("self.has_completed_phase(SchemaMutationRunnerPhase::PublishSnapshot)&&self.has_completed_phase(SchemaMutationRunnerPhase::PublishPhysicalStore)"),
+        "generic runner diagnostics must require both snapshot and physical-store publication before physical work allows publication",
+    );
+    assert!(
+        field_path_publication.contains(
+            "SchemaFieldPathIndexStagedStorePublicationBlocker::PhysicalStoreNotPublished",
+        ) && field_path_publication_compact.contains("store_visibility:SchemaMutationStoreVisibility::StagedOnly,runner_report:self.runner_report.with_snapshot_published(),")
+            && field_path_publication.contains(
+                "let runner_report = self\n            .publication_report\n            .runner_report()\n            .with_physical_store_published();",
+            ),
+        "field-path snapshot handoff must stay staged until published-store promotion advances the runner report",
+    );
+    assert!(
+        field_path_runner.contains("self.published_store_report.publication_readiness()"),
+        "top-level field-path runner readiness must come from the published-store report, not the snapshot handoff report",
+    );
+}
+
+#[test]
 #[expect(
     clippy::too_many_lines,
     reason = "source-boundary guard keeps related accepted visible-index assertions together"
