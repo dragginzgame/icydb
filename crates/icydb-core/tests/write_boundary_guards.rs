@@ -8,6 +8,14 @@ fn read_source(relative_path: &str) -> String {
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()))
 }
 
+fn read_sources(relative_paths: &[&str]) -> String {
+    relative_paths
+        .iter()
+        .map(|relative_path| read_source(relative_path))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn rust_sources_under(relative_path: &str) -> Vec<PathBuf> {
     let mut root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     root.push(relative_path);
@@ -388,7 +396,10 @@ fn accepted_schema_info_index_membership_uses_persisted_index_contracts() {
 
 #[test]
 fn schema_mutation_publication_boundary_uses_runner_preflight() {
-    let mutation = read_source("src/db/schema/mutation.rs");
+    let mutation = read_sources(&[
+        "src/db/schema/mutation/mod.rs",
+        "src/db/schema/mutation/runner.rs",
+    ]);
     let transition = read_source("src/db/schema/transition.rs");
     let reconcile = read_source("src/db/schema/reconcile.rs");
     let reconcile_compact = compact_source(&reconcile);
