@@ -9,7 +9,7 @@ use crate::db::{
         write_hash_u32,
     },
     data::{CanonicalSlotReader, StorageKey},
-    index::{IndexEntry, IndexKey, RawIndexEntry, RawIndexKey},
+    index::{IndexEntry, IndexKey, IndexState, IndexStore, RawIndexEntry, RawIndexKey},
     schema::{
         FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
@@ -20,6 +20,7 @@ use crate::db::{
 use crate::error::InternalError;
 use crate::types::EntityTag;
 use sha2::Digest;
+use std::collections::BTreeMap;
 
 #[allow(
     dead_code,
@@ -1597,6 +1598,47 @@ impl SchemaFieldPathIndexStagedStore {
     }
 
     #[must_use]
+    pub(in crate::db::schema) fn write_to(
+        &self,
+        writer: &mut impl SchemaFieldPathIndexStagedStoreWriter,
+    ) -> SchemaFieldPathIndexStagedStoreWriteReport {
+        for entry in &self.entries {
+            writer.write_staged_entry(&self.store, entry.key(), entry.entry());
+        }
+
+        SchemaFieldPathIndexStagedStoreWriteReport {
+            store: self.store.clone(),
+            intended_entries: self.entries.len(),
+            store_visibility: self.store_visibility(),
+            runner_report: self.report.clone(),
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn write_batch(
+        &self,
+        reader: &impl SchemaFieldPathIndexStagedStoreReadView,
+    ) -> SchemaFieldPathIndexStagedStoreWriteBatch {
+        let rollback_snapshots = self
+            .entries
+            .iter()
+            .map(|entry| SchemaFieldPathIndexStagedStoreRollbackSnapshot {
+                store: self.store.clone(),
+                key: entry.key().clone(),
+                previous_entry: reader.read_staged_entry(&self.store, entry.key()),
+            })
+            .collect();
+
+        SchemaFieldPathIndexStagedStoreWriteBatch {
+            store: self.store.clone(),
+            entries: self.entries.clone(),
+            rollback_snapshots,
+            store_visibility: self.store_visibility(),
+            runner_report: self.report.clone(),
+        }
+    }
+
+    #[must_use]
     pub(in crate::db::schema) fn discard(self) -> SchemaFieldPathIndexStagedDiscardReport {
         let store_visibility = self.store_visibility();
         let discarded_entries = self.entries.len();
@@ -1605,6 +1647,1043 @@ impl SchemaFieldPathIndexStagedStore {
             store: self.store,
             discarded_entries,
             store_visibility,
+        }
+    }
+}
+
+///
+/// SchemaFieldPathIndexStagedStoreReadView
+///
+/// Read view used to snapshot existing physical index entries before staged
+/// write intents are accepted. The view is intentionally narrower than
+/// `IndexStore` so schema mutation runners can prepare rollback data without
+/// taking ownership of physical storage.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages rollback snapshots before physical stores are mutated"
+)]
+pub(in crate::db::schema) trait SchemaFieldPathIndexStagedStoreReadView {
+    fn read_staged_entry(&self, store: &str, key: &RawIndexKey) -> Option<RawIndexEntry>;
+}
+
+///
+/// SchemaFieldPathIndexStagedStoreWriter
+///
+/// Write-intent sink for one validated staged field-path index-store buffer.
+/// The contract exposes accepted store identity and raw index entries without
+/// handing out a physical `IndexStore`; concrete physical mutation remains
+/// deferred until the staged-store isolation boundary exists.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages a physical writer adapter contract before IndexStore mutation exists"
+)]
+pub(in crate::db::schema) trait SchemaFieldPathIndexStagedStoreWriter {
+    fn write_staged_entry(&mut self, store: &str, key: &RawIndexKey, entry: &RawIndexEntry);
+}
+
+///
+/// SchemaFieldPathIndexStagedStoreWriteReport
+///
+/// Typed report after a staged-store writer has accepted all write intents from
+/// an in-memory field-path rebuild buffer. This is still staged-only: it does
+/// not imply physical `IndexStore` mutation, runtime invalidation, or snapshot
+/// publication.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages writer diagnostics before physical stores are mutated"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreWriteReport {
+    store: String,
+    intended_entries: usize,
+    store_visibility: SchemaMutationStoreVisibility,
+    runner_report: SchemaMutationRunnerReport,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages writer diagnostics before physical stores are mutated"
+)]
+impl SchemaFieldPathIndexStagedStoreWriteReport {
+    #[must_use]
+    pub(in crate::db::schema) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn intended_entries(&self) -> usize {
+        self.intended_entries
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
+        self.store_visibility
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
+        &self.runner_report
+    }
+}
+
+///
+/// SchemaFieldPathIndexStagedStoreWriteBatch
+///
+/// Isolated staged write batch for one field-path index rebuild. It carries the
+/// accepted raw write intents plus rollback snapshots captured from the
+/// physical read view, but still leaves actual `IndexStore` mutation to a later
+/// isolated-store runner.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages rollback-aware write batches before physical stores are mutated"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreWriteBatch {
+    store: String,
+    entries: Vec<SchemaFieldPathIndexStagedEntry>,
+    rollback_snapshots: Vec<SchemaFieldPathIndexStagedStoreRollbackSnapshot>,
+    store_visibility: SchemaMutationStoreVisibility,
+    runner_report: SchemaMutationRunnerReport,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages rollback-aware write batches before physical stores are mutated"
+)]
+impl SchemaFieldPathIndexStagedStoreWriteBatch {
+    #[must_use]
+    pub(in crate::db::schema) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn entries(&self) -> &[SchemaFieldPathIndexStagedEntry] {
+        self.entries.as_slice()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn rollback_snapshots(
+        &self,
+    ) -> &[SchemaFieldPathIndexStagedStoreRollbackSnapshot] {
+        self.rollback_snapshots.as_slice()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
+        self.store_visibility
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
+        &self.runner_report
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn write_to(
+        &self,
+        writer: &mut impl SchemaFieldPathIndexStagedStoreWriter,
+    ) -> SchemaFieldPathIndexStagedStoreWriteReport {
+        for entry in &self.entries {
+            writer.write_staged_entry(&self.store, entry.key(), entry.entry());
+        }
+
+        SchemaFieldPathIndexStagedStoreWriteReport {
+            store: self.store.clone(),
+            intended_entries: self.entries.len(),
+            store_visibility: self.store_visibility,
+            runner_report: self.runner_report.clone(),
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn rollback_plan(
+        &self,
+    ) -> SchemaFieldPathIndexStagedStoreRollbackPlan {
+        let actions = self
+            .rollback_snapshots
+            .iter()
+            .rev()
+            .map(SchemaFieldPathIndexStagedStoreRollbackAction::from_snapshot)
+            .collect();
+
+        SchemaFieldPathIndexStagedStoreRollbackPlan {
+            store: self.store.clone(),
+            actions,
+            store_visibility: self.store_visibility,
+            runner_report: self.runner_report.clone(),
+        }
+    }
+}
+
+///
+/// SchemaFieldPathIndexStagedStoreRollbackSnapshot
+///
+/// Previous physical entry captured before one staged raw index write. A later
+/// physical rollback phase can replay these snapshots in reverse write order.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages rollback snapshots before physical stores are mutated"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreRollbackSnapshot {
+    store: String,
+    key: RawIndexKey,
+    previous_entry: Option<RawIndexEntry>,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages rollback snapshots before physical stores are mutated"
+)]
+impl SchemaFieldPathIndexStagedStoreRollbackSnapshot {
+    #[must_use]
+    pub(in crate::db::schema) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn key(&self) -> &RawIndexKey {
+        &self.key
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn previous_entry(&self) -> Option<&RawIndexEntry> {
+        self.previous_entry.as_ref()
+    }
+}
+
+///
+/// SchemaFieldPathIndexStagedStoreRollbackPlan
+///
+/// Reverse-order rollback plan for one staged field-path index write batch.
+/// The plan names the restore/remove actions needed to undo staged physical
+/// writes, but does not execute them against `IndexStore`.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages rollback plans before physical stores are mutated"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreRollbackPlan {
+    store: String,
+    actions: Vec<SchemaFieldPathIndexStagedStoreRollbackAction>,
+    store_visibility: SchemaMutationStoreVisibility,
+    runner_report: SchemaMutationRunnerReport,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages rollback plans before physical stores are mutated"
+)]
+impl SchemaFieldPathIndexStagedStoreRollbackPlan {
+    #[must_use]
+    pub(in crate::db::schema) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn actions(
+        &self,
+    ) -> &[SchemaFieldPathIndexStagedStoreRollbackAction] {
+        self.actions.as_slice()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
+        self.store_visibility
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
+        &self.runner_report
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn rollback_to(
+        &self,
+        writer: &mut impl SchemaFieldPathIndexStagedStoreRollbackWriter,
+    ) -> SchemaFieldPathIndexStagedStoreRollbackReport {
+        let mut restored_entries = 0usize;
+        let mut removed_entries = 0usize;
+
+        for action in &self.actions {
+            match action {
+                SchemaFieldPathIndexStagedStoreRollbackAction::Restore { store, key, entry } => {
+                    writer.restore_staged_entry(store, key, entry);
+                    restored_entries = restored_entries.saturating_add(1);
+                }
+                SchemaFieldPathIndexStagedStoreRollbackAction::Remove { store, key } => {
+                    writer.remove_staged_entry(store, key);
+                    removed_entries = removed_entries.saturating_add(1);
+                }
+            }
+        }
+
+        SchemaFieldPathIndexStagedStoreRollbackReport {
+            store: self.store.clone(),
+            actions_applied: self.actions.len(),
+            restored_entries,
+            removed_entries,
+            store_visibility: self.store_visibility,
+            runner_report: self.runner_report.clone(),
+        }
+    }
+}
+
+///
+/// SchemaFieldPathIndexStagedStoreRollbackWriter
+///
+/// Rollback-action sink for staged physical field-path index writes. The sink
+/// accepts typed restore/remove actions from rollback plans without exposing
+/// schema mutation code to a concrete `IndexStore`.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages rollback writer contracts before physical stores are mutated"
+)]
+pub(in crate::db::schema) trait SchemaFieldPathIndexStagedStoreRollbackWriter {
+    fn restore_staged_entry(&mut self, store: &str, key: &RawIndexKey, entry: &RawIndexEntry);
+
+    fn remove_staged_entry(&mut self, store: &str, key: &RawIndexKey);
+}
+
+///
+/// SchemaFieldPathIndexStagedStoreRollbackReport
+///
+/// Typed diagnostics after a rollback plan has been accepted by a rollback
+/// writer. This reports staged rollback intent only; publication remains
+/// blocked until physical execution, validation, invalidation, and snapshot
+/// publication are all wired.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages rollback diagnostics before physical stores are mutated"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreRollbackReport {
+    store: String,
+    actions_applied: usize,
+    restored_entries: usize,
+    removed_entries: usize,
+    store_visibility: SchemaMutationStoreVisibility,
+    runner_report: SchemaMutationRunnerReport,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages rollback diagnostics before physical stores are mutated"
+)]
+impl SchemaFieldPathIndexStagedStoreRollbackReport {
+    #[must_use]
+    pub(in crate::db::schema) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn actions_applied(&self) -> usize {
+        self.actions_applied
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn restored_entries(&self) -> usize {
+        self.restored_entries
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn removed_entries(&self) -> usize {
+        self.removed_entries
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
+        self.store_visibility
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
+        &self.runner_report
+    }
+}
+
+///
+/// SchemaFieldPathIndexIsolatedIndexStoreWriter
+///
+/// Adapter from staged field-path index write and rollback contracts into a
+/// caller-provided isolated `IndexStore`. The adapter marks the supplied store
+/// as building and keeps schema mutation visibility staged-only; callers must
+/// not pass a runtime-visible store until publication and invalidation wiring
+/// exists.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages isolated IndexStore mutation before publication exists"
+)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexIsolatedIndexStoreWriter<'a> {
+    store: String,
+    index_store: &'a mut IndexStore,
+    generation_before: u64,
+    store_visibility: SchemaMutationStoreVisibility,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages isolated IndexStore mutation before publication exists"
+)]
+impl<'a> SchemaFieldPathIndexIsolatedIndexStoreWriter<'a> {
+    pub(in crate::db::schema) fn new(store: &str, index_store: &'a mut IndexStore) -> Self {
+        let generation_before = index_store.generation();
+        index_store.mark_building();
+
+        Self {
+            store: store.to_string(),
+            index_store,
+            generation_before,
+            store_visibility: SchemaMutationStoreVisibility::StagedOnly,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn generation_before(&self) -> u64 {
+        self.generation_before
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn generation(&self) -> u64 {
+        self.index_store.generation()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn len(&self) -> u64 {
+        self.index_store.len()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn get(&self, key: &RawIndexKey) -> Option<RawIndexEntry> {
+        self.index_store.get(key)
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn index_state(&self) -> IndexState {
+        self.index_store.state()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
+        self.store_visibility
+    }
+
+    pub(in crate::db::schema) fn validate_batch(
+        &self,
+        batch: &SchemaFieldPathIndexStagedStoreWriteBatch,
+    ) -> Result<
+        SchemaFieldPathIndexIsolatedIndexStoreValidation,
+        SchemaFieldPathIndexIsolatedIndexStoreValidationError,
+    > {
+        if self.store != batch.store() {
+            return Err(SchemaFieldPathIndexIsolatedIndexStoreValidationError::StoreMismatch);
+        }
+        if self.store_visibility != SchemaMutationStoreVisibility::StagedOnly {
+            return Err(SchemaFieldPathIndexIsolatedIndexStoreValidationError::PublishedVisibility);
+        }
+        if self.index_store.state() != IndexState::Building {
+            return Err(SchemaFieldPathIndexIsolatedIndexStoreValidationError::StoreNotBuilding);
+        }
+
+        let expected_entry_count =
+            u64::try_from(batch.entries().len()).expect("staged entry count should fit in u64");
+        if self.index_store.len() != expected_entry_count {
+            return Err(SchemaFieldPathIndexIsolatedIndexStoreValidationError::EntryCountMismatch);
+        }
+
+        for entry in batch.entries() {
+            let Some(index_entry) = self.index_store.get(entry.key()) else {
+                return Err(SchemaFieldPathIndexIsolatedIndexStoreValidationError::MissingEntry);
+            };
+            if index_entry != *entry.entry() {
+                return Err(SchemaFieldPathIndexIsolatedIndexStoreValidationError::EntryMismatch);
+            }
+        }
+
+        Ok(SchemaFieldPathIndexIsolatedIndexStoreValidation {
+            store: self.store.clone(),
+            entry_count: batch.entries().len(),
+            generation_before: self.generation_before,
+            generation_after: self.index_store.generation(),
+            index_state: self.index_store.state(),
+            store_visibility: self.store_visibility,
+            runner_report: batch.runner_report().clone(),
+        })
+    }
+
+    #[must_use]
+    fn accepts_store(&self, store: &str) -> bool {
+        self.store == store
+    }
+}
+
+impl SchemaFieldPathIndexStagedStoreReadView for SchemaFieldPathIndexIsolatedIndexStoreWriter<'_> {
+    fn read_staged_entry(&self, store: &str, key: &RawIndexKey) -> Option<RawIndexEntry> {
+        self.accepts_store(store)
+            .then(|| self.index_store.get(key))
+            .flatten()
+    }
+}
+
+impl SchemaFieldPathIndexStagedStoreWriter for SchemaFieldPathIndexIsolatedIndexStoreWriter<'_> {
+    fn write_staged_entry(&mut self, store: &str, key: &RawIndexKey, entry: &RawIndexEntry) {
+        if self.accepts_store(store) {
+            self.index_store.insert(key.clone(), entry.clone());
+        }
+    }
+}
+
+impl SchemaFieldPathIndexStagedStoreRollbackWriter
+    for SchemaFieldPathIndexIsolatedIndexStoreWriter<'_>
+{
+    fn restore_staged_entry(&mut self, store: &str, key: &RawIndexKey, entry: &RawIndexEntry) {
+        if self.accepts_store(store) {
+            self.index_store.insert(key.clone(), entry.clone());
+        }
+    }
+
+    fn remove_staged_entry(&mut self, store: &str, key: &RawIndexKey) {
+        if self.accepts_store(store) {
+            self.index_store.remove(key);
+        }
+    }
+}
+
+///
+/// SchemaFieldPathIndexIsolatedIndexStoreValidationError
+///
+/// Fail-closed validation reasons for an isolated `IndexStore` after staged
+/// writes have been applied. These checks keep a physical staged store from
+/// becoming a publication candidate unless it exactly matches the staged batch.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages isolated IndexStore validation before publication exists"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaFieldPathIndexIsolatedIndexStoreValidationError {
+    StoreMismatch,
+    PublishedVisibility,
+    StoreNotBuilding,
+    EntryCountMismatch,
+    MissingEntry,
+    EntryMismatch,
+}
+
+///
+/// SchemaFieldPathIndexIsolatedIndexStoreValidation
+///
+/// Positive validation report for an isolated `IndexStore` after staged
+/// field-path index writes have landed. The report records generation movement
+/// and building-state visibility, but does not mark the store publishable.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages isolated IndexStore validation before publication exists"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexIsolatedIndexStoreValidation {
+    store: String,
+    entry_count: usize,
+    generation_before: u64,
+    generation_after: u64,
+    index_state: IndexState,
+    store_visibility: SchemaMutationStoreVisibility,
+    runner_report: SchemaMutationRunnerReport,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages isolated IndexStore validation before publication exists"
+)]
+impl SchemaFieldPathIndexIsolatedIndexStoreValidation {
+    #[must_use]
+    pub(in crate::db::schema) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn entry_count(&self) -> usize {
+        self.entry_count
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn generation_before(&self) -> u64 {
+        self.generation_before
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn generation_after(&self) -> u64 {
+        self.generation_after
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn index_state(&self) -> IndexState {
+        self.index_state
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
+        self.store_visibility
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
+        &self.runner_report
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn publication_readiness(
+        &self,
+    ) -> SchemaFieldPathIndexStagedStorePublicationReadiness {
+        SchemaFieldPathIndexStagedStorePublicationReadiness::from_isolated_index_store_validation(
+            self,
+        )
+    }
+}
+
+///
+/// SchemaFieldPathIndexStagedStoreOverlay
+///
+/// Isolated in-memory store overlay for staged field-path index writes. The
+/// overlay implements the staged read, write, and rollback contracts without
+/// exposing or mutating a runtime-visible `IndexStore`.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages isolated physical-store overlays before IndexStore mutation exists"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreOverlay {
+    store: String,
+    entries: BTreeMap<RawIndexKey, RawIndexEntry>,
+    store_visibility: SchemaMutationStoreVisibility,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages isolated physical-store overlays before IndexStore mutation exists"
+)]
+impl SchemaFieldPathIndexStagedStoreOverlay {
+    #[must_use]
+    pub(in crate::db::schema) fn new(store: &str) -> Self {
+        Self {
+            store: store.to_string(),
+            entries: BTreeMap::new(),
+            store_visibility: SchemaMutationStoreVisibility::StagedOnly,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn from_entries(
+        store: &str,
+        entries: impl IntoIterator<Item = (RawIndexKey, RawIndexEntry)>,
+    ) -> Self {
+        Self {
+            store: store.to_string(),
+            entries: entries.into_iter().collect(),
+            store_visibility: SchemaMutationStoreVisibility::StagedOnly,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn get(&self, key: &RawIndexKey) -> Option<&RawIndexEntry> {
+        self.entries.get(key)
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn entries(&self) -> Vec<(RawIndexKey, RawIndexEntry)> {
+        self.entries
+            .iter()
+            .map(|(key, entry)| (key.clone(), entry.clone()))
+            .collect()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
+        self.store_visibility
+    }
+
+    pub(in crate::db::schema) fn validate_batch(
+        &self,
+        batch: &SchemaFieldPathIndexStagedStoreWriteBatch,
+    ) -> Result<
+        SchemaFieldPathIndexStagedStoreOverlayValidation,
+        SchemaFieldPathIndexStagedStoreOverlayValidationError,
+    > {
+        if self.store != batch.store() {
+            return Err(SchemaFieldPathIndexStagedStoreOverlayValidationError::StoreMismatch);
+        }
+        if self.store_visibility != SchemaMutationStoreVisibility::StagedOnly {
+            return Err(SchemaFieldPathIndexStagedStoreOverlayValidationError::PublishedVisibility);
+        }
+        if self.entries.len() != batch.entries().len() {
+            return Err(SchemaFieldPathIndexStagedStoreOverlayValidationError::EntryCountMismatch);
+        }
+
+        for entry in batch.entries() {
+            let Some(overlay_entry) = self.entries.get(entry.key()) else {
+                return Err(SchemaFieldPathIndexStagedStoreOverlayValidationError::MissingEntry);
+            };
+            if overlay_entry != entry.entry() {
+                return Err(SchemaFieldPathIndexStagedStoreOverlayValidationError::EntryMismatch);
+            }
+        }
+
+        Ok(SchemaFieldPathIndexStagedStoreOverlayValidation {
+            store: self.store.clone(),
+            entry_count: self.entries.len(),
+            store_visibility: self.store_visibility,
+            runner_report: batch.runner_report().clone(),
+        })
+    }
+
+    #[must_use]
+    fn accepts_store(&self, store: &str) -> bool {
+        self.store == store
+    }
+}
+
+impl SchemaFieldPathIndexStagedStoreReadView for SchemaFieldPathIndexStagedStoreOverlay {
+    fn read_staged_entry(&self, store: &str, key: &RawIndexKey) -> Option<RawIndexEntry> {
+        self.accepts_store(store)
+            .then(|| self.entries.get(key).cloned())
+            .flatten()
+    }
+}
+
+impl SchemaFieldPathIndexStagedStoreWriter for SchemaFieldPathIndexStagedStoreOverlay {
+    fn write_staged_entry(&mut self, store: &str, key: &RawIndexKey, entry: &RawIndexEntry) {
+        if self.accepts_store(store) {
+            self.entries.insert(key.clone(), entry.clone());
+        }
+    }
+}
+
+impl SchemaFieldPathIndexStagedStoreRollbackWriter for SchemaFieldPathIndexStagedStoreOverlay {
+    fn restore_staged_entry(&mut self, store: &str, key: &RawIndexKey, entry: &RawIndexEntry) {
+        if self.accepts_store(store) {
+            self.entries.insert(key.clone(), entry.clone());
+        }
+    }
+
+    fn remove_staged_entry(&mut self, store: &str, key: &RawIndexKey) {
+        if self.accepts_store(store) {
+            self.entries.remove(key);
+        }
+    }
+}
+
+///
+/// SchemaFieldPathIndexStagedStoreOverlayValidationError
+///
+/// Fail-closed validation reasons for isolated staged-store overlays. These
+/// checks keep overlay state from being treated as publication-ready unless it
+/// exactly matches the validated staged write batch.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages isolated overlay validation before publication exists"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaFieldPathIndexStagedStoreOverlayValidationError {
+    StoreMismatch,
+    PublishedVisibility,
+    EntryCountMismatch,
+    MissingEntry,
+    EntryMismatch,
+}
+
+///
+/// SchemaFieldPathIndexStagedStoreOverlayValidation
+///
+/// Positive validation report for an isolated staged-store overlay after it has
+/// accepted one staged write batch. This report remains staged-only and does
+/// not imply publication readiness.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages isolated overlay validation before publication exists"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreOverlayValidation {
+    store: String,
+    entry_count: usize,
+    store_visibility: SchemaMutationStoreVisibility,
+    runner_report: SchemaMutationRunnerReport,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages isolated overlay validation before publication exists"
+)]
+impl SchemaFieldPathIndexStagedStoreOverlayValidation {
+    #[must_use]
+    pub(in crate::db::schema) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn entry_count(&self) -> usize {
+        self.entry_count
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store_visibility(&self) -> SchemaMutationStoreVisibility {
+        self.store_visibility
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
+        &self.runner_report
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn publication_readiness(
+        &self,
+    ) -> SchemaFieldPathIndexStagedStorePublicationReadiness {
+        SchemaFieldPathIndexStagedStorePublicationReadiness::from_overlay_validation(self)
+    }
+}
+
+///
+/// SchemaFieldPathIndexStagedStorePublicationBlocker
+///
+/// Remaining publication barriers after a staged field-path index overlay has
+/// been validated. 0.153 keeps these explicit so overlay validation cannot be
+/// mistaken for accepted snapshot publication.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages publication blockers before staged stores can be published"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaFieldPathIndexStagedStorePublicationBlocker {
+    StoreStillStaged,
+    PhysicalStateNotValidated,
+    RuntimeStateNotInvalidated,
+    SnapshotNotPublished,
+}
+
+///
+/// SchemaFieldPathIndexStagedStorePublicationReadiness
+///
+/// Fail-closed publication readiness for one validated staged field-path index
+/// overlay. A readiness report with blockers is diagnostic only; publication
+/// remains disallowed until the store is published and all runner phases have
+/// completed.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages publication readiness before staged stores can be published"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStorePublicationReadiness {
+    store: String,
+    entry_count: usize,
+    blockers: Vec<SchemaFieldPathIndexStagedStorePublicationBlocker>,
+    runner_report: SchemaMutationRunnerReport,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages publication readiness before staged stores can be published"
+)]
+impl SchemaFieldPathIndexStagedStorePublicationReadiness {
+    #[must_use]
+    fn from_overlay_validation(
+        validation: &SchemaFieldPathIndexStagedStoreOverlayValidation,
+    ) -> Self {
+        Self::from_validated_parts(
+            validation.store(),
+            validation.entry_count(),
+            validation.store_visibility(),
+            validation.runner_report(),
+        )
+    }
+
+    #[must_use]
+    fn from_isolated_index_store_validation(
+        validation: &SchemaFieldPathIndexIsolatedIndexStoreValidation,
+    ) -> Self {
+        Self::from_validated_parts(
+            validation.store(),
+            validation.entry_count(),
+            validation.store_visibility(),
+            validation.runner_report(),
+        )
+    }
+
+    #[must_use]
+    fn from_validated_parts(
+        store: &str,
+        entry_count: usize,
+        store_visibility: SchemaMutationStoreVisibility,
+        runner_report: &SchemaMutationRunnerReport,
+    ) -> Self {
+        let mut blockers = Vec::new();
+
+        if store_visibility != SchemaMutationStoreVisibility::Published {
+            blockers.push(SchemaFieldPathIndexStagedStorePublicationBlocker::StoreStillStaged);
+        }
+        if !runner_report.has_completed_phase(SchemaMutationRunnerPhase::ValidatePhysicalState) {
+            blockers
+                .push(SchemaFieldPathIndexStagedStorePublicationBlocker::PhysicalStateNotValidated);
+        }
+        if !runner_report.has_completed_phase(SchemaMutationRunnerPhase::InvalidateRuntimeState) {
+            blockers.push(
+                SchemaFieldPathIndexStagedStorePublicationBlocker::RuntimeStateNotInvalidated,
+            );
+        }
+        if !runner_report.has_completed_phase(SchemaMutationRunnerPhase::PublishSnapshot) {
+            blockers.push(SchemaFieldPathIndexStagedStorePublicationBlocker::SnapshotNotPublished);
+        }
+
+        Self {
+            store: store.to_string(),
+            entry_count,
+            blockers,
+            runner_report: runner_report.clone(),
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn entry_count(&self) -> usize {
+        self.entry_count
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn blockers(
+        &self,
+    ) -> &[SchemaFieldPathIndexStagedStorePublicationBlocker] {
+        self.blockers.as_slice()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
+        &self.runner_report
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn allows_publication(&self) -> bool {
+        self.blockers.is_empty() && self.runner_report.physical_work_allows_publication()
+    }
+}
+
+///
+/// SchemaFieldPathIndexStagedStoreRollbackAction
+///
+/// One physical rollback action derived from a prior-entry snapshot. `Restore`
+/// replaces an overwritten entry; `Remove` deletes a key that did not exist
+/// before staged physical writes.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages rollback actions before physical stores are mutated"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaFieldPathIndexStagedStoreRollbackAction {
+    Restore {
+        store: String,
+        key: RawIndexKey,
+        entry: RawIndexEntry,
+    },
+    Remove {
+        store: String,
+        key: RawIndexKey,
+    },
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages rollback actions before physical stores are mutated"
+)]
+impl SchemaFieldPathIndexStagedStoreRollbackAction {
+    #[must_use]
+    fn from_snapshot(snapshot: &SchemaFieldPathIndexStagedStoreRollbackSnapshot) -> Self {
+        match &snapshot.previous_entry {
+            Some(entry) => Self::Restore {
+                store: snapshot.store.clone(),
+                key: snapshot.key.clone(),
+                entry: entry.clone(),
+            },
+            None => Self::Remove {
+                store: snapshot.store.clone(),
+                key: snapshot.key.clone(),
+            },
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn store(&self) -> &str {
+        match self {
+            Self::Restore { store, .. } | Self::Remove { store, .. } => store.as_str(),
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn key(&self) -> &RawIndexKey {
+        match self {
+            Self::Restore { key, .. } | Self::Remove { key, .. } => key,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn restore_entry(&self) -> Option<&RawIndexEntry> {
+        match self {
+            Self::Restore { entry, .. } => Some(entry),
+            Self::Remove { .. } => None,
         }
     }
 }
@@ -2822,7 +3901,7 @@ mod tests {
                 CanonicalSlotReader, ScalarSlotValueRef, SlotReader, StorageKey,
                 StructuralFieldDecodeContract,
             },
-            index::{IndexId, IndexKey},
+            index::{IndexId, IndexKey, IndexState, IndexStore, RawIndexEntry, RawIndexKey},
             schema::{
                 AcceptedSchemaMutationError, FieldId, MutationCompatibility, MutationPlan,
                 PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,
@@ -2838,13 +3917,59 @@ mod tests {
         error::InternalError,
         model::field::FieldModel,
         model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
+        testing::test_memory,
         types::EntityTag,
         value::Value,
     };
-    use std::borrow::Cow;
+    use std::{borrow::Cow, collections::BTreeMap};
 
     struct RebuildSlotReader {
         values: Vec<Option<Value>>,
+    }
+
+    #[derive(Default)]
+    struct RecordingStagedStoreWriter {
+        writes: Vec<(String, RawIndexKey, RawIndexEntry)>,
+    }
+
+    #[derive(Default)]
+    struct RecordingStagedStoreRollbackWriter {
+        actions: Vec<(String, RawIndexKey, Option<RawIndexEntry>)>,
+    }
+
+    #[derive(Default)]
+    struct RecordingStagedStoreReadView {
+        entries: BTreeMap<(String, RawIndexKey), RawIndexEntry>,
+    }
+
+    impl RecordingStagedStoreReadView {
+        fn insert(&mut self, store: &str, key: RawIndexKey, entry: RawIndexEntry) {
+            self.entries.insert((store.to_string(), key), entry);
+        }
+    }
+
+    impl super::SchemaFieldPathIndexStagedStoreReadView for RecordingStagedStoreReadView {
+        fn read_staged_entry(&self, store: &str, key: &RawIndexKey) -> Option<RawIndexEntry> {
+            self.entries.get(&(store.to_string(), key.clone())).cloned()
+        }
+    }
+
+    impl super::SchemaFieldPathIndexStagedStoreWriter for RecordingStagedStoreWriter {
+        fn write_staged_entry(&mut self, store: &str, key: &RawIndexKey, entry: &RawIndexEntry) {
+            self.writes
+                .push((store.to_string(), key.clone(), entry.clone()));
+        }
+    }
+
+    impl super::SchemaFieldPathIndexStagedStoreRollbackWriter for RecordingStagedStoreRollbackWriter {
+        fn restore_staged_entry(&mut self, store: &str, key: &RawIndexKey, entry: &RawIndexEntry) {
+            self.actions
+                .push((store.to_string(), key.clone(), Some(entry.clone())));
+        }
+
+        fn remove_staged_entry(&mut self, store: &str, key: &RawIndexKey) {
+            self.actions.push((store.to_string(), key.clone(), None));
+        }
     }
 
     impl SlotReader for RebuildSlotReader {
@@ -2953,6 +4078,68 @@ mod tests {
             )]),
             Some("LOWER(name) IS NOT NULL".to_string()),
         )
+    }
+
+    fn accepted_name_field_path_target() -> super::SchemaFieldPathIndexRebuildTarget {
+        let request = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower to a rebuild target");
+        let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } = request else {
+            panic!("field-path index request should preserve rebuild target");
+        };
+        target
+    }
+
+    fn staged_name_index_store() -> super::SchemaFieldPathIndexStagedStore {
+        let plan = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower")
+        .lower_to_plan();
+        let first = RebuildSlotReader {
+            values: vec![None, Some(Value::Text("Ada".to_string()))],
+        };
+        let second = RebuildSlotReader {
+            values: vec![None, Some(Value::Text("Grace".to_string()))],
+        };
+        let staged = super::SchemaFieldPathIndexStagedRebuild::from_rows(
+            "test::mutation::entity",
+            EntityTag::new(7),
+            accepted_name_field_path_target(),
+            [
+                super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(2), &second),
+                super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(1), &first),
+            ],
+        )
+        .expect("field-path rebuild rows should stage into raw index entries");
+
+        super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged, &plan.execution_plan())
+            .expect("valid staged rebuild should write into an in-memory staged store buffer")
+    }
+
+    fn extra_staged_name_index_entry() -> super::SchemaFieldPathIndexStagedEntry {
+        let extra = RebuildSlotReader {
+            values: vec![None, Some(Value::Text("Margaret".to_string()))],
+        };
+        let staged = super::SchemaFieldPathIndexStagedRebuild::from_rows(
+            "test::mutation::entity",
+            EntityTag::new(7),
+            accepted_name_field_path_target(),
+            [super::SchemaFieldPathIndexRebuildRow::new(
+                StorageKey::Uint(3),
+                &extra,
+            )],
+        )
+        .expect("extra field-path rebuild row should stage into a raw index entry");
+
+        staged.entries()[0].clone()
+    }
+
+    fn initialized_index_store(memory_id: u8) -> IndexStore {
+        let mut store = IndexStore::init(test_memory(memory_id));
+        store.clear();
+        store
     }
 
     #[test]
@@ -3919,6 +5106,579 @@ mod tests {
         assert_eq!(
             discard.store_visibility(),
             super::SchemaMutationStoreVisibility::StagedOnly,
+        );
+    }
+
+    #[test]
+    fn field_path_rebuild_writer_reports_staged_write_intents_without_physical_mutation() {
+        let plan = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower")
+        .lower_to_plan();
+        let request = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower to a rebuild target");
+        let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } = request else {
+            panic!("field-path index request should preserve rebuild target");
+        };
+        let first = RebuildSlotReader {
+            values: vec![None, Some(Value::Text("Ada".to_string()))],
+        };
+        let second = RebuildSlotReader {
+            values: vec![None, Some(Value::Text("Grace".to_string()))],
+        };
+        let staged = super::SchemaFieldPathIndexStagedRebuild::from_rows(
+            "test::mutation::entity",
+            EntityTag::new(7),
+            target,
+            [
+                super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(2), &second),
+                super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(1), &first),
+            ],
+        )
+        .expect("field-path rebuild rows should stage into raw index entries");
+        let buffer =
+            super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged, &plan.execution_plan())
+                .expect("valid staged rebuild should write into an in-memory staged store buffer");
+        let mut writer = RecordingStagedStoreWriter::default();
+
+        let report = buffer.write_to(&mut writer);
+
+        assert_eq!(report.store(), "test::mutation::by_name");
+        assert_eq!(report.intended_entries(), 2);
+        assert_eq!(
+            report.store_visibility(),
+            super::SchemaMutationStoreVisibility::StagedOnly,
+        );
+        assert_eq!(report.runner_report().rows_scanned(), 2);
+        assert_eq!(report.runner_report().index_keys_written(), 2);
+        assert!(!report.runner_report().physical_work_allows_publication());
+        assert_eq!(writer.writes.len(), 2);
+        for ((store, key, entry), staged_entry) in writer.writes.iter().zip(buffer.entries()) {
+            assert_eq!(store, "test::mutation::by_name");
+            assert_eq!(key, staged_entry.key());
+            assert_eq!(entry, staged_entry.entry());
+        }
+        assert!(!buffer.physical_work_allows_publication());
+    }
+
+    #[test]
+    fn field_path_rebuild_write_batch_snapshots_physical_rollback_without_publication() {
+        let plan = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower")
+        .lower_to_plan();
+        let request = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower to a rebuild target");
+        let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } = request else {
+            panic!("field-path index request should preserve rebuild target");
+        };
+        let first = RebuildSlotReader {
+            values: vec![None, Some(Value::Text("Ada".to_string()))],
+        };
+        let second = RebuildSlotReader {
+            values: vec![None, Some(Value::Text("Grace".to_string()))],
+        };
+        let staged = super::SchemaFieldPathIndexStagedRebuild::from_rows(
+            "test::mutation::entity",
+            EntityTag::new(7),
+            target,
+            [
+                super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(2), &second),
+                super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(1), &first),
+            ],
+        )
+        .expect("field-path rebuild rows should stage into raw index entries");
+        let buffer =
+            super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged, &plan.execution_plan())
+                .expect("valid staged rebuild should write into an in-memory staged store buffer");
+        let previous_entry = RawIndexEntry::try_from_keys([StorageKey::Uint(99)])
+            .expect("previous entry should encode");
+        let mut read_view = RecordingStagedStoreReadView::default();
+        read_view.insert(
+            buffer.store(),
+            buffer.entries()[0].key().clone(),
+            previous_entry.clone(),
+        );
+
+        let batch = buffer.write_batch(&read_view);
+
+        assert_eq!(batch.store(), "test::mutation::by_name");
+        assert_eq!(batch.entries(), buffer.entries());
+        assert_eq!(batch.rollback_snapshots().len(), 2);
+        assert_eq!(
+            batch.store_visibility(),
+            super::SchemaMutationStoreVisibility::StagedOnly,
+        );
+        assert_eq!(batch.runner_report().index_keys_written(), 2);
+        assert_eq!(batch.rollback_snapshots()[0].store(), buffer.store());
+        assert_eq!(
+            batch.rollback_snapshots()[0].key(),
+            buffer.entries()[0].key(),
+        );
+        assert_eq!(
+            batch.rollback_snapshots()[0].previous_entry(),
+            Some(&previous_entry),
+        );
+        assert_eq!(batch.rollback_snapshots()[1].store(), buffer.store());
+        assert_eq!(
+            batch.rollback_snapshots()[1].key(),
+            buffer.entries()[1].key(),
+        );
+        assert_eq!(batch.rollback_snapshots()[1].previous_entry(), None);
+
+        let mut writer = RecordingStagedStoreWriter::default();
+        let report = batch.write_to(&mut writer);
+
+        assert_eq!(report.intended_entries(), 2);
+        assert_eq!(
+            report.store_visibility(),
+            super::SchemaMutationStoreVisibility::StagedOnly,
+        );
+        assert!(!report.runner_report().physical_work_allows_publication());
+        assert_eq!(writer.writes.len(), 2);
+    }
+
+    #[test]
+    fn field_path_rebuild_write_batch_derives_reverse_rollback_plan() {
+        let plan = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower")
+        .lower_to_plan();
+        let request = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower to a rebuild target");
+        let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } = request else {
+            panic!("field-path index request should preserve rebuild target");
+        };
+        let first = RebuildSlotReader {
+            values: vec![None, Some(Value::Text("Ada".to_string()))],
+        };
+        let second = RebuildSlotReader {
+            values: vec![None, Some(Value::Text("Grace".to_string()))],
+        };
+        let staged = super::SchemaFieldPathIndexStagedRebuild::from_rows(
+            "test::mutation::entity",
+            EntityTag::new(7),
+            target,
+            [
+                super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(2), &second),
+                super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(1), &first),
+            ],
+        )
+        .expect("field-path rebuild rows should stage into raw index entries");
+        let buffer =
+            super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged, &plan.execution_plan())
+                .expect("valid staged rebuild should write into an in-memory staged store buffer");
+        let previous_entry = RawIndexEntry::try_from_keys([StorageKey::Uint(99)])
+            .expect("previous entry should encode");
+        let mut read_view = RecordingStagedStoreReadView::default();
+        read_view.insert(
+            buffer.store(),
+            buffer.entries()[0].key().clone(),
+            previous_entry.clone(),
+        );
+        let batch = buffer.write_batch(&read_view);
+
+        let rollback_plan = batch.rollback_plan();
+
+        assert_eq!(rollback_plan.store(), "test::mutation::by_name");
+        assert_eq!(rollback_plan.actions().len(), 2);
+        assert_eq!(
+            rollback_plan.store_visibility(),
+            super::SchemaMutationStoreVisibility::StagedOnly,
+        );
+        assert_eq!(rollback_plan.runner_report().index_keys_written(), 2);
+        assert_eq!(rollback_plan.actions()[0].store(), buffer.store());
+        assert_eq!(rollback_plan.actions()[0].key(), buffer.entries()[1].key());
+        assert_eq!(rollback_plan.actions()[0].restore_entry(), None);
+        assert_eq!(rollback_plan.actions()[1].store(), buffer.store());
+        assert_eq!(rollback_plan.actions()[1].key(), buffer.entries()[0].key());
+        assert_eq!(
+            rollback_plan.actions()[1].restore_entry(),
+            Some(&previous_entry),
+        );
+        assert!(
+            !rollback_plan
+                .runner_report()
+                .physical_work_allows_publication()
+        );
+    }
+
+    #[test]
+    fn field_path_rebuild_rollback_plan_reports_mocked_restore_and_remove_actions() {
+        let plan = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower")
+        .lower_to_plan();
+        let request = SchemaMutationRequest::from_accepted_non_unique_field_path_index(
+            &non_unique_name_index(),
+        )
+        .expect("non-unique field-path index should lower to a rebuild target");
+        let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } = request else {
+            panic!("field-path index request should preserve rebuild target");
+        };
+        let first = RebuildSlotReader {
+            values: vec![None, Some(Value::Text("Ada".to_string()))],
+        };
+        let second = RebuildSlotReader {
+            values: vec![None, Some(Value::Text("Grace".to_string()))],
+        };
+        let staged = super::SchemaFieldPathIndexStagedRebuild::from_rows(
+            "test::mutation::entity",
+            EntityTag::new(7),
+            target,
+            [
+                super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(2), &second),
+                super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(1), &first),
+            ],
+        )
+        .expect("field-path rebuild rows should stage into raw index entries");
+        let buffer =
+            super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged, &plan.execution_plan())
+                .expect("valid staged rebuild should write into an in-memory staged store buffer");
+        let previous_entry = RawIndexEntry::try_from_keys([StorageKey::Uint(99)])
+            .expect("previous entry should encode");
+        let mut read_view = RecordingStagedStoreReadView::default();
+        read_view.insert(
+            buffer.store(),
+            buffer.entries()[0].key().clone(),
+            previous_entry.clone(),
+        );
+        let rollback_plan = buffer.write_batch(&read_view).rollback_plan();
+        let mut writer = RecordingStagedStoreRollbackWriter::default();
+
+        let report = rollback_plan.rollback_to(&mut writer);
+
+        assert_eq!(report.store(), "test::mutation::by_name");
+        assert_eq!(report.actions_applied(), 2);
+        assert_eq!(report.restored_entries(), 1);
+        assert_eq!(report.removed_entries(), 1);
+        assert_eq!(
+            report.store_visibility(),
+            super::SchemaMutationStoreVisibility::StagedOnly,
+        );
+        assert!(!report.runner_report().physical_work_allows_publication());
+        assert_eq!(writer.actions.len(), 2);
+        assert_eq!(writer.actions[0].0, buffer.store());
+        assert_eq!(writer.actions[0].1, *buffer.entries()[1].key());
+        assert_eq!(writer.actions[0].2, None);
+        assert_eq!(writer.actions[1].0, buffer.store());
+        assert_eq!(writer.actions[1].1, *buffer.entries()[0].key());
+        assert_eq!(writer.actions[1].2, Some(previous_entry));
+    }
+
+    #[test]
+    fn field_path_rebuild_isolated_index_store_writer_writes_and_rolls_back() {
+        let buffer = staged_name_index_store();
+        let mut index_store = initialized_index_store(239);
+        let mut writer = super::SchemaFieldPathIndexIsolatedIndexStoreWriter::new(
+            buffer.store(),
+            &mut index_store,
+        );
+
+        let batch = buffer.write_batch(&writer);
+        let write_report = batch.write_to(&mut writer);
+        let validation = writer
+            .validate_batch(&batch)
+            .expect("isolated IndexStore should validate against staged batch");
+
+        assert_eq!(writer.store(), buffer.store());
+        assert_eq!(
+            writer.store_visibility(),
+            super::SchemaMutationStoreVisibility::StagedOnly
+        );
+        assert_eq!(writer.index_state(), IndexState::Building);
+        assert_eq!(writer.len(), 2);
+        assert_eq!(writer.generation(), writer.generation_before() + 2);
+        assert_eq!(write_report.intended_entries(), 2);
+        assert_eq!(
+            write_report.store_visibility(),
+            super::SchemaMutationStoreVisibility::StagedOnly,
+        );
+        assert!(
+            !write_report
+                .runner_report()
+                .physical_work_allows_publication()
+        );
+        assert_eq!(
+            writer.get(buffer.entries()[0].key()),
+            Some(buffer.entries()[0].entry().clone()),
+        );
+        assert_eq!(
+            writer.get(buffer.entries()[1].key()),
+            Some(buffer.entries()[1].entry().clone()),
+        );
+        assert_eq!(validation.store(), buffer.store());
+        assert_eq!(validation.entry_count(), 2);
+        assert_eq!(validation.index_state(), IndexState::Building);
+        assert_eq!(validation.generation_before(), writer.generation_before());
+        assert_eq!(validation.generation_after(), writer.generation());
+        assert_eq!(
+            validation.store_visibility(),
+            super::SchemaMutationStoreVisibility::StagedOnly,
+        );
+        let publication_readiness = validation.publication_readiness();
+        assert_eq!(
+            publication_readiness.blockers(),
+            &[
+                super::SchemaFieldPathIndexStagedStorePublicationBlocker::StoreStillStaged,
+                super::SchemaFieldPathIndexStagedStorePublicationBlocker::RuntimeStateNotInvalidated,
+                super::SchemaFieldPathIndexStagedStorePublicationBlocker::SnapshotNotPublished,
+            ],
+        );
+        assert!(!publication_readiness.allows_publication());
+
+        let rollback_report = batch.rollback_plan().rollback_to(&mut writer);
+
+        assert_eq!(rollback_report.actions_applied(), 2);
+        assert_eq!(rollback_report.removed_entries(), 2);
+        assert_eq!(rollback_report.restored_entries(), 0);
+        assert_eq!(writer.len(), 0);
+        assert_eq!(writer.generation(), writer.generation_before() + 4);
+        assert_eq!(writer.index_state(), IndexState::Building);
+        assert!(
+            !rollback_report
+                .runner_report()
+                .physical_work_allows_publication()
+        );
+    }
+
+    #[test]
+    fn field_path_rebuild_isolated_index_store_validation_fails_closed() {
+        let buffer = staged_name_index_store();
+        let extra_entry = extra_staged_name_index_entry();
+        let previous_entry = RawIndexEntry::try_from_keys([StorageKey::Uint(99)])
+            .expect("previous entry should encode");
+        let batch = buffer.write_batch(&super::SchemaFieldPathIndexStagedStoreOverlay::new(
+            buffer.store(),
+        ));
+
+        let mut wrong_store = initialized_index_store(238);
+        let writer = super::SchemaFieldPathIndexIsolatedIndexStoreWriter::new(
+            "wrong::store",
+            &mut wrong_store,
+        );
+        assert_eq!(
+            writer.validate_batch(&batch),
+            Err(super::SchemaFieldPathIndexIsolatedIndexStoreValidationError::StoreMismatch),
+        );
+
+        let mut published_store = initialized_index_store(237);
+        let mut writer = super::SchemaFieldPathIndexIsolatedIndexStoreWriter::new(
+            buffer.store(),
+            &mut published_store,
+        );
+        writer.store_visibility = super::SchemaMutationStoreVisibility::Published;
+        assert_eq!(
+            writer.validate_batch(&batch),
+            Err(super::SchemaFieldPathIndexIsolatedIndexStoreValidationError::PublishedVisibility),
+        );
+
+        let mut ready_store = initialized_index_store(236);
+        let writer = super::SchemaFieldPathIndexIsolatedIndexStoreWriter::new(
+            buffer.store(),
+            &mut ready_store,
+        );
+        writer.index_store.mark_ready();
+        assert_eq!(
+            writer.validate_batch(&batch),
+            Err(super::SchemaFieldPathIndexIsolatedIndexStoreValidationError::StoreNotBuilding),
+        );
+
+        let mut partial_store = initialized_index_store(235);
+        let writer = super::SchemaFieldPathIndexIsolatedIndexStoreWriter::new(
+            buffer.store(),
+            &mut partial_store,
+        );
+        assert_eq!(
+            writer.validate_batch(&batch),
+            Err(super::SchemaFieldPathIndexIsolatedIndexStoreValidationError::EntryCountMismatch),
+        );
+
+        let mut missing_store = initialized_index_store(234);
+        let writer = super::SchemaFieldPathIndexIsolatedIndexStoreWriter::new(
+            buffer.store(),
+            &mut missing_store,
+        );
+        writer.index_store.insert(
+            buffer.entries()[0].key().clone(),
+            buffer.entries()[0].entry().clone(),
+        );
+        writer
+            .index_store
+            .insert(extra_entry.key().clone(), extra_entry.entry().clone());
+        assert_eq!(
+            writer.validate_batch(&batch),
+            Err(super::SchemaFieldPathIndexIsolatedIndexStoreValidationError::MissingEntry),
+        );
+
+        let mut mismatch_store = initialized_index_store(233);
+        let mut writer = super::SchemaFieldPathIndexIsolatedIndexStoreWriter::new(
+            buffer.store(),
+            &mut mismatch_store,
+        );
+        let _ = batch.write_to(&mut writer);
+        writer
+            .index_store
+            .insert(buffer.entries()[0].key().clone(), previous_entry);
+        assert_eq!(
+            writer.validate_batch(&batch),
+            Err(super::SchemaFieldPathIndexIsolatedIndexStoreValidationError::EntryMismatch),
+        );
+    }
+
+    #[test]
+    fn field_path_rebuild_staged_overlay_writes_and_rolls_back_without_index_store() {
+        let buffer = staged_name_index_store();
+        let previous_entry = RawIndexEntry::try_from_keys([StorageKey::Uint(99)])
+            .expect("previous entry should encode");
+        let mut overlay = super::SchemaFieldPathIndexStagedStoreOverlay::from_entries(
+            buffer.store(),
+            [(buffer.entries()[0].key().clone(), previous_entry.clone())],
+        );
+
+        let batch = buffer.write_batch(&overlay);
+        let write_report = batch.write_to(&mut overlay);
+        let overlay_validation = overlay
+            .validate_batch(&batch)
+            .expect("overlay should validate against the staged write batch");
+
+        assert_eq!(overlay.store(), buffer.store());
+        assert_eq!(overlay.len(), 2);
+        assert_eq!(
+            overlay.store_visibility(),
+            super::SchemaMutationStoreVisibility::StagedOnly,
+        );
+        assert_eq!(write_report.intended_entries(), 2);
+        assert_eq!(
+            overlay.get(buffer.entries()[0].key()),
+            Some(buffer.entries()[0].entry()),
+        );
+        assert_eq!(
+            overlay.get(buffer.entries()[1].key()),
+            Some(buffer.entries()[1].entry()),
+        );
+        assert_eq!(overlay_validation.store(), buffer.store());
+        assert_eq!(overlay_validation.entry_count(), 2);
+        assert_eq!(
+            overlay_validation.store_visibility(),
+            super::SchemaMutationStoreVisibility::StagedOnly,
+        );
+        assert_eq!(overlay_validation.runner_report().index_keys_written(), 2);
+        assert!(
+            !overlay_validation
+                .runner_report()
+                .physical_work_allows_publication()
+        );
+        let publication_readiness = overlay_validation.publication_readiness();
+        assert_eq!(publication_readiness.store(), buffer.store());
+        assert_eq!(publication_readiness.entry_count(), 2);
+        assert_eq!(
+            publication_readiness.blockers(),
+            &[
+                super::SchemaFieldPathIndexStagedStorePublicationBlocker::StoreStillStaged,
+                super::SchemaFieldPathIndexStagedStorePublicationBlocker::RuntimeStateNotInvalidated,
+                super::SchemaFieldPathIndexStagedStorePublicationBlocker::SnapshotNotPublished,
+            ],
+        );
+        assert!(!publication_readiness.allows_publication());
+        assert!(
+            !publication_readiness
+                .runner_report()
+                .physical_work_allows_publication()
+        );
+
+        let rollback_report = batch.rollback_plan().rollback_to(&mut overlay);
+
+        assert_eq!(rollback_report.actions_applied(), 2);
+        assert_eq!(rollback_report.restored_entries(), 1);
+        assert_eq!(rollback_report.removed_entries(), 1);
+        assert_eq!(overlay.len(), 1);
+        assert_eq!(
+            overlay.get(buffer.entries()[0].key()),
+            Some(&previous_entry)
+        );
+        assert_eq!(overlay.get(buffer.entries()[1].key()), None);
+        assert!(
+            !rollback_report
+                .runner_report()
+                .physical_work_allows_publication()
+        );
+    }
+
+    #[test]
+    fn field_path_rebuild_staged_overlay_validation_fails_closed() {
+        let buffer = staged_name_index_store();
+        let extra_entry = extra_staged_name_index_entry();
+        let previous_entry = RawIndexEntry::try_from_keys([StorageKey::Uint(99)])
+            .expect("previous entry should encode");
+        let batch = buffer.write_batch(&super::SchemaFieldPathIndexStagedStoreOverlay::new(
+            buffer.store(),
+        ));
+
+        let wrong_store = super::SchemaFieldPathIndexStagedStoreOverlay::new("wrong::store");
+        assert_eq!(
+            wrong_store.validate_batch(&batch),
+            Err(super::SchemaFieldPathIndexStagedStoreOverlayValidationError::StoreMismatch),
+        );
+
+        let mut published_overlay =
+            super::SchemaFieldPathIndexStagedStoreOverlay::new(buffer.store());
+        published_overlay.store_visibility = super::SchemaMutationStoreVisibility::Published;
+        assert_eq!(
+            published_overlay.validate_batch(&batch),
+            Err(super::SchemaFieldPathIndexStagedStoreOverlayValidationError::PublishedVisibility),
+        );
+
+        let partial_overlay = super::SchemaFieldPathIndexStagedStoreOverlay::from_entries(
+            buffer.store(),
+            [(
+                buffer.entries()[0].key().clone(),
+                buffer.entries()[0].entry().clone(),
+            )],
+        );
+        assert_eq!(
+            partial_overlay.validate_batch(&batch),
+            Err(super::SchemaFieldPathIndexStagedStoreOverlayValidationError::EntryCountMismatch),
+        );
+
+        let missing_entry_overlay = super::SchemaFieldPathIndexStagedStoreOverlay::from_entries(
+            buffer.store(),
+            [
+                (
+                    buffer.entries()[0].key().clone(),
+                    buffer.entries()[0].entry().clone(),
+                ),
+                (extra_entry.key().clone(), extra_entry.entry().clone()),
+            ],
+        );
+        assert_eq!(
+            missing_entry_overlay.validate_batch(&batch),
+            Err(super::SchemaFieldPathIndexStagedStoreOverlayValidationError::MissingEntry),
+        );
+
+        let mismatched_entry_overlay = super::SchemaFieldPathIndexStagedStoreOverlay::from_entries(
+            buffer.store(),
+            [
+                (buffer.entries()[0].key().clone(), previous_entry),
+                (
+                    buffer.entries()[1].key().clone(),
+                    buffer.entries()[1].entry().clone(),
+                ),
+            ],
+        );
+        assert_eq!(
+            mismatched_entry_overlay.validate_batch(&batch),
+            Err(super::SchemaFieldPathIndexStagedStoreOverlayValidationError::EntryMismatch),
         );
     }
 
