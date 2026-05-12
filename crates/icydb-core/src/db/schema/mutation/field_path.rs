@@ -1447,6 +1447,194 @@ impl SchemaFieldPathIndexSnapshotPublicationReport {
 }
 
 ///
+/// SchemaFieldPathIndexRunnerError
+///
+/// Fail-closed field-path runner orchestration errors. These classify the
+/// phase that prevented publication without matching lower-level error text.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages field-path runner orchestration before public DDL consumes it"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaFieldPathIndexRunnerError {
+    UnsupportedExecutionPlan,
+    TargetMismatch,
+    StageRowsFailed,
+    StagedStoreRejected,
+    IsolatedStoreValidationFailed,
+    RuntimeInvalidationIdentity,
+    SnapshotPublicationRejected,
+}
+
+///
+/// SchemaFieldPathIndexRunnerReport
+///
+/// End-to-end runner report for one accepted field-path index rebuild. It
+/// binds the staged write, isolated physical validation, runtime invalidation,
+/// and accepted snapshot publication handoff into one typed result.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages field-path runner orchestration before public DDL consumes it"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexRunnerReport {
+    store: String,
+    write_report: SchemaFieldPathIndexStagedStoreWriteReport,
+    validation: SchemaFieldPathIndexIsolatedIndexStoreValidation,
+    invalidation_report: SchemaFieldPathIndexRuntimeInvalidationReport,
+    publication_report: SchemaFieldPathIndexSnapshotPublicationReport,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages field-path runner orchestration before public DDL consumes it"
+)]
+impl SchemaFieldPathIndexRunnerReport {
+    #[must_use]
+    pub(in crate::db::schema) const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn write_report(
+        &self,
+    ) -> &SchemaFieldPathIndexStagedStoreWriteReport {
+        &self.write_report
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn validation(
+        &self,
+    ) -> &SchemaFieldPathIndexIsolatedIndexStoreValidation {
+        &self.validation
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn invalidation_report(
+        &self,
+    ) -> &SchemaFieldPathIndexRuntimeInvalidationReport {
+        &self.invalidation_report
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn publication_report(
+        &self,
+    ) -> &SchemaFieldPathIndexSnapshotPublicationReport {
+        &self.publication_report
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn runner_report(&self) -> &SchemaMutationRunnerReport {
+        self.publication_report.runner_report()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn publication_readiness(
+        &self,
+    ) -> SchemaFieldPathIndexStagedStorePublicationReadiness {
+        self.publication_report.publication_readiness()
+    }
+}
+
+///
+/// SchemaFieldPathIndexRunner
+///
+/// Narrow physical runner for one accepted field-path index rebuild. The
+/// runner only accepts the schema-owned field-path execution shape and keeps
+/// row staging, isolated store mutation, runtime invalidation, and snapshot
+/// publication handoff in a fixed order.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages field-path runner orchestration before public DDL consumes it"
+)]
+pub(in crate::db::schema) struct SchemaFieldPathIndexRunner;
+
+#[allow(
+    dead_code,
+    reason = "0.153 stages field-path runner orchestration before public DDL consumes it"
+)]
+impl SchemaFieldPathIndexRunner {
+    pub(in crate::db::schema) fn run<'a>(
+        input: &SchemaMutationRunnerInput<'_>,
+        entity_tag: EntityTag,
+        target: SchemaFieldPathIndexRebuildTarget,
+        rows: impl IntoIterator<Item = SchemaFieldPathIndexRebuildRow<'a>>,
+        index_store: &mut IndexStore,
+        invalidation_sink: &mut impl SchemaMutationRuntimeInvalidationSink,
+        publication_sink: &mut impl SchemaMutationAcceptedSnapshotPublicationSink,
+    ) -> Result<SchemaFieldPathIndexRunnerReport, SchemaFieldPathIndexRunnerError> {
+        Self::validate_execution_plan(input.execution_plan(), &target)?;
+
+        let staged = SchemaFieldPathIndexStagedRebuild::from_rows(
+            input.accepted_after().entity_path(),
+            entity_tag,
+            target,
+            rows,
+        )
+        .map_err(|_| SchemaFieldPathIndexRunnerError::StageRowsFailed)?;
+        let staged_store =
+            SchemaFieldPathIndexStagedStore::from_rebuild(&staged, input.execution_plan())
+                .map_err(|_| SchemaFieldPathIndexRunnerError::StagedStoreRejected)?;
+        let store = staged_store.store().to_string();
+        let mut writer = SchemaFieldPathIndexIsolatedIndexStoreWriter::new(&store, index_store);
+        let batch = staged_store.write_batch(&writer);
+        let write_report = batch.write_to(&mut writer);
+        let validation = writer
+            .validate_batch(&batch)
+            .map_err(|_| SchemaFieldPathIndexRunnerError::IsolatedStoreValidationFailed)?;
+        let invalidation_plan =
+            SchemaFieldPathIndexRuntimeInvalidationPlan::from_isolated_index_store_validation(
+                &validation,
+                input,
+            )
+            .map_err(|_| SchemaFieldPathIndexRunnerError::RuntimeInvalidationIdentity)?;
+        let invalidation_report = invalidation_plan.invalidate_runtime_state(invalidation_sink);
+        let publication_plan =
+            SchemaFieldPathIndexSnapshotPublicationPlan::from_runtime_invalidation_report(
+                &invalidation_report,
+                input,
+            )
+            .map_err(|_| SchemaFieldPathIndexRunnerError::SnapshotPublicationRejected)?;
+        let publication_report = publication_plan.publish_snapshot(publication_sink);
+
+        Ok(SchemaFieldPathIndexRunnerReport {
+            store,
+            write_report,
+            validation,
+            invalidation_report,
+            publication_report,
+        })
+    }
+
+    fn validate_execution_plan(
+        execution_plan: &SchemaMutationExecutionPlan,
+        target: &SchemaFieldPathIndexRebuildTarget,
+    ) -> Result<(), SchemaFieldPathIndexRunnerError> {
+        match execution_plan.steps() {
+            [
+                SchemaMutationExecutionStep::BuildFieldPathIndex {
+                    target: planned_target,
+                },
+                SchemaMutationExecutionStep::ValidatePhysicalWork,
+                SchemaMutationExecutionStep::InvalidateRuntimeState,
+            ] if planned_target == target => Ok(()),
+            [
+                SchemaMutationExecutionStep::BuildFieldPathIndex { .. },
+                SchemaMutationExecutionStep::ValidatePhysicalWork,
+                SchemaMutationExecutionStep::InvalidateRuntimeState,
+            ] => Err(SchemaFieldPathIndexRunnerError::TargetMismatch),
+            _ => Err(SchemaFieldPathIndexRunnerError::UnsupportedExecutionPlan),
+        }
+    }
+}
+
+///
 /// SchemaFieldPathIndexStagedStoreOverlay
 ///
 /// Isolated in-memory store overlay for staged field-path index writes. The

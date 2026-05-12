@@ -1817,6 +1817,104 @@ fn field_path_rebuild_snapshot_publication_handoff_reports_publishable_runner_st
 }
 
 #[test]
+fn field_path_runner_orchestrates_staging_to_publication_handoff() {
+    let first = RebuildSlotReader {
+        values: vec![None, Some(Value::Text("Ada".to_string()))],
+    };
+    let second = RebuildSlotReader {
+        values: vec![None, Some(Value::Text("Grace".to_string()))],
+    };
+    let (before, after, execution_plan) = field_path_index_runner_context();
+    let input = super::SchemaMutationRunnerInput::new(&before, &after, execution_plan)
+        .expect("same-entity accepted snapshots should build runner input");
+    let mut index_store = initialized_index_store(234);
+    let mut invalidation_sink = RecordingRuntimeInvalidationSink::default();
+    let mut publication_sink = RecordingAcceptedSnapshotPublicationSink::default();
+
+    let report = super::SchemaFieldPathIndexRunner::run(
+        &input,
+        EntityTag::new(7),
+        accepted_name_field_path_target(),
+        [
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(2), &second),
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(1), &first),
+        ],
+        &mut index_store,
+        &mut invalidation_sink,
+        &mut publication_sink,
+    )
+    .expect("accepted field-path execution plan should complete the runner handoff");
+
+    assert_eq!(report.store(), "test::mutation::by_name");
+    assert_eq!(report.write_report().store(), report.store());
+    assert_eq!(report.write_report().intended_entries(), 2);
+    assert_eq!(report.validation().store(), report.store());
+    assert_eq!(report.validation().entry_count(), 2);
+    assert_eq!(report.validation().index_state(), IndexState::Building);
+    assert_eq!(
+        report.validation().store_visibility(),
+        super::SchemaMutationStoreVisibility::StagedOnly,
+    );
+    assert_eq!(report.invalidation_report().invalidated_epochs(), 1);
+    assert_eq!(
+        report.publication_report().store_visibility(),
+        super::SchemaMutationStoreVisibility::Published,
+    );
+    assert_eq!(index_store.len(), 2);
+    assert_eq!(index_store.state(), IndexState::Building);
+    assert_eq!(invalidation_sink.invalidations.len(), 1);
+    assert_eq!(invalidation_sink.invalidations[0].0, report.store());
+    assert_eq!(publication_sink.publications.len(), 1);
+    assert_eq!(publication_sink.publications[0].0, report.store());
+    assert_eq!(publication_sink.publications[0].1, after);
+    assert_eq!(report.runner_report().rows_scanned(), 2);
+    assert_eq!(report.runner_report().rows_skipped(), 0);
+    assert_eq!(report.runner_report().index_keys_written(), 2);
+    assert!(
+        report
+            .runner_report()
+            .has_completed_phase(super::SchemaMutationRunnerPhase::PublishSnapshot),
+    );
+    assert!(report.runner_report().physical_work_allows_publication());
+    assert!(report.publication_readiness().allows_publication());
+}
+
+#[test]
+fn field_path_runner_rejects_non_field_path_execution_plan_before_physical_work() {
+    let before = base_snapshot();
+    let after = snapshot_with_indexes(&before, vec![expression_name_index()]);
+    let expression_plan =
+        SchemaMutationRequest::from_accepted_expression_index(&expression_name_index())
+            .expect("accepted expression index should lower")
+            .lower_to_plan();
+    let input =
+        super::SchemaMutationRunnerInput::new(&before, &after, expression_plan.execution_plan())
+            .expect("same-entity accepted snapshots should build runner input");
+    let mut index_store = initialized_index_store(235);
+    let mut invalidation_sink = RecordingRuntimeInvalidationSink::default();
+    let mut publication_sink = RecordingAcceptedSnapshotPublicationSink::default();
+
+    let result = super::SchemaFieldPathIndexRunner::run(
+        &input,
+        EntityTag::new(7),
+        accepted_name_field_path_target(),
+        std::iter::empty(),
+        &mut index_store,
+        &mut invalidation_sink,
+        &mut publication_sink,
+    );
+
+    assert_eq!(
+        result,
+        Err(super::SchemaFieldPathIndexRunnerError::UnsupportedExecutionPlan),
+    );
+    assert_eq!(index_store.len(), 0);
+    assert_eq!(index_store.state(), IndexState::Ready);
+    assert!(invalidation_sink.invalidations.is_empty());
+    assert!(publication_sink.publications.is_empty());
+}
+
+#[test]
 fn field_path_rebuild_staged_overlay_writes_and_rolls_back_without_index_store() {
     let buffer = staged_name_index_store();
     let previous_entry =
