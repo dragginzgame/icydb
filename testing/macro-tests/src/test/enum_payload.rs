@@ -73,7 +73,7 @@ pub mod test {
 
     #[test]
     fn vec_box_runtime_value_roundtrips() {
-        let value = Value::Uint(5);
+        let value = Value::Nat(5);
         let vec: Vec<Box<Value>> = vec![Box::new(value.clone())];
         let list = runtime_value_to_value(&vec);
         assert_eq!(list, Value::List(vec![value]));
@@ -81,10 +81,10 @@ pub mod test {
 
     #[test]
     fn option_runtime_value_handles_some_and_none() {
-        let some_val: Option<Value> = Some(Value::Uint(7));
+        let some_val: Option<Value> = Some(Value::Nat(7));
         let none_val: Option<Value> = None;
 
-        assert_eq!(runtime_value_to_value(&some_val), Value::Uint(7));
+        assert_eq!(runtime_value_to_value(&some_val), Value::Nat(7));
         assert_eq!(runtime_value_to_value(&none_val), Value::Null);
     }
 

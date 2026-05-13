@@ -414,7 +414,7 @@ mod tests {
             ),
             (
                 Value::Text("visits".to_string()),
-                Value::Uint(u64::from(profile.visits)),
+                Value::Nat(u64::from(profile.visits)),
             ),
         ])
         .expect("profile map should be canonical")
@@ -431,7 +431,7 @@ mod tests {
                     ),
                     (
                         Value::Text("zip".to_string()),
-                        Value::Uint(u64::from(profile.address.zip)),
+                        Value::Nat(u64::from(profile.address.zip)),
                     ),
                 ])
                 .expect("nested address map should be canonical"),
