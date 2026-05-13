@@ -14,8 +14,8 @@ It is not a feature-design audit.
 
 Measure and report:
 
-- `dfx-built` wasm size (`.wasm` primary, deterministic `.wasm.gz` secondary)
-- canonical `dfx-shrunk` wasm size (`.wasm` primary, deterministic `.wasm.gz` secondary)
+- `icp-built` wasm size (`.wasm` primary, deterministic `.wasm.gz` secondary)
+- canonical `icp-shrunk` wasm size (`.wasm` primary, deterministic `.wasm.gz` secondary)
 - shrink deltas between built and shrunk artifacts
 - `ic-wasm info` structure snapshots (function/data/export counts)
 - Twiggy breakdowns (`top`, `dominators`, `monos`) for size attribution

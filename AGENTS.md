@@ -8,7 +8,7 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Do not run `git commit` or `git push`.
 - Do not edit Cargo workspace/package version numbers in `Cargo.toml` or `Cargo.lock`; `make patch` owns version bumps.
 - Do not revert user or unrelated dirty-worktree changes; re-read affected files and continue.
-- Do not start or stop `dfx`; the user manages its lifecycle elsewhere.
+- Do not start or stop the local ICP network; the user manages its lifecycle elsewhere.
 - Use absolute filesystem paths in final file references.
 - Before `1.0.0`, hard-cut internal protocols/formats to the latest version; do not keep compatibility fallbacks.
 - For wasm decisions, prioritize raw non-gzipped `.wasm` bytes; gzip is secondary context.

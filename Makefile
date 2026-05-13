@@ -107,7 +107,10 @@ install-env:
 	PATH="$$HOME/.cargo/bin:$$PATH" rustup toolchain install beta
 	PATH="$$HOME/.cargo/bin:$$PATH" rustup toolchain install nightly
 	PATH="$$HOME/.cargo/bin:$$PATH" rustup target add wasm32-unknown-unknown
-	sh -ci "$$(curl -fsSL https://internetcomputer.org/install.sh)"
+	@if ! command -v icp >/dev/null 2>&1; then \
+		echo "icp-cli is required for local canister workflows; install the current Canic ICP tools and ensure 'icp' is on PATH."; \
+		exit 1; \
+	fi
 	mkdir -p "$$HOME/bin"
 	wget -O "$$HOME/bin/didc" https://github.com/dfinity/candid/releases/download/2025-12-18/didc-linux64
 	chmod +x "$$HOME/bin/didc"
@@ -121,7 +124,7 @@ install-env:
 		chmod +x "$$HOME/bin/yaml2candid"
 	wget -O "$$HOME/bin/quill" https://github.com/dfinity/quill/releases/download/v0.5.4/quill-linux-x86_64
 	chmod +x "$$HOME/bin/quill"
-	PATH="$$HOME/.cargo/bin:$$HOME/bin:$$HOME/.local/share/dfx/bin:$$PATH" $(MAKE) --no-print-directory update-dev
+	PATH="$$HOME/.cargo/bin:$$HOME/bin:$$PATH" $(MAKE) --no-print-directory update-dev
 
 # Ensure both `python3` and the `python` alias exist for repo scripts and local tooling.
 ensure-python3:
@@ -155,7 +158,6 @@ update-dev: ensure-python3
 		candid-extractor ic-wasm
 	cargo audit
 	cargo update --verbose
-	dfxvm self update
 
 # Install wasm target + candid tools
 install-canister-deps:
