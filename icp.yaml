@@ -46,7 +46,7 @@ networks:
     mode: managed
     gateway:
       bind: 127.0.0.1
-      port: 8001
+      port: 8002
 
 environments:
   - name: demo

@@ -7,10 +7,12 @@ use crate::{
     db::{
         Db, EntityRuntimeHooks,
         data::{DataKey, RawRow, StorageKey, StructuralRowContract, StructuralSlotReader},
+        index::{IndexId, IndexKey, IndexStore},
         registry::StoreHandle,
         schema::{
             AcceptedSchemaSnapshot, MutationPublicationBlocker, MutationPublicationPreflight,
-            PersistedSchemaSnapshot, SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRunner,
+            PersistedSchemaSnapshot, SchemaFieldPathIndexRebuildRow,
+            SchemaFieldPathIndexRebuildTarget, SchemaFieldPathIndexRunner,
             SchemaFieldPathIndexRunnerFailure, SchemaMutationAcceptedSnapshotPublicationSink,
             SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
             SchemaMutationRunnerInput, SchemaMutationRuntimeEpoch,
@@ -363,9 +365,19 @@ fn execute_supported_field_path_index_addition(
     let mut invalidation_sink = StartupSchemaMutationInvalidationSink;
     let mut publication_sink = StartupSchemaMutationPublicationSink;
     let report = store.with_index_mut(|index_store| {
-        if !index_store.is_empty() {
+        let preflight = field_path_startup_index_store_preflight(
+            index_store,
+            entity_tag,
+            supported.target(),
+            entity_path,
+        )?;
+        if !preflight.is_empty() {
             return Err(InternalError::store_unsupported(format!(
-                "schema mutation startup index rebuild requires an empty physical index store for entity '{entity_path}' before scoped multi-index publication is enabled",
+                "schema mutation startup index rebuild requires an empty physical index store for entity '{entity_path}' before scoped multi-index publication is enabled: target_index='{}' target_index_entries={} other_index_entries={} total_entries={}",
+                supported.target().name(),
+                preflight.target_index_entries(),
+                preflight.other_index_entries(),
+                preflight.total_entries(),
             )));
         }
 
@@ -397,6 +409,72 @@ fn execute_supported_field_path_index_addition(
     })?;
 
     Ok(())
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct StartupFieldPathIndexStorePreflight {
+    target_index_id: IndexId,
+    target_index_entries: u64,
+    other_index_entries: u64,
+    total_entries: u64,
+}
+
+impl StartupFieldPathIndexStorePreflight {
+    const fn new(target_index_id: IndexId) -> Self {
+        Self {
+            target_index_id,
+            target_index_entries: 0,
+            other_index_entries: 0,
+            total_entries: 0,
+        }
+    }
+
+    fn record(&mut self, index_id: &IndexId) {
+        if *index_id == self.target_index_id {
+            self.target_index_entries += 1;
+        } else {
+            self.other_index_entries += 1;
+        }
+        self.total_entries += 1;
+    }
+
+    const fn is_empty(&self) -> bool {
+        self.total_entries == 0
+    }
+
+    const fn target_index_entries(&self) -> u64 {
+        self.target_index_entries
+    }
+
+    const fn other_index_entries(&self) -> u64 {
+        self.other_index_entries
+    }
+
+    const fn total_entries(&self) -> u64 {
+        self.total_entries
+    }
+}
+
+fn field_path_startup_index_store_preflight(
+    index_store: &IndexStore,
+    entity_tag: EntityTag,
+    target: &SchemaFieldPathIndexRebuildTarget,
+    entity_path: &'static str,
+) -> Result<StartupFieldPathIndexStorePreflight, InternalError> {
+    let mut preflight =
+        StartupFieldPathIndexStorePreflight::new(IndexId::new(entity_tag, target.ordinal()));
+
+    for (raw_key, _) in index_store.entries() {
+        let index_key = IndexKey::try_from_raw(&raw_key).map_err(|error| {
+            InternalError::store_corruption(format!(
+                "schema mutation field-path startup index key decode failed for entity '{entity_path}' while preflighting target index '{}': {error}",
+                target.name(),
+            ))
+        })?;
+        preflight.record(index_key.index_id());
+    }
+
+    Ok(preflight)
 }
 
 struct StartupFieldPathRebuildRow {
@@ -1026,6 +1104,63 @@ mod tests {
             assert_eq!(store.len(), 1);
             assert_eq!(store.state(), IndexState::Ready);
         });
+    }
+
+    #[test]
+    fn field_path_startup_index_store_preflight_classifies_target_and_other_entries() {
+        reset_reconcile_stores();
+
+        let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
+        let expected = proposal.initial_persisted_schema_snapshot();
+        let stored_without_index = PersistedSchemaSnapshot::new_with_indexes(
+            expected.version(),
+            expected.entity_path().to_string(),
+            expected.entity_name().to_string(),
+            expected.primary_key_field_id(),
+            expected.row_layout().clone(),
+            expected.fields().to_vec(),
+            Vec::new(),
+        );
+        let plan = super::validate_existing_schema_snapshot(
+            IndexedSchemaEntity::MODEL.path(),
+            &stored_without_index,
+            &expected,
+        )
+        .expect("single field-path index addition should produce a transition plan");
+        let supported = plan
+            .supported_developer_physical_path()
+            .expect("single field-path index addition should be the supported path");
+        let target = supported.target();
+
+        RECONCILE_INDEX_STORE.with_borrow_mut(|store| {
+            let target_id = IndexId::new(IndexedSchemaEntity::ENTITY_TAG, target.ordinal());
+            let target_key = IndexKey::empty_with_kind(&target_id, IndexKeyKind::User).to_raw();
+            let target_entry = RawIndexEntry::try_from_keys([StorageKey::Nat(1)])
+                .expect("target index entry should encode");
+            store.insert(target_key, target_entry);
+
+            let other_id = IndexId::new(IndexedSchemaEntity::ENTITY_TAG, target.ordinal() + 1);
+            let other_key = IndexKey::empty_with_kind(&other_id, IndexKeyKind::User).to_raw();
+            let other_entry = RawIndexEntry::try_from_keys([StorageKey::Nat(2)])
+                .expect("other index entry should encode");
+            store.insert(other_key, other_entry);
+        });
+
+        let preflight = RECONCILE_INDEX_STORE
+            .with_borrow(|store| {
+                super::field_path_startup_index_store_preflight(
+                    store,
+                    IndexedSchemaEntity::ENTITY_TAG,
+                    target,
+                    IndexedSchemaEntity::MODEL.path(),
+                )
+            })
+            .expect("preflight should decode canonical index keys");
+
+        assert!(!preflight.is_empty());
+        assert_eq!(preflight.target_index_entries(), 1);
+        assert_eq!(preflight.other_index_entries(), 1);
+        assert_eq!(preflight.total_entries(), 2);
     }
 
     #[test]
