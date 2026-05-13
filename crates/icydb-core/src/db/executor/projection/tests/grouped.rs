@@ -37,7 +37,7 @@ fn grouped_projection_supports_numeric_equality_widening() {
     let expr = Expr::Binary {
         op: BinaryOp::Eq,
         left: Box::new(Expr::Field(FieldId::new("rank"))),
-        right: Box::new(Expr::Literal(Value::Uint(7))),
+        right: Box::new(Expr::Literal(Value::Nat(7))),
     };
 
     let value = eval_expr_grouped(&expr, &grouped_row)
@@ -160,7 +160,7 @@ fn grouped_projection_column_order_is_stable() {
     let aggregate_execution_specs = grouped_execution_specs([count(), sum("rank")]);
     let grouped_row = GroupedRowView::new(
         &[Value::Int(7)],
-        &[Value::Uint(3), Value::Int(40)],
+        &[Value::Nat(3), Value::Int(40)],
         group_fields.as_slice(),
         aggregate_execution_specs.as_slice(),
     );
@@ -203,7 +203,7 @@ fn grouped_projection_column_order_is_stable() {
         "first grouped projection output must follow projection declaration order",
     );
     assert_eq!(
-        values[1].cmp_numeric(&Value::Uint(3)),
+        values[1].cmp_numeric(&Value::Nat(3)),
         Some(Ordering::Equal),
         "second grouped projection output must follow projection declaration order",
     );

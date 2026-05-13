@@ -6,7 +6,7 @@
 
 use crate::db::data::structural_field::{
     FieldDecodeError,
-    binary::{TAG_FALSE, TAG_INT64, TAG_NULL, TAG_TEXT, TAG_TRUE, TAG_UINT64},
+    binary::{TAG_FALSE, TAG_INT64, TAG_NAT64, TAG_NULL, TAG_TEXT, TAG_TRUE},
     value_storage::{
         decode::{
             ValueStorageSlice,
@@ -79,7 +79,7 @@ impl<'a> ValueStorageView<'a> {
     /// Return whether this view contains a generic u64 value.
     #[inline]
     pub(in crate::db) const fn is_u64(&self) -> bool {
-        self.tag() == TAG_UINT64
+        self.tag() == TAG_NAT64
     }
 
     /// Return whether this view contains a generic text value.

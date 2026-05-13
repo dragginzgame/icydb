@@ -113,26 +113,26 @@ mod tests {
             Predicate::Compare(ComparePredicate::with_coercion(
                 "rank",
                 CompareOp::Eq,
-                Value::Uint(3),
+                Value::Nat(3),
                 CoercionId::Strict,
             )),
             Predicate::Compare(ComparePredicate::with_coercion(
                 "rank",
                 CompareOp::Eq,
-                Value::Uint(1),
+                Value::Nat(1),
                 CoercionId::Strict,
             )),
             Predicate::Compare(ComparePredicate::with_coercion(
                 "rank",
                 CompareOp::Eq,
-                Value::Uint(3),
+                Value::Nat(3),
                 CoercionId::Strict,
             )),
         ]);
         let in_list = Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             CompareOp::In,
-            Value::List(vec![Value::Uint(1), Value::Uint(3)]),
+            Value::List(vec![Value::Nat(1), Value::Nat(3)]),
             CoercionId::Strict,
         ));
 
@@ -144,11 +144,11 @@ mod tests {
     fn canonical_hash_is_order_insensitive_for_in_list_literals() {
         let left = Predicate::Compare(ComparePredicate::in_(
             "rank".to_string(),
-            vec![Value::Uint(3), Value::Uint(1), Value::Uint(2)],
+            vec![Value::Nat(3), Value::Nat(1), Value::Nat(2)],
         ));
         let right = Predicate::Compare(ComparePredicate::in_(
             "rank".to_string(),
-            vec![Value::Uint(1), Value::Uint(2), Value::Uint(3)],
+            vec![Value::Nat(1), Value::Nat(2), Value::Nat(3)],
         ));
 
         assert_ne!(normalize(&left), normalize(&right));
@@ -159,16 +159,11 @@ mod tests {
     fn canonical_hash_normalizes_in_list_duplicate_literals() {
         let left = Predicate::Compare(ComparePredicate::in_(
             "rank".to_string(),
-            vec![
-                Value::Uint(3),
-                Value::Uint(1),
-                Value::Uint(3),
-                Value::Uint(2),
-            ],
+            vec![Value::Nat(3), Value::Nat(1), Value::Nat(3), Value::Nat(2)],
         ));
         let right = Predicate::Compare(ComparePredicate::in_(
             "rank".to_string(),
-            vec![Value::Uint(1), Value::Uint(2), Value::Uint(3)],
+            vec![Value::Nat(1), Value::Nat(2), Value::Nat(3)],
         ));
 
         assert_ne!(normalize(&left), normalize(&right));

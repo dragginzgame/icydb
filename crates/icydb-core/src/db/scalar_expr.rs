@@ -121,7 +121,7 @@ pub(in crate::db) enum ScalarExprValue<'a> {
     Subaccount(crate::types::Subaccount),
     Text(Cow<'a, str>),
     Timestamp(crate::types::Timestamp),
-    Uint(u64),
+    Nat(u64),
     Ulid(crate::types::Ulid),
     Unit,
 }
@@ -142,7 +142,7 @@ pub(in crate::db) fn scalar_expr_value_into_value(value: ScalarExprValue<'_>) ->
         ScalarExprValue::Subaccount(value) => Value::Subaccount(value),
         ScalarExprValue::Text(value) => Value::Text(value.into_owned()),
         ScalarExprValue::Timestamp(value) => Value::Timestamp(value),
-        ScalarExprValue::Uint(value) => Value::Uint(value),
+        ScalarExprValue::Nat(value) => Value::Nat(value),
         ScalarExprValue::Ulid(value) => Value::Ulid(value),
         ScalarExprValue::Unit => Value::Unit,
     }
@@ -168,7 +168,7 @@ pub(in crate::db) fn compile_scalar_literal_expr_value(
         Value::Subaccount(value) => Some(ScalarExprValue::Subaccount(*value)),
         Value::Text(value) => Some(ScalarExprValue::Text(Cow::Owned(value.clone()))),
         Value::Timestamp(value) => Some(ScalarExprValue::Timestamp(*value)),
-        Value::Uint(value) => Some(ScalarExprValue::Uint(*value)),
+        Value::Nat(value) => Some(ScalarExprValue::Nat(*value)),
         Value::Ulid(value) => Some(ScalarExprValue::Ulid(*value)),
         Value::Unit => Some(ScalarExprValue::Unit),
         Value::Account(_)
@@ -178,8 +178,8 @@ pub(in crate::db) fn compile_scalar_literal_expr_value(
         | Value::IntBig(_)
         | Value::List(_)
         | Value::Map(_)
-        | Value::Uint128(_)
-        | Value::UintBig(_) => None,
+        | Value::Nat128(_)
+        | Value::NatBig(_) => None,
     }
 }
 
@@ -461,7 +461,7 @@ const fn scalar_expr_value_from_slot_value(value: ScalarValueRef<'_>) -> ScalarE
         ScalarValueRef::Subaccount(value) => ScalarExprValue::Subaccount(value),
         ScalarValueRef::Text(value) => ScalarExprValue::Text(Cow::Borrowed(value)),
         ScalarValueRef::Timestamp(value) => ScalarExprValue::Timestamp(value),
-        ScalarValueRef::Uint(value) => ScalarExprValue::Uint(value),
+        ScalarValueRef::Nat(value) => ScalarExprValue::Nat(value),
         ScalarValueRef::Ulid(value) => ScalarExprValue::Ulid(value),
         ScalarValueRef::Unit => ScalarExprValue::Unit,
     }

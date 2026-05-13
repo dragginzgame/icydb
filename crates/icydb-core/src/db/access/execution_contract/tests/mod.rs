@@ -48,7 +48,7 @@ fn executable_access_summary_reports_index_multi_lookup_shape() {
     );
     let plan: AccessPlan<u64> = AccessPlan::index_multi_lookup_from_contract(
         SemanticIndexAccessContract::model_only_from_generated_index(index),
-        vec![Value::Uint(7), Value::Uint(9)],
+        vec![Value::Nat(7), Value::Nat(9)],
     );
     let executable = plan.executable_contract();
 

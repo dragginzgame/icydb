@@ -39,7 +39,7 @@ fn execute_sql_delete_returning_name_age_rows(
         })
         .into_iter()
         .map(|row| {
-            let [Value::Text(name), Value::Uint(age)] = row.as_slice() else {
+            let [Value::Text(name), Value::Nat(age)] = row.as_slice() else {
                 panic!("DELETE RETURNING name, age should preserve two-column value rows");
             };
             (name.clone(), *age)
@@ -251,16 +251,13 @@ fn execute_sql_statement_delete_returning_projection_matrix_projects_deleted_row
             );
             assert_eq!(
                 rows[0][1..],
-                [Value::Text("first-minor".to_string()), Value::Uint(16),],
+                [Value::Text("first-minor".to_string()), Value::Nat(16),],
                 "{context} should preserve the deleted name and age in field order",
             );
         } else {
             assert_eq!(
                 rows,
-                vec![vec![
-                    Value::Text("first-minor".to_string()),
-                    Value::Uint(16)
-                ]],
+                vec![vec![Value::Text("first-minor".to_string()), Value::Nat(16)]],
                 "{context} should project only the requested deleted-row fields",
             );
         }

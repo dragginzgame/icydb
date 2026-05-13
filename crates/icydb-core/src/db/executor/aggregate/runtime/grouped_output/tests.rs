@@ -46,8 +46,8 @@ fn grouped_identity_projection_fast_path_preserves_rows() {
         ),
     ];
     let rows = vec![
-        RuntimeGroupedRow::new(vec![Value::Uint(21)], vec![Value::Uint(2), Value::Uint(90)]),
-        RuntimeGroupedRow::new(vec![Value::Uint(35)], vec![Value::Uint(1), Value::Uint(70)]),
+        RuntimeGroupedRow::new(vec![Value::Nat(21)], vec![Value::Nat(2), Value::Nat(90)]),
+        RuntimeGroupedRow::new(vec![Value::Nat(35)], vec![Value::Nat(1), Value::Nat(70)]),
     ];
 
     let projected_rows = project_grouped_rows_from_projection(
@@ -94,8 +94,8 @@ fn grouped_non_identity_projection_reorders_aggregate_outputs() {
         ),
     ];
     let rows = vec![
-        RuntimeGroupedRow::new(vec![Value::Uint(21)], vec![Value::Uint(2), Value::Uint(90)]),
-        RuntimeGroupedRow::new(vec![Value::Uint(35)], vec![Value::Uint(1), Value::Uint(70)]),
+        RuntimeGroupedRow::new(vec![Value::Nat(21)], vec![Value::Nat(2), Value::Nat(90)]),
+        RuntimeGroupedRow::new(vec![Value::Nat(35)], vec![Value::Nat(1), Value::Nat(70)]),
     ];
 
     let projected_rows = project_grouped_rows_from_projection(
@@ -111,8 +111,8 @@ fn grouped_non_identity_projection_reorders_aggregate_outputs() {
     assert_eq!(
         projected_rows,
         vec![
-            RuntimeGroupedRow::new(vec![Value::Uint(21)], vec![Value::Uint(90), Value::Uint(2)]),
-            RuntimeGroupedRow::new(vec![Value::Uint(35)], vec![Value::Uint(70), Value::Uint(1)]),
+            RuntimeGroupedRow::new(vec![Value::Nat(21)], vec![Value::Nat(90), Value::Nat(2)]),
+            RuntimeGroupedRow::new(vec![Value::Nat(35)], vec![Value::Nat(70), Value::Nat(1)]),
         ],
     );
 }

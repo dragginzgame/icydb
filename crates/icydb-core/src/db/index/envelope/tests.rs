@@ -222,12 +222,12 @@ fn text_component_strategy() -> impl Strategy<Value = Value> {
     ]
 }
 
-fn uint_component_strategy() -> impl Strategy<Value = Value> {
+fn nat_component_strategy() -> impl Strategy<Value = Value> {
     prop_oneof![
-        Just(Value::Uint(0_u64)),
-        Just(Value::Uint(1_u64)),
-        Just(Value::Uint(1024_u64)),
-        Just(Value::Uint(u64::MAX)),
+        Just(Value::Nat(0_u64)),
+        Just(Value::Nat(1_u64)),
+        Just(Value::Nat(1024_u64)),
+        Just(Value::Nat(u64::MAX)),
     ]
 }
 
@@ -238,14 +238,14 @@ proptest! {
     fn cross_layer_canonical_ordering_is_consistent(
         left_int in int_component_strategy(),
         left_text in text_component_strategy(),
-        left_uint in uint_component_strategy(),
+        left_nat in nat_component_strategy(),
         right_int in int_component_strategy(),
         right_text in text_component_strategy(),
-        right_uint in uint_component_strategy(),
+        right_nat in nat_component_strategy(),
     ) {
         // Phase 1: canonicalize through encode -> decode -> re-encode for both keys.
-        let left_recanonical = canonical_raw_key(&[left_int, left_text, left_uint]);
-        let right_recanonical = canonical_raw_key(&[right_int, right_text, right_uint]);
+        let left_recanonical = canonical_raw_key(&[left_int, left_text, left_nat]);
+        let right_recanonical = canonical_raw_key(&[right_int, right_text, right_nat]);
 
         // Phase 2: treat left as anchor and right as candidate under all comparator gates.
         let ordering = left_recanonical.cmp(&right_recanonical);

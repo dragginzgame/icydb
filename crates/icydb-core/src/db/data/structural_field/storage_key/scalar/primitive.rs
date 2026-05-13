@@ -2,7 +2,7 @@ use crate::{
     db::data::structural_field::{
         FieldDecodeError,
         binary::{
-            TAG_INT64, TAG_UINT64, TAG_UNIT, parse_binary_head as parse_structural_binary_head,
+            TAG_INT64, TAG_NAT64, TAG_UNIT, parse_binary_head as parse_structural_binary_head,
             payload_bytes as binary_payload_bytes,
             skip_binary_value as skip_structural_binary_value,
         },
@@ -93,7 +93,7 @@ pub(in crate::db::data::structural_field::storage_key) fn decode_int_storage_key
 
 // Decode one unsigned storage-key-compatible integer payload from Structural
 // Binary v1.
-pub(in crate::db::data::structural_field::storage_key) fn decode_uint_storage_key_binary_bytes(
+pub(in crate::db::data::structural_field::storage_key) fn decode_nat_storage_key_binary_bytes(
     raw_bytes: &[u8],
 ) -> Result<StorageKey, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
@@ -107,12 +107,12 @@ pub(in crate::db::data::structural_field::storage_key) fn decode_uint_storage_ke
             "structural binary: trailing bytes after relation field",
         ));
     }
-    if tag != TAG_UINT64 || len != 8 {
+    if tag != TAG_NAT64 || len != 8 {
         return Err(FieldDecodeError::new(
             "structural binary: expected u64 integer payload",
         ));
     }
-    Ok(StorageKey::Uint(decode_u64_payload_bytes(
+    Ok(StorageKey::Nat(decode_u64_payload_bytes(
         binary_payload_bytes(raw_bytes, len, payload_start, "integer")?,
         "u64",
     )?))

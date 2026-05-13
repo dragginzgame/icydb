@@ -25,9 +25,9 @@ pub enum ScalarKind {
     Subaccount,
     Text,
     Timestamp,
-    Uint,
-    Uint128,
-    UintBig,
+    Nat,
+    Nat128,
+    NatBig,
     Ulid,
     Unit,
 }

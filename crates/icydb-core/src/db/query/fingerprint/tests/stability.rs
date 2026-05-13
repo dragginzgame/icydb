@@ -119,15 +119,15 @@ fn fingerprint_is_stable_for_equivalent_index_range_bounds() {
 
     let plan_a: AccessPlannedQuery = index_range_query(
         INDEX,
-        vec![Value::Uint(7)],
-        Bound::Included(Value::Uint(100)),
-        Bound::Excluded(Value::Uint(200)),
+        vec![Value::Nat(7)],
+        Bound::Included(Value::Nat(100)),
+        Bound::Excluded(Value::Nat(200)),
     );
     let plan_b: AccessPlannedQuery = index_range_query(
         INDEX,
-        vec![Value::Uint(7)],
-        Bound::Included(Value::Uint(100)),
-        Bound::Excluded(Value::Uint(200)),
+        vec![Value::Nat(7)],
+        Bound::Included(Value::Nat(100)),
+        Bound::Excluded(Value::Nat(200)),
     );
 
     assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());

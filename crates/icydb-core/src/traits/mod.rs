@@ -225,7 +225,7 @@ macro_rules! impl_storage_key_codec_unsigned {
         $(
             impl StorageKeyCodec for $ty {
                 fn to_storage_key(&self) -> Result<StorageKey, StorageKeyEncodeError> {
-                    Ok(StorageKey::Uint(u64::from(*self)))
+                    Ok(StorageKey::Nat(u64::from(*self)))
                 }
             }
         )*
@@ -275,11 +275,11 @@ macro_rules! impl_storage_key_decode_unsigned {
         $(
             impl StorageKeyDecode for $ty {
                 fn from_storage_key(key: StorageKey) -> Result<Self, InternalError> {
-                    let StorageKey::Uint(value) = key else {
+                    let StorageKey::Nat(value) = key else {
                         return Err(storage_key_variant_decode_failed(
                             ::std::any::type_name::<Self>(),
                             key,
-                            "StorageKey::Uint",
+                            "StorageKey::Nat",
                         ));
                     };
 
@@ -1400,10 +1400,10 @@ impl_runtime_value!(
     i16 => Int,
     i32 => Int,
     i64 => Int,
-    u8 => Uint,
-    u16 => Uint,
-    u32 => Uint,
-    u64 => Uint,
+    u8 => Nat,
+    u16 => Nat,
+    u32 => Nat,
+    u64 => Nat,
     bool => Bool,
 );
 

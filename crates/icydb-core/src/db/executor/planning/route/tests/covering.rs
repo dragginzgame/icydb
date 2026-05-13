@@ -7,7 +7,7 @@ fn route_plan_load_terminal_covering_read_contract_requires_coverable_projection
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 ROUTE_CAPABILITY_INDEX_MODELS[0],
             ),
-            values: vec![Value::Uint(7)],
+            values: vec![Value::Nat(7)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -27,7 +27,7 @@ fn route_plan_load_terminal_covering_read_contract_requires_coverable_projection
     assert_eq!(covering.fields[0].field_slot.field(), "rank");
     assert_eq!(
         covering.fields[0].source,
-        CoveringReadFieldSource::Constant(Value::Uint(7)),
+        CoveringReadFieldSource::Constant(Value::Nat(7)),
     );
     assert_eq!(
         covering.existing_row_mode,
@@ -39,7 +39,7 @@ fn route_plan_load_terminal_covering_read_contract_requires_coverable_projection
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 ROUTE_CAPABILITY_INDEX_MODELS[0],
             ),
-            values: vec![Value::Uint(7)],
+            values: vec![Value::Nat(7)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -56,7 +56,7 @@ fn route_plan_execution_route_plan_retains_covering_read_contract() {
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 ROUTE_CAPABILITY_INDEX_MODELS[0],
             ),
-            values: vec![Value::Uint(7)],
+            values: vec![Value::Nat(7)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -79,7 +79,7 @@ fn route_plan_execution_route_plan_retains_covering_read_contract() {
     assert_eq!(covering.fields[0].field_slot.field(), "rank");
     assert_eq!(
         covering.fields[0].source,
-        CoveringReadFieldSource::Constant(Value::Uint(7)),
+        CoveringReadFieldSource::Constant(Value::Nat(7)),
     );
     assert_eq!(
         covering.existing_row_mode,

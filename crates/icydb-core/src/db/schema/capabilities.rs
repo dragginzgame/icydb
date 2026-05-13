@@ -217,9 +217,9 @@ fn sql_capabilities_for_non_scalar(kind: &PersistedFieldKind) -> SqlCapabilities
         | PersistedFieldKind::Subaccount
         | PersistedFieldKind::Text { .. }
         | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Uint
-        | PersistedFieldKind::Uint128
-        | PersistedFieldKind::UintBig
+        | PersistedFieldKind::Nat
+        | PersistedFieldKind::Nat128
+        | PersistedFieldKind::NatBig
         | PersistedFieldKind::Ulid
         | PersistedFieldKind::Unit
         | PersistedFieldKind::Relation { .. } => {
@@ -245,9 +245,9 @@ fn persisted_sql_scalar_family(kind: &PersistedFieldKind) -> Option<PersistedSql
         | PersistedFieldKind::Int
         | PersistedFieldKind::Int128
         | PersistedFieldKind::IntBig
-        | PersistedFieldKind::Uint
-        | PersistedFieldKind::Uint128
-        | PersistedFieldKind::UintBig => {
+        | PersistedFieldKind::Nat
+        | PersistedFieldKind::Nat128
+        | PersistedFieldKind::NatBig => {
             Some(PersistedSqlScalarFamily::Numeric { arithmetic: true })
         }
         PersistedFieldKind::Duration | PersistedFieldKind::Timestamp => {
@@ -330,7 +330,7 @@ mod tests {
 
     #[test]
     fn sql_capabilities_relation_inherits_key_capabilities() {
-        let relation = sql_capabilities(&relation_to_key(PersistedFieldKind::Uint));
+        let relation = sql_capabilities(&relation_to_key(PersistedFieldKind::Nat));
 
         assert!(relation.selectable());
         assert!(relation.comparable());

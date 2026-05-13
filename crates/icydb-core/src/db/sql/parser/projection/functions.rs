@@ -303,7 +303,7 @@ impl Parser {
         let mut args = vec![input];
         if self.eat_comma() {
             let scale = SqlExpr::Literal(self.parse_literal()?);
-            let SqlExpr::Literal(Value::Int(_) | Value::Uint(_)) = scale else {
+            let SqlExpr::Literal(Value::Int(_) | Value::Nat(_)) = scale else {
                 return Err(SqlParseError::invalid_syntax(
                     "ROUND scale must be an integer literal",
                 ));

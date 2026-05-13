@@ -60,9 +60,9 @@ fn session_aggregate_projection_terminal_matrix_matches_execute_projection() {
     assert_eq!(
         distinct_values,
         SessionAggregateResult::Values(outputs(vec![
-            Value::Uint(30),
-            Value::Uint(20),
-            Value::Uint(10),
+            Value::Nat(30),
+            Value::Nat(20),
+            Value::Nat(10),
         ])),
         "session distinct_values_by(rank) should preserve first-observed dedup order",
     );

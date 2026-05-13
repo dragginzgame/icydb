@@ -59,7 +59,7 @@ fn explain_execution_verbose_reports_secondary_order_pushdown_rejection_reason()
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
-            Value::Uint(7),
+            Value::Nat(7),
             CoercionId::Strict,
         )))
         .order_term(crate::db::asc("label"))
@@ -187,13 +187,13 @@ fn explain_execution_verbose_reports_index_range_limit_pushdown_hints() {
         Predicate::Compare(ComparePredicate::with_coercion(
             "code",
             CompareOp::Gte,
-            Value::Uint(100),
+            Value::Nat(100),
             CoercionId::Strict,
         )),
         Predicate::Compare(ComparePredicate::with_coercion(
             "code",
             CompareOp::Lt,
-            Value::Uint(200),
+            Value::Nat(200),
             CoercionId::Strict,
         )),
         Predicate::Compare(ComparePredicate::with_coercion(
@@ -236,7 +236,7 @@ fn explain_execution_verbose_rejection_shape_snapshot_is_stable() {
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
-            Value::Uint(7),
+            Value::Nat(7),
             CoercionId::Strict,
         )))
         .order_term(crate::db::asc("label"))
@@ -290,13 +290,13 @@ fn explain_execution_verbose_index_range_pushdown_shape_snapshot_is_stable() {
         Predicate::Compare(ComparePredicate::with_coercion(
             "code",
             CompareOp::Gte,
-            Value::Uint(100),
+            Value::Nat(100),
             CoercionId::Strict,
         )),
         Predicate::Compare(ComparePredicate::with_coercion(
             "code",
             CompareOp::Lt,
-            Value::Uint(200),
+            Value::Nat(200),
             CoercionId::Strict,
         )),
         Predicate::Compare(ComparePredicate::with_coercion(
@@ -384,7 +384,7 @@ fn deterministic_range_choice_diagnostics() -> BTreeMap<String, String> {
             Predicate::Compare(ComparePredicate::with_coercion(
                 "score",
                 CompareOp::Gt,
-                Value::Uint(10),
+                Value::Nat(10),
                 CoercionId::Strict,
             )),
         ]))
@@ -409,7 +409,7 @@ fn deterministic_range_choice_desc_diagnostics() -> BTreeMap<String, String> {
             Predicate::Compare(ComparePredicate::with_coercion(
                 "score",
                 CompareOp::Gt,
-                Value::Uint(10),
+                Value::Nat(10),
                 CoercionId::Strict,
             )),
         ]))
@@ -434,7 +434,7 @@ fn deterministic_equality_prefix_suffix_order_diagnostics() -> BTreeMap<String, 
             Predicate::Compare(ComparePredicate::with_coercion(
                 "score",
                 CompareOp::Eq,
-                Value::Uint(20),
+                Value::Nat(20),
                 CoercionId::Strict,
             )),
         ]))
@@ -458,7 +458,7 @@ fn deterministic_equality_prefix_suffix_order_desc_diagnostics() -> BTreeMap<Str
             Predicate::Compare(ComparePredicate::with_coercion(
                 "score",
                 CompareOp::Eq,
-                Value::Uint(20),
+                Value::Nat(20),
                 CoercionId::Strict,
             )),
         ]))
@@ -568,13 +568,13 @@ fn equivalent_between_diagnostics() -> BTreeMap<String, String> {
             Predicate::Compare(ComparePredicate::with_coercion(
                 "code",
                 CompareOp::Gte,
-                Value::Uint(100),
+                Value::Nat(100),
                 CoercionId::Strict,
             )),
             Predicate::Compare(ComparePredicate::with_coercion(
                 "code",
                 CompareOp::Lte,
-                Value::Uint(100),
+                Value::Nat(100),
                 CoercionId::Strict,
             )),
         ]))
@@ -591,7 +591,7 @@ fn equivalent_strict_eq_diagnostics() -> BTreeMap<String, String> {
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "code",
             CompareOp::Eq,
-            Value::Uint(100),
+            Value::Nat(100),
             CoercionId::Strict,
         )))
         .order_term(crate::db::asc("code"))
@@ -681,7 +681,7 @@ fn non_strict_predicate_fallback_diagnostics() -> BTreeMap<String, String> {
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
-            Value::Uint(7),
+            Value::Nat(7),
             CoercionId::NumericWiden,
         )))
         .explain_execution_verbose()
@@ -759,7 +759,7 @@ fn collection_contains_fallback_diagnostics() -> BTreeMap<String, String> {
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "tags",
             CompareOp::Contains,
-            Value::Uint(7),
+            Value::Nat(7),
             CoercionId::CollectionElement,
         )))
         .explain_execution_verbose()
@@ -926,7 +926,7 @@ fn explain_execution_scalar_surface_defers_projection_and_grouped_node_families(
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
-            Value::Uint(7),
+            Value::Nat(7),
             CoercionId::Strict,
         )))
         .order_term(crate::db::asc("label"))
@@ -937,13 +937,13 @@ fn explain_execution_scalar_surface_defers_projection_and_grouped_node_families(
             Predicate::Compare(ComparePredicate::with_coercion(
                 "code",
                 CompareOp::Gte,
-                Value::Uint(100),
+                Value::Nat(100),
                 CoercionId::Strict,
             )),
             Predicate::Compare(ComparePredicate::with_coercion(
                 "code",
                 CompareOp::Lt,
-                Value::Uint(200),
+                Value::Nat(200),
                 CoercionId::Strict,
             )),
         ]))
@@ -974,7 +974,7 @@ fn explain_execution_verbose_non_strict_fallback_shape_snapshot_is_stable() {
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
-            Value::Uint(7),
+            Value::Nat(7),
             CoercionId::NumericWiden,
         )))
         .explain_execution_verbose()

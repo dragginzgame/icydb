@@ -36,20 +36,20 @@ fn index_range_path(
     lower: Bound<Value>,
     upper: Bound<Value>,
 ) -> AccessPath<Value> {
-    AccessPath::index_range(index, vec![Value::Uint(7)], lower, upper)
+    AccessPath::index_range(index, vec![Value::Nat(7)], lower, upper)
 }
 
 #[test]
 fn canonical_and_fingerprint_align_for_index_range_bound_discriminants() {
     let included = index_range_path(
         TEST_INDEX,
-        Bound::Included(Value::Uint(100)),
-        Bound::Excluded(Value::Uint(200)),
+        Bound::Included(Value::Nat(100)),
+        Bound::Excluded(Value::Nat(200)),
     );
     let excluded = index_range_path(
         TEST_INDEX,
-        Bound::Excluded(Value::Uint(100)),
-        Bound::Excluded(Value::Uint(200)),
+        Bound::Excluded(Value::Nat(100)),
+        Bound::Excluded(Value::Nat(200)),
     );
 
     assert_ne!(
@@ -74,13 +74,13 @@ fn canonical_and_fingerprint_align_for_index_range_bound_discriminants() {
 fn canonical_and_fingerprint_align_for_index_field_identity() {
     let path_a = index_range_path(
         TEST_INDEX,
-        Bound::Included(Value::Uint(100)),
-        Bound::Excluded(Value::Uint(200)),
+        Bound::Included(Value::Nat(100)),
+        Bound::Excluded(Value::Nat(200)),
     );
     let path_b = index_range_path(
         TEST_INDEX_SAME_NAME_ALT_FIELDS,
-        Bound::Included(Value::Uint(100)),
-        Bound::Excluded(Value::Uint(200)),
+        Bound::Included(Value::Nat(100)),
+        Bound::Excluded(Value::Nat(200)),
     );
 
     assert_ne!(

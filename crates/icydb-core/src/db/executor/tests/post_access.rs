@@ -30,7 +30,7 @@ fn load_filter_after_access_with_optional_equality() {
     let equals_opt_value = Predicate::Compare(ComparePredicate::with_coercion(
         "opt_rank",
         CompareOp::Eq,
-        Value::Uint(7),
+        Value::Nat(7),
         CoercionId::Strict,
     ));
     let match_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
@@ -51,7 +51,7 @@ fn load_filter_after_access_with_optional_equality() {
     let no_match = Predicate::Compare(ComparePredicate::with_coercion(
         "opt_rank",
         CompareOp::Eq,
-        Value::Uint(99),
+        Value::Nat(99),
         CoercionId::Strict,
     ));
     let mismatch_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
@@ -113,7 +113,7 @@ fn load_in_and_text_ops_respect_ordered_pagination() {
         Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             CompareOp::In,
-            Value::List(vec![Value::Uint(20), Value::Uint(30), Value::Uint(40)]),
+            Value::List(vec![Value::Nat(20), Value::Nat(30), Value::Nat(40)]),
             CoercionId::Strict,
         )),
         Predicate::TextContainsCi {
@@ -166,7 +166,7 @@ fn load_contains_filters_after_by_id_access() {
     let contains_nine = Predicate::Compare(ComparePredicate::with_coercion(
         "tags",
         CompareOp::Contains,
-        Value::Uint(9),
+        Value::Nat(9),
         CoercionId::CollectionElement,
     ));
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
@@ -182,7 +182,7 @@ fn load_contains_filters_after_by_id_access() {
     let contains_missing = Predicate::Compare(ComparePredicate::with_coercion(
         "tags",
         CompareOp::Contains,
-        Value::Uint(8),
+        Value::Nat(8),
         CoercionId::CollectionElement,
     ));
     let miss_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
@@ -243,7 +243,7 @@ fn delete_limit_applies_to_filtered_rows_only() {
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         CompareOp::Gte,
-        Value::Uint(100),
+        Value::Nat(100),
         CoercionId::NumericWiden,
     ));
     let delete = DeleteExecutor::<PhaseEntity>::new(DB);

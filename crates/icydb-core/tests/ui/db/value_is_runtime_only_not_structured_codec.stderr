@@ -8,11 +8,11 @@ error[E0277]: the trait bound `icydb_core::value::Value: PersistedStructuredFiel
             BTreeMap<K, V>
             BTreeSet<T>
             Box<T>
-            Nat
-            Nat128
             Option<T>
             Vec<T>
             bool
+            i16
+            i32
           and $N others
 note: required by a bound in `assert_structured_codec`
  --> tests/ui/db/value_is_runtime_only_not_structured_codec.rs:3:31

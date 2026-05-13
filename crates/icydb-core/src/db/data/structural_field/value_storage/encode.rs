@@ -2,8 +2,8 @@ use crate::{
     db::data::structural_field::{
         binary::{
             push_binary_bool, push_binary_bytes, push_binary_int64, push_binary_list_len,
-            push_binary_map_len, push_binary_null, push_binary_tag, push_binary_text,
-            push_binary_uint64, push_binary_unit,
+            push_binary_map_len, push_binary_nat64, push_binary_null, push_binary_tag,
+            push_binary_text, push_binary_unit,
         },
         typed::{
             encode_account_payload_bytes, encode_date_payload_days, encode_decimal_payload_parts,
@@ -16,8 +16,8 @@ use crate::{
             VALUE_BINARY_TAG_ACCOUNT, VALUE_BINARY_TAG_DATE, VALUE_BINARY_TAG_DECIMAL,
             VALUE_BINARY_TAG_DURATION, VALUE_BINARY_TAG_ENUM, VALUE_BINARY_TAG_FLOAT32,
             VALUE_BINARY_TAG_FLOAT64, VALUE_BINARY_TAG_INT_BIG, VALUE_BINARY_TAG_INT128,
-            VALUE_BINARY_TAG_PRINCIPAL, VALUE_BINARY_TAG_SUBACCOUNT, VALUE_BINARY_TAG_TIMESTAMP,
-            VALUE_BINARY_TAG_UINT_BIG, VALUE_BINARY_TAG_UINT128, VALUE_BINARY_TAG_ULID,
+            VALUE_BINARY_TAG_NAT_BIG, VALUE_BINARY_TAG_NAT128, VALUE_BINARY_TAG_PRINCIPAL,
+            VALUE_BINARY_TAG_SUBACCOUNT, VALUE_BINARY_TAG_TIMESTAMP, VALUE_BINARY_TAG_ULID,
         },
     },
     error::InternalError,
@@ -67,7 +67,7 @@ pub(in crate::db) fn encode_structural_value_storage_bool_bytes(value: bool) -> 
 /// without constructing a runtime `Value` at the call site.
 pub(in crate::db) fn encode_structural_value_storage_u64_bytes(value: u64) -> Vec<u8> {
     let mut encoded = Vec::new();
-    push_binary_uint64(&mut encoded, value);
+    push_binary_nat64(&mut encoded, value);
 
     encoded
 }
@@ -119,7 +119,7 @@ pub(in crate::db) fn encode_decimal(value: Decimal) -> Vec<u8> {
     push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_DECIMAL, |out| {
         push_binary_list_len(out, 2);
         push_binary_bytes(out, &mantissa.to_be_bytes());
-        push_binary_uint64(out, u64::from(scale));
+        push_binary_nat64(out, u64::from(scale));
         Ok(())
     })
     .expect("decimal payload encode should be infallible");
@@ -139,14 +139,14 @@ pub(in crate::db) fn encode_int128(value: crate::types::Int128) -> Vec<u8> {
     encoded
 }
 
-/// Encode one canonical structural value-storage uint128 payload.
+/// Encode one canonical structural value-storage nat128 payload.
 pub(in crate::db) fn encode_nat128(value: crate::types::Nat128) -> Vec<u8> {
     let mut encoded = Vec::new();
-    push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_UINT128, |out| {
+    push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_NAT128, |out| {
         push_binary_bytes(out, &encode_nat128_payload_bytes(value));
         Ok(())
     })
-    .expect("uint128 payload encode should be infallible");
+    .expect("nat128 payload encode should be infallible");
 
     encoded
 }
@@ -175,15 +175,15 @@ pub(in crate::db) fn encode_int(value: &Int) -> Vec<u8> {
     encoded
 }
 
-/// Encode one canonical structural value-storage biguint payload.
+/// Encode one canonical structural value-storage bignat payload.
 pub(in crate::db) fn encode_nat(value: &Nat) -> Vec<u8> {
     let digits = value.u32_digits();
     let mut encoded = Vec::new();
-    push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_UINT_BIG, |out| {
+    push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_NAT_BIG, |out| {
         push_binary_u32_digit_list(out, digits.as_slice());
         Ok(())
     })
-    .expect("biguint payload encode should be infallible");
+    .expect("bignat payload encode should be infallible");
 
     encoded
 }
@@ -232,7 +232,7 @@ pub(in crate::db) fn encode_structural_value_storage_date_bytes(value: Date) -> 
 pub(in crate::db) fn encode_structural_value_storage_duration_bytes(value: Duration) -> Vec<u8> {
     let mut encoded = Vec::new();
     push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_DURATION, |out| {
-        push_binary_uint64(out, encode_duration_payload_millis(value));
+        push_binary_nat64(out, encode_duration_payload_millis(value));
         Ok(())
     })
     .expect("duration payload encode should be infallible");
@@ -392,7 +392,7 @@ fn encode_value_storage_binary_into(out: &mut Vec<u8>, value: &Value) -> Result<
         Value::Blob(value) => push_binary_bytes(out, value.as_slice()),
         Value::Bool(value) => push_binary_bool(out, *value),
         Value::Int(value) => push_binary_int64(out, *value),
-        Value::Uint(value) => push_binary_uint64(out, *value),
+        Value::Nat(value) => push_binary_nat64(out, *value),
         Value::Text(value) => push_binary_text(out, value),
         Value::List(items) => push_value_binary_list_payload(out, items.as_slice())?,
         Value::Map(entries) => push_value_binary_map_payload(out, entries.as_slice())?,
@@ -404,7 +404,7 @@ fn encode_value_storage_binary_into(out: &mut Vec<u8>, value: &Value) -> Result<
         Value::Decimal(value) => push_binary_decimal_value(out, *value)?,
         Value::Duration(value) => {
             push_value_binary_payload_tag(out, VALUE_BINARY_TAG_DURATION, |out| {
-                push_binary_uint64(out, encode_duration_payload_millis(*value));
+                push_binary_nat64(out, encode_duration_payload_millis(*value));
                 Ok(())
             })?;
         }
@@ -451,13 +451,13 @@ fn encode_value_storage_binary_into(out: &mut Vec<u8>, value: &Value) -> Result<
                 Ok(())
             })?;
         }
-        Value::Uint128(value) => {
-            push_value_binary_payload_tag(out, VALUE_BINARY_TAG_UINT128, |out| {
+        Value::Nat128(value) => {
+            push_value_binary_payload_tag(out, VALUE_BINARY_TAG_NAT128, |out| {
                 push_binary_bytes(out, &encode_nat128_payload_bytes(*value));
                 Ok(())
             })?;
         }
-        Value::UintBig(value) => push_binary_uint_big_value(out, value)?,
+        Value::NatBig(value) => push_binary_nat_big_value(out, value)?,
         Value::Ulid(value) => push_value_binary_payload_tag(out, VALUE_BINARY_TAG_ULID, |out| {
             push_binary_bytes(out, &encode_ulid_payload_bytes(*value));
             Ok(())
@@ -527,7 +527,7 @@ fn push_binary_decimal_value(out: &mut Vec<u8>, value: Decimal) -> Result<(), In
         let parts = value.parts();
         push_binary_list_len(out, 2);
         push_binary_bytes(out, &parts.mantissa().to_be_bytes());
-        push_binary_uint64(out, u64::from(parts.scale()));
+        push_binary_nat64(out, u64::from(parts.scale()));
 
         Ok(())
     })
@@ -573,10 +573,10 @@ fn push_binary_int_big_value(out: &mut Vec<u8>, value: &Int) -> Result<(), Inter
     })
 }
 
-// Encode one binary `Value::UintBig` payload as a limb sequence.
-fn push_binary_uint_big_value(out: &mut Vec<u8>, value: &Nat) -> Result<(), InternalError> {
+// Encode one binary `Value::NatBig` payload as a limb sequence.
+fn push_binary_nat_big_value(out: &mut Vec<u8>, value: &Nat) -> Result<(), InternalError> {
     let digits = value.u32_digits();
-    push_value_binary_payload_tag(out, VALUE_BINARY_TAG_UINT_BIG, |out| {
+    push_value_binary_payload_tag(out, VALUE_BINARY_TAG_NAT_BIG, |out| {
         push_binary_u32_digit_list(out, digits.as_slice());
 
         Ok(())
@@ -587,6 +587,6 @@ fn push_binary_uint_big_value(out: &mut Vec<u8>, value: &Nat) -> Result<(), Inte
 fn push_binary_u32_digit_list(out: &mut Vec<u8>, digits: &[u32]) {
     push_binary_list_len(out, digits.len());
     for digit in digits {
-        push_binary_uint64(out, u64::from(*digit));
+        push_binary_nat64(out, u64::from(*digit));
     }
 }

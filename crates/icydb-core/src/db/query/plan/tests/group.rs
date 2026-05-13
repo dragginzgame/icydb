@@ -475,7 +475,7 @@ fn grouped_global_distinct_with_having_clause_case() -> AccessPlannedQuery {
             &group,
             0,
             CompareOp::Gt,
-            Value::Uint(1),
+            Value::Nat(1),
         )),
     )
 }
@@ -658,7 +658,7 @@ fn grouped_having_with_distinct_case() -> AccessPlannedQuery {
             &group,
             0,
             CompareOp::Gt,
-            Value::Uint(0),
+            Value::Nat(0),
         )),
     )
 }
@@ -1084,7 +1084,7 @@ fn grouped_plan_having_order_limit_composition_enforces_bounded_policy() {
             Some(Expr::Binary {
                 op: BinaryOp::Gt,
                 left: Box::new(Expr::Aggregate(crate::db::count())),
-                right: Box::new(Expr::Literal(Value::Uint(0))),
+                right: Box::new(Expr::Literal(Value::Nat(0))),
             }),
         )
     };
@@ -1292,7 +1292,7 @@ fn grouped_global_distinct_policy_contract_matches_candidate_and_having_rules() 
                 .expect("global DISTINCT grouped HAVING test needs one aggregate"),
         )),
         CompareOp::Gt,
-        Value::Uint(1),
+        Value::Nat(1),
     );
 
     assert!(
@@ -1363,7 +1363,7 @@ fn grouped_plan_rejects_having_aggregate_index_out_of_bounds() {
         Some(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Aggregate(crate::db::sum("rank"))),
-            right: Box::new(Expr::Literal(Value::Uint(1))),
+            right: Box::new(Expr::Literal(Value::Nat(1))),
         }),
     );
 
@@ -1407,7 +1407,7 @@ fn grouped_plan_accepts_having_over_group_and_aggregate_symbols() {
                 &group,
                 0,
                 CompareOp::Gt,
-                Value::Uint(0),
+                Value::Nat(0),
             )),
         }),
     );
@@ -1613,7 +1613,7 @@ fn grouped_executor_handoff_preserves_having_clause_contract() {
             &group,
             0,
             CompareOp::Gt,
-            Value::Uint(1),
+            Value::Nat(1),
         )),
     );
 
@@ -1631,7 +1631,7 @@ fn grouped_executor_handoff_preserves_having_clause_contract() {
             &group,
             0,
             CompareOp::Gt,
-            Value::Uint(1)
+            Value::Nat(1)
         )),
     );
 }

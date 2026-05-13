@@ -50,7 +50,7 @@ pub enum ScalarCodec {
     Subaccount,
     Text,
     Timestamp,
-    Uint64,
+    Nat64,
     Ulid,
     Unit,
 }
@@ -477,7 +477,7 @@ const fn leaf_codec_for(kind: FieldKind, storage_decode: FieldStorageDecode) -> 
         FieldKind::Subaccount => LeafCodec::Scalar(ScalarCodec::Subaccount),
         FieldKind::Text { .. } => LeafCodec::Scalar(ScalarCodec::Text),
         FieldKind::Timestamp => LeafCodec::Scalar(ScalarCodec::Timestamp),
-        FieldKind::Uint => LeafCodec::Scalar(ScalarCodec::Uint64),
+        FieldKind::Nat => LeafCodec::Scalar(ScalarCodec::Nat64),
         FieldKind::Ulid => LeafCodec::Scalar(ScalarCodec::Ulid),
         FieldKind::Unit => LeafCodec::Scalar(ScalarCodec::Unit),
         FieldKind::Relation { key_kind, .. } => leaf_codec_for(*key_kind, storage_decode),
@@ -490,8 +490,8 @@ const fn leaf_codec_for(kind: FieldKind, storage_decode: FieldStorageDecode) -> 
         | FieldKind::Map { .. }
         | FieldKind::Set(_)
         | FieldKind::Structured { .. }
-        | FieldKind::Uint128
-        | FieldKind::UintBig => LeafCodec::StructuralFallback,
+        | FieldKind::Nat128
+        | FieldKind::NatBig => LeafCodec::StructuralFallback,
     }
 }
 
@@ -549,9 +549,9 @@ pub enum FieldKind {
         max_len: Option<u32>,
     },
     Timestamp,
-    Uint,
-    Uint128,
-    UintBig,
+    Nat,
+    Nat128,
+    NatBig,
     Ulid,
     Unit,
 
@@ -608,9 +608,9 @@ impl FieldKind {
             | Self::Subaccount
             | Self::Text { .. }
             | Self::Timestamp
-            | Self::Uint
-            | Self::Uint128
-            | Self::UintBig
+            | Self::Nat
+            | Self::Nat128
+            | Self::NatBig
             | Self::Ulid
             | Self::Unit
             | Self::Decimal { .. }
@@ -676,9 +676,9 @@ impl FieldKind {
             | Self::Subaccount
             | Self::Text { .. }
             | Self::Timestamp
-            | Self::Uint
-            | Self::Uint128
-            | Self::UintBig
+            | Self::Nat
+            | Self::Nat128
+            | Self::NatBig
             | Self::Ulid => true,
         }
     }
@@ -707,9 +707,9 @@ impl FieldKind {
             | (Self::Subaccount, Value::Subaccount(_))
             | (Self::Text { .. }, Value::Text(_))
             | (Self::Timestamp, Value::Timestamp(_))
-            | (Self::Uint, Value::Uint(_))
-            | (Self::Uint128, Value::Uint128(_))
-            | (Self::UintBig, Value::UintBig(_))
+            | (Self::Nat, Value::Nat(_))
+            | (Self::Nat128, Value::Nat128(_))
+            | (Self::NatBig, Value::NatBig(_))
             | (Self::Ulid, Value::Ulid(_))
             | (Self::Unit, Value::Unit)
             | (Self::Structured { .. }, Value::List(_) | Value::Map(_)) => true,

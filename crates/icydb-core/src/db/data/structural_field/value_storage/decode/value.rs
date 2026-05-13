@@ -17,8 +17,8 @@ use crate::{
     db::data::structural_field::{
         FieldDecodeError,
         binary::{
-            TAG_BYTES, TAG_FALSE, TAG_INT64, TAG_LIST, TAG_MAP, TAG_NULL, TAG_TEXT, TAG_TRUE,
-            TAG_UINT64, TAG_UNIT, parse_binary_head, skip_binary_value,
+            TAG_BYTES, TAG_FALSE, TAG_INT64, TAG_LIST, TAG_MAP, TAG_NAT64, TAG_NULL, TAG_TEXT,
+            TAG_TRUE, TAG_UNIT, parse_binary_head, skip_binary_value,
         },
         typed::{
             decode_account_payload_bytes, decode_date_payload_days, decode_decimal_payload_parts,
@@ -40,9 +40,8 @@ use crate::{
                 VALUE_BINARY_TAG_ACCOUNT, VALUE_BINARY_TAG_DATE, VALUE_BINARY_TAG_DECIMAL,
                 VALUE_BINARY_TAG_DURATION, VALUE_BINARY_TAG_ENUM, VALUE_BINARY_TAG_FLOAT32,
                 VALUE_BINARY_TAG_FLOAT64, VALUE_BINARY_TAG_INT_BIG, VALUE_BINARY_TAG_INT128,
-                VALUE_BINARY_TAG_PRINCIPAL, VALUE_BINARY_TAG_SUBACCOUNT,
-                VALUE_BINARY_TAG_TIMESTAMP, VALUE_BINARY_TAG_UINT_BIG, VALUE_BINARY_TAG_UINT128,
-                VALUE_BINARY_TAG_ULID,
+                VALUE_BINARY_TAG_NAT_BIG, VALUE_BINARY_TAG_NAT128, VALUE_BINARY_TAG_PRINCIPAL,
+                VALUE_BINARY_TAG_SUBACCOUNT, VALUE_BINARY_TAG_TIMESTAMP, VALUE_BINARY_TAG_ULID,
             },
             walk::{
                 decode_value_storage_binary_list_items_single_pass,
@@ -209,15 +208,15 @@ pub(in crate::db) fn decode_int128(
     decode_int128_payload_bytes(bytes.as_slice())
 }
 
-/// Decode one canonical structural value-storage uint128 payload.
+/// Decode one canonical structural value-storage nat128 payload.
 pub(in crate::db) fn decode_nat128(
     raw_bytes: &[u8],
 ) -> Result<crate::types::Nat128, FieldDecodeError> {
     let payload =
-        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_UINT128, "uint128")?;
-    let bytes: [u8; 16] = decode_binary_required_bytes(payload, "uint128 bytes")?
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_NAT128, "nat128")?;
+    let bytes: [u8; 16] = decode_binary_required_bytes(payload, "nat128 bytes")?
         .try_into()
-        .map_err(|_| FieldDecodeError::new("structural binary: invalid uint128 length"))?;
+        .map_err(|_| FieldDecodeError::new("structural binary: invalid nat128 length"))?;
 
     decode_nat128_payload_bytes(bytes.as_slice())
 }
@@ -228,7 +227,7 @@ pub(in crate::db) fn decode_int(raw_bytes: &[u8]) -> Result<Int, FieldDecodeErro
         decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_INT_BIG, "bigint")?;
     let [sign, magnitude] = split_binary_tuple_2(payload, "bigint tuple")?;
     let sign = decode_binary_required_i64(sign, "bigint sign")?;
-    let magnitude = decode_binary_biguint_digits(magnitude)?;
+    let magnitude = decode_binary_bignat_digits(magnitude)?;
     let sign = decode_binary_bigint_sign(sign)?;
 
     Ok(Int::from(WrappedInt::from(BigInt::from_biguint(
@@ -236,11 +235,11 @@ pub(in crate::db) fn decode_int(raw_bytes: &[u8]) -> Result<Int, FieldDecodeErro
     ))))
 }
 
-/// Decode one canonical structural value-storage biguint payload.
+/// Decode one canonical structural value-storage bignat payload.
 pub(in crate::db) fn decode_nat(raw_bytes: &[u8]) -> Result<Nat, FieldDecodeError> {
     let payload =
-        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_UINT_BIG, "biguint")?;
-    let digits = decode_binary_biguint_digits(payload)?;
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_NAT_BIG, "bignat")?;
+    let digits = decode_binary_bignat_digits(payload)?;
 
     Ok(Nat::from(WrappedNat::from(digits)))
 }
@@ -428,7 +427,7 @@ pub(super) fn decode_value_storage_slice(
         TAG_INT64 => Some(Value::Int(decode_structural_value_storage_i64_bytes(
             raw_bytes,
         )?)),
-        TAG_UINT64 => Some(Value::Uint(decode_structural_value_storage_u64_bytes(
+        TAG_NAT64 => Some(Value::Nat(decode_structural_value_storage_u64_bytes(
             raw_bytes,
         )?)),
         TAG_TEXT => Some(Value::Text(decode_value_storage_text(raw_bytes)?)),
@@ -472,8 +471,8 @@ pub(super) fn decode_value_storage_slice(
         VALUE_BINARY_TAG_TIMESTAMP => {
             decode_structural_value_storage_timestamp_bytes(raw_bytes).map(Value::Timestamp)
         }
-        VALUE_BINARY_TAG_UINT128 => decode_nat128(raw_bytes).map(Value::Uint128),
-        VALUE_BINARY_TAG_UINT_BIG => decode_nat(raw_bytes).map(Value::UintBig),
+        VALUE_BINARY_TAG_NAT128 => decode_nat128(raw_bytes).map(Value::Nat128),
+        VALUE_BINARY_TAG_NAT_BIG => decode_nat(raw_bytes).map(Value::NatBig),
         VALUE_BINARY_TAG_ULID => {
             decode_structural_value_storage_ulid_bytes(raw_bytes).map(Value::Ulid)
         }
@@ -538,15 +537,15 @@ fn decode_value_storage_binary_map_bytes(raw_bytes: &[u8]) -> Result<Value, Fiel
 }
 
 // Decode one u32-limb sequence into a `BigUint`.
-fn decode_binary_biguint_digits(raw_bytes: &[u8]) -> Result<BigUint, FieldDecodeError> {
+fn decode_binary_bignat_digits(raw_bytes: &[u8]) -> Result<BigUint, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
-            "structural binary: truncated biguint digits",
+            "structural binary: truncated bignat digits",
         ));
     };
     if tag != TAG_LIST {
         return Err(FieldDecodeError::new(
-            "structural binary: expected biguint digit list",
+            "structural binary: expected bignat digit list",
         ));
     }
 
@@ -555,14 +554,14 @@ fn decode_binary_biguint_digits(raw_bytes: &[u8]) -> Result<BigUint, FieldDecode
     for _ in 0..len {
         let start = cursor;
         cursor = skip_binary_value(raw_bytes, cursor)?;
-        let digit = decode_binary_required_u64(&raw_bytes[start..cursor], "biguint digit")?;
+        let digit = decode_binary_required_u64(&raw_bytes[start..cursor], "bignat digit")?;
         digits.push(u32::try_from(digit).map_err(|_| {
-            FieldDecodeError::new("structural binary: biguint digit out of u32 range")
+            FieldDecodeError::new("structural binary: bignat digit out of u32 range")
         })?);
     }
     if cursor != raw_bytes.len() {
         return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after biguint digits",
+            "structural binary: trailing bytes after bignat digits",
         ));
     }
 

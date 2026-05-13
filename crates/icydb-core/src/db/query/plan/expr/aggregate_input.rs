@@ -198,7 +198,7 @@ fn fold_aggregate_input_constant_round(function: Function, args: &[Expr]) -> Opt
 
     let scale = match scale {
         Value::Int(value) => u32::try_from(*value).ok()?,
-        Value::Uint(value) => u32::try_from(*value).ok()?,
+        Value::Nat(value) => u32::try_from(*value).ok()?,
         _ => return None,
     };
 

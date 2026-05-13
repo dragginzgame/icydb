@@ -52,7 +52,7 @@ fn access_capabilities_preserve_pure_index_range_shape_facts() {
     let spec = SemanticIndexRangeSpec::new(
         CAPABILITY_TEST_INDEX,
         vec![0, 1],
-        vec![Value::Uint(7)],
+        vec![Value::Nat(7)],
         Bound::Included(Value::Text("a".to_string())),
         Bound::Excluded(Value::Text("z".to_string())),
     );

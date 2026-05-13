@@ -214,7 +214,7 @@ pub(in crate::db::executor) fn decode_covering_projection_component(
     if tag == ValueTag::Int.to_u8() {
         return decode_covering_i64(payload);
     }
-    if tag == ValueTag::Uint.to_u8() {
+    if tag == ValueTag::Nat.to_u8() {
         return decode_covering_u64(payload);
     }
     if tag == ValueTag::Text.to_u8() {
@@ -368,13 +368,13 @@ fn decode_covering_i64(payload: &[u8]) -> Result<Option<Value>, InternalError> {
 
 fn decode_covering_u64(payload: &[u8]) -> Result<Option<Value>, InternalError> {
     if payload.len() != COVERING_U64_PAYLOAD_LEN {
-        return Err(InternalError::bytes_covering_component_payload_invalid_length("uint"));
+        return Err(InternalError::bytes_covering_component_payload_invalid_length("nat"));
     }
 
     let mut bytes = [0u8; COVERING_U64_PAYLOAD_LEN];
     bytes.copy_from_slice(payload);
 
-    Ok(Some(Value::Uint(u64::from_be_bytes(bytes))))
+    Ok(Some(Value::Nat(u64::from_be_bytes(bytes))))
 }
 
 fn decode_covering_text(payload: &[u8]) -> Result<Option<Value>, InternalError> {

@@ -28,7 +28,7 @@ impl UnaryTextFunctionKind {
             Self::Rtrim => Value::Text(text.trim_end().to_string()),
             Self::Lower => Value::Text(text.to_lowercase()),
             Self::Upper => Value::Text(text.to_uppercase()),
-            Self::Length => Value::Uint(u64::try_from(text.chars().count()).unwrap_or(u64::MAX)),
+            Self::Length => Value::Nat(u64::try_from(text.chars().count()).unwrap_or(u64::MAX)),
         }
     }
 }
@@ -167,7 +167,7 @@ impl Function {
     ) -> Value {
         debug_assert!(matches!(self, Self::Position));
 
-        Value::Uint(Self::text_position_1_based(text, needle))
+        Value::Nat(Self::text_position_1_based(text, needle))
     }
 
     /// Evaluate one admitted REPLACE call after the caller has already

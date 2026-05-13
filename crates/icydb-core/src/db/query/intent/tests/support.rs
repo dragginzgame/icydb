@@ -186,7 +186,7 @@ pub(in crate::db::query::intent::tests) static MAP_PLAN_FIELDS: [FieldModel; 2] 
         "attributes",
         FieldKind::Map {
             key: &FieldKind::Text { max_len: None },
-            value: &FieldKind::Uint,
+            value: &FieldKind::Nat,
         },
     ),
 ];
@@ -493,7 +493,7 @@ pub(in crate::db::query::intent::tests) static PLAN_ORDER_ONLY_CHOICE_INDEX_MODE
     ),
 ];
 
-pub(in crate::db::query::intent::tests) static PLAN_PHASE_TAG_KIND: FieldKind = FieldKind::Uint;
+pub(in crate::db::query::intent::tests) static PLAN_PHASE_TAG_KIND: FieldKind = FieldKind::Nat;
 
 crate::test_entity_schema! {
     ident = PlanPushdownEntity,
@@ -504,8 +504,8 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("group", FieldKind::Uint),
-        ("rank", FieldKind::Uint),
+        ("group", FieldKind::Nat),
+        ("rank", FieldKind::Nat),
         ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&PLAN_PUSHDOWN_INDEX_MODELS[0]],
@@ -522,7 +522,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("code", FieldKind::Uint),
+        ("code", FieldKind::Nat),
         ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&PLAN_UNIQUE_RANGE_INDEX_MODELS[0]],
@@ -611,7 +611,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("tier", FieldKind::Text { max_len: None }),
-        ("score", FieldKind::Uint),
+        ("score", FieldKind::Nat),
         ("handle", FieldKind::Text { max_len: None }),
         ("label", FieldKind::Text { max_len: None }),
     ],

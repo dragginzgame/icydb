@@ -299,7 +299,7 @@ impl Function {
         }
 
         match args.get(1) {
-            Some(Expr::Literal(Value::Uint(scale))) => u32::try_from(*scale).ok(),
+            Some(Expr::Literal(Value::Nat(scale))) => u32::try_from(*scale).ok(),
             Some(Expr::Literal(Value::Int(scale))) if *scale >= 0 => u32::try_from(*scale).ok(),
             _ => None,
         }

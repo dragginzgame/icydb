@@ -1472,7 +1472,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
         ("name", FieldKind::Text { max_len: None }),
-        ("age", FieldKind::Uint),
+        ("age", FieldKind::Nat),
     ],
     indexes = [],
     store = SessionSqlStore,
@@ -1580,9 +1580,9 @@ crate::test_entity_schema! {
     entity_tag = EntityTag::new(0x1044),
     pk_index = 0,
     fields = [
-        ("id", FieldKind::Uint),
+        ("id", FieldKind::Nat),
         ("name", FieldKind::Text { max_len: None }),
-        ("age", FieldKind::Uint),
+        ("age", FieldKind::Nat),
     ],
     indexes = [],
     store = SessionSqlStore,
@@ -1599,7 +1599,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
         ("label", FieldKind::Text { max_len: None }),
-        ("bucket", FieldKind::Uint),
+        ("bucket", FieldKind::Nat),
         ("thumbnail", FieldKind::Blob { max_len: None }),
         ("chunk", FieldKind::Blob { max_len: None }),
     ],
@@ -1616,7 +1616,7 @@ crate::test_entity_schema! {
     entity_tag = EntityTag::new(0x1045),
     pk_index = 0,
     fields = [
-        ("id", FieldKind::Uint),
+        ("id", FieldKind::Nat),
         ("token", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
         ("name", FieldKind::Text { max_len: None }),
     ],
@@ -1633,7 +1633,7 @@ crate::test_entity_schema! {
     entity_tag = EntityTag::new(0x1047),
     pk_index = 0,
     fields = [
-        ("id", FieldKind::Uint),
+        ("id", FieldKind::Nat),
         ("created_on_insert", FieldKind::Timestamp, @generated crate::model::field::FieldInsertGeneration::Timestamp),
         ("name", FieldKind::Text { max_len: None }),
     ],
@@ -1650,7 +1650,7 @@ crate::test_entity_schema! {
     entity_tag = EntityTag::new(0x1046),
     pk_index = 0,
     fields = [
-        ("id", FieldKind::Uint),
+        ("id", FieldKind::Nat),
         ("name", FieldKind::Text { max_len: None }),
         ("created_at", FieldKind::Timestamp, @managed crate::model::field::FieldWriteManagement::CreatedAt),
         ("updated_at", FieldKind::Timestamp, @managed crate::model::field::FieldWriteManagement::UpdatedAt),
@@ -1681,7 +1681,7 @@ static SESSION_SQL_SELF_RELATION_PARENT_KIND: FieldKind = FieldKind::Relation {
     target_entity_name: "SessionSqlSelfRelationEntity",
     target_entity_tag: SessionSqlSelfRelationEntity::ENTITY_TAG,
     target_store_path: SessionSqlStore::PATH,
-    key_kind: &FieldKind::Uint,
+    key_kind: &FieldKind::Nat,
     strength: RelationStrength::Strong,
 };
 
@@ -1692,7 +1692,7 @@ crate::impl_test_entity_model_storage!(
     "SessionSqlSelfRelationEntity",
     0,
     fields = [
-        crate::model::field::FieldModel::generated("id", FieldKind::Uint),
+        crate::model::field::FieldModel::generated("id", FieldKind::Nat),
         crate::model::field::FieldModel::generated_with_storage_decode_and_nullability(
             "parent",
             SESSION_SQL_SELF_RELATION_PARENT_KIND,
@@ -1735,7 +1735,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
         ("label", FieldKind::Text { max_len: None }),
-        ("left_score", FieldKind::Uint),
+        ("left_score", FieldKind::Nat),
         ("right_score", FieldKind::Int),
     ],
     indexes = [],
@@ -1788,9 +1788,9 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
         ("label", FieldKind::Text { max_len: None }),
-        ("score", FieldKind::Uint),
-        ("min_score", FieldKind::Uint),
-        ("max_score", FieldKind::Uint),
+        ("score", FieldKind::Nat),
+        ("min_score", FieldKind::Nat),
+        ("max_score", FieldKind::Nat),
     ],
     indexes = [],
     store = SessionSqlStore,
@@ -1807,7 +1807,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("name", FieldKind::Text { max_len: None }),
-        ("age", FieldKind::Uint),
+        ("age", FieldKind::Nat),
     ],
     indexes = [&INDEXED_SESSION_SQL_INDEX_MODELS[0]],
     store = IndexedSessionSqlStore,
@@ -1824,7 +1824,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("code", FieldKind::Text { max_len: None }),
-        ("serial", FieldKind::Uint),
+        ("serial", FieldKind::Nat),
         ("note", FieldKind::Text { max_len: None }),
     ],
     indexes = [&COMPOSITE_INDEXED_SESSION_SQL_INDEX_MODELS[0]],
@@ -1845,7 +1845,7 @@ crate::test_entity_schema! {
         ("active", FieldKind::Bool),
         ("tier", FieldKind::Text { max_len: None }),
         ("handle", FieldKind::Text { max_len: None }),
-        ("age", FieldKind::Uint),
+        ("age", FieldKind::Nat),
     ],
     indexes = [
         &FILTERED_INDEXED_SESSION_SQL_INDEX_MODELS[0],
@@ -1867,7 +1867,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("name", FieldKind::Text { max_len: None }),
-        ("age", FieldKind::Uint),
+        ("age", FieldKind::Nat),
     ],
     indexes = [&EXPRESSION_INDEXED_SESSION_SQL_INDEX_MODELS[0]],
     store = IndexedSessionSqlStore,
@@ -1883,8 +1883,8 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("group", FieldKind::Uint),
-        ("rank", FieldKind::Uint),
+        ("group", FieldKind::Nat),
+        ("rank", FieldKind::Nat),
         ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [],
@@ -1901,8 +1901,8 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("group", FieldKind::Uint),
-        ("rank", FieldKind::Uint),
+        ("group", FieldKind::Nat),
+        ("rank", FieldKind::Nat),
         ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&SESSION_EXPLAIN_INDEX_MODELS[0]],
@@ -1959,7 +1959,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("tier", FieldKind::Text { max_len: None }),
-        ("score", FieldKind::Uint),
+        ("score", FieldKind::Nat),
         ("handle", FieldKind::Text { max_len: None }),
         ("label", FieldKind::Text { max_len: None }),
     ],
@@ -1981,7 +1981,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("tier", FieldKind::Text { max_len: None }),
-        ("score", FieldKind::Uint),
+        ("score", FieldKind::Nat),
         ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [
@@ -2215,7 +2215,7 @@ fn session_describe_entity_reports_fields_and_indexes() {
     assert_eq!(plain.primary_key(), "id");
     assert_eq!(plain.fields().len(), 3);
     assert!(plain.fields().iter().any(|field| {
-        field.name() == "age" && field.kind() == "uint" && field.queryable() && !field.primary_key()
+        field.name() == "age" && field.kind() == "nat" && field.queryable() && !field.primary_key()
     }));
     assert!(
         plain.indexes().is_empty(),
@@ -2521,9 +2521,9 @@ fn runtime_output(value: OutputValue) -> Value {
         OutputValue::Subaccount(value) => Value::Subaccount(value),
         OutputValue::Text(value) => Value::Text(value),
         OutputValue::Timestamp(value) => Value::Timestamp(value),
-        OutputValue::Uint(value) => Value::Uint(value),
-        OutputValue::Uint128(value) => Value::Uint128(value),
-        OutputValue::UintBig(value) => Value::UintBig(value),
+        OutputValue::Nat(value) => Value::Nat(value),
+        OutputValue::Nat128(value) => Value::Nat128(value),
+        OutputValue::NatBig(value) => Value::NatBig(value),
         OutputValue::Ulid(value) => Value::Ulid(value),
         OutputValue::Unit => Value::Unit,
     }
@@ -3109,7 +3109,7 @@ fn session_aggregate_values_by_rank(
 ) -> Vec<OutputValue> {
     response
         .iter()
-        .map(|row| output(Value::Uint(row.entity_ref().rank)))
+        .map(|row| output(Value::Nat(row.entity_ref().rank)))
         .collect()
 }
 
@@ -3118,7 +3118,7 @@ fn session_aggregate_values_by_rank_with_ids(
 ) -> Vec<(Ulid, OutputValue)> {
     response
         .iter()
-        .map(|row| (row.id().key(), output(Value::Uint(row.entity_ref().rank))))
+        .map(|row| (row.id().key(), output(Value::Nat(row.entity_ref().rank))))
         .collect()
 }
 
@@ -3128,7 +3128,7 @@ fn session_aggregate_first_value_by_rank(
     response
         .iter()
         .next()
-        .map(|row| output(Value::Uint(row.entity_ref().rank)))
+        .map(|row| output(Value::Nat(row.entity_ref().rank)))
 }
 
 fn session_aggregate_last_value_by_rank(
@@ -3137,7 +3137,7 @@ fn session_aggregate_last_value_by_rank(
     response
         .iter()
         .last()
-        .map(|row| output(Value::Uint(row.entity_ref().rank)))
+        .map(|row| output(Value::Nat(row.entity_ref().rank)))
 }
 
 fn session_aggregate_ids(response: &EntityResponse<SessionAggregateEntity>) -> Vec<Ulid> {
@@ -3284,8 +3284,8 @@ fn session_aggregate_serialized_field_payload_bytes_for_rows(
 ) -> u64 {
     response.iter().fold(0u64, |acc, row| {
         let value = match field {
-            "group" => Value::Uint(row.entity_ref().group),
-            "rank" => Value::Uint(row.entity_ref().rank),
+            "group" => Value::Nat(row.entity_ref().group),
+            "rank" => Value::Nat(row.entity_ref().rank),
             "label" => Value::Text(row.entity_ref().label.clone()),
             other => panic!("session aggregate field should resolve: {other}"),
         };

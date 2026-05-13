@@ -41,7 +41,7 @@ pub enum ScalarValueRef<'a> {
     Subaccount(Subaccount),
     Text(&'a str),
     Timestamp(Timestamp),
-    Uint(u64),
+    Nat(u64),
     Ulid(Ulid),
     Unit,
 }
@@ -62,7 +62,7 @@ impl ScalarValueRef<'_> {
             Self::Subaccount(value) => Value::Subaccount(value),
             Self::Text(value) => Value::Text(value.to_owned()),
             Self::Timestamp(value) => Value::Timestamp(value),
-            Self::Uint(value) => Value::Uint(value),
+            Self::Nat(value) => Value::Nat(value),
             Self::Ulid(value) => Value::Ulid(value),
             Self::Unit => Value::Unit,
         }
@@ -339,7 +339,7 @@ fn scalar_value_payload_len(value: ScalarValueRef<'_>) -> usize {
         | ScalarValueRef::Float64(_)
         | ScalarValueRef::Int(_)
         | ScalarValueRef::Timestamp(_)
-        | ScalarValueRef::Uint(_) => 8,
+        | ScalarValueRef::Nat(_) => 8,
         ScalarValueRef::Principal(value) => value.as_slice().len(),
         ScalarValueRef::Subaccount(_) => 32,
         ScalarValueRef::Text(value) => value.len(),
@@ -380,7 +380,7 @@ pub(in crate::db::data::persisted_row) fn encode_scalar_slot_value(
                 ScalarValueRef::Timestamp(value) => {
                     encoded.extend_from_slice(&value.as_millis().to_le_bytes());
                 }
-                ScalarValueRef::Uint(value) => encoded.extend_from_slice(&value.to_le_bytes()),
+                ScalarValueRef::Nat(value) => encoded.extend_from_slice(&value.to_le_bytes()),
                 ScalarValueRef::Ulid(value) => encoded.extend_from_slice(&value.to_bytes()),
                 ScalarValueRef::Unit => {}
             }
@@ -489,9 +489,7 @@ pub(in crate::db::data::persisted_row) fn decode_scalar_slot_value<'a>(
             let millis = decode_i64_payload(payload, field_name, "timestamp")?;
             ScalarValueRef::Timestamp(Timestamp::from_millis(millis))
         }
-        ScalarCodec::Uint64 => {
-            ScalarValueRef::Uint(decode_u64_payload(payload, field_name, "uint")?)
-        }
+        ScalarCodec::Nat64 => ScalarValueRef::Nat(decode_u64_payload(payload, field_name, "nat")?),
         ScalarCodec::Ulid => {
             let bytes = decode_fixed(payload, field_name, "ulid")?;
             ScalarValueRef::Ulid(Ulid::from_bytes(bytes))
@@ -535,7 +533,7 @@ macro_rules! impl_persisted_scalar_unsigned {
     ($($ty:ty),* $(,)?) => {
         $(
             impl PersistedScalar for $ty {
-                const CODEC: ScalarCodec = ScalarCodec::Uint64;
+                const CODEC: ScalarCodec = ScalarCodec::Nat64;
 
                 fn encode_scalar_payload(&self) -> Result<Vec<u8>, InternalError> {
                     Ok(encode_fixed(u64::from(*self).to_le_bytes()))
@@ -545,7 +543,7 @@ macro_rules! impl_persisted_scalar_unsigned {
                     bytes: &[u8],
                     field_name: &'static str,
                 ) -> Result<Self, InternalError> {
-                    <$ty>::try_from(decode_u64_payload(bytes, field_name, "uint")?).map_err(|_| {
+                    <$ty>::try_from(decode_u64_payload(bytes, field_name, "nat")?).map_err(|_| {
                         InternalError::persisted_row_field_payload_out_of_range(
                             field_name,
                             "unsigned",

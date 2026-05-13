@@ -54,7 +54,7 @@ crate::test_entity! {
         ("id", FieldKind::Ulid),
         ("team", FieldKind::Text { max_len: None }),
         ("region", FieldKind::Text { max_len: None }),
-        ("score", FieldKind::Uint),
+        ("score", FieldKind::Nat),
     ],
     indexes = [&EMPTY_INDEX],
 }
@@ -242,12 +242,7 @@ fn accepted_schema_with_team_layout_slot(team_slot: SchemaFieldSlot) -> SchemaIn
                 SchemaFieldSlot::new(2),
                 PersistedFieldKind::Text { max_len: None },
             ),
-            accepted_field(
-                4,
-                "score",
-                SchemaFieldSlot::new(3),
-                PersistedFieldKind::Uint,
-            ),
+            accepted_field(4, "score", SchemaFieldSlot::new(3), PersistedFieldKind::Nat),
         ],
     ));
 
@@ -555,7 +550,7 @@ fn grouped_distinct_without_adjacency_proof_fails_in_planner_policy() {
 #[test]
 fn grouped_distinct_with_having_fails_in_planner_policy() {
     let group = grouped_spec();
-    let having = aggregate_having_expr(&group, 0, CompareOp::Gt, Value::Uint(1));
+    let having = aggregate_having_expr(&group, 0, CompareOp::Gt, Value::Nat(1));
 
     let err = validate_group_policy(schema(), &scalar_plan(true), &group, Some(&having))
         .expect_err("grouped DISTINCT + HAVING must fail in planner policy");
@@ -579,9 +574,9 @@ fn grouped_policy_allows_widened_having_exprs_on_shared_post_aggregate_seam() {
         left: Box::new(Expr::Binary {
             op: crate::db::query::plan::expr::BinaryOp::Add,
             left: Box::new(Expr::Aggregate(crate::db::count())),
-            right: Box::new(Expr::Literal(Value::Uint(1))),
+            right: Box::new(Expr::Literal(Value::Nat(1))),
         }),
-        right: Box::new(Expr::Literal(Value::Uint(5))),
+        right: Box::new(Expr::Literal(Value::Nat(5))),
     };
 
     validate_group_policy(schema(), &scalar_plan(false), &grouped_spec(), Some(&expr))
@@ -665,7 +660,7 @@ fn grouped_structure_rejects_having_aggregate_index_out_of_bounds() {
     let having = Expr::Binary {
         op: crate::db::query::plan::expr::BinaryOp::Gt,
         left: Box::new(Expr::Aggregate(crate::db::sum("score"))),
-        right: Box::new(Expr::Literal(Value::Uint(5))),
+        right: Box::new(Expr::Literal(Value::Nat(5))),
     };
 
     let err = validate_group_structure(schema(), &group, &projection, Some(&having))

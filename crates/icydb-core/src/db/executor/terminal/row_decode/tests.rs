@@ -468,7 +468,7 @@ fn retained_slot_decode_can_materialize_scalar_octet_lengths_without_blob_values
 
     assert_eq!(
         values,
-        vec![Some(Value::Uint(5)), Some(Value::Uint(4))],
+        vec![Some(Value::Nat(5)), Some(Value::Nat(4))],
         "retained scalar byte-length slots should store lengths instead of text/blob payloads",
     );
 }
@@ -501,7 +501,7 @@ fn structural_row_decoder_rejects_primary_key_mismatch() {
 fn structural_row_decoder_preserves_enum_payload_shape_best_effort() {
     static ENUM_VARIANTS: &[EnumVariantModel] = &[EnumVariantModel::new(
         "Loaded",
-        Some(&FieldKind::Uint),
+        Some(&FieldKind::Nat),
         FieldStorageDecode::ByKind,
     )];
     let bytes = encode_structural_field_by_kind_bytes(
@@ -509,7 +509,7 @@ fn structural_row_decoder_preserves_enum_payload_shape_best_effort() {
             path: "tests::State",
             variants: ENUM_VARIANTS,
         },
-        &Value::Enum(ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Uint(7))),
+        &Value::Enum(ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Nat(7))),
         "status",
     )
     .expect("enum payload bytes should encode");
@@ -525,7 +525,7 @@ fn structural_row_decoder_preserves_enum_payload_shape_best_effort() {
 
     assert_eq!(
         decoded,
-        Value::Enum(ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Uint(7)),),
+        Value::Enum(ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Nat(7)),),
     );
 }
 
@@ -664,7 +664,7 @@ fn structural_row_decoder_respects_value_storage_decode_contract() {
     let entity = RowDecodeValueEntity {
         id: Ulid::from_u128(77),
         status: RowDecodeStatus(
-            ValueEnum::new("Paid", Some("tests::Status")).with_payload(Value::Uint(7)),
+            ValueEnum::new("Paid", Some("tests::Status")).with_payload(Value::Nat(7)),
         ),
     };
     let key = crate::db::data::DataKey::try_new::<RowDecodeValueEntity>(entity.id)
@@ -687,7 +687,7 @@ fn accepted_row_layout_decode_matches_generated_layout_for_value_storage_field()
     let entity = RowDecodeValueEntity {
         id: Ulid::from_u128(78),
         status: RowDecodeStatus(
-            ValueEnum::new("Settled", Some("tests::Status")).with_payload(Value::Uint(11)),
+            ValueEnum::new("Settled", Some("tests::Status")).with_payload(Value::Nat(11)),
         ),
     };
     let key = crate::db::data::DataKey::try_new::<RowDecodeValueEntity>(entity.id)

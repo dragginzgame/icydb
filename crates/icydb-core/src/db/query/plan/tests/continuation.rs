@@ -40,7 +40,7 @@ fn grouped_contract(
 }
 
 fn applied_grouped_cursor(contract: &PlannedContinuationContract) -> GroupedPlannedCursor {
-    GroupedPlannedCursor::new_validated(vec![Value::Uint(7)], contract.expected_initial_offset())
+    GroupedPlannedCursor::new_validated(vec![Value::Nat(7)], contract.expected_initial_offset())
 }
 
 #[test]
@@ -73,7 +73,7 @@ fn grouped_cursor_contract_shares_policy_gate_for_token_and_window_paths() {
     ));
     let continuation_token = GroupedContinuationToken::new_with_direction(
         continuation_signature_fixture(),
-        vec![Value::Uint(7)],
+        vec![Value::Nat(7)],
         Direction::Asc,
         contract.expected_initial_offset(),
     );

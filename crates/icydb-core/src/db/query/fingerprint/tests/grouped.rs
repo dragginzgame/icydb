@@ -60,9 +60,9 @@ fn grouped_continuation_signature_distinguishes_widened_having_expression_shape(
                 left: Box::new(Expr::Binary {
                     op: crate::db::query::plan::expr::BinaryOp::Add,
                     left: Box::new(Expr::Aggregate(crate::db::count())),
-                    right: Box::new(Expr::Literal(Value::Uint(1))),
+                    right: Box::new(Expr::Literal(Value::Nat(1))),
                 }),
-                right: Box::new(Expr::Literal(Value::Uint(5))),
+                right: Box::new(Expr::Literal(Value::Nat(5))),
             }),
         );
     let right = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
@@ -82,9 +82,9 @@ fn grouped_continuation_signature_distinguishes_widened_having_expression_shape(
                 left: Box::new(Expr::Binary {
                     op: crate::db::query::plan::expr::BinaryOp::Add,
                     left: Box::new(Expr::Aggregate(crate::db::count())),
-                    right: Box::new(Expr::Literal(Value::Uint(2))),
+                    right: Box::new(Expr::Literal(Value::Nat(2))),
                 }),
-                right: Box::new(Expr::Literal(Value::Uint(5))),
+                right: Box::new(Expr::Literal(Value::Nat(5))),
             }),
         );
 

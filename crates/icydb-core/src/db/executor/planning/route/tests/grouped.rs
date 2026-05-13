@@ -417,7 +417,7 @@ fn route_plan_grouped_wrapper_preserves_ordered_strategy_for_fully_indexable_pre
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 ROUTE_CAPABILITY_INDEX_MODELS[0],
             ),
-            values: vec![Value::Uint(7)],
+            values: vec![Value::Nat(7)],
         },
         MissingRowPolicy::Ignore,
     )
@@ -431,7 +431,7 @@ fn route_plan_grouped_wrapper_preserves_ordered_strategy_for_fully_indexable_pre
         }],
         execution: GroupedExecutionConfig::unbounded(),
     });
-    grouped.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Uint(7)));
+    grouped.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Nat(7)));
     let route_plan = build_grouped_route_plan(&grouped);
     let grouped_observability = route_plan
         .grouped_observability()
@@ -506,7 +506,7 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_when_residual_filter_p
         }],
         execution: GroupedExecutionConfig::unbounded(),
     });
-    grouped.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Uint(7)));
+    grouped.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Nat(7)));
     let route_plan = build_grouped_route_plan(&grouped);
     let grouped_observability = route_plan
         .grouped_observability()
@@ -551,9 +551,9 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_non_streaming_havi
                 left: Box::new(crate::db::query::plan::expr::Expr::Aggregate(
                     crate::db::count(),
                 )),
-                right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Uint(1))),
+                right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Nat(1))),
             }),
-            right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Uint(5))),
+            right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Nat(5))),
         }),
     );
     let route_plan = build_grouped_route_plan(&grouped);
@@ -794,9 +794,9 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
                 left: Box::new(crate::db::query::plan::expr::Expr::Aggregate(
                     crate::db::count(),
                 )),
-                right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Uint(1))),
+                right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Nat(1))),
             }),
-            right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Uint(5))),
+            right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Nat(5))),
         }),
     );
     assert_eq!(
@@ -1021,7 +1021,7 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
             &group,
             0,
             CompareOp::Gt,
-            Value::Uint(1),
+            Value::Nat(1),
         )),
     );
 
@@ -1042,7 +1042,7 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
                 distinct: false,
             }],
             having: Some(ExplainGroupHaving {
-                expr: aggregate_having_expr(&group, 0, CompareOp::Gt, Value::Uint(1)),
+                expr: aggregate_having_expr(&group, 0, CompareOp::Gt, Value::Nat(1)),
             }),
             max_groups: 17,
             max_group_bytes: 8192,

@@ -2679,11 +2679,11 @@ fn set_field_encoding_requires_canonical_order_and_uniqueness() {
 fn map_field_encoding_requires_canonical_entry_order() {
     let kind = FieldKind::Map {
         key: &FieldKind::Text { max_len: None },
-        value: &FieldKind::Uint,
+        value: &FieldKind::Nat,
     };
     let unordered = Value::Map(vec![
-        (Value::Text("z".to_string()), Value::Uint(9u64)),
-        (Value::Text("a".to_string()), Value::Uint(1u64)),
+        (Value::Text("z".to_string()), Value::Nat(9u64)),
+        (Value::Text("a".to_string()), Value::Nat(1u64)),
     ]);
 
     let err = SaveExecutor::<SourceSetEntity>::validate_deterministic_field_value(

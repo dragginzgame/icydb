@@ -166,7 +166,7 @@ pub(crate) const fn field_kind_has_identity_group_canonical_form(kind: FieldKind
 }
 
 /// Canonicalize one grouped-key compare literal against one grouped field kind
-/// when the Int<->Uint conversion is lossless and unambiguous.
+/// when the Int<->Nat conversion is lossless and unambiguous.
 ///
 /// Both fluent grouped `HAVING` and SQL grouped `HAVING` bind through this
 /// helper so those two surfaces cannot drift on grouped-key numeric literal
@@ -243,10 +243,10 @@ pub(crate) const fn classify_field_kind(kind: &FieldKind) -> FieldKindSemantics 
         FieldKind::Timestamp => FieldKindSemantics::new(FieldKindCategory::Scalar(
             FieldKindScalarClass::Numeric(FieldKindNumericClass::TimestampLike),
         )),
-        FieldKind::Uint => FieldKindSemantics::new(FieldKindCategory::Scalar(
+        FieldKind::Nat => FieldKindSemantics::new(FieldKindCategory::Scalar(
             FieldKindScalarClass::Numeric(FieldKindNumericClass::Unsigned64),
         )),
-        FieldKind::Uint128 | FieldKind::UintBig => {
+        FieldKind::Nat128 | FieldKind::NatBig => {
             FieldKindSemantics::new(FieldKindCategory::Scalar(FieldKindScalarClass::Numeric(
                 FieldKindNumericClass::UnsignedWide,
             )))
@@ -341,7 +341,7 @@ fn canonicalize_lossless_field_literal_for_kind(
         }
         FieldKind::Int => match value {
             Value::Int(inner) => Some(Value::Int(*inner)),
-            Value::Uint(inner) => i64::try_from(*inner).ok().map(Value::Int),
+            Value::Nat(inner) => i64::try_from(*inner).ok().map(Value::Int),
             Value::Text(inner) => inner.parse::<i64>().ok().map(Value::Int),
             _ => None,
         },
@@ -380,24 +380,24 @@ fn canonicalize_lossless_field_literal_for_kind(
             Value::Text(inner) => Some(Value::Text(inner.clone())),
             _ => None,
         },
-        FieldKind::Uint => match value {
-            Value::Int(inner) => u64::try_from(*inner).ok().map(Value::Uint),
-            Value::Uint(inner) => Some(Value::Uint(*inner)),
-            Value::Text(inner) => inner.parse::<u64>().ok().map(Value::Uint),
+        FieldKind::Nat => match value {
+            Value::Int(inner) => u64::try_from(*inner).ok().map(Value::Nat),
+            Value::Nat(inner) => Some(Value::Nat(*inner)),
+            Value::Text(inner) => inner.parse::<u64>().ok().map(Value::Nat),
             _ => None,
         },
-        FieldKind::Uint128 => match value {
-            Value::Uint128(inner) => Some(Value::Uint128(*inner)),
+        FieldKind::Nat128 => match value {
+            Value::Nat128(inner) => Some(Value::Nat128(*inner)),
             Value::Text(inner) => inner
                 .parse::<u128>()
                 .ok()
                 .map(Nat128::from)
-                .map(Value::Uint128),
+                .map(Value::Nat128),
             _ => None,
         },
-        FieldKind::UintBig => match value {
-            Value::UintBig(inner) => Some(Value::UintBig(inner.clone())),
-            Value::Text(inner) => Nat::from_str(inner).ok().map(Value::UintBig),
+        FieldKind::NatBig => match value {
+            Value::NatBig(inner) => Some(Value::NatBig(inner.clone())),
+            Value::Text(inner) => Nat::from_str(inner).ok().map(Value::NatBig),
             _ => None,
         },
         FieldKind::Unit => match value {
@@ -422,11 +422,11 @@ fn canonicalize_strict_sql_literal_for_kind_impl(kind: FieldKind, value: &Value)
             canonicalize_strict_sql_literal_for_kind_impl(*key_kind, value)
         }
         FieldKind::Int => match value {
-            Value::Uint(inner) => i64::try_from(*inner).ok().map(Value::Int),
+            Value::Nat(inner) => i64::try_from(*inner).ok().map(Value::Int),
             _ => None,
         },
-        FieldKind::Uint => match value {
-            Value::Int(inner) => u64::try_from(*inner).ok().map(Value::Uint),
+        FieldKind::Nat => match value {
+            Value::Int(inner) => u64::try_from(*inner).ok().map(Value::Nat),
             _ => None,
         },
         FieldKind::Ulid => match value {
@@ -466,7 +466,7 @@ mod tests {
 
     #[test]
     fn classify_numeric_scalar_field_kind() {
-        let semantics = classify_field_kind(&FieldKind::Uint);
+        let semantics = classify_field_kind(&FieldKind::Nat);
 
         assert_eq!(
             semantics.category(),
@@ -481,13 +481,13 @@ mod tests {
 
     #[test]
     fn classify_relation_uses_key_semantics_without_expr_numeric() {
-        static UINT_KEY_KIND: FieldKind = FieldKind::Uint;
+        static NAT_KEY_KIND: FieldKind = FieldKind::Nat;
         static RELATION_KIND: FieldKind = FieldKind::Relation {
             target_path: "demo::Target",
             target_entity_name: "Target",
             target_entity_tag: crate::types::EntityTag::new(1),
             target_store_path: "demo::store::TargetStore",
-            key_kind: &UINT_KEY_KIND,
+            key_kind: &NAT_KEY_KIND,
             strength: crate::model::field::RelationStrength::Strong,
         };
 
@@ -551,13 +551,13 @@ mod tests {
 
     #[test]
     fn grouped_field_kind_helpers_keep_decimal_relation_and_unit_edges_explicit() {
-        static UINT_KEY_KIND: FieldKind = FieldKind::Uint;
+        static NAT_KEY_KIND: FieldKind = FieldKind::Nat;
         static RELATION_KIND: FieldKind = FieldKind::Relation {
             target_path: "demo::Target",
             target_entity_name: "Target",
             target_entity_tag: crate::types::EntityTag::new(1),
             target_store_path: "demo::store::TargetStore",
-            key_kind: &UINT_KEY_KIND,
+            key_kind: &NAT_KEY_KIND,
             strength: crate::model::field::RelationStrength::Strong,
         };
 
@@ -577,43 +577,43 @@ mod tests {
     #[test]
     fn runtime_value_acceptance_recurses_through_nested_field_kinds() {
         static TEXT_KIND: FieldKind = FieldKind::Text { max_len: None };
-        static UINT_KIND: FieldKind = FieldKind::Uint;
+        static NAT_KIND: FieldKind = FieldKind::Nat;
         static RELATION_KIND: FieldKind = FieldKind::Relation {
             target_path: "demo::Target",
             target_entity_name: "Target",
             target_entity_tag: crate::types::EntityTag::new(1),
             target_store_path: "demo::store::TargetStore",
-            key_kind: &UINT_KIND,
+            key_kind: &NAT_KIND,
             strength: crate::model::field::RelationStrength::Strong,
         };
 
         assert!(
             FieldKind::Map {
                 key: &TEXT_KIND,
-                value: &UINT_KIND,
+                value: &NAT_KIND,
             }
-            .accepts_value(&Value::Map(vec![(Value::Text("a".into()), Value::Uint(1))]))
+            .accepts_value(&Value::Map(vec![(Value::Text("a".into()), Value::Nat(1))]))
         );
-        assert!(RELATION_KIND.accepts_value(&Value::Uint(9)));
-        assert!(!FieldKind::List(&TEXT_KIND).accepts_value(&Value::List(vec![Value::Uint(1)])));
+        assert!(RELATION_KIND.accepts_value(&Value::Nat(9)));
+        assert!(!FieldKind::List(&TEXT_KIND).accepts_value(&Value::List(vec![Value::Nat(1)])));
     }
 
     #[test]
     fn grouped_having_numeric_canonicalization_keeps_numeric_relation_recursion() {
-        static UINT_KIND: FieldKind = FieldKind::Uint;
+        static NAT_KIND: FieldKind = FieldKind::Nat;
         static RELATION_KIND: FieldKind = FieldKind::Relation {
             target_path: "demo::Target",
             target_entity_name: "Target",
             target_entity_tag: crate::types::EntityTag::new(1),
             target_store_path: "demo::store::TargetStore",
-            key_kind: &UINT_KIND,
+            key_kind: &NAT_KIND,
             strength: crate::model::field::RelationStrength::Strong,
         };
 
         assert_eq!(
             canonicalize_grouped_having_numeric_literal_for_field_kind(
                 Some(FieldKind::Int),
-                &Value::Uint(7),
+                &Value::Nat(7),
             ),
             Some(Value::Int(7)),
         );
@@ -622,7 +622,7 @@ mod tests {
                 Some(RELATION_KIND),
                 &Value::Int(7),
             ),
-            Some(Value::Uint(7)),
+            Some(Value::Nat(7)),
         );
         assert_eq!(
             canonicalize_grouped_having_numeric_literal_for_field_kind(
@@ -642,8 +642,8 @@ mod tests {
             Some(Value::Ulid(_)),
         ));
         assert_eq!(
-            canonicalize_strict_sql_literal_for_kind(&FieldKind::Uint, &Value::Int(4)),
-            Some(Value::Uint(4)),
+            canonicalize_strict_sql_literal_for_kind(&FieldKind::Nat, &Value::Int(4)),
+            Some(Value::Nat(4)),
         );
         assert_eq!(
             canonicalize_strict_sql_literal_for_kind(

@@ -10,7 +10,7 @@ use std::cmp::Ordering;
 #[test]
 fn range_bound_numeric_compare_reuses_shared_numeric_authority() {
     let left = Value::Int(10);
-    let right = Value::Uint(10);
+    let right = Value::Nat(10);
 
     assert_eq!(
         compare_range_bound_values(&left, &right),
@@ -22,7 +22,7 @@ fn range_bound_numeric_compare_reuses_shared_numeric_authority() {
 #[test]
 fn range_bound_mixed_non_numeric_values_are_incomparable() {
     assert_eq!(
-        compare_range_bound_values(&Value::Text("x".to_string()), &Value::Uint(1)),
+        compare_range_bound_values(&Value::Text("x".to_string()), &Value::Nat(1)),
         None,
         "mixed non-numeric variants should remain incomparable in range planning",
     );

@@ -244,7 +244,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("tag", FieldKind::Uint),
+        ("tag", FieldKind::Nat),
         ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&INDEXED_METRICS_INDEX_MODELS[0]],
@@ -283,8 +283,8 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("group", FieldKind::Uint),
-        ("rank", FieldKind::Uint),
+        ("group", FieldKind::Nat),
+        ("rank", FieldKind::Nat),
         ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&PUSHDOWN_PARITY_INDEX_MODELS[0]],
@@ -324,7 +324,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("code", FieldKind::Uint),
+        ("code", FieldKind::Nat),
         ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&UNIQUE_INDEX_RANGE_INDEX_MODELS[0]],
@@ -345,7 +345,7 @@ pub(in crate::db::executor::tests) struct PhaseEntity {
     pub(in crate::db::executor::tests) label: String,
 }
 
-pub(in crate::db::executor::tests) static PHASE_TAG_KIND: FieldKind = FieldKind::Uint;
+pub(in crate::db::executor::tests) static PHASE_TAG_KIND: FieldKind = FieldKind::Nat;
 
 crate::impl_test_entity_markers!(PhaseEntity);
 
@@ -357,11 +357,11 @@ crate::impl_test_entity_model_storage!(
         crate::model::field::FieldModel::generated("id", FieldKind::Ulid),
         crate::model::field::FieldModel::generated_with_storage_decode_and_nullability(
             "opt_rank",
-            FieldKind::Uint,
+            FieldKind::Nat,
             crate::model::field::FieldStorageDecode::ByKind,
             true,
         ),
-        crate::model::field::FieldModel::generated("rank", FieldKind::Uint),
+        crate::model::field::FieldModel::generated("rank", FieldKind::Nat),
         crate::model::field::FieldModel::generated("tags", FieldKind::List(&PHASE_TAG_KIND)),
         crate::model::field::FieldModel::generated("label", FieldKind::Text { max_len: None })
     ],

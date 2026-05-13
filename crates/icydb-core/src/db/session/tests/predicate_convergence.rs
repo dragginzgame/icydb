@@ -264,7 +264,7 @@ fn predicate_and_projection_comparisons_match_for_shared_supported_cases() {
     };
     let values = [
         (1_usize, Value::Text("cmp-alpha".to_string())),
-        (2_usize, Value::Uint(20)),
+        (2_usize, Value::Nat(20)),
     ];
 
     let predicate_cases = [
@@ -272,7 +272,7 @@ fn predicate_and_projection_comparisons_match_for_shared_supported_cases() {
             Predicate::Compare(ComparePredicate::with_coercion(
                 "age",
                 CompareOp::Eq,
-                Value::Uint(20),
+                Value::Nat(20),
                 CoercionId::NumericWiden,
             )),
             Value::Bool(true),
@@ -281,7 +281,7 @@ fn predicate_and_projection_comparisons_match_for_shared_supported_cases() {
             Predicate::Compare(ComparePredicate::with_coercion(
                 "age",
                 CompareOp::Gt,
-                Value::Uint(10),
+                Value::Nat(10),
                 CoercionId::NumericWiden,
             )),
             Value::Bool(true),
@@ -327,7 +327,7 @@ fn predicate_documents_unsupported_ne_projection_drift() {
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "name",
         CompareOp::Ne,
-        Value::Uint(20),
+        Value::Nat(20),
         CoercionId::Strict,
     ));
     let program = PredicateProgram::compile_for_model_only(SessionSqlEntity::MODEL, &predicate);

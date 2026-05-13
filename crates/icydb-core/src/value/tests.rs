@@ -26,7 +26,7 @@ fn v_i(x: i64) -> Value {
     Value::Int(x)
 }
 fn v_u(x: u64) -> Value {
-    Value::Uint(x)
+    Value::Nat(x)
 }
 fn v_d_i(x: i64) -> Value {
     Value::Decimal(Decimal::from_i64(x).unwrap())
@@ -84,14 +84,14 @@ macro_rules! sample_value_for_scalar {
     (Timestamp) => {
         Value::Timestamp(Timestamp::from_secs(1))
     };
-    (Uint) => {
-        Value::Uint(7)
+    (Nat) => {
+        Value::Nat(7)
     };
-    (Uint128) => {
-        Value::Uint128(Nat128::from(9u128))
+    (Nat128) => {
+        Value::Nat128(Nat128::from(9u128))
     };
-    (UintBig) => {
-        Value::UintBig(Nat::from(11u64))
+    (NatBig) => {
+        Value::NatBig(Nat::from(11u64))
     };
     (Ulid) => {
         Value::Ulid(Ulid::from_u128(42))
@@ -168,7 +168,7 @@ fn registry_coercion_family_cases() -> Vec<(Value, CoercionFamily)> {
 #[test]
 fn as_storage_key_some_for_keyable_variants() {
     assert!(Value::Int(7).as_storage_key().is_some());
-    assert!(Value::Uint(7).as_storage_key().is_some());
+    assert!(Value::Nat(7).as_storage_key().is_some());
     assert!(Value::Ulid(Ulid::MIN).as_storage_key().is_some());
     assert!(Value::Unit.as_storage_key().is_some());
 
@@ -187,7 +187,7 @@ fn as_storage_key_some_for_keyable_variants() {
 fn storage_key_round_trips_through_value() {
     let values = [
         Value::Int(-9),
-        Value::Uint(9),
+        Value::Nat(9),
         Value::Ulid(Ulid::MAX),
         Value::Unit,
     ];
@@ -239,9 +239,9 @@ fn canonical_tag_and_rank_are_stable() {
         (Value::Subaccount(Subaccount::new([1u8; 32])), 17),
         (Value::Text("example".to_string()), 18),
         (Value::Timestamp(Timestamp::from_secs(1)), 19),
-        (Value::Uint(7), 20),
-        (Value::Uint128(Nat128::from(9u128)), 21),
-        (Value::UintBig(Nat::from(11u64)), 22),
+        (Value::Nat(7), 20),
+        (Value::Nat128(Nat128::from(9u128)), 21),
+        (Value::NatBig(Nat::from(11u64)), 22),
         (Value::Ulid(Ulid::from_u128(42)), 23),
         (Value::Unit, 24),
     ];
@@ -400,16 +400,16 @@ fn cmp_numeric_respects_registry_numeric_coercion_flag() {
 fn cmp_numeric_rejects_date_and_bigints() {
     let date = Value::Date(Date::new(2024, 1, 2));
     let int_big = Value::IntBig(Int::from(10i32));
-    let uint_big = Value::UintBig(Nat::from(10u64));
+    let nat_big = Value::NatBig(Nat::from(10u64));
     let one = Value::Int(1);
 
     assert!(!date.supports_numeric_coercion());
     assert!(!int_big.supports_numeric_coercion());
-    assert!(!uint_big.supports_numeric_coercion());
+    assert!(!nat_big.supports_numeric_coercion());
 
     assert!(date.cmp_numeric(&one).is_none());
     assert!(int_big.cmp_numeric(&one).is_none());
-    assert!(uint_big.cmp_numeric(&one).is_none());
+    assert!(nat_big.cmp_numeric(&one).is_none());
 }
 
 #[test]

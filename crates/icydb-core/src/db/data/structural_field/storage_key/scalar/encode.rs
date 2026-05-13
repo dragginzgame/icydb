@@ -1,6 +1,6 @@
 use crate::{
     db::data::structural_field::binary::{
-        push_binary_bytes, push_binary_int64, push_binary_list_len, push_binary_uint64,
+        push_binary_bytes, push_binary_int64, push_binary_list_len, push_binary_nat64,
         push_binary_unit,
     },
     db::data::structural_field::typed::{
@@ -44,8 +44,8 @@ pub(in crate::db::data::structural_field::storage_key) fn encode_scalar_storage_
             push_binary_int64(out, encode_timestamp_payload_millis(value));
             Ok(())
         }
-        (FieldKind::Uint, StorageKey::Uint(value)) => {
-            push_binary_uint64(out, value);
+        (FieldKind::Nat, StorageKey::Nat(value)) => {
+            push_binary_nat64(out, value);
             Ok(())
         }
         (FieldKind::Ulid, StorageKey::Ulid(value)) => {

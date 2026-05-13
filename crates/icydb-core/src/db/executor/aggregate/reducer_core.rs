@@ -290,7 +290,7 @@ impl ValueReducerState {
 /// Finalize one COUNT reducer payload through the shared aggregate policy.
 #[must_use]
 pub(in crate::db::executor::aggregate) const fn finalize_count(count: u64) -> Value {
-    Value::Uint(count)
+    Value::Nat(count)
 }
 
 fn selected_value_should_replace_min(

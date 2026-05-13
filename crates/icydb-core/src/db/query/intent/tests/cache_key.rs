@@ -333,9 +333,9 @@ fn structural_query_cache_key_distinguishes_grouped_having_expr() {
                 left: Box::new(crate::db::query::plan::expr::Expr::Aggregate(
                     crate::db::count(),
                 )),
-                right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Uint(1))),
+                right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Nat(1))),
             }),
-            right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Uint(5))),
+            right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Nat(5))),
         })
         .expect("widened grouped having should append");
     let right = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
@@ -349,9 +349,9 @@ fn structural_query_cache_key_distinguishes_grouped_having_expr() {
                 left: Box::new(crate::db::query::plan::expr::Expr::Aggregate(
                     crate::db::count(),
                 )),
-                right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Uint(2))),
+                right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Nat(2))),
             }),
-            right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Uint(5))),
+            right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Nat(5))),
         })
         .expect("widened grouped having should append");
 
@@ -370,13 +370,13 @@ fn structural_query_cache_key_treats_equivalent_grouped_having_boolean_shapes_as
         .aggregate(crate::db::count())
         .having_group("name", CompareOp::Eq, Value::Text("Ada".to_string()))
         .expect("grouped HAVING group-field compare should append")
-        .having_aggregate(0, CompareOp::Gt, Value::Uint(0))
+        .having_aggregate(0, CompareOp::Gt, Value::Nat(0))
         .expect("grouped HAVING aggregate compare should append");
     let right = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
         .group_by("name")
         .expect("grouped query should accept grouped field")
         .aggregate(crate::db::count())
-        .having_aggregate(0, CompareOp::Gt, Value::Uint(0))
+        .having_aggregate(0, CompareOp::Gt, Value::Nat(0))
         .expect("grouped HAVING aggregate compare should append")
         .having_group("name", CompareOp::Eq, Value::Text("Ada".to_string()))
         .expect("grouped HAVING group-field compare should append");
@@ -399,7 +399,7 @@ fn structural_query_cache_key_treats_explicit_else_grouped_case_as_canonical_equ
                 Expr::Binary {
                     op: BinaryOp::Gt,
                     left: Box::new(Expr::Aggregate(crate::db::count())),
-                    right: Box::new(Expr::Literal(Value::Uint(1))),
+                    right: Box::new(Expr::Literal(Value::Nat(1))),
                 },
                 Expr::Literal(Value::Bool(true)),
             )],
@@ -418,7 +418,7 @@ fn structural_query_cache_key_treats_explicit_else_grouped_case_as_canonical_equ
                     Expr::Binary {
                         op: BinaryOp::Gt,
                         left: Box::new(Expr::Aggregate(crate::db::count())),
-                        right: Box::new(Expr::Literal(Value::Uint(1))),
+                        right: Box::new(Expr::Literal(Value::Nat(1))),
                     },
                     Expr::Literal(Value::Bool(false)),
                 ],
@@ -445,7 +445,7 @@ fn structural_query_cache_key_treats_omitted_else_grouped_case_as_explicit_null_
                 Expr::Binary {
                     op: BinaryOp::Gt,
                     left: Box::new(Expr::Aggregate(crate::db::count())),
-                    right: Box::new(Expr::Literal(Value::Uint(1))),
+                    right: Box::new(Expr::Literal(Value::Nat(1))),
                 },
                 Expr::Literal(Value::Bool(true)),
             )],
@@ -461,7 +461,7 @@ fn structural_query_cache_key_treats_omitted_else_grouped_case_as_explicit_null_
                 Expr::Binary {
                     op: BinaryOp::Gt,
                     left: Box::new(Expr::Aggregate(crate::db::count())),
-                    right: Box::new(Expr::Literal(Value::Uint(1))),
+                    right: Box::new(Expr::Literal(Value::Nat(1))),
                 },
                 Expr::Literal(Value::Bool(true)),
             )],
@@ -487,7 +487,7 @@ fn structural_query_cache_key_keeps_omitted_else_grouped_case_distinct_from_fals
                 Expr::Binary {
                     op: BinaryOp::Gt,
                     left: Box::new(Expr::Aggregate(crate::db::count())),
-                    right: Box::new(Expr::Literal(Value::Uint(1))),
+                    right: Box::new(Expr::Literal(Value::Nat(1))),
                 },
                 Expr::Literal(Value::Bool(true)),
             )],
@@ -506,7 +506,7 @@ fn structural_query_cache_key_keeps_omitted_else_grouped_case_distinct_from_fals
                     Expr::Binary {
                         op: BinaryOp::Gt,
                         left: Box::new(Expr::Aggregate(crate::db::count())),
-                        right: Box::new(Expr::Literal(Value::Uint(1))),
+                        right: Box::new(Expr::Literal(Value::Nat(1))),
                     },
                     Expr::Literal(Value::Bool(false)),
                 ],

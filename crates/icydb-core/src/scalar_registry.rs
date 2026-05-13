@@ -87,14 +87,14 @@ macro_rules! scalar_registry_value_pat {
     (Timestamp) => {
         $crate::value::Value::Timestamp(_)
     };
-    (Uint) => {
-        $crate::value::Value::Uint(_)
+    (Nat) => {
+        $crate::value::Value::Nat(_)
     };
-    (Uint128) => {
-        $crate::value::Value::Uint128(_)
+    (Nat128) => {
+        $crate::value::Value::Nat128(_)
     };
-    (UintBig) => {
-        $crate::value::Value::UintBig(_)
+    (NatBig) => {
+        $crate::value::Value::NatBig(_)
     };
     (Ulid) => {
         $crate::value::Value::Ulid(_)

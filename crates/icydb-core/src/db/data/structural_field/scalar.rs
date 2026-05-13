@@ -5,11 +5,11 @@
 
 use crate::db::data::structural_field::FieldDecodeError;
 use crate::db::data::structural_field::binary::{
-    TAG_BYTES, TAG_FALSE, TAG_FLOAT32, TAG_FLOAT64, TAG_INT64, TAG_TEXT, TAG_TRUE, TAG_UINT64,
+    TAG_BYTES, TAG_FALSE, TAG_FLOAT32, TAG_FLOAT64, TAG_INT64, TAG_NAT64, TAG_TEXT, TAG_TRUE,
     decode_text_scalar_bytes as decode_binary_text_scalar_bytes,
     parse_binary_head as parse_structural_binary_head, payload_bytes as binary_payload_bytes,
     push_binary_bool, push_binary_bytes, push_binary_float32, push_binary_float64,
-    push_binary_int64, push_binary_null, push_binary_text, push_binary_uint64,
+    push_binary_int64, push_binary_nat64, push_binary_null, push_binary_text,
     skip_binary_value as skip_structural_binary_value,
 };
 use crate::db::data::structural_field::primitive::{
@@ -40,8 +40,8 @@ pub(super) const fn supports_scalar_binary_fast_path(kind: FieldKind) -> bool {
             | FieldKind::Int
             | FieldKind::Int128
             | FieldKind::Text { .. }
-            | FieldKind::Uint
-            | FieldKind::Uint128
+            | FieldKind::Nat
+            | FieldKind::Nat128
             | FieldKind::Ulid
     )
 }
@@ -80,7 +80,7 @@ pub(super) fn decode_scalar_fast_path_binary_bytes(
     }
 
     let value = match kind {
-        FieldKind::Blob { .. } | FieldKind::Int128 | FieldKind::Uint128 | FieldKind::Ulid => {
+        FieldKind::Blob { .. } | FieldKind::Int128 | FieldKind::Nat128 | FieldKind::Ulid => {
             decode_scalar_fast_path_binary_bytes_kind(raw_bytes, kind, tag, len, payload_start)?
         }
         FieldKind::Text { .. } => {
@@ -90,7 +90,7 @@ pub(super) fn decode_scalar_fast_path_binary_bytes(
         | FieldKind::Float32
         | FieldKind::Float64
         | FieldKind::Int
-        | FieldKind::Uint => {
+        | FieldKind::Nat => {
             decode_scalar_fast_path_binary_numeric_kind(raw_bytes, kind, tag, len, payload_start)?
         }
         _ => return Ok(None),
@@ -140,8 +140,8 @@ pub(super) fn encode_scalar_fast_path_binary_bytes(
             push_binary_bytes(&mut encoded, &encode_int128_payload_bytes(*value));
         }
         (FieldKind::Text { .. }, Value::Text(value)) => push_binary_text(&mut encoded, value),
-        (FieldKind::Uint, Value::Uint(value)) => push_binary_uint64(&mut encoded, *value),
-        (FieldKind::Uint128, Value::Uint128(value)) => {
+        (FieldKind::Nat, Value::Nat(value)) => push_binary_nat64(&mut encoded, *value),
+        (FieldKind::Nat128, Value::Nat128(value)) => {
             push_binary_bytes(&mut encoded, &encode_nat128_payload_bytes(*value));
         }
         (FieldKind::Ulid, Value::Ulid(value)) => {
@@ -374,7 +374,7 @@ pub(super) fn encode_nat128_fast_path_binary_bytes(
     kind: FieldKind,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
-    if !matches!(kind, FieldKind::Uint128) {
+    if !matches!(kind, FieldKind::Nat128) {
         return Err(InternalError::persisted_row_field_encode_failed(
             field_name,
             format!("field kind {kind:?} does not accept nat128"),
@@ -392,7 +392,7 @@ pub(super) fn decode_nat128_fast_path_binary_bytes(
     kind: FieldKind,
 ) -> Result<Option<Nat128>, FieldDecodeError> {
     match decode_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
-        Some(Value::Uint128(value)) => Ok(Some(value)),
+        Some(Value::Nat128(value)) => Ok(Some(value)),
         Some(Value::Null) => Ok(None),
         Some(_) => Err(FieldDecodeError::new(
             "scalar field unexpectedly decoded as non-nat128 value",
@@ -424,7 +424,7 @@ fn decode_scalar_fast_path_binary_bytes_kind(
         FieldKind::Int128 => Ok(Value::Int128(decode_int128_payload_bytes(
             binary_payload_bytes(raw_bytes, len, payload_start, "byte payload")?,
         )?)),
-        FieldKind::Uint128 => Ok(Value::Uint128(decode_nat128_payload_bytes(
+        FieldKind::Nat128 => Ok(Value::Nat128(decode_nat128_payload_bytes(
             binary_payload_bytes(raw_bytes, len, payload_start, "byte payload")?,
         )?)),
         FieldKind::Ulid => Ok(Value::Ulid(decode_ulid_payload_bytes(
@@ -520,14 +520,14 @@ fn decode_scalar_fast_path_binary_numeric_kind(
                 "i64",
             )?))
         }
-        FieldKind::Uint => {
-            if tag != TAG_UINT64 || len != 8 {
+        FieldKind::Nat => {
+            if tag != TAG_NAT64 || len != 8 {
                 return Err(FieldDecodeError::new(
                     "structural binary: expected u64 integer payload",
                 ));
             }
 
-            Ok(Value::Uint(decode_u64_payload_bytes(
+            Ok(Value::Nat(decode_u64_payload_bytes(
                 binary_payload_bytes(raw_bytes, len, payload_start, "integer")?,
                 "u64",
             )?))

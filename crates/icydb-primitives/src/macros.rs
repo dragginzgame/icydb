@@ -183,7 +183,7 @@ macro_rules! scalar_kind_registry_entries {
                 is_storage_key_encodable = true
             ),
             (
-                Uint,
+                Nat,
                 Numeric,
                 is_numeric_value = true,
                 supports_numeric_coercion = true,
@@ -194,7 +194,7 @@ macro_rules! scalar_kind_registry_entries {
                 is_storage_key_encodable = true
             ),
             (
-                Uint128,
+                Nat128,
                 Numeric,
                 is_numeric_value = true,
                 supports_numeric_coercion = true,
@@ -205,7 +205,7 @@ macro_rules! scalar_kind_registry_entries {
                 is_storage_key_encodable = false
             ),
             (
-                UintBig,
+                NatBig,
                 Numeric,
                 is_numeric_value = false,
                 supports_numeric_coercion = false,

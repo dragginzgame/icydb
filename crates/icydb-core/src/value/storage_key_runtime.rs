@@ -22,9 +22,9 @@ const fn runtime_value_kind_label(value: &Value) -> &'static str {
         Value::Subaccount(_) => "Subaccount",
         Value::Text(_) => "Text",
         Value::Timestamp(_) => "Timestamp",
-        Value::Uint(_) => "Uint",
-        Value::Uint128(_) => "Uint128",
-        Value::UintBig(_) => "UintBig",
+        Value::Nat(_) => "Nat",
+        Value::Nat128(_) => "Nat128",
+        Value::NatBig(_) => "NatBig",
         Value::Ulid(_) => "Ulid",
         Value::Unit => "Unit",
     }
@@ -42,7 +42,7 @@ pub(crate) const fn storage_key_as_runtime_value(key: &StorageKey) -> Value {
         StorageKey::Principal(v) => Value::Principal(*v),
         StorageKey::Subaccount(v) => Value::Subaccount(*v),
         StorageKey::Timestamp(v) => Value::Timestamp(*v),
-        StorageKey::Uint(v) => Value::Uint(*v),
+        StorageKey::Nat(v) => Value::Nat(*v),
         StorageKey::Ulid(v) => Value::Ulid(*v),
         StorageKey::Unit => Value::Unit,
     }
@@ -65,7 +65,7 @@ pub(crate) const fn storage_key_from_runtime_value(
         Value::Principal(v) => Ok(StorageKey::Principal(*v)),
         Value::Subaccount(v) => Ok(StorageKey::Subaccount(*v)),
         Value::Timestamp(v) => Ok(StorageKey::Timestamp(*v)),
-        Value::Uint(v) => Ok(StorageKey::Uint(*v)),
+        Value::Nat(v) => Ok(StorageKey::Nat(*v)),
         Value::Ulid(v) => Ok(StorageKey::Ulid(*v)),
         Value::Unit => Ok(StorageKey::Unit),
         _ => Err(StorageKeyEncodeError::UnsupportedValueKind {

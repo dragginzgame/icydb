@@ -65,9 +65,9 @@ pub(super) const fn infer_literal_type(value: &Value) -> ExprType {
         Value::Int(_)
         | Value::Int128(_)
         | Value::IntBig(_)
-        | Value::Uint(_)
-        | Value::Uint128(_)
-        | Value::UintBig(_)
+        | Value::Nat(_)
+        | Value::Nat128(_)
+        | Value::NatBig(_)
         | Value::Duration(_)
         | Value::Timestamp(_) => ExprType::Numeric(NumericSubtype::Integer),
         Value::Float32(_) | Value::Float64(_) => ExprType::Numeric(NumericSubtype::Float),
@@ -102,9 +102,9 @@ pub(super) const fn expr_type_from_field_type(field_type: &FieldType) -> ExprTyp
             | ScalarType::Int128
             | ScalarType::IntBig
             | ScalarType::Timestamp
-            | ScalarType::Uint
-            | ScalarType::Uint128
-            | ScalarType::UintBig,
+            | ScalarType::Nat
+            | ScalarType::Nat128
+            | ScalarType::NatBig,
         ) => ExprType::Numeric(NumericSubtype::Integer),
         FieldType::Scalar(ScalarType::Float32 | ScalarType::Float64) => {
             ExprType::Numeric(NumericSubtype::Float)

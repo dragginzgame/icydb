@@ -102,7 +102,7 @@ fn compile_index_program_maps_field_slot_to_component_index() {
     let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
         Some(7),
         CompareOp::Eq,
-        Value::Uint(11),
+        Value::Nat(11),
         CoercionSpec::new(CoercionId::Strict),
     ));
 
@@ -113,7 +113,7 @@ fn compile_index_program_maps_field_slot_to_component_index() {
     )
     .expect("strict EQ over indexed slot should compile");
     let expected =
-        literal_index_component_bytes(&Value::Uint(11)).expect("uint literal should convert");
+        literal_index_component_bytes(&Value::Nat(11)).expect("nat literal should convert");
 
     assert_eq!(
         program,
@@ -130,7 +130,7 @@ fn compile_index_program_rejects_non_strict_coercion() {
     let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
         Some(1),
         CompareOp::Eq,
-        Value::Uint(11),
+        Value::Nat(11),
         CoercionSpec::new(CoercionId::NumericWiden),
     ));
 
@@ -141,19 +141,19 @@ fn compile_index_program_rejects_non_strict_coercion() {
 #[test]
 fn compile_index_program_operator_matrix_matches_strict_subset() {
     let eligible = [
-        (CompareOp::Eq, Value::Uint(11)),
-        (CompareOp::Ne, Value::Uint(11)),
-        (CompareOp::Lt, Value::Uint(11)),
-        (CompareOp::Lte, Value::Uint(11)),
-        (CompareOp::Gt, Value::Uint(11)),
-        (CompareOp::Gte, Value::Uint(11)),
+        (CompareOp::Eq, Value::Nat(11)),
+        (CompareOp::Ne, Value::Nat(11)),
+        (CompareOp::Lt, Value::Nat(11)),
+        (CompareOp::Lte, Value::Nat(11)),
+        (CompareOp::Gt, Value::Nat(11)),
+        (CompareOp::Gte, Value::Nat(11)),
         (
             CompareOp::In,
-            Value::List(vec![Value::Uint(11), Value::Uint(12)]),
+            Value::List(vec![Value::Nat(11), Value::Nat(12)]),
         ),
         (
             CompareOp::NotIn,
-            Value::List(vec![Value::Uint(11), Value::Uint(12)]),
+            Value::List(vec![Value::Nat(11), Value::Nat(12)]),
         ),
         (CompareOp::StartsWith, Value::Text("x".to_string())),
     ];
@@ -413,19 +413,19 @@ fn compile_index_program_targets_accept_text_casefold_strict_range() {
 #[test]
 fn compile_index_program_rejects_non_strict_coercion_across_operator_subset() {
     let operators = [
-        (CompareOp::Eq, Value::Uint(11)),
-        (CompareOp::Ne, Value::Uint(11)),
-        (CompareOp::Lt, Value::Uint(11)),
-        (CompareOp::Lte, Value::Uint(11)),
-        (CompareOp::Gt, Value::Uint(11)),
-        (CompareOp::Gte, Value::Uint(11)),
+        (CompareOp::Eq, Value::Nat(11)),
+        (CompareOp::Ne, Value::Nat(11)),
+        (CompareOp::Lt, Value::Nat(11)),
+        (CompareOp::Lte, Value::Nat(11)),
+        (CompareOp::Gt, Value::Nat(11)),
+        (CompareOp::Gte, Value::Nat(11)),
         (
             CompareOp::In,
-            Value::List(vec![Value::Uint(11), Value::Uint(12)]),
+            Value::List(vec![Value::Nat(11), Value::Nat(12)]),
         ),
         (
             CompareOp::NotIn,
-            Value::List(vec![Value::Uint(11), Value::Uint(12)]),
+            Value::List(vec![Value::Nat(11), Value::Nat(12)]),
         ),
     ];
 
@@ -451,7 +451,7 @@ fn compile_index_program_rejects_in_with_non_list_literal() {
     let predicate = ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
         Some(1),
         CompareOp::In,
-        Value::Uint(11),
+        Value::Nat(11),
         CoercionSpec::new(CoercionId::Strict),
     ));
 
@@ -478,7 +478,7 @@ fn compile_index_program_and_subset_compiles_supported_children_only() {
         ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
             Some(1),
             CompareOp::Eq,
-            Value::Uint(11),
+            Value::Nat(11),
             CoercionSpec::new(CoercionId::Strict),
         )),
         ExecutablePredicate::TextContains {
@@ -488,7 +488,7 @@ fn compile_index_program_and_subset_compiles_supported_children_only() {
         ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
             Some(2),
             CompareOp::Gt,
-            Value::Uint(9),
+            Value::Nat(9),
             CoercionSpec::new(CoercionId::Strict),
         )),
     ]);
@@ -498,9 +498,9 @@ fn compile_index_program_and_subset_compiles_supported_children_only() {
             .expect("subset mode should keep supported children");
 
     let expected_left =
-        literal_index_component_bytes(&Value::Uint(11)).expect("left should convert");
+        literal_index_component_bytes(&Value::Nat(11)).expect("left should convert");
     let expected_right =
-        literal_index_component_bytes(&Value::Uint(9)).expect("right should convert");
+        literal_index_component_bytes(&Value::Nat(9)).expect("right should convert");
 
     assert_eq!(
         program,
@@ -542,7 +542,7 @@ fn compile_index_program_strict_rejects_partial_and_support() {
         ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
             Some(1),
             CompareOp::Eq,
-            Value::Uint(11),
+            Value::Nat(11),
             CoercionSpec::new(CoercionId::Strict),
         )),
         ExecutablePredicate::TextContains {

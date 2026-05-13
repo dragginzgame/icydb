@@ -69,9 +69,9 @@ fn to_decimal(value: &Value) -> Option<Decimal> {
         Value::Int128(value) => value.try_to_decimal(),
         Value::IntBig(value) => value.try_to_decimal(),
         Value::Timestamp(value) => value.try_to_decimal(),
-        Value::Uint(value) => value.try_to_decimal(),
-        Value::Uint128(value) => value.try_to_decimal(),
-        Value::UintBig(value) => value.try_to_decimal(),
+        Value::Nat(value) => value.try_to_decimal(),
+        Value::Nat128(value) => value.try_to_decimal(),
+        Value::NatBig(value) => value.try_to_decimal(),
 
         _ => None,
     }
@@ -102,9 +102,9 @@ fn to_f64_lossless(value: &Value) -> Option<f64> {
         Value::Timestamp(value) if (-F64_SAFE_I64..=F64_SAFE_I64).contains(&value.repr()) => {
             Some(value.repr() as f64)
         }
-        Value::Uint(value) if *value <= F64_SAFE_U64 => Some(*value as f64),
-        Value::Uint128(value) if value.get() <= F64_SAFE_U128 => Some(value.get() as f64),
-        Value::UintBig(value) => value
+        Value::Nat(value) if *value <= F64_SAFE_U64 => Some(*value as f64),
+        Value::Nat128(value) if value.get() <= F64_SAFE_U128 => Some(value.get() as f64),
+        Value::NatBig(value) => value
             .to_u128()
             .and_then(|integer| (integer <= F64_SAFE_U128).then_some(integer as f64)),
 

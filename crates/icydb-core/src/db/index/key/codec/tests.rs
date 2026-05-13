@@ -245,7 +245,7 @@ fn index_key_rejects_trailing_bytes() {
 #[test]
 fn raw_index_key_validated_component_reads_requested_segment() {
     let first = encode_component(&Value::Text("alpha".to_string()));
-    let second = encode_component(&Value::Uint(7));
+    let second = encode_component(&Value::Nat(7));
     let key = key_with(
         IndexKeyKind::User,
         index_id(),
@@ -926,8 +926,8 @@ fn index_prefix_scan_bounds_are_consistent_with_key_encoding() {
         key_with(
             IndexKeyKind::User,
             index_id(),
-            vec![prefix_component.clone(), encode_component(&Value::Uint(1))],
-            StorageKey::Uint(1)
+            vec![prefix_component.clone(), encode_component(&Value::Nat(1))],
+            StorageKey::Nat(1)
                 .to_bytes()
                 .expect("storage key encoding should succeed")
                 .to_vec(),
@@ -935,8 +935,8 @@ fn index_prefix_scan_bounds_are_consistent_with_key_encoding() {
         key_with(
             IndexKeyKind::User,
             index_id(),
-            vec![prefix_component, encode_component(&Value::Uint(2))],
-            StorageKey::Uint(2)
+            vec![prefix_component, encode_component(&Value::Nat(2))],
+            StorageKey::Nat(2)
                 .to_bytes()
                 .expect("storage key encoding should succeed")
                 .to_vec(),
@@ -960,9 +960,9 @@ fn index_prefix_scan_bounds_are_consistent_with_key_encoding() {
         index_id(),
         vec![
             encode_component(&Value::Text("aalph".to_string())),
-            encode_component(&Value::Uint(1)),
+            encode_component(&Value::Nat(1)),
         ],
-        StorageKey::Uint(3)
+        StorageKey::Nat(3)
             .to_bytes()
             .expect("storage key encoding should succeed")
             .to_vec(),
@@ -973,9 +973,9 @@ fn index_prefix_scan_bounds_are_consistent_with_key_encoding() {
         index_id(),
         vec![
             encode_component(&Value::Text("zebra".to_string())),
-            encode_component(&Value::Uint(1)),
+            encode_component(&Value::Nat(1)),
         ],
-        StorageKey::Uint(4)
+        StorageKey::Nat(4)
             .to_bytes()
             .expect("storage key encoding should succeed")
             .to_vec(),
@@ -1036,7 +1036,7 @@ fn index_key_primary_key_equivalence_fails_closed_on_corrupted_anchor_payload() 
 
 #[test]
 fn index_key_primary_key_equivalence_rejects_non_storage_key_boundary_values() {
-    let encoded_pk = StorageKey::Uint(11)
+    let encoded_pk = StorageKey::Nat(11)
         .to_bytes()
         .expect("storage key encoding should succeed")
         .to_vec();
@@ -1080,7 +1080,7 @@ fn index_key_partial_truncation_cases_fail_closed() {
         IndexKeyKind::User,
         index_id(),
         vec![encode_component(&Value::Int(9))],
-        StorageKey::Uint(1)
+        StorageKey::Nat(1)
             .to_bytes()
             .expect("storage key encoding should succeed")
             .to_vec(),
@@ -1242,12 +1242,12 @@ fn in_range(
 
 #[test]
 fn index_key_component_range_excluded_upper_skips_entire_upper_value_group() {
-    let prefix_a = encode_component(&Value::Uint(7));
-    let b10 = encode_component(&Value::Uint(10));
-    let b11 = encode_component(&Value::Uint(11));
-    let b20 = encode_component(&Value::Uint(20));
-    let c1 = encode_component(&Value::Uint(1));
-    let c9 = encode_component(&Value::Uint(9));
+    let prefix_a = encode_component(&Value::Nat(7));
+    let b10 = encode_component(&Value::Nat(10));
+    let b11 = encode_component(&Value::Nat(11));
+    let b20 = encode_component(&Value::Nat(20));
+    let c1 = encode_component(&Value::Nat(1));
+    let c9 = encode_component(&Value::Nat(9));
 
     let k_b10_lo = key_with(
         IndexKeyKind::User,
@@ -1277,9 +1277,9 @@ fn index_key_component_range_excluded_upper_skips_entire_upper_value_group() {
     let (lower, upper) = IndexKey::bounds_for_prefix_component_range(
         &index_id(),
         3,
-        &[encode_component(&Value::Uint(7))],
-        &RangeBound::Included(encode_component(&Value::Uint(10))),
-        &RangeBound::Excluded(encode_component(&Value::Uint(20))),
+        &[encode_component(&Value::Nat(7))],
+        &RangeBound::Included(encode_component(&Value::Nat(10))),
+        &RangeBound::Excluded(encode_component(&Value::Nat(20))),
     );
 
     let keys = [
@@ -1307,17 +1307,17 @@ fn index_key_component_range_excluded_upper_skips_entire_upper_value_group() {
 
 #[test]
 fn index_key_component_range_excluded_lower_skips_entire_lower_value_group() {
-    let b10 = encode_component(&Value::Uint(10));
-    let b11 = encode_component(&Value::Uint(11));
-    let b20 = encode_component(&Value::Uint(20));
+    let b10 = encode_component(&Value::Nat(10));
+    let b11 = encode_component(&Value::Nat(11));
+    let b20 = encode_component(&Value::Nat(20));
 
     let k_b10 = key_with(
         IndexKeyKind::User,
         index_id(),
         vec![
-            encode_component(&Value::Uint(7)),
+            encode_component(&Value::Nat(7)),
             b10,
-            encode_component(&Value::Uint(1)),
+            encode_component(&Value::Nat(1)),
         ],
         vec![0x01],
     );
@@ -1325,9 +1325,9 @@ fn index_key_component_range_excluded_lower_skips_entire_lower_value_group() {
         IndexKeyKind::User,
         index_id(),
         vec![
-            encode_component(&Value::Uint(7)),
+            encode_component(&Value::Nat(7)),
             b11,
-            encode_component(&Value::Uint(1)),
+            encode_component(&Value::Nat(1)),
         ],
         vec![0x02],
     );
@@ -1335,9 +1335,9 @@ fn index_key_component_range_excluded_lower_skips_entire_lower_value_group() {
         IndexKeyKind::User,
         index_id(),
         vec![
-            encode_component(&Value::Uint(7)),
+            encode_component(&Value::Nat(7)),
             b20,
-            encode_component(&Value::Uint(1)),
+            encode_component(&Value::Nat(1)),
         ],
         vec![0x03],
     );
@@ -1345,9 +1345,9 @@ fn index_key_component_range_excluded_lower_skips_entire_lower_value_group() {
     let (lower, upper) = IndexKey::bounds_for_prefix_component_range(
         &index_id(),
         3,
-        &[encode_component(&Value::Uint(7))],
-        &RangeBound::Excluded(encode_component(&Value::Uint(10))),
-        &RangeBound::Included(encode_component(&Value::Uint(20))),
+        &[encode_component(&Value::Nat(7))],
+        &RangeBound::Excluded(encode_component(&Value::Nat(10))),
+        &RangeBound::Included(encode_component(&Value::Nat(20))),
     );
 
     let keys = [k_b10.to_raw(), k_b11.to_raw(), k_b20.to_raw()];
@@ -1370,36 +1370,36 @@ fn index_key_component_range_excluded_lower_skips_entire_lower_value_group() {
 
 #[test]
 fn index_key_component_range_inclusive_extremes_cover_min_and_max_groups() {
-    let prefix_7 = encode_component(&Value::Uint(7));
-    let b0 = encode_component(&Value::Uint(0));
-    let b1 = encode_component(&Value::Uint(1));
-    let b_max = encode_component(&Value::Uint(u64::from(u32::MAX)));
+    let prefix_7 = encode_component(&Value::Nat(7));
+    let b0 = encode_component(&Value::Nat(0));
+    let b1 = encode_component(&Value::Nat(1));
+    let b_max = encode_component(&Value::Nat(u64::from(u32::MAX)));
 
     let k_b0 = key_with(
         IndexKeyKind::User,
         index_id(),
-        vec![prefix_7.clone(), b0, encode_component(&Value::Uint(1))],
+        vec![prefix_7.clone(), b0, encode_component(&Value::Nat(1))],
         vec![0x11],
     );
     let k_b1 = key_with(
         IndexKeyKind::User,
         index_id(),
-        vec![prefix_7.clone(), b1, encode_component(&Value::Uint(1))],
+        vec![prefix_7.clone(), b1, encode_component(&Value::Nat(1))],
         vec![0x12],
     );
     let k_b_max = key_with(
         IndexKeyKind::User,
         index_id(),
-        vec![prefix_7.clone(), b_max, encode_component(&Value::Uint(1))],
+        vec![prefix_7.clone(), b_max, encode_component(&Value::Nat(1))],
         vec![0x13],
     );
     let k_other_prefix = key_with(
         IndexKeyKind::User,
         index_id(),
         vec![
-            encode_component(&Value::Uint(8)),
-            encode_component(&Value::Uint(0)),
-            encode_component(&Value::Uint(1)),
+            encode_component(&Value::Nat(8)),
+            encode_component(&Value::Nat(0)),
+            encode_component(&Value::Nat(1)),
         ],
         vec![0x14],
     );
@@ -1408,8 +1408,8 @@ fn index_key_component_range_inclusive_extremes_cover_min_and_max_groups() {
         &index_id(),
         3,
         &[prefix_7],
-        &RangeBound::Included(encode_component(&Value::Uint(0))),
-        &RangeBound::Included(encode_component(&Value::Uint(u64::from(u32::MAX)))),
+        &RangeBound::Included(encode_component(&Value::Nat(0))),
+        &RangeBound::Included(encode_component(&Value::Nat(u64::from(u32::MAX)))),
     );
 
     let keys = [
@@ -1437,22 +1437,22 @@ fn index_key_component_range_inclusive_extremes_cover_min_and_max_groups() {
 
 #[test]
 fn index_key_component_range_exclusive_extremes_skip_min_and_max_groups() {
-    let prefix_7 = encode_component(&Value::Uint(7));
-    let b0 = encode_component(&Value::Uint(0));
-    let b1 = encode_component(&Value::Uint(1));
-    let b_max_minus_1 = encode_component(&Value::Uint(u64::from(u32::MAX) - 1));
-    let b_max = encode_component(&Value::Uint(u64::from(u32::MAX)));
+    let prefix_7 = encode_component(&Value::Nat(7));
+    let b0 = encode_component(&Value::Nat(0));
+    let b1 = encode_component(&Value::Nat(1));
+    let b_max_minus_1 = encode_component(&Value::Nat(u64::from(u32::MAX) - 1));
+    let b_max = encode_component(&Value::Nat(u64::from(u32::MAX)));
 
     let k_b0 = key_with(
         IndexKeyKind::User,
         index_id(),
-        vec![prefix_7.clone(), b0, encode_component(&Value::Uint(1))],
+        vec![prefix_7.clone(), b0, encode_component(&Value::Nat(1))],
         vec![0x21],
     );
     let k_b1 = key_with(
         IndexKeyKind::User,
         index_id(),
-        vec![prefix_7.clone(), b1, encode_component(&Value::Uint(1))],
+        vec![prefix_7.clone(), b1, encode_component(&Value::Nat(1))],
         vec![0x22],
     );
     let k_b_max_minus_1 = key_with(
@@ -1461,23 +1461,23 @@ fn index_key_component_range_exclusive_extremes_skip_min_and_max_groups() {
         vec![
             prefix_7.clone(),
             b_max_minus_1,
-            encode_component(&Value::Uint(1)),
+            encode_component(&Value::Nat(1)),
         ],
         vec![0x23],
     );
     let k_b_max = key_with(
         IndexKeyKind::User,
         index_id(),
-        vec![prefix_7, b_max, encode_component(&Value::Uint(1))],
+        vec![prefix_7, b_max, encode_component(&Value::Nat(1))],
         vec![0x24],
     );
 
     let (lower, upper) = IndexKey::bounds_for_prefix_component_range(
         &index_id(),
         3,
-        &[encode_component(&Value::Uint(7))],
-        &RangeBound::Excluded(encode_component(&Value::Uint(0))),
-        &RangeBound::Excluded(encode_component(&Value::Uint(u64::from(u32::MAX)))),
+        &[encode_component(&Value::Nat(7))],
+        &RangeBound::Excluded(encode_component(&Value::Nat(0))),
+        &RangeBound::Excluded(encode_component(&Value::Nat(u64::from(u32::MAX)))),
     );
 
     let keys = [

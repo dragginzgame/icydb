@@ -631,9 +631,9 @@ fn write_field_kind_summary(out: &mut String, kind: &FieldKind) {
             write_length_bounded_field_kind_summary(out, "text", *max_len);
         }
         FieldKind::Timestamp => out.push_str("timestamp"),
-        FieldKind::Uint => out.push_str("uint"),
-        FieldKind::Uint128 => out.push_str("uint128"),
-        FieldKind::UintBig => out.push_str("uint_big"),
+        FieldKind::Nat => out.push_str("nat"),
+        FieldKind::Nat128 => out.push_str("nat128"),
+        FieldKind::NatBig => out.push_str("nat_big"),
         FieldKind::Ulid => out.push_str("ulid"),
         FieldKind::Unit => out.push_str("unit"),
         FieldKind::Relation {
@@ -760,9 +760,9 @@ fn write_persisted_field_kind_summary(out: &mut String, kind: &PersistedFieldKin
             write_length_bounded_field_kind_summary(out, "text", *max_len);
         }
         PersistedFieldKind::Timestamp => out.push_str("timestamp"),
-        PersistedFieldKind::Uint => out.push_str("uint"),
-        PersistedFieldKind::Uint128 => out.push_str("uint128"),
-        PersistedFieldKind::UintBig => out.push_str("uint_big"),
+        PersistedFieldKind::Nat => out.push_str("nat"),
+        PersistedFieldKind::Nat128 => out.push_str("nat128"),
+        PersistedFieldKind::NatBig => out.push_str("nat_big"),
         PersistedFieldKind::Ulid => out.push_str("ulid"),
         PersistedFieldKind::Unit => out.push_str("unit"),
         PersistedFieldKind::Relation {
@@ -868,7 +868,7 @@ mod tests {
         target_entity_name: "Account",
         target_entity_tag: EntityTag::new(0xD002),
         target_store_path: "stores::Account",
-        key_kind: &FieldKind::Uint,
+        key_kind: &FieldKind::Nat,
         strength: RelationStrength::Weak,
     };
     static DESCRIBE_SET_RELATION_INNER_KIND: FieldKind = FieldKind::Relation {
@@ -1126,7 +1126,7 @@ mod tests {
             FieldModel::generated("id", FieldKind::Ulid),
             FieldModel::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
                 "score",
-                FieldKind::Uint,
+                FieldKind::Nat,
                 FieldStorageDecode::ByKind,
                 false,
                 None,
@@ -1152,7 +1152,7 @@ mod tests {
             .find(|field| field.name() == "score")
             .expect("database-defaulted score field should be described");
 
-        assert_eq!(score_field.kind(), "uint default=slot_payload(bytes=10)");
+        assert_eq!(score_field.kind(), "nat default=slot_payload(bytes=10)");
     }
 
     #[test]
@@ -1282,7 +1282,7 @@ mod tests {
     fn schema_describe_expands_generated_structured_field_leaves() {
         static NESTED_FIELDS: [FieldModel; 3] = [
             FieldModel::generated("name", FieldKind::Text { max_len: None }),
-            FieldModel::generated("level", FieldKind::Uint),
+            FieldModel::generated("level", FieldKind::Nat),
             FieldModel::generated("pid", FieldKind::Principal),
         ];
         static FIELDS: [FieldModel; 2] = [
@@ -1320,7 +1320,7 @@ mod tests {
                 ("id", Some(0), "ulid", true),
                 ("mentor", Some(1), "structured", false),
                 ("├─ name", None, "text(unbounded)", true),
-                ("├─ level", None, "uint", true),
+                ("├─ level", None, "nat", true),
                 ("└─ pid", None, "principal", true),
             ],
         );

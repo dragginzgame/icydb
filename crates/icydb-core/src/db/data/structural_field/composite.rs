@@ -301,9 +301,9 @@ pub(super) fn decode_composite_field_binary_bytes(
         | FieldKind::Subaccount
         | FieldKind::Text { .. }
         | FieldKind::Timestamp
-        | FieldKind::Uint
-        | FieldKind::Uint128
-        | FieldKind::UintBig
+        | FieldKind::Nat
+        | FieldKind::Nat128
+        | FieldKind::NatBig
         | FieldKind::Ulid
         | FieldKind::Unit => Err(FieldDecodeError::new(
             "leaf field unexpectedly routed through binary composite decode",
@@ -342,9 +342,9 @@ pub(super) fn validate_composite_field_binary_bytes(
         | FieldKind::Subaccount
         | FieldKind::Text { .. }
         | FieldKind::Timestamp
-        | FieldKind::Uint
-        | FieldKind::Uint128
-        | FieldKind::UintBig
+        | FieldKind::Nat
+        | FieldKind::Nat128
+        | FieldKind::NatBig
         | FieldKind::Ulid
         | FieldKind::Unit => Err(FieldDecodeError::new(
             "leaf field unexpectedly routed through binary composite validate",
@@ -556,7 +556,7 @@ mod tests {
 
     static STATE_VARIANTS: &[EnumVariantModel] = &[EnumVariantModel::new(
         "Loaded",
-        Some(&FieldKind::Uint),
+        Some(&FieldKind::Nat),
         FieldStorageDecode::ByKind,
     )];
 
@@ -581,11 +581,11 @@ mod tests {
     fn binary_composite_map_roundtrips_scalar_entries() {
         let kind = FieldKind::Map {
             key: &FieldKind::Text { max_len: None },
-            value: &FieldKind::Uint,
+            value: &FieldKind::Nat,
         };
         let value = Value::Map(vec![
-            (Value::Text("alpha".to_string()), Value::Uint(1)),
-            (Value::Text("beta".to_string()), Value::Uint(2)),
+            (Value::Text("alpha".to_string()), Value::Nat(1)),
+            (Value::Text("beta".to_string()), Value::Nat(2)),
         ]);
         let encoded = encode_composite_field_binary_bytes(kind, &value, "entries")
             .expect("binary composite map should encode");
@@ -604,7 +604,7 @@ mod tests {
             variants: STATE_VARIANTS,
         };
         let value =
-            Value::Enum(ValueEnum::new("Loaded", Some("State")).with_payload(Value::Uint(7)));
+            Value::Enum(ValueEnum::new("Loaded", Some("State")).with_payload(Value::Nat(7)));
         let encoded = encode_composite_field_binary_bytes(kind, &value, "state")
             .expect("binary composite enum should encode");
         let decoded = decode_composite_field_binary_bytes(&encoded, kind)

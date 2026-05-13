@@ -11,7 +11,7 @@ fn field_path_rebuild_key_materializes_from_accepted_target_slots() {
     let slots = RebuildSlotReader {
         values: vec![None, Some(Value::Text("Ada".to_string()))],
     };
-    let storage_key = crate::db::data::StorageKey::Uint(42);
+    let storage_key = crate::db::data::StorageKey::Nat(42);
 
     let key = IndexKey::new_from_slots_with_field_path_rebuild_target(
         EntityTag::new(7),
@@ -54,9 +54,9 @@ fn field_path_rebuild_stages_sorted_entries_without_publication() {
         EntityTag::new(7),
         target,
         [
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(2), &second),
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(1), &first),
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(3), &skipped),
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(3), &skipped),
         ],
     )
     .expect("field-path rebuild rows should stage into raw index entries");
@@ -90,7 +90,7 @@ fn field_path_rebuild_stages_sorted_entries_without_publication() {
 
     assert_eq!(
         staged_members,
-        vec![vec![StorageKey::Uint(1)], vec![StorageKey::Uint(2)]],
+        vec![vec![StorageKey::Nat(1)], vec![StorageKey::Nat(2)]],
     );
 
     let validation = staged
@@ -124,8 +124,8 @@ fn field_path_rebuild_validation_fails_closed_for_mutated_staged_state() {
         EntityTag::new(7),
         target,
         [
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(1), &first),
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(2), &second),
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
         ],
     )
     .expect("field-path rebuild rows should stage into raw index entries");
@@ -197,9 +197,9 @@ fn field_path_rebuild_validation_reports_runner_diagnostics_without_publication(
         EntityTag::new(7),
         target,
         [
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(2), &second),
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(3), &skipped),
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(1), &first),
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(3), &skipped),
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
         ],
     )
     .expect("field-path rebuild rows should stage into raw index entries");
@@ -261,8 +261,8 @@ fn field_path_rebuild_writes_validated_entries_to_staged_store_buffer() {
         EntityTag::new(7),
         target,
         [
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(2), &second),
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(1), &first),
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
         ],
     )
     .expect("field-path rebuild rows should stage into raw index entries");

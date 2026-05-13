@@ -134,12 +134,12 @@ mod tests {
     #[test]
     fn stable_hash_respects_canonical_map_order() {
         let left = Value::Map(vec![
-            (Value::Text("z".to_string()), Value::Uint(9)),
-            (Value::Text("a".to_string()), Value::Uint(1)),
+            (Value::Text("z".to_string()), Value::Nat(9)),
+            (Value::Text("a".to_string()), Value::Nat(1)),
         ]);
         let right = Value::Map(vec![
-            (Value::Text("a".to_string()), Value::Uint(1)),
-            (Value::Text("z".to_string()), Value::Uint(9)),
+            (Value::Text("a".to_string()), Value::Nat(1)),
+            (Value::Text("z".to_string()), Value::Nat(9)),
         ]);
         assert_eq!(
             stable_hash_value(&left).expect("stable hash"),
@@ -152,7 +152,7 @@ mod tests {
     fn stable_hash_contract_vectors_are_frozen_for_upgrade_stability() {
         let vectors = vec![
             ("null", Value::Null, 0x07d3_310a_0679_d482),
-            ("uint_42", Value::Uint(42), 0x8c99_03a0_7f2c_731c),
+            ("nat_42", Value::Nat(42), 0x8c99_03a0_7f2c_731c),
             ("int_neg7", Value::Int(-7), 0x7470_6cc5_9093_df80),
             (
                 "text_alpha",
@@ -167,8 +167,8 @@ mod tests {
             (
                 "map_a1_z9",
                 Value::Map(vec![
-                    (Value::Text("a".to_string()), Value::Uint(1)),
-                    (Value::Text("z".to_string()), Value::Uint(9)),
+                    (Value::Text("a".to_string()), Value::Nat(1)),
+                    (Value::Text("z".to_string()), Value::Nat(9)),
                 ]),
                 0xea0e_28c9_f878_6d85,
             ),

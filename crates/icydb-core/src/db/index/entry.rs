@@ -645,14 +645,14 @@ mod tests {
 
     #[test]
     fn raw_index_entry_round_trip() {
-        let keys = vec![StorageKey::Int(1), StorageKey::Uint(2)];
+        let keys = vec![StorageKey::Int(1), StorageKey::Nat(2)];
 
         let raw = RawIndexEntry::try_from_keys(keys.clone()).expect("encode index entry");
         let decoded = raw.decode_keys().expect("decode index entry");
 
         assert_eq!(decoded.len(), keys.len());
         assert!(decoded.contains(&StorageKey::Int(1)));
-        assert!(decoded.contains(&StorageKey::Uint(2)));
+        assert!(decoded.contains(&StorageKey::Nat(2)));
     }
 
     #[test]
@@ -667,7 +667,7 @@ mod tests {
 
     #[test]
     fn raw_index_entry_decode_single_key_rejects_multi_key_entries() {
-        let raw = RawIndexEntry::try_from_keys([StorageKey::Int(1), StorageKey::Uint(2)])
+        let raw = RawIndexEntry::try_from_keys([StorageKey::Int(1), StorageKey::Nat(2)])
             .expect("encode index entry");
 
         assert_eq!(
@@ -678,7 +678,7 @@ mod tests {
 
     #[test]
     fn raw_index_entry_iter_keys_streams_multi_key_entries_without_vector_staging() {
-        let raw = RawIndexEntry::try_from_keys([StorageKey::Int(3), StorageKey::Uint(4)])
+        let raw = RawIndexEntry::try_from_keys([StorageKey::Int(3), StorageKey::Nat(4)])
             .expect("encode index entry");
         let mut iter = raw.iter_keys().expect("build key iterator");
 
@@ -689,7 +689,7 @@ mod tests {
         );
         assert_eq!(
             iter.next().expect("second key").expect("decode key"),
-            StorageKey::Uint(4)
+            StorageKey::Nat(4)
         );
         assert!(
             iter.next().is_none(),
@@ -714,7 +714,7 @@ mod tests {
 
     #[test]
     fn raw_index_entry_roundtrip_via_bytes() {
-        let keys = vec![StorageKey::Int(9), StorageKey::Uint(10)];
+        let keys = vec![StorageKey::Int(9), StorageKey::Nat(10)];
 
         let raw = RawIndexEntry::try_from_keys(keys.clone()).expect("encode index entry");
         let encoded = Storable::to_bytes(&raw);
@@ -723,7 +723,7 @@ mod tests {
 
         assert_eq!(decoded.len(), keys.len());
         assert!(decoded.contains(&StorageKey::Int(9)));
-        assert!(decoded.contains(&StorageKey::Uint(10)));
+        assert!(decoded.contains(&StorageKey::Nat(10)));
     }
 
     #[test]

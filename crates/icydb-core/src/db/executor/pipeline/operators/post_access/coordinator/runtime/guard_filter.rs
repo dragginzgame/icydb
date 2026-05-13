@@ -129,16 +129,16 @@ mod tests {
     #[test]
     fn compact_rows_in_place_preserves_kept_order() {
         let mut rows = vec![
-            TestRow(Some(Value::Uint(1))),
-            TestRow(Some(Value::Uint(2))),
-            TestRow(Some(Value::Uint(3))),
-            TestRow(Some(Value::Uint(4))),
+            TestRow(Some(Value::Nat(1))),
+            TestRow(Some(Value::Nat(2))),
+            TestRow(Some(Value::Nat(3))),
+            TestRow(Some(Value::Nat(4))),
         ];
 
         let kept = compact_rows_in_place_result(&mut rows, |row| {
             Ok(matches!(
                 row.read_order_slot_cow(0).as_deref(),
-                Some(Value::Uint(value)) if value % 2 == 0
+                Some(Value::Nat(value)) if value % 2 == 0
             ))
         })
         .expect("infallible test compaction should succeed");
@@ -146,7 +146,7 @@ mod tests {
         assert_eq!(kept, 2);
         assert_eq!(
             rows.into_iter().map(|row| row.0).collect::<Vec<_>>(),
-            vec![Some(Value::Uint(2)), Some(Value::Uint(4))]
+            vec![Some(Value::Nat(2)), Some(Value::Nat(4))]
         );
     }
 }

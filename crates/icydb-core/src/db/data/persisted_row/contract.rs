@@ -412,7 +412,7 @@ const fn scalar_slot_value_ref_from_runtime_value(
         (ScalarCodec::Subaccount, Value::Subaccount(value)) => ScalarValueRef::Subaccount(*value),
         (ScalarCodec::Text, Value::Text(value)) => ScalarValueRef::Text(value.as_str()),
         (ScalarCodec::Timestamp, Value::Timestamp(value)) => ScalarValueRef::Timestamp(*value),
-        (ScalarCodec::Uint64, Value::Uint(value)) => ScalarValueRef::Uint(*value),
+        (ScalarCodec::Nat64, Value::Nat(value)) => ScalarValueRef::Nat(*value),
         (ScalarCodec::Ulid, Value::Ulid(value)) => ScalarValueRef::Ulid(*value),
         (ScalarCodec::Unit, Value::Unit) => ScalarValueRef::Unit,
         _ => return None,

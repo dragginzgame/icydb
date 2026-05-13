@@ -192,7 +192,7 @@ fn u32_eq_predicate(field: &str, value: u32) -> Predicate {
     Predicate::Compare(ComparePredicate::with_coercion(
         field,
         CompareOp::Eq,
-        Value::Uint(u64::from(value)),
+        Value::Nat(u64::from(value)),
         CoercionId::Strict,
     ))
 }
@@ -225,12 +225,12 @@ fn u32_range_predicate(field: &str, lower_inclusive: u32, upper_inclusive: u32) 
         strict_compare_predicate(
             field,
             CompareOp::Gte,
-            Value::Uint(u64::from(lower_inclusive)),
+            Value::Nat(u64::from(lower_inclusive)),
         ),
         strict_compare_predicate(
             field,
             CompareOp::Lte,
-            Value::Uint(u64::from(upper_inclusive)),
+            Value::Nat(u64::from(upper_inclusive)),
         ),
     ])
 }
@@ -256,7 +256,7 @@ fn secondary_group_rank_order_plan(
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_PARITY_INDEX_MODELS[0],
             ),
-            values: vec![Value::Uint(7)],
+            values: vec![Value::Nat(7)],
         },
         consistency,
     );
@@ -281,8 +281,8 @@ fn indexed_metrics_tag_index_range_plan(
         AccessPath::index_range(
             INDEXED_METRICS_INDEX_MODELS[0],
             vec![],
-            std::ops::Bound::Included(Value::Uint(0)),
-            std::ops::Bound::Excluded(Value::Uint(1_000)),
+            std::ops::Bound::Included(Value::Nat(0)),
+            std::ops::Bound::Excluded(Value::Nat(1_000)),
         ),
         consistency,
     );
@@ -870,7 +870,7 @@ fn ranked_k_one_projection_from_extrema(
                 load.execute(plan)?
                     .into_iter()
                     .find(|row| row.id() == target_id)
-                    .map(|row| Value::Uint(u64::from(row.entity().rank)))
+                    .map(|row| Value::Nat(u64::from(row.entity().rank)))
                     .into_iter()
                     .collect()
             } else {
@@ -884,7 +884,7 @@ fn ranked_k_one_projection_from_extrema(
                 load.execute(plan)?
                     .into_iter()
                     .find(|row| row.id() == target_id)
-                    .map(|row| (target_id, Value::Uint(u64::from(row.entity().rank))))
+                    .map(|row| (target_id, Value::Nat(u64::from(row.entity().rank))))
                     .into_iter()
                     .collect()
             } else {
@@ -1446,8 +1446,8 @@ fn aggregate_core_field_extrema_unique_index_leading_max_uses_one_key_probe_hint
         AccessPath::index_range(
             UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
             vec![],
-            std::ops::Bound::Included(Value::Uint(0)),
-            std::ops::Bound::Excluded(Value::Uint(100)),
+            std::ops::Bound::Included(Value::Nat(0)),
+            std::ops::Bound::Excluded(Value::Nat(100)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -1931,7 +1931,7 @@ fn aggregate_core_grouped_having_supported_operator_executes_through_planner_sha
         .having_aggregate(
             0,
             CompareOp::Gt,
-            crate::value::InputValue::from(Value::Uint(0)),
+            crate::value::InputValue::from(Value::Nat(0)),
         )
         .expect("having aggregate should build")
         .execute()
@@ -1972,7 +1972,7 @@ fn aggregate_core_grouped_having_non_boolean_expr_fails_closed_when_planner_is_b
                 left: Box::new(crate::db::query::plan::expr::Expr::Aggregate(
                     crate::db::count(),
                 )),
-                right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Uint(1))),
+                right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Nat(1))),
             }),
         );
     let plan = crate::db::executor::PreparedExecutionPlan::<PushdownParityEntity>::new(grouped);

@@ -179,7 +179,7 @@ fn session_temporal_grouped_keys_preserve_semantic_types() {
             .iter()
             .map(|row| runtime_outputs(row.aggregate_values()))
             .collect::<Vec<_>>(),
-        vec![vec![Value::Uint(2)], vec![Value::Uint(1)]],
+        vec![vec![Value::Nat(2)], vec![Value::Nat(1)]],
         "grouped Date counts should match fixture cardinality",
     );
 
@@ -210,7 +210,7 @@ fn session_temporal_grouped_keys_preserve_semantic_types() {
             .iter()
             .map(|row| runtime_outputs(row.aggregate_values()))
             .collect::<Vec<_>>(),
-        vec![vec![Value::Uint(1)], vec![Value::Uint(2)]],
+        vec![vec![Value::Nat(1)], vec![Value::Nat(2)]],
         "grouped Timestamp counts should match fixture cardinality",
     );
 
@@ -241,7 +241,7 @@ fn session_temporal_grouped_keys_preserve_semantic_types() {
             .iter()
             .map(|row| runtime_outputs(row.aggregate_values()))
             .collect::<Vec<_>>(),
-        vec![vec![Value::Uint(2)], vec![Value::Uint(1)]],
+        vec![vec![Value::Nat(2)], vec![Value::Nat(1)]],
         "grouped Duration counts should match fixture cardinality",
     );
 }

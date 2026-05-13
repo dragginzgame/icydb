@@ -442,11 +442,11 @@ fn generated_item_kind_for_predicate(item: &Item) -> Result<CoreFieldKind, Darli
             CoreFieldKind::Int
         }
         Primitive::Int128 => CoreFieldKind::Int128,
-        Primitive::Nat => CoreFieldKind::UintBig,
+        Primitive::Nat => CoreFieldKind::NatBig,
         Primitive::Nat8 | Primitive::Nat16 | Primitive::Nat32 | Primitive::Nat64 => {
-            CoreFieldKind::Uint
+            CoreFieldKind::Nat
         }
-        Primitive::Nat128 => CoreFieldKind::Uint128,
+        Primitive::Nat128 => CoreFieldKind::Nat128,
         Primitive::Principal => CoreFieldKind::Principal,
         Primitive::Subaccount => CoreFieldKind::Subaccount,
         Primitive::Text => CoreFieldKind::Text {
@@ -675,7 +675,7 @@ fn predicate_value_runtime_tokens(value: &CoreValue) -> Result<TokenStream, Darl
         }
         CoreValue::Null => quote! { ::icydb::__macro::Value::Null },
         CoreValue::Text(value) => quote! { ::icydb::__macro::Value::Text(#value.to_string()) },
-        CoreValue::Uint(value) => quote! { ::icydb::__macro::Value::Uint(#value) },
+        CoreValue::Nat(value) => quote! { ::icydb::__macro::Value::Nat(#value) },
         unexpected => {
             return Err(DarlingError::custom(format!(
                 "generated filtered index predicates do not support literal variant {unexpected:?}",

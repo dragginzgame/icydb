@@ -81,11 +81,11 @@ pub(in crate::db::predicate::runtime::compare::scalar) const fn scalar_timestamp
     }
 }
 
-pub(in crate::db::predicate::runtime::compare::scalar) const fn scalar_uint_from_value(
+pub(in crate::db::predicate::runtime::compare::scalar) const fn scalar_nat_from_value(
     value: &Value,
 ) -> Option<u64> {
     match value {
-        Value::Uint(value) => Some(*value),
+        Value::Nat(value) => Some(*value),
         _ => None,
     }
 }

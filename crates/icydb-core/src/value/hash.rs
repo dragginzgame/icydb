@@ -162,9 +162,9 @@ pub(crate) fn hash_single_list_identity_canonical_value(
             feed_bytes(&mut hasher, value.as_bytes());
         }
         Value::Timestamp(value) => feed_i64(&mut hasher, value.repr()),
-        Value::Uint(value) => feed_u64(&mut hasher, *value),
-        Value::Uint128(value) => feed_u128(&mut hasher, value.get()),
-        Value::UintBig(value) => {
+        Value::Nat(value) => feed_u64(&mut hasher, *value),
+        Value::Nat128(value) => feed_u128(&mut hasher, value.get()),
+        Value::NatBig(value) => {
             let bytes = value.to_leb128();
             feed_len_u32(&mut hasher, bytes.len())?;
             feed_bytes(&mut hasher, &bytes);
@@ -327,13 +327,13 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
         Value::Timestamp(t) => {
             feed_i64(h, t.repr());
         }
-        Value::Uint(u) => {
+        Value::Nat(u) => {
             feed_u64(h, *u);
         }
-        Value::Uint128(u) => {
+        Value::Nat128(u) => {
             feed_u128(h, u.get());
         }
-        Value::UintBig(v) => {
+        Value::NatBig(v) => {
             let bytes = v.to_leb128();
             feed_u32(h, bytes.len() as u32);
             feed_bytes(h, &bytes);

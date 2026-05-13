@@ -56,7 +56,7 @@ crate::test_entity_schema! {
     entity_name = "GroupedStateTestEntity",
     entity_tag = crate::testing::GROUPED_STATE_TEST_ENTITY_TAG,
     pk_index = 0,
-    fields = [("id", FieldKind::Uint)],
+    fields = [("id", FieldKind::Nat)],
     indexes = [],
     store = GroupedStateTestStore,
     canister = GroupedStateTestCanister,
@@ -85,7 +85,7 @@ fn into_value_pairs(
 fn count_rows(rows: &[(Value, Value)]) -> Vec<(Value, u32)> {
     rows.iter()
         .map(|(group_key, output)| {
-            let Value::Uint(count) = output else {
+            let Value::Nat(count) = output else {
                 panic!("grouped count-state test expects count outputs");
             };
             (

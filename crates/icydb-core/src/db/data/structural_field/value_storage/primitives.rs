@@ -1,7 +1,7 @@
 use crate::db::data::structural_field::{
     FieldDecodeError,
     binary::{
-        TAG_BYTES, TAG_INT64, TAG_LIST, TAG_TEXT, TAG_UINT64,
+        TAG_BYTES, TAG_INT64, TAG_LIST, TAG_NAT64, TAG_TEXT,
         decode_text_scalar_bytes as decode_binary_text_scalar_bytes, parse_binary_head,
         payload_bytes as binary_payload_bytes, skip_binary_value,
     },
@@ -74,8 +74,7 @@ pub(super) fn decode_binary_required_u64(
     raw_bytes: &[u8],
     label: &'static str,
 ) -> Result<u64, FieldDecodeError> {
-    let (len, payload_start) =
-        parse_required_binary_payload(raw_bytes, TAG_UINT64, Some(8), label)?;
+    let (len, payload_start) = parse_required_binary_payload(raw_bytes, TAG_NAT64, Some(8), label)?;
 
     decode_u64_payload_bytes(
         binary_payload_bytes(raw_bytes, len, payload_start, label)?,

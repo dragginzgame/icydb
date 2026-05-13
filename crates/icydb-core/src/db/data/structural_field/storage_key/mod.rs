@@ -39,7 +39,7 @@ pub(in crate::db) const fn supports_storage_key_binary_kind(kind: FieldKind) -> 
         | FieldKind::Principal
         | FieldKind::Subaccount
         | FieldKind::Timestamp
-        | FieldKind::Uint
+        | FieldKind::Nat
         | FieldKind::Ulid
         | FieldKind::Unit => true,
         FieldKind::Relation { key_kind, .. } => supports_storage_key_binary_kind(*key_kind),

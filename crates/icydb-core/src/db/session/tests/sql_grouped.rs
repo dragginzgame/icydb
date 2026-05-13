@@ -415,7 +415,7 @@ fn grouped_and_global_value_aggregates_share_scalar_reducer_semantics() {
 
     assert_eq!(
         group_key,
-        &Value::Uint(20),
+        &Value::Nat(20),
         "grouped reducer convergence fixture should stay in one group",
     );
     assert_eq!(
@@ -427,7 +427,7 @@ fn grouped_and_global_value_aggregates_share_scalar_reducer_semantics() {
     // Phase 3: lock the public fluent scalar terminals that expose field-value
     // arithmetic against the same shared SQL aggregate row.
     let fluent_scalar_values = vec![
-        Value::Uint(u64::from(
+        Value::Nat(u64::from(
             session
                 .load::<SessionSqlEntity>()
                 .count()
@@ -448,7 +448,7 @@ fn grouped_and_global_value_aggregates_share_scalar_reducer_semantics() {
     assert_eq!(
         fluent_scalar_values,
         vec![
-            Value::Uint(3),
+            Value::Nat(3),
             Value::Decimal(Decimal::from(60_u64)),
             Value::Decimal(Decimal::from(20_u64)),
         ],
@@ -679,9 +679,9 @@ fn grouped_select_helper_indexed_aggregate_matrix_preserves_ordered_group_rows()
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
             vec![
-                (Value::Text("alpha".to_string()), vec![Value::Uint(2)]),
-                (Value::Text("bravo".to_string()), vec![Value::Uint(1)]),
-                (Value::Text("charlie".to_string()), vec![Value::Uint(2)]),
+                (Value::Text("alpha".to_string()), vec![Value::Nat(2)]),
+                (Value::Text("bravo".to_string()), vec![Value::Nat(1)]),
+                (Value::Text("charlie".to_string()), vec![Value::Nat(2)]),
             ],
         ),
         (
@@ -691,9 +691,9 @@ fn grouped_select_helper_indexed_aggregate_matrix_preserves_ordered_group_rows()
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
             vec![
-                (Value::Text("alpha".to_string()), vec![Value::Uint(2)]),
-                (Value::Text("bravo".to_string()), vec![Value::Uint(1)]),
-                (Value::Text("charlie".to_string()), vec![Value::Uint(2)]),
+                (Value::Text("alpha".to_string()), vec![Value::Nat(2)]),
+                (Value::Text("bravo".to_string()), vec![Value::Nat(1)]),
+                (Value::Text("charlie".to_string()), vec![Value::Nat(2)]),
             ],
         ),
         (
@@ -745,9 +745,9 @@ fn grouped_select_helper_indexed_aggregate_matrix_preserves_ordered_group_rows()
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
             vec![
-                (Value::Text("alpha".to_string()), vec![Value::Uint(10)]),
-                (Value::Text("bravo".to_string()), vec![Value::Uint(30)]),
-                (Value::Text("charlie".to_string()), vec![Value::Uint(40)]),
+                (Value::Text("alpha".to_string()), vec![Value::Nat(10)]),
+                (Value::Text("bravo".to_string()), vec![Value::Nat(30)]),
+                (Value::Text("charlie".to_string()), vec![Value::Nat(40)]),
             ],
         ),
         (
@@ -757,9 +757,9 @@ fn grouped_select_helper_indexed_aggregate_matrix_preserves_ordered_group_rows()
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
             vec![
-                (Value::Text("alpha".to_string()), vec![Value::Uint(10)]),
-                (Value::Text("bravo".to_string()), vec![Value::Uint(30)]),
-                (Value::Text("charlie".to_string()), vec![Value::Uint(40)]),
+                (Value::Text("alpha".to_string()), vec![Value::Nat(10)]),
+                (Value::Text("bravo".to_string()), vec![Value::Nat(30)]),
+                (Value::Text("charlie".to_string()), vec![Value::Nat(40)]),
             ],
         ),
         (
@@ -769,9 +769,9 @@ fn grouped_select_helper_indexed_aggregate_matrix_preserves_ordered_group_rows()
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
             vec![
-                (Value::Text("alpha".to_string()), vec![Value::Uint(20)]),
-                (Value::Text("bravo".to_string()), vec![Value::Uint(30)]),
-                (Value::Text("charlie".to_string()), vec![Value::Uint(50)]),
+                (Value::Text("alpha".to_string()), vec![Value::Nat(20)]),
+                (Value::Text("bravo".to_string()), vec![Value::Nat(30)]),
+                (Value::Text("charlie".to_string()), vec![Value::Nat(50)]),
             ],
         ),
         (
@@ -784,21 +784,21 @@ fn grouped_select_helper_indexed_aggregate_matrix_preserves_ordered_group_rows()
                 (
                     Value::Text("alpha".to_string()),
                     vec![
-                        Value::Uint(2),
+                        Value::Nat(2),
                         Value::Decimal(crate::types::Decimal::from(30_u64)),
                     ],
                 ),
                 (
                     Value::Text("bravo".to_string()),
                     vec![
-                        Value::Uint(1),
+                        Value::Nat(1),
                         Value::Decimal(crate::types::Decimal::from(30_u64)),
                     ],
                 ),
                 (
                     Value::Text("charlie".to_string()),
                     vec![
-                        Value::Uint(2),
+                        Value::Nat(2),
                         Value::Decimal(crate::types::Decimal::from(90_u64)),
                     ],
                 ),
@@ -837,9 +837,9 @@ fn grouped_select_helper_indexed_distinct_aggregate_matrix_preserves_ordered_gro
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
             vec![
-                (Value::Text("alpha".to_string()), vec![Value::Uint(2)]),
-                (Value::Text("bravo".to_string()), vec![Value::Uint(1)]),
-                (Value::Text("charlie".to_string()), vec![Value::Uint(2)]),
+                (Value::Text("alpha".to_string()), vec![Value::Nat(2)]),
+                (Value::Text("bravo".to_string()), vec![Value::Nat(1)]),
+                (Value::Text("charlie".to_string()), vec![Value::Nat(2)]),
             ],
         ),
         (
@@ -891,9 +891,9 @@ fn grouped_select_helper_indexed_distinct_aggregate_matrix_preserves_ordered_gro
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
             vec![
-                (Value::Text("alpha".to_string()), vec![Value::Uint(10)]),
-                (Value::Text("bravo".to_string()), vec![Value::Uint(30)]),
-                (Value::Text("charlie".to_string()), vec![Value::Uint(40)]),
+                (Value::Text("alpha".to_string()), vec![Value::Nat(10)]),
+                (Value::Text("bravo".to_string()), vec![Value::Nat(30)]),
+                (Value::Text("charlie".to_string()), vec![Value::Nat(40)]),
             ],
         ),
     ];
@@ -980,7 +980,7 @@ fn grouped_select_helper_indexed_filtered_aggregate_matrix_preserves_ordered_gro
              WHERE name = 'alpha' \
              GROUP BY name \
              ORDER BY name ASC LIMIT 10",
-            vec![(Value::Text("alpha".to_string()), vec![Value::Uint(2)])],
+            vec![(Value::Text("alpha".to_string()), vec![Value::Nat(2)])],
         ),
         (
             "filtered SUM(age)",
@@ -1042,9 +1042,9 @@ fn grouped_select_helper_matrix_queries_match_expected_grouped_rows() {
              GROUP BY age \
              ORDER BY age ASC LIMIT 10",
             vec![
-                (Value::Uint(10), Value::Uint(2)),
-                (Value::Uint(20), Value::Uint(1)),
-                (Value::Uint(30), Value::Uint(3)),
+                (Value::Nat(10), Value::Nat(2)),
+                (Value::Nat(20), Value::Nat(1)),
+                (Value::Nat(30), Value::Nat(3)),
             ],
         ),
         (
@@ -1055,8 +1055,8 @@ fn grouped_select_helper_matrix_queries_match_expected_grouped_rows() {
              GROUP BY age \
              ORDER BY age ASC LIMIT 10",
             vec![
-                (Value::Uint(20), Value::Uint(1)),
-                (Value::Uint(30), Value::Uint(3)),
+                (Value::Nat(20), Value::Nat(1)),
+                (Value::Nat(30), Value::Nat(3)),
             ],
         ),
         (
@@ -1067,8 +1067,8 @@ fn grouped_select_helper_matrix_queries_match_expected_grouped_rows() {
              GROUP BY SessionSqlEntity.age \
              ORDER BY SessionSqlEntity.age ASC LIMIT 10",
             vec![
-                (Value::Uint(20), Value::Uint(1)),
-                (Value::Uint(30), Value::Uint(3)),
+                (Value::Nat(20), Value::Nat(1)),
+                (Value::Nat(30), Value::Nat(3)),
             ],
         ),
         (
@@ -1079,8 +1079,8 @@ fn grouped_select_helper_matrix_queries_match_expected_grouped_rows() {
              HAVING COUNT(*) > 1 \
              ORDER BY age ASC LIMIT 10",
             vec![
-                (Value::Uint(10), Value::Uint(2)),
-                (Value::Uint(30), Value::Uint(3)),
+                (Value::Nat(10), Value::Nat(2)),
+                (Value::Nat(30), Value::Nat(3)),
             ],
         ),
         (
@@ -1100,9 +1100,9 @@ fn grouped_select_helper_matrix_queries_match_expected_grouped_rows() {
              HAVING COUNT(*) IS NOT NULL \
              ORDER BY age ASC LIMIT 10",
             vec![
-                (Value::Uint(10), Value::Uint(2)),
-                (Value::Uint(20), Value::Uint(1)),
-                (Value::Uint(30), Value::Uint(3)),
+                (Value::Nat(10), Value::Nat(2)),
+                (Value::Nat(20), Value::Nat(1)),
+                (Value::Nat(30), Value::Nat(3)),
             ],
         ),
     ];
@@ -1152,18 +1152,18 @@ fn grouped_select_helper_filter_aggregate_matrix_matches_expected_grouped_rows()
     assert_eq!(
         grouped_result_rows(&execution),
         vec![
-            (Value::Uint(10), vec![Value::Uint(0), Value::Null]),
+            (Value::Nat(10), vec![Value::Nat(0), Value::Null]),
             (
-                Value::Uint(20),
+                Value::Nat(20),
                 vec![
-                    Value::Uint(1),
+                    Value::Nat(1),
                     Value::Decimal(crate::types::Decimal::from(20_u64)),
                 ],
             ),
             (
-                Value::Uint(30),
+                Value::Nat(30),
                 vec![
-                    Value::Uint(3),
+                    Value::Nat(3),
                     Value::Decimal(crate::types::Decimal::from(90_u64)),
                 ],
             ),
@@ -1214,18 +1214,18 @@ fn grouped_select_helper_filter_having_order_and_mixed_projection_matrix_matches
         grouped_result_rows(&execution),
         vec![
             (
-                Value::Uint(30),
+                Value::Nat(30),
                 vec![
-                    Value::Uint(3),
-                    Value::Uint(3),
+                    Value::Nat(3),
+                    Value::Nat(3),
                     Value::Decimal(crate::types::Decimal::from(90_u64)),
                 ],
             ),
             (
-                Value::Uint(20),
+                Value::Nat(20),
                 vec![
-                    Value::Uint(1),
-                    Value::Uint(1),
+                    Value::Nat(1),
+                    Value::Nat(1),
                     Value::Decimal(crate::types::Decimal::from(20_u64)),
                 ],
             ),
@@ -1275,8 +1275,8 @@ fn grouped_select_helper_filtered_aggregate_on_non_group_field_supports_alias_ha
     assert_eq!(
         grouped_result_rows(&execution),
         vec![
-            (Value::Text("gamma".to_string()), vec![Value::Uint(3)]),
-            (Value::Text("alpha".to_string()), vec![Value::Uint(2)]),
+            (Value::Text("gamma".to_string()), vec![Value::Nat(3)]),
+            (Value::Text("alpha".to_string()), vec![Value::Nat(2)]),
         ],
         "grouped aggregate FILTER should preserve source-field access for non-grouped filter expressions",
     );
@@ -1321,9 +1321,9 @@ fn grouped_select_helper_filtered_count_rows_on_non_group_field_uses_generic_red
     assert_eq!(
         grouped_result_rows(&execution),
         vec![
-            (Value::Text("alpha".to_string()), vec![Value::Uint(2)]),
-            (Value::Text("beta".to_string()), vec![Value::Uint(1)]),
-            (Value::Text("gamma".to_string()), vec![Value::Uint(2)]),
+            (Value::Text("alpha".to_string()), vec![Value::Nat(2)]),
+            (Value::Text("beta".to_string()), vec![Value::Nat(1)]),
+            (Value::Text("gamma".to_string()), vec![Value::Nat(2)]),
         ],
         "grouped filtered COUNT(*) must not flatten onto the dedicated grouped count path",
     );
@@ -1423,9 +1423,9 @@ fn grouped_select_helper_filtered_aggregate_order_alias_supports_null_test_boole
     assert_eq!(
         grouped_result_rows(&execution),
         vec![
-            (Value::Text("bravo".to_string()), vec![Value::Uint(2)]),
-            (Value::Text("alpha".to_string()), vec![Value::Uint(1)]),
-            (Value::Text("charlie".to_string()), vec![Value::Uint(0)]),
+            (Value::Text("bravo".to_string()), vec![Value::Nat(2)]),
+            (Value::Text("alpha".to_string()), vec![Value::Nat(1)]),
+            (Value::Text("charlie".to_string()), vec![Value::Nat(0)]),
         ],
         "grouped filtered aggregate ORDER BY aliases should rank on the same filtered aggregate semantics when the filter uses null tests plus boolean composition",
     );
@@ -1532,7 +1532,7 @@ fn grouped_select_helper_executes_field_to_field_predicate() {
     );
     assert_eq!(
         grouped_result_rows(&execution),
-        vec![(Value::Uint(10), vec![Value::Uint(2)])],
+        vec![(Value::Nat(10), vec![Value::Nat(2)])],
         "grouped field-to-field predicate should filter rows before grouped aggregation using the shared residual filter path",
     );
 }
@@ -1574,9 +1574,9 @@ fn grouped_select_helper_executes_searched_case_where_expression() {
     assert_eq!(
         grouped_result_rows(&execution),
         vec![
-            (Value::Uint(20), vec![Value::Uint(1)]),
-            (Value::Uint(30), vec![Value::Uint(1)]),
-            (Value::Uint(40), vec![Value::Uint(1)]),
+            (Value::Nat(20), vec![Value::Nat(1)]),
+            (Value::Nat(30), vec![Value::Nat(1)]),
+            (Value::Nat(40), vec![Value::Nat(1)]),
         ],
         "grouped searched CASE WHERE should filter rows through the unified scalar expression seam before grouped aggregation",
     );
@@ -1618,7 +1618,7 @@ fn grouped_select_helper_executes_coalesce_and_nullif_where_expression() {
     );
     assert_eq!(
         grouped_result_rows(&execution),
-        vec![(Value::Uint(20), vec![Value::Uint(1)])],
+        vec![(Value::Nat(20), vec![Value::Nat(1)])],
         "grouped COALESCE/NULLIF WHERE should filter rows through the unified residual filter seam before grouped aggregation",
     );
 }
@@ -1655,7 +1655,7 @@ fn grouped_select_helper_executes_text_transform_where_expression() {
     );
     assert_eq!(
         grouped_result_rows(&execution),
-        vec![(Value::Uint(10), vec![Value::Uint(1)])],
+        vec![(Value::Nat(10), vec![Value::Nat(1)])],
         "grouped text transform WHERE should filter rows through the same shared residual pre-filter seam before grouped aggregation",
     );
 }
@@ -1693,8 +1693,8 @@ fn grouped_select_helper_executes_text_predicate_wrapped_transform_where_express
     assert_eq!(
         grouped_result_rows(&execution),
         vec![
-            (Value::Uint(10), vec![Value::Uint(1)]),
-            (Value::Uint(20), vec![Value::Uint(1)]),
+            (Value::Nat(10), vec![Value::Nat(1)]),
+            (Value::Nat(20), vec![Value::Nat(1)]),
         ],
         "grouped text predicate wrapped transform WHERE should filter rows through the same shared residual pre-filter seam before grouped aggregation",
     );
@@ -1733,8 +1733,8 @@ fn grouped_select_helper_executes_text_predicate_expression_arguments_where_expr
     assert_eq!(
         grouped_result_rows(&execution),
         vec![
-            (Value::Uint(10), vec![Value::Uint(1)]),
-            (Value::Uint(20), vec![Value::Uint(1)]),
+            (Value::Nat(10), vec![Value::Nat(1)]),
+            (Value::Nat(20), vec![Value::Nat(1)]),
         ],
         "grouped text predicate expression arguments WHERE should filter rows through the shared residual pre-filter seam before grouped aggregation",
     );
@@ -1783,8 +1783,8 @@ fn grouped_select_helper_executes_wrapped_like_and_ilike_where_expression() {
         assert_eq!(
             grouped_result_rows(&execution),
             vec![
-                (Value::Uint(10), vec![Value::Uint(1)]),
-                (Value::Uint(20), vec![Value::Uint(1)]),
+                (Value::Nat(10), vec![Value::Nat(1)]),
+                (Value::Nat(20), vec![Value::Nat(1)]),
             ],
             "grouped wrapped LIKE/ILIKE target WHERE should filter rows through the shared residual pre-filter seam before grouped aggregation",
         );
@@ -1813,7 +1813,7 @@ fn grouped_select_helper_executes_compare_boolean_constant_where_expression() {
              WHERE name = TRIM('alpha') OR NULLIF('alpha', 'alpha') IS NOT NULL \
              GROUP BY age \
              ORDER BY age ASC LIMIT 10",
-            vec![(Value::Uint(10), vec![Value::Uint(1)])],
+            vec![(Value::Nat(10), vec![Value::Nat(1)])],
             "grouped compare OR FALSE WHERE query",
         ),
         (
@@ -1823,10 +1823,10 @@ fn grouped_select_helper_executes_compare_boolean_constant_where_expression() {
              GROUP BY age \
              ORDER BY age ASC LIMIT 10",
             vec![
-                (Value::Uint(10), vec![Value::Uint(1)]),
-                (Value::Uint(20), vec![Value::Uint(1)]),
-                (Value::Uint(30), vec![Value::Uint(1)]),
-                (Value::Uint(40), vec![Value::Uint(1)]),
+                (Value::Nat(10), vec![Value::Nat(1)]),
+                (Value::Nat(20), vec![Value::Nat(1)]),
+                (Value::Nat(30), vec![Value::Nat(1)]),
+                (Value::Nat(40), vec![Value::Nat(1)]),
             ],
             "grouped compare OR TRUE WHERE query",
         ),
@@ -1870,8 +1870,8 @@ fn grouped_select_helper_executes_casefold_text_predicate_boolean_constant_where
              GROUP BY age \
              ORDER BY age ASC LIMIT 10",
             vec![
-                (Value::Uint(10), vec![Value::Uint(1)]),
-                (Value::Uint(20), vec![Value::Uint(1)]),
+                (Value::Nat(10), vec![Value::Nat(1)]),
+                (Value::Nat(20), vec![Value::Nat(1)]),
             ],
             "grouped casefold text predicate OR FALSE WHERE query",
         ),
@@ -1883,10 +1883,10 @@ fn grouped_select_helper_executes_casefold_text_predicate_boolean_constant_where
              GROUP BY age \
              ORDER BY age ASC LIMIT 10",
             vec![
-                (Value::Uint(10), vec![Value::Uint(1)]),
-                (Value::Uint(20), vec![Value::Uint(1)]),
-                (Value::Uint(30), vec![Value::Uint(1)]),
-                (Value::Uint(40), vec![Value::Uint(1)]),
+                (Value::Nat(10), vec![Value::Nat(1)]),
+                (Value::Nat(20), vec![Value::Nat(1)]),
+                (Value::Nat(30), vec![Value::Nat(1)]),
+                (Value::Nat(40), vec![Value::Nat(1)]),
             ],
             "grouped casefold text predicate OR TRUE WHERE query",
         ),
@@ -1939,7 +1939,7 @@ fn grouped_select_helper_executes_casefold_compare_boolean_constant_where_expres
     );
     assert_eq!(
         grouped_result_rows(&execution),
-        vec![(Value::Uint(10), vec![Value::Uint(1)])],
+        vec![(Value::Nat(10), vec![Value::Nat(1)])],
         "grouped casefold compare OR FALSE WHERE should preserve the recovered casefold compare pre-filter semantics",
     );
 }
@@ -1963,8 +1963,8 @@ fn grouped_select_helper_count_matrix_returns_expected_grouped_rows() {
             "canonical grouped count SQL",
             "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10",
             vec![
-                (Value::Uint(20), Value::Uint(2)),
-                (Value::Uint(32), Value::Uint(1)),
+                (Value::Nat(20), Value::Nat(2)),
+                (Value::Nat(32), Value::Nat(1)),
             ],
         ),
         (
@@ -1975,8 +1975,8 @@ fn grouped_select_helper_count_matrix_returns_expected_grouped_rows() {
              GROUP BY SessionSqlEntity.age \
              ORDER BY SessionSqlEntity.age ASC LIMIT 10",
             vec![
-                (Value::Uint(20), Value::Uint(2)),
-                (Value::Uint(32), Value::Uint(1)),
+                (Value::Nat(20), Value::Nat(2)),
+                (Value::Nat(32), Value::Nat(1)),
             ],
         ),
     ];
@@ -2051,11 +2051,11 @@ fn grouped_select_helper_limit_window_emits_cursor_and_resumes_next_group_page()
     assert_eq!(first_page.rows().len(), 1);
     assert_eq!(
         runtime_outputs(first_page.rows()[0].group_key()),
-        [Value::Uint(10)]
+        [Value::Nat(10)]
     );
     assert_eq!(
         runtime_outputs(first_page.rows()[0].aggregate_values()),
-        [Value::Uint(2)]
+        [Value::Nat(2)]
     );
     let cursor_one = crate::db::encode_cursor(
         first_page
@@ -2073,11 +2073,11 @@ fn grouped_select_helper_limit_window_emits_cursor_and_resumes_next_group_page()
     assert_eq!(second_page.rows().len(), 1);
     assert_eq!(
         runtime_outputs(second_page.rows()[0].group_key()),
-        [Value::Uint(20)]
+        [Value::Nat(20)]
     );
     assert_eq!(
         runtime_outputs(second_page.rows()[0].aggregate_values()),
-        [Value::Uint(1)]
+        [Value::Nat(1)]
     );
     let cursor_two = crate::db::encode_cursor(
         second_page
@@ -2095,11 +2095,11 @@ fn grouped_select_helper_limit_window_emits_cursor_and_resumes_next_group_page()
     assert_eq!(third_page.rows().len(), 1);
     assert_eq!(
         runtime_outputs(third_page.rows()[0].group_key()),
-        [Value::Uint(30)]
+        [Value::Nat(30)]
     );
     assert_eq!(
         runtime_outputs(third_page.rows()[0].aggregate_values()),
-        [Value::Uint(3)]
+        [Value::Nat(3)]
     );
     assert!(
         third_page.continuation_cursor().is_none(),
@@ -2143,12 +2143,12 @@ fn grouped_select_helper_multi_aggregate_having_offset_limit_cursor_resumes_cons
     assert_eq!(first_page.rows().len(), 1);
     assert_eq!(
         runtime_outputs(first_page.rows()[0].group_key()),
-        [Value::Uint(30)]
+        [Value::Nat(30)]
     );
     assert_eq!(
         runtime_outputs(first_page.rows()[0].aggregate_values()),
         [
-            Value::Uint(3),
+            Value::Nat(3),
             Value::Decimal(crate::types::Decimal::from(90_u64)),
         ],
     );
@@ -2169,12 +2169,12 @@ fn grouped_select_helper_multi_aggregate_having_offset_limit_cursor_resumes_cons
     assert_eq!(second_page.rows().len(), 1);
     assert_eq!(
         runtime_outputs(second_page.rows()[0].group_key()),
-        [Value::Uint(50)]
+        [Value::Nat(50)]
     );
     assert_eq!(
         runtime_outputs(second_page.rows()[0].aggregate_values()),
         [
-            Value::Uint(4),
+            Value::Nat(4),
             Value::Decimal(crate::types::Decimal::from(200_u64)),
         ],
     );
@@ -2377,18 +2377,18 @@ fn grouped_select_helper_executes_bounded_multi_key_aggregate_order_top_k_rows()
         vec![
             (
                 Value::Text("bravo".to_string()),
-                Value::Uint(10),
-                Value::Uint(3),
+                Value::Nat(10),
+                Value::Nat(3),
             ),
             (
                 Value::Text("alpha".to_string()),
-                Value::Uint(10),
-                Value::Uint(2),
+                Value::Nat(10),
+                Value::Nat(2),
             ),
             (
                 Value::Text("charlie".to_string()),
-                Value::Uint(30),
-                Value::Uint(2),
+                Value::Nat(30),
+                Value::Nat(2),
             ),
         ],
         "grouped aggregate ORDER BY with grouped-key tie-breakers should rank by aggregate value first and then preserve the declared grouped-key tie-breakers",
@@ -2631,13 +2631,13 @@ fn grouped_select_helper_executes_case_aggregate_input_order_top_k_alias_rows() 
         grouped_result_rows(&execution),
         vec![
             (
-                Value::Uint(20),
+                Value::Nat(20),
                 vec![Value::Decimal(
                     crate::types::Decimal::from_u128(3).expect("3 decimal"),
                 )],
             ),
             (
-                Value::Uint(30),
+                Value::Nat(30),
                 vec![Value::Decimal(
                     crate::types::Decimal::from_u128(1).expect("1 decimal"),
                 )],
@@ -2745,8 +2745,8 @@ fn execute_sql_statement_grouped_payload_matrix() {
     let session = sql_session();
     let sql = "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10";
     let expected_rows = vec![
-        (Value::Uint(20), vec![Value::Uint(2)]),
-        (Value::Uint(32), vec![Value::Uint(1)]),
+        (Value::Nat(20), vec![Value::Nat(2)]),
+        (Value::Nat(32), vec![Value::Nat(1)]),
     ];
 
     seed_session_sql_entities(
@@ -2828,15 +2828,15 @@ fn execute_sql_statement_grouped_computed_projection_matrix_succeeds() {
             vec![
                 (
                     vec![Value::Text(" alpha ".into()), Value::Text("alpha".into())],
-                    vec![Value::Uint(2)],
+                    vec![Value::Nat(2)],
                 ),
                 (
                     vec![Value::Text("beta".into()), Value::Text("beta".into())],
-                    vec![Value::Uint(1)],
+                    vec![Value::Nat(1)],
                 ),
                 (
                     vec![Value::Text("gamma  ".into()), Value::Text("gamma".into())],
-                    vec![Value::Uint(1)],
+                    vec![Value::Nat(1)],
                 ),
             ],
             "grouped statement SQL direct+text-specific computed projection",
@@ -2848,9 +2848,9 @@ fn execute_sql_statement_grouped_computed_projection_matrix_succeeds() {
              ORDER BY name ASC LIMIT 10",
             vec!["trimmed_name", "total"],
             vec![
-                (vec![Value::Text("alpha".into())], vec![Value::Uint(2)]),
-                (vec![Value::Text("beta".into())], vec![Value::Uint(1)]),
-                (vec![Value::Text("gamma".into())], vec![Value::Uint(1)]),
+                (vec![Value::Text("alpha".into())], vec![Value::Nat(2)]),
+                (vec![Value::Text("beta".into())], vec![Value::Nat(1)]),
+                (vec![Value::Text("gamma".into())], vec![Value::Nat(1)]),
             ],
             "grouped statement SQL computed-only text projection",
         ),
@@ -2983,15 +2983,15 @@ fn grouped_select_pagination_preserves_cursor_with_extra_group_projection_column
         .expect("first grouped computed-projection page should succeed");
     assert_eq!(
         runtime_output(first_page.rows()[0].group_key()[0].clone()),
-        Value::Uint(10)
+        Value::Nat(10)
     );
     assert_eq!(
-        runtime_output(first_page.rows()[0].group_key()[1].clone()).cmp_numeric(&Value::Uint(11)),
+        runtime_output(first_page.rows()[0].group_key()[1].clone()).cmp_numeric(&Value::Nat(11)),
         Some(std::cmp::Ordering::Equal),
     );
     assert_eq!(
         runtime_outputs(first_page.rows()[0].aggregate_values()),
-        [Value::Uint(2)]
+        [Value::Nat(2)]
     );
     let first_cursor = first_page
         .continuation_cursor()
@@ -3005,15 +3005,15 @@ fn grouped_select_pagination_preserves_cursor_with_extra_group_projection_column
     .expect("second grouped computed-projection page should succeed");
     assert_eq!(
         runtime_output(second_page.rows()[0].group_key()[0].clone()),
-        Value::Uint(20)
+        Value::Nat(20)
     );
     assert_eq!(
-        runtime_output(second_page.rows()[0].group_key()[1].clone()).cmp_numeric(&Value::Uint(21)),
+        runtime_output(second_page.rows()[0].group_key()[1].clone()).cmp_numeric(&Value::Nat(21)),
         Some(std::cmp::Ordering::Equal),
     );
     assert_eq!(
         runtime_outputs(second_page.rows()[0].aggregate_values()),
-        [Value::Uint(1)]
+        [Value::Nat(1)]
     );
 }
 
@@ -3124,14 +3124,14 @@ fn grouped_select_allows_post_aggregate_projection_expressions() {
         grouped_result_rows(&execution),
         vec![
             (
-                Value::Uint(10),
+                Value::Nat(10),
                 vec![
                     Value::Decimal(crate::types::Decimal::from_u128(12).expect("12 decimal"),),
                     Value::Decimal(crate::types::Decimal::new(1000, 2)),
                 ],
             ),
             (
-                Value::Uint(20),
+                Value::Nat(20),
                 vec![
                     Value::Decimal(crate::types::Decimal::from_u128(21).expect("21 decimal"),),
                     Value::Decimal(crate::types::Decimal::new(2000, 2)),
@@ -3198,11 +3198,11 @@ fn grouped_statement_sql_preserves_fixed_scale_for_post_aggregate_round_projecti
             .collect::<Vec<_>>(),
         vec![
             (
-                vec![Value::Uint(12)],
+                vec![Value::Nat(12)],
                 vec![Value::Decimal(crate::types::Decimal::new(120_000, 4))],
             ),
             (
-                vec![Value::Uint(14)],
+                vec![Value::Nat(14)],
                 vec![Value::Decimal(crate::types::Decimal::new(140_000, 4))],
             ),
         ],
@@ -3232,13 +3232,13 @@ fn grouped_select_reuses_repeated_aggregate_leaf_outputs() {
         grouped_result_rows(&execution),
         vec![
             (
-                Value::Uint(10),
+                Value::Nat(10),
                 vec![Value::Decimal(
                     crate::types::Decimal::from_u128(4).expect("4 decimal"),
                 )],
             ),
             (
-                Value::Uint(20),
+                Value::Nat(20),
                 vec![Value::Decimal(
                     crate::types::Decimal::from_u128(2).expect("2 decimal"),
                 )],
@@ -3268,8 +3268,8 @@ fn grouped_select_allows_searched_case_projection_and_having() {
     assert_eq!(
         grouped_result_rows(&projection_execution),
         vec![
-            (Value::Uint(10), vec![Value::Text("multi".to_string())],),
-            (Value::Uint(20), vec![Value::Text("single".to_string())],),
+            (Value::Nat(10), vec![Value::Text("multi".to_string())],),
+            (Value::Nat(20), vec![Value::Text("single".to_string())],),
         ],
         "grouped searched CASE projection should evaluate over finalized grouped outputs",
     );
@@ -3287,7 +3287,7 @@ fn grouped_select_allows_searched_case_projection_and_having() {
 
     assert_eq!(
         grouped_result_rows(&having_execution),
-        vec![(Value::Uint(10), vec![Value::Uint(2)])],
+        vec![(Value::Nat(10), vec![Value::Nat(2)])],
         "grouped searched CASE HAVING should filter on finalized grouped outputs",
     );
 }
@@ -3313,8 +3313,8 @@ fn grouped_select_allows_post_aggregate_having_expressions() {
     assert_eq!(
         grouped_result_rows(&execution),
         vec![
-            (Value::Uint(10), vec![Value::Uint(2)]),
-            (Value::Uint(20), vec![Value::Uint(1)]),
+            (Value::Nat(10), vec![Value::Nat(2)]),
+            (Value::Nat(20), vec![Value::Nat(1)]),
         ],
         "grouped post-aggregate HAVING expressions should filter on finalized grouped outputs",
     );
@@ -3340,7 +3340,7 @@ fn grouped_select_allows_coalesce_nullif_and_unary_numeric_having_expressions() 
 
     assert_eq!(
         grouped_result_rows(&execution),
-        vec![(Value::Uint(10), vec![Value::Uint(2)])],
+        vec![(Value::Nat(10), vec![Value::Nat(2)])],
         "grouped COALESCE/NULLIF and unary numeric HAVING expressions should filter on finalized grouped outputs",
     );
 }
@@ -3374,8 +3374,8 @@ fn grouped_select_allows_unary_text_having_expressions() {
     assert_eq!(
         grouped_result_rows(&execution),
         vec![
-            (Value::Text("bravo".to_string()), vec![Value::Uint(1)]),
-            (Value::Text("charlie".to_string()), vec![Value::Uint(1)]),
+            (Value::Text("bravo".to_string()), vec![Value::Nat(1)]),
+            (Value::Text("charlie".to_string()), vec![Value::Nat(1)]),
         ],
         "grouped unary text HAVING expressions should filter on finalized grouped outputs",
     );
@@ -3411,7 +3411,7 @@ fn grouped_select_allows_post_aggregate_having_aliases() {
     assert_eq!(
         grouped_result_rows(&execution),
         vec![(
-            Value::Uint(20),
+            Value::Nat(20),
             vec![Value::Decimal(
                 crate::types::Decimal::from_u128(3).expect("3 decimal"),
             )],
@@ -3440,11 +3440,11 @@ fn grouped_select_executes_aggregate_input_expressions() {
         grouped_result_rows(&execution),
         vec![
             (
-                Value::Uint(10),
+                Value::Nat(10),
                 vec![Value::Decimal(crate::types::Decimal::new(110_000, 4))],
             ),
             (
-                Value::Uint(20),
+                Value::Nat(20),
                 vec![Value::Decimal(crate::types::Decimal::new(210_000, 4))],
             ),
         ],
@@ -3472,11 +3472,11 @@ fn grouped_select_executes_function_wrapped_aggregate_input_expressions() {
         grouped_result_rows(&execution),
         vec![
             (
-                Value::Uint(10),
+                Value::Nat(10),
                 vec![Value::Decimal(crate::types::Decimal::new(10_000, 4))],
             ),
             (
-                Value::Uint(20),
+                Value::Nat(20),
                 vec![Value::Decimal(crate::types::Decimal::new(210_000, 4))],
             ),
         ],
@@ -3504,11 +3504,11 @@ fn grouped_select_repeated_aggregate_input_leaves_reuse_one_grouped_output_slot(
         grouped_result_rows(&execution),
         vec![
             (
-                Value::Uint(10),
+                Value::Nat(10),
                 vec![Value::Decimal(crate::types::Decimal::new(220_000, 4))],
             ),
             (
-                Value::Uint(20),
+                Value::Nat(20),
                 vec![Value::Decimal(crate::types::Decimal::new(420_000, 4))],
             ),
         ],
@@ -3574,11 +3574,11 @@ fn grouped_select_additive_desc_order_preserves_rows_and_cursor_progression() {
 
     assert_eq!(
         runtime_output(first_page.rows()[0].group_key()[0].clone()),
-        Value::Uint(40)
+        Value::Nat(40)
     );
     assert_eq!(
         runtime_output(first_page.rows()[1].group_key()[0].clone()),
-        Value::Uint(30)
+        Value::Nat(30)
     );
 
     let first_cursor = crate::db::encode_cursor(
@@ -3595,11 +3595,11 @@ fn grouped_select_additive_desc_order_preserves_rows_and_cursor_progression() {
 
     assert_eq!(
         runtime_output(second_page.rows()[0].group_key()[0].clone()),
-        Value::Uint(20)
+        Value::Nat(20)
     );
     assert_eq!(
         runtime_output(second_page.rows()[1].group_key()[0].clone()),
-        Value::Uint(10)
+        Value::Nat(10)
     );
     assert!(
         second_page.continuation_cursor().is_none(),

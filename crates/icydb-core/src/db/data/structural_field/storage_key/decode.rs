@@ -10,10 +10,10 @@ use crate::{
             AcceptedRelationKeyDecodeState, RelationKeyDecodeState,
             scalar::{
                 decode_account_storage_key_binary_bytes, decode_int_storage_key_binary_bytes,
-                decode_principal_storage_key_binary_bytes,
+                decode_nat_storage_key_binary_bytes, decode_principal_storage_key_binary_bytes,
                 decode_subaccount_storage_key_binary_bytes,
-                decode_timestamp_storage_key_binary_bytes, decode_uint_storage_key_binary_bytes,
-                decode_ulid_storage_key_binary_bytes, decode_unit_storage_key_binary_bytes,
+                decode_timestamp_storage_key_binary_bytes, decode_ulid_storage_key_binary_bytes,
+                decode_unit_storage_key_binary_bytes,
             },
             supports_storage_key_binary_kind,
         },
@@ -88,7 +88,7 @@ pub(in crate::db) fn decode_storage_key_field_binary_bytes(
         }
         FieldKind::Subaccount => decode_subaccount_storage_key_binary_bytes(raw_bytes),
         FieldKind::Timestamp => decode_timestamp_storage_key_binary_bytes(raw_bytes),
-        FieldKind::Uint => decode_uint_storage_key_binary_bytes(raw_bytes),
+        FieldKind::Nat => decode_nat_storage_key_binary_bytes(raw_bytes),
         FieldKind::Ulid => decode_ulid_storage_key_binary_bytes(raw_bytes),
         FieldKind::Unit => decode_unit_storage_key_binary_bytes(raw_bytes),
         other => Err(FieldDecodeError::new(format!(
@@ -307,7 +307,7 @@ fn decode_accepted_storage_key_field_binary_bytes(
         }
         PersistedFieldKind::Subaccount => decode_subaccount_storage_key_binary_bytes(raw_bytes),
         PersistedFieldKind::Timestamp => decode_timestamp_storage_key_binary_bytes(raw_bytes),
-        PersistedFieldKind::Uint => decode_uint_storage_key_binary_bytes(raw_bytes),
+        PersistedFieldKind::Nat => decode_nat_storage_key_binary_bytes(raw_bytes),
         PersistedFieldKind::Ulid => decode_ulid_storage_key_binary_bytes(raw_bytes),
         PersistedFieldKind::Unit => decode_unit_storage_key_binary_bytes(raw_bytes),
         other => Err(FieldDecodeError::new(format!(

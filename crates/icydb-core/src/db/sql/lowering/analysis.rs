@@ -129,7 +129,7 @@ mod tests {
         pk_index = 0,
         fields = [
             ("id", FieldKind::Ulid),
-            ("age", FieldKind::Uint),
+            ("age", FieldKind::Nat),
         ],
         indexes = [],
         store = LoweredExprAnalysisStore,
@@ -144,10 +144,10 @@ mod tests {
                 function: Function::Round,
                 args: vec![
                     Expr::Aggregate(AggregateExpr::terminal_for_kind(AggregateKind::Count)),
-                    Expr::Literal(Value::Uint(0)),
+                    Expr::Literal(Value::Nat(0)),
                 ],
             }),
-            right: Box::new(Expr::Literal(Value::Uint(1))),
+            right: Box::new(Expr::Literal(Value::Nat(1))),
         };
         let global_shape = Expr::Binary {
             op: BinaryOp::Gt,
@@ -155,10 +155,10 @@ mod tests {
                 function: Function::Round,
                 args: vec![
                     Expr::Aggregate(AggregateExpr::terminal_for_kind(AggregateKind::Count)),
-                    Expr::Literal(Value::Uint(0)),
+                    Expr::Literal(Value::Nat(0)),
                 ],
             }),
-            right: Box::new(Expr::Literal(Value::Uint(1))),
+            right: Box::new(Expr::Literal(Value::Nat(1))),
         };
 
         let grouped = analyze_lowered_expr(&grouped_shape, Some(LoweredExprAnalysisEntity::MODEL));

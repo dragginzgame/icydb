@@ -8,11 +8,11 @@ error[E0277]: the trait bound `icydb_core::value::Value: PersistedByKindCodec` i
              BTreeMap<K, V>
              BTreeSet<T>
              Box<T>
-             Nat
-             Nat128
              Option<T>
              Vec<T>
              bool
+             i16
+             i32
            and $N others
    = note: required for `Vec<icydb_core::value::Value>` to implement `PersistedFieldSlotCodec`
 note: required by a bound in `__ICYDB_FIELD_VALUES_MUST_IMPLEMENT_PERSISTED_FIELD_SLOT_CODEC_TO_BE_STORED`
@@ -53,11 +53,11 @@ error[E0277]: the trait bound `icydb_core::value::Value: PersistedByKindCodec` i
              BTreeMap<K, V>
              BTreeSet<T>
              Box<T>
-             Nat
-             Nat128
              Option<T>
              Vec<T>
              bool
+             i16
+             i32
            and $N others
    = note: required for `Vec<icydb_core::value::Value>` to implement `PersistedFieldSlotCodec`
 

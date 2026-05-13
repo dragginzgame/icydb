@@ -24,7 +24,7 @@ fn grouped_having_runtime_accepts_post_aggregate_round_compare() {
             function: Function::Round,
             args: vec![
                 Expr::Aggregate(AggregateExpr::terminal_for_kind(AggregateKind::Count)),
-                Expr::Literal(Value::Uint(2)),
+                Expr::Literal(Value::Nat(2)),
             ],
         }),
         right: Box::new(Expr::Literal(Value::Decimal(Decimal::new(1000, 2)))),
@@ -53,9 +53,9 @@ fn grouped_having_runtime_accepts_post_aggregate_arithmetic_compare() {
         left: Box::new(Expr::Binary {
             op: BinaryOp::Add,
             left: Box::new(Expr::Aggregate(aggregate_expr)),
-            right: Box::new(Expr::Literal(Value::Uint(1))),
+            right: Box::new(Expr::Literal(Value::Nat(1))),
         }),
-        right: Box::new(Expr::Literal(Value::Uint(5))),
+        right: Box::new(Expr::Literal(Value::Nat(5))),
     };
     let specs = [GroupedAggregateExecutionSpec::from_parts_for_test(
         AggregateKind::Count,
@@ -65,7 +65,7 @@ fn grouped_having_runtime_accepts_post_aggregate_arithmetic_compare() {
     )];
     let compiled = compile_grouped_projection_expr(&expr, &[], &specs)
         .expect("grouped HAVING arithmetic compare should compile");
-    let aggregate_values = [Value::Uint(5)];
+    let aggregate_values = [Value::Nat(5)];
     let grouped_row = GroupedRowView::new(&[], &aggregate_values, &[], &[]);
     let matched = group_matches_having_expr(&compiled, &grouped_row)
         .expect("grouped HAVING arithmetic compare should evaluate");
@@ -87,7 +87,7 @@ fn grouped_having_runtime_accepts_and_over_group_keys_and_aggregates() {
         right: Box::new(Expr::Binary {
             op: BinaryOp::Gt,
             left: Box::new(Expr::Aggregate(aggregate_expr)),
-            right: Box::new(Expr::Literal(Value::Uint(10))),
+            right: Box::new(Expr::Literal(Value::Nat(10))),
         }),
     };
 
@@ -101,7 +101,7 @@ fn grouped_having_runtime_accepts_and_over_group_keys_and_aggregates() {
     let compiled = compile_grouped_projection_expr(&expr, &group_fields, &specs)
         .expect("grouped HAVING AND expression should compile");
     let group_key_values = [Value::Text("Mage".to_string())];
-    let aggregate_values = [Value::Uint(11)];
+    let aggregate_values = [Value::Nat(11)];
     let grouped_row = GroupedRowView::new(&group_key_values, &aggregate_values, &group_fields, &[]);
     let matched = group_matches_having_expr(&compiled, &grouped_row)
         .expect("grouped HAVING AND expression should evaluate");
@@ -122,9 +122,9 @@ fn grouped_having_runtime_accepts_post_aggregate_case_and_not() {
                 },
                 Expr::Aggregate(aggregate_expr),
             )],
-            else_expr: Box::new(Expr::Literal(Value::Uint(0))),
+            else_expr: Box::new(Expr::Literal(Value::Nat(0))),
         }),
-        right: Box::new(Expr::Literal(Value::Uint(5))),
+        right: Box::new(Expr::Literal(Value::Nat(5))),
     };
     let specs = [GroupedAggregateExecutionSpec::from_parts_for_test(
         AggregateKind::Count,
@@ -134,7 +134,7 @@ fn grouped_having_runtime_accepts_post_aggregate_case_and_not() {
     )];
     let compiled = compile_grouped_projection_expr(&expr, &[], &specs)
         .expect("grouped HAVING CASE should compile");
-    let aggregate_values = [Value::Uint(6)];
+    let aggregate_values = [Value::Nat(6)];
     let grouped_row = GroupedRowView::new(&[], &aggregate_values, &[], &[]);
     let matched = group_matches_having_expr(&compiled, &grouped_row)
         .expect("grouped HAVING CASE should evaluate");

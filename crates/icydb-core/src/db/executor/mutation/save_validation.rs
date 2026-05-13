@@ -671,9 +671,9 @@ const fn persisted_field_kind_is_queryable(kind: &PersistedFieldKind) -> bool {
         | PersistedFieldKind::Subaccount
         | PersistedFieldKind::Text { .. }
         | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Uint
-        | PersistedFieldKind::Uint128
-        | PersistedFieldKind::UintBig
+        | PersistedFieldKind::Nat
+        | PersistedFieldKind::Nat128
+        | PersistedFieldKind::NatBig
         | PersistedFieldKind::Ulid
         | PersistedFieldKind::Unit => true,
     }
@@ -700,9 +700,9 @@ fn persisted_field_kind_accepts_value(kind: &PersistedFieldKind, value: &Value) 
         | (PersistedFieldKind::Subaccount, Value::Subaccount(_))
         | (PersistedFieldKind::Text { .. }, Value::Text(_))
         | (PersistedFieldKind::Timestamp, Value::Timestamp(_))
-        | (PersistedFieldKind::Uint, Value::Uint(_))
-        | (PersistedFieldKind::Uint128, Value::Uint128(_))
-        | (PersistedFieldKind::UintBig, Value::UintBig(_))
+        | (PersistedFieldKind::Nat, Value::Nat(_))
+        | (PersistedFieldKind::Nat128, Value::Nat128(_))
+        | (PersistedFieldKind::NatBig, Value::NatBig(_))
         | (PersistedFieldKind::Ulid, Value::Ulid(_))
         | (PersistedFieldKind::Unit, Value::Unit)
         | (PersistedFieldKind::Structured { .. }, Value::List(_) | Value::Map(_)) => true,

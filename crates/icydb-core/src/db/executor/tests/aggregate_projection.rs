@@ -128,7 +128,7 @@ fn u32_eq_predicate(field: &str, value: u32) -> Predicate {
     Predicate::Compare(ComparePredicate::with_coercion(
         field,
         CompareOp::Eq,
-        Value::Uint(u64::from(value)),
+        Value::Nat(u64::from(value)),
         CoercionId::Strict,
     ))
 }
@@ -206,7 +206,7 @@ fn remove_pushdown_row_data(id: u128) {
 fn expected_values_by_rank(response: &EntityResponse<PushdownParityEntity>) -> Vec<Value> {
     response
         .iter()
-        .map(|row| Value::Uint(u64::from(row.entity_ref().rank)))
+        .map(|row| Value::Nat(u64::from(row.entity_ref().rank)))
         .collect()
 }
 
@@ -215,7 +215,7 @@ fn expected_values_by_rank_with_ids(
 ) -> Vec<(Id<PushdownParityEntity>, Value)> {
     response
         .iter()
-        .map(|row| (row.id(), Value::Uint(u64::from(row.entity_ref().rank))))
+        .map(|row| (row.id(), Value::Nat(u64::from(row.entity_ref().rank))))
         .collect()
 }
 
@@ -237,14 +237,14 @@ fn expected_first_value_by_rank(response: &EntityResponse<PushdownParityEntity>)
     response
         .iter()
         .next()
-        .map(|row| Value::Uint(u64::from(row.entity_ref().rank)))
+        .map(|row| Value::Nat(u64::from(row.entity_ref().rank)))
 }
 
 fn expected_last_value_by_rank(response: &EntityResponse<PushdownParityEntity>) -> Option<Value> {
     response
         .iter()
         .last()
-        .map(|row| Value::Uint(u64::from(row.entity_ref().rank)))
+        .map(|row| Value::Nat(u64::from(row.entity_ref().rank)))
 }
 
 fn expected_count_distinct_by_rank(response: &EntityResponse<PushdownParityEntity>) -> u32 {
@@ -673,8 +673,8 @@ fn aggregate_projection_count_distinct_residual_retry_parity_and_scan_budget_mat
             AccessPath::index_range(
                 INDEXED_METRICS_INDEX_MODELS[0],
                 Vec::new(),
-                Bound::Included(Value::Uint(10)),
-                Bound::Excluded(Value::Uint(16)),
+                Bound::Included(Value::Nat(10)),
+                Bound::Excluded(Value::Nat(16)),
             ),
             MissingRowPolicy::Ignore,
         );
@@ -714,7 +714,7 @@ fn aggregate_projection_count_distinct_residual_retry_parity_and_scan_budget_mat
         let mut seen_values: Vec<Value> = Vec::new();
         let mut count = 0u32;
         for row in &response {
-            let value = Value::Uint(u64::from(row.entity_ref().tag));
+            let value = Value::Nat(u64::from(row.entity_ref().tag));
             if seen_values.iter().any(|existing| existing == &value) {
                 continue;
             }
@@ -872,7 +872,7 @@ fn aggregate_projection_values_by_distinct_remains_row_level() {
 
     assert_eq!(
         values,
-        vec![Value::Uint(10), Value::Uint(10), Value::Uint(20)],
+        vec![Value::Nat(10), Value::Nat(10), Value::Nat(20)],
         "query-level DISTINCT must remain row-level; equal projected values may repeat",
     );
 }
@@ -901,7 +901,7 @@ fn aggregate_projection_covering_constant_projection_terminals_match_effective_w
     let expected_rows = load
         .execute(build_plan())
         .expect("covering-constant baseline execute should succeed");
-    let expected_value = Value::Uint(7);
+    let expected_value = Value::Nat(7);
     let expected_values = vec![expected_value.clone(); expected_rows.len()];
     let expected_values_with_ids = expected_rows
         .iter()
@@ -1110,10 +1110,10 @@ fn aggregate_projection_covering_index_distinct_non_leading_component_preserves_
     assert_eq!(
         values,
         vec![
-            Value::Uint(10),
-            Value::Uint(20),
-            Value::Uint(10),
-            Value::Uint(30),
+            Value::Nat(10),
+            Value::Nat(20),
+            Value::Nat(10),
+            Value::Nat(30),
         ],
         "covering non-leading distinct fixture should keep duplicate rank values non-adjacent in index order",
     );
@@ -1132,7 +1132,7 @@ fn aggregate_projection_bytes_by_projection_mode_classifier_matches_bounded_rout
                     crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                         PUSHDOWN_PARITY_INDEX_MODELS[0],
                     ),
-                values: vec![Value::Uint(7)],
+                values: vec![Value::Nat(7)],
             },
             MissingRowPolicy::Ignore,
         );
@@ -1165,7 +1165,7 @@ fn aggregate_projection_bytes_by_projection_mode_classifier_matches_bounded_rout
                     crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                         PUSHDOWN_PARITY_INDEX_MODELS[0],
                     ),
-                values: vec![Value::Uint(7), Value::Uint(20)],
+                values: vec![Value::Nat(7), Value::Nat(20)],
             },
             MissingRowPolicy::Ignore,
         ));
@@ -1188,7 +1188,7 @@ fn aggregate_projection_bytes_by_projection_mode_classifier_matches_bounded_rout
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_PARITY_INDEX_MODELS[0],
             ),
-            values: vec![Value::Uint(7), Value::Uint(20)],
+            values: vec![Value::Nat(7), Value::Nat(20)],
         },
         MissingRowPolicy::Error,
     ));

@@ -41,9 +41,9 @@ pub(crate) enum ScalarType {
     Subaccount,
     Text,
     Timestamp,
-    Uint,
-    Uint128,
-    UintBig,
+    Nat,
+    Nat128,
+    NatBig,
     Ulid,
     Unit,
 }
@@ -254,9 +254,9 @@ pub(crate) fn field_type_from_model_kind(kind: &FieldKind) -> FieldType {
         FieldKind::Subaccount => FieldType::Scalar(ScalarType::Subaccount),
         FieldKind::Text { .. } => FieldType::Scalar(ScalarType::Text),
         FieldKind::Timestamp => FieldType::Scalar(ScalarType::Timestamp),
-        FieldKind::Uint => FieldType::Scalar(ScalarType::Uint),
-        FieldKind::Uint128 => FieldType::Scalar(ScalarType::Uint128),
-        FieldKind::UintBig => FieldType::Scalar(ScalarType::UintBig),
+        FieldKind::Nat => FieldType::Scalar(ScalarType::Nat),
+        FieldKind::Nat128 => FieldType::Scalar(ScalarType::Nat128),
+        FieldKind::NatBig => FieldType::Scalar(ScalarType::NatBig),
         FieldKind::Ulid => FieldType::Scalar(ScalarType::Ulid),
         FieldKind::Unit => FieldType::Scalar(ScalarType::Unit),
         FieldKind::Relation { key_kind, .. } => field_type_from_model_kind(key_kind),
@@ -283,11 +283,11 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
             canonicalize_strict_sql_literal_for_persisted_kind(key_kind, value)
         }
         PersistedFieldKind::Int => match value {
-            Value::Uint(inner) => i64::try_from(*inner).ok().map(Value::Int),
+            Value::Nat(inner) => i64::try_from(*inner).ok().map(Value::Int),
             _ => None,
         },
-        PersistedFieldKind::Uint => match value {
-            Value::Int(inner) => u64::try_from(*inner).ok().map(Value::Uint),
+        PersistedFieldKind::Nat => match value {
+            Value::Int(inner) => u64::try_from(*inner).ok().map(Value::Nat),
             _ => None,
         },
         PersistedFieldKind::Ulid => match value {
@@ -317,8 +317,8 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
         | PersistedFieldKind::Subaccount
         | PersistedFieldKind::Text { .. }
         | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Uint128
-        | PersistedFieldKind::UintBig
+        | PersistedFieldKind::Nat128
+        | PersistedFieldKind::NatBig
         | PersistedFieldKind::Unit
         | PersistedFieldKind::Map { .. }
         | PersistedFieldKind::Structured { .. } => None,
@@ -343,9 +343,9 @@ pub(in crate::db) fn field_type_from_persisted_kind(kind: &PersistedFieldKind) -
         PersistedFieldKind::Subaccount => FieldType::Scalar(ScalarType::Subaccount),
         PersistedFieldKind::Text { .. } => FieldType::Scalar(ScalarType::Text),
         PersistedFieldKind::Timestamp => FieldType::Scalar(ScalarType::Timestamp),
-        PersistedFieldKind::Uint => FieldType::Scalar(ScalarType::Uint),
-        PersistedFieldKind::Uint128 => FieldType::Scalar(ScalarType::Uint128),
-        PersistedFieldKind::UintBig => FieldType::Scalar(ScalarType::UintBig),
+        PersistedFieldKind::Nat => FieldType::Scalar(ScalarType::Nat),
+        PersistedFieldKind::Nat128 => FieldType::Scalar(ScalarType::Nat128),
+        PersistedFieldKind::NatBig => FieldType::Scalar(ScalarType::NatBig),
         PersistedFieldKind::Ulid => FieldType::Scalar(ScalarType::Ulid),
         PersistedFieldKind::Unit => FieldType::Scalar(ScalarType::Unit),
         PersistedFieldKind::Relation { key_kind, .. } => field_type_from_persisted_kind(key_kind),

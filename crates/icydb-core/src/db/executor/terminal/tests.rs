@@ -53,6 +53,6 @@ fn bytes_window_accept_row_respects_offset_and_limit() {
 
 #[test]
 fn serialized_value_len_encodes_scalar_payload() {
-    let len = serialized_value_len(&Value::Uint(10)).expect("value encode should succeed");
+    let len = serialized_value_len(&Value::Nat(10)).expect("value encode should succeed");
     assert!(len > 0, "encoded scalar payload should be non-empty");
 }

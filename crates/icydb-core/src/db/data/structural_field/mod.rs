@@ -29,12 +29,12 @@ use leaf::{
     decode_duration_field_by_kind_bytes as decode_structural_duration_field_by_kind_bytes,
     decode_int_big_field_by_kind_bytes as decode_structural_int_big_field_by_kind_bytes,
     decode_leaf_field_by_kind_bytes,
-    decode_uint_big_field_by_kind_bytes as decode_structural_uint_big_field_by_kind_bytes,
+    decode_nat_big_field_by_kind_bytes as decode_structural_nat_big_field_by_kind_bytes,
     encode_date_field_by_kind_bytes as encode_structural_date_field_by_kind_bytes,
     encode_decimal_field_by_kind_bytes as encode_structural_decimal_field_by_kind_bytes,
     encode_duration_field_by_kind_bytes as encode_structural_duration_field_by_kind_bytes,
     encode_int_big_field_by_kind_bytes as encode_structural_int_big_field_by_kind_bytes,
-    encode_uint_big_field_by_kind_bytes as encode_structural_uint_big_field_by_kind_bytes,
+    encode_nat_big_field_by_kind_bytes as encode_structural_nat_big_field_by_kind_bytes,
 };
 use scalar::{
     decode_blob_fast_path_binary_bytes, decode_bool_fast_path_binary_bytes,
@@ -531,19 +531,19 @@ pub(in crate::db) fn decode_int_big_field_by_kind_bytes(
 
 /// Encode one direct unsigned-bigint leaf through the canonical structural
 /// leaf lane.
-pub(in crate::db) fn encode_uint_big_field_by_kind_bytes(
+pub(in crate::db) fn encode_nat_big_field_by_kind_bytes(
     value: &crate::types::Nat,
     kind: FieldKind,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
-    encode_structural_uint_big_field_by_kind_bytes(value, kind, field_name)
+    encode_structural_nat_big_field_by_kind_bytes(value, kind, field_name)
 }
 
 /// Decode one direct unsigned-bigint leaf through the canonical structural
 /// leaf lane.
-pub(in crate::db) fn decode_uint_big_field_by_kind_bytes(
+pub(in crate::db) fn decode_nat_big_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<Option<crate::types::Nat>, FieldDecodeError> {
-    decode_structural_uint_big_field_by_kind_bytes(raw_bytes, kind)
+    decode_structural_nat_big_field_by_kind_bytes(raw_bytes, kind)
 }

@@ -268,7 +268,7 @@ fn evaluate_multi_lookup_candidate_rejects_mixed_literal_set_for_expression_inde
             crate::db::predicate::CompareOp::In,
             Value::List(vec![
                 Value::Text("ALICE@example.com".to_string()),
-                Value::Uint(7),
+                Value::Nat(7),
             ]),
             CoercionId::TextCasefold,
         ),

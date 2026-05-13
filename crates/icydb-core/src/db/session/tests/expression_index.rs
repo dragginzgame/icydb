@@ -222,7 +222,7 @@ fn execute_sql_projection_expression_order_pk_plus_row_field_uses_sparse_sql_pat
         .map(|row| {
             vec![
                 Value::Ulid(row.id().key()),
-                Value::Uint(row.entity_ref().age),
+                Value::Nat(row.entity_ref().age),
             ]
         })
         .collect::<Vec<_>>();

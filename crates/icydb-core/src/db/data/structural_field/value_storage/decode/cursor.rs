@@ -2,8 +2,8 @@ use crate::{
     db::data::structural_field::{
         FieldDecodeError,
         binary::{
-            TAG_BYTES, TAG_FALSE, TAG_INT64, TAG_LIST, TAG_MAP, TAG_NULL, TAG_TEXT, TAG_TRUE,
-            TAG_UINT64, TAG_UNIT,
+            TAG_BYTES, TAG_FALSE, TAG_INT64, TAG_LIST, TAG_MAP, TAG_NAT64, TAG_NULL, TAG_TEXT,
+            TAG_TRUE, TAG_UNIT,
         },
         value_storage::{
             decode::{
@@ -19,9 +19,8 @@ use crate::{
                 VALUE_BINARY_TAG_ACCOUNT, VALUE_BINARY_TAG_DATE, VALUE_BINARY_TAG_DECIMAL,
                 VALUE_BINARY_TAG_DURATION, VALUE_BINARY_TAG_ENUM, VALUE_BINARY_TAG_FLOAT32,
                 VALUE_BINARY_TAG_FLOAT64, VALUE_BINARY_TAG_INT_BIG, VALUE_BINARY_TAG_INT128,
-                VALUE_BINARY_TAG_PRINCIPAL, VALUE_BINARY_TAG_SUBACCOUNT,
-                VALUE_BINARY_TAG_TIMESTAMP, VALUE_BINARY_TAG_UINT_BIG, VALUE_BINARY_TAG_UINT128,
-                VALUE_BINARY_TAG_ULID,
+                VALUE_BINARY_TAG_NAT_BIG, VALUE_BINARY_TAG_NAT128, VALUE_BINARY_TAG_PRINCIPAL,
+                VALUE_BINARY_TAG_SUBACCOUNT, VALUE_BINARY_TAG_TIMESTAMP, VALUE_BINARY_TAG_ULID,
             },
             walk::{
                 decode_value_storage_binary_list_items_single_pass,
@@ -52,7 +51,7 @@ pub(super) fn decode_value_storage_binary_value_at(
         TAG_FALSE => decode_value_storage_tag_only_at(offset, Value::Bool(false)),
         TAG_TRUE => decode_value_storage_tag_only_at(offset, Value::Bool(true)),
         TAG_INT64 => decode_binary_i64_value_at(raw_bytes, offset),
-        TAG_UINT64 => decode_binary_u64_value_at(raw_bytes, offset),
+        TAG_NAT64 => decode_binary_u64_value_at(raw_bytes, offset),
         TAG_TEXT => decode_binary_text_value_at(raw_bytes, offset),
         TAG_BYTES => decode_binary_blob_value_at(raw_bytes, offset),
         TAG_LIST => {
@@ -91,8 +90,8 @@ pub(super) fn decode_value_storage_binary_value_at(
         | VALUE_BINARY_TAG_PRINCIPAL
         | VALUE_BINARY_TAG_SUBACCOUNT
         | VALUE_BINARY_TAG_TIMESTAMP
-        | VALUE_BINARY_TAG_UINT128
-        | VALUE_BINARY_TAG_UINT_BIG
+        | VALUE_BINARY_TAG_NAT128
+        | VALUE_BINARY_TAG_NAT_BIG
         | VALUE_BINARY_TAG_ULID => {
             let cursor = skip_value_storage_binary_value(raw_bytes, offset)?;
             let slice = ValueStorageSlice::from_skip_bounded_unchecked(&raw_bytes[offset..cursor]);

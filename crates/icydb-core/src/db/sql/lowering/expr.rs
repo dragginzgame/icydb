@@ -313,11 +313,11 @@ fn lower_sql_numeric_scale_function_call(
 
     let input = lower_sql_expr(&args[0], phase)?;
     let scale = match args.get(1) {
-        Some(SqlExpr::Literal(scale)) => Expr::Literal(Value::Uint(u64::from(
+        Some(SqlExpr::Literal(scale)) => Expr::Literal(Value::Nat(u64::from(
             validate_numeric_scale_function_scale(function, scale.clone())?,
         ))),
         Some(other) => lower_sql_expr(other, phase)?,
-        None => Expr::Literal(Value::Uint(0)),
+        None => Expr::Literal(Value::Nat(0)),
     };
 
     Ok(Expr::FunctionCall {
@@ -338,7 +338,7 @@ fn validate_numeric_scale_function_scale(
             ))
             .into()
         }),
-        Value::Uint(value) => u32::try_from(value).map_err(|_| {
+        Value::Nat(value) => u32::try_from(value).map_err(|_| {
             crate::db::QueryError::unsupported_query(format!(
                 "{label}(...) scale exceeds supported integer range, found {value}",
             ))

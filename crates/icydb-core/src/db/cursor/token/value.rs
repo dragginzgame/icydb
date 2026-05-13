@@ -40,9 +40,9 @@ const VALUE_PRINCIPAL: u8 = 15;
 const VALUE_SUBACCOUNT: u8 = 16;
 const VALUE_TEXT: u8 = 17;
 const VALUE_TIMESTAMP: u8 = 18;
-const VALUE_UINT: u8 = 19;
-const VALUE_UINT128: u8 = 20;
-const VALUE_UINT_BIG: u8 = 21;
+const VALUE_NAT: u8 = 19;
+const VALUE_NAT128: u8 = 20;
+const VALUE_NAT_BIG: u8 = 21;
 const VALUE_ULID: u8 = 22;
 const VALUE_UNIT: u8 = 23;
 
@@ -167,18 +167,18 @@ pub(in crate::db::cursor::token) fn write_value(
             write_i64(out, value.as_millis());
             Ok(())
         }
-        Value::Uint(value) => {
-            out.push(VALUE_UINT);
+        Value::Nat(value) => {
+            out.push(VALUE_NAT);
             write_u64(out, *value);
             Ok(())
         }
-        Value::Uint128(value) => {
-            out.push(VALUE_UINT128);
+        Value::Nat128(value) => {
+            out.push(VALUE_NAT128);
             write_u128(out, value.get());
             Ok(())
         }
-        Value::UintBig(value) => {
-            out.push(VALUE_UINT_BIG);
+        Value::NatBig(value) => {
+            out.push(VALUE_NAT_BIG);
             write_string(out, &value.to_string())
         }
         Value::Ulid(value) => {
@@ -283,9 +283,9 @@ pub(in crate::db::cursor::token) fn read_value(
         ))),
         VALUE_TEXT => Ok(Value::Text(cursor.read_string()?)),
         VALUE_TIMESTAMP => Ok(Value::Timestamp(Timestamp::from_millis(cursor.read_i64()?))),
-        VALUE_UINT => Ok(Value::Uint(cursor.read_u64()?)),
-        VALUE_UINT128 => Ok(Value::Uint128(Nat128::from(cursor.read_u128()?))),
-        VALUE_UINT_BIG => Ok(Value::UintBig(read_big_uint(cursor)?)),
+        VALUE_NAT => Ok(Value::Nat(cursor.read_u64()?)),
+        VALUE_NAT128 => Ok(Value::Nat128(Nat128::from(cursor.read_u128()?))),
+        VALUE_NAT_BIG => Ok(Value::NatBig(read_big_nat(cursor)?)),
         VALUE_ULID => Ok(Value::Ulid(Ulid::from_bytes(cursor.read_array()?))),
         VALUE_UNIT => Ok(Value::Unit),
         other => Err(TokenWireError::decode(format!(
@@ -371,10 +371,10 @@ fn read_big_int(cursor: &mut ByteCursor<'_>) -> Result<Int, TokenWireError> {
     Ok(Int::from(WrappedInt::from(big)))
 }
 
-fn read_big_uint(cursor: &mut ByteCursor<'_>) -> Result<Nat, TokenWireError> {
+fn read_big_nat(cursor: &mut ByteCursor<'_>) -> Result<Nat, TokenWireError> {
     let text = cursor.read_string()?;
     let big = BigUint::parse_bytes(text.as_bytes(), 10)
-        .ok_or_else(|| TokenWireError::decode("invalid biguint token payload"))?;
+        .ok_or_else(|| TokenWireError::decode("invalid bignat token payload"))?;
 
     Ok(Nat::from(WrappedNat::from(big)))
 }

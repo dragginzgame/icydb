@@ -18,11 +18,11 @@ use std::cmp::Ordering;
 #[test]
 fn numeric_compare_helpers_follow_numeric_widen_domain() {
     assert_eq!(
-        compare_numeric_order(&Value::Int(2), &Value::Uint(2)),
+        compare_numeric_order(&Value::Int(2), &Value::Nat(2)),
         Some(Ordering::Equal)
     );
     assert_eq!(
-        compare_numeric_eq(&Value::Int(2), &Value::Uint(2)),
+        compare_numeric_eq(&Value::Int(2), &Value::Nat(2)),
         Some(true)
     );
     assert_eq!(
@@ -34,7 +34,7 @@ fn numeric_compare_helpers_follow_numeric_widen_domain() {
 #[test]
 fn numeric_compare_order_matches_value_numeric_cmp_for_shared_domain() {
     let cases = [
-        (Value::Int(42), Value::Uint(42)),
+        (Value::Int(42), Value::Nat(42)),
         (
             Value::Decimal(Decimal::from_i64(10).expect("decimal")),
             Value::Float64(F64::try_new(10.0).expect("finite float")),
@@ -70,7 +70,7 @@ fn numeric_compare_order_requires_both_operands_numeric_coercible() {
 fn broad_numeric_coercion_matches_value_numeric_decimal_boundary() {
     let cases = [
         Value::Int(4),
-        Value::Uint(4),
+        Value::Nat(4),
         Value::Decimal(Decimal::new(40, 1)),
         Value::Float64(F64::try_new(4.0).expect("finite float")),
         Value::Text("x".to_string()),
@@ -92,7 +92,7 @@ fn broad_numeric_coercion_matches_value_numeric_decimal_boundary() {
 #[test]
 fn numeric_or_strict_compare_prefers_numeric_widen_when_available() {
     assert_eq!(
-        compare_numeric_or_strict_order(&Value::Int(2), &Value::Uint(2)),
+        compare_numeric_or_strict_order(&Value::Int(2), &Value::Nat(2)),
         Some(Ordering::Equal)
     );
 }
@@ -100,7 +100,7 @@ fn numeric_or_strict_compare_prefers_numeric_widen_when_available() {
 #[test]
 fn canonical_value_ordering_uses_value_canonical_order() {
     assert_eq!(
-        canonical_value_compare(&Value::Uint(7), &Value::Uint(8)),
+        canonical_value_compare(&Value::Nat(7), &Value::Nat(8)),
         Ordering::Less
     );
     assert_eq!(
@@ -112,7 +112,7 @@ fn canonical_value_ordering_uses_value_canonical_order() {
 #[test]
 fn canonical_value_ordering_prefers_shared_numeric_or_strict_authority() {
     assert_eq!(
-        canonical_value_compare(&Value::Int(7), &Value::Uint(7)),
+        canonical_value_compare(&Value::Int(7), &Value::Nat(7)),
         Ordering::Equal
     );
 }

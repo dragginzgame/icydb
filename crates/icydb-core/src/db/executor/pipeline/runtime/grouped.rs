@@ -676,14 +676,14 @@ mod tests {
     fn dense_test_row_view_resolves_sparse_slots() {
         let row_view = RowView::new(vec![
             None,
-            Some(Value::Uint(7)),
+            Some(Value::Nat(7)),
             None,
             None,
             Some(Value::Text("group".to_string())),
             None,
         ]);
 
-        assert_eq!(row_view.borrow_slot_for_test(1), Some(&Value::Uint(7)));
+        assert_eq!(row_view.borrow_slot_for_test(1), Some(&Value::Nat(7)));
         assert_eq!(
             row_view.borrow_slot_for_test(4),
             Some(&Value::Text("group".to_string()))
@@ -707,18 +707,18 @@ mod tests {
         let layout = RetainedSlotLayout::compile(5, vec![1, 4]);
         let retained = RetainedSlotRow::from_indexed_values(
             &layout,
-            vec![Some(Value::Uint(7)), Some(Value::Text("group".to_string()))],
+            vec![Some(Value::Nat(7)), Some(Value::Text("group".to_string()))],
         );
         let row_view = RowView::from_retained_slots(retained);
 
         assert_eq!(
             row_view.slot_value(1).as_deref(),
-            Some(&Value::Uint(7)),
+            Some(&Value::Nat(7)),
             "first retained slot read should borrow the decoded value",
         );
         assert_eq!(
             row_view.slot_value(1).as_deref(),
-            Some(&Value::Uint(7)),
+            Some(&Value::Nat(7)),
             "second retained slot read must see the same decoded value",
         );
         assert_eq!(

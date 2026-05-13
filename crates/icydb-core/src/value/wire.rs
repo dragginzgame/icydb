@@ -52,22 +52,22 @@ impl<'de> Deserialize<'de> for IntBigWire {
 }
 
 ///
-/// UintBigWire
+/// NatBigWire
 ///
-/// UintBigWire accepts the persisted biguint limb payload shape and rebuilds
+/// NatBigWire accepts the persisted bignat limb payload shape and rebuilds
 /// the public `Nat` wrapper without routing through the derived `Deserialize`
 /// form of `candid::Nat`.
 ///
 
-struct UintBigWire(Nat);
+struct NatBigWire(Nat);
 
-impl UintBigWire {
+impl NatBigWire {
     fn into_inner(self) -> Nat {
         self.0
     }
 }
 
-impl<'de> Deserialize<'de> for UintBigWire {
+impl<'de> Deserialize<'de> for NatBigWire {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -145,10 +145,10 @@ impl<'de> Visitor<'de> for ValueWireVisitor {
             ValueWireVariant::Subaccount => Ok(Value::Subaccount(payload.newtype_variant()?)),
             ValueWireVariant::Text => Ok(Value::Text(payload.newtype_variant()?)),
             ValueWireVariant::Timestamp => Ok(Value::Timestamp(payload.newtype_variant()?)),
-            ValueWireVariant::Uint => Ok(Value::Uint(payload.newtype_variant()?)),
-            ValueWireVariant::Uint128 => Ok(Value::Uint128(payload.newtype_variant()?)),
-            ValueWireVariant::UintBig => Ok(Value::UintBig(
-                payload.newtype_variant::<UintBigWire>()?.into_inner(),
+            ValueWireVariant::Nat => Ok(Value::Nat(payload.newtype_variant()?)),
+            ValueWireVariant::Nat128 => Ok(Value::Nat128(payload.newtype_variant()?)),
+            ValueWireVariant::NatBig => Ok(Value::NatBig(
+                payload.newtype_variant::<NatBigWire>()?.into_inner(),
             )),
             ValueWireVariant::Ulid => Ok(Value::Ulid(payload.newtype_variant()?)),
             ValueWireVariant::Unit => {

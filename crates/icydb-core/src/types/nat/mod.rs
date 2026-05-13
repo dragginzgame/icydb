@@ -132,14 +132,14 @@ impl RuntimeValueMeta for Nat {
 
 impl RuntimeValueEncode for Nat {
     fn to_value(&self) -> Value {
-        Value::UintBig(self.clone())
+        Value::NatBig(self.clone())
     }
 }
 
 impl RuntimeValueDecode for Nat {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
-            Value::UintBig(v) => Some(v.clone()),
+            Value::NatBig(v) => Some(v.clone()),
             _ => None,
         }
     }

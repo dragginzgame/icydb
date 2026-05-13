@@ -29,9 +29,9 @@ impl PartialOrd for Value {
             (Self::Subaccount(a), Self::Subaccount(b)) => a.partial_cmp(b),
             (Self::Text(a), Self::Text(b)) => a.partial_cmp(b),
             (Self::Timestamp(a), Self::Timestamp(b)) => a.partial_cmp(b),
-            (Self::Uint(a), Self::Uint(b)) => a.partial_cmp(b),
-            (Self::Uint128(a), Self::Uint128(b)) => a.partial_cmp(b),
-            (Self::UintBig(a), Self::UintBig(b)) => a.partial_cmp(b),
+            (Self::Nat(a), Self::Nat(b)) => a.partial_cmp(b),
+            (Self::Nat128(a), Self::Nat128(b)) => a.partial_cmp(b),
+            (Self::NatBig(a), Self::NatBig(b)) => a.partial_cmp(b),
             (Self::Ulid(a), Self::Ulid(b)) => a.partial_cmp(b),
             (Self::Map(a), Self::Map(b)) => partial_cmp_map(a.as_slice(), b.as_slice()),
 

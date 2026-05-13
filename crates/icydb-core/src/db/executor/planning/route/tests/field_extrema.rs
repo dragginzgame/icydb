@@ -99,12 +99,12 @@ fn route_matrix_field_extrema_capability_allows_index_predicate_covered_shape() 
         AccessPath::index_range(
             ROUTE_CAPABILITY_INDEX_MODELS[0],
             vec![],
-            Bound::Included(Value::Uint(10)),
-            Bound::Excluded(Value::Uint(30)),
+            Bound::Included(Value::Nat(10)),
+            Bound::Excluded(Value::Nat(30)),
         ),
         MissingRowPolicy::Ignore,
     );
-    plan.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Uint(12)));
+    plan.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Nat(12)));
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
@@ -145,8 +145,8 @@ fn route_matrix_field_extrema_reason_rejects_composite_access_shape() {
     let child_path = AccessPath::<Value>::index_range(
         ROUTE_CAPABILITY_INDEX_MODELS[0],
         vec![],
-        Bound::Included(Value::Uint(10)),
-        Bound::Excluded(Value::Uint(30)),
+        Bound::Included(Value::Nat(10)),
+        Bound::Excluded(Value::Nat(30)),
     );
     plan.access = AccessPlan::Union(vec![
         AccessPlan::path(child_path.clone()),

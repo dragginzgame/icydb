@@ -10,12 +10,12 @@ fn global_aggregate_value_matrix_matches_expected_values() {
         (
             "count star",
             "SELECT COUNT(*) FROM SessionSqlEntity",
-            Value::Uint(2),
+            Value::Nat(2),
         ),
         (
             "count field",
             "SELECT COUNT(age) FROM SessionSqlEntity",
-            Value::Uint(2),
+            Value::Nat(2),
         ),
         (
             "sum",
@@ -30,12 +30,12 @@ fn global_aggregate_value_matrix_matches_expected_values() {
         (
             "min",
             "SELECT MIN(age) FROM SessionSqlEntity",
-            Value::Uint(20),
+            Value::Nat(20),
         ),
         (
             "max",
             "SELECT MAX(age) FROM SessionSqlEntity",
-            Value::Uint(32),
+            Value::Nat(32),
         ),
         (
             "qualified sum",
@@ -81,7 +81,7 @@ fn global_aggregate_distinct_value_matrix_matches_expected_values() {
         (
             "distinct count",
             "SELECT COUNT(DISTINCT age) FROM SessionSqlEntity",
-            Value::Uint(2),
+            Value::Nat(2),
         ),
         (
             "distinct sum",
@@ -96,12 +96,12 @@ fn global_aggregate_distinct_value_matrix_matches_expected_values() {
         (
             "distinct min",
             "SELECT MIN(DISTINCT age) FROM SessionSqlEntity",
-            Value::Uint(20),
+            Value::Nat(20),
         ),
         (
             "distinct max",
             "SELECT MAX(DISTINCT age) FROM SessionSqlEntity",
-            Value::Uint(32),
+            Value::Nat(32),
         ),
     ];
 
@@ -123,7 +123,7 @@ fn global_aggregate_expression_input_value_matrix_matches_expected_values() {
         (
             "count literal expression",
             "SELECT COUNT(1) FROM SessionSqlEntity",
-            Value::Uint(2),
+            Value::Nat(2),
         ),
         (
             "sum arithmetic expression",
@@ -296,7 +296,7 @@ fn global_aggregate_unary_text_expression_input_value_matrix_matches_expected_va
     assert_session_sql_scalar_value::<SessionNullableSqlEntity>(
         &session,
         "SELECT MAX(LENGTH(TRIM(COALESCE(nickname, name)))) FROM SessionNullableSqlEntity",
-        Value::Uint(5),
+        Value::Nat(5),
         "max length trim coalesce aggregate input",
     );
 }
@@ -358,7 +358,7 @@ fn global_aggregate_case_expression_matrix_matches_expected_values() {
             "SELECT COUNT(*) \
              FROM SessionSqlEntity \
              HAVING CASE WHEN COUNT(*) > 1 THEN 1 ELSE 0 END = 1",
-            Value::Uint(2),
+            Value::Nat(2),
         ),
     ];
 
@@ -384,17 +384,17 @@ fn global_aggregate_filter_value_matrix_matches_expected_values() {
         (
             "filtered count star",
             "SELECT COUNT(*) FILTER (WHERE age >= 30) FROM SessionSqlEntity",
-            Value::Uint(2),
+            Value::Nat(2),
         ),
         (
             "filtered count star coalesce nullif predicate",
             "SELECT COUNT(*) FILTER (WHERE COALESCE(NULLIF(age, 20), 99) = 99) FROM SessionSqlEntity",
-            Value::Uint(1),
+            Value::Nat(1),
         ),
         (
             "filtered count field",
             "SELECT COUNT(age) FILTER (WHERE age >= 30) FROM SessionSqlEntity",
-            Value::Uint(2),
+            Value::Nat(2),
         ),
         (
             "filtered sum",
@@ -409,7 +409,7 @@ fn global_aggregate_filter_value_matrix_matches_expected_values() {
         (
             "filtered count false window",
             "SELECT COUNT(*) FILTER (WHERE age < 0) FROM SessionSqlEntity",
-            Value::Uint(0),
+            Value::Nat(0),
         ),
         (
             "filtered sum empty window",
@@ -446,7 +446,7 @@ fn global_aggregate_filter_case_null_conditions_fall_through_to_later_arms() {
            ELSE FALSE \
          END \
        ) FROM SessionNullableSqlEntity",
-        Value::Uint(2),
+        Value::Nat(2),
         "global aggregate FILTER should treat NULL searched-CASE conditions as false and continue to later arms",
     );
 }
@@ -506,8 +506,8 @@ fn global_aggregate_filter_mixed_projection_payload_matches_expected_values() {
     assert_eq!(
         rows,
         vec![vec![
-            output(Value::Uint(2)),
-            output(Value::Uint(3)),
+            output(Value::Nat(2)),
+            output(Value::Nat(3)),
             output(Value::Decimal(crate::types::Decimal::from(72_u64))),
         ]],
         "mixed filtered and unfiltered global aggregate projection should preserve distinct filtered and unfiltered aggregate values in the same reduced row",
@@ -559,7 +559,7 @@ fn global_aggregate_having_returns_single_row_when_predicate_matches() {
     assert_session_sql_scalar_value::<SessionSqlEntity>(
         &session,
         "SELECT COUNT(*) FROM SessionSqlEntity HAVING COUNT(*) > 1",
-        Value::Uint(2),
+        Value::Nat(2),
         "global aggregate HAVING should preserve its single reduced row when the predicate matches",
     );
 }
@@ -581,7 +581,7 @@ fn global_aggregate_having_alias_returns_single_row_when_predicate_matches() {
         "SELECT COUNT(*) AS total_rows \
          FROM SessionSqlEntity \
          HAVING total_rows > 1",
-        Value::Uint(2),
+        Value::Nat(2),
         "aliased global aggregate HAVING should execute through the same single reduced row path",
     );
 }
@@ -645,7 +645,7 @@ fn global_aggregate_having_not_null_alias_preserves_single_row() {
         "SELECT COUNT(*) AS c \
          FROM SessionSqlEntity \
          HAVING c IS NOT NULL",
-        Value::Uint(2),
+        Value::Nat(2),
         "aliased global aggregate HAVING IS NOT NULL should preserve the implicit group for non-null COUNT(*)",
     );
 }
@@ -759,7 +759,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
     assert_session_sql_scalar_value::<SessionSqlEntity>(
         &session,
         "SELECT COUNT(*) FROM SessionSqlEntity",
-        Value::Uint(u64::from(
+        Value::Nat(u64::from(
             session
                 .load::<SessionSqlEntity>()
                 .count()
@@ -790,7 +790,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
     assert_session_sql_scalar_value::<SessionSqlEntity>(
         &session,
         "SELECT COUNT(DISTINCT age) FROM SessionSqlEntity",
-        Value::Uint(u64::from(
+        Value::Nat(u64::from(
             session
                 .load::<SessionSqlEntity>()
                 .count_distinct_by("age")
@@ -824,7 +824,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
     assert_session_sql_scalar_value::<SessionSqlEntity>(
         &session,
         "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2 OFFSET 1",
-        Value::Uint(u64::from(
+        Value::Nat(u64::from(
             session
                 .load::<SessionSqlEntity>()
                 .order_term(crate::db::desc("age"))
@@ -885,7 +885,7 @@ fn global_aggregate_count_star_reuses_shared_query_plan_cache_with_fluent_count(
     assert_session_sql_scalar_value::<SessionSqlEntity>(
         &session,
         "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2 OFFSET 1",
-        Value::Uint(2),
+        Value::Nat(2),
         "COUNT(*) SQL should execute through the shared count-terminal route",
     );
     assert_eq!(
@@ -931,7 +931,7 @@ fn global_aggregate_count_non_nullable_field_reuses_shared_query_plan_cache_with
     assert_session_sql_scalar_value::<SessionSqlEntity>(
         &session,
         "SELECT COUNT(name) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2 OFFSET 1",
-        Value::Uint(2),
+        Value::Nat(2),
         "COUNT(non-null field) SQL should execute through the shared count-terminal route",
     );
     assert_eq!(
@@ -981,7 +981,7 @@ fn fluent_helper_terminals_map_to_admitted_sql_query_terms() {
             .load::<SessionSqlEntity>()
             .exists()
             .expect("fluent exists() should succeed"),
-        matches!(existing_count, Value::Uint(count) if count > 0),
+        matches!(existing_count, Value::Nat(count) if count > 0),
         "exists() should match COUNT(*) > 0 over the same SQL window",
     );
 
@@ -996,7 +996,7 @@ fn fluent_helper_terminals_map_to_admitted_sql_query_terms() {
             .filter(crate::db::FieldRef::new("name").eq("missing-helper"))
             .not_exists()
             .expect("fluent not_exists() should succeed"),
-        matches!(missing_count, Value::Uint(0)),
+        matches!(missing_count, Value::Nat(0)),
         "not_exists() should match COUNT(*) == 0 over the same SQL window",
     );
 
@@ -1069,7 +1069,7 @@ fn global_aggregate_window_matrix_returns_expected_values() {
             vec![
                 (
                     "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2 OFFSET 1",
-                    Value::Uint(2),
+                    Value::Nat(2),
                 ),
                 (
                     "SELECT SUM(age) FROM SessionSqlEntity ORDER BY age DESC LIMIT 1 OFFSET 1",
@@ -1087,7 +1087,7 @@ fn global_aggregate_window_matrix_returns_expected_values() {
             vec![
                 (
                     "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 10",
-                    Value::Uint(0),
+                    Value::Nat(0),
                 ),
                 (
                     "SELECT SUM(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 10",
@@ -1132,14 +1132,14 @@ fn execute_sql_statement_global_aggregate_payload_matrix_preserves_projection_la
             "SELECT COUNT(*) FROM SessionSqlEntity",
             vec!["COUNT(*)".to_string()],
             vec![None],
-            vec![vec![Value::Uint(0)]],
+            vec![vec![Value::Nat(0)]],
             "plain global aggregate statement payload",
         ),
         (
             "SELECT COUNT(*) AS total_rows FROM SessionSqlEntity",
             vec!["total_rows".to_string()],
             vec![None],
-            vec![vec![Value::Uint(0)]],
+            vec![vec![Value::Nat(0)]],
             "aliased global aggregate statement payload",
         ),
         (
@@ -1157,7 +1157,7 @@ fn execute_sql_statement_global_aggregate_payload_matrix_preserves_projection_la
                 "AVG(age + 1)".to_string(),
             ],
             vec![None, None, None],
-            vec![vec![Value::Uint(0), Value::Null, Value::Null]],
+            vec![vec![Value::Nat(0), Value::Null, Value::Null]],
             "expression-input global aggregate statement payload",
         ),
         (
@@ -1232,7 +1232,7 @@ fn global_aggregate_matrix_queries_match_expected_values() {
 
     // Phase 2: execute table-driven aggregate SQL cases.
     let cases = vec![
-        ("SELECT COUNT(*) FROM SessionSqlEntity", Value::Uint(6)),
+        ("SELECT COUNT(*) FROM SessionSqlEntity", Value::Nat(6)),
         (
             "SELECT SUM(age) FROM SessionSqlEntity",
             Value::Decimal(crate::types::Decimal::from(130_u64)),
@@ -1243,15 +1243,15 @@ fn global_aggregate_matrix_queries_match_expected_values() {
         ),
         (
             "SELECT MIN(age) FROM SessionSqlEntity WHERE age >= 20",
-            Value::Uint(20),
+            Value::Nat(20),
         ),
         (
             "SELECT MAX(age) FROM SessionSqlEntity WHERE age <= 20",
-            Value::Uint(20),
+            Value::Nat(20),
         ),
         (
             "SELECT COUNT(*) FROM SessionSqlEntity WHERE age < 0",
-            Value::Uint(0),
+            Value::Nat(0),
         ),
         (
             "SELECT SUM(age) FROM SessionSqlEntity WHERE age < 0",
@@ -1293,7 +1293,7 @@ fn global_aggregate_multi_terminal_query_returns_expected_projection_row() {
             "SELECT MIN(age), MAX(age) FROM SessionSqlEntity",
         )
         .expect("multi-terminal global aggregate row should load"),
-        vec![vec![Value::Uint(10), Value::Uint(30)]],
+        vec![vec![Value::Nat(10), Value::Nat(30)]],
         "multi-terminal global aggregate SQL should emit one row with both reduced values",
     );
 }
@@ -1332,10 +1332,10 @@ fn global_aggregate_duplicate_terminals_preserve_duplicate_output_columns() {
         )
         .expect("duplicate global aggregate row should load"),
         vec![vec![
-            Value::Uint(3),
-            Value::Uint(3),
+            Value::Nat(3),
+            Value::Nat(3),
             Value::Decimal(crate::types::Decimal::from(60_u64)),
-            Value::Uint(3),
+            Value::Nat(3),
         ]],
         "duplicate global aggregate SQL should fan unique reduced values back out into original projection order",
     );
@@ -1373,7 +1373,7 @@ fn global_aggregate_duplicate_terminals_preserve_duplicate_alias_columns() {
             "SELECT COUNT(age) AS first_count, COUNT(age) AS second_count, COUNT(age) AS third_count FROM SessionSqlEntity",
         )
         .expect("duplicate aliased global aggregate row should load"),
-        vec![vec![Value::Uint(3), Value::Uint(3), Value::Uint(3)]],
+        vec![vec![Value::Nat(3), Value::Nat(3), Value::Nat(3)]],
         "duplicate aliased global aggregate SQL should fan one reduced value back out to every aliased output slot",
     );
 }
@@ -1397,7 +1397,7 @@ fn global_aggregate_distinct_terminals_do_not_collapse_into_plain_count_outputs(
             "SELECT COUNT(age), COUNT(DISTINCT age), COUNT(age) FROM SessionSqlEntity",
         )
         .expect("distinct and non-distinct aggregate row should load"),
-        vec![vec![Value::Uint(3), Value::Uint(2), Value::Uint(3)]],
+        vec![vec![Value::Nat(3), Value::Nat(2), Value::Nat(3)]],
         "COUNT(DISTINCT age) should stay separate from plain COUNT(age) while exact duplicates still fan out",
     );
 }
@@ -1421,7 +1421,7 @@ fn global_aggregate_qualified_and_unqualified_duplicates_preserve_same_outputs()
             "SELECT COUNT(age), COUNT(SessionSqlEntity.age), COUNT(age) FROM SessionSqlEntity",
         )
         .expect("qualified and unqualified duplicate aggregate row should load"),
-        vec![vec![Value::Uint(3), Value::Uint(3), Value::Uint(3)]],
+        vec![vec![Value::Nat(3), Value::Nat(3), Value::Nat(3)]],
         "qualified and unqualified duplicate aggregate terminals should normalize to the same reduced output",
     );
 }

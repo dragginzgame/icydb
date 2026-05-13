@@ -19,7 +19,7 @@ use crate::{
 
 #[test]
 fn grouped_having_numeric_equality_uses_numeric_widen_semantics() {
-    let matched = evaluate_grouped_having_compare(&Value::Uint(7), CompareOp::Eq, &Value::Int(7))
+    let matched = evaluate_grouped_having_compare(&Value::Nat(7), CompareOp::Eq, &Value::Int(7))
         .expect("eq should be supported");
 
     assert!(matched);
@@ -27,7 +27,7 @@ fn grouped_having_numeric_equality_uses_numeric_widen_semantics() {
 
 #[test]
 fn grouped_having_numeric_ordering_uses_numeric_widen_semantics() {
-    let matched = evaluate_grouped_having_compare(&Value::Uint(2), CompareOp::Lt, &Value::Int(3))
+    let matched = evaluate_grouped_having_compare(&Value::Nat(2), CompareOp::Lt, &Value::Int(3))
         .expect("lt should be supported");
 
     assert!(matched);
@@ -36,7 +36,7 @@ fn grouped_having_numeric_ordering_uses_numeric_widen_semantics() {
 #[test]
 fn grouped_having_numeric_vs_non_numeric_is_fail_closed() {
     let matched = evaluate_grouped_having_compare(
-        &Value::Uint(7),
+        &Value::Nat(7),
         CompareOp::Eq,
         &Value::Text("7".to_string()),
     )
@@ -49,22 +49,22 @@ fn grouped_having_numeric_vs_non_numeric_is_fail_closed() {
 fn grouped_having_null_eq_matches_only_null_values() {
     let null_eq = evaluate_grouped_having_compare(&Value::Null, CompareOp::Eq, &Value::Null)
         .expect("eq should be supported");
-    let uint_eq = evaluate_grouped_having_compare(&Value::Uint(7), CompareOp::Eq, &Value::Null)
+    let nat_eq = evaluate_grouped_having_compare(&Value::Nat(7), CompareOp::Eq, &Value::Null)
         .expect("eq should be supported");
 
     assert!(null_eq);
-    assert!(!uint_eq);
+    assert!(!nat_eq);
 }
 
 #[test]
 fn grouped_having_null_ne_matches_only_non_null_values() {
     let null_ne = evaluate_grouped_having_compare(&Value::Null, CompareOp::Ne, &Value::Null)
         .expect("ne should be supported");
-    let uint_ne = evaluate_grouped_having_compare(&Value::Uint(7), CompareOp::Ne, &Value::Null)
+    let nat_ne = evaluate_grouped_having_compare(&Value::Nat(7), CompareOp::Ne, &Value::Null)
         .expect("ne should be supported");
 
     assert!(!null_ne);
-    assert!(uint_ne);
+    assert!(nat_ne);
 }
 
 #[test]

@@ -16,7 +16,7 @@ pub(super) const TAG_NULL: u8 = 0x00;
 pub(super) const TAG_UNIT: u8 = 0x01;
 pub(super) const TAG_FALSE: u8 = 0x02;
 pub(super) const TAG_TRUE: u8 = 0x03;
-pub(super) const TAG_UINT64: u8 = 0x10;
+pub(super) const TAG_NAT64: u8 = 0x10;
 pub(super) const TAG_INT64: u8 = 0x11;
 pub(super) const TAG_TEXT: u8 = 0x12;
 pub(super) const TAG_BYTES: u8 = 0x13;
@@ -51,8 +51,8 @@ pub(super) fn push_binary_bool(out: &mut Vec<u8>, value: bool) {
 }
 
 /// Append one fixed-width `u64` Structural Binary v1 value.
-pub(super) fn push_binary_uint64(out: &mut Vec<u8>, value: u64) {
-    out.push(TAG_UINT64);
+pub(super) fn push_binary_nat64(out: &mut Vec<u8>, value: u64) {
+    out.push(TAG_NAT64);
     out.extend_from_slice(&encode_u64_payload_bytes(value));
 }
 
@@ -176,7 +176,7 @@ pub(super) fn parse_binary_head(
 
     let len = match tag {
         TAG_NULL | TAG_UNIT | TAG_FALSE | TAG_TRUE => 0,
-        TAG_UINT64 | TAG_INT64 | TAG_FLOAT64 => u32::try_from(WORD64_LEN)
+        TAG_NAT64 | TAG_INT64 | TAG_FLOAT64 => u32::try_from(WORD64_LEN)
             .expect("fixed-width scalar length fits in structural binary len"),
         TAG_FLOAT32 => u32::try_from(WORD32_LEN)
             .expect("fixed-width scalar length fits in structural binary len"),
@@ -195,7 +195,7 @@ pub(super) fn parse_binary_head(
     };
 
     let payload_offset = match tag {
-        TAG_NULL | TAG_UNIT | TAG_FALSE | TAG_TRUE | TAG_UINT64 | TAG_INT64 | TAG_FLOAT32
+        TAG_NULL | TAG_UNIT | TAG_FALSE | TAG_TRUE | TAG_NAT64 | TAG_INT64 | TAG_FLOAT32
         | TAG_FLOAT64 => payload_offset,
         TAG_TEXT | TAG_BYTES | TAG_LIST | TAG_MAP | TAG_VARIANT_UNIT | TAG_VARIANT_PAYLOAD => {
             payload_offset.checked_add(WORD32_LEN).ok_or_else(|| {
@@ -229,7 +229,7 @@ pub(super) fn skip_binary_value(bytes: &[u8], offset: usize) -> Result<usize, Fi
             WORD32_LEN,
             "structural binary: truncated fixed-width scalar payload",
         ),
-        TAG_UINT64 | TAG_INT64 | TAG_FLOAT64 => checked_advance(
+        TAG_NAT64 | TAG_INT64 | TAG_FLOAT64 => checked_advance(
             bytes,
             head.payload_offset,
             WORD64_LEN,
@@ -525,7 +525,7 @@ pub(super) fn payload_bytes<'a>(
 #[cfg(test)]
 mod tests {
     use super::{
-        TAG_FALSE, TAG_INT64, TAG_LIST, TAG_MAP, TAG_NULL, TAG_TEXT, TAG_TRUE, TAG_UINT64,
+        TAG_FALSE, TAG_INT64, TAG_LIST, TAG_MAP, TAG_NAT64, TAG_NULL, TAG_TEXT, TAG_TRUE,
         TAG_VARIANT_PAYLOAD, TAG_VARIANT_UNIT, parse_binary_head, push_binary_bool,
         skip_binary_value, split_binary_variant_payload, walk_binary_list_items,
         walk_binary_map_entries,
@@ -543,8 +543,8 @@ mod tests {
         vec![if value { TAG_TRUE } else { TAG_FALSE }]
     }
 
-    fn encode_uint64(value: u64) -> Vec<u8> {
-        let mut out = vec![TAG_UINT64];
+    fn encode_nat64(value: u64) -> Vec<u8> {
+        let mut out = vec![TAG_NAT64];
         out.extend_from_slice(&value.to_be_bytes());
         out
     }
@@ -670,7 +670,7 @@ mod tests {
     fn skip_binary_value_skips_nested_list_payloads() {
         let bytes = encode_list(&[
             encode_text("left"),
-            encode_list(&[encode_uint64(7), encode_bool(true)]),
+            encode_list(&[encode_nat64(7), encode_bool(true)]),
             encode_int64(-5),
         ]);
 
@@ -683,7 +683,7 @@ mod tests {
     #[test]
     fn walk_binary_list_items_yields_raw_item_slices() {
         let left = encode_text("left");
-        let right = encode_uint64(9);
+        let right = encode_nat64(9);
         let bytes = encode_list(&[left.clone(), right.clone()]);
         let mut state: ListState = Vec::new();
 
@@ -702,9 +702,9 @@ mod tests {
     #[test]
     fn walk_binary_map_entries_yields_raw_entry_slices() {
         let left_key = encode_text("left");
-        let left_value = encode_uint64(1);
+        let left_value = encode_nat64(1);
         let right_key = encode_text("right");
-        let right_value = encode_uint64(2);
+        let right_value = encode_nat64(2);
         let bytes = encode_map(&[
             (left_key.clone(), left_value.clone()),
             (right_key.clone(), right_value.clone()),
@@ -729,7 +729,7 @@ mod tests {
     #[test]
     fn split_binary_variant_payload_handles_unit_and_payload_variants() {
         let unit = encode_variant_unit("Loaded");
-        let payload_value = encode_uint64(7);
+        let payload_value = encode_nat64(7);
         let payload = encode_variant_payload("Loaded", &payload_value);
 
         let (unit_label, unit_payload) = split_binary_variant_payload(

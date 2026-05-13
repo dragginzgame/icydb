@@ -9,9 +9,10 @@ use crate::{
         schema::{
             AcceptedFieldDecodeContract, FieldId, MutationPlan, MutationPublicationPreflight,
             MutationPublicationStatus, PersistedFieldSnapshot, PersistedNestedLeafSnapshot,
-            PersistedSchemaSnapshot, SchemaFieldSlot, SchemaMutationRequest,
-            SchemaMutationRunnerContract, SchemaMutationSupportedExecutionPath,
-            SchemaMutationSupportedPathRejection, schema_mutation_request_for_snapshots,
+            PersistedSchemaSnapshot, SchemaFieldSlot, SchemaMutationExecutionPlan,
+            SchemaMutationRequest, SchemaMutationRunnerContract,
+            SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection,
+            schema_mutation_request_for_snapshots,
         },
     },
     value::Value,
@@ -43,6 +44,7 @@ pub(in crate::db::schema) enum SchemaTransitionDecision {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaTransitionPlanKind {
+    AddNonUniqueFieldPathIndex,
     AppendOnlyNullableFields,
     ExactMatch,
 }
@@ -116,6 +118,13 @@ impl SchemaTransitionPlan {
         &self,
     ) -> Result<SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection> {
         self.mutation_plan.supported_developer_physical_path()
+    }
+
+    // Return the schema-owned physical execution plan for accepted runner
+    // wiring. Reconciliation consumes this instead of reconstructing mutation
+    // semantics from accepted snapshots or generated metadata.
+    pub(in crate::db::schema) fn execution_plan(&self) -> SchemaMutationExecutionPlan {
+        self.mutation_plan.execution_plan()
     }
 
     // Borrow the catalog-native mutation plan behind this reconciliation
@@ -211,8 +220,15 @@ pub(in crate::db::schema) fn decide_schema_transition(
                 ),
             );
         }
+        SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } => {
+            return SchemaTransitionDecision::Accepted(
+                SchemaTransitionPlan::from_mutation_request(
+                    SchemaTransitionPlanKind::AddNonUniqueFieldPathIndex,
+                    SchemaMutationRequest::AddNonUniqueFieldPathIndex { target },
+                ),
+            );
+        }
         SchemaMutationRequest::AppendOnlyFields(_)
-        | SchemaMutationRequest::AddNonUniqueFieldPathIndex { .. }
         | SchemaMutationRequest::AddExpressionIndex { .. }
         | SchemaMutationRequest::DropNonRequiredSecondaryIndex { .. }
         | SchemaMutationRequest::AlterNullability { .. }
@@ -891,12 +907,12 @@ mod tests {
             FieldId::new(3),
             "score".to_string(),
             SchemaFieldSlot::new(2),
-            PersistedFieldKind::Uint,
+            PersistedFieldKind::Nat,
             Vec::new(),
             false,
             SchemaFieldDefault::SlotPayload(vec![0xFF, 0x01, 7, 0, 0, 0, 0, 0, 0, 0]),
             FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Uint64),
+            LeafCodec::Scalar(ScalarCodec::Nat64),
         ));
         let generated = PersistedSchemaSnapshot::new(
             stored.version(),
@@ -935,12 +951,12 @@ mod tests {
             FieldId::new(3),
             "score".to_string(),
             SchemaFieldSlot::new(2),
-            PersistedFieldKind::Uint,
+            PersistedFieldKind::Nat,
             Vec::new(),
             false,
             SchemaFieldDefault::SlotPayload(vec![0x00]),
             FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Uint64),
+            LeafCodec::Scalar(ScalarCodec::Nat64),
         ));
         let generated = PersistedSchemaSnapshot::new(
             stored.version(),
@@ -1061,12 +1077,12 @@ mod tests {
             FieldId::new(2),
             "name".to_string(),
             SchemaFieldSlot::new(1),
-            PersistedFieldKind::Uint,
+            PersistedFieldKind::Nat,
             Vec::new(),
             false,
             SchemaFieldDefault::None,
             FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Uint64),
+            LeafCodec::Scalar(ScalarCodec::Nat64),
         );
         let changed = PersistedSchemaSnapshot::new(
             expected.version(),
@@ -1090,7 +1106,7 @@ mod tests {
         assert!(
             rejection
                 .detail()
-                .contains("field[1] kind changed: stored=Uint generated=Text"),
+                .contains("field[1] kind changed: stored=Nat generated=Text"),
             "field type drift should name the first changed field contract",
         );
     }
@@ -1191,10 +1207,10 @@ mod tests {
             PersistedFieldKind::Structured { queryable: false },
             vec![PersistedNestedLeafSnapshot::new(
                 vec!["score".to_string()],
-                PersistedFieldKind::Uint,
+                PersistedFieldKind::Nat,
                 false,
                 FieldStorageDecode::ByKind,
-                LeafCodec::Scalar(ScalarCodec::Uint64),
+                LeafCodec::Scalar(ScalarCodec::Nat64),
             )],
             false,
             SchemaFieldDefault::None,
@@ -1230,7 +1246,7 @@ mod tests {
         );
         assert!(
             rejection.detail().contains(
-                "generated_path='score' generated_kind=Uint generated_nullable=false generated_storage_decode=ByKind generated_leaf_codec=Scalar(Uint64)"
+                "generated_path='score' generated_kind=Nat generated_nullable=false generated_storage_decode=ByKind generated_leaf_codec=Scalar(Nat64)"
             ),
             "nested leaf drift should describe the generated leaf contract",
         );
@@ -1249,12 +1265,12 @@ mod tests {
             FieldId::new(3),
             "legacy_score".to_string(),
             SchemaFieldSlot::new(2),
-            PersistedFieldKind::Uint,
+            PersistedFieldKind::Nat,
             Vec::new(),
             false,
             SchemaFieldDefault::None,
             FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Uint64),
+            LeafCodec::Scalar(ScalarCodec::Nat64),
         ));
         let changed = PersistedSchemaSnapshot::new(
             expected.version(),
@@ -1280,7 +1296,7 @@ mod tests {
 
         assert!(
             rejection.detail().contains(
-                "unsupported removed field transition: stored field[2] id=3 slot=2 name='legacy_score' kind=Uint; retained-slot support is not enabled yet"
+                "unsupported removed field transition: stored field[2] id=3 slot=2 name='legacy_score' kind=Nat; retained-slot support is not enabled yet"
             ),
             "removed field drift should be named as an unsupported future transition shape",
         );
@@ -1299,12 +1315,12 @@ mod tests {
             FieldId::new(3),
             "new_score".to_string(),
             SchemaFieldSlot::new(2),
-            PersistedFieldKind::Uint,
+            PersistedFieldKind::Nat,
             Vec::new(),
             false,
             SchemaFieldDefault::None,
             FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Uint64),
+            LeafCodec::Scalar(ScalarCodec::Nat64),
         ));
         let generated = PersistedSchemaSnapshot::new(
             stored.version(),
@@ -1330,7 +1346,7 @@ mod tests {
 
         assert!(
             rejection.detail().contains(
-                "unsupported additive field transition: generated field[2] id=3 slot=2 name='new_score' kind=Uint nullable=false default=None; field must be nullable without a default or carry a valid explicit persisted default payload"
+                "unsupported additive field transition: generated field[2] id=3 slot=2 name='new_score' kind=Nat nullable=false default=None; field must be nullable without a default or carry a valid explicit persisted default payload"
             ),
             "additive field drift should be named as an unsupported future transition shape",
         );

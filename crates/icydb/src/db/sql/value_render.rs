@@ -24,9 +24,9 @@ pub fn render_value_text(value: &OutputValue) -> String {
         OutputValue::Subaccount(v) => v.to_string(),
         OutputValue::Text(v) => v.clone(),
         OutputValue::Timestamp(v) => v.as_millis().to_string(),
-        OutputValue::Uint(v) => v.to_string(),
-        OutputValue::Uint128(v) => v.to_string(),
-        OutputValue::UintBig(v) => v.to_string(),
+        OutputValue::Nat(v) => v.to_string(),
+        OutputValue::Nat128(v) => v.to_string(),
+        OutputValue::NatBig(v) => v.to_string(),
         OutputValue::Ulid(v) => v.to_string(),
         OutputValue::Unit => "()".to_string(),
     }

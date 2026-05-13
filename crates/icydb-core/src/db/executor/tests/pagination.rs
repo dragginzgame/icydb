@@ -443,7 +443,7 @@ fn pushdown_group_predicate(group: u32) -> Predicate {
     Predicate::Compare(ComparePredicate::with_coercion(
         "group",
         CompareOp::Eq,
-        Value::Uint(u64::from(group)),
+        Value::Nat(u64::from(group)),
         CoercionId::Strict,
     ))
 }
@@ -463,12 +463,12 @@ fn group_rank_range_predicate(group: u32, lower_inclusive: u32, upper_exclusive:
         strict_compare_predicate(
             "rank",
             CompareOp::Gte,
-            Value::Uint(u64::from(lower_inclusive)),
+            Value::Nat(u64::from(lower_inclusive)),
         ),
         strict_compare_predicate(
             "rank",
             CompareOp::Lt,
-            Value::Uint(u64::from(upper_exclusive)),
+            Value::Nat(u64::from(upper_exclusive)),
         ),
     ])
 }
@@ -483,12 +483,12 @@ fn group_rank_between_equivalent_predicate(
         strict_compare_predicate(
             "rank",
             CompareOp::Gte,
-            Value::Uint(u64::from(lower_inclusive)),
+            Value::Nat(u64::from(lower_inclusive)),
         ),
         strict_compare_predicate(
             "rank",
             CompareOp::Lte,
-            Value::Uint(u64::from(upper_inclusive)),
+            Value::Nat(u64::from(upper_inclusive)),
         ),
     ])
 }
@@ -583,7 +583,7 @@ fn pushdown_group_filter_expr(group: u64) -> Expr {
     Expr::Binary {
         op: BinaryOp::Eq,
         left: Box::new(Expr::Field(FieldId::new("group"))),
-        right: Box::new(Expr::Literal(Value::Uint(group))),
+        right: Box::new(Expr::Literal(Value::Nat(group))),
     }
 }
 
@@ -676,13 +676,9 @@ fn tag_range_predicate(lower_inclusive: u32, upper_exclusive: u32) -> Predicate 
         strict_compare_predicate(
             "tag",
             CompareOp::Gte,
-            Value::Uint(u64::from(lower_inclusive)),
+            Value::Nat(u64::from(lower_inclusive)),
         ),
-        strict_compare_predicate(
-            "tag",
-            CompareOp::Lt,
-            Value::Uint(u64::from(upper_exclusive)),
-        ),
+        strict_compare_predicate("tag", CompareOp::Lt, Value::Nat(u64::from(upper_exclusive))),
     ])
 }
 
@@ -691,12 +687,12 @@ fn tag_between_equivalent_predicate(lower_inclusive: u32, upper_inclusive: u32) 
         strict_compare_predicate(
             "tag",
             CompareOp::Gte,
-            Value::Uint(u64::from(lower_inclusive)),
+            Value::Nat(u64::from(lower_inclusive)),
         ),
         strict_compare_predicate(
             "tag",
             CompareOp::Lte,
-            Value::Uint(u64::from(upper_inclusive)),
+            Value::Nat(u64::from(upper_inclusive)),
         ),
     ])
 }
@@ -943,8 +939,8 @@ fn build_distinct_desc_index_range_plan(
         access: AccessPlan::path(AccessPath::index_range(
             INDEXED_METRICS_INDEX_MODELS[0],
             Vec::new(),
-            Bound::Included(Value::Uint(10)),
-            Bound::Excluded(Value::Uint(30)),
+            Bound::Included(Value::Nat(10)),
+            Bound::Excluded(Value::Nat(30)),
         )),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
         access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
@@ -1029,8 +1025,8 @@ fn build_distinct_index_range_offset_fast_plan(
         access: AccessPlan::path(AccessPath::index_range(
             INDEXED_METRICS_INDEX_MODELS[0],
             Vec::new(),
-            Bound::Included(Value::Uint(10)),
-            Bound::Excluded(Value::Uint(30)),
+            Bound::Included(Value::Nat(10)),
+            Bound::Excluded(Value::Nat(30)),
         )),
         projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
         access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
@@ -1161,7 +1157,7 @@ fn assert_distinct_index_range_offset_parity_case(
 fn indexed_metric_tag_id_boundary(tag: u32, id: u128) -> CursorBoundary {
     CursorBoundary {
         slots: vec![
-            CursorBoundarySlot::Present(Value::Uint(u64::from(tag))),
+            CursorBoundarySlot::Present(Value::Nat(u64::from(tag))),
             CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(id))),
         ],
     }
@@ -1172,12 +1168,12 @@ fn unique_code_range_predicate(lower_inclusive: u32, upper_exclusive: u32) -> Pr
         strict_compare_predicate(
             "code",
             CompareOp::Gte,
-            Value::Uint(u64::from(lower_inclusive)),
+            Value::Nat(u64::from(lower_inclusive)),
         ),
         strict_compare_predicate(
             "code",
             CompareOp::Lt,
-            Value::Uint(u64::from(upper_exclusive)),
+            Value::Nat(u64::from(upper_exclusive)),
         ),
     ])
 }
@@ -1297,7 +1293,7 @@ fn predicate_from_field_bounds(field: &str, bounds: RangeBounds) -> Predicate {
     Predicate::And(
         bounds
             .iter()
-            .map(|(op, value)| strict_compare_predicate(field, *op, Value::Uint(u64::from(*value))))
+            .map(|(op, value)| strict_compare_predicate(field, *op, Value::Nat(u64::from(*value))))
             .collect(),
     )
 }
@@ -1307,7 +1303,7 @@ fn predicate_from_group_rank_bounds(group: u32, bounds: RangeBounds) -> Predicat
     predicates.push(pushdown_group_predicate(group));
     predicates.extend(
         bounds.iter().map(|(op, value)| {
-            strict_compare_predicate("rank", *op, Value::Uint(u64::from(*value)))
+            strict_compare_predicate("rank", *op, Value::Nat(u64::from(*value)))
         }),
     );
 
@@ -1339,7 +1335,7 @@ fn assert_resume_from_terminal_entity_exhausts_range(
         .expect("terminal resume plan should build");
     let boundary = Some(CursorBoundary {
         slots: vec![
-            CursorBoundarySlot::Present(Value::Uint(u64::from(terminal_entity.rank))),
+            CursorBoundarySlot::Present(Value::Nat(u64::from(terminal_entity.rank))),
             CursorBoundarySlot::Present(Value::Ulid(terminal_entity.id)),
         ],
     });
@@ -1589,7 +1585,7 @@ fn execute_indexed_metrics_tag_page_asc_from_boundary(
 fn pushdown_rank_id_boundary(rank: u32, id: u128) -> CursorBoundary {
     CursorBoundary {
         slots: vec![
-            CursorBoundarySlot::Present(Value::Uint(u64::from(rank))),
+            CursorBoundarySlot::Present(Value::Nat(u64::from(rank))),
             CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(id))),
         ],
     }
@@ -1598,9 +1594,9 @@ fn pushdown_rank_id_boundary(rank: u32, id: u128) -> CursorBoundary {
 fn pushdown_group_rank_id_boundary(group: Option<u32>, rank: u32, id: u128) -> CursorBoundary {
     let mut slots = Vec::new();
     if let Some(group) = group {
-        slots.push(CursorBoundarySlot::Present(Value::Uint(u64::from(group))));
+        slots.push(CursorBoundarySlot::Present(Value::Nat(u64::from(group))));
     }
-    slots.push(CursorBoundarySlot::Present(Value::Uint(u64::from(rank))));
+    slots.push(CursorBoundarySlot::Present(Value::Nat(u64::from(rank))));
     slots.push(CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(
         id,
     ))));
@@ -4756,8 +4752,8 @@ fn load_cursor_with_offset_index_range_pushdown_resume_matrix_is_boundary_comple
                 access: AccessPlan::path(AccessPath::index_range(
                     INDEXED_METRICS_INDEX_MODELS[0],
                     Vec::new(),
-                    Bound::Included(Value::Uint(10)),
-                    Bound::Excluded(Value::Uint(30)),
+                    Bound::Included(Value::Nat(10)),
+                    Bound::Excluded(Value::Nat(30)),
                 )),
                 projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
                 access_choice:
@@ -5803,9 +5799,9 @@ fn load_composite_desc_range_mixed_edges_resume_inside_duplicate_group() {
     let base_page = execute_pushdown_rank_page_desc(
         &load,
         Predicate::And(vec![
-            strict_compare_predicate("group", CompareOp::Eq, Value::Uint(7)),
-            strict_compare_predicate("rank", CompareOp::Gt, Value::Uint(10)),
-            strict_compare_predicate("rank", CompareOp::Lte, Value::Uint(30)),
+            strict_compare_predicate("group", CompareOp::Eq, Value::Nat(7)),
+            strict_compare_predicate("rank", CompareOp::Gt, Value::Nat(10)),
+            strict_compare_predicate("rank", CompareOp::Lte, Value::Nat(30)),
         ]),
         None,
         "composite mixed-edge desc base page",
@@ -5825,9 +5821,9 @@ fn load_composite_desc_range_mixed_edges_resume_inside_duplicate_group() {
     let first_resume = execute_pushdown_rank_page_desc(
         &load,
         Predicate::And(vec![
-            strict_compare_predicate("group", CompareOp::Eq, Value::Uint(7)),
-            strict_compare_predicate("rank", CompareOp::Gt, Value::Uint(10)),
-            strict_compare_predicate("rank", CompareOp::Lte, Value::Uint(30)),
+            strict_compare_predicate("group", CompareOp::Eq, Value::Nat(7)),
+            strict_compare_predicate("rank", CompareOp::Gt, Value::Nat(10)),
+            strict_compare_predicate("rank", CompareOp::Lte, Value::Nat(30)),
         ]),
         Some(pushdown_rank_id_boundary(30, 21_604)),
         "composite mixed-edge desc first resume",
@@ -5841,9 +5837,9 @@ fn load_composite_desc_range_mixed_edges_resume_inside_duplicate_group() {
     let terminal_resume = execute_pushdown_rank_page_desc(
         &load,
         Predicate::And(vec![
-            strict_compare_predicate("group", CompareOp::Eq, Value::Uint(7)),
-            strict_compare_predicate("rank", CompareOp::Gt, Value::Uint(10)),
-            strict_compare_predicate("rank", CompareOp::Lte, Value::Uint(30)),
+            strict_compare_predicate("group", CompareOp::Eq, Value::Nat(7)),
+            strict_compare_predicate("rank", CompareOp::Gt, Value::Nat(10)),
+            strict_compare_predicate("rank", CompareOp::Lte, Value::Nat(30)),
         ]),
         Some(pushdown_rank_id_boundary(20, 21_603)),
         "composite mixed-edge desc terminal resume",
@@ -6002,8 +5998,8 @@ fn load_single_field_range_cursor_boundaries_respect_lower_and_upper_edges() {
 
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
     let half_open_predicate = Predicate::And(vec![
-        strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(10)),
-        strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(30)),
+        strict_compare_predicate("tag", CompareOp::Gte, Value::Nat(10)),
+        strict_compare_predicate("tag", CompareOp::Lt, Value::Nat(30)),
     ]);
 
     // Phase 1: capture the full half-open ascending window.
@@ -6043,8 +6039,8 @@ fn load_single_field_range_cursor_boundaries_respect_lower_and_upper_edges() {
     let terminal_resume = execute_indexed_metrics_tag_page_asc_from_boundary(
         &load,
         Predicate::And(vec![
-            strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(10)),
-            strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(30)),
+            strict_compare_predicate("tag", CompareOp::Gte, Value::Nat(10)),
+            strict_compare_predicate("tag", CompareOp::Lt, Value::Nat(30)),
         ]),
         10,
         Some(indexed_metric_tag_id_boundary(25, 21_004)),
@@ -6760,8 +6756,8 @@ fn load_single_field_desc_range_mixed_edges_resume_inside_duplicate_group() {
     let base_page = execute_indexed_metrics_tag_page_desc(
         &load,
         Predicate::And(vec![
-            strict_compare_predicate("tag", CompareOp::Gt, Value::Uint(10)),
-            strict_compare_predicate("tag", CompareOp::Lte, Value::Uint(30)),
+            strict_compare_predicate("tag", CompareOp::Gt, Value::Nat(10)),
+            strict_compare_predicate("tag", CompareOp::Lte, Value::Nat(30)),
         ]),
         10,
         None,
@@ -6783,8 +6779,8 @@ fn load_single_field_desc_range_mixed_edges_resume_inside_duplicate_group() {
     let first_resume = execute_indexed_metrics_tag_page_desc_from_boundary(
         &load,
         Predicate::And(vec![
-            strict_compare_predicate("tag", CompareOp::Gt, Value::Uint(10)),
-            strict_compare_predicate("tag", CompareOp::Lte, Value::Uint(30)),
+            strict_compare_predicate("tag", CompareOp::Gt, Value::Nat(10)),
+            strict_compare_predicate("tag", CompareOp::Lte, Value::Nat(30)),
         ]),
         10,
         Some(indexed_metric_tag_id_boundary(30, 21_505)),
@@ -6799,8 +6795,8 @@ fn load_single_field_desc_range_mixed_edges_resume_inside_duplicate_group() {
     let terminal_resume = execute_indexed_metrics_tag_page_desc_from_boundary(
         &load,
         Predicate::And(vec![
-            strict_compare_predicate("tag", CompareOp::Gt, Value::Uint(10)),
-            strict_compare_predicate("tag", CompareOp::Lte, Value::Uint(30)),
+            strict_compare_predicate("tag", CompareOp::Gt, Value::Nat(10)),
+            strict_compare_predicate("tag", CompareOp::Lte, Value::Nat(30)),
         ]),
         10,
         Some(indexed_metric_tag_id_boundary(20, 21_504)),
@@ -6916,9 +6912,9 @@ fn load_trace_marks_composite_index_range_pushdown_rejection_outcome() {
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::index_range(
                 PUSHDOWN_PARITY_INDEX_MODELS[0],
-                vec![Value::Uint(7)],
-                std::ops::Bound::Included(Value::Uint(10)),
-                std::ops::Bound::Excluded(Value::Uint(20)),
+                vec![Value::Nat(7)],
+                std::ops::Bound::Included(Value::Nat(10)),
+                std::ops::Bound::Excluded(Value::Nat(20)),
             )),
             AccessPlan::path(AccessPath::FullScan),
         ]),
@@ -7813,7 +7809,7 @@ fn load_secondary_order_top_n_seek_trace_optimization_is_explicit() {
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
             ),
-            values: vec![Value::Uint(20)],
+            values: vec![Value::Nat(20)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -7858,7 +7854,7 @@ fn load_secondary_order_trace_reports_non_top_n_variant_without_page_limit() {
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
             ),
-            values: vec![Value::Uint(20)],
+            values: vec![Value::Nat(20)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -8803,8 +8799,8 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_eligibl
         AccessPath::index_range(
             INDEXED_METRICS_INDEX_MODELS[0],
             Vec::new(),
-            Bound::Included(Value::Uint(10)),
-            Bound::Excluded(Value::Uint(30)),
+            Bound::Included(Value::Nat(10)),
+            Bound::Excluded(Value::Nat(30)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -8852,8 +8848,8 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_desc_el
         AccessPath::index_range(
             INDEXED_METRICS_INDEX_MODELS[0],
             Vec::new(),
-            Bound::Included(Value::Uint(10)),
-            Bound::Excluded(Value::Uint(30)),
+            Bound::Included(Value::Nat(10)),
+            Bound::Excluded(Value::Nat(30)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -8915,8 +8911,8 @@ fn load_index_range_limit_pushdown_continuation_replay_matches_fallback_for_asc_
                 AccessPath::index_range(
                     INDEXED_METRICS_INDEX_MODELS[0],
                     Vec::new(),
-                    Bound::Included(Value::Uint(10)),
-                    Bound::Excluded(Value::Uint(50)),
+                    Bound::Included(Value::Nat(10)),
+                    Bound::Excluded(Value::Nat(50)),
                 ),
                 MissingRowPolicy::Ignore,
             );
@@ -8936,8 +8932,8 @@ fn load_index_range_limit_pushdown_continuation_replay_matches_fallback_for_asc_
             let mut logical =
                 AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
             logical.scalar_plan_mut().predicate = Some(Predicate::And(vec![
-                strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(10)),
-                strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(50)),
+                strict_compare_predicate("tag", CompareOp::Gte, Value::Nat(10)),
+                strict_compare_predicate("tag", CompareOp::Lt, Value::Nat(50)),
             ]));
             logical.scalar_plan_mut().order = Some(OrderSpec {
                 fields: vec![
@@ -9063,8 +9059,8 @@ fn load_index_range_limit_pushdown_token_replay_matches_fallback_for_asc_and_des
                 AccessPath::index_range(
                     INDEXED_METRICS_INDEX_MODELS[0],
                     Vec::new(),
-                    Bound::Included(Value::Uint(10)),
-                    Bound::Excluded(Value::Uint(50)),
+                    Bound::Included(Value::Nat(10)),
+                    Bound::Excluded(Value::Nat(50)),
                 ),
                 MissingRowPolicy::Ignore,
             );
@@ -9084,8 +9080,8 @@ fn load_index_range_limit_pushdown_token_replay_matches_fallback_for_asc_and_des
             let mut logical =
                 AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
             logical.scalar_plan_mut().predicate = Some(Predicate::And(vec![
-                strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(10)),
-                strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(50)),
+                strict_compare_predicate("tag", CompareOp::Gte, Value::Nat(10)),
+                strict_compare_predicate("tag", CompareOp::Lt, Value::Nat(50)),
             ]));
             logical.scalar_plan_mut().order = Some(OrderSpec {
                 fields: vec![
@@ -9224,8 +9220,8 @@ fn load_index_range_limit_zero_short_circuits_access_scan_for_eligible_plan() {
         AccessPath::index_range(
             INDEXED_METRICS_INDEX_MODELS[0],
             Vec::new(),
-            Bound::Included(Value::Uint(10)),
-            Bound::Excluded(Value::Uint(30)),
+            Bound::Included(Value::Nat(10)),
+            Bound::Excluded(Value::Nat(30)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -9279,8 +9275,8 @@ fn load_index_range_limit_zero_with_offset_short_circuits_access_scan_for_eligib
         AccessPath::index_range(
             INDEXED_METRICS_INDEX_MODELS[0],
             Vec::new(),
-            Bound::Included(Value::Uint(10)),
-            Bound::Excluded(Value::Uint(30)),
+            Bound::Included(Value::Nat(10)),
+            Bound::Excluded(Value::Nat(30)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -9340,8 +9336,8 @@ fn load_index_range_limit_pushdown_with_residual_filter_predicate_reduces_access
         AccessPath::index_range(
             INDEXED_METRICS_INDEX_MODELS[0],
             Vec::new(),
-            Bound::Included(Value::Uint(10)),
-            Bound::Excluded(Value::Uint(21)),
+            Bound::Included(Value::Nat(10)),
+            Bound::Excluded(Value::Nat(21)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -9361,8 +9357,8 @@ fn load_index_range_limit_pushdown_with_residual_filter_predicate_reduces_access
     let mut fallback_logical =
         AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
     fallback_logical.scalar_plan_mut().predicate = Some(Predicate::And(vec![
-        strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(10)),
-        strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(21)),
+        strict_compare_predicate("tag", CompareOp::Gte, Value::Nat(10)),
+        strict_compare_predicate("tag", CompareOp::Lt, Value::Nat(21)),
         label_contains_keep,
     ]));
     fallback_logical.scalar_plan_mut().order = Some(OrderSpec {
@@ -9428,8 +9424,8 @@ fn load_index_range_limit_pushdown_residual_underfill_widens_bounded_fetch() {
         AccessPath::index_range(
             INDEXED_METRICS_INDEX_MODELS[0],
             Vec::new(),
-            Bound::Included(Value::Uint(10)),
-            Bound::Excluded(Value::Uint(16)),
+            Bound::Included(Value::Nat(10)),
+            Bound::Excluded(Value::Nat(16)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -9449,8 +9445,8 @@ fn load_index_range_limit_pushdown_residual_underfill_widens_bounded_fetch() {
     let mut fallback_logical =
         AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
     fallback_logical.scalar_plan_mut().predicate = Some(Predicate::And(vec![
-        strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(10)),
-        strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(16)),
+        strict_compare_predicate("tag", CompareOp::Gte, Value::Nat(10)),
+        strict_compare_predicate("tag", CompareOp::Lt, Value::Nat(16)),
         label_contains_keep,
     ]));
     fallback_logical.scalar_plan_mut().order = Some(OrderSpec {
@@ -9516,7 +9512,7 @@ fn load_secondary_order_top_n_seek_residual_underfill_widens_expression_owned_fi
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_PARITY_INDEX_MODELS[0],
             ),
-            values: vec![Value::Uint(7)],
+            values: vec![Value::Nat(7)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -9618,8 +9614,8 @@ fn load_index_range_limit_pushdown_residual_filter_predicate_parity_matches_cano
             AccessPath::index_range(
                 INDEXED_METRICS_INDEX_MODELS[0],
                 Vec::new(),
-                Bound::Included(Value::Uint(lower)),
-                Bound::Excluded(Value::Uint(upper)),
+                Bound::Included(Value::Nat(lower)),
+                Bound::Excluded(Value::Nat(upper)),
             ),
             MissingRowPolicy::Ignore,
         );
@@ -9639,8 +9635,8 @@ fn load_index_range_limit_pushdown_residual_filter_predicate_parity_matches_cano
         let mut fallback_logical =
             AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
         fallback_logical.scalar_plan_mut().predicate = Some(Predicate::And(vec![
-            strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(lower)),
-            strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(upper)),
+            strict_compare_predicate("tag", CompareOp::Gte, Value::Nat(lower)),
+            strict_compare_predicate("tag", CompareOp::Lt, Value::Nat(upper)),
             label_contains_keep,
         ]));
         fallback_logical.scalar_plan_mut().order = Some(OrderSpec {
@@ -9701,19 +9697,19 @@ fn load_index_only_predicate_reduces_access_rows_vs_fallback() {
     let rank_not_20_strict = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         CompareOp::Ne,
-        Value::Uint(20),
+        Value::Nat(20),
         CoercionId::Strict,
     ));
     let rank_not_20_fallback = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         CompareOp::Ne,
-        Value::Uint(20),
+        Value::Nat(20),
         CoercionId::NumericWiden,
     ));
     let group_eq_fallback = Predicate::Compare(ComparePredicate::with_coercion(
         "group",
         CompareOp::Eq,
-        Value::Uint(7),
+        Value::Nat(7),
         CoercionId::NumericWiden,
     ));
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
@@ -9807,19 +9803,19 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
     let rank_not_20_strict = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         CompareOp::Ne,
-        Value::Uint(20),
+        Value::Nat(20),
         CoercionId::Strict,
     ));
     let rank_not_20_fallback = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         CompareOp::Ne,
-        Value::Uint(20),
+        Value::Nat(20),
         CoercionId::NumericWiden,
     ));
     let group_eq_fallback = Predicate::Compare(ComparePredicate::with_coercion(
         "group",
         CompareOp::Eq,
-        Value::Uint(7),
+        Value::Nat(7),
         CoercionId::NumericWiden,
     ));
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
@@ -9974,19 +9970,19 @@ fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
     let rank_not_20_strict = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         CompareOp::Ne,
-        Value::Uint(20),
+        Value::Nat(20),
         CoercionId::Strict,
     ));
     let rank_not_20_fallback = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         CompareOp::Ne,
-        Value::Uint(20),
+        Value::Nat(20),
         CoercionId::NumericWiden,
     ));
     let group_eq_fallback = Predicate::Compare(ComparePredicate::with_coercion(
         "group",
         CompareOp::Eq,
-        Value::Uint(7),
+        Value::Nat(7),
         CoercionId::NumericWiden,
     ));
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
@@ -10117,19 +10113,19 @@ fn load_index_only_predicate_in_constants_reduces_access_rows_vs_fallback() {
     let rank_in_strict = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         CompareOp::In,
-        Value::List(vec![Value::Uint(20), Value::Uint(40), Value::Uint(50)]),
+        Value::List(vec![Value::Nat(20), Value::Nat(40), Value::Nat(50)]),
         CoercionId::Strict,
     ));
     let rank_in_fallback = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         CompareOp::In,
-        Value::List(vec![Value::Uint(20), Value::Uint(40), Value::Uint(50)]),
+        Value::List(vec![Value::Nat(20), Value::Nat(40), Value::Nat(50)]),
         CoercionId::NumericWiden,
     ));
     let group_eq_fallback = Predicate::Compare(ComparePredicate::with_coercion(
         "group",
         CompareOp::Eq,
-        Value::Uint(7),
+        Value::Nat(7),
         CoercionId::NumericWiden,
     ));
     let label_contains_keep = Predicate::TextContainsCi {
@@ -10225,31 +10221,31 @@ fn load_index_only_predicate_bounded_range_distinct_continuation_matches_fallbac
         let rank_gte_20_strict = Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             CompareOp::Gte,
-            Value::Uint(20),
+            Value::Nat(20),
             CoercionId::Strict,
         ));
         let rank_lte_40_strict = Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             CompareOp::Lte,
-            Value::Uint(40),
+            Value::Nat(40),
             CoercionId::Strict,
         ));
         let rank_gte_20_fallback = Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             CompareOp::Gte,
-            Value::Uint(20),
+            Value::Nat(20),
             CoercionId::NumericWiden,
         ));
         let rank_lte_40_fallback = Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             CompareOp::Lte,
-            Value::Uint(40),
+            Value::Nat(40),
             CoercionId::NumericWiden,
         ));
         let group_eq_fallback = Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
-            Value::Uint(7),
+            Value::Nat(7),
             CoercionId::NumericWiden,
         ));
         let label_contains_keep = Predicate::TextContainsCi {

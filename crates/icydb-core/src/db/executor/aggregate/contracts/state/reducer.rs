@@ -150,8 +150,8 @@ impl ScalarAggregateReducerState {
     ) -> ScalarAggregateOutput {
         match self {
             Self::Count(value) => {
-                let Value::Uint(count) = finalize_count(u64::from(value)) else {
-                    unreachable!("COUNT finalization must produce Uint")
+                let Value::Nat(count) = finalize_count(u64::from(value)) else {
+                    unreachable!("COUNT finalization must produce Nat")
                 };
 
                 ScalarAggregateOutput::Count(u32::try_from(count).unwrap_or(u32::MAX))

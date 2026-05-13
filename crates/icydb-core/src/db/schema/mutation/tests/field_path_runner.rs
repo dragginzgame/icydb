@@ -20,8 +20,8 @@ fn field_path_runner_orchestrates_staging_to_publication_handoff() {
         EntityTag::new(7),
         accepted_name_field_path_target(),
         [
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(2), &second),
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(1), &first),
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
         ],
         &mut index_store,
         &mut invalidation_sink,
@@ -191,8 +191,8 @@ fn field_path_runner_rolls_back_staged_writes_after_isolated_validation_failure(
         EntityTag::new(7),
         accepted_name_field_path_target(),
         [
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(2), &second),
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(1), &first),
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
         ],
         &mut index_store,
         &mut invalidation_sink,

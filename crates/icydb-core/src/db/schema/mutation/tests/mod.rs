@@ -252,8 +252,8 @@ fn staged_name_index_store() -> super::SchemaFieldPathIndexStagedStore {
         EntityTag::new(7),
         accepted_name_field_path_target(),
         [
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(2), &second),
-            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Uint(1), &first),
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
         ],
     )
     .expect("field-path rebuild rows should stage into raw index entries");
@@ -271,7 +271,7 @@ fn extra_staged_name_index_entry() -> super::SchemaFieldPathIndexStagedEntry {
         EntityTag::new(7),
         accepted_name_field_path_target(),
         [super::SchemaFieldPathIndexRebuildRow::new(
-            StorageKey::Uint(3),
+            StorageKey::Nat(3),
             &extra,
         )],
     )

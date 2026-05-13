@@ -586,8 +586,8 @@ mod tests {
     #[test]
     fn compare_predicate_builders_preserve_operator_shape() {
         assert_eq!(
-            Predicate::gt("age".to_string(), Value::Uint(7)),
-            Predicate::Compare(ComparePredicate::gt("age".to_string(), Value::Uint(7))),
+            Predicate::gt("age".to_string(), Value::Nat(7)),
+            Predicate::Compare(ComparePredicate::gt("age".to_string(), Value::Nat(7))),
         );
     }
 }

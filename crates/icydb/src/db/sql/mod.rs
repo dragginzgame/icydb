@@ -416,11 +416,11 @@ mod tests {
                 fixed_scales: vec![None, Some(4)],
                 rows: vec![
                     GroupedRow::new(
-                        vec![Value::Uint(12)],
+                        vec![Value::Nat(12)],
                         vec![Value::Decimal(Decimal::from_i128(12).expect("12 decimal"))],
                     ),
                     GroupedRow::new(
-                        vec![Value::Uint(14)],
+                        vec![Value::Nat(14)],
                         vec![Value::Decimal(Decimal::new(142_000, 4))],
                     ),
                 ],
@@ -453,8 +453,8 @@ mod tests {
                 columns: vec!["age".to_string(), "count(*)".to_string()],
                 fixed_scales: vec![None, None],
                 rows: vec![
-                    GroupedRow::new(vec![Value::Uint(24)], vec![Value::Uint(1)]),
-                    GroupedRow::new(vec![Value::Uint(31)], vec![Value::Uint(2)]),
+                    GroupedRow::new(vec![Value::Nat(24)], vec![Value::Nat(1)]),
+                    GroupedRow::new(vec![Value::Nat(31)], vec![Value::Nat(2)]),
                 ],
                 row_count: 2,
                 next_cursor: Some("cursor:age:31".to_string()),

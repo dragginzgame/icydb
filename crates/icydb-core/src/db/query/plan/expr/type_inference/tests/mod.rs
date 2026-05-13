@@ -50,7 +50,7 @@ crate::test_entity! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("rank", FieldKind::Uint),
+        ("rank", FieldKind::Nat),
         ("flag", FieldKind::Bool),
         ("label", FieldKind::Text { max_len: None }),
         ("created_on", FieldKind::Date),
@@ -58,7 +58,7 @@ crate::test_entity! {
     indexes = [&EMPTY_INDEX],
 }
 
-static PROFILE_NESTED_FIELDS: [FieldModel; 1] = [FieldModel::generated("rank", FieldKind::Uint)];
+static PROFILE_NESTED_FIELDS: [FieldModel; 1] = [FieldModel::generated("rank", FieldKind::Nat)];
 static PROFILE_FIELDS: [FieldModel; 2] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
@@ -305,7 +305,7 @@ fn infer_binary_numeric_expr_requires_numeric_operands() {
     let expr = Expr::Binary {
         op: BinaryOp::Add,
         left: Box::new(Expr::Field(FieldId::new("rank"))),
-        right: Box::new(Expr::Literal(Value::Uint(7))),
+        right: Box::new(Expr::Literal(Value::Nat(7))),
     };
 
     let inferred = infer_expr_type(&expr, schema).expect("numeric addition should infer");
@@ -434,7 +434,7 @@ fn infer_searched_case_returns_shared_branch_type() {
             Expr::Field(FieldId::new("flag")),
             Expr::Literal(Value::Int(1)),
         )],
-        else_expr: Box::new(Expr::Literal(Value::Uint(0))),
+        else_expr: Box::new(Expr::Literal(Value::Nat(0))),
     };
 
     let inferred = infer_expr_type(&expr, schema).expect("searched CASE should infer");
@@ -447,7 +447,7 @@ fn infer_case_result_exprs_coarse_family_uses_planner_branch_unification() {
     let schema = schema();
     let result_exprs = [
         Expr::Literal(Value::Int(1)),
-        Expr::Literal(Value::Uint(0)),
+        Expr::Literal(Value::Nat(0)),
         Expr::Literal(Value::Null),
     ];
 
@@ -462,7 +462,7 @@ fn infer_dynamic_function_result_exprs_coarse_family_uses_planner_unification() 
     let schema = schema();
     let args = [
         Expr::Literal(Value::Int(1)),
-        Expr::Literal(Value::Uint(0)),
+        Expr::Literal(Value::Nat(0)),
         Expr::Literal(Value::Null),
     ];
 
@@ -535,7 +535,7 @@ fn infer_round_function_expr_returns_decimal_for_numeric_input() {
         function: crate::db::query::plan::expr::Function::Round,
         args: vec![
             Expr::Field(FieldId::new("rank")),
-            Expr::Literal(Value::Uint(2)),
+            Expr::Literal(Value::Nat(2)),
         ],
     };
 
@@ -551,7 +551,7 @@ fn infer_round_function_expr_rejects_non_numeric_input() {
         function: crate::db::query::plan::expr::Function::Round,
         args: vec![
             Expr::Field(FieldId::new("label")),
-            Expr::Literal(Value::Uint(2)),
+            Expr::Literal(Value::Nat(2)),
         ],
     };
 
@@ -620,7 +620,7 @@ fn infer_avg_aggregate_over_numeric_expression_uses_expression_result_type() {
         Expr::Binary {
             op: BinaryOp::Add,
             left: Box::new(Expr::Field(FieldId::new("rank"))),
-            right: Box::new(Expr::Literal(Value::Uint(1))),
+            right: Box::new(Expr::Literal(Value::Nat(1))),
         },
     ));
 

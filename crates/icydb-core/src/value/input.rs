@@ -38,9 +38,9 @@ pub enum InputValue {
     Subaccount(Subaccount),
     Text(String),
     Timestamp(Timestamp),
-    Uint(u64),
-    Uint128(Nat128),
-    UintBig(Nat),
+    Nat(u64),
+    Nat128(Nat128),
+    NatBig(Nat),
     Ulid(Ulid),
     Unit,
 }
@@ -110,9 +110,9 @@ impl From<&Value> for InputValue {
             Value::Subaccount(value) => Self::Subaccount(*value),
             Value::Text(value) => Self::Text(value.clone()),
             Value::Timestamp(value) => Self::Timestamp(*value),
-            Value::Uint(value) => Self::Uint(*value),
-            Value::Uint128(value) => Self::Uint128(*value),
-            Value::UintBig(value) => Self::UintBig(value.clone()),
+            Value::Nat(value) => Self::Nat(*value),
+            Value::Nat128(value) => Self::Nat128(*value),
+            Value::NatBig(value) => Self::NatBig(value.clone()),
             Value::Ulid(value) => Self::Ulid(*value),
             Value::Unit => Self::Unit,
         }
@@ -152,9 +152,9 @@ impl From<&InputValue> for Value {
             InputValue::Subaccount(value) => Self::Subaccount(*value),
             InputValue::Text(value) => Self::Text(value.clone()),
             InputValue::Timestamp(value) => Self::Timestamp(*value),
-            InputValue::Uint(value) => Self::Uint(*value),
-            InputValue::Uint128(value) => Self::Uint128(*value),
-            InputValue::UintBig(value) => Self::UintBig(value.clone()),
+            InputValue::Nat(value) => Self::Nat(*value),
+            InputValue::Nat128(value) => Self::Nat128(*value),
+            InputValue::NatBig(value) => Self::NatBig(value.clone()),
             InputValue::Ulid(value) => Self::Ulid(*value),
             InputValue::Unit => Self::Unit,
         }
@@ -270,13 +270,13 @@ impl From<Int128> for InputValue {
 
 impl From<Nat> for InputValue {
     fn from(value: Nat) -> Self {
-        Self::UintBig(value)
+        Self::NatBig(value)
     }
 }
 
 impl From<Nat128> for InputValue {
     fn from(value: Nat128) -> Self {
-        Self::Uint128(value)
+        Self::Nat128(value)
     }
 }
 
@@ -354,12 +354,12 @@ macro_rules! impl_input_value_int {
     };
 }
 
-macro_rules! impl_input_value_uint {
+macro_rules! impl_input_value_nat {
     ($($ty:ty),* $(,)?) => {
         $(
             impl From<$ty> for InputValue {
                 fn from(value: $ty) -> Self {
-                    Self::Uint(u64::from(value))
+                    Self::Nat(u64::from(value))
                 }
             }
         )*
@@ -367,7 +367,7 @@ macro_rules! impl_input_value_uint {
 }
 
 impl_input_value_int!(i8, i16, i32, i64);
-impl_input_value_uint!(u8, u16, u32, u64);
+impl_input_value_nat!(u8, u16, u32, u64);
 
 ///
 /// TESTS
@@ -380,7 +380,7 @@ mod tests {
     #[test]
     fn input_value_round_trip_keeps_recursive_collection_shape() {
         let runtime = Value::List(vec![
-            Value::Uint(7),
+            Value::Nat(7),
             Value::Map(vec![(Value::Text("x".to_string()), Value::Bool(true))]),
         ]);
 
@@ -390,14 +390,14 @@ mod tests {
     #[test]
     fn input_value_enum_round_trip_keeps_payload() {
         let runtime =
-            ValueEnum::new("Example", Some("test::InputEnum")).with_payload(Value::Uint(9));
+            ValueEnum::new("Example", Some("test::InputEnum")).with_payload(Value::Nat(9));
 
         assert_eq!(
             InputValueEnum::from(runtime.clone()),
             InputValueEnum {
                 variant: "Example".to_string(),
                 path: Some("test::InputEnum".to_string()),
-                payload: Some(Box::new(InputValue::Uint(9))),
+                payload: Some(Box::new(InputValue::Nat(9))),
             },
         );
         assert_eq!(

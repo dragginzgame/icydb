@@ -50,7 +50,7 @@ fn load_secondary_index_missing_ok_skips_stale_keys_by_reading_primary_rows() {
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "group",
         CompareOp::Eq,
-        Value::Uint(7),
+        Value::Nat(7),
         CoercionId::Strict,
     ));
     let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
@@ -106,7 +106,7 @@ fn load_secondary_index_strict_missing_row_surfaces_corruption() {
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "group",
         CompareOp::Eq,
-        Value::Uint(7),
+        Value::Nat(7),
         CoercionId::Strict,
     ));
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);

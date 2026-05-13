@@ -393,7 +393,7 @@ fn plan_access_filtered_numeric_index_requires_lower_bound_implication() {
     let model = model_with_filtered_numeric_index();
     let schema = SchemaInfo::cached_for_generated_entity_model(model);
 
-    let weaker = compare_strict("score", CompareOp::Gte, Value::Uint(5));
+    let weaker = compare_strict("score", CompareOp::Gte, Value::Nat(5));
     let weaker_plan =
         plan_access_for_test(model, schema, Some(&weaker)).expect("plan should build");
     assert_eq!(
@@ -402,7 +402,7 @@ fn plan_access_filtered_numeric_index_requires_lower_bound_implication() {
         "query lower bound below index predicate bound must not use filtered index",
     );
 
-    let stronger = compare_strict("score", CompareOp::Gte, Value::Uint(20));
+    let stronger = compare_strict("score", CompareOp::Gte, Value::Nat(20));
     let stronger_plan =
         plan_access_for_test(model, schema, Some(&stronger)).expect("plan should build");
     let (index, prefix, lower, upper) =
@@ -412,7 +412,7 @@ fn plan_access_filtered_numeric_index_requires_lower_bound_implication() {
         prefix.is_empty(),
         "single-field range index should have empty prefix"
     );
-    assert_eq!(lower, &Bound::Included(Value::Uint(20)));
+    assert_eq!(lower, &Bound::Included(Value::Nat(20)));
     assert_eq!(upper, &Bound::Unbounded);
 }
 
@@ -1047,7 +1047,7 @@ fn plan_access_in_normalization_matrix() {
             compare_strict(
                 "tag",
                 CompareOp::In,
-                Value::List(vec![Value::Text("alpha".to_string()), Value::Uint(7)]),
+                Value::List(vec![Value::Text("alpha".to_string()), Value::Nat(7)]),
             ),
             AccessPlan::full_scan(),
         ),
@@ -1242,8 +1242,8 @@ fn plan_access_emits_only_one_composite_index_range_for_and_eq_plus_gt() {
     let model = model_with_range_index();
     let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = Predicate::And(vec![
-        compare_strict("a", CompareOp::Eq, Value::Uint(1)),
-        compare_strict("b", CompareOp::Gt, Value::Uint(5)),
+        compare_strict("a", CompareOp::Eq, Value::Nat(1)),
+        compare_strict("b", CompareOp::Gt, Value::Nat(5)),
     ]);
 
     let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
@@ -1259,8 +1259,8 @@ fn plan_access_emits_only_one_composite_index_range_for_and_eq_plus_gt() {
     let upper = spec.upper();
 
     assert_eq!(index.name(), RANGE_INDEX_MODEL.name());
-    assert_eq!(prefix, [Value::Uint(1)].as_slice());
-    assert_eq!(lower, &Bound::Excluded(Value::Uint(5)));
+    assert_eq!(prefix, [Value::Nat(1)].as_slice());
+    assert_eq!(lower, &Bound::Excluded(Value::Nat(5)));
     assert_eq!(upper, &Bound::Unbounded);
 
     let mut index_range_count = 0usize;
@@ -1300,46 +1300,46 @@ fn plan_access_composite_index_range_matrix() {
         (
             "prefix plus half-open range",
             Predicate::And(vec![
-                compare_strict("a", CompareOp::Eq, Value::Uint(7)),
-                compare_strict("b", CompareOp::Gte, Value::Uint(100)),
-                compare_strict("b", CompareOp::Lt, Value::Uint(200)),
+                compare_strict("a", CompareOp::Eq, Value::Nat(7)),
+                compare_strict("b", CompareOp::Gte, Value::Nat(100)),
+                compare_strict("b", CompareOp::Lt, Value::Nat(200)),
             ]),
-            vec![Value::Uint(7)],
-            Bound::Included(Value::Uint(100)),
-            Bound::Excluded(Value::Uint(200)),
+            vec![Value::Nat(7)],
+            Bound::Included(Value::Nat(100)),
+            Bound::Excluded(Value::Nat(200)),
         ),
         (
             "prefix plus closed range",
             Predicate::And(vec![
-                compare_strict("a", CompareOp::Eq, Value::Uint(7)),
-                compare_strict("b", CompareOp::Gte, Value::Uint(100)),
-                compare_strict("b", CompareOp::Lte, Value::Uint(200)),
+                compare_strict("a", CompareOp::Eq, Value::Nat(7)),
+                compare_strict("b", CompareOp::Gte, Value::Nat(100)),
+                compare_strict("b", CompareOp::Lte, Value::Nat(200)),
             ]),
-            vec![Value::Uint(7)],
-            Bound::Included(Value::Uint(100)),
-            Bound::Included(Value::Uint(200)),
+            vec![Value::Nat(7)],
+            Bound::Included(Value::Nat(100)),
+            Bound::Included(Value::Nat(200)),
         ),
         (
             "edge half-open range",
             Predicate::And(vec![
-                compare_strict("a", CompareOp::Eq, Value::Uint(7)),
-                compare_strict("b", CompareOp::Gte, Value::Uint(0)),
-                compare_strict("b", CompareOp::Lt, Value::Uint(edge_upper)),
+                compare_strict("a", CompareOp::Eq, Value::Nat(7)),
+                compare_strict("b", CompareOp::Gte, Value::Nat(0)),
+                compare_strict("b", CompareOp::Lt, Value::Nat(edge_upper)),
             ]),
-            vec![Value::Uint(7)],
-            Bound::Included(Value::Uint(0)),
-            Bound::Excluded(Value::Uint(edge_upper)),
+            vec![Value::Nat(7)],
+            Bound::Included(Value::Nat(0)),
+            Bound::Excluded(Value::Nat(edge_upper)),
         ),
         (
             "edge closed range",
             Predicate::And(vec![
-                compare_strict("a", CompareOp::Eq, Value::Uint(7)),
-                compare_strict("b", CompareOp::Gte, Value::Uint(0)),
-                compare_strict("b", CompareOp::Lte, Value::Uint(edge_upper)),
+                compare_strict("a", CompareOp::Eq, Value::Nat(7)),
+                compare_strict("b", CompareOp::Gte, Value::Nat(0)),
+                compare_strict("b", CompareOp::Lte, Value::Nat(edge_upper)),
             ]),
-            vec![Value::Uint(7)],
-            Bound::Included(Value::Uint(0)),
-            Bound::Included(Value::Uint(edge_upper)),
+            vec![Value::Nat(7)],
+            Bound::Included(Value::Nat(0)),
+            Bound::Included(Value::Nat(edge_upper)),
         ),
     ];
 
@@ -1360,39 +1360,39 @@ fn plan_access_rejects_invalid_composite_range_shapes_matrix() {
         (
             "trailing equality after range",
             Predicate::And(vec![
-                compare_strict("a", CompareOp::Eq, Value::Uint(7)),
-                compare_strict("b", CompareOp::Gte, Value::Uint(100)),
-                compare_strict("c", CompareOp::Eq, Value::Uint(3)),
+                compare_strict("a", CompareOp::Eq, Value::Nat(7)),
+                compare_strict("b", CompareOp::Gte, Value::Nat(100)),
+                compare_strict("c", CompareOp::Eq, Value::Nat(3)),
             ]),
         ),
         (
             "missing prefix component",
             Predicate::And(vec![
-                compare_strict("a", CompareOp::Eq, Value::Uint(7)),
-                compare_strict("c", CompareOp::Gte, Value::Uint(100)),
+                compare_strict("a", CompareOp::Eq, Value::Nat(7)),
+                compare_strict("c", CompareOp::Gte, Value::Nat(100)),
             ]),
         ),
         (
             "range before prefix equality",
             Predicate::And(vec![
-                compare_strict("a", CompareOp::Gte, Value::Uint(7)),
-                compare_strict("b", CompareOp::Eq, Value::Uint(3)),
+                compare_strict("a", CompareOp::Gte, Value::Nat(7)),
+                compare_strict("b", CompareOp::Eq, Value::Nat(3)),
             ]),
         ),
         (
             "empty exclusive interval",
             Predicate::And(vec![
-                compare_strict("a", CompareOp::Eq, Value::Uint(7)),
-                compare_strict("b", CompareOp::Gt, Value::Uint(100)),
-                compare_strict("b", CompareOp::Lt, Value::Uint(100)),
+                compare_strict("a", CompareOp::Eq, Value::Nat(7)),
+                compare_strict("b", CompareOp::Gt, Value::Nat(100)),
+                compare_strict("b", CompareOp::Lt, Value::Nat(100)),
             ]),
         ),
         (
             "non-strict numeric widen",
             Predicate::And(vec![
-                compare_strict("a", CompareOp::Eq, Value::Uint(7)),
+                compare_strict("a", CompareOp::Eq, Value::Nat(7)),
                 compare_numeric_widen("b", CompareOp::Gte, Value::Int(100)),
-                compare_numeric_widen("b", CompareOp::Lte, Value::Uint(200)),
+                compare_numeric_widen("b", CompareOp::Lte, Value::Nat(200)),
             ]),
         ),
     ];
@@ -1407,16 +1407,16 @@ fn plan_access_merges_duplicate_lower_bounds_to_stricter_value() {
     let model = model_with_range_index();
     let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate = Predicate::And(vec![
-        compare_strict("a", CompareOp::Eq, Value::Uint(7)),
-        compare_strict("b", CompareOp::Gte, Value::Uint(50)),
-        compare_strict("b", CompareOp::Gt, Value::Uint(80)),
-        compare_strict("b", CompareOp::Lte, Value::Uint(200)),
+        compare_strict("a", CompareOp::Eq, Value::Nat(7)),
+        compare_strict("b", CompareOp::Gte, Value::Nat(50)),
+        compare_strict("b", CompareOp::Gt, Value::Nat(80)),
+        compare_strict("b", CompareOp::Lte, Value::Nat(200)),
     ]);
 
     let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
     let (_, _, lower, upper) = find_index_range(&plan).expect("plan should include index range");
-    assert_eq!(lower, &Bound::Excluded(Value::Uint(80)));
-    assert_eq!(upper, &Bound::Included(Value::Uint(200)));
+    assert_eq!(lower, &Bound::Excluded(Value::Nat(80)));
+    assert_eq!(upper, &Bound::Included(Value::Nat(200)));
 }
 
 #[test]
@@ -1424,13 +1424,13 @@ fn plan_access_stability_equivalent_predicates_share_identical_access_plan() {
     let model = model_with_range_index();
     let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let predicate_a = Predicate::And(vec![
-        compare_strict("a", CompareOp::Eq, Value::Uint(7)),
-        compare_strict("b", CompareOp::Gte, Value::Uint(100)),
-        compare_strict("b", CompareOp::Lte, Value::Uint(100)),
+        compare_strict("a", CompareOp::Eq, Value::Nat(7)),
+        compare_strict("b", CompareOp::Gte, Value::Nat(100)),
+        compare_strict("b", CompareOp::Lte, Value::Nat(100)),
     ]);
     let predicate_b = Predicate::And(vec![
-        compare_strict("b", CompareOp::Eq, Value::Uint(100)),
-        compare_strict("a", CompareOp::Eq, Value::Uint(7)),
+        compare_strict("b", CompareOp::Eq, Value::Nat(100)),
+        compare_strict("a", CompareOp::Eq, Value::Nat(7)),
     ]);
 
     let plan_a =
@@ -1449,9 +1449,9 @@ fn plan_access_stability_contradictory_and_predicate_matches_constant_false_shap
     let model = model_with_range_index();
     let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let contradictory = Predicate::And(vec![
-        compare_strict("a", CompareOp::Eq, Value::Uint(7)),
-        compare_strict("b", CompareOp::Gt, Value::Uint(100)),
-        compare_strict("b", CompareOp::Lt, Value::Uint(100)),
+        compare_strict("a", CompareOp::Eq, Value::Nat(7)),
+        compare_strict("b", CompareOp::Gt, Value::Nat(100)),
+        compare_strict("b", CompareOp::Lt, Value::Nat(100)),
     ]);
 
     let plan_from_contradiction =

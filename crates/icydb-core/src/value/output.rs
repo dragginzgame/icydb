@@ -38,9 +38,9 @@ pub enum OutputValue {
     Subaccount(Subaccount),
     Text(String),
     Timestamp(Timestamp),
-    Uint(u64),
-    Uint128(Nat128),
-    UintBig(Nat),
+    Nat(u64),
+    Nat128(Nat128),
+    NatBig(Nat),
     Ulid(Ulid),
     Unit,
 }
@@ -111,9 +111,9 @@ impl From<&Value> for OutputValue {
             Value::Subaccount(value) => Self::Subaccount(*value),
             Value::Text(value) => Self::Text(value.clone()),
             Value::Timestamp(value) => Self::Timestamp(*value),
-            Value::Uint(value) => Self::Uint(*value),
-            Value::Uint128(value) => Self::Uint128(*value),
-            Value::UintBig(value) => Self::UintBig(value.clone()),
+            Value::Nat(value) => Self::Nat(*value),
+            Value::Nat128(value) => Self::Nat128(*value),
+            Value::NatBig(value) => Self::NatBig(value.clone()),
             Value::Ulid(value) => Self::Ulid(*value),
             Value::Unit => Self::Unit,
         }
@@ -149,14 +149,14 @@ mod tests {
     #[test]
     fn output_value_from_runtime_value_keeps_recursive_collection_shape() {
         let runtime = Value::List(vec![
-            Value::Uint(7),
+            Value::Nat(7),
             Value::Map(vec![(Value::Text("x".to_string()), Value::Bool(true))]),
         ]);
 
         assert_eq!(
             OutputValue::from(runtime),
             OutputValue::List(vec![
-                OutputValue::Uint(7),
+                OutputValue::Nat(7),
                 OutputValue::Map(vec![(
                     OutputValue::Text("x".to_string()),
                     OutputValue::Bool(true),
@@ -168,14 +168,14 @@ mod tests {
     #[test]
     fn output_value_enum_from_runtime_enum_keeps_payload() {
         let runtime =
-            ValueEnum::new("Example", Some("test::OutputEnum")).with_payload(Value::Uint(9));
+            ValueEnum::new("Example", Some("test::OutputEnum")).with_payload(Value::Nat(9));
 
         assert_eq!(
             OutputValueEnum::from(runtime),
             OutputValueEnum {
                 variant: "Example".to_string(),
                 path: Some("test::OutputEnum".to_string()),
-                payload: Some(Box::new(OutputValue::Uint(9))),
+                payload: Some(Box::new(OutputValue::Nat(9))),
             },
         );
     }

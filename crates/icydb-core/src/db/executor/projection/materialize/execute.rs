@@ -345,9 +345,9 @@ fn project_slot_row_direct_octet_lengths_into(
 fn retained_slot_octet_length_value(value: &Value) -> Result<Value, InternalError> {
     let value = match value {
         Value::Null => Value::Null,
-        Value::Blob(bytes) => Value::Uint(u64::try_from(bytes.len()).unwrap_or(u64::MAX)),
-        Value::Text(text) => Value::Uint(u64::try_from(text.len()).unwrap_or(u64::MAX)),
-        Value::Uint(length) => Value::Uint(*length),
+        Value::Blob(bytes) => Value::Nat(u64::try_from(bytes.len()).unwrap_or(u64::MAX)),
+        Value::Text(text) => Value::Nat(u64::try_from(text.len()).unwrap_or(u64::MAX)),
+        Value::Nat(length) => Value::Nat(*length),
         _ => {
             return Err(InternalError::query_executor_invariant(
                 "retained-slot OCTET_LENGTH optimization requires text, blob, or precomputed length values",

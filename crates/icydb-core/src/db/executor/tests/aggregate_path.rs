@@ -95,8 +95,8 @@ fn serialized_field_payload_bytes_for_pushdown_rows(
 ) -> u64 {
     response.iter().fold(0u64, |acc, row| {
         let value = match field {
-            "group" => Value::Uint(u64::from(row.entity_ref().group)),
-            "rank" => Value::Uint(u64::from(row.entity_ref().rank)),
+            "group" => Value::Nat(u64::from(row.entity_ref().group)),
+            "rank" => Value::Nat(u64::from(row.entity_ref().rank)),
             "label" => Value::Text(row.entity_ref().label.clone()),
             other => panic!("pushdown field should resolve for bytes parity: {other}"),
         };
@@ -141,7 +141,7 @@ fn strict_compare_predicate(field: &str, op: CompareOp, value: Value) -> Predica
 }
 
 fn u32_eq_predicate(field: &str, value: u32) -> Predicate {
-    strict_compare_predicate(field, CompareOp::Eq, Value::Uint(u64::from(value)))
+    strict_compare_predicate(field, CompareOp::Eq, Value::Nat(u64::from(value)))
 }
 
 fn id_in_predicate(ids: &[u128]) -> Predicate {
@@ -163,12 +163,12 @@ fn u32_range_predicate(field: &str, lower_inclusive: u32, upper_inclusive: u32) 
         strict_compare_predicate(
             field,
             CompareOp::Gte,
-            Value::Uint(u64::from(lower_inclusive)),
+            Value::Nat(u64::from(lower_inclusive)),
         ),
         strict_compare_predicate(
             field,
             CompareOp::Lte,
-            Value::Uint(u64::from(upper_inclusive)),
+            Value::Nat(u64::from(upper_inclusive)),
         ),
     ])
 }
@@ -272,7 +272,7 @@ fn secondary_group_rank_order_plan(
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_PARITY_INDEX_MODELS[0],
             ),
-            values: vec![Value::Uint(7)],
+            values: vec![Value::Nat(7)],
         },
         consistency,
     );
@@ -298,9 +298,9 @@ fn secondary_group_rank_index_range_count_plan(
     let mut logical_plan = AccessPlannedQuery::new(
         AccessPath::index_range(
             PUSHDOWN_PARITY_INDEX_MODELS[0],
-            vec![Value::Uint(7)],
-            Bound::Included(Value::Uint(10)),
-            Bound::Included(Value::Uint(40)),
+            vec![Value::Nat(7)],
+            Bound::Included(Value::Nat(10)),
+            Bound::Included(Value::Nat(40)),
         ),
         consistency,
     );
@@ -785,7 +785,7 @@ fn aggregate_path_bytes_path_parity_index_prefix_and_full_scan_equivalent_rows()
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_PARITY_INDEX_MODELS[0],
             ),
-            values: vec![Value::Uint(7)],
+            values: vec![Value::Nat(7)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -863,7 +863,7 @@ fn aggregate_path_bytes_by_path_parity_index_prefix_and_full_scan_equivalent_row
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 PUSHDOWN_PARITY_INDEX_MODELS[0],
             ),
-            values: vec![Value::Uint(7)],
+            values: vec![Value::Nat(7)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -944,7 +944,7 @@ fn aggregate_path_bytes_by_index_order_page_window_matches_full_scan() {
                     crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                         PUSHDOWN_PARITY_INDEX_MODELS[0],
                     ),
-                values: vec![Value::Uint(7)],
+                values: vec![Value::Nat(7)],
             },
             MissingRowPolicy::Ignore,
         );
@@ -1129,8 +1129,8 @@ fn aggregate_path_exists_index_range_window_scans_offset_plus_one() {
         AccessPath::index_range(
             UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
             vec![],
-            Bound::Included(Value::Uint(101)),
-            Bound::Excluded(Value::Uint(106)),
+            Bound::Included(Value::Nat(101)),
+            Bound::Excluded(Value::Nat(106)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -1350,7 +1350,7 @@ fn aggregate_path_secondary_index_strict_prefilter_count_and_exists_match_execut
             Value::List(
                 [3_u32, 7, 19, 23, 41]
                     .into_iter()
-                    .map(|value| Value::Uint(u64::from(value)))
+                    .map(|value| Value::Nat(u64::from(value)))
                     .collect(),
             ),
             CoercionId::Strict,

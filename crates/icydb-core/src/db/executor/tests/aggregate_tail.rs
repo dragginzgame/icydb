@@ -316,7 +316,7 @@ fn u32_eq_predicate(field: &str, value: u32) -> Predicate {
     Predicate::Compare(ComparePredicate::with_coercion(
         field,
         CompareOp::Eq,
-        Value::Uint(u64::from(value)),
+        Value::Nat(u64::from(value)),
         CoercionId::Strict,
     ))
 }
@@ -325,7 +325,7 @@ fn u32_eq_predicate_strict(field: &str, value: u32) -> Predicate {
     Predicate::Compare(ComparePredicate::with_coercion(
         field,
         CompareOp::Eq,
-        Value::Uint(u64::from(value)),
+        Value::Nat(u64::from(value)),
         CoercionId::Strict,
     ))
 }
@@ -347,7 +347,7 @@ fn u32_in_predicate(field: &str, values: &'static [u32]) -> Predicate {
             values
                 .iter()
                 .copied()
-                .map(|value| Value::Uint(u64::from(value)))
+                .map(|value| Value::Nat(u64::from(value)))
                 .collect(),
         ),
         CoercionId::NumericWiden,
@@ -362,7 +362,7 @@ fn u32_in_predicate_strict(field: &str, values: &'static [u32]) -> Predicate {
             values
                 .iter()
                 .copied()
-                .map(|value| Value::Uint(u64::from(value)))
+                .map(|value| Value::Nat(u64::from(value)))
                 .collect(),
         ),
         CoercionId::Strict,
@@ -374,12 +374,12 @@ fn u32_range_predicate(field: &str, lower_inclusive: u32, upper_inclusive: u32) 
         strict_compare_predicate(
             field,
             CompareOp::Gte,
-            Value::Uint(u64::from(lower_inclusive)),
+            Value::Nat(u64::from(lower_inclusive)),
         ),
         strict_compare_predicate(
             field,
             CompareOp::Lte,
-            Value::Uint(u64::from(upper_inclusive)),
+            Value::Nat(u64::from(upper_inclusive)),
         ),
     ])
 }

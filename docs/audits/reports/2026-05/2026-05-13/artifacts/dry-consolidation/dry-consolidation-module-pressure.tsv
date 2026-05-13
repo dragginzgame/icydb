@@ -1,0 +1,11 @@
+module	file	loc	duplication_families	pressure_type	risk
+db::schema::reconcile	crates/icydb-core/src/db/schema/reconcile.rs	503	2	startup runtime-store path now parallels metadata-only schema-store reconciliation for accepted snapshot publication and metrics	medium-low
+db::schema::mutation	crates/icydb-core/src/db/schema/mutation/mod.rs	1478	1	schema mutation contracts remain broad but runner authority is centralized	low-medium
+db::schema::mutation::field_path::publication	crates/icydb-core/src/db/schema/mutation/field_path/publication.rs	605	1	staged validation, invalidation, snapshot handoff, and physical publish reports intentionally remain split	low-medium
+db::schema::mutation::field_path::runner	crates/icydb-core/src/db/schema/mutation/field_path/runner.rs	243	1	field-path runner orchestrates existing staged publication contracts	low
+db::schema::transition	crates/icydb-core/src/db/schema/transition.rs	556	1	transition planning now forwards supported physical execution plans without reopening mutation internals	low
+db::schema::runtime	crates/icydb-core/src/db/schema/runtime.rs	510	2	generated-compatible descriptor proof authority	low-medium
+db::executor::authority::entity	crates/icydb-core/src/db/executor/authority/entity.rs	309	1	generated-compatible proof forwarding	low
+db::executor::terminal::row_decode	crates/icydb-core/src/db/executor/terminal/row_decode/mod.rs	302	1	proof-consuming generated-compatible row layout bridge	low
+db::session::sql::execute	crates/icydb-core/src/db/session/sql/execute/mod.rs	621	1	SQL execution shell repetition	low-medium
+db::query::fluent::load::terminals	crates/icydb-core/src/db/query/fluent/load/terminals.rs	778	1	same-owner public wrapper repetition	low-medium

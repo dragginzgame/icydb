@@ -521,7 +521,7 @@ const fn value_is_scalar_literal_supported(value: &Value) -> bool {
             | Value::Subaccount(_)
             | Value::Text(_)
             | Value::Timestamp(_)
-            | Value::Uint(_)
+            | Value::Nat(_)
             | Value::Ulid(_)
             | Value::Unit
     )
@@ -542,7 +542,7 @@ const fn value_is_index_literal(value: &Value) -> bool {
             | Value::Subaccount(_)
             | Value::Text(_)
             | Value::Timestamp(_)
-            | Value::Uint(_)
+            | Value::Nat(_)
             | Value::Ulid(_)
             | Value::Unit
     )

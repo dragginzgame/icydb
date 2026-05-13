@@ -49,9 +49,9 @@ impl NumericProjectionExpr {
             Value::Int(_)
                 | Value::Int128(_)
                 | Value::IntBig(_)
-                | Value::Uint(_)
-                | Value::Uint128(_)
-                | Value::UintBig(_)
+                | Value::Nat(_)
+                | Value::Nat128(_)
+                | Value::NatBig(_)
                 | Value::Decimal(_)
                 | Value::Float32(_)
                 | Value::Float64(_)
@@ -172,7 +172,7 @@ impl NumericProjectionExpr {
         RoundProjectionExpr::new(
             self.field.clone(),
             self.expr.clone(),
-            Value::Uint(u64::from(scale)),
+            Value::Nat(u64::from(scale)),
         )
     }
 }
@@ -224,7 +224,7 @@ impl RoundProjectionExpr {
                     "ROUND(...) requires non-negative integer scale, found {value}",
                 )));
             }
-            Value::Int(_) | Value::Uint(_) => {}
+            Value::Int(_) | Value::Nat(_) => {}
             other => {
                 return Err(QueryError::unsupported_query(format!(
                     "ROUND(...) requires integer scale, found {other:?}",
@@ -248,7 +248,7 @@ impl RoundProjectionExpr {
         Self::new(
             field.clone(),
             Expr::Field(FieldId::new(field)),
-            Value::Uint(u64::from(scale)),
+            Value::Nat(u64::from(scale)),
         )
     }
 

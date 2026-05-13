@@ -800,7 +800,7 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
     );
     assert_eq!(
         updated_rows[0][1],
-        Value::Uint(22),
+        Value::Nat(22),
         "statement UPDATE RETURNING should project the updated scalar field",
     );
     assert_unsupported_sql_surface_result(
@@ -898,7 +898,7 @@ fn execute_sql_statement_admits_supported_single_entity_read_shapes() {
         panic!("execute_sql_statement aggregate SELECT should emit projection rows");
     };
     assert_eq!(columns, vec!["COUNT(*)".to_string()]);
-    assert_eq!(rows, vec![vec![output(Value::Uint(3))]]);
+    assert_eq!(rows, vec![vec![output(Value::Nat(3))]]);
     assert_eq!(row_count, 1);
 }
 
@@ -2025,7 +2025,7 @@ fn execute_sql_query_admits_supported_single_entity_read_shapes() {
         panic!("execute_sql_query aggregate SELECT should emit projection rows");
     };
     assert_eq!(columns, vec!["COUNT(*)".to_string()]);
-    assert_eq!(rows, vec![vec![output(Value::Uint(3))]]);
+    assert_eq!(rows, vec![vec![output(Value::Nat(3))]]);
     assert_eq!(row_count, 1);
 }
 
@@ -2986,7 +2986,7 @@ fn fluent_trace_and_plan_hash_reuse_canonical_equivalent_grouped_having_order() 
         .having_aggregate(
             0,
             crate::db::CompareOp::Gt,
-            crate::value::InputValue::from(Value::Uint(0)),
+            crate::value::InputValue::from(Value::Nat(0)),
         )
         .expect("left grouped fluent query should accept aggregate HAVING");
     let right = session
@@ -2997,7 +2997,7 @@ fn fluent_trace_and_plan_hash_reuse_canonical_equivalent_grouped_having_order() 
         .having_aggregate(
             0,
             crate::db::CompareOp::Gt,
-            crate::value::InputValue::from(Value::Uint(0)),
+            crate::value::InputValue::from(Value::Nat(0)),
         )
         .expect("right grouped fluent query should accept aggregate HAVING")
         .having_group(

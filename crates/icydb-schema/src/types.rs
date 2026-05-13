@@ -139,11 +139,9 @@ const fn primitive_scalar_kind(primitive: Primitive) -> ScalarKind {
         Primitive::Int => ScalarKind::IntBig,
         Primitive::Int8 | Primitive::Int16 | Primitive::Int32 | Primitive::Int64 => ScalarKind::Int,
         Primitive::Int128 => ScalarKind::Int128,
-        Primitive::Nat => ScalarKind::UintBig,
-        Primitive::Nat8 | Primitive::Nat16 | Primitive::Nat32 | Primitive::Nat64 => {
-            ScalarKind::Uint
-        }
-        Primitive::Nat128 => ScalarKind::Uint128,
+        Primitive::Nat => ScalarKind::NatBig,
+        Primitive::Nat8 | Primitive::Nat16 | Primitive::Nat32 | Primitive::Nat64 => ScalarKind::Nat,
+        Primitive::Nat128 => ScalarKind::Nat128,
         Primitive::Principal => ScalarKind::Principal,
         Primitive::Subaccount => ScalarKind::Subaccount,
         Primitive::Text => ScalarKind::Text,

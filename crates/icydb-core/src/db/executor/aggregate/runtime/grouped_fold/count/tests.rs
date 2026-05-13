@@ -105,7 +105,7 @@ fn grouped_count_fast_path_rejects_structured_group_values() {
         Ok(true)
     }
 
-    let row_view = RowView::new(vec![Some(Value::List(vec![Value::Uint(7)]))]);
+    let row_view = RowView::new(vec![Some(Value::List(vec![Value::Nat(7)]))]);
     let group_fields = group_fields(&[0]);
 
     assert!(
@@ -179,22 +179,22 @@ fn grouped_count_fast_path_handles_hash_collisions_without_merging_groups() {
 fn grouped_count_bounded_candidate_selection_keeps_smallest_canonical_window() {
     let rows = vec![
         (
-            crate::db::executor::group::GroupKey::from_group_values(vec![Value::Uint(9)])
+            crate::db::executor::group::GroupKey::from_group_values(vec![Value::Nat(9)])
                 .expect("group key"),
             9,
         ),
         (
-            crate::db::executor::group::GroupKey::from_group_values(vec![Value::Uint(2)])
+            crate::db::executor::group::GroupKey::from_group_values(vec![Value::Nat(2)])
                 .expect("group key"),
             2,
         ),
         (
-            crate::db::executor::group::GroupKey::from_group_values(vec![Value::Uint(5)])
+            crate::db::executor::group::GroupKey::from_group_values(vec![Value::Nat(5)])
                 .expect("group key"),
             5,
         ),
         (
-            crate::db::executor::group::GroupKey::from_group_values(vec![Value::Uint(1)])
+            crate::db::executor::group::GroupKey::from_group_values(vec![Value::Nat(1)])
                 .expect("group key"),
             1,
         ),
@@ -214,9 +214,9 @@ fn grouped_count_bounded_candidate_selection_keeps_smallest_canonical_window() {
             .map(|(group_key, count)| (group_key.into_canonical_value(), count))
             .collect::<Vec<_>>(),
         vec![
-            (Value::List(vec![Value::Uint(1)]), 1),
-            (Value::List(vec![Value::Uint(2)]), 2),
-            (Value::List(vec![Value::Uint(5)]), 5),
+            (Value::List(vec![Value::Nat(1)]), 1),
+            (Value::List(vec![Value::Nat(2)]), 2),
+            (Value::List(vec![Value::Nat(5)]), 5),
         ],
         "bounded grouped count selection should retain the smallest canonical grouped-key window only",
     );

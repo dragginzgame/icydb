@@ -23,7 +23,7 @@ const fn storage_key_from_scalar_ref(value: ScalarValueRef<'_>) -> Option<Storag
         ScalarValueRef::Principal(value) => Some(StorageKey::Principal(value)),
         ScalarValueRef::Subaccount(value) => Some(StorageKey::Subaccount(value)),
         ScalarValueRef::Timestamp(value) => Some(StorageKey::Timestamp(value)),
-        ScalarValueRef::Uint(value) => Some(StorageKey::Uint(value)),
+        ScalarValueRef::Nat(value) => Some(StorageKey::Nat(value)),
         ScalarValueRef::Ulid(value) => Some(StorageKey::Ulid(value)),
         ScalarValueRef::Unit => Some(StorageKey::Unit),
         _ => None,
@@ -209,7 +209,7 @@ pub(super) fn materialize_primary_key_slot_value_from_expected_key(
         }
         (FieldKind::Subaccount, StorageKey::Subaccount(value)) => Ok(Value::Subaccount(value)),
         (FieldKind::Timestamp, StorageKey::Timestamp(value)) => Ok(Value::Timestamp(value)),
-        (FieldKind::Uint, StorageKey::Uint(value)) => Ok(Value::Uint(value)),
+        (FieldKind::Nat, StorageKey::Nat(value)) => Ok(Value::Nat(value)),
         (FieldKind::Ulid, StorageKey::Ulid(value)) => Ok(Value::Ulid(value)),
         (FieldKind::Unit, StorageKey::Unit) => Ok(Value::Unit),
         (kind, storage_key) => Err(InternalError::persisted_row_decode_failed(format!(
@@ -258,7 +258,7 @@ fn materialize_primary_key_value_from_kind(
         }
         (FieldKind::Subaccount, StorageKey::Subaccount(value)) => Ok(Value::Subaccount(value)),
         (FieldKind::Timestamp, StorageKey::Timestamp(value)) => Ok(Value::Timestamp(value)),
-        (FieldKind::Uint, StorageKey::Uint(value)) => Ok(Value::Uint(value)),
+        (FieldKind::Nat, StorageKey::Nat(value)) => Ok(Value::Nat(value)),
         (FieldKind::Ulid, StorageKey::Ulid(value)) => Ok(Value::Ulid(value)),
         (FieldKind::Unit, StorageKey::Unit) => Ok(Value::Unit),
         (kind, storage_key) => Err(InternalError::persisted_row_decode_failed(format!(
@@ -289,7 +289,7 @@ fn materialize_primary_key_value_from_persisted_kind(
         (PersistedFieldKind::Timestamp, StorageKey::Timestamp(value)) => {
             Ok(Value::Timestamp(value))
         }
-        (PersistedFieldKind::Uint, StorageKey::Uint(value)) => Ok(Value::Uint(value)),
+        (PersistedFieldKind::Nat, StorageKey::Nat(value)) => Ok(Value::Nat(value)),
         (PersistedFieldKind::Ulid, StorageKey::Ulid(value)) => Ok(Value::Ulid(value)),
         (PersistedFieldKind::Unit, StorageKey::Unit) => Ok(Value::Unit),
         (kind, storage_key) => Err(format!(

@@ -500,12 +500,12 @@ mod tests {
     );
 
     fn index_range_path(lower: Bound<Value>, upper: Bound<Value>) -> AccessPath<Value> {
-        AccessPath::index_range(TEST_INDEX, vec![Value::Uint(7)], lower, upper)
+        AccessPath::index_range(TEST_INDEX, vec![Value::Nat(7)], lower, upper)
     }
 
     #[test]
     fn canonical_bound_ordering_is_unbounded_then_included_then_excluded() {
-        let value = Value::Uint(100);
+        let value = Value::Nat(100);
 
         assert_eq!(
             canonical_cmp_value_bound(&Bound::Unbounded, &Bound::Included(value.clone())),
@@ -531,12 +531,12 @@ mod tests {
     #[test]
     fn canonical_index_range_cmp_distinguishes_bound_discriminants() {
         let included = index_range_path(
-            Bound::Included(Value::Uint(100)),
-            Bound::Excluded(Value::Uint(200)),
+            Bound::Included(Value::Nat(100)),
+            Bound::Excluded(Value::Nat(200)),
         );
         let excluded = index_range_path(
-            Bound::Excluded(Value::Uint(100)),
-            Bound::Excluded(Value::Uint(200)),
+            Bound::Excluded(Value::Nat(100)),
+            Bound::Excluded(Value::Nat(200)),
         );
 
         assert_eq!(included.canonical_cmp(&excluded), Ordering::Less);
@@ -560,7 +560,7 @@ mod tests {
                     crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                         TEST_INDEX,
                     ),
-                values: vec![Value::Uint(7)],
+                values: vec![Value::Nat(7)],
             }));
 
         assert_eq!(
@@ -570,7 +570,7 @@ mod tests {
                     crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                         TEST_INDEX
                     ),
-                values: vec![Value::Uint(7)],
+                values: vec![Value::Nat(7)],
             }),
         );
     }
@@ -583,7 +583,7 @@ mod tests {
                     crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                         TEST_INDEX,
                     ),
-                values: vec![Value::Uint(9), Value::Uint(7), Value::Uint(9)],
+                values: vec![Value::Nat(9), Value::Nat(7), Value::Nat(9)],
             }));
 
         assert_eq!(
@@ -593,7 +593,7 @@ mod tests {
                     crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                         TEST_INDEX
                     ),
-                values: vec![Value::Uint(7), Value::Uint(9)],
+                values: vec![Value::Nat(7), Value::Nat(9)],
             }),
         );
     }

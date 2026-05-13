@@ -61,11 +61,11 @@ fn fingerprint_and_signature_treat_equivalent_decimal_predicate_literals_as_iden
 fn fingerprint_and_signature_treat_equivalent_in_list_predicates_as_identical() {
     let predicate_a = Predicate::Compare(ComparePredicate::in_(
         "rank".to_string(),
-        vec![Value::Uint(3), Value::Uint(1), Value::Uint(2)],
+        vec![Value::Nat(3), Value::Nat(1), Value::Nat(2)],
     ));
     let predicate_b = Predicate::Compare(ComparePredicate::in_(
         "rank".to_string(),
-        vec![Value::Uint(1), Value::Uint(2), Value::Uint(3)],
+        vec![Value::Nat(1), Value::Nat(2), Value::Nat(3)],
     ));
 
     let mut plan_a: AccessPlannedQuery = full_scan_query();
@@ -87,26 +87,26 @@ fn fingerprint_and_signature_treat_same_field_or_eq_and_in_as_identical() {
         Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             CompareOp::Eq,
-            Value::Uint(3),
+            Value::Nat(3),
             CoercionId::Strict,
         )),
         Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             CompareOp::Eq,
-            Value::Uint(1),
+            Value::Nat(1),
             CoercionId::Strict,
         )),
         Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             CompareOp::Eq,
-            Value::Uint(3),
+            Value::Nat(3),
             CoercionId::Strict,
         )),
     ]);
     let predicate_in = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         CompareOp::In,
-        Value::List(vec![Value::Uint(1), Value::Uint(3)]),
+        Value::List(vec![Value::Nat(1), Value::Nat(3)]),
         CoercionId::Strict,
     ));
 
@@ -127,16 +127,11 @@ fn fingerprint_and_signature_treat_same_field_or_eq_and_in_as_identical() {
 fn fingerprint_and_signature_treat_equivalent_in_list_duplicate_literals_as_identical() {
     let predicate_a = Predicate::Compare(ComparePredicate::in_(
         "rank".to_string(),
-        vec![
-            Value::Uint(3),
-            Value::Uint(1),
-            Value::Uint(3),
-            Value::Uint(2),
-        ],
+        vec![Value::Nat(3), Value::Nat(1), Value::Nat(3), Value::Nat(2)],
     ));
     let predicate_b = Predicate::Compare(ComparePredicate::in_(
         "rank".to_string(),
-        vec![Value::Uint(1), Value::Uint(2), Value::Uint(3)],
+        vec![Value::Nat(1), Value::Nat(2), Value::Nat(3)],
     ));
 
     let mut plan_a: AccessPlannedQuery = full_scan_query();

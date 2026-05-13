@@ -23,7 +23,7 @@ static STRONG_RELATION_KIND: FieldKind = FieldKind::Relation {
 static STRONG_RELATION_LIST_KIND: FieldKind = FieldKind::List(&STRONG_RELATION_KIND);
 
 const TAG_UNIT: u8 = 0x01;
-const TAG_UINT64: u8 = 0x10;
+const TAG_NAT64: u8 = 0x10;
 const TAG_INT64: u8 = 0x11;
 const TAG_TEXT: u8 = 0x12;
 const TAG_BYTES: u8 = 0x13;
@@ -33,8 +33,8 @@ fn encode_unit() -> Vec<u8> {
     vec![TAG_UNIT]
 }
 
-fn encode_uint64(value: u64) -> Vec<u8> {
-    let mut out = vec![TAG_UINT64];
+fn encode_nat64(value: u64) -> Vec<u8> {
+    let mut out = vec![TAG_NAT64];
     out.extend_from_slice(&value.to_be_bytes());
     out
 }
@@ -107,7 +107,7 @@ fn storage_key_binary_roundtrips_all_supported_scalar_kinds() {
             StorageKey::Timestamp(timestamp),
             Value::Timestamp(timestamp),
         ),
-        (FieldKind::Uint, StorageKey::Uint(42), Value::Uint(42)),
+        (FieldKind::Nat, StorageKey::Nat(42), Value::Nat(42)),
         (FieldKind::Ulid, StorageKey::Ulid(ulid), Value::Ulid(ulid)),
         (FieldKind::Unit, StorageKey::Unit, Value::Unit),
     ];
@@ -310,9 +310,9 @@ fn storage_key_scalar_decoders_accept_supported_binary_shapes() {
         StorageKey::Int(-5),
     );
     assert_eq!(
-        decode_storage_key_field_binary_bytes(&encode_uint64(7), FieldKind::Uint)
-            .expect("uint payload should decode"),
-        StorageKey::Uint(7),
+        decode_storage_key_field_binary_bytes(&encode_nat64(7), FieldKind::Nat)
+            .expect("nat payload should decode"),
+        StorageKey::Nat(7),
     );
     assert_eq!(
         decode_storage_key_field_binary_bytes(
@@ -375,7 +375,7 @@ fn storage_key_relation_encode_binary_bytes_preserves_list_shape() {
 fn storage_key_scalar_encode_roundtrips_supported_kinds() {
     let cases = vec![
         (FieldKind::Int, StorageKey::Int(-9)),
-        (FieldKind::Uint, StorageKey::Uint(42)),
+        (FieldKind::Nat, StorageKey::Nat(42)),
         (
             FieldKind::Principal,
             StorageKey::Principal(Principal::dummy(5)),

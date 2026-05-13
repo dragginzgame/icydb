@@ -196,7 +196,7 @@ fn grouped_having_with_distinct_error() -> QueryError {
         .having_aggregate(
             0,
             CompareOp::Gt,
-            crate::value::InputValue::from(Value::Uint(0)),
+            crate::value::InputValue::from(Value::Nat(0)),
         )
         .expect("having aggregate clause should append on grouped query")
         .distinct()
@@ -213,7 +213,7 @@ fn grouped_ordered_having_with_distinct_error() -> QueryError {
         .having_aggregate(
             0,
             CompareOp::Gt,
-            crate::value::InputValue::from(Value::Uint(0)),
+            crate::value::InputValue::from(Value::Nat(0)),
         )
         .expect("having aggregate clause should append on grouped query")
         .distinct()
@@ -825,7 +825,7 @@ fn global_aggregate_having_without_group_by_is_allowed() {
         .having_aggregate(
             0,
             CompareOp::Gt,
-            crate::value::InputValue::from(Value::Uint(0)),
+            crate::value::InputValue::from(Value::Nat(0)),
         )
         .expect("global aggregate HAVING should append after aggregate declaration")
         .plan()

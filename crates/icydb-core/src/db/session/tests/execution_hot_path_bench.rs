@@ -543,7 +543,7 @@ fn nested_codec_value_fixture(width: usize) -> Value {
             (
                 Value::Text(format!("key-{index:04}")),
                 Value::List(vec![
-                    Value::Uint(index as u64),
+                    Value::Nat(index as u64),
                     Value::Text(generated_text("payload", index, 24)),
                     Value::Blob(vec![blob_byte; 16]),
                 ]),
@@ -555,7 +555,7 @@ fn nested_codec_value_fixture(width: usize) -> Value {
     Value::List(vec![
         map,
         Value::Text("codec-root".to_string()),
-        Value::Uint(width as u64),
+        Value::Nat(width as u64),
     ])
 }
 

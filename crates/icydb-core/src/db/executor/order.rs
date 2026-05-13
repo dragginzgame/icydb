@@ -659,9 +659,9 @@ mod tests {
     #[test]
     fn apply_structural_order_sorts_rows_by_resolved_slots() {
         let mut rows = vec![
-            TestRow::new(vec![Some(Value::Uint(3))]),
-            TestRow::new(vec![Some(Value::Uint(1))]),
-            TestRow::new(vec![Some(Value::Uint(2))]),
+            TestRow::new(vec![Some(Value::Nat(3))]),
+            TestRow::new(vec![Some(Value::Nat(1))]),
+            TestRow::new(vec![Some(Value::Nat(2))]),
         ];
 
         apply_structural_order_window(
@@ -677,9 +677,9 @@ mod tests {
         assert_eq!(
             ordered,
             vec![
-                Some(Value::Uint(1)),
-                Some(Value::Uint(2)),
-                Some(Value::Uint(3))
+                Some(Value::Nat(1)),
+                Some(Value::Nat(2)),
+                Some(Value::Nat(3))
             ]
         );
     }
@@ -687,10 +687,10 @@ mod tests {
     #[test]
     fn apply_structural_order_bounded_keeps_smallest_rows_in_canonical_order() {
         let mut rows = vec![
-            TestRow::new(vec![Some(Value::Uint(4))]),
-            TestRow::new(vec![Some(Value::Uint(2))]),
-            TestRow::new(vec![Some(Value::Uint(3))]),
-            TestRow::new(vec![Some(Value::Uint(1))]),
+            TestRow::new(vec![Some(Value::Nat(4))]),
+            TestRow::new(vec![Some(Value::Nat(2))]),
+            TestRow::new(vec![Some(Value::Nat(3))]),
+            TestRow::new(vec![Some(Value::Nat(1))]),
         ];
 
         apply_structural_order_window(
@@ -703,14 +703,14 @@ mod tests {
             .into_iter()
             .map(|row| row.read_order_slot(0))
             .collect::<Vec<_>>();
-        assert_eq!(ordered, vec![Some(Value::Uint(1)), Some(Value::Uint(2))]);
+        assert_eq!(ordered, vec![Some(Value::Nat(1)), Some(Value::Nat(2))]);
     }
 
     #[test]
     fn compare_orderable_row_with_boundary_respects_desc_direction() {
-        let row = TestRow::new(vec![Some(Value::Uint(7))]);
+        let row = TestRow::new(vec![Some(Value::Nat(7))]);
         let boundary = CursorBoundary {
-            slots: vec![CursorBoundarySlot::Present(Value::Uint(5))],
+            slots: vec![CursorBoundarySlot::Present(Value::Nat(5))],
         };
 
         let ordering = compare_orderable_row_with_boundary(
@@ -728,9 +728,9 @@ mod tests {
         let middle_reads = Rc::new(Cell::new(0));
         let right_reads = Rc::new(Cell::new(0));
         let mut rows = vec![
-            CountingRow::new(left_reads.clone(), vec![Some(Value::Uint(3))]),
-            CountingRow::new(middle_reads.clone(), vec![Some(Value::Uint(1))]),
-            CountingRow::new(right_reads.clone(), vec![Some(Value::Uint(2))]),
+            CountingRow::new(left_reads.clone(), vec![Some(Value::Nat(3))]),
+            CountingRow::new(middle_reads.clone(), vec![Some(Value::Nat(1))]),
+            CountingRow::new(right_reads.clone(), vec![Some(Value::Nat(2))]),
         ];
 
         apply_structural_order_window(
@@ -750,9 +750,9 @@ mod tests {
         let middle_reads = Rc::new(Cell::new(0));
         let right_reads = Rc::new(Cell::new(0));
         let mut rows = vec![
-            CountingRow::borrowed(left_reads.clone(), vec![Some(Value::Uint(3))]),
-            CountingRow::borrowed(middle_reads.clone(), vec![Some(Value::Uint(1))]),
-            CountingRow::borrowed(right_reads.clone(), vec![Some(Value::Uint(2))]),
+            CountingRow::borrowed(left_reads.clone(), vec![Some(Value::Nat(3))]),
+            CountingRow::borrowed(middle_reads.clone(), vec![Some(Value::Nat(1))]),
+            CountingRow::borrowed(right_reads.clone(), vec![Some(Value::Nat(2))]),
         ];
 
         apply_structural_order_window(
@@ -765,7 +765,7 @@ mod tests {
             .iter()
             .map(|row| row.read_order_slot(0))
             .collect::<Vec<_>>();
-        assert_eq!(ordered, vec![Some(Value::Uint(1)), Some(Value::Uint(2))]);
+        assert_eq!(ordered, vec![Some(Value::Nat(1)), Some(Value::Nat(2))]);
         assert!(
             left_reads.get() + middle_reads.get() + right_reads.get() > 3,
             "borrowed direct-slot fast path should compare row slots directly instead of using the one-read cache",
@@ -821,11 +821,11 @@ mod tests {
     #[test]
     fn cursor_boundary_from_orderable_row_handles_heap_cached_values() {
         let row = TestRow::new(vec![
-            Some(Value::Uint(1)),
-            Some(Value::Uint(2)),
-            Some(Value::Uint(3)),
-            Some(Value::Uint(4)),
-            Some(Value::Uint(5)),
+            Some(Value::Nat(1)),
+            Some(Value::Nat(2)),
+            Some(Value::Nat(3)),
+            Some(Value::Nat(4)),
+            Some(Value::Nat(5)),
         ]);
         let boundary = cursor_boundary_from_orderable_row(
             &row,
@@ -841,11 +841,11 @@ mod tests {
         assert_eq!(
             boundary.slots,
             vec![
-                CursorBoundarySlot::Present(Value::Uint(1)),
-                CursorBoundarySlot::Present(Value::Uint(2)),
-                CursorBoundarySlot::Present(Value::Uint(3)),
-                CursorBoundarySlot::Present(Value::Uint(4)),
-                CursorBoundarySlot::Present(Value::Uint(5)),
+                CursorBoundarySlot::Present(Value::Nat(1)),
+                CursorBoundarySlot::Present(Value::Nat(2)),
+                CursorBoundarySlot::Present(Value::Nat(3)),
+                CursorBoundarySlot::Present(Value::Nat(4)),
+                CursorBoundarySlot::Present(Value::Nat(5)),
             ]
         );
     }

@@ -510,7 +510,7 @@ mod tests {
             DataKey::new(EntityTag::new(1), StorageKey::Int(0)),
             DataKey::new(EntityTag::new(1), StorageKey::Int(0)),
             DataKey::new(EntityTag::new(2), StorageKey::Int(0)),
-            DataKey::new(EntityTag::new(1), StorageKey::Uint(1)),
+            DataKey::new(EntityTag::new(1), StorageKey::Nat(1)),
         ];
 
         let mut by_ord = keys.clone();
@@ -571,8 +571,8 @@ mod tests {
     #[test]
     fn storage_key_decode_rejects_variant_mismatch_and_out_of_range_keys() {
         let variant_err = u64::from_storage_key(StorageKey::Int(7))
-            .expect_err("uint decode must reject signed storage-key variants");
-        let range_err = u8::from_storage_key(StorageKey::Uint(300))
+            .expect_err("nat decode must reject signed storage-key variants");
+        let range_err = u8::from_storage_key(StorageKey::Nat(300))
             .expect_err("narrow integer decode must reject out-of-range values");
 
         assert_eq!(variant_err.class(), ErrorClass::Corruption);
@@ -580,7 +580,7 @@ mod tests {
         assert!(
             variant_err
                 .message()
-                .contains("expected StorageKey::Uint, found Int(7)"),
+                .contains("expected StorageKey::Nat, found Int(7)"),
             "unexpected variant mismatch error: {variant_err:?}",
         );
         assert!(
@@ -595,7 +595,7 @@ mod tests {
         let unsupported_values = [
             Value::Text("not-a-storage-key".to_string()),
             Value::Bool(true),
-            Value::List(vec![Value::Uint(1)]),
+            Value::List(vec![Value::Nat(1)]),
             Value::Null,
         ];
 
@@ -633,7 +633,7 @@ mod tests {
             Value::Principal(Principal::from_slice(&[1, 2, 3])),
             Value::Subaccount(Subaccount::new([2; 32])),
             Value::Timestamp(Timestamp::from_secs(7)),
-            Value::Uint(42),
+            Value::Nat(42),
             Value::Ulid(Ulid::from_u128(99)),
             Value::Unit,
         ];

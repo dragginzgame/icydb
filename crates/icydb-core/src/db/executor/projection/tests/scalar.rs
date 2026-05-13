@@ -148,7 +148,7 @@ fn scalar_filter_expr_matches_text_field_path_value() {
 }
 
 #[test]
-fn scalar_filter_expr_matches_uint_field_path_value() {
+fn scalar_filter_expr_matches_nat_field_path_value() {
     let (_, entity) = row(35, 41, true);
     let expr = Expr::Binary {
         op: BinaryOp::Eq,
@@ -156,15 +156,15 @@ fn scalar_filter_expr_matches_uint_field_path_value() {
             "profile",
             vec!["score".to_string()],
         ))),
-        right: Box::new(Expr::Literal(Value::Uint(41))),
+        right: Box::new(Expr::Literal(Value::Nat(41))),
     };
 
     let admitted = eval_scalar_filter_expr_for_row(&expr, &entity)
-        .expect("uint field-path filter should evaluate");
+        .expect("nat field-path filter should evaluate");
 
     assert!(
         admitted,
-        "matching uint field-path predicate should admit the row"
+        "matching nat field-path predicate should admit the row"
     );
 }
 
@@ -326,7 +326,7 @@ fn eval_expr_supports_numeric_equality_widening() {
     let expr = Expr::Binary {
         op: BinaryOp::Eq,
         left: Box::new(Expr::Field(FieldId::new("rank"))),
-        right: Box::new(Expr::Literal(Value::Uint(7))),
+        right: Box::new(Expr::Literal(Value::Nat(7))),
     };
 
     let value = eval_scalar_expr_for_row(&expr, &entity).expect("numeric equality should widen");

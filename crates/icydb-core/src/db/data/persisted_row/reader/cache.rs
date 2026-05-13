@@ -35,7 +35,7 @@ pub(in crate::db::data::persisted_row) enum ValidatedScalarSlotValue {
     Subaccount(crate::types::Subaccount),
     Text,
     Timestamp(crate::types::Timestamp),
-    Uint(u64),
+    Nat(u64),
     Ulid(crate::types::Ulid),
     Unit,
 }
@@ -101,7 +101,7 @@ pub(super) const fn validated_scalar_slot_value(
             ScalarValueRef::Subaccount(value) => ValidatedScalarSlotValue::Subaccount(value),
             ScalarValueRef::Text(_) => ValidatedScalarSlotValue::Text,
             ScalarValueRef::Timestamp(value) => ValidatedScalarSlotValue::Timestamp(value),
-            ScalarValueRef::Uint(value) => ValidatedScalarSlotValue::Uint(value),
+            ScalarValueRef::Nat(value) => ValidatedScalarSlotValue::Nat(value),
             ScalarValueRef::Ulid(value) => ValidatedScalarSlotValue::Ulid(value),
             ScalarValueRef::Unit => ValidatedScalarSlotValue::Unit,
         },
@@ -152,8 +152,8 @@ pub(super) fn scalar_slot_value_ref_from_validated<'a>(
         ValidatedScalarSlotValue::Timestamp(value) => {
             Ok(ScalarSlotValueRef::Value(ScalarValueRef::Timestamp(value)))
         }
-        ValidatedScalarSlotValue::Uint(value) => {
-            Ok(ScalarSlotValueRef::Value(ScalarValueRef::Uint(value)))
+        ValidatedScalarSlotValue::Nat(value) => {
+            Ok(ScalarSlotValueRef::Value(ScalarValueRef::Nat(value)))
         }
         ValidatedScalarSlotValue::Ulid(value) => {
             Ok(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(value)))

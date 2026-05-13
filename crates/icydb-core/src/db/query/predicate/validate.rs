@@ -422,7 +422,7 @@ fn ensure_coercion(
     // NOTE:
     // NumericWiden eligibility is registry-authoritative.
     // CoercionFamily::Numeric is intentionally NOT sufficient.
-    // This prevents validation/runtime divergence for Date, IntBig, UintBig.
+    // This prevents validation/runtime divergence for Date, IntBig, NatBig.
     if matches!(coercion.id, CoercionId::NumericWiden)
         && (!field_type.supports_numeric_coercion() || !literal.supports_numeric_coercion())
     {

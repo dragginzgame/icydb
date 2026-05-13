@@ -80,7 +80,7 @@ pub enum StorageKey {
     Principal(Principal),
     Subaccount(Subaccount),
     Timestamp(Timestamp),
-    Uint(u64),
+    Nat(u64),
     Ulid(Ulid),
     Unit,
 }
@@ -92,7 +92,7 @@ impl StorageKey {
     pub(crate) const TAG_PRINCIPAL: u8 = 2;
     pub(crate) const TAG_SUBACCOUNT: u8 = 3;
     pub(crate) const TAG_TIMESTAMP: u8 = 4;
-    pub(crate) const TAG_UINT: u8 = 5;
+    pub(crate) const TAG_NAT: u8 = 5;
     pub(crate) const TAG_ULID: u8 = 6;
     pub(crate) const TAG_UNIT: u8 = 7;
 
@@ -108,7 +108,7 @@ impl StorageKey {
     const PAYLOAD_SIZE: usize = Self::STORED_SIZE_USIZE - Self::TAG_SIZE;
 
     pub(crate) const INT_SIZE: usize = 8;
-    pub(crate) const UINT_SIZE: usize = 8;
+    pub(crate) const NAT_SIZE: usize = 8;
     pub(crate) const TIMESTAMP_SIZE: usize = 8;
     pub(crate) const ULID_SIZE: usize = 16;
     pub(crate) const SUBACCOUNT_SIZE: usize = 32;
@@ -121,7 +121,7 @@ impl StorageKey {
             Self::Principal(_) => Self::TAG_PRINCIPAL,
             Self::Subaccount(_) => Self::TAG_SUBACCOUNT,
             Self::Timestamp(_) => Self::TAG_TIMESTAMP,
-            Self::Uint(_) => Self::TAG_UINT,
+            Self::Nat(_) => Self::TAG_NAT,
             Self::Ulid(_) => Self::TAG_ULID,
             Self::Unit => Self::TAG_UNIT,
         }
@@ -192,7 +192,7 @@ impl StorageKey {
                 let biased = v.cast_unsigned() ^ (1u64 << 63);
                 payload[..Self::INT_SIZE].copy_from_slice(&biased.to_be_bytes());
             }
-            Self::Uint(v) => payload[..Self::UINT_SIZE].copy_from_slice(&v.to_be_bytes()),
+            Self::Nat(v) => payload[..Self::NAT_SIZE].copy_from_slice(&v.to_be_bytes()),
             Self::Timestamp(v) => {
                 payload[..Self::TIMESTAMP_SIZE].copy_from_slice(&v.repr().to_be_bytes());
             }
@@ -280,11 +280,11 @@ impl StorageKey {
                     buf,
                 ))))
             }
-            Self::TAG_UINT => {
-                ensure_zero_padding(Self::UINT_SIZE, "uint")?;
-                let mut buf = [0u8; Self::UINT_SIZE];
-                buf.copy_from_slice(&payload[..Self::UINT_SIZE]);
-                Ok(Self::Uint(u64::from_be_bytes(buf)))
+            Self::TAG_NAT => {
+                ensure_zero_padding(Self::NAT_SIZE, "nat")?;
+                let mut buf = [0u8; Self::NAT_SIZE];
+                buf.copy_from_slice(&payload[..Self::NAT_SIZE]);
+                Ok(Self::Nat(u64::from_be_bytes(buf)))
             }
             Self::TAG_ULID => {
                 ensure_zero_padding(Self::ULID_SIZE, "ulid")?;
@@ -307,7 +307,7 @@ impl Ord for StorageKey {
             (Self::Account(a), Self::Account(b)) => a.cmp(b),
             (Self::Int(a), Self::Int(b)) => a.cmp(b),
             (Self::Principal(a), Self::Principal(b)) => a.cmp(b),
-            (Self::Uint(a), Self::Uint(b)) => a.cmp(b),
+            (Self::Nat(a), Self::Nat(b)) => a.cmp(b),
             (Self::Ulid(a), Self::Ulid(b)) => a.cmp(b),
             (Self::Subaccount(a), Self::Subaccount(b)) => a.cmp(b),
             (Self::Timestamp(a), Self::Timestamp(b)) => a.cmp(b),
@@ -393,14 +393,14 @@ mod tests {
         (Timestamp) => {
             Value::Timestamp(Timestamp::from_secs(1))
         };
-        (Uint) => {
-            Value::Uint(7)
+        (Nat) => {
+            Value::Nat(7)
         };
-        (Uint128) => {
-            Value::Uint128(Nat128::from(9u128))
+        (Nat128) => {
+            Value::Nat128(Nat128::from(9u128))
         };
-        (UintBig) => {
-            Value::UintBig(Nat::from(11u64))
+        (NatBig) => {
+            Value::NatBig(Nat::from(11u64))
         };
         (Ulid) => {
             Value::Ulid(Ulid::from_u128(42))
@@ -465,7 +465,7 @@ mod tests {
             storage_key_from_runtime_value(&Value::Unit).expect("Unit is encodable"),
             storage_key_from_runtime_value(&Value::Ulid(Ulid::from_u128(2)))
                 .expect("Ulid is encodable"),
-            storage_key_from_runtime_value(&Value::Uint(2)).expect("Uint is encodable"),
+            storage_key_from_runtime_value(&Value::Nat(2)).expect("Nat is encodable"),
             storage_key_from_runtime_value(&Value::Timestamp(Timestamp::from_secs(2)))
                 .expect("Timestamp is encodable"),
             storage_key_from_runtime_value(&Value::Subaccount(Subaccount::new([3u8; 32])))
@@ -485,7 +485,7 @@ mod tests {
             StorageKey::Principal(Principal::from_slice(&[9u8])),
             StorageKey::Subaccount(Subaccount::new([3u8; 32])),
             StorageKey::Timestamp(Timestamp::from_secs(2)),
-            StorageKey::Uint(2),
+            StorageKey::Nat(2),
             StorageKey::Ulid(Ulid::from_u128(2)),
             StorageKey::Unit,
         ];

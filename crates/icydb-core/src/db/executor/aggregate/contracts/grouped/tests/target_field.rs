@@ -12,7 +12,7 @@ fn grouped_count_field_skips_null_slot_values() {
         )
         .expect("grouped COUNT(field) test fixture should construct admitted grouped state");
     let group = text_group_key("alpha");
-    let non_null_row = RowView::new(vec![Some(Value::Uint(7))]);
+    let non_null_row = RowView::new(vec![Some(Value::Nat(7))]);
     let null_row = RowView::new(vec![Some(Value::Null)]);
 
     grouped
@@ -52,8 +52,8 @@ fn grouped_sum_field_skips_null_slot_values_and_accumulates_numeric_rows() {
         )
         .expect("grouped SUM(field) test fixture should construct admitted grouped state");
     let group = text_group_key("alpha");
-    let numeric_row = RowView::new(vec![Some(Value::Uint(7))]);
-    let second_numeric_row = RowView::new(vec![Some(Value::Uint(9))]);
+    let numeric_row = RowView::new(vec![Some(Value::Nat(7))]);
+    let second_numeric_row = RowView::new(vec![Some(Value::Nat(9))]);
     let null_row = RowView::new(vec![Some(Value::Null)]);
 
     grouped
@@ -104,8 +104,8 @@ fn grouped_avg_field_skips_null_slot_values_and_accumulates_numeric_rows() {
         )
         .expect("grouped AVG(field) test fixture should construct admitted grouped state");
     let group = text_group_key("alpha");
-    let numeric_row = RowView::new(vec![Some(Value::Uint(6))]);
-    let second_numeric_row = RowView::new(vec![Some(Value::Uint(12))]);
+    let numeric_row = RowView::new(vec![Some(Value::Nat(6))]);
+    let second_numeric_row = RowView::new(vec![Some(Value::Nat(12))]);
     let null_row = RowView::new(vec![Some(Value::Null)]);
 
     grouped
@@ -162,7 +162,7 @@ fn grouped_id_terminals_finalize_to_structural_primary_key_values() {
             finalize_grouped_id_rows(AggregateKind::Min, Direction::Asc, &[3, 7, 9], true,)
                 .as_slice()
         ),
-        vec![(Value::Text("alpha".to_string()), Value::Uint(3))],
+        vec![(Value::Text("alpha".to_string()), Value::Nat(3))],
         "grouped MIN should finalize to the primary-key value with structural output",
     );
 
@@ -171,7 +171,7 @@ fn grouped_id_terminals_finalize_to_structural_primary_key_values() {
             finalize_grouped_id_rows(AggregateKind::Max, Direction::Desc, &[9, 7, 3], true,)
                 .as_slice()
         ),
-        vec![(Value::Text("alpha".to_string()), Value::Uint(9))],
+        vec![(Value::Text("alpha".to_string()), Value::Nat(9))],
         "grouped MAX should finalize to the primary-key value with structural output",
     );
 
@@ -180,7 +180,7 @@ fn grouped_id_terminals_finalize_to_structural_primary_key_values() {
             finalize_grouped_id_rows(AggregateKind::First, Direction::Asc, &[7, 3, 9], true,)
                 .as_slice()
         ),
-        vec![(Value::Text("alpha".to_string()), Value::Uint(7))],
+        vec![(Value::Text("alpha".to_string()), Value::Nat(7))],
         "grouped FIRST should finalize to the first seen primary-key value with structural output",
     );
 
@@ -189,7 +189,7 @@ fn grouped_id_terminals_finalize_to_structural_primary_key_values() {
             finalize_grouped_id_rows(AggregateKind::Last, Direction::Asc, &[7, 3, 9], false,)
                 .as_slice()
         ),
-        vec![(Value::Text("alpha".to_string()), Value::Uint(9))],
+        vec![(Value::Text("alpha".to_string()), Value::Nat(9))],
         "grouped LAST should finalize to the last seen primary-key value with structural output",
     );
 }
@@ -201,7 +201,7 @@ fn grouped_min_max_key_path_early_break_matrix_is_directional() {
             finalize_grouped_id_rows(AggregateKind::Min, Direction::Asc, &[3, 7, 9], true,)
                 .as_slice()
         ),
-        vec![(Value::Text("alpha".to_string()), Value::Uint(3))],
+        vec![(Value::Text("alpha".to_string()), Value::Nat(3))],
         "MIN over ascending input may stop after the first key",
     );
 
@@ -210,7 +210,7 @@ fn grouped_min_max_key_path_early_break_matrix_is_directional() {
             finalize_grouped_id_rows(AggregateKind::Min, Direction::Desc, &[9, 7, 3], true,)
                 .as_slice()
         ),
-        vec![(Value::Text("alpha".to_string()), Value::Uint(3))],
+        vec![(Value::Text("alpha".to_string()), Value::Nat(3))],
         "MIN over descending input must keep scanning instead of stopping early",
     );
 
@@ -219,7 +219,7 @@ fn grouped_min_max_key_path_early_break_matrix_is_directional() {
             finalize_grouped_id_rows(AggregateKind::Max, Direction::Desc, &[9, 7, 3], true,)
                 .as_slice()
         ),
-        vec![(Value::Text("alpha".to_string()), Value::Uint(9))],
+        vec![(Value::Text("alpha".to_string()), Value::Nat(9))],
         "MAX over descending input may stop after the first key",
     );
 
@@ -228,7 +228,7 @@ fn grouped_min_max_key_path_early_break_matrix_is_directional() {
             finalize_grouped_id_rows(AggregateKind::Max, Direction::Asc, &[3, 7, 9], true,)
                 .as_slice()
         ),
-        vec![(Value::Text("alpha".to_string()), Value::Uint(9))],
+        vec![(Value::Text("alpha".to_string()), Value::Nat(9))],
         "MAX over ascending input must keep scanning instead of stopping early",
     );
 }

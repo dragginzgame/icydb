@@ -935,18 +935,18 @@ fn execute_sql_projection_direct_bounded_numeric_order_terms_run_from_session_bo
             (
                 "SELECT name, age FROM SessionSqlEntity ORDER BY age + 1 ASC LIMIT 3",
                 vec![
-                    vec![Value::Text("bravo".to_string()), Value::Uint(20)],
-                    vec![Value::Text("alpha".to_string()), Value::Uint(30)],
-                    vec![Value::Text("charlie".to_string()), Value::Uint(40)],
+                    vec![Value::Text("bravo".to_string()), Value::Nat(20)],
+                    vec![Value::Text("alpha".to_string()), Value::Nat(30)],
+                    vec![Value::Text("charlie".to_string()), Value::Nat(40)],
                 ],
                 "direct ORDER BY arithmetic terms",
             ),
             (
                 "SELECT name, age FROM SessionSqlEntity ORDER BY ROUND(age / 3, 2) DESC LIMIT 3",
                 vec![
-                    vec![Value::Text("charlie".to_string()), Value::Uint(40)],
-                    vec![Value::Text("alpha".to_string()), Value::Uint(30)],
-                    vec![Value::Text("bravo".to_string()), Value::Uint(20)],
+                    vec![Value::Text("charlie".to_string()), Value::Nat(40)],
+                    vec![Value::Text("alpha".to_string()), Value::Nat(30)],
+                    vec![Value::Text("bravo".to_string()), Value::Nat(20)],
                 ],
                 "direct ORDER BY ROUND terms",
             ),
@@ -965,18 +965,18 @@ fn execute_sql_projection_direct_scalar_function_expression_order_terms_run_from
             (
                 "SELECT name, age FROM SessionSqlEntity ORDER BY ABS(age - 30) ASC LIMIT 3",
                 vec![
-                    vec![Value::Text("alpha".to_string()), Value::Uint(30)],
-                    vec![Value::Text("bravo".to_string()), Value::Uint(20)],
-                    vec![Value::Text("charlie".to_string()), Value::Uint(40)],
+                    vec![Value::Text("alpha".to_string()), Value::Nat(30)],
+                    vec![Value::Text("bravo".to_string()), Value::Nat(20)],
+                    vec![Value::Text("charlie".to_string()), Value::Nat(40)],
                 ],
                 "direct ORDER BY ABS expression terms",
             ),
             (
                 "SELECT name, age FROM SessionSqlEntity ORDER BY COALESCE(NULLIF(age, 20), 99) DESC LIMIT 3",
                 vec![
-                    vec![Value::Text("bravo".to_string()), Value::Uint(20)],
-                    vec![Value::Text("charlie".to_string()), Value::Uint(40)],
-                    vec![Value::Text("alpha".to_string()), Value::Uint(30)],
+                    vec![Value::Text("bravo".to_string()), Value::Nat(20)],
+                    vec![Value::Text("charlie".to_string()), Value::Nat(40)],
+                    vec![Value::Text("alpha".to_string()), Value::Nat(30)],
                 ],
                 "direct ORDER BY COALESCE/NULLIF expression terms",
             ),
@@ -1085,8 +1085,8 @@ fn execute_sql_projection_computed_function_matrix_runs_from_session_boundary() 
                     Value::Text("  Ada".to_string()),
                     Value::Text("  ada  ".to_string()),
                     Value::Text("  ADA  ".to_string()),
-                    Value::Uint(7),
-                    Value::Uint(33),
+                    Value::Nat(7),
+                    Value::Nat(33),
                 ],
                 vec![
                     Value::Text("Bob".to_string()),
@@ -1094,8 +1094,8 @@ fn execute_sql_projection_computed_function_matrix_runs_from_session_boundary() 
                     Value::Text("\tBob".to_string()),
                     Value::Text("\tbob".to_string()),
                     Value::Text("\tBOB".to_string()),
-                    Value::Uint(4),
-                    Value::Uint(21),
+                    Value::Nat(4),
+                    Value::Nat(21),
                 ],
             ],
             "computed trim/case/length projections",
@@ -1131,14 +1131,14 @@ fn execute_sql_projection_computed_function_matrix_runs_from_session_boundary() 
                     Value::Bool(true),
                     Value::Bool(false),
                     Value::Bool(true),
-                    Value::Uint(4),
+                    Value::Nat(4),
                     Value::Null,
                 ],
                 vec![
                     Value::Bool(false),
                     Value::Bool(true),
                     Value::Bool(false),
-                    Value::Uint(0),
+                    Value::Nat(0),
                     Value::Null,
                 ],
             ],
@@ -1265,7 +1265,7 @@ fn execute_sql_projection_computed_function_matrix_runs_from_session_boundary() 
             "SELECT COALESCE(NULL, TRIM(name)), NULLIF(age, 21) FROM SessionSqlEntity ORDER BY age DESC",
             &["COALESCE(NULL, TRIM(name))", "NULLIF(age, 21)"][..],
             vec![
-                vec![Value::Text("Ada".to_string()), Value::Uint(33)],
+                vec![Value::Text("Ada".to_string()), Value::Nat(33)],
                 vec![Value::Text("Bob".to_string()), Value::Null],
             ],
             "null-selection projections",
@@ -1455,7 +1455,7 @@ fn execute_sql_projection_select_star_returns_all_fields_in_model_order() {
     );
     assert!(matches!(row[0], Value::Ulid(_)));
     assert_eq!(row[1], Value::Text("projection-star".to_string()));
-    assert_eq!(row[2], Value::Uint(41));
+    assert_eq!(row[2], Value::Nat(41));
 }
 
 #[test]
@@ -1549,7 +1549,7 @@ fn execute_sql_projection_qualified_identifier_matrix_executes() {
                 rows[0][1..],
                 [
                     Value::Text(expected_name.to_string()),
-                    Value::Uint(expected_age),
+                    Value::Nat(expected_age),
                 ],
                 "{context} should preserve full entity field order",
             );
@@ -1626,7 +1626,7 @@ fn execute_sql_projection_delete_returns_deleted_rows() {
         &rows[0][1..],
         &[
             Value::Text("projection-delete-a".to_string()),
-            Value::Uint(10)
+            Value::Nat(10)
         ],
         "delete projection should return the deleted entity fields in declared model order",
     );
@@ -1696,7 +1696,7 @@ fn execute_sql_projection_distinct_matrix_matches_expected_rows() {
                 ("distinct-no-pk-c", 30_u64),
             ],
             "SELECT DISTINCT age FROM SessionSqlEntity ORDER BY age ASC",
-            vec![vec![Value::Uint(25)], vec![Value::Uint(30)]],
+            vec![vec![Value::Nat(25)], vec![Value::Nat(30)]],
             false,
             "SELECT DISTINCT without PK in projection",
         ),
@@ -1708,7 +1708,7 @@ fn execute_sql_projection_distinct_matrix_matches_expected_rows() {
                 ("distinct-window-d", 35_u64),
             ],
             "SELECT DISTINCT age FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 1",
-            vec![vec![Value::Uint(30)]],
+            vec![vec![Value::Nat(30)]],
             false,
             "SELECT DISTINCT without PK projection paging",
         ),
@@ -1742,7 +1742,7 @@ fn execute_sql_projection_distinct_matrix_matches_expected_rows() {
                     .iter()
                     .map(|row| row[1].clone())
                     .collect::<Vec<_>>(),
-                vec![Value::Uint(25), Value::Uint(25)],
+                vec![Value::Nat(25), Value::Nat(25)],
                 "{context} should preserve the distinct field payloads",
             );
             continue;
@@ -1760,12 +1760,12 @@ fn execute_sql_projection_distinct_limit_and_offset_use_deduped_ordered_stream()
     for (sql, expected_rows, context) in [
         (
             "SELECT DISTINCT age FROM SessionSqlEntity ORDER BY age ASC LIMIT 2",
-            vec![vec![Value::Uint(10)], vec![Value::Uint(20)]],
+            vec![vec![Value::Nat(10)], vec![Value::Nat(20)]],
             "DISTINCT LIMIT should keep the first two deduped ordered rows",
         ),
         (
             "SELECT DISTINCT age FROM SessionSqlEntity ORDER BY age ASC LIMIT 2 OFFSET 1",
-            vec![vec![Value::Uint(20)], vec![Value::Uint(30)]],
+            vec![vec![Value::Nat(20)], vec![Value::Nat(30)]],
             "DISTINCT OFFSET/LIMIT should skip and keep rows on the deduped ordered stream",
         ),
     ] {
@@ -2112,8 +2112,8 @@ fn execute_sql_projection_matrix_queries_match_expected_projected_rows() {
              FROM SessionSqlEntity \
              ORDER BY age DESC LIMIT 2 OFFSET 1",
             vec![
-                vec![Value::Text("matrix-c".to_string()), Value::Uint(30)],
-                vec![Value::Text("matrix-b".to_string()), Value::Uint(20)],
+                vec![Value::Text("matrix-c".to_string()), Value::Nat(30)],
+                vec![Value::Text("matrix-b".to_string()), Value::Nat(20)],
             ],
         ),
         (
@@ -2121,7 +2121,7 @@ fn execute_sql_projection_matrix_queries_match_expected_projected_rows() {
              FROM SessionSqlEntity \
              WHERE age >= 20 \
              ORDER BY age ASC LIMIT 2",
-            vec![vec![Value::Uint(20)], vec![Value::Uint(30)]],
+            vec![vec![Value::Nat(20)], vec![Value::Nat(30)]],
         ),
         (
             "SELECT name \

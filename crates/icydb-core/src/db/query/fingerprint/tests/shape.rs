@@ -79,15 +79,15 @@ fn fingerprint_changes_when_index_range_bound_discriminant_changes() {
 
     let plan_included: AccessPlannedQuery = index_range_query(
         INDEX,
-        vec![Value::Uint(7)],
-        Bound::Included(Value::Uint(100)),
-        Bound::Excluded(Value::Uint(200)),
+        vec![Value::Nat(7)],
+        Bound::Included(Value::Nat(100)),
+        Bound::Excluded(Value::Nat(200)),
     );
     let plan_excluded: AccessPlannedQuery = index_range_query(
         INDEX,
-        vec![Value::Uint(7)],
-        Bound::Excluded(Value::Uint(100)),
-        Bound::Excluded(Value::Uint(200)),
+        vec![Value::Nat(7)],
+        Bound::Excluded(Value::Nat(100)),
+        Bound::Excluded(Value::Nat(200)),
     );
 
     assert_ne!(plan_included.fingerprint(), plan_excluded.fingerprint());
@@ -105,15 +105,15 @@ fn fingerprint_changes_when_index_range_bound_value_changes() {
 
     let plan_low_100: AccessPlannedQuery = index_range_query(
         INDEX,
-        vec![Value::Uint(7)],
-        Bound::Included(Value::Uint(100)),
-        Bound::Excluded(Value::Uint(200)),
+        vec![Value::Nat(7)],
+        Bound::Included(Value::Nat(100)),
+        Bound::Excluded(Value::Nat(200)),
     );
     let plan_low_101: AccessPlannedQuery = index_range_query(
         INDEX,
-        vec![Value::Uint(7)],
-        Bound::Included(Value::Uint(101)),
-        Bound::Excluded(Value::Uint(200)),
+        vec![Value::Nat(7)],
+        Bound::Included(Value::Nat(101)),
+        Bound::Excluded(Value::Nat(200)),
     );
 
     assert_ne!(plan_low_100.fingerprint(), plan_low_101.fingerprint());

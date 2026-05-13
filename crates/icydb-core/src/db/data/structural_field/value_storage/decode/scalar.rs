@@ -2,7 +2,7 @@ use crate::{
     db::data::structural_field::{
         FieldDecodeError,
         binary::{
-            TAG_BYTES, TAG_INT64, TAG_TEXT, TAG_UINT64,
+            TAG_BYTES, TAG_INT64, TAG_NAT64, TAG_TEXT,
             decode_text_scalar_bytes as decode_binary_text_scalar_bytes, parse_binary_head,
         },
         primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
@@ -40,7 +40,7 @@ pub(super) fn decode_binary_u64_value_at(
     };
     let (value, cursor) = decode_binary_u64_from_parsed(raw_bytes, tag, len, payload_start, None)?;
 
-    Ok((Value::Uint(value), cursor))
+    Ok((Value::Nat(value), cursor))
 }
 
 // Decode one nested text scalar while advancing by its length-prefixed payload.
@@ -196,7 +196,7 @@ fn decode_binary_u64_from_parsed(
     payload_start: usize,
     trailing_label: Option<&'static str>,
 ) -> Result<(u64, usize), FieldDecodeError> {
-    if tag != TAG_UINT64 || len != 8 {
+    if tag != TAG_NAT64 || len != 8 {
         return Err(FieldDecodeError::new(
             "structural binary: expected u64 integer payload",
         ));

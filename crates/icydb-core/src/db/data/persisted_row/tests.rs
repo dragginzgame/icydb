@@ -371,7 +371,7 @@ crate::test_entity_schema! {
 
 static STATE_VARIANTS: &[EnumVariantModel] = &[EnumVariantModel::new(
     "Loaded",
-    Some(&FieldKind::Uint),
+    Some(&FieldKind::Nat),
     FieldStorageDecode::ByKind,
 )];
 static FIELD_MODELS: [FieldModel; 2] = [
@@ -399,7 +399,7 @@ static ADDITIVE_PREFIX_FIELD_MODELS: [FieldModel; 2] = [
 static ADDITIVE_REQUIRED_FIELD_MODELS: [FieldModel; 3] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated("name", FieldKind::Text { max_len: None }),
-    FieldModel::generated("score", FieldKind::Uint),
+    FieldModel::generated("score", FieldKind::Nat),
 ];
 static LIST_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
     "tags",
@@ -409,7 +409,7 @@ static MAP_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
     "props",
     FieldKind::Map {
         key: &FieldKind::Text { max_len: None },
-        value: &FieldKind::Uint,
+        value: &FieldKind::Nat,
     },
 )];
 static ENUM_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
@@ -607,7 +607,7 @@ fn representative_value_storage_cases() -> Vec<Value> {
         ),
         (
             Value::Text("u128".to_string()),
-            Value::Uint128(Nat128::from(456u128)),
+            Value::Nat128(Nat128::from(456u128)),
         ),
         (
             Value::Text("enum".to_string()),
@@ -645,9 +645,9 @@ fn representative_value_storage_cases() -> Vec<Value> {
         Value::Subaccount(Subaccount::new([7u8; 32])),
         Value::Text("example".to_string()),
         Value::Timestamp(Timestamp::from_secs(1)),
-        Value::Uint(7),
-        Value::Uint128(Nat128::from(9u128)),
-        Value::UintBig(Nat::from(11u64)),
+        Value::Nat(7),
+        Value::Nat128(Nat128::from(9u128)),
+        Value::NatBig(Nat::from(11u64)),
         Value::Ulid(Ulid::from_u128(42)),
         Value::Unit,
     ]
@@ -717,14 +717,14 @@ fn representative_structured_value_storage_cases() -> Vec<Value> {
             Value::Text("timestamp".to_string()),
             Value::Timestamp(Timestamp::from_secs(1)),
         ),
-        (Value::Text("u64".to_string()), Value::Uint(7)),
+        (Value::Text("u64".to_string()), Value::Nat(7)),
         (
             Value::Text("u128".to_string()),
-            Value::Uint128(Nat128::from(9u128)),
+            Value::Nat128(Nat128::from(9u128)),
         ),
         (
             Value::Text("ubig".to_string()),
-            Value::UintBig(Nat::from(11u64)),
+            Value::NatBig(Nat::from(11u64)),
         ),
         (
             Value::Text("ulid".to_string()),
@@ -1110,10 +1110,10 @@ fn direct_persisted_by_kind_leaf_codecs_cover_tier_one_family() {
     assert_direct_persisted_by_kind_roundtrip(-6_i16, FieldKind::Int);
     assert_direct_persisted_by_kind_roundtrip(-7_i32, FieldKind::Int);
     assert_direct_persisted_by_kind_roundtrip(-8_i64, FieldKind::Int);
-    assert_direct_persisted_by_kind_roundtrip(5_u8, FieldKind::Uint);
-    assert_direct_persisted_by_kind_roundtrip(6_u16, FieldKind::Uint);
-    assert_direct_persisted_by_kind_roundtrip(7_u32, FieldKind::Uint);
-    assert_direct_persisted_by_kind_roundtrip(8_u64, FieldKind::Uint);
+    assert_direct_persisted_by_kind_roundtrip(5_u8, FieldKind::Nat);
+    assert_direct_persisted_by_kind_roundtrip(6_u16, FieldKind::Nat);
+    assert_direct_persisted_by_kind_roundtrip(7_u32, FieldKind::Nat);
+    assert_direct_persisted_by_kind_roundtrip(8_u64, FieldKind::Nat);
     assert_direct_persisted_by_kind_roundtrip(
         Timestamp::from_millis(1_234_567),
         FieldKind::Timestamp,
@@ -1146,14 +1146,14 @@ fn direct_persisted_by_kind_leaf_codecs_cover_tier_two_family() {
     );
     assert_direct_persisted_by_kind_roundtrip(Duration::from_secs(5), FieldKind::Duration);
     assert_direct_persisted_by_kind_roundtrip(Int128::from(-123_i128), FieldKind::Int128);
-    assert_direct_persisted_by_kind_roundtrip(Nat128::from(456_u128), FieldKind::Uint128);
+    assert_direct_persisted_by_kind_roundtrip(Nat128::from(456_u128), FieldKind::Nat128);
     assert_direct_persisted_by_kind_roundtrip(
         Int::from(candid::Int::from(-789_i32)),
         FieldKind::IntBig,
     );
     assert_direct_persisted_by_kind_roundtrip(
         Nat::from(candid::Nat::from(987_u64)),
-        FieldKind::UintBig,
+        FieldKind::NatBig,
     );
 }
 
@@ -1161,11 +1161,11 @@ fn direct_persisted_by_kind_leaf_codecs_cover_tier_two_family() {
 fn direct_persisted_by_kind_wrapper_codecs_recurse_without_runtime_value_bridge() {
     assert_direct_persisted_by_kind_roundtrip(
         vec![DirectByKindLeaf(3), DirectByKindLeaf(5)],
-        FieldKind::List(&FieldKind::Uint),
+        FieldKind::List(&FieldKind::Nat),
     );
     assert_direct_persisted_by_kind_roundtrip(
         BTreeSet::from([DirectByKindLeaf(7), DirectByKindLeaf(9)]),
-        FieldKind::Set(&FieldKind::Uint),
+        FieldKind::Set(&FieldKind::Nat),
     );
     assert_direct_persisted_by_kind_roundtrip(
         BTreeMap::from([
@@ -1173,17 +1173,17 @@ fn direct_persisted_by_kind_wrapper_codecs_recurse_without_runtime_value_bridge(
             (DirectByKindLeaf(17), DirectByKindLeaf(19)),
         ]),
         FieldKind::Map {
-            key: &FieldKind::Uint,
-            value: &FieldKind::Uint,
+            key: &FieldKind::Nat,
+            value: &FieldKind::Nat,
         },
     );
 }
 
 #[test]
 fn malformed_by_kind_set_payload_rejects_duplicate_logical_items() {
-    let kind = FieldKind::Set(&FieldKind::Uint);
+    let kind = FieldKind::Set(&FieldKind::Nat);
     let item = DirectByKindLeaf(7)
-        .encode_persisted_slot_payload_by_kind(FieldKind::Uint, "sample")
+        .encode_persisted_slot_payload_by_kind(FieldKind::Nat, "sample")
         .expect("by-kind set item should encode");
     let items = [item.as_slice(), item.as_slice()];
     let payload = encode_list_field_items(items.as_slice(), kind, "sample").expect("set frame");
@@ -1205,17 +1205,17 @@ fn malformed_by_kind_set_payload_rejects_duplicate_logical_items() {
 #[test]
 fn malformed_by_kind_map_payload_rejects_duplicate_logical_key() {
     let kind = FieldKind::Map {
-        key: &FieldKind::Uint,
-        value: &FieldKind::Uint,
+        key: &FieldKind::Nat,
+        value: &FieldKind::Nat,
     };
     let key = DirectByKindLeaf(7)
-        .encode_persisted_slot_payload_by_kind(FieldKind::Uint, "sample")
+        .encode_persisted_slot_payload_by_kind(FieldKind::Nat, "sample")
         .expect("by-kind map key should encode");
     let first_value = DirectByKindLeaf(11)
-        .encode_persisted_slot_payload_by_kind(FieldKind::Uint, "sample")
+        .encode_persisted_slot_payload_by_kind(FieldKind::Nat, "sample")
         .expect("first by-kind map value should encode");
     let second_value = DirectByKindLeaf(13)
-        .encode_persisted_slot_payload_by_kind(FieldKind::Uint, "sample")
+        .encode_persisted_slot_payload_by_kind(FieldKind::Nat, "sample")
         .expect("second by-kind map value should encode");
     let entries = [
         (key.as_slice(), first_value.as_slice()),
@@ -1428,7 +1428,7 @@ fn encode_runtime_value_into_slot_roundtrips_map_by_kind_slots() {
     let payload = encode_runtime_value_into_slot(
         &MAP_MODEL,
         0,
-        &Value::Map(vec![(Value::Text("alpha".to_string()), Value::Uint(7))]),
+        &Value::Map(vec![(Value::Text("alpha".to_string()), Value::Nat(7))]),
     )
     .expect("encode map slot");
     let decoded =
@@ -1436,7 +1436,7 @@ fn encode_runtime_value_into_slot_roundtrips_map_by_kind_slots() {
 
     assert_eq!(
         decoded,
-        Value::Map(vec![(Value::Text("alpha".to_string()), Value::Uint(7))]),
+        Value::Map(vec![(Value::Text("alpha".to_string()), Value::Nat(7))]),
     );
 }
 
@@ -1487,7 +1487,7 @@ fn encode_runtime_value_into_slot_roundtrips_enum_by_kind_slots() {
     let payload = encode_runtime_value_into_slot(
         &ENUM_MODEL,
         0,
-        &Value::Enum(ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Uint(7))),
+        &Value::Enum(ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Nat(7))),
     )
     .expect("encode enum slot");
     let decoded =
@@ -1495,7 +1495,7 @@ fn encode_runtime_value_into_slot_roundtrips_enum_by_kind_slots() {
 
     assert_eq!(
         decoded,
-        Value::Enum(ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Uint(7,))),
+        Value::Enum(ValueEnum::new("Loaded", Some("tests::State")).with_payload(Value::Nat(7,))),
     );
 }
 
@@ -1668,11 +1668,11 @@ fn option_by_kind_codec_preserves_valid_non_null_value() {
 
 #[test]
 fn option_storage_key_backed_by_kind_malformed_non_null_error_is_stable() {
-    let malformed = encode_structural_value_storage_bytes(&Value::Text("not a uint".to_string()))
+    let malformed = encode_structural_value_storage_bytes(&Value::Text("not a nat".to_string()))
         .expect("malformed storage-key fixture should still be structural bytes");
     let err = Option::<u64>::decode_persisted_option_slot_payload_by_kind(
         malformed.as_slice(),
-        FieldKind::Uint,
+        FieldKind::Nat,
         "sample",
     )
     .expect_err("malformed non-null storage-key option payload must fail");
@@ -1733,7 +1733,7 @@ fn encode_runtime_value_into_slot_rejects_unknown_enum_payload_variants() {
     let err = encode_runtime_value_into_slot(
         &ENUM_MODEL,
         0,
-        &Value::Enum(ValueEnum::new("Unknown", Some("tests::State")).with_payload(Value::Uint(7))),
+        &Value::Enum(ValueEnum::new("Unknown", Some("tests::State")).with_payload(Value::Nat(7))),
     )
     .expect_err("unknown enum payload should fail closed");
 
@@ -1878,7 +1878,7 @@ fn accepted_row_contract_reemits_canonical_rows_with_accepted_slot_count() {
 fn accepted_row_contract_reemits_defaulted_rows_with_accepted_default() {
     let id = Ulid::from_u128(149);
     let score_payload =
-        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Uint(99)));
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Nat(99)));
     let raw_row = old_two_slot_additive_raw_row_for_tests(id);
     let accepted_decode_contract =
         accepted_defaulted_required_score_row_decode_contract_for_tests(score_payload);
@@ -1915,7 +1915,7 @@ fn accepted_row_contract_reemits_defaulted_rows_with_accepted_default() {
         assert_eq!(slot_count, 3);
         assert_eq!(
             reader.get_value(2).expect("accepted defaulted slot"),
-            Some(Value::Uint(99)),
+            Some(Value::Nat(99)),
         );
     }
 }
@@ -1991,7 +1991,7 @@ fn accepted_row_contract_rejects_missing_trailing_required_slots() {
 fn accepted_row_contract_reads_missing_trailing_defaulted_slots_as_default() {
     let id = Ulid::from_u128(46);
     let score_payload =
-        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Uint(99)));
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Nat(99)));
     let contract = accepted_defaulted_required_score_row_contract_for_tests(score_payload);
     let raw_row = old_two_slot_additive_raw_row_for_tests(id);
 
@@ -2000,7 +2000,7 @@ fn accepted_row_contract_reads_missing_trailing_defaulted_slots_as_default() {
 
     assert_eq!(
         reader.get_value(2).expect("score slot should materialize"),
-        Some(Value::Uint(99)),
+        Some(Value::Nat(99)),
     );
 }
 
@@ -2419,7 +2419,7 @@ fn serialize_structural_patch_fields_with_accepted_contract_normalizes_decimal_s
 #[test]
 fn serialize_complete_structural_patch_with_accepted_contract_fills_missing_database_defaults() {
     let score_payload =
-        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Uint(99)));
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Nat(99)));
     let accepted_decode_contract =
         accepted_defaulted_required_score_row_decode_contract_for_tests(score_payload);
     let id = Ulid::from_u128(149);
@@ -2448,7 +2448,7 @@ fn serialize_complete_structural_patch_with_accepted_contract_fills_missing_data
             serialized.entries()[2].payload(),
         )
         .expect("default payload should decode"),
-        Value::Uint(99),
+        Value::Nat(99),
     );
 }
 

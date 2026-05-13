@@ -20,7 +20,7 @@ fn grouped_token_fixture(direction: Direction) -> GroupedContinuationToken {
         ContinuationSignature::from_bytes([0x42; 32]),
         vec![
             Value::Text("tenant-a".to_string()),
-            Value::Uint(7),
+            Value::Nat(7),
             Value::Bool(true),
         ],
         direction,

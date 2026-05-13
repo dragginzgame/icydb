@@ -121,7 +121,7 @@ pub(crate) fn encode_canonical_index_component_from_storage_key(
             .canonical_tag()
             .to_u8(),
         StorageKey::Timestamp(_) => Value::Timestamp(Timestamp::EPOCH).canonical_tag().to_u8(),
-        StorageKey::Uint(_) => Value::Uint(0).canonical_tag().to_u8(),
+        StorageKey::Nat(_) => Value::Nat(0).canonical_tag().to_u8(),
         StorageKey::Ulid(_) => Value::Ulid(Ulid::nil()).canonical_tag().to_u8(),
         StorageKey::Unit => Value::Unit.canonical_tag().to_u8(),
     });
@@ -147,7 +147,7 @@ pub(crate) fn encode_canonical_index_component_from_storage_key(
             value.encode_ordered(&mut out)?;
             Ok(out)
         }
-        StorageKey::Uint(value) => {
+        StorageKey::Nat(value) => {
             out.extend_from_slice(&value.to_be_bytes());
             Ok(out)
         }
@@ -207,12 +207,12 @@ fn encode_component_payload(
             Ok(())
         }
         Value::Timestamp(v) => v.encode_ordered(out),
-        Value::Uint(v) => {
+        Value::Nat(v) => {
             out.extend_from_slice(&v.to_be_bytes());
             Ok(())
         }
-        Value::Uint128(v) => v.encode_ordered(out),
-        Value::UintBig(v) => normalize::push_unsigned_bigint_payload(out, v),
+        Value::Nat128(v) => v.encode_ordered(out),
+        Value::NatBig(v) => normalize::push_unsigned_bigint_payload(out, v),
         Value::Ulid(v) => {
             out.extend_from_slice(&v.to_bytes());
             Ok(())

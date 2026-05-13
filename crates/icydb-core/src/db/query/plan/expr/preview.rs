@@ -35,7 +35,7 @@ enum NullableTextArg<'a> {
 /// planner preview evaluation.
 ///
 /// This keeps `NULL` distinct from unsupported non-integer values while
-/// preserving the existing `Uint` saturation rule for helper functions.
+/// preserving the existing `Nat` saturation rule for helper functions.
 ///
 
 enum NullableIntegerArg {
@@ -307,8 +307,8 @@ fn eval_octet_length_function_call(args: &[Value]) -> Option<Value> {
 
     match input {
         Value::Null => Some(Value::Null),
-        Value::Text(text) => Some(Value::Uint(u64::try_from(text.len()).unwrap_or(u64::MAX))),
-        Value::Blob(bytes) => Some(Value::Uint(u64::try_from(bytes.len()).unwrap_or(u64::MAX))),
+        Value::Text(text) => Some(Value::Nat(u64::try_from(text.len()).unwrap_or(u64::MAX))),
+        Value::Blob(bytes) => Some(Value::Nat(u64::try_from(bytes.len()).unwrap_or(u64::MAX))),
         _ => None,
     }
 }
@@ -482,12 +482,12 @@ const fn text_value(value: &Value) -> Option<NullableTextArg<'_>> {
 }
 
 // Decode one literal integer argument, preserving NULL as its own
-// boundary while still accepting `Uint`.
+// boundary while still accepting `Nat`.
 fn integer_value(value: &Value) -> Option<NullableIntegerArg> {
     match value {
         Value::Null => Some(NullableIntegerArg::Null),
         Value::Int(inner) => Some(NullableIntegerArg::Integer(*inner)),
-        Value::Uint(inner) => Some(NullableIntegerArg::Integer(
+        Value::Nat(inner) => Some(NullableIntegerArg::Integer(
             i64::try_from(*inner).unwrap_or(i64::MAX),
         )),
         _ => None,

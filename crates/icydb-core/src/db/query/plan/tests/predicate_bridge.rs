@@ -72,13 +72,13 @@ fn predicate_bridge_canonicalizes_equivalent_membership_and_logical_shapes() {
     let unsorted_in = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         crate::db::predicate::CompareOp::In,
-        Value::List(vec![Value::Uint(3), Value::Uint(1), Value::Uint(3)]),
+        Value::List(vec![Value::Nat(3), Value::Nat(1), Value::Nat(3)]),
         CoercionId::Strict,
     ));
     let sorted_in = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         crate::db::predicate::CompareOp::In,
-        Value::List(vec![Value::Uint(1), Value::Uint(3)]),
+        Value::List(vec![Value::Nat(1), Value::Nat(3)]),
         CoercionId::Strict,
     ));
     let swapped_eq_fields = Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
@@ -1087,7 +1087,7 @@ fn canonicalize_grouped_having_bool_expr_collapses_boolean_truth_wrapper_inside_
                 left: Box::new(Expr::Binary {
                     op: BinaryOp::Gt,
                     left: Box::new(Expr::Aggregate(crate::db::count())),
-                    right: Box::new(Expr::Literal(Value::Uint(1))),
+                    right: Box::new(Expr::Literal(Value::Nat(1))),
                 }),
                 right: Box::new(Expr::Literal(Value::Bool(true))),
             },
@@ -1100,7 +1100,7 @@ fn canonicalize_grouped_having_bool_expr_collapses_boolean_truth_wrapper_inside_
             Expr::Binary {
                 op: BinaryOp::Gt,
                 left: Box::new(Expr::Aggregate(crate::db::count())),
-                right: Box::new(Expr::Literal(Value::Uint(1))),
+                right: Box::new(Expr::Literal(Value::Nat(1))),
             },
             Expr::Literal(Value::Bool(true)),
         )],
@@ -1121,7 +1121,7 @@ fn canonicalize_grouped_having_bool_expr_collapses_false_truth_wrapper_to_not_co
         left: Box::new(Expr::Binary {
             op: BinaryOp::Gt,
             left: Box::new(Expr::Aggregate(crate::db::count())),
-            right: Box::new(Expr::Literal(Value::Uint(1))),
+            right: Box::new(Expr::Literal(Value::Nat(1))),
         }),
         right: Box::new(Expr::Literal(Value::Bool(false))),
     };
@@ -1130,7 +1130,7 @@ fn canonicalize_grouped_having_bool_expr_collapses_false_truth_wrapper_to_not_co
         expr: Box::new(Expr::Binary {
             op: BinaryOp::Gt,
             left: Box::new(Expr::Aggregate(crate::db::count())),
-            right: Box::new(Expr::Literal(Value::Uint(1))),
+            right: Box::new(Expr::Literal(Value::Nat(1))),
         }),
     };
 
@@ -1177,7 +1177,7 @@ fn canonicalize_grouped_having_bool_expr_is_idempotent_for_explicit_else_case() 
                 left: Box::new(Expr::Binary {
                     op: BinaryOp::Gt,
                     left: Box::new(Expr::Aggregate(crate::db::count())),
-                    right: Box::new(Expr::Literal(Value::Uint(1))),
+                    right: Box::new(Expr::Literal(Value::Nat(1))),
                 }),
                 right: Box::new(Expr::Literal(Value::Bool(true))),
             },
@@ -1202,7 +1202,7 @@ fn canonicalize_grouped_having_bool_expr_is_idempotent_for_omitted_else_case() {
             Expr::Binary {
                 op: BinaryOp::Gt,
                 left: Box::new(Expr::Aggregate(crate::db::count())),
-                right: Box::new(Expr::Literal(Value::Uint(1))),
+                right: Box::new(Expr::Literal(Value::Nat(1))),
             },
             Expr::Literal(Value::Bool(true)),
         )],
@@ -1315,13 +1315,13 @@ fn representative_predicates() -> Vec<Predicate> {
         Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             crate::db::predicate::CompareOp::In,
-            Value::List(vec![Value::Uint(3), Value::Uint(1), Value::Uint(3)]),
+            Value::List(vec![Value::Nat(3), Value::Nat(1), Value::Nat(3)]),
             CoercionId::Strict,
         )),
         Predicate::Compare(ComparePredicate::with_coercion(
             "rank",
             crate::db::predicate::CompareOp::NotIn,
-            Value::List(vec![Value::Uint(7), Value::Uint(2)]),
+            Value::List(vec![Value::Nat(7), Value::Nat(2)]),
             CoercionId::Strict,
         )),
         Predicate::Compare(ComparePredicate::with_coercion(
@@ -1455,7 +1455,7 @@ fn predicate_contains_no_membership_compare(predicate: &Predicate) -> bool {
 // known `LENGTH('mage')` result so predicate constructs cannot hide behind a
 // permissive shape-only assertion.
 fn projection_value_contains_no_predicate_constructs(value: &Value) -> bool {
-    matches!(value, Value::Uint(4))
+    matches!(value, Value::Nat(4))
 }
 
 // Build a compact searched `CASE` expression for canonicalization tests that
@@ -1640,11 +1640,11 @@ fn predicate_bridge_preserves_strict_ordered_text_compares() {
 }
 
 #[test]
-fn predicate_bridge_preserves_strict_uint_ordered_compares() {
+fn predicate_bridge_preserves_strict_nat_ordered_compares() {
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "rank".to_string(),
         crate::db::predicate::CompareOp::Gt,
-        Value::Uint(10),
+        Value::Nat(10),
         CoercionId::Strict,
     ));
 

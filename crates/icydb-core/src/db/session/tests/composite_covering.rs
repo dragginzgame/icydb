@@ -109,7 +109,7 @@ fn execute_sql_projection_index_coverable_multi_component_matches_entity_rows() 
             vec![
                 Value::Ulid(row.entity_ref().id),
                 Value::Text(row.entity_ref().code.clone()),
-                Value::Uint(row.entity_ref().serial),
+                Value::Nat(row.entity_ref().serial),
             ]
         })
         .collect::<Vec<_>>();
@@ -151,7 +151,7 @@ fn execute_sql_projection_hybrid_covering_projection_mixes_covering_and_row_fiel
             vec![
                 Value::Ulid(row.entity_ref().id),
                 Value::Text(row.entity_ref().code.clone()),
-                Value::Uint(row.entity_ref().serial),
+                Value::Nat(row.entity_ref().serial),
                 Value::Text(row.entity_ref().note.clone()),
             ]
         })
@@ -209,7 +209,7 @@ fn execute_sql_projection_hybrid_covering_projection_skips_offset_before_index_p
             vec![
                 Value::Ulid(row.entity_ref().id),
                 Value::Text(row.entity_ref().code.clone()),
-                Value::Uint(row.entity_ref().serial),
+                Value::Nat(row.entity_ref().serial),
                 Value::Text(row.entity_ref().note.clone()),
             ]
         })

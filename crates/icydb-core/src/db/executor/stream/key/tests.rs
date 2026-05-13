@@ -13,7 +13,7 @@ use crate::{
 };
 
 fn data_key(value: u64) -> DataKey {
-    let raw = DataKey::raw_from_parts(EntityTag::new(1), StorageKey::Uint(value))
+    let raw = DataKey::raw_from_parts(EntityTag::new(1), StorageKey::Nat(value))
         .expect("test key encoding should succeed");
 
     DataKey::try_from_raw(&raw).expect("test key decode should succeed")

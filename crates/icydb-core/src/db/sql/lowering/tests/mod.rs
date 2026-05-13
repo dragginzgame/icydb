@@ -100,7 +100,7 @@ entity_tag = crate::testing::SQL_LOWER_ENTITY_TAG,
     fields = [
         ("id", FieldKind::Ulid),
         ("name", FieldKind::Text { max_len: None }),
-        ("age", FieldKind::Uint),
+        ("age", FieldKind::Nat),
     ],
     indexes = [],
     store = SqlLowerDataStore,
@@ -116,7 +116,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("name", FieldKind::Text { max_len: None }),
-        ("age", FieldKind::Uint),
+        ("age", FieldKind::Nat),
     ],
     indexes = [&SQL_LOWER_EXPRESSION_INDEX_MODELS[0]],
     store = SqlLowerDataStore,
@@ -175,8 +175,8 @@ fn lowered_int(value: i64) -> Expr {
 
 // Build one expected planner unsigned integer literal for SQL order-lowering
 // parser tests.
-fn lowered_uint(value: u64) -> Expr {
-    Expr::Literal(Value::Uint(value))
+fn lowered_nat(value: u64) -> Expr {
+    Expr::Literal(Value::Nat(value))
 }
 
 // Build one expected planner scalar function expression for SQL order-lowering
@@ -230,7 +230,7 @@ fn sql_order_expr_text_lowers_scalar_order_terms_to_semantic_expr() {
                     lowered_binary(BinaryOp::Add, lowered_field("age"), lowered_field("rank")),
                     lowered_binary(BinaryOp::Add, lowered_field("age"), lowered_int(1)),
                 ),
-                lowered_uint(2),
+                lowered_nat(2),
             ],
         ),
         "SQL ORDER BY token parsing should stay in parser while lowering preserves the semantic planner expression",
@@ -251,7 +251,7 @@ fn sql_order_expr_text_lowers_grouped_aggregate_order_terms_to_semantic_expr() {
                     AggregateKind::Avg,
                     lowered_binary(BinaryOp::Add, lowered_field("rank"), lowered_field("score"),),
                 ),
-                lowered_uint(2),
+                lowered_nat(2),
             ],
         ),
         "grouped SQL ORDER BY parsing should preserve aggregate input expression structure",
@@ -365,7 +365,7 @@ fn accepted_sql_lower_schema_with_name_kind(kind: PersistedFieldKind) -> SchemaI
                 SchemaFieldId::new(3),
                 "age".to_string(),
                 SchemaFieldSlot::new(2),
-                PersistedFieldKind::Uint,
+                PersistedFieldKind::Nat,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -436,7 +436,7 @@ fn accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent_queryable(
                 SchemaFieldId::new(3),
                 "age".to_string(),
                 SchemaFieldSlot::new(2),
-                PersistedFieldKind::Uint,
+                PersistedFieldKind::Nat,
                 Vec::new(),
                 false,
                 SchemaFieldDefault::None,
@@ -676,7 +676,7 @@ fn compile_sql_command_select_preserves_scalar_where_filter_expr_ownership() {
                 left,
                 right,
             }) if left.as_ref() == &Expr::Field(FieldId::new("age"))
-                && right.as_ref() == &Expr::Literal(Value::Uint(21))
+                && right.as_ref() == &Expr::Literal(Value::Nat(21))
         ),
         "reduced SQL lowering should preserve one planner-owned scalar WHERE expression and keep direct compare literals canonicalized to the resolved field kind",
     );
@@ -731,12 +731,12 @@ fn compile_sql_command_equivalent_boolean_predicates_share_structural_cache_key(
 }
 
 #[test]
-fn compile_sql_command_numeric_equality_on_uint_field_keeps_strict_plan_parity() {
+fn compile_sql_command_numeric_equality_on_nat_field_keeps_strict_plan_parity() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "SELECT * FROM SqlLowerEntity WHERE age = 21 ORDER BY age ASC LIMIT 1",
         MissingRowPolicy::Ignore,
     )
-    .expect("strict numeric equality on uint field should lower");
+    .expect("strict numeric equality on nat field should lower");
 
     let SqlCommand::Query(query) = command else {
         panic!("expected lowered query command");
@@ -754,10 +754,10 @@ fn compile_sql_command_numeric_equality_on_uint_field_keeps_strict_plan_parity()
         strip_semantic_filter_expr_for_parity(
             fluent_query
                 .plan()
-                .expect("fluent uint-equality plan should build")
+                .expect("fluent nat-equality plan should build")
                 .into_inner(),
         ),
-        "SQL uint equality should canonicalize its literal onto the strict runtime field variant",
+        "SQL nat equality should canonicalize its literal onto the strict runtime field variant",
     );
 }
 
@@ -854,12 +854,12 @@ fn compile_sql_command_typed_fluent_filter_matrix_matches_sql_canonical_predicat
 }
 
 #[test]
-fn compile_sql_explain_numeric_equality_on_uint_field_keeps_strict_plan_parity() {
+fn compile_sql_explain_numeric_equality_on_nat_field_keeps_strict_plan_parity() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "EXPLAIN EXECUTION SELECT * FROM SqlLowerEntity WHERE age = 21 ORDER BY age ASC LIMIT 1",
         MissingRowPolicy::Ignore,
     )
-    .expect("EXPLAIN EXECUTION with strict numeric equality on uint field should lower");
+    .expect("EXPLAIN EXECUTION with strict numeric equality on nat field should lower");
 
     let SqlCommand::Explain {
         mode,
@@ -886,10 +886,10 @@ fn compile_sql_explain_numeric_equality_on_uint_field_keeps_strict_plan_parity()
         strip_semantic_filter_expr_for_parity(
             fluent_query
                 .plan()
-                .expect("fluent uint-equality plan should build")
+                .expect("fluent nat-equality plan should build")
                 .into_inner(),
         ),
-        "EXPLAIN EXECUTION should reuse the same canonical uint literal lowering as plain SQL execution",
+        "EXPLAIN EXECUTION should reuse the same canonical nat literal lowering as plain SQL execution",
     );
 }
 
@@ -1906,7 +1906,7 @@ fn compile_sql_command_select_scalar_round_projection_lowers_to_function_expr() 
         (
             "SELECT ROUND(age, 2) FROM SqlLowerEntity",
             Expr::Field(crate::db::query::plan::expr::FieldId::new("age")),
-            Value::Uint(2),
+            Value::Nat(2),
             "round over plain field",
         ),
         (
@@ -1918,7 +1918,7 @@ fn compile_sql_command_select_scalar_round_projection_lowers_to_function_expr() 
                 ))),
                 right: Box::new(Expr::Literal(Value::Int(3))),
             },
-            Value::Uint(2),
+            Value::Nat(2),
             "round over bounded arithmetic expression",
         ),
         (
@@ -1932,7 +1932,7 @@ fn compile_sql_command_select_scalar_round_projection_lowers_to_function_expr() 
                     "age",
                 ))),
             },
-            Value::Uint(2),
+            Value::Nat(2),
             "round over bounded field-to-field arithmetic expression",
         ),
     ] {

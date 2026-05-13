@@ -33,8 +33,8 @@ fn hash_digest_contract_vectors_are_frozen_for_upgrade_stability() {
             0xfe53_d0af_a864_e41f_7540_c693_50b9_b8d7,
         ),
         (
-            "uint_42",
-            Value::Uint(42),
+            "nat_42",
+            Value::Nat(42),
             0x8c99_03a0_7f2c_731c_2e7a_9cd6_52cb_010f,
         ),
         (
@@ -55,8 +55,8 @@ fn hash_digest_contract_vectors_are_frozen_for_upgrade_stability() {
         (
             "map_a1_z9",
             Value::Map(vec![
-                (Value::Text("a".to_string()), Value::Uint(1)),
-                (Value::Text("z".to_string()), Value::Uint(9)),
+                (Value::Text("a".to_string()), Value::Nat(1)),
+                (Value::Text("z".to_string()), Value::Nat(9)),
             ]),
             0xea0e_28c9_f878_6d85_c240_88c8_f0d7_9d81,
         ),
@@ -64,8 +64,8 @@ fn hash_digest_contract_vectors_are_frozen_for_upgrade_stability() {
             "nested_list_map",
             Value::List(vec![
                 Value::Map(vec![
-                    (Value::Text("z".to_string()), Value::Uint(9)),
-                    (Value::Text("a".to_string()), Value::Uint(1)),
+                    (Value::Text("z".to_string()), Value::Nat(9)),
+                    (Value::Text("a".to_string()), Value::Nat(1)),
                 ]),
                 Value::Decimal(Decimal::new(25, 0)),
             ]),
@@ -106,10 +106,10 @@ fn hash_is_deterministic_for_int() {
 #[test]
 fn different_variants_produce_different_hashes() {
     let a = hash_value(&Value::Int(5)).expect("hash value");
-    let b = hash_value(&Value::Uint(5)).expect("hash value");
+    let b = hash_value(&Value::Nat(5)).expect("hash value");
     assert_ne!(
         a, b,
-        "Int(5) and Uint(5) must hash differently (different tag)"
+        "Int(5) and Nat(5) must hash differently (different tag)"
     );
 }
 
@@ -127,8 +127,8 @@ fn enum_hash_tracks_path_presence() {
 #[test]
 fn enum_hash_includes_payload() {
     let base = ValueEnum::new("A", Some("MyEnum"));
-    let with_one = Value::Enum(base.clone().with_payload(Value::Uint(1)));
-    let with_two = Value::Enum(base.with_payload(Value::Uint(2)));
+    let with_one = Value::Enum(base.clone().with_payload(Value::Nat(1)));
+    let with_two = Value::Enum(base.with_payload(Value::Nat(2)));
 
     assert_ne!(
         hash_value(&with_one).expect("hash value"),
@@ -216,12 +216,12 @@ fn list_blob_boundaries_are_length_framed() {
 #[test]
 fn map_hash_is_order_independent_for_non_canonical_construction_order() {
     let left = Value::Map(vec![
-        (Value::Text("z".to_string()), Value::Uint(9)),
-        (Value::Text("a".to_string()), Value::Uint(1)),
+        (Value::Text("z".to_string()), Value::Nat(9)),
+        (Value::Text("a".to_string()), Value::Nat(1)),
     ]);
     let right = Value::Map(vec![
-        (Value::Text("a".to_string()), Value::Uint(1)),
-        (Value::Text("z".to_string()), Value::Uint(9)),
+        (Value::Text("a".to_string()), Value::Nat(1)),
+        (Value::Text("z".to_string()), Value::Nat(9)),
     ]);
 
     assert_eq!(
@@ -248,9 +248,9 @@ fn single_list_identity_canonical_hash_matches_generic_hash_contract() {
         Value::Subaccount(crate::types::Subaccount::new([1u8; 32])),
         Value::Text("example".to_string()),
         Value::Timestamp(crate::types::Timestamp::from_secs(1)),
-        Value::Uint(7),
-        Value::Uint128(crate::types::Nat128::from(9u128)),
-        Value::UintBig(crate::types::Nat::from(11u64)),
+        Value::Nat(7),
+        Value::Nat128(crate::types::Nat128::from(9u128)),
+        Value::NatBig(crate::types::Nat::from(11u64)),
         Value::Ulid(crate::types::Ulid::from_u128(42)),
     ];
 

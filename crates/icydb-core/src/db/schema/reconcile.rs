@@ -6,11 +6,16 @@
 use crate::{
     db::{
         Db, EntityRuntimeHooks,
+        data::{DataKey, RawRow, StorageKey, StructuralRowContract, StructuralSlotReader},
+        registry::StoreHandle,
         schema::{
             AcceptedSchemaSnapshot, MutationPublicationBlocker, MutationPublicationPreflight,
-            PersistedSchemaSnapshot, SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
-            SchemaStore, SchemaTransitionDecision, SchemaTransitionPlanKind,
-            compiled_schema_proposal_for_model, decide_schema_transition,
+            PersistedSchemaSnapshot, SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRunner,
+            SchemaFieldPathIndexRunnerFailure, SchemaMutationAcceptedSnapshotPublicationSink,
+            SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
+            SchemaMutationRunnerInput, SchemaMutationRuntimeEpoch,
+            SchemaMutationRuntimeInvalidationSink, SchemaStore, SchemaTransitionDecision,
+            SchemaTransitionPlanKind, compiled_schema_proposal_for_model, decide_schema_transition,
             runtime::AcceptedRowLayoutRuntimeDescriptor,
             transition::{SchemaTransitionPlan, SchemaTransitionRejectionKind},
         },
@@ -51,15 +56,13 @@ fn reconcile_runtime_schema<C: CanisterKind>(
 ) -> Result<(), InternalError> {
     let store = db.store_handle(hooks.store_path)?;
 
-    store.with_schema_mut(|schema_store| {
-        ensure_accepted_schema_snapshot(
-            schema_store,
-            hooks.entity_tag,
-            hooks.entity_path,
-            hooks.model,
-        )
-        .map(|_| ())
-    })
+    ensure_accepted_schema_snapshot_for_runtime_store(
+        store,
+        hooks.entity_tag,
+        hooks.entity_path,
+        hooks.model,
+    )
+    .map(|_| ())
 }
 
 /// Ensure one store contains an accepted persisted schema snapshot for a model.
@@ -100,7 +103,8 @@ pub(in crate::db) fn ensure_accepted_schema_snapshot(
             return Err(error);
         }
         let accepted_snapshot = match plan.kind() {
-            SchemaTransitionPlanKind::ExactMatch => actual,
+            SchemaTransitionPlanKind::AddNonUniqueFieldPathIndex
+            | SchemaTransitionPlanKind::ExactMatch => actual,
             SchemaTransitionPlanKind::AppendOnlyNullableFields => {
                 if let Err(error) = schema_store.insert_persisted_snapshot(entity_tag, &expected) {
                     record_schema_store_footprint(schema_store, entity_tag, entity_path);
@@ -127,6 +131,93 @@ pub(in crate::db) fn ensure_accepted_schema_snapshot(
 
     record_schema_reconcile(entity_path, SchemaReconcileOutcome::FirstCreate);
     record_schema_store_footprint(schema_store, entity_tag, entity_path);
+    let accepted = AcceptedSchemaSnapshot::try_new(expected)?;
+    validate_accepted_runtime_descriptor(&accepted)?;
+    record_accepted_schema_footprint(entity_path, &accepted);
+
+    Ok(accepted)
+}
+
+// Startup reconciliation owns the wider store handle, so it can execute the
+// single supported physical schema mutation before publishing the accepted
+// snapshot. Metadata-only callers keep using `ensure_accepted_schema_snapshot`.
+fn ensure_accepted_schema_snapshot_for_runtime_store(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    model: &EntityModel,
+) -> Result<AcceptedSchemaSnapshot, InternalError> {
+    let proposal = compiled_schema_proposal_for_model(model);
+    let expected = proposal.initial_persisted_schema_snapshot();
+
+    let latest = match store
+        .with_schema_mut(|schema_store| schema_store.latest_persisted_snapshot(entity_tag))
+    {
+        Ok(latest) => latest,
+        Err(error) => {
+            store.with_schema(|schema_store| {
+                record_schema_store_footprint(schema_store, entity_tag, entity_path);
+            });
+            record_schema_reconcile(entity_path, SchemaReconcileOutcome::LatestSnapshotCorrupt);
+            return Err(error);
+        }
+    };
+
+    if let Some(actual) = latest {
+        let plan = match validate_existing_schema_snapshot(entity_path, &actual, &expected) {
+            Ok(plan) => plan,
+            Err(error) => {
+                store.with_schema(|schema_store| {
+                    record_schema_store_footprint(schema_store, entity_tag, entity_path);
+                });
+                return Err(error);
+            }
+        };
+
+        let accepted_snapshot = match plan.kind() {
+            SchemaTransitionPlanKind::ExactMatch => {
+                validate_publishable_transition_plan(entity_path, &plan)?;
+                actual
+            }
+            SchemaTransitionPlanKind::AppendOnlyNullableFields => {
+                validate_publishable_transition_plan(entity_path, &plan)?;
+                store.with_schema_mut(|schema_store| {
+                    schema_store.insert_persisted_snapshot(entity_tag, &expected)
+                })?;
+                expected
+            }
+            SchemaTransitionPlanKind::AddNonUniqueFieldPathIndex => {
+                execute_supported_field_path_index_addition(
+                    store,
+                    entity_tag,
+                    entity_path,
+                    &actual,
+                    &expected,
+                    &plan,
+                )?;
+                expected
+            }
+        };
+
+        record_schema_reconcile(entity_path, SchemaReconcileOutcome::ExactMatch);
+        store.with_schema(|schema_store| {
+            record_schema_store_footprint(schema_store, entity_tag, entity_path);
+        });
+        let accepted = AcceptedSchemaSnapshot::try_new(accepted_snapshot)?;
+        validate_accepted_runtime_descriptor(&accepted)?;
+        record_accepted_schema_footprint(entity_path, &accepted);
+
+        return Ok(accepted);
+    }
+
+    store.with_schema_mut(|schema_store| {
+        schema_store.insert_persisted_snapshot(entity_tag, &expected)
+    })?;
+
+    record_schema_reconcile(entity_path, SchemaReconcileOutcome::FirstCreate);
+    store.with_schema(|schema_store| {
+        record_schema_store_footprint(schema_store, entity_tag, entity_path);
+    });
     let accepted = AcceptedSchemaSnapshot::try_new(expected)?;
     validate_accepted_runtime_descriptor(&accepted)?;
     record_accepted_schema_footprint(entity_path, &accepted);
@@ -222,6 +313,172 @@ fn missing_physical_runner_error(
     }
 }
 
+fn execute_supported_field_path_index_addition(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    accepted_before: &PersistedSchemaSnapshot,
+    accepted_after: &PersistedSchemaSnapshot,
+    plan: &SchemaTransitionPlan,
+) -> Result<(), InternalError> {
+    let supported = plan
+        .supported_developer_physical_path()
+        .map_err(|rejection| {
+            InternalError::store_unsupported(format!(
+                "schema mutation physical startup execution rejected for entity '{entity_path}': supported_path_rejection={rejection:?}",
+            ))
+        })?;
+    let input = SchemaMutationRunnerInput::new(
+        accepted_before,
+        accepted_after,
+        plan.execution_plan(),
+    )
+    .map_err(|error| {
+        InternalError::store_unsupported(format!(
+            "schema mutation runner input rejected for entity '{entity_path}': error={error:?}",
+        ))
+    })?;
+    let accepted = AcceptedSchemaSnapshot::try_new(accepted_before.clone())?;
+    let row_contract =
+        StructuralRowContract::from_accepted_schema_snapshot(entity_path, &accepted)?;
+    let raw_rows = field_path_rebuild_raw_rows_for_entity(store, entity_tag, entity_path)?;
+    let rows =
+        decode_field_path_rebuild_rows(raw_rows.as_slice(), entity_tag, entity_path, row_contract)?;
+
+    let mut invalidation_sink = StartupSchemaMutationInvalidationSink;
+    let mut publication_sink = StartupSchemaMutationPublicationSink;
+    let report = store.with_index_mut(|index_store| {
+        if !index_store.is_empty() {
+            return Err(InternalError::store_unsupported(format!(
+                "schema mutation startup index rebuild requires an empty physical index store for entity '{entity_path}' before scoped multi-index publication is enabled",
+            )));
+        }
+
+        let rebuild_rows = rows
+            .iter()
+            .map(|row| SchemaFieldPathIndexRebuildRow::new(row.storage_key, &row.slots));
+
+        SchemaFieldPathIndexRunner::run(
+            &input,
+            entity_tag,
+            supported.target().clone(),
+            rebuild_rows,
+            index_store,
+            &mut invalidation_sink,
+            &mut publication_sink,
+        )
+        .map_err(|failure| field_path_runner_failure_error(entity_path, failure))
+    })?;
+
+    if !report.runner_report().physical_work_allows_publication() {
+        return Err(InternalError::store_unsupported(format!(
+            "schema mutation field-path index runner did not produce publishable physical work for entity '{entity_path}': store='{}'",
+            report.store(),
+        )));
+    }
+
+    store.with_schema_mut(|schema_store| {
+        schema_store.insert_persisted_snapshot(entity_tag, accepted_after)
+    })?;
+
+    Ok(())
+}
+
+struct StartupFieldPathRebuildRow {
+    storage_key: StorageKey,
+    row: RawRow,
+}
+
+struct StartupDecodedFieldPathRebuildRow<'a> {
+    storage_key: StorageKey,
+    slots: StructuralSlotReader<'a>,
+}
+
+fn field_path_rebuild_raw_rows_for_entity(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+) -> Result<Vec<StartupFieldPathRebuildRow>, InternalError> {
+    store.with_data(|data_store| {
+        let mut rows = Vec::new();
+        for entry in data_store.entries() {
+            let data_key = DataKey::try_from_raw(entry.key()).map_err(|error| {
+                InternalError::store_corruption(format!(
+                    "schema mutation field-path rebuild data key decode failed for entity '{entity_path}': {error}",
+                ))
+            })?;
+            if data_key.entity_tag() != entity_tag {
+                continue;
+            }
+            rows.push(StartupFieldPathRebuildRow {
+                storage_key: data_key.storage_key(),
+                row: entry.value().clone(),
+            });
+        }
+
+        Ok::<_, InternalError>(rows)
+    })
+}
+
+fn decode_field_path_rebuild_rows<'a>(
+    rows: &'a [StartupFieldPathRebuildRow],
+    entity_tag: EntityTag,
+    _entity_path: &'static str,
+    row_contract: StructuralRowContract,
+) -> Result<Vec<StartupDecodedFieldPathRebuildRow<'a>>, InternalError> {
+    rows.iter()
+        .map(|row| {
+            let slots = StructuralSlotReader::from_raw_row_with_validated_contract(
+                &row.row,
+                row_contract.clone(),
+            )?;
+            let data_key = DataKey::new(entity_tag, row.storage_key);
+            slots.validate_storage_key(&data_key)?;
+
+            Ok(StartupDecodedFieldPathRebuildRow {
+                storage_key: row.storage_key,
+                slots,
+            })
+        })
+        .collect()
+}
+
+fn field_path_runner_failure_error(
+    entity_path: &'static str,
+    failure: SchemaFieldPathIndexRunnerFailure,
+) -> InternalError {
+    InternalError::store_unsupported(format!(
+        "schema mutation field-path index startup runner failed for entity '{entity_path}': error={:?} rollback={}",
+        failure.error(),
+        failure.rollback_report().is_some(),
+    ))
+}
+
+struct StartupSchemaMutationInvalidationSink;
+
+impl SchemaMutationRuntimeInvalidationSink for StartupSchemaMutationInvalidationSink {
+    fn invalidate_runtime_schema(
+        &mut self,
+        _store: &str,
+        _before: &SchemaMutationRuntimeEpoch,
+        _after: &SchemaMutationRuntimeEpoch,
+    ) {
+    }
+}
+
+struct StartupSchemaMutationPublicationSink;
+
+impl SchemaMutationAcceptedSnapshotPublicationSink for StartupSchemaMutationPublicationSink {
+    fn publish_accepted_schema(
+        &mut self,
+        _store: &str,
+        _accepted_after: &PersistedSchemaSnapshot,
+        _before: &SchemaMutationRuntimeEpoch,
+        _after: &SchemaMutationRuntimeEpoch,
+    ) {
+    }
+}
+
 // Keep schema reconciliation instrumentation at the reconciliation boundary so
 // store/codec helpers remain persistence-focused and do not depend on metrics.
 fn record_schema_reconcile(entity_path: &'static str, outcome: SchemaReconcileOutcome) {
@@ -293,7 +550,8 @@ const fn schema_transition_plan_outcome(kind: SchemaTransitionPlanKind) -> Schem
         SchemaTransitionPlanKind::AppendOnlyNullableFields => {
             SchemaTransitionOutcome::AppendOnlyNullableFields
         }
-        SchemaTransitionPlanKind::ExactMatch => SchemaTransitionOutcome::ExactMatch,
+        SchemaTransitionPlanKind::AddNonUniqueFieldPathIndex
+        | SchemaTransitionPlanKind::ExactMatch => SchemaTransitionOutcome::ExactMatch,
     }
 }
 
@@ -356,8 +614,8 @@ mod tests {
     use crate::{
         db::{
             Db, EntityRuntimeHooks,
-            data::DataStore,
-            index::IndexStore,
+            data::{CanonicalRow, DataKey, DataStore, StorageKey},
+            index::{IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore, RawIndexEntry},
             registry::StoreRegistry,
             schema::{
                 FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedNestedLeafSnapshot,
@@ -412,8 +670,37 @@ mod tests {
         canister = SchemaReconcileTestCanister,
     }
 
-    static NESTED_PROFILE_FIELDS: [FieldModel; 1] =
-        [FieldModel::generated("rank", FieldKind::Uint)];
+    static INDEXED_SCHEMA_NAME_INDEX: IndexModel = IndexModel::generated_with_ordinal(
+        1,
+        "by_name",
+        "schema::reconcile::tests::IndexedSchemaEntity::by_name",
+        &["name"],
+        false,
+    );
+
+    #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+    struct IndexedSchemaEntity {
+        id: Ulid,
+        name: String,
+    }
+
+    crate::test_entity_schema! {
+        ident = IndexedSchemaEntity,
+        id = Ulid,
+        id_field = id,
+        entity_name = "IndexedSchemaEntity",
+        entity_tag = EntityTag::new(0x696e_6478_7363_6865),
+        pk_index = 0,
+        fields = [
+            ("id", FieldKind::Ulid),
+            ("name", FieldKind::Text { max_len: None }),
+        ],
+        indexes = [&INDEXED_SCHEMA_NAME_INDEX],
+        store = SchemaReconcileTestStore,
+        canister = SchemaReconcileTestCanister,
+    }
+
+    static NESTED_PROFILE_FIELDS: [FieldModel; 1] = [FieldModel::generated("rank", FieldKind::Nat)];
     static NESTED_SCHEMA_FIELDS: [FieldModel; 2] = [
         FieldModel::generated("id", FieldKind::Ulid),
         FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
@@ -485,6 +772,12 @@ mod tests {
 
     fn reset_schema_store() {
         RECONCILE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    }
+
+    fn reset_reconcile_stores() {
+        RECONCILE_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+        RECONCILE_DATA_STORE.with_borrow_mut(DataStore::clear);
+        RECONCILE_INDEX_STORE.with_borrow_mut(IndexStore::clear);
     }
 
     #[test]
@@ -618,6 +911,109 @@ mod tests {
     }
 
     #[test]
+    fn reconcile_runtime_schemas_executes_supported_field_path_index_addition() {
+        reset_reconcile_stores();
+        metrics_reset_all();
+
+        let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
+        let expected = proposal.initial_persisted_schema_snapshot();
+        let stored_without_index = PersistedSchemaSnapshot::new_with_indexes(
+            expected.version(),
+            expected.entity_path().to_string(),
+            expected.entity_name().to_string(),
+            expected.primary_key_field_id(),
+            expected.row_layout().clone(),
+            expected.fields().to_vec(),
+            Vec::new(),
+        );
+        RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
+            store
+                .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored_without_index)
+                .expect("stored index-free schema snapshot should encode");
+        });
+
+        let id = Ulid::from_u128(15_401);
+        let data_key = DataKey::try_new::<IndexedSchemaEntity>(id).expect("test key should encode");
+        let raw_key = data_key.to_raw().expect("test key should encode to raw");
+        let row = CanonicalRow::from_generated_entity_for_test(&IndexedSchemaEntity {
+            id,
+            name: "Ada".to_string(),
+        })
+        .expect("indexed schema row should encode");
+        RECONCILE_DATA_STORE.with_borrow_mut(|store| {
+            let _ = store.insert(raw_key, row);
+        });
+
+        let hooks = [EntityRuntimeHooks::for_entity::<IndexedSchemaEntity>()];
+        super::reconcile_runtime_schemas(&RECONCILE_DB, &hooks)
+            .expect("supported field-path index addition should rebuild and publish");
+
+        let latest = RECONCILE_SCHEMA_STORE
+            .with_borrow(|store| store.latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG))
+            .expect("latest schema snapshot should decode")
+            .expect("indexed schema snapshot should be published");
+        assert_eq!(latest.indexes().len(), 1);
+        assert_eq!(latest.indexes()[0].name(), "by_name");
+        RECONCILE_INDEX_STORE.with_borrow(|store| {
+            assert_eq!(store.len(), 1);
+            assert_eq!(store.state(), crate::db::index::IndexState::Ready);
+        });
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("schema reconciliation should record metrics");
+        assert_eq!(counters.ops().schema_reconcile_checks(), 1);
+        assert_eq!(counters.ops().schema_reconcile_exact_match(), 1);
+        assert_eq!(counters.ops().accepted_schema_fields(), 2);
+    }
+
+    #[test]
+    fn reconcile_runtime_schemas_rejects_field_path_index_addition_with_populated_index_store() {
+        reset_reconcile_stores();
+        metrics_reset_all();
+
+        let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
+        let expected = proposal.initial_persisted_schema_snapshot();
+        let stored_without_index = PersistedSchemaSnapshot::new_with_indexes(
+            expected.version(),
+            expected.entity_path().to_string(),
+            expected.entity_name().to_string(),
+            expected.primary_key_field_id(),
+            expected.row_layout().clone(),
+            expected.fields().to_vec(),
+            Vec::new(),
+        );
+        RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
+            store
+                .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored_without_index)
+                .expect("stored index-free schema snapshot should encode");
+        });
+
+        RECONCILE_INDEX_STORE.with_borrow_mut(|store| {
+            let sentinel_id = IndexId::new(IndexedSchemaEntity::ENTITY_TAG, 99);
+            let sentinel_key = IndexKey::empty_with_kind(&sentinel_id, IndexKeyKind::User).to_raw();
+            let sentinel_entry = RawIndexEntry::try_from_keys([StorageKey::Nat(99)])
+                .expect("sentinel index entry should encode");
+            store.insert(sentinel_key, sentinel_entry);
+        });
+
+        let hooks = [EntityRuntimeHooks::for_entity::<IndexedSchemaEntity>()];
+        super::reconcile_runtime_schemas(&RECONCILE_DB, &hooks)
+            .expect_err("populated physical index store should fail closed");
+
+        let latest = RECONCILE_SCHEMA_STORE
+            .with_borrow(|store| store.latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG))
+            .expect("latest schema snapshot should decode")
+            .expect("index-free schema snapshot should remain accepted");
+        assert_eq!(latest.indexes().len(), 0);
+        RECONCILE_INDEX_STORE.with_borrow(|store| {
+            assert_eq!(store.len(), 1);
+            assert_eq!(store.state(), IndexState::Ready);
+        });
+    }
+
+    #[test]
     fn ensure_accepted_schema_snapshot_records_nested_leaf_footprint() {
         let mut schema_store = SchemaStore::init(test_memory(241));
         metrics_reset_all();
@@ -666,10 +1062,10 @@ mod tests {
             profile.kind().clone(),
             vec![PersistedNestedLeafSnapshot::new(
                 vec!["legacy_rank".to_string()],
-                PersistedFieldKind::Uint,
+                PersistedFieldKind::Nat,
                 false,
                 FieldStorageDecode::ByKind,
-                LeafCodec::Scalar(ScalarCodec::Uint64),
+                LeafCodec::Scalar(ScalarCodec::Nat64),
             )],
             profile.nullable(),
             profile.default().clone(),
@@ -842,12 +1238,12 @@ mod tests {
             FieldId::new(3),
             "legacy_score".to_string(),
             SchemaFieldSlot::new(2),
-            PersistedFieldKind::Uint,
+            PersistedFieldKind::Nat,
             Vec::new(),
             false,
             SchemaFieldDefault::None,
             FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Uint64),
+            LeafCodec::Scalar(ScalarCodec::Nat64),
         ));
         let stored_with_removed_field = PersistedSchemaSnapshot::new(
             expected.version(),

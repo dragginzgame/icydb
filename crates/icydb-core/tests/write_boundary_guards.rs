@@ -445,6 +445,18 @@ fn schema_mutation_publication_boundary_uses_runner_preflight() {
             && !reconcile.contains("match plan.publication_status()"),
         "startup reconciliation must consult runner preflight with no physical runner installed, keeping rebuild-required mutation publication fail-closed",
     );
+    assert!(
+        reconcile.contains("fn execute_supported_field_path_index_addition(")
+            && reconcile.contains("plan.supported_developer_physical_path()")
+            && reconcile.contains("SchemaMutationRunnerInput::new(")
+            && reconcile.contains("StructuralRowContract::from_accepted_schema_snapshot(")
+            && reconcile.contains("SchemaFieldPathIndexRebuildRow::new(")
+            && reconcile.contains("SchemaFieldPathIndexRunner::run(")
+            && reconcile.contains("physical_work_allows_publication()")
+            && reconcile
+                .contains("schema_store.insert_persisted_snapshot(entity_tag, accepted_after)"),
+        "runtime startup reconciliation must execute the supported field-path index-add path from accepted schema contracts before publishing the accepted-after snapshot",
+    );
 }
 
 #[test]

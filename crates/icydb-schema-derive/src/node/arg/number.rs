@@ -131,8 +131,10 @@ impl ArgNumber {
         try_parse!(
             i32 => Int32,
             i64 => Int64,
+            i128 => Int128,
             u32 => Nat32,
-            u64 => Nat64
+            u64 => Nat64,
+            u128 => Nat128
         );
 
         // Return error if no match found
@@ -322,6 +324,16 @@ mod number_tests {
         assert_eq!(
             ArgNumber::parse_numeric_string("18446744073709551615u64").unwrap(),
             ArgNumber::Nat64(u64::MAX)
+        );
+
+        // Unsuffixed literals keep widening to 128-bit integers when needed.
+        assert_eq!(
+            ArgNumber::parse_numeric_string("9223372036854775808").unwrap(),
+            ArgNumber::Int128(9_223_372_036_854_775_808)
+        );
+        assert_eq!(
+            ArgNumber::parse_numeric_string("340282366920938463463374607431768211455").unwrap(),
+            ArgNumber::Nat128(u128::MAX)
         );
     }
 

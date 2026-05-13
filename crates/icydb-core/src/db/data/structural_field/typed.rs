@@ -160,7 +160,7 @@ pub(in crate::db::data::structural_field) fn decode_nat128_payload_bytes(
 ) -> Result<Nat128, FieldDecodeError> {
     let bytes: [u8; 16] = bytes
         .try_into()
-        .map_err(|_| FieldDecodeError::new("structural binary: invalid uint128 length"))?;
+        .map_err(|_| FieldDecodeError::new("structural binary: invalid nat128 length"))?;
 
     Ok(Nat128::from(u128::from_be_bytes(bytes)))
 }

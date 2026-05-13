@@ -17,7 +17,7 @@
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CoercionFamily {
-    Numeric,    // Int, Uint, Decimal, Float, Duration, Timestamp, …
+    Numeric,    // Int, Nat, Decimal, Float, Duration, Timestamp, …
     Textual,    // Text
     Identifier, // Ulid, Principal, Subaccount
     Enum,       // Enum(type, variant)

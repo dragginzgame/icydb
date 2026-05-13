@@ -144,7 +144,7 @@ fn u32_eq_predicate(field: &str, value: u32) -> Predicate {
     Predicate::Compare(ComparePredicate::with_coercion(
         field,
         CompareOp::Eq,
-        Value::Uint(u64::from(value)),
+        Value::Nat(u64::from(value)),
         CoercionId::Strict,
     ))
 }
@@ -444,7 +444,7 @@ fn aggregate_numeric_index_multi_lookup_keeps_shape_and_sum_avg_parity() {
                     crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                         PUSHDOWN_PARITY_INDEX_MODELS[0],
                     ),
-                values: vec![Value::Uint(7), Value::Uint(8)],
+                values: vec![Value::Nat(7), Value::Nat(8)],
             },
             MissingRowPolicy::Ignore,
         );

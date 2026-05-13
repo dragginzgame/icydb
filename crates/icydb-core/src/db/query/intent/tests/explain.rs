@@ -125,7 +125,7 @@ fn canonical_equivalent_grouped_having_shapes_share_query_plan_hash_surfaces() {
         .having_aggregate(
             0,
             CompareOp::Gt,
-            crate::value::InputValue::from(Value::Uint(0)),
+            crate::value::InputValue::from(Value::Nat(0)),
         )
         .expect("left grouped query should accept grouped aggregate HAVING");
     let right = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
@@ -135,7 +135,7 @@ fn canonical_equivalent_grouped_having_shapes_share_query_plan_hash_surfaces() {
         .having_aggregate(
             0,
             CompareOp::Gt,
-            crate::value::InputValue::from(Value::Uint(0)),
+            crate::value::InputValue::from(Value::Nat(0)),
         )
         .expect("right grouped query should accept grouped aggregate HAVING")
         .having_group(
@@ -199,7 +199,7 @@ fn grouped_null_and_false_having_families_keep_distinct_plan_hash_surfaces() {
                 Expr::Binary {
                     op: crate::db::query::plan::expr::BinaryOp::Gt,
                     left: Box::new(Expr::Aggregate(crate::db::count())),
-                    right: Box::new(Expr::Literal(Value::Uint(1))),
+                    right: Box::new(Expr::Literal(Value::Nat(1))),
                 },
                 Expr::Literal(Value::Bool(true)),
             )],
@@ -218,7 +218,7 @@ fn grouped_null_and_false_having_families_keep_distinct_plan_hash_surfaces() {
                     Expr::Binary {
                         op: crate::db::query::plan::expr::BinaryOp::Gt,
                         left: Box::new(Expr::Aggregate(crate::db::count())),
-                        right: Box::new(Expr::Literal(Value::Uint(1))),
+                        right: Box::new(Expr::Literal(Value::Nat(1))),
                     },
                     Expr::Literal(Value::Bool(false)),
                 ],
@@ -571,7 +571,7 @@ fn secondary_in_explain_uses_index_multi_lookup_access_shape() {
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::In,
-            Value::List(vec![Value::Uint(7), Value::Uint(8), Value::Uint(9)]),
+            Value::List(vec![Value::Nat(7), Value::Nat(8), Value::Nat(9)]),
             CoercionId::Strict,
         )))
         .explain()
@@ -590,19 +590,19 @@ fn secondary_or_eq_explain_uses_index_multi_lookup_access_shape() {
             Predicate::Compare(ComparePredicate::with_coercion(
                 "group",
                 CompareOp::Eq,
-                Value::Uint(8),
+                Value::Nat(8),
                 CoercionId::Strict,
             )),
             Predicate::Compare(ComparePredicate::with_coercion(
                 "group",
                 CompareOp::Eq,
-                Value::Uint(7),
+                Value::Nat(7),
                 CoercionId::Strict,
             )),
             Predicate::Compare(ComparePredicate::with_coercion(
                 "group",
                 CompareOp::Eq,
-                Value::Uint(8),
+                Value::Nat(8),
                 CoercionId::Strict,
             )),
         ]))

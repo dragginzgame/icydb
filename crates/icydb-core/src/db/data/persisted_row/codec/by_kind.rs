@@ -10,17 +10,17 @@ use crate::{
             decode_date_field_by_kind_bytes, decode_decimal_field_by_kind_bytes,
             decode_duration_field_by_kind_bytes, decode_float32_field_by_kind_bytes,
             decode_float64_field_by_kind_bytes, decode_int_big_field_by_kind_bytes,
-            decode_int128_field_by_kind_bytes, decode_nat128_field_by_kind_bytes,
-            decode_optional_storage_key_field_bytes, decode_storage_key_binary_value_bytes,
-            decode_structural_field_by_kind_bytes, decode_text_field_by_kind_bytes,
-            decode_uint_big_field_by_kind_bytes, encode_blob_field_by_kind_bytes,
+            decode_int128_field_by_kind_bytes, decode_nat_big_field_by_kind_bytes,
+            decode_nat128_field_by_kind_bytes, decode_optional_storage_key_field_bytes,
+            decode_storage_key_binary_value_bytes, decode_structural_field_by_kind_bytes,
+            decode_text_field_by_kind_bytes, encode_blob_field_by_kind_bytes,
             encode_bool_field_by_kind_bytes, encode_date_field_by_kind_bytes,
             encode_decimal_field_by_kind_bytes, encode_duration_field_by_kind_bytes,
             encode_float32_field_by_kind_bytes, encode_float64_field_by_kind_bytes,
             encode_int_big_field_by_kind_bytes, encode_int128_field_by_kind_bytes,
-            encode_nat128_field_by_kind_bytes, encode_storage_key_binary_value_bytes,
-            encode_storage_key_field_bytes, encode_structural_field_by_kind_bytes,
-            encode_text_field_by_kind_bytes, encode_uint_big_field_by_kind_bytes,
+            encode_nat_big_field_by_kind_bytes, encode_nat128_field_by_kind_bytes,
+            encode_storage_key_binary_value_bytes, encode_storage_key_field_bytes,
+            encode_structural_field_by_kind_bytes, encode_text_field_by_kind_bytes,
             supports_storage_key_binary_kind,
         },
     },
@@ -253,22 +253,22 @@ macro_rules! impl_persisted_by_kind_storage_int_leaf {
     };
 }
 
-macro_rules! impl_persisted_by_kind_storage_uint_leaf {
+macro_rules! impl_persisted_by_kind_storage_nat_leaf {
     ($($ty:ty),* $(,)?) => {
         impl_persisted_by_kind_direct_leaf!(
             $(
                 $ty => {
                     encode: |value: &$ty, kind: FieldKind, field_name: &'static str| {
-                        encode_storage_key_field_bytes(StorageKey::Uint(u64::from(*value)), kind, field_name)
+                        encode_storage_key_field_bytes(StorageKey::Nat(u64::from(*value)), kind, field_name)
                     },
                     decode: |bytes: &[u8], kind: FieldKind, field_name: &'static str| {
                         decode_storage_key_and_convert(
                             bytes,
                             kind,
                             field_name,
-                            "storage uint",
+                            "storage nat",
                             |key| match key {
-                                StorageKey::Uint(value) => Some(value),
+                                StorageKey::Nat(value) => Some(value),
                                 _ => None,
                             },
                             |value| <$ty>::try_from(value).map_err(|_| ()),
@@ -329,7 +329,7 @@ impl_persisted_by_kind_ref_leaf!(
     String => { encode: encode_text_field_by_kind_bytes, decode: decode_text_field_by_kind_bytes },
     Blob => { encode: encode_blob_field_by_kind_bytes, decode: decode_blob_field_by_kind_bytes },
     Int => { encode: encode_int_big_field_by_kind_bytes, decode: decode_int_big_field_by_kind_bytes },
-    Nat => { encode: encode_uint_big_field_by_kind_bytes, decode: decode_uint_big_field_by_kind_bytes }
+    Nat => { encode: encode_nat_big_field_by_kind_bytes, decode: decode_nat_big_field_by_kind_bytes }
 );
 
 impl_persisted_by_kind_value_leaf!(
@@ -339,7 +339,7 @@ impl_persisted_by_kind_value_leaf!(
 );
 
 impl_persisted_by_kind_storage_int_leaf!(i8, i16, i32, i64);
-impl_persisted_by_kind_storage_uint_leaf!(u8, u16, u32, u64);
+impl_persisted_by_kind_storage_nat_leaf!(u8, u16, u32, u64);
 impl_persisted_by_kind_storage_leaf!(
     Account => { variant: Account, label: "storage account" },
     Timestamp => { variant: Timestamp, label: "storage timestamp" },

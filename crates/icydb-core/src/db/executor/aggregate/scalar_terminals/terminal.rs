@@ -591,23 +591,23 @@ mod tests {
         value::Value,
     };
 
-    fn literal_uint(value: u64) -> CompiledExpr {
-        CompiledExpr::Literal(Value::Uint(value))
+    fn literal_nat(value: u64) -> CompiledExpr {
+        CompiledExpr::Literal(Value::Nat(value))
     }
 
     fn repeated_input_expr() -> CompiledExpr {
         CompiledExpr::Binary {
             op: BinaryOp::Add,
-            left: Box::new(literal_uint(41)),
-            right: Box::new(literal_uint(1)),
+            left: Box::new(literal_nat(41)),
+            right: Box::new(literal_nat(1)),
         }
     }
 
     fn repeated_filter_expr() -> CompiledExpr {
         CompiledExpr::Binary {
             op: BinaryOp::Gte,
-            left: Box::new(literal_uint(42)),
-            right: Box::new(literal_uint(1)),
+            left: Box::new(literal_nat(42)),
+            right: Box::new(literal_nat(1)),
         }
     }
 

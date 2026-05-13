@@ -1026,8 +1026,7 @@ mod tests {
         FieldModel::generated("name", FieldKind::Text { max_len: None }),
         FieldModel::generated("id", FieldKind::Ulid),
     ];
-    static PROFILE_NESTED_FIELDS: [FieldModel; 1] =
-        [FieldModel::generated("rank", FieldKind::Uint)];
+    static PROFILE_NESTED_FIELDS: [FieldModel; 1] = [FieldModel::generated("rank", FieldKind::Nat)];
     static PROFILE_FIELDS: [FieldModel; 2] = [
         FieldModel::generated("id", FieldKind::Ulid),
         FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
@@ -1277,7 +1276,7 @@ mod tests {
     #[test]
     fn accepted_snapshot_schema_info_canonicalizes_sql_literals_from_persisted_kind() {
         let generated = SchemaInfo::cached_for_generated_entity_model(&MODEL);
-        let snapshot = accepted_schema_with_name_kind(PersistedFieldKind::Uint);
+        let snapshot = accepted_schema_with_name_kind(PersistedFieldKind::Nat);
         let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
 
         assert_eq!(
@@ -1286,7 +1285,7 @@ mod tests {
         );
         assert_eq!(
             accepted.canonicalize_strict_sql_literal("name", &Value::Int(7)),
-            Some(Value::Uint(7))
+            Some(Value::Nat(7))
         );
     }
 
@@ -1497,6 +1496,6 @@ mod tests {
             .expect("accepted nested leaf should resolve");
 
         assert!(literal_matches_type(&Value::Blob(vec![1]), &nested_type));
-        assert!(!literal_matches_type(&Value::Uint(1), &nested_type));
+        assert!(!literal_matches_type(&Value::Nat(1), &nested_type));
     }
 }

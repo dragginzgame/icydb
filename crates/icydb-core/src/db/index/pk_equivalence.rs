@@ -95,8 +95,8 @@ mod tests {
                 Value::Int(-7),
             ),
             (
-                index_key_with_primary_storage_key(StorageKey::Uint(42)),
-                Value::Uint(42),
+                index_key_with_primary_storage_key(StorageKey::Nat(42)),
+                Value::Nat(42),
             ),
             (
                 index_key_with_primary_storage_key(StorageKey::Principal(Principal::dummy(9))),
@@ -133,7 +133,7 @@ mod tests {
 
     #[test]
     fn pk_equivalence_rejects_non_storage_key_boundary_values() {
-        let index_key = index_key_with_primary_storage_key(StorageKey::Uint(42));
+        let index_key = index_key_with_primary_storage_key(StorageKey::Nat(42));
         let err = primary_key_matches_value(&index_key, &Value::Text("broken".to_string()))
             .expect_err("non-storage-key runtime value must be rejected");
 
@@ -145,10 +145,10 @@ mod tests {
 
     #[test]
     fn pk_equivalence_reports_false_for_distinct_storage_keys() {
-        let index_key = index_key_with_primary_storage_key(StorageKey::Uint(42));
+        let index_key = index_key_with_primary_storage_key(StorageKey::Nat(42));
 
         assert!(
-            !primary_key_matches_value(&index_key, &Value::Uint(99))
+            !primary_key_matches_value(&index_key, &Value::Nat(99))
                 .expect("distinct storage keys should still compare cleanly"),
         );
     }

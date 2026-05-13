@@ -55,9 +55,9 @@ impl FilterValue {
             Value::Principal(value) => Self::String(value.to_string()),
             Value::Subaccount(value) => Self::String(value.to_string()),
             Value::Timestamp(value) => Self::String(value.to_string()),
-            Value::Uint(value) => Self::String(value.to_string()),
-            Value::Uint128(value) => Self::String(value.to_string()),
-            Value::UintBig(value) => Self::String(value.to_string()),
+            Value::Nat(value) => Self::String(value.to_string()),
+            Value::Nat128(value) => Self::String(value.to_string()),
+            Value::NatBig(value) => Self::String(value.to_string()),
             Value::Ulid(value) => Self::String(value.to_string()),
         }
     }
@@ -748,7 +748,7 @@ mod tests {
 
     static FILTER_TEST_FIELDS: [FieldModel; 3] = [
         FieldModel::generated("id", FieldKind::Ulid),
-        FieldModel::generated("rank", FieldKind::Uint),
+        FieldModel::generated("rank", FieldKind::Nat),
         FieldModel::generated("active", FieldKind::Bool),
     ];
     static FILTER_TEST_MODEL: EntityModel = EntityModel::generated(
@@ -907,12 +907,12 @@ mod tests {
                 left: Box::new(Expr::Binary {
                     op: BinaryOp::Eq,
                     left: Box::new(Expr::Field(FieldId::new("rank".to_string()))),
-                    right: Box::new(Expr::Literal(Value::Uint(7))),
+                    right: Box::new(Expr::Literal(Value::Nat(7))),
                 }),
                 right: Box::new(Expr::Binary {
                     op: BinaryOp::Eq,
                     left: Box::new(Expr::Field(FieldId::new("rank".to_string()))),
-                    right: Box::new(Expr::Literal(Value::Uint(9))),
+                    right: Box::new(Expr::Literal(Value::Nat(9))),
                 }),
             }
         );

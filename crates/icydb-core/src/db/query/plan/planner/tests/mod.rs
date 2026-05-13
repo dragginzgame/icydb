@@ -138,7 +138,7 @@ static PLANNER_ORDER_FILTERED_COMPOSITE_MODEL: EntityModel = entity_model_from_s
 static PLANNER_ORDER_COMPOSITE_FIELDS: [FieldModel; 4] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated("code", FieldKind::Text { max_len: None }),
-    FieldModel::generated("serial", FieldKind::Uint),
+    FieldModel::generated("serial", FieldKind::Nat),
     FieldModel::generated("note", FieldKind::Text { max_len: None }),
 ];
 static PLANNER_ORDER_COMPOSITE_INDEX_FIELDS: [&str; 2] = ["code", "serial"];
@@ -283,7 +283,7 @@ static PLANNER_RANKING_MODEL: EntityModel = entity_model_from_static(
 static PLANNER_RANGE_RANKING_FIELDS: [FieldModel; 5] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated("tier", FieldKind::Text { max_len: None }),
-    FieldModel::generated("score", FieldKind::Uint),
+    FieldModel::generated("score", FieldKind::Nat),
     FieldModel::generated("handle", FieldKind::Text { max_len: None }),
     FieldModel::generated("label", FieldKind::Text { max_len: None }),
 ];
@@ -318,7 +318,7 @@ static PLANNER_RANGE_RANKING_MODEL: EntityModel = entity_model_from_static(
 static PLANNER_RANGE_STRENGTH_FIELDS: [FieldModel; 4] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated("tier", FieldKind::Text { max_len: None }),
-    FieldModel::generated("score", FieldKind::Uint),
+    FieldModel::generated("score", FieldKind::Nat),
     FieldModel::generated("label", FieldKind::Text { max_len: None }),
 ];
 static PLANNER_RANGE_STRENGTH_LABEL_INDEX_FIELDS: [&str; 2] = ["tier", "label"];
@@ -827,8 +827,8 @@ fn planner_range_selection_prefers_stronger_bounds_before_lexicographic_tiebreak
             PLANNER_RANGE_STRENGTH_INDEXES[1],
             vec![0usize, 1usize],
             vec![Value::Text("gold".to_string())],
-            Bound::Excluded(Value::Uint(10)),
-            Bound::Excluded(Value::Uint(20)),
+            Bound::Excluded(Value::Nat(10)),
+            Bound::Excluded(Value::Nat(20)),
         )),
         "two-sided range bounds should outrank otherwise tied one-sided range candidates before lexicographic fallback",
     );
@@ -1006,7 +1006,7 @@ fn planner_range_selection_prefers_order_compatible_index_over_name_order_tie() 
         Predicate::Compare(ComparePredicate::with_coercion(
             "score",
             CompareOp::Gt,
-            Value::Uint(10),
+            Value::Nat(10),
             CoercionId::Strict,
         )),
     ]);
@@ -1020,7 +1020,7 @@ fn planner_range_selection_prefers_order_compatible_index_over_name_order_tie() 
         ],
         &["tier", "score", "label"],
         &[Value::Text("gold".to_string())],
-        Bound::Excluded(Value::Uint(10)),
+        Bound::Excluded(Value::Nat(10)),
         Bound::Unbounded,
         "range ranking predicate",
     );
@@ -1038,7 +1038,7 @@ fn planner_range_selection_desc_prefers_order_compatible_index_over_name_order_t
         Predicate::Compare(ComparePredicate::with_coercion(
             "score",
             CompareOp::Gt,
-            Value::Uint(10),
+            Value::Nat(10),
             CoercionId::Strict,
         )),
     ]);
@@ -1052,7 +1052,7 @@ fn planner_range_selection_desc_prefers_order_compatible_index_over_name_order_t
         ],
         &["tier", "score", "label"],
         &[Value::Text("gold".to_string())],
-        Bound::Excluded(Value::Uint(10)),
+        Bound::Excluded(Value::Nat(10)),
         Bound::Unbounded,
         "descending range ranking predicate",
     );
@@ -1070,7 +1070,7 @@ fn planner_equality_prefix_suffix_order_prefers_order_compatible_index_over_name
         Predicate::Compare(ComparePredicate::with_coercion(
             "score",
             CompareOp::Eq,
-            Value::Uint(20),
+            Value::Nat(20),
             CoercionId::Strict,
         )),
     ]);
@@ -1079,7 +1079,7 @@ fn planner_equality_prefix_suffix_order_prefers_order_compatible_index_over_name
         &predicate,
         &[("label", OrderDirection::Asc), ("id", OrderDirection::Asc)],
         &["tier", "score", "label"],
-        &[Value::Text("gold".to_string()), Value::Uint(20)],
+        &[Value::Text("gold".to_string()), Value::Nat(20)],
         "equality-prefix suffix-order predicate",
     );
 }
@@ -1096,7 +1096,7 @@ fn planner_equality_prefix_suffix_order_desc_prefers_order_compatible_index_over
         Predicate::Compare(ComparePredicate::with_coercion(
             "score",
             CompareOp::Eq,
-            Value::Uint(20),
+            Value::Nat(20),
             CoercionId::Strict,
         )),
     ]);
@@ -1108,7 +1108,7 @@ fn planner_equality_prefix_suffix_order_desc_prefers_order_compatible_index_over
             ("id", OrderDirection::Desc),
         ],
         &["tier", "score", "label"],
-        &[Value::Text("gold".to_string()), Value::Uint(20)],
+        &[Value::Text("gold".to_string()), Value::Nat(20)],
         "descending equality-prefix suffix-order predicate",
     );
 }

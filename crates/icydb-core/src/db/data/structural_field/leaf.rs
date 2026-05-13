@@ -6,9 +6,9 @@
 use crate::db::data::structural_field::{
     FieldDecodeError,
     binary::{
-        TAG_BYTES, TAG_INT64, TAG_LIST, TAG_NULL, TAG_UINT64, parse_binary_head,
+        TAG_BYTES, TAG_INT64, TAG_LIST, TAG_NAT64, TAG_NULL, parse_binary_head,
         payload_bytes as binary_payload_bytes, push_binary_bytes, push_binary_int64,
-        push_binary_list_len, push_binary_null, push_binary_uint64, skip_binary_value,
+        push_binary_list_len, push_binary_nat64, push_binary_null, skip_binary_value,
     },
     primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
     storage_key::{decode_storage_key_binary_value_bytes, encode_storage_key_binary_value_bytes},
@@ -44,7 +44,7 @@ pub(super) fn decode_leaf_field_by_kind_bytes(
         FieldKind::Duration => decode_duration_value_bytes(raw_bytes)?,
         FieldKind::IntBig => decode_int_big_value_bytes(raw_bytes)?,
         FieldKind::Structured { .. } => decode_structured_leaf_null_value_bytes(raw_bytes)?,
-        FieldKind::UintBig => decode_uint_big_value_bytes(raw_bytes)?,
+        FieldKind::NatBig => decode_nat_big_value_bytes(raw_bytes)?,
         FieldKind::Blob { .. }
         | FieldKind::Bool
         | FieldKind::Float32
@@ -52,8 +52,8 @@ pub(super) fn decode_leaf_field_by_kind_bytes(
         | FieldKind::Int
         | FieldKind::Int128
         | FieldKind::Text { .. }
-        | FieldKind::Uint
-        | FieldKind::Uint128
+        | FieldKind::Nat
+        | FieldKind::Nat128
         | FieldKind::Ulid => {
             return Err(FieldDecodeError::new(
                 "scalar field unexpectedly bypassed byte-level fast path",
@@ -87,7 +87,7 @@ pub(super) fn encode_leaf_field_binary_bytes(
         FieldKind::Duration => Some(encode_duration_value_bytes(value, field_name)?),
         FieldKind::IntBig => Some(encode_int_big_value_bytes(value, field_name)?),
         FieldKind::Structured { .. } => Some(encode_structured_leaf_null_bytes(value, field_name)?),
-        FieldKind::UintBig => Some(encode_uint_big_value_bytes(value, field_name)?),
+        FieldKind::NatBig => Some(encode_nat_big_value_bytes(value, field_name)?),
         FieldKind::Blob { .. }
         | FieldKind::Bool
         | FieldKind::Float32
@@ -95,8 +95,8 @@ pub(super) fn encode_leaf_field_binary_bytes(
         | FieldKind::Int
         | FieldKind::Int128
         | FieldKind::Text { .. }
-        | FieldKind::Uint
-        | FieldKind::Uint128
+        | FieldKind::Nat
+        | FieldKind::Nat128
         | FieldKind::Ulid
         | FieldKind::Enum { .. }
         | FieldKind::List(_)
@@ -169,7 +169,7 @@ fn decode_duration_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeErr
 fn decode_int_big_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
     let items = split_binary_tuple_items(raw_bytes, 2, "bigint")?;
     let sign = decode_bigint_sign_payload(items[0])?;
-    let magnitude = decode_biguint_payload(items[1])?;
+    let magnitude = decode_bignat_payload(items[1])?;
     let wrapped = WrappedInt::from(BigInt::from_biguint(sign, magnitude));
 
     Ok(Value::IntBig(Int::from(wrapped)))
@@ -177,10 +177,10 @@ fn decode_int_big_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeErro
 
 // Decode one arbitrary-precision unsigned integer payload from the canonical
 // limb sequence.
-fn decode_uint_big_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    let wrapped = WrappedNat::from(decode_biguint_payload(raw_bytes)?);
+fn decode_nat_big_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    let wrapped = WrappedNat::from(decode_bignat_payload(raw_bytes)?);
 
-    Ok(Value::UintBig(Nat::from(wrapped)))
+    Ok(Value::NatBig(Nat::from(wrapped)))
 }
 
 // Encode one date payload into canonical signed day-count form.
@@ -211,7 +211,7 @@ fn encode_decimal_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8>
     let mut encoded = Vec::new();
     push_binary_list_len(&mut encoded, 2);
     push_binary_bytes(&mut encoded, &mantissa.to_be_bytes());
-    push_binary_uint64(&mut encoded, u64::from(scale));
+    push_binary_nat64(&mut encoded, u64::from(scale));
 
     Ok(encoded)
 }
@@ -226,7 +226,7 @@ fn encode_duration_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8
     };
 
     let mut encoded = Vec::new();
-    push_binary_uint64(&mut encoded, encode_duration_payload_millis(*value));
+    push_binary_nat64(&mut encoded, encode_duration_payload_millis(*value));
     Ok(encoded)
 }
 
@@ -258,11 +258,11 @@ fn encode_int_big_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8>
 
 // Encode one arbitrary-precision unsigned integer payload as a canonical limb
 // sequence.
-fn encode_uint_big_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8>, InternalError> {
-    let Value::UintBig(value) = value else {
+fn encode_nat_big_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8>, InternalError> {
+    let Value::NatBig(value) = value else {
         return Err(InternalError::persisted_row_field_encode_failed(
             field_name,
-            format!("field kind UintBig does not accept runtime value {value:?}"),
+            format!("field kind NatBig does not accept runtime value {value:?}"),
         ));
     };
 
@@ -272,11 +272,11 @@ fn encode_uint_big_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8
     Ok(encoded)
 }
 
-// Emit one canonical biguint limb sequence.
+// Emit one canonical bignat limb sequence.
 fn push_binary_u32_digit_list(out: &mut Vec<u8>, digits: &[u32]) {
     push_binary_list_len(out, digits.len());
     for digit in digits {
-        push_binary_uint64(out, u64::from(*digit));
+        push_binary_nat64(out, u64::from(*digit));
     }
 }
 
@@ -292,17 +292,17 @@ fn decode_bigint_sign_payload(raw_bytes: &[u8]) -> Result<BigIntSign, FieldDecod
     }
 }
 
-// Decode one biguint payload serialized as a canonical sequence of base-2^32
+// Decode one bignat payload serialized as a canonical sequence of base-2^32
 // limbs.
-fn decode_biguint_payload(raw_bytes: &[u8]) -> Result<BigUint, FieldDecodeError> {
+fn decode_bignat_payload(raw_bytes: &[u8]) -> Result<BigUint, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
-            "structural binary: truncated biguint payload",
+            "structural binary: truncated bignat payload",
         ));
     };
     if tag != TAG_LIST {
         return Err(FieldDecodeError::new(
-            "structural binary: expected biguint limb sequence",
+            "structural binary: expected bignat limb sequence",
         ));
     }
 
@@ -313,12 +313,12 @@ fn decode_biguint_payload(raw_bytes: &[u8]) -> Result<BigUint, FieldDecodeError>
         cursor = skip_binary_value(raw_bytes, cursor)?;
         limbs.push(decode_required_u32_payload(
             &raw_bytes[limb_start..cursor],
-            "biguint limb",
+            "bignat limb",
         )?);
     }
     if cursor != raw_bytes.len() {
         return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after biguint payload",
+            "structural binary: trailing bytes after bignat payload",
         ));
     }
 
@@ -389,7 +389,7 @@ fn decode_required_u64_payload(
         )));
     };
     let end = skip_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() || tag != TAG_UINT64 || len != 8 {
+    if end != raw_bytes.len() || tag != TAG_NAT64 || len != 8 {
         return Err(FieldDecodeError::new(format!(
             "structural binary: expected u64 for {label}"
         )));
@@ -602,37 +602,37 @@ pub(super) fn decode_int_big_field_by_kind_bytes(
 
 /// Encode one direct unsigned-bigint leaf through the canonical structural
 /// leaf lane.
-pub(super) fn encode_uint_big_field_by_kind_bytes(
+pub(super) fn encode_nat_big_field_by_kind_bytes(
     value: &Nat,
     kind: FieldKind,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
-    if !matches!(kind, FieldKind::UintBig) {
+    if !matches!(kind, FieldKind::NatBig) {
         return Err(InternalError::persisted_row_field_encode_failed(
             field_name,
-            format!("field kind {kind:?} does not accept biguint"),
+            format!("field kind {kind:?} does not accept bignat"),
         ));
     }
 
-    encode_uint_big_value_bytes(&Value::UintBig(value.clone()), field_name)
+    encode_nat_big_value_bytes(&Value::NatBig(value.clone()), field_name)
 }
 
 /// Decode one direct unsigned-bigint leaf through the canonical structural
 /// leaf lane.
-pub(super) fn decode_uint_big_field_by_kind_bytes(
+pub(super) fn decode_nat_big_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<Option<Nat>, FieldDecodeError> {
-    if !matches!(kind, FieldKind::UintBig) {
+    if !matches!(kind, FieldKind::NatBig) {
         return Err(FieldDecodeError::new(
-            "field kind is not owned by the structural biguint leaf lane",
+            "field kind is not owned by the structural bignat leaf lane",
         ));
     }
 
-    match decode_uint_big_value_bytes(raw_bytes)? {
-        Value::UintBig(value) => Ok(Some(value)),
+    match decode_nat_big_value_bytes(raw_bytes)? {
+        Value::NatBig(value) => Ok(Some(value)),
         _ => Err(FieldDecodeError::new(
-            "structural biguint leaf unexpectedly decoded as non-biguint value",
+            "structural bignat leaf unexpectedly decoded as non-bignat value",
         )),
     }
 }
@@ -645,8 +645,8 @@ pub(super) fn decode_uint_big_field_by_kind_bytes(
 mod tests {
     use super::{
         TAG_NULL, decode_leaf_field_by_kind_bytes, encode_leaf_field_binary_bytes,
-        push_binary_bytes, push_binary_int64, push_binary_list_len, push_binary_null,
-        push_binary_uint64,
+        push_binary_bytes, push_binary_int64, push_binary_list_len, push_binary_nat64,
+        push_binary_null,
     };
     use crate::{
         db::data::structural_field::{
@@ -675,8 +675,8 @@ mod tests {
                 Value::IntBig(Int::from(WrappedInt::from(123_456_789_i64))),
             ),
             (
-                FieldKind::UintBig,
-                Value::UintBig(Nat::from(WrappedNat::from(987_654_321_u64))),
+                FieldKind::NatBig,
+                Value::NatBig(Nat::from(WrappedNat::from(987_654_321_u64))),
             ),
             (FieldKind::Structured { queryable: false }, Value::Null),
         ];
@@ -701,7 +701,7 @@ mod tests {
         let mut bytes = Vec::new();
         push_binary_list_len(&mut bytes, 2);
         push_binary_bytes(&mut bytes, &1_i128.to_be_bytes());
-        push_binary_uint64(&mut bytes, u64::from(Decimal::max_supported_scale() + 1));
+        push_binary_nat64(&mut bytes, u64::from(Decimal::max_supported_scale() + 1));
 
         let kind = FieldKind::Decimal { scale: 2 };
 
@@ -733,18 +733,17 @@ mod tests {
     }
 
     #[test]
-    fn leaf_field_binary_rejects_non_list_biguint_payload() {
+    fn leaf_field_binary_rejects_non_list_bignat_payload() {
         let mut bytes = Vec::new();
         push_binary_text(&mut bytes, "not-a-limb-list");
 
-        let decode = decode_leaf_field_by_kind_bytes(bytes.as_slice(), FieldKind::UintBig);
-        let validate =
-            validate_structural_field_by_kind_bytes(bytes.as_slice(), FieldKind::UintBig);
+        let decode = decode_leaf_field_by_kind_bytes(bytes.as_slice(), FieldKind::NatBig);
+        let validate = validate_structural_field_by_kind_bytes(bytes.as_slice(), FieldKind::NatBig);
 
-        assert!(decode.is_err(), "non-list biguint payload must fail decode");
+        assert!(decode.is_err(), "non-list bignat payload must fail decode");
         assert!(
             validate.is_err(),
-            "non-list biguint payload must fail validate"
+            "non-list bignat payload must fail validate"
         );
     }
 

@@ -16,7 +16,7 @@ fn grouped_aggregate_state_distinct_deduplicates_repeated_data_keys() {
 
     let group = text_group_key("alpha");
     let duplicate_key = data_key(42);
-    let duplicate_value = RowView::from_single_value(0, Value::Uint(7));
+    let duplicate_value = RowView::from_single_value(0, Value::Nat(7));
     grouped_distinct
         .apply_borrowed_with_row_view(
             &group,
@@ -68,8 +68,8 @@ fn grouped_aggregate_state_enforces_distinct_values_per_group_limit() {
             Some(FieldSlot::from_parts_for_test(0, "id")),
         )
         .expect("grouped COUNT(DISTINCT field) test fixture should construct admitted state");
-    let first_value = RowView::from_single_value(0, Value::Uint(1));
-    let second_value = RowView::from_single_value(0, Value::Uint(2));
+    let first_value = RowView::from_single_value(0, Value::Nat(1));
+    let second_value = RowView::from_single_value(0, Value::Nat(2));
 
     grouped
         .apply_borrowed_with_row_view(
@@ -111,8 +111,8 @@ fn grouped_aggregate_state_enforces_distinct_values_total_limit() {
             Some(FieldSlot::from_parts_for_test(0, "id")),
         )
         .expect("grouped COUNT(DISTINCT field) test fixture should construct admitted state");
-    let first_value = RowView::from_single_value(0, Value::Uint(1));
-    let second_value = RowView::from_single_value(0, Value::Uint(2));
+    let first_value = RowView::from_single_value(0, Value::Nat(1));
+    let second_value = RowView::from_single_value(0, Value::Nat(2));
 
     grouped
         .apply_borrowed_with_row_view(
@@ -162,7 +162,7 @@ fn grouped_execution_budget_counters_remain_consistent_for_distinct_grouped_fold
         ("beta", 4_u64, 30_u64),
         ("beta", 5_u64, 30_u64),
     ] {
-        let row = RowView::from_single_value(0, Value::Uint(value));
+        let row = RowView::from_single_value(0, Value::Nat(value));
         grouped
             .apply_borrowed_with_row_view(
                 &text_group_key(group),

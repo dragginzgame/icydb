@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.154.x] 🧪 - 2026-05-13 - Developer-Stable Schema Mutation Path
 
+- `0.154.1` fixes schema default generation so Decimal, Int128, Nat128, Date, Duration, Timestamp, and optional single-value fields with non-null literal defaults can emit accepted persisted database-default payloads through the existing field-codec lanes, hard-cuts unsigned numeric runtime and persisted metadata names from `Uint*` to `Nat*`, and runs the supported non-unique field-path index-add path during runtime startup reconciliation against accepted row contracts when the physical index store is empty.
 - `0.154.0` starts the developer-supported schema mutation path by adding a fail-closed admission guard that accepts exactly one physical mutation shape, a single non-unique field-path secondary index add, recognizes that one index-only accepted snapshot delta during mutation lowering, and keeps expression-index rebuilds, secondary-index drops, metadata-only plans, rewrites, unsupported mutations, and malformed execution plans rejected before supported runner wiring can consume them.
 
 See detailed breakdown:
@@ -2900,9 +2901,9 @@ Example (shape only):
 ```rust
 AccessPath::IndexRange {
     index,
-    prefix: vec![Value::Uint(7)],
-    lower: Bound::Included(Value::Uint(100)),
-    upper: Bound::Excluded(Value::Uint(200)),
+    prefix: vec![Value::Nat(7)],
+    lower: Bound::Included(Value::Nat(100)),
+    upper: Bound::Excluded(Value::Nat(200)),
 }
 ```
 

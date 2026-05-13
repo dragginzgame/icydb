@@ -358,7 +358,7 @@ crate::test_entity_schema! {
     entity_name = "RecoveryIndexedEntity",
     entity_tag = crate::testing::RECOVERY_INDEXED_ENTITY_TAG,
     pk_index = 0,
-    fields = [("id", FieldKind::Ulid), ("group", FieldKind::Uint)],
+    fields = [("id", FieldKind::Ulid), ("group", FieldKind::Nat)],
     indexes = [&RECOVERY_INDEXED_INDEX_MODELS[0]],
     store = RecoveryTestDataStore,
     canister = RecoveryTestCanister,
@@ -381,7 +381,7 @@ crate::impl_test_entity_model_storage!(
         ),
         FieldModel::generated_with_storage_decode_and_nullability(
             "group",
-            FieldKind::Uint,
+            FieldKind::Nat,
             FieldStorageDecode::ByKind,
             false,
         ),
@@ -465,7 +465,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("group", FieldKind::Uint),
+        ("group", FieldKind::Nat),
         ("active", FieldKind::Bool),
     ],
     indexes = [&RECOVERY_CONDITIONAL_INDEX_MODELS[0]],
@@ -851,7 +851,7 @@ fn old_nullable_indexed_raw_row_for_test(id: Ulid, group: u32) -> RawRow {
     let group_payload = encode_runtime_value_into_slot(
         RecoveryNullableIndexedEntity::MODEL,
         1,
-        &Value::Uint(u64::from(group)),
+        &Value::Nat(u64::from(group)),
     )
     .expect("old nullable indexed group payload should encode");
     let slot_payload =

@@ -77,7 +77,7 @@ fn route_matrix_aggregate_count_secondary_shape_streams_with_existing_rows() {
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 ROUTE_CAPABILITY_INDEX_MODELS[0],
             ),
-            values: vec![Value::Uint(7)],
+            values: vec![Value::Nat(7)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -103,11 +103,11 @@ fn route_matrix_aggregate_count_secondary_shape_with_strict_predicate_streams() 
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 ROUTE_CAPABILITY_INDEX_MODELS[0],
             ),
-            values: vec![Value::Uint(7)],
+            values: vec![Value::Nat(7)],
         },
         MissingRowPolicy::Ignore,
     );
-    plan.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Uint(7)));
+    plan.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Nat(7)));
     let route_plan = build_aggregate_route(&plan, AggregateKind::Count);
 
     assert_eq!(route_plan.execution_mode, RouteExecutionMode::Streaming);
@@ -124,12 +124,12 @@ fn route_matrix_aggregate_count_secondary_shape_with_strict_uncertainty_material
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 ROUTE_CAPABILITY_INDEX_MODELS[0],
             ),
-            values: vec![Value::Uint(7)],
+            values: vec![Value::Nat(7)],
         },
         MissingRowPolicy::Ignore,
     );
     plan.scalar_plan_mut().predicate = Some(Predicate::And(vec![
-        Predicate::eq("rank".to_string(), Value::Uint(7)),
+        Predicate::eq("rank".to_string(), Value::Nat(7)),
         Predicate::TextContains {
             field: "label".to_string(),
             value: Value::Text("keep".to_string()),
@@ -239,7 +239,7 @@ fn route_matrix_aggregate_secondary_extrema_probe_hints_lock_offset_plus_one() {
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 ROUTE_CAPABILITY_INDEX_MODELS[0],
             ),
-            values: vec![Value::Uint(7)],
+            values: vec![Value::Nat(7)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -298,8 +298,8 @@ fn route_matrix_aggregate_index_range_desc_with_window_enables_pushdown_hint() {
         AccessPath::index_range(
             ROUTE_CAPABILITY_INDEX_MODELS[0],
             vec![],
-            Bound::Included(Value::Uint(10)),
-            Bound::Excluded(Value::Uint(30)),
+            Bound::Included(Value::Nat(10)),
+            Bound::Excluded(Value::Nat(30)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -371,7 +371,7 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 ROUTE_CAPABILITY_INDEX_MODELS[0],
             ),
-            values: vec![Value::Uint(7)],
+            values: vec![Value::Nat(7)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -387,8 +387,8 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
         AccessPath::index_range(
             ROUTE_CAPABILITY_INDEX_MODELS[0],
             vec![],
-            Bound::Included(Value::Uint(10)),
-            Bound::Excluded(Value::Uint(30)),
+            Bound::Included(Value::Nat(10)),
+            Bound::Excluded(Value::Nat(30)),
         ),
         MissingRowPolicy::Ignore,
     );
@@ -419,7 +419,7 @@ fn route_matrix_secondary_extrema_probe_eligibility_is_min_max_only() {
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 ROUTE_CAPABILITY_INDEX_MODELS[0],
             ),
-            values: vec![Value::Uint(7)],
+            values: vec![Value::Nat(7)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -476,13 +476,13 @@ fn route_matrix_index_predicate_compile_mode_subset_vs_strict_boundary_is_explic
         AccessPath::index_range(
             ROUTE_CAPABILITY_INDEX_MODELS[0],
             vec![],
-            Bound::Included(Value::Uint(10)),
-            Bound::Excluded(Value::Uint(30)),
+            Bound::Included(Value::Nat(10)),
+            Bound::Excluded(Value::Nat(30)),
         ),
         MissingRowPolicy::Ignore,
     );
     plan.scalar_plan_mut().predicate = Some(Predicate::And(vec![
-        Predicate::eq("rank".to_string(), Value::Uint(12)),
+        Predicate::eq("rank".to_string(), Value::Nat(12)),
         Predicate::TextContains {
             field: "label".to_string(),
             value: Value::Text("keep".to_string()),
@@ -535,13 +535,13 @@ fn route_matrix_aggregate_strict_compile_uncertainty_forces_materialized_executi
         AccessPath::index_range(
             ROUTE_CAPABILITY_INDEX_MODELS[0],
             vec![],
-            Bound::Included(Value::Uint(10)),
-            Bound::Excluded(Value::Uint(30)),
+            Bound::Included(Value::Nat(10)),
+            Bound::Excluded(Value::Nat(30)),
         ),
         MissingRowPolicy::Ignore,
     );
     strict_compatible.scalar_plan_mut().predicate =
-        Some(Predicate::eq("rank".to_string(), Value::Uint(12)));
+        Some(Predicate::eq("rank".to_string(), Value::Nat(12)));
     strict_compatible.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
@@ -561,7 +561,7 @@ fn route_matrix_aggregate_strict_compile_uncertainty_forces_materialized_executi
 
     let mut strict_uncertain = strict_compatible.clone();
     strict_uncertain.scalar_plan_mut().predicate = Some(Predicate::And(vec![
-        Predicate::eq("rank".to_string(), Value::Uint(12)),
+        Predicate::eq("rank".to_string(), Value::Nat(12)),
         Predicate::TextContains {
             field: "label".to_string(),
             value: Value::Text("keep".to_string()),
@@ -590,7 +590,7 @@ fn route_matrix_aggregate_exists_secondary_order_prefix_shape_stays_materialized
             index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
                 ROUTE_CAPABILITY_INDEX_MODELS[0],
             ),
-            values: vec![Value::Uint(7)],
+            values: vec![Value::Nat(7)],
         },
         MissingRowPolicy::Ignore,
     );
@@ -616,13 +616,13 @@ fn route_matrix_strict_vs_subset_decision_logs_are_stable() {
         AccessPath::index_range(
             ROUTE_CAPABILITY_INDEX_MODELS[0],
             vec![],
-            Bound::Included(Value::Uint(10)),
-            Bound::Excluded(Value::Uint(30)),
+            Bound::Included(Value::Nat(10)),
+            Bound::Excluded(Value::Nat(30)),
         ),
         MissingRowPolicy::Ignore,
     );
     strict_compatible.scalar_plan_mut().predicate =
-        Some(Predicate::eq("rank".to_string(), Value::Uint(12)));
+        Some(Predicate::eq("rank".to_string(), Value::Nat(12)));
     strict_compatible.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
@@ -637,7 +637,7 @@ fn route_matrix_strict_vs_subset_decision_logs_are_stable() {
     let strict_compatible_route = build_aggregate_route(&strict_compatible, AggregateKind::Exists);
     let mut strict_uncertain = strict_compatible.clone();
     strict_uncertain.scalar_plan_mut().predicate = Some(Predicate::And(vec![
-        Predicate::eq("rank".to_string(), Value::Uint(12)),
+        Predicate::eq("rank".to_string(), Value::Nat(12)),
         Predicate::TextContains {
             field: "label".to_string(),
             value: Value::Text("keep".to_string()),

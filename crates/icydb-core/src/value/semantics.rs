@@ -19,8 +19,8 @@ pub const fn is_numeric(value: &Value) -> bool {
             | Value::Int(_)
             | Value::Int128(_)
             | Value::Timestamp(_)
-            | Value::Uint(_)
-            | Value::Uint128(_)
+            | Value::Nat(_)
+            | Value::Nat128(_)
     )
 }
 
@@ -36,8 +36,8 @@ pub const fn supports_numeric_coercion(value: &Value) -> bool {
             | Value::Int(_)
             | Value::Int128(_)
             | Value::Timestamp(_)
-            | Value::Uint(_)
-            | Value::Uint128(_)
+            | Value::Nat(_)
+            | Value::Nat128(_)
     )
 }
 
@@ -57,9 +57,9 @@ pub const fn coercion_family(value: &Value) -> CoercionFamily {
         | Value::Int128(_)
         | Value::IntBig(_)
         | Value::Timestamp(_)
-        | Value::Uint(_)
-        | Value::Uint128(_)
-        | Value::UintBig(_) => CoercionFamily::Numeric,
+        | Value::Nat(_)
+        | Value::Nat128(_)
+        | Value::NatBig(_) => CoercionFamily::Numeric,
         Value::Enum(_) => CoercionFamily::Enum,
         Value::List(_) | Value::Map(_) => CoercionFamily::Collection,
         Value::Null => CoercionFamily::Null,

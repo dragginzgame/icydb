@@ -150,9 +150,9 @@ crate::test_entity! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("a", FieldKind::Uint),
-        ("b", FieldKind::Uint),
-        ("c", FieldKind::Uint),
+        ("a", FieldKind::Nat),
+        ("b", FieldKind::Nat),
+        ("c", FieldKind::Nat),
     ],
     indexes = [&RANGE_INDEX_MODEL],
 }
@@ -177,7 +177,7 @@ crate::test_entity! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("score", FieldKind::Uint),
+        ("score", FieldKind::Nat),
     ],
     indexes = [&FILTERED_NUMERIC_INDEX_MODEL],
 }

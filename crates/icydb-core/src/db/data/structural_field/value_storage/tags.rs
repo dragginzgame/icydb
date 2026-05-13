@@ -10,8 +10,8 @@ pub(super) const VALUE_BINARY_TAG_INT_BIG: u8 = 0x88;
 pub(super) const VALUE_BINARY_TAG_PRINCIPAL: u8 = 0x89;
 pub(super) const VALUE_BINARY_TAG_SUBACCOUNT: u8 = 0x8A;
 pub(super) const VALUE_BINARY_TAG_TIMESTAMP: u8 = 0x8B;
-pub(super) const VALUE_BINARY_TAG_UINT128: u8 = 0x8C;
-pub(super) const VALUE_BINARY_TAG_UINT_BIG: u8 = 0x8D;
+pub(super) const VALUE_BINARY_TAG_NAT128: u8 = 0x8C;
+pub(super) const VALUE_BINARY_TAG_NAT_BIG: u8 = 0x8D;
 pub(super) const VALUE_BINARY_TAG_ULID: u8 = 0x8E;
 
 // Keep the locally owned extension tag set explicit. These tags all carry one
@@ -31,8 +31,8 @@ pub(super) const fn is_local_value_storage_tag(tag: u8) -> bool {
             | VALUE_BINARY_TAG_PRINCIPAL
             | VALUE_BINARY_TAG_SUBACCOUNT
             | VALUE_BINARY_TAG_TIMESTAMP
-            | VALUE_BINARY_TAG_UINT128
-            | VALUE_BINARY_TAG_UINT_BIG
+            | VALUE_BINARY_TAG_NAT128
+            | VALUE_BINARY_TAG_NAT_BIG
             | VALUE_BINARY_TAG_ULID
     )
 }

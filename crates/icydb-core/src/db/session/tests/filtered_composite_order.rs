@@ -204,7 +204,7 @@ fn session_explain_execution_filtered_composite_order_matrix_is_stable() {
             .unwrap_or_else(|| panic!("{context} should expose one limit node"));
             assert_eq!(
                 limit_node.node_properties().get("offset"),
-                Some(&Value::Uint(1)),
+                Some(&Value::Nat(1)),
                 "{context} should expose the retained offset window",
             );
         } else {

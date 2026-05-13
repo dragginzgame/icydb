@@ -148,11 +148,11 @@ pub fn model_kind_from_primitive(
             quote!(::icydb::model::field::FieldKind::Int)
         }
         Primitive::Int128 => quote!(::icydb::model::field::FieldKind::Int128),
-        Primitive::Nat => quote!(::icydb::model::field::FieldKind::UintBig),
+        Primitive::Nat => quote!(::icydb::model::field::FieldKind::NatBig),
         Primitive::Nat8 | Primitive::Nat16 | Primitive::Nat32 | Primitive::Nat64 => {
-            quote!(::icydb::model::field::FieldKind::Uint)
+            quote!(::icydb::model::field::FieldKind::Nat)
         }
-        Primitive::Nat128 => quote!(::icydb::model::field::FieldKind::Uint128),
+        Primitive::Nat128 => quote!(::icydb::model::field::FieldKind::Nat128),
         Primitive::Principal => quote!(::icydb::model::field::FieldKind::Principal),
         Primitive::Subaccount => quote!(::icydb::model::field::FieldKind::Subaccount),
         Primitive::Text => {

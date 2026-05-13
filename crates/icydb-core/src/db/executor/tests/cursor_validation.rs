@@ -99,7 +99,7 @@ fn load_cursor_rejects_primary_key_type_mismatch_at_plan_time() {
     let (plan, signature, initial_offset) = scalar_phase_plan();
     let boundary = CursorBoundary {
         slots: vec![
-            CursorBoundarySlot::Present(Value::Uint(10)),
+            CursorBoundarySlot::Present(Value::Nat(10)),
             CursorBoundarySlot::Present(Value::Text("not-a-ulid".to_string())),
         ],
     };
@@ -124,7 +124,7 @@ fn load_cursor_rejects_boundary_arity_mismatch_at_plan_time() {
     let (plan, signature, initial_offset) = scalar_phase_plan();
     let boundary = CursorBoundary {
         // Ordered scalar continuation uses `(rank ASC, id ASC)`.
-        slots: vec![CursorBoundarySlot::Present(Value::Uint(10))],
+        slots: vec![CursorBoundarySlot::Present(Value::Nat(10))],
     };
     let cursor =
         ContinuationToken::new_with_direction(signature, boundary, Direction::Asc, initial_offset)
@@ -207,7 +207,7 @@ fn load_cursor_rejects_offset_mismatch_at_plan_time() {
     let plan: PreparedExecutionPlan<PhaseEntity> = PreparedExecutionPlan::new(plan);
     let boundary = CursorBoundary {
         slots: vec![
-            CursorBoundarySlot::Present(Value::Uint(10)),
+            CursorBoundarySlot::Present(Value::Nat(10)),
             CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(4001))),
         ],
     };
@@ -244,7 +244,7 @@ fn grouped_cursor_rejects_cross_shape_resume_token_at_plan_time() {
         .expect("grouped source plan should project continuation contract");
     let cursor = GroupedContinuationToken::new_with_direction(
         source_contract.continuation_signature(),
-        vec![Value::Uint(7)],
+        vec![Value::Nat(7)],
         Direction::Asc,
         source_contract.expected_initial_offset(),
     )
@@ -278,7 +278,7 @@ fn grouped_cursor_rejects_descending_direction_at_plan_time() {
     let (plan, signature, initial_offset) = grouped_pushdown_plan();
     let cursor = GroupedContinuationToken::new_with_direction(
         signature,
-        vec![Value::Uint(7)],
+        vec![Value::Nat(7)],
         Direction::Desc,
         initial_offset,
     )

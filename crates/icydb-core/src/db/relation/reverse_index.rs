@@ -684,7 +684,7 @@ const fn storage_key_from_relation_scalar(value: ScalarValueRef<'_>) -> Option<S
         ScalarValueRef::Principal(value) => Some(StorageKey::Principal(value)),
         ScalarValueRef::Subaccount(value) => Some(StorageKey::Subaccount(value)),
         ScalarValueRef::Timestamp(value) => Some(StorageKey::Timestamp(value)),
-        ScalarValueRef::Uint(value) => Some(StorageKey::Uint(value)),
+        ScalarValueRef::Nat(value) => Some(StorageKey::Nat(value)),
         ScalarValueRef::Ulid(value) => Some(StorageKey::Ulid(value)),
         ScalarValueRef::Unit => Some(StorageKey::Unit),
         ScalarValueRef::Blob(_)
@@ -736,7 +736,7 @@ fn validate_relation_key_kind(key_kind: &PersistedFieldKind) -> Result<(), Inter
         | PersistedFieldKind::Principal
         | PersistedFieldKind::Subaccount
         | PersistedFieldKind::Timestamp
-        | PersistedFieldKind::Uint
+        | PersistedFieldKind::Nat
         | PersistedFieldKind::Ulid
         | PersistedFieldKind::Unit => Ok(()),
         PersistedFieldKind::Relation { key_kind, .. } => validate_relation_key_kind(key_kind),

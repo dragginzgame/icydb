@@ -373,12 +373,12 @@ mod tests {
     #[test]
     fn canonical_key_normalizes_map_order() {
         let left = map_value(vec![
-            (Value::Text("z".to_string()), Value::Uint(9)),
-            (Value::Text("a".to_string()), Value::Uint(1)),
+            (Value::Text("z".to_string()), Value::Nat(9)),
+            (Value::Text("a".to_string()), Value::Nat(1)),
         ]);
         let right = map_value(vec![
-            (Value::Text("a".to_string()), Value::Uint(1)),
-            (Value::Text("z".to_string()), Value::Uint(9)),
+            (Value::Text("a".to_string()), Value::Nat(1)),
+            (Value::Text("z".to_string()), Value::Nat(9)),
         ]);
 
         let left_key = left.canonical_key().expect("left canonical key");
@@ -391,8 +391,8 @@ mod tests {
     #[test]
     fn canonical_key_rejects_duplicate_map_keys_after_normalization() {
         let value = map_value(vec![
-            (Value::Text("a".to_string()), Value::Uint(1)),
-            (Value::Text("a".to_string()), Value::Uint(2)),
+            (Value::Text("a".to_string()), Value::Nat(1)),
+            (Value::Text("a".to_string()), Value::Nat(2)),
         ]);
 
         let err = value
@@ -429,30 +429,30 @@ mod tests {
             ),
             (
                 Value::Map(vec![
-                    (Value::Text("z".to_string()), Value::Uint(9)),
-                    (Value::Text("a".to_string()), Value::Uint(1)),
+                    (Value::Text("z".to_string()), Value::Nat(9)),
+                    (Value::Text("a".to_string()), Value::Nat(1)),
                 ]),
                 Value::Map(vec![
-                    (Value::Text("a".to_string()), Value::Uint(1)),
-                    (Value::Text("z".to_string()), Value::Uint(9)),
+                    (Value::Text("a".to_string()), Value::Nat(1)),
+                    (Value::Text("z".to_string()), Value::Nat(9)),
                 ]),
             ),
             (
-                Value::List(vec![Value::Decimal(Decimal::new(10, 1)), Value::Uint(4)]),
-                Value::List(vec![Value::Decimal(Decimal::new(1, 0)), Value::Uint(4)]),
+                Value::List(vec![Value::Decimal(Decimal::new(10, 1)), Value::Nat(4)]),
+                Value::List(vec![Value::Decimal(Decimal::new(1, 0)), Value::Nat(4)]),
             ),
             (
                 Value::List(vec![
                     Value::Map(vec![
-                        (Value::Text("z".to_string()), Value::Uint(9)),
-                        (Value::Text("a".to_string()), Value::Uint(1)),
+                        (Value::Text("z".to_string()), Value::Nat(9)),
+                        (Value::Text("a".to_string()), Value::Nat(1)),
                     ]),
                     Value::Decimal(Decimal::new(2500, 2)),
                 ]),
                 Value::List(vec![
                     Value::Map(vec![
-                        (Value::Text("a".to_string()), Value::Uint(1)),
-                        (Value::Text("z".to_string()), Value::Uint(9)),
+                        (Value::Text("a".to_string()), Value::Nat(1)),
+                        (Value::Text("z".to_string()), Value::Nat(9)),
                     ]),
                     Value::Decimal(Decimal::new(25, 0)),
                 ]),
@@ -560,7 +560,7 @@ mod tests {
 
     #[test]
     fn group_key_from_single_canonical_group_value_matches_hashed_single_path() {
-        let single = Value::Uint(7);
+        let single = Value::Nat(7);
         let single_hash = Value::List(vec![single.clone()])
             .canonical_key()
             .expect("borrowed single canonical key")
@@ -579,7 +579,7 @@ mod tests {
         let group_values = vec![
             Value::Decimal(Decimal::new(100, 2)),
             Value::Text("alpha".to_string()),
-            map_value(vec![(Value::Text("z".to_string()), Value::Uint(9))]),
+            map_value(vec![(Value::Text("z".to_string()), Value::Nat(9))]),
         ];
         let borrowed = Value::List(group_values.clone())
             .canonical_key()

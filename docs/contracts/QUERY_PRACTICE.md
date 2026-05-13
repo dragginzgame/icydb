@@ -53,16 +53,16 @@ Same logical intent, same coercion behavior across API surfaces:
 
 ```rust
 // Builder API (FieldRef): ordering uses NumericWiden.
-// Field value: Int(10), predicate: age > Uint(5)  → true (numeric widen).
+// Field value: Int(10), predicate: age > Nat(5)  → true (numeric widen).
 let pred = field("age").gt(5u64);
 ```
 
 ```rust
 // Facade API (FilterExpr): ordering uses NumericWiden.
-// Field value: Int(10), predicate: age > Uint(5)  → true (numeric widen).
+// Field value: Int(10), predicate: age > Nat(5)  → true (numeric widen).
 let pred = FilterExpr::Gt {
     field: "age".to_string(),
-    value: Value::Uint(5),
+    value: Value::Nat(5),
 };
 ```
 

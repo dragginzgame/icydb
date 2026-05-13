@@ -186,9 +186,9 @@ fn encode_value_sort_key_into(out: &mut Vec<u8>, value: &Value) {
         Value::Subaccount(v) => push_bytes_u64(out, &v.to_bytes()),
         Value::Text(v) => push_str_u64(out, v),
         Value::Timestamp(v) => out.extend_from_slice(&v.as_millis().to_be_bytes()),
-        Value::Uint(v) => out.extend_from_slice(&v.to_be_bytes()),
-        Value::Uint128(v) => out.extend_from_slice(&v.get().to_be_bytes()),
-        Value::UintBig(v) => push_bytes_u64(out, &v.to_leb128()),
+        Value::Nat(v) => out.extend_from_slice(&v.to_be_bytes()),
+        Value::Nat128(v) => out.extend_from_slice(&v.get().to_be_bytes()),
+        Value::NatBig(v) => push_bytes_u64(out, &v.to_leb128()),
         Value::Ulid(v) => out.extend_from_slice(&v.to_bytes()),
     }
 }
@@ -419,11 +419,11 @@ mod tests {
     fn predicate_sort_key_normalizes_in_list_literal_order() {
         let predicate_a = Predicate::Compare(ComparePredicate::in_(
             "rank".to_string(),
-            vec![Value::Uint(3), Value::Uint(1), Value::Uint(2)],
+            vec![Value::Nat(3), Value::Nat(1), Value::Nat(2)],
         ));
         let predicate_b = Predicate::Compare(ComparePredicate::in_(
             "rank".to_string(),
-            vec![Value::Uint(1), Value::Uint(2), Value::Uint(3)],
+            vec![Value::Nat(1), Value::Nat(2), Value::Nat(3)],
         ));
 
         assert_eq!(
@@ -436,16 +436,11 @@ mod tests {
     fn predicate_sort_key_normalizes_in_list_duplicate_literals() {
         let predicate_a = Predicate::Compare(ComparePredicate::in_(
             "rank".to_string(),
-            vec![
-                Value::Uint(3),
-                Value::Uint(1),
-                Value::Uint(3),
-                Value::Uint(2),
-            ],
+            vec![Value::Nat(3), Value::Nat(1), Value::Nat(3), Value::Nat(2)],
         ));
         let predicate_b = Predicate::Compare(ComparePredicate::in_(
             "rank".to_string(),
-            vec![Value::Uint(1), Value::Uint(2), Value::Uint(3)],
+            vec![Value::Nat(1), Value::Nat(2), Value::Nat(3)],
         ));
 
         assert_eq!(

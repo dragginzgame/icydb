@@ -7,7 +7,7 @@ use super::{
 };
 use crate::{
     db::data::structural_field::binary::{
-        push_binary_bytes, push_binary_list_len, push_binary_text, push_binary_uint64,
+        push_binary_bytes, push_binary_list_len, push_binary_nat64, push_binary_text,
     },
     db::schema::PersistedFieldKind,
     model::field::{FieldKind, RelationStrength},
@@ -94,19 +94,19 @@ fn accepted_structural_field_encode_matches_generated_recursive_kinds() {
         Value::Text("right".to_string()),
     ]);
     let map_value = Value::Map(vec![
-        (Value::Text("alpha".to_string()), Value::Uint(1)),
-        (Value::Text("beta".to_string()), Value::Uint(2)),
+        (Value::Text("alpha".to_string()), Value::Nat(1)),
+        (Value::Text("beta".to_string()), Value::Nat(2)),
     ]);
     let accepted_list_kind =
         PersistedFieldKind::List(Box::new(PersistedFieldKind::Text { max_len: None }));
     let accepted_map_kind = PersistedFieldKind::Map {
         key: Box::new(PersistedFieldKind::Text { max_len: None }),
-        value: Box::new(PersistedFieldKind::Uint),
+        value: Box::new(PersistedFieldKind::Nat),
     };
     let generated_list_kind = FieldKind::List(&FieldKind::Text { max_len: None });
     let generated_map_kind = FieldKind::Map {
         key: &FieldKind::Text { max_len: None },
-        value: &FieldKind::Uint,
+        value: &FieldKind::Nat,
     };
 
     let accepted_list =
@@ -173,11 +173,11 @@ fn structural_field_decode_map_bytes_preserves_scalar_entries() {
     let bytes = encode_structural_field_by_kind_bytes(
         FieldKind::Map {
             key: &FieldKind::Text { max_len: None },
-            value: &FieldKind::Uint,
+            value: &FieldKind::Nat,
         },
         &Value::Map(vec![
-            (Value::Text("alpha".to_string()), Value::Uint(1)),
-            (Value::Text("beta".to_string()), Value::Uint(2)),
+            (Value::Text("alpha".to_string()), Value::Nat(1)),
+            (Value::Text("beta".to_string()), Value::Nat(2)),
         ]),
         "entries",
     )
@@ -187,7 +187,7 @@ fn structural_field_decode_map_bytes_preserves_scalar_entries() {
         &bytes,
         FieldKind::Map {
             key: &FieldKind::Text { max_len: None },
-            value: &FieldKind::Uint,
+            value: &FieldKind::Nat,
         },
     )
     .expect("scalar map field should decode");
@@ -195,8 +195,8 @@ fn structural_field_decode_map_bytes_preserves_scalar_entries() {
     assert_eq!(
         decoded,
         Value::Map(vec![
-            (Value::Text("alpha".to_string()), Value::Uint(1)),
-            (Value::Text("beta".to_string()), Value::Uint(2)),
+            (Value::Text("alpha".to_string()), Value::Nat(1)),
+            (Value::Text("beta".to_string()), Value::Nat(2)),
         ]),
     );
 }
@@ -227,7 +227,7 @@ fn structural_field_decode_value_storage_handles_enum_payload() {
     let value = Value::Enum(
         ValueEnum::new("Active", Some("Status")).with_payload(Value::Map(vec![(
             Value::Text("count".into()),
-            Value::Uint(7),
+            Value::Nat(7),
         )])),
     );
     let bytes = encode_structural_value_storage_bytes(&value).expect("value bytes should encode");
@@ -279,14 +279,14 @@ fn structural_field_decode_value_storage_roundtrips_nested_bytes_like_variants()
         ),
         (
             Value::Text("u128".to_string()),
-            Value::Uint128(Nat128::from(456u128)),
+            Value::Nat128(Nat128::from(456u128)),
         ),
         (
             Value::Text("list".to_string()),
             Value::List(vec![
                 Value::Blob(vec![0xAA, 0xBB]),
                 Value::Int128(Int128::from(7i128)),
-                Value::Uint128(Nat128::from(8u128)),
+                Value::Nat128(Nat128::from(8u128)),
             ]),
         ),
         (
@@ -312,7 +312,7 @@ fn structural_field_validate_matches_decode_for_malformed_leaf_payloads() {
     let mut bytes = Vec::new();
     push_binary_list_len(&mut bytes, 2);
     push_binary_bytes(&mut bytes, &1_i128.to_be_bytes());
-    push_binary_uint64(&mut bytes, u64::from(Decimal::max_supported_scale() + 1));
+    push_binary_nat64(&mut bytes, u64::from(Decimal::max_supported_scale() + 1));
 
     let decode =
         decode_structural_field_by_kind_bytes(bytes.as_slice(), FieldKind::Decimal { scale: 2 });

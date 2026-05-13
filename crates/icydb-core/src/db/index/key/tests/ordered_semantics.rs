@@ -97,19 +97,19 @@ fn decode_int_big_payload(encoded: &[u8]) -> (u8, Vec<u8>) {
     }
 }
 
-fn decode_uint_big_payload(encoded: &[u8]) -> Vec<u8> {
+fn decode_nat_big_payload(encoded: &[u8]) -> Vec<u8> {
     assert!(
         encoded.len() >= 3,
-        "uint-big payload must include tag + length: {encoded:?}"
+        "nat-big payload must include tag + length: {encoded:?}"
     );
     assert_eq!(
         encoded[0],
-        Value::UintBig(Nat::from(0u64)).canonical_tag().to_u8()
+        Value::NatBig(Nat::from(0u64)).canonical_tag().to_u8()
     );
 
     let len = usize::from(u16::from_be_bytes([encoded[1], encoded[2]]));
     let digits = encoded[3..].to_vec();
-    assert_eq!(len, digits.len(), "uint-big length mismatch");
+    assert_eq!(len, digits.len(), "nat-big length mismatch");
     digits
 }
 
@@ -126,12 +126,12 @@ fn decode_int_big_from_ordered_bytes(encoded: &[u8]) -> Int {
     text.parse().expect("decoded int-big text should parse")
 }
 
-fn decode_uint_big_from_ordered_bytes(encoded: &[u8]) -> Nat {
-    let digits = decode_uint_big_payload(encoded);
-    let digits_text = String::from_utf8(digits).expect("uint-big digits must be utf8");
+fn decode_nat_big_from_ordered_bytes(encoded: &[u8]) -> Nat {
+    let digits = decode_nat_big_payload(encoded);
+    let digits_text = String::from_utf8(digits).expect("nat-big digits must be utf8");
     digits_text
         .parse()
-        .expect("decoded uint-big text should parse")
+        .expect("decoded nat-big text should parse")
 }
 
 #[test]
@@ -165,7 +165,7 @@ fn storage_key_encoder_matches_value_encoder_for_all_storage_key_variants() {
         StorageKey::Principal(Principal::from_slice(&[1u8, 2u8, 3u8])),
         StorageKey::Subaccount(Subaccount::new([7u8; 32])),
         StorageKey::Timestamp(Timestamp::from_secs(7)),
-        StorageKey::Uint(7),
+        StorageKey::Nat(7),
         StorageKey::Ulid(Ulid::from_u128(7)),
         StorageKey::Unit,
     ];
@@ -191,10 +191,10 @@ fn canonical_encoder_respects_numeric_order_for_scalars() {
         Value::Int128(Int128::from(7i128)),
         Ordering::Less,
     );
-    assert_encoded_order(Value::Uint(2), Value::Uint(7), Ordering::Less);
+    assert_encoded_order(Value::Nat(2), Value::Nat(7), Ordering::Less);
     assert_encoded_order(
-        Value::Uint128(Nat128::from(2u128)),
-        Value::Uint128(Nat128::from(7u128)),
+        Value::Nat128(Nat128::from(2u128)),
+        Value::Nat128(Nat128::from(7u128)),
         Ordering::Less,
     );
     assert_encoded_order(
@@ -203,8 +203,8 @@ fn canonical_encoder_respects_numeric_order_for_scalars() {
         Ordering::Less,
     );
     assert_encoded_order(
-        Value::UintBig(Nat::from(20u64)),
-        Value::UintBig(Nat::from(700u64)),
+        Value::NatBig(Nat::from(20u64)),
+        Value::NatBig(Nat::from(700u64)),
         Ordering::Less,
     );
     assert_encoded_order(
@@ -246,25 +246,25 @@ fn canonical_encoder_bigint_same_value_same_bytes_across_construction_paths() {
         assert_eq!(left_bytes, right_bytes, "int-big canonical bytes diverged");
     }
 
-    let uint_cases = vec![
+    let nat_cases = vec![
         (
-            Value::UintBig(Nat::from(70u64)),
-            Value::UintBig("00070".parse().expect("nat literal")),
+            Value::NatBig(Nat::from(70u64)),
+            Value::NatBig("00070".parse().expect("nat literal")),
         ),
         (
-            Value::UintBig("4294967296".parse().expect("nat literal")),
-            Value::UintBig("00004294967296".parse().expect("nat literal")),
+            Value::NatBig("4294967296".parse().expect("nat literal")),
+            Value::NatBig("00004294967296".parse().expect("nat literal")),
         ),
         (
-            Value::UintBig("18446744073709551616".parse().expect("nat literal")),
-            Value::UintBig("000018446744073709551616".parse().expect("nat literal")),
+            Value::NatBig("18446744073709551616".parse().expect("nat literal")),
+            Value::NatBig("000018446744073709551616".parse().expect("nat literal")),
         ),
     ];
 
-    for (left, right) in uint_cases {
+    for (left, right) in nat_cases {
         let left_bytes = encode_canonical_index_component(&left).expect("left should encode");
         let right_bytes = encode_canonical_index_component(&right).expect("right should encode");
-        assert_eq!(left_bytes, right_bytes, "uint-big canonical bytes diverged");
+        assert_eq!(left_bytes, right_bytes, "nat-big canonical bytes diverged");
     }
 }
 
@@ -306,7 +306,7 @@ fn canonical_encoder_bigint_payload_uses_minimal_digits() {
         }
     }
 
-    let uint_literals = vec![
+    let nat_literals = vec![
         "0",
         "000123456789",
         "4294967296",
@@ -314,17 +314,17 @@ fn canonical_encoder_bigint_payload_uses_minimal_digits() {
         "340282366920938463463374607431768211455",
     ];
 
-    for literal in uint_literals {
-        let value = Value::UintBig(literal.parse().expect("nat literal"));
-        let encoded = encode_canonical_index_component(&value).expect("uint-big should encode");
-        let digits = decode_uint_big_payload(&encoded);
+    for literal in nat_literals {
+        let value = Value::NatBig(literal.parse().expect("nat literal"));
+        let encoded = encode_canonical_index_component(&value).expect("nat-big should encode");
+        let digits = decode_nat_big_payload(&encoded);
         assert!(digits.iter().all(u8::is_ascii_digit));
 
         let expected = normalize_unsigned_decimal_text(literal);
         assert_eq!(digits, expected.as_bytes());
 
         if digits != b"0" {
-            assert_ne!(digits[0], b'0', "uint-big payload must not lead with zero");
+            assert_ne!(digits[0], b'0', "nat-big payload must not lead with zero");
         }
     }
 }
@@ -336,13 +336,13 @@ fn canonical_encoder_bigint_limb_boundary_ordering_is_monotonic() {
     let two_limb_next = "4294967297";
 
     assert_encoded_order(
-        Value::UintBig(one_limb_max.parse().expect("nat literal")),
-        Value::UintBig(two_limb_min.parse().expect("nat literal")),
+        Value::NatBig(one_limb_max.parse().expect("nat literal")),
+        Value::NatBig(two_limb_min.parse().expect("nat literal")),
         Ordering::Less,
     );
     assert_encoded_order(
-        Value::UintBig(two_limb_min.parse().expect("nat literal")),
-        Value::UintBig(two_limb_next.parse().expect("nat literal")),
+        Value::NatBig(two_limb_min.parse().expect("nat literal")),
+        Value::NatBig(two_limb_next.parse().expect("nat literal")),
         Ordering::Less,
     );
 
@@ -380,7 +380,7 @@ fn canonical_encoder_bigint_roundtrip_stable_for_valid_bytes() {
         assert_eq!(reencoded, encoded, "int-big encode(decode(bytes)) mismatch");
     }
 
-    let uint_literals = vec![
+    let nat_literals = vec![
         "0",
         "1",
         "4294967296",
@@ -388,19 +388,16 @@ fn canonical_encoder_bigint_roundtrip_stable_for_valid_bytes() {
         "340282366920938463463374607431768211455",
     ];
 
-    for literal in uint_literals {
+    for literal in nat_literals {
         let value: Nat = literal.parse().expect("nat literal");
         let encoded =
-            encode_canonical_index_component(&Value::UintBig(value.clone())).expect("encode");
-        let decoded = decode_uint_big_from_ordered_bytes(&encoded);
-        assert_eq!(decoded, value, "uint-big decode(encode(x)) mismatch");
+            encode_canonical_index_component(&Value::NatBig(value.clone())).expect("encode");
+        let decoded = decode_nat_big_from_ordered_bytes(&encoded);
+        assert_eq!(decoded, value, "nat-big decode(encode(x)) mismatch");
 
         let reencoded =
-            encode_canonical_index_component(&Value::UintBig(decoded)).expect("reencode");
-        assert_eq!(
-            reencoded, encoded,
-            "uint-big encode(decode(bytes)) mismatch"
-        );
+            encode_canonical_index_component(&Value::NatBig(decoded)).expect("reencode");
+        assert_eq!(reencoded, encoded, "nat-big encode(decode(bytes)) mismatch");
     }
 }
 
@@ -505,7 +502,7 @@ fn canonical_encoder_respects_enum_order() {
     assert_encoded_order(left, right, Ordering::Less);
 
     let no_payload = Value::Enum(ValueEnum::new("A", Some("Path")));
-    let with_payload = Value::Enum(ValueEnum::new("A", Some("Path")).with_payload(Value::Uint(1)));
+    let with_payload = Value::Enum(ValueEnum::new("A", Some("Path")).with_payload(Value::Nat(1)));
     assert_encoded_order(no_payload, with_payload, Ordering::Less);
 }
 
@@ -520,8 +517,8 @@ fn canonical_encoder_golden_vectors_freeze_primitive_bytes() {
             vec![0x0A, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
         ),
         (
-            "Uint(1)",
-            Value::Uint(1),
+            "Nat(1)",
+            Value::Nat(1),
             vec![0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01],
         ),
         (
@@ -555,8 +552,8 @@ fn canonical_encoder_golden_vectors_freeze_primitive_bytes() {
             vec![0x0C, 0x00, 0xFF, 0xFE, 0xC8],
         ),
         (
-            "UintBig(70)",
-            Value::UintBig(Nat::from(70u64)),
+            "NatBig(70)",
+            Value::NatBig(Nat::from(70u64)),
             vec![0x16, 0x00, 0x02, 0x37, 0x30],
         ),
         (
@@ -619,12 +616,12 @@ fn canonical_encoder_total_order_matches_value_canonical_cmp_for_supported_sampl
         Value::Text("b".to_string()),
         Value::Timestamp(Timestamp::from_secs(1)),
         Value::Timestamp(Timestamp::from_secs(2)),
-        Value::Uint(1),
-        Value::Uint(2),
-        Value::Uint128(Nat128::from(1u128)),
-        Value::Uint128(Nat128::from(2u128)),
-        Value::UintBig(Nat::from(1u64)),
-        Value::UintBig(Nat::from(2u64)),
+        Value::Nat(1),
+        Value::Nat(2),
+        Value::Nat128(Nat128::from(1u128)),
+        Value::Nat128(Nat128::from(2u128)),
+        Value::NatBig(Nat::from(1u64)),
+        Value::NatBig(Nat::from(2u64)),
         Value::Ulid(Ulid::from_u128(1)),
         Value::Ulid(Ulid::from_u128(2)),
         Value::Unit,
@@ -646,7 +643,7 @@ fn canonical_encoder_total_order_matches_value_canonical_cmp_for_supported_sampl
 #[test]
 fn index_component_compare_requires_strict_variant_match_for_numeric_widening() {
     let left = Value::Int(7);
-    let right = Value::Uint(7);
+    let right = Value::Nat(7);
 
     assert_eq!(
         compare_index_component_values(&left, &right),
@@ -677,7 +674,7 @@ fn canonical_encoder_pairwise_cmp_matches_bytes_for_primitive_families() {
             "Int",
             vec![Value::Int(-2), Value::Int(-1), Value::Int(0), Value::Int(7)],
         ),
-        ("Uint", vec![Value::Uint(0), Value::Uint(1), Value::Uint(7)]),
+        ("Nat", vec![Value::Nat(0), Value::Nat(1), Value::Nat(7)]),
         (
             "Int128",
             vec![
@@ -687,11 +684,11 @@ fn canonical_encoder_pairwise_cmp_matches_bytes_for_primitive_families() {
             ],
         ),
         (
-            "Uint128",
+            "Nat128",
             vec![
-                Value::Uint128(Nat128::from(0u128)),
-                Value::Uint128(Nat128::from(1u128)),
-                Value::Uint128(Nat128::from(7u128)),
+                Value::Nat128(Nat128::from(0u128)),
+                Value::Nat128(Nat128::from(1u128)),
+                Value::Nat128(Nat128::from(7u128)),
             ],
         ),
         (
@@ -704,11 +701,11 @@ fn canonical_encoder_pairwise_cmp_matches_bytes_for_primitive_families() {
             ],
         ),
         (
-            "UintBig",
+            "NatBig",
             vec![
-                Value::UintBig(Nat::from(0u64)),
-                Value::UintBig(Nat::from(1u64)),
-                Value::UintBig(Nat::from(70u64)),
+                Value::NatBig(Nat::from(0u64)),
+                Value::NatBig(Nat::from(1u64)),
+                Value::NatBig(Nat::from(70u64)),
             ],
         ),
         (
@@ -906,15 +903,15 @@ proptest! {
     }
 
     #[test]
-    fn uint_big_ordered_encoding_matches_numeric_order_property(
+    fn nat_big_ordered_encoding_matches_numeric_order_property(
         lhs_text in unsigned_decimal_text_strategy(96),
         rhs_text in unsigned_decimal_text_strategy(96),
     ) {
         let lhs: Nat = lhs_text.parse().expect("lhs nat literal should parse");
         let rhs: Nat = rhs_text.parse().expect("rhs nat literal should parse");
 
-        let lhs_value = Value::UintBig(lhs.clone());
-        let rhs_value = Value::UintBig(rhs.clone());
+        let lhs_value = Value::NatBig(lhs.clone());
+        let rhs_value = Value::NatBig(rhs.clone());
         let lhs_bytes = encode_canonical_index_component(&lhs_value).expect("lhs should encode");
         let rhs_bytes = encode_canonical_index_component(&rhs_value).expect("rhs should encode");
 

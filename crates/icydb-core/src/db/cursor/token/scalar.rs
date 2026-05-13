@@ -129,7 +129,7 @@ mod tests {
             ContinuationSignature::from_bytes([0x24; 32]),
             CursorBoundary {
                 slots: vec![
-                    CursorBoundarySlot::Present(Value::Uint(7)),
+                    CursorBoundarySlot::Present(Value::Nat(7)),
                     CursorBoundarySlot::Present(Value::Text("tenant-a".to_string())),
                 ],
             },
@@ -142,7 +142,7 @@ mod tests {
         ContinuationToken::new_index_range_with_direction(
             ContinuationSignature::from_bytes([0x51; 32]),
             CursorBoundary {
-                slots: vec![CursorBoundarySlot::Present(Value::Uint(11))],
+                slots: vec![CursorBoundarySlot::Present(Value::Nat(11))],
             },
             IndexRangeCursorAnchor::new(vec![0xAA, 0xBB, 0xCC]),
             Direction::Asc,

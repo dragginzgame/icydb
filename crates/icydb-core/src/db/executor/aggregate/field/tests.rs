@@ -21,7 +21,7 @@ use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
 use std::cmp::Ordering;
 
-static SCORE_LIST_KIND: FieldKind = FieldKind::Uint;
+static SCORE_LIST_KIND: FieldKind = FieldKind::Nat;
 
 fn compare_entity_slot(
     left: &AggregateFieldEntity,
@@ -88,7 +88,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("rank", FieldKind::Uint),
+        ("rank", FieldKind::Nat),
         ("label", FieldKind::Text { max_len: None }),
         ("scores", FieldKind::List(&SCORE_LIST_KIND)),
     ],
@@ -105,7 +105,7 @@ fn resolve_orderable_target_slot_accepts_scalar_field() {
     )
     .expect("rank should be accepted as orderable target");
 
-    assert!(matches!(slot.kind, FieldKind::Uint));
+    assert!(matches!(slot.kind, FieldKind::Nat));
 }
 
 #[test]
@@ -117,7 +117,7 @@ fn resolve_orderable_target_slot_matches_schema_index() {
     .expect("rank slot should resolve");
 
     assert_eq!(slot.index, 1);
-    assert!(matches!(slot.kind, FieldKind::Uint));
+    assert!(matches!(slot.kind, FieldKind::Nat));
 }
 
 #[test]
@@ -159,7 +159,7 @@ fn resolve_orderable_target_slot_rejects_non_orderable_field_kind() {
 
 #[test]
 fn compare_orderable_field_values_rejects_mismatched_variants() {
-    let err = compare_orderable_field_values("rank", &Value::Uint(7), &Value::Text("x".into()))
+    let err = compare_orderable_field_values("rank", &Value::Nat(7), &Value::Text("x".into()))
         .expect_err("mismatched value variants must be rejected");
 
     assert!(matches!(
@@ -171,7 +171,7 @@ fn compare_orderable_field_values_rejects_mismatched_variants() {
 #[test]
 fn compare_orderable_field_values_uses_shared_numeric_widen_authority() {
     let left = Value::Int(7);
-    let right = Value::Uint(7);
+    let right = Value::Nat(7);
 
     let ordering =
         compare_orderable_field_values("rank", &left, &right).expect("numeric compare should work");
@@ -216,7 +216,7 @@ fn compare_entities_by_orderable_field_returns_deterministic_ordering() {
         "rank",
         FieldSlot {
             index: 1,
-            kind: FieldKind::Uint,
+            kind: FieldKind::Nat,
         },
     )
     .expect("typed field comparison should succeed");
@@ -244,7 +244,7 @@ fn compare_entities_by_orderable_field_rejects_runtime_type_mismatch() {
         &left,
         &right,
         "rank",
-        // Deliberate mismatch: expected Text but runtime field emits Uint.
+        // Deliberate mismatch: expected Text but runtime field emits Nat.
         FieldSlot {
             index: 1,
             kind: FieldKind::Text { max_len: None },
@@ -279,7 +279,7 @@ fn compare_entities_for_field_extrema_uses_pk_ascending_tie_break_in_asc() {
         "rank",
         FieldSlot {
             index: 1,
-            kind: FieldKind::Uint,
+            kind: FieldKind::Nat,
         },
         Direction::Asc,
     )
@@ -309,7 +309,7 @@ fn compare_entities_for_field_extrema_uses_pk_ascending_tie_break_in_desc() {
         "rank",
         FieldSlot {
             index: 1,
-            kind: FieldKind::Uint,
+            kind: FieldKind::Nat,
         },
         Direction::Desc,
     )
@@ -326,7 +326,7 @@ fn resolve_numeric_target_slot_accepts_numeric_field() {
     )
     .expect("numeric target field should be accepted");
 
-    assert!(matches!(slot.kind, FieldKind::Uint));
+    assert!(matches!(slot.kind, FieldKind::Nat));
 }
 
 #[test]
@@ -356,7 +356,7 @@ fn extract_numeric_field_decimal_coerces_numeric_values() {
         "rank",
         FieldSlot {
             index: 1,
-            kind: FieldKind::Uint,
+            kind: FieldKind::Nat,
         },
         &mut |index| entity.get_value_by_index(index),
     )
