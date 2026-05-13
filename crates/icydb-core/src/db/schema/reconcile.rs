@@ -8,9 +8,9 @@ use crate::{
         Db, EntityRuntimeHooks,
         schema::{
             AcceptedSchemaSnapshot, MutationPublicationBlocker, MutationPublicationPreflight,
-            PersistedSchemaSnapshot, SchemaMutationRunnerContract, SchemaStore,
-            SchemaTransitionDecision, SchemaTransitionPlanKind, compiled_schema_proposal_for_model,
-            decide_schema_transition,
+            PersistedSchemaSnapshot, SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
+            SchemaStore, SchemaTransitionDecision, SchemaTransitionPlanKind,
+            compiled_schema_proposal_for_model, decide_schema_transition,
             runtime::AcceptedRowLayoutRuntimeDescriptor,
             transition::{SchemaTransitionPlan, SchemaTransitionRejectionKind},
         },
@@ -157,14 +157,15 @@ fn validate_publishable_transition_plan(
         MutationPublicationPreflight::PhysicalWorkReady {
             step_count,
             required,
-        } => Err(InternalError::store_unsupported(format!(
-            "schema mutation physical work is preflight-ready but execution is unavailable for entity '{entity_path}': steps={step_count} capabilities={required:?}",
-        ))),
-        MutationPublicationPreflight::MissingRunnerCapabilities { missing } => {
-            Err(InternalError::store_unsupported(format!(
-                "schema mutation plan requires runner preflight before publication for entity '{entity_path}': missing_capabilities={missing:?}",
-            )))
-        }
+        } => Err(supported_physical_work_unavailable_error(
+            entity_path,
+            plan,
+            step_count,
+            required.as_slice(),
+        )),
+        MutationPublicationPreflight::MissingRunnerCapabilities { missing } => Err(
+            missing_physical_runner_error(entity_path, plan, missing.as_slice()),
+        ),
         MutationPublicationPreflight::Rejected { requirement } => {
             Err(InternalError::store_unsupported(format!(
                 "schema mutation plan is rejected before publication for entity '{entity_path}': rebuild={requirement:?}",
@@ -180,6 +181,44 @@ fn validate_publishable_transition_plan(
         )) => Err(InternalError::store_unsupported(format!(
             "schema mutation plan requires rebuild before publication for entity '{entity_path}': rebuild={rebuild:?}",
         ))),
+    }
+}
+
+// Keep supported physical schema mutation diagnostics distinct from generic
+// unsupported mutation shapes. Reconciliation still fails closed until the
+// startup runner owns row/index/schema publication together.
+fn supported_physical_work_unavailable_error(
+    entity_path: &'static str,
+    plan: &SchemaTransitionPlan,
+    step_count: usize,
+    required: &[SchemaMutationRunnerCapability],
+) -> InternalError {
+    match plan.supported_developer_physical_path() {
+        Ok(path) => InternalError::store_unsupported(format!(
+            "supported schema mutation physical work is preflight-ready but startup execution is unavailable for entity '{entity_path}': mutation=add_non_unique_field_path_index target='{}' store='{}' steps={step_count} capabilities={required:?}",
+            path.target().name(),
+            path.target().store(),
+        )),
+        Err(rejection) => InternalError::store_unsupported(format!(
+            "schema mutation physical work is preflight-ready but unsupported for entity '{entity_path}': rejection={rejection:?} steps={step_count} capabilities={required:?}",
+        )),
+    }
+}
+
+fn missing_physical_runner_error(
+    entity_path: &'static str,
+    plan: &SchemaTransitionPlan,
+    missing: &[SchemaMutationRunnerCapability],
+) -> InternalError {
+    match plan.supported_developer_physical_path() {
+        Ok(path) => InternalError::store_unsupported(format!(
+            "supported schema mutation requires startup runner execution before publication for entity '{entity_path}': mutation=add_non_unique_field_path_index target='{}' store='{}' missing_capabilities={missing:?}",
+            path.target().name(),
+            path.target().store(),
+        )),
+        Err(rejection) => InternalError::store_unsupported(format!(
+            "schema mutation plan requires runner preflight before publication for entity '{entity_path}': missing_capabilities={missing:?} supported_path_rejection={rejection:?}",
+        )),
     }
 }
 

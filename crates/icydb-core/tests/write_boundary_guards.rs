@@ -438,6 +438,8 @@ fn schema_mutation_publication_boundary_uses_runner_preflight() {
             && reconcile.contains("MutationPublicationPreflight::PublishableNow => Ok(())")
             && reconcile.contains("MutationPublicationPreflight::MissingRunnerCapabilities")
             && reconcile.contains("MutationPublicationPreflight::Rejected")
+            && reconcile.contains("plan.supported_developer_physical_path()")
+            && reconcile.contains("supported schema mutation requires startup runner execution")
             && reconcile_compact
                 .contains("MutationPublicationPreflight::PhysicalWorkReady{step_count,required,}")
             && !reconcile.contains("match plan.publication_status()"),

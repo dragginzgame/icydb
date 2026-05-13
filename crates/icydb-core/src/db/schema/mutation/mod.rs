@@ -904,6 +904,69 @@ impl SchemaMutationExecutionPlan {
             }
         }
     }
+
+    #[must_use]
+    fn has_unsupported_supported_path_step(&self) -> bool {
+        self.steps.iter().any(|step| {
+            matches!(
+                step,
+                SchemaMutationExecutionStep::BuildExpressionIndex { .. }
+                    | SchemaMutationExecutionStep::DropSecondaryIndex { .. }
+                    | SchemaMutationExecutionStep::RewriteAllRows
+                    | SchemaMutationExecutionStep::Unsupported { .. }
+            )
+        })
+    }
+
+    /// Admit the single developer-supported physical mutation path for 0.154.
+    /// The generic execution plan may still describe future expression-index,
+    /// cleanup, or rewrite work, but those shapes are rejected here before
+    /// runner wiring can consume them as supported behavior.
+    #[allow(
+        dead_code,
+        reason = "0.154 starts supported-path admission before reconciliation consumes it"
+    )]
+    pub(in crate::db::schema) fn supported_developer_execution_path(
+        &self,
+    ) -> Result<SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection> {
+        match self.readiness {
+            SchemaMutationExecutionReadiness::PublishableNow => {
+                return Err(SchemaMutationSupportedPathRejection::NoPhysicalWork);
+            }
+            SchemaMutationExecutionReadiness::RequiresPhysicalRunner(
+                RebuildRequirement::IndexRebuildRequired,
+            ) => {}
+            SchemaMutationExecutionReadiness::Unsupported(requirement)
+            | SchemaMutationExecutionReadiness::RequiresPhysicalRunner(requirement) => {
+                return Err(
+                    SchemaMutationSupportedPathRejection::UnsupportedRequirement(requirement),
+                );
+            }
+        }
+
+        let [
+            SchemaMutationExecutionStep::BuildFieldPathIndex { target },
+            SchemaMutationExecutionStep::ValidatePhysicalWork,
+            SchemaMutationExecutionStep::InvalidateRuntimeState,
+        ] = self.steps.as_slice()
+        else {
+            return if self.has_unsupported_supported_path_step() {
+                Err(SchemaMutationSupportedPathRejection::UnsupportedMutationKind)
+            } else {
+                Err(SchemaMutationSupportedPathRejection::UnsupportedExecutionShape)
+            };
+        };
+
+        if target.unique() {
+            return Err(SchemaMutationSupportedPathRejection::UniqueIndexUnsupported);
+        }
+
+        if target.key_paths().is_empty() {
+            return Err(SchemaMutationSupportedPathRejection::EmptyFieldPathKey);
+        }
+
+        Ok(SchemaMutationSupportedExecutionPath::new(target.clone()))
+    }
 }
 
 ///
@@ -944,6 +1007,7 @@ pub(in crate::db::schema) enum MutationPublicationStatus {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationDelta<'a> {
     AppendOnlyFields(&'a [PersistedFieldSnapshot]),
+    AddNonUniqueFieldPathIndex(&'a PersistedIndexSnapshot),
     ExactMatch,
     Incompatible,
 }
@@ -959,10 +1023,17 @@ pub(in crate::db::schema) fn classify_schema_mutation_delta<'a>(
         return SchemaMutationDelta::ExactMatch;
     }
 
-    append_only_additive_fields(actual, expected).map_or(
-        SchemaMutationDelta::Incompatible,
-        SchemaMutationDelta::AppendOnlyFields,
-    )
+    if let Some(fields) = append_only_additive_fields(actual, expected) {
+        return SchemaMutationDelta::AppendOnlyFields(fields);
+    }
+
+    if let Some(index) = single_added_index(actual, expected)
+        && SchemaMutationRequest::from_accepted_non_unique_field_path_index(index).is_ok()
+    {
+        return SchemaMutationDelta::AddNonUniqueFieldPathIndex(index);
+    }
+
+    SchemaMutationDelta::Incompatible
 }
 
 /// Build one mutation request from the structural delta between two accepted
@@ -1232,6 +1303,40 @@ impl MutationPlan {
         SchemaMutationExecutionPlan::from_rebuild_plan(self.rebuild_plan())
     }
 
+    /// Admit the only 0.154 developer-supported physical mutation shape:
+    /// exactly one non-unique field-path secondary index addition. This
+    /// plan-level guard prevents mixed catalog changes from slipping through a
+    /// valid-looking execution step sequence.
+    #[allow(
+        dead_code,
+        reason = "0.154 starts supported-path admission before reconciliation consumes it"
+    )]
+    pub(in crate::db::schema) fn supported_developer_physical_path(
+        &self,
+    ) -> Result<SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection> {
+        let [SchemaMutation::AddNonUniqueFieldPathIndex { target }] = self.mutations.as_slice()
+        else {
+            return match self.rebuild {
+                RebuildRequirement::NoRebuildRequired => {
+                    Err(SchemaMutationSupportedPathRejection::NoPhysicalWork)
+                }
+                RebuildRequirement::IndexRebuildRequired => {
+                    Err(SchemaMutationSupportedPathRejection::UnsupportedMutationKind)
+                }
+                RebuildRequirement::FullDataRewriteRequired | RebuildRequirement::Unsupported => {
+                    Err(SchemaMutationSupportedPathRejection::UnsupportedRequirement(self.rebuild))
+                }
+            };
+        };
+
+        let supported = self.execution_plan().supported_developer_execution_path()?;
+        if supported.target() != target {
+            return Err(SchemaMutationSupportedPathRejection::UnsupportedExecutionShape);
+        }
+
+        Ok(supported)
+    }
+
     /// Return how many appended fields are represented by this plan.
     #[cfg(test)]
     pub(in crate::db::schema) fn added_field_count(&self) -> usize {
@@ -1419,6 +1524,9 @@ impl<'a> From<SchemaMutationDelta<'a>> for SchemaMutationRequest<'a> {
     fn from(delta: SchemaMutationDelta<'a>) -> Self {
         match delta {
             SchemaMutationDelta::AppendOnlyFields(fields) => Self::AppendOnlyFields(fields),
+            SchemaMutationDelta::AddNonUniqueFieldPathIndex(index) => {
+                Self::from_accepted_non_unique_field_path_index(index).unwrap_or(Self::Incompatible)
+            }
             SchemaMutationDelta::ExactMatch => Self::ExactMatch,
             SchemaMutationDelta::Incompatible => Self::Incompatible,
         }
@@ -1726,6 +1834,35 @@ fn append_only_additive_fields<'a>(
     }
 
     Some(&expected.fields()[actual.fields().len()..])
+}
+
+// Return one appended index only when all non-index schema facts and prior
+// accepted index contracts remain unchanged. 0.154 deliberately supports one
+// index mutation at a time, so multiple additions stay incompatible.
+fn single_added_index<'a>(
+    actual: &PersistedSchemaSnapshot,
+    expected: &'a PersistedSchemaSnapshot,
+) -> Option<&'a PersistedIndexSnapshot> {
+    if actual.entity_path() != expected.entity_path()
+        || actual.entity_name() != expected.entity_name()
+        || actual.primary_key_field_id() != expected.primary_key_field_id()
+        || actual.row_layout().field_to_slot() != expected.row_layout().field_to_slot()
+        || actual.fields() != expected.fields()
+        || expected.indexes().len() != actual.indexes().len().saturating_add(1)
+    {
+        return None;
+    }
+
+    if !actual
+        .indexes()
+        .iter()
+        .zip(expected.indexes())
+        .all(|(actual_index, expected_index)| actual_index == expected_index)
+    {
+        return None;
+    }
+
+    expected.indexes().last()
 }
 
 #[cfg(test)]

@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.154.x] 🧪 - 2026-05-13 - Developer-Stable Schema Mutation Path
+
+- `0.154.0` starts the developer-supported schema mutation path by adding a fail-closed admission guard that accepts exactly one physical mutation shape, a single non-unique field-path secondary index add, recognizes that one index-only accepted snapshot delta during mutation lowering, and keeps expression-index rebuilds, secondary-index drops, metadata-only plans, rewrites, unsupported mutations, and malformed execution plans rejected before supported runner wiring can consume them.
+
+See detailed breakdown:
+[docs/changelog/0.154.md](docs/changelog/0.154.md)
+
+---
+
 ## [0.153.x] 🏗️ - 2026-05-11 - Schema Rebuild Runners
 
 - `0.153.12` moves the developer `icydb` CLI off the dfx command surface and onto the new icp-cli/Canic project path, adding an `icp.yaml` manifest with demo/test/audit environments on local gateway port 8001, defaulting `icydb sql` to the local `demo` environment, decoding `icp canister call --query -o hex` Candid responses locally, allowing structured record subtree projection and nested scalar ordering for queries like `SELECT mentor FROM character` and `ORDER BY mentor.level`, honoring `ICP_WASM_OUTPUT_PATH` in script builds, and updating demo/canister helpers and docs to use ICP environments instead of dfx.

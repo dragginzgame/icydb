@@ -105,6 +105,70 @@ pub(in crate::db::schema) enum SchemaMutationExecutionAdmission {
 }
 
 ///
+/// SchemaMutationSupportedPathRejection
+///
+/// Fail-closed reason for the developer-supported physical mutation path. The
+/// generic execution planner may describe future physical work, but 0.154 only
+/// admits one path: a single non-unique field-path secondary index add.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.154 starts supported-path admission before reconciliation consumes it"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaMutationSupportedPathRejection {
+    NoPhysicalWork,
+    UnsupportedRequirement(RebuildRequirement),
+    UnsupportedMutationKind,
+    UnsupportedExecutionShape,
+    UniqueIndexUnsupported,
+    EmptyFieldPathKey,
+}
+
+///
+/// SchemaMutationSupportedExecutionPath
+///
+/// The single physical mutation path supported for developer testing in 0.154:
+/// add one non-unique field-path secondary index from accepted catalog
+/// metadata, then validate physical work and invalidate runtime state.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.154 starts supported-path admission before reconciliation consumes it"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaMutationSupportedExecutionPath {
+    target: SchemaFieldPathIndexRebuildTarget,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.154 starts supported-path admission before reconciliation consumes it"
+)]
+impl SchemaMutationSupportedExecutionPath {
+    #[must_use]
+    pub(in crate::db::schema) const fn new(target: SchemaFieldPathIndexRebuildTarget) -> Self {
+        Self { target }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn target(&self) -> &SchemaFieldPathIndexRebuildTarget {
+        &self.target
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn required_capabilities() -> Vec<SchemaMutationRunnerCapability> {
+        vec![
+            SchemaMutationRunnerCapability::BuildFieldPathIndex,
+            SchemaMutationRunnerCapability::ValidatePhysicalWork,
+            SchemaMutationRunnerCapability::InvalidateRuntimeState,
+        ]
+    }
+}
+
+///
 /// SchemaMutationRunnerPreflight
 ///
 /// Runner-facing preflight result for one execution plan. This is the last

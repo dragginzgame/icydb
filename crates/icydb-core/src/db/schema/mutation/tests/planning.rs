@@ -240,6 +240,95 @@ fn execution_plan_reports_runner_capabilities_without_duplicates() {
 }
 
 #[test]
+fn supported_developer_physical_path_admits_only_single_field_path_index_add() {
+    let field_path =
+        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
+            .expect("non-unique field-path index should lower")
+            .lower_to_plan();
+    let expression =
+        SchemaMutationRequest::from_accepted_expression_index(&expression_name_index())
+            .expect("accepted expression index should lower")
+            .lower_to_plan();
+    let drop = SchemaMutationRequest::from_accepted_non_unique_secondary_index_drop(
+        &non_unique_name_index(),
+    )
+    .expect("non-unique secondary index should lower to drop cleanup")
+    .lower_to_plan();
+    let metadata_only = MutationPlan::append_only_fields(&[nullable_text_field("nickname", 3, 2)]);
+    let rewrite = SchemaMutationRequest::Incompatible.lower_to_plan();
+    let unsupported = SchemaMutationRequest::AlterNullability {
+        field_id: FieldId::new(2),
+    }
+    .lower_to_plan();
+
+    let supported = field_path
+        .supported_developer_physical_path()
+        .expect("non-unique field-path index add is the only 0.154 supported path");
+    assert_eq!(supported.target().name(), "by_name");
+    assert_eq!(supported.target().store(), "test::mutation::by_name");
+    assert!(!supported.target().unique());
+    assert_eq!(
+        super::SchemaMutationSupportedExecutionPath::required_capabilities(),
+        vec![
+            super::SchemaMutationRunnerCapability::BuildFieldPathIndex,
+            super::SchemaMutationRunnerCapability::ValidatePhysicalWork,
+            super::SchemaMutationRunnerCapability::InvalidateRuntimeState,
+        ],
+    );
+    assert_eq!(
+        field_path
+            .execution_plan()
+            .supported_developer_execution_path(),
+        Ok(supported),
+    );
+
+    assert_eq!(
+        expression.supported_developer_physical_path(),
+        Err(super::SchemaMutationSupportedPathRejection::UnsupportedMutationKind),
+    );
+    assert_eq!(
+        expression
+            .execution_plan()
+            .supported_developer_execution_path(),
+        Err(super::SchemaMutationSupportedPathRejection::UnsupportedMutationKind),
+    );
+    assert_eq!(
+        drop.supported_developer_physical_path(),
+        Err(super::SchemaMutationSupportedPathRejection::UnsupportedMutationKind),
+    );
+    assert_eq!(
+        drop.execution_plan().supported_developer_execution_path(),
+        Err(super::SchemaMutationSupportedPathRejection::UnsupportedMutationKind),
+    );
+    assert_eq!(
+        metadata_only.supported_developer_physical_path(),
+        Err(super::SchemaMutationSupportedPathRejection::NoPhysicalWork),
+    );
+    assert_eq!(
+        metadata_only
+            .execution_plan()
+            .supported_developer_execution_path(),
+        Err(super::SchemaMutationSupportedPathRejection::NoPhysicalWork),
+    );
+    assert_eq!(
+        rewrite.supported_developer_physical_path(),
+        Err(
+            super::SchemaMutationSupportedPathRejection::UnsupportedRequirement(
+                RebuildRequirement::FullDataRewriteRequired,
+            )
+        ),
+    );
+    assert_eq!(
+        unsupported.supported_developer_physical_path(),
+        Err(
+            super::SchemaMutationSupportedPathRejection::UnsupportedRequirement(
+                RebuildRequirement::Unsupported,
+            )
+        ),
+    );
+}
+
+#[test]
 fn execution_admission_fails_closed_on_missing_runner_capabilities() {
     let drop = SchemaMutationRequest::from_accepted_non_unique_secondary_index_drop(
         &non_unique_name_index(),
@@ -1009,6 +1098,64 @@ fn snapshot_delta_request_lowers_append_only_fields_to_mutation_plan() {
     assert_eq!(
         plan.publication_status(),
         MutationPublicationStatus::Publishable
+    );
+}
+
+#[test]
+fn snapshot_delta_request_lowers_single_field_path_index_add_to_supported_path() {
+    let stored = base_snapshot();
+    let generated = snapshot_with_indexes(&stored, vec![non_unique_name_index()]);
+
+    let SchemaMutationDelta::AddNonUniqueFieldPathIndex(index) =
+        classify_schema_mutation_delta(&stored, &generated)
+    else {
+        panic!("single non-unique field-path index addition should classify explicitly");
+    };
+    assert_eq!(index.name(), "by_name");
+
+    let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } =
+        schema_mutation_request_for_snapshots(&stored, &generated)
+    else {
+        panic!("single non-unique field-path index addition should lower into index request");
+    };
+    assert_eq!(target.name(), "by_name");
+    assert_eq!(target.store(), "test::mutation::by_name");
+
+    let plan = SchemaMutationRequest::AddNonUniqueFieldPathIndex { target }.lower_to_plan();
+    assert!(plan.supported_developer_physical_path().is_ok());
+    assert_eq!(
+        plan.publication_status(),
+        MutationPublicationStatus::Blocked(MutationPublicationBlocker::NotMetadataSafe(
+            MutationCompatibility::RequiresRebuild,
+        )),
+    );
+}
+
+#[test]
+fn snapshot_delta_classifier_rejects_multiple_or_unsupported_index_additions() {
+    let stored = base_snapshot();
+    let unique = PersistedIndexSnapshot::new(
+        2,
+        "unique_name".to_string(),
+        "test::mutation::unique_name".to_string(),
+        true,
+        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        None,
+    );
+
+    assert_eq!(
+        classify_schema_mutation_delta(&stored, &snapshot_with_indexes(&stored, vec![unique])),
+        SchemaMutationDelta::Incompatible,
+    );
+    assert_eq!(
+        classify_schema_mutation_delta(
+            &stored,
+            &snapshot_with_indexes(
+                &stored,
+                vec![non_unique_name_index(), expression_name_index()],
+            ),
+        ),
+        SchemaMutationDelta::Incompatible,
     );
 }
 

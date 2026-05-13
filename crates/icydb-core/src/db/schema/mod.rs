@@ -59,8 +59,9 @@ pub(in crate::db::schema) use mutation::SchemaRebuildAction;
 pub(in crate::db::schema) use mutation::{MutationCompatibility, RebuildRequirement};
 pub(in crate::db::schema) use mutation::{
     MutationPlan, MutationPublicationBlocker, MutationPublicationPreflight,
-    MutationPublicationStatus, SchemaMutationRequest, SchemaMutationRunnerContract,
-    schema_mutation_request_for_snapshots,
+    MutationPublicationStatus, SchemaMutationRequest, SchemaMutationRunnerCapability,
+    SchemaMutationRunnerContract, SchemaMutationSupportedExecutionPath,
+    SchemaMutationSupportedPathRejection, schema_mutation_request_for_snapshots,
 };
 pub(in crate::db) use mutation::{
     SchemaFieldPathIndexRebuildKey, SchemaFieldPathIndexRebuildTarget,

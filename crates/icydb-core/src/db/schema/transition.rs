@@ -10,7 +10,8 @@ use crate::{
             AcceptedFieldDecodeContract, FieldId, MutationPlan, MutationPublicationPreflight,
             MutationPublicationStatus, PersistedFieldSnapshot, PersistedNestedLeafSnapshot,
             PersistedSchemaSnapshot, SchemaFieldSlot, SchemaMutationRequest,
-            SchemaMutationRunnerContract, schema_mutation_request_for_snapshots,
+            SchemaMutationRunnerContract, SchemaMutationSupportedExecutionPath,
+            SchemaMutationSupportedPathRejection, schema_mutation_request_for_snapshots,
         },
     },
     value::Value,
@@ -107,6 +108,14 @@ impl SchemaTransitionPlan {
     )]
     pub(in crate::db::schema) fn mutation_fingerprint(&self) -> [u8; 16] {
         self.mutation_plan.fingerprint()
+    }
+
+    // Admit the only developer-supported physical mutation path for this
+    // transition without exposing raw mutation-plan internals to reconciliation.
+    pub(in crate::db::schema) fn supported_developer_physical_path(
+        &self,
+    ) -> Result<SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection> {
+        self.mutation_plan.supported_developer_physical_path()
     }
 
     // Borrow the catalog-native mutation plan behind this reconciliation

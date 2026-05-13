@@ -21,6 +21,62 @@ Only correctness of state transitions.
 
 ---
 
+## Current Adjacency And Merge Decision
+
+This audit is intentionally retained as a standalone audit. It overlaps with
+storage recovery, cursor ordering, invariant preservation, and schema transition
+audits, but it owns a different question:
+
+> Can one state boundary be entered, widened, skipped, or published out of
+> order?
+
+Do not turn this into a deep replay-equivalence audit. That belongs to
+`storage/storage-recovery-consistency.md`.
+
+Do not turn this into a cursor comparison-order audit. That belongs to
+`executor/cursor-ordering.md`.
+
+Do not turn this into a broad invariant inventory. That belongs to
+`integrity/invariant-preservation.md`.
+
+This audit must instead sample transition gates across those domains and verify
+that state ownership remains explicit and fail-closed.
+
+---
+
+## Current Source Map
+
+Every run must re-check this map and update the report when ownership moved.
+
+| State Boundary | Current Owner Paths | Adjacent Audit |
+| -------------- | ------------------- | -------------- |
+| schema transition admission | `crates/icydb-core/src/db/schema/transition.rs`, `crates/icydb-core/src/db/schema/reconcile.rs` | canonical semantic authority |
+| schema mutation runner publication | `crates/icydb-core/src/db/schema/mutation/field_path/*`, `crates/icydb-core/src/db/schema/mutation/runner.rs` | invariant preservation |
+| route-plan validation handoff | `crates/icydb-core/src/db/executor/planning/route/*`, `crates/icydb-core/tests/write_boundary_guards.rs` | layer violation |
+| commit-window open/apply/finish | `crates/icydb-core/src/db/executor/mutation/commit_window.rs`, `crates/icydb-core/src/db/commit/guard.rs` | recovery consistency |
+| SQL/fluent write transition barrier | `crates/icydb-core/src/db/session/sql/*`, `crates/icydb-core/src/db/executor/tests/mutation_save.rs` | completeness |
+| recovery write gate handoff | `crates/icydb-core/src/db/commit/recovery.rs`, `crates/icydb-core/src/db/mod.rs` | recovery consistency |
+
+---
+
+## Required Modern Transition Samples
+
+Every run must include at least one concrete evidence row for each of these
+families. A row may be source-audit evidence, a focused test, or both.
+
+| Family | Required Question | Minimum Evidence |
+| ------ | ----------------- | ---------------- |
+| schema mutation runner | Can staged physical work publish before validation, runtime invalidation, and accepted snapshot handoff? | focused schema mutation runner test or source guard |
+| schema transition barrier | Can unsupported accepted-schema drift reach read/write staging? | focused session/executor transition-barrier test |
+| route-plan handoff | Can executor route construction bypass validated planner output? | focused route structural guard |
+| commit-window lifecycle | Can apply/finish occur without a persisted marker-backed commit window? | commit guard or commit-window test |
+| recovery handoff | Are writes blocked or rebuilt before recovery completion? | focused recovery gate test or source guard |
+
+If one family has no live evidence, the report must mark it `PARTIAL` and name
+the missing probe.
+
+---
+
 # Ground Truth Specification
 
 The database must behave as a deterministic state machine.
