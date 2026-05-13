@@ -6,7 +6,9 @@ use crate::{
             CanonicalSlotReader, ScalarSlotValueRef, SlotReader, StorageKey,
             StructuralFieldDecodeContract,
         },
-        index::{IndexId, IndexKey, IndexState, IndexStore, RawIndexEntry, RawIndexKey},
+        index::{
+            IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore, RawIndexEntry, RawIndexKey,
+        },
         schema::{
             AcceptedSchemaMutationError, FieldId, MutationCompatibility, MutationPlan,
             PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,

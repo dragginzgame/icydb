@@ -9,7 +9,7 @@ use crate::db::{
         write_hash_u32,
     },
     data::{CanonicalSlotReader, StorageKey},
-    index::{IndexEntry, IndexKey, IndexState, IndexStore, RawIndexEntry, RawIndexKey},
+    index::{IndexEntry, IndexId, IndexKey, IndexState, IndexStore, RawIndexEntry, RawIndexKey},
     schema::{
         FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,

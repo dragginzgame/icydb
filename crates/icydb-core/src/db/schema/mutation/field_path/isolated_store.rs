@@ -80,6 +80,28 @@ impl<'a> SchemaFieldPathIndexIsolatedIndexStoreWriter<'a> {
         SchemaFieldPathIndexIsolatedIndexStoreValidation,
         SchemaFieldPathIndexIsolatedIndexStoreValidationError,
     > {
+        self.validate_batch_with_scope(batch, None)
+    }
+
+    pub(in crate::db::schema) fn validate_batch_for_target_index(
+        &self,
+        target_index_id: &IndexId,
+        batch: &SchemaFieldPathIndexStagedStoreWriteBatch,
+    ) -> Result<
+        SchemaFieldPathIndexIsolatedIndexStoreValidation,
+        SchemaFieldPathIndexIsolatedIndexStoreValidationError,
+    > {
+        self.validate_batch_with_scope(batch, Some(target_index_id))
+    }
+
+    fn validate_batch_with_scope(
+        &self,
+        batch: &SchemaFieldPathIndexStagedStoreWriteBatch,
+        target_index_id: Option<&IndexId>,
+    ) -> Result<
+        SchemaFieldPathIndexIsolatedIndexStoreValidation,
+        SchemaFieldPathIndexIsolatedIndexStoreValidationError,
+    > {
         if self.store != batch.store() {
             return Err(SchemaFieldPathIndexIsolatedIndexStoreValidationError::StoreMismatch);
         }
@@ -92,11 +114,34 @@ impl<'a> SchemaFieldPathIndexIsolatedIndexStoreWriter<'a> {
 
         let expected_entry_count =
             u64::try_from(batch.entries().len()).expect("staged entry count should fit in u64");
-        if self.index_store.len() != expected_entry_count {
-            return Err(SchemaFieldPathIndexIsolatedIndexStoreValidationError::EntryCountMismatch);
+        match target_index_id {
+            Some(target_index_id) => {
+                if self.target_index_entry_count(target_index_id)? != expected_entry_count {
+                    return Err(
+                        SchemaFieldPathIndexIsolatedIndexStoreValidationError::EntryCountMismatch,
+                    );
+                }
+            }
+            None => {
+                if self.index_store.len() != expected_entry_count {
+                    return Err(
+                        SchemaFieldPathIndexIsolatedIndexStoreValidationError::EntryCountMismatch,
+                    );
+                }
+            }
         }
 
         for entry in batch.entries() {
+            if let Some(target_index_id) = target_index_id {
+                let index_key = IndexKey::try_from_raw(entry.key()).map_err(|_| {
+                    SchemaFieldPathIndexIsolatedIndexStoreValidationError::IndexKeyDecode
+                })?;
+                if index_key.index_id() != target_index_id {
+                    return Err(
+                        SchemaFieldPathIndexIsolatedIndexStoreValidationError::TargetMismatch,
+                    );
+                }
+            }
             let Some(index_entry) = self.index_store.get(entry.key()) else {
                 return Err(SchemaFieldPathIndexIsolatedIndexStoreValidationError::MissingEntry);
             };
@@ -114,6 +159,23 @@ impl<'a> SchemaFieldPathIndexIsolatedIndexStoreWriter<'a> {
             store_visibility: self.store_visibility,
             runner_report: batch.runner_report().clone(),
         })
+    }
+
+    fn target_index_entry_count(
+        &self,
+        target_index_id: &IndexId,
+    ) -> Result<u64, SchemaFieldPathIndexIsolatedIndexStoreValidationError> {
+        let mut entry_count = 0u64;
+        for (raw_key, _) in self.index_store.entries() {
+            let index_key = IndexKey::try_from_raw(&raw_key).map_err(|_| {
+                SchemaFieldPathIndexIsolatedIndexStoreValidationError::IndexKeyDecode
+            })?;
+            if index_key.index_id() == target_index_id {
+                entry_count += 1;
+            }
+        }
+
+        Ok(entry_count)
     }
 
     #[must_use]
@@ -172,6 +234,8 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexIsolatedIndexStoreValidationE
     PublishedVisibility,
     StoreNotBuilding,
     EntryCountMismatch,
+    IndexKeyDecode,
+    TargetMismatch,
     MissingEntry,
     EntryMismatch,
 }

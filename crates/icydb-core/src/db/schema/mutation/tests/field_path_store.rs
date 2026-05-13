@@ -415,6 +415,55 @@ fn field_path_rebuild_isolated_index_store_validation_fails_closed() {
 }
 
 #[test]
+fn field_path_rebuild_isolated_index_store_validation_can_scope_to_target_index() {
+    let buffer = staged_name_index_store();
+    let target = accepted_name_field_path_target();
+    let target_index_id = IndexId::new(EntityTag::new(7), target.ordinal());
+    let other_index_id = IndexId::new(EntityTag::new(7), target.ordinal() + 1);
+    let other_key = IndexKey::empty_with_kind(&other_index_id, IndexKeyKind::User).to_raw();
+    let other_entry =
+        RawIndexEntry::try_from_keys([StorageKey::Nat(77)]).expect("other entry should encode");
+    let mut index_store = initialized_index_store(229);
+    let mut writer =
+        super::SchemaFieldPathIndexIsolatedIndexStoreWriter::new(buffer.store(), &mut index_store);
+    let batch = buffer.write_batch(&writer);
+    let _ = batch.write_to(&mut writer);
+    writer.index_store.insert(other_key, other_entry);
+
+    assert_eq!(
+        writer.validate_batch(&batch),
+        Err(super::SchemaFieldPathIndexIsolatedIndexStoreValidationError::EntryCountMismatch),
+    );
+    let validation = writer
+        .validate_batch_for_target_index(&target_index_id, &batch)
+        .expect("target-scoped validation should ignore unrelated index entries");
+
+    assert_eq!(validation.entry_count(), batch.entries().len());
+    assert_eq!(writer.len(), 3);
+}
+
+#[test]
+fn field_path_rebuild_isolated_index_store_validation_rejects_extra_target_entries() {
+    let buffer = staged_name_index_store();
+    let extra_entry = extra_staged_name_index_entry();
+    let target = accepted_name_field_path_target();
+    let target_index_id = IndexId::new(EntityTag::new(7), target.ordinal());
+    let mut index_store = initialized_index_store(228);
+    let mut writer =
+        super::SchemaFieldPathIndexIsolatedIndexStoreWriter::new(buffer.store(), &mut index_store);
+    let batch = buffer.write_batch(&writer);
+    let _ = batch.write_to(&mut writer);
+    writer
+        .index_store
+        .insert(extra_entry.key().clone(), extra_entry.entry().clone());
+
+    assert_eq!(
+        writer.validate_batch_for_target_index(&target_index_id, &batch),
+        Err(super::SchemaFieldPathIndexIsolatedIndexStoreValidationError::EntryCountMismatch),
+    );
+}
+
+#[test]
 fn field_path_rebuild_runtime_invalidation_records_epoch_handoff_without_publication() {
     let buffer = staged_name_index_store();
     let mut index_store = initialized_index_store(232);
@@ -567,6 +616,127 @@ fn field_path_rebuild_snapshot_publication_handoff_keeps_physical_store_staged()
         ],
     );
     assert!(!readiness.allows_publication());
+}
+
+#[test]
+fn field_path_rebuild_published_store_can_scope_to_target_index() {
+    let buffer = staged_name_index_store();
+    let target = accepted_name_field_path_target();
+    let target_index_id = IndexId::new(EntityTag::new(7), target.ordinal());
+    let other_index_id = IndexId::new(EntityTag::new(7), target.ordinal() + 1);
+    let other_key = IndexKey::empty_with_kind(&other_index_id, IndexKeyKind::User).to_raw();
+    let other_entry =
+        RawIndexEntry::try_from_keys([StorageKey::Nat(77)]).expect("other entry should encode");
+    let mut index_store = initialized_index_store(227);
+    let batch;
+    let validation;
+    {
+        let mut writer = super::SchemaFieldPathIndexIsolatedIndexStoreWriter::new(
+            buffer.store(),
+            &mut index_store,
+        );
+        batch = buffer.write_batch(&writer);
+        let _ = batch.write_to(&mut writer);
+        writer.index_store.insert(other_key, other_entry);
+        validation = writer
+            .validate_batch_for_target_index(&target_index_id, &batch)
+            .expect("target-scoped validation should ignore unrelated index entries");
+    }
+    let (before, after, execution_plan) = field_path_index_runner_context();
+    let input = super::SchemaMutationRunnerInput::new(&before, &after, execution_plan)
+        .expect("same-entity accepted snapshots should build runner input");
+    let invalidation_plan =
+        super::SchemaFieldPathIndexRuntimeInvalidationPlan::from_isolated_index_store_validation(
+            &validation,
+            &input,
+        )
+        .expect("validated staged store should bind runtime invalidation epochs");
+    let mut invalidation_sink = RecordingRuntimeInvalidationSink::default();
+    let invalidation_report = invalidation_plan.invalidate_runtime_state(&mut invalidation_sink);
+    let publication_plan =
+        super::SchemaFieldPathIndexSnapshotPublicationPlan::from_runtime_invalidation_report(
+            &invalidation_report,
+            &input,
+        )
+        .expect("runtime invalidation should allow snapshot publication planning");
+    let mut publication_sink = RecordingAcceptedSnapshotPublicationSink::default();
+    let publication_report = publication_plan.publish_snapshot(&mut publication_sink);
+    let published_store_plan =
+        super::SchemaFieldPathIndexPublishedStorePlan::from_validated_publication(
+            &validation,
+            &publication_report,
+        )
+        .expect("validated physical work and snapshot publication should plan store publication");
+
+    assert_eq!(
+        published_store_plan.publish_index_store(&mut index_store),
+        Err(super::SchemaFieldPathIndexPublishedStoreError::EntryCountMismatch),
+    );
+    let report = published_store_plan
+        .publish_index_store_for_target_index(&target_index_id, &mut index_store)
+        .expect("target-scoped store publication should ignore unrelated index entries");
+
+    assert_eq!(report.entry_count(), batch.entries().len());
+    assert_eq!(report.index_state(), IndexState::Ready);
+    assert_eq!(
+        report.store_visibility(),
+        super::SchemaMutationStoreVisibility::Published,
+    );
+    assert_eq!(index_store.len(), 3);
+    assert_eq!(index_store.state(), IndexState::Ready);
+}
+
+#[test]
+fn field_path_rebuild_published_store_scope_rejects_extra_target_entries() {
+    let buffer = staged_name_index_store();
+    let target = accepted_name_field_path_target();
+    let target_index_id = IndexId::new(EntityTag::new(7), target.ordinal());
+    let extra_entry = extra_staged_name_index_entry();
+    let mut index_store = initialized_index_store(226);
+    let validation;
+    {
+        let mut writer = super::SchemaFieldPathIndexIsolatedIndexStoreWriter::new(
+            buffer.store(),
+            &mut index_store,
+        );
+        let batch = buffer.write_batch(&writer);
+        let _ = batch.write_to(&mut writer);
+        validation = writer
+            .validate_batch_for_target_index(&target_index_id, &batch)
+            .expect("target-scoped validation should pass before extra target entry appears");
+    }
+    let (before, after, execution_plan) = field_path_index_runner_context();
+    let input = super::SchemaMutationRunnerInput::new(&before, &after, execution_plan)
+        .expect("same-entity accepted snapshots should build runner input");
+    let invalidation_plan =
+        super::SchemaFieldPathIndexRuntimeInvalidationPlan::from_isolated_index_store_validation(
+            &validation,
+            &input,
+        )
+        .expect("validated staged store should bind runtime invalidation epochs");
+    let mut invalidation_sink = RecordingRuntimeInvalidationSink::default();
+    let invalidation_report = invalidation_plan.invalidate_runtime_state(&mut invalidation_sink);
+    let publication_plan =
+        super::SchemaFieldPathIndexSnapshotPublicationPlan::from_runtime_invalidation_report(
+            &invalidation_report,
+            &input,
+        )
+        .expect("runtime invalidation should allow snapshot publication planning");
+    let mut publication_sink = RecordingAcceptedSnapshotPublicationSink::default();
+    let publication_report = publication_plan.publish_snapshot(&mut publication_sink);
+    let published_store_plan =
+        super::SchemaFieldPathIndexPublishedStorePlan::from_validated_publication(
+            &validation,
+            &publication_report,
+        )
+        .expect("validated physical work and snapshot publication should plan store publication");
+    index_store.insert(extra_entry.key().clone(), extra_entry.entry().clone());
+
+    assert_eq!(
+        published_store_plan
+            .publish_index_store_for_target_index(&target_index_id, &mut index_store,),
+        Err(super::SchemaFieldPathIndexPublishedStoreError::EntryCountMismatch),
+    );
 }
 
 #[test]

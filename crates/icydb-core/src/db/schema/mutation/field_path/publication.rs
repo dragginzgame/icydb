@@ -413,6 +413,7 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexPublishedStoreError {
     PhysicalStateNotValidated,
     SnapshotNotPublished,
     StoreNotBuilding,
+    IndexKeyDecode,
     EntryCountMismatch,
 }
 
@@ -495,12 +496,33 @@ impl SchemaFieldPathIndexPublishedStorePlan {
         index_store: &mut IndexStore,
     ) -> Result<SchemaFieldPathIndexPublishedStoreReport, SchemaFieldPathIndexPublishedStoreError>
     {
+        self.publish_index_store_with_scope(index_store, None)
+    }
+
+    pub(in crate::db::schema) fn publish_index_store_for_target_index(
+        &self,
+        target_index_id: &IndexId,
+        index_store: &mut IndexStore,
+    ) -> Result<SchemaFieldPathIndexPublishedStoreReport, SchemaFieldPathIndexPublishedStoreError>
+    {
+        self.publish_index_store_with_scope(index_store, Some(target_index_id))
+    }
+
+    fn publish_index_store_with_scope(
+        &self,
+        index_store: &mut IndexStore,
+        target_index_id: Option<&IndexId>,
+    ) -> Result<SchemaFieldPathIndexPublishedStoreReport, SchemaFieldPathIndexPublishedStoreError>
+    {
         if index_store.state() != IndexState::Building {
             return Err(SchemaFieldPathIndexPublishedStoreError::StoreNotBuilding);
         }
 
-        let entry_count = usize::try_from(index_store.len())
-            .map_err(|_| SchemaFieldPathIndexPublishedStoreError::EntryCountMismatch)?;
+        let entry_count = match target_index_id {
+            Some(target_index_id) => target_index_entry_count(index_store, target_index_id)?,
+            None => usize::try_from(index_store.len())
+                .map_err(|_| SchemaFieldPathIndexPublishedStoreError::EntryCountMismatch)?,
+        };
         if entry_count != self.entry_count {
             return Err(SchemaFieldPathIndexPublishedStoreError::EntryCountMismatch);
         }
@@ -523,6 +545,22 @@ impl SchemaFieldPathIndexPublishedStorePlan {
             runner_report,
         })
     }
+}
+
+fn target_index_entry_count(
+    index_store: &IndexStore,
+    target_index_id: &IndexId,
+) -> Result<usize, SchemaFieldPathIndexPublishedStoreError> {
+    let mut entry_count = 0usize;
+    for (raw_key, _) in index_store.entries() {
+        let index_key = IndexKey::try_from_raw(&raw_key)
+            .map_err(|_| SchemaFieldPathIndexPublishedStoreError::IndexKeyDecode)?;
+        if index_key.index_id() == target_index_id {
+            entry_count = entry_count.saturating_add(1);
+        }
+    }
+
+    Ok(entry_count)
 }
 
 ///
