@@ -1,6 +1,6 @@
 mod cli;
 mod commands;
-mod dfx;
+mod icp;
 mod shell;
 
 #[cfg(test)]

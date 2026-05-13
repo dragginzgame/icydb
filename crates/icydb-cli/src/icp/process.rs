@@ -1,6 +1,6 @@
 use std::process::{Command, Stdio};
 
-/// Run one dfx command as a client call. This never starts or stops dfx.
+/// Run one icp-cli command as a client call. This never starts or stops a local network.
 pub(crate) fn run_external_command(mut command: Command, label: &str) -> Result<(), String> {
     let status = command
         .stdin(Stdio::null())
@@ -13,12 +13,14 @@ pub(crate) fn run_external_command(mut command: Command, label: &str) -> Result<
     Err(format!("{label} failed with {status}"))
 }
 
-/// Return whether dfx reports an installed canister at the current local target.
-pub(crate) fn canister_is_installed(canister: &str) -> Result<bool, String> {
-    let output = Command::new("dfx")
+/// Return whether icp-cli reports an installed canister in the selected environment.
+pub(crate) fn canister_is_installed(environment: &str, canister: &str) -> Result<bool, String> {
+    let output = Command::new("icp")
         .arg("canister")
         .arg("status")
         .arg(canister)
+        .arg("--environment")
+        .arg(environment)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -31,19 +33,22 @@ pub(crate) fn canister_is_installed(canister: &str) -> Result<bool, String> {
     let stderr = String::from_utf8_lossy(output.stderr.as_slice())
         .trim()
         .to_string();
-    if unreachable_daemon_hint(stderr.as_str()).is_some() {
+    if unreachable_network_hint(stderr.as_str()).is_some() {
         return Err(stderr);
     }
 
     Ok(false)
 }
 
-/// Resolve a dfx canister id without treating absent local ids as fatal.
-pub(crate) fn canister_id(canister: &str) -> Result<Option<String>, String> {
-    let output = Command::new("dfx")
+/// Resolve an icp-cli canister id without treating absent local ids as fatal.
+pub(crate) fn canister_id(environment: &str, canister: &str) -> Result<Option<String>, String> {
+    let output = Command::new("icp")
         .arg("canister")
-        .arg("id")
+        .arg("status")
         .arg(canister)
+        .arg("--id-only")
+        .arg("--environment")
+        .arg(environment)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -53,7 +58,7 @@ pub(crate) fn canister_id(canister: &str) -> Result<Option<String>, String> {
         let stderr = String::from_utf8_lossy(output.stderr.as_slice())
             .trim()
             .to_string();
-        if unreachable_daemon_hint(stderr.as_str()).is_some() {
+        if unreachable_network_hint(stderr.as_str()).is_some() {
             return Err(stderr);
         }
 
@@ -67,30 +72,38 @@ pub(crate) fn canister_id(canister: &str) -> Result<Option<String>, String> {
     Ok((!id.is_empty()).then_some(id))
 }
 
-/// Call a no-argument fixture method on an already selected dfx canister.
-pub(crate) fn call_unit_method(canister: &str, method: &str) -> Result<(), String> {
-    let mut command = Command::new("dfx");
+/// Call a no-argument fixture method on an already selected ICP canister.
+pub(crate) fn call_unit_method(
+    environment: &str,
+    canister: &str,
+    method: &str,
+) -> Result<(), String> {
+    let mut command = Command::new("icp");
     command
         .arg("canister")
         .arg("call")
         .arg(canister)
         .arg(method)
-        .arg("()");
+        .arg("()")
+        .arg("--environment")
+        .arg(environment);
 
-    run_external_command(command, "dfx canister call")
+    run_external_command(command, "icp canister call")
 }
 
-/// Recognize common dfx connection failures and return explicit lifecycle guidance.
-pub(crate) fn unreachable_daemon_hint(message: &str) -> Option<&'static str> {
+/// Recognize common icp-cli connection failures and return explicit lifecycle guidance.
+pub(crate) fn unreachable_network_hint(message: &str) -> Option<&'static str> {
     let lowered = message.to_ascii_lowercase();
     if lowered.contains("connection refused")
         || lowered.contains("failed to connect")
         || lowered.contains("replica")
         || lowered.contains("local network")
         || lowered.contains("pocketic")
+        || lowered.contains("network is not running")
+        || lowered.contains("unable to access network")
     {
         return Some(
-            "dfx local daemon is not reachable. Start `dfx start` in another terminal, then retry.",
+            "local ICP network is not reachable. Start the configured local ICP network outside this CLI, then retry.",
         );
     }
 

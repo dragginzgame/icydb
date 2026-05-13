@@ -1,6 +1,6 @@
 use crate::{
     cli::{CanisterCommand, CliArgs, CliCommand, DemoCommand},
-    dfx::{
+    icp::{
         deploy_canister, fresh_demo, list_canisters, reinstall_canister, reload_demo_data,
         reset_demo_data, seed_demo_data, status_canister, upgrade_canister,
     },
@@ -18,21 +18,31 @@ pub(crate) fn run_cli(args: CliArgs) -> Result<(), String> {
 
 fn run_canister_command(command: CanisterCommand) -> Result<(), String> {
     match command {
-        CanisterCommand::List => list_canisters(),
-        CanisterCommand::Deploy(target) => deploy_canister(target.canister_name()),
-        CanisterCommand::Reinstall(target) => reinstall_canister(target.canister_name()),
-        CanisterCommand::Upgrade(args) => {
-            upgrade_canister(args.target.canister_name(), args.wasm.as_ref())
+        CanisterCommand::List(args) => list_canisters(args.environment()),
+        CanisterCommand::Deploy(target) => {
+            deploy_canister(target.environment(), target.canister_name())
         }
-        CanisterCommand::Status(target) => status_canister(target.canister_name()),
+        CanisterCommand::Reinstall(target) => {
+            reinstall_canister(target.environment(), target.canister_name())
+        }
+        CanisterCommand::Upgrade(args) => upgrade_canister(
+            args.target.environment(),
+            args.target.canister_name(),
+            args.wasm.as_ref(),
+        ),
+        CanisterCommand::Status(target) => {
+            status_canister(target.environment(), target.canister_name())
+        }
     }
 }
 
 fn run_demo_command(command: DemoCommand) -> Result<(), String> {
     match command {
-        DemoCommand::Reset(target) => reset_demo_data(target.canister_name()),
-        DemoCommand::Seed(target) => seed_demo_data(target.canister_name()),
-        DemoCommand::Reload(target) => reload_demo_data(target.canister_name()),
-        DemoCommand::Fresh(target) => fresh_demo(target.canister_name()),
+        DemoCommand::Reset(target) => reset_demo_data(target.environment(), target.canister_name()),
+        DemoCommand::Seed(target) => seed_demo_data(target.environment(), target.canister_name()),
+        DemoCommand::Reload(target) => {
+            reload_demo_data(target.environment(), target.canister_name())
+        }
+        DemoCommand::Fresh(target) => fresh_demo(target.environment(), target.canister_name()),
     }
 }

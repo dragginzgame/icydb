@@ -5,13 +5,15 @@ use icydb::db::sql::{SqlGroupedRowsOutput, SqlQueryRowsOutput};
 use serde_json::json;
 
 use crate::{
-    cli::{CanisterCommand, CliArgs, CliCommand, DEFAULT_CANISTER, DemoCommand},
+    cli::{
+        CanisterCommand, CliArgs, CliCommand, DEFAULT_CANISTER, DEFAULT_ENVIRONMENT, DemoCommand,
+    },
     shell::{
         ShellConfig, ShellPerfAttribution, drain_complete_shell_statements,
-        finalize_successful_command_output, is_shell_help_command,
-        normalize_grouped_next_cursor_json, normalize_shell_statement_line, parse_perf_result,
-        render_grouped_shell_text, render_perf_suffix, render_projection_shell_text,
-        shell_help_text,
+        finalize_successful_command_output, hex_response_bytes, icp_query_command,
+        is_shell_help_command, normalize_grouped_next_cursor_json, normalize_shell_statement_line,
+        parse_perf_result, render_grouped_shell_text, render_perf_suffix,
+        render_projection_shell_text, shell_help_text,
     },
 };
 
@@ -259,6 +261,7 @@ fn cli_args_preserve_trailing_sql_convenience_form() {
     let config = ShellConfig::from_sql_args(sql_args);
 
     assert_eq!(config.canister, "test_sql");
+    assert_eq!(config.environment, DEFAULT_ENVIRONMENT);
     assert_eq!(config.sql.as_deref(), Some("SELECT name FROM character;"));
 }
 
@@ -279,6 +282,7 @@ fn cli_args_accept_explicit_sql_option() {
     let config = ShellConfig::from_sql_args(sql_args);
 
     assert_eq!(config.history_file, PathBuf::from(".cache/custom_history"));
+    assert_eq!(config.environment, DEFAULT_ENVIRONMENT);
     assert_eq!(config.sql.as_deref(), Some("SELECT name FROM character;"));
 }
 
@@ -292,16 +296,41 @@ fn cli_args_default_sql_target_to_demo_rpg() {
     let config = ShellConfig::from_sql_args(sql_args);
 
     assert_eq!(config.canister, DEFAULT_CANISTER);
+    assert_eq!(config.environment, DEFAULT_ENVIRONMENT);
+    assert_eq!(config.sql.as_deref(), Some("SELECT * FROM character;"));
+}
+
+#[test]
+fn cli_args_accept_explicit_icp_environment() {
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "sql",
+        "--environment",
+        "test",
+        "SELECT",
+        "*",
+        "FROM",
+        "character;",
+    ])
+    .expect("sql environment should parse");
+    let CliCommand::Sql(sql_args) = args.command else {
+        panic!("expected sql command");
+    };
+    let config = ShellConfig::from_sql_args(sql_args);
+
+    assert_eq!(config.environment, "test");
     assert_eq!(config.sql.as_deref(), Some("SELECT * FROM character;"));
 }
 
 #[test]
 fn cli_args_group_canister_list_under_canister_keyword() {
-    let args =
-        CliArgs::try_parse_from(["icydb", "canister", "list"]).expect("canister list should parse");
-    let CliCommand::Canister(CanisterCommand::List) = args.command else {
+    let args = CliArgs::try_parse_from(["icydb", "canister", "list", "--environment", "test"])
+        .expect("canister list should parse");
+    let CliCommand::Canister(CanisterCommand::List(target)) = args.command else {
         panic!("expected canister list command");
     };
+
+    assert_eq!(target.environment(), "test");
 }
 
 #[test]
@@ -335,6 +364,44 @@ fn cli_args_group_demo_fresh_under_demo_keyword() {
     };
 
     assert_eq!(target.canister_name(), "demo");
+}
+
+#[test]
+fn icp_query_command_targets_environment_and_hex_query_output() {
+    let command = icp_query_command("demo", "demo_rpg", "query_with_perf", "(\"SELECT 1\")");
+    let args = command
+        .get_args()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+
+    assert_eq!(command.get_program().to_string_lossy(), "icp");
+    assert_eq!(
+        args,
+        vec![
+            "canister",
+            "call",
+            "demo_rpg",
+            "query_with_perf",
+            "(\"SELECT 1\")",
+            "--query",
+            "--output",
+            "hex",
+            "--environment",
+            "demo",
+        ],
+    );
+}
+
+#[test]
+fn hex_response_bytes_accepts_plain_or_labeled_icp_hex_output() {
+    assert_eq!(
+        hex_response_bytes("4449444c00017f").expect("plain hex should parse"),
+        vec![0x44, 0x49, 0x44, 0x4c, 0x00, 0x01, 0x7f],
+    );
+    assert_eq!(
+        hex_response_bytes("response (hex): 44 49 44 4c").expect("labeled hex should parse"),
+        vec![0x44, 0x49, 0x44, 0x4c],
+    );
 }
 
 #[test]

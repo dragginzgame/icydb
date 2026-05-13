@@ -8,14 +8,15 @@ use std::{
     process::{Command, Stdio},
 };
 
+use candid::Decode;
 use rustyline::DefaultEditor;
 
 use crate::{
     cli::{DEFAULT_CANISTER, SqlArgs},
-    dfx::require_created_canister,
+    icp::require_created_canister,
     shell::{
         input::{ShellInput, read_statement},
-        render::render_shell_text_from_dfx_json,
+        render::{ShellSqlQueryPerfResult, render_shell_text_from_perf_result},
     },
 };
 
@@ -43,6 +44,7 @@ pub(crate) use crate::shell::{
 
 pub(crate) struct ShellConfig {
     pub(crate) canister: String,
+    pub(crate) environment: String,
     pub(crate) history_file: PathBuf,
     pub(crate) sql: Option<String>,
 }
@@ -56,6 +58,7 @@ impl ShellConfig {
             canister: args
                 .canister
                 .unwrap_or_else(|| DEFAULT_CANISTER.to_string()),
+            environment: args.environment,
             history_file: args.history_file,
             sql,
         }
@@ -76,13 +79,17 @@ pub(crate) fn run_sql_command(args: SqlArgs) -> Result<(), String> {
             return Ok(());
         }
 
-        let output = execute_sql(config.canister.as_str(), sql.as_str())?;
+        let output = execute_sql(
+            config.environment.as_str(),
+            config.canister.as_str(),
+            sql.as_str(),
+        )?;
         print!(
             "{}",
             render::finalize_successful_command_output(output.as_str())
         );
     } else {
-        require_created_canister(config.canister.as_str())?;
+        require_created_canister(config.environment.as_str(), config.canister.as_str())?;
         run_interactive_shell(&config)?;
     }
 
@@ -104,8 +111,8 @@ fn run_interactive_shell(config: &ShellConfig) -> Result<(), String> {
     }
 
     eprintln!(
-        "[icydb sql] interactive mode on '{}' (terminate statements with ';', use \\q, exit, or Ctrl-D to quit)",
-        config.canister
+        "[icydb sql] interactive mode on '{}:{}' (terminate statements with ';', use \\q, exit, or Ctrl-D to quit)",
+        config.environment, config.canister
     );
 
     // Phase 2: collect one semicolon-terminated statement, then execute it.
@@ -126,7 +133,11 @@ fn run_interactive_shell(config: &ShellConfig) -> Result<(), String> {
                     .append_history(config.history_file.as_path())
                     .map_err(|err| err.to_string())?;
 
-                match execute_sql(config.canister.as_str(), sql.as_str()) {
+                match execute_sql(
+                    config.environment.as_str(),
+                    config.canister.as_str(),
+                    sql.as_str(),
+                ) {
                     Ok(output) => {
                         print!(
                             "{}",
@@ -142,38 +153,108 @@ fn run_interactive_shell(config: &ShellConfig) -> Result<(), String> {
     Ok(())
 }
 
-fn execute_sql(canister: &str, sql: &str) -> Result<String, String> {
-    require_created_canister(canister)?;
+fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, String> {
+    require_created_canister(environment, canister)?;
 
     let escaped_sql = candid_escape_string(sql);
-    let raw_json = dfx_query(canister, "query_with_perf", escaped_sql.as_str())?;
+    let candid_bytes = icp_query(
+        environment,
+        canister,
+        "query_with_perf",
+        escaped_sql.as_str(),
+    )?;
+    let response = Decode!(
+        candid_bytes.as_slice(),
+        Result<ShellSqlQueryPerfResult, icydb::Error>
+    )
+    .map_err(|err| err.to_string())?;
 
-    // Phase 2: decode the dfx JSON envelope and render through the canonical
+    // Phase 2: decode the Candid response and render through the canonical
     // SQL facade, with shell-only footer/cell tweaks layered on top.
-    render_shell_text_from_dfx_json(raw_json.as_str())
+    match response {
+        Ok(result) => Ok(render_shell_text_from_perf_result(result)),
+        Err(err) => Ok(format!("ERROR: {err}")),
+    }
 }
 
-fn dfx_query(canister: &str, method: &str, escaped_sql: &str) -> Result<String, String> {
+fn icp_query(
+    environment: &str,
+    canister: &str,
+    method: &str,
+    escaped_sql: &str,
+) -> Result<Vec<u8>, String> {
     let candid_arg = format!("(\"{escaped_sql}\")");
-    let output = Command::new("dfx")
-        .arg("canister")
-        .arg("call")
-        .arg(canister)
-        .arg(method)
-        .arg(candid_arg)
-        .arg("--output")
-        .arg("json")
+    let output = icp_query_command(environment, canister, method, candid_arg.as_str())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
         .map_err(|err| err.to_string())?;
 
-    if output.status.success() {
-        return String::from_utf8(output.stdout).map_err(|err| err.to_string());
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
 
-    Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    let stdout = String::from_utf8(output.stdout).map_err(|err| err.to_string())?;
+
+    hex_response_bytes(stdout.as_str())
+}
+
+pub(crate) fn icp_query_command(
+    environment: &str,
+    canister: &str,
+    method: &str,
+    candid_arg: &str,
+) -> Command {
+    let mut command = Command::new("icp");
+    command
+        .arg("canister")
+        .arg("call")
+        .arg(canister)
+        .arg(method)
+        .arg(candid_arg)
+        .arg("--query")
+        .arg("--output")
+        .arg("hex")
+        .arg("--environment")
+        .arg(environment);
+
+    command
+}
+
+pub(crate) fn hex_response_bytes(output: &str) -> Result<Vec<u8>, String> {
+    let candidate = output
+        .rsplit_once("response (hex):")
+        .map_or(output, |(_, value)| value)
+        .trim();
+    let hex = candidate.split_whitespace().collect::<String>();
+    if hex.is_empty() {
+        return Err("icp canister call returned an empty hex response".to_string());
+    }
+    if hex.len() % 2 != 0 {
+        return Err("icp canister call returned odd-length hex response".to_string());
+    }
+
+    let mut bytes = Vec::with_capacity(hex.len() / 2);
+    for pair in hex.as_bytes().chunks_exact(2) {
+        let high = hex_nibble(pair[0])?;
+        let low = hex_nibble(pair[1])?;
+        bytes.push((high << 4) | low);
+    }
+
+    Ok(bytes)
+}
+
+fn hex_nibble(byte: u8) -> Result<u8, String> {
+    match byte {
+        b'0'..=b'9' => Ok(byte - b'0'),
+        b'a'..=b'f' => Ok(byte - b'a' + 10),
+        b'A'..=b'F' => Ok(byte - b'A' + 10),
+        other => Err(format!(
+            "icp canister call returned non-hex byte '{}'",
+            char::from(other)
+        )),
+    }
 }
 
 fn candid_escape_string(sql: &str) -> String {

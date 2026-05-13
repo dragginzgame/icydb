@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 
 pub(crate) const DEFAULT_CANISTER: &str = "demo_rpg";
+pub(crate) const DEFAULT_ENVIRONMENT: &str = "demo";
 
 ///
 /// CliArgs
@@ -36,7 +37,7 @@ pub(crate) enum CliCommand {
     /// Run SQL against an IcyDB canister.
     Sql(SqlArgs),
 
-    /// Manage a local dfx canister.
+    /// Manage a local ICP canister.
     #[command(subcommand)]
     Canister(CanisterCommand),
 
@@ -56,9 +57,13 @@ pub(crate) enum CliCommand {
 #[derive(Args, Debug)]
 #[command(trailing_var_arg = true)]
 pub(crate) struct SqlArgs {
-    /// Target dfx canister name.
+    /// Target ICP canister name.
     #[arg(short, long, env = "SQLQ_CANISTER")]
     pub(crate) canister: Option<String>,
+
+    /// Target icp-cli environment.
+    #[arg(short, long, env = "ICP_ENVIRONMENT", default_value = DEFAULT_ENVIRONMENT)]
+    pub(crate) environment: String,
 
     /// Interactive shell history file.
     #[arg(long, env = "SQLQ_HISTORY_FILE", default_value = ".cache/sql_history")]
@@ -76,21 +81,42 @@ pub(crate) struct SqlArgs {
 ///
 /// CanisterTarget
 ///
-/// CanisterTarget is the shared target selector for dfx-backed commands. It
+/// CanisterTarget is the shared target selector for icp-cli-backed commands. It
 /// keeps the canister default and environment override consistent across SQL,
 /// lifecycle, and demo data commands.
 ///
 
 #[derive(Args, Clone, Debug)]
 pub(crate) struct CanisterTarget {
-    /// Target dfx canister name.
+    /// Target ICP canister name.
     #[arg(short, long, env = "SQLQ_CANISTER")]
     pub(crate) canister: Option<String>,
+
+    /// Target icp-cli environment.
+    #[arg(short, long, env = "ICP_ENVIRONMENT", default_value = DEFAULT_ENVIRONMENT)]
+    pub(crate) environment: String,
 }
 
 impl CanisterTarget {
     pub(crate) fn canister_name(&self) -> &str {
         self.canister.as_deref().unwrap_or(DEFAULT_CANISTER)
+    }
+
+    pub(crate) const fn environment(&self) -> &str {
+        self.environment.as_str()
+    }
+}
+
+#[derive(Args, Clone, Debug)]
+pub(crate) struct EnvironmentTarget {
+    /// Target icp-cli environment.
+    #[arg(short, long, env = "ICP_ENVIRONMENT", default_value = DEFAULT_ENVIRONMENT)]
+    pub(crate) environment: String,
+}
+
+impl EnvironmentTarget {
+    pub(crate) const fn environment(&self) -> &str {
+        self.environment.as_str()
     }
 }
 
@@ -98,21 +124,21 @@ impl CanisterTarget {
 /// CanisterCommand
 ///
 /// CanisterCommand owns local canister lifecycle operations that were formerly
-/// exposed as SQL shell flags. The subcommands mirror the dfx operations closely
+/// exposed as SQL shell flags. The subcommands mirror icp-cli operations closely
 /// so lifecycle effects stay explicit.
 ///
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum CanisterCommand {
-    /// List known local IcyDB canisters and whether dfx has an id for them.
-    List,
+    /// List known local IcyDB canisters and whether icp-cli has an id for them.
+    List(EnvironmentTarget),
     /// Deploy the canister, preserving stable memory on existing installs.
     Deploy(CanisterTarget),
     /// Reinstall the canister when it already exists.
     Reinstall(CanisterTarget),
     /// Build and upgrade the canister without resetting stable memory.
     Upgrade(UpgradeArgs),
-    /// Show dfx status for the selected canister.
+    /// Show icp-cli status for the selected canister.
     Status(CanisterTarget),
 }
 

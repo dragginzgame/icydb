@@ -1,4 +1,5 @@
 mod format;
+#[cfg(test)]
 mod parse;
 
 pub(crate) use format::{
@@ -6,8 +7,7 @@ pub(crate) use format::{
     render_shell_render_suffix,
 };
 #[cfg(test)]
-pub(crate) use parse::normalize_grouped_next_cursor_json;
-pub(crate) use parse::{find_result_payload, parse_perf_result};
+pub(crate) use parse::{normalize_grouped_next_cursor_json, parse_perf_result};
 
 ///
 /// ShellPerfAttribution

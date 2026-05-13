@@ -615,6 +615,13 @@ impl SchemaInfo {
         schema_field_info(self.fields.as_slice(), name).map(|field| field.sql_capabilities)
     }
 
+    /// Return whether one top-level field stores a structured record value.
+    #[must_use]
+    pub(in crate::db) fn field_is_structured_value(&self, name: &str) -> bool {
+        schema_field_info(self.fields.as_slice(), name)
+            .is_some_and(|field| matches!(field.ty, FieldType::Structured { .. }))
+    }
+
     /// Return SQL operation capabilities for one nested field path.
     ///
     /// Accepted schema views resolve nested paths from persisted nested leaf

@@ -1,45 +1,51 @@
 use std::time::Instant;
 
-use icydb::{
-    Error,
-    db::sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput, render_grouped_lines},
+use icydb::db::sql::{
+    SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput, render_grouped_lines,
 };
-use serde_json::Value;
 
 use crate::shell::perf::{
-    ShellLocalRenderAttribution, ShellPerfAttribution, find_result_payload, parse_perf_result,
-    render_executor_residual_suffix, render_perf_suffix, render_pure_covering_suffix,
-    render_shell_render_suffix,
+    ShellLocalRenderAttribution, ShellPerfAttribution, render_executor_residual_suffix,
+    render_perf_suffix, render_pure_covering_suffix, render_shell_render_suffix,
 };
 
-pub(crate) fn render_shell_text_from_dfx_json(input: &str) -> Result<String, String> {
-    let envelope: Value = serde_json::from_str(input).map_err(|err| err.to_string())?;
-    let payload = find_result_payload(&envelope)
-        .ok_or_else(|| "find Ok/Err result payload in dfx json envelope".to_string())?;
+#[derive(candid::CandidType, Clone, Debug, serde::Deserialize)]
+pub(crate) struct ShellSqlQueryPerfResult {
+    pub(crate) result: SqlQueryResult,
+    pub(crate) instructions: u64,
+    pub(crate) planner_instructions: u64,
+    pub(crate) store_instructions: u64,
+    pub(crate) executor_instructions: u64,
+    pub(crate) pure_covering_decode_instructions: u64,
+    pub(crate) pure_covering_row_assembly_instructions: u64,
+    pub(crate) decode_instructions: u64,
+    pub(crate) compiler_instructions: u64,
+}
 
-    if let Some(ok) = payload.get("Ok") {
-        let (result, attribution) = parse_perf_result(ok)?;
-        let render_start = Instant::now();
-        let rendered = render_shell_text(result, Some(attribution), None);
-        let render_attribution = ShellLocalRenderAttribution {
-            render_micros: render_start.elapsed().as_micros(),
-        };
-
-        return Ok(append_shell_render_suffix(
-            rendered,
-            Some(&render_attribution),
-        ));
+impl ShellSqlQueryPerfResult {
+    const fn attribution(&self) -> ShellPerfAttribution {
+        ShellPerfAttribution {
+            total: self.instructions,
+            planner: self.planner_instructions,
+            store: self.store_instructions,
+            executor: self.executor_instructions,
+            pure_covering_decode: self.pure_covering_decode_instructions,
+            pure_covering_row_assembly: self.pure_covering_row_assembly_instructions,
+            decode: self.decode_instructions,
+            compiler: self.compiler_instructions,
+        }
     }
+}
 
-    let err: Error = serde_json::from_value(
-        payload
-            .get("Err")
-            .cloned()
-            .ok_or_else(|| "Err payload missing".to_string())?,
-    )
-    .map_err(|err| err.to_string())?;
+pub(crate) fn render_shell_text_from_perf_result(input: ShellSqlQueryPerfResult) -> String {
+    let attribution = input.attribution();
+    let render_start = Instant::now();
+    let rendered = render_shell_text(input.result, Some(attribution), None);
+    let render_attribution = ShellLocalRenderAttribution {
+        render_micros: render_start.elapsed().as_micros(),
+    };
 
-    Ok(format!("ERROR: {err}"))
+    append_shell_render_suffix(rendered, Some(&render_attribution))
 }
 
 fn render_shell_text(

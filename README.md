@@ -141,11 +141,13 @@ cargo run -q -p icydb-cli -- sql --sql "DESCRIBE character"
 cargo run -q -p icydb-cli -- sql --sql "SHOW TABLES"
 ```
 
-The `sql`, `canister`, and `demo` commands default to `demo_rpg` when
-`--canister` is omitted. To inspect local canister IDs:
+The `sql`, `canister`, and `demo` commands default to the `demo_rpg` canister
+in the `demo` ICP environment when `--canister` and `--environment` are
+omitted. To inspect local canister IDs:
 
 ```bash
 cargo run -q -p icydb-cli -- canister list
+cargo run -q -p icydb-cli -- canister list --environment test
 ```
 
 `icydb sql` only queries the current canister state. It does not create or load
@@ -168,6 +170,7 @@ Installed CLI:
 ```bash
 make install
 icydb sql --canister demo_rpg --sql "SELECT COUNT(*) FROM character"
+icydb sql --environment test --canister demo_rpg --sql "SHOW TABLES"
 ```
 
 ## Observability
@@ -181,9 +184,9 @@ Generated canisters expose:
 Example:
 
 ```bash
-dfx canister call <canister> icydb_snapshot
-dfx canister call <canister> icydb_metrics '(null)'
-dfx canister call <canister> icydb_metrics_reset
+icp canister call <canister> icydb_snapshot '()' --environment demo
+icp canister call <canister> icydb_metrics '(null)' --environment demo
+icp canister call <canister> icydb_metrics_reset '()' --environment demo
 ```
 
 ## Repository Map

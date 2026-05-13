@@ -381,6 +381,13 @@ fn accepted_sql_lower_schema_with_name_kind(kind: PersistedFieldKind) -> SchemaI
 // Build an accepted schema variant where the `name` field exposes one nested
 // leaf whose capability facts deliberately differ from generated metadata.
 fn accepted_sql_lower_schema_with_name_nested_leaf_kind(kind: PersistedFieldKind) -> SchemaInfo {
+    accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent_queryable(kind, true)
+}
+
+fn accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent_queryable(
+    kind: PersistedFieldKind,
+    parent_queryable: bool,
+) -> SchemaInfo {
     let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
         SchemaVersion::initial(),
         SqlLowerEntity::MODEL.path().to_string(),
@@ -410,7 +417,9 @@ fn accepted_sql_lower_schema_with_name_nested_leaf_kind(kind: PersistedFieldKind
                 SchemaFieldId::new(2),
                 "name".to_string(),
                 SchemaFieldSlot::new(1),
-                PersistedFieldKind::Structured { queryable: true },
+                PersistedFieldKind::Structured {
+                    queryable: parent_queryable,
+                },
                 vec![PersistedNestedLeafSnapshot::new(
                     vec!["leaf".to_string()],
                     kind,
@@ -3367,24 +3376,80 @@ fn compile_sql_command_rejects_round_with_negative_scale() {
 }
 
 #[test]
-fn bind_sql_select_with_schema_rejects_non_selectable_accepted_field() {
+fn bind_sql_select_with_schema_allows_structured_parent_projection() {
     let select = lower_sql_select_shape_for_test(
         "SELECT name FROM SqlLowerEntity",
-        "accepted non-selectable projection",
+        "accepted structured parent projection",
     );
-    let schema = accepted_sql_lower_schema_with_name_kind(PersistedFieldKind::Structured {
-        queryable: false,
-    });
+    let schema = accepted_sql_lower_schema_with_name_nested_leaf_kind_and_parent_queryable(
+        PersistedFieldKind::Text { max_len: None },
+        false,
+    );
 
-    let err = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
+    let query = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
         SqlLowerEntity::MODEL,
         select,
         MissingRowPolicy::Ignore,
         &schema,
     )
-    .expect_err("accepted non-queryable structured field should not be selectable");
+    .expect("accepted structured parent should be projectable as a SQL result value");
 
-    assert!(matches!(err, SqlLoweringError::UnsupportedSelectProjection));
+    let projection = query
+        .build_plan()
+        .expect("structured parent projection plan should build")
+        .projection_spec(SqlLowerEntity::MODEL);
+    let fields = projection.fields().collect::<Vec<_>>();
+
+    assert_eq!(fields.len(), 1);
+    assert!(
+        matches!(
+            fields[0],
+            ProjectionField::Scalar {
+                expr: Expr::Field(field),
+                alias: None,
+            } if field.as_str() == "name"
+        ),
+        "structured parent projection should remain a direct field projection: {:?}",
+        fields[0]
+    );
+}
+
+#[test]
+fn bind_sql_select_with_schema_allows_selectable_accepted_nested_leaf() {
+    let select = lower_sql_select_shape_for_test(
+        "SELECT name.leaf FROM SqlLowerEntity",
+        "accepted selectable nested projection",
+    );
+    let schema = accepted_sql_lower_schema_with_name_nested_leaf_kind(PersistedFieldKind::Text {
+        max_len: None,
+    });
+
+    let query = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
+        SqlLowerEntity::MODEL,
+        select,
+        MissingRowPolicy::Ignore,
+        &schema,
+    )
+    .expect("accepted selectable nested leaf should lower");
+
+    let projection = query
+        .build_plan()
+        .expect("nested leaf projection plan should build")
+        .projection_spec(SqlLowerEntity::MODEL);
+    let fields = projection.fields().collect::<Vec<_>>();
+
+    assert_eq!(fields.len(), 1);
+    assert!(
+        matches!(
+            fields[0],
+            ProjectionField::Scalar {
+                expr: Expr::FieldPath(_),
+                alias: None,
+            }
+        ),
+        "nested leaf projection should stay a field-path expression: {:?}",
+        fields[0]
+    );
 }
 
 #[test]

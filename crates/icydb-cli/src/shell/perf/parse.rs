@@ -80,19 +80,3 @@ fn parse_perf_u64_or_default(value: &Value, field: &str) -> Result<u64, String> 
 
     parse_perf_u64(value, field)
 }
-
-pub(crate) fn find_result_payload(value: &Value) -> Option<&Value> {
-    if matches!(value, Value::Object(map) if map.contains_key("Ok") || map.contains_key("Err")) {
-        return Some(value);
-    }
-
-    if let Some(result) = value.get("result") {
-        return Some(result);
-    }
-
-    match value {
-        Value::Array(items) => items.iter().find_map(find_result_payload),
-        Value::Object(map) => map.values().find_map(find_result_payload),
-        _ => None,
-    }
-}

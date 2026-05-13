@@ -13,7 +13,7 @@ use crate::{
         query::{
             intent::QueryModel,
             plan::validate::{
-                CursorPagingPolicyError, OrderPlanError, PlanError, PolicyPlanError,
+                CursorPagingPolicyError, ExprPlanError, OrderPlanError, PlanError, PolicyPlanError,
                 validate_cursor_paging_requirements, validate_query_semantics,
             },
             plan::{
@@ -66,6 +66,18 @@ crate::test_entity! {
         ("rank", FieldKind::Int),
     ],
     indexes = [&INDEX_MODEL],
+}
+
+crate::test_entity! {
+    ident = PlanValidateRecordFieldPathEntity,
+    id = Ulid,
+    entity_name = "RecordFieldPathEntity",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("profile", FieldKind::Structured { queryable: false }),
+    ],
+    indexes = [],
 }
 
 crate::test_entity! {
@@ -417,8 +429,8 @@ fn plan_rejects_unorderable_field() {
 }
 
 #[test]
-fn plan_rejects_nested_path_order_field() {
-    let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+fn plan_accepts_nested_path_order_field() {
+    let model = <PlanValidateRecordFieldPathEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
@@ -427,10 +439,13 @@ fn plan_rejects_nested_path_order_field() {
             predicate_covers_filter_expr: false,
             predicate: None,
             order: Some(OrderSpec {
-                fields: vec![crate::db::query::plan::OrderTerm::new(
-                    Expr::FieldPath(FieldPath::new("profile", vec!["rank".to_string()])),
-                    OrderDirection::Desc,
-                )],
+                fields: vec![
+                    crate::db::query::plan::OrderTerm::new(
+                        Expr::FieldPath(FieldPath::new("profile", vec!["rank".to_string()])),
+                        OrderDirection::Desc,
+                    ),
+                    crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
+                ],
             }),
             distinct: false,
             delete_limit: None,
@@ -446,20 +461,12 @@ fn plan_rejects_nested_path_order_field() {
         static_planning_shape: None,
     };
 
-    let err = validate_query_semantics(schema, model, &plan).expect_err("nested order path");
-    assert!(matches!(err, PlanError::User(inner) if matches!(
-        inner.as_ref(),
-        PlanUserError::Order(inner)
-            if matches!(
-                inner.as_ref(),
-                OrderPlanError::UnorderableField { field } if field == "profile.rank"
-            )
-    )));
+    validate_query_semantics(schema, model, &plan).expect("nested order path should be accepted");
 }
 
 #[test]
 fn plan_rejects_nested_path_inside_order_expression() {
-    let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+    let model = <PlanValidateRecordFieldPathEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::cached_for_generated_entity_model(model);
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
@@ -494,14 +501,18 @@ fn plan_rejects_nested_path_inside_order_expression() {
     };
 
     let err = validate_query_semantics(schema, model, &plan).expect_err("nested order expression");
-    assert!(matches!(err, PlanError::User(inner) if matches!(
+    assert!(
+        matches!(&err, PlanError::User(inner) if matches!(
         inner.as_ref(),
-        PlanUserError::Order(inner)
+        PlanUserError::Expr(inner)
             if matches!(
                 inner.as_ref(),
-                OrderPlanError::UnorderableField { field } if field == "ABS(profile.rank)"
-            )
-    )));
+                ExprPlanError::InvalidFunctionArgument { function, index, found }
+                        if function == "ABS" && *index == 0 && found == "Unknown"
+                )
+        )),
+        "{err:?}"
+    );
 }
 
 #[test]

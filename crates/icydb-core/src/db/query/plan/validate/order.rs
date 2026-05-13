@@ -8,7 +8,7 @@ use crate::{
     db::{
         query::plan::{
             OrderSpec, OrderTerm,
-            expr::{Expr, ExprType, infer_expr_type},
+            expr::{ExprType, infer_expr_type},
             validate::{OrderPlanError, PlanError},
         },
         schema::SchemaInfo,
@@ -44,16 +44,32 @@ fn validate_order_term(schema: &SchemaInfo, term: &OrderTerm) -> Result<(), Plan
             .ok_or_else(|| PlanError::from(OrderPlanError::unorderable_field(field)));
     }
 
+    if matches!(
+        term.expr(),
+        crate::db::query::plan::expr::Expr::FieldPath(_)
+    ) {
+        return validate_field_path_order_term(schema, term);
+    }
+
     validate_expression_order_term(schema, term)
 }
 
-fn validate_expression_order_term(schema: &SchemaInfo, term: &OrderTerm) -> Result<(), PlanError> {
-    if order_expr_contains_field_path(term.expr()) {
-        return Err(PlanError::from(OrderPlanError::unorderable_field(
-            term.rendered_label(),
-        )));
+fn validate_field_path_order_term(schema: &SchemaInfo, term: &OrderTerm) -> Result<(), PlanError> {
+    let inferred = infer_expr_type(term.expr(), schema)?;
+
+    if matches!(
+        inferred,
+        ExprType::Bool | ExprType::Text | ExprType::Numeric(_) | ExprType::Unknown
+    ) {
+        return Ok(());
     }
 
+    Err(PlanError::from(OrderPlanError::unorderable_field(
+        term.rendered_label(),
+    )))
+}
+
+fn validate_expression_order_term(schema: &SchemaInfo, term: &OrderTerm) -> Result<(), PlanError> {
     let inferred = infer_expr_type(term.expr(), schema)?;
 
     if !matches!(
@@ -66,12 +82,6 @@ fn validate_expression_order_term(schema: &SchemaInfo, term: &OrderTerm) -> Resu
     }
 
     Ok(())
-}
-
-// Nested paths intentionally fail closed for ORDER BY until the ordering
-// executor owns explicit nested-path comparison semantics.
-fn order_expr_contains_field_path(expr: &Expr) -> bool {
-    expr.any_tree_expr(&mut |node| matches!(node, Expr::FieldPath(_)))
 }
 
 /// Reject duplicate non-primary-key fields in ORDER BY.

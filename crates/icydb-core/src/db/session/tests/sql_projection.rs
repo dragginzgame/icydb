@@ -655,7 +655,65 @@ fn execute_sql_projection_selects_record_subfields() {
 }
 
 #[test]
-fn execute_sql_projection_select_star_skips_non_selectable_record_roots() {
+fn execute_sql_projection_orders_by_record_subfield() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_record_field_path_entities(
+        &session,
+        &[("Ada", 7, "ace"), ("Bea", 3, "bee"), ("Cal", 11, "cee")],
+    );
+
+    let sql = "SELECT profile.nickname \
+               FROM SessionSqlRecordFieldPathEntity \
+               ORDER BY profile.rank DESC";
+    let rows = statement_projection_rows::<SessionSqlRecordFieldPathEntity>(&session, sql)
+        .expect("record subfield ORDER BY should execute");
+
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Text("cee".to_string())],
+            vec![Value::Text("ace".to_string())],
+            vec![Value::Text("bee".to_string())],
+        ],
+        "record subfield ORDER BY should sort by nested scalar value",
+    );
+}
+
+#[test]
+fn execute_sql_projection_selects_record_root_as_subtree() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_record_field_path_entities(&session, &[("Ada", 7, "seer")]);
+
+    let columns = statement_projection_columns::<SessionSqlRecordFieldPathEntity>(
+        &session,
+        "SELECT profile FROM SessionSqlRecordFieldPathEntity",
+    )
+    .expect("record root projection columns should derive");
+    let rows = statement_projection_rows::<SessionSqlRecordFieldPathEntity>(
+        &session,
+        "SELECT profile FROM SessionSqlRecordFieldPathEntity",
+    )
+    .expect("record root projection should project a structured subtree");
+
+    assert_eq!(columns, vec!["profile".to_string()]);
+    assert_eq!(
+        rows,
+        vec![vec![Value::Map(vec![
+            (
+                Value::Text("nickname".to_string()),
+                Value::Text("seer".to_string()),
+            ),
+            (Value::Text("rank".to_string()), Value::Int(7)),
+        ])]],
+        "record root projection should return the stored structured subtree",
+    );
+}
+
+#[test]
+fn execute_sql_projection_select_star_includes_record_roots() {
     reset_session_sql_store();
     let session = sql_session();
     seed_session_sql_record_field_path_entities(&session, &[("Ada", 7, "seer")]);
@@ -673,16 +731,26 @@ fn execute_sql_projection_select_star_skips_non_selectable_record_roots() {
 
     assert_eq!(
         columns,
-        vec!["id".to_string(), "name".to_string()],
-        "SELECT * should preserve model order while omitting non-selectable record roots",
+        vec!["id".to_string(), "name".to_string(), "profile".to_string()],
+        "SELECT * should preserve model order while including projectable record roots",
     );
     assert_eq!(rows.len(), 1);
     assert_eq!(
         rows[0].len(),
-        2,
-        "SELECT * should only materialize selectable top-level fields",
+        3,
+        "SELECT * should materialize scalar fields and structured subtrees",
     );
     assert_eq!(rows[0][1], Value::Text("Ada".to_string()));
+    assert_eq!(
+        rows[0][2],
+        Value::Map(vec![
+            (
+                Value::Text("nickname".to_string()),
+                Value::Text("seer".to_string()),
+            ),
+            (Value::Text("rank".to_string()), Value::Int(7)),
+        ]),
+    );
 }
 
 #[test]

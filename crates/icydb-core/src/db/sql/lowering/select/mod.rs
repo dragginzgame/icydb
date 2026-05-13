@@ -25,7 +25,7 @@ use crate::{
                 derive_normalized_bool_expr_predicate_subset,
             },
         },
-        schema::SchemaInfo,
+        schema::{SchemaInfo, SqlCapabilities},
         sql::parser::{
             SqlAggregateCall, SqlDeleteStatement, SqlExpr, SqlOrderDirection, SqlOrderTerm,
             SqlReturningProjection, SqlSelectStatement, SqlUpdateStatement,
@@ -394,12 +394,8 @@ fn normalize_select_star_projection(
     let fields = model
         .fields()
         .iter()
-        .filter_map(|field| {
-            schema
-                .sql_capabilities(field.name())
-                .filter(|capabilities| capabilities.selectable())
-                .map(|_| FieldId::new(field.name().to_string()))
-        })
+        .filter(|field| sql_result_projectable_field(schema, field.name()))
+        .map(|field| FieldId::new(field.name().to_string()))
         .collect::<Vec<_>>();
 
     if fields.is_empty() {
@@ -545,10 +541,25 @@ fn ensure_sql_selectable_field(
         return Ok(());
     };
     if !capabilities.selectable() {
+        if sql_result_projectable_field(schema, field_name) {
+            return Ok(());
+        }
+
         return Err(SqlLoweringError::unsupported_select_projection());
     }
 
     Ok(())
+}
+
+// Direct SELECT result projection may return a structured subtree when the
+// accepted schema exposes nested field metadata. Predicate, ordering, grouping,
+// and aggregate admission still use their narrower scalar capability checks.
+fn sql_result_projectable_field(schema: &SchemaInfo, field_name: &str) -> bool {
+    schema
+        .sql_capabilities(field_name)
+        .is_some_and(SqlCapabilities::selectable)
+        || schema.field_is_structured_value(field_name)
+        || schema.field_has_nested_paths(field_name)
 }
 
 /// Validate accepted-schema SQL capabilities for one lowered base-query tail.

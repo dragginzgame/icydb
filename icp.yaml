@@ -1,0 +1,62 @@
+canisters:
+  - name: minimal
+    build:
+      steps:
+        - type: script
+          commands:
+            - scripts/app/build.sh minimal canister_audit_minimal
+
+  - name: one_simple
+    build:
+      steps:
+        - type: script
+          commands:
+            - scripts/app/build.sh one_simple canister_audit_one_simple
+
+  - name: one_complex
+    build:
+      steps:
+        - type: script
+          commands:
+            - scripts/app/build.sh one_complex canister_audit_one_complex
+
+  - name: demo_rpg
+    build:
+      steps:
+        - type: script
+          commands:
+            - scripts/app/build.sh demo_rpg canister_demo_rpg
+
+  - name: ten_simple
+    build:
+      steps:
+        - type: script
+          commands:
+            - scripts/app/build.sh ten_simple canister_audit_ten_simple
+
+  - name: ten_complex
+    build:
+      steps:
+        - type: script
+          commands:
+            - scripts/app/build.sh ten_complex canister_audit_ten_complex
+
+networks:
+  - name: local
+    mode: managed
+    gateway:
+      bind: 127.0.0.1
+      port: 8001
+
+environments:
+  - name: demo
+    network: local
+    canisters: [demo_rpg]
+
+  - name: test
+    network: local
+    canisters: [demo_rpg, minimal, one_simple, one_complex, ten_simple, ten_complex]
+
+  - name: audit
+    network: local
+    canisters: [minimal, one_simple, one_complex, ten_simple, ten_complex]
