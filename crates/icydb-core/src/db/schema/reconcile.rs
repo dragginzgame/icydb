@@ -14,10 +14,12 @@ use crate::{
             PersistedSchemaSnapshot, SchemaFieldPathIndexRebuildRow,
             SchemaFieldPathIndexRebuildTarget, SchemaFieldPathIndexRunner,
             SchemaFieldPathIndexRunnerFailure, SchemaMutationAcceptedSnapshotPublicationSink,
+            SchemaMutationDeveloperReport, SchemaMutationPublishStatus,
             SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
-            SchemaMutationRunnerInput, SchemaMutationRuntimeEpoch,
-            SchemaMutationRuntimeInvalidationSink, SchemaStore, SchemaTransitionDecision,
-            SchemaTransitionPlanKind, compiled_schema_proposal_for_model, decide_schema_transition,
+            SchemaMutationRunnerInput, SchemaMutationRunnerPhase, SchemaMutationRuntimeEpoch,
+            SchemaMutationRuntimeInvalidationSink, SchemaMutationValidationStatus, SchemaStore,
+            SchemaTransitionDecision, SchemaTransitionPlanKind, compiled_schema_proposal_for_model,
+            decide_schema_transition,
             runtime::AcceptedRowLayoutRuntimeDescriptor,
             transition::{SchemaTransitionPlan, SchemaTransitionRejectionKind},
         },
@@ -372,9 +374,18 @@ fn execute_supported_field_path_index_addition(
             entity_path,
         )?;
         if preflight.target_index_entries() != 0 {
+            let diagnostic = SchemaMutationDeveloperReport::field_path_index_addition(
+                SchemaMutationRunnerPhase::Preflight,
+                entity_path,
+                supported.target(),
+                rows.len(),
+                0,
+                SchemaMutationValidationStatus::Failed,
+                SchemaMutationPublishStatus::NotStarted,
+            );
             return Err(InternalError::store_unsupported(format!(
-                "schema mutation startup index rebuild requires an empty target physical index for entity '{entity_path}': target_index='{}' target_index_entries={} other_index_entries={} total_entries={}",
-                supported.target().name(),
+                "schema mutation startup index rebuild requires an empty target physical index: {} target_index_entries={} other_index_entries={} total_entries={}",
+                diagnostic.summary(),
                 preflight.target_index_entries(),
                 preflight.other_index_entries(),
                 preflight.total_entries(),
@@ -394,13 +405,16 @@ fn execute_supported_field_path_index_addition(
             &mut invalidation_sink,
             &mut publication_sink,
         )
-        .map_err(|failure| field_path_runner_failure_error(entity_path, failure))
+        .map_err(|failure| {
+            field_path_runner_failure_error(entity_path, supported.target(), rows.len(), failure)
+        })
     })?;
 
     if !report.runner_report().physical_work_allows_publication() {
+        let diagnostic = report.developer_report(entity_path, supported.target());
         return Err(InternalError::store_unsupported(format!(
-            "schema mutation field-path index runner did not produce publishable physical work for entity '{entity_path}': store='{}'",
-            report.store(),
+            "schema mutation field-path index runner did not produce publishable physical work: {}",
+            diagnostic.summary(),
         )));
     }
 
@@ -534,10 +548,14 @@ fn decode_field_path_rebuild_rows<'a>(
 
 fn field_path_runner_failure_error(
     entity_path: &'static str,
+    target: &SchemaFieldPathIndexRebuildTarget,
+    rows_scanned: usize,
     failure: SchemaFieldPathIndexRunnerFailure,
 ) -> InternalError {
+    let diagnostic = failure.developer_report(entity_path, target, rows_scanned);
     InternalError::store_unsupported(format!(
-        "schema mutation field-path index startup runner failed for entity '{entity_path}': error={:?} rollback={}",
+        "schema mutation field-path index startup runner failed: {} error={:?} rollback={}",
+        diagnostic.summary(),
         failure.error(),
         failure.rollback_report().is_some(),
     ))

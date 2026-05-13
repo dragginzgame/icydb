@@ -23,6 +23,53 @@ pub(in crate::db::schema) enum SchemaFieldPathIndexRunnerError {
     PublishedStoreRejected,
 }
 
+impl SchemaFieldPathIndexRunnerError {
+    #[must_use]
+    pub(in crate::db::schema) const fn phase(self) -> SchemaMutationRunnerPhase {
+        match self {
+            Self::UnsupportedExecutionPlan | Self::TargetMismatch => {
+                SchemaMutationRunnerPhase::Preflight
+            }
+            Self::StageRowsFailed | Self::StagedStoreRejected => {
+                SchemaMutationRunnerPhase::StageStores
+            }
+            Self::IsolatedStoreValidationFailed => SchemaMutationRunnerPhase::ValidatePhysicalState,
+            Self::RuntimeInvalidationIdentity => SchemaMutationRunnerPhase::InvalidateRuntimeState,
+            Self::SnapshotPublicationRejected => SchemaMutationRunnerPhase::PublishSnapshot,
+            Self::PublishedStoreRejected => SchemaMutationRunnerPhase::PublishPhysicalStore,
+        }
+    }
+
+    #[must_use]
+    const fn validation_status(self) -> SchemaMutationValidationStatus {
+        match self {
+            Self::RuntimeInvalidationIdentity
+            | Self::SnapshotPublicationRejected
+            | Self::PublishedStoreRejected => SchemaMutationValidationStatus::Passed,
+            Self::IsolatedStoreValidationFailed => SchemaMutationValidationStatus::Failed,
+            Self::UnsupportedExecutionPlan
+            | Self::TargetMismatch
+            | Self::StageRowsFailed
+            | Self::StagedStoreRejected => SchemaMutationValidationStatus::NotStarted,
+        }
+    }
+
+    #[must_use]
+    const fn publish_status(self) -> SchemaMutationPublishStatus {
+        match self {
+            Self::SnapshotPublicationRejected | Self::PublishedStoreRejected => {
+                SchemaMutationPublishStatus::Failed
+            }
+            Self::UnsupportedExecutionPlan
+            | Self::TargetMismatch
+            | Self::StageRowsFailed
+            | Self::StagedStoreRejected
+            | Self::IsolatedStoreValidationFailed
+            | Self::RuntimeInvalidationIdentity => SchemaMutationPublishStatus::NotStarted,
+        }
+    }
+}
+
 ///
 /// SchemaFieldPathIndexRunnerFailure
 ///
@@ -71,10 +118,37 @@ impl SchemaFieldPathIndexRunnerFailure {
     }
 
     #[must_use]
+    pub(in crate::db::schema) const fn phase(&self) -> SchemaMutationRunnerPhase {
+        self.error.phase()
+    }
+
+    #[must_use]
     pub(in crate::db::schema) fn rollback_report(
         &self,
     ) -> Option<&SchemaFieldPathIndexStagedStoreRollbackReport> {
         self.rollback_report.as_deref()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn developer_report(
+        &self,
+        entity_path: &'static str,
+        target: &SchemaFieldPathIndexRebuildTarget,
+        rows_scanned: usize,
+    ) -> SchemaMutationDeveloperReport {
+        let index_keys_written = self
+            .rollback_report()
+            .map_or(0, |report| report.runner_report().index_keys_written());
+
+        SchemaMutationDeveloperReport::field_path_index_addition(
+            self.phase(),
+            entity_path,
+            target,
+            rows_scanned,
+            index_keys_written,
+            self.error.validation_status(),
+            self.error.publish_status(),
+        )
     }
 }
 
@@ -154,6 +228,29 @@ impl SchemaFieldPathIndexRunnerReport {
         &self,
     ) -> SchemaFieldPathIndexStagedStorePublicationReadiness {
         self.published_store_report.publication_readiness()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn developer_report(
+        &self,
+        entity_path: &'static str,
+        target: &SchemaFieldPathIndexRebuildTarget,
+    ) -> SchemaMutationDeveloperReport {
+        let publish_status = if self.runner_report().physical_work_allows_publication() {
+            SchemaMutationPublishStatus::Published
+        } else {
+            SchemaMutationPublishStatus::Failed
+        };
+
+        SchemaMutationDeveloperReport::field_path_index_addition(
+            SchemaMutationRunnerPhase::PublishPhysicalStore,
+            entity_path,
+            target,
+            self.runner_report().rows_scanned(),
+            self.runner_report().index_keys_written(),
+            SchemaMutationValidationStatus::Passed,
+            publish_status,
+        )
     }
 }
 /// SchemaFieldPathIndexRunner

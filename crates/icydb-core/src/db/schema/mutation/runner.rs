@@ -218,6 +218,238 @@ pub(in crate::db::schema) enum SchemaMutationRunnerPhase {
     Diagnostics,
 }
 
+impl SchemaMutationRunnerPhase {
+    #[must_use]
+    pub(in crate::db::schema) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Preflight => "preflight",
+            Self::StageStores => "stage_stores",
+            Self::BuildPhysicalState => "build_physical_state",
+            Self::ValidatePhysicalState => "validate_physical_state",
+            Self::InvalidateRuntimeState => "invalidate_runtime_state",
+            Self::PublishSnapshot => "publish_snapshot",
+            Self::PublishPhysicalStore => "publish_physical_store",
+            Self::Diagnostics => "diagnostics",
+        }
+    }
+}
+
+///
+/// SchemaMutationDeveloperKind
+///
+/// Stable developer-facing mutation kind for startup schema mutation reports.
+/// This stays narrower than the internal mutation vocabulary so unsupported
+/// shapes cannot appear as partially supported diagnostics.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.154 exposes startup schema mutation diagnostics before SQL DDL consumes them"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaMutationDeveloperKind {
+    AddNonUniqueFieldPathIndex,
+}
+
+impl SchemaMutationDeveloperKind {
+    #[must_use]
+    pub(in crate::db::schema) const fn as_str(self) -> &'static str {
+        match self {
+            Self::AddNonUniqueFieldPathIndex => "add_non_unique_field_path_index",
+        }
+    }
+}
+
+///
+/// SchemaMutationValidationStatus
+///
+/// Stable validation outcome bucket for developer-visible schema mutation
+/// diagnostics. Detailed internal errors stay typed on the runner failure.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.154 exposes startup schema mutation diagnostics before SQL DDL consumes them"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaMutationValidationStatus {
+    NotStarted,
+    Passed,
+    Failed,
+}
+
+impl SchemaMutationValidationStatus {
+    #[must_use]
+    pub(in crate::db::schema) const fn as_str(self) -> &'static str {
+        match self {
+            Self::NotStarted => "not_started",
+            Self::Passed => "passed",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+///
+/// SchemaMutationPublishStatus
+///
+/// Stable publication outcome bucket for developer-visible schema mutation
+/// diagnostics. This is intentionally separate from validation status because
+/// startup can validate physical work and still fail closed before publication.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.154 exposes startup schema mutation diagnostics before SQL DDL consumes them"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) enum SchemaMutationPublishStatus {
+    NotStarted,
+    Published,
+    Failed,
+}
+
+impl SchemaMutationPublishStatus {
+    #[must_use]
+    pub(in crate::db::schema) const fn as_str(self) -> &'static str {
+        match self {
+            Self::NotStarted => "not_started",
+            Self::Published => "published",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+///
+/// SchemaMutationDeveloperReport
+///
+/// Compact startup report for the one supported developer schema mutation
+/// path. It exposes the mutation shape, target, row/key counts, and validation
+/// and publication status without making SQL DDL the authority.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.154 exposes startup schema mutation diagnostics before SQL DDL consumes them"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::schema) struct SchemaMutationDeveloperReport {
+    phase: SchemaMutationRunnerPhase,
+    mutation_kind: SchemaMutationDeveloperKind,
+    entity_path: &'static str,
+    target_index: String,
+    target_store: String,
+    target_fields: Vec<String>,
+    rows_scanned: usize,
+    index_keys_written: usize,
+    validation_status: SchemaMutationValidationStatus,
+    publish_status: SchemaMutationPublishStatus,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.154 exposes startup schema mutation diagnostics before SQL DDL consumes them"
+)]
+impl SchemaMutationDeveloperReport {
+    #[must_use]
+    pub(in crate::db::schema) fn field_path_index_addition(
+        phase: SchemaMutationRunnerPhase,
+        entity_path: &'static str,
+        target: &SchemaFieldPathIndexRebuildTarget,
+        rows_scanned: usize,
+        index_keys_written: usize,
+        validation_status: SchemaMutationValidationStatus,
+        publish_status: SchemaMutationPublishStatus,
+    ) -> Self {
+        Self {
+            phase,
+            mutation_kind: SchemaMutationDeveloperKind::AddNonUniqueFieldPathIndex,
+            entity_path,
+            target_index: target.name().to_string(),
+            target_store: target.store().to_string(),
+            target_fields: target_field_paths(target),
+            rows_scanned,
+            index_keys_written,
+            validation_status,
+            publish_status,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn phase(&self) -> SchemaMutationRunnerPhase {
+        self.phase
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn mutation_kind(&self) -> SchemaMutationDeveloperKind {
+        self.mutation_kind
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn entity_path(&self) -> &'static str {
+        self.entity_path
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn target_index(&self) -> &str {
+        self.target_index.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn target_store(&self) -> &str {
+        self.target_store.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn target_fields(&self) -> &[String] {
+        self.target_fields.as_slice()
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn rows_scanned(&self) -> usize {
+        self.rows_scanned
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn index_keys_written(&self) -> usize {
+        self.index_keys_written
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn validation_status(&self) -> SchemaMutationValidationStatus {
+        self.validation_status
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) const fn publish_status(&self) -> SchemaMutationPublishStatus {
+        self.publish_status
+    }
+
+    #[must_use]
+    pub(in crate::db::schema) fn summary(&self) -> String {
+        format!(
+            "phase={} mutation_kind={} entity='{}' target_index='{}' target_store='{}' target_fields='{}' rows_scanned={} index_keys_written={} validation_status={} publish_status={}",
+            self.phase.as_str(),
+            self.mutation_kind.as_str(),
+            self.entity_path,
+            self.target_index,
+            self.target_store,
+            self.target_fields.join(","),
+            self.rows_scanned,
+            self.index_keys_written,
+            self.validation_status.as_str(),
+            self.publish_status.as_str(),
+        )
+    }
+}
+
+fn target_field_paths(target: &SchemaFieldPathIndexRebuildTarget) -> Vec<String> {
+    target
+        .key_paths()
+        .iter()
+        .map(|key| key.path().join("."))
+        .collect()
+}
+
 ///
 /// SchemaMutationStoreVisibility
 ///

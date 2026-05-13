@@ -82,6 +82,8 @@ fn field_path_runner_orchestrates_staging_to_publication_handoff() {
     );
     assert!(report.runner_report().physical_work_allows_publication());
     assert!(report.publication_readiness().allows_publication());
+
+    assert_field_path_success_developer_report(&report);
 }
 
 #[test]
@@ -249,6 +251,10 @@ fn field_path_runner_rolls_back_staged_writes_after_isolated_validation_failure(
         failure.error(),
         super::SchemaFieldPathIndexRunnerError::IsolatedStoreValidationFailed,
     );
+    assert_eq!(
+        failure.phase(),
+        super::SchemaMutationRunnerPhase::ValidatePhysicalState,
+    );
     assert_eq!(rollback_report.store(), "test::mutation::by_name");
     assert_eq!(rollback_report.actions_applied(), 2);
     assert_eq!(rollback_report.restored_entries(), 0);
@@ -265,4 +271,51 @@ fn field_path_runner_rolls_back_staged_writes_after_isolated_validation_failure(
     );
     assert!(invalidation_sink.invalidations.is_empty());
     assert!(publication_sink.publications.is_empty());
+
+    let developer_report = failure.developer_report(
+        "test::MutationEntity",
+        &accepted_name_field_path_target(),
+        2,
+    );
+    assert_eq!(
+        developer_report.phase(),
+        super::SchemaMutationRunnerPhase::ValidatePhysicalState,
+    );
+    assert_eq!(developer_report.rows_scanned(), 2);
+    assert_eq!(developer_report.index_keys_written(), 2);
+    assert_eq!(
+        developer_report.validation_status(),
+        super::SchemaMutationValidationStatus::Failed,
+    );
+    assert_eq!(
+        developer_report.publish_status(),
+        super::SchemaMutationPublishStatus::NotStarted,
+    );
+}
+
+fn assert_field_path_success_developer_report(report: &super::SchemaFieldPathIndexRunnerReport) {
+    let developer_report =
+        report.developer_report("test::MutationEntity", &accepted_name_field_path_target());
+    assert_eq!(
+        developer_report.phase(),
+        super::SchemaMutationRunnerPhase::PublishPhysicalStore,
+    );
+    assert_eq!(
+        developer_report.mutation_kind(),
+        super::SchemaMutationDeveloperKind::AddNonUniqueFieldPathIndex,
+    );
+    assert_eq!(developer_report.entity_path(), "test::MutationEntity");
+    assert_eq!(developer_report.target_index(), "by_name");
+    assert_eq!(developer_report.target_store(), "test::mutation::by_name");
+    assert_eq!(developer_report.target_fields(), vec!["name".to_string()]);
+    assert_eq!(developer_report.rows_scanned(), 2);
+    assert_eq!(developer_report.index_keys_written(), 2);
+    assert_eq!(
+        developer_report.validation_status(),
+        super::SchemaMutationValidationStatus::Passed,
+    );
+    assert_eq!(
+        developer_report.publish_status(),
+        super::SchemaMutationPublishStatus::Published,
+    );
 }

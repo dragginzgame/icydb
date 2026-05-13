@@ -61,10 +61,12 @@ pub(in crate::db::schema) use mutation::{
     MutationPlan, MutationPublicationBlocker, MutationPublicationPreflight,
     MutationPublicationStatus, SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRunner,
     SchemaFieldPathIndexRunnerFailure, SchemaMutationAcceptedSnapshotPublicationSink,
-    SchemaMutationExecutionPlan, SchemaMutationRequest, SchemaMutationRunnerCapability,
-    SchemaMutationRunnerContract, SchemaMutationRunnerInput, SchemaMutationRuntimeEpoch,
+    SchemaMutationDeveloperReport, SchemaMutationExecutionPlan, SchemaMutationPublishStatus,
+    SchemaMutationRequest, SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
+    SchemaMutationRunnerInput, SchemaMutationRunnerPhase, SchemaMutationRuntimeEpoch,
     SchemaMutationRuntimeInvalidationSink, SchemaMutationSupportedExecutionPath,
-    SchemaMutationSupportedPathRejection, schema_mutation_request_for_snapshots,
+    SchemaMutationSupportedPathRejection, SchemaMutationValidationStatus,
+    schema_mutation_request_for_snapshots,
 };
 pub(in crate::db) use mutation::{
     SchemaFieldPathIndexRebuildKey, SchemaFieldPathIndexRebuildTarget,
