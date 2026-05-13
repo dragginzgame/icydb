@@ -186,6 +186,7 @@ impl SchemaFieldPathIndexRunner {
     ) -> Result<SchemaFieldPathIndexRunnerReport, SchemaFieldPathIndexRunnerFailure> {
         Self::validate_execution_plan(input.execution_plan(), &target)
             .map_err(SchemaFieldPathIndexRunnerFailure::without_rollback)?;
+        let target_index_id = IndexId::new(entity_tag, target.ordinal());
 
         let staged = SchemaFieldPathIndexStagedRebuild::from_rows(
             input.accepted_after().entity_path(),
@@ -210,7 +211,8 @@ impl SchemaFieldPathIndexRunner {
             let mut writer = SchemaFieldPathIndexIsolatedIndexStoreWriter::new(&store, index_store);
             let batch = staged_store.write_batch(&writer);
             let write_report = batch.write_to(&mut writer);
-            let Ok(validation) = writer.validate_batch(&batch) else {
+            let Ok(validation) = writer.validate_batch_for_target_index(&target_index_id, &batch)
+            else {
                 let rollback_report = batch.rollback_plan().rollback_to(&mut writer);
                 return Err(SchemaFieldPathIndexRunnerFailure::with_rollback(
                     SchemaFieldPathIndexRunnerError::IsolatedStoreValidationFailed,
@@ -253,7 +255,7 @@ impl SchemaFieldPathIndexRunner {
                 )
             })?;
         let published_store_report = published_store_plan
-            .publish_index_store(index_store)
+            .publish_index_store_for_target_index(&target_index_id, index_store)
             .map_err(|_| {
                 SchemaFieldPathIndexRunnerFailure::without_rollback(
                     SchemaFieldPathIndexRunnerError::PublishedStoreRejected,

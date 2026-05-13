@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.154.x] 🧪 - 2026-05-13 - Developer-Stable Schema Mutation Path
 
+- `0.154.5` wires target-index-scoped validation through the field-path runner and startup reconciliation, allowing the supported field-path index-add path to publish when the target index is empty even if unrelated physical index entries already exist.
+
 - `0.154.4` adds target-index-scoped validation for isolated field-path index-store writes and physical store publication checks, so the physical validation layer can prove rebuilt target entries without rejecting unrelated physical index entries that share the same store.
 
 - `0.154.3` adds a startup index-store preflight for the supported field-path index-add runner, classifying existing physical index entries as target-index versus unrelated-index occupancy before the runner executes while keeping populated stores fail-closed until scoped multi-index publication is enabled, and removes the remaining active legacy setup/audit instruction surfaces in favor of ICP tooling.

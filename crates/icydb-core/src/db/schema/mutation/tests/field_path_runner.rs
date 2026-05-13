@@ -85,6 +85,48 @@ fn field_path_runner_orchestrates_staging_to_publication_handoff() {
 }
 
 #[test]
+fn field_path_runner_orchestrates_handoff_with_unrelated_index_entries() {
+    let first = RebuildSlotReader {
+        values: vec![None, Some(Value::Text("Ada".to_string()))],
+    };
+    let second = RebuildSlotReader {
+        values: vec![None, Some(Value::Text("Grace".to_string()))],
+    };
+    let (before, after, execution_plan) = field_path_index_runner_context();
+    let input = super::SchemaMutationRunnerInput::new(&before, &after, execution_plan)
+        .expect("same-entity accepted snapshots should build runner input");
+    let mut index_store = initialized_index_store(233);
+    let other_index_id = IndexId::new(EntityTag::new(7), 99);
+    let other_key = IndexKey::empty_with_kind(&other_index_id, IndexKeyKind::User).to_raw();
+    let other_entry =
+        RawIndexEntry::try_from_keys([StorageKey::Nat(99)]).expect("other entry should encode");
+    index_store.insert(other_key, other_entry);
+    let mut invalidation_sink = RecordingRuntimeInvalidationSink::default();
+    let mut publication_sink = RecordingAcceptedSnapshotPublicationSink::default();
+
+    let report = super::SchemaFieldPathIndexRunner::run(
+        &input,
+        EntityTag::new(7),
+        accepted_name_field_path_target(),
+        [
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
+        ],
+        &mut index_store,
+        &mut invalidation_sink,
+        &mut publication_sink,
+    )
+    .expect("target-scoped runner validation should ignore unrelated index entries");
+
+    assert_eq!(report.validation().entry_count(), 2);
+    assert_eq!(report.published_store_report().entry_count(), 2);
+    assert_eq!(index_store.len(), 3);
+    assert_eq!(index_store.state(), IndexState::Ready);
+    assert!(report.runner_report().physical_work_allows_publication());
+    assert!(report.publication_readiness().allows_publication());
+}
+
+#[test]
 fn field_path_runner_rejects_target_mismatch_before_physical_work() {
     let mismatched_index = PersistedIndexSnapshot::new(
         9,

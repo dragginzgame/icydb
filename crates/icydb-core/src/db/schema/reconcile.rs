@@ -371,9 +371,9 @@ fn execute_supported_field_path_index_addition(
             supported.target(),
             entity_path,
         )?;
-        if !preflight.is_empty() {
+        if preflight.target_index_entries() != 0 {
             return Err(InternalError::store_unsupported(format!(
-                "schema mutation startup index rebuild requires an empty physical index store for entity '{entity_path}' before scoped multi-index publication is enabled: target_index='{}' target_index_entries={} other_index_entries={} total_entries={}",
+                "schema mutation startup index rebuild requires an empty target physical index for entity '{entity_path}': target_index='{}' target_index_entries={} other_index_entries={} total_entries={}",
                 supported.target().name(),
                 preflight.target_index_entries(),
                 preflight.other_index_entries(),
@@ -436,10 +436,6 @@ impl StartupFieldPathIndexStorePreflight {
             self.other_index_entries += 1;
         }
         self.total_entries += 1;
-    }
-
-    const fn is_empty(&self) -> bool {
-        self.total_entries == 0
     }
 
     const fn target_index_entries(&self) -> u64 {
@@ -1062,7 +1058,7 @@ mod tests {
     }
 
     #[test]
-    fn reconcile_runtime_schemas_rejects_field_path_index_addition_with_populated_index_store() {
+    fn reconcile_runtime_schemas_rejects_field_path_index_addition_with_populated_target_index() {
         reset_reconcile_stores();
         metrics_reset_all();
 
@@ -1084,7 +1080,7 @@ mod tests {
         });
 
         RECONCILE_INDEX_STORE.with_borrow_mut(|store| {
-            let sentinel_id = IndexId::new(IndexedSchemaEntity::ENTITY_TAG, 99);
+            let sentinel_id = IndexId::new(IndexedSchemaEntity::ENTITY_TAG, 1);
             let sentinel_key = IndexKey::empty_with_kind(&sentinel_id, IndexKeyKind::User).to_raw();
             let sentinel_entry = RawIndexEntry::try_from_keys([StorageKey::Nat(99)])
                 .expect("sentinel index entry should encode");
@@ -1093,13 +1089,59 @@ mod tests {
 
         let hooks = [EntityRuntimeHooks::for_entity::<IndexedSchemaEntity>()];
         super::reconcile_runtime_schemas(&RECONCILE_DB, &hooks)
-            .expect_err("populated physical index store should fail closed");
+            .expect_err("populated target physical index should fail closed");
 
         let latest = RECONCILE_SCHEMA_STORE
             .with_borrow(|store| store.latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG))
             .expect("latest schema snapshot should decode")
             .expect("index-free schema snapshot should remain accepted");
         assert_eq!(latest.indexes().len(), 0);
+        RECONCILE_INDEX_STORE.with_borrow(|store| {
+            assert_eq!(store.len(), 1);
+            assert_eq!(store.state(), IndexState::Ready);
+        });
+    }
+
+    #[test]
+    fn reconcile_runtime_schemas_accepts_field_path_index_addition_with_unrelated_index_entries() {
+        reset_reconcile_stores();
+        metrics_reset_all();
+
+        let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
+        let expected = proposal.initial_persisted_schema_snapshot();
+        let stored_without_index = PersistedSchemaSnapshot::new_with_indexes(
+            expected.version(),
+            expected.entity_path().to_string(),
+            expected.entity_name().to_string(),
+            expected.primary_key_field_id(),
+            expected.row_layout().clone(),
+            expected.fields().to_vec(),
+            Vec::new(),
+        );
+        RECONCILE_SCHEMA_STORE.with_borrow_mut(|store| {
+            store
+                .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored_without_index)
+                .expect("stored index-free schema snapshot should encode");
+        });
+
+        RECONCILE_INDEX_STORE.with_borrow_mut(|store| {
+            let unrelated_id = IndexId::new(IndexedSchemaEntity::ENTITY_TAG, 99);
+            let unrelated_key =
+                IndexKey::empty_with_kind(&unrelated_id, IndexKeyKind::User).to_raw();
+            let unrelated_entry = RawIndexEntry::try_from_keys([StorageKey::Nat(99)])
+                .expect("unrelated index entry should encode");
+            store.insert(unrelated_key, unrelated_entry);
+        });
+
+        let hooks = [EntityRuntimeHooks::for_entity::<IndexedSchemaEntity>()];
+        super::reconcile_runtime_schemas(&RECONCILE_DB, &hooks)
+            .expect("unrelated physical index entries should not block target index addition");
+
+        let latest = RECONCILE_SCHEMA_STORE
+            .with_borrow(|store| store.latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG))
+            .expect("latest schema snapshot should decode")
+            .expect("indexed schema snapshot should be published");
+        assert_eq!(latest.indexes().len(), 1);
         RECONCILE_INDEX_STORE.with_borrow(|store| {
             assert_eq!(store.len(), 1);
             assert_eq!(store.state(), IndexState::Ready);
@@ -1157,7 +1199,6 @@ mod tests {
             })
             .expect("preflight should decode canonical index keys");
 
-        assert!(!preflight.is_empty());
         assert_eq!(preflight.target_index_entries(), 1);
         assert_eq!(preflight.other_index_entries(), 1);
         assert_eq!(preflight.total_entries(), 2);
