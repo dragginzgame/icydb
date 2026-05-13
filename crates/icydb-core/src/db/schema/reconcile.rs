@@ -114,13 +114,12 @@ pub(in crate::db) fn ensure_accepted_schema_snapshot(
                 expected
             }
         };
-        record_schema_reconcile(entity_path, SchemaReconcileOutcome::ExactMatch);
-        record_schema_store_footprint(schema_store, entity_tag, entity_path);
-        let accepted = AcceptedSchemaSnapshot::try_new(accepted_snapshot)?;
-        validate_accepted_runtime_descriptor(&accepted)?;
-        record_accepted_schema_footprint(entity_path, &accepted);
-
-        return Ok(accepted);
+        return accept_reconciled_schema_snapshot(
+            entity_path,
+            accepted_snapshot,
+            SchemaReconcileOutcome::ExactMatch,
+            || record_schema_store_footprint(schema_store, entity_tag, entity_path),
+        );
     }
 
     if let Err(error) = schema_store.insert_persisted_snapshot(entity_tag, &expected) {
@@ -129,13 +128,12 @@ pub(in crate::db) fn ensure_accepted_schema_snapshot(
         return Err(error);
     }
 
-    record_schema_reconcile(entity_path, SchemaReconcileOutcome::FirstCreate);
-    record_schema_store_footprint(schema_store, entity_tag, entity_path);
-    let accepted = AcceptedSchemaSnapshot::try_new(expected)?;
-    validate_accepted_runtime_descriptor(&accepted)?;
-    record_accepted_schema_footprint(entity_path, &accepted);
-
-    Ok(accepted)
+    accept_reconciled_schema_snapshot(
+        entity_path,
+        expected,
+        SchemaReconcileOutcome::FirstCreate,
+        || record_schema_store_footprint(schema_store, entity_tag, entity_path),
+    )
 }
 
 // Startup reconciliation owns the wider store handle, so it can execute the
@@ -199,26 +197,43 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
             }
         };
 
-        record_schema_reconcile(entity_path, SchemaReconcileOutcome::ExactMatch);
-        store.with_schema(|schema_store| {
-            record_schema_store_footprint(schema_store, entity_tag, entity_path);
-        });
-        let accepted = AcceptedSchemaSnapshot::try_new(accepted_snapshot)?;
-        validate_accepted_runtime_descriptor(&accepted)?;
-        record_accepted_schema_footprint(entity_path, &accepted);
-
-        return Ok(accepted);
+        return accept_reconciled_schema_snapshot(
+            entity_path,
+            accepted_snapshot,
+            SchemaReconcileOutcome::ExactMatch,
+            || {
+                store.with_schema(|schema_store| {
+                    record_schema_store_footprint(schema_store, entity_tag, entity_path);
+                });
+            },
+        );
     }
 
     store.with_schema_mut(|schema_store| {
         schema_store.insert_persisted_snapshot(entity_tag, &expected)
     })?;
 
-    record_schema_reconcile(entity_path, SchemaReconcileOutcome::FirstCreate);
-    store.with_schema(|schema_store| {
-        record_schema_store_footprint(schema_store, entity_tag, entity_path);
-    });
-    let accepted = AcceptedSchemaSnapshot::try_new(expected)?;
+    accept_reconciled_schema_snapshot(
+        entity_path,
+        expected,
+        SchemaReconcileOutcome::FirstCreate,
+        || {
+            store.with_schema(|schema_store| {
+                record_schema_store_footprint(schema_store, entity_tag, entity_path);
+            });
+        },
+    )
+}
+
+fn accept_reconciled_schema_snapshot(
+    entity_path: &'static str,
+    snapshot: PersistedSchemaSnapshot,
+    outcome: SchemaReconcileOutcome,
+    record_store_footprint: impl FnOnce(),
+) -> Result<AcceptedSchemaSnapshot, InternalError> {
+    record_schema_reconcile(entity_path, outcome);
+    record_store_footprint();
+    let accepted = AcceptedSchemaSnapshot::try_new(snapshot)?;
     validate_accepted_runtime_descriptor(&accepted)?;
     record_accepted_schema_footprint(entity_path, &accepted);
 
@@ -1011,6 +1026,42 @@ mod tests {
             assert_eq!(store.len(), 1);
             assert_eq!(store.state(), IndexState::Ready);
         });
+    }
+
+    #[test]
+    fn ensure_accepted_schema_snapshot_rejects_field_path_index_addition_without_runtime_store() {
+        let mut schema_store = SchemaStore::init(test_memory(244));
+        metrics_reset_all();
+
+        let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
+        let expected = proposal.initial_persisted_schema_snapshot();
+        let stored_without_index = PersistedSchemaSnapshot::new_with_indexes(
+            expected.version(),
+            expected.entity_path().to_string(),
+            expected.entity_name().to_string(),
+            expected.primary_key_field_id(),
+            expected.row_layout().clone(),
+            expected.fields().to_vec(),
+            Vec::new(),
+        );
+        schema_store
+            .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored_without_index)
+            .expect("stored index-free schema snapshot should encode");
+
+        let err = super::ensure_accepted_schema_snapshot(
+            &mut schema_store,
+            IndexedSchemaEntity::ENTITY_TAG,
+            IndexedSchemaEntity::MODEL.path(),
+            IndexedSchemaEntity::MODEL,
+        )
+        .expect_err("metadata-only reconciliation must not execute physical index addition");
+
+        assert_eq!(err.class, ErrorClass::Unsupported);
+        let latest = schema_store
+            .latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG)
+            .expect("latest schema snapshot should decode")
+            .expect("index-free schema snapshot should remain accepted");
+        assert_eq!(latest.indexes().len(), 0);
     }
 
     #[test]

@@ -501,7 +501,17 @@ fn database_default_slot_payload_bytes(default: &Arg, value: &Value) -> Result<V
         return Err("db_default currently supports only primitive fields".to_string());
     };
 
+    if let Some(payload) = encode_primitive_default_constructor_payload(default, primitive, value) {
+        return payload;
+    }
+
     match (primitive, default) {
+        (Primitive::Account, Arg::String(default)) => {
+            encode_account_database_default_payload(default.value().as_str())
+        }
+        (Primitive::Blob, Arg::String(default)) => {
+            encode_blob_database_default_payload(default.value().as_bytes(), value.item.max_len)
+        }
         (Primitive::Bool, Arg::Bool(default)) => {
             Ok(encode_scalar_database_default_payload(&[u8::from(
                 *default,
@@ -527,30 +537,156 @@ fn database_default_slot_payload_bytes(default: &Arg, value: &Value) -> Result<V
         (Primitive::Date, default) => encode_date_database_default_payload(default),
         (Primitive::Decimal, default) => encode_decimal_database_default_payload(default, value),
         (Primitive::Duration, default) => encode_duration_database_default_payload(default),
+        (Primitive::Int, default) => encode_int_big_database_default_payload(default),
         (Primitive::Int128, Arg::Number(default)) => {
             encode_int128_database_default_payload(default)
         }
+        (Primitive::Nat, default) => encode_nat_big_database_default_payload(default),
         (Primitive::Nat128, Arg::Number(default)) => {
             encode_nat128_database_default_payload(default)
         }
+        (Primitive::Principal, Arg::String(default)) => {
+            encode_principal_database_default_payload(default.value().as_str())
+        }
+        (Primitive::Subaccount, Arg::String(default)) => {
+            encode_subaccount_database_default_payload(default.value().as_str())
+        }
         (Primitive::Timestamp, default) => encode_timestamp_database_default_payload(default),
-        (
-            Primitive::Account
-            | Primitive::Blob
-            | Primitive::Int
-            | Primitive::Nat
-            | Primitive::Principal
-            | Primitive::Subaccount
-            | Primitive::Ulid
-            | Primitive::Unit,
-            _,
-        ) => Err(format!(
-            "db_default currently does not support primitive {primitive:?}"
-        )),
+        (Primitive::Ulid, Arg::String(default)) => {
+            encode_ulid_database_default_payload(default.value().as_str())
+        }
+        (Primitive::Unit, default) => encode_unit_database_default_payload(default),
         _ => Err(format!(
             "db_default value {default:?} is not compatible with primitive {primitive:?}"
         )),
     }
+}
+
+fn encode_primitive_default_constructor_payload(
+    default: &Arg,
+    primitive: Primitive,
+    value: &Value,
+) -> Option<Result<Vec<u8>, String>> {
+    let matches_default_constructor = match default {
+        Arg::FuncPath(path) => primitive_default_fn_matches(primitive, path),
+        Arg::ConstPath(path) => {
+            primitive == Primitive::Unit && path_ends_with_segments(path, &["Unit"])
+        }
+        Arg::Bool(_) | Arg::Char(_) | Arg::Number(_) | Arg::String(_) => false,
+    };
+
+    matches_default_constructor
+        .then(|| encode_primitive_default_database_default_payload(primitive, value))
+}
+
+fn encode_primitive_default_database_default_payload(
+    primitive: Primitive,
+    value: &Value,
+) -> Result<Vec<u8>, String> {
+    match primitive {
+        Primitive::Account => encode_by_kind_database_default_payload(
+            &icydb_core::types::Account::default(),
+            icydb_core::model::FieldKind::Account,
+            primitive,
+        ),
+        Primitive::Blob => encode_blob_database_default_payload(&[], value.item.max_len),
+        Primitive::Bool => Ok(encode_scalar_database_default_payload(&[0])),
+        Primitive::Date => encode_scalar_database_default_payload_via_codec(
+            &icydb_core::types::Date::default(),
+            primitive,
+        ),
+        Primitive::Decimal => {
+            let scale = value.item.scale.ok_or_else(|| {
+                "db_default for primitive Decimal requires item(scale = N)".to_string()
+            })?;
+            encode_by_kind_database_default_payload(
+                &icydb_core::types::Decimal::from_i128_with_scale(0, scale),
+                icydb_core::model::FieldKind::Decimal { scale },
+                primitive,
+            )
+        }
+        Primitive::Duration => encode_scalar_database_default_payload_via_codec(
+            &icydb_core::types::Duration::default(),
+            primitive,
+        ),
+        Primitive::Float32 => encode_float32_database_default_payload(&ArgNumber::Float32(0.0)),
+        Primitive::Float64 => encode_float64_database_default_payload(&ArgNumber::Float64(0.0)),
+        Primitive::Int => encode_by_kind_database_default_payload(
+            &icydb_core::types::Int::default(),
+            icydb_core::model::FieldKind::IntBig,
+            primitive,
+        ),
+        Primitive::Int8 | Primitive::Int16 | Primitive::Int32 | Primitive::Int64 => {
+            encode_int_database_default_payload(&ArgNumber::Int8(0), primitive)
+        }
+        Primitive::Int128 => encode_int128_database_default_payload(&ArgNumber::Int8(0)),
+        Primitive::Nat => encode_by_kind_database_default_payload(
+            &icydb_core::types::Nat::default(),
+            icydb_core::model::FieldKind::NatBig,
+            primitive,
+        ),
+        Primitive::Nat8 | Primitive::Nat16 | Primitive::Nat32 | Primitive::Nat64 => {
+            encode_nat_database_default_payload(&ArgNumber::Nat8(0), primitive)
+        }
+        Primitive::Nat128 => encode_nat128_database_default_payload(&ArgNumber::Nat8(0)),
+        Primitive::Principal => encode_by_kind_database_default_payload(
+            &icydb_core::types::Principal::default(),
+            icydb_core::model::FieldKind::Principal,
+            primitive,
+        ),
+        Primitive::Subaccount => encode_by_kind_database_default_payload(
+            &icydb_core::types::Subaccount::default(),
+            icydb_core::model::FieldKind::Subaccount,
+            primitive,
+        ),
+        Primitive::Text => encode_text_database_default_payload("", value.item.max_len),
+        Primitive::Timestamp => encode_scalar_database_default_payload_via_codec(
+            &icydb_core::types::Timestamp::default(),
+            primitive,
+        ),
+        Primitive::Ulid => encode_by_kind_database_default_payload(
+            &icydb_core::types::Ulid::default(),
+            icydb_core::model::FieldKind::Ulid,
+            primitive,
+        ),
+        Primitive::Unit => encode_by_kind_database_default_payload(
+            &icydb_core::types::Unit,
+            icydb_core::model::FieldKind::Unit,
+            primitive,
+        ),
+    }
+}
+
+fn encode_account_database_default_payload(value: &str) -> Result<Vec<u8>, String> {
+    let value = icydb_core::types::Account::from_str(value)
+        .map_err(|err| format!("db_default for primitive Account is invalid: {err}"))?;
+
+    encode_by_kind_database_default_payload(
+        &value,
+        icydb_core::model::FieldKind::Account,
+        Primitive::Account,
+    )
+}
+
+fn encode_blob_database_default_payload(
+    value: &[u8],
+    max_len: Option<u32>,
+) -> Result<Vec<u8>, String> {
+    if let Some(max_len) = max_len
+        && value.len() > max_len as usize
+    {
+        return Err(format!(
+            "db_default blob length {} exceeds max_len {max_len}",
+            value.len()
+        ));
+    }
+
+    let value = icydb_core::types::Blob::from(value);
+    encode_by_kind_database_default_payload(
+        &value,
+        icydb_core::model::FieldKind::Blob { max_len },
+        Primitive::Blob,
+    )
 }
 
 fn encode_text_database_default_payload(
@@ -682,6 +818,29 @@ fn encode_int128_database_default_payload(value: &ArgNumber) -> Result<Vec<u8>, 
     .map_err(|err| format!("db_default Int128 payload failed to encode: {err}"))
 }
 
+fn encode_int_big_database_default_payload(default: &Arg) -> Result<Vec<u8>, String> {
+    let value = match default {
+        Arg::Number(value) => arg_number_to_integer_string(value).ok_or_else(|| {
+            "db_default for primitive Int requires an integer literal".to_string()
+        })?,
+        Arg::String(value) => value.value(),
+        Arg::Bool(_) | Arg::Char(_) | Arg::ConstPath(_) | Arg::FuncPath(_) => {
+            return Err(
+                "db_default for primitive Int requires an integer or string integer literal"
+                    .to_string(),
+            );
+        }
+    };
+    let value = icydb_core::types::Int::from_str(value.as_str())
+        .map_err(|err| format!("db_default for primitive Int is invalid: {err}"))?;
+
+    encode_by_kind_database_default_payload(
+        &value,
+        icydb_core::model::FieldKind::IntBig,
+        Primitive::Int,
+    )
+}
+
 fn encode_nat128_database_default_payload(value: &ArgNumber) -> Result<Vec<u8>, String> {
     let value = arg_number_to_u128(value)
         .ok_or("db_default for primitive Nat128 requires an unsigned integer literal")?;
@@ -693,6 +852,29 @@ fn encode_nat128_database_default_payload(value: &ArgNumber) -> Result<Vec<u8>, 
         "db_default",
     )
     .map_err(|err| format!("db_default Nat128 payload failed to encode: {err}"))
+}
+
+fn encode_nat_big_database_default_payload(default: &Arg) -> Result<Vec<u8>, String> {
+    let value = match default {
+        Arg::Number(value) => arg_number_to_unsigned_integer_string(value).ok_or_else(|| {
+            "db_default for primitive Nat requires an unsigned integer literal".to_string()
+        })?,
+        Arg::String(value) => value.value(),
+        Arg::Bool(_) | Arg::Char(_) | Arg::ConstPath(_) | Arg::FuncPath(_) => {
+            return Err(
+                "db_default for primitive Nat requires an unsigned integer or string integer literal"
+                    .to_string(),
+            );
+        }
+    };
+    let value = icydb_core::types::Nat::from_str(value.as_str())
+        .map_err(|err| format!("db_default for primitive Nat is invalid: {err}"))?;
+
+    encode_by_kind_database_default_payload(
+        &value,
+        icydb_core::model::FieldKind::NatBig,
+        Primitive::Nat,
+    )
 }
 
 fn encode_duration_database_default_payload(default: &Arg) -> Result<Vec<u8>, String> {
@@ -798,6 +980,66 @@ fn encode_timestamp_database_default_payload(default: &Arg) -> Result<Vec<u8>, S
     encode_scalar_database_default_payload_via_codec(&value, Primitive::Timestamp)
 }
 
+fn encode_principal_database_default_payload(value: &str) -> Result<Vec<u8>, String> {
+    let value = icydb_core::types::Principal::from_str(value)
+        .map_err(|err| format!("db_default for primitive Principal is invalid: {err}"))?;
+
+    encode_by_kind_database_default_payload(
+        &value,
+        icydb_core::model::FieldKind::Principal,
+        Primitive::Principal,
+    )
+}
+
+fn encode_subaccount_database_default_payload(value: &str) -> Result<Vec<u8>, String> {
+    let value = parse_subaccount_hex(value)?;
+    let value = icydb_core::types::Subaccount::from_array(value);
+
+    encode_by_kind_database_default_payload(
+        &value,
+        icydb_core::model::FieldKind::Subaccount,
+        Primitive::Subaccount,
+    )
+}
+
+fn encode_ulid_database_default_payload(value: &str) -> Result<Vec<u8>, String> {
+    let value = icydb_core::types::Ulid::from_str(value)
+        .map_err(|err| format!("db_default for primitive Ulid is invalid: {err}"))?;
+
+    encode_by_kind_database_default_payload(
+        &value,
+        icydb_core::model::FieldKind::Ulid,
+        Primitive::Ulid,
+    )
+}
+
+fn encode_unit_database_default_payload(default: &Arg) -> Result<Vec<u8>, String> {
+    match default {
+        Arg::ConstPath(path) if path_ends_with_segments(path, &["Unit"]) => {
+            encode_by_kind_database_default_payload(
+                &icydb_core::types::Unit,
+                icydb_core::model::FieldKind::Unit,
+                Primitive::Unit,
+            )
+        }
+        Arg::FuncPath(path) if primitive_default_fn_matches(Primitive::Unit, path) => {
+            encode_by_kind_database_default_payload(
+                &icydb_core::types::Unit,
+                icydb_core::model::FieldKind::Unit,
+                Primitive::Unit,
+            )
+        }
+        Arg::Bool(_)
+        | Arg::Char(_)
+        | Arg::ConstPath(_)
+        | Arg::FuncPath(_)
+        | Arg::Number(_)
+        | Arg::String(_) => {
+            Err("db_default for primitive Unit requires Unit or Unit::default".to_string())
+        }
+    }
+}
+
 fn timestamp_arg_to_core_timestamp(default: &Arg) -> Result<icydb_core::types::Timestamp, String> {
     match default {
         Arg::Number(value) => {
@@ -817,6 +1059,18 @@ fn timestamp_arg_to_core_timestamp(default: &Arg) -> Result<icydb_core::types::T
                 .to_string(),
         ),
     }
+}
+
+fn encode_by_kind_database_default_payload<T>(
+    value: &T,
+    kind: icydb_core::model::FieldKind,
+    primitive: Primitive,
+) -> Result<Vec<u8>, String>
+where
+    T: icydb_core::traits::PersistedByKindCodec,
+{
+    icydb_core::__macro::encode_persisted_slot_payload_by_kind(value, kind, "db_default")
+        .map_err(|err| format!("db_default {primitive:?} payload failed to encode: {err}"))
 }
 
 fn encode_scalar_database_default_payload_via_codec<T>(
@@ -903,6 +1157,58 @@ fn arg_number_to_u128(value: &ArgNumber) -> Option<u128> {
         ArgNumber::Nat128(value) => Some(*value),
         ArgNumber::Float32(_) | ArgNumber::Float64(_) => None,
     }
+}
+
+fn arg_number_to_integer_string(value: &ArgNumber) -> Option<String> {
+    match value {
+        ArgNumber::Float32(_) | ArgNumber::Float64(_) => None,
+        ArgNumber::Int8(value) => Some(value.to_string()),
+        ArgNumber::Int16(value) => Some(value.to_string()),
+        ArgNumber::Int32(value) => Some(value.to_string()),
+        ArgNumber::Int64(value) => Some(value.to_string()),
+        ArgNumber::Int128(value) => Some(value.to_string()),
+        ArgNumber::Nat8(value) => Some(value.to_string()),
+        ArgNumber::Nat16(value) => Some(value.to_string()),
+        ArgNumber::Nat32(value) => Some(value.to_string()),
+        ArgNumber::Nat64(value) => Some(value.to_string()),
+        ArgNumber::Nat128(value) => Some(value.to_string()),
+    }
+}
+
+fn arg_number_to_unsigned_integer_string(value: &ArgNumber) -> Option<String> {
+    match value {
+        ArgNumber::Float32(_) | ArgNumber::Float64(_) => None,
+        ArgNumber::Int8(value) => u128::try_from(*value).ok().map(|value| value.to_string()),
+        ArgNumber::Int16(value) => u128::try_from(*value).ok().map(|value| value.to_string()),
+        ArgNumber::Int32(value) => u128::try_from(*value).ok().map(|value| value.to_string()),
+        ArgNumber::Int64(value) => u128::try_from(*value).ok().map(|value| value.to_string()),
+        ArgNumber::Int128(value) => u128::try_from(*value).ok().map(|value| value.to_string()),
+        ArgNumber::Nat8(value) => Some(value.to_string()),
+        ArgNumber::Nat16(value) => Some(value.to_string()),
+        ArgNumber::Nat32(value) => Some(value.to_string()),
+        ArgNumber::Nat64(value) => Some(value.to_string()),
+        ArgNumber::Nat128(value) => Some(value.to_string()),
+    }
+}
+
+fn parse_subaccount_hex(value: &str) -> Result<[u8; 32], String> {
+    let value = value.strip_prefix("0x").unwrap_or(value);
+    if value.len() != 64 {
+        return Err(format!(
+            "db_default for primitive Subaccount requires 64 hex characters, got {}",
+            value.len()
+        ));
+    }
+
+    let mut bytes = [0u8; 32];
+    for (index, byte) in bytes.iter_mut().enumerate() {
+        let start = index * 2;
+        *byte = u8::from_str_radix(&value[start..start + 2], 16).map_err(|_| {
+            format!("db_default for primitive Subaccount has invalid hex at byte {index}")
+        })?;
+    }
+
+    Ok(bytes)
 }
 
 // Explicit `None` or `Option::default()` matches the implicit optional default.
@@ -1110,6 +1416,7 @@ mod tests {
     use icydb_schema::types::Primitive;
     use quote::format_ident;
     use quote::quote;
+    use std::str::FromStr;
     use syn::parse_quote;
 
     fn relation_field(ident: &str, many: bool) -> Field {
@@ -1589,6 +1896,238 @@ mod tests {
     }
 
     #[test]
+    fn database_default_accepts_every_primitive_with_explicit_default_constructor() {
+        let cases = [
+            (
+                Primitive::Account,
+                Arg::FuncPath(parse_quote!(Account::default)),
+            ),
+            (Primitive::Blob, Arg::FuncPath(parse_quote!(Blob::default))),
+            (Primitive::Bool, Arg::FuncPath(parse_quote!(bool::default))),
+            (Primitive::Date, Arg::FuncPath(parse_quote!(Date::default))),
+            (
+                Primitive::Decimal,
+                Arg::FuncPath(parse_quote!(Decimal::default)),
+            ),
+            (
+                Primitive::Duration,
+                Arg::FuncPath(parse_quote!(Duration::default)),
+            ),
+            (
+                Primitive::Float32,
+                Arg::FuncPath(parse_quote!(Float32::default)),
+            ),
+            (
+                Primitive::Float64,
+                Arg::FuncPath(parse_quote!(Float64::default)),
+            ),
+            (Primitive::Int, Arg::FuncPath(parse_quote!(Int::default))),
+            (Primitive::Int8, Arg::FuncPath(parse_quote!(i8::default))),
+            (Primitive::Int16, Arg::FuncPath(parse_quote!(i16::default))),
+            (Primitive::Int32, Arg::FuncPath(parse_quote!(i32::default))),
+            (Primitive::Int64, Arg::FuncPath(parse_quote!(i64::default))),
+            (
+                Primitive::Int128,
+                Arg::FuncPath(parse_quote!(i128::default)),
+            ),
+            (Primitive::Nat, Arg::FuncPath(parse_quote!(Nat::default))),
+            (Primitive::Nat8, Arg::FuncPath(parse_quote!(u8::default))),
+            (Primitive::Nat16, Arg::FuncPath(parse_quote!(u16::default))),
+            (Primitive::Nat32, Arg::FuncPath(parse_quote!(u32::default))),
+            (Primitive::Nat64, Arg::FuncPath(parse_quote!(u64::default))),
+            (
+                Primitive::Nat128,
+                Arg::FuncPath(parse_quote!(u128::default)),
+            ),
+            (
+                Primitive::Principal,
+                Arg::FuncPath(parse_quote!(Principal::default)),
+            ),
+            (
+                Primitive::Subaccount,
+                Arg::FuncPath(parse_quote!(Subaccount::default)),
+            ),
+            (
+                Primitive::Text,
+                Arg::FuncPath(parse_quote!(String::default)),
+            ),
+            (
+                Primitive::Timestamp,
+                Arg::FuncPath(parse_quote!(Timestamp::default)),
+            ),
+            (Primitive::Ulid, Arg::FuncPath(parse_quote!(Ulid::default))),
+            (Primitive::Unit, Arg::ConstPath(parse_quote!(Unit))),
+        ];
+
+        for (primitive, default) in cases {
+            let field = db_default_test_field(primitive, default);
+
+            field
+                .validate()
+                .unwrap_or_else(|err| panic!("{primitive:?} db_default should validate: {err}"));
+            super::database_default_slot_payload_bytes(
+                field.db_default.as_ref().expect("db_default should exist"),
+                &field.value,
+            )
+            .unwrap_or_else(|err| panic!("{primitive:?} db_default should encode: {err}"));
+        }
+    }
+
+    #[test]
+    fn database_default_encodes_int_and_nat_big_payloads_with_by_kind_codecs() {
+        let int_literal = "-170141183460469231731687303715884105729";
+        let int_field = db_default_test_field(
+            Primitive::Int,
+            Arg::String(syn::LitStr::new(
+                int_literal,
+                proc_macro2::Span::call_site(),
+            )),
+        );
+        let int_payload = super::database_default_slot_payload_bytes(
+            int_field
+                .db_default
+                .as_ref()
+                .expect("db_default should exist"),
+            &int_field.value,
+        )
+        .expect("Int db_default should encode");
+        let expected_int = icydb_core::__macro::encode_persisted_slot_payload_by_kind(
+            &icydb_core::types::Int::from_str(int_literal).expect("expected Int should parse"),
+            icydb_core::model::FieldKind::IntBig,
+            "int_big",
+        )
+        .expect("expected Int payload should encode");
+        assert_eq!(int_payload, expected_int);
+
+        let nat_literal = "340282366920938463463374607431768211456";
+        let nat_field = db_default_test_field(
+            Primitive::Nat,
+            Arg::String(syn::LitStr::new(
+                nat_literal,
+                proc_macro2::Span::call_site(),
+            )),
+        );
+        let nat_payload = super::database_default_slot_payload_bytes(
+            nat_field
+                .db_default
+                .as_ref()
+                .expect("db_default should exist"),
+            &nat_field.value,
+        )
+        .expect("Nat db_default should encode");
+        let expected_nat = icydb_core::__macro::encode_persisted_slot_payload_by_kind(
+            &icydb_core::types::Nat::from_str(nat_literal).expect("expected Nat should parse"),
+            icydb_core::model::FieldKind::NatBig,
+            "nat_big",
+        )
+        .expect("expected Nat payload should encode");
+        assert_eq!(nat_payload, expected_nat);
+    }
+
+    #[test]
+    fn database_default_encodes_identity_blob_and_unit_payloads_with_by_kind_codecs() {
+        let blob_field = db_default_test_field(Primitive::Blob, Arg::String(parse_quote!("abc")));
+        let blob_payload = super::database_default_slot_payload_bytes(
+            blob_field
+                .db_default
+                .as_ref()
+                .expect("db_default should exist"),
+            &blob_field.value,
+        )
+        .expect("Blob db_default should encode");
+        let expected_blob = icydb_core::__macro::encode_persisted_slot_payload_by_kind(
+            &icydb_core::types::Blob::from(&b"abc"[..]),
+            icydb_core::model::FieldKind::Blob { max_len: Some(64) },
+            "blob",
+        )
+        .expect("expected Blob payload should encode");
+        assert_eq!(blob_payload, expected_blob);
+
+        let principal_field =
+            db_default_test_field(Primitive::Principal, Arg::String(parse_quote!("aaaaa-aa")));
+        let principal_payload = super::database_default_slot_payload_bytes(
+            principal_field
+                .db_default
+                .as_ref()
+                .expect("db_default should exist"),
+            &principal_field.value,
+        )
+        .expect("Principal db_default should encode");
+        let expected_principal = icydb_core::__macro::encode_persisted_slot_payload_by_kind(
+            &icydb_core::types::Principal::from_str("aaaaa-aa")
+                .expect("expected Principal should parse"),
+            icydb_core::model::FieldKind::Principal,
+            "principal",
+        )
+        .expect("expected Principal payload should encode");
+        assert_eq!(principal_payload, expected_principal);
+
+        let subaccount_literal = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+        let subaccount_field = db_default_test_field(
+            Primitive::Subaccount,
+            Arg::String(syn::LitStr::new(
+                subaccount_literal,
+                proc_macro2::Span::call_site(),
+            )),
+        );
+        let subaccount_payload = super::database_default_slot_payload_bytes(
+            subaccount_field
+                .db_default
+                .as_ref()
+                .expect("db_default should exist"),
+            &subaccount_field.value,
+        )
+        .expect("Subaccount db_default should encode");
+        let expected_subaccount = icydb_core::__macro::encode_persisted_slot_payload_by_kind(
+            &icydb_core::types::Subaccount::from_array([
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+                23, 24, 25, 26, 27, 28, 29, 30, 31,
+            ]),
+            icydb_core::model::FieldKind::Subaccount,
+            "subaccount",
+        )
+        .expect("expected Subaccount payload should encode");
+        assert_eq!(subaccount_payload, expected_subaccount);
+
+        let ulid_field = db_default_test_field(
+            Primitive::Ulid,
+            Arg::String(parse_quote!("00000000000000000000000000")),
+        );
+        let ulid_payload = super::database_default_slot_payload_bytes(
+            ulid_field
+                .db_default
+                .as_ref()
+                .expect("db_default should exist"),
+            &ulid_field.value,
+        )
+        .expect("Ulid db_default should encode");
+        let expected_ulid = icydb_core::__macro::encode_persisted_slot_payload_by_kind(
+            &icydb_core::types::Ulid::default(),
+            icydb_core::model::FieldKind::Ulid,
+            "ulid",
+        )
+        .expect("expected Ulid payload should encode");
+        assert_eq!(ulid_payload, expected_ulid);
+
+        let unit_field = db_default_test_field(Primitive::Unit, Arg::ConstPath(parse_quote!(Unit)));
+        let unit_payload = super::database_default_slot_payload_bytes(
+            unit_field
+                .db_default
+                .as_ref()
+                .expect("db_default should exist"),
+            &unit_field.value,
+        )
+        .expect("Unit db_default should encode");
+        let expected_unit = icydb_core::__macro::encode_persisted_slot_payload_by_kind(
+            &icydb_core::types::Unit,
+            icydb_core::model::FieldKind::Unit,
+            "unit",
+        )
+        .expect("expected Unit payload should encode");
+        assert_eq!(unit_payload, expected_unit);
+    }
+
+    #[test]
     fn database_default_encodes_date_text_with_scalar_codec() {
         let field = Field {
             ident: format_ident!("launch_date"),
@@ -1729,6 +2268,26 @@ mod tests {
             ),
             "unexpected Duration db_default validation error: {err}",
         );
+    }
+
+    fn db_default_test_field(primitive: Primitive, db_default: Arg) -> Field {
+        Field {
+            ident: format_ident!("defaulted"),
+            value: Value {
+                opt: false,
+                many: false,
+                item: Item {
+                    primitive: Some(primitive),
+                    max_len: matches!(primitive, Primitive::Blob | Primitive::Text).then_some(64),
+                    scale: (primitive == Primitive::Decimal).then_some(2),
+                    ..Item::default()
+                },
+            },
+            default: None,
+            db_default: Some(db_default),
+            generated: None,
+            write_management: None,
+        }
     }
 
     #[test]
