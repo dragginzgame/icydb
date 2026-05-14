@@ -9,11 +9,11 @@ use crate::{
         CanisterCommand, CliArgs, CliCommand, DEFAULT_CANISTER, DEFAULT_ENVIRONMENT, DemoCommand,
     },
     shell::{
-        ShellConfig, ShellPerfAttribution, drain_complete_shell_statements,
+        ShellConfig, ShellPerfAttribution, SqlShellCallKind, drain_complete_shell_statements,
         finalize_successful_command_output, hex_response_bytes, icp_query_command,
-        is_shell_help_command, normalize_grouped_next_cursor_json, normalize_shell_statement_line,
-        parse_perf_result, render_grouped_shell_text, render_perf_suffix,
-        render_projection_shell_text, shell_help_text,
+        icp_update_command, is_shell_help_command, normalize_grouped_next_cursor_json,
+        normalize_shell_statement_line, parse_perf_result, render_grouped_shell_text,
+        render_perf_suffix, render_projection_shell_text, shell_help_text, sql_shell_call_kind,
     },
 };
 
@@ -389,6 +389,51 @@ fn icp_query_command_targets_environment_and_hex_query_output() {
             "--environment",
             "demo",
         ],
+    );
+}
+
+#[test]
+fn icp_update_command_targets_environment_without_query_flag() {
+    let command = icp_update_command("demo", "demo_rpg", "ddl", "(\"CREATE INDEX name_idx\")");
+    let args = command
+        .get_args()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+
+    assert_eq!(command.get_program().to_string_lossy(), "icp");
+    assert_eq!(
+        args,
+        vec![
+            "canister",
+            "call",
+            "demo_rpg",
+            "ddl",
+            "(\"CREATE INDEX name_idx\")",
+            "--output",
+            "hex",
+            "--environment",
+            "demo",
+        ],
+    );
+}
+
+#[test]
+fn sql_shell_call_kind_routes_supported_ddl_to_update_method() {
+    assert_eq!(
+        sql_shell_call_kind("CREATE INDEX name_idx ON Character (name);"),
+        SqlShellCallKind::Ddl,
+    );
+    assert_eq!(
+        sql_shell_call_kind("  create   index name_idx ON Character (name)  ; "),
+        SqlShellCallKind::Ddl,
+    );
+    assert_eq!(
+        sql_shell_call_kind("SELECT * FROM Character"),
+        SqlShellCallKind::QueryWithPerf,
+    );
+    assert_eq!(
+        sql_shell_call_kind("CREATE UNIQUE INDEX name_idx ON Character (name)"),
+        SqlShellCallKind::QueryWithPerf,
     );
 }
 

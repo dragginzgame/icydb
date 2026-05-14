@@ -3,7 +3,7 @@ use crate::db::{
     sql::table_render::{
         render_count_lines, render_describe_lines, render_explain_lines, render_grouped_lines,
         render_query_rows_lines, render_show_columns_lines, render_show_entities_lines,
-        render_show_indexes_lines,
+        render_show_indexes_lines, render_sql_ddl_lines,
     },
 };
 use candid::CandidType;
@@ -118,6 +118,14 @@ pub enum SqlQueryResult {
     ShowEntities {
         entities: Vec<String>,
     },
+    Ddl {
+        entity: String,
+        mutation_kind: String,
+        target_index: String,
+        target_store: String,
+        field_path: Vec<String>,
+        status: String,
+    },
 }
 
 impl SqlQueryResult {
@@ -137,6 +145,21 @@ impl SqlQueryResult {
                 render_show_columns_lines(entity.as_str(), columns.as_slice())
             }
             Self::ShowEntities { entities } => render_show_entities_lines(entities.as_slice()),
+            Self::Ddl {
+                entity,
+                mutation_kind,
+                target_index,
+                target_store,
+                field_path,
+                status,
+            } => render_sql_ddl_lines(
+                entity.as_str(),
+                mutation_kind.as_str(),
+                target_index.as_str(),
+                target_store.as_str(),
+                field_path.as_slice(),
+                status.as_str(),
+            ),
         }
     }
 

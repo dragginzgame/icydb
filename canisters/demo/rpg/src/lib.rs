@@ -100,4 +100,11 @@ fn update(sql: String) -> Result<SqlQueryResult, icydb::Error> {
     db().execute_sql_update::<Character>(sql.as_str())
 }
 
+/// Execute one supported Character-only SQL DDL statement.
+#[cfg(feature = "sql")]
+#[update]
+fn ddl(sql: String) -> Result<SqlQueryResult, icydb::Error> {
+    db().execute_sql_ddl::<Character>(sql.as_str())
+}
+
 canic_cdk::export_candid!();

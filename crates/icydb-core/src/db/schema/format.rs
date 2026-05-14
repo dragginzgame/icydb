@@ -1,8 +1,9 @@
 //! Module: db::schema::format
 //! Responsibility: stable text formatting for runtime schema-introspection surfaces.
 //! Does not own: schema DTO construction or query/session orchestration.
-//! Boundary: converts `EntityModel` schema contracts into user-readable lines.
+//! Boundary: converts schema index contracts into user-readable lines.
 
+use super::{SchemaExpressionIndexKeyItemInfo, SchemaInfo};
 use crate::{db::IndexState, model::entity::EntityModel};
 use std::fmt::Write;
 
@@ -37,6 +38,76 @@ pub(in crate::db) fn show_indexes_for_model_with_runtime_state(
             },
             Some(index.name()),
             index.fields(),
+            runtime_state,
+        ));
+    }
+
+    indexes
+}
+
+// Build one stable SQL-style index listing for an accepted schema view with
+// one optional runtime lifecycle annotation.
+#[must_use]
+pub(in crate::db) fn show_indexes_for_schema_info_with_runtime_state(
+    schema: &SchemaInfo,
+    runtime_state: Option<IndexState>,
+) -> Vec<String> {
+    let mut indexes = Vec::with_capacity(
+        schema
+            .field_path_indexes()
+            .len()
+            .saturating_add(schema.expression_indexes().len())
+            .saturating_add(1),
+    );
+
+    if let Some(primary_key) = schema.primary_key_name() {
+        indexes.push(render_index_listing_line(
+            "PRIMARY KEY",
+            None,
+            &[primary_key],
+            runtime_state,
+        ));
+    }
+
+    for index in schema.field_path_indexes() {
+        let fields: Vec<String> = index
+            .fields()
+            .iter()
+            .map(|field| field.path().join("."))
+            .collect();
+        let field_refs: Vec<&str> = fields.iter().map(String::as_str).collect();
+        indexes.push(render_index_listing_line(
+            if index.unique() {
+                "UNIQUE INDEX"
+            } else {
+                "INDEX"
+            },
+            Some(index.name()),
+            &field_refs,
+            runtime_state,
+        ));
+    }
+
+    for index in schema.expression_indexes() {
+        let fields: Vec<String> = index
+            .key_items()
+            .iter()
+            .map(|item| match item {
+                SchemaExpressionIndexKeyItemInfo::FieldPath(field) => field.path().join("."),
+                SchemaExpressionIndexKeyItemInfo::Expression(expression) => {
+                    expression.canonical_text().to_string()
+                }
+            })
+            .collect();
+        let field_refs: Vec<&str> = fields.iter().map(String::as_str).collect();
+        indexes.push(render_index_listing_line(
+            if index.unique() {
+                "UNIQUE INDEX"
+            } else {
+                "INDEX"
+            },
+            Some(index.name()),
+            &field_refs,
             runtime_state,
         ));
     }

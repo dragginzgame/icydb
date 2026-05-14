@@ -2247,21 +2247,69 @@ fn prepare_sql_ddl_reports_supported_create_index_without_execution() {
 }
 
 #[test]
-fn execute_sql_ddl_prepares_then_fails_closed_before_physical_work() {
+fn execute_sql_ddl_publishes_supported_field_path_index() {
     reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
     let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
 
-    let err = session
+    let result = session
         .execute_sql_ddl::<SessionSqlEntity>(
             "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
         )
-        .expect_err("DDL execution should remain fail-closed after preparation");
+        .expect("DDL execution should publish the supported field-path index");
+    let SqlStatementResult::Ddl(report) = result else {
+        panic!("DDL execution should return a DDL report");
+    };
+    let schema_info = SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("DDL-published schema should remain readable")
+            .expect("DDL execution should publish an accepted snapshot");
+        let accepted = AcceptedSchemaSnapshot::try_new(latest)
+            .expect("DDL-published schema snapshot should remain accepted");
 
-    let message = err.to_string();
-    assert!(message.contains("SQL DDL execution is prepared but not supported"));
-    assert!(message.contains("mutation_kind=add_non_unique_field_path_index"));
-    assert!(message.contains("target_index=session_sql_age_idx"));
-    assert!(message.contains("status=prepared_only"));
+        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted)
+    });
+
+    assert_eq!(
+        report.mutation_kind(),
+        SqlDdlMutationKind::AddNonUniqueFieldPathIndex,
+    );
+    assert_eq!(report.target_index(), "session_sql_age_idx");
+    assert_eq!(report.field_path(), ["age".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    assert!(
+        schema_info
+            .field_path_indexes()
+            .iter()
+            .any(|index| index.name() == "session_sql_age_idx"
+                && index.fields().len() == 1
+                && index.fields()[0].path() == ["age".to_string()]
+                && !index.unique()),
+        "accepted schema publication should expose the DDL-created index",
+    );
+    let SqlStatementResult::ShowIndexes(indexes) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES SessionSqlEntity")
+        .expect("SHOW INDEXES should read the accepted published index set")
+    else {
+        panic!("SHOW INDEXES should return an index metadata payload");
+    };
+    assert!(
+        indexes
+            .iter()
+            .any(|index| index == "INDEX session_sql_age_idx (age) [state=ready]"),
+        "SHOW INDEXES should expose DDL-created accepted indexes",
+    );
+    SESSION_SQL_INDEX_STORE.with_borrow(|store| {
+        assert_eq!(
+            store.len(),
+            3,
+            "DDL execution should build one physical index key per fixture row",
+        );
+    });
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
 }
 
 #[expect(

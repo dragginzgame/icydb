@@ -29,17 +29,18 @@ use crate::{
         DbSession, PersistedRow, QueryError,
         executor::{EntityAuthority, SharedPreparedExecutionPlan},
         query::intent::StructuralQuery,
+        schema::execute_sql_ddl_field_path_index_addition,
         schema::{AcceptedSchemaSnapshot, SchemaInfo},
         session::query::QueryPlanCacheAttribution,
         session::sql::projection::{
             projection_fixed_scales_from_projection_spec, projection_labels_from_projection_spec,
         },
         sql::{
-            ddl::prepare_sql_ddl_statement,
+            ddl::{PreparedSqlDdlCommand, prepare_sql_ddl_statement},
             parser::{SqlStatement, parse_sql_with_attribution},
         },
     },
-    traits::{CanisterKind, EntityValue},
+    traits::{CanisterKind, EntityValue, Path},
 };
 
 pub(in crate::db::session::sql) use crate::db::diagnostics::measure_local_instruction_delta as measure_sql_stage;
@@ -382,6 +383,18 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
+        let (_, prepared) = self.prepare_sql_ddl_command::<E>(sql)?;
+
+        Ok(prepared.report().clone())
+    }
+
+    fn prepare_sql_ddl_command<E>(
+        &self,
+        sql: &str,
+    ) -> Result<(AcceptedSchemaSnapshot, PreparedSqlDdlCommand), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
         let (statement, _) =
             parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)?;
         let (accepted_schema, _) = self
@@ -395,27 +408,37 @@ impl<C: CanisterKind> DbSession<C> {
                 ))
             })?;
 
-        Ok(prepared.report().clone())
+        Ok((accepted_schema, prepared))
     }
 
     /// Execute one SQL DDL statement.
     ///
-    /// The 0.155.2 boundary prepares DDL and returns a target-specific
-    /// unsupported execution error. A later slice must route through the
-    /// physical runner and publication path before this method can succeed.
+    /// The 0.155 execution boundary routes the single supported DDL shape
+    /// through schema-owned physical rebuild and accepted-snapshot publication.
     pub fn execute_sql_ddl<E>(&self, sql: &str) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let report = self.prepare_sql_ddl::<E>(sql)?;
+        let (accepted_before, prepared) = self.prepare_sql_ddl_command::<E>(sql)?;
+        let store = self
+            .db
+            .recovered_store(E::Store::PATH)
+            .map_err(QueryError::execute)?;
 
-        Err(QueryError::unsupported_query(format!(
-            "SQL DDL execution is prepared but not supported in this release: mutation_kind={} target_index={} target_store={} field_path={} status={}",
-            report.mutation_kind().as_str(),
-            report.target_index(),
-            report.target_store(),
-            report.field_path().join("."),
-            report.execution_status().as_str(),
-        )))
+        execute_sql_ddl_field_path_index_addition(
+            store,
+            E::ENTITY_TAG,
+            E::PATH,
+            &accepted_before,
+            prepared.derivation(),
+        )
+        .map_err(QueryError::execute)?;
+
+        Ok(SqlStatementResult::Ddl(
+            prepared
+                .report()
+                .clone()
+                .with_execution_status(SqlDdlExecutionStatus::Published),
+        ))
     }
 }

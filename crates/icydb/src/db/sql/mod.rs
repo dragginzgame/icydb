@@ -477,4 +477,24 @@ mod tests {
             "public SQL packaging must preserve grouped rows and outward continuation cursor",
         );
     }
+
+    #[test]
+    fn sql_query_result_renders_ddl_publication_payload() {
+        let result = SqlQueryResult::Ddl {
+            entity: "User".to_string(),
+            mutation_kind: "add_non_unique_field_path_index".to_string(),
+            target_index: "user_age_idx".to_string(),
+            target_store: "test::User::user_age_idx".to_string(),
+            field_path: vec!["age".to_string()],
+            status: "published".to_string(),
+        };
+
+        assert_eq!(
+            result.render_lines(),
+            vec![
+                "surface=ddl entity=User mutation_kind=add_non_unique_field_path_index target_index=user_age_idx target_store=test::User::user_age_idx field_path=age status=published".to_string()
+            ],
+            "public SQL DDL payloads should render a stable developer diagnostic line",
+        );
+    }
 }

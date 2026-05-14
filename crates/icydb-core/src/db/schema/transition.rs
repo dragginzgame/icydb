@@ -199,6 +199,13 @@ pub(in crate::db::schema) fn decide_schema_transition(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
 ) -> SchemaTransitionDecision {
+    if accepted_snapshot_extends_generated_indexes(actual, expected) {
+        return SchemaTransitionDecision::Accepted(SchemaTransitionPlan::from_mutation_request(
+            SchemaTransitionPlanKind::ExactMatch,
+            SchemaMutationRequest::ExactMatch,
+        ));
+    }
+
     match schema_mutation_request_for_snapshots(actual, expected) {
         SchemaMutationRequest::ExactMatch => {
             return SchemaTransitionDecision::Accepted(
@@ -238,6 +245,43 @@ pub(in crate::db::schema) fn decide_schema_transition(
     let (kind, detail) = schema_snapshot_mismatch_detail(actual, expected);
 
     SchemaTransitionDecision::Rejected(SchemaTransitionRejection::new(kind, detail))
+}
+
+// Accepted schema remains the authority after SQL DDL publishes an index that
+// generated metadata does not declare. Treat those snapshots as compatible
+// when all generated facts are still present and every extra accepted index is
+// a supported non-unique field-path index.
+fn accepted_snapshot_extends_generated_indexes(
+    actual: &PersistedSchemaSnapshot,
+    expected: &PersistedSchemaSnapshot,
+) -> bool {
+    if actual == expected {
+        return false;
+    }
+    if actual.version() != expected.version()
+        || actual.entity_path() != expected.entity_path()
+        || actual.entity_name() != expected.entity_name()
+        || actual.primary_key_field_id() != expected.primary_key_field_id()
+        || actual.row_layout() != expected.row_layout()
+        || actual.fields() != expected.fields()
+    {
+        return false;
+    }
+    if !expected
+        .indexes()
+        .iter()
+        .all(|index| actual.indexes().contains(index))
+    {
+        return false;
+    }
+
+    actual
+        .indexes()
+        .iter()
+        .filter(|index| !expected.indexes().contains(index))
+        .all(|index| {
+            SchemaMutationRequest::from_accepted_non_unique_field_path_index(index).is_ok()
+        })
 }
 
 // Decide whether one added field can be absent from older physical rows.
@@ -759,6 +803,7 @@ mod tests {
     use crate::{
         db::schema::{
             FieldId, MutationCompatibility, PersistedFieldKind, PersistedFieldSnapshot,
+            PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
             PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, RebuildRequirement,
             SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaTransitionDecision,
             SchemaTransitionPlanKind, SchemaVersion, decide_schema_transition,
@@ -822,6 +867,38 @@ mod tests {
         )
     }
 
+    fn name_field_path_index(name: &str) -> PersistedIndexSnapshot {
+        PersistedIndexSnapshot::new(
+            1,
+            name.to_string(),
+            format!("test::SchemaReconcileEntity::{name}"),
+            false,
+            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+                FieldId::new(2),
+                SchemaFieldSlot::new(1),
+                vec!["name".to_string()],
+                PersistedFieldKind::Text { max_len: None },
+                false,
+            )]),
+            None,
+        )
+    }
+
+    fn snapshot_with_indexes(
+        snapshot: &PersistedSchemaSnapshot,
+        indexes: Vec<PersistedIndexSnapshot>,
+    ) -> PersistedSchemaSnapshot {
+        PersistedSchemaSnapshot::new_with_indexes(
+            snapshot.version(),
+            snapshot.entity_path().to_string(),
+            snapshot.entity_name().to_string(),
+            snapshot.primary_key_field_id(),
+            snapshot.row_layout().clone(),
+            snapshot.fields().to_vec(),
+            indexes,
+        )
+    }
+
     #[test]
     fn schema_transition_policy_accepts_exact_snapshot_match() {
         let expected = expected_snapshot();
@@ -844,6 +921,28 @@ mod tests {
                 .detail()
                 .contains("entity name changed: stored='ChangedSchemaReconcileEntity' generated='SchemaReconcileEntity'"),
             "transition rejection should retain the first schema mismatch detail",
+        );
+    }
+
+    #[test]
+    fn schema_transition_policy_accepts_supported_ddl_indexes_absent_from_generated_model() {
+        let generated = expected_snapshot();
+        let accepted = snapshot_with_indexes(&generated, vec![name_field_path_index("name_idx")]);
+
+        let SchemaTransitionDecision::Accepted(plan) =
+            decide_schema_transition(&accepted, &generated)
+        else {
+            panic!("supported accepted DDL index should remain compatible with generated metadata");
+        };
+
+        assert_eq!(plan.kind(), SchemaTransitionPlanKind::ExactMatch);
+        assert_eq!(
+            plan.mutation_plan().compatibility(),
+            MutationCompatibility::MetadataOnlySafe,
+        );
+        assert_eq!(
+            plan.mutation_plan().rebuild_requirement(),
+            RebuildRequirement::NoRebuildRequired,
         );
     }
 

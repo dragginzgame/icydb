@@ -28,6 +28,7 @@ use crate::{
             describe_entity_fields_with_persisted_schema, describe_entity_model,
             describe_entity_model_with_persisted_schema, ensure_accepted_schema_snapshot,
             show_indexes_for_model, show_indexes_for_model_with_runtime_state,
+            show_indexes_for_schema_info_with_runtime_state,
         },
     },
     error::InternalError,
@@ -281,6 +282,19 @@ impl<C: CanisterKind> DbSession<C> {
         show_indexes_for_model(model)
     }
 
+    /// Return one stable, human-readable index listing for the accepted schema.
+    ///
+    /// Unlike `show_indexes`, this fallible live-schema helper reflects
+    /// accepted DDL-created indexes as well as compiled schema indexes.
+    pub fn try_show_indexes<E>(&self) -> Result<Vec<String>, InternalError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let schema = self.accepted_schema_info_for_entity::<E>()?;
+
+        Ok(self.show_indexes_for_store_schema_info(E::Store::PATH, &schema))
+    }
+
     // Return one stable, human-readable index listing for one resolved
     // store/model pair, attaching the current runtime lifecycle state when the
     // registry can resolve the backing store handle.
@@ -295,6 +309,22 @@ impl<C: CanisterKind> DbSession<C> {
             .map(|store| store.index_state());
 
         show_indexes_for_model_with_runtime_state(model, runtime_state)
+    }
+
+    // Return one stable, human-readable index listing for one resolved
+    // store/accepted-schema pair, attaching the current runtime lifecycle state
+    // when the registry can resolve the backing store handle.
+    pub(in crate::db) fn show_indexes_for_store_schema_info(
+        &self,
+        store_path: &str,
+        schema: &SchemaInfo,
+    ) -> Vec<String> {
+        let runtime_state = self
+            .db
+            .with_store_registry(|registry| registry.try_get_store(store_path).ok())
+            .map(|store| store.index_state());
+
+        show_indexes_for_schema_info_with_runtime_state(schema, runtime_state)
     }
 
     /// Return one stable generated-model list of field descriptors.

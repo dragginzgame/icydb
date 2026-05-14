@@ -9,6 +9,7 @@ use std::{
 };
 
 use candid::Decode;
+use icydb::db::sql::SqlQueryResult;
 use rustyline::DefaultEditor;
 
 use crate::{
@@ -157,23 +158,37 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
     require_created_canister(environment, canister)?;
 
     let escaped_sql = candid_escape_string(sql);
-    let candid_bytes = icp_query(
-        environment,
-        canister,
-        "query_with_perf",
-        escaped_sql.as_str(),
-    )?;
-    let response = Decode!(
-        candid_bytes.as_slice(),
-        Result<ShellSqlQueryPerfResult, icydb::Error>
-    )
-    .map_err(|err| err.to_string())?;
+    match sql_shell_call_kind(sql) {
+        SqlShellCallKind::QueryWithPerf => {
+            let candid_bytes = icp_query(
+                environment,
+                canister,
+                "query_with_perf",
+                escaped_sql.as_str(),
+            )?;
+            let response = Decode!(
+                candid_bytes.as_slice(),
+                Result<ShellSqlQueryPerfResult, icydb::Error>
+            )
+            .map_err(|err| err.to_string())?;
 
-    // Phase 2: decode the Candid response and render through the canonical
-    // SQL facade, with shell-only footer/cell tweaks layered on top.
-    match response {
-        Ok(result) => Ok(render_shell_text_from_perf_result(result)),
-        Err(err) => Ok(format!("ERROR: {err}")),
+            // Phase 2: decode the Candid response and render through the canonical
+            // SQL facade, with shell-only footer/cell tweaks layered on top.
+            match response {
+                Ok(result) => Ok(render_shell_text_from_perf_result(result)),
+                Err(err) => Ok(format!("ERROR: {err}")),
+            }
+        }
+        SqlShellCallKind::Ddl => {
+            let candid_bytes = icp_update(environment, canister, "ddl", escaped_sql.as_str())?;
+            let response = Decode!(candid_bytes.as_slice(), Result<SqlQueryResult, icydb::Error>)
+                .map_err(|err| err.to_string())?;
+
+            match response {
+                Ok(result) => Ok(result.render_text()),
+                Err(err) => Ok(format!("ERROR: {err}")),
+            }
+        }
     }
 }
 
@@ -185,6 +200,29 @@ fn icp_query(
 ) -> Result<Vec<u8>, String> {
     let candid_arg = format!("(\"{escaped_sql}\")");
     let output = icp_query_command(environment, canister, method, candid_arg.as_str())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|err| err.to_string())?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+
+    let stdout = String::from_utf8(output.stdout).map_err(|err| err.to_string())?;
+
+    hex_response_bytes(stdout.as_str())
+}
+
+fn icp_update(
+    environment: &str,
+    canister: &str,
+    method: &str,
+    escaped_sql: &str,
+) -> Result<Vec<u8>, String> {
+    let candid_arg = format!("(\"{escaped_sql}\")");
+    let output = icp_update_command(environment, canister, method, candid_arg.as_str())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -220,6 +258,50 @@ pub(crate) fn icp_query_command(
         .arg(environment);
 
     command
+}
+
+pub(crate) fn icp_update_command(
+    environment: &str,
+    canister: &str,
+    method: &str,
+    candid_arg: &str,
+) -> Command {
+    let mut command = Command::new("icp");
+    command
+        .arg("canister")
+        .arg("call")
+        .arg(canister)
+        .arg(method)
+        .arg(candid_arg)
+        .arg("--output")
+        .arg("hex")
+        .arg("--environment")
+        .arg(environment);
+
+    command
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SqlShellCallKind {
+    QueryWithPerf,
+    Ddl,
+}
+
+pub(crate) fn sql_shell_call_kind(sql: &str) -> SqlShellCallKind {
+    let normalized = sql
+        .trim_start()
+        .trim_end_matches(|ch: char| ch == ';' || ch.is_whitespace())
+        .trim_start();
+    if normalized
+        .split_whitespace()
+        .take(2)
+        .map(str::to_ascii_uppercase)
+        .eq(["CREATE".to_string(), "INDEX".to_string()])
+    {
+        return SqlShellCallKind::Ddl;
+    }
+
+    SqlShellCallKind::QueryWithPerf
 }
 
 pub(crate) fn hex_response_bytes(output: &str) -> Result<Vec<u8>, String> {

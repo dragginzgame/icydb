@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.155.x] 🧱 - 2026-05-14 - DDL Foundation And Audit Baselines
 
+- `0.155.3` routes the supported SQL `CREATE INDEX` execution surface through the schema-owned field-path rebuild runner and accepted-snapshot publication boundary, returns a structured DDL result with `status=published`, teaches the demo/test SQL canisters and `icydb sql` shell to execute supported DDL through an ICP update call, exposes DDL-created accepted indexes through SQL `SHOW INDEXES`, and keeps later accepted-schema loads compatible with generated metadata plus supported DDL-created field-path indexes.
+
 - `0.155.2` adds session-level SQL DDL preparation and fail-closed execution surfaces, so `prepare_sql_ddl` returns the typed accepted-catalog report while `execute_sql_ddl` prepares the command and rejects execution with target-specific diagnostics before physical work or schema publication.
 
 - `0.155.1` adds the first SQL DDL frontend slices for `CREATE INDEX`, parsing the supported single field-path shape, rejecting unsupported DDL before execution, binding against accepted `SchemaInfo`, deriving the accepted-after schema snapshot, lowering the bound candidate through schema-owned mutation admission, and producing a prepared-only DDL report without physical work.

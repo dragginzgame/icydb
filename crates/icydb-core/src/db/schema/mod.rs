@@ -39,7 +39,10 @@ pub(in crate::db) use describe::{
 pub(in crate::db) use fingerprint::{
     accepted_commit_schema_fingerprint, accepted_schema_cache_fingerprint,
 };
-pub(in crate::db) use format::{show_indexes_for_model, show_indexes_for_model_with_runtime_state};
+pub(in crate::db) use format::{
+    show_indexes_for_model, show_indexes_for_model_with_runtime_state,
+    show_indexes_for_schema_info_with_runtime_state,
+};
 pub(in crate::db) use identity::FieldId;
 pub(in crate::db) use info::{
     SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo, SchemaIndexFieldPathInfo,
@@ -77,7 +80,10 @@ pub(in crate::db) use mutation::{
 #[cfg(test)]
 pub(in crate::db::schema) use mutation::{SchemaMutationDelta, classify_schema_mutation_delta};
 pub(in crate::db) use proposal::compiled_schema_proposal_for_model;
-pub(in crate::db) use reconcile::{ensure_accepted_schema_snapshot, reconcile_runtime_schemas};
+pub(in crate::db) use reconcile::{
+    ensure_accepted_schema_snapshot, execute_sql_ddl_field_path_index_addition,
+    reconcile_runtime_schemas,
+};
 pub(in crate::db) use runtime::{
     AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract, AcceptedGeneratedCompatibleRowShape,
     AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeDescriptor, AcceptedRowLayoutRuntimeField,

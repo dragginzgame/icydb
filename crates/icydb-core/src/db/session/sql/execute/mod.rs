@@ -601,7 +601,9 @@ impl<C: CanisterKind> DbSession<C> {
                 SqlCacheAttribution::default(),
             )),
             CompiledSqlCommand::ShowIndexesEntity => Ok((
-                SqlStatementResult::ShowIndexes(self.show_indexes::<E>()),
+                SqlStatementResult::ShowIndexes(
+                    self.try_show_indexes::<E>().map_err(QueryError::execute)?,
+                ),
                 SqlCacheAttribution::default(),
             )),
             CompiledSqlCommand::ShowColumnsEntity => Ok((
@@ -676,7 +678,9 @@ impl<C: CanisterKind> DbSession<C> {
                 SqlCacheAttribution::default(),
             )),
             CompiledSqlCommand::ShowIndexesEntity => Ok((
-                SqlStatementResult::ShowIndexes(self.show_indexes::<E>()),
+                SqlStatementResult::ShowIndexes(
+                    self.try_show_indexes::<E>().map_err(QueryError::execute)?,
+                ),
                 SqlCacheAttribution::default(),
             )),
             CompiledSqlCommand::ShowColumnsEntity => Ok((

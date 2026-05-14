@@ -174,6 +174,22 @@ pub fn render_count_lines(entity: &str, row_count: u32) -> Vec<String> {
     )]
 }
 
+#[cfg_attr(doc, doc = "Render one SQL DDL payload into deterministic lines.")]
+#[must_use]
+pub fn render_sql_ddl_lines(
+    entity: &str,
+    mutation_kind: &str,
+    target_index: &str,
+    target_store: &str,
+    field_path: &[String],
+    status: &str,
+) -> Vec<String> {
+    vec![format!(
+        "surface=ddl entity={entity} mutation_kind={mutation_kind} target_index={target_index} target_store={target_store} field_path={} status={status}",
+        field_path.join("."),
+    )]
+}
+
 #[cfg_attr(
     doc,
     doc = "Render one `SHOW INDEXES` payload into deterministic shell output lines."

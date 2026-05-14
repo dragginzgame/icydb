@@ -3,7 +3,7 @@
 //! Does not own: execution, projection materialization, or compile routing.
 //! Boundary: stable SQL-shaped response payloads.
 
-use crate::{db::GroupedRow, value::OutputValue};
+use crate::{db::GroupedRow, db::sql::ddl::SqlDdlPreparationReport, value::OutputValue};
 
 ///
 /// SqlStatementResult
@@ -41,4 +41,5 @@ pub enum SqlStatementResult {
     ShowIndexes(Vec<String>),
     ShowColumns(Vec<crate::db::EntityFieldDescription>),
     ShowEntities(Vec<String>),
+    Ddl(SqlDdlPreparationReport),
 }

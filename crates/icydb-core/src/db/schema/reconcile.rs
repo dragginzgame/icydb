@@ -11,9 +11,10 @@ use crate::{
         registry::StoreHandle,
         schema::{
             AcceptedSchemaSnapshot, MutationPublicationBlocker, MutationPublicationPreflight,
-            PersistedSchemaSnapshot, SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
-            SchemaStore, SchemaTransitionDecision, SchemaTransitionPlanKind,
-            compiled_schema_proposal_for_model, decide_schema_transition,
+            PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
+            SchemaMutationRunnerCapability, SchemaMutationRunnerContract, SchemaStore,
+            SchemaTransitionDecision, SchemaTransitionPlanKind, compiled_schema_proposal_for_model,
+            decide_schema_transition,
             runtime::AcceptedRowLayoutRuntimeDescriptor,
             transition::{SchemaTransitionPlan, SchemaTransitionRejectionKind},
         },
@@ -45,6 +46,55 @@ pub(in crate::db) fn reconcile_runtime_schemas<C: CanisterKind>(
     }
 
     Ok(())
+}
+
+/// Execute one supported SQL DDL field-path index addition through the same
+/// physical runner and publication boundary used by startup reconciliation.
+pub(in crate::db) fn execute_sql_ddl_field_path_index_addition(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    accepted_before: &AcceptedSchemaSnapshot,
+    derivation: &SchemaDdlAcceptedSnapshotDerivation,
+) -> Result<(), InternalError> {
+    let before = accepted_before.persisted_snapshot();
+    let after = derivation.accepted_after().persisted_snapshot();
+    let plan = match decide_schema_transition(before, after) {
+        SchemaTransitionDecision::Accepted(plan) => plan,
+        SchemaTransitionDecision::Rejected(rejection) => {
+            return Err(InternalError::store_unsupported(format!(
+                "SQL DDL schema mutation rejected before physical execution for entity '{entity_path}': {}",
+                rejection.detail(),
+            )));
+        }
+    };
+    if plan.kind() != SchemaTransitionPlanKind::AddNonUniqueFieldPathIndex {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL execution supports only add_non_unique_field_path_index for entity '{entity_path}': actual={:?}",
+            plan.kind(),
+        )));
+    }
+    let supported = plan.supported_developer_physical_path().map_err(|rejection| {
+        InternalError::store_unsupported(format!(
+            "SQL DDL schema mutation physical execution rejected for entity '{entity_path}': supported_path_rejection={rejection:?}",
+        ))
+    })?;
+    if supported.target() != derivation.admission().target() {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL schema mutation target drifted before physical execution for entity '{entity_path}': prepared='{}' actual='{}'",
+            derivation.admission().target().name(),
+            supported.target().name(),
+        )));
+    }
+
+    execute_supported_field_path_index_addition(
+        store,
+        entity_tag,
+        entity_path,
+        before,
+        after,
+        &plan,
+    )
 }
 
 // Reconcile one entity hook against its owning schema store. The generated

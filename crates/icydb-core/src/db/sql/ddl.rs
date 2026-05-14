@@ -96,10 +96,18 @@ impl SqlDdlPreparationReport {
         self.field_path.as_slice()
     }
 
-    /// Return the execution status. 0.155.1 only prepares DDL.
+    /// Return the execution status captured by this DDL report.
     #[must_use]
     pub const fn execution_status(&self) -> SqlDdlExecutionStatus {
         self.execution_status
+    }
+
+    pub(in crate::db) const fn with_execution_status(
+        mut self,
+        execution_status: SqlDdlExecutionStatus,
+    ) -> Self {
+        self.execution_status = execution_status;
+        self
     }
 }
 
@@ -131,6 +139,7 @@ impl SqlDdlMutationKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SqlDdlExecutionStatus {
     PreparedOnly,
+    Published,
 }
 
 impl SqlDdlExecutionStatus {
@@ -139,6 +148,7 @@ impl SqlDdlExecutionStatus {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::PreparedOnly => "prepared_only",
+            Self::Published => "published",
         }
     }
 }
