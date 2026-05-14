@@ -7,7 +7,7 @@ use crate::{
     db::{
         Db, EntityRuntimeHooks,
         data::{DataKey, RawRow, StorageKey, StructuralRowContract, StructuralSlotReader},
-        index::{IndexId, IndexKey, IndexStore},
+        index::{IndexId, IndexKey, IndexState, IndexStore},
         registry::StoreHandle,
         schema::{
             AcceptedSchemaSnapshot, MutationPublicationBlocker, MutationPublicationPreflight,
@@ -467,6 +467,10 @@ impl StartupFieldPathIndexStorePreflight {
     const fn total_entries(&self) -> u64 {
         self.total_entries
     }
+
+    const fn target_index_id(&self) -> IndexId {
+        self.target_index_id
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -563,6 +567,9 @@ impl StartupFieldPathRebuildGate {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct StartupFieldPathPublicationDecision {
     diagnostic: SchemaMutationDeveloperReport,
+    target: SchemaFieldPathIndexRebuildTarget,
+    target_index_id: IndexId,
+    target_entries: u64,
 }
 
 impl StartupFieldPathPublicationDecision {
@@ -579,6 +586,12 @@ impl StartupFieldPathPublicationDecision {
                 diagnostic.summary(),
             )));
         }
+        let target_entries = u64::try_from(report.runner_report().index_keys_written()).map_err(|_| {
+            InternalError::store_unsupported(format!(
+                "schema mutation field-path index runner produced an unpublishable target-entry count: {}",
+                diagnostic.summary(),
+            ))
+        })?;
 
         rebuild_gate.validate_before_schema_publication(
             store,
@@ -586,7 +599,12 @@ impl StartupFieldPathPublicationDecision {
             report.runner_report().rows_scanned(),
         )?;
 
-        Ok(Self { diagnostic })
+        Ok(Self {
+            diagnostic,
+            target: target.clone(),
+            target_index_id: IndexId::new(rebuild_gate.entity_tag, target.ordinal()),
+            target_entries,
+        })
     }
 
     fn publish_accepted_snapshot(
@@ -595,10 +613,50 @@ impl StartupFieldPathPublicationDecision {
         entity_tag: EntityTag,
         accepted_after: &PersistedSchemaSnapshot,
     ) -> Result<(), InternalError> {
-        let _publish_status = self.diagnostic.publish_status();
+        self.validate_physical_store_before_schema_publication(store, entity_tag)?;
         store.with_schema_mut(|schema_store| {
             schema_store.insert_persisted_snapshot(entity_tag, accepted_after)
         })?;
+
+        Ok(())
+    }
+
+    fn validate_physical_store_before_schema_publication(
+        &self,
+        store: StoreHandle,
+        entity_tag: EntityTag,
+    ) -> Result<(), InternalError> {
+        let preflight = store.with_index(|index_store| {
+            if index_store.state() != IndexState::Ready {
+                return Err(InternalError::store_unsupported(format!(
+                    "schema mutation field-path index physical store was not ready before schema publication: {} index_state={}",
+                    self.diagnostic.summary(),
+                    index_store.state().as_str(),
+                )));
+            }
+            field_path_startup_index_store_preflight(
+                index_store,
+                entity_tag,
+                &self.target,
+                self.diagnostic.entity_path(),
+            )
+        })?;
+        if preflight.target_index_entries() != self.target_entries {
+            return Err(InternalError::store_unsupported(format!(
+                "schema mutation field-path index physical store changed before schema publication: {} expected_target_entries={} actual_target_entries={} other_index_entries={} total_entries={}",
+                self.diagnostic.summary(),
+                self.target_entries,
+                preflight.target_index_entries(),
+                preflight.other_index_entries(),
+                preflight.total_entries(),
+            )));
+        }
+        if preflight.target_index_id() != self.target_index_id {
+            return Err(InternalError::store_unsupported(format!(
+                "schema mutation field-path index physical store target changed before schema publication: {}",
+                self.diagnostic.summary(),
+            )));
+        }
 
         Ok(())
     }
@@ -1772,6 +1830,100 @@ mod tests {
             &report,
         )
         .expect_err("row drift after runner should reject schema publication");
+
+        let latest = RECONCILE_SCHEMA_STORE
+            .with_borrow(|store| store.latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG))
+            .expect("latest schema snapshot should decode")
+            .expect("index-free schema snapshot should remain accepted");
+        assert_eq!(latest.indexes().len(), 0);
+    }
+
+    #[test]
+    fn field_path_startup_publication_decision_rejects_physical_store_drift_without_schema_publish()
+    {
+        reset_reconcile_stores();
+
+        let (stored_without_index, expected, plan) =
+            indexed_schema_field_path_publication_context();
+        let supported = plan
+            .supported_developer_physical_path()
+            .expect("single field-path index addition should be the supported path");
+        let store = RECONCILE_DB
+            .store_handle(SchemaReconcileTestStore::PATH)
+            .expect("reconcile store should be registered");
+        let accepted = super::AcceptedSchemaSnapshot::try_new(stored_without_index.clone())
+            .expect("index-free snapshot should be accepted");
+        let row_contract = super::StructuralRowContract::from_accepted_schema_snapshot(
+            IndexedSchemaEntity::MODEL.path(),
+            &accepted,
+        )
+        .expect("accepted row contract should build");
+        let raw_rows = super::field_path_rebuild_raw_rows_for_entity(
+            store,
+            IndexedSchemaEntity::ENTITY_TAG,
+            IndexedSchemaEntity::MODEL.path(),
+        )
+        .expect("indexed rows should scan");
+        let rebuild_gate = super::StartupFieldPathRebuildGate::from_raw_rows(
+            IndexedSchemaEntity::ENTITY_TAG,
+            IndexedSchemaEntity::MODEL.path(),
+            &stored_without_index,
+            raw_rows.as_slice(),
+        )
+        .expect("startup rebuild gate should capture scanned rows");
+        let rows = super::decode_field_path_rebuild_rows(
+            raw_rows.as_slice(),
+            IndexedSchemaEntity::ENTITY_TAG,
+            IndexedSchemaEntity::MODEL.path(),
+            row_contract,
+        )
+        .expect("accepted rows should decode");
+        let input = super::SchemaMutationRunnerInput::new(
+            &stored_without_index,
+            &expected,
+            plan.execution_plan(),
+        )
+        .expect("runner input should bind accepted snapshots");
+        let mut invalidation_sink = super::StartupSchemaMutationInvalidationSink;
+        let mut publication_sink = super::StartupSchemaMutationPublicationSink;
+        let report = RECONCILE_INDEX_STORE
+            .with_borrow_mut(|index_store| {
+                let rebuild_rows = rows.iter().map(|row| {
+                    super::SchemaFieldPathIndexRebuildRow::new(row.storage_key, &row.slots)
+                });
+                super::SchemaFieldPathIndexRunner::run(
+                    &input,
+                    IndexedSchemaEntity::ENTITY_TAG,
+                    supported.target().clone(),
+                    rebuild_rows,
+                    index_store,
+                    &mut invalidation_sink,
+                    &mut publication_sink,
+                )
+            })
+            .expect("field-path runner should publish physical work");
+
+        let decision = super::StartupFieldPathPublicationDecision::from_runner_report(
+            store,
+            &rebuild_gate,
+            supported.target(),
+            &report,
+        )
+        .expect("publishable runner report and valid gate should allow a decision");
+        RECONCILE_INDEX_STORE.with_borrow_mut(|store| {
+            let target_id = IndexId::new(
+                IndexedSchemaEntity::ENTITY_TAG,
+                supported.target().ordinal(),
+            );
+            let extra_key = IndexKey::empty_with_kind(&target_id, IndexKeyKind::User).to_raw();
+            let extra_entry = RawIndexEntry::try_from_keys([StorageKey::Nat(99)])
+                .expect("extra target entry should encode");
+            store.insert(extra_key, extra_entry);
+        });
+
+        decision
+            .publish_accepted_snapshot(store, IndexedSchemaEntity::ENTITY_TAG, &expected)
+            .expect_err("physical store drift after runner should reject schema publication");
 
         let latest = RECONCILE_SCHEMA_STORE
             .with_borrow(|store| store.latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG))

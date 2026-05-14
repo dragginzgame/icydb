@@ -457,6 +457,7 @@ fn schema_mutation_publication_boundary_uses_runner_preflight() {
             && reconcile.contains("StartupFieldPathPublicationDecision::from_runner_report(")
             && reconcile.contains("publish_accepted_snapshot(")
             && reconcile.contains("validate_before_schema_publication(")
+            && reconcile.contains("validate_physical_store_before_schema_publication(")
             && reconcile
                 .contains("schema_store.insert_persisted_snapshot(entity_tag, accepted_after)"),
         "runtime startup reconciliation must execute the supported field-path index-add path from accepted schema contracts and route accepted-after publication through the startup rebuild/publication gate",

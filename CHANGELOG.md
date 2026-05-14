@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.154.x] 🧪 - 2026-05-13 - Developer-Stable Schema Mutation Path
 
+- `0.154.9` adds a final target-index physical-store revalidation immediately before the supported startup field-path index-add path inserts the accepted-after schema snapshot, so physical index drift between runner publication and schema publication fails closed without exposing the new accepted index metadata, and records the 0.154 closeout evidence/deferred-work boundary for developer testing.
+
 - `0.154.8` refreshes the schema-mutation audit readiness surface by locking the startup field-path index-add publication gate in write-boundary guards, updating recurring audit prompts to treat that one path as supported while expression rebuilds and drop cleanup remain blocked, and recording the 0.154 supported/deferred audit target for constructive review.
 
 - `0.154.7` adds an explicit startup rebuild and publication gate for the supported field-path index-add path, fingerprinting the accepted target-entity rows, rechecking the accepted schema snapshot before physical index work and final schema publication, and tying accepted-snapshot insertion to a publishable runner report so the synchronous no-write-during-rebuild assumption fails closed if the scanned row/schema image changes.

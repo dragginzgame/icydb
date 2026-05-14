@@ -66,7 +66,7 @@ families. A row may be source-audit evidence, a focused test, or both.
 
 | Family | Required Question | Minimum Evidence |
 | ------ | ----------------- | ---------------- |
-| schema mutation runner | Can staged physical work or accepted-after schema publish before validation, runtime invalidation, rebuild-gate revalidation, physical-store publication, and accepted snapshot handoff? | focused schema mutation runner/reconciliation test or source guard |
+| schema mutation runner | Can staged physical work or accepted-after schema publish before validation, runtime invalidation, rebuild-gate revalidation, physical-store publication, final physical-store revalidation, and accepted snapshot handoff? | focused schema mutation runner/reconciliation test or source guard |
 | schema transition barrier | Can unsupported accepted-schema drift reach read/write staging? | focused session/executor transition-barrier test |
 | route-plan handoff | Can executor route construction bypass validated planner output? | focused route structural guard |
 | commit-window lifecycle | Can apply/finish occur without a persisted marker-backed commit window? | commit guard or commit-window test |

@@ -382,7 +382,8 @@ Verify:
 * mutation plans do not silently hide persisted indexes with missing metadata
 * the supported field-path index-add path publishes only after target-scoped
   physical validation, runtime invalidation, startup rebuild-gate revalidation,
-  physical-store publication, and accepted snapshot insertion
+  physical-store publication, final target-index physical-store revalidation,
+  and accepted snapshot insertion
 * required rebuilds outside the supported path are explicit and remain blocked
 * planner/cache invalidation is attached to accepted fingerprint changes
 * unsupported changes fail before accepted snapshot publication

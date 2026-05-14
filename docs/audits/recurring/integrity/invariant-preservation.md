@@ -99,7 +99,8 @@ Classify invariants into categories:
 * Metadata-safe/no-rebuild plans may publish
 * The supported single non-unique field-path index-add rebuild may publish only
   through the startup field-path runner, rebuild gate, physical-store
-  publication, and accepted snapshot publication decision
+  publication, final physical-store revalidation, and accepted snapshot
+  publication decision
 * Other rebuild-required plans remain blocked before accepted runtime visibility
 * Unsupported or incompatible mutations fail closed before write/read staging
 * Recovery reconciles schema before rebuilding index state from rows
