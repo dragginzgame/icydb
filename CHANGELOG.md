@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.155.x] 🧱 - 2026-05-14 - DDL Foundation And Audit Baselines
+
+- `0.155.0` starts the DDL foundation track with a narrow accepted-catalog design for one future `CREATE INDEX` path, splits the startup field-path index-add reconciliation adapter out of general schema reconciliation, fails closed when startup rebuilds see a non-ready physical index store, and refreshes recurring audit definitions/reports for recovery, resource-model, error-taxonomy, dry-consolidation, and perf review before implementation work continues.
+
+See detailed breakdown:
+[docs/changelog/0.155.md](docs/changelog/0.155.md)
+
+---
+
 ## [0.154.x] 🧪 - 2026-05-13 - Developer-Stable Schema Mutation Path
 
 - `0.154.9` adds a final target-index physical-store revalidation immediately before the supported startup field-path index-add path inserts the accepted-after schema snapshot, so physical index drift between runner publication and schema publication fails closed without exposing the new accepted index metadata, and records the 0.154 closeout evidence/deferred-work boundary for developer testing.

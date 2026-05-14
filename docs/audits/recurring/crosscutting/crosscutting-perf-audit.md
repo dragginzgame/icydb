@@ -65,6 +65,36 @@ are obsolete as primary owner labels. They may still appear in older reports or
 compatibility wrappers, but new audit runs must anchor findings to the current
 owner boundary above.
 
+### Current Authoritative Harness Lanes
+
+Recurring runs must prefer the dedicated PocketIC perf harnesses over generic
+demo-canister dispatch sampling.
+
+Authoritative current lanes:
+
+* SQL lane:
+  * `testing/pocket-ic/tests/sql_perf_audit.rs`
+  * `canisters/audit/sql_perf/src/lib.rs`
+  * `schema/audit/sql_perf`
+  * covers SQL query, update, explain, repeat/cache, projection, grouped, and
+    phase-attribution scenarios
+* typed/fluent lane:
+  * `testing/pocket-ic/tests/fluent_perf_audit.rs`
+  * covers fluent query/update, repeat/cache, direct-row, grouped, and finalize
+    attribution scenarios
+
+Legacy context lane:
+
+* generated dispatch or `demo_rpg` canister sampling may be used only as
+  optional compatibility context
+* it must not be the primary comparable baseline unless the dedicated SQL and
+  fluent harnesses cannot run, and the report must mark that method shift
+
+SQL and fluent harness rows must be interpreted through the canonical row model
+below and stored under
+`docs/audits/reports/YYYY-MM/YYYY-MM-DD/artifacts/perf-audit/` when artifacts
+are emitted for a recurring run.
+
 ---
 
 ## Why This Audit Is IcyDB-Specific
@@ -266,6 +296,12 @@ Measure and report:
 
 For each supported scenario, sample what exists:
 
+* PocketIC SQL perf harness
+  `sql_perf_audit_harness_reports_instruction_samples`, as the authoritative
+  SQL query/update/explain/repeat/cache lane
+* PocketIC typed/fluent perf harness
+  `fluent_perf_audit_harness_reports_instruction_samples`, as the authoritative
+  typed/fluent lane
 * typed/fluent load query execution
 * typed/fluent paged query execution
 * `DbSession::execute_sql_query::<E>(...)`
@@ -415,6 +451,8 @@ Before capturing instruction data:
 
 Recommended current scans:
 
+* `rg -n "sql_perf_scenarios|fluent_perf_scenarios|scenario_key|baseline_path|maybe_write_blessed_baseline" testing/pocket-ic/tests/sql_perf_audit.rs testing/pocket-ic/tests/fluent_perf_audit.rs`
+* `rg -n "SqlQueryExecutionAttribution|QueryExecutionAttribution|store_get_calls|grouped_stream_local_instructions" crates/icydb-core/src canisters/audit/sql_perf/src`
 * `rg -n "execute_sql_query|execute_sql_update|execute_sql_query_with_attribution|execute_compiled_sql|execute_compiled_sql_with_phase_attribution" crates/icydb-core/src/db/session`
 * `rg -n "compile_sql_command|compile_sql_query|compile_sql_update" crates/icydb-core/src/db`
 * `rg -n "execute_sql_projection_rows_for_canister|sql_select_prepared_plan|execute_grouped_sql_statement_from_prepared_plan_with" crates/icydb-core/src/db`
@@ -504,3 +542,33 @@ Provide:
 * next best focused rerun
 
 Do not turn this into a redesign proposal.
+
+---
+
+## Baseline Verification Commands
+
+Current recurring runs should first verify that the dedicated harnesses are
+registered:
+
+* `cargo test -p icydb-testing-integration --test sql_perf_audit -- --list`
+* `cargo test -p icydb-testing-integration --test fluent_perf_audit -- --list`
+
+Then verify both harnesses compile:
+
+* `cargo test -p icydb-testing-integration --test sql_perf_audit --no-run`
+* `cargo test -p icydb-testing-integration --test fluent_perf_audit --no-run`
+
+The primary instruction capture commands are:
+
+* `POCKET_IC_BIN=/home/adam/projects/icydb/.cache/pocket-ic-server-13.0.0/pocket-ic cargo test -p icydb-testing-integration --test sql_perf_audit sql_perf_audit_harness_reports_instruction_samples -- --nocapture`
+* `POCKET_IC_BIN=/home/adam/projects/icydb/.cache/pocket-ic-server-13.0.0/pocket-ic cargo test -p icydb-testing-integration --test fluent_perf_audit fluent_perf_audit_harness_reports_instruction_samples -- --nocapture`
+
+Focused follow-up attribution commands:
+
+* `POCKET_IC_BIN=/home/adam/projects/icydb/.cache/pocket-ic-server-13.0.0/pocket-ic cargo test -p icydb-testing-integration --test sql_perf_audit sql_perf_shared_floor_queries_report_phase_breakdown -- --nocapture`
+* `POCKET_IC_BIN=/home/adam/projects/icydb/.cache/pocket-ic-server-13.0.0/pocket-ic cargo test -p icydb-testing-integration --test fluent_perf_audit fluent_perf_update_warm_persists_query_cache_across_calls -- --nocapture`
+
+When a recurring run emits raw captures or transformed rows, write them below
+`docs/audits/reports/YYYY-MM/YYYY-MM-DD/artifacts/perf-audit/`. Older
+`artifacts/sql-perf-audit/` directories are historical SQL-lane context, not the
+canonical recurring output path.

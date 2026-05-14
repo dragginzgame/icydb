@@ -1,381 +1,306 @@
-# WEEKLY AUDIT — Strict Error Taxonomy
+# WEEKLY AUDIT - Strict Error Taxonomy
 
-`icydb-core` (+ facade)
+`icydb-core` plus the public `icydb` facade.
 
 ---
 
 ## Purpose
 
-Verify that all error types:
+Verify that error classifications:
 
-* Are correctly classified
-* Preserve semantic meaning across layers
-* Are never downgraded or escalated incorrectly
-* Preserve origin fidelity
-* Do not mix unrelated semantic domains
-* Do not leak incorrect layer attribution
+- preserve class and origin across internal layers
+- preserve public facade mappings
+- never downgrade corruption or invariant failures
+- never escalate user/query policy failures into corruption
+- keep cursor, planner, executor, store, recovery, schema, and facade
+  boundaries explicit
 
 This is a classification audit only.
 
-Do NOT:
+Do not:
 
-* Suggest renaming
-* Propose refactors
-* Discuss style
-* Discuss performance
-* Propose architectural changes
+- suggest renaming
+- propose refactors
+- discuss style
+- discuss performance
+- propose architecture changes
 
-Only verify classification correctness.
-
----
-
-# STEP 0 — Semantic Domain Definitions
-
-Use only these domains:
+Only verify classification correctness and list violations.
 
 ---
 
-## 1. **Corruption**
+## Current Taxonomy
 
-Applies when:
+Use the current `icydb-core::error::ErrorClass` taxonomy:
 
-* Persistent state is invalid
-* Structural invariant of stored bytes is broken
-* Decode failure occurs on trusted storage
-* Commit marker inconsistency is detected
-* Index or row bytes cannot be decoded correctly
+| ErrorClass | Applies When | Must Preserve |
+| ---------- | ------------ | ------------- |
+| `Corruption` | trusted persisted bytes or structural storage/index/row payloads are invalid | never downgraded to query/user policy |
+| `IncompatiblePersistedFormat` | persisted bytes are well-formed enough to identify an unsupported stored format/version | serialize/store origin fidelity |
+| `NotFound` | operation expectation did not find required data | not escalated to corruption |
+| `Internal` | runtime failure not represented by a narrower class | not disguised as query validation |
+| `Conflict` | operation expectation conflicts with current state | not escalated to corruption |
+| `Unsupported` | feature, query shape, cursor contract, schema transition, or value policy is intentionally unsupported | not reclassified as invariant unless an internal boundary was violated |
+| `InvariantViolation` | internal logical assumption or layer contract is violated despite well-formed bytes | never downgraded to unsupported/query policy |
 
-Rule:
+Use the current `icydb-core::error::ErrorOrigin` taxonomy:
 
-> If the violation originates from persisted bytes being structurally invalid, classify as **Corruption**.
+- `Serialize`
+- `Store`
+- `Index`
+- `Identity`
+- `Query`
+- `Planner`
+- `Cursor`
+- `Recovery`
+- `Response`
+- `Executor`
+- `Interface`
 
-Corruption must never originate from user input parsing.
+The public facade maps internal classes to `icydb::RuntimeErrorKind` and
+internal origins to `icydb::ErrorOrigin`. Query validation/intent/plan/response
+errors map to `icydb::QueryErrorKind`.
 
----
-
-## 2. **Unsupported**
-
-Applies when:
-
-* Feature is intentionally unsupported
-* Value is intentionally not indexable
-* Explicitly blocked operation
-* Storage encoding policy rejects a representable value
-
-Unsupported is a policy fence, not a failure of integrity.
-
----
-
-## 3. **Invalid Input**
-
-Applies when:
-
-* Malformed cursor
-* Invalid query shape
-* Invalid user-provided value
-* Identity decode from untrusted input
-* Operation-level expectation failures (e.g. NotFound, NotUnique, Conflict)
-
-Clarification:
-
-> Operation-level semantic expectation failures (NotFound, Conflict, NotUnique) are classified under **Invalid Input** for taxonomy purposes, because they result from caller intent conflicting with current state — not from corruption or invariant breakage.
-
-Invalid Input must never be escalated to Corruption.
+Cursor malformed payloads, signature mismatches, window mismatches, and boundary
+type mismatches are currently `Unsupported` with `Cursor` origin. Cursor
+executor contract failures are `InvariantViolation` with `Cursor` origin.
 
 ---
 
-## 4. **Invariant Violation**
+## Required Scope
 
-Applies when:
+Enumerate or sample with explicit coverage for:
 
-* Logical internal assumption is broken
-* Unexpected execution state occurs
-* Index/row mismatch detected during runtime checks
-* Reverse relation inconsistency discovered
-* Planner/executor disagreement detected
+- `InternalError`
+- `ErrorClass`
+- `ErrorOrigin`
+- `ErrorDetail`
+- `StoreError`
+- `QueryErrorDetail`
+- `PlanError`
+- `QueryError`
+- `QueryExecutionError`
+- `ResponseError`
+- `CursorDecodeError`
+- `CursorPlanError`
+- `IdentityDecodeError`
+- serialize/storage key/index key/row decode errors
+- store registry errors
+- commit marker and recovery errors
+- schema reconciliation and schema mutation runner errors
+- public `icydb::Error`, `RuntimeErrorKind`, `QueryErrorKind`, and
+  `icydb::ErrorOrigin`
 
-Rule:
-
-> If state is well-formed at the byte level but logically inconsistent during execution, classify as **Invariant Violation**.
-
-Invariant violations must not be downgraded to Invalid Input.
-
----
-
-## 5. **System Failure**
-
-Applies when:
-
-* Out-of-memory
-* Stable memory failure
-* Trap-level runtime error
-* Unexpected runtime failure not attributable to input or corruption
-
-System Failure must never be disguised as Invalid Input.
-
----
-
-No other semantic domains are allowed.
+No audit run needs to paste every enum variant when command-backed matrices
+already freeze the variant surface, but the report must state which surfaces
+were checked and which were sampled.
 
 ---
 
-# STEP 1 — Full Error Enumeration
+## Required Checks
 
-Enumerate:
-
-* `InternalError`
-* `PlanError`
-* `QueryError`
-* `ErrorClass`
-* `ErrorOrigin`
-* `CursorDecodeError`
-* `IdentityDecodeError`
-* Serialize-related errors
-* Store-layer errors
-* Commit marker errors
-* Recovery errors
-
-For each enum:
-
-Produce:
-
-| Enum | Variant | Declared Meaning | Layer |
-
-No variant may be skipped.
-
----
-
-# STEP 2 — Per-Variant Semantic Classification
-
-For each variant:
-
-Assign exactly one semantic domain.
-
-Produce:
-
-| Variant | Semantic Domain | Justification |
-
-Flag:
-
-* Variants that straddle multiple domains
-* Variants whose name suggests one domain but behavior suggests another
-* Variants whose domain is unclear
-
----
-
-# STEP 3 — Upward Mapping Verification
-
-Trace how each error variant propagates upward.
-
-Example:
-
-```
-StoreError → InternalError → QueryError → public Error
-```
-
-At each mapping layer verify:
-
-* No reclassification unless domain-compatible
-* Corruption is never downgraded
-* Invalid Input never escalated to Corruption
-* Unsupported never classified as Invariant Violation
-* System Failure never disguised as Invalid Input
-
-Produce:
-
-| Source Variant | Mapped To | Domain Preserved? | Escalation? | Downgrade? | Risk |
-
----
-
-# STEP 4 — Corruption Containment Audit
-
-Explicitly verify:
-
-* All corruption-class errors remain Corruption at public boundary
-* No corruption is exposed as Invalid Input
-* Corruption sets correct `ErrorOrigin`
-* Corruption never originates from user input parsing
-
-Produce:
-
-| Corruption Variant | Public Classification | Origin | Correct? | Risk |
-
----
-
-# STEP 5 — Invalid Input Containment Audit
+### 1. Class Mapping
 
 Verify:
 
-* `CursorDecodeError` is always Invalid Input
-* Identity decode from untrusted input is Invalid Input
-* PlanError for malformed query is Invalid Input
-* No Invalid Input becomes InternalError(Corruption)
-* No Invalid Input sets Corruption origin
+- every `ErrorClass` maps to the corresponding public runtime kind
+- `QueryExecutionError` preserves the wrapped `InternalError` class
+- helper methods such as `with_message` and `with_origin` preserve class
+- `ErrorDetail` payloads do not contradict class/origin
 
 Produce:
 
-| Invalid Input Variant | Final Classification | Correct? | Risk |
+| Source | Internal Class | Public Class | Preserved? | Risk |
 
----
-
-# STEP 6 — Invariant Violation Audit
+### 2. Origin Fidelity
 
 Verify:
 
-* InvariantViolation variants are never downgraded
-* Internal invariants do not leak as Invalid Input
-* Executor invariants are not reclassified as Unsupported
-* Recovery invariant violations remain Invariant Violations
+- store-origin errors are not reported as planner/executor errors
+- index-origin errors stay index-origin
+- serialize-origin corruption and incompatible formats stay serialize-origin
+- cursor-origin errors stay cursor-origin
+- recovery-origin errors are not collapsed into generic executor/query origin
+- facade mappings preserve internal origin
 
 Produce:
 
-| Invariant Variant | Propagation Path | Classification Preserved? | Risk |
+| Source | Internal Origin | Public Origin | Preserved? | Risk |
 
----
+### 3. Corruption Containment
 
-# STEP 7 — Origin Fidelity Audit
+Verify:
 
-For each error, verify correct `ErrorOrigin`.
-
-Expected origins may include:
-
-* Planner
-* Executor
-* Store
-* Recovery
-* Cursor
-* Identity
-* Serialization
-* Interface
-
-Check:
-
-* Store-origin errors not reported as Planner
-* Planner errors not reported as Executor
-* Recovery errors clearly marked
-* Cursor errors not misattributed to Executor
-* No origin dropped during mapping
+- trusted persisted-byte decode failures stay `Corruption`
+- commit marker structural decode failures stay corruption or incompatible
+  persisted format as appropriate
+- row/index/storage key corruption is not exposed as query validation
+- user/input parsing does not manufacture `Corruption`
 
 Produce:
 
-| Variant | True Origin | Reported Origin | Match? | Risk |
+| Corruption Surface | Final Classification | Origin | Correct? | Risk |
 
----
+### 4. Unsupported and Policy Containment
 
-# STEP 8 — Layer Violation Detection
+Verify:
+
+- unsupported SQL/query/schema-transition features stay `Unsupported`
+- cursor contract mismatches stay `Unsupported` unless they are internal
+  executor cursor invariants
+- indexability/value policy failures stay `Unsupported`
+- unsupported paths do not become corruption or invariant violations unless a
+  layer conversion received the wrong domain
+
+Produce:
+
+| Unsupported Surface | Final Classification | Origin | Correct? | Risk |
+
+### 5. Invariant Violation Preservation
+
+Verify:
+
+- planner/executor disagreement remains `InvariantViolation`
+- index/row logical mismatch with well-formed bytes remains
+  `InvariantViolation`
+- store invariant details stay store-origin
+- schema mutation publication/runtime contract failures stay fail-closed and do
+  not become generic unsupported unless they are intentionally policy fences
+
+Produce:
+
+| Invariant Surface | Propagation Path | Classification Preserved? | Risk |
+
+### 6. Query and Facade Mapping
+
+Verify:
+
+- `QueryError::Validate`, `Intent`, and `Plan` map to query kinds
+- `ResponseError::NotFound` and `NotUnique` map to response origin
+- execute errors preserve runtime class and origin through public facade
+- public Candid-facing error enums still contain all mapped variants
+
+Produce:
+
+| Query/Facade Surface | Public Kind | Public Origin | Correct? | Risk |
+
+### 7. Cross-Path Consistency
+
+Verify classification consistency between:
+
+- normal write/apply and recovery replay
+- unique conflicts in live apply and replay
+- commit marker decode and startup recovery
+- save/replace/delete expectation failures
+- cursor decode, cursor planning, and grouped cursor revalidation
+
+Produce:
+
+| Scenario | Normal Classification | Replay/Alternate Classification | Consistent? | Risk |
+
+### 8. Layer Violation Detection
 
 Detect:
 
-* Lower-layer errors inspecting higher-layer types
-* Planner wrapping executor errors improperly
-* Executor reclassifying planner errors
-* Recovery reinterpreting planner errors
-* Serialize errors misclassified as Corruption without justification
+- lower-layer errors inspecting higher-layer types
+- planner wrapping executor errors improperly
+- executor reclassifying planner errors
+- recovery reinterpreting planner/query errors
+- schema mutation startup converting accepted schema authority failures into
+  user input errors
 
 Produce:
 
 | Violation | Location | Classification Impact | Risk |
 
----
+### 9. Mixed-Domain Pressure
 
-# STEP 9 — Cross-Path Consistency
+Identify enums or conversion helpers that mix:
 
-Verify classification consistency between:
-
-* Normal execution
-* Recovery replay
-* Cursor continuation
-* Save vs Replace
-* Delete vs Replay Delete
-
-If the same failure yields different classification in different paths, flag.
+- corruption and unsupported policy
+- invariant violation and unsupported policy
+- public query kinds and runtime classes
+- recovery/store failures and query planner errors
 
 Produce:
 
-| Scenario | Normal Classification | Replay Classification | Consistent? | Risk |
+| Enum / Helper | Mixed Domains? | Guarded By | Risk |
 
----
-
-# STEP 10 — Mixed-Domain Enum Detection
-
-Identify enums that mix:
-
-* Corruption + Invalid Input
-* Invariant Violation + Unsupported
-* System Failure + Planner errors
-
-Flag as taxonomy pressure.
-
-Produce:
-
-| Enum | Mixed Domains? | Risk |
-
----
-
-# STEP 11 — Incorrect Classification List
+### 10. Incorrect Classification List
 
 List:
 
-* Domain misclassifications
-* Downgrade risks
-* Escalation risks
-* Origin mismatches
-* Mixed-domain structural problems
+- misclassifications
+- downgrade risks
+- escalation risks
+- origin mismatches
+- stale audit assumptions
+
+If none are found, state that explicitly.
+
+### 11. Overall Taxonomy Risk Index
+
+Taxonomy Risk Index:
+
+- `1-3` = low risk / structurally healthy
+- `4-6` = moderate risk / manageable pressure
+- `7-8` = high risk / requires monitoring
+- `9-10` = critical risk / structural instability
 
 ---
 
-# STEP 12 — Error Classification Matrix
+## Output Contract
 
-Produce master matrix:
+Write one dated result file for each run:
 
-| Variant | Layer | Domain | Origin | Final Public Classification | Correct? |
+- `docs/audits/reports/YYYY-MM/YYYY-MM-DD/error-taxonomy*.md`
 
----
+Report sections:
 
-# STEP 13 — Overall Taxonomy Risk Index
-
-Taxonomy Risk Index (1–10, lower is better):
-
-1–3  = Low risk / structurally healthy
-4–6  = Moderate risk / manageable pressure
-7–8  = High risk / requires monitoring
-9–10 = Critical risk / structural instability
-
----
-
-## Required Summary
-
-0. Run Metadata + Comparability Note
-1. Domain Mapping Snapshot
-2. Per-Variant Classification Table
-3. Upward Mapping Verification
-4. Corruption Containment
-5. Invalid Input Containment
-6. Invariant Violation Preservation
-7. Origin Fidelity Findings
-8. Incorrect Classification List
-9. Error Classification Matrix
-10. Overall Taxonomy Risk Index
-11. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
+1. Run Metadata + Comparability Note
+2. Method Changes, when method changed
+3. Class Mapping
+4. Origin Fidelity
+5. Corruption Containment
+6. Unsupported and Policy Containment
+7. Invariant Violation Preservation
+8. Query and Facade Mapping
+9. Cross-Path Consistency
+10. Layer Violation Detection
+11. Mixed-Domain Pressure
+12. Incorrect Classification List
+13. Overall Taxonomy Risk Index
+14. Verification Readout
+15. Follow-Up Actions
 
 Run metadata must include:
 
-- compared baseline report path (daily baseline rule: first run of day compares
-  to latest prior comparable report or `N/A`; same-day reruns compare to that
-  day's `error-taxonomy.md` baseline)
+- compared baseline report path
+- code snapshot identifier
 - method tag/version
 - comparability status (`comparable` or `non-comparable` with reason)
 
+Do not overwrite prior dated results.
+
 ---
 
-# Hard Constraints
+## Baseline Verification Commands
 
-Do NOT:
+Start with:
 
-* Suggest renaming
-* Suggest splitting enums
-* Suggest merging enums
-* Suggest refactors
-* Suggest architectural changes
+- `cargo test -p icydb-core error::tests -- --nocapture`
+- `cargo test -p icydb error::tests -- --nocapture`
+- `cargo test -p icydb-core db::query::intent::errors::tests -- --nocapture`
+- `cargo test -p icydb-core db::cursor::tests -- --nocapture`
+- `cargo test -p icydb-core db::commit::store::tests::commit_marker -- --nocapture`
+- `cargo test -p icydb-core recovery_rejects_corrupt_marker_data_key_decode -- --nocapture`
+- `cargo test -p icydb-core recovery_rejects_incompatible_marker_format_version_fail_closed -- --nocapture`
+- `cargo test -p icydb-core unique_conflict_classification_parity_holds_between_live_apply_and_replay -- --nocapture`
+- `cargo test -p icydb-core conditional_unique_conflict_classification_parity_holds_between_live_update_and_replay -- --nocapture`
+- `cargo test -p icydb-core db::schema::mutation::tests::planning::runner_outcome_classifies_missing_capabilities_and_unsupported_requirements -- --nocapture`
+- `cargo test -p icydb-core schema_mutation_publication_boundary_uses_runner_preflight --features sql -- --nocapture`
+- `bash scripts/ci/check-layer-authority-invariants.sh`
 
-Only classify and identify violations.
+Add targeted tests for any new public error kind, internal error class,
+origin, schema mutation runner failure, persisted decode path, recovery replay
+path, or facade mapping.

@@ -2,8 +2,9 @@
 
 ## Purpose
 
-Verify that recovery replay produces exactly the same structural state,
-invariants, and side effects as normal mutation execution.
+Verify that recovery replay and startup recovery produce exactly the same
+structural state, invariants, and side effects as normal mutation execution and
+accepted schema mutation publication.
 
 Recovery must be:
 
@@ -12,6 +13,7 @@ Recovery must be:
 * mutation-order equivalent
 * idempotent
 * deterministic
+* fail-closed before exposing partially recovered state
 
 This audit does NOT evaluate:
 
@@ -31,6 +33,12 @@ For every mutation family:
 > recovery replay must be indistinguishable from normal execution in final
 > state, invariant guarantees, and durable marker behavior.
 
+For schema mutation startup work:
+
+> accepted snapshot visibility must remain old until physical work is validated,
+> runtime invalidation has completed, and the physical index store can be proven
+> ready for the accepted-after snapshot.
+
 If replay and execution differ in:
 
 * operation ordering
@@ -39,6 +47,8 @@ If replay and execution differ in:
 * reverse-index mutation
 * index-entry construction
 * marker lifecycle
+* staged physical-store visibility
+* accepted snapshot publication ordering
 
 that is a correctness risk.
 
@@ -64,8 +74,20 @@ Primary owners:
   * commit-window open/apply orchestration
 * save/delete mutation executors that feed prepared row ops into commit-window
   application
-* recovery replay logic and migration replay surfaces when they reuse the same
-  marker protocol
+* recovery replay logic and accepted schema-transition replay surfaces when
+  they reuse the same marker protocol
+* `db/schema/reconcile.rs`
+  * startup accepted snapshot reconciliation
+* `db/schema/reconcile/startup_field_path.rs`
+  * supported field-path schema mutation startup adapter
+  * startup rebuild gate
+  * startup publication decision
+  * physical-store revalidation before accepted snapshot insertion
+* `db/schema/mutation/field_path/*`
+  * staged, isolated, and published field-path index-store contracts
+  * rollback/discard reports
+* `db/schema/mutation/runner.rs`
+  * runner phases, publication readiness, and developer diagnostics
 
 Historical names such as `ensure_recovered_for_write` are obsolete and must not
 be used as the audit frame.
@@ -89,6 +111,10 @@ Analyze:
 * index-entry mutation
 * commit-marker persistence
 * recovery replay logic
+* schema mutation startup field-path index rebuild
+* staged schema mutation physical-store work
+* accepted schema snapshot publication after physical work
+* startup fail-closed behavior for partial or mismatched physical work
 
 ---
 
@@ -105,6 +131,8 @@ Enumerate all mutation types:
 * index entry creation
 * index entry removal
 * commit marker transitions
+* supported schema mutation field-path index rebuild
+* accepted snapshot publication transition
 
 Produce:
 
@@ -128,6 +156,9 @@ Phases must include:
 6. store mutation
 7. commit marker write / persistence
 8. finalization / marker clear
+9. staged physical-store validation
+10. runtime invalidation
+11. accepted snapshot publication
 
 You must explicitly compare:
 
@@ -170,6 +201,10 @@ Verify:
 * no recovery path performs mutation earlier than validation
 * success clears marker authority immediately
 * failure preserves marker authority durably
+* schema mutation physical-store publication occurs before accepted-after
+  schema visibility
+* accepted-after schema publication is blocked when row, schema, or physical
+  store revalidation fails
 
 Produce:
 
@@ -187,6 +222,9 @@ For each failure scenario, compare classification:
 * invalid commit phase
 * double-apply replay
 * failed apply with marker still present
+* staged schema mutation physical work that is not publishable
+* ready physical index store that is not referenced by the accepted snapshot
+* accepted snapshot that references missing or mismatched physical index state
 
 Produce:
 
@@ -205,6 +243,9 @@ Explicitly attempt to find:
 * recovery fails to enforce invariants enforced in executor
 * best-effort rollback being treated as durable authority
 * commit marker partially applied state handled differently in replay
+* staged schema mutation work being treated as runtime-visible
+* generated index metadata being used to recover accepted schema authority
+* ready-but-unreferenced physical index stores being silently exposed
 
 Produce:
 
@@ -258,6 +299,28 @@ Produce:
 | Failure Point | Recovery Outcome | Safe? | Risk |
 | ------------- | ---------------- | ----- | ---- |
 
+### 9. Schema Mutation Startup Recovery
+
+For supported field-path schema mutation startup publication, verify:
+
+1. old accepted snapshot remains visible until the field-path runner report is
+   publishable
+2. startup row/schema gate revalidation runs before physical work and before
+   accepted snapshot publication
+3. final physical-store revalidation runs immediately before schema-store
+   insertion
+4. target index entries match runner output before accepted-after publication
+5. index store is ready before accepted-after publication
+6. stale, staged, building, or mismatched physical-store state is discarded when
+   proven unreferenced, otherwise startup fails closed
+7. no recovery path reconstructs accepted schema/index authority from generated
+   model metadata
+
+Produce:
+
+| Schema Mutation State | Startup Decision | Snapshot Visible? | Physical Store Visible? | Risk |
+| --------------------- | ---------------- | ----------------- | ----------------------- | ---- |
+
 ---
 
 ## Attack and Boundary Questions
@@ -270,7 +333,16 @@ Every run must answer these explicitly:
 * Can a failed apply clear the marker incorrectly?
 * Can replay observe marker state without corresponding row-op ownership?
 * Can recovery proceed before `ensure_recovered` gates write-side entry?
-* Can migration replay and normal replay diverge on the same marker contract?
+* Can accepted schema-transition replay and normal replay diverge on the same
+  marker contract?
+* Can schema mutation startup publish the accepted-after snapshot before
+  physical-store readiness is proven?
+* Can staged or building schema mutation physical work become runtime-visible
+  after restart?
+* Can ready-but-unreferenced physical index state be silently treated as
+  accepted?
+* Can generated model/index metadata be used to recover accepted runtime
+  authority?
 
 If any answer is unclear, mark it as risk.
 
@@ -287,8 +359,13 @@ If any answer is unclear, mark it as risk.
 6. Divergence Risks
 7. Idempotence Verification
 8. Partial Failure Symmetry Table
-9. Overall Recovery Risk Index (1-10, lower is better)
-10. Verification Readout (`PASS` / `FAIL` / `PARTIAL` / `BLOCKED`)
+9. Schema Mutation Startup Recovery Table
+10. Attack and Boundary Answers
+11. Overall Recovery Risk Index (1-10, lower is better)
+12. Verification Readout (`PASS` / `FAIL` / `PARTIAL` / `BLOCKED`)
+
+Reports must include all required sections even when the verification commands
+pass. Do not collapse the report into a smoke-test-only summary.
 
 Run metadata must include:
 
@@ -317,6 +394,12 @@ Start with:
 * `cargo test -p icydb-core recovery_replay_interrupted_conflicting_unique_batch_fails_closed -- --nocapture`
 * `cargo test -p icydb-core unique_conflict_classification_parity_holds_between_live_apply_and_replay -- --nocapture`
 * `cargo test -p icydb-core commit_marker_* -- --nocapture`
-* `cargo test -p icydb-core migration_* -- --nocapture`
+* `cargo test -p icydb-core commit_forward_apply_and_replay_preserve_identical_store_state_for_mixed_marker_sequence -- --nocapture`
+* `cargo test -p icydb-core conditional_index_forward_apply_and_replay_preserve_identical_store_state_for_membership_matrix -- --nocapture`
+* `cargo test -p icydb-core recovery_replay_updates_old_nullable_row_before_image_with_accepted_contract -- --nocapture`
+* `cargo test -p icydb-core schema::reconcile --features sql -- --nocapture`
+* `cargo test -p icydb-core schema_mutation_publication_boundary_uses_runner_preflight --features sql -- --nocapture`
 
-Add targeted replay/apply tests for any newly widened mutation surface.
+Add targeted replay/apply tests for any newly widened mutation surface. Add
+targeted schema mutation startup tests when supported physical mutation
+publication changes.

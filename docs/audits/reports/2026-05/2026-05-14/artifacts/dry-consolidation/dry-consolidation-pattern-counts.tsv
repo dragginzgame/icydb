@@ -1,0 +1,12 @@
+pattern	files	risk	classification
+field-path schema mutation runner publication pipeline	6	low-medium	boundary-protected staged-to-published bridge duplication
+startup field-path reconciliation gate/publication adapter	1	medium-low	same-owner startup adapter cluster with explicit gate boundaries
+compiled expression IR vs planner-to-IR lowering	4	low	intentional boundary duplication
+predicate capability classification plus consumption	3	low	intentional boundary duplication
+continuation cursor contract transport	4	medium-low	intentional boundary duplication
+route capability snapshot forwarding	4	medium	intentional boundary duplication
+commit marker envelope plus size guards	2	low-medium	defensive duplication
+index-store reader bridge and preflight overlay access	5	low-medium	boundary-protected bridge duplication
+accepted schema generated-compatible row-decode bridge	5	low-medium	boundary-protected bridge duplication
+fluent non-paged terminal public wrappers	1	low-medium	same-owner public wrapper duplication
+SQL projection and result finalization shell	3	low-medium	same-owner execution shell duplication

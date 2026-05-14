@@ -414,6 +414,7 @@ fn schema_mutation_publication_boundary_uses_runner_preflight() {
     let transition = read_source("src/db/schema/transition.rs");
     let reconcile = read_source("src/db/schema/reconcile.rs");
     let reconcile_compact = compact_source(&reconcile);
+    let startup_field_path = read_source("src/db/schema/reconcile/startup_field_path.rs");
 
     assert!(
         mutation.contains("pub(in crate::db::schema) enum MutationPublicationPreflight")
@@ -446,21 +447,24 @@ fn schema_mutation_publication_boundary_uses_runner_preflight() {
         "startup reconciliation must consult runner preflight with no physical runner installed, keeping rebuild-required mutation publication fail-closed",
     );
     assert!(
-        reconcile.contains("fn execute_supported_field_path_index_addition(")
-            && reconcile.contains("plan.supported_developer_physical_path()")
-            && reconcile.contains("SchemaMutationRunnerInput::new(")
-            && reconcile.contains("StructuralRowContract::from_accepted_schema_snapshot(")
-            && reconcile.contains("StartupFieldPathRebuildGate::from_raw_rows(")
-            && reconcile.contains("validate_before_physical_work(")
-            && reconcile.contains("SchemaFieldPathIndexRebuildRow::new(")
-            && reconcile.contains("SchemaFieldPathIndexRunner::run(")
-            && reconcile.contains("StartupFieldPathPublicationDecision::from_runner_report(")
-            && reconcile.contains("publish_accepted_snapshot(")
-            && reconcile.contains("validate_before_schema_publication(")
-            && reconcile.contains("validate_physical_store_before_schema_publication(")
-            && reconcile
+        reconcile.contains("mod startup_field_path;")
+            && reconcile.contains("execute_supported_field_path_index_addition(")
+            && startup_field_path.contains("fn execute_supported_field_path_index_addition(")
+            && startup_field_path.contains("supported_developer_physical_path()")
+            && startup_field_path.contains("SchemaMutationRunnerInput::new(")
+            && startup_field_path.contains("StructuralRowContract::from_accepted_schema_snapshot(")
+            && startup_field_path.contains("StartupFieldPathRebuildGate::from_raw_rows(")
+            && startup_field_path.contains("validate_before_physical_work(")
+            && startup_field_path.contains("SchemaFieldPathIndexRebuildRow::new(")
+            && startup_field_path.contains("SchemaFieldPathIndexRunner::run(")
+            && startup_field_path
+                .contains("StartupFieldPathPublicationDecision::from_runner_report(")
+            && startup_field_path.contains("publish_accepted_snapshot(")
+            && startup_field_path.contains("validate_before_schema_publication(")
+            && startup_field_path.contains("validate_physical_store_before_schema_publication(")
+            && startup_field_path
                 .contains("schema_store.insert_persisted_snapshot(entity_tag, accepted_after)"),
-        "runtime startup reconciliation must execute the supported field-path index-add path from accepted schema contracts and route accepted-after publication through the startup rebuild/publication gate",
+        "runtime startup reconciliation must route the supported field-path index-add path through the startup rebuild/publication gate without folding the adapter back into general reconciliation",
     );
 }
 
