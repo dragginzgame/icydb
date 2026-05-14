@@ -45,12 +45,14 @@ pub use query::{
 };
 pub(in crate::db) use response::finalize_structural_grouped_projection_result;
 pub(in crate::db) use response::{finalize_scalar_paged_execution, sql_grouped_cursor_from_bytes};
-#[cfg(feature = "sql")]
-pub use sql::SqlStatementResult;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use sql::{
     SqlCompileAttribution, SqlExecutionAttribution, SqlPureCoveringAttribution,
     SqlQueryCacheAttribution, SqlQueryExecutionAttribution, SqlScalarAggregateAttribution,
+};
+#[cfg(feature = "sql")]
+pub use sql::{
+    SqlDdlExecutionStatus, SqlDdlMutationKind, SqlDdlPreparationReport, SqlStatementResult,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use sql::{SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics};

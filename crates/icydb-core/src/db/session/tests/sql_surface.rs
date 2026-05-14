@@ -2223,6 +2223,47 @@ fn sql_ddl_create_index_preparation_reports_non_executed_command() {
     );
 }
 
+#[test]
+fn prepare_sql_ddl_reports_supported_create_index_without_execution() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let report = session
+        .prepare_sql_ddl::<SessionSqlEntity>(
+            "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
+        )
+        .expect("DDL prepare surface should report supported CREATE INDEX candidates");
+
+    assert_eq!(
+        report.mutation_kind(),
+        SqlDdlMutationKind::AddNonUniqueFieldPathIndex,
+    );
+    assert_eq!(report.target_index(), "session_sql_age_idx");
+    assert_eq!(report.field_path(), ["age".to_string()]);
+    assert_eq!(
+        report.execution_status(),
+        SqlDdlExecutionStatus::PreparedOnly
+    );
+}
+
+#[test]
+fn execute_sql_ddl_prepares_then_fails_closed_before_physical_work() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
+        )
+        .expect_err("DDL execution should remain fail-closed after preparation");
+
+    let message = err.to_string();
+    assert!(message.contains("SQL DDL execution is prepared but not supported"));
+    assert!(message.contains("mutation_kind=add_non_unique_field_path_index"));
+    assert!(message.contains("target_index=session_sql_age_idx"));
+    assert!(message.contains("status=prepared_only"));
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "artifact-family matrix intentionally keeps one representative read-lane table together"

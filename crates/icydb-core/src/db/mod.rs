@@ -144,7 +144,10 @@ pub use schema::{
 #[cfg(not(feature = "sql"))]
 pub use session::DbSession;
 #[cfg(feature = "sql")]
-pub use session::{DbSession, SqlStatementResult};
+pub use session::{
+    DbSession, SqlDdlExecutionStatus, SqlDdlMutationKind, SqlDdlPreparationReport,
+    SqlStatementResult,
+};
 #[cfg(feature = "diagnostics")]
 pub use session::{
     DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,

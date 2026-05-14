@@ -63,7 +63,7 @@ impl PreparedSqlDdlCommand {
 /// frontend and schema-mutation checks.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct SqlDdlPreparationReport {
+pub struct SqlDdlPreparationReport {
     mutation_kind: SqlDdlMutationKind,
     target_index: String,
     target_store: String,
@@ -74,31 +74,31 @@ pub(in crate::db) struct SqlDdlPreparationReport {
 impl SqlDdlPreparationReport {
     /// Return the prepared DDL mutation kind.
     #[must_use]
-    pub(in crate::db) const fn mutation_kind(&self) -> SqlDdlMutationKind {
+    pub const fn mutation_kind(&self) -> SqlDdlMutationKind {
         self.mutation_kind
     }
 
     /// Borrow the target accepted index name.
     #[must_use]
-    pub(in crate::db) const fn target_index(&self) -> &str {
+    pub const fn target_index(&self) -> &str {
         self.target_index.as_str()
     }
 
     /// Borrow the target accepted index store path.
     #[must_use]
-    pub(in crate::db) const fn target_store(&self) -> &str {
+    pub const fn target_store(&self) -> &str {
         self.target_store.as_str()
     }
 
     /// Borrow the target field path.
     #[must_use]
-    pub(in crate::db) const fn field_path(&self) -> &[String] {
+    pub const fn field_path(&self) -> &[String] {
         self.field_path.as_slice()
     }
 
     /// Return the execution status. 0.155.1 only prepares DDL.
     #[must_use]
-    pub(in crate::db) const fn execution_status(&self) -> SqlDdlExecutionStatus {
+    pub const fn execution_status(&self) -> SqlDdlExecutionStatus {
         self.execution_status
     }
 }
@@ -109,8 +109,18 @@ impl SqlDdlPreparationReport {
 /// Developer-facing SQL DDL mutation kind.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum SqlDdlMutationKind {
+pub enum SqlDdlMutationKind {
     AddNonUniqueFieldPathIndex,
+}
+
+impl SqlDdlMutationKind {
+    /// Return the stable diagnostic label for this DDL mutation kind.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::AddNonUniqueFieldPathIndex => "add_non_unique_field_path_index",
+        }
+    }
 }
 
 ///
@@ -119,8 +129,18 @@ pub(in crate::db) enum SqlDdlMutationKind {
 /// SQL DDL execution state at the current boundary.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum SqlDdlExecutionStatus {
+pub enum SqlDdlExecutionStatus {
     PreparedOnly,
+}
+
+impl SqlDdlExecutionStatus {
+    /// Return the stable diagnostic label for this execution status.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::PreparedOnly => "prepared_only",
+        }
+    }
 }
 
 ///
