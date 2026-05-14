@@ -23,12 +23,13 @@ use crate::{
 
 pub(crate) use crate::db::sql_shared::SqlParseError;
 pub(crate) use model::{
-    SqlAggregateCall, SqlAggregateKind, SqlAssignment, SqlCaseArm, SqlDeleteStatement,
-    SqlDescribeStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr,
-    SqlExprBinaryOp, SqlExprUnaryOp, SqlInsertSource, SqlInsertStatement, SqlOrderDirection,
-    SqlOrderTerm, SqlProjection, SqlReturningProjection, SqlScalarFunction,
-    SqlScalarFunctionCallShape, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
-    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlUpdateStatement,
+    SqlAggregateCall, SqlAggregateKind, SqlAssignment, SqlCaseArm, SqlCreateIndexStatement,
+    SqlCreateIndexUniqueness, SqlDdlStatement, SqlDeleteStatement, SqlDescribeStatement,
+    SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlExprBinaryOp,
+    SqlExprUnaryOp, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
+    SqlProjection, SqlReturningProjection, SqlScalarFunction, SqlScalarFunctionCallShape,
+    SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
+    SqlShowIndexesStatement, SqlStatement, SqlUpdateStatement,
 };
 #[cfg(test)]
 pub(in crate::db) use order_expr::{

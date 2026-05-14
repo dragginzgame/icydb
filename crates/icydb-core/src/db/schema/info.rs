@@ -116,6 +116,7 @@ fn persisted_kind_has_strong_relation(kind: &PersistedFieldKind) -> bool {
 
 #[derive(Clone, Debug)]
 struct SchemaFieldInfo {
+    field_id: Option<FieldId>,
     slot: usize,
     ty: FieldType,
     kind: Option<FieldKind>,
@@ -434,6 +435,7 @@ pub(crate) struct SchemaInfo {
     fields: Vec<SchemaFieldEntry>,
     indexes: Vec<SchemaIndexInfo>,
     expression_indexes: Vec<SchemaExpressionIndexInfo>,
+    entity_path: Option<String>,
     entity_name: Option<String>,
     primary_key_name: Option<String>,
     has_any_strong_relations: bool,
@@ -449,6 +451,7 @@ impl SchemaInfo {
                 (
                     field.name().to_string(),
                     SchemaFieldInfo {
+                        field_id: None,
                         slot,
                         ty: field_type_from_model_kind(&field.kind()),
                         kind: Some(field.kind()),
@@ -472,6 +475,7 @@ impl SchemaInfo {
             fields,
             indexes: Vec::new(),
             expression_indexes: Vec::new(),
+            entity_path: None,
             entity_name: None,
             primary_key_name: None,
             has_any_strong_relations: false,
@@ -481,6 +485,7 @@ impl SchemaInfo {
     // Build one compact field table from trusted generated entity metadata.
     fn from_trusted_entity_model(model: &EntityModel) -> Self {
         let mut schema = Self::from_trusted_field_models(model.fields());
+        schema.entity_path = Some(model.path().to_string());
         schema.entity_name = Some(model.name().to_string());
         schema.primary_key_name = Some(model.primary_key().name().to_string());
         schema.has_any_strong_relations = model.has_any_strong_relations();
@@ -547,6 +552,13 @@ impl SchemaInfo {
     #[must_use]
     pub(in crate::db) fn entity_name(&self) -> Option<&str> {
         self.entity_name.as_deref()
+    }
+
+    /// Borrow the schema-owned entity path when this schema view was built
+    /// from an entity model or accepted persisted snapshot.
+    #[must_use]
+    pub(in crate::db) fn entity_path(&self) -> Option<&str> {
+        self.entity_path.as_deref()
     }
 
     /// Borrow the schema-owned primary-key field name when this schema view
@@ -644,6 +656,70 @@ impl SchemaInfo {
 
         resolve_nested_field_path_kind(field.nested_fields, segments)
             .map(|kind| sql_capabilities(&PersistedFieldKind::from_model_kind(kind)))
+    }
+
+    /// Build one accepted field-path key contract for a future secondary index.
+    ///
+    /// Generated schema views return `None`; SQL DDL must bind only to accepted
+    /// persisted catalog metadata before it can lower into mutation requests.
+    #[must_use]
+    pub(in crate::db) fn accepted_index_field_path_snapshot(
+        &self,
+        name: &str,
+        segments: &[String],
+    ) -> Option<PersistedIndexFieldPathSnapshot> {
+        let field = schema_field_info(self.fields.as_slice(), name)?;
+        let field_id = field.field_id?;
+        let slot = SchemaFieldSlot::from_generated_index(field.slot);
+
+        let (kind, nullable) = if segments.is_empty() {
+            (field.persisted_kind.as_ref()?, field.nullable)
+        } else {
+            let leaf = field
+                .nested_leaves
+                .as_ref()?
+                .iter()
+                .find(|leaf| leaf.path() == segments)?;
+            (leaf.kind(), leaf.nullable())
+        };
+
+        let mut path = Vec::with_capacity(segments.len() + 1);
+        path.push(name.to_string());
+        path.extend(segments.iter().cloned());
+
+        Some(PersistedIndexFieldPathSnapshot::new(
+            field_id,
+            slot,
+            path,
+            kind.clone(),
+            nullable,
+        ))
+    }
+
+    /// Return the next accepted secondary-index ordinal for a DDL candidate.
+    #[must_use]
+    pub(in crate::db) fn next_secondary_index_ordinal(&self) -> u16 {
+        let max_field_path = self
+            .indexes
+            .iter()
+            .map(SchemaIndexInfo::ordinal)
+            .max()
+            .unwrap_or(0);
+        let max_expression = self
+            .expression_indexes
+            .iter()
+            .map(SchemaExpressionIndexInfo::ordinal)
+            .max()
+            .unwrap_or(0);
+
+        max_field_path.max(max_expression).saturating_add(1)
+    }
+
+    /// Derive the accepted backing store path for a DDL-created index.
+    #[must_use]
+    pub(in crate::db) fn ddl_index_store_path(&self, index_name: &str) -> Option<String> {
+        self.entity_path()
+            .map(|entity_path| format!("{entity_path}::{index_name}"))
     }
 
     /// Return the first top-level field that SQL cannot project directly.
@@ -763,6 +839,7 @@ impl SchemaInfo {
                 (
                     field.name().to_string(),
                     SchemaFieldInfo {
+                        field_id: Some(field.id()),
                         slot,
                         ty: field_type_from_persisted_kind(field.kind()),
                         kind: generated_kind,
@@ -802,6 +879,7 @@ impl SchemaInfo {
                         .flatten()
                 })
                 .collect(),
+            entity_path: Some(schema.entity_path().to_string()),
             entity_name: Some(schema.entity_name().to_string()),
             primary_key_name,
             has_any_strong_relations: snapshot

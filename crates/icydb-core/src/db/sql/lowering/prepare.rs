@@ -68,7 +68,8 @@ fn first_statement_parameter_index(statement: &SqlStatement) -> Option<usize> {
         SqlStatement::Insert(statement) => first_insert_parameter_index(statement),
         SqlStatement::Update(statement) => first_update_parameter_index(statement),
         SqlStatement::Explain(statement) => first_explain_parameter_index(statement),
-        SqlStatement::Describe(_)
+        SqlStatement::Ddl(_)
+        | SqlStatement::Describe(_)
         | SqlStatement::ShowIndexes(_)
         | SqlStatement::ShowColumns(_)
         | SqlStatement::ShowEntities(_) => None,
@@ -304,6 +305,7 @@ fn prepare_statement(
             statement.clone(),
             expected_entity,
         )?)),
+        SqlStatement::Ddl(_) => Err(SqlLoweringError::unsupported_sql_ddl()),
         SqlStatement::Explain(statement) => Ok(SqlStatement::Explain(prepare_explain_statement(
             statement.clone(),
             expected_entity,
@@ -440,6 +442,7 @@ fn lower_prepared_statement_for_model_only(
         SqlStatement::Insert(_) | SqlStatement::Update(_) => {
             Err(SqlLoweringError::unexpected_query_lane_statement())
         }
+        SqlStatement::Ddl(_) => Err(SqlLoweringError::unsupported_sql_ddl()),
         SqlStatement::Explain(statement) => lower_explain_prepared_for_model_only(statement, model),
         SqlStatement::Describe(_) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::DescribeEntity)),
         SqlStatement::ShowIndexes(_) => {
@@ -469,6 +472,7 @@ fn lower_prepared_statement_with_schema(
         SqlStatement::Insert(_) | SqlStatement::Update(_) => {
             Err(SqlLoweringError::unexpected_query_lane_statement())
         }
+        SqlStatement::Ddl(_) => Err(SqlLoweringError::unsupported_sql_ddl()),
         SqlStatement::Explain(statement) => {
             lower_explain_prepared_with_schema(statement, model, schema)
         }

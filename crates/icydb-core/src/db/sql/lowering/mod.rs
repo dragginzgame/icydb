@@ -271,6 +271,9 @@ pub(crate) enum SqlLoweringError {
     #[error("{message}")]
     UnsupportedParameterPlacement { message: String },
 
+    #[error("SQL DDL execution is not supported in this release")]
+    UnsupportedSqlDdl,
+
     #[error("query-lane lowering reached a non query-compatible statement")]
     UnexpectedQueryLaneStatement,
 }
@@ -377,6 +380,11 @@ impl SqlLoweringError {
         };
 
         Self::UnsupportedParameterPlacement { message }
+    }
+
+    /// Construct one unsupported SQL DDL lowering error.
+    pub(crate) const fn unsupported_sql_ddl() -> Self {
+        Self::UnsupportedSqlDdl
     }
 }
 

@@ -53,6 +53,9 @@ impl<C: CanisterKind> DbSession<C> {
             SqlStatement::Delete(_) => Self::compile_delete(statement, entity_name, model, schema),
             SqlStatement::Insert(_) => Self::compile_insert(statement, entity_name),
             SqlStatement::Update(_) => Self::compile_update(statement, entity_name),
+            SqlStatement::Ddl(_) => Err(QueryError::unsupported_query(
+                "SQL DDL execution is not supported in this release",
+            )),
             SqlStatement::Explain(_) => {
                 Self::compile_explain(statement, entity_name, model, schema)
             }

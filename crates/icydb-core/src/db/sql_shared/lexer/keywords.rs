@@ -5,6 +5,7 @@ const KEYWORDS_LEN_2: &[(&str, Keyword)] = &[
     ("BY", Keyword::By),
     ("IN", Keyword::In),
     ("IS", Keyword::Is),
+    ("ON", Keyword::On),
     ("OR", Keyword::Or),
 ];
 
@@ -39,6 +40,7 @@ const KEYWORDS_LEN_5: &[(&str, Keyword)] = &[
     ("COUNT", Keyword::Count),
     ("FALSE", Keyword::False),
     ("GROUP", Keyword::Group),
+    ("INDEX", Keyword::Index),
     ("LIMIT", Keyword::Limit),
     ("ORDER", Keyword::Order),
     ("UNION", Keyword::Union),
@@ -46,6 +48,7 @@ const KEYWORDS_LEN_5: &[(&str, Keyword)] = &[
 ];
 
 const KEYWORDS_LEN_6: &[(&str, Keyword)] = &[
+    ("CREATE", Keyword::Create),
     ("DELETE", Keyword::Delete),
     ("EXCEPT", Keyword::Except),
     ("FILTER", Keyword::Filter),
@@ -62,6 +65,7 @@ const KEYWORDS_LEN_7: &[(&str, Keyword)] = &[
     ("COLUMNS", Keyword::Columns),
     ("EXPLAIN", Keyword::Explain),
     ("INDEXES", Keyword::Indexes),
+    ("UNIQUE", Keyword::Unique),
     ("VERBOSE", Keyword::Verbose),
 ];
 

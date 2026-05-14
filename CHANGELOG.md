@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.155.x] 🧱 - 2026-05-14 - DDL Foundation And Audit Baselines
 
-- `0.155.0` starts the DDL foundation track with a narrow accepted-catalog design for one future `CREATE INDEX` path, splits the startup field-path index-add reconciliation adapter out of general schema reconciliation, fails closed when startup rebuilds see a non-ready physical index store, and refreshes recurring audit definitions/reports for recovery, resource-model, error-taxonomy, dry-consolidation, and perf review before implementation work continues.
+- `0.155.1` adds the first SQL DDL frontend slices for `CREATE INDEX`, parsing the supported single field-path shape, rejecting unsupported DDL before execution, binding against accepted `SchemaInfo`, deriving the accepted-after schema snapshot, lowering the bound candidate through schema-owned mutation admission, and producing a prepared-only DDL report without physical work.
+
+- `0.155.0` starts the DDL foundation track with a narrow accepted-catalog design, splits the startup field-path index-add reconciliation adapter out of general schema reconciliation, fails closed when startup rebuilds see a non-ready physical index store, and refreshes recurring audit definitions/reports before implementation work continues.
 
 See detailed breakdown:
 [docs/changelog/0.155.md](docs/changelog/0.155.md)

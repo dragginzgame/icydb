@@ -10,7 +10,8 @@ mod update;
 
 use crate::db::{
     sql::parser::{
-        Parser, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode, SqlExplainStatement,
+        Parser, SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement,
+        SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode, SqlExplainStatement,
         SqlExplainTarget, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
         SqlShowIndexesStatement, SqlStatement, SqlUpdateStatement,
     },
@@ -31,6 +32,9 @@ impl Parser {
         if self.eat_keyword(Keyword::Update) {
             return Ok(SqlStatement::Update(self.parse_update_statement()?));
         }
+        if self.eat_keyword(Keyword::Create) {
+            return Ok(SqlStatement::Ddl(self.parse_create_statement()?));
+        }
         if self.eat_keyword(Keyword::Explain) {
             return Ok(SqlStatement::Explain(self.parse_explain_statement()?));
         }
@@ -46,7 +50,7 @@ impl Parser {
         }
 
         Err(SqlParseError::expected(
-            "one of SELECT, DELETE, INSERT, UPDATE, EXPLAIN, DESCRIBE, SHOW",
+            "one of SELECT, DELETE, INSERT, UPDATE, CREATE, EXPLAIN, DESCRIBE, SHOW",
             self.peek_kind(),
         ))
     }
@@ -62,6 +66,7 @@ impl Parser {
             SqlStatement::Delete(delete) => self.delete_clause_order_error(delete),
             SqlStatement::Insert(_) => None,
             SqlStatement::Update(update) => self.update_clause_order_error(update),
+            SqlStatement::Ddl(ddl) => Some(self.ddl_clause_order_error(ddl)),
             SqlStatement::Explain(explain) => match &explain.statement {
                 SqlExplainTarget::Select(select) => self.select_clause_order_error(select),
                 SqlExplainTarget::Delete(delete) => self.delete_clause_order_error(delete),
@@ -78,6 +83,68 @@ impl Parser {
             SqlStatement::ShowEntities(_) => Some(SqlParseError::unsupported_feature(
                 "SHOW ENTITIES modifiers",
             )),
+        }
+    }
+
+    fn parse_create_statement(&mut self) -> Result<SqlDdlStatement, SqlParseError> {
+        if self.eat_keyword(Keyword::Unique) {
+            return Err(SqlParseError::unsupported_feature(
+                "SQL DDL CREATE UNIQUE INDEX",
+            ));
+        }
+        if !self.eat_keyword(Keyword::Index) {
+            return Err(SqlParseError::unsupported_feature(
+                "SQL DDL CREATE statements beyond CREATE INDEX",
+            ));
+        }
+
+        Ok(SqlDdlStatement::CreateIndex(
+            self.parse_create_index_statement()?,
+        ))
+    }
+
+    fn parse_create_index_statement(&mut self) -> Result<SqlCreateIndexStatement, SqlParseError> {
+        let name = self.expect_identifier()?;
+        self.expect_keyword(Keyword::On)?;
+        let entity = self.expect_identifier()?;
+        self.expect_lparen()?;
+        let field_path = self.expect_identifier()?;
+
+        if self.peek_lparen() {
+            return Err(SqlParseError::unsupported_feature(
+                "SQL DDL expression index keys",
+            ));
+        }
+        if self.eat_comma() {
+            return Err(SqlParseError::unsupported_feature(
+                "SQL DDL multi-field CREATE INDEX keys",
+            ));
+        }
+
+        self.expect_rparen()?;
+
+        if self.peek_keyword(Keyword::Where) {
+            return Err(SqlParseError::unsupported_feature(
+                "SQL DDL filtered CREATE INDEX",
+            ));
+        }
+
+        Ok(SqlCreateIndexStatement {
+            name,
+            entity,
+            field_path,
+            uniqueness: SqlCreateIndexUniqueness::NonUnique,
+        })
+    }
+
+    fn ddl_clause_order_error(&self, statement: &SqlDdlStatement) -> SqlParseError {
+        match statement {
+            SqlDdlStatement::CreateIndex(_) if self.peek_keyword(Keyword::Where) => {
+                SqlParseError::unsupported_feature("SQL DDL filtered CREATE INDEX")
+            }
+            SqlDdlStatement::CreateIndex(_) => {
+                SqlParseError::unsupported_feature("CREATE INDEX modifiers")
+            }
         }
     }
 

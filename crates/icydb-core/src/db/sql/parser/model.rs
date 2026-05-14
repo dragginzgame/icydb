@@ -23,11 +23,50 @@ pub(crate) enum SqlStatement {
     Delete(SqlDeleteStatement),
     Insert(SqlInsertStatement),
     Update(SqlUpdateStatement),
+    Ddl(SqlDdlStatement),
     Explain(SqlExplainStatement),
     Describe(SqlDescribeStatement),
     ShowIndexes(SqlShowIndexesStatement),
     ShowColumns(SqlShowColumnsStatement),
     ShowEntities(SqlShowEntitiesStatement),
+}
+
+///
+/// SqlDdlStatement
+///
+/// Parser-owned DDL intent. DDL stays unresolved at this boundary and must bind
+/// against accepted catalog snapshots before any future mutation planning.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SqlDdlStatement {
+    CreateIndex(SqlCreateIndexStatement),
+}
+
+///
+/// SqlCreateIndexStatement
+///
+/// Narrow parsed `CREATE INDEX` frontend supported by the first DDL slice.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlCreateIndexStatement {
+    pub(crate) name: String,
+    pub(crate) entity: String,
+    pub(crate) field_path: String,
+    pub(crate) uniqueness: SqlCreateIndexUniqueness,
+}
+
+///
+/// SqlCreateIndexUniqueness
+///
+/// Parser-owned uniqueness flag for future DDL binding. The current supported
+/// grammar only produces `NonUnique`; unique index syntax remains fail-closed.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SqlCreateIndexUniqueness {
+    NonUnique,
 }
 
 ///

@@ -4,12 +4,13 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::{
-    SqlAggregateCall, SqlAggregateKind, SqlAssignment, SqlCaseArm, SqlDeleteStatement,
-    SqlDescribeStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr,
-    SqlExprBinaryOp, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
-    SqlParseError, SqlProjection, SqlReturningProjection, SqlScalarFunction, SqlSelectItem,
-    SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
-    SqlStatement, SqlUpdateStatement, parse_sql,
+    SqlAggregateCall, SqlAggregateKind, SqlAssignment, SqlCaseArm, SqlCreateIndexStatement,
+    SqlCreateIndexUniqueness, SqlDdlStatement, SqlDeleteStatement, SqlDescribeStatement,
+    SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlExprBinaryOp,
+    SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlParseError,
+    SqlProjection, SqlReturningProjection, SqlScalarFunction, SqlSelectItem, SqlSelectStatement,
+    SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
+    SqlUpdateStatement, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
@@ -1801,6 +1802,38 @@ fn parse_show_tables_statement() {
         statement,
         SqlStatement::ShowEntities(SqlShowEntitiesStatement)
     );
+}
+
+#[test]
+fn parse_create_index_statement_keeps_ddl_intent_unresolved() {
+    let statement = parse_sql("CREATE INDEX user_age_idx ON public.users (profile.age)")
+        .expect("CREATE INDEX statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::CreateIndex(SqlCreateIndexStatement {
+            name: "user_age_idx".to_string(),
+            entity: "public.users".to_string(),
+            field_path: "profile.age".to_string(),
+            uniqueness: SqlCreateIndexUniqueness::NonUnique,
+        })),
+    );
+}
+
+#[test]
+fn parse_create_index_rejects_unsupported_ddl_shapes() {
+    for sql in [
+        "CREATE UNIQUE INDEX user_age_idx ON users (age)",
+        "CREATE INDEX user_age_idx ON users (age, name)",
+        "CREATE INDEX user_lower_name_idx ON users (LOWER(name))",
+        "CREATE INDEX user_age_idx ON users (age) WHERE active = true",
+    ] {
+        let err = parse_sql(sql).expect_err("unsupported DDL shape should fail closed");
+        assert!(
+            matches!(err, SqlParseError::UnsupportedFeature { .. }),
+            "unsupported DDL shape should report a typed unsupported feature",
+        );
+    }
 }
 
 #[test]

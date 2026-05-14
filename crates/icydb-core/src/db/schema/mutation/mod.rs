@@ -11,10 +11,10 @@ use crate::db::{
     data::{CanonicalSlotReader, StorageKey},
     index::{IndexEntry, IndexId, IndexKey, IndexState, IndexStore, RawIndexEntry, RawIndexKey},
     schema::{
-        FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,
-        PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
-        PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
-        encode_persisted_schema_snapshot,
+        AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
+        PersistedIndexExpressionOp, PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
+        PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
+        SchemaFieldSlot, encode_persisted_schema_snapshot,
     },
 };
 use crate::error::InternalError;
@@ -117,11 +117,93 @@ pub(in crate::db::schema) enum SchemaMutationRequest<'a> {
     reason = "0.152 stages fail-closed mutation lowering before DDL diagnostics expose it"
 )]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) enum AcceptedSchemaMutationError {
+pub(in crate::db) enum AcceptedSchemaMutationError {
     UniqueIndexRequiresDedicatedValidation,
     UnsupportedIndexKeyShape,
     EmptyIndexKey,
     ExpressionIndexRequiresExpressionKey,
+}
+
+///
+/// SchemaDdlMutationAdmission
+///
+/// Schema-owned proof that one DDL candidate lowers through the existing
+/// mutation request, mutation plan, execution plan, and supported runner
+/// admission path. It intentionally exposes only the admitted target needed by
+/// future DDL execution instead of leaking planning internals into SQL.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.155 stages SQL DDL lowering before execution can call the runner"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct SchemaDdlMutationAdmission {
+    target: SchemaFieldPathIndexRebuildTarget,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.155 stages SQL DDL lowering before execution can call the runner"
+)]
+impl SchemaDdlMutationAdmission {
+    /// Borrow the admitted field-path index rebuild target.
+    #[must_use]
+    pub(in crate::db) const fn target(&self) -> &SchemaFieldPathIndexRebuildTarget {
+        &self.target
+    }
+}
+
+///
+/// SchemaDdlAcceptedSnapshotDerivation
+///
+/// Accepted-after schema derivation for a DDL candidate that has already been
+/// admitted through the schema mutation path.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.155 stages SQL DDL accepted-after derivation before execution can publish it"
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct SchemaDdlAcceptedSnapshotDerivation {
+    accepted_after: AcceptedSchemaSnapshot,
+    admission: SchemaDdlMutationAdmission,
+}
+
+#[allow(
+    dead_code,
+    reason = "0.155 stages SQL DDL accepted-after derivation before execution can publish it"
+)]
+impl SchemaDdlAcceptedSnapshotDerivation {
+    /// Borrow the accepted-after schema snapshot.
+    #[must_use]
+    pub(in crate::db) const fn accepted_after(&self) -> &AcceptedSchemaSnapshot {
+        &self.accepted_after
+    }
+
+    /// Borrow the schema mutation admission proof for this accepted-after snapshot.
+    #[must_use]
+    pub(in crate::db) const fn admission(&self) -> &SchemaDdlMutationAdmission {
+        &self.admission
+    }
+}
+
+///
+/// SchemaDdlMutationAdmissionError
+///
+/// Fail-closed reason from schema-owned DDL mutation admission.
+///
+
+#[allow(
+    dead_code,
+    reason = "0.155 stages SQL DDL lowering before execution can call the runner"
+)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum SchemaDdlMutationAdmissionError {
+    AcceptedIndex(AcceptedSchemaMutationError),
+    AcceptedAfterRejected,
+    UnsupportedExecutionPath,
 }
 
 ///
@@ -1518,6 +1600,60 @@ impl SchemaMutationRequest<'_> {
             Self::Incompatible => MutationPlan::incompatible(),
         }
     }
+}
+
+/// Admit one SQL DDL field-path index candidate through the schema-owned
+/// mutation request and supported-runner path.
+pub(in crate::db) fn admit_sql_ddl_field_path_index_candidate(
+    index: &PersistedIndexSnapshot,
+) -> Result<SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError> {
+    let request = SchemaMutationRequest::from_accepted_non_unique_field_path_index(index)
+        .map_err(SchemaDdlMutationAdmissionError::AcceptedIndex)?;
+    let plan = request.lower_to_plan();
+    let supported = plan
+        .supported_developer_physical_path()
+        .map_err(|_| SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
+
+    Ok(SchemaDdlMutationAdmission {
+        target: supported.target().clone(),
+    })
+}
+
+/// Derive and admit the accepted-after schema snapshot for one SQL DDL
+/// field-path index candidate.
+pub(in crate::db) fn derive_sql_ddl_field_path_index_accepted_after(
+    accepted_before: &AcceptedSchemaSnapshot,
+    index: PersistedIndexSnapshot,
+) -> Result<SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError> {
+    let before = accepted_before.persisted_snapshot();
+    let mut indexes = before.indexes().to_vec();
+    indexes.push(index);
+    let persisted_after = PersistedSchemaSnapshot::new_with_indexes(
+        before.version(),
+        before.entity_path().to_string(),
+        before.entity_name().to_string(),
+        before.primary_key_field_id(),
+        before.row_layout().clone(),
+        before.fields().to_vec(),
+        indexes,
+    );
+    let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
+        .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
+    let request = schema_mutation_request_for_snapshots(
+        accepted_before.persisted_snapshot(),
+        accepted_after.persisted_snapshot(),
+    );
+    let plan = request.lower_to_plan();
+    let supported = plan
+        .supported_developer_physical_path()
+        .map_err(|_| SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
+
+    Ok(SchemaDdlAcceptedSnapshotDerivation {
+        accepted_after,
+        admission: SchemaDdlMutationAdmission {
+            target: supported.target().clone(),
+        },
+    })
 }
 
 impl<'a> From<SchemaMutationDelta<'a>> for SchemaMutationRequest<'a> {

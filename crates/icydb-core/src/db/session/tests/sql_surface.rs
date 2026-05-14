@@ -7,11 +7,19 @@ use crate::{
         executor::EntityAuthority,
         response::Row,
         schema::{
-            AcceptedSchemaSnapshot, accepted_schema_cache_fingerprint,
+            AcceptedSchemaSnapshot, SchemaInfo, accepted_schema_cache_fingerprint,
             compiled_schema_proposal_for_model,
         },
         session::{query::QueryPlanVisibility, sql::SqlCompiledCommandCacheKey},
-        sql::lowering::{SqlCommand, compile_sql_command},
+        sql::{
+            ddl::{
+                BoundSqlDdlStatement, SqlDdlBindError, SqlDdlExecutionStatus, SqlDdlMutationKind,
+                bind_sql_ddl_statement, derive_bound_sql_ddl_accepted_after,
+                lower_bound_sql_ddl_to_schema_mutation_admission, prepare_sql_ddl_statement,
+            },
+            lowering::{SqlCommand, compile_sql_command},
+            parser::parse_sql,
+        },
     },
     error::ErrorClass,
 };
@@ -35,6 +43,18 @@ fn session_sql_entity_initial_accepted_schema_cache_fingerprint() -> [u8; 16] {
 
     accepted_schema_cache_fingerprint(&accepted)
         .expect("session SQL test schema cache fingerprint should derive")
+}
+
+fn accepted_schema_info_for_entity<E: EntitySchema>() -> SchemaInfo {
+    let accepted = accepted_schema_snapshot_for_entity::<E>();
+
+    SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted)
+}
+
+fn accepted_schema_snapshot_for_entity<E: EntitySchema>() -> AcceptedSchemaSnapshot {
+    let proposal = compiled_schema_proposal_for_model(E::MODEL);
+    AcceptedSchemaSnapshot::try_new(proposal.initial_persisted_schema_snapshot())
+        .expect("session SQL test schema snapshot should be accepted")
 }
 
 // Assert that one representative SQL surface keeps its own user-facing lane
@@ -2027,6 +2047,180 @@ fn execute_sql_query_admits_supported_single_entity_read_shapes() {
     assert_eq!(columns, vec!["COUNT(*)".to_string()]);
     assert_eq!(rows, vec![vec![output(Value::Nat(3))]]);
     assert_eq!(row_count, 1);
+}
+
+#[test]
+fn sql_ddl_create_index_is_parsed_but_not_executable_in_current_slice() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let sql = "CREATE INDEX session_sql_name_idx ON SessionSqlEntity (name)";
+
+    assert_unsupported_sql_surface_result(
+        session.execute_sql_query::<SessionSqlEntity>(sql),
+        "query surface should reject parsed DDL before execution",
+    );
+    assert_unsupported_sql_surface_result(
+        session.execute_sql_update::<SessionSqlEntity>(sql),
+        "update surface should reject parsed DDL before execution",
+    );
+
+    let err = compile_sql_command::<SessionSqlEntity>(sql, MissingRowPolicy::Ignore)
+        .expect_err("model-only lowering should reject DDL before query binding");
+    assert!(
+        matches!(
+            err,
+            crate::db::sql::lowering::SqlLoweringError::UnsupportedSqlDdl
+        ),
+        "DDL must fail before model-only query lowering or physical mutation work",
+    );
+}
+
+#[test]
+fn sql_ddl_create_index_binds_against_accepted_catalog() {
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let statement = parse_sql("CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)")
+        .expect("CREATE INDEX should parse before binding");
+
+    let bound = bind_sql_ddl_statement(&statement, &schema)
+        .expect("CREATE INDEX should bind against accepted schema metadata");
+    let BoundSqlDdlStatement::CreateIndex(create) = bound.statement();
+
+    assert_eq!(create.index_name(), "session_sql_age_idx");
+    assert_eq!(create.entity_name(), "SessionSqlEntity");
+    assert_eq!(create.field_path().root(), "age");
+    assert!(create.field_path().segments().is_empty());
+    assert_eq!(create.field_path().accepted_path(), ["age".to_string()]);
+    assert_eq!(create.candidate_index().name(), "session_sql_age_idx");
+    assert!(!create.candidate_index().unique());
+}
+
+#[test]
+fn sql_ddl_create_index_binding_rejects_unknown_catalog_targets() {
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let entity_mismatch =
+        parse_sql("CREATE INDEX wrong_entity_idx ON IndexedSessionSqlEntity (age)")
+            .expect("CREATE INDEX should parse before entity binding");
+    let err = bind_sql_ddl_statement(&entity_mismatch, &schema)
+        .expect_err("DDL binding should reject non-owned entity targets");
+    assert!(matches!(
+        err,
+        SqlDdlBindError::EntityMismatch {
+            sql_entity,
+            expected_entity,
+        } if sql_entity == "IndexedSessionSqlEntity"
+            && expected_entity == "SessionSqlEntity"
+    ));
+
+    let unknown_field = parse_sql("CREATE INDEX missing_field_idx ON SessionSqlEntity (missing)")
+        .expect("CREATE INDEX should parse before field binding");
+    let err = bind_sql_ddl_statement(&unknown_field, &schema)
+        .expect_err("DDL binding should reject unknown accepted field paths");
+    assert!(matches!(
+        err,
+        SqlDdlBindError::UnknownFieldPath {
+            entity_name,
+            field_path,
+        } if entity_name == "SessionSqlEntity" && field_path == "missing"
+    ));
+}
+
+#[test]
+fn sql_ddl_create_index_binding_rejects_duplicate_accepted_indexes() {
+    let schema = accepted_schema_info_for_entity::<IndexedSessionSqlEntity>();
+    let duplicate_name = parse_sql("CREATE INDEX name ON IndexedSessionSqlEntity (age)")
+        .expect("CREATE INDEX should parse before duplicate-name binding");
+    let err = bind_sql_ddl_statement(&duplicate_name, &schema)
+        .expect_err("DDL binding should reject accepted duplicate index names");
+    assert!(matches!(
+        err,
+        SqlDdlBindError::DuplicateIndexName { index_name } if index_name == "name"
+    ));
+
+    let duplicate_key = parse_sql("CREATE INDEX another_name ON IndexedSessionSqlEntity (name)")
+        .expect("CREATE INDEX should parse before duplicate-key binding");
+    let err = bind_sql_ddl_statement(&duplicate_key, &schema)
+        .expect_err("DDL binding should reject accepted duplicate field-path indexes");
+    assert!(matches!(
+        err,
+        SqlDdlBindError::DuplicateFieldPathIndex {
+            field_path,
+            existing_index,
+        } if field_path == "name" && existing_index == "name"
+    ));
+}
+
+#[test]
+fn sql_ddl_create_index_lowers_to_supported_schema_mutation_admission() {
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let statement = parse_sql("CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)")
+        .expect("CREATE INDEX should parse before binding");
+    let bound = bind_sql_ddl_statement(&statement, &schema)
+        .expect("CREATE INDEX should bind against accepted schema metadata");
+
+    let admission = lower_bound_sql_ddl_to_schema_mutation_admission(&bound)
+        .expect("bound CREATE INDEX should lower to supported mutation admission");
+
+    assert_eq!(admission.target().name(), "session_sql_age_idx");
+    assert_eq!(admission.target().key_paths().len(), 1);
+    assert_eq!(admission.target().key_paths()[0].field_name(), "age");
+    assert!(!admission.target().unique());
+}
+
+#[test]
+fn sql_ddl_create_index_derives_accepted_after_snapshot_without_execution() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema =
+        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let statement = parse_sql("CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)")
+        .expect("CREATE INDEX should parse before binding");
+    let bound = bind_sql_ddl_statement(&statement, &schema)
+        .expect("CREATE INDEX should bind against accepted schema metadata");
+
+    let derivation = derive_bound_sql_ddl_accepted_after(&accepted_before, &bound)
+        .expect("bound CREATE INDEX should derive an accepted-after schema snapshot");
+    let accepted_after = SchemaInfo::from_accepted_snapshot_for_model(
+        SessionSqlEntity::MODEL,
+        derivation.accepted_after(),
+    );
+
+    assert_eq!(
+        derivation.admission().target().name(),
+        "session_sql_age_idx"
+    );
+    assert_eq!(accepted_after.field_path_indexes().len(), 1);
+    assert_eq!(
+        accepted_after.field_path_indexes()[0].name(),
+        "session_sql_age_idx"
+    );
+}
+
+#[test]
+fn sql_ddl_create_index_preparation_reports_non_executed_command() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema =
+        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let statement = parse_sql("CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)")
+        .expect("CREATE INDEX should parse before preparation");
+
+    let prepared = prepare_sql_ddl_statement(&statement, &accepted_before, &schema)
+        .expect("CREATE INDEX should prepare through all pre-execution DDL checks");
+    let BoundSqlDdlStatement::CreateIndex(create) = prepared.bound().statement();
+
+    assert_eq!(create.index_name(), "session_sql_age_idx");
+    assert_eq!(
+        prepared.report().mutation_kind(),
+        SqlDdlMutationKind::AddNonUniqueFieldPathIndex,
+    );
+    assert_eq!(prepared.report().target_index(), "session_sql_age_idx");
+    assert_eq!(prepared.report().field_path(), ["age".to_string()]);
+    assert_eq!(
+        prepared.report().execution_status(),
+        SqlDdlExecutionStatus::PreparedOnly,
+    );
+    assert_eq!(
+        prepared.derivation().admission().target().name(),
+        "session_sql_age_idx",
+    );
 }
 
 #[expect(

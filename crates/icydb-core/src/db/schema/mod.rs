@@ -69,7 +69,10 @@ pub(in crate::db::schema) use mutation::{
     SchemaMutationValidationStatus, schema_mutation_request_for_snapshots,
 };
 pub(in crate::db) use mutation::{
-    SchemaFieldPathIndexRebuildKey, SchemaFieldPathIndexRebuildTarget,
+    SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmission,
+    SchemaDdlMutationAdmissionError, SchemaFieldPathIndexRebuildKey,
+    SchemaFieldPathIndexRebuildTarget, admit_sql_ddl_field_path_index_candidate,
+    derive_sql_ddl_field_path_index_accepted_after,
 };
 #[cfg(test)]
 pub(in crate::db::schema) use mutation::{SchemaMutationDelta, classify_schema_mutation_delta};

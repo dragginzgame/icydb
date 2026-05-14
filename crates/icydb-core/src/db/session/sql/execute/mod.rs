@@ -717,6 +717,11 @@ impl<C: CanisterKind> DbSession<C> {
             | crate::db::sql::parser::SqlStatement::ShowEntities(_) => {
                 self.compile_sql_query_with_cache_attribution::<E>(sql)?
             }
+            crate::db::sql::parser::SqlStatement::Ddl(_) => {
+                return Err(QueryError::unsupported_query(
+                    "SQL DDL execution is not supported in this release",
+                ));
+            }
         };
 
         self.execute_compiled_sql_owned::<E>(compiled)

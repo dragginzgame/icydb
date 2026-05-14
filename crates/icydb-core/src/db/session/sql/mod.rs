@@ -179,6 +179,9 @@ impl<C: CanisterKind> DbSession<C> {
                 SqlCompiledCommandSurface::Update,
                 SqlStatement::Insert(_) | SqlStatement::Update(_) | SqlStatement::Delete(_),
             ) => Ok(()),
+            (_, SqlStatement::Ddl(_)) => Err(QueryError::unsupported_query(
+                "SQL DDL execution is not supported in this release",
+            )),
             (SqlCompiledCommandSurface::Query, SqlStatement::Insert(_)) => {
                 Err(QueryError::unsupported_query(
                     "execute_sql_query rejects INSERT; use execute_sql_update::<E>()",
