@@ -450,12 +450,16 @@ fn schema_mutation_publication_boundary_uses_runner_preflight() {
             && reconcile.contains("plan.supported_developer_physical_path()")
             && reconcile.contains("SchemaMutationRunnerInput::new(")
             && reconcile.contains("StructuralRowContract::from_accepted_schema_snapshot(")
+            && reconcile.contains("StartupFieldPathRebuildGate::from_raw_rows(")
+            && reconcile.contains("validate_before_physical_work(")
             && reconcile.contains("SchemaFieldPathIndexRebuildRow::new(")
             && reconcile.contains("SchemaFieldPathIndexRunner::run(")
-            && reconcile.contains("physical_work_allows_publication()")
+            && reconcile.contains("StartupFieldPathPublicationDecision::from_runner_report(")
+            && reconcile.contains("publish_accepted_snapshot(")
+            && reconcile.contains("validate_before_schema_publication(")
             && reconcile
                 .contains("schema_store.insert_persisted_snapshot(entity_tag, accepted_after)"),
-        "runtime startup reconciliation must execute the supported field-path index-add path from accepted schema contracts before publishing the accepted-after snapshot",
+        "runtime startup reconciliation must execute the supported field-path index-add path from accepted schema contracts and route accepted-after publication through the startup rebuild/publication gate",
     );
 }
 

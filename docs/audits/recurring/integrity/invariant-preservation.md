@@ -97,7 +97,10 @@ Classify invariants into categories:
 
 * Accepted schema transitions are classified by schema-owned mutation plans
 * Metadata-safe/no-rebuild plans may publish
-* Rebuild-required plans are blocked before accepted runtime visibility
+* The supported single non-unique field-path index-add rebuild may publish only
+  through the startup field-path runner, rebuild gate, physical-store
+  publication, and accepted snapshot publication decision
+* Other rebuild-required plans remain blocked before accepted runtime visibility
 * Unsupported or incompatible mutations fail closed before write/read staging
 * Recovery reconciles schema before rebuilding index state from rows
 
@@ -300,7 +303,8 @@ Examples:
 * Adding new index types
 * Adding new commit markers
 * Adding new error classes
-* Adding accepted schema mutation publication for rebuild-required plans
+* Extending accepted schema mutation publication beyond the supported
+  field-path index-add path
 * Adding SQL DDL frontends over schema mutations
 
 This anticipates silent invariant erosion.

@@ -51,7 +51,7 @@ Every run must re-check this map and update the report when ownership moved.
 | State Boundary | Current Owner Paths | Adjacent Audit |
 | -------------- | ------------------- | -------------- |
 | schema transition admission | `crates/icydb-core/src/db/schema/transition.rs`, `crates/icydb-core/src/db/schema/reconcile.rs` | canonical semantic authority |
-| schema mutation runner publication | `crates/icydb-core/src/db/schema/mutation/field_path/*`, `crates/icydb-core/src/db/schema/mutation/runner.rs` | invariant preservation |
+| schema mutation runner publication | `crates/icydb-core/src/db/schema/reconcile.rs`, `crates/icydb-core/src/db/schema/mutation/field_path/*`, `crates/icydb-core/src/db/schema/mutation/runner.rs` | invariant preservation |
 | route-plan validation handoff | `crates/icydb-core/src/db/executor/planning/route/*`, `crates/icydb-core/tests/write_boundary_guards.rs` | layer violation |
 | commit-window open/apply/finish | `crates/icydb-core/src/db/executor/mutation/commit_window.rs`, `crates/icydb-core/src/db/commit/guard.rs` | recovery consistency |
 | SQL/fluent write transition barrier | `crates/icydb-core/src/db/session/sql/*`, `crates/icydb-core/src/db/executor/tests/mutation_save.rs` | completeness |
@@ -66,7 +66,7 @@ families. A row may be source-audit evidence, a focused test, or both.
 
 | Family | Required Question | Minimum Evidence |
 | ------ | ----------------- | ---------------- |
-| schema mutation runner | Can staged physical work publish before validation, runtime invalidation, and accepted snapshot handoff? | focused schema mutation runner test or source guard |
+| schema mutation runner | Can staged physical work or accepted-after schema publish before validation, runtime invalidation, rebuild-gate revalidation, physical-store publication, and accepted snapshot handoff? | focused schema mutation runner/reconciliation test or source guard |
 | schema transition barrier | Can unsupported accepted-schema drift reach read/write staging? | focused session/executor transition-barrier test |
 | route-plan handoff | Can executor route construction bypass validated planner output? | focused route structural guard |
 | commit-window lifecycle | Can apply/finish occur without a persisted marker-backed commit window? | commit guard or commit-window test |

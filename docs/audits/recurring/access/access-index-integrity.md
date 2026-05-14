@@ -369,7 +369,10 @@ Produce:
 Required classifications:
 
 * metadata-only safe
-* index rebuild required
+* supported startup rebuild publication for the single non-unique field-path
+  index-add path
+* index rebuild required but still blocked for expression-index rebuilds and
+  secondary-index cleanup
 * full data rewrite required
 * unsupported pre-1.0
 * incompatible/fail-closed
@@ -377,7 +380,10 @@ Required classifications:
 Verify:
 
 * mutation plans do not silently hide persisted indexes with missing metadata
-* required rebuilds are explicit even when orchestration is deferred
+* the supported field-path index-add path publishes only after target-scoped
+  physical validation, runtime invalidation, startup rebuild-gate revalidation,
+  physical-store publication, and accepted snapshot insertion
+* required rebuilds outside the supported path are explicit and remain blocked
 * planner/cache invalidation is attached to accepted fingerprint changes
 * unsupported changes fail before accepted snapshot publication
 
