@@ -60,13 +60,13 @@ pub(in crate::db::schema) use mutation::{MutationCompatibility, RebuildRequireme
 pub(in crate::db::schema) use mutation::{
     MutationPlan, MutationPublicationBlocker, MutationPublicationPreflight,
     MutationPublicationStatus, SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRunner,
-    SchemaFieldPathIndexRunnerFailure, SchemaMutationAcceptedSnapshotPublicationSink,
-    SchemaMutationDeveloperReport, SchemaMutationExecutionPlan, SchemaMutationPublishStatus,
-    SchemaMutationRequest, SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
-    SchemaMutationRunnerInput, SchemaMutationRunnerPhase, SchemaMutationRuntimeEpoch,
-    SchemaMutationRuntimeInvalidationSink, SchemaMutationSupportedExecutionPath,
-    SchemaMutationSupportedPathRejection, SchemaMutationValidationStatus,
-    schema_mutation_request_for_snapshots,
+    SchemaFieldPathIndexRunnerFailure, SchemaFieldPathIndexRunnerReport,
+    SchemaMutationAcceptedSnapshotPublicationSink, SchemaMutationDeveloperReport,
+    SchemaMutationExecutionPlan, SchemaMutationPublishStatus, SchemaMutationRequest,
+    SchemaMutationRunnerCapability, SchemaMutationRunnerContract, SchemaMutationRunnerInput,
+    SchemaMutationRunnerPhase, SchemaMutationRuntimeEpoch, SchemaMutationRuntimeInvalidationSink,
+    SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection,
+    SchemaMutationValidationStatus, schema_mutation_request_for_snapshots,
 };
 pub(in crate::db) use mutation::{
     SchemaFieldPathIndexRebuildKey, SchemaFieldPathIndexRebuildTarget,

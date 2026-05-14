@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.154.x] 🧪 - 2026-05-13 - Developer-Stable Schema Mutation Path
 
+- `0.154.7` adds an explicit startup rebuild and publication gate for the supported field-path index-add path, fingerprinting the accepted target-entity rows, rechecking the accepted schema snapshot before physical index work and final schema publication, and tying accepted-snapshot insertion to a publishable runner report so the synchronous no-write-during-rebuild assumption fails closed if the scanned row/schema image changes.
+
 - `0.154.6` adds a stable developer schema-mutation diagnostic report for the supported non-unique field-path index-add path, carrying phase, mutation kind, entity, target index/store/fields, scanned rows, written keys, validation status, and publish status through runner success and fail-closed startup reconciliation errors.
 
 - `0.154.5` wires target-index-scoped validation through the field-path runner and startup reconciliation, allowing the supported field-path index-add path to publish when the target index is empty even if unrelated physical index entries already exist.
