@@ -349,6 +349,11 @@ fn summarize_perf_outcome(result: &SqlQueryResult) -> SqlPerfOutcome {
             entity: String::new(),
             row_count: entities.len(),
         },
+        SqlQueryResult::Ddl { entity, .. } => SqlPerfOutcome {
+            result_kind: "ddl",
+            entity: entity.clone(),
+            row_count: 1,
+        },
     }
 }
 
