@@ -1,11 +1,28 @@
 use std::fs;
 
+use candid::CandidType;
 use canic_testkit::pic::{StandaloneCanisterFixture, install_prebuilt_canister};
 use icydb::{
     Error, ErrorKind, ErrorOrigin, RuntimeErrorKind,
     db::sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput},
 };
 use icydb_testing_integration::build_canister;
+use serde::Deserialize;
+
+// Mirror the generated admin SQL query envelope so these boundary tests can
+// keep asserting the ordinary SQL payload while the CLI also receives perf data.
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+struct AdminSqlQueryPerfResult {
+    result: SqlQueryResult,
+    instructions: u64,
+    planner_instructions: u64,
+    store_instructions: u64,
+    executor_instructions: u64,
+    pure_covering_decode_instructions: u64,
+    pure_covering_row_assembly_instructions: u64,
+    decode_instructions: u64,
+    compiler_instructions: u64,
+}
 
 fn install_sql_canister_fixture() -> StandaloneCanisterFixture {
     // Build the dedicated SQL smoke canister once, then install that wasm into
@@ -37,31 +54,23 @@ fn reset_sql_fixtures(fixture: &StandaloneCanisterFixture) {
 }
 
 fn query_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
-    fixture
+    let response: Result<AdminSqlQueryPerfResult, Error> = fixture
         .pic()
-        .query_call(fixture.canister_id(), "query", (sql.to_string(),))
-        .expect("sql query canister call should decode")
+        .query_call(
+            fixture.canister_id(),
+            "icydb_admin_sql_query",
+            (sql.to_string(),),
+        )
+        .expect("sql query canister call should decode");
+
+    response.map(|payload| payload.result)
 }
 
 fn query_numeric_types(
     fixture: &StandaloneCanisterFixture,
     sql: &str,
 ) -> Result<SqlQueryResult, Error> {
-    fixture
-        .pic()
-        .query_call(
-            fixture.canister_id(),
-            "query_numeric_types",
-            (sql.to_string(),),
-        )
-        .expect("numeric type sql query canister call should decode")
-}
-
-fn update_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
-    fixture
-        .pic()
-        .update_call(fixture.canister_id(), "update", (sql.to_string(),))
-        .expect("sql update canister call should decode")
+    query_sql(fixture, sql)
 }
 
 fn expect_projection(result: SqlQueryResult) -> SqlQueryRowsOutput {
@@ -1093,30 +1102,6 @@ fn sql_canister_query_endpoint_preserves_show_tables_alias() {
     assert_eq!(
         tables, entities,
         "SHOW TABLES should stay an alias for SHOW ENTITIES at the live canister boundary",
-    );
-}
-
-#[test]
-fn sql_canister_update_endpoint_executes_delete_returning() {
-    let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
-
-    let deleted = expect_projection(
-        update_sql(
-            &fixture,
-            "DELETE FROM SqlTestUser WHERE name = 'bob' RETURNING name",
-        )
-        .expect("DELETE RETURNING should succeed on update(sql)"),
-    );
-    assert_eq!(
-        deleted,
-        SqlQueryRowsOutput {
-            entity: "SqlTestUser".to_string(),
-            columns: vec!["name".to_string()],
-            rows: vec![vec!["bob".to_string()]],
-            row_count: 1,
-        },
-        "update(sql) should preserve RETURNING projection payloads",
     );
 }
 

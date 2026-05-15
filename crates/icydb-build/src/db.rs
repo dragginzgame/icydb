@@ -240,7 +240,7 @@ impl AdminSqlTokens {
             reset_statements: quote!(),
             query_arms: quote!(),
             ddl_arms: quote!(),
-            show_entities_dispatch: empty_admin_sql_query_dispatch(),
+            show_entities_dispatch: quote!(),
         }
     }
 
@@ -261,7 +261,11 @@ impl quote::ToTokens for AdminSqlTokens {
         let reset_statements = &self.reset_statements;
         let query_arms = &self.query_arms;
         let ddl_arms = &self.ddl_arms;
-        let show_entities_dispatch = &self.show_entities_dispatch;
+        let show_entities_dispatch = if self.show_entities_dispatch.is_empty() {
+            empty_admin_sql_query_dispatch()
+        } else {
+            self.show_entities_dispatch.clone()
+        };
 
         tokens.extend(quote! {
             #[cfg(feature = "sql")]
