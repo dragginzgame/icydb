@@ -1,5 +1,6 @@
 mod cli;
 mod commands;
+mod config;
 mod icp;
 mod shell;
 

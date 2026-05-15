@@ -1,9 +1,6 @@
 use serde_json::Value;
 
-use crate::{
-    cli::{DEFAULT_CANISTER, DEFAULT_ENVIRONMENT},
-    icp::process::{canister_id, unreachable_network_hint},
-};
+use crate::icp::process::{canister_id, unreachable_network_hint};
 
 const ICP_YAML_PATH: &str = "icp.yaml";
 
@@ -105,22 +102,9 @@ fn environment_manifest_body<'a>(contents: &'a str, environment: &str) -> Option
 fn missing_canister_message(environment: &str, canister: &str) -> String {
     let mut message =
         format!("canister '{canister}' is not created in the '{environment}' ICP environment.");
-    if canister == DEFAULT_CANISTER {
-        message.push_str(" `icydb sql` defaults to '");
-        message.push_str(DEFAULT_CANISTER);
-        message.push_str("' in environment '");
-        message.push_str(DEFAULT_ENVIRONMENT);
-        message.push_str("' when --canister and --environment are omitted.");
-    }
-    if canister == DEFAULT_CANISTER {
-        message.push_str(
-            "\nRun `icydb canister refresh --canister demo_rpg` to rebuild and reinstall the default canister.",
-        );
-    } else {
-        message.push_str("\nRun `icydb canister refresh --canister ");
-        message.push_str(canister);
-        message.push_str("` to rebuild and reinstall that canister.");
-    }
+    message.push_str("\nRun `icydb canister refresh --canister ");
+    message.push_str(canister);
+    message.push_str("` to rebuild and reinstall that canister.");
     message.push_str("\nRun `icydb canister list` to see known local canisters.");
     message.push_str(
         "\nThe CLI never starts or stops the ICP network; manage that lifecycle outside icydb.",

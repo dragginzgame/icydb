@@ -1,16 +1,11 @@
 use std::{path::PathBuf, process::Command};
 
-use crate::{
-    cli::DEFAULT_CANISTER,
-    icp::{
-        process::{
-            canister_id, canister_is_installed, run_external_command, unreachable_network_hint,
-        },
-        project::known_canisters,
-    },
+use crate::icp::{
+    process::{canister_id, canister_is_installed, run_external_command, unreachable_network_hint},
+    project::known_canisters,
 };
 
-type CanisterListRow = (String, &'static str, &'static str, String);
+type CanisterListRow = (String, &'static str, String);
 
 /// Print canisters known to the selected local ICP environment and their local id status.
 pub(crate) fn list_canisters(environment: &str) -> Result<(), String> {
@@ -32,21 +27,14 @@ pub(crate) fn list_canisters(environment: &str) -> Result<(), String> {
 
 // Convert one ICP canister name into the row shape printed by `canister list`.
 fn canister_list_row(environment: &str, canister: String) -> CanisterListRow {
-    let default = if canister == DEFAULT_CANISTER {
-        "yes"
-    } else {
-        "no"
-    };
-
     match canister_id(environment, canister.as_str()) {
-        Ok(Some(id)) => (canister, default, "created", id),
+        Ok(Some(id)) => (canister, "created", id),
         Err(err) if unreachable_network_hint(err.as_str()).is_some() => (
             canister,
-            default,
             "unknown",
             "local ICP network is not reachable".to_string(),
         ),
-        Ok(None) | Err(_) => (canister, default, "not created", "-".to_string()),
+        Ok(None) | Err(_) => (canister, "not created", "-".to_string()),
     }
 }
 
@@ -54,23 +42,19 @@ fn canister_list_row(environment: &str, canister: String) -> CanisterListRow {
 fn print_canister_table(environment: &str, rows: &[CanisterListRow]) {
     let canister_width = table_width(
         "canister",
-        rows.iter().map(|(canister, _, _, _)| canister.as_str()),
+        rows.iter().map(|(canister, _, _)| canister.as_str()),
     );
-    let default_width = table_width("default", rows.iter().map(|(_, default, _, _)| *default));
-    let created_width = table_width("created", rows.iter().map(|(_, _, created, _)| *created));
+    let created_width = table_width("created", rows.iter().map(|(_, created, _)| *created));
     let canister_heading = "canister";
-    let default_heading = "default";
     let created_heading = "created";
     let principal_heading = "principal";
 
     println!("Known IcyDB canisters in environment '{environment}':");
     println!(
-        "  {canister_heading:<canister_width$}  {default_heading:<default_width$}  {created_heading:<created_width$}  {principal_heading}"
+        "  {canister_heading:<canister_width$}  {created_heading:<created_width$}  {principal_heading}"
     );
-    for (canister, default, created, principal) in rows {
-        println!(
-            "  {canister:<canister_width$}  {default:<default_width$}  {created:<created_width$}  {principal}"
-        );
+    for (canister, created, principal) in rows {
+        println!("  {canister:<canister_width$}  {created:<created_width$}  {principal}");
     }
 }
 

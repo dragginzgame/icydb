@@ -305,6 +305,7 @@ dependencies = [
  "candid",
  "canic-cdk",
  "icydb",
+ "icydb-config-build",
  "icydb-testing-audit-minimal-fixtures",
 ]
 
@@ -315,6 +316,7 @@ dependencies = [
  "candid",
  "canic-cdk",
  "icydb",
+ "icydb-config-build",
  "icydb-testing-audit-one-complex-fixtures",
 ]
 
@@ -325,6 +327,7 @@ dependencies = [
  "candid",
  "canic-cdk",
  "icydb",
+ "icydb-config-build",
  "icydb-testing-audit-one-simple-fixtures",
 ]
 
@@ -335,6 +338,7 @@ dependencies = [
  "candid",
  "canic-cdk",
  "icydb",
+ "icydb-config-build",
  "icydb-testing-audit-sql-perf-fixtures",
 ]
 
@@ -345,6 +349,7 @@ dependencies = [
  "candid",
  "canic-cdk",
  "icydb",
+ "icydb-config-build",
  "icydb-testing-audit-ten-complex-fixtures",
 ]
 
@@ -355,6 +360,7 @@ dependencies = [
  "candid",
  "canic-cdk",
  "icydb",
+ "icydb-config-build",
  "icydb-testing-audit-ten-simple-fixtures",
 ]
 
@@ -365,6 +371,7 @@ dependencies = [
  "candid",
  "canic-cdk",
  "icydb",
+ "icydb-config-build",
  "icydb-testing-demo-rpg-fixtures",
  "serde",
 ]
@@ -376,6 +383,7 @@ dependencies = [
  "candid",
  "canic-cdk",
  "icydb",
+ "icydb-config-build",
  "icydb-testing-test-sql-fixtures",
 ]
 
@@ -1391,9 +1399,19 @@ dependencies = [
  "candid",
  "clap",
  "icydb",
+ "icydb-config-build",
  "rustyline",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "icydb-config-build"
+version = "0.155.6"
+dependencies = [
+ "serde",
+ "thiserror 2.0.18",
+ "toml",
 ]
 
 [[package]]

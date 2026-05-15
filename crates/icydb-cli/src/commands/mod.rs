@@ -1,5 +1,6 @@
 use crate::{
-    cli::{CanisterCommand, CliArgs, CliCommand},
+    cli::{CanisterCommand, CliArgs, CliCommand, ConfigCommand},
+    config::{check_config, show_config},
     icp::{deploy_canister, list_canisters, reinstall_canister, status_canister, upgrade_canister},
     shell::run_sql_command,
 };
@@ -8,7 +9,15 @@ use crate::{
 pub(crate) fn run_cli(args: CliArgs) -> Result<(), String> {
     match args.command {
         CliCommand::Sql(args) => run_sql_command(args),
+        CliCommand::Config(args) => run_config_command(args),
         CliCommand::Canister(args) => run_canister_command(args),
+    }
+}
+
+fn run_config_command(command: ConfigCommand) -> Result<(), String> {
+    match command {
+        ConfigCommand::Show(args) => show_config(args),
+        ConfigCommand::Check(args) => check_config(args),
     }
 }
 

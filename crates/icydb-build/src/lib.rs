@@ -8,27 +8,74 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use std::sync::Arc;
 
-/// Generate canister actor code for the given schema path.
+/// Generate canister actor code for the given schema path and build options.
 #[must_use]
-pub fn generate(canister_path: &str) -> String {
+pub fn generate_with_options(canister_path: &str, options: BuildOptions) -> String {
     // Load the validated schema and resolve the requested canister node.
     let schema = get_schema().expect("schema must be valid before codegen");
     let canister = schema.cast_node::<Canister>(canister_path).unwrap();
 
     // Render the canister actor glue from the schema-owned metadata.
-    let code = ActorBuilder::new(Arc::new(schema.clone()), canister.clone());
+    let code = ActorBuilder::new(Arc::new(schema.clone()), canister.clone(), options);
     let tokens = code.generate();
 
     tokens.to_string()
 }
 
-/// Build-script helper that emits generated actor code for one schema canister path.
 ///
-/// The generated file only contains actor/runtime wiring. Schema registration
-/// remains derive-owned and is not performed by this helper.
+/// BuildOptions
+///
+/// Host-provided actor generation options. Config parsing remains outside this
+/// crate; callers pass already-validated booleans into codegen.
+///
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct BuildOptions {
+    sql_readonly_enabled: bool,
+    sql_ddl_enabled: bool,
+}
+
+impl BuildOptions {
+    /// Build options with generated read-only SQL endpoint emission configured.
+    #[must_use]
+    pub const fn with_sql_readonly_enabled(mut self, enabled: bool) -> Self {
+        self.sql_readonly_enabled = enabled;
+
+        self
+    }
+
+    /// Build options with generated SQL DDL/write endpoint emission configured.
+    #[must_use]
+    pub const fn with_sql_ddl_enabled(mut self, enabled: bool) -> Self {
+        self.sql_ddl_enabled = enabled;
+
+        self
+    }
+
+    /// Return whether generated actor glue should export the read-only SQL endpoint.
+    #[must_use]
+    pub const fn sql_readonly_enabled(self) -> bool {
+        self.sql_readonly_enabled
+    }
+
+    /// Return whether generated actor glue should export SQL DDL/write endpoints.
+    #[must_use]
+    pub const fn sql_ddl_enabled(self) -> bool {
+        self.sql_ddl_enabled
+    }
+
+    /// Return whether any generated SQL endpoint surface is enabled.
+    #[must_use]
+    pub const fn sql_enabled(self) -> bool {
+        self.sql_readonly_enabled || self.sql_ddl_enabled
+    }
+}
+
+/// Build-script helper that emits generated actor code with host-provided
+/// generation options.
 #[macro_export]
-macro_rules! build {
-    ($actor:expr) => {
+macro_rules! build_with_options {
+    ($actor:expr, $options:expr) => {
         use std::{env::var, fs::File, io::Write, path::PathBuf};
 
         // Register the build inputs and generated-code cfg knobs expected by
@@ -40,7 +87,7 @@ macro_rules! build {
 
         // Render the actor module into Cargo's output directory.
         let out_dir = var("OUT_DIR").expect("OUT_DIR not set");
-        let output = ::icydb::build::generate($actor);
+        let output = ::icydb::build::generate_with_options($actor, $options);
         let actor_file = PathBuf::from(out_dir.clone()).join("actor.rs");
         let mut file = File::create(actor_file)?;
         file.write_all(output.as_bytes())?;
@@ -57,13 +104,18 @@ macro_rules! build {
 pub(crate) struct ActorBuilder {
     pub(crate) schema: Arc<Schema>,
     pub(crate) canister: Canister,
+    pub(crate) options: BuildOptions,
 }
 
 impl ActorBuilder {
     /// Create an actor builder for a specific canister.
     #[must_use]
-    pub const fn new(schema: Arc<Schema>, canister: Canister) -> Self {
-        Self { schema, canister }
+    pub const fn new(schema: Arc<Schema>, canister: Canister, options: BuildOptions) -> Self {
+        Self {
+            schema,
+            canister,
+            options,
+        }
     }
 
     /// Generate the full actor module (db/metrics/query glue).

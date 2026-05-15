@@ -22,6 +22,7 @@ serde = { workspace = true }
 
 [build-dependencies]
 icydb = { path = "../../../crates/icydb", default-features = false }
+icydb-config-build = { workspace = true }
 icydb-testing-demo-rpg-fixtures = { workspace = true }
 
 [lints]

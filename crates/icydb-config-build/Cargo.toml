@@ -1,0 +1,17 @@
+[package]
+name = "icydb-config-build"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+license = { workspace = true }
+description = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+
+[dependencies]
+serde = { workspace = true, features = ["derive", "std"] }
+thiserror = { workspace = true }
+toml = "1.1"
+
+[lints]
+workspace = true

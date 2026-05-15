@@ -7,7 +7,6 @@ extern crate canic_cdk as ic_cdk;
 use icydb_testing_demo_rpg_fixtures::fixtures;
 
 icydb::start!();
-icydb::admin_sql_query!();
 
 /// Load one deterministic baseline fixture dataset.
 fn icydb_admin_sql_load_default() -> Result<(), icydb::Error> {

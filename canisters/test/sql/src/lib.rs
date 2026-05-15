@@ -8,7 +8,6 @@ use icydb::types::{Decimal, Float32, Float64};
 use icydb_testing_test_sql_fixtures::sql::{SqlTestNumericTypes, SqlTestUser};
 
 icydb::start!();
-icydb::admin_sql_query!();
 
 /// Load one deterministic baseline fixture dataset for SQL smoke tests.
 fn icydb_admin_sql_load_default() -> Result<(), icydb::Error> {

@@ -61,7 +61,7 @@ extern crate self as icydb;
 use icydb_core::{error::InternalError, traits::Visitable};
 // crates
 pub use icydb_build as build;
-pub use icydb_build::build;
+pub use icydb_build::build_with_options;
 pub use icydb_schema as schema;
 pub use icydb_schema_derive as macros;
 
@@ -281,112 +281,6 @@ macro_rules! start {
 macro_rules! db {
     () => {
         crate::db()
-    };
-}
-
-// Export controller-gated admin SQL endpoints. Invoke from a canister crate
-// after `icydb::start!()`.
-#[expect(
-    clippy::crate_in_macro_def,
-    reason = "admin SQL hooks are required from the canister crate that invokes the macro"
-)]
-#[macro_export]
-macro_rules! admin_sql_query {
-    () => {
-        #[cfg(feature = "sql")]
-        fn icydb_admin_sql_require_controller(action: &str) -> Result<(), ::icydb::Error> {
-            let caller = ::icydb::__reexports::canic_cdk::api::msg_caller();
-            if !::icydb::__reexports::canic_cdk::api::is_controller(&caller) {
-                return Err(::icydb::Error::new(
-                    ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
-                    ::icydb::ErrorOrigin::Interface,
-                    format!("admin SQL {action} requires a controller caller"),
-                ));
-            }
-
-            Ok(())
-        }
-
-        #[cfg(feature = "sql")]
-        #[derive(::icydb::__reexports::candid::CandidType, Clone, Debug, Eq, PartialEq)]
-        struct IcydbAdminSqlQueryPerfResult {
-            result: ::icydb::db::sql::SqlQueryResult,
-            instructions: u64,
-            planner_instructions: u64,
-            store_instructions: u64,
-            executor_instructions: u64,
-            pure_covering_decode_instructions: u64,
-            pure_covering_row_assembly_instructions: u64,
-            decode_instructions: u64,
-            compiler_instructions: u64,
-        }
-
-        #[cfg(feature = "sql")]
-        impl IcydbAdminSqlQueryPerfResult {
-            fn from_attribution(
-                result: ::icydb::db::sql::SqlQueryResult,
-                attribution: ::icydb::db::AdminSqlQueryAttribution,
-            ) -> Self {
-                Self {
-                    result,
-                    instructions: attribution.total_local_instructions,
-                    planner_instructions: attribution.execution.planner_local_instructions,
-                    store_instructions: attribution.execution.store_local_instructions,
-                    executor_instructions: attribution.execution.executor_local_instructions,
-                    pure_covering_decode_instructions: attribution
-                        .pure_covering
-                        .map_or(0, |pure_covering| pure_covering.decode_local_instructions),
-                    pure_covering_row_assembly_instructions: attribution
-                        .pure_covering
-                        .map_or(0, |pure_covering| {
-                            pure_covering.row_assembly_local_instructions
-                        }),
-                    decode_instructions: attribution.response_decode_local_instructions,
-                    compiler_instructions: attribution.compile_local_instructions,
-                }
-            }
-        }
-
-        #[cfg(feature = "sql")]
-        #[::icydb::__reexports::canic_cdk::query]
-        fn icydb_admin_sql_query(
-            sql: String,
-        ) -> Result<IcydbAdminSqlQueryPerfResult, ::icydb::Error> {
-            icydb_admin_sql_require_controller("query")?;
-
-            let (result, attribution) = icydb_admin_sql_query_dispatch(sql.as_str())?;
-
-            Ok(IcydbAdminSqlQueryPerfResult::from_attribution(
-                result,
-                attribution,
-            ))
-        }
-
-        #[cfg(feature = "sql")]
-        #[::icydb::__reexports::canic_cdk::update]
-        fn ddl(sql: String) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
-            icydb_admin_sql_require_controller("DDL")?;
-
-            icydb_admin_sql_ddl_dispatch(sql.as_str())
-        }
-
-        #[cfg(feature = "sql")]
-        #[::icydb::__reexports::canic_cdk::update]
-        fn fixtures_reset() -> Result<(), ::icydb::Error> {
-            icydb_admin_sql_require_controller("lifecycle reset")?;
-
-            icydb_admin_sql_reset_all_tables()
-        }
-
-        #[cfg(feature = "sql")]
-        #[::icydb::__reexports::canic_cdk::update]
-        fn fixtures_load_default() -> Result<(), ::icydb::Error> {
-            icydb_admin_sql_require_controller("lifecycle load_default")?;
-            let hook: fn() -> Result<(), ::icydb::Error> = crate::icydb_admin_sql_load_default;
-
-            icydb_admin_sql_reset_all_tables()?;
-            hook()
-        }
     };
 }
 

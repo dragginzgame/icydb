@@ -1,8 +1,7 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Args, Parser, Subcommand};
 
-pub(crate) const DEFAULT_CANISTER: &str = "demo_rpg";
 pub(crate) const DEFAULT_ENVIRONMENT: &str = "demo";
 
 ///
@@ -37,6 +36,10 @@ pub(crate) enum CliCommand {
     /// Run SQL against an IcyDB canister.
     Sql(SqlArgs),
 
+    /// Inspect and validate IcyDB TOML config.
+    #[command(subcommand)]
+    Config(ConfigCommand),
+
     /// Manage a local ICP canister.
     #[command(subcommand)]
     Canister(CanisterCommand),
@@ -54,8 +57,8 @@ pub(crate) enum CliCommand {
 #[command(trailing_var_arg = true)]
 pub(crate) struct SqlArgs {
     /// Target ICP canister name.
-    #[arg(short, long, env = "SQLQ_CANISTER")]
-    pub(crate) canister: Option<String>,
+    #[arg(short, long, env = "SQLQ_CANISTER", required = true)]
+    pub(crate) canister: String,
 
     /// Target icp-cli environment.
     #[arg(short, long, env = "ICP_ENVIRONMENT", default_value = DEFAULT_ENVIRONMENT)]
@@ -85,8 +88,8 @@ pub(crate) struct SqlArgs {
 #[derive(Args, Clone, Debug)]
 pub(crate) struct CanisterTarget {
     /// Target ICP canister name.
-    #[arg(short, long, env = "SQLQ_CANISTER")]
-    pub(crate) canister: Option<String>,
+    #[arg(short, long, env = "SQLQ_CANISTER", required = true)]
+    pub(crate) canister: String,
 
     /// Target icp-cli environment.
     #[arg(short, long, env = "ICP_ENVIRONMENT", default_value = DEFAULT_ENVIRONMENT)]
@@ -94,8 +97,8 @@ pub(crate) struct CanisterTarget {
 }
 
 impl CanisterTarget {
-    pub(crate) fn canister_name(&self) -> &str {
-        self.canister.as_deref().unwrap_or(DEFAULT_CANISTER)
+    pub(crate) const fn canister_name(&self) -> &str {
+        self.canister.as_str()
     }
 
     pub(crate) const fn environment(&self) -> &str {
@@ -113,6 +116,50 @@ pub(crate) struct EnvironmentTarget {
 impl EnvironmentTarget {
     pub(crate) const fn environment(&self) -> &str {
         self.environment.as_str()
+    }
+}
+
+///
+/// ConfigCommand
+///
+/// ConfigCommand owns read-only inspection of `icydb.toml`. It can optionally
+/// compare configured canister SQL surfaces against an explicit ICP environment.
+///
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum ConfigCommand {
+    /// Show resolved IcyDB config and compare it with the selected ICP environment.
+    Show(ConfigArgs),
+    /// Validate resolved IcyDB config against the selected ICP environment.
+    Check(ConfigArgs),
+}
+
+///
+/// ConfigArgs
+///
+/// ConfigArgs carries the read-only config resolver inputs. `start_dir`
+/// defaults to the current working directory; pass a canister crate directory
+/// to inspect the same nearest-ancestor config that build scripts consume.
+///
+
+#[derive(Args, Clone, Debug)]
+pub(crate) struct ConfigArgs {
+    /// Directory to start nearest `icydb.toml` discovery from.
+    #[arg(long)]
+    pub(crate) start_dir: Option<PathBuf>,
+
+    /// Optional icp-cli environment used for sync checks.
+    #[arg(short, long, env = "ICP_ENVIRONMENT")]
+    pub(crate) environment: Option<String>,
+}
+
+impl ConfigArgs {
+    pub(crate) fn environment(&self) -> Option<&str> {
+        self.environment.as_deref()
+    }
+
+    pub(crate) fn start_dir(&self) -> Option<&Path> {
+        self.start_dir.as_deref()
     }
 }
 

@@ -13,7 +13,7 @@ use icydb::db::sql::SqlQueryResult;
 use rustyline::DefaultEditor;
 
 use crate::{
-    cli::{DEFAULT_CANISTER, DEFAULT_ENVIRONMENT, SqlArgs},
+    cli::SqlArgs,
     icp::require_created_canister,
     shell::{
         input::{ShellInput, read_statement},
@@ -59,9 +59,7 @@ impl ShellConfig {
             .sql
             .or_else(|| (!args.trailing_sql.is_empty()).then(|| args.trailing_sql.join(" ")));
         Self {
-            canister: args
-                .canister
-                .unwrap_or_else(|| DEFAULT_CANISTER.to_string()),
+            canister: args.canister,
             environment: args.environment,
             history_file: args.history_file,
             sql,
@@ -369,10 +367,6 @@ fn looks_like_stale_demo_sql_surface(error: &str) -> bool {
 }
 
 fn sql_recovery_hint(environment: &str, canister: &str) -> String {
-    if environment == DEFAULT_ENVIRONMENT && canister == DEFAULT_CANISTER {
-        return "This looks like stale local demo wasm or demo stable-memory schema state. Run `icydb canister refresh --canister demo_rpg`, then retry the SQL command.".to_string();
-    }
-
     format!(
         "This looks like stale wasm or stable-memory schema state for '{canister}' in environment '{environment}'. If this is disposable, run `icydb canister refresh --environment {environment} --canister {canister}`; otherwise repair or reinstall it intentionally."
     )

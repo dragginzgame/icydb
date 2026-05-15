@@ -11,6 +11,7 @@ members = [
     "crates/icydb",
     "crates/icydb-build",
     "crates/icydb-cli",
+    "crates/icydb-config-build",
     "crates/icydb-core",
     "crates/icydb-derive",
     "crates/icydb-primitives",
@@ -60,6 +61,7 @@ derive_more = { version = "2.0", default-features = false, features = [
 ] }
 icydb = { path = "crates/icydb", version = "0.155.6" }
 icydb-build = { path = "crates/icydb-build", version = "0.155.6" }
+icydb-config-build = { path = "crates/icydb-config-build", version = "0.155.6" }
 icydb-core = { path = "crates/icydb-core", version = "0.155.6" }
 icydb-derive = { path = "crates/icydb-derive", version = "0.155.6" }
 icydb-primitives = { path = "crates/icydb-primitives", version = "0.155.6" }
@@ -142,6 +144,7 @@ icydb-primitives = { path = "crates/icydb-primitives" }
 icydb-schema-derive = { path = "crates/icydb-schema-derive" }
 icydb-schema = { path = "crates/icydb-schema" }
 icydb-build = { path = "crates/icydb-build" }
+icydb-config-build = { path = "crates/icydb-config-build" }
 icydb-utils = { path = "crates/icydb-utils" }
 
 # ---------------------

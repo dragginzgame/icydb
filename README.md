@@ -160,21 +160,27 @@ Read SQL is sent through the canister's standard controller-gated
 payload. SQL DDL uses the canister's `ddl` update endpoint for supported
 `CREATE INDEX` commands.
 
-Canisters opt into the admin SQL endpoints by invoking the macro after
-`icydb::start!()`. The generated `fixtures_reset` admin method clears every
-canister-owned IcyDB table. The canister may define the conventional
-load-default hook that `fixtures_load_default` calls after reset. The generated
-canister glue routes each SQL statement to the matching accepted entity:
+Canisters opt into SQL surfaces through `icydb.toml`. `readonly = true`
+generates the controller-gated `icydb_admin_sql_query` endpoint. `ddl = true`
+generates the `ddl`, `fixtures_reset`, and `fixtures_load_default` update
+endpoints. The generated canister glue routes each SQL statement to the
+matching accepted entity:
+
+```toml
+[canisters.demo_rpg.sql]
+readonly = true
+ddl = true
+```
 
 ```rust
-icydb::admin_sql_query!();
-
 fn icydb_admin_sql_load_default() -> Result<(), icydb::Error> {
     Ok(())
 }
 ```
 
 ```bash
+cargo run -q -p icydb-cli -- config show
+cargo run -q -p icydb-cli -- config check --environment demo
 cargo run -q -p icydb-cli -- canister refresh --canister demo_rpg
 icp canister call demo_rpg fixtures_load_default '()' --environment demo
 ```
@@ -182,7 +188,7 @@ icp canister call demo_rpg fixtures_load_default '()' --environment demo
 Interactive shell:
 
 ```bash
-cargo run -q -p icydb-cli -- sql
+cargo run -q -p icydb-cli -- sql --canister demo_rpg
 ```
 
 Installed CLI:

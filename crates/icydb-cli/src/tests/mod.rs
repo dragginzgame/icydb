@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use candid::{Decode, Encode};
 use clap::Parser;
@@ -6,7 +6,8 @@ use icydb::db::sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput};
 use serde_json::json;
 
 use crate::{
-    cli::{CanisterCommand, CliArgs, CliCommand, DEFAULT_CANISTER, DEFAULT_ENVIRONMENT},
+    cli::{CanisterCommand, CliArgs, CliCommand, ConfigCommand, DEFAULT_ENVIRONMENT},
+    config::{config_sync_issues, render_config_report},
     shell::{
         ADMIN_SQL_QUERY_METHOD, SQL_DDL_METHOD, ShellConfig, ShellPerfAttribution,
         SqlShellCallKind, drain_complete_shell_statements, finalize_successful_command_output,
@@ -270,6 +271,8 @@ fn cli_args_accept_explicit_sql_option() {
     let args = CliArgs::try_parse_from([
         "icydb",
         "sql",
+        "--canister",
+        "demo_rpg",
         "--history-file",
         ".cache/custom_history",
         "--sql",
@@ -287,17 +290,11 @@ fn cli_args_accept_explicit_sql_option() {
 }
 
 #[test]
-fn cli_args_default_sql_target_to_demo_rpg() {
-    let args = CliArgs::try_parse_from(["icydb", "sql", "SELECT * FROM character;"])
-        .expect("sql command should parse without explicit canister");
-    let CliCommand::Sql(sql_args) = args.command else {
-        panic!("expected sql command");
-    };
-    let config = ShellConfig::from_sql_args(sql_args);
+fn cli_args_require_sql_target_canister() {
+    let err = CliArgs::try_parse_from(["icydb", "sql", "SELECT * FROM character;"])
+        .expect_err("sql command should require explicit canister");
 
-    assert_eq!(config.canister, DEFAULT_CANISTER);
-    assert_eq!(config.environment, DEFAULT_ENVIRONMENT);
-    assert_eq!(config.sql.as_deref(), Some("SELECT * FROM character;"));
+    assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
 }
 
 #[test]
@@ -305,6 +302,8 @@ fn cli_args_accept_explicit_icp_environment() {
     let args = CliArgs::try_parse_from([
         "icydb",
         "sql",
+        "--canister",
+        "demo_rpg",
         "--environment",
         "test",
         "SELECT",
@@ -323,6 +322,46 @@ fn cli_args_accept_explicit_icp_environment() {
 }
 
 #[test]
+fn cli_args_group_config_show_under_config_keyword() {
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "config",
+        "show",
+        "--environment",
+        "demo",
+        "--start-dir",
+        "canisters/demo/rpg",
+    ])
+    .expect("config show should parse");
+    let CliCommand::Config(ConfigCommand::Show(args)) = args.command else {
+        panic!("expected config show command");
+    };
+
+    assert_eq!(args.environment(), Some("demo"));
+    assert_eq!(args.start_dir(), Some(Path::new("canisters/demo/rpg")));
+}
+
+#[test]
+fn cli_args_group_config_check_under_config_keyword() {
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "config",
+        "check",
+        "--environment",
+        "demo",
+        "--start-dir",
+        "canisters/demo/rpg",
+    ])
+    .expect("config check should parse");
+    let CliCommand::Config(ConfigCommand::Check(args)) = args.command else {
+        panic!("expected config check command");
+    };
+
+    assert_eq!(args.environment(), Some("demo"));
+    assert_eq!(args.start_dir(), Some(Path::new("canisters/demo/rpg")));
+}
+
+#[test]
 fn cli_args_group_canister_list_under_canister_keyword() {
     let args = CliArgs::try_parse_from(["icydb", "canister", "list", "--environment", "test"])
         .expect("canister list should parse");
@@ -331,6 +370,68 @@ fn cli_args_group_canister_list_under_canister_keyword() {
     };
 
     assert_eq!(target.environment(), "test");
+}
+
+#[test]
+fn config_report_marks_canister_settings_against_icp_environment() {
+    let root = std::env::temp_dir().join(format!(
+        "icydb-cli-config-report-test-{}",
+        std::process::id()
+    ));
+    let canister = root.join("canisters").join("demo").join("rpg");
+    std::fs::create_dir_all(canister.as_path()).expect("test directory should be created");
+    let config_path = root.join("canisters").join("demo").join("icydb.toml");
+    std::fs::write(
+        config_path.as_path(),
+        r"
+            [canisters.demo_rpg.sql]
+            readonly = true
+            ddl = true
+        ",
+    )
+    .expect("config should be written");
+    let resolved = icydb_config_build::load_resolved_icydb_toml(canister.as_path(), &["demo_rpg"])
+        .expect("config should resolve");
+
+    let report = render_config_report(
+        canister.as_path(),
+        Some("demo"),
+        &[String::from("demo_rpg")],
+        &resolved,
+    );
+
+    assert!(report.contains("demo_rpg  readonly, ddl  ok"));
+    std::fs::remove_dir_all(root).expect("test directory should be removed");
+}
+
+#[test]
+fn config_check_reports_mismatched_canister_settings() {
+    let root = std::env::temp_dir().join(format!(
+        "icydb-cli-config-check-test-{}",
+        std::process::id()
+    ));
+    let canister = root.join("canisters").join("demo").join("rpg");
+    std::fs::create_dir_all(canister.as_path()).expect("test directory should be created");
+    std::fs::write(
+        root.join("canisters").join("demo").join("icydb.toml"),
+        r"
+            [canisters.missing_rpg.sql]
+            readonly = true
+        ",
+    )
+    .expect("config should be written");
+    let resolved = icydb_config_build::load_resolved_icydb_toml(canister.as_path(), &[])
+        .expect("config should resolve without known canister validation");
+
+    let issues = config_sync_issues(Some("test"), &[String::from("demo_rpg")], &resolved);
+
+    assert!(
+        issues
+            .iter()
+            .any(|issue| issue.contains("canisters.missing_rpg")),
+        "missing configured canister should be reported: {issues:?}",
+    );
+    std::fs::remove_dir_all(root).expect("test directory should be removed");
 }
 
 #[test]
@@ -412,30 +513,16 @@ fn icp_update_command_targets_environment_without_query_flag() {
 }
 
 #[test]
-fn sql_recovery_hint_points_default_stale_demo_to_canister_refresh() {
+fn sql_recovery_hint_points_stale_canister_to_targeted_refresh() {
     let message = sql_error_with_recovery_hint(
         "Canister has no query method 'icydb_admin_sql_query'.",
         DEFAULT_ENVIRONMENT,
-        DEFAULT_CANISTER,
+        "demo_rpg",
     );
 
     assert!(
-        message.contains("icydb canister refresh --canister demo_rpg"),
-        "default demo stale-method errors should include the generic canister refresh command"
-    );
-}
-
-#[test]
-fn sql_recovery_hint_points_custom_stale_canister_to_targeted_refresh() {
-    let message = sql_error_with_recovery_hint(
-        "startup index rebuild failed: store='demo::Store' entity='demo::Entity' (store 'demo::Entity::idx' not found)",
-        "test",
-        "custom_demo",
-    );
-
-    assert!(
-        message.contains("icydb canister refresh --environment test --canister custom_demo"),
-        "custom stale canister errors should include a targeted refresh command"
+        message.contains("icydb canister refresh --environment demo --canister demo_rpg"),
+        "stale canister errors should include a targeted refresh command"
     );
 }
 
@@ -444,7 +531,7 @@ fn sql_recovery_hint_leaves_unrelated_errors_unchanged() {
     let error = "SQL DDL execution is not supported in this release";
 
     assert_eq!(
-        sql_error_with_recovery_hint(error, DEFAULT_ENVIRONMENT, DEFAULT_CANISTER),
+        sql_error_with_recovery_hint(error, DEFAULT_ENVIRONMENT, "demo_rpg"),
         error,
     );
 }

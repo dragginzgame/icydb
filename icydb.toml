@@ -1,0 +1,3 @@
+[canisters.demo_rpg.sql]
+readonly = true
+ddl = true

@@ -1,0 +1,3 @@
+[canisters.test_sql.sql]
+readonly = true
+ddl = true

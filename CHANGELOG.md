@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.156.x] ⚙️ - 2026-05-15 - IcyDB TOML Config
+
+- `0.156` introduces host-only `icydb.toml` config generation for per-canister DB SQL surfaces, splits SQL opt-in into explicit `readonly` and `ddl` switches, adds `icydb config show/check`, removes IcyDB-owned default SQL targets so `icydb sql` requires `--canister`, and hard-cuts the old manual SQL endpoint macro.
+
+See detailed breakdown:
+[docs/changelog/0.156.md](docs/changelog/0.156.md)
+
+---
+
 ## [0.155.x] 🧱 - 2026-05-14 - DDL Foundation And Audit Baselines
 
 - `0.155.6` closes the next post-DDL visibility gap by making DDL-published accepted indexes visible through `DESCRIBE`, `EXPLAIN EXECUTION`, and indexed reads, moving accepted-schema `DESCRIBE` onto persisted index metadata, allowing planner semantic validation to accept secondary access contracts present in `SchemaInfo` even without a generated `IndexModel`, pinning schema-scoped query-plan cache plus continuation cursor behavior across DDL publication, and adding a source-boundary guard for the SQL DDL frontend.

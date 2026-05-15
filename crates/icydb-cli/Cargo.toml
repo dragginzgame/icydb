@@ -16,6 +16,7 @@ path = "src/main.rs"
 candid = { workspace = true }
 clap = { version = "4.6.1", default-features = false, features = ["derive", "env", "error-context", "help", "std", "usage"] }
 icydb = { workspace = true }
+icydb-config-build = { workspace = true }
 rustyline = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
