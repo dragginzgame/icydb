@@ -23,8 +23,83 @@ const TEN_SIMPLE_CANISTER_PACKAGE: &str = "canister_audit_ten_simple";
 const TEN_COMPLEX_CANISTER_NAME: &str = "ten_complex";
 const TEN_COMPLEX_CANISTER_PACKAGE: &str = "canister_audit_ten_complex";
 const WASM_TARGET_TRIPLE: &str = "wasm32-unknown-unknown";
-const CANISTER_WASM_PROFILE_ENV: &str = "ICYDB_CANISTER_WASM_PROFILE";
-const CANISTER_SQL_MODE_ENV: &str = "ICYDB_CANISTER_SQL_MODE";
+
+/// Cargo wasm profile used when building fixture canisters.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CanisterWasmProfile {
+    /// Cargo's default debug profile.
+    Debug,
+    /// Cargo's standard release profile.
+    Release,
+    /// Workspace-defined wasm release profile.
+    WasmRelease,
+}
+
+impl CanisterWasmProfile {
+    /// Parse a user-facing profile name.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "debug" => Ok(Self::Debug),
+            "release" => Ok(Self::Release),
+            "wasm-release" => Ok(Self::WasmRelease),
+            other => Err(format!(
+                "invalid canister wasm profile '{other}', expected 'debug', 'release', or 'wasm-release'"
+            )),
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Debug => "debug",
+            Self::Release => "release",
+            Self::WasmRelease => "wasm-release",
+        }
+    }
+}
+
+/// SQL feature mode for fixture canister builds.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CanisterSqlMode {
+    /// Build with the default SQL feature set.
+    Enabled,
+    /// Build without default SQL features.
+    Disabled,
+}
+
+impl CanisterSqlMode {
+    /// Parse a user-facing SQL mode.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "on" | "sql-on" | "enabled" => Ok(Self::Enabled),
+            "off" | "sql-off" | "disabled" => Ok(Self::Disabled),
+            other => Err(format!(
+                "invalid canister SQL mode '{other}', expected 'on'/'sql-on' or 'off'/'sql-off'"
+            )),
+        }
+    }
+
+    const fn enabled(self) -> bool {
+        matches!(self, Self::Enabled)
+    }
+}
+
+/// Explicit build options for fixture canisters.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CanisterBuildOptions {
+    /// Cargo profile to use for the wasm build.
+    pub profile: CanisterWasmProfile,
+    /// Whether default SQL features stay enabled.
+    pub sql_mode: CanisterSqlMode,
+}
+
+impl Default for CanisterBuildOptions {
+    fn default() -> Self {
+        Self {
+            profile: CanisterWasmProfile::Debug,
+            sql_mode: CanisterSqlMode::Enabled,
+        }
+    }
+}
 
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -92,49 +167,6 @@ fn format_failed_process_output(context: &str, output: &Output) -> String {
     message
 }
 
-fn should_default_to_wasm_release_profile() -> bool {
-    matches!(
-        env::var("ICP_ENVIRONMENT").ok().as_deref(),
-        Some("mainnet" | "staging" | "ic")
-    )
-}
-
-fn selected_canister_wasm_profile() -> Result<&'static str, String> {
-    let explicit_profile = env::var_os(CANISTER_WASM_PROFILE_ENV);
-    if let Some(explicit_profile) = explicit_profile {
-        let normalized = explicit_profile.to_string_lossy().to_ascii_lowercase();
-        return match normalized.as_str() {
-            "debug" => Ok("debug"),
-            "release" => Ok("release"),
-            "wasm-release" => Ok("wasm-release"),
-            other => Err(format!(
-                "invalid {CANISTER_WASM_PROFILE_ENV} value '{other}', expected 'debug', 'release', or 'wasm-release'"
-            )),
-        };
-    }
-
-    if should_default_to_wasm_release_profile() {
-        Ok("wasm-release")
-    } else {
-        Ok("debug")
-    }
-}
-
-fn selected_canister_sql_enabled() -> Result<bool, String> {
-    let Some(explicit_mode) = env::var_os(CANISTER_SQL_MODE_ENV) else {
-        return Ok(true);
-    };
-
-    let normalized = explicit_mode.to_string_lossy().to_ascii_lowercase();
-    match normalized.as_str() {
-        "on" | "sql-on" | "enabled" => Ok(true),
-        "off" | "sql-off" | "disabled" => Ok(false),
-        other => Err(format!(
-            "invalid {CANISTER_SQL_MODE_ENV} value '{other}', expected 'on'/'sql-on' or 'off'/'sql-off'"
-        )),
-    }
-}
-
 // Shorten retained source/build paths in release wasm artifacts without
 // changing semantics. These remaps only affect diagnostic path payloads that
 // would otherwise inflate the module data section.
@@ -196,12 +228,12 @@ fn append_rustflags(command: &mut Command, extra_flags: &[String]) {
 
 fn build_canister_package(
     package_name: &str,
-    profile: &str,
+    options: CanisterBuildOptions,
     context_label: &str,
 ) -> Result<PathBuf, String> {
     let root = workspace_root();
-    let sql_enabled = selected_canister_sql_enabled()?;
     let mut cargo = Command::new("cargo");
+    let profile = options.profile.as_str();
 
     // Phase 1: configure the wasm cargo build request.
     cargo.current_dir(&root).args([
@@ -211,7 +243,7 @@ fn build_canister_package(
         "--package",
         package_name,
     ]);
-    if !sql_enabled {
+    if !options.sql_mode.enabled() {
         cargo.arg("--no-default-features");
     }
     if profile == "release" {
@@ -241,20 +273,26 @@ fn build_canister_package(
 ///
 /// build_canister
 ///
-/// Build one supported SQL canister WASM and return the built wasm path.
-///
-/// Build profile selection:
-/// - `wasm-release` when `ICP_ENVIRONMENT` is `mainnet`, `staging`, or `ic`
-/// - `debug` otherwise
-/// - overridden by `ICYDB_CANISTER_WASM_PROFILE=debug|release|wasm-release`
-///
+/// Build one supported SQL canister WASM with default debug options and return
+/// the built wasm path.
 pub fn build_canister(canister_name: &str) -> Result<PathBuf, String> {
+    build_canister_with_options(canister_name, CanisterBuildOptions::default())
+}
+
+/// Build one supported SQL canister WASM with explicit options and return the
+/// built wasm path.
+pub fn build_canister_with_options(
+    canister_name: &str,
+    options: CanisterBuildOptions,
+) -> Result<PathBuf, String> {
     let package_name = package_for_canister_name(canister_name)?;
-    let profile = selected_canister_wasm_profile()?;
     build_canister_package(
         package_name,
-        profile,
-        &format!("{canister_name} canister build ({profile})"),
+        options,
+        &format!(
+            "{canister_name} canister build ({})",
+            options.profile.as_str()
+        ),
     )
 }
 
@@ -266,13 +304,24 @@ pub fn build_canister(canister_name: &str) -> Result<PathBuf, String> {
 ///
 
 pub fn stage_canister_for_icp(canister_name: &str) -> Result<(PathBuf, Option<PathBuf>), String> {
+    stage_canister_for_icp_with_options(canister_name, CanisterBuildOptions::default())
+}
+
+/// Build one supported canister with explicit options and stage `.wasm` +
+/// `.did` artifacts into `.icp/local/canisters/<canister_name>/`.
+pub fn stage_canister_for_icp_with_options(
+    canister_name: &str,
+    options: CanisterBuildOptions,
+) -> Result<(PathBuf, Option<PathBuf>), String> {
     let root = workspace_root();
     let package_name = package_for_canister_name(canister_name)?;
-    let profile = selected_canister_wasm_profile()?;
     let built_wasm_path = build_canister_package(
         package_name,
-        profile,
-        &format!("canister build for ICP staging ({canister_name}, {profile})"),
+        options,
+        &format!(
+            "canister build for ICP staging ({canister_name}, {})",
+            options.profile.as_str()
+        ),
     )?;
 
     let icp_canister_dir = root.join(".icp/local/canisters").join(canister_name);

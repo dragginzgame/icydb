@@ -1,6 +1,6 @@
 .PHONY: help version tags patch minor major release-stage release-commit release-push \
-        release-patch release-minor release-major release publish \
-        test test-bump build check clippy fmt fmt-check clean install install-dev install-env update-dev ensure-python3 \
+        release-patch release-minor release-major release \
+        test test-bump build check clippy fmt fmt-check clean install install-all install-canister-deps update-dev ensure-python3 \
         test-watch all ensure-clean security-check check-versioning \
         ensure-hooks install-hooks check-index-range-spec-invariants \
         wasm-size-report wasm-audit-report test-sql-parity \
@@ -39,10 +39,8 @@ help:
 	@echo ""
 	@echo "Setup / Installation:"
 	@echo "  install          Install the local icydb CLI binary"
-	@echo "  install-env      Bootstrap a fresh Ubuntu development environment"
-	@echo "  install-all      Install both dev and canister dependencies"
-	@echo "  install-dev      Install development dependencies and ensure python/python3"
-	@echo "  update-dev       Update development tools and ensure python/python3"
+	@echo "  install-all      Install canister dependencies and git hooks"
+	@echo "  update-dev       Check prerequisites and run safe maintenance checks"
 	@echo "  install-canister-deps  Install Wasm target + candid tools"
 	@echo "  install-hooks    Configure git hooks"
 	@echo ""
@@ -59,10 +57,9 @@ help:
 	@echo "  release-minor    Human-owned one-shot minor release"
 	@echo "  release-major    Human-owned one-shot major release"
 	@echo "  release          CI-driven release (local target is no-op)"
-	@echo "  publish          Publish workspace crates to crates.io in dependency order"
 	@echo ""
 	@echo "Development:"
-	@echo "  test             Run all tests"
+	@echo "  test             Run all tests; uncached PocketIC downloads require ICYDB_ALLOW_POCKET_IC_DOWNLOAD=1"
 	@echo "  build            Build all crates"
 	@echo "  check            Run cargo check"
 	@echo "  clippy           Run clippy checks"
@@ -81,8 +78,8 @@ help:
 	@echo "  make patch       # Bump patch version"
 	@echo "  make test        # Run tests"
 	@echo "  make build       # Build project"
-	@echo "  WASM_SQL_VARIANTS=both make wasm-size-report      # Build SQL-on and SQL-off variants for the wasm audit matrix"
-	@echo "  WASM_CANISTER_NAME=ten_complex make wasm-size-report # Build one specific wasm audit canister"
+	@echo "  make wasm-size-report SIZE_REPORT_ARGS=\"--sql-variants both\""
+	@echo "  make wasm-size-report SIZE_REPORT_ARGS=\"--canister ten_complex\""
 
 #
 # Installing
@@ -92,72 +89,33 @@ help:
 install:
 	cargo install --path "$(ROOT_DIR)/crates/icydb-cli" --bin icydb --locked --force
 
-# Bootstrap a fresh Ubuntu development environment
-install-env:
-	sudo apt -y update && sudo apt -y upgrade
-	sudo apt -y install build-essential ntp ntpdate cmake curl wget libssl-dev pkg-config ripgrep python3 python-is-python3
-	sudo apt -y install speedtest-cli fdupes tree cloc
-	sudo apt -y install valgrind
-	sudo apt -y install binaryen wabt
-	sudo apt -y install jq
-	sudo apt -y install linux-tools-common linux-tools-generic linux-headers-generic
-	sudo apt -y autoremove
-	sudo ntpdate ntp.ubuntu.com || true
-	curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-	PATH="$$HOME/.cargo/bin:$$PATH" rustup toolchain install beta
-	PATH="$$HOME/.cargo/bin:$$PATH" rustup toolchain install nightly
-	PATH="$$HOME/.cargo/bin:$$PATH" rustup target add wasm32-unknown-unknown
-	@if ! command -v icp >/dev/null 2>&1; then \
-		echo "icp-cli is required for local canister workflows; install the current Canic ICP tools and ensure 'icp' is on PATH."; \
-		exit 1; \
-	fi
-	mkdir -p "$$HOME/bin"
-	wget -O "$$HOME/bin/didc" https://github.com/dfinity/candid/releases/download/2025-12-18/didc-linux64
-	chmod +x "$$HOME/bin/didc"
-	cd "$(ROOT_DIR)" && \
-		wget -O idl2json_cli-x86_64-unknown-linux-musl.tar.gz https://github.com/dfinity/idl2json/releases/download/v0.10.1/idl2json_cli-x86_64-unknown-linux-musl.tar.gz && \
-		tar -xzf idl2json_cli-x86_64-unknown-linux-musl.tar.gz && \
-		rm -f idl2json_cli-x86_64-unknown-linux-musl.tar.gz && \
-		mv -f ./idl2json "$$HOME/bin/idl2json" && \
-		chmod +x "$$HOME/bin/idl2json" && \
-		mv -f ./yaml2candid "$$HOME/bin/yaml2candid" && \
-		chmod +x "$$HOME/bin/yaml2candid"
-	wget -O "$$HOME/bin/quill" https://github.com/dfinity/quill/releases/download/v0.5.4/quill-linux-x86_64
-	chmod +x "$$HOME/bin/quill"
-	PATH="$$HOME/.cargo/bin:$$HOME/bin:$$PATH" $(MAKE) --no-print-directory update-dev
-
-# Ensure both `python3` and the `python` alias exist for repo scripts and local tooling.
+# Ensure both `python3` and the `python` alias exist for repo scripts and local
+# tooling. This target is check-only; it never installs OS packages or uses sudo.
 ensure-python3:
 	@if command -v python3 >/dev/null 2>&1 && command -v python >/dev/null 2>&1; then \
-		echo "✅ python3 available: $$(python3 --version 2>/dev/null)"; \
-		echo "✅ python available: $$(python --version 2>/dev/null)"; \
-	elif command -v apt-get >/dev/null 2>&1; then \
-		sudo apt -y update && sudo apt -y install python3 python-is-python3; \
+		echo "python3 available: $$(python3 --version 2>/dev/null)"; \
+		echo "python available: $$(python --version 2>/dev/null)"; \
 	else \
-		echo "python/python3 not found. Install them manually or run make install-env on Ubuntu."; \
+		echo "Missing local prerequisites:"; \
+		command -v python3 >/dev/null 2>&1 || echo "  - python3"; \
+		command -v python >/dev/null 2>&1 || echo "  - python alias pointing to python3"; \
+		echo ""; \
+		echo "Install these with your system package manager, then re-run this target."; \
 		exit 1; \
 	fi
 
-# Install everything (dev + canister deps)
-install-all: install-dev install-canister-deps install-hooks
-	@echo "✅ All development and canister dependencies installed"
+# Install canister dependencies and repository hooks.
+install-all: install-canister-deps install-hooks
+	@echo "Canister dependencies and git hooks installed"
 
-# Install Rust development tooling
-install-dev: ensure-python3
-	cargo install cargo-watch --locked || true
-	cargo install cargo-edit --locked || true
-	cargo install cargo-get cargo-sort cargo-sort-derives ripgrep --locked || true
-
-# Update development tooling and dependencies
+# Check local prerequisites and run safe maintenance checks. This target does
+# not install cargo tools, update rustup, or mutate Cargo.lock.
 update-dev: ensure-python3
-	rustup update
-	cargo install \
-		cargo-audit cargo-bloat cargo-deny cargo-expand cargo-machete \
-		cargo-llvm-lines cargo-sort cargo-tarpaulin cargo-sort-derives \
-		ripgrep \
-		candid-extractor ic-wasm
-	cargo audit
-	cargo update --verbose
+	@command -v rustup >/dev/null 2>&1 || { echo "Missing rustup. Install Rust from https://rustup.rs/."; exit 1; }
+	@command -v cargo >/dev/null 2>&1 || { echo "Missing cargo. Install the Rust toolchain pinned in README.md."; exit 1; }
+	@command -v rg >/dev/null 2>&1 || { echo "Missing ripgrep (rg). Install it with your system package manager."; exit 1; }
+	rustup target add wasm32-unknown-unknown
+	$(CARGO_WORK_ENV) cargo fetch --locked
 
 # Install wasm target + candid tools
 install-canister-deps:
@@ -223,10 +181,6 @@ release-minor: minor release-stage release-commit release-push
 
 release-major: major release-stage release-commit release-push
 
-publish: ensure-clean fmt-check clippy check
-	$(CARGO_WORK_ENV) bash scripts/ci/publish-workspace.sh
-
-
 #
 # Tests
 #
@@ -240,10 +194,10 @@ test-unit:
 	POCKET_IC_BIN="$$(bash scripts/ci/ensure-pocket-ic-bin.sh)" $(CARGO_WORK_ENV) cargo test -p canister_test_sql --lib
 
 wasm-size-report:
-	$(CARGO_WORK_ENV) bash scripts/ci/wasm-size-report.sh
+	$(CARGO_WORK_ENV) bash scripts/ci/wasm-size-report.sh $(SIZE_REPORT_ARGS)
 
 wasm-audit-report:
-	$(CARGO_WORK_ENV) bash scripts/ci/wasm-audit-report.sh
+	$(CARGO_WORK_ENV) bash scripts/ci/wasm-audit-report.sh $(AUDIT_REPORT_ARGS)
 
 #
 # Development commands

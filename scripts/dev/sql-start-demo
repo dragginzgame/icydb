@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-environment="${ICP_ENVIRONMENT:-demo}"
-canister="${SQLQ_CANISTER:-demo_rpg}"
+environment="${1:-demo}"
+canister="${2:-demo_rpg}"
 
 echo "[sql-start-demo] refreshing ${canister} in environment ${environment}"
 icydb canister refresh --environment "${environment}" --canister "${canister}"

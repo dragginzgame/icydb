@@ -2,25 +2,67 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
-OUT_DIR="$ROOT/artifacts/wasm-size"
-PROFILE="${WASM_PROFILE:-wasm-release}"
-SQL_VARIANTS_MODE="${WASM_SQL_VARIANTS:-sql-on}"
+out_dir="$ROOT/artifacts/wasm-size"
+profile="wasm-release"
+sql_variants_mode="sql-on"
+canister_names=()
 export CARGO_HOME="${CARGO_HOME:-$(make --no-print-directory -s -C "$ROOT" print-cargo-home)}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(make --no-print-directory -s -C "$ROOT" print-cargo-target-dir)}"
 
-if [[ -z "${WASM_CANISTER_NAME:-}" ]]; then
-    for canister_name in minimal one_simple one_complex ten_simple ten_complex; do
-        WASM_CANISTER_NAME="$canister_name" \
-            WASM_PROFILE="$PROFILE" \
-            WASM_SQL_VARIANTS="$SQL_VARIANTS_MODE" \
-            bash "$0"
-    done
-    exit 0
+usage() {
+    cat <<'EOF'
+usage: wasm-size-report.sh [--profile debug|release|wasm-release] [--sql-variants sql-on|sql-off|both] [--canister name]
+
+Defaults to wasm-release, sql-on, and the standard audit canister set.
+Repeat --canister to build more than one specific canister.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --profile)
+            profile="${2:-}"
+            shift 2
+            ;;
+        --sql-variants)
+            sql_variants_mode="${2:-}"
+            shift 2
+            ;;
+        --canister)
+            canister_names+=("${2:-}")
+            shift 2
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "[wasm-size] unknown argument: $1" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [[ -z "$profile" ]]; then
+    echo "[wasm-size] --profile requires a value" >&2
+    exit 1
+fi
+if [[ -z "$sql_variants_mode" ]]; then
+    echo "[wasm-size] --sql-variants requires a value" >&2
+    exit 1
+fi
+for canister_name in "${canister_names[@]}"; do
+    if [[ -z "$canister_name" ]]; then
+        echo "[wasm-size] --canister requires a value" >&2
+        exit 1
+    fi
+done
+if [[ "${#canister_names[@]}" -eq 0 ]]; then
+    canister_names=(minimal one_simple one_complex ten_simple ten_complex)
 fi
 
-CANISTER_NAME="${WASM_CANISTER_NAME}"
-
-mkdir -p "$OUT_DIR"
+mkdir -p "$out_dir"
 
 # The wasm size report consumes locally staged canister artifacts under
 # `.icp/local/canisters/<name>/`, but the staging step is owned by
@@ -28,24 +70,25 @@ mkdir -p "$OUT_DIR"
 # Keep this script independent from the local ICP environment so CI can run
 # wasm-size measurements without provisioning replica tooling it never uses.
 
-case "$SQL_VARIANTS_MODE" in
+case "$sql_variants_mode" in
     both)
-        SQL_VARIANTS=("sql-on" "sql-off")
+        sql_variants=("sql-on" "sql-off")
         ;;
     sql-on|on|enabled)
-        SQL_VARIANTS=("sql-on")
+        sql_variants=("sql-on")
         ;;
     sql-off|off|disabled)
-        SQL_VARIANTS=("sql-off")
+        sql_variants=("sql-off")
         ;;
     *)
-        echo "[wasm-size] invalid WASM_SQL_VARIANTS value '$SQL_VARIANTS_MODE'; expected 'sql-on', 'sql-off', or 'both'" >&2
+        echo "[wasm-size] invalid --sql-variants value '$sql_variants_mode'; expected 'sql-on', 'sql-off', or 'both'" >&2
         exit 1
         ;;
 esac
 
 build_variant() {
-    local sql_variant="$1"
+    local canister_name="$1"
+    local sql_variant="$2"
     local sql_mode="on"
     local artifact_suffix=""
     local stem=""
@@ -54,40 +97,41 @@ build_variant() {
         sql_mode="off"
     fi
 
-    if [[ "${#SQL_VARIANTS[@]}" -gt 1 || "$sql_variant" == "sql-off" ]]; then
+    if [[ "${#sql_variants[@]}" -gt 1 || "$sql_variant" == "sql-off" ]]; then
         artifact_suffix=".$sql_variant"
     fi
 
-    stem="${CANISTER_NAME}.${PROFILE}${artifact_suffix}"
+    stem="${canister_name}.${profile}${artifact_suffix}"
 
-    echo "[wasm-size] Building '$CANISTER_NAME' using profile '$PROFILE' ($sql_variant)"
+    echo "[wasm-size] Building '$canister_name' using profile '$profile' ($sql_variant)"
     (
         cd "$ROOT"
-        export ICYDB_CANISTER_WASM_PROFILE="$PROFILE"
-        export ICYDB_CANISTER_SQL_MODE="$sql_mode"
-        cargo run -p icydb-testing-integration --bin build_fixture_canister --locked -- "$CANISTER_NAME"
+        cargo run -p icydb-testing-integration --bin build_fixture_canister --locked -- \
+            "$canister_name" \
+            --profile "$profile" \
+            --sql-mode "$sql_mode"
     )
 
-    ICP_DIR="$ROOT/.icp/local/canisters/$CANISTER_NAME"
-    RAW_WASM="$ICP_DIR/$CANISTER_NAME.wasm"
-    RAW_GZ_EMITTED="$ICP_DIR/$CANISTER_NAME.wasm.gz"
-    RAW_DID="$ICP_DIR/$CANISTER_NAME.did"
+    ICP_DIR="$ROOT/.icp/local/canisters/$canister_name"
+    RAW_WASM="$ICP_DIR/$canister_name.wasm"
+    RAW_GZ_EMITTED="$ICP_DIR/$canister_name.wasm.gz"
+    RAW_DID="$ICP_DIR/$canister_name.did"
 
     if [[ ! -f "$RAW_WASM" ]]; then
         echo "[wasm-size] expected wasm missing: $RAW_WASM" >&2
         exit 1
     fi
 
-    RAW_COPY="$OUT_DIR/${stem}.icp-built.wasm"
-    RAW_GZ_DETERMINISTIC="$OUT_DIR/${stem}.icp-built.wasm.gz"
-    RAW_GZ_EMITTED_COPY="$OUT_DIR/${stem}.icp-emitted.wasm.gz"
-    DID_COPY="$OUT_DIR/${stem}.did"
-    SHRUNK_WASM="$OUT_DIR/${stem}.icp-shrunk.wasm"
-    SHRUNK_GZ="$OUT_DIR/${stem}.icp-shrunk.wasm.gz"
-    RAW_INFO="$OUT_DIR/${stem}.icp-built.info.txt"
-    SHRUNK_INFO="$OUT_DIR/${stem}.icp-shrunk.info.txt"
-    REPORT_JSON="$OUT_DIR/${stem}.report.json"
-    SUMMARY_MD="$OUT_DIR/${stem}.summary.md"
+    RAW_COPY="$out_dir/${stem}.icp-built.wasm"
+    RAW_GZ_DETERMINISTIC="$out_dir/${stem}.icp-built.wasm.gz"
+    RAW_GZ_EMITTED_COPY="$out_dir/${stem}.icp-emitted.wasm.gz"
+    DID_COPY="$out_dir/${stem}.did"
+    SHRUNK_WASM="$out_dir/${stem}.icp-shrunk.wasm"
+    SHRUNK_GZ="$out_dir/${stem}.icp-shrunk.wasm.gz"
+    RAW_INFO="$out_dir/${stem}.icp-built.info.txt"
+    SHRUNK_INFO="$out_dir/${stem}.icp-shrunk.info.txt"
+    REPORT_JSON="$out_dir/${stem}.report.json"
+    SUMMARY_MD="$out_dir/${stem}.summary.md"
 
     cp "$RAW_WASM" "$RAW_COPY"
     rm -f "$DID_COPY"
@@ -106,7 +150,9 @@ build_variant() {
     ic-wasm "$RAW_COPY" info > "$RAW_INFO"
     ic-wasm "$SHRUNK_WASM" info > "$SHRUNK_INFO"
 
-    export CANISTER_NAME PROFILE RAW_COPY RAW_GZ_DETERMINISTIC RAW_GZ_EMITTED_COPY SHRUNK_WASM SHRUNK_GZ RAW_INFO SHRUNK_INFO DID_COPY REPORT_JSON SUMMARY_MD
+    export CANISTER_NAME="$canister_name"
+    export PROFILE="$profile"
+    export RAW_COPY RAW_GZ_DETERMINISTIC RAW_GZ_EMITTED_COPY SHRUNK_WASM SHRUNK_GZ RAW_INFO SHRUNK_INFO DID_COPY REPORT_JSON SUMMARY_MD
     export SQL_VARIANT="$sql_variant"
     python3 - <<'PY'
 import hashlib
@@ -251,6 +297,8 @@ PY
     echo "[wasm-size] Wrote summary: $SUMMARY_MD"
 }
 
-for sql_variant in "${SQL_VARIANTS[@]}"; do
-    build_variant "$sql_variant"
+for canister_name in "${canister_names[@]}"; do
+    for sql_variant in "${sql_variants[@]}"; do
+        build_variant "$canister_name" "$sql_variant"
+    done
 done

@@ -22,7 +22,7 @@ Measure and report:
 
 Default targets:
 
-- canisters: `minimal` and `twenty`
+- canisters: `minimal`, `one_simple`, `one_complex`, `ten_simple`, and `ten_complex`
 - profile: `wasm-release`
 
 ---
@@ -56,9 +56,11 @@ Preferred command:
 
 Optional controls:
 
-- `WASM_AUDIT_DATE=YYYY-MM-DD` (pins report day path)
-- `WASM_AUDIT_SKIP_BUILD=1` (reuse existing artifacts in `artifacts/wasm-size`)
-- `WASM_CANISTER_NAME=<name>` and `WASM_PROFILE=<profile>` (single-canister override)
+- `--date YYYY-MM-DD` pins the report day path.
+- `--skip-build` reuses existing artifacts in `artifacts/wasm-size`.
+- `--canister <name>` narrows or repeats the canister scope.
+- `--profile <profile>` selects `debug`, `release`, or `wasm-release`.
+- `--sql-variant sql-on|sql-off` selects the SQL feature mode.
 
 ---
 

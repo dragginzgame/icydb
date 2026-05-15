@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.156.x] ⚙️ - 2026-05-15 - IcyDB TOML Config
 
-- `0.156` introduces host-only `icydb.toml` config generation for per-canister DB SQL surfaces, splits SQL opt-in into explicit `readonly` and `ddl` switches, adds `icydb config show/check`, removes IcyDB-owned default SQL targets so `icydb sql` requires `--canister`, and hard-cuts the old manual SQL endpoint macro.
+- `0.156.1` finishes the developer-friendliness pass by removing the unused
+  workspace publish wrapper and local bootstrap target, documenting local setup
+  plus PocketIC test binary requirements in the README, and replacing stale wasm
+  report environment controls in onboarding and recurring-audit docs with the
+  new argument form.
+
+- `0.156.0` introduces host-only `icydb.toml` config generation for per-canister DB SQL surfaces, splits SQL opt-in into explicit `readonly` and `ddl` switches, adds `icydb config show/check`, removes IcyDB-owned default SQL targets so `icydb sql` requires `--canister`, and hard-cuts the old manual SQL endpoint macro.
 
 See detailed breakdown:
 [docs/changelog/0.156.md](docs/changelog/0.156.md)

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-set -e
+set -euo pipefail
 
-PREFIX="$1"
+PREFIX="${1:-}"
 
 if [ -z "$PREFIX" ]; then
   echo "Usage: $0 <version-prefix>"
@@ -37,9 +37,11 @@ if [ -z "$LOCAL_TAGS" ] && [ -z "$REMOTE_TAGS" ]; then
   exit 0
 fi
 
-read -p "Proceed with deleting ALL of the above? (y/N): " CONFIRM
+echo "This deletes matching local tags and remote origin tags."
+echo "Type 'delete ${PREFIX}' to proceed."
+read -r -p "> " CONFIRM
 
-if [ "$CONFIRM" = "y" ]; then
+if [ "$CONFIRM" = "delete ${PREFIX}" ]; then
   # Delete local tags
   if [ -n "$LOCAL_TAGS" ]; then
     echo "$LOCAL_TAGS" | xargs -r git tag -d

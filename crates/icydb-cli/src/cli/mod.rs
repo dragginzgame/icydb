@@ -49,15 +49,15 @@ pub(crate) enum CliCommand {
 /// SqlArgs
 ///
 /// SqlArgs owns the SQL shell command surface. It preserves the interactive
-/// shell, explicit `--sql`, environment defaults, and trailing SQL convenience
-/// form while keeping SQL-specific flags under the `sql` keyword.
+/// shell, explicit `--sql`, ICP environment defaults, and trailing SQL
+/// convenience form while keeping SQL-specific flags under the `sql` keyword.
 ///
 
 #[derive(Args, Debug)]
 #[command(trailing_var_arg = true)]
 pub(crate) struct SqlArgs {
     /// Target ICP canister name.
-    #[arg(short, long, env = "SQLQ_CANISTER", required = true)]
+    #[arg(short, long, required = true)]
     pub(crate) canister: String,
 
     /// Target icp-cli environment.
@@ -65,7 +65,7 @@ pub(crate) struct SqlArgs {
     pub(crate) environment: String,
 
     /// Interactive shell history file.
-    #[arg(long, env = "SQLQ_HISTORY_FILE", default_value = ".cache/sql_history")]
+    #[arg(long, default_value = ".cache/sql_history")]
     pub(crate) history_file: PathBuf,
 
     /// Execute one SQL statement and exit.
@@ -88,7 +88,7 @@ pub(crate) struct SqlArgs {
 #[derive(Args, Clone, Debug)]
 pub(crate) struct CanisterTarget {
     /// Target ICP canister name.
-    #[arg(short, long, env = "SQLQ_CANISTER", required = true)]
+    #[arg(short, long, required = true)]
     pub(crate) canister: String,
 
     /// Target icp-cli environment.
@@ -179,7 +179,7 @@ pub(crate) enum CanisterCommand {
     Deploy(CanisterTarget),
     /// Reinstall the canister when it already exists.
     Reinstall(CanisterTarget),
-    /// Refresh the canister by rebuilding and reinstalling it, clearing stable memory.
+    /// Refresh the selected ICP canister, clearing its stable memory.
     Refresh(CanisterTarget),
     /// Build and upgrade the canister without resetting stable memory.
     Upgrade(UpgradeArgs),

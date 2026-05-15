@@ -13,6 +13,9 @@ and explain/metrics surfaces.
 
 Current workspace version: `0.156.0`
 
+Local development commands that install tools, download binaries, or reset
+canister state are documented in [SECURITY.md](SECURITY.md).
+
 ## Why Use It?
 
 - **Typed data model:** entities, fields, indexes, relations, validation, and
@@ -26,11 +29,47 @@ Current workspace version: `0.156.0`
 
 ## Install
 
+### Development Prerequisites
+
+Install system prerequisites with your normal package manager before running the
+repo's local targets. On Ubuntu, the packages are:
+
+```bash
+build-essential cmake curl wget gzip libssl-dev pkg-config ripgrep python3 python-is-python3
+```
+
+Canister development also needs:
+
+```bash
+binaryen wabt jq
+```
+
 Use the Rust toolchain pinned by this workspace:
 
 ```bash
 rustup toolchain install 1.95.0
+rustup target add wasm32-unknown-unknown
 ```
+
+Local ICP workflows require the current Canic ICP tools with `icp` on `PATH`.
+Install those tools through the Canic ICP distribution you normally use.
+
+Optional canister-operation utilities should also be installed explicitly when
+you need them, rather than through a repo bootstrap script:
+
+- `didc` from DFINITY Candid releases.
+- `idl2json` and `yaml2candid` from DFINITY idl2json releases.
+- `quill` from DFINITY Quill releases.
+
+For local repo maintenance after prerequisites are installed:
+
+```bash
+make update-dev            # check local prerequisites and fetch locked deps
+make install-canister-deps # install wasm target plus cargo canister tools
+make install-hooks         # opt into repo git hooks
+```
+
+This repository's local Make targets do not install OS packages or run `sudo`.
 
 Pin IcyDB by tag in downstream canisters:
 
@@ -152,8 +191,9 @@ cargo run -q -p icydb-cli -- canister list --environment test
 
 `icydb sql` only queries the current canister state. It does not create or load
 demo data automatically. Use `canister refresh` for a generic destructive
-rebuild/reinstall. Any fixture loading is a canister-specific API call, not an
-IcyDB CLI command:
+rebuild/reinstall of the selected ICP canister; it clears that canister's stable
+memory, not host disk contents. Any fixture loading is a canister-specific API
+call, not an IcyDB CLI command:
 
 Read SQL is sent through the canister's standard controller-gated
 `icydb_admin_sql_query` endpoint, which returns the shell's perf footer
@@ -233,16 +273,24 @@ icp canister call <canister> icydb_metrics_reset '()' --environment demo
 ```bash
 make check      # type-check workspace
 make clippy     # lint with warnings denied
-make test       # unit + integration tests
+make test       # unit + integration tests; PocketIC tests need a binary
 make fmt        # format workspace
 make build      # release build
 ```
+
+PocketIC-backed tests use `POCKET_IC_BIN` when it points at an executable
+binary. To let the test helper download the pinned PocketIC release instead,
+set `ICYDB_ALLOW_POCKET_IC_DOWNLOAD=1`; set `POCKET_IC_SERVER_SHA256` as well
+when you want checksum verification for the provided, cached, or downloaded
+binary.
 
 Useful audit commands:
 
 ```bash
 make wasm-size-report
+make wasm-size-report SIZE_REPORT_ARGS="--profile wasm-release --canister minimal"
 make wasm-audit-report
+make wasm-audit-report AUDIT_REPORT_ARGS="--profile wasm-release --canister minimal"
 ```
 
 ## More Docs

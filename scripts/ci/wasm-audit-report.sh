@@ -2,17 +2,97 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
-PROFILE="${WASM_PROFILE:-wasm-release}"
-SQL_VARIANTS_MODE="${WASM_SQL_VARIANTS:-sql-on}"
-AUDIT_DATE="${WASM_AUDIT_DATE:-$(date +%F)}"
-AUDIT_MONTH="${AUDIT_DATE:0:7}"
-REPORT_DIR="${WASM_AUDIT_REPORT_DIR:-$ROOT/docs/audits/reports/$AUDIT_MONTH/$AUDIT_DATE}"
+profile="wasm-release"
+sql_variant_mode="sql-on"
+audit_date="$(date +%F)"
+report_dir=""
+canister_names=()
+skip_build=0
+batch_child=0
 REPORT_SCOPE="wasm-footprint"
-ARTIFACT_SCOPE_DIR="$REPORT_DIR/artifacts/$REPORT_SCOPE"
+
+usage() {
+    cat <<'EOF'
+usage: wasm-audit-report.sh [--profile debug|release|wasm-release] [--sql-variant sql-on|sql-off] [--date YYYY-MM-DD] [--report-dir path] [--canister name] [--skip-build]
+
+Defaults to wasm-release, sql-on, today's date, and the standard audit canister set.
+Repeat --canister to audit more than one specific canister.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --profile)
+            profile="${2:-}"
+            shift 2
+            ;;
+        --sql-variant)
+            sql_variant_mode="${2:-}"
+            shift 2
+            ;;
+        --date)
+            audit_date="${2:-}"
+            shift 2
+            ;;
+        --report-dir)
+            report_dir="${2:-}"
+            shift 2
+            ;;
+        --canister)
+            canister_names+=("${2:-}")
+            shift 2
+            ;;
+        --skip-build)
+            skip_build=1
+            shift
+            ;;
+        --batch-child)
+            batch_child=1
+            shift
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "[wasm-audit] unknown argument: $1" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [[ -z "$profile" ]]; then
+    echo "[wasm-audit] --profile requires a value" >&2
+    exit 1
+fi
+if [[ -z "$sql_variant_mode" ]]; then
+    echo "[wasm-audit] --sql-variant requires a value" >&2
+    exit 1
+fi
+if [[ -z "$audit_date" ]]; then
+    echo "[wasm-audit] --date requires a value" >&2
+    exit 1
+fi
+for canister_name in "${canister_names[@]}"; do
+    if [[ -z "$canister_name" ]]; then
+        echo "[wasm-audit] --canister requires a value" >&2
+        exit 1
+    fi
+done
+if [[ "${#canister_names[@]}" -eq 0 ]]; then
+    canister_names=(minimal one_simple one_complex ten_simple ten_complex)
+fi
+
+audit_month="${audit_date:0:7}"
+if [[ -z "$report_dir" ]]; then
+    report_dir="$ROOT/docs/audits/reports/$audit_month/$audit_date"
+fi
+artifact_scope_dir="$report_dir/artifacts/$REPORT_SCOPE"
 
 # Resolve the audited SQL variant once so both the batch summary path and the
 # per-canister child runs agree on the same stable output naming.
-case "$SQL_VARIANTS_MODE" in
+case "$sql_variant_mode" in
     sql-on|on|enabled)
         SQL_VARIANT="sql-on"
         SIZE_REPORT_SUFFIX=""
@@ -22,11 +102,11 @@ case "$SQL_VARIANTS_MODE" in
         SIZE_REPORT_SUFFIX=".sql-off"
         ;;
     both)
-        echo "[wasm-audit] WASM_SQL_VARIANTS=both is not supported for audit reports; run one variant per audit pass" >&2
+        echo "[wasm-audit] --sql-variant=both is not supported for audit reports; run one variant per audit pass" >&2
         exit 1
         ;;
     *)
-        echo "[wasm-audit] invalid WASM_SQL_VARIANTS value '$SQL_VARIANTS_MODE'; expected 'sql-on', 'sql-off', or 'both'" >&2
+        echo "[wasm-audit] invalid --sql-variant value '$sql_variant_mode'; expected 'sql-on' or 'sql-off'" >&2
         exit 1
         ;;
 esac
@@ -35,15 +115,20 @@ write_summary_report() {
     local canisters=("$@")
     local canister_csv=""
 
-    mkdir -p "$REPORT_DIR" "$ARTIFACT_SCOPE_DIR"
+    mkdir -p "$report_dir" "$artifact_scope_dir"
     canister_csv="$(IFS=,; echo "${canisters[*]}")"
 
-    export ROOT PROFILE SQL_VARIANT AUDIT_DATE REPORT_DIR REPORT_SCOPE ARTIFACT_SCOPE_DIR
-    export WASM_AUDIT_CANISTER_CSV="$canister_csv"
-    python3 - <<'PY'
+    export ROOT
+    export PROFILE="$profile"
+    export AUDIT_DATE="$audit_date"
+    export REPORT_DIR="$report_dir"
+    export ARTIFACT_SCOPE_DIR="$artifact_scope_dir"
+    export SQL_VARIANT REPORT_SCOPE
+    python3 - "$canister_csv" <<'PY'
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -100,7 +185,7 @@ report_scope = os.environ["REPORT_SCOPE"]
 audit_date = os.environ["AUDIT_DATE"]
 profile = os.environ["PROFILE"]
 sql_variant = os.environ["SQL_VARIANT"]
-canisters = [canister for canister in os.environ["WASM_AUDIT_CANISTER_CSV"].split(",") if canister]
+canisters = [canister for canister in sys.argv[1].split(",") if canister]
 report_path = report_dir / f"{report_scope}.md"
 
 rows = []
@@ -263,7 +348,7 @@ lines.extend(
         "",
         "## Verification Readout",
         "",
-        f"- `WASM_AUDIT_DATE={audit_date} bash scripts/ci/wasm-audit-report.sh` -> PASS",
+        f"- `bash scripts/ci/wasm-audit-report.sh --date {audit_date}` -> PASS",
         "- per-canister size-report JSON + Twiggy artifacts -> PASS",
     ]
 )
@@ -272,22 +357,19 @@ report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 PY
 }
 
-if [[ -z "${WASM_CANISTER_NAME:-}" ]]; then
-    for canister_name in minimal one_simple one_complex ten_simple ten_complex; do
-        WASM_CANISTER_NAME="$canister_name" \
-            WASM_AUDIT_BATCH_PARENT=1 \
-            WASM_PROFILE="$PROFILE" \
-            WASM_SQL_VARIANTS="$SQL_VARIANTS_MODE" \
-            WASM_AUDIT_DATE="$AUDIT_DATE" \
-            WASM_AUDIT_REPORT_DIR="$REPORT_DIR" \
-            WASM_AUDIT_SKIP_BUILD="${WASM_AUDIT_SKIP_BUILD:-0}" \
-            bash "$0"
+if [[ "${#canister_names[@]}" -gt 1 ]]; then
+    child_args=(--profile "$profile" --sql-variant "$sql_variant_mode" --date "$audit_date" --report-dir "$report_dir" --batch-child)
+    if [[ "$skip_build" == "1" ]]; then
+        child_args+=(--skip-build)
+    fi
+    for canister_name in "${canister_names[@]}"; do
+        bash "$0" "${child_args[@]}" --canister "$canister_name"
     done
-    write_summary_report minimal one_simple one_complex ten_simple ten_complex
+    write_summary_report "${canister_names[@]}"
     exit 0
 fi
 
-CANISTER_NAME="${WASM_CANISTER_NAME}"
+CANISTER_NAME="${canister_names[0]}"
 
 if ! command -v twiggy >/dev/null 2>&1; then
     echo "[wasm-audit] missing required tool: twiggy" >&2
@@ -295,18 +377,21 @@ if ! command -v twiggy >/dev/null 2>&1; then
     exit 1
 fi
 
-mkdir -p "$ARTIFACT_SCOPE_DIR"
+mkdir -p "$artifact_scope_dir"
 
-if [[ "${WASM_AUDIT_SKIP_BUILD:-0}" != "1" ]]; then
-    bash "$ROOT/scripts/ci/wasm-size-report.sh"
+if [[ "$skip_build" != "1" ]]; then
+    bash "$ROOT/scripts/ci/wasm-size-report.sh" \
+        --profile "$profile" \
+        --sql-variants "$SQL_VARIANT" \
+        --canister "$CANISTER_NAME"
 else
-    echo "[wasm-audit] skipping wasm build and size capture (WASM_AUDIT_SKIP_BUILD=1)"
+    echo "[wasm-audit] skipping wasm build and size capture (--skip-build)"
 fi
 
 ARTIFACT_DIR="$ROOT/artifacts/wasm-size"
-SIZE_REPORT_JSON="$ARTIFACT_DIR/${CANISTER_NAME}.${PROFILE}${SIZE_REPORT_SUFFIX}.report.json"
-SIZE_SUMMARY_MD="$ARTIFACT_DIR/${CANISTER_NAME}.${PROFILE}${SIZE_REPORT_SUFFIX}.summary.md"
-SHRUNK_WASM="$ARTIFACT_DIR/${CANISTER_NAME}.${PROFILE}${SIZE_REPORT_SUFFIX}.icp-shrunk.wasm"
+SIZE_REPORT_JSON="$ARTIFACT_DIR/${CANISTER_NAME}.${profile}${SIZE_REPORT_SUFFIX}.report.json"
+SIZE_SUMMARY_MD="$ARTIFACT_DIR/${CANISTER_NAME}.${profile}${SIZE_REPORT_SUFFIX}.summary.md"
+SHRUNK_WASM="$ARTIFACT_DIR/${CANISTER_NAME}.${profile}${SIZE_REPORT_SUFFIX}.icp-shrunk.wasm"
 
 for required in "$SIZE_REPORT_JSON" "$SIZE_SUMMARY_MD" "$SHRUNK_WASM"; do
     if [[ ! -f "$required" ]]; then
@@ -316,17 +401,17 @@ for required in "$SIZE_REPORT_JSON" "$SIZE_SUMMARY_MD" "$SHRUNK_WASM"; do
 done
 
 REPORT_STEM="$REPORT_SCOPE"
-REPORT_PATH="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.md"
-SIZE_REPORT_COPY="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.size-report.json"
-SIZE_SUMMARY_COPY="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.size-summary.md"
-TWIGGY_TOP_TXT="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.twiggy-top.txt"
-TWIGGY_TOP_CSV="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.twiggy-top.csv"
-TWIGGY_DOMINATORS_TXT="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.twiggy-dominators.txt"
-TWIGGY_RETAINED_CSV="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.twiggy-retained.csv"
-TWIGGY_MONOS_TXT="$ARTIFACT_SCOPE_DIR/${REPORT_STEM}.${CANISTER_NAME}.${PROFILE}.${SQL_VARIANT}.twiggy-monos.txt"
+REPORT_PATH="$artifact_scope_dir/${REPORT_STEM}.${CANISTER_NAME}.${profile}.${SQL_VARIANT}.md"
+SIZE_REPORT_COPY="$artifact_scope_dir/${REPORT_STEM}.${CANISTER_NAME}.${profile}.${SQL_VARIANT}.size-report.json"
+SIZE_SUMMARY_COPY="$artifact_scope_dir/${REPORT_STEM}.${CANISTER_NAME}.${profile}.${SQL_VARIANT}.size-summary.md"
+TWIGGY_TOP_TXT="$artifact_scope_dir/${REPORT_STEM}.${CANISTER_NAME}.${profile}.${SQL_VARIANT}.twiggy-top.txt"
+TWIGGY_TOP_CSV="$artifact_scope_dir/${REPORT_STEM}.${CANISTER_NAME}.${profile}.${SQL_VARIANT}.twiggy-top.csv"
+TWIGGY_DOMINATORS_TXT="$artifact_scope_dir/${REPORT_STEM}.${CANISTER_NAME}.${profile}.${SQL_VARIANT}.twiggy-dominators.txt"
+TWIGGY_RETAINED_CSV="$artifact_scope_dir/${REPORT_STEM}.${CANISTER_NAME}.${profile}.${SQL_VARIANT}.twiggy-retained.csv"
+TWIGGY_MONOS_TXT="$artifact_scope_dir/${REPORT_STEM}.${CANISTER_NAME}.${profile}.${SQL_VARIANT}.twiggy-monos.txt"
 
 BASELINE_PATH="$(
-        ROOT="$ROOT" REPORT_DIR="$REPORT_DIR" python3 - <<'PY'
+        ROOT="$ROOT" REPORT_DIR="$report_dir" python3 - <<'PY'
 import os
 from pathlib import Path
 
@@ -355,7 +440,9 @@ twiggy dominators -r 160 "$SHRUNK_WASM" > "$TWIGGY_DOMINATORS_TXT"
 twiggy top --retained -n 40 -f csv "$SHRUNK_WASM" > "$TWIGGY_RETAINED_CSV"
 twiggy monos "$SHRUNK_WASM" > "$TWIGGY_MONOS_TXT"
 
-export ROOT CANISTER_NAME PROFILE SQL_VARIANT AUDIT_DATE REPORT_PATH REPORT_STEM REPORT_SCOPE BASELINE_PATH
+export ROOT CANISTER_NAME SQL_VARIANT REPORT_PATH REPORT_STEM REPORT_SCOPE BASELINE_PATH
+export PROFILE="$profile"
+export AUDIT_DATE="$audit_date"
 export SIZE_REPORT_COPY TWIGGY_TOP_CSV TWIGGY_RETAINED_CSV TWIGGY_MONOS_TXT
 export SIZE_SUMMARY_COPY TWIGGY_TOP_TXT TWIGGY_DOMINATORS_TXT
 python3 - <<'PY'
@@ -702,6 +789,6 @@ PY
 
 echo "[wasm-audit] Wrote report: $REPORT_PATH"
 
-if [[ "${WASM_AUDIT_BATCH_PARENT:-0}" != "1" ]]; then
+if [[ "$batch_child" != "1" ]]; then
     write_summary_report "$CANISTER_NAME"
 fi

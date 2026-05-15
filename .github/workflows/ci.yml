@@ -38,6 +38,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ripgrep
       - name: Resolve PocketIC server binary
+        env:
+          ICYDB_ALLOW_POCKET_IC_DOWNLOAD: "1"
         run: |
           echo "POCKET_IC_BIN=$(bash scripts/ci/ensure-pocket-ic-bin.sh)" >> "$GITHUB_ENV"
       - run: bash scripts/ci/validate-workflow-packages.sh .github/workflows/ci.yml
@@ -61,8 +63,6 @@ jobs:
     needs: check
     env:
       CARGO_TERM_COLOR: always
-      WASM_PROFILE: wasm-release
-      WASM_CANISTER_NAME: minimal
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@v1
@@ -78,7 +78,7 @@ jobs:
       - name: Install wasm reporting tools
         run: cargo install candid-extractor ic-wasm --locked
       - name: Report minimal wasm size
-        run: bash scripts/ci/wasm-size-report.sh
+        run: bash scripts/ci/wasm-size-report.sh --profile wasm-release --canister minimal
       - uses: actions/upload-artifact@v4
         with:
           name: wasm-size-report
