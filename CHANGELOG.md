@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.155.x] 🧱 - 2026-05-14 - DDL Foundation And Audit Baselines
 
+- `0.155.6` closes the next post-DDL visibility gap by making DDL-published accepted indexes visible through `DESCRIBE`, `EXPLAIN EXECUTION`, and indexed reads, moving accepted-schema `DESCRIBE` onto persisted index metadata, allowing planner semantic validation to accept secondary access contracts present in `SchemaInfo` even without a generated `IndexModel`, pinning schema-scoped query-plan cache plus continuation cursor behavior across DDL publication, and adding a source-boundary guard for the SQL DDL frontend.
+
+- `0.155.5` hardens the generated admin SQL and DDL canister boundary by routing no-entity introspection through an owned entity when one exists, adding live PocketIC coverage for the generated `icydb_admin_sql_query` and `ddl` endpoints, keeping rejected DDL candidates fail-closed and invisible to `SHOW INDEXES`, and threading DDL rebuild metrics such as `rows_scanned` and `index_keys_written` into successful SQL results and shell rendering.
+
+- `0.155.4` moves ordinary CLI SQL reads onto the standard controller-gated `icydb_admin_sql_query` surface, removes the demo/test canisters' duplicate SQL query/update exports, keeps supported DDL on the generated `ddl` update endpoint, adds macro-owned controller-gated fixture reset/load-default lifecycle hooks, gives `icydb canister refresh` the generic destructive rebuild/reinstall workflow, and updates the local SQL demo docs and helper script around that admin SQL path.
+
 - `0.155.3` routes the supported SQL `CREATE INDEX` execution surface through the schema-owned field-path rebuild runner and accepted-snapshot publication boundary, returns a structured DDL result with `status=published`, teaches the demo/test SQL canisters and `icydb sql` shell to execute supported DDL through an ICP update call, exposes DDL-created accepted indexes through SQL `SHOW INDEXES`, and keeps later accepted-schema loads compatible with generated metadata plus supported DDL-created field-path indexes.
 
 - `0.155.2` adds session-level SQL DDL preparation and fail-closed execution surfaces, so `prepare_sql_ddl` returns the typed accepted-catalog report while `execute_sql_ddl` prepares the command and rejects execution with target-specific diagnostics before physical work or schema publication.

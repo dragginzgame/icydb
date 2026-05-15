@@ -9,9 +9,9 @@ use crate::{
             RelationDescriptor, RelationDescriptorCardinality, relation_descriptors_for_model_iter,
         },
         schema::{
-            AcceptedSchemaSnapshot, PersistedFieldKind, PersistedNestedLeafSnapshot,
-            PersistedRelationStrength, SchemaFieldDefault, SchemaFieldSlot,
-            field_type_from_persisted_kind,
+            AcceptedSchemaSnapshot, PersistedFieldKind, PersistedIndexKeyItemSnapshot,
+            PersistedIndexKeySnapshot, PersistedNestedLeafSnapshot, PersistedRelationStrength,
+            SchemaFieldDefault, SchemaFieldSlot, field_type_from_persisted_kind,
         },
     },
     model::{
@@ -313,6 +313,7 @@ pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaD
         model.entity_name,
         model.primary_key.name,
         fields,
+        describe_entity_indexes_from_model(model),
         model,
     )
 }
@@ -336,24 +337,37 @@ pub(in crate::db) fn describe_entity_model_with_persisted_schema(
         schema.entity_name(),
         primary_key,
         fields,
+        describe_entity_indexes_with_persisted_schema(schema),
         model,
     )
 }
 
 // Assemble the common DESCRIBE payload once field rows have already been built.
-// This lets accepted-schema metadata own the entity header while index and
-// relation description remain generated-model owned for this phase.
+// This lets accepted-schema callers supply persisted field and index metadata
+// while relation descriptions remain generated-model owned for this phase.
 fn describe_entity_model_with_parts(
     entity_path: &str,
     entity_name: &str,
     primary_key: &str,
     fields: Vec<EntityFieldDescription>,
+    indexes: Vec<EntityIndexDescription>,
     model: &EntityModel,
 ) -> EntitySchemaDescription {
     let relations = relation_descriptors_for_model_iter(model)
         .map(relation_description_from_descriptor)
         .collect();
 
+    EntitySchemaDescription::new(
+        entity_path.to_string(),
+        entity_name.to_string(),
+        primary_key.to_string(),
+        fields,
+        indexes,
+        relations,
+    )
+}
+
+fn describe_entity_indexes_from_model(model: &EntityModel) -> Vec<EntityIndexDescription> {
     let mut indexes = Vec::with_capacity(model.indexes.len());
     for index in model.indexes {
         indexes.push(EntityIndexDescription::new(
@@ -367,14 +381,42 @@ fn describe_entity_model_with_parts(
         ));
     }
 
-    EntitySchemaDescription::new(
-        entity_path.to_string(),
-        entity_name.to_string(),
-        primary_key.to_string(),
-        fields,
-        indexes,
-        relations,
-    )
+    indexes
+}
+
+fn describe_entity_indexes_with_persisted_schema(
+    schema: &AcceptedSchemaSnapshot,
+) -> Vec<EntityIndexDescription> {
+    schema
+        .persisted_snapshot()
+        .indexes()
+        .iter()
+        .map(|index| {
+            EntityIndexDescription::new(
+                index.name().to_string(),
+                index.unique(),
+                describe_persisted_index_fields(index.key()),
+            )
+        })
+        .collect()
+}
+
+fn describe_persisted_index_fields(key: &PersistedIndexKeySnapshot) -> Vec<String> {
+    match key {
+        PersistedIndexKeySnapshot::FieldPath(paths) => paths
+            .iter()
+            .map(|field_path| field_path.path().join("."))
+            .collect(),
+        PersistedIndexKeySnapshot::Items(items) => items
+            .iter()
+            .map(|item| match item {
+                PersistedIndexKeyItemSnapshot::FieldPath(field_path) => field_path.path().join("."),
+                PersistedIndexKeyItemSnapshot::Expression(expression) => {
+                    expression.canonical_text().to_string()
+                }
+            })
+            .collect(),
+    }
 }
 
 // Build the stable field-description subset once from one runtime model so

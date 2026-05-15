@@ -109,6 +109,50 @@ fn fluent_terminal_surfaces_do_not_reintroduce_shared_strategy_enums() {
     );
 }
 
+#[test]
+fn sql_ddl_frontend_does_not_take_schema_store_or_generated_index_authority() {
+    let manifest_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let checked_files = [
+        manifest_root.join("src/db/sql/ddl.rs"),
+        manifest_root.join("src/db/session/sql/mod.rs"),
+    ];
+    let forbidden = [
+        "SchemaStore",
+        "with_schema_mut(",
+        "latest_persisted_snapshot(",
+        "publish_accepted_snapshot(",
+        "compiled_schema_proposal_for_model",
+        ".indexes()",
+        "model.indexes()",
+        "MODEL.indexes",
+    ];
+    let mut violations = Vec::new();
+
+    // SQL DDL frontend code may bind accepted catalog facts and call the
+    // schema-owned mutation runner, but schema-store publication and generated
+    // index metadata authority must stay outside this frontend boundary.
+    for source_path in checked_files {
+        let relative = relative_rust_source_path(manifest_root, source_path.as_path());
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+        let symbols: Vec<&str> = forbidden
+            .iter()
+            .copied()
+            .filter(|symbol| source.contains(symbol))
+            .collect();
+
+        if !symbols.is_empty() {
+            violations.push(format!("{} ({})", relative, symbols.join(", ")));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "SQL DDL frontend code must route publication through schema-owned mutation runners and must not source index authority from generated metadata. Violations: {}",
+        violations.join("; "),
+    );
+}
+
 // Walk one source tree and collect Rust files deterministically for the
 // production-path guardrail above.
 fn collect_rust_sources(root: &Path, out: &mut Vec<PathBuf>) {

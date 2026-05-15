@@ -4,7 +4,10 @@ use candid::CandidType;
 use canic_testkit::pic::{StandaloneCanisterFixture, install_prebuilt_canister};
 use icydb::{
     Error, ErrorKind, ErrorOrigin, RuntimeErrorKind,
-    db::sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput},
+    db::{
+        EntitySchemaDescription,
+        sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput},
+    },
 };
 use icydb_testing_integration::build_canister;
 use serde::Deserialize;
@@ -98,6 +101,13 @@ fn expect_explain(result: SqlQueryResult) -> String {
     match result {
         SqlQueryResult::Explain { explain, .. } => explain,
         other => panic!("expected explain payload, got {other:?}"),
+    }
+}
+
+fn expect_describe(result: SqlQueryResult) -> EntitySchemaDescription {
+    match result {
+        SqlQueryResult::Describe(description) => description,
+        other => panic!("expected DESCRIBE payload, got {other:?}"),
     }
 }
 
@@ -199,6 +209,93 @@ fn sql_canister_ddl_endpoint_publishes_supported_field_path_index() {
             .iter()
             .any(|index| index == "INDEX sql_test_user_rank_idx (rank) [state=ready]"),
         "SHOW INDEXES should expose the DDL-published accepted index: {indexes:?}",
+    );
+}
+
+#[test]
+fn sql_canister_ddl_publication_updates_describe_explain_and_reads() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let before_describe = expect_describe(
+        query_sql(&fixture, "DESCRIBE SqlTestUser")
+            .expect("DESCRIBE should read accepted schema before DDL"),
+    );
+    assert!(
+        before_describe
+            .indexes()
+            .iter()
+            .all(|index| index.name() != "sql_test_user_rank_idx"),
+        "pre-DDL DESCRIBE must not expose the future DDL index",
+    );
+
+    let before_explain = expect_explain(
+        query_sql(
+            &fixture,
+            "EXPLAIN EXECUTION \
+             SELECT name FROM SqlTestUser \
+             WHERE rank >= 25 \
+             ORDER BY rank ASC \
+             LIMIT 2",
+        )
+        .expect("EXPLAIN should succeed before DDL"),
+    );
+    assert!(
+        !before_explain.contains("sql_test_user_rank_idx"),
+        "pre-DDL EXPLAIN must not select the future DDL index: {before_explain}",
+    );
+
+    ddl_sql(
+        &fixture,
+        "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
+    )
+    .expect("supported CREATE INDEX DDL should publish before post-DDL visibility checks");
+
+    let after_describe = expect_describe(
+        query_sql(&fixture, "DESCRIBE SqlTestUser")
+            .expect("DESCRIBE should read accepted schema after DDL"),
+    );
+    assert!(
+        after_describe.indexes().iter().any(|index| {
+            index.name() == "sql_test_user_rank_idx"
+                && index.fields().iter().map(String::as_str).eq(["rank"])
+                && !index.unique()
+        }),
+        "post-DDL DESCRIBE should expose the published accepted index: {after_describe:?}",
+    );
+
+    let after_explain = expect_explain(
+        query_sql(
+            &fixture,
+            "EXPLAIN EXECUTION \
+             SELECT name FROM SqlTestUser \
+             WHERE rank >= 25 \
+             ORDER BY rank ASC \
+             LIMIT 2",
+        )
+        .expect("EXPLAIN should succeed after DDL"),
+    );
+    assert!(
+        after_explain.contains("IndexRange(sql_test_user_rank_idx)"),
+        "post-DDL EXPLAIN should select the DDL-published accepted index: {after_explain}",
+    );
+
+    let rows = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name FROM SqlTestUser WHERE rank >= 25 ORDER BY rank ASC LIMIT 2",
+        )
+        .expect("indexed read should succeed after DDL"),
+    );
+    assert_eq!(
+        rows,
+        SqlQueryRowsOutput {
+            entity: "SqlTestUser".to_string(),
+            columns: vec!["name".to_string()],
+            rows: vec![vec!["bob".to_string()], vec!["alice".to_string()]],
+            row_count: 2,
+        },
+        "post-DDL indexed read should observe the accepted-after index without changing row semantics",
     );
 }
 

@@ -117,11 +117,7 @@ fn validate_index_prefix(
     index: SemanticIndexAccessContract,
     values: &[Value],
 ) -> Result<(), AccessPlanError> {
-    if !model
-        .indexes
-        .iter()
-        .any(|candidate| candidate.name() == index.name())
-    {
+    if !model_or_schema_has_index_contract(schema, model, index.name()) {
         return Err(AccessPlanError::IndexNotFound {
             index: index.name().to_string(),
         });
@@ -169,11 +165,7 @@ fn validate_index_multi_lookup(
     index: SemanticIndexAccessContract,
     values: &[Value],
 ) -> Result<(), AccessPlanError> {
-    if !model
-        .indexes
-        .iter()
-        .any(|candidate| candidate.name() == index.name())
-    {
+    if !model_or_schema_has_index_contract(schema, model, index.name()) {
         return Err(AccessPlanError::IndexNotFound {
             index: index.name().to_string(),
         });
@@ -218,11 +210,7 @@ fn validate_index_range(
     let lower = spec.lower();
     let upper = spec.upper();
 
-    if !model
-        .indexes
-        .iter()
-        .any(|candidate| candidate.name() == index.name())
-    {
+    if !model_or_schema_has_index_contract(schema, model, index.name()) {
         return Err(AccessPlanError::IndexNotFound {
             index: index.name().to_string(),
         });
@@ -291,6 +279,25 @@ fn validate_index_range(
     }
 
     Ok(())
+}
+
+fn model_or_schema_has_index_contract(
+    schema: &SchemaInfo,
+    model: &EntityModel,
+    index_name: &str,
+) -> bool {
+    model
+        .indexes
+        .iter()
+        .any(|candidate| candidate.name() == index_name)
+        || schema
+            .field_path_indexes()
+            .iter()
+            .any(|candidate| candidate.name() == index_name)
+        || schema
+            .expression_indexes()
+            .iter()
+            .any(|candidate| candidate.name() == index_name)
 }
 
 fn validate_index_range_bound_value(

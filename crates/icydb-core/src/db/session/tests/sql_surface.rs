@@ -2320,6 +2320,113 @@ fn execute_sql_ddl_publishes_supported_field_path_index() {
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
 }
 
+#[test]
+fn execute_sql_ddl_publication_invalidates_shared_query_plan_cache_key() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
+
+    let sql = "SELECT * FROM SessionSqlEntity \
+               WHERE age >= 21 \
+               ORDER BY age ASC, id ASC \
+               LIMIT 2";
+    let query =
+        lower_select_query_for_tests::<SessionSqlEntity>(&session, sql).expect("SQL should lower");
+
+    let _ = session
+        .execute_query_result(&query)
+        .expect("pre-DDL query should execute");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "pre-DDL execution should populate one schema-scoped query plan",
+    );
+    let _ = session
+        .execute_query_result(&query)
+        .expect("repeated pre-DDL query should execute");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "repeated pre-DDL execution should reuse the schema-scoped query plan",
+    );
+
+    let _ = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
+        )
+        .expect("DDL execution should publish the supported field-path index");
+
+    let _ = session
+        .execute_query_result(&query)
+        .expect("post-DDL query should execute");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        2,
+        "post-DDL execution should keep a distinct schema-scoped query plan",
+    );
+    let explain = session
+        .explain_query_execution_with_visible_indexes(&query)
+        .expect("post-DDL explain should build");
+    let index_range =
+        explain_execution_find_first_node(&explain, ExplainExecutionNodeType::IndexRangeScan)
+            .expect("post-DDL query should choose the DDL-published index range");
+    assert!(
+        matches!(
+            index_range.access_strategy(),
+            Some(ExplainAccessPath::IndexRange { name, .. }) if name == "session_sql_age_idx"
+        ),
+        "post-DDL explain should name the DDL-published index range",
+    );
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
+fn execute_sql_ddl_publication_rejects_pre_ddl_continuation_cursor() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[("ada", 21), ("bob", 34), ("cyd", 55), ("dee", 89)],
+    );
+
+    let sql = "SELECT * FROM SessionSqlEntity \
+               WHERE age >= 21 \
+               ORDER BY age ASC, id ASC \
+               LIMIT 2";
+    let query =
+        lower_select_query_for_tests::<SessionSqlEntity>(&session, sql).expect("SQL should lower");
+    let first_page = session
+        .execute_load_query_paged_with_trace(&query, None)
+        .expect("pre-DDL first page should execute")
+        .into_execution();
+    let cursor = crate::db::encode_cursor(
+        first_page
+            .continuation_cursor()
+            .expect("pre-DDL first page should emit a continuation cursor"),
+    );
+
+    let _ = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
+        )
+        .expect("DDL execution should publish the supported field-path index");
+
+    let err = session
+        .execute_load_query_paged_with_trace(&query, Some(cursor.as_str()))
+        .expect_err("post-DDL execution should reject a pre-DDL cursor");
+    assert_query_error_is_cursor_plan(err, |inner| {
+        matches!(
+            inner,
+            CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+        )
+    });
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "artifact-family matrix intentionally keeps one representative read-lane table together"
