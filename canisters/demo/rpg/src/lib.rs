@@ -4,107 +4,16 @@
 
 extern crate canic_cdk as ic_cdk;
 
-use candid::CandidType;
-#[cfg(feature = "sql")]
-use canic_cdk::query;
-use canic_cdk::update;
-#[cfg(all(feature = "sql", not(feature = "diagnostics")))]
-use icydb::db::sql::SqlQueryResult;
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-use icydb::db::{SqlQueryExecutionAttribution, sql::SqlQueryResult};
-use icydb_testing_demo_rpg_fixtures::{fixtures, schema::Character};
+use icydb_testing_demo_rpg_fixtures::fixtures;
 
 icydb::start!();
-
-// SqlQueryPerfResult
-//
-// Lightweight dev-shell envelope that preserves the normal SQL result payload
-// while attaching the current SQL compile/planner/store/executor/decode split.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
-struct SqlQueryPerfResult {
-    result: SqlQueryResult,
-    instructions: u64,
-    planner_instructions: u64,
-    store_instructions: u64,
-    executor_instructions: u64,
-    pure_covering_decode_instructions: u64,
-    pure_covering_row_assembly_instructions: u64,
-    decode_instructions: u64,
-    compiler_instructions: u64,
-}
-
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-impl SqlQueryPerfResult {
-    fn from_attribution(result: SqlQueryResult, attribution: SqlQueryExecutionAttribution) -> Self {
-        Self {
-            result,
-            instructions: attribution.total_local_instructions,
-            planner_instructions: attribution.execution.planner_local_instructions,
-            store_instructions: attribution.execution.store_local_instructions,
-            executor_instructions: attribution.execution.executor_local_instructions,
-            pure_covering_decode_instructions: attribution
-                .pure_covering
-                .map_or(0, |pure_covering| pure_covering.decode_local_instructions),
-            pure_covering_row_assembly_instructions: attribution
-                .pure_covering
-                .map_or(0, |pure_covering| {
-                    pure_covering.row_assembly_local_instructions
-                }),
-            decode_instructions: attribution.response_decode_local_instructions,
-            compiler_instructions: attribution.compile_local_instructions,
-        }
-    }
-}
-
-/// Clear all fixture rows from this canister.
-#[update]
-fn fixtures_reset() -> Result<(), icydb::Error> {
-    db().delete::<Character>().execute()?;
-
-    Ok(())
-}
+icydb::admin_sql_query!();
 
 /// Load one deterministic baseline fixture dataset.
-#[update]
-fn fixtures_load_default() -> Result<(), icydb::Error> {
-    fixtures_reset()?;
-
+fn icydb_admin_sql_load_default() -> Result<(), icydb::Error> {
     db().insert_many_atomic(fixtures::characters())?;
 
     Ok(())
-}
-
-/// Execute one Character-only reduced SQL query against the demo canister.
-#[cfg(feature = "sql")]
-#[query]
-fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db().execute_sql_query::<Character>(sql.as_str())
-}
-
-/// Execute one Character-only reduced SQL query and return one dev-shell
-/// compile/planner/store/executor/decode attribution split alongside the
-/// normal SQL result payload.
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-#[query]
-fn query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let (result, attribution) =
-        db().execute_sql_query_with_attribution::<Character>(sql.as_str())?;
-
-    Ok(SqlQueryPerfResult::from_attribution(result, attribution))
-}
-
-/// Execute one Character-only reduced SQL mutation against the demo canister.
-#[cfg(feature = "sql")]
-#[update]
-fn update(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db().execute_sql_update::<Character>(sql.as_str())
-}
-
-/// Execute one supported Character-only SQL DDL statement.
-#[cfg(feature = "sql")]
-#[update]
-fn ddl(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db().execute_sql_ddl::<Character>(sql.as_str())
 }
 
 canic_cdk::export_candid!();

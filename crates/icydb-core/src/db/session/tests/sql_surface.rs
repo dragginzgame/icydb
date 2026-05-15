@@ -2081,7 +2081,7 @@ fn sql_ddl_create_index_binds_against_accepted_catalog() {
     let statement = parse_sql("CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)")
         .expect("CREATE INDEX should parse before binding");
 
-    let bound = bind_sql_ddl_statement(&statement, &schema)
+    let bound = bind_sql_ddl_statement(&statement, &schema, SessionSqlStore::PATH)
         .expect("CREATE INDEX should bind against accepted schema metadata");
     let BoundSqlDdlStatement::CreateIndex(create) = bound.statement();
 
@@ -2091,6 +2091,7 @@ fn sql_ddl_create_index_binds_against_accepted_catalog() {
     assert!(create.field_path().segments().is_empty());
     assert_eq!(create.field_path().accepted_path(), ["age".to_string()]);
     assert_eq!(create.candidate_index().name(), "session_sql_age_idx");
+    assert_eq!(create.candidate_index().store(), SessionSqlStore::PATH);
     assert!(!create.candidate_index().unique());
 }
 
@@ -2100,7 +2101,7 @@ fn sql_ddl_create_index_binding_rejects_unknown_catalog_targets() {
     let entity_mismatch =
         parse_sql("CREATE INDEX wrong_entity_idx ON IndexedSessionSqlEntity (age)")
             .expect("CREATE INDEX should parse before entity binding");
-    let err = bind_sql_ddl_statement(&entity_mismatch, &schema)
+    let err = bind_sql_ddl_statement(&entity_mismatch, &schema, SessionSqlStore::PATH)
         .expect_err("DDL binding should reject non-owned entity targets");
     assert!(matches!(
         err,
@@ -2113,7 +2114,7 @@ fn sql_ddl_create_index_binding_rejects_unknown_catalog_targets() {
 
     let unknown_field = parse_sql("CREATE INDEX missing_field_idx ON SessionSqlEntity (missing)")
         .expect("CREATE INDEX should parse before field binding");
-    let err = bind_sql_ddl_statement(&unknown_field, &schema)
+    let err = bind_sql_ddl_statement(&unknown_field, &schema, SessionSqlStore::PATH)
         .expect_err("DDL binding should reject unknown accepted field paths");
     assert!(matches!(
         err,
@@ -2129,7 +2130,7 @@ fn sql_ddl_create_index_binding_rejects_duplicate_accepted_indexes() {
     let schema = accepted_schema_info_for_entity::<IndexedSessionSqlEntity>();
     let duplicate_name = parse_sql("CREATE INDEX name ON IndexedSessionSqlEntity (age)")
         .expect("CREATE INDEX should parse before duplicate-name binding");
-    let err = bind_sql_ddl_statement(&duplicate_name, &schema)
+    let err = bind_sql_ddl_statement(&duplicate_name, &schema, IndexedSessionSqlStore::PATH)
         .expect_err("DDL binding should reject accepted duplicate index names");
     assert!(matches!(
         err,
@@ -2138,7 +2139,7 @@ fn sql_ddl_create_index_binding_rejects_duplicate_accepted_indexes() {
 
     let duplicate_key = parse_sql("CREATE INDEX another_name ON IndexedSessionSqlEntity (name)")
         .expect("CREATE INDEX should parse before duplicate-key binding");
-    let err = bind_sql_ddl_statement(&duplicate_key, &schema)
+    let err = bind_sql_ddl_statement(&duplicate_key, &schema, IndexedSessionSqlStore::PATH)
         .expect_err("DDL binding should reject accepted duplicate field-path indexes");
     assert!(matches!(
         err,
@@ -2154,7 +2155,7 @@ fn sql_ddl_create_index_lowers_to_supported_schema_mutation_admission() {
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
     let statement = parse_sql("CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)")
         .expect("CREATE INDEX should parse before binding");
-    let bound = bind_sql_ddl_statement(&statement, &schema)
+    let bound = bind_sql_ddl_statement(&statement, &schema, SessionSqlStore::PATH)
         .expect("CREATE INDEX should bind against accepted schema metadata");
 
     let admission = lower_bound_sql_ddl_to_schema_mutation_admission(&bound)
@@ -2173,7 +2174,7 @@ fn sql_ddl_create_index_derives_accepted_after_snapshot_without_execution() {
         SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
     let statement = parse_sql("CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)")
         .expect("CREATE INDEX should parse before binding");
-    let bound = bind_sql_ddl_statement(&statement, &schema)
+    let bound = bind_sql_ddl_statement(&statement, &schema, SessionSqlStore::PATH)
         .expect("CREATE INDEX should bind against accepted schema metadata");
 
     let derivation = derive_bound_sql_ddl_accepted_after(&accepted_before, &bound)
@@ -2192,6 +2193,10 @@ fn sql_ddl_create_index_derives_accepted_after_snapshot_without_execution() {
         accepted_after.field_path_indexes()[0].name(),
         "session_sql_age_idx"
     );
+    assert_eq!(
+        accepted_after.field_path_indexes()[0].store(),
+        SessionSqlStore::PATH
+    );
 }
 
 #[test]
@@ -2202,8 +2207,9 @@ fn sql_ddl_create_index_preparation_reports_non_executed_command() {
     let statement = parse_sql("CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)")
         .expect("CREATE INDEX should parse before preparation");
 
-    let prepared = prepare_sql_ddl_statement(&statement, &accepted_before, &schema)
-        .expect("CREATE INDEX should prepare through all pre-execution DDL checks");
+    let prepared =
+        prepare_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("CREATE INDEX should prepare through all pre-execution DDL checks");
     let BoundSqlDdlStatement::CreateIndex(create) = prepared.bound().statement();
 
     assert_eq!(create.index_name(), "session_sql_age_idx");
@@ -2212,6 +2218,7 @@ fn sql_ddl_create_index_preparation_reports_non_executed_command() {
         SqlDdlMutationKind::AddNonUniqueFieldPathIndex,
     );
     assert_eq!(prepared.report().target_index(), "session_sql_age_idx");
+    assert_eq!(prepared.report().target_store(), SessionSqlStore::PATH);
     assert_eq!(prepared.report().field_path(), ["age".to_string()]);
     assert_eq!(
         prepared.report().execution_status(),
@@ -2284,6 +2291,7 @@ fn execute_sql_ddl_publishes_supported_field_path_index() {
             .field_path_indexes()
             .iter()
             .any(|index| index.name() == "session_sql_age_idx"
+                && index.store() == SessionSqlStore::PATH
                 && index.fields().len() == 1
                 && index.fields()[0].path() == ["age".to_string()]
                 && !index.unique()),

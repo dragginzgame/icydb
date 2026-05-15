@@ -37,7 +37,7 @@ use crate::{
         },
         sql::{
             ddl::{PreparedSqlDdlCommand, prepare_sql_ddl_statement},
-            parser::{SqlStatement, parse_sql_with_attribution},
+            parser::{SqlDdlStatement, SqlExplainTarget, SqlStatement, parse_sql_with_attribution},
         },
     },
     traits::{CanisterKind, EntityValue, Path},
@@ -74,6 +74,38 @@ pub use crate::db::session::sql::projection::{
 #[cfg(test)]
 pub(in crate::db) fn parse_sql_statement(sql: &str) -> Result<SqlStatement, QueryError> {
     parse_sql(sql).map_err(QueryError::from_sql_parse_error)
+}
+
+/// Return the entity identifier targeted by one reduced SQL statement.
+///
+/// `SHOW ENTITIES` intentionally has no entity target; callers that dispatch
+/// across canister-owned entities may route it through any accepted entity.
+#[doc(hidden)]
+pub fn sql_statement_entity_name(sql: &str) -> Result<Option<String>, QueryError> {
+    let (statement, _) =
+        parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)?;
+
+    Ok(sql_statement_entity_name_from_statement(&statement).map(str::to_string))
+}
+
+const fn sql_statement_entity_name_from_statement(statement: &SqlStatement) -> Option<&str> {
+    match statement {
+        SqlStatement::Select(statement) => Some(statement.entity.as_str()),
+        SqlStatement::Delete(statement) => Some(statement.entity.as_str()),
+        SqlStatement::Insert(statement) => Some(statement.entity.as_str()),
+        SqlStatement::Update(statement) => Some(statement.entity.as_str()),
+        SqlStatement::Ddl(SqlDdlStatement::CreateIndex(statement)) => {
+            Some(statement.entity.as_str())
+        }
+        SqlStatement::Explain(statement) => match &statement.statement {
+            SqlExplainTarget::Select(statement) => Some(statement.entity.as_str()),
+            SqlExplainTarget::Delete(statement) => Some(statement.entity.as_str()),
+        },
+        SqlStatement::Describe(statement) => Some(statement.entity.as_str()),
+        SqlStatement::ShowIndexes(statement) => Some(statement.entity.as_str()),
+        SqlStatement::ShowColumns(statement) => Some(statement.entity.as_str()),
+        SqlStatement::ShowEntities(_) => None,
+    }
 }
 
 // Measure one SQL compile stage and immediately surface the stage result. The
@@ -401,8 +433,9 @@ impl<C: CanisterKind> DbSession<C> {
             .accepted_entity_authority::<E>()
             .map_err(QueryError::execute)?;
         let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema);
-        let prepared = prepare_sql_ddl_statement(&statement, &accepted_schema, &schema_info)
-            .map_err(|err| {
+        let prepared =
+            prepare_sql_ddl_statement(&statement, &accepted_schema, &schema_info, E::Store::PATH)
+                .map_err(|err| {
                 QueryError::unsupported_query(format!(
                     "SQL DDL preparation failed before execution: {err}"
                 ))

@@ -114,12 +114,12 @@ fn missing_canister_message(environment: &str, canister: &str) -> String {
     }
     if canister == DEFAULT_CANISTER {
         message.push_str(
-            "\nRun `icydb demo fresh` to reinstall the default demo canister and load demo data.",
+            "\nRun `icydb canister refresh --canister demo_rpg` to rebuild and reinstall the default canister.",
         );
     } else {
-        message.push_str("\nRun `icydb demo fresh --canister ");
+        message.push_str("\nRun `icydb canister refresh --canister ");
         message.push_str(canister);
-        message.push_str("` to reinstall that canister and load demo data.");
+        message.push_str("` to rebuild and reinstall that canister.");
     }
     message.push_str("\nRun `icydb canister list` to see known local canisters.");
     message.push_str(

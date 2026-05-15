@@ -135,15 +135,15 @@ Detailed SQL contract: [docs/contracts/SQL_SUBSET.md](docs/contracts/SQL_SUBSET.
 The repository includes a demo RPG canister with a `Character` table.
 
 ```bash
-cargo run -q -p icydb-cli -- demo fresh
+scripts/dev/sql-start-demo
 cargo run -q -p icydb-cli -- sql --sql "SELECT name, charisma FROM character ORDER BY charisma DESC LIMIT 5"
 cargo run -q -p icydb-cli -- sql --sql "DESCRIBE character"
 cargo run -q -p icydb-cli -- sql --sql "SHOW TABLES"
 ```
 
-The `sql`, `canister`, and `demo` commands default to the `demo_rpg` canister
-in the `demo` ICP environment when `--canister` and `--environment` are
-omitted. To inspect local canister IDs:
+The `sql` and `canister` commands default to the `demo_rpg` canister in the
+`demo` ICP environment when `--canister` and `--environment` are omitted. To
+inspect local canister IDs:
 
 ```bash
 cargo run -q -p icydb-cli -- canister list
@@ -151,12 +151,32 @@ cargo run -q -p icydb-cli -- canister list --environment test
 ```
 
 `icydb sql` only queries the current canister state. It does not create or load
-demo data automatically. Use `demo fresh` for a fresh reinstall and seed, or
-`demo reload` when the canister already exists and should keep its installed
-wasm:
+demo data automatically. Use `canister refresh` for a generic destructive
+rebuild/reinstall. Any fixture loading is a canister-specific API call, not an
+IcyDB CLI command:
+
+Read SQL is sent through the canister's standard controller-gated
+`icydb_admin_sql_query` endpoint, which returns the shell's perf footer
+payload. SQL DDL uses the canister's `ddl` update endpoint for supported
+`CREATE INDEX` commands.
+
+Canisters opt into the admin SQL endpoints by invoking the macro after
+`icydb::start!()`. The generated `fixtures_reset` admin method clears every
+canister-owned IcyDB table. The canister may define the conventional
+load-default hook that `fixtures_load_default` calls after reset. The generated
+canister glue routes each SQL statement to the matching accepted entity:
+
+```rust
+icydb::admin_sql_query!();
+
+fn icydb_admin_sql_load_default() -> Result<(), icydb::Error> {
+    Ok(())
+}
+```
 
 ```bash
-cargo run -q -p icydb-cli -- demo reload
+cargo run -q -p icydb-cli -- canister refresh --canister demo_rpg
+icp canister call demo_rpg fixtures_load_default '()' --environment demo
 ```
 
 Interactive shell:

@@ -5,15 +5,14 @@ use icydb::db::sql::{SqlGroupedRowsOutput, SqlQueryRowsOutput};
 use serde_json::json;
 
 use crate::{
-    cli::{
-        CanisterCommand, CliArgs, CliCommand, DEFAULT_CANISTER, DEFAULT_ENVIRONMENT, DemoCommand,
-    },
+    cli::{CanisterCommand, CliArgs, CliCommand, DEFAULT_CANISTER, DEFAULT_ENVIRONMENT},
     shell::{
-        ShellConfig, ShellPerfAttribution, SqlShellCallKind, drain_complete_shell_statements,
-        finalize_successful_command_output, hex_response_bytes, icp_query_command,
-        icp_update_command, is_shell_help_command, normalize_grouped_next_cursor_json,
-        normalize_shell_statement_line, parse_perf_result, render_grouped_shell_text,
-        render_perf_suffix, render_projection_shell_text, shell_help_text, sql_shell_call_kind,
+        ADMIN_SQL_QUERY_METHOD, SQL_DDL_METHOD, ShellConfig, ShellPerfAttribution,
+        SqlShellCallKind, drain_complete_shell_statements, finalize_successful_command_output,
+        hex_response_bytes, icp_query_command, icp_update_command, is_shell_help_command,
+        normalize_grouped_next_cursor_json, normalize_shell_statement_line, parse_perf_result,
+        render_grouped_shell_text, render_perf_suffix, render_projection_shell_text,
+        shell_help_text, sql_error_with_recovery_hint, sql_shell_call_kind,
     },
 };
 
@@ -345,22 +344,11 @@ fn cli_args_group_canister_status_under_canister_keyword() {
 }
 
 #[test]
-fn cli_args_group_demo_reload_under_demo_keyword() {
-    let args = CliArgs::try_parse_from(["icydb", "demo", "reload", "--canister", "demo"])
-        .expect("demo reload should parse");
-    let CliCommand::Demo(DemoCommand::Reload(target)) = args.command else {
-        panic!("expected demo reload command");
-    };
-
-    assert_eq!(target.canister_name(), "demo");
-}
-
-#[test]
-fn cli_args_group_demo_fresh_under_demo_keyword() {
-    let args = CliArgs::try_parse_from(["icydb", "demo", "fresh", "--canister", "demo"])
-        .expect("demo fresh should parse");
-    let CliCommand::Demo(DemoCommand::Fresh(target)) = args.command else {
-        panic!("expected demo fresh command");
+fn cli_args_group_canister_refresh_under_canister_keyword() {
+    let args = CliArgs::try_parse_from(["icydb", "canister", "refresh", "--canister", "demo"])
+        .expect("canister refresh should parse");
+    let CliCommand::Canister(CanisterCommand::Refresh(target)) = args.command else {
+        panic!("expected canister refresh command");
     };
 
     assert_eq!(target.canister_name(), "demo");
@@ -368,7 +356,7 @@ fn cli_args_group_demo_fresh_under_demo_keyword() {
 
 #[test]
 fn icp_query_command_targets_environment_and_hex_query_output() {
-    let command = icp_query_command("demo", "demo_rpg", "query_with_perf", "(\"SELECT 1\")");
+    let command = icp_query_command("demo", "demo_rpg", ADMIN_SQL_QUERY_METHOD, "(\"SELECT 1\")");
     let args = command
         .get_args()
         .map(|arg| arg.to_string_lossy().into_owned())
@@ -381,7 +369,7 @@ fn icp_query_command_targets_environment_and_hex_query_output() {
             "canister",
             "call",
             "demo_rpg",
-            "query_with_perf",
+            "icydb_admin_sql_query",
             "(\"SELECT 1\")",
             "--query",
             "--output",
@@ -394,7 +382,12 @@ fn icp_query_command_targets_environment_and_hex_query_output() {
 
 #[test]
 fn icp_update_command_targets_environment_without_query_flag() {
-    let command = icp_update_command("demo", "demo_rpg", "ddl", "(\"CREATE INDEX name_idx\")");
+    let command = icp_update_command(
+        "demo",
+        "demo_rpg",
+        SQL_DDL_METHOD,
+        "(\"CREATE INDEX name_idx\")",
+    );
     let args = command
         .get_args()
         .map(|arg| arg.to_string_lossy().into_owned())
@@ -418,6 +411,44 @@ fn icp_update_command_targets_environment_without_query_flag() {
 }
 
 #[test]
+fn sql_recovery_hint_points_default_stale_demo_to_canister_refresh() {
+    let message = sql_error_with_recovery_hint(
+        "Canister has no query method 'icydb_admin_sql_query'.",
+        DEFAULT_ENVIRONMENT,
+        DEFAULT_CANISTER,
+    );
+
+    assert!(
+        message.contains("icydb canister refresh --canister demo_rpg"),
+        "default demo stale-method errors should include the generic canister refresh command"
+    );
+}
+
+#[test]
+fn sql_recovery_hint_points_custom_stale_canister_to_targeted_refresh() {
+    let message = sql_error_with_recovery_hint(
+        "startup index rebuild failed: store='demo::Store' entity='demo::Entity' (store 'demo::Entity::idx' not found)",
+        "test",
+        "custom_demo",
+    );
+
+    assert!(
+        message.contains("icydb canister refresh --environment test --canister custom_demo"),
+        "custom stale canister errors should include a targeted refresh command"
+    );
+}
+
+#[test]
+fn sql_recovery_hint_leaves_unrelated_errors_unchanged() {
+    let error = "SQL DDL execution is not supported in this release";
+
+    assert_eq!(
+        sql_error_with_recovery_hint(error, DEFAULT_ENVIRONMENT, DEFAULT_CANISTER),
+        error,
+    );
+}
+
+#[test]
 fn sql_shell_call_kind_routes_supported_ddl_to_update_method() {
     assert_eq!(
         sql_shell_call_kind("CREATE INDEX name_idx ON Character (name);"),
@@ -429,11 +460,11 @@ fn sql_shell_call_kind_routes_supported_ddl_to_update_method() {
     );
     assert_eq!(
         sql_shell_call_kind("SELECT * FROM Character"),
-        SqlShellCallKind::QueryWithPerf,
+        SqlShellCallKind::AdminQuery,
     );
     assert_eq!(
         sql_shell_call_kind("CREATE UNIQUE INDEX name_idx ON Character (name)"),
-        SqlShellCallKind::QueryWithPerf,
+        SqlShellCallKind::AdminQuery,
     );
 }
 

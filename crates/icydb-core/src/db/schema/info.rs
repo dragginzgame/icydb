@@ -557,6 +557,10 @@ impl SchemaInfo {
     /// Borrow the schema-owned entity path when this schema view was built
     /// from an entity model or accepted persisted snapshot.
     #[must_use]
+    #[allow(
+        dead_code,
+        reason = "schema views retain entity-path authority for diagnostics and DDL/reporting slices"
+    )]
     pub(in crate::db) fn entity_path(&self) -> Option<&str> {
         self.entity_path.as_deref()
     }
@@ -713,13 +717,6 @@ impl SchemaInfo {
             .unwrap_or(0);
 
         max_field_path.max(max_expression).saturating_add(1)
-    }
-
-    /// Derive the accepted backing store path for a DDL-created index.
-    #[must_use]
-    pub(in crate::db) fn ddl_index_store_path(&self, index_name: &str) -> Option<String> {
-        self.entity_path()
-            .map(|entity_path| format!("{entity_path}::{index_name}"))
     }
 
     /// Return the first top-level field that SQL cannot project directly.

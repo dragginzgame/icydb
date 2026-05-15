@@ -227,8 +227,14 @@ pub fn render_show_columns_lines(entity: &str, columns: &[EntityFieldDescription
 )]
 #[must_use]
 pub fn render_show_entities_lines(entities: &[String]) -> Vec<String> {
-    let mut lines = vec!["surface=entities".to_string()];
-    lines.extend(entities.iter().map(|entity| format!("entity={entity}")));
+    let rows = entities
+        .iter()
+        .map(|entity| vec![entity.clone()])
+        .collect::<Vec<_>>();
+    let mut lines = vec!["tables:".to_string()];
+    render_describe_table_section(&mut lines, &["name".to_string()], rows.as_slice());
+    lines.push(String::new());
+    lines.push(render_result_table_count_line(entities.len()));
 
     lines
 }
@@ -348,12 +354,20 @@ pub fn render_grouped_lines(grouped: &SqlGroupedRowsOutput) -> Vec<String> {
 
 fn render_result_row_count_line(row_count: u32) -> String {
     let noun = if row_count == 1 { "row" } else { "rows" };
-    format!("{} {noun},", render_grouped_decimal_u32(row_count))
+    format!(
+        "{} {noun},",
+        render_grouped_decimal_usize(row_count as usize)
+    )
 }
 
-// Render one `u32` with ASCII thousands separators so shell row-count footers
+fn render_result_table_count_line(table_count: usize) -> String {
+    let noun = if table_count == 1 { "table" } else { "tables" };
+    format!("{} {noun},", render_grouped_decimal_usize(table_count))
+}
+
+// Render one count with ASCII thousands separators so shell count footers
 // remain easy to scan on large result sets.
-fn render_grouped_decimal_u32(value: u32) -> String {
+fn render_grouped_decimal_usize(value: usize) -> String {
     let digits = value.to_string();
     let mut rendered = String::with_capacity(digits.len().saturating_add(digits.len() / 3));
     let leading_group_len = digits.len().rem_euclid(3);

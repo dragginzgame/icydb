@@ -54,6 +54,7 @@ pub use sql::{
 #[cfg(feature = "sql")]
 pub use sql::{
     SqlDdlExecutionStatus, SqlDdlMutationKind, SqlDdlPreparationReport, SqlStatementResult,
+    sql_statement_entity_name,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use sql::{SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics};

@@ -72,25 +72,6 @@ pub(crate) fn canister_id(environment: &str, canister: &str) -> Result<Option<St
     Ok((!id.is_empty()).then_some(id))
 }
 
-/// Call a no-argument fixture method on an already selected ICP canister.
-pub(crate) fn call_unit_method(
-    environment: &str,
-    canister: &str,
-    method: &str,
-) -> Result<(), String> {
-    let mut command = Command::new("icp");
-    command
-        .arg("canister")
-        .arg("call")
-        .arg(canister)
-        .arg(method)
-        .arg("()")
-        .arg("--environment")
-        .arg(environment);
-
-    run_external_command(command, "icp canister call")
-}
-
 /// Recognize common icp-cli connection failures and return explicit lifecycle guidance.
 pub(crate) fn unreachable_network_hint(message: &str) -> Option<&'static str> {
     let lowered = message.to_ascii_lowercase();

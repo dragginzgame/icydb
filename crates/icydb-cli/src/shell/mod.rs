@@ -13,13 +13,16 @@ use icydb::db::sql::SqlQueryResult;
 use rustyline::DefaultEditor;
 
 use crate::{
-    cli::{DEFAULT_CANISTER, SqlArgs},
+    cli::{DEFAULT_CANISTER, DEFAULT_ENVIRONMENT, SqlArgs},
     icp::require_created_canister,
     shell::{
         input::{ShellInput, read_statement},
         render::{ShellSqlQueryPerfResult, render_shell_text_from_perf_result},
     },
 };
+
+pub(crate) const ADMIN_SQL_QUERY_METHOD: &str = "icydb_admin_sql_query";
+pub(crate) const SQL_DDL_METHOD: &str = "ddl";
 
 #[cfg(test)]
 pub(crate) use crate::shell::{
@@ -159,11 +162,11 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
 
     let escaped_sql = candid_escape_string(sql);
     match sql_shell_call_kind(sql) {
-        SqlShellCallKind::QueryWithPerf => {
+        SqlShellCallKind::AdminQuery => {
             let candid_bytes = icp_query(
                 environment,
                 canister,
-                "query_with_perf",
+                ADMIN_SQL_QUERY_METHOD,
                 escaped_sql.as_str(),
             )?;
             let response = Decode!(
@@ -172,21 +175,26 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
             )
             .map_err(|err| err.to_string())?;
 
-            // Phase 2: decode the Candid response and render through the canonical
-            // SQL facade, with shell-only footer/cell tweaks layered on top.
             match response {
                 Ok(result) => Ok(render_shell_text_from_perf_result(result)),
-                Err(err) => Ok(format!("ERROR: {err}")),
+                Err(err) => Ok(format!(
+                    "ERROR: {}",
+                    sql_error_with_recovery_hint(&err.to_string(), environment, canister)
+                )),
             }
         }
         SqlShellCallKind::Ddl => {
-            let candid_bytes = icp_update(environment, canister, "ddl", escaped_sql.as_str())?;
+            let candid_bytes =
+                icp_update(environment, canister, SQL_DDL_METHOD, escaped_sql.as_str())?;
             let response = Decode!(candid_bytes.as_slice(), Result<SqlQueryResult, icydb::Error>)
                 .map_err(|err| err.to_string())?;
 
             match response {
                 Ok(result) => Ok(result.render_text()),
-                Err(err) => Ok(format!("ERROR: {err}")),
+                Err(err) => Ok(format!(
+                    "ERROR: {}",
+                    sql_error_with_recovery_hint(&err.to_string(), environment, canister)
+                )),
             }
         }
     }
@@ -207,7 +215,16 @@ fn icp_query(
         .map_err(|err| err.to_string())?;
 
     if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let error = format!(
+            "admin SQL query method '{method}' failed on canister '{canister}' in environment '{environment}': {}",
+            stderr.trim()
+        );
+        return Err(sql_error_with_recovery_hint(
+            error.as_str(),
+            environment,
+            canister,
+        ));
     }
 
     let stdout = String::from_utf8(output.stdout).map_err(|err| err.to_string())?;
@@ -230,7 +247,12 @@ fn icp_update(
         .map_err(|err| err.to_string())?;
 
     if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(sql_error_with_recovery_hint(
+            stderr.trim(),
+            environment,
+            canister,
+        ));
     }
 
     let stdout = String::from_utf8(output.stdout).map_err(|err| err.to_string())?;
@@ -283,7 +305,7 @@ pub(crate) fn icp_update_command(
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SqlShellCallKind {
-    QueryWithPerf,
+    AdminQuery,
     Ddl,
 }
 
@@ -301,7 +323,7 @@ pub(crate) fn sql_shell_call_kind(sql: &str) -> SqlShellCallKind {
         return SqlShellCallKind::Ddl;
     }
 
-    SqlShellCallKind::QueryWithPerf
+    SqlShellCallKind::AdminQuery
 }
 
 pub(crate) fn hex_response_bytes(output: &str) -> Result<Vec<u8>, String> {
@@ -325,6 +347,35 @@ pub(crate) fn hex_response_bytes(output: &str) -> Result<Vec<u8>, String> {
     }
 
     Ok(bytes)
+}
+
+pub(crate) fn sql_error_with_recovery_hint(
+    error: &str,
+    environment: &str,
+    canister: &str,
+) -> String {
+    if !looks_like_stale_demo_sql_surface(error) {
+        return error.to_string();
+    }
+
+    format!("{error}\n\n{}", sql_recovery_hint(environment, canister))
+}
+
+fn looks_like_stale_demo_sql_surface(error: &str) -> bool {
+    error.contains("has no query method 'icydb_admin_sql_query'")
+        || (error.contains("startup index rebuild failed")
+            && error.contains("store '")
+            && error.contains("' not found"))
+}
+
+fn sql_recovery_hint(environment: &str, canister: &str) -> String {
+    if environment == DEFAULT_ENVIRONMENT && canister == DEFAULT_CANISTER {
+        return "This looks like stale local demo wasm or demo stable-memory schema state. Run `icydb canister refresh --canister demo_rpg`, then retry the SQL command.".to_string();
+    }
+
+    format!(
+        "This looks like stale wasm or stable-memory schema state for '{canister}' in environment '{environment}'. If this is disposable, run `icydb canister refresh --environment {environment} --canister {canister}`; otherwise repair or reinstall it intentionally."
+    )
 }
 
 fn hex_nibble(byte: u8) -> Result<u8, String> {

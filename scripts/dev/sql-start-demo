@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+environment="${ICP_ENVIRONMENT:-demo}"
+canister="${SQLQ_CANISTER:-demo_rpg}"
+
+echo "[sql-start-demo] refreshing ${canister} in environment ${environment}"
+icydb canister refresh --environment "${environment}" --canister "${canister}"
+
+echo "[sql-start-demo] loading fixture data"
+icp canister call "${canister}" fixtures_load_default '()' --environment "${environment}"
+
+echo "[sql-start-demo] smoke checking admin SQL"
+icydb sql --environment "${environment}" --canister "${canister}" --sql "SHOW TABLES"

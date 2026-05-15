@@ -173,10 +173,16 @@ mod tests {
         assert_eq!(
             render_show_entities_lines(entities.as_slice()),
             vec![
-                "surface=entities".to_string(),
-                "entity=ExampleEntity".to_string(),
-                "entity=Order".to_string(),
-                "entity=User".to_string(),
+                "tables:".to_string(),
+                "+---------------+".to_string(),
+                "| name          |".to_string(),
+                "+---------------+".to_string(),
+                "| ExampleEntity |".to_string(),
+                "| Order         |".to_string(),
+                "| User          |".to_string(),
+                "+---------------+".to_string(),
+                String::new(),
+                "3 tables,".to_string(),
             ],
             "show-entities shell output must remain contract-stable across release lines",
         );

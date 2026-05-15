@@ -332,8 +332,9 @@ pub(in crate::db) fn prepare_sql_ddl_statement(
     statement: &SqlStatement,
     accepted_before: &AcceptedSchemaSnapshot,
     schema: &SchemaInfo,
+    index_store_path: &'static str,
 ) -> Result<PreparedSqlDdlCommand, SqlDdlPrepareError> {
-    let bound = bind_sql_ddl_statement(statement, schema)?;
+    let bound = bind_sql_ddl_statement(statement, schema, index_store_path)?;
     let derivation = derive_bound_sql_ddl_accepted_after(accepted_before, &bound)?;
     let report = ddl_preparation_report(&bound, &derivation);
 
@@ -348,19 +349,23 @@ pub(in crate::db) fn prepare_sql_ddl_statement(
 pub(in crate::db) fn bind_sql_ddl_statement(
     statement: &SqlStatement,
     schema: &SchemaInfo,
+    index_store_path: &'static str,
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
     let SqlStatement::Ddl(ddl) = statement else {
         return Err(SqlDdlBindError::NotDdl);
     };
 
     match ddl {
-        SqlDdlStatement::CreateIndex(statement) => bind_create_index_statement(statement, schema),
+        SqlDdlStatement::CreateIndex(statement) => {
+            bind_create_index_statement(statement, schema, index_store_path)
+        }
     }
 }
 
 fn bind_create_index_statement(
     statement: &SqlCreateIndexStatement,
     schema: &SchemaInfo,
+    index_store_path: &'static str,
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
     let entity_name = schema
         .entity_name()
@@ -377,7 +382,12 @@ fn bind_create_index_statement(
     let field_path =
         bind_create_index_field_path(statement.field_path.as_str(), entity_name, schema)?;
     reject_duplicate_field_path_index(&field_path, schema)?;
-    let candidate_index = candidate_index_snapshot(statement.name.as_str(), &field_path, schema)?;
+    let candidate_index = candidate_index_snapshot(
+        statement.name.as_str(),
+        &field_path,
+        schema,
+        index_store_path,
+    )?;
 
     Ok(BoundSqlDdlRequest {
         statement: BoundSqlDdlStatement::CreateIndex(BoundSqlCreateIndexRequest {
@@ -475,20 +485,18 @@ fn candidate_index_snapshot(
     index_name: &str,
     field_path: &BoundSqlDdlFieldPath,
     schema: &SchemaInfo,
+    index_store_path: &'static str,
 ) -> Result<PersistedIndexSnapshot, SqlDdlBindError> {
     let key = schema
         .accepted_index_field_path_snapshot(field_path.root(), field_path.segments())
         .ok_or_else(|| SqlDdlBindError::FieldPathNotAcceptedCatalogBacked {
             field_path: field_path.accepted_path().join("."),
         })?;
-    let store = schema
-        .ddl_index_store_path(index_name)
-        .ok_or(SqlDdlBindError::MissingEntityPath)?;
 
     Ok(PersistedIndexSnapshot::new(
         schema.next_secondary_index_ordinal(),
         index_name.to_string(),
-        store,
+        index_store_path.to_string(),
         false,
         PersistedIndexKeySnapshot::FieldPath(vec![key]),
         None,

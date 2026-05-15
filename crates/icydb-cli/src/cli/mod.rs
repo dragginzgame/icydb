@@ -9,8 +9,8 @@ pub(crate) const DEFAULT_ENVIRONMENT: &str = "demo";
 /// CliArgs
 ///
 /// CliArgs owns the top-level process argument surface for the developer CLI.
-/// The initial keyword selects a functional family so SQL execution, canister
-/// lifecycle operations, and demo workflows do not share one flag namespace.
+/// The initial keyword selects a functional family so SQL execution and
+/// canister lifecycle operations do not share one flag namespace.
 ///
 
 #[derive(Debug, Parser)]
@@ -40,10 +40,6 @@ pub(crate) enum CliCommand {
     /// Manage a local ICP canister.
     #[command(subcommand)]
     Canister(CanisterCommand),
-
-    /// Manage demo data and fresh-demo workflows.
-    #[command(subcommand)]
-    Demo(DemoCommand),
 }
 
 ///
@@ -82,8 +78,8 @@ pub(crate) struct SqlArgs {
 /// CanisterTarget
 ///
 /// CanisterTarget is the shared target selector for icp-cli-backed commands. It
-/// keeps the canister default and environment override consistent across SQL,
-/// lifecycle, and demo data commands.
+/// keeps the canister default and environment override consistent across SQL
+/// and lifecycle commands.
 ///
 
 #[derive(Args, Clone, Debug)]
@@ -136,6 +132,8 @@ pub(crate) enum CanisterCommand {
     Deploy(CanisterTarget),
     /// Reinstall the canister when it already exists.
     Reinstall(CanisterTarget),
+    /// Refresh the canister by rebuilding and reinstalling it, clearing stable memory.
+    Refresh(CanisterTarget),
     /// Build and upgrade the canister without resetting stable memory.
     Upgrade(UpgradeArgs),
     /// Show icp-cli status for the selected canister.
@@ -158,24 +156,4 @@ pub(crate) struct UpgradeArgs {
     /// Wasm path to install after build.
     #[arg(long)]
     pub(crate) wasm: Option<PathBuf>,
-}
-
-///
-/// DemoCommand
-///
-/// DemoCommand owns opinionated local demo data workflows. It intentionally
-/// names destructive data operations as demo operations so canister
-/// lifecycle, SQL reads, and demo data resets stay separate.
-///
-
-#[derive(Debug, Subcommand)]
-pub(crate) enum DemoCommand {
-    /// Erase demo data.
-    Reset(CanisterTarget),
-    /// Load the default demo data set.
-    Seed(CanisterTarget),
-    /// Erase demo data, then load the default demo data set.
-    Reload(CanisterTarget),
-    /// Reinstall the demo canister, then reload default demo data.
-    Fresh(CanisterTarget),
 }

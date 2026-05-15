@@ -4,10 +4,9 @@ use crate::{
     cli::DEFAULT_CANISTER,
     icp::{
         process::{
-            call_unit_method, canister_id, canister_is_installed, run_external_command,
-            unreachable_network_hint,
+            canister_id, canister_is_installed, run_external_command, unreachable_network_hint,
         },
-        project::{known_canisters, require_created_canister},
+        project::known_canisters,
     },
 };
 
@@ -167,39 +166,6 @@ pub(crate) fn status_canister(environment: &str, canister: &str) -> Result<(), S
         .arg(environment);
 
     run_external_command(command, "icp canister status")
-}
-
-/// Erase demo data on a local IcyDB canister.
-pub(crate) fn reset_demo_data(environment: &str, canister: &str) -> Result<(), String> {
-    eprintln!("[icydb] resetting demo data on '{canister}' in environment '{environment}'");
-    call_canister_unit_method(environment, canister, "fixtures_reset")
-}
-
-/// Load the default demo data set on a local IcyDB canister.
-pub(crate) fn seed_demo_data(environment: &str, canister: &str) -> Result<(), String> {
-    eprintln!("[icydb] loading default demo data on '{canister}' in environment '{environment}'");
-    call_canister_unit_method(environment, canister, "fixtures_load_default")
-}
-
-/// Erase and then reload default demo data on a local IcyDB canister.
-pub(crate) fn reload_demo_data(environment: &str, canister: &str) -> Result<(), String> {
-    reset_demo_data(environment, canister)?;
-    seed_demo_data(environment, canister)
-}
-
-/// Reinstall the demo canister and reload the default demo data set.
-pub(crate) fn fresh_demo(environment: &str, canister: &str) -> Result<(), String> {
-    reinstall_canister(environment, canister)?;
-    reload_demo_data(environment, canister)
-}
-
-fn call_canister_unit_method(
-    environment: &str,
-    canister: &str,
-    method: &str,
-) -> Result<(), String> {
-    require_created_canister(environment, canister)?;
-    call_unit_method(environment, canister, method)
 }
 
 fn default_canister_wasm_path(canister: &str) -> PathBuf {

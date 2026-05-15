@@ -4,72 +4,14 @@
 
 extern crate canic_cdk as ic_cdk;
 
-use candid::CandidType;
-#[cfg(feature = "sql")]
-use canic_cdk::query;
-use canic_cdk::update;
-#[cfg(all(feature = "sql", not(feature = "diagnostics")))]
-use icydb::db::sql::SqlQueryResult;
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-use icydb::db::{SqlQueryExecutionAttribution, sql::SqlQueryResult};
 use icydb::types::{Decimal, Float32, Float64};
 use icydb_testing_test_sql_fixtures::sql::{SqlTestNumericTypes, SqlTestUser};
 
 icydb::start!();
-
-// SqlQueryPerfResult
-//
-// Lightweight dev-shell envelope that preserves the normal SQL result payload
-// while attaching the current SQL compile/planner/store/executor/decode split.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
-struct SqlQueryPerfResult {
-    result: SqlQueryResult,
-    instructions: u64,
-    planner_instructions: u64,
-    store_instructions: u64,
-    executor_instructions: u64,
-    pure_covering_decode_instructions: u64,
-    pure_covering_row_assembly_instructions: u64,
-    decode_instructions: u64,
-    compiler_instructions: u64,
-}
-
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-impl SqlQueryPerfResult {
-    fn from_attribution(result: SqlQueryResult, attribution: SqlQueryExecutionAttribution) -> Self {
-        Self {
-            result,
-            instructions: attribution.total_local_instructions,
-            planner_instructions: attribution.execution.planner_local_instructions,
-            store_instructions: attribution.execution.store_local_instructions,
-            executor_instructions: attribution.execution.executor_local_instructions,
-            pure_covering_decode_instructions: attribution
-                .pure_covering
-                .map_or(0, |pure_covering| pure_covering.decode_local_instructions),
-            pure_covering_row_assembly_instructions: attribution
-                .pure_covering
-                .map_or(0, |pure_covering| {
-                    pure_covering.row_assembly_local_instructions
-                }),
-            decode_instructions: attribution.response_decode_local_instructions,
-            compiler_instructions: attribution.compile_local_instructions,
-        }
-    }
-}
-
-/// Clear all lightweight SQL smoke-test fixture rows from this canister.
-#[update]
-fn fixtures_reset() -> Result<(), icydb::Error> {
-    db().delete::<SqlTestUser>().execute()?;
-    db().delete::<SqlTestNumericTypes>().execute()?;
-
-    Ok(())
-}
+icydb::admin_sql_query!();
 
 /// Load one deterministic baseline fixture dataset for SQL smoke tests.
-#[update]
-fn fixtures_load_default() -> Result<(), icydb::Error> {
-    fixtures_reset()?;
+fn icydb_admin_sql_load_default() -> Result<(), icydb::Error> {
     db().insert_many_atomic(sql_users())?;
     db().insert_many_atomic(sql_numeric_type_rows())?;
 
@@ -136,46 +78,6 @@ fn sql_numeric_type_rows() -> Vec<SqlTestNumericTypes> {
             ..Default::default()
         },
     ]
-}
-
-/// Execute one SqlTestUser-only reduced SQL statement against the smoke canister.
-#[cfg(feature = "sql")]
-#[query]
-fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db().execute_sql_query::<SqlTestUser>(sql.as_str())
-}
-
-/// Execute one SqlTestNumericTypes-only reduced SQL statement against the smoke canister.
-#[cfg(feature = "sql")]
-#[query]
-fn query_numeric_types(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db().execute_sql_query::<SqlTestNumericTypes>(sql.as_str())
-}
-
-/// Execute one SqlTestUser-only reduced SQL query and return one dev-shell
-/// compile/planner/store/executor/decode attribution split alongside the
-/// normal SQL result payload.
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-#[query]
-fn query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let (result, attribution) =
-        db().execute_sql_query_with_attribution::<SqlTestUser>(sql.as_str())?;
-
-    Ok(SqlQueryPerfResult::from_attribution(result, attribution))
-}
-
-/// Execute one SqlTestUser-only reduced SQL mutation against the smoke canister.
-#[cfg(feature = "sql")]
-#[update]
-fn update(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db().execute_sql_update::<SqlTestUser>(sql.as_str())
-}
-
-/// Execute one supported SqlTestUser-only SQL DDL statement.
-#[cfg(feature = "sql")]
-#[update]
-fn ddl(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    db().execute_sql_ddl::<SqlTestUser>(sql.as_str())
 }
 
 canic_cdk::export_candid!();

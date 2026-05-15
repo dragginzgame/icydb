@@ -146,7 +146,7 @@ pub use session::DbSession;
 #[cfg(feature = "sql")]
 pub use session::{
     DbSession, SqlDdlExecutionStatus, SqlDdlMutationKind, SqlDdlPreparationReport,
-    SqlStatementResult,
+    SqlStatementResult, sql_statement_entity_name,
 };
 #[cfg(feature = "diagnostics")]
 pub use session::{

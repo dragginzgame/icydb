@@ -196,15 +196,72 @@ fn store_wiring_tokens(
 /// Emit the entity runtime hook table for all entities bound to this canister.
 fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> TokenStream {
     let mut hook_inits = quote!();
+    let mut sql_reset_statements = quote!();
+    let mut sql_dispatch_arms = quote!();
+    let mut sql_ddl_dispatch_arms = quote!();
+    let mut first_entity_ty = None;
     let entities = builder.get_entities();
 
     for (entity_path, _) in entities {
         let entity_ty: syn::Path = parse_str(&entity_path)
             .unwrap_or_else(|_| panic!("invalid entity path: {entity_path}"));
+        first_entity_ty.get_or_insert_with(|| entity_ty.clone());
         hook_inits.extend(quote! {
             ::icydb::__macro::EntityRuntimeHooks::<#canister_path>::for_entity::<#entity_ty>(),
         });
+        sql_reset_statements.extend(quote! {
+            db().delete::<#entity_ty>().execute()?;
+        });
+        sql_dispatch_arms.extend(quote! {
+            Some(entity)
+                if ::icydb::__macro::identifiers_tail_match(
+                    entity,
+                    <#entity_ty as ::icydb::traits::Path>::PATH
+                ) || ::icydb::__macro::identifiers_tail_match(
+                    entity,
+                    <#entity_ty as ::icydb::traits::EntitySchema>::NAME
+                ) =>
+            {
+                return db()
+                    .execute_sql_query_with_attribution::<#entity_ty>(sql)
+                    .map_err(::icydb::Error::from);
+            }
+        });
+        sql_ddl_dispatch_arms.extend(quote! {
+            Some(entity)
+                if ::icydb::__macro::identifiers_tail_match(
+                    entity,
+                    <#entity_ty as ::icydb::traits::Path>::PATH
+                ) || ::icydb::__macro::identifiers_tail_match(
+                    entity,
+                    <#entity_ty as ::icydb::traits::EntitySchema>::NAME
+                ) =>
+            {
+                return db()
+                    .execute_sql_ddl::<#entity_ty>(sql)
+                    .map_err(::icydb::Error::from);
+            }
+        });
     }
+
+    let show_entities_dispatch = first_entity_ty.map_or_else(
+        || {
+            quote! {
+                return Err(::icydb::Error::new(
+                    ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
+                    ::icydb::ErrorOrigin::Interface,
+                    "admin SQL query requires at least one canister entity",
+                ));
+            }
+        },
+        |entity_ty| {
+            quote! {
+                return db()
+                    .execute_sql_query_with_attribution::<#entity_ty>(sql)
+                    .map_err(::icydb::Error::from);
+            }
+        },
+    );
 
     quote! {
         static ENTITY_RUNTIME_HOOKS: &[
@@ -212,5 +269,61 @@ fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> To
         ] = &[
             #hook_inits
         ];
+
+        #[cfg(all(feature = "sql", feature = "diagnostics"))]
+        #[allow(dead_code)]
+        fn icydb_admin_sql_query_dispatch(
+            sql: &str,
+        ) -> Result<
+            (
+                ::icydb::db::sql::SqlQueryResult,
+                ::icydb::db::SqlQueryExecutionAttribution,
+            ),
+            ::icydb::Error,
+        > {
+            match ::icydb::__macro::sql_statement_entity_name(sql)?.as_deref() {
+                #sql_dispatch_arms
+                None => {
+                    #show_entities_dispatch
+                }
+                Some(entity) => Err(::icydb::Error::new(
+                    ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
+                    ::icydb::ErrorOrigin::Interface,
+                    format!(
+                        "admin SQL query target entity '{entity}' is not available on this canister"
+                    ),
+                )),
+            }
+        }
+
+        #[cfg(feature = "sql")]
+        #[allow(dead_code)]
+        fn icydb_admin_sql_reset_all_tables() -> Result<(), ::icydb::Error> {
+            #sql_reset_statements
+
+            Ok(())
+        }
+
+        #[cfg(feature = "sql")]
+        #[allow(dead_code)]
+        fn icydb_admin_sql_ddl_dispatch(
+            sql: &str,
+        ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
+            match ::icydb::__macro::sql_statement_entity_name(sql)?.as_deref() {
+                #sql_ddl_dispatch_arms
+                None => Err(::icydb::Error::new(
+                    ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
+                    ::icydb::ErrorOrigin::Interface,
+                    "admin SQL DDL requires one target entity",
+                )),
+                Some(entity) => Err(::icydb::Error::new(
+                    ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
+                    ::icydb::ErrorOrigin::Interface,
+                    format!(
+                        "admin SQL DDL target entity '{entity}' is not available on this canister"
+                    ),
+                )),
+            }
+        }
     }
 }
