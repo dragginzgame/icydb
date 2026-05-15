@@ -286,6 +286,10 @@ macro_rules! db {
 
 // Export controller-gated admin SQL endpoints. Invoke from a canister crate
 // after `icydb::start!()`.
+#[expect(
+    clippy::crate_in_macro_def,
+    reason = "admin SQL hooks are required from the canister crate that invokes the macro"
+)]
 #[macro_export]
 macro_rules! admin_sql_query {
     () => {
