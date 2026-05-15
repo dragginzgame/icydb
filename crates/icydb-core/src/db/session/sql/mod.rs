@@ -458,7 +458,7 @@ impl<C: CanisterKind> DbSession<C> {
             .recovered_store(E::Store::PATH)
             .map_err(QueryError::execute)?;
 
-        execute_sql_ddl_field_path_index_addition(
+        let (rows_scanned, index_keys_written) = execute_sql_ddl_field_path_index_addition(
             store,
             E::ENTITY_TAG,
             E::PATH,
@@ -471,7 +471,8 @@ impl<C: CanisterKind> DbSession<C> {
             prepared
                 .report()
                 .clone()
-                .with_execution_status(SqlDdlExecutionStatus::Published),
+                .with_execution_status(SqlDdlExecutionStatus::Published)
+                .with_execution_metrics(rows_scanned, index_keys_written),
         ))
     }
 }

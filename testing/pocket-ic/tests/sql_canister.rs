@@ -73,6 +73,13 @@ fn query_numeric_types(
     query_sql(fixture, sql)
 }
 
+fn ddl_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
+    fixture
+        .pic()
+        .update_call(fixture.canister_id(), "ddl", (sql.to_string(),))
+        .expect("sql DDL canister call should decode")
+}
+
 fn expect_projection(result: SqlQueryResult) -> SqlQueryRowsOutput {
     match result {
         SqlQueryResult::Projection(rows) => rows,
@@ -94,6 +101,13 @@ fn expect_explain(result: SqlQueryResult) -> String {
     }
 }
 
+fn expect_show_indexes(result: SqlQueryResult) -> Vec<String> {
+    match result {
+        SqlQueryResult::ShowIndexes { indexes, .. } => indexes,
+        other => panic!("expected SHOW INDEXES payload, got {other:?}"),
+    }
+}
+
 fn assert_numeric_query_error(err: Error, expected_message: &str, context: &str) {
     assert_eq!(
         err.kind(),
@@ -110,6 +124,155 @@ fn assert_numeric_query_error(err: Error, expected_message: &str, context: &str)
         "{context} should preserve numeric error detail, got: {}",
         err.message(),
     );
+}
+
+fn assert_ddl_rejects_without_index_visibility_change(
+    fixture: &StandaloneCanisterFixture,
+    sql: &str,
+    forbidden_visibility_fragment: &str,
+) {
+    let before = expect_show_indexes(
+        query_sql(fixture, "SHOW INDEXES SqlTestUser")
+            .expect("SHOW INDEXES should read accepted indexes before rejected DDL"),
+    );
+    let err = ddl_sql(fixture, sql).expect_err("invalid DDL should reject");
+
+    assert_eq!(
+        err.kind(),
+        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+        "invalid DDL should stay an unsupported runtime error at the canister boundary",
+    );
+    let after = expect_show_indexes(
+        query_sql(fixture, "SHOW INDEXES SqlTestUser")
+            .expect("SHOW INDEXES should still read accepted indexes after rejected DDL"),
+    );
+    assert_eq!(
+        after, before,
+        "rejected DDL must leave accepted index visibility unchanged",
+    );
+    assert!(
+        after
+            .iter()
+            .all(|index| !index.contains(forbidden_visibility_fragment)),
+        "rejected DDL output fragment must not become visible: {after:?}",
+    );
+}
+
+#[test]
+fn sql_canister_ddl_endpoint_publishes_supported_field_path_index() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let ddl = ddl_sql(
+        &fixture,
+        "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
+    )
+    .expect("supported CREATE INDEX DDL should publish through the canister endpoint");
+
+    let SqlQueryResult::Ddl {
+        entity,
+        mutation_kind,
+        target_index,
+        field_path,
+        status,
+        rows_scanned,
+        index_keys_written,
+        ..
+    } = ddl
+    else {
+        panic!("supported CREATE INDEX should return a DDL payload");
+    };
+    assert_eq!(entity, "SqlTestUser");
+    assert_eq!(mutation_kind, "add_non_unique_field_path_index");
+    assert_eq!(target_index, "sql_test_user_rank_idx");
+    assert_eq!(field_path, vec!["rank".to_string()]);
+    assert_eq!(status, "published");
+    assert_eq!(rows_scanned, 3);
+    assert_eq!(index_keys_written, 3);
+
+    let indexes = expect_show_indexes(
+        query_sql(&fixture, "SHOW INDEXES SqlTestUser")
+            .expect("SHOW INDEXES should read accepted indexes after DDL publication"),
+    );
+    assert!(
+        indexes
+            .iter()
+            .any(|index| index == "INDEX sql_test_user_rank_idx (rank) [state=ready]"),
+        "SHOW INDEXES should expose the DDL-published accepted index: {indexes:?}",
+    );
+}
+
+#[test]
+fn sql_canister_ddl_endpoint_rejects_unknown_field_path_without_publication() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    assert_ddl_rejects_without_index_visibility_change(
+        &fixture,
+        "CREATE INDEX sql_test_user_missing_idx ON SqlTestUser (missing)",
+        "sql_test_user_missing_idx",
+    );
+}
+
+#[test]
+fn sql_canister_ddl_endpoint_rejects_duplicate_index_name_without_publication() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    ddl_sql(
+        &fixture,
+        "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
+    )
+    .expect("setup CREATE INDEX should publish before duplicate-name rejection");
+
+    assert_ddl_rejects_without_index_visibility_change(
+        &fixture,
+        "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (age)",
+        "INDEX sql_test_user_rank_idx (age)",
+    );
+}
+
+#[test]
+fn sql_canister_ddl_endpoint_rejects_duplicate_field_path_without_publication() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    assert_ddl_rejects_without_index_visibility_change(
+        &fixture,
+        "CREATE INDEX sql_test_user_duplicate_name_idx ON SqlTestUser (name)",
+        "sql_test_user_duplicate_name_idx",
+    );
+}
+
+#[test]
+fn sql_canister_ddl_endpoint_rejects_unsupported_create_index_shapes_without_publication() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    for (sql, forbidden_visibility_fragment) in [
+        (
+            "CREATE UNIQUE INDEX sql_test_user_unique_rank_idx ON SqlTestUser (rank)",
+            "sql_test_user_unique_rank_idx",
+        ),
+        (
+            "CREATE INDEX sql_test_user_rank_age_idx ON SqlTestUser (rank, age)",
+            "sql_test_user_rank_age_idx",
+        ),
+        (
+            "CREATE INDEX sql_test_user_lower_name_idx ON SqlTestUser (LOWER(name))",
+            "sql_test_user_lower_name_idx",
+        ),
+        (
+            "CREATE INDEX sql_test_user_filtered_rank_idx ON SqlTestUser (rank) WHERE age > 20",
+            "sql_test_user_filtered_rank_idx",
+        ),
+    ] {
+        assert_ddl_rejects_without_index_visibility_change(
+            &fixture,
+            sql,
+            forbidden_visibility_fragment,
+        );
+    }
 }
 
 #[test]

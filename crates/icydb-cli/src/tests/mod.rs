@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
+use candid::{Decode, Encode};
 use clap::Parser;
-use icydb::db::sql::{SqlGroupedRowsOutput, SqlQueryRowsOutput};
+use icydb::db::sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput};
 use serde_json::json;
 
 use crate::{
@@ -465,6 +466,33 @@ fn sql_shell_call_kind_routes_supported_ddl_to_update_method() {
     assert_eq!(
         sql_shell_call_kind("CREATE UNIQUE INDEX name_idx ON Character (name)"),
         SqlShellCallKind::AdminQuery,
+    );
+}
+
+#[test]
+fn ddl_response_rendering_includes_execution_metrics() {
+    let response: Result<SqlQueryResult, icydb::Error> = Ok(SqlQueryResult::Ddl {
+        entity: "Character".to_string(),
+        mutation_kind: "add_non_unique_field_path_index".to_string(),
+        target_index: "character_level_idx".to_string(),
+        target_store: "demo::CharacterStore".to_string(),
+        field_path: vec!["level".to_string()],
+        status: "published".to_string(),
+        rows_scanned: 7,
+        index_keys_written: 7,
+    });
+    let candid_bytes = Encode!(&response).expect("DDL response should encode");
+    let decoded = Decode!(
+        candid_bytes.as_slice(),
+        Result<SqlQueryResult, icydb::Error>
+    )
+    .expect("DDL response should decode")
+    .expect("DDL response should succeed");
+
+    assert_eq!(
+        decoded.render_text(),
+        "surface=ddl entity=Character mutation_kind=add_non_unique_field_path_index target_index=character_level_idx target_store=demo::CharacterStore field_path=level status=published rows_scanned=7 index_keys_written=7",
+        "CLI DDL response rendering should surface rebuild metrics from the decoded canister payload",
     );
 }
 

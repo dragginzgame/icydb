@@ -493,12 +493,14 @@ mod tests {
             target_store: "test::User::user_age_idx".to_string(),
             field_path: vec!["age".to_string()],
             status: "published".to_string(),
+            rows_scanned: 3,
+            index_keys_written: 3,
         };
 
         assert_eq!(
             result.render_lines(),
             vec![
-                "surface=ddl entity=User mutation_kind=add_non_unique_field_path_index target_index=user_age_idx target_store=test::User::user_age_idx field_path=age status=published".to_string()
+                "surface=ddl entity=User mutation_kind=add_non_unique_field_path_index target_index=user_age_idx target_store=test::User::user_age_idx field_path=age status=published rows_scanned=3 index_keys_written=3".to_string()
             ],
             "public SQL DDL payloads should render a stable developer diagnostic line",
         );

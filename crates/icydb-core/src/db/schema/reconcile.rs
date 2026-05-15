@@ -56,7 +56,7 @@ pub(in crate::db) fn execute_sql_ddl_field_path_index_addition(
     entity_path: &'static str,
     accepted_before: &AcceptedSchemaSnapshot,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
-) -> Result<(), InternalError> {
+) -> Result<(usize, usize), InternalError> {
     let before = accepted_before.persisted_snapshot();
     let after = derivation.accepted_after().persisted_snapshot();
     let plan = match decide_schema_transition(before, after) {
@@ -87,14 +87,16 @@ pub(in crate::db) fn execute_sql_ddl_field_path_index_addition(
         )));
     }
 
-    execute_supported_field_path_index_addition(
+    let report = execute_supported_field_path_index_addition(
         store,
         entity_tag,
         entity_path,
         before,
         after,
         &plan,
-    )
+    )?;
+
+    Ok((report.rows_scanned(), report.index_keys_written()))
 }
 
 // Reconcile one entity hook against its owning schema store. The generated

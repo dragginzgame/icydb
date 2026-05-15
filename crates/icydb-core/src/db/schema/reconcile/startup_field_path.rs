@@ -32,7 +32,7 @@ pub(super) fn execute_supported_field_path_index_addition(
     accepted_before: &PersistedSchemaSnapshot,
     accepted_after: &PersistedSchemaSnapshot,
     plan: &SchemaTransitionPlan,
-) -> Result<(), InternalError> {
+) -> Result<SchemaMutationDeveloperReport, InternalError> {
     let supported = plan
         .supported_developer_physical_path()
         .map_err(|rejection| {
@@ -134,7 +134,7 @@ pub(super) fn execute_supported_field_path_index_addition(
     )?;
     publication.publish_accepted_snapshot(store, entity_tag, accepted_after)?;
 
-    Ok(())
+    Ok(publication.diagnostic)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

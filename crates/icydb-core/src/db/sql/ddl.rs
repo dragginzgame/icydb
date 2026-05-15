@@ -69,6 +69,8 @@ pub struct SqlDdlPreparationReport {
     target_store: String,
     field_path: Vec<String>,
     execution_status: SqlDdlExecutionStatus,
+    rows_scanned: usize,
+    index_keys_written: usize,
 }
 
 impl SqlDdlPreparationReport {
@@ -102,11 +104,33 @@ impl SqlDdlPreparationReport {
         self.execution_status
     }
 
+    /// Return rows scanned by DDL execution.
+    #[must_use]
+    pub const fn rows_scanned(&self) -> usize {
+        self.rows_scanned
+    }
+
+    /// Return index keys written by DDL execution.
+    #[must_use]
+    pub const fn index_keys_written(&self) -> usize {
+        self.index_keys_written
+    }
+
     pub(in crate::db) const fn with_execution_status(
         mut self,
         execution_status: SqlDdlExecutionStatus,
     ) -> Self {
         self.execution_status = execution_status;
+        self
+    }
+
+    pub(in crate::db) const fn with_execution_metrics(
+        mut self,
+        rows_scanned: usize,
+        index_keys_written: usize,
+    ) -> Self {
+        self.rows_scanned = rows_scanned;
+        self.index_keys_written = index_keys_written;
         self
     }
 }
@@ -540,5 +564,7 @@ fn ddl_preparation_report(
         target_store: target.store().to_string(),
         field_path: create.field_path().accepted_path().to_vec(),
         execution_status: SqlDdlExecutionStatus::PreparedOnly,
+        rows_scanned: 0,
+        index_keys_written: 0,
     }
 }

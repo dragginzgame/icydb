@@ -1,9 +1,9 @@
 use crate::db::{
     EntityFieldDescription, EntitySchemaDescription,
     sql::table_render::{
-        render_count_lines, render_describe_lines, render_explain_lines, render_grouped_lines,
-        render_query_rows_lines, render_show_columns_lines, render_show_entities_lines,
-        render_show_indexes_lines, render_sql_ddl_lines,
+        SqlDdlRenderInput, render_count_lines, render_describe_lines, render_explain_lines,
+        render_grouped_lines, render_query_rows_lines, render_show_columns_lines,
+        render_show_entities_lines, render_show_indexes_lines, render_sql_ddl_lines,
     },
 };
 use candid::CandidType;
@@ -125,6 +125,8 @@ pub enum SqlQueryResult {
         target_store: String,
         field_path: Vec<String>,
         status: String,
+        rows_scanned: u64,
+        index_keys_written: u64,
     },
 }
 
@@ -152,14 +154,18 @@ impl SqlQueryResult {
                 target_store,
                 field_path,
                 status,
-            } => render_sql_ddl_lines(
-                entity.as_str(),
-                mutation_kind.as_str(),
-                target_index.as_str(),
-                target_store.as_str(),
-                field_path.as_slice(),
-                status.as_str(),
-            ),
+                rows_scanned,
+                index_keys_written,
+            } => render_sql_ddl_lines(SqlDdlRenderInput {
+                entity: entity.as_str(),
+                mutation_kind: mutation_kind.as_str(),
+                target_index: target_index.as_str(),
+                target_store: target_store.as_str(),
+                field_path: field_path.as_slice(),
+                status: status.as_str(),
+                rows_scanned: *rows_scanned,
+                index_keys_written: *index_keys_written,
+            }),
         }
     }
 

@@ -71,8 +71,14 @@ pub(crate) fn sql_query_result_from_statement(
             target_store: report.target_store().to_string(),
             field_path: report.field_path().to_vec(),
             status: report.execution_status().as_str().to_string(),
+            rows_scanned: usize_to_u64_saturating(report.rows_scanned()),
+            index_keys_written: usize_to_u64_saturating(report.index_keys_written()),
         },
     }
+}
+
+fn usize_to_u64_saturating(value: usize) -> u64 {
+    u64::try_from(value).unwrap_or(u64::MAX)
 }
 
 fn sql_grouped_rows_output(

@@ -176,18 +176,29 @@ pub fn render_count_lines(entity: &str, row_count: u32) -> Vec<String> {
 
 #[cfg_attr(doc, doc = "Render one SQL DDL payload into deterministic lines.")]
 #[must_use]
-pub fn render_sql_ddl_lines(
-    entity: &str,
-    mutation_kind: &str,
-    target_index: &str,
-    target_store: &str,
-    field_path: &[String],
-    status: &str,
-) -> Vec<String> {
+pub(in crate::db::sql) fn render_sql_ddl_lines(input: SqlDdlRenderInput<'_>) -> Vec<String> {
     vec![format!(
-        "surface=ddl entity={entity} mutation_kind={mutation_kind} target_index={target_index} target_store={target_store} field_path={} status={status}",
-        field_path.join("."),
+        "surface=ddl entity={} mutation_kind={} target_index={} target_store={} field_path={} status={} rows_scanned={} index_keys_written={}",
+        input.entity,
+        input.mutation_kind,
+        input.target_index,
+        input.target_store,
+        input.field_path.join("."),
+        input.status,
+        input.rows_scanned,
+        input.index_keys_written,
     )]
+}
+
+pub(in crate::db::sql) struct SqlDdlRenderInput<'a> {
+    pub(in crate::db::sql) entity: &'a str,
+    pub(in crate::db::sql) mutation_kind: &'a str,
+    pub(in crate::db::sql) target_index: &'a str,
+    pub(in crate::db::sql) target_store: &'a str,
+    pub(in crate::db::sql) field_path: &'a [String],
+    pub(in crate::db::sql) status: &'a str,
+    pub(in crate::db::sql) rows_scanned: u64,
+    pub(in crate::db::sql) index_keys_written: u64,
 }
 
 #[cfg_attr(
