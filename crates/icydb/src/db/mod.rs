@@ -9,6 +9,11 @@ pub use response::{
     ExecutionTrace, GroupedRow, MutationResult, PagedResponse, ProjectedRow, ProjectionResponse,
     Response,
 };
+#[cfg(feature = "sql")]
+#[doc(hidden)]
+pub use session::{
+    AdminSqlExecutionAttribution, AdminSqlPureCoveringAttribution, AdminSqlQueryAttribution,
+};
 pub use session::{
     DbSession, FluentLoadQuery, MutationMode, PagedLoadQuery, SessionDeleteQuery, StructuralPatch,
 };

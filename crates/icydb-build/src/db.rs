@@ -264,22 +264,20 @@ impl quote::ToTokens for AdminSqlTokens {
         let show_entities_dispatch = &self.show_entities_dispatch;
 
         tokens.extend(quote! {
-            #[cfg(all(feature = "sql", feature = "diagnostics"))]
+            #[cfg(feature = "sql")]
             #[allow(dead_code)]
             fn icydb_admin_sql_query_dispatch(
                 sql: &str,
             ) -> Result<
                 (
                     ::icydb::db::sql::SqlQueryResult,
-                    ::icydb::db::SqlQueryExecutionAttribution,
+                    ::icydb::db::AdminSqlQueryAttribution,
                 ),
                 ::icydb::Error,
             > {
                 match ::icydb::__macro::sql_statement_entity_name(sql)?.as_deref() {
                     #query_arms
-                    None => {
-                        #show_entities_dispatch
-                    }
+                    None => #show_entities_dispatch,
                     Some(entity) => Err(::icydb::Error::new(
                         ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
                         ::icydb::ErrorOrigin::Interface,
@@ -340,9 +338,7 @@ fn admin_sql_query_dispatch_arm(entity_ty: &syn::Path) -> TokenStream {
                     <#entity_ty as ::icydb::traits::EntitySchema>::NAME
                 ) =>
             {
-                return db()
-                    .execute_sql_query_with_attribution::<#entity_ty>(sql)
-                    .map_err(::icydb::Error::from);
+                db().execute_admin_sql_query_with_attribution::<#entity_ty>(sql)
             }
     }
 }
@@ -358,27 +354,23 @@ fn admin_sql_ddl_dispatch_arm(entity_ty: &syn::Path) -> TokenStream {
                     <#entity_ty as ::icydb::traits::EntitySchema>::NAME
                 ) =>
             {
-                return db()
-                    .execute_sql_ddl::<#entity_ty>(sql)
-                    .map_err(::icydb::Error::from);
+                db().execute_sql_ddl::<#entity_ty>(sql)
             }
     }
 }
 
 fn empty_admin_sql_query_dispatch() -> TokenStream {
     quote! {
-        return Err(::icydb::Error::new(
+        Err(::icydb::Error::new(
             ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
             ::icydb::ErrorOrigin::Interface,
             "admin SQL query requires at least one canister entity",
-        ));
+        ))
     }
 }
 
 fn show_entities_dispatch_for(entity_ty: &syn::Path) -> TokenStream {
     quote! {
-        return db()
-            .execute_sql_query_with_attribution::<#entity_ty>(sql)
-            .map_err(::icydb::Error::from);
+        db().execute_admin_sql_query_with_attribution::<#entity_ty>(sql)
     }
 }

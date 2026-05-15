@@ -307,7 +307,7 @@ macro_rules! admin_sql_query {
             Ok(())
         }
 
-        #[cfg(all(feature = "sql", feature = "diagnostics"))]
+        #[cfg(feature = "sql")]
         #[derive(::icydb::__reexports::candid::CandidType, Clone, Debug, Eq, PartialEq)]
         struct IcydbAdminSqlQueryPerfResult {
             result: ::icydb::db::sql::SqlQueryResult,
@@ -321,11 +321,11 @@ macro_rules! admin_sql_query {
             compiler_instructions: u64,
         }
 
-        #[cfg(all(feature = "sql", feature = "diagnostics"))]
+        #[cfg(feature = "sql")]
         impl IcydbAdminSqlQueryPerfResult {
             fn from_attribution(
                 result: ::icydb::db::sql::SqlQueryResult,
-                attribution: ::icydb::db::SqlQueryExecutionAttribution,
+                attribution: ::icydb::db::AdminSqlQueryAttribution,
             ) -> Self {
                 Self {
                     result,
@@ -347,7 +347,7 @@ macro_rules! admin_sql_query {
             }
         }
 
-        #[cfg(all(feature = "sql", feature = "diagnostics"))]
+        #[cfg(feature = "sql")]
         #[::icydb::__reexports::canic_cdk::query]
         fn icydb_admin_sql_query(
             sql: String,

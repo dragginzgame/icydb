@@ -47,6 +47,56 @@ impl MutationMode {
     }
 }
 
+/// Admin SQL query attribution envelope used by generated canister endpoints.
+#[cfg(feature = "sql")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct AdminSqlQueryAttribution {
+    pub compile_local_instructions: u64,
+    pub execution: AdminSqlExecutionAttribution,
+    pub pure_covering: Option<AdminSqlPureCoveringAttribution>,
+    pub response_decode_local_instructions: u64,
+    pub total_local_instructions: u64,
+}
+
+/// Admin SQL execution-stage attribution.
+#[cfg(feature = "sql")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct AdminSqlExecutionAttribution {
+    pub planner_local_instructions: u64,
+    pub store_local_instructions: u64,
+    pub executor_local_instructions: u64,
+}
+
+/// Admin SQL pure-covering attribution.
+#[cfg(feature = "sql")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct AdminSqlPureCoveringAttribution {
+    pub decode_local_instructions: u64,
+    pub row_assembly_local_instructions: u64,
+}
+
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+impl From<crate::db::SqlQueryExecutionAttribution> for AdminSqlQueryAttribution {
+    fn from(attribution: crate::db::SqlQueryExecutionAttribution) -> Self {
+        Self {
+            compile_local_instructions: attribution.compile_local_instructions,
+            execution: AdminSqlExecutionAttribution {
+                planner_local_instructions: attribution.execution.planner_local_instructions,
+                store_local_instructions: attribution.execution.store_local_instructions,
+                executor_local_instructions: attribution.execution.executor_local_instructions,
+            },
+            pure_covering: attribution.pure_covering.map(|pure_covering| {
+                AdminSqlPureCoveringAttribution {
+                    decode_local_instructions: pure_covering.decode_local_instructions,
+                    row_assembly_local_instructions: pure_covering.row_assembly_local_instructions,
+                }
+            }),
+            response_decode_local_instructions: attribution.response_decode_local_instructions,
+            total_local_instructions: attribution.total_local_instructions,
+        }
+    }
+}
+
 ///
 /// StructuralPatch
 ///
@@ -226,6 +276,49 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
+    /// Execute one admin SQL query and return the shell perf envelope shape.
+    #[cfg(all(feature = "sql", not(feature = "diagnostics")))]
+    #[doc(hidden)]
+    pub fn execute_admin_sql_query_with_attribution<E>(
+        &self,
+        sql: &str,
+    ) -> Result<(SqlQueryResult, AdminSqlQueryAttribution), Error>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        Ok((
+            self.execute_sql_query::<E>(sql)?,
+            AdminSqlQueryAttribution::default(),
+        ))
+    }
+
+    /// Execute one reduced SQL query and report the top-level compile/execute
+    /// cost split at the SQL seam.
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[doc(hidden)]
+    pub fn execute_admin_sql_query_with_attribution<E>(
+        &self,
+        sql: &str,
+    ) -> Result<(SqlQueryResult, AdminSqlQueryAttribution), Error>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (result, mut attribution) = self.inner.execute_sql_query_with_attribution::<E>(sql)?;
+        let entity_name = E::MODEL.name().to_string();
+
+        // Phase 1: measure the outward SQL response packaging step separately
+        // so shell/dev perf output can distinguish executor work from result
+        // decode and formatting prep.
+        let (response_decode_local_instructions, result) =
+            measure_sql_response_decode_stage(|| {
+                crate::db::sql::sql_query_result_from_statement(result, entity_name)
+            });
+        attribution =
+            finalize_public_sql_query_attribution(attribution, response_decode_local_instructions);
+
+        Ok((result, AdminSqlQueryAttribution::from(attribution)))
+    }
+
     /// Execute one reduced SQL query and report the top-level compile/execute
     /// cost split at the SQL seam.
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
@@ -239,10 +332,6 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let (result, mut attribution) = self.inner.execute_sql_query_with_attribution::<E>(sql)?;
         let entity_name = E::MODEL.name().to_string();
-
-        // Phase 1: measure the outward SQL response packaging step separately
-        // so shell/dev perf output can distinguish executor work from result
-        // decode and formatting prep.
         let (response_decode_local_instructions, result) =
             measure_sql_response_decode_stage(|| {
                 crate::db::sql::sql_query_result_from_statement(result, entity_name)
