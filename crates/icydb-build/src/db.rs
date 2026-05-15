@@ -290,6 +290,14 @@ impl quote::ToTokens for AdminSqlTokens {
 
             #[cfg(feature = "sql")]
             #[allow(dead_code)]
+            #[allow(
+                clippy::unnecessary_wraps,
+                reason = "zero-entity canisters still need the macro-owned reset helper to share the fallible reset signature"
+            )]
+            #[allow(
+                clippy::missing_const_for_fn,
+                reason = "the same generated reset helper is non-const when a canister owns entities"
+            )]
             fn icydb_admin_sql_reset_all_tables() -> Result<(), ::icydb::Error> {
                 #reset_statements
 
