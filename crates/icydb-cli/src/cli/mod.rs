@@ -167,17 +167,18 @@ impl MetricsArgs {
 ///
 /// ConfigCommand
 ///
-/// ConfigCommand owns read-only inspection of `icydb.toml`. It can optionally
-/// compare configured canister SQL surfaces against an explicit ICP environment.
+/// ConfigCommand owns creation and inspection of `icydb.toml`. Inspection can
+/// optionally compare configured canister surfaces against an explicit ICP
+/// environment.
 ///
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum ConfigCommand {
     /// Create a default IcyDB config file.
     Init(ConfigInitArgs),
-    /// Show resolved IcyDB config and compare it with the selected ICP environment.
+    /// Show resolved IcyDB config, optionally comparing it with an ICP environment.
     Show(ConfigArgs),
-    /// Validate resolved IcyDB config against the selected ICP environment.
+    /// Validate resolved IcyDB config and optionally check an ICP environment.
     Check(ConfigArgs),
 }
 
@@ -228,7 +229,7 @@ pub(crate) struct ConfigInitArgs {
     #[arg(long)]
     pub(crate) start_dir: Option<PathBuf>,
 
-    /// Canister whose generated DB SQL surfaces should be configured.
+    /// Canister whose generated DB endpoint surfaces should be configured.
     #[arg(short, long, required = true)]
     pub(crate) canister: String,
 
@@ -244,7 +245,7 @@ pub(crate) struct ConfigInitArgs {
     #[arg(long)]
     pub(crate) metrics: bool,
 
-    /// Also generate metrics reset endpoint.
+    /// Also generate the metrics reset endpoint.
     #[arg(long = "metrics-reset")]
     pub(crate) metrics_reset: bool,
 

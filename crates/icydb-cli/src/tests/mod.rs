@@ -640,9 +640,17 @@ fn config_report_marks_canister_settings_against_icp_environment() {
         &resolved,
     );
 
+    assert!(report.contains(
+        "  canister   SQL surfaces              metrics          snapshot   schema    ICP environment\n"
+    ));
     assert!(
-        report.contains("demo_rpg  readonly, ddl, fixtures  enabled, reset  enabled   enabled  ok")
+        report
+            .lines()
+            .any(|line| line.starts_with("  --------   -----------------------"))
     );
+    assert!(report.contains(
+        "  demo_rpg   readonly, ddl, fixtures   enabled, reset   enabled    enabled   ok\n"
+    ));
     std::fs::remove_dir_all(root).expect("test directory should be removed");
 }
 
@@ -1065,6 +1073,14 @@ fn sql_shell_call_kind_routes_supported_ddl_to_update_method() {
     );
     assert_eq!(
         sql_shell_call_kind("  create   index name_idx ON Character (name)  ; "),
+        SqlShellCallKind::Ddl,
+    );
+    assert_eq!(
+        sql_shell_call_kind("DROP INDEX name_idx ON Character;"),
+        SqlShellCallKind::Ddl,
+    );
+    assert_eq!(
+        sql_shell_call_kind("  drop   index name_idx ON Character  ; "),
         SqlShellCallKind::Ddl,
     );
     assert_eq!(

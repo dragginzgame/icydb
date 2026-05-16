@@ -16,6 +16,7 @@
 mod tests;
 
 use crate::MAX_INDEX_FIELDS;
+use icydb_utils::to_snake_case;
 use std::{
     cmp::Ordering,
     fmt::{self, Display},
@@ -28,8 +29,14 @@ use thiserror::Error as ThisError;
 
 pub(super) const MAX_ENTITY_NAME_LEN: usize = 64;
 pub(super) const MAX_INDEX_FIELD_NAME_LEN: usize = 64;
-pub(super) const MAX_INDEX_NAME_LEN: usize =
-    MAX_ENTITY_NAME_LEN + (MAX_INDEX_FIELDS * (MAX_INDEX_FIELD_NAME_LEN + 1));
+const MAX_INDEX_NAME_PREFIX_LEN: usize = 5;
+const MAX_ENTITY_NAME_SLUG_LEN: usize = (MAX_ENTITY_NAME_LEN * 3) / 2;
+const MAX_INDEX_FIELD_NAME_SLUG_LEN: usize = (MAX_INDEX_FIELD_NAME_LEN * 3) / 2;
+pub(super) const MAX_INDEX_NAME_LEN: usize = MAX_INDEX_NAME_PREFIX_LEN
+    + MAX_ENTITY_NAME_SLUG_LEN
+    + 2
+    + (MAX_INDEX_FIELDS * MAX_INDEX_FIELD_NAME_SLUG_LEN)
+    + (MAX_INDEX_FIELDS - 1);
 const INDEX_NAME_SEGMENT_DELIMITER: u8 = b'|';
 const MAX_ASCII_BYTE: u8 = 0x7F;
 
@@ -270,8 +277,26 @@ impl IndexName {
     /// Fixed in-memory size (for buffers and arrays).
     pub const STORED_SIZE_USIZE: usize = Self::STORED_SIZE_BYTES as usize;
 
-    /// Validate and construct one index identity from an entity + field list.
+    /// Validate and construct one non-unique index identity from an entity +
+    /// field list.
     pub fn try_from_parts(entity: &EntityName, fields: &[&str]) -> Result<Self, IndexNameError> {
+        Self::try_from_parts_with_prefix("idx", entity, fields)
+    }
+
+    /// Validate and construct one unique index identity from an entity + field
+    /// list.
+    pub fn try_unique_from_parts(
+        entity: &EntityName,
+        fields: &[&str],
+    ) -> Result<Self, IndexNameError> {
+        Self::try_from_parts_with_prefix("uniq", entity, fields)
+    }
+
+    fn try_from_parts_with_prefix(
+        prefix: &str,
+        entity: &EntityName,
+        fields: &[&str],
+    ) -> Result<Self, IndexNameError> {
         // Phase 1: validate index-field count and per-field identity constraints.
         if fields.is_empty() {
             return Err(IndexNameError::NoFields);
@@ -283,7 +308,7 @@ impl IndexName {
             });
         }
 
-        let mut total_len = entity.len();
+        let mut field_slugs = Vec::with_capacity(fields.len());
         for field in fields {
             let field_len = field.len();
             if field_len == 0 {
@@ -305,9 +330,21 @@ impl IndexName {
                     field: (*field).to_string(),
                 });
             }
-            total_len = total_len.saturating_add(1 + field_len);
+            let slug = index_name_slug(field);
+            if slug.is_empty() {
+                return Err(IndexNameError::FieldEmpty);
+            }
+            field_slugs.push(slug);
         }
 
+        let entity_slug = index_name_slug(entity.as_str());
+        let total_len = prefix
+            .len()
+            .saturating_add(1)
+            .saturating_add(entity_slug.len())
+            .saturating_add(2)
+            .saturating_add(field_slugs.iter().map(String::len).sum::<usize>())
+            .saturating_add(field_slugs.len().saturating_sub(1));
         if total_len > MAX_INDEX_NAME_LEN {
             return Err(IndexNameError::TooLong {
                 len: total_len,
@@ -315,14 +352,19 @@ impl IndexName {
             });
         }
 
-        // Phase 2: encode canonical `entity|field...` bytes into fixed storage.
+        // Phase 2: encode canonical `idx_entity__field...` bytes into fixed storage.
         let mut out = [0u8; MAX_INDEX_NAME_LEN];
         let mut len = 0usize;
 
-        Self::push_bytes(&mut out, &mut len, entity.as_bytes());
-        for field in fields {
-            Self::push_bytes(&mut out, &mut len, b"|");
-            Self::push_bytes(&mut out, &mut len, field.as_bytes());
+        Self::push_bytes(&mut out, &mut len, prefix.as_bytes());
+        Self::push_bytes(&mut out, &mut len, b"_");
+        Self::push_bytes(&mut out, &mut len, entity_slug.as_bytes());
+        Self::push_bytes(&mut out, &mut len, b"__");
+        for (index, field_slug) in field_slugs.iter().enumerate() {
+            if index > 0 {
+                Self::push_bytes(&mut out, &mut len, b"_");
+            }
+            Self::push_bytes(&mut out, &mut len, field_slug.as_bytes());
         }
 
         Ok(Self {
@@ -402,6 +444,15 @@ impl IndexName {
             bytes: [MAX_ASCII_BYTE; MAX_INDEX_NAME_LEN],
         }
     }
+}
+
+fn index_name_slug(value: &str) -> String {
+    let separated = value
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+        .collect::<String>();
+
+    to_snake_case(separated.as_str())
 }
 
 impl Ord for IndexName {

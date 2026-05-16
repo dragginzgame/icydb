@@ -501,7 +501,7 @@ mod tests {
     #[test]
     fn index_model_with_predicate_exposes_predicate_metadata() {
         let model = IndexModel::generated_with_predicate(
-            "users|email|active",
+            "idx_users__email_active",
             "users::index",
             &["email"],
             false,
@@ -515,16 +515,19 @@ mod tests {
         assert_eq!(model.predicate_semantics(), Some(active_true_predicate()),);
         assert_eq!(
             model.to_string(),
-            "users|email|active: users::index(email) WHERE active = true"
+            "idx_users__email_active: users::index(email) WHERE active = true"
         );
     }
 
     #[test]
     fn index_model_without_predicate_preserves_display_shape() {
-        let model = IndexModel::generated("users|email", "users::index", &["email"], true);
+        let model = IndexModel::generated("uniq_users__email", "users::index", &["email"], true);
 
         assert_eq!(model.predicate(), None);
-        assert_eq!(model.to_string(), "users|email: UNIQUE users::index(email)");
+        assert_eq!(
+            model.to_string(),
+            "uniq_users__email: UNIQUE users::index(email)"
+        );
     }
 
     #[test]
@@ -534,7 +537,7 @@ mod tests {
             IndexKeyItem::Expression(IndexExpression::Lower("email")),
         ];
         let model = IndexModel::generated_with_key_items(
-            "users|tenant|email_expr",
+            "idx_users__tenant_lower_email",
             "users::index",
             &["tenant_id"],
             &KEY_ITEMS,
@@ -544,7 +547,7 @@ mod tests {
         assert!(model.has_expression_key_items());
         assert_eq!(
             model.to_string(),
-            "users|tenant|email_expr: users::index(tenant_id, LOWER(email))"
+            "idx_users__tenant_lower_email: users::index(tenant_id, LOWER(email))"
         );
         assert!(matches!(
             model.key_items(),

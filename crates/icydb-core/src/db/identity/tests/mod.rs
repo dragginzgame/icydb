@@ -5,12 +5,8 @@
 
 use super::*;
 
-const ENTITY_64: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const ENTITY_64_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-const FIELD_64_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const FIELD_64_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-const FIELD_64_C: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
-const FIELD_64_D: &str = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
 
 fn accepted_ascii_identity_bytes() -> impl Iterator<Item = u8> {
     (0..=MAX_ASCII_BYTE).filter(|byte| *byte != INDEX_NAME_SEGMENT_DELIMITER)
@@ -18,8 +14,14 @@ fn accepted_ascii_identity_bytes() -> impl Iterator<Item = u8> {
 
 #[test]
 fn index_name_max_len_matches_limits() {
-    let entity = EntityName::try_from_str(ENTITY_64).unwrap();
-    let fields = [FIELD_64_A, FIELD_64_B, FIELD_64_C, FIELD_64_D];
+    let expanding = "aA".repeat(MAX_ENTITY_NAME_LEN / 2);
+    let entity = EntityName::try_from_str(expanding.as_str()).unwrap();
+    let fields = [
+        expanding.as_str(),
+        expanding.as_str(),
+        expanding.as_str(),
+        expanding.as_str(),
+    ];
 
     assert_eq!(entity.as_str().len(), MAX_ENTITY_NAME_LEN);
     for field in &fields {
@@ -27,16 +29,22 @@ fn index_name_max_len_matches_limits() {
     }
     assert_eq!(fields.len(), MAX_INDEX_FIELDS);
 
-    let name = IndexName::try_from_parts(&entity, &fields).unwrap();
+    let name = IndexName::try_unique_from_parts(&entity, &fields).unwrap();
     assert_eq!(name.as_bytes().len(), MAX_INDEX_NAME_LEN);
 }
 
 #[test]
 fn index_name_max_size_roundtrip_and_ordering() {
-    let entity_a = EntityName::try_from_str(ENTITY_64).unwrap();
+    let entity_64 = "a".repeat(MAX_ENTITY_NAME_LEN);
+    let entity_a = EntityName::try_from_str(entity_64.as_str()).unwrap();
     let entity_b = EntityName::try_from_str(ENTITY_64_B).unwrap();
 
-    let fields_a = [FIELD_64_A, FIELD_64_A, FIELD_64_A, FIELD_64_A];
+    let fields_a = [
+        entity_64.as_str(),
+        entity_64.as_str(),
+        entity_64.as_str(),
+        entity_64.as_str(),
+    ];
     let fields_b = [FIELD_64_B, FIELD_64_B, FIELD_64_B, FIELD_64_B];
 
     let idx_a = IndexName::try_from_parts(&entity_a, &fields_a).unwrap();
@@ -242,7 +250,15 @@ fn index_single_field_format() {
     let entity = EntityName::try_from_str("user").unwrap();
     let idx = IndexName::try_from_parts(&entity, &["email"]).unwrap();
 
-    assert_eq!(idx.as_str(), "user|email");
+    assert_eq!(idx.as_str(), "idx_user__email");
+}
+
+#[test]
+fn unique_index_single_field_format() {
+    let entity = EntityName::try_from_str("user").unwrap();
+    let idx = IndexName::try_unique_from_parts(&entity, &["email"]).unwrap();
+
+    assert_eq!(idx.as_str(), "uniq_user__email");
 }
 
 #[test]
@@ -250,7 +266,18 @@ fn index_field_order_is_preserved() {
     let entity = EntityName::try_from_str("user").unwrap();
     let idx = IndexName::try_from_parts(&entity, &["a", "b", "c"]).unwrap();
 
-    assert_eq!(idx.as_str(), "user|a|b|c");
+    assert_eq!(idx.as_str(), "idx_user__a_b_c");
+}
+
+#[test]
+fn index_name_slugs_entity_and_expression_key_items() {
+    let entity = EntityName::try_from_str("UserAccount").unwrap();
+    let idx = IndexName::try_from_parts(&entity, &["LOWER(email)", "profile.nickname"]).unwrap();
+
+    assert_eq!(
+        idx.as_str(),
+        "idx_user_account__lower_email_profile_nickname"
+    );
 }
 
 #[test]
@@ -266,12 +293,12 @@ fn index_storage_roundtrip() {
 #[test]
 fn index_from_bytes_decodes_flat_canonical_payload() {
     let mut bytes = [0u8; IndexName::STORED_SIZE_USIZE];
-    let payload = b"E|a|b";
+    let payload = b"idx_e__a_b";
     bytes[..2].copy_from_slice(&(payload.len() as u16).to_be_bytes());
     bytes[2..2 + payload.len()].copy_from_slice(payload);
 
     let decoded = IndexName::from_bytes(&bytes).unwrap();
-    assert_eq!(decoded.as_str(), "E|a|b");
+    assert_eq!(decoded.as_str(), "idx_e__a_b");
 }
 
 #[test]
@@ -286,8 +313,12 @@ fn index_max_storable_covers_every_accepted_ascii_byte() {
     let max = IndexName::max_storable();
 
     for byte in accepted_ascii_identity_bytes() {
-        let entity_name = String::from_utf8(vec![byte; MAX_ENTITY_NAME_LEN]).unwrap();
-        let field_name = String::from_utf8(vec![byte; MAX_INDEX_FIELD_NAME_LEN]).unwrap();
+        let mut entity_bytes = vec![b'a'];
+        entity_bytes.extend(vec![byte; MAX_ENTITY_NAME_LEN - 1]);
+        let entity_name = String::from_utf8(entity_bytes).unwrap();
+        let mut field_bytes = vec![b'a'];
+        field_bytes.extend(vec![byte; MAX_INDEX_FIELD_NAME_LEN - 1]);
+        let field_name = String::from_utf8(field_bytes).unwrap();
         let entity = EntityName::try_from_str(entity_name.as_str()).unwrap();
         let fields = [
             field_name.as_str(),

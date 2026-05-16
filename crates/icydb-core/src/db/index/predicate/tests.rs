@@ -61,14 +61,14 @@ fn expected_strict_compare(
 #[test]
 fn canonical_index_predicate_reuses_parsed_predicate_for_equivalent_sql_text() {
     static INDEX_A: IndexModel = IndexModel::generated_with_predicate(
-        "entity|active",
+        "idx_entity__active",
         "entity::index",
         &["active"],
         false,
         Some(active_true_predicate_metadata()),
     );
     static INDEX_B: IndexModel = IndexModel::generated_with_predicate(
-        "entity|active|alt",
+        "idx_entity__active_alt",
         "entity::index",
         &["active"],
         false,
@@ -92,7 +92,7 @@ fn canonical_index_predicate_reuses_parsed_predicate_for_equivalent_sql_text() {
 #[test]
 fn canonical_index_predicate_is_absent_for_unfiltered_index() {
     static INDEX: IndexModel =
-        IndexModel::generated("entity|active", "entity::index", &["active"], false);
+        IndexModel::generated("idx_entity__active", "entity::index", &["active"], false);
 
     assert!(canonical_index_predicate(&INDEX).is_none());
 }

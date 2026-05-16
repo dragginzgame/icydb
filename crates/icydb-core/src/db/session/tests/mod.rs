@@ -2160,14 +2160,14 @@ fn session_show_indexes_sql_reports_runtime_index_state_transitions() {
     assert_eq!(
         statement_show_indexes_sql::<IndexedSessionSqlEntity>(
             &session,
-            "SHOW INDEXES IndexedSessionSqlEntity",
+            "SHOW INDEXES FROM IndexedSessionSqlEntity",
         )
-        .expect("SHOW INDEXES should succeed for ready index"),
+        .expect("SHOW INDEXES FROM should succeed for ready index"),
         vec![
             "PRIMARY KEY (id) [state=ready]".to_string(),
             "INDEX name (name) [state=ready]".to_string(),
         ],
-        "SHOW INDEXES should expose the default ready lifecycle state on the runtime metadata surface",
+        "SHOW INDEXES FROM should expose the default ready lifecycle state on the runtime metadata surface",
     );
 
     INDEXED_SESSION_SQL_DB
@@ -2177,14 +2177,14 @@ fn session_show_indexes_sql_reports_runtime_index_state_transitions() {
     assert_eq!(
         statement_show_indexes_sql::<IndexedSessionSqlEntity>(
             &session,
-            "SHOW INDEXES IndexedSessionSqlEntity",
+            "SHOW INDEXES FROM IndexedSessionSqlEntity",
         )
-        .expect("SHOW INDEXES should succeed for building index"),
+        .expect("SHOW INDEXES FROM should succeed for building index"),
         vec![
             "PRIMARY KEY (id) [state=building]".to_string(),
             "INDEX name (name) [state=building]".to_string(),
         ],
-        "SHOW INDEXES should expose Building while planner visibility removes the index from covering routes",
+        "SHOW INDEXES FROM should expose Building while planner visibility removes the index from covering routes",
     );
 
     INDEXED_SESSION_SQL_DB
@@ -2194,14 +2194,14 @@ fn session_show_indexes_sql_reports_runtime_index_state_transitions() {
     assert_eq!(
         statement_show_indexes_sql::<IndexedSessionSqlEntity>(
             &session,
-            "SHOW INDEXES IndexedSessionSqlEntity",
+            "SHOW INDEXES FROM IndexedSessionSqlEntity",
         )
-        .expect("SHOW INDEXES should succeed for dropping index"),
+        .expect("SHOW INDEXES FROM should succeed for dropping index"),
         vec![
             "PRIMARY KEY (id) [state=dropping]".to_string(),
             "INDEX name (name) [state=dropping]".to_string(),
         ],
-        "SHOW INDEXES should expose Dropping while planner visibility removes the index from covering routes",
+        "SHOW INDEXES FROM should expose Dropping while planner visibility removes the index from covering routes",
     );
 }
 
@@ -2413,7 +2413,7 @@ impl SqlStatementPayloadKind {
             }
             Self::Explain => "EXPLAIN SQL requires an EXPLAIN statement",
             Self::Describe => "DESCRIBE SQL requires a DESCRIBE statement",
-            Self::ShowIndexes => "SHOW INDEXES SQL requires a SHOW INDEXES statement",
+            Self::ShowIndexes => "SHOW INDEXES FROM SQL requires a SHOW INDEXES FROM statement",
             Self::ShowColumns => "SHOW COLUMNS SQL requires a SHOW COLUMNS statement",
         }
     }

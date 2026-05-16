@@ -50,6 +50,8 @@ impl Entity {
                     DarlingError::custom(format!("invalid entity name '{value}': {err}"))
                 })
                 .map_err(|err| err.with_span(name))?;
+            Self::validate_entity_name_namespace(value.as_str())
+                .map_err(|err| err.with_span(name))?;
 
             return Ok(value);
         }
@@ -59,8 +61,20 @@ impl Entity {
         EntityName::try_from_str(value.as_str())
             .map_err(|err| DarlingError::custom(format!("invalid entity name '{value}': {err}")))
             .map_err(|err| err.with_span(def_ident))?;
+        Self::validate_entity_name_namespace(value.as_str())
+            .map_err(|err| err.with_span(def_ident))?;
 
         Ok(value)
+    }
+
+    fn validate_entity_name_namespace(entity_name: &str) -> Result<(), DarlingError> {
+        if entity_name.starts_with('~') {
+            return Err(DarlingError::custom(format!(
+                "entity name '{entity_name}' uses reserved '~' namespace"
+            )));
+        }
+
+        Ok(())
     }
 
     /// Validate index declarations against entity fields and naming constraints.
@@ -151,18 +165,17 @@ impl Entity {
             .map_err(|err| err.with_index_or_def_span(index, def_ident))?;
         let segments = index.generated_name_segments();
         let segment_refs: Vec<&str> = segments.iter().map(String::as_str).collect();
-        let index_name = IndexName::try_from_parts(&entity, segment_refs.as_slice())
-            .map_err(|err| {
-                DarlingError::custom(format!("invalid index name for '{entity_name}': {err}"))
-            })
-            .map_err(|err| err.with_index_or_def_span(index, def_ident))?;
+        let index_name = if index.unique {
+            IndexName::try_unique_from_parts(&entity, segment_refs.as_slice())
+        } else {
+            IndexName::try_from_parts(&entity, segment_refs.as_slice())
+        }
+        .map_err(|err| {
+            DarlingError::custom(format!("invalid index name for '{entity_name}': {err}"))
+        })
+        .map_err(|err| err.with_index_or_def_span(index, def_ident))?;
         let index_name = index_name.as_str();
-        let uses_reserved_namespace = index_name.starts_with('~')
-            || index_name
-                .split('|')
-                .skip(1)
-                .any(|segment| segment.starts_with('~'));
-        if uses_reserved_namespace {
+        if index_name.starts_with('~') {
             return Err(DarlingError::custom(format!(
                 "index name '{index_name}' uses reserved '~' namespace"
             ))

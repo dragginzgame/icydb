@@ -77,6 +77,27 @@ Install the local CLI binary:
 make install
 ```
 
+Inspect the generated-endpoint config that local CLI commands use:
+
+```bash
+icydb config show
+icydb config show --environment demo
+icydb config check --environment demo
+```
+
+Create or replace a local `icydb.toml` for a canister when setting up a new
+demo or test canister:
+
+```bash
+icydb config init --canister demo_rpg --all
+icydb config init --canister demo_rpg --all --force
+```
+
+`config init` writes at the visible workspace root by default. Pass
+`--start-dir <path>` when running from a canister subdirectory or from outside
+the workspace. Readonly SQL is enabled by default; pass `--no-readonly` only for
+canisters that should not expose `__icydb_query`.
+
 Opt into repository git hooks:
 
 ```bash
@@ -161,11 +182,17 @@ Confirm the local ICP environment is running and inspect canister IDs:
 cargo run -q -p icydb-cli -- canister list --environment demo
 ```
 
-Then pass the target explicitly:
+Then confirm the local generated-endpoint config and pass the SQL target
+explicitly:
 
 ```bash
+cargo run -q -p icydb-cli -- config show --environment demo
 cargo run -q -p icydb-cli -- sql --environment demo --canister demo_rpg
 ```
+
+If `config show` reports a missing or disabled surface, update `icydb.toml`,
+then rebuild and deploy or refresh the canister so the generated methods match
+the config.
 
 ### `icydb canister refresh` looks destructive
 

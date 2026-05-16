@@ -1157,7 +1157,7 @@ fn user_aggregate_and_metadata_scenarios() -> Vec<SqlPerfScenario> {
             SqlPerfSurface::User,
             "metadata",
             "show_indexes",
-            "SHOW INDEXES PerfAuditUser",
+            "SHOW INDEXES FROM PerfAuditUser",
         ),
         scenario(
             "user.show_columns",
@@ -1357,7 +1357,7 @@ fn account_tier_and_metadata_scenarios() -> Vec<SqlPerfScenario> {
             SqlPerfSurface::Account,
             "metadata",
             "show_indexes",
-            "SHOW INDEXES PerfAuditAccount",
+            "SHOW INDEXES FROM PerfAuditAccount",
         ),
     ]
 }

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
+- `0.157.1` adds SQL `DROP INDEX <name> ON <entity>` for non-unique
+  DDL-published field-path indexes, routing the operation through
+  accepted-catalog binding, schema-owned mutation admission, physical index-key
+  cleanup, and accepted-after schema publication while rejecting generated
+  model-declared indexes. It also hard-cuts index introspection to the
+  SQL-style `SHOW INDEXES FROM <entity>` form, with `IN` accepted as the MySQL
+  synonym, and hard-cuts generated secondary index names to SQL-friendly
+  `idx_<entity>__<field>` / `uniq_<entity>__<field>` identifiers. The CLI SQL
+  shell now routes `DROP INDEX` through the generated DDL update endpoint
+  instead of the readonly query endpoint.
+
 - `0.157.0` opens the next DDL line by continuing accepted-catalog SQL DDL work
   after the 0.156 config pass, while leaving room for focused developer
   ergonomics improvements that clarify the public IcyDB API surface.

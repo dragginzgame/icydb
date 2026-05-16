@@ -1552,24 +1552,24 @@ fn prepare_sql_statement_rejects_parameters_before_lowering() {
 #[test]
 fn compile_sql_command_show_indexes_lowers_to_show_indexes_lane() {
     let command = compile_sql_command::<SqlLowerEntity>(
-        "SHOW INDEXES public.SqlLowerEntity",
+        "SHOW INDEXES FROM public.SqlLowerEntity",
         MissingRowPolicy::Ignore,
     )
-    .expect("SHOW INDEXES should lower");
+    .expect("SHOW INDEXES FROM should lower");
 
     assert!(
         matches!(command, SqlCommand::ShowIndexesEntity),
-        "SHOW INDEXES should lower to dedicated show-indexes command lane",
+        "SHOW INDEXES FROM should lower to dedicated show-indexes command lane",
     );
 }
 
 #[test]
 fn compile_sql_command_show_indexes_rejects_entity_mismatch() {
     let err = compile_sql_command::<SqlLowerEntity>(
-        "SHOW INDEXES DifferentEntity",
+        "SHOW INDEXES FROM DifferentEntity",
         MissingRowPolicy::Ignore,
     )
-    .expect_err("SHOW INDEXES entity mismatch should fail lowering");
+    .expect_err("SHOW INDEXES FROM entity mismatch should fail lowering");
 
     assert!(matches!(err, SqlLoweringError::EntityMismatch { .. }));
 }

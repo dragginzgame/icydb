@@ -320,12 +320,13 @@ pub(crate) fn sql_shell_call_kind(sql: &str) -> SqlShellCallKind {
         .trim_start()
         .trim_end_matches(|ch: char| ch == ';' || ch.is_whitespace())
         .trim_start();
-    if normalized
-        .split_whitespace()
-        .take(2)
-        .map(str::to_ascii_uppercase)
-        .eq(["CREATE".to_string(), "INDEX".to_string()])
-    {
+    let mut words = normalized.split_whitespace().map(str::to_ascii_uppercase);
+    let first = words.next();
+    let second = words.next();
+    if matches!(
+        (first.as_deref(), second.as_deref()),
+        (Some("CREATE" | "DROP"), Some("INDEX"))
+    ) {
         return SqlShellCallKind::Ddl;
     }
 

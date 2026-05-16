@@ -829,10 +829,10 @@ mod tests {
         ),
     ];
     static NAME_INDEX: IndexModel =
-        IndexModel::generated_with_ordinal(1, "Entity|name", "entity::name", &["name"], false);
+        IndexModel::generated_with_ordinal(1, "idx_entity__name", "entity::name", &["name"], false);
     static PROFILE_NICKNAME_INDEX: IndexModel = IndexModel::generated_with_ordinal(
         2,
-        "Entity|profile.nickname",
+        "idx_entity__profile_nickname",
         "entity::profile_nickname",
         &["profile.nickname"],
         false,
@@ -841,7 +841,7 @@ mod tests {
         [IndexKeyItem::Expression(IndexExpression::Lower("name"))];
     static EXPRESSION_INDEX: IndexModel = IndexModel::generated_with_ordinal_and_key_items(
         3,
-        "Entity|lower_name",
+        "idx_entity__lower_name",
         "entity::lower_name",
         &["name"],
         &EXPRESSION_KEY_ITEMS,
@@ -959,7 +959,7 @@ mod tests {
 
         let name_index = &snapshot.indexes()[0];
         assert_eq!(name_index.ordinal(), 1);
-        assert_eq!(name_index.name(), "Entity|name");
+        assert_eq!(name_index.name(), "idx_entity__name");
         assert!(!name_index.unique());
         assert_eq!(name_index.key().field_paths().len(), 1);
         assert_eq!(
@@ -976,7 +976,7 @@ mod tests {
         );
 
         let nested_index = &snapshot.indexes()[1];
-        assert_eq!(nested_index.name(), "Entity|profile.nickname");
+        assert_eq!(nested_index.name(), "idx_entity__profile_nickname");
         assert_eq!(
             nested_index.key().field_paths()[0].field_id(),
             FieldId::new(4)
@@ -992,7 +992,7 @@ mod tests {
 
         let expression_index = &snapshot.indexes()[2];
         assert_eq!(expression_index.ordinal(), 3);
-        assert_eq!(expression_index.name(), "Entity|lower_name");
+        assert_eq!(expression_index.name(), "idx_entity__lower_name");
         let PersistedIndexKeySnapshot::Items(items) = expression_index.key() else {
             panic!("expression index should preserve explicit key items");
         };

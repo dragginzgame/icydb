@@ -110,7 +110,7 @@ fn expect_describe(result: SqlQueryResult) -> EntitySchemaDescription {
 fn expect_show_indexes(result: SqlQueryResult) -> Vec<String> {
     match result {
         SqlQueryResult::ShowIndexes { indexes, .. } => indexes,
-        other => panic!("expected SHOW INDEXES payload, got {other:?}"),
+        other => panic!("expected SHOW INDEXES FROM payload, got {other:?}"),
     }
 }
 
@@ -138,8 +138,8 @@ fn assert_ddl_rejects_without_index_visibility_change(
     forbidden_visibility_fragment: &str,
 ) {
     let before = expect_show_indexes(
-        query_sql(fixture, "SHOW INDEXES SqlTestUser")
-            .expect("SHOW INDEXES should read accepted indexes before rejected DDL"),
+        query_sql(fixture, "SHOW INDEXES FROM SqlTestUser")
+            .expect("SHOW INDEXES FROM should read accepted indexes before rejected DDL"),
     );
     let err = ddl_sql(fixture, sql).expect_err("invalid DDL should reject");
 
@@ -149,8 +149,8 @@ fn assert_ddl_rejects_without_index_visibility_change(
         "invalid DDL should stay an unsupported runtime error at the canister boundary",
     );
     let after = expect_show_indexes(
-        query_sql(fixture, "SHOW INDEXES SqlTestUser")
-            .expect("SHOW INDEXES should still read accepted indexes after rejected DDL"),
+        query_sql(fixture, "SHOW INDEXES FROM SqlTestUser")
+            .expect("SHOW INDEXES FROM should still read accepted indexes after rejected DDL"),
     );
     assert_eq!(
         after, before,
@@ -197,14 +197,14 @@ fn sql_canister_ddl_endpoint_publishes_supported_field_path_index() {
     assert_eq!(index_keys_written, 3);
 
     let indexes = expect_show_indexes(
-        query_sql(&fixture, "SHOW INDEXES SqlTestUser")
-            .expect("SHOW INDEXES should read accepted indexes after DDL publication"),
+        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+            .expect("SHOW INDEXES FROM should read accepted indexes after DDL publication"),
     );
     assert!(
         indexes
             .iter()
             .any(|index| index == "INDEX sql_test_user_rank_idx (rank) [state=ready]"),
-        "SHOW INDEXES should expose the DDL-published accepted index: {indexes:?}",
+        "SHOW INDEXES FROM should expose the DDL-published accepted index: {indexes:?}",
     );
 }
 

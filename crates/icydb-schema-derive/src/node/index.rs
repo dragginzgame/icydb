@@ -60,15 +60,19 @@ impl HasSchemaPart for Index {
 }
 
 impl Index {
-    /// Build the canonical index name (`entity|key_item|...`) shared across
+    /// Build the canonical index name (`idx_entity__key_item...`) shared across
     /// validation and codegen.
     pub fn generated_name(&self, entity_name: &str) -> String {
         let entity = EntityName::try_from_str(entity_name)
             .expect("validated entity name should build canonical index name");
         let segments = self.generated_name_segments();
         let segment_refs: Vec<&str> = segments.iter().map(String::as_str).collect();
-        let name = IndexName::try_from_parts(&entity, segment_refs.as_slice())
-            .expect("validated index key items should build canonical index name");
+        let name = if self.unique {
+            IndexName::try_unique_from_parts(&entity, segment_refs.as_slice())
+        } else {
+            IndexName::try_from_parts(&entity, segment_refs.as_slice())
+        }
+        .expect("validated index key items should build canonical index name");
 
         name.as_str().to_string()
     }
@@ -866,6 +870,6 @@ mod tests {
             predicate: None,
         };
 
-        assert_eq!(index.generated_name("User"), "User|LOWER(email)");
+        assert_eq!(index.generated_name("User"), "idx_user__lower_email");
     }
 }

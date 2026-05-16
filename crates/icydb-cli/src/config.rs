@@ -7,6 +7,7 @@ use std::{
 use crate::{
     cli::{ConfigArgs, ConfigInitArgs},
     icp::known_canisters,
+    table::{ColumnAlign, append_indented_table},
 };
 
 const CONFIG_FILE_NAME: &str = "icydb.toml";
@@ -93,8 +94,6 @@ pub(crate) const SCHEMA_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
     method: "__icydb_schema",
     surface: ConfigSurface::Schema,
 };
-
-type CanisterSurfaceRow<'a> = (&'a str, &'a str, &'a str, &'a str, &'a str, Option<&'a str>);
 
 struct ConfigContext {
     environment: Option<String>,
@@ -371,38 +370,41 @@ pub(crate) fn render_config_report(
             .canisters()
             .iter()
             .map(|(name, canister)| {
-                (
-                    name.as_str(),
+                [
+                    name.clone(),
                     sql_surface_status(
                         canister.sql_readonly(),
                         canister.sql_ddl(),
                         canister.sql_fixtures(),
-                    ),
-                    metrics_surface_status(canister.metrics(), canister.metrics_reset()),
-                    enabled_status(canister.snapshot()),
-                    enabled_status(canister.schema()),
-                    Some(status_text(known.contains(name.as_str()))),
-                )
+                    )
+                    .to_string(),
+                    metrics_surface_status(canister.metrics(), canister.metrics_reset())
+                        .to_string(),
+                    enabled_status(canister.snapshot()).to_string(),
+                    enabled_status(canister.schema()).to_string(),
+                    status_text(known.contains(name.as_str())).to_string(),
+                ]
             })
             .collect::<Vec<_>>();
-        append_canister_table(&mut report, rows.as_slice());
+        append_checked_canister_table(&mut report, rows.as_slice());
     } else {
         let rows = config
             .canisters()
             .iter()
             .map(|(name, canister)| {
-                (
-                    name.as_str(),
+                [
+                    name.clone(),
                     sql_surface_status(
                         canister.sql_readonly(),
                         canister.sql_ddl(),
                         canister.sql_fixtures(),
-                    ),
-                    metrics_surface_status(canister.metrics(), canister.metrics_reset()),
-                    enabled_status(canister.snapshot()),
-                    enabled_status(canister.schema()),
-                    None,
-                )
+                    )
+                    .to_string(),
+                    metrics_surface_status(canister.metrics(), canister.metrics_reset())
+                        .to_string(),
+                    enabled_status(canister.snapshot()).to_string(),
+                    enabled_status(canister.schema()).to_string(),
+                ]
             })
             .collect::<Vec<_>>();
         append_canister_table(&mut report, rows.as_slice());
@@ -442,67 +444,44 @@ pub(crate) fn config_sync_issues(
     issues
 }
 
-fn append_canister_table(report: &mut String, rows: &[CanisterSurfaceRow<'_>]) {
-    let canister_width = table_width("canister", rows.iter().map(|(name, _, _, _, _, _)| *name));
-    let sql_width = table_width("SQL surfaces", rows.iter().map(|(_, sql, _, _, _, _)| *sql));
-    let metrics_width = table_width(
-        "metrics",
-        rows.iter().map(|(_, _, metrics, _, _, _)| *metrics),
+fn append_canister_table(report: &mut String, rows: &[[String; 5]]) {
+    append_indented_table(
+        report,
+        "  ",
+        &["canister", "SQL surfaces", "metrics", "snapshot", "schema"],
+        rows,
+        &[
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+        ],
     );
-    let snapshot_width = table_width(
-        "snapshot",
-        rows.iter().map(|(_, _, _, snapshot, _, _)| *snapshot),
-    );
-    let schema_width = table_width("schema", rows.iter().map(|(_, _, _, _, schema, _)| *schema));
-    let include_in_env = rows.iter().any(|(_, _, _, _, _, in_env)| in_env.is_some());
-
-    if include_in_env {
-        report.push_str(
-            format!(
-                "  {canister:<canister_width$}  {sql:<sql_width$}  {metrics:<metrics_width$}  {snapshot:<snapshot_width$}  {schema:<schema_width$}  {in_env}\n",
-                canister = "canister",
-                sql = "SQL surfaces",
-                metrics = "metrics",
-                snapshot = "snapshot",
-                schema = "schema",
-                in_env = "ICP environment",
-            )
-            .as_str(),
-        );
-    } else {
-        report.push_str(
-            format!(
-                "  {canister:<canister_width$}  {sql:<sql_width$}  {metrics:<metrics_width$}  {snapshot:<snapshot_width$}  {schema}\n",
-                canister = "canister",
-                sql = "SQL surfaces",
-                metrics = "metrics",
-                snapshot = "snapshot",
-                schema = "schema",
-            )
-            .as_str(),
-        );
-    }
-    for (canister, sql, metrics, snapshot, schema, in_env) in rows {
-        if let Some(in_env) = in_env {
-            report.push_str(
-                format!(
-                    "  {canister:<canister_width$}  {sql:<sql_width$}  {metrics:<metrics_width$}  {snapshot:<snapshot_width$}  {schema:<schema_width$}  {in_env}\n"
-                )
-                .as_str(),
-            );
-        } else {
-            report.push_str(
-                format!(
-                    "  {canister:<canister_width$}  {sql:<sql_width$}  {metrics:<metrics_width$}  {snapshot:<snapshot_width$}  {schema}\n"
-                )
-                .as_str(),
-            );
-        }
-    }
 }
 
-fn table_width<'a>(heading: &str, values: impl Iterator<Item = &'a str>) -> usize {
-    values.map(str::len).max().unwrap_or(0).max(heading.len())
+fn append_checked_canister_table(report: &mut String, rows: &[[String; 6]]) {
+    append_indented_table(
+        report,
+        "  ",
+        &[
+            "canister",
+            "SQL surfaces",
+            "metrics",
+            "snapshot",
+            "schema",
+            "ICP environment",
+        ],
+        rows,
+        &[
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+        ],
+    );
 }
 
 const fn status_text(ok: bool) -> &'static str {

@@ -6,11 +6,11 @@
 use super::{
     SqlAggregateCall, SqlAggregateKind, SqlAssignment, SqlCaseArm, SqlCreateIndexStatement,
     SqlCreateIndexUniqueness, SqlDdlStatement, SqlDeleteStatement, SqlDescribeStatement,
-    SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlExprBinaryOp,
-    SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlParseError,
-    SqlProjection, SqlReturningProjection, SqlScalarFunction, SqlSelectItem, SqlSelectStatement,
-    SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
-    SqlUpdateStatement, parse_sql,
+    SqlDropIndexStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr,
+    SqlExprBinaryOp, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
+    SqlParseError, SqlProjection, SqlReturningProjection, SqlScalarFunction, SqlSelectItem,
+    SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
+    SqlStatement, SqlUpdateStatement, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
@@ -1761,13 +1761,36 @@ fn parse_describe_statement_with_schema_qualified_entity() {
 #[test]
 fn parse_show_indexes_statement_with_schema_qualified_entity() {
     let statement =
-        parse_sql("SHOW INDEXES public.users").expect("show indexes statement should parse");
+        parse_sql("SHOW INDEXES FROM public.users").expect("show indexes statement should parse");
 
     assert_eq!(
         statement,
         SqlStatement::ShowIndexes(SqlShowIndexesStatement {
             entity: "public.users".to_string(),
         }),
+    );
+}
+
+#[test]
+fn parse_show_indexes_statement_accepts_in_synonym() {
+    let statement =
+        parse_sql("SHOW INDEXES IN public.users").expect("show indexes IN statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::ShowIndexes(SqlShowIndexesStatement {
+            entity: "public.users".to_string(),
+        }),
+    );
+}
+
+#[test]
+fn parse_show_indexes_rejects_non_sql_entity_shortcut() {
+    let err = parse_sql("SHOW INDEXES public.users").expect_err("SHOW INDEXES requires FROM or IN");
+
+    assert!(
+        matches!(err, SqlParseError::InvalidSyntax { .. }),
+        "SHOW INDEXES without FROM/IN should fail as invalid SQL syntax",
     );
 }
 
@@ -1834,6 +1857,20 @@ fn parse_create_index_rejects_unsupported_ddl_shapes() {
             "unsupported DDL shape should report a typed unsupported feature",
         );
     }
+}
+
+#[test]
+fn parse_drop_index_statement_keeps_ddl_intent_unresolved() {
+    let statement =
+        parse_sql("DROP INDEX user_age_idx ON public.users").expect("DROP INDEX should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::DropIndex(SqlDropIndexStatement {
+            name: "user_age_idx".to_string(),
+            entity: "public.users".to_string(),
+        })),
+    );
 }
 
 #[test]
@@ -3571,7 +3608,10 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
             "SHOW DATABASES",
             "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW TABLES",
         ),
-        ("SHOW INDEXES users WHERE age > 1", "SHOW INDEXES modifiers"),
+        (
+            "SHOW INDEXES FROM users WHERE age > 1",
+            "SHOW INDEXES modifiers",
+        ),
         ("SHOW COLUMNS users WHERE age > 1", "SHOW COLUMNS modifiers"),
         ("SHOW ENTITIES users", "SHOW ENTITIES modifiers"),
     ];

@@ -1,5 +1,5 @@
-error: index name '~UiIndexedEntity|id' uses reserved '~' namespace
-  --> tests/ui/index_reserved_namespace.rs:19:20
+error: entity name '~UiIndexedEntity' uses reserved '~' namespace
+  --> tests/ui/index_reserved_namespace.rs:16:12
    |
-19 |     index(fields = "id"),
-   |                    ^^^^
+16 |     name = "~UiIndexedEntity",
+   |            ^^^^^^^^^^^^^^^^^^

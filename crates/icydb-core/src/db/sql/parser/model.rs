@@ -41,6 +41,7 @@ pub(crate) enum SqlStatement {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SqlDdlStatement {
     CreateIndex(SqlCreateIndexStatement),
+    DropIndex(SqlDropIndexStatement),
 }
 
 ///
@@ -67,6 +68,20 @@ pub(crate) struct SqlCreateIndexStatement {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SqlCreateIndexUniqueness {
     NonUnique,
+}
+
+///
+/// SqlDropIndexStatement
+///
+/// Narrow parsed `DROP INDEX` frontend. The entity remains explicit so
+/// generated canister dispatch can route DDL without guessing in multi-entity
+/// canisters.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlDropIndexStatement {
+    pub(crate) name: String,
+    pub(crate) entity: String,
 }
 
 ///

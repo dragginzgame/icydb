@@ -11,9 +11,9 @@ mod update;
 use crate::db::{
     sql::parser::{
         Parser, SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement,
-        SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode, SqlExplainStatement,
-        SqlExplainTarget, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
-        SqlShowIndexesStatement, SqlStatement, SqlUpdateStatement,
+        SqlDeleteStatement, SqlDescribeStatement, SqlDropIndexStatement, SqlExplainMode,
+        SqlExplainStatement, SqlExplainTarget, SqlSelectStatement, SqlShowColumnsStatement,
+        SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlUpdateStatement,
     },
     sql_shared::{Keyword, SqlParseError, TokenKind},
 };
@@ -35,6 +35,9 @@ impl Parser {
         if self.eat_keyword(Keyword::Create) {
             return Ok(SqlStatement::Ddl(self.parse_create_statement()?));
         }
+        if self.eat_keyword(Keyword::Drop) {
+            return Ok(SqlStatement::Ddl(self.parse_drop_statement()?));
+        }
         if self.eat_keyword(Keyword::Explain) {
             return Ok(SqlStatement::Explain(self.parse_explain_statement()?));
         }
@@ -50,7 +53,7 @@ impl Parser {
         }
 
         Err(SqlParseError::expected(
-            "one of SELECT, DELETE, INSERT, UPDATE, CREATE, EXPLAIN, DESCRIBE, SHOW",
+            "one of SELECT, DELETE, INSERT, UPDATE, CREATE, DROP, EXPLAIN, DESCRIBE, SHOW",
             self.peek_kind(),
         ))
     }
@@ -137,6 +140,26 @@ impl Parser {
         })
     }
 
+    fn parse_drop_statement(&mut self) -> Result<SqlDdlStatement, SqlParseError> {
+        if !self.eat_keyword(Keyword::Index) {
+            return Err(SqlParseError::unsupported_feature(
+                "SQL DDL DROP statements beyond DROP INDEX",
+            ));
+        }
+
+        Ok(SqlDdlStatement::DropIndex(
+            self.parse_drop_index_statement()?,
+        ))
+    }
+
+    fn parse_drop_index_statement(&mut self) -> Result<SqlDropIndexStatement, SqlParseError> {
+        let name = self.expect_identifier()?;
+        self.expect_keyword(Keyword::On)?;
+        let entity = self.expect_identifier()?;
+
+        Ok(SqlDropIndexStatement { name, entity })
+    }
+
     fn ddl_clause_order_error(&self, statement: &SqlDdlStatement) -> SqlParseError {
         match statement {
             SqlDdlStatement::CreateIndex(_) if self.peek_keyword(Keyword::Where) => {
@@ -144,6 +167,9 @@ impl Parser {
             }
             SqlDdlStatement::CreateIndex(_) => {
                 SqlParseError::unsupported_feature("CREATE INDEX modifiers")
+            }
+            SqlDdlStatement::DropIndex(_) => {
+                SqlParseError::unsupported_feature("DROP INDEX modifiers")
             }
         }
     }
@@ -271,6 +297,9 @@ impl Parser {
     }
 
     fn parse_show_indexes_statement(&mut self) -> Result<SqlShowIndexesStatement, SqlParseError> {
+        if !self.eat_keyword(Keyword::From) && !self.eat_keyword(Keyword::In) {
+            return Err(SqlParseError::expected("FROM or IN", self.peek_kind()));
+        }
         let entity = self.expect_identifier()?;
 
         Ok(SqlShowIndexesStatement { entity })

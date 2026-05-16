@@ -338,21 +338,21 @@ mod tests {
     }
 
     static INDEX_MODEL_PRED_TRUE_A: IndexModel = IndexModel::generated_with_predicate(
-        "entity|active",
+        "idx_entity__active",
         "entity::store",
         &INDEX_FIELDS,
         false,
         Some(active_true_predicate_metadata("active = true")),
     );
     static INDEX_MODEL_PRED_TRUE_B: IndexModel = IndexModel::generated_with_predicate(
-        "entity|active",
+        "idx_entity__active",
         "entity::store",
         &INDEX_FIELDS,
         false,
         Some(active_true_predicate_metadata("active=true")),
     );
     static INDEX_MODEL_PRED_FALSE: IndexModel = IndexModel::generated_with_predicate(
-        "entity|active",
+        "idx_entity__active",
         "entity::store",
         &INDEX_FIELDS,
         false,
@@ -361,7 +361,7 @@ mod tests {
     static INDEX_KEY_ITEMS_FIELD: [IndexKeyItem; 1] = [IndexKeyItem::Field("active")];
     static INDEX_MODEL_KEY_ITEMS_FIELD: IndexModel =
         IndexModel::generated_with_key_items_and_predicate(
-            "entity|active",
+            "idx_entity__active",
             "entity::store",
             &INDEX_FIELDS,
             Some(&INDEX_KEY_ITEMS_FIELD),
@@ -372,7 +372,7 @@ mod tests {
         [IndexKeyItem::Expression(IndexExpression::Lower("active"))];
     static INDEX_MODEL_KEY_ITEMS_EXPR: IndexModel =
         IndexModel::generated_with_key_items_and_predicate(
-            "entity|active",
+            "idx_entity__active",
             "entity::store",
             &INDEX_FIELDS,
             Some(&INDEX_KEY_ITEMS_EXPR),
@@ -380,7 +380,7 @@ mod tests {
             Some(active_true_predicate_metadata("active=true")),
         );
     static CONTRACT_INDEX_MODEL: IndexModel = IndexModel::generated(
-        "entity|value",
+        "idx_entity__value",
         "entity::value_index",
         &CONTRACT_INDEX_FIELDS,
         false,

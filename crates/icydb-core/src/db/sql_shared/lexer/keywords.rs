@@ -23,6 +23,7 @@ const KEYWORDS_LEN_3: &[(&str, Keyword)] = &[
 const KEYWORDS_LEN_4: &[(&str, Keyword)] = &[
     ("CASE", Keyword::Case),
     ("DESC", Keyword::Desc),
+    ("DROP", Keyword::Drop),
     ("ELSE", Keyword::Else),
     ("FROM", Keyword::From),
     ("JOIN", Keyword::Join),

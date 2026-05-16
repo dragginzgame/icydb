@@ -109,7 +109,7 @@ impl AcceptedSchemaSnapshot {
 
     /// Borrow the accepted persisted snapshot payload.
     #[must_use]
-    pub(in crate::db::schema) const fn persisted_snapshot(&self) -> &PersistedSchemaSnapshot {
+    pub(in crate::db) const fn persisted_snapshot(&self) -> &PersistedSchemaSnapshot {
         &self.snapshot
     }
 
@@ -1254,7 +1254,7 @@ mod tests {
             ],
             vec![PersistedIndexSnapshot::new(
                 1,
-                "Indexed|email".to_string(),
+                "idx_indexed__email".to_string(),
                 "indexed::email".to_string(),
                 false,
                 PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
@@ -1325,7 +1325,7 @@ mod tests {
             ],
             vec![PersistedIndexSnapshot::new(
                 1,
-                "ExpressionIndexed|lower_email".to_string(),
+                "idx_expression_indexed__lower_email".to_string(),
                 "expression_indexed::lower_email".to_string(),
                 false,
                 PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::Expression(

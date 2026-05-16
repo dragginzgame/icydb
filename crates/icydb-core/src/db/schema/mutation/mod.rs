@@ -18,6 +18,7 @@ use crate::db::{
     },
 };
 use crate::error::InternalError;
+use crate::model::EntityModel;
 use crate::types::EntityTag;
 use sha2::Digest;
 use std::collections::BTreeMap;
@@ -139,7 +140,21 @@ pub(in crate::db) enum AcceptedSchemaMutationError {
 )]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SchemaDdlMutationAdmission {
-    target: SchemaFieldPathIndexRebuildTarget,
+    target: SchemaDdlMutationTarget,
+}
+
+///
+/// SchemaDdlIndexDropCandidateError
+///
+/// Schema-owned rejection reason for resolving a SQL DDL `DROP INDEX`
+/// candidate against accepted catalog authority.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum SchemaDdlIndexDropCandidateError {
+    Generated,
+    Unknown,
+    Unsupported,
 }
 
 #[allow(
@@ -149,9 +164,36 @@ pub(in crate::db) struct SchemaDdlMutationAdmission {
 impl SchemaDdlMutationAdmission {
     /// Borrow the admitted field-path index rebuild target.
     #[must_use]
-    pub(in crate::db) const fn target(&self) -> &SchemaFieldPathIndexRebuildTarget {
-        &self.target
+    pub(in crate::db) fn target(&self) -> &SchemaFieldPathIndexRebuildTarget {
+        let SchemaDdlMutationTarget::AddFieldPathIndex(target) = &self.target else {
+            panic!("SQL DDL admission does not carry a field-path index rebuild target");
+        };
+
+        target
     }
+
+    /// Borrow the admitted secondary-index drop cleanup target.
+    #[must_use]
+    pub(in crate::db) const fn drop_target(
+        &self,
+    ) -> Option<&SchemaSecondaryIndexDropCleanupTarget> {
+        match &self.target {
+            SchemaDdlMutationTarget::AddFieldPathIndex(_) => None,
+            SchemaDdlMutationTarget::DropSecondaryIndex(target) => Some(target),
+        }
+    }
+}
+
+///
+/// SchemaDdlMutationTarget
+///
+/// Schema-owned physical target admitted for one SQL DDL mutation.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum SchemaDdlMutationTarget {
+    AddFieldPathIndex(SchemaFieldPathIndexRebuildTarget),
+    DropSecondaryIndex(SchemaSecondaryIndexDropCleanupTarget),
 }
 
 ///
@@ -465,7 +507,7 @@ impl SchemaExpressionIndexRebuildExpression {
     reason = "0.152 stages cleanup target contracts before a physical runner consumes them"
 )]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) struct SchemaSecondaryIndexDropCleanupTarget {
+pub(in crate::db) struct SchemaSecondaryIndexDropCleanupTarget {
     ordinal: u16,
     name: String,
     store: String,
@@ -479,27 +521,27 @@ pub(in crate::db::schema) struct SchemaSecondaryIndexDropCleanupTarget {
 )]
 impl SchemaSecondaryIndexDropCleanupTarget {
     #[must_use]
-    pub(in crate::db::schema) const fn ordinal(&self) -> u16 {
+    pub(in crate::db) const fn ordinal(&self) -> u16 {
         self.ordinal
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn name(&self) -> &str {
+    pub(in crate::db) const fn name(&self) -> &str {
         self.name.as_str()
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn store(&self) -> &str {
+    pub(in crate::db) const fn store(&self) -> &str {
         self.store.as_str()
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn unique(&self) -> bool {
+    pub(in crate::db) const fn unique(&self) -> bool {
         self.unique
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn predicate_sql(&self) -> Option<&str> {
+    pub(in crate::db) const fn predicate_sql(&self) -> Option<&str> {
         match &self.predicate_sql {
             Some(predicate_sql) => Some(predicate_sql.as_str()),
             None => None,
@@ -1615,8 +1657,57 @@ pub(in crate::db) fn admit_sql_ddl_field_path_index_candidate(
         .map_err(|_| SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
 
     Ok(SchemaDdlMutationAdmission {
-        target: supported.target().clone(),
+        target: SchemaDdlMutationTarget::AddFieldPathIndex(supported.target().clone()),
     })
+}
+
+/// Admit one SQL DDL secondary-index drop candidate through the schema-owned
+/// mutation request boundary.
+pub(in crate::db) fn admit_sql_ddl_secondary_index_drop_candidate(
+    index: &PersistedIndexSnapshot,
+) -> Result<SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError> {
+    let request = SchemaMutationRequest::from_accepted_non_unique_secondary_index_drop(index)
+        .map_err(SchemaDdlMutationAdmissionError::AcceptedIndex)?;
+    let SchemaMutationRequest::DropNonRequiredSecondaryIndex { target } = request else {
+        return Err(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath);
+    };
+
+    Ok(SchemaDdlMutationAdmission {
+        target: SchemaDdlMutationTarget::DropSecondaryIndex(target),
+    })
+}
+
+/// Resolve one accepted SQL DDL index-drop candidate and reject generated
+/// model indexes before the frontend can derive a catalog mutation.
+pub(in crate::db) fn resolve_sql_ddl_secondary_index_drop_candidate(
+    accepted_before: &AcceptedSchemaSnapshot,
+    model: &EntityModel,
+    index_name: &str,
+) -> Result<(PersistedIndexSnapshot, Vec<String>), SchemaDdlIndexDropCandidateError> {
+    if model
+        .indexes()
+        .iter()
+        .any(|index| index.name() == index_name)
+    {
+        return Err(SchemaDdlIndexDropCandidateError::Generated);
+    }
+
+    let index = accepted_before
+        .persisted_snapshot()
+        .indexes()
+        .iter()
+        .find(|index| index.name() == index_name)
+        .cloned()
+        .ok_or(SchemaDdlIndexDropCandidateError::Unknown)?;
+    if index.unique() {
+        return Err(SchemaDdlIndexDropCandidateError::Unsupported);
+    }
+    let [field_path] = index.key().field_paths() else {
+        return Err(SchemaDdlIndexDropCandidateError::Unsupported);
+    };
+    let field_path = field_path.path().to_vec();
+
+    Ok((index, field_path))
 }
 
 /// Derive and admit the accepted-after schema snapshot for one SQL DDL
@@ -1651,8 +1742,40 @@ pub(in crate::db) fn derive_sql_ddl_field_path_index_accepted_after(
     Ok(SchemaDdlAcceptedSnapshotDerivation {
         accepted_after,
         admission: SchemaDdlMutationAdmission {
-            target: supported.target().clone(),
+            target: SchemaDdlMutationTarget::AddFieldPathIndex(supported.target().clone()),
         },
+    })
+}
+
+/// Derive and admit the accepted-after schema snapshot for one SQL DDL
+/// secondary-index drop candidate.
+pub(in crate::db) fn derive_sql_ddl_secondary_index_drop_accepted_after(
+    accepted_before: &AcceptedSchemaSnapshot,
+    index: &PersistedIndexSnapshot,
+) -> Result<SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError> {
+    let before = accepted_before.persisted_snapshot();
+    let indexes = before
+        .indexes()
+        .iter()
+        .filter(|candidate| candidate.name() != index.name())
+        .cloned()
+        .collect::<Vec<_>>();
+    let persisted_after = PersistedSchemaSnapshot::new_with_indexes(
+        before.version(),
+        before.entity_path().to_string(),
+        before.entity_name().to_string(),
+        before.primary_key_field_id(),
+        before.row_layout().clone(),
+        before.fields().to_vec(),
+        indexes,
+    );
+    let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
+        .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
+    let admission = admit_sql_ddl_secondary_index_drop_candidate(index)?;
+
+    Ok(SchemaDdlAcceptedSnapshotDerivation {
+        accepted_after,
+        admission,
     })
 }
 

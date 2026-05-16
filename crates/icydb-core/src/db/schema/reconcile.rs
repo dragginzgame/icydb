@@ -8,13 +8,14 @@ mod startup_field_path;
 use crate::{
     db::{
         Db, EntityRuntimeHooks,
+        index::{IndexId, IndexKey, IndexState, RawIndexKey},
         registry::StoreHandle,
         schema::{
             AcceptedSchemaSnapshot, MutationPublicationBlocker, MutationPublicationPreflight,
             PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
-            SchemaMutationRunnerCapability, SchemaMutationRunnerContract, SchemaStore,
-            SchemaTransitionDecision, SchemaTransitionPlanKind, compiled_schema_proposal_for_model,
-            decide_schema_transition,
+            SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
+            SchemaSecondaryIndexDropCleanupTarget, SchemaStore, SchemaTransitionDecision,
+            SchemaTransitionPlanKind, compiled_schema_proposal_for_model, decide_schema_transition,
             runtime::AcceptedRowLayoutRuntimeDescriptor,
             transition::{SchemaTransitionPlan, SchemaTransitionRejectionKind},
         },
@@ -97,6 +98,130 @@ pub(in crate::db) fn execute_sql_ddl_field_path_index_addition(
     )?;
 
     Ok((report.rows_scanned(), report.index_keys_written()))
+}
+
+/// Execute one supported SQL DDL secondary-index drop by cleaning the target
+/// physical index namespace before publishing the accepted-after schema.
+pub(in crate::db) fn execute_sql_ddl_secondary_index_drop(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    accepted_before: &AcceptedSchemaSnapshot,
+    derivation: &SchemaDdlAcceptedSnapshotDerivation,
+) -> Result<usize, InternalError> {
+    let Some(target) = derivation.admission().drop_target() else {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL index drop execution requires a drop target for entity '{entity_path}'",
+        )));
+    };
+    let before = accepted_before.persisted_snapshot();
+    let after = derivation.accepted_after().persisted_snapshot();
+
+    validate_sql_ddl_drop_schema_gate(store, entity_tag, entity_path, before, "before cleanup")?;
+    let target_keys = sql_ddl_drop_target_index_keys(store, entity_tag, entity_path, target)?;
+    let removed = store.with_index_mut(|index_store| {
+        if index_store.state() != IndexState::Ready {
+            return Err(InternalError::store_unsupported(format!(
+                "SQL DDL DROP INDEX requires a ready physical index store for entity '{entity_path}': target_index={} index_state={}",
+                target.name(),
+                index_store.state().as_str(),
+            )));
+        }
+        let mut removed = 0usize;
+        for key in &target_keys {
+            if index_store.remove(key).is_some() {
+                removed = removed.saturating_add(1);
+            }
+        }
+
+        Ok::<_, InternalError>(removed)
+    })?;
+    validate_sql_ddl_drop_physical_cleanup(store, entity_tag, entity_path, target)?;
+    validate_sql_ddl_drop_schema_gate(
+        store,
+        entity_tag,
+        entity_path,
+        before,
+        "before publication",
+    )?;
+    store.with_schema_mut(|schema_store| {
+        schema_store.insert_persisted_snapshot(entity_tag, after)
+    })?;
+
+    Ok(removed)
+}
+
+fn sql_ddl_drop_target_index_keys(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    target: &SchemaSecondaryIndexDropCleanupTarget,
+) -> Result<Vec<RawIndexKey>, InternalError> {
+    let target_index_id = IndexId::new(entity_tag, target.ordinal());
+
+    store.with_index(|index_store| {
+        if index_store.state() != IndexState::Ready {
+            return Err(InternalError::store_unsupported(format!(
+                "SQL DDL DROP INDEX requires a ready physical index store for entity '{entity_path}': target_index={} index_state={}",
+                target.name(),
+                index_store.state().as_str(),
+            )));
+        }
+
+        index_store
+            .entries()
+            .into_iter()
+            .filter_map(|(raw_key, _)| {
+                let decoded = IndexKey::try_from_raw(&raw_key).map_err(|error| {
+                    InternalError::store_corruption(format!(
+                        "SQL DDL DROP INDEX key decode failed for entity '{entity_path}' while preflighting target index '{}': {error}",
+                        target.name(),
+                    ))
+                });
+                match decoded {
+                    Ok(index_key) if *index_key.index_id() == target_index_id => Some(Ok(raw_key)),
+                    Ok(_) => None,
+                    Err(error) => Some(Err(error)),
+                }
+            })
+            .collect()
+    })
+}
+
+fn validate_sql_ddl_drop_physical_cleanup(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    target: &SchemaSecondaryIndexDropCleanupTarget,
+) -> Result<(), InternalError> {
+    let remaining = sql_ddl_drop_target_index_keys(store, entity_tag, entity_path, target)?;
+    if remaining.is_empty() {
+        return Ok(());
+    }
+
+    Err(InternalError::store_unsupported(format!(
+        "SQL DDL DROP INDEX cleanup did not remove all target physical entries for entity '{entity_path}': target_index={} remaining_entries={}",
+        target.name(),
+        remaining.len(),
+    )))
+}
+
+fn validate_sql_ddl_drop_schema_gate(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    accepted_before: &PersistedSchemaSnapshot,
+    boundary: &'static str,
+) -> Result<(), InternalError> {
+    let latest =
+        store.with_schema_mut(|schema_store| schema_store.latest_persisted_snapshot(entity_tag))?;
+    if latest.as_ref() == Some(accepted_before) {
+        return Ok(());
+    }
+
+    Err(InternalError::store_unsupported(format!(
+        "SQL DDL DROP INDEX lost exclusive schema gate {boundary} for entity '{entity_path}'",
+    )))
 }
 
 // Reconcile one entity hook against its owning schema store. The generated

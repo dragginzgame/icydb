@@ -109,7 +109,8 @@ Supported shapes:
 Supported commands:
 
 - `DESCRIBE entity`
-- `SHOW INDEXES entity`
+- `SHOW INDEXES FROM entity`
+- `SHOW INDEXES IN entity`
 - `SHOW COLUMNS entity`
 - `SHOW ENTITIES`
 - `SHOW TABLES`

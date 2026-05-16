@@ -29,8 +29,8 @@ use crate::{
         DbSession, PersistedRow, QueryError,
         executor::{EntityAuthority, SharedPreparedExecutionPlan},
         query::intent::StructuralQuery,
-        schema::execute_sql_ddl_field_path_index_addition,
         schema::{AcceptedSchemaSnapshot, SchemaInfo},
+        schema::{execute_sql_ddl_field_path_index_addition, execute_sql_ddl_secondary_index_drop},
         session::query::QueryPlanCacheAttribution,
         session::sql::projection::{
             projection_fixed_scales_from_projection_spec, projection_labels_from_projection_spec,
@@ -97,6 +97,7 @@ const fn sql_statement_entity_name_from_statement(statement: &SqlStatement) -> O
         SqlStatement::Ddl(SqlDdlStatement::CreateIndex(statement)) => {
             Some(statement.entity.as_str())
         }
+        SqlStatement::Ddl(SqlDdlStatement::DropIndex(statement)) => Some(statement.entity.as_str()),
         SqlStatement::Explain(statement) => match &statement.statement {
             SqlExplainTarget::Select(statement) => Some(statement.entity.as_str()),
             SqlExplainTarget::Delete(statement) => Some(statement.entity.as_str()),
@@ -433,21 +434,26 @@ impl<C: CanisterKind> DbSession<C> {
             .accepted_entity_authority::<E>()
             .map_err(QueryError::execute)?;
         let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema);
-        let prepared =
-            prepare_sql_ddl_statement(&statement, &accepted_schema, &schema_info, E::Store::PATH)
-                .map_err(|err| {
-                QueryError::unsupported_query(format!(
-                    "SQL DDL preparation failed before execution: {err}"
-                ))
-            })?;
+        let prepared = prepare_sql_ddl_statement(
+            &statement,
+            &accepted_schema,
+            &schema_info,
+            E::MODEL,
+            E::Store::PATH,
+        )
+        .map_err(|err| {
+            QueryError::unsupported_query(format!(
+                "SQL DDL preparation failed before execution: {err}"
+            ))
+        })?;
 
         Ok((accepted_schema, prepared))
     }
 
     /// Execute one SQL DDL statement.
     ///
-    /// The 0.155 execution boundary routes the single supported DDL shape
-    /// through schema-owned physical rebuild and accepted-snapshot publication.
+    /// Supported DDL routes through schema-owned physical work and
+    /// accepted-snapshot publication.
     pub fn execute_sql_ddl<E>(&self, sql: &str) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -458,14 +464,30 @@ impl<C: CanisterKind> DbSession<C> {
             .recovered_store(E::Store::PATH)
             .map_err(QueryError::execute)?;
 
-        let (rows_scanned, index_keys_written) = execute_sql_ddl_field_path_index_addition(
-            store,
-            E::ENTITY_TAG,
-            E::PATH,
-            &accepted_before,
-            prepared.derivation(),
-        )
-        .map_err(QueryError::execute)?;
+        let (rows_scanned, index_keys_written) = match prepared.bound().statement() {
+            crate::db::sql::ddl::BoundSqlDdlStatement::CreateIndex(_) => {
+                execute_sql_ddl_field_path_index_addition(
+                    store,
+                    E::ENTITY_TAG,
+                    E::PATH,
+                    &accepted_before,
+                    prepared.derivation(),
+                )
+                .map_err(QueryError::execute)?
+            }
+            crate::db::sql::ddl::BoundSqlDdlStatement::DropIndex(_) => {
+                execute_sql_ddl_secondary_index_drop(
+                    store,
+                    E::ENTITY_TAG,
+                    E::PATH,
+                    &accepted_before,
+                    prepared.derivation(),
+                )
+                .map_err(QueryError::execute)?;
+
+                (0, 0)
+            }
+        };
 
         Ok(SqlStatementResult::Ddl(
             prepared

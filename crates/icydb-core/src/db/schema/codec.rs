@@ -1062,7 +1062,7 @@ mod tests {
             ],
             vec![PersistedIndexSnapshot::new(
                 7,
-                "Indexed|email".to_string(),
+                "idx_indexed__email".to_string(),
                 "indexed::email".to_string(),
                 true,
                 PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
@@ -1084,7 +1084,7 @@ mod tests {
         assert_eq!(decoded.indexes().len(), 1);
         let index = &decoded.indexes()[0];
         assert_eq!(index.ordinal(), 7);
-        assert_eq!(index.name(), "Indexed|email");
+        assert_eq!(index.name(), "idx_indexed__email");
         assert_eq!(index.store(), "indexed::email");
         assert!(index.unique());
         assert_eq!(index.predicate_sql(), Some("email IS NOT NULL"));
@@ -1142,7 +1142,7 @@ mod tests {
             ],
             vec![PersistedIndexSnapshot::new(
                 8,
-                "ExpressionIndexed|lower_email".to_string(),
+                "idx_expression_indexed__lower_email".to_string(),
                 "expression_indexed::lower_email".to_string(),
                 true,
                 PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::Expression(

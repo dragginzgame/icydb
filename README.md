@@ -142,7 +142,8 @@ cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SHOW TABLES"
 `sql` keeps an explicit `--canister/-c` flag because it also accepts trailing
 SQL text. Target-style commands such as `canister refresh`, `snapshot`,
 `schema`, and `metrics` take the canister as a required positional argument.
-All of them default the ICP environment to `demo`. To inspect local canister IDs:
+All canister-targeting commands default the ICP environment to `demo`, or use
+`ICP_ENVIRONMENT` when it is set. To inspect local canister IDs:
 
 ```bash
 cargo run -q -p icydb-cli -- canister list
@@ -163,10 +164,14 @@ payload. SQL DDL uses the canister's `__icydb_ddl` update endpoint for supported
 Canisters opt into DB endpoint surfaces through `icydb.toml`. `readonly = true`
 generates the controller-gated `__icydb_query` endpoint. `ddl = true`
 generates the `__icydb_ddl` update endpoint. `fixtures = true` generates the
-`__icydb_fixtures_reset` and `__icydb_fixtures_load` update endpoints.
-`schema.enabled = true` generates the `__icydb_schema` query endpoint for
+`__icydb_fixtures_reset` and `__icydb_fixtures_load` update endpoints; the load
+endpoint resets all tables before calling the plain non-exported
+`icydb_fixtures_load` hook. `metrics.enabled = true` generates the
+`__icydb_metrics` query endpoint, and `metrics.reset = true` generates the
+`__icydb_metrics_reset` update endpoint. `snapshot.enabled = true` generates
+`__icydb_snapshot`; `schema.enabled = true` generates `__icydb_schema` for
 accepted live schema metadata. The generated canister glue routes each SQL
-statement to the matching accepted entity:
+statement to the matching accepted entity.
 
 The CLI checks this config before calling generated endpoint families. If a
 surface is disabled for the selected canister, the command fails locally with
@@ -202,6 +207,13 @@ cargo run -q -p icydb-cli -- config show
 cargo run -q -p icydb-cli -- config check -e demo
 cargo run -q -p icydb-cli -- canister refresh demo_rpg -e demo
 ```
+
+`config init` writes `icydb.toml` at the visible workspace root by default.
+Readonly SQL is enabled unless `--no-readonly` is passed; `--all` enables every
+currently supported generated endpoint family. `config show` prints the
+resolved config visible from the current directory. Add `--environment <name>`
+to compare configured canister names with the local ICP environment, and use
+`config check --environment <name>` in scripts when that mismatch should fail.
 
 Interactive shell:
 
@@ -247,7 +259,8 @@ icydb metrics <canister> --reset
 - `crates/icydb-core` — runtime, planner, executor, persisted rows, stores.
 - `crates/icydb-derive` — public derive helpers.
 - `crates/icydb-schema-derive` and `crates/icydb-schema` — schema macros and AST.
-- `crates/icydb-cli` — local SQL shell.
+- `crates/icydb-cli` — developer CLI for local SQL, config checks, canister
+  lifecycle helpers, and observability reports.
 - `schema/*` — demo, audit, and test schemas.
 - `canisters/*` — demo, audit, and integration canisters.
 - `testing/*` — macro, wasm, and Pocket-IC test support.

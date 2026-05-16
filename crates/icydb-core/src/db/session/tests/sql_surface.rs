@@ -350,8 +350,8 @@ fn sql_query_surfaces_reject_non_query_statement_lanes_matrix() {
                 "SQL query lowering must reject DESCRIBE statements",
             ),
             (
-                "SHOW INDEXES SessionSqlEntity",
-                "SQL query lowering must reject SHOW INDEXES statements",
+                "SHOW INDEXES FROM SessionSqlEntity",
+                "SQL query lowering must reject SHOW INDEXES FROM statements",
             ),
             (
                 "SHOW COLUMNS SessionSqlEntity",
@@ -389,7 +389,7 @@ fn sql_query_surfaces_reject_non_query_statement_lanes_matrix() {
             "scalar SELECT helper rejects DESCRIBE",
         ),
         (
-            "SHOW INDEXES SessionSqlEntity",
+            "SHOW INDEXES FROM SessionSqlEntity",
             "scalar SELECT helper rejects SHOW INDEXES",
         ),
         (
@@ -429,7 +429,7 @@ fn sql_query_surfaces_reject_non_query_statement_lanes_matrix() {
             "grouped SELECT helper rejects DESCRIBE",
         ),
         (
-            "SHOW INDEXES SessionSqlEntity",
+            "SHOW INDEXES FROM SessionSqlEntity",
             "grouped SELECT helper rejects SHOW INDEXES",
         ),
         (
@@ -568,9 +568,11 @@ fn sql_metadata_surfaces_match_typed_payloads() {
     let describe_from_sql =
         statement_describe_sql::<SessionSqlEntity>(&session, "DESCRIBE SessionSqlEntity")
             .expect("describe_sql should succeed");
-    let show_indexes_from_sql =
-        statement_show_indexes_sql::<SessionSqlEntity>(&session, "SHOW INDEXES SessionSqlEntity")
-            .expect("show_indexes_sql should succeed");
+    let show_indexes_from_sql = statement_show_indexes_sql::<SessionSqlEntity>(
+        &session,
+        "SHOW INDEXES FROM SessionSqlEntity",
+    )
+    .expect("show_indexes_sql should succeed");
     let show_columns_from_sql =
         statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
             .expect("show_columns_sql should succeed");
@@ -633,8 +635,8 @@ fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
                 "describe_sql should reject EXPLAIN statements",
             ),
             (
-                "SHOW INDEXES SessionSqlEntity",
-                "describe_sql should reject SHOW INDEXES statements",
+                "SHOW INDEXES FROM SessionSqlEntity",
+                "describe_sql should reject SHOW INDEXES FROM statements",
             ),
             (
                 "SHOW COLUMNS SessionSqlEntity",
@@ -687,8 +689,8 @@ fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
                 "show_columns_sql should reject DESCRIBE statements",
             ),
             (
-                "SHOW INDEXES SessionSqlEntity",
-                "show_columns_sql should reject SHOW INDEXES statements",
+                "SHOW INDEXES FROM SessionSqlEntity",
+                "show_columns_sql should reject SHOW INDEXES FROM statements",
             ),
             (
                 "SHOW ENTITIES",
@@ -712,8 +714,8 @@ fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
                 "show_entities_sql should reject DESCRIBE statements",
             ),
             (
-                "SHOW INDEXES SessionSqlEntity",
-                "show_entities_sql should reject SHOW INDEXES statements",
+                "SHOW INDEXES FROM SessionSqlEntity",
+                "show_entities_sql should reject SHOW INDEXES FROM statements",
             ),
             (
                 "SHOW COLUMNS SessionSqlEntity",
@@ -729,8 +731,8 @@ fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
                 "explain_sql should reject DESCRIBE statements",
             ),
             (
-                "SHOW INDEXES SessionSqlEntity",
-                "explain_sql should reject SHOW INDEXES statements",
+                "SHOW INDEXES FROM SessionSqlEntity",
+                "explain_sql should reject SHOW INDEXES FROM statements",
             ),
             (
                 "SHOW COLUMNS SessionSqlEntity",
@@ -2077,13 +2079,22 @@ fn sql_ddl_create_index_is_parsed_but_not_executable_in_current_slice() {
 
 #[test]
 fn sql_ddl_create_index_binds_against_accepted_catalog() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
     let statement = parse_sql("CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)")
         .expect("CREATE INDEX should parse before binding");
 
-    let bound = bind_sql_ddl_statement(&statement, &schema, SessionSqlStore::PATH)
-        .expect("CREATE INDEX should bind against accepted schema metadata");
-    let BoundSqlDdlStatement::CreateIndex(create) = bound.statement();
+    let bound = bind_sql_ddl_statement(
+        &statement,
+        &accepted_before,
+        &schema,
+        SessionSqlEntity::MODEL,
+        SessionSqlStore::PATH,
+    )
+    .expect("CREATE INDEX should bind against accepted schema metadata");
+    let BoundSqlDdlStatement::CreateIndex(create) = bound.statement() else {
+        panic!("CREATE INDEX should bind to a create-index DDL request");
+    };
 
     assert_eq!(create.index_name(), "session_sql_age_idx");
     assert_eq!(create.entity_name(), "SessionSqlEntity");
@@ -2097,12 +2108,19 @@ fn sql_ddl_create_index_binds_against_accepted_catalog() {
 
 #[test]
 fn sql_ddl_create_index_binding_rejects_unknown_catalog_targets() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
     let entity_mismatch =
         parse_sql("CREATE INDEX wrong_entity_idx ON IndexedSessionSqlEntity (age)")
             .expect("CREATE INDEX should parse before entity binding");
-    let err = bind_sql_ddl_statement(&entity_mismatch, &schema, SessionSqlStore::PATH)
-        .expect_err("DDL binding should reject non-owned entity targets");
+    let err = bind_sql_ddl_statement(
+        &entity_mismatch,
+        &accepted_before,
+        &schema,
+        SessionSqlEntity::MODEL,
+        SessionSqlStore::PATH,
+    )
+    .expect_err("DDL binding should reject non-owned entity targets");
     assert!(matches!(
         err,
         SqlDdlBindError::EntityMismatch {
@@ -2114,8 +2132,14 @@ fn sql_ddl_create_index_binding_rejects_unknown_catalog_targets() {
 
     let unknown_field = parse_sql("CREATE INDEX missing_field_idx ON SessionSqlEntity (missing)")
         .expect("CREATE INDEX should parse before field binding");
-    let err = bind_sql_ddl_statement(&unknown_field, &schema, SessionSqlStore::PATH)
-        .expect_err("DDL binding should reject unknown accepted field paths");
+    let err = bind_sql_ddl_statement(
+        &unknown_field,
+        &accepted_before,
+        &schema,
+        SessionSqlEntity::MODEL,
+        SessionSqlStore::PATH,
+    )
+    .expect_err("DDL binding should reject unknown accepted field paths");
     assert!(matches!(
         err,
         SqlDdlBindError::UnknownFieldPath {
@@ -2127,11 +2151,18 @@ fn sql_ddl_create_index_binding_rejects_unknown_catalog_targets() {
 
 #[test]
 fn sql_ddl_create_index_binding_rejects_duplicate_accepted_indexes() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<IndexedSessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<IndexedSessionSqlEntity>();
     let duplicate_name = parse_sql("CREATE INDEX name ON IndexedSessionSqlEntity (age)")
         .expect("CREATE INDEX should parse before duplicate-name binding");
-    let err = bind_sql_ddl_statement(&duplicate_name, &schema, IndexedSessionSqlStore::PATH)
-        .expect_err("DDL binding should reject accepted duplicate index names");
+    let err = bind_sql_ddl_statement(
+        &duplicate_name,
+        &accepted_before,
+        &schema,
+        IndexedSessionSqlEntity::MODEL,
+        IndexedSessionSqlStore::PATH,
+    )
+    .expect_err("DDL binding should reject accepted duplicate index names");
     assert!(matches!(
         err,
         SqlDdlBindError::DuplicateIndexName { index_name } if index_name == "name"
@@ -2139,8 +2170,14 @@ fn sql_ddl_create_index_binding_rejects_duplicate_accepted_indexes() {
 
     let duplicate_key = parse_sql("CREATE INDEX another_name ON IndexedSessionSqlEntity (name)")
         .expect("CREATE INDEX should parse before duplicate-key binding");
-    let err = bind_sql_ddl_statement(&duplicate_key, &schema, IndexedSessionSqlStore::PATH)
-        .expect_err("DDL binding should reject accepted duplicate field-path indexes");
+    let err = bind_sql_ddl_statement(
+        &duplicate_key,
+        &accepted_before,
+        &schema,
+        IndexedSessionSqlEntity::MODEL,
+        IndexedSessionSqlStore::PATH,
+    )
+    .expect_err("DDL binding should reject accepted duplicate field-path indexes");
     assert!(matches!(
         err,
         SqlDdlBindError::DuplicateFieldPathIndex {
@@ -2151,12 +2188,41 @@ fn sql_ddl_create_index_binding_rejects_duplicate_accepted_indexes() {
 }
 
 #[test]
+fn sql_ddl_drop_index_binding_rejects_generated_indexes() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<IndexedSessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<IndexedSessionSqlEntity>();
+    let statement = parse_sql("DROP INDEX name ON IndexedSessionSqlEntity")
+        .expect("DROP INDEX should parse before generated-index binding");
+
+    let err = bind_sql_ddl_statement(
+        &statement,
+        &accepted_before,
+        &schema,
+        IndexedSessionSqlEntity::MODEL,
+        IndexedSessionSqlStore::PATH,
+    )
+    .expect_err("DDL binding should reject generated index drops");
+
+    assert!(matches!(
+        err,
+        SqlDdlBindError::GeneratedIndexDropRejected { index_name } if index_name == "name"
+    ));
+}
+
+#[test]
 fn sql_ddl_create_index_lowers_to_supported_schema_mutation_admission() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
     let statement = parse_sql("CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)")
         .expect("CREATE INDEX should parse before binding");
-    let bound = bind_sql_ddl_statement(&statement, &schema, SessionSqlStore::PATH)
-        .expect("CREATE INDEX should bind against accepted schema metadata");
+    let bound = bind_sql_ddl_statement(
+        &statement,
+        &accepted_before,
+        &schema,
+        SessionSqlEntity::MODEL,
+        SessionSqlStore::PATH,
+    )
+    .expect("CREATE INDEX should bind against accepted schema metadata");
 
     let admission = lower_bound_sql_ddl_to_schema_mutation_admission(&bound)
         .expect("bound CREATE INDEX should lower to supported mutation admission");
@@ -2174,8 +2240,14 @@ fn sql_ddl_create_index_derives_accepted_after_snapshot_without_execution() {
         SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
     let statement = parse_sql("CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)")
         .expect("CREATE INDEX should parse before binding");
-    let bound = bind_sql_ddl_statement(&statement, &schema, SessionSqlStore::PATH)
-        .expect("CREATE INDEX should bind against accepted schema metadata");
+    let bound = bind_sql_ddl_statement(
+        &statement,
+        &accepted_before,
+        &schema,
+        SessionSqlEntity::MODEL,
+        SessionSqlStore::PATH,
+    )
+    .expect("CREATE INDEX should bind against accepted schema metadata");
 
     let derivation = derive_bound_sql_ddl_accepted_after(&accepted_before, &bound)
         .expect("bound CREATE INDEX should derive an accepted-after schema snapshot");
@@ -2207,10 +2279,17 @@ fn sql_ddl_create_index_preparation_reports_non_executed_command() {
     let statement = parse_sql("CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)")
         .expect("CREATE INDEX should parse before preparation");
 
-    let prepared =
-        prepare_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
-            .expect("CREATE INDEX should prepare through all pre-execution DDL checks");
-    let BoundSqlDdlStatement::CreateIndex(create) = prepared.bound().statement();
+    let prepared = prepare_sql_ddl_statement(
+        &statement,
+        &accepted_before,
+        &schema,
+        SessionSqlEntity::MODEL,
+        SessionSqlStore::PATH,
+    )
+    .expect("CREATE INDEX should prepare through all pre-execution DDL checks");
+    let BoundSqlDdlStatement::CreateIndex(create) = prepared.bound().statement() else {
+        panic!("CREATE INDEX should prepare a create-index DDL request");
+    };
 
     assert_eq!(create.index_name(), "session_sql_age_idx");
     assert_eq!(
@@ -2298,22 +2377,73 @@ fn execute_sql_ddl_publishes_supported_field_path_index() {
         "accepted schema publication should expose the DDL-created index",
     );
     let SqlStatementResult::ShowIndexes(indexes) = session
-        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES SessionSqlEntity")
-        .expect("SHOW INDEXES should read the accepted published index set")
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .expect("SHOW INDEXES FROM should read the accepted published index set")
     else {
-        panic!("SHOW INDEXES should return an index metadata payload");
+        panic!("SHOW INDEXES FROM should return an index metadata payload");
     };
     assert!(
         indexes
             .iter()
             .any(|index| index == "INDEX session_sql_age_idx (age) [state=ready]"),
-        "SHOW INDEXES should expose DDL-created accepted indexes",
+        "SHOW INDEXES FROM should expose DDL-created accepted indexes",
     );
     SESSION_SQL_INDEX_STORE.with_borrow(|store| {
         assert_eq!(
             store.len(),
             3,
             "DDL execution should build one physical index key per fixture row",
+        );
+    });
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
+fn execute_sql_ddl_drops_supported_ddl_published_index() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
+        )
+        .expect("DDL execution should publish the field-path index before dropping it");
+    let result = session
+        .execute_sql_ddl::<SessionSqlEntity>("DROP INDEX session_sql_age_idx ON SessionSqlEntity")
+        .expect("DDL execution should drop a DDL-published field-path index");
+    let SqlStatementResult::Ddl(report) = result else {
+        panic!("DROP INDEX should return a DDL report");
+    };
+    let schema_info = SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("DDL-dropped schema should remain readable")
+            .expect("DDL drop should publish an accepted snapshot");
+        let accepted = AcceptedSchemaSnapshot::try_new(latest)
+            .expect("DDL-dropped schema snapshot should remain accepted");
+
+        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted)
+    });
+
+    assert_eq!(
+        report.mutation_kind(),
+        SqlDdlMutationKind::DropNonUniqueSecondaryIndex,
+    );
+    assert_eq!(report.target_index(), "session_sql_age_idx");
+    assert_eq!(report.field_path(), ["age".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    assert!(
+        schema_info.field_path_indexes().is_empty(),
+        "accepted schema publication should remove the DDL-created index",
+    );
+    SESSION_SQL_INDEX_STORE.with_borrow(|store| {
+        assert_eq!(
+            store.len(),
+            0,
+            "DROP INDEX should remove the target physical index entries",
         );
     });
 
@@ -2777,14 +2907,14 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
     );
 
     let show_indexes = session
-        .compile_sql_query::<SessionSqlEntity>("SHOW INDEXES SessionSqlEntity")
-        .expect("SHOW INDEXES should compile into the query-surface cache");
+        .compile_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .expect("SHOW INDEXES FROM should compile into the query-surface cache");
     assert!(
         matches!(
             show_indexes,
             crate::db::session::sql::CompiledSqlCommand::ShowIndexesEntity
         ),
-        "SHOW INDEXES should cache its dedicated metadata artifact",
+        "SHOW INDEXES FROM should cache its dedicated metadata artifact",
     );
 
     let show_columns = session
