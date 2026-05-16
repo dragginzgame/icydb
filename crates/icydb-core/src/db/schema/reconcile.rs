@@ -282,7 +282,8 @@ pub(in crate::db) fn ensure_accepted_schema_snapshot(
         let accepted_snapshot = match plan.kind() {
             SchemaTransitionPlanKind::AddNonUniqueFieldPathIndex
             | SchemaTransitionPlanKind::ExactMatch => actual,
-            SchemaTransitionPlanKind::AppendOnlyNullableFields => {
+            SchemaTransitionPlanKind::AppendOnlyNullableFields
+            | SchemaTransitionPlanKind::MetadataOnlyIndexRename => {
                 if let Err(error) = schema_store.insert_persisted_snapshot(entity_tag, &expected) {
                     record_schema_store_footprint(schema_store, entity_tag, entity_path);
                     record_schema_reconcile(entity_path, SchemaReconcileOutcome::StoreWriteError);
@@ -354,7 +355,8 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
                 validate_publishable_transition_plan(entity_path, &plan)?;
                 actual
             }
-            SchemaTransitionPlanKind::AppendOnlyNullableFields => {
+            SchemaTransitionPlanKind::AppendOnlyNullableFields
+            | SchemaTransitionPlanKind::MetadataOnlyIndexRename => {
                 validate_publishable_transition_plan(entity_path, &plan)?;
                 store.with_schema_mut(|schema_store| {
                     schema_store.insert_persisted_snapshot(entity_tag, &expected)
@@ -577,7 +579,8 @@ const fn schema_transition_plan_outcome(kind: SchemaTransitionPlanKind) -> Schem
             SchemaTransitionOutcome::AppendOnlyNullableFields
         }
         SchemaTransitionPlanKind::AddNonUniqueFieldPathIndex
-        | SchemaTransitionPlanKind::ExactMatch => SchemaTransitionOutcome::ExactMatch,
+        | SchemaTransitionPlanKind::ExactMatch
+        | SchemaTransitionPlanKind::MetadataOnlyIndexRename => SchemaTransitionOutcome::ExactMatch,
     }
 }
 
@@ -646,10 +649,10 @@ mod tests {
             registry::StoreRegistry,
             schema::{
                 AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
-                PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldDefault,
-                SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRunner, SchemaFieldSlot,
-                SchemaMutationRunnerInput, SchemaRowLayout, SchemaStore, SchemaVersion,
-                compiled_schema_proposal_for_model,
+                PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
+                SchemaFieldDefault, SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRunner,
+                SchemaFieldSlot, SchemaMutationRunnerInput, SchemaRowLayout, SchemaStore,
+                SchemaVersion, compiled_schema_proposal_for_model,
             },
         },
         error::ErrorClass,
@@ -826,6 +829,32 @@ mod tests {
         )
     }
 
+    fn indexed_schema_snapshot_with_renamed_index(index_name: &str) -> PersistedSchemaSnapshot {
+        let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
+        let expected = proposal.initial_persisted_schema_snapshot();
+        let [expected_index] = expected.indexes() else {
+            panic!("indexed schema fixture should have one generated index");
+        };
+        let renamed_index = PersistedIndexSnapshot::new(
+            expected_index.ordinal(),
+            index_name.to_string(),
+            expected_index.store().to_string(),
+            expected_index.unique(),
+            expected_index.key().clone(),
+            expected_index.predicate_sql().map(str::to_string),
+        );
+
+        PersistedSchemaSnapshot::new_with_indexes(
+            expected.version(),
+            expected.entity_path().to_string(),
+            expected.entity_name().to_string(),
+            expected.primary_key_field_id(),
+            expected.row_layout().clone(),
+            expected.fields().to_vec(),
+            vec![renamed_index],
+        )
+    }
+
     fn insert_indexed_schema_row(id: u128, name: &str) {
         let id = Ulid::from_u128(id);
         let data_key = DataKey::try_new::<IndexedSchemaEntity>(id).expect("test key should encode");
@@ -993,6 +1022,31 @@ mod tests {
             0
         );
         assert_eq!(counters.ops().accepted_schema_fields(), 3);
+    }
+
+    #[test]
+    fn ensure_accepted_schema_snapshot_publishes_metadata_only_index_rename() {
+        let mut schema_store = SchemaStore::init(test_memory(240));
+        let stored = indexed_schema_snapshot_with_renamed_index("IndexedSchemaEntity|name");
+        schema_store
+            .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored)
+            .expect("stored renamed-index schema snapshot should encode");
+
+        let accepted = super::ensure_accepted_schema_snapshot(
+            &mut schema_store,
+            IndexedSchemaEntity::ENTITY_TAG,
+            IndexedSchemaEntity::MODEL.path(),
+            IndexedSchemaEntity::MODEL,
+        )
+        .expect("metadata-only generated index rename should be accepted");
+        let latest = schema_store
+            .latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG)
+            .expect("schema store latest snapshot should decode")
+            .expect("schema store should retain accepted renamed-index snapshot");
+
+        assert_eq!(accepted.persisted_snapshot().indexes()[0].name(), "by_name");
+        assert_eq!(latest.indexes()[0].name(), "by_name");
+        assert_eq!(schema_store.len(), 1);
     }
 
     #[test]

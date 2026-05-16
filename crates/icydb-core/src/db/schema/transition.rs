@@ -8,9 +8,9 @@ use crate::{
         data::decode_runtime_value_from_accepted_field_contract,
         schema::{
             AcceptedFieldDecodeContract, FieldId, MutationPlan, MutationPublicationPreflight,
-            MutationPublicationStatus, PersistedFieldSnapshot, PersistedNestedLeafSnapshot,
-            PersistedSchemaSnapshot, SchemaFieldSlot, SchemaMutationExecutionPlan,
-            SchemaMutationRequest, SchemaMutationRunnerContract,
+            MutationPublicationStatus, PersistedFieldSnapshot, PersistedIndexSnapshot,
+            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
+            SchemaMutationExecutionPlan, SchemaMutationRequest, SchemaMutationRunnerContract,
             SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection,
             schema_mutation_request_for_snapshots,
         },
@@ -47,6 +47,7 @@ pub(in crate::db::schema) enum SchemaTransitionPlanKind {
     AddNonUniqueFieldPathIndex,
     AppendOnlyNullableFields,
     ExactMatch,
+    MetadataOnlyIndexRename,
 }
 
 ///
@@ -199,6 +200,13 @@ pub(in crate::db::schema) fn decide_schema_transition(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
 ) -> SchemaTransitionDecision {
+    if generated_index_names_only_changed(actual, expected) {
+        return SchemaTransitionDecision::Accepted(SchemaTransitionPlan::from_mutation_request(
+            SchemaTransitionPlanKind::MetadataOnlyIndexRename,
+            SchemaMutationRequest::ExactMatch,
+        ));
+    }
+
     if accepted_snapshot_extends_generated_indexes(actual, expected) {
         return SchemaTransitionDecision::Accepted(SchemaTransitionPlan::from_mutation_request(
             SchemaTransitionPlanKind::ExactMatch,
@@ -245,6 +253,49 @@ pub(in crate::db::schema) fn decide_schema_transition(
     let (kind, detail) = schema_snapshot_mismatch_detail(actual, expected);
 
     SchemaTransitionDecision::Rejected(SchemaTransitionRejection::new(kind, detail))
+}
+
+// Generated index names are diagnostic/catalog metadata; physical index keys
+// are addressed by stable ordinal. This admits hard-cut generated-name changes
+// only when every durable index contract other than `name` is unchanged.
+fn generated_index_names_only_changed(
+    actual: &PersistedSchemaSnapshot,
+    expected: &PersistedSchemaSnapshot,
+) -> bool {
+    if actual == expected {
+        return false;
+    }
+    if actual.version() != expected.version()
+        || actual.entity_path() != expected.entity_path()
+        || actual.entity_name() != expected.entity_name()
+        || actual.primary_key_field_id() != expected.primary_key_field_id()
+        || actual.row_layout() != expected.row_layout()
+        || actual.fields() != expected.fields()
+        || actual.indexes().len() != expected.indexes().len()
+    {
+        return false;
+    }
+
+    let mut renamed = false;
+    for (actual_index, expected_index) in actual.indexes().iter().zip(expected.indexes()) {
+        if !index_contract_matches_ignoring_name(actual_index, expected_index) {
+            return false;
+        }
+        renamed |= actual_index.name() != expected_index.name();
+    }
+
+    renamed
+}
+
+fn index_contract_matches_ignoring_name(
+    actual: &PersistedIndexSnapshot,
+    expected: &PersistedIndexSnapshot,
+) -> bool {
+    actual.ordinal() == expected.ordinal()
+        && actual.store() == expected.store()
+        && actual.unique() == expected.unique()
+        && actual.key() == expected.key()
+        && actual.predicate_sql() == expected.predicate_sql()
 }
 
 // Accepted schema remains the authority after SQL DDL publishes an index that
@@ -868,10 +919,14 @@ mod tests {
     }
 
     fn name_field_path_index(name: &str) -> PersistedIndexSnapshot {
+        name_field_path_index_in_store(name, format!("test::SchemaReconcileEntity::{name}"))
+    }
+
+    fn name_field_path_index_in_store(name: &str, store: String) -> PersistedIndexSnapshot {
         PersistedIndexSnapshot::new(
             1,
             name.to_string(),
-            format!("test::SchemaReconcileEntity::{name}"),
+            store,
             false,
             PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
                 FieldId::new(2),
@@ -897,6 +952,45 @@ mod tests {
             snapshot.fields().to_vec(),
             indexes,
         )
+    }
+
+    #[test]
+    fn schema_transition_policy_accepts_metadata_only_generated_index_rename() {
+        let base = expected_snapshot();
+        let store = "test::SchemaReconcileEntity::name_index".to_string();
+        let stored = snapshot_with_indexes(
+            &base,
+            vec![name_field_path_index_in_store(
+                "SchemaReconcileEntity|name",
+                store.clone(),
+            )],
+        );
+        let generated = snapshot_with_indexes(
+            &base,
+            vec![name_field_path_index_in_store(
+                "idx_schema_reconcile_entity__name",
+                store,
+            )],
+        );
+
+        let SchemaTransitionDecision::Accepted(plan) =
+            decide_schema_transition(&stored, &generated)
+        else {
+            panic!("index name-only drift should be a metadata-only accepted transition");
+        };
+
+        assert_eq!(
+            plan.kind(),
+            SchemaTransitionPlanKind::MetadataOnlyIndexRename
+        );
+        assert_eq!(
+            plan.mutation_plan().compatibility(),
+            MutationCompatibility::MetadataOnlySafe,
+        );
+        assert_eq!(
+            plan.mutation_plan().rebuild_requirement(),
+            RebuildRequirement::NoRebuildRequired,
+        );
     }
 
     #[test]
