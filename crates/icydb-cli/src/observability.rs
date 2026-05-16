@@ -8,21 +8,21 @@ use icydb::{
 
 use crate::{
     cli::{CanisterTarget, MetricsArgs},
+    config::{
+        METRICS_ENDPOINT, METRICS_RESET_ENDPOINT, SNAPSHOT_ENDPOINT, require_configured_endpoint,
+    },
     icp::require_created_canister,
     shell::{hex_response_bytes, icp_query_command, icp_update_command},
 };
 
-pub(crate) const SNAPSHOT_METHOD: &str = "__icydb_snapshot";
-pub(crate) const METRICS_METHOD: &str = "__icydb_metrics";
-pub(crate) const METRICS_RESET_METHOD: &str = "__icydb_metrics_reset";
-
 /// Read and print the generated storage snapshot endpoint.
 pub(crate) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String> {
+    require_configured_endpoint(target.canister_name(), SNAPSHOT_ENDPOINT)?;
     require_created_canister(target.environment(), target.canister_name())?;
     let candid_bytes = call_query(
         target.environment(),
         target.canister_name(),
-        SNAPSHOT_METHOD,
+        SNAPSHOT_ENDPOINT.method(),
         "()",
     )?;
     let response = Decode!(
@@ -38,7 +38,8 @@ pub(crate) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String>
             Ok(())
         }
         Err(err) => Err(format!(
-            "IcyDB snapshot method '{SNAPSHOT_METHOD}' failed on canister '{}' in environment '{}': {err}",
+            "IcyDB snapshot method '{}' failed on canister '{}' in environment '{}': {err}",
+            SNAPSHOT_ENDPOINT.method(),
             target.canister_name(),
             target.environment(),
         )),
@@ -48,6 +49,12 @@ pub(crate) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String>
 /// Read or reset the generated metrics endpoints.
 pub(crate) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
     let target = args.target();
+    let endpoint = if args.reset() {
+        METRICS_RESET_ENDPOINT
+    } else {
+        METRICS_ENDPOINT
+    };
+    require_configured_endpoint(target.canister_name(), endpoint)?;
     require_created_canister(target.environment(), target.canister_name())?;
 
     if args.reset() {
@@ -58,7 +65,7 @@ pub(crate) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
     let candid_bytes = call_query(
         target.environment(),
         target.canister_name(),
-        METRICS_METHOD,
+        endpoint.method(),
         candid_arg.as_str(),
     )?;
     let response = Decode!(
@@ -74,7 +81,8 @@ pub(crate) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
             Ok(())
         }
         Err(err) => Err(format!(
-            "IcyDB metrics method '{METRICS_METHOD}' failed on canister '{}' in environment '{}': {err}",
+            "IcyDB metrics method '{}' failed on canister '{}' in environment '{}': {err}",
+            endpoint.method(),
             target.canister_name(),
             target.environment(),
         )),
@@ -85,7 +93,7 @@ fn run_metrics_reset(target: &CanisterTarget) -> Result<(), String> {
     let candid_bytes = call_update(
         target.environment(),
         target.canister_name(),
-        METRICS_RESET_METHOD,
+        METRICS_RESET_ENDPOINT.method(),
         "()",
     )?;
     let response = Decode!(candid_bytes.as_slice(), Result<(), icydb::Error>)
@@ -102,7 +110,8 @@ fn run_metrics_reset(target: &CanisterTarget) -> Result<(), String> {
             Ok(())
         }
         Err(err) => Err(format!(
-            "IcyDB metrics reset method '{METRICS_RESET_METHOD}' failed on canister '{}' in environment '{}': {err}",
+            "IcyDB metrics reset method '{}' failed on canister '{}' in environment '{}': {err}",
+            METRICS_RESET_ENDPOINT.method(),
             target.canister_name(),
             target.environment(),
         )),

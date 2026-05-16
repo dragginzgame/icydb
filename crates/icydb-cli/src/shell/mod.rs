@@ -14,15 +14,13 @@ use rustyline::DefaultEditor;
 
 use crate::{
     cli::SqlArgs,
+    config::{SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, require_configured_endpoint},
     icp::require_created_canister,
     shell::{
         input::{ShellInput, read_statement},
         render::{ShellSqlQueryPerfResult, render_shell_text_from_perf_result},
     },
 };
-
-pub(crate) const SQL_QUERY_METHOD: &str = "__icydb_query";
-pub(crate) const SQL_DDL_METHOD: &str = "__icydb_ddl";
 
 #[cfg(test)]
 pub(crate) use crate::shell::{
@@ -156,15 +154,21 @@ fn run_interactive_shell(config: &ShellConfig) -> Result<(), String> {
 }
 
 fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, String> {
+    let call_kind = sql_shell_call_kind(sql);
+    let endpoint = match call_kind {
+        SqlShellCallKind::Query => SQL_QUERY_ENDPOINT,
+        SqlShellCallKind::Ddl => SQL_DDL_ENDPOINT,
+    };
+    require_configured_endpoint(canister, endpoint)?;
     require_created_canister(environment, canister)?;
 
     let escaped_sql = candid_escape_string(sql);
-    match sql_shell_call_kind(sql) {
+    match call_kind {
         SqlShellCallKind::Query => {
             let candid_bytes = icp_query(
                 environment,
                 canister,
-                SQL_QUERY_METHOD,
+                endpoint.method(),
                 escaped_sql.as_str(),
             )?;
             let response = Decode!(
@@ -182,8 +186,12 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
             }
         }
         SqlShellCallKind::Ddl => {
-            let candid_bytes =
-                icp_update(environment, canister, SQL_DDL_METHOD, escaped_sql.as_str())?;
+            let candid_bytes = icp_update(
+                environment,
+                canister,
+                endpoint.method(),
+                escaped_sql.as_str(),
+            )?;
             let response = Decode!(candid_bytes.as_slice(), Result<SqlQueryResult, icydb::Error>)
                 .map_err(|err| err.to_string())?;
 

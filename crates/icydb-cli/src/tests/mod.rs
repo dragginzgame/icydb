@@ -9,19 +9,22 @@ use crate::{
     cli::{
         CanisterCommand, CliArgs, CliCommand, ConfigCommand, ConfigInitArgs, DEFAULT_ENVIRONMENT,
     },
-    config::{config_sync_issues, init_config, render_config_report},
-    icp::{FIXTURES_LOAD_METHOD, fixtures_load_command},
-    observability::{
-        METRICS_METHOD, METRICS_RESET_METHOD, SNAPSHOT_METHOD, metrics_candid_arg,
-        render_metrics_report, render_snapshot_report,
+    config::{
+        ConfigSurface, FIXTURES_LOAD_ENDPOINT, METRICS_ENDPOINT, METRICS_RESET_ENDPOINT,
+        SNAPSHOT_ENDPOINT, SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT,
+        config_surface_enabled_for_resolved, config_sync_issues,
+        configured_endpoint_enabled_for_resolved, disabled_config_surface_message, init_config,
+        render_config_report,
     },
+    icp::fixtures_load_command,
+    observability::{metrics_candid_arg, render_metrics_report, render_snapshot_report},
     shell::{
-        SQL_DDL_METHOD, SQL_QUERY_METHOD, ShellConfig, ShellPerfAttribution, SqlShellCallKind,
-        drain_complete_shell_statements, finalize_successful_command_output, hex_response_bytes,
-        icp_query_command, icp_update_command, is_shell_help_command,
-        normalize_grouped_next_cursor_json, normalize_shell_statement_line, parse_perf_result,
-        render_grouped_shell_text, render_perf_suffix, render_projection_shell_text,
-        shell_help_text, sql_error_with_recovery_hint, sql_shell_call_kind,
+        ShellConfig, ShellPerfAttribution, SqlShellCallKind, drain_complete_shell_statements,
+        finalize_successful_command_output, hex_response_bytes, icp_query_command,
+        icp_update_command, is_shell_help_command, normalize_grouped_next_cursor_json,
+        normalize_shell_statement_line, parse_perf_result, render_grouped_shell_text,
+        render_perf_suffix, render_projection_shell_text, shell_help_text,
+        sql_error_with_recovery_hint, sql_shell_call_kind,
     },
 };
 
@@ -623,6 +626,163 @@ fn config_check_reports_mismatched_canister_settings() {
 }
 
 #[test]
+fn config_surface_helper_tracks_generated_endpoint_switches() {
+    let root = std::env::temp_dir().join(format!(
+        "icydb-cli-config-surface-test-{}",
+        std::process::id()
+    ));
+    let canister = root.join("canisters").join("demo").join("rpg");
+    std::fs::create_dir_all(canister.as_path()).expect("test directory should be created");
+    std::fs::write(
+        root.join("icydb.toml"),
+        r"
+            [canisters.demo_rpg.sql]
+            readonly = true
+            ddl = false
+            fixtures = true
+
+            [canisters.demo_rpg.metrics]
+            enabled = true
+            reset = false
+
+            [canisters.demo_rpg.snapshot]
+            enabled = true
+        ",
+    )
+    .expect("config should be written");
+    let resolved = icydb_config_build::load_resolved_icydb_toml(canister.as_path(), &[])
+        .expect("config should resolve");
+
+    assert!(config_surface_enabled_for_resolved(
+        &resolved,
+        "demo_rpg",
+        ConfigSurface::SqlReadonly,
+    ));
+    assert!(!config_surface_enabled_for_resolved(
+        &resolved,
+        "demo_rpg",
+        ConfigSurface::SqlDdl,
+    ));
+    assert!(config_surface_enabled_for_resolved(
+        &resolved,
+        "demo_rpg",
+        ConfigSurface::SqlFixtures,
+    ));
+    assert!(config_surface_enabled_for_resolved(
+        &resolved,
+        "demo_rpg",
+        ConfigSurface::Metrics,
+    ));
+    assert!(!config_surface_enabled_for_resolved(
+        &resolved,
+        "demo_rpg",
+        ConfigSurface::MetricsReset,
+    ));
+    assert!(config_surface_enabled_for_resolved(
+        &resolved,
+        "demo_rpg",
+        ConfigSurface::Snapshot,
+    ));
+    assert!(!config_surface_enabled_for_resolved(
+        &resolved,
+        "missing_rpg",
+        ConfigSurface::Snapshot,
+    ));
+    std::fs::remove_dir_all(root).expect("test directory should be removed");
+}
+
+#[test]
+fn configured_endpoint_helper_tracks_endpoint_surface_pairs() {
+    let root = std::env::temp_dir().join(format!(
+        "icydb-cli-configured-endpoint-test-{}",
+        std::process::id()
+    ));
+    let canister = root.join("canisters").join("demo").join("rpg");
+    std::fs::create_dir_all(canister.as_path()).expect("test directory should be created");
+    std::fs::write(
+        root.join("icydb.toml"),
+        r"
+            [canisters.demo_rpg.sql]
+            readonly = true
+            ddl = false
+            fixtures = true
+
+            [canisters.demo_rpg.metrics]
+            enabled = true
+            reset = false
+
+            [canisters.demo_rpg.snapshot]
+            enabled = true
+        ",
+    )
+    .expect("config should be written");
+    let resolved = icydb_config_build::load_resolved_icydb_toml(canister.as_path(), &[])
+        .expect("config should resolve");
+
+    assert!(configured_endpoint_enabled_for_resolved(
+        &resolved,
+        "demo_rpg",
+        SQL_QUERY_ENDPOINT,
+    ));
+    assert!(!configured_endpoint_enabled_for_resolved(
+        &resolved,
+        "demo_rpg",
+        SQL_DDL_ENDPOINT,
+    ));
+    assert!(configured_endpoint_enabled_for_resolved(
+        &resolved,
+        "demo_rpg",
+        FIXTURES_LOAD_ENDPOINT,
+    ));
+    assert!(configured_endpoint_enabled_for_resolved(
+        &resolved,
+        "demo_rpg",
+        METRICS_ENDPOINT,
+    ));
+    assert!(!configured_endpoint_enabled_for_resolved(
+        &resolved,
+        "demo_rpg",
+        METRICS_RESET_ENDPOINT,
+    ));
+    assert!(configured_endpoint_enabled_for_resolved(
+        &resolved,
+        "demo_rpg",
+        SNAPSHOT_ENDPOINT,
+    ));
+    std::fs::remove_dir_all(root).expect("test directory should be removed");
+}
+
+#[test]
+fn disabled_config_surface_message_names_surface_key_and_rebuild_step() {
+    let root = std::env::temp_dir().join(format!(
+        "icydb-cli-config-diagnostic-test-{}",
+        std::process::id()
+    ));
+    let canister = root.join("canisters").join("demo").join("rpg");
+    std::fs::create_dir_all(canister.as_path()).expect("test directory should be created");
+    let config_path = root.join("icydb.toml");
+    std::fs::write(
+        config_path.as_path(),
+        r"
+            [canisters.demo_rpg.sql]
+            readonly = true
+        ",
+    )
+    .expect("config should be written");
+    let resolved = icydb_config_build::load_resolved_icydb_toml(canister.as_path(), &[])
+        .expect("config should resolve");
+
+    let message =
+        disabled_config_surface_message(&resolved, "demo_rpg", ConfigSurface::MetricsReset);
+
+    assert!(message.contains("metrics reset"));
+    assert!(message.contains("canisters.<name>.metrics.reset"));
+    assert!(message.contains(config_path.to_string_lossy().as_ref()));
+    assert!(message.contains("rebuild and deploy"));
+    std::fs::remove_dir_all(root).expect("test directory should be removed");
+}
+
+#[test]
 fn cli_args_group_canister_status_under_canister_keyword() {
     let args = CliArgs::try_parse_from(["icydb", "canister", "status", "--canister", "demo"])
         .expect("canister status should parse");
@@ -648,7 +808,12 @@ fn cli_args_group_canister_refresh_under_canister_keyword() {
 
 #[test]
 fn icp_query_command_targets_environment_and_hex_query_output() {
-    let command = icp_query_command("demo", "demo_rpg", SQL_QUERY_METHOD, "(\"SELECT 1\")");
+    let command = icp_query_command(
+        "demo",
+        "demo_rpg",
+        SQL_QUERY_ENDPOINT.method(),
+        "(\"SELECT 1\")",
+    );
     let args = command
         .get_args()
         .map(|arg| arg.to_string_lossy().into_owned())
@@ -673,11 +838,13 @@ fn icp_query_command_targets_environment_and_hex_query_output() {
 }
 
 #[test]
-fn observability_method_constants_match_generated_endpoint_names() {
-    assert_eq!(SNAPSHOT_METHOD, "__icydb_snapshot");
-    assert_eq!(METRICS_METHOD, "__icydb_metrics");
-    assert_eq!(METRICS_RESET_METHOD, "__icydb_metrics_reset");
-    assert_eq!(FIXTURES_LOAD_METHOD, "__icydb_fixtures_load");
+fn configured_endpoint_methods_match_generated_endpoint_names() {
+    assert_eq!(SNAPSHOT_ENDPOINT.method(), "__icydb_snapshot");
+    assert_eq!(METRICS_ENDPOINT.method(), "__icydb_metrics");
+    assert_eq!(METRICS_RESET_ENDPOINT.method(), "__icydb_metrics_reset");
+    assert_eq!(FIXTURES_LOAD_ENDPOINT.method(), "__icydb_fixtures_load");
+    assert_eq!(SQL_QUERY_ENDPOINT.method(), "__icydb_query");
+    assert_eq!(SQL_DDL_ENDPOINT.method(), "__icydb_ddl");
 }
 
 #[test]
@@ -711,7 +878,7 @@ fn icp_update_command_targets_environment_without_query_flag() {
     let command = icp_update_command(
         "demo",
         "demo_rpg",
-        SQL_DDL_METHOD,
+        SQL_DDL_ENDPOINT.method(),
         "(\"CREATE INDEX name_idx\")",
     );
     let args = command

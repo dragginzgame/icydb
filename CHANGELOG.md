@@ -7,17 +7,39 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.156.x] ⚙️ - 2026-05-15 - IcyDB TOML Config
 
+- `0.156.6` makes the developer CLI check `icydb.toml` before calling generated
+  SQL, fixture, snapshot, and metrics endpoint families, so disabled surfaces
+  fail locally with config diagnostics, generated endpoint methods are paired
+  with config switches in one CLI metadata set, and `refresh` only calls fixture
+  loading when fixtures are configured. It also records a focused config hygiene
+  audit across parser/build boundaries, generated endpoint naming, and wasm
+  dependency graph leakage.
+
 - `0.156.5` adds direct `icydb snapshot` and `icydb metrics` CLI commands,
   renders observability payloads as readable summaries and tables, makes
   `icydb canister refresh` the single destructive reset flow with automatic
   fixture loading when available, and locks `-c`/`-e` help visibility for
   canister/environment flags.
 
+```
+icydb snapshot -c demo_rpg
+icydb metrics -c demo_rpg --reset
+icydb canister refresh -e demo -c demo_rpg
+```
+
 - `0.156.4` moves generated metrics and storage snapshot endpoints behind
   `icydb.toml`, adds matching `icydb config init` switches, and keeps generated
   observability endpoints on fixed `__icydb_*` names.
 
+```
+icydb config init -c demo_rpg --metrics --metrics-reset --snapshot
+```
+
 - `0.156.3` improves the config follow-through by adding `icydb config init`, splitting fixture lifecycle endpoints into their own `fixtures` SQL switch, hard-cutting the active generated SQL/DDL/fixture surfaces to fixed `__icydb_query`, `__icydb_ddl`, `__icydb_fixtures_reset`, and `__icydb_fixtures_load` endpoint names, fixing README SQL examples to use the now-required `--canister`, and making `icydb config check` say when it skipped environment sync.
+
+```
+icydb config init -c demo_rpg --ddl --fixtures --force
+```
 
 - `0.156.2` was skipped; no `v0.156.2` release tag was published.
 
@@ -28,6 +50,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   new argument form.
 
 - `0.156.0` introduces host-only `icydb.toml` config generation for per-canister DB SQL surfaces, splits SQL opt-in into explicit `readonly` and `ddl` switches, adds `icydb config show/check`, removes IcyDB-owned default SQL targets so `icydb sql` requires `--canister`, and hard-cuts the old manual SQL endpoint macro.
+
+```
+icydb config show -e demo
+icydb config check -e demo
+icydb sql -c demo_rpg --sql "SELECT COUNT(*) FROM character"
+```
 
 See detailed breakdown:
 [docs/changelog/0.156.md](docs/changelog/0.156.md)

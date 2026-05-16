@@ -8,4 +8,4 @@ pub(crate) use commands::{
 pub(crate) use project::{known_canisters, require_created_canister};
 
 #[cfg(test)]
-pub(crate) use commands::{FIXTURES_LOAD_METHOD, fixtures_load_command};
+pub(crate) use commands::fixtures_load_command;

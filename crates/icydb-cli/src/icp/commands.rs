@@ -3,13 +3,17 @@ use std::{
     process::{Command, Stdio},
 };
 
-use crate::icp::{
-    process::{canister_id, canister_is_installed, run_external_command, unreachable_network_hint},
-    project::known_canisters,
+use crate::{
+    config::{FIXTURES_LOAD_ENDPOINT, configured_endpoint_enabled},
+    icp::{
+        process::{
+            canister_id, canister_is_installed, run_external_command, unreachable_network_hint,
+        },
+        project::known_canisters,
+    },
 };
 
 type CanisterListRow = (String, &'static str, String);
-pub(crate) const FIXTURES_LOAD_METHOD: &str = "__icydb_fixtures_load";
 
 /// Print canisters known to the selected local ICP environment and their local id status.
 pub(crate) fn list_canisters(environment: &str) -> Result<(), String> {
@@ -100,8 +104,16 @@ fn reinstall_for_refresh(environment: &str, canister: &str) -> Result<(), String
 
 /// Refresh a local canister and load deterministic fixtures when the endpoint exists.
 pub(crate) fn refresh_canister(environment: &str, canister: &str) -> Result<(), String> {
+    let load_fixtures = configured_endpoint_enabled(canister, FIXTURES_LOAD_ENDPOINT)?;
     reinstall_for_refresh(environment, canister)?;
-    load_fixtures_after_refresh(environment, canister)
+    if load_fixtures {
+        return load_fixtures_after_refresh(environment, canister);
+    }
+
+    eprintln!(
+        "[icydb] fixture loading is not enabled for canister '{canister}' in icydb.toml; skipping fixture load"
+    );
+    Ok(())
 }
 
 fn load_fixtures_after_refresh(environment: &str, canister: &str) -> Result<(), String> {
@@ -120,13 +132,15 @@ fn load_fixtures_after_refresh(environment: &str, canister: &str) -> Result<(), 
         .to_string();
     if looks_like_missing_fixtures_endpoint(stderr.as_str()) {
         eprintln!(
-            "[icydb] fixture endpoint '{FIXTURES_LOAD_METHOD}' is not exported by '{canister}'; skipping fixture load"
+            "[icydb] fixture endpoint '{}' is not exported by '{canister}'; skipping fixture load",
+            FIXTURES_LOAD_ENDPOINT.method(),
         );
         return Ok(());
     }
 
     Err(format!(
-        "icp canister call {FIXTURES_LOAD_METHOD} failed: {stderr}"
+        "icp canister call {} failed: {stderr}",
+        FIXTURES_LOAD_ENDPOINT.method(),
     ))
 }
 
@@ -136,7 +150,7 @@ pub(crate) fn fixtures_load_command(environment: &str, canister: &str) -> Comman
         .arg("canister")
         .arg("call")
         .arg(canister)
-        .arg(FIXTURES_LOAD_METHOD)
+        .arg(FIXTURES_LOAD_ENDPOINT.method())
         .arg("()")
         .arg("--environment")
         .arg(environment);

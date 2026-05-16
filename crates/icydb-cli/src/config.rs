@@ -12,6 +12,81 @@ use crate::{
 const CONFIG_FILE_NAME: &str = "icydb.toml";
 const CONFIG_PATH_ENV: &str = "ICYDB_CONFIG_PATH";
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ConfigSurface {
+    SqlReadonly,
+    SqlDdl,
+    SqlFixtures,
+    Metrics,
+    MetricsReset,
+    Snapshot,
+}
+
+impl ConfigSurface {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::SqlReadonly => "readonly SQL",
+            Self::SqlDdl => "SQL DDL",
+            Self::SqlFixtures => "SQL fixtures",
+            Self::Metrics => "metrics",
+            Self::MetricsReset => "metrics reset",
+            Self::Snapshot => "snapshot",
+        }
+    }
+
+    const fn key(self) -> &'static str {
+        match self {
+            Self::SqlReadonly => "canisters.<name>.sql.readonly",
+            Self::SqlDdl => "canisters.<name>.sql.ddl",
+            Self::SqlFixtures => "canisters.<name>.sql.fixtures",
+            Self::Metrics => "canisters.<name>.metrics.enabled",
+            Self::MetricsReset => "canisters.<name>.metrics.reset",
+            Self::Snapshot => "canisters.<name>.snapshot.enabled",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ConfiguredEndpoint {
+    method: &'static str,
+    surface: ConfigSurface,
+}
+
+impl ConfiguredEndpoint {
+    pub(crate) const fn method(self) -> &'static str {
+        self.method
+    }
+
+    const fn surface(self) -> ConfigSurface {
+        self.surface
+    }
+}
+
+pub(crate) const SQL_QUERY_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
+    method: "__icydb_query",
+    surface: ConfigSurface::SqlReadonly,
+};
+pub(crate) const SQL_DDL_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
+    method: "__icydb_ddl",
+    surface: ConfigSurface::SqlDdl,
+};
+pub(crate) const FIXTURES_LOAD_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
+    method: "__icydb_fixtures_load",
+    surface: ConfigSurface::SqlFixtures,
+};
+pub(crate) const SNAPSHOT_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
+    method: "__icydb_snapshot",
+    surface: ConfigSurface::Snapshot,
+};
+pub(crate) const METRICS_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
+    method: "__icydb_metrics",
+    surface: ConfigSurface::Metrics,
+};
+pub(crate) const METRICS_RESET_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
+    method: "__icydb_metrics_reset",
+    surface: ConfigSurface::MetricsReset,
+};
+
 struct ConfigContext {
     environment: Option<String>,
     known_canisters: Vec<String>,
@@ -85,6 +160,80 @@ pub(crate) fn check_config(args: ConfigArgs) -> Result<(), String> {
     }
 
     Err(message)
+}
+
+/// Return whether the current `icydb.toml` enables one generated endpoint family.
+pub(crate) fn configured_endpoint_enabled(
+    canister: &str,
+    endpoint: ConfiguredEndpoint,
+) -> Result<bool, String> {
+    let start_dir = resolve_start_dir(None)?;
+    let resolved = icydb_config_build::load_resolved_icydb_toml(start_dir.as_path(), &[])
+        .map_err(|err| err.to_string())?;
+
+    Ok(configured_endpoint_enabled_for_resolved(
+        &resolved, canister, endpoint,
+    ))
+}
+
+/// Fail with a local config diagnostic before calling a generated endpoint.
+pub(crate) fn require_configured_endpoint(
+    canister: &str,
+    endpoint: ConfiguredEndpoint,
+) -> Result<(), String> {
+    let start_dir = resolve_start_dir(None)?;
+    let resolved = icydb_config_build::load_resolved_icydb_toml(start_dir.as_path(), &[])
+        .map_err(|err| err.to_string())?;
+
+    let surface = endpoint.surface();
+    if config_surface_enabled_for_resolved(&resolved, canister, surface) {
+        return Ok(());
+    }
+
+    Err(disabled_config_surface_message(
+        &resolved, canister, surface,
+    ))
+}
+
+pub(crate) fn disabled_config_surface_message(
+    resolved: &icydb_config_build::ResolvedIcydbConfig,
+    canister: &str,
+    surface: ConfigSurface,
+) -> String {
+    let config_location = resolved.config_path().map_or_else(
+        || "not found".to_string(),
+        |path| path.display().to_string(),
+    );
+
+    format!(
+        "IcyDB config does not enable {} for canister '{canister}' (config file: {config_location}). Enable `{}` in icydb.toml, then rebuild and deploy the canister.",
+        surface.label(),
+        surface.key(),
+    )
+}
+
+pub(crate) fn config_surface_enabled_for_resolved(
+    resolved: &icydb_config_build::ResolvedIcydbConfig,
+    canister: &str,
+    surface: ConfigSurface,
+) -> bool {
+    let config = resolved.config();
+    match surface {
+        ConfigSurface::SqlReadonly => config.canister_sql_readonly_enabled(canister),
+        ConfigSurface::SqlDdl => config.canister_sql_ddl_enabled(canister),
+        ConfigSurface::SqlFixtures => config.canister_sql_fixtures_enabled(canister),
+        ConfigSurface::Metrics => config.canister_metrics_enabled(canister),
+        ConfigSurface::MetricsReset => config.canister_metrics_reset_enabled(canister),
+        ConfigSurface::Snapshot => config.canister_snapshot_enabled(canister),
+    }
+}
+
+pub(crate) fn configured_endpoint_enabled_for_resolved(
+    resolved: &icydb_config_build::ResolvedIcydbConfig,
+    canister: &str,
+    endpoint: ConfiguredEndpoint,
+) -> bool {
+    config_surface_enabled_for_resolved(resolved, canister, endpoint.surface())
 }
 
 fn load_config_context(args: ConfigArgs) -> Result<ConfigContext, String> {
