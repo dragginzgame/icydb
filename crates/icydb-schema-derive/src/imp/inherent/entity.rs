@@ -17,10 +17,12 @@ impl Imp<Entity> for InherentTrait {
 fn entity_model_storage_tokens(node: &Entity) -> TokenStream {
     let model_storage = model_storage_tokens(node);
     let entity_model = entity_model_tokens(node);
+    let field_name_consts = field_name_const_tokens(node);
 
     quote! {
         #model_storage
         #entity_model
+        #field_name_consts
     }
 }
 
@@ -92,6 +94,23 @@ fn entity_model_tokens(node: &Entity) -> TokenStream {
                 &#indexes_ident,
             );
     }
+}
+
+fn field_name_const_tokens(node: &Entity) -> TokenStream {
+    let field_consts = node.fields.iter().map(|field| {
+        let const_ident = field.const_ident();
+        let field_name = field.ident.to_string();
+
+        quote! {
+            pub const #const_ident: &'static str = #field_name;
+        }
+    });
+
+    Implementor::new(&node.def, TraitKind::Inherent)
+        .set_tokens(quote! {
+            #(#field_consts)*
+        })
+        .to_token_stream()
 }
 
 fn model_fields_ident(ident: &Ident) -> Ident {

@@ -2,14 +2,15 @@ use std::process::Stdio;
 
 use candid::Decode;
 use icydb::{
-    db::StorageReport,
+    db::{EntitySchemaDescription, StorageReport},
     metrics::{EventCounters, EventReport},
 };
 
 use crate::{
     cli::{CanisterTarget, MetricsArgs},
     config::{
-        METRICS_ENDPOINT, METRICS_RESET_ENDPOINT, SNAPSHOT_ENDPOINT, require_configured_endpoint,
+        METRICS_ENDPOINT, METRICS_RESET_ENDPOINT, SCHEMA_ENDPOINT, SNAPSHOT_ENDPOINT,
+        require_configured_endpoint,
     },
     icp::require_created_canister,
     shell::{hex_response_bytes, icp_query_command, icp_update_command},
@@ -118,11 +119,65 @@ fn run_metrics_reset(target: &CanisterTarget) -> Result<(), String> {
     }
 }
 
+/// Read and print the generated accepted-schema endpoint.
+pub(crate) fn run_schema_command(target: CanisterTarget) -> Result<(), String> {
+    require_configured_endpoint(target.canister_name(), SCHEMA_ENDPOINT)?;
+    require_created_canister(target.environment(), target.canister_name())?;
+    let candid_bytes = call_query(
+        target.environment(),
+        target.canister_name(),
+        SCHEMA_ENDPOINT.method(),
+        "()",
+    )?;
+    let response = Decode!(
+        candid_bytes.as_slice(),
+        Result<Vec<icydb::db::EntitySchemaDescription>, icydb::Error>
+    )
+    .map_err(|err| err.to_string())?;
+
+    match response {
+        Ok(report) => {
+            print!("{}", render_schema_report(report.as_slice()));
+
+            Ok(())
+        }
+        Err(err) => Err(format!(
+            "IcyDB schema method '{}' failed on canister '{}' in environment '{}': {err}",
+            SCHEMA_ENDPOINT.method(),
+            target.canister_name(),
+            target.environment(),
+        )),
+    }
+}
+
 pub(crate) fn metrics_candid_arg(window_start_ms: Option<u64>) -> String {
     match window_start_ms {
         Some(value) => format!("(opt ({value} : nat64))"),
         None => "(null)".to_string(),
     }
+}
+
+pub(crate) fn render_schema_report(report: &[EntitySchemaDescription]) -> String {
+    let mut output = String::new();
+    let rows = report
+        .iter()
+        .map(|entity| {
+            (
+                entity.entity_path(),
+                entity.entity_name(),
+                entity.primary_key(),
+                entity.fields().len().to_string(),
+                entity.indexes().len().to_string(),
+                entity.relations().len().to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    output.push_str("IcyDB schema\n");
+    output.push_str(format!("  entities: {}\n\n", report.len()).as_str());
+    append_schema_entity_table(&mut output, rows.as_slice());
+
+    output
 }
 
 pub(crate) fn render_snapshot_report(report: &StorageReport) -> String {
@@ -262,6 +317,57 @@ fn append_metrics_counters(output: &mut String, counters: &EventCounters) {
         )
         .as_str(),
     );
+}
+
+fn append_schema_entity_table(
+    output: &mut String,
+    rows: &[(&str, &str, &str, String, String, String)],
+) {
+    output.push_str("entities\n");
+    if rows.is_empty() {
+        output.push_str("  None\n");
+        return;
+    }
+
+    let path_width = table_width("path", rows.iter().map(|(path, _, _, _, _, _)| *path));
+    let entity_width = table_width("entity", rows.iter().map(|(_, entity, _, _, _, _)| *entity));
+    let primary_key_width = table_width(
+        "primary key",
+        rows.iter().map(|(_, _, primary_key, _, _, _)| *primary_key),
+    );
+    let fields_width = table_width(
+        "fields",
+        rows.iter().map(|(_, _, _, fields, _, _)| fields.as_str()),
+    );
+    let indexes_width = table_width(
+        "indexes",
+        rows.iter().map(|(_, _, _, _, indexes, _)| indexes.as_str()),
+    );
+    let relations_width = table_width(
+        "relations",
+        rows.iter()
+            .map(|(_, _, _, _, _, relations)| relations.as_str()),
+    );
+    output.push_str(
+        format!(
+            "  {path:<path_width$}  {entity:<entity_width$}  {primary_key:<primary_key_width$}  {fields:>fields_width$}  {indexes:>indexes_width$}  {relations:>relations_width$}\n",
+            path = "path",
+            entity = "entity",
+            primary_key = "primary key",
+            fields = "fields",
+            indexes = "indexes",
+            relations = "relations",
+        )
+        .as_str(),
+    );
+    for (path, entity, primary_key, fields, indexes, relations) in rows {
+        output.push_str(
+            format!(
+                "  {path:<path_width$}  {entity:<entity_width$}  {primary_key:<primary_key_width$}  {fields:>fields_width$}  {indexes:>indexes_width$}  {relations:>relations_width$}\n"
+            )
+            .as_str(),
+        );
+    }
 }
 
 fn append_data_store_table(output: &mut String, rows: &[(&str, String, String)]) {

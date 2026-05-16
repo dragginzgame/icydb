@@ -2,7 +2,7 @@ use crate::{
     cli::{CanisterCommand, CliArgs, CliCommand, ConfigCommand},
     config::{check_config, init_config, show_config},
     icp::{deploy_canister, list_canisters, refresh_canister, status_canister, upgrade_canister},
-    observability::{run_metrics_command, run_snapshot_command},
+    observability::{run_metrics_command, run_schema_command, run_snapshot_command},
     shell::run_sql_command,
 };
 
@@ -12,6 +12,7 @@ pub(crate) fn run_cli(args: CliArgs) -> Result<(), String> {
         CliCommand::Sql(args) => run_sql_command(args),
         CliCommand::Snapshot(target) => run_snapshot_command(target),
         CliCommand::Metrics(args) => run_metrics_command(args),
+        CliCommand::Schema(target) => run_schema_command(target),
         CliCommand::Config(args) => run_config_command(args),
         CliCommand::Canister(args) => run_canister_command(args),
     }

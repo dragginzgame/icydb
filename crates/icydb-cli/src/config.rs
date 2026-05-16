@@ -20,6 +20,7 @@ pub(crate) enum ConfigSurface {
     Metrics,
     MetricsReset,
     Snapshot,
+    Schema,
 }
 
 impl ConfigSurface {
@@ -31,6 +32,7 @@ impl ConfigSurface {
             Self::Metrics => "metrics",
             Self::MetricsReset => "metrics reset",
             Self::Snapshot => "snapshot",
+            Self::Schema => "schema",
         }
     }
 
@@ -42,6 +44,7 @@ impl ConfigSurface {
             Self::Metrics => "canisters.<name>.metrics.enabled",
             Self::MetricsReset => "canisters.<name>.metrics.reset",
             Self::Snapshot => "canisters.<name>.snapshot.enabled",
+            Self::Schema => "canisters.<name>.schema.enabled",
         }
     }
 }
@@ -86,6 +89,12 @@ pub(crate) const METRICS_RESET_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint
     method: "__icydb_metrics_reset",
     surface: ConfigSurface::MetricsReset,
 };
+pub(crate) const SCHEMA_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
+    method: "__icydb_schema",
+    surface: ConfigSurface::Schema,
+};
+
+type CanisterSurfaceRow<'a> = (&'a str, &'a str, &'a str, &'a str, &'a str, Option<&'a str>);
 
 struct ConfigContext {
     environment: Option<String>,
@@ -225,6 +234,7 @@ pub(crate) fn config_surface_enabled_for_resolved(
         ConfigSurface::Metrics => config.canister_metrics_enabled(canister),
         ConfigSurface::MetricsReset => config.canister_metrics_reset_enabled(canister),
         ConfigSurface::Snapshot => config.canister_snapshot_enabled(canister),
+        ConfigSurface::Schema => config.canister_schema_enabled(canister),
     }
 }
 
@@ -311,6 +321,9 @@ reset = {metrics_reset}
 
 [canisters.{canister}.snapshot]
 enabled = {snapshot}
+
+[canisters.{canister}.schema]
+enabled = {schema}
 ",
         canister = args.canister_name(),
         readonly = args.readonly(),
@@ -319,6 +332,7 @@ enabled = {snapshot}
         metrics = args.metrics(),
         metrics_reset = args.metrics_reset(),
         snapshot = args.snapshot(),
+        schema = args.schema(),
     )
 }
 
@@ -366,6 +380,7 @@ pub(crate) fn render_config_report(
                     ),
                     metrics_surface_status(canister.metrics(), canister.metrics_reset()),
                     enabled_status(canister.snapshot()),
+                    enabled_status(canister.schema()),
                     Some(status_text(known.contains(name.as_str()))),
                 )
             })
@@ -385,6 +400,7 @@ pub(crate) fn render_config_report(
                     ),
                     metrics_surface_status(canister.metrics(), canister.metrics_reset()),
                     enabled_status(canister.snapshot()),
+                    enabled_status(canister.schema()),
                     None,
                 )
             })
@@ -426,24 +442,29 @@ pub(crate) fn config_sync_issues(
     issues
 }
 
-fn append_canister_table(report: &mut String, rows: &[(&str, &str, &str, &str, Option<&str>)]) {
-    let canister_width = table_width("canister", rows.iter().map(|(name, _, _, _, _)| *name));
-    let sql_width = table_width("SQL surfaces", rows.iter().map(|(_, sql, _, _, _)| *sql));
-    let metrics_width = table_width("metrics", rows.iter().map(|(_, _, metrics, _, _)| *metrics));
+fn append_canister_table(report: &mut String, rows: &[CanisterSurfaceRow<'_>]) {
+    let canister_width = table_width("canister", rows.iter().map(|(name, _, _, _, _, _)| *name));
+    let sql_width = table_width("SQL surfaces", rows.iter().map(|(_, sql, _, _, _, _)| *sql));
+    let metrics_width = table_width(
+        "metrics",
+        rows.iter().map(|(_, _, metrics, _, _, _)| *metrics),
+    );
     let snapshot_width = table_width(
         "snapshot",
-        rows.iter().map(|(_, _, _, snapshot, _)| *snapshot),
+        rows.iter().map(|(_, _, _, snapshot, _, _)| *snapshot),
     );
-    let include_in_env = rows.iter().any(|(_, _, _, _, in_env)| in_env.is_some());
+    let schema_width = table_width("schema", rows.iter().map(|(_, _, _, _, schema, _)| *schema));
+    let include_in_env = rows.iter().any(|(_, _, _, _, _, in_env)| in_env.is_some());
 
     if include_in_env {
         report.push_str(
             format!(
-                "  {canister:<canister_width$}  {sql:<sql_width$}  {metrics:<metrics_width$}  {snapshot:<snapshot_width$}  {in_env}\n",
+                "  {canister:<canister_width$}  {sql:<sql_width$}  {metrics:<metrics_width$}  {snapshot:<snapshot_width$}  {schema:<schema_width$}  {in_env}\n",
                 canister = "canister",
                 sql = "SQL surfaces",
                 metrics = "metrics",
                 snapshot = "snapshot",
+                schema = "schema",
                 in_env = "ICP environment",
             )
             .as_str(),
@@ -451,27 +472,28 @@ fn append_canister_table(report: &mut String, rows: &[(&str, &str, &str, &str, O
     } else {
         report.push_str(
             format!(
-                "  {canister:<canister_width$}  {sql:<sql_width$}  {metrics:<metrics_width$}  {snapshot}\n",
+                "  {canister:<canister_width$}  {sql:<sql_width$}  {metrics:<metrics_width$}  {snapshot:<snapshot_width$}  {schema}\n",
                 canister = "canister",
                 sql = "SQL surfaces",
                 metrics = "metrics",
                 snapshot = "snapshot",
+                schema = "schema",
             )
             .as_str(),
         );
     }
-    for (canister, sql, metrics, snapshot, in_env) in rows {
+    for (canister, sql, metrics, snapshot, schema, in_env) in rows {
         if let Some(in_env) = in_env {
             report.push_str(
                 format!(
-                    "  {canister:<canister_width$}  {sql:<sql_width$}  {metrics:<metrics_width$}  {snapshot:<snapshot_width$}  {in_env}\n"
+                    "  {canister:<canister_width$}  {sql:<sql_width$}  {metrics:<metrics_width$}  {snapshot:<snapshot_width$}  {schema:<schema_width$}  {in_env}\n"
                 )
                 .as_str(),
             );
         } else {
             report.push_str(
                 format!(
-                    "  {canister:<canister_width$}  {sql:<sql_width$}  {metrics:<metrics_width$}  {snapshot}\n"
+                    "  {canister:<canister_width$}  {sql:<sql_width$}  {metrics:<metrics_width$}  {snapshot:<snapshot_width$}  {schema}\n"
                 )
                 .as_str(),
             );

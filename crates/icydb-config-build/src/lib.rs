@@ -103,6 +103,14 @@ impl GeneratedIcydbConfig {
             .get(canister_name)
             .is_some_and(GeneratedCanisterConfig::snapshot)
     }
+
+    /// Return whether schema report endpoints should be generated for one canister.
+    #[must_use]
+    pub fn canister_schema_enabled(&self, canister_name: &str) -> bool {
+        self.canisters
+            .get(canister_name)
+            .is_some_and(GeneratedCanisterConfig::schema)
+    }
 }
 
 /// Validated generated settings for one canister.
@@ -111,6 +119,7 @@ pub struct GeneratedCanisterConfig {
     sql: GeneratedCanisterSqlConfig,
     metrics: GeneratedCanisterMetricsConfig,
     snapshot: bool,
+    schema: bool,
 }
 
 impl GeneratedCanisterConfig {
@@ -148,6 +157,12 @@ impl GeneratedCanisterConfig {
     #[must_use]
     pub const fn snapshot(&self) -> bool {
         self.snapshot
+    }
+
+    /// Return whether generated actor glue should export schema report endpoints.
+    #[must_use]
+    pub const fn schema(&self) -> bool {
+        self.schema
     }
 }
 
@@ -256,6 +271,7 @@ pub fn render_rust_config_for_canister(
     let metrics_enabled = config.canister_metrics_enabled(canister_name);
     let metrics_reset_enabled = config.canister_metrics_reset_enabled(canister_name);
     let snapshot_enabled = config.canister_snapshot_enabled(canister_name);
+    let schema_enabled = config.canister_schema_enabled(canister_name);
 
     format!(
         "\
@@ -266,6 +282,7 @@ pub const ICYDB_SQL_FIXTURES_ENABLED: bool = {sql_fixtures_enabled};
 pub const ICYDB_METRICS_ENABLED: bool = {metrics_enabled};
 pub const ICYDB_METRICS_RESET_ENABLED: bool = {metrics_reset_enabled};
 pub const ICYDB_SNAPSHOT_ENABLED: bool = {snapshot_enabled};
+pub const ICYDB_SCHEMA_ENABLED: bool = {schema_enabled};
 "
     )
 }
@@ -427,6 +444,11 @@ fn validate_canisters(
                     .as_ref()
                     .and_then(|snapshot| snapshot.enabled)
                     .unwrap_or(false),
+                schema: raw_config
+                    .schema
+                    .as_ref()
+                    .and_then(|schema| schema.enabled)
+                    .unwrap_or(false),
             },
         );
     }
@@ -523,6 +545,7 @@ struct RawCanisterConfig {
     sql: Option<RawCanisterSqlConfig>,
     metrics: Option<RawCanisterMetricsConfig>,
     snapshot: Option<RawCanisterSnapshotConfig>,
+    schema: Option<RawCanisterSchemaConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -546,6 +569,12 @@ struct RawCanisterSnapshotConfig {
     enabled: Option<bool>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawCanisterSchemaConfig {
+    enabled: Option<bool>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -560,10 +589,11 @@ mod tests {
         assert!(!config.canister_metrics_enabled("demo_rpg"));
         assert!(!config.canister_metrics_reset_enabled("demo_rpg"));
         assert!(!config.canister_snapshot_enabled("demo_rpg"));
+        assert!(!config.canister_schema_enabled("demo_rpg"));
     }
 
     #[test]
-    fn readonly_ddl_fixtures_metrics_and_snapshot_config_validate() {
+    fn readonly_ddl_fixtures_metrics_snapshot_and_schema_config_validate() {
         let config = parse_icydb_toml(
             r"
                 [canisters.demo_rpg.sql]
@@ -577,6 +607,9 @@ mod tests {
 
                 [canisters.demo_rpg.snapshot]
                 enabled = true
+
+                [canisters.demo_rpg.schema]
+                enabled = true
             ",
             &["demo_rpg"],
         )
@@ -588,6 +621,7 @@ mod tests {
         assert!(config.canister_metrics_enabled("demo_rpg"));
         assert!(config.canister_metrics_reset_enabled("demo_rpg"));
         assert!(config.canister_snapshot_enabled("demo_rpg"));
+        assert!(config.canister_schema_enabled("demo_rpg"));
     }
 
     #[test]
@@ -670,6 +704,9 @@ mod tests {
 
                 [canisters.demo_rpg.snapshot]
                 enabled = true
+
+                [canisters.demo_rpg.schema]
+                enabled = true
             ",
             &["demo_rpg"],
         )
@@ -683,6 +720,7 @@ mod tests {
         assert!(generated.contains("pub const ICYDB_METRICS_ENABLED: bool = true;"));
         assert!(generated.contains("pub const ICYDB_METRICS_RESET_ENABLED: bool = true;"));
         assert!(generated.contains("pub const ICYDB_SNAPSHOT_ENABLED: bool = true;"));
+        assert!(generated.contains("pub const ICYDB_SCHEMA_ENABLED: bool = true;"));
         assert!(!generated.contains("[demo.sql]"));
     }
 

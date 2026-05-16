@@ -9,3 +9,6 @@ reset = true
 
 [canisters.test_sql.snapshot]
 enabled = true
+
+[canisters.test_sql.schema]
+enabled = true

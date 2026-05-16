@@ -8,10 +8,12 @@ pub use icydb_testing_test_fixtures::macro_test::entity::*;
 mod tests {
     use super::*;
     use icydb::{
+        db::DbSession,
         model::field::{FieldDatabaseDefault, FieldKind},
         traits::{EntityKey, EntitySchema},
         types::Ulid,
     };
+    use icydb_testing_test_fixtures::schema::test::TestCanister;
 
     fn assert_entity_key<T>()
     where
@@ -22,6 +24,62 @@ mod tests {
     #[test]
     fn internal_primary_key_uses_declared_field_type() {
         assert_entity_key::<Entity>();
+    }
+
+    #[test]
+    fn entity_field_name_constants_are_generated() {
+        assert_eq!(Entity::ID, "id");
+        assert_eq!(Entity::A, "a");
+        assert_eq!(BoundedTextEntity::NAME, "name");
+    }
+
+    #[allow(dead_code)]
+    fn fluent_filter_eq_accepts_generated_field_constants(session: &DbSession<TestCanister>) {
+        let _ = session
+            .load::<Entity>()
+            .filter_eq(Entity::A, 3_i32)
+            .one_opt();
+    }
+
+    #[allow(dead_code)]
+    fn fluent_filter_helpers_accept_generated_field_constants(session: &DbSession<TestCanister>) {
+        let _ = session
+            .load::<Entity>()
+            .filter_ne(Entity::A, 4_i32)
+            .filter_lt(Entity::A, 10_i32)
+            .filter_lte(Entity::A, 10_i32)
+            .filter_gt(Entity::A, 1_i32)
+            .filter_gte(Entity::A, 1_i32)
+            .filter_eq_field(Entity::A, Entity::A)
+            .filter_ne_field(Entity::A, Entity::A)
+            .filter_lt_field(Entity::A, Entity::A)
+            .filter_lte_field(Entity::A, Entity::A)
+            .filter_gt_field(Entity::A, Entity::A)
+            .filter_gte_field(Entity::A, Entity::A)
+            .filter_in(Entity::A, [1_i32, 2_i32])
+            .filter_not_in(Entity::A, [3_i32, 4_i32])
+            .filter_contains(Entity::A, 3_i32)
+            .filter_is_null(Entity::A)
+            .filter_is_not_null(Entity::A)
+            .filter_is_missing(Entity::A)
+            .filter_is_empty(Entity::A)
+            .filter_is_not_empty(Entity::A)
+            .filter_between(Entity::A, 1_i32, 10_i32)
+            .filter_between_fields(Entity::A, Entity::A, Entity::A)
+            .filter_not_between(Entity::A, 1_i32, 10_i32)
+            .filter_not_between_fields(Entity::A, Entity::A, Entity::A)
+            .one_opt();
+
+        let _ = session
+            .load::<BoundedTextEntity>()
+            .filter_text_eq_ci(BoundedTextEntity::NAME, "Ada")
+            .filter_text_contains(BoundedTextEntity::NAME, "da")
+            .filter_text_contains_ci(BoundedTextEntity::NAME, "DA")
+            .filter_text_starts_with(BoundedTextEntity::NAME, "A")
+            .filter_text_starts_with_ci(BoundedTextEntity::NAME, "a")
+            .filter_text_ends_with(BoundedTextEntity::NAME, "a")
+            .filter_text_ends_with_ci(BoundedTextEntity::NAME, "A")
+            .one_opt();
     }
 
     #[test]

@@ -9,3 +9,6 @@ reset = true
 
 [canisters.demo_rpg.snapshot]
 enabled = true
+
+[canisters.demo_rpg.schema]
+enabled = true

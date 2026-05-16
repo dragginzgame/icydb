@@ -13,7 +13,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_sql_fixtures_enabled(config.canister_sql_fixtures_enabled("OneComplexCanister"))
         .with_metrics_enabled(config.canister_metrics_enabled("OneComplexCanister"))
         .with_metrics_reset_enabled(config.canister_metrics_reset_enabled("OneComplexCanister"))
-        .with_snapshot_enabled(config.canister_snapshot_enabled("OneComplexCanister"));
+        .with_snapshot_enabled(config.canister_snapshot_enabled("OneComplexCanister"))
+        .with_schema_enabled(config.canister_schema_enabled("OneComplexCanister"));
     icydb::build_with_options!(
         "icydb_testing_audit_one_complex_fixtures::one_complex::OneComplexCanister",
         options

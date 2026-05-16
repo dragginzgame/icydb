@@ -34,6 +34,7 @@ pub struct BuildOptions {
     sql: BuildSqlOptions,
     metrics: BuildMetricsOptions,
     snapshot_enabled: bool,
+    schema_enabled: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -98,6 +99,14 @@ impl BuildOptions {
         self
     }
 
+    /// Build options with generated schema report endpoint emission configured.
+    #[must_use]
+    pub const fn with_schema_enabled(mut self, enabled: bool) -> Self {
+        self.schema_enabled = enabled;
+
+        self
+    }
+
     /// Return whether generated actor glue should export the read-only SQL endpoint.
     #[must_use]
     pub const fn sql_readonly_enabled(self) -> bool {
@@ -132,6 +141,12 @@ impl BuildOptions {
     #[must_use]
     pub const fn snapshot_enabled(self) -> bool {
         self.snapshot_enabled
+    }
+
+    /// Return whether generated actor glue should export schema report endpoints.
+    #[must_use]
+    pub const fn schema_enabled(self) -> bool {
+        self.schema_enabled
     }
 
     /// Return whether any generated SQL endpoint surface is enabled.

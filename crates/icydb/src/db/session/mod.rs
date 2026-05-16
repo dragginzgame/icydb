@@ -544,6 +544,18 @@ impl<C: CanisterKind> DbSession<C> {
         self.inner.describe_entity::<E>()
     }
 
+    /// Return one accepted live-schema description for the entity.
+    ///
+    /// Generated schema endpoints use this accepted-schema path so DDL-published
+    /// index metadata and recovered schema authority are reflected in tooling
+    /// payloads instead of only the compiled model proposal.
+    pub fn try_describe_entity<E>(&self) -> Result<EntitySchemaDescription, Error>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        Ok(self.inner.try_describe_entity::<E>()?)
+    }
+
     /// Build one point-in-time storage report for observability endpoints.
     pub fn storage_report(
         &self,

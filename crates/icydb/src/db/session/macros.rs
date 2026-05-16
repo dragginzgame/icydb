@@ -17,11 +17,371 @@ macro_rules! impl_session_query_shape_methods {
             self
         }
 
-        /// Attach one typed filter expression.
-        #[must_use]
-        pub fn filter(mut self, expr: impl Into<FilterExpr>) -> Self {
+        fn filter_expr(mut self, expr: crate::db::query::FilterExpr) -> Self {
             self.inner = self.inner.filter(expr);
             self
+        }
+
+        /// Attach one pre-built predicate expression.
+        ///
+        /// Prefer the `filter_*` helpers for app-level query code. This raw
+        /// expression hook is for advanced composition where the caller already
+        /// owns a `FilterExpr`.
+        #[must_use]
+        pub fn filter(self, expr: impl Into<FilterExpr>) -> Self {
+            self.filter_expr(expr.into())
+        }
+
+        /// Filter by strict equality on one field.
+        #[must_use]
+        pub fn filter_eq(
+            self,
+            field: impl AsRef<str>,
+            value: impl Into<crate::db::query::FilterValue>,
+        ) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::eq(field.as_ref(), value))
+        }
+
+        /// Filter by strict inequality on one field.
+        #[must_use]
+        pub fn filter_ne(
+            self,
+            field: impl AsRef<str>,
+            value: impl Into<crate::db::query::FilterValue>,
+        ) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::ne(field.as_ref(), value))
+        }
+
+        /// Filter by `field < value`.
+        #[must_use]
+        pub fn filter_lt(
+            self,
+            field: impl AsRef<str>,
+            value: impl Into<crate::db::query::FilterValue>,
+        ) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::lt(field.as_ref(), value))
+        }
+
+        /// Filter by `field <= value`.
+        #[must_use]
+        pub fn filter_lte(
+            self,
+            field: impl AsRef<str>,
+            value: impl Into<crate::db::query::FilterValue>,
+        ) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::lte(field.as_ref(), value))
+        }
+
+        /// Filter by `field > value`.
+        #[must_use]
+        pub fn filter_gt(
+            self,
+            field: impl AsRef<str>,
+            value: impl Into<crate::db::query::FilterValue>,
+        ) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::gt(field.as_ref(), value))
+        }
+
+        /// Filter by `field >= value`.
+        #[must_use]
+        pub fn filter_gte(
+            self,
+            field: impl AsRef<str>,
+            value: impl Into<crate::db::query::FilterValue>,
+        ) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::gte(field.as_ref(), value))
+        }
+
+        /// Filter by case-insensitive text equality on one field.
+        #[must_use]
+        pub fn filter_text_eq_ci(
+            self,
+            field: impl AsRef<str>,
+            value: impl Into<crate::db::query::FilterValue>,
+        ) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::eq_ci(field.as_ref(), value))
+        }
+
+        /// Filter by strict equality between two fields.
+        #[must_use]
+        pub fn filter_eq_field(
+            self,
+            left_field: impl AsRef<str>,
+            right_field: impl AsRef<str>,
+        ) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::eq_field(
+                left_field.as_ref(),
+                right_field.as_ref(),
+            ))
+        }
+
+        /// Filter by strict inequality between two fields.
+        #[must_use]
+        pub fn filter_ne_field(
+            self,
+            left_field: impl AsRef<str>,
+            right_field: impl AsRef<str>,
+        ) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::ne_field(
+                left_field.as_ref(),
+                right_field.as_ref(),
+            ))
+        }
+
+        /// Filter by `left_field < right_field`.
+        #[must_use]
+        pub fn filter_lt_field(
+            self,
+            left_field: impl AsRef<str>,
+            right_field: impl AsRef<str>,
+        ) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::lt_field(
+                left_field.as_ref(),
+                right_field.as_ref(),
+            ))
+        }
+
+        /// Filter by `left_field <= right_field`.
+        #[must_use]
+        pub fn filter_lte_field(
+            self,
+            left_field: impl AsRef<str>,
+            right_field: impl AsRef<str>,
+        ) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::lte_field(
+                left_field.as_ref(),
+                right_field.as_ref(),
+            ))
+        }
+
+        /// Filter by `left_field > right_field`.
+        #[must_use]
+        pub fn filter_gt_field(
+            self,
+            left_field: impl AsRef<str>,
+            right_field: impl AsRef<str>,
+        ) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::gt_field(
+                left_field.as_ref(),
+                right_field.as_ref(),
+            ))
+        }
+
+        /// Filter by `left_field >= right_field`.
+        #[must_use]
+        pub fn filter_gte_field(
+            self,
+            left_field: impl AsRef<str>,
+            right_field: impl AsRef<str>,
+        ) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::gte_field(
+                left_field.as_ref(),
+                right_field.as_ref(),
+            ))
+        }
+
+        /// Filter by membership in a fixed value list.
+        #[must_use]
+        pub fn filter_in<I, V>(self, field: impl AsRef<str>, values: I) -> Self
+        where
+            I: IntoIterator<Item = V>,
+            V: Into<crate::db::query::FilterValue>,
+        {
+            self.filter_expr(crate::db::query::FilterExpr::in_list(
+                field.as_ref(),
+                values,
+            ))
+        }
+
+        /// Filter by absence from a fixed value list.
+        #[must_use]
+        pub fn filter_not_in<I, V>(self, field: impl AsRef<str>, values: I) -> Self
+        where
+            I: IntoIterator<Item = V>,
+            V: Into<crate::db::query::FilterValue>,
+        {
+            self.filter_expr(crate::db::query::FilterExpr::not_in(field.as_ref(), values))
+        }
+
+        /// Filter by collection containment.
+        #[must_use]
+        pub fn filter_contains(
+            self,
+            field: impl AsRef<str>,
+            value: impl Into<crate::db::query::FilterValue>,
+        ) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::contains(
+                field.as_ref(),
+                value,
+            ))
+        }
+
+        /// Filter by an explicitly null field value.
+        #[must_use]
+        pub fn filter_is_null(self, field: impl AsRef<str>) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::is_null(field.as_ref()))
+        }
+
+        /// Filter by a present non-null field value.
+        #[must_use]
+        pub fn filter_is_not_null(self, field: impl AsRef<str>) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::is_not_null(field.as_ref()))
+        }
+
+        /// Filter by a missing field.
+        #[must_use]
+        pub fn filter_is_missing(self, field: impl AsRef<str>) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::is_missing(field.as_ref()))
+        }
+
+        /// Filter by an empty field value.
+        #[must_use]
+        pub fn filter_is_empty(self, field: impl AsRef<str>) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::is_empty(field.as_ref()))
+        }
+
+        /// Filter by a non-empty field value.
+        #[must_use]
+        pub fn filter_is_not_empty(self, field: impl AsRef<str>) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::is_not_empty(field.as_ref()))
+        }
+
+        /// Filter by case-sensitive text containment.
+        #[must_use]
+        pub fn filter_text_contains(
+            self,
+            field: impl AsRef<str>,
+            value: impl Into<crate::db::query::FilterValue>,
+        ) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::text_contains(
+                field.as_ref(),
+                value,
+            ))
+        }
+
+        /// Filter by case-insensitive text containment.
+        #[must_use]
+        pub fn filter_text_contains_ci(
+            self,
+            field: impl AsRef<str>,
+            value: impl Into<crate::db::query::FilterValue>,
+        ) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::text_contains_ci(
+                field.as_ref(),
+                value,
+            ))
+        }
+
+        /// Filter by case-sensitive text prefix.
+        #[must_use]
+        pub fn filter_text_starts_with(
+            self,
+            field: impl AsRef<str>,
+            value: impl Into<crate::db::query::FilterValue>,
+        ) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::starts_with(
+                field.as_ref(),
+                value,
+            ))
+        }
+
+        /// Filter by case-insensitive text prefix.
+        #[must_use]
+        pub fn filter_text_starts_with_ci(
+            self,
+            field: impl AsRef<str>,
+            value: impl Into<crate::db::query::FilterValue>,
+        ) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::starts_with_ci(
+                field.as_ref(),
+                value,
+            ))
+        }
+
+        /// Filter by case-sensitive text suffix.
+        #[must_use]
+        pub fn filter_text_ends_with(
+            self,
+            field: impl AsRef<str>,
+            value: impl Into<crate::db::query::FilterValue>,
+        ) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::ends_with(
+                field.as_ref(),
+                value,
+            ))
+        }
+
+        /// Filter by case-insensitive text suffix.
+        #[must_use]
+        pub fn filter_text_ends_with_ci(
+            self,
+            field: impl AsRef<str>,
+            value: impl Into<crate::db::query::FilterValue>,
+        ) -> Self {
+            self.filter_expr(crate::db::query::FilterExpr::ends_with_ci(
+                field.as_ref(),
+                value,
+            ))
+        }
+
+        /// Filter by inclusive scalar range.
+        #[must_use]
+        pub fn filter_between(
+            self,
+            field: impl AsRef<str>,
+            lower: impl Into<crate::db::query::FilterValue>,
+            upper: impl Into<crate::db::query::FilterValue>,
+        ) -> Self {
+            let field = field.as_ref();
+            self.filter_expr(crate::db::query::FilterExpr::and(vec![
+                crate::db::query::FilterExpr::gte(field, lower),
+                crate::db::query::FilterExpr::lte(field, upper),
+            ]))
+        }
+
+        /// Filter by inclusive field-to-field range.
+        #[must_use]
+        pub fn filter_between_fields(
+            self,
+            field: impl AsRef<str>,
+            lower_field: impl AsRef<str>,
+            upper_field: impl AsRef<str>,
+        ) -> Self {
+            let field = field.as_ref();
+            self.filter_expr(crate::db::query::FilterExpr::and(vec![
+                crate::db::query::FilterExpr::gte_field(field, lower_field.as_ref()),
+                crate::db::query::FilterExpr::lte_field(field, upper_field.as_ref()),
+            ]))
+        }
+
+        /// Filter by values outside an inclusive scalar range.
+        #[must_use]
+        pub fn filter_not_between(
+            self,
+            field: impl AsRef<str>,
+            lower: impl Into<crate::db::query::FilterValue>,
+            upper: impl Into<crate::db::query::FilterValue>,
+        ) -> Self {
+            let field = field.as_ref();
+            self.filter_expr(crate::db::query::FilterExpr::or(vec![
+                crate::db::query::FilterExpr::lt(field, lower),
+                crate::db::query::FilterExpr::gt(field, upper),
+            ]))
+        }
+
+        /// Filter by values outside an inclusive field-to-field range.
+        #[must_use]
+        pub fn filter_not_between_fields(
+            self,
+            field: impl AsRef<str>,
+            lower_field: impl AsRef<str>,
+            upper_field: impl AsRef<str>,
+        ) -> Self {
+            let field = field.as_ref();
+            self.filter_expr(crate::db::query::FilterExpr::or(vec![
+                crate::db::query::FilterExpr::lt_field(field, lower_field.as_ref()),
+                crate::db::query::FilterExpr::gt_field(field, upper_field.as_ref()),
+            ]))
         }
 
         /// Order by one typed ORDER BY term.

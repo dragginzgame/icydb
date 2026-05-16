@@ -42,6 +42,9 @@ pub(crate) enum CliCommand {
     /// Read or reset metrics on an IcyDB canister.
     Metrics(MetricsArgs),
 
+    /// Read accepted schema metadata from an IcyDB canister.
+    Schema(CanisterTarget),
+
     /// Inspect and validate IcyDB TOML config.
     #[command(subcommand)]
     Config(ConfigCommand),
@@ -94,7 +97,7 @@ pub(crate) struct SqlArgs {
 #[derive(Args, Clone, Debug)]
 pub(crate) struct CanisterTarget {
     /// Target ICP canister name.
-    #[arg(short, long, required = true)]
+    #[arg(value_name = "CANISTER")]
     pub(crate) canister: String,
 
     /// Target icp-cli environment.
@@ -249,6 +252,10 @@ pub(crate) struct ConfigInitArgs {
     #[arg(long)]
     pub(crate) snapshot: bool,
 
+    /// Also generate accepted schema report endpoint.
+    #[arg(long)]
+    pub(crate) schema: bool,
+
     /// Generate all currently supported DB endpoint families.
     #[arg(long)]
     pub(crate) all: bool,
@@ -272,7 +279,7 @@ impl ConfigInitArgs {
     }
 
     pub(crate) const fn readonly(&self) -> bool {
-        !self.no_readonly || self.all
+        !self.no_readonly
     }
 
     pub(crate) const fn ddl(&self) -> bool {
@@ -293,6 +300,10 @@ impl ConfigInitArgs {
 
     pub(crate) const fn snapshot(&self) -> bool {
         self.snapshot || self.all
+    }
+
+    pub(crate) const fn schema(&self) -> bool {
+        self.schema || self.all
     }
 
     pub(crate) const fn force(&self) -> bool {

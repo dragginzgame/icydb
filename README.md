@@ -83,8 +83,8 @@ use icydb::prelude::*;
 pub fn top_users() -> Result<Vec<User>, icydb::Error> {
     db!()
         .load::<User>()
-        .filter(FilterExpr::gt("score", Decimal::from_i128_with_scale(100_000, 3)))
-        .order_desc("score")
+        .filter_eq(User::ACTIVE, true)
+        .order_desc(User::SCORE)
         .limit(10)
         .entities()
 }
@@ -139,8 +139,10 @@ cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "DESCRIBE character"
 cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SHOW TABLES"
 ```
 
-The `sql` and canister lifecycle commands require an explicit `--canister` and
-default only the ICP environment to `demo`. To inspect local canister IDs:
+`sql` keeps an explicit `--canister/-c` flag because it also accepts trailing
+SQL text. Target-style commands such as `canister refresh`, `snapshot`,
+`schema`, and `metrics` take the canister as a required positional argument.
+All of them default the ICP environment to `demo`. To inspect local canister IDs:
 
 ```bash
 cargo run -q -p icydb-cli -- canister list
@@ -161,8 +163,10 @@ payload. SQL DDL uses the canister's `__icydb_ddl` update endpoint for supported
 Canisters opt into DB endpoint surfaces through `icydb.toml`. `readonly = true`
 generates the controller-gated `__icydb_query` endpoint. `ddl = true`
 generates the `__icydb_ddl` update endpoint. `fixtures = true` generates the
-`__icydb_fixtures_reset` and `__icydb_fixtures_load` update endpoints. The
-generated canister glue routes each SQL statement to the matching accepted entity:
+`__icydb_fixtures_reset` and `__icydb_fixtures_load` update endpoints.
+`schema.enabled = true` generates the `__icydb_schema` query endpoint for
+accepted live schema metadata. The generated canister glue routes each SQL
+statement to the matching accepted entity:
 
 The CLI checks this config before calling generated endpoint families. If a
 surface is disabled for the selected canister, the command fails locally with
@@ -181,6 +185,9 @@ reset = true
 
 [canisters.demo_rpg.snapshot]
 enabled = true
+
+[canisters.demo_rpg.schema]
+enabled = true
 ```
 
 ```rust
@@ -190,10 +197,10 @@ fn icydb_fixtures_load() -> Result<(), icydb::Error> {
 ```
 
 ```bash
-cargo run -q -p icydb-cli -- config init --canister demo_rpg --ddl --fixtures --metrics --metrics-reset --snapshot
+cargo run -q -p icydb-cli -- config init --canister demo_rpg --ddl --fixtures --metrics --metrics-reset --snapshot --schema
 cargo run -q -p icydb-cli -- config show
 cargo run -q -p icydb-cli -- config check -e demo
-cargo run -q -p icydb-cli -- canister refresh -e demo -c demo_rpg
+cargo run -q -p icydb-cli -- canister refresh demo_rpg -e demo
 ```
 
 Interactive shell:
@@ -208,9 +215,11 @@ Installed CLI:
 make install
 icydb sql --canister demo_rpg --sql "SELECT COUNT(*) FROM character"
 icydb sql -e test -c demo_rpg --sql "SHOW TABLES"
-icydb snapshot --canister demo_rpg
-icydb metrics --canister demo_rpg
-icydb metrics --canister demo_rpg --reset
+icydb canister refresh demo_rpg
+icydb snapshot demo_rpg
+icydb schema demo_rpg
+icydb metrics demo_rpg
+icydb metrics demo_rpg --reset
 ```
 
 ## Observability
@@ -218,16 +227,18 @@ icydb metrics --canister demo_rpg --reset
 Generated canisters can expose:
 
 - `__icydb_snapshot()` for configured current storage inventory
+- `__icydb_schema()` for configured accepted live schema metadata
 - `__icydb_metrics(window_start_ms: Option<u64>)` for configured metrics
 - `__icydb_metrics_reset()` to clear configured in-memory metrics
 
 Example:
 
 ```bash
-icydb snapshot --canister <canister>
-icydb metrics --canister <canister>
-icydb metrics --canister <canister> --window-start-ms <timestamp>
-icydb metrics --canister <canister> --reset
+icydb snapshot <canister>
+icydb schema <canister>
+icydb metrics <canister>
+icydb metrics <canister> --window-start-ms <timestamp>
+icydb metrics <canister> --reset
 ```
 
 ## Repository Map

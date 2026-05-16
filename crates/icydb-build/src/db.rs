@@ -64,6 +64,18 @@ struct SqlSurfaceTokens {
     show_entities_dispatch: TokenStream,
 }
 
+///
+/// SchemaSurfaceTokens
+///
+/// Generated token bundle for the opted-in accepted-schema report endpoint.
+/// The endpoint remains generated because only codegen knows the concrete
+/// entity types bound to one canister.
+///
+
+struct SchemaSurfaceTokens {
+    entity_rows: TokenStream,
+}
+
 fn store_registry_tokens(builder: &ActorBuilder) -> StoreRegistryTokens {
     let mut data_defs = quote!();
     let mut index_defs = quote!();
@@ -221,6 +233,10 @@ fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> To
             builder.options.sql_fixtures_enabled(),
         )
     });
+    let mut schema_surface = builder
+        .options
+        .schema_enabled()
+        .then(SchemaSurfaceTokens::empty);
     let entities = builder.get_entities();
 
     for (entity_path, _) in entities {
@@ -232,8 +248,13 @@ fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> To
         if let Some(sql_surface) = sql_surface.as_mut() {
             sql_surface.push_entity(&entity_ty);
         }
+        if let Some(schema_surface) = schema_surface.as_mut() {
+            schema_surface.push_entity(&entity_ty);
+        }
     }
     let sql_surface = sql_surface.map_or_else(TokenStream::new, |sql_surface| quote!(#sql_surface));
+    let schema_surface =
+        schema_surface.map_or_else(TokenStream::new, |schema_surface| quote!(#schema_surface));
 
     quote! {
         static ENTITY_RUNTIME_HOOKS: &[
@@ -243,6 +264,7 @@ fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> To
         ];
 
         #sql_surface
+        #schema_surface
     }
 }
 
@@ -294,6 +316,51 @@ impl quote::ToTokens for SqlSurfaceTokens {
             #reset_helper
             #ddl_dispatch
             #endpoints
+        });
+    }
+}
+
+impl SchemaSurfaceTokens {
+    fn empty() -> Self {
+        Self {
+            entity_rows: quote!(),
+        }
+    }
+
+    fn push_entity(&mut self, entity_ty: &syn::Path) {
+        self.entity_rows.extend(quote! {
+            schemas.push(db().try_describe_entity::<#entity_ty>()?);
+        });
+    }
+}
+
+impl quote::ToTokens for SchemaSurfaceTokens {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let entity_rows = &self.entity_rows;
+
+        tokens.extend(quote! {
+            fn icydb_schema_surface_require_controller() -> Result<(), ::icydb::Error> {
+                let caller = ::icydb::__reexports::canic_cdk::api::msg_caller();
+                if !::icydb::__reexports::canic_cdk::api::is_controller(&caller) {
+                    return Err(::icydb::Error::new(
+                        ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
+                        ::icydb::ErrorOrigin::Interface,
+                        "IcyDB schema report requires a controller caller",
+                    ));
+                }
+
+                Ok(())
+            }
+
+            #[::icydb::__reexports::canic_cdk::query]
+            fn __icydb_schema() -> Result<Vec<::icydb::db::EntitySchemaDescription>, ::icydb::Error> {
+                icydb_schema_surface_require_controller()?;
+
+                let mut schemas = Vec::new();
+                #entity_rows
+
+                Ok(schemas)
+            }
         });
     }
 }

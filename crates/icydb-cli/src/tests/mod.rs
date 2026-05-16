@@ -11,13 +11,15 @@ use crate::{
     },
     config::{
         ConfigSurface, FIXTURES_LOAD_ENDPOINT, METRICS_ENDPOINT, METRICS_RESET_ENDPOINT,
-        SNAPSHOT_ENDPOINT, SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT,
+        SCHEMA_ENDPOINT, SNAPSHOT_ENDPOINT, SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT,
         config_surface_enabled_for_resolved, config_sync_issues,
         configured_endpoint_enabled_for_resolved, disabled_config_surface_message, init_config,
         render_config_report,
     },
     icp::fixtures_load_command,
-    observability::{metrics_candid_arg, render_metrics_report, render_snapshot_report},
+    observability::{
+        metrics_candid_arg, render_metrics_report, render_schema_report, render_snapshot_report,
+    },
     shell::{
         ShellConfig, ShellPerfAttribution, SqlShellCallKind, drain_complete_shell_statements,
         finalize_successful_command_output, hex_response_bytes, icp_query_command,
@@ -183,28 +185,35 @@ fn help_command_matches_supported_spellings() {
 }
 
 #[test]
-fn clap_help_exposes_short_canister_and_environment_flags() {
+fn clap_help_exposes_target_environment_flags() {
     for args in [
-        ["icydb", "sql", "--help"].as_slice(),
         ["icydb", "snapshot", "--help"].as_slice(),
         ["icydb", "metrics", "--help"].as_slice(),
+        ["icydb", "schema", "--help"].as_slice(),
         ["icydb", "canister", "refresh", "--help"].as_slice(),
     ] {
         let help = clap_help_text(args);
 
         assert!(
-            help.contains("-c, --canister"),
-            "help should expose -c shorthand: {help}"
+            help.contains("<CANISTER>"),
+            "help should expose positional canister target: {help}"
         );
         assert!(
             help.contains("-e, --environment"),
             "help should expose -e shorthand: {help}"
+        );
+        assert!(
+            !help.contains("-c, --canister"),
+            "target commands should not expose duplicate -c canister target: {help}"
         );
     }
 }
 
 #[test]
 fn clap_help_exposes_available_short_flags_on_config_commands() {
+    let sql_help = clap_help_text(["icydb", "sql", "--help"].as_slice());
+    assert!(sql_help.contains("-c, --canister"));
+
     let init_help = clap_help_text(["icydb", "config", "init", "--help"].as_slice());
     assert!(init_help.contains("-c, --canister"));
 
@@ -379,15 +388,8 @@ fn cli_args_accept_explicit_icp_environment() {
 
 #[test]
 fn cli_args_group_snapshot_under_top_level_keyword() {
-    let args = CliArgs::try_parse_from([
-        "icydb",
-        "snapshot",
-        "--canister",
-        "demo_rpg",
-        "--environment",
-        "test",
-    ])
-    .expect("snapshot command should parse");
+    let args = CliArgs::try_parse_from(["icydb", "snapshot", "demo_rpg", "--environment", "test"])
+        .expect("snapshot command should parse");
     let CliCommand::Snapshot(target) = args.command else {
         panic!("expected snapshot command");
     };
@@ -397,16 +399,18 @@ fn cli_args_group_snapshot_under_top_level_keyword() {
 }
 
 #[test]
+fn cli_args_reject_canister_flag_on_target_commands() {
+    let err = CliArgs::try_parse_from(["icydb", "snapshot", "--canister", "demo_rpg"])
+        .expect_err("snapshot command should reject flagged canister target");
+
+    assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
+}
+
+#[test]
 fn cli_args_group_metrics_under_top_level_keyword() {
-    let args = CliArgs::try_parse_from([
-        "icydb",
-        "metrics",
-        "--canister",
-        "demo_rpg",
-        "--window-start-ms",
-        "123",
-    ])
-    .expect("metrics command should parse");
+    let args =
+        CliArgs::try_parse_from(["icydb", "metrics", "demo_rpg", "--window-start-ms", "123"])
+            .expect("metrics command should parse");
     let CliCommand::Metrics(args) = args.command else {
         panic!("expected metrics command");
     };
@@ -422,7 +426,6 @@ fn cli_args_group_metrics_reset_under_top_level_keyword() {
     let args = CliArgs::try_parse_from([
         "icydb",
         "metrics",
-        "--canister",
         "demo_rpg",
         "--environment",
         "test",
@@ -437,6 +440,18 @@ fn cli_args_group_metrics_reset_under_top_level_keyword() {
     assert_eq!(args.target().environment(), "test");
     assert_eq!(args.window_start_ms(), None);
     assert!(args.reset());
+}
+
+#[test]
+fn cli_args_group_schema_under_top_level_keyword() {
+    let args = CliArgs::try_parse_from(["icydb", "schema", "demo_rpg", "--environment", "test"])
+        .expect("schema command should parse");
+    let CliCommand::Schema(target) = args.command else {
+        panic!("expected schema command");
+    };
+
+    assert_eq!(target.canister_name(), "demo_rpg");
+    assert_eq!(target.environment(), "test");
 }
 
 #[test]
@@ -492,6 +507,7 @@ fn cli_args_group_config_init_under_config_keyword() {
         "--metrics",
         "--metrics-reset",
         "--snapshot",
+        "--schema",
         "--start-dir",
         "canisters/demo/rpg",
     ])
@@ -507,7 +523,33 @@ fn cli_args_group_config_init_under_config_keyword() {
     assert!(args.metrics());
     assert!(args.metrics_reset());
     assert!(args.snapshot());
+    assert!(args.schema());
     assert_eq!(args.start_dir(), Some(Path::new("canisters/demo/rpg")));
+}
+
+#[test]
+fn cli_args_config_init_no_readonly_overrides_all() {
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "config",
+        "init",
+        "--canister",
+        "demo_rpg",
+        "--all",
+        "--no-readonly",
+    ])
+    .expect("config init should parse all without readonly");
+    let CliCommand::Config(ConfigCommand::Init(args)) = args.command else {
+        panic!("expected config init command");
+    };
+
+    assert!(!args.readonly());
+    assert!(args.ddl());
+    assert!(args.fixtures());
+    assert!(args.metrics());
+    assert!(args.metrics_reset());
+    assert!(args.snapshot());
+    assert!(args.schema());
 }
 
 #[test]
@@ -539,6 +581,7 @@ fn config_init_writes_default_config_at_workspace_root() {
         metrics: true,
         metrics_reset: true,
         snapshot: true,
+        schema: true,
         all: false,
         no_readonly: false,
         force: false,
@@ -549,7 +592,7 @@ fn config_init_writes_default_config_at_workspace_root() {
         .expect("config file should be written");
     assert_eq!(
         config,
-        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = true\nfixtures = true\n\n[canisters.demo_rpg.metrics]\nenabled = true\nreset = true\n\n[canisters.demo_rpg.snapshot]\nenabled = true\n"
+        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = true\nfixtures = true\n\n[canisters.demo_rpg.metrics]\nenabled = true\nreset = true\n\n[canisters.demo_rpg.snapshot]\nenabled = true\n\n[canisters.demo_rpg.schema]\nenabled = true\n"
     );
 
     std::fs::remove_dir_all(root).expect("test directory should be removed");
@@ -578,6 +621,9 @@ fn config_report_marks_canister_settings_against_icp_environment() {
 
             [canisters.demo_rpg.snapshot]
             enabled = true
+
+            [canisters.demo_rpg.schema]
+            enabled = true
         ",
     )
     .expect("config should be written");
@@ -591,7 +637,9 @@ fn config_report_marks_canister_settings_against_icp_environment() {
         &resolved,
     );
 
-    assert!(report.contains("demo_rpg  readonly, ddl, fixtures  enabled, reset  enabled   ok"));
+    assert!(
+        report.contains("demo_rpg  readonly, ddl, fixtures  enabled, reset  enabled   enabled  ok")
+    );
     std::fs::remove_dir_all(root).expect("test directory should be removed");
 }
 
@@ -647,6 +695,9 @@ fn config_surface_helper_tracks_generated_endpoint_switches() {
 
             [canisters.demo_rpg.snapshot]
             enabled = true
+
+            [canisters.demo_rpg.schema]
+            enabled = true
         ",
     )
     .expect("config should be written");
@@ -683,6 +734,11 @@ fn config_surface_helper_tracks_generated_endpoint_switches() {
         "demo_rpg",
         ConfigSurface::Snapshot,
     ));
+    assert!(config_surface_enabled_for_resolved(
+        &resolved,
+        "demo_rpg",
+        ConfigSurface::Schema,
+    ));
     assert!(!config_surface_enabled_for_resolved(
         &resolved,
         "missing_rpg",
@@ -712,6 +768,9 @@ fn configured_endpoint_helper_tracks_endpoint_surface_pairs() {
             reset = false
 
             [canisters.demo_rpg.snapshot]
+            enabled = true
+
+            [canisters.demo_rpg.schema]
             enabled = true
         ",
     )
@@ -749,6 +808,11 @@ fn configured_endpoint_helper_tracks_endpoint_surface_pairs() {
         "demo_rpg",
         SNAPSHOT_ENDPOINT,
     ));
+    assert!(configured_endpoint_enabled_for_resolved(
+        &resolved,
+        "demo_rpg",
+        SCHEMA_ENDPOINT,
+    ));
     std::fs::remove_dir_all(root).expect("test directory should be removed");
 }
 
@@ -784,7 +848,7 @@ fn disabled_config_surface_message_names_surface_key_and_rebuild_step() {
 
 #[test]
 fn cli_args_group_canister_status_under_canister_keyword() {
-    let args = CliArgs::try_parse_from(["icydb", "canister", "status", "--canister", "demo"])
+    let args = CliArgs::try_parse_from(["icydb", "canister", "status", "demo"])
         .expect("canister status should parse");
     let CliCommand::Canister(CanisterCommand::Status(target)) = args.command else {
         panic!("expected canister status command");
@@ -795,9 +859,8 @@ fn cli_args_group_canister_status_under_canister_keyword() {
 
 #[test]
 fn cli_args_group_canister_refresh_under_canister_keyword() {
-    let args =
-        CliArgs::try_parse_from(["icydb", "canister", "refresh", "-c", "demo", "-e", "test"])
-            .expect("canister refresh should parse");
+    let args = CliArgs::try_parse_from(["icydb", "canister", "refresh", "demo", "-e", "test"])
+        .expect("canister refresh should parse");
     let CliCommand::Canister(CanisterCommand::Refresh(target)) = args.command else {
         panic!("expected canister refresh command");
     };
@@ -840,6 +903,7 @@ fn icp_query_command_targets_environment_and_hex_query_output() {
 #[test]
 fn configured_endpoint_methods_match_generated_endpoint_names() {
     assert_eq!(SNAPSHOT_ENDPOINT.method(), "__icydb_snapshot");
+    assert_eq!(SCHEMA_ENDPOINT.method(), "__icydb_schema");
     assert_eq!(METRICS_ENDPOINT.method(), "__icydb_metrics");
     assert_eq!(METRICS_RESET_ENDPOINT.method(), "__icydb_metrics_reset");
     assert_eq!(FIXTURES_LOAD_ENDPOINT.method(), "__icydb_fixtures_load");
@@ -860,6 +924,15 @@ fn snapshot_report_rendering_uses_human_tables() {
     assert!(text.contains("IcyDB storage snapshot"));
     assert!(text.contains("data stores\n  None"));
     assert!(text.contains("index stores\n  None"));
+    assert!(text.contains("entities\n  None"));
+}
+
+#[test]
+fn schema_report_rendering_uses_human_tables() {
+    let text = render_schema_report(&[]);
+
+    assert!(text.contains("IcyDB schema"));
+    assert!(text.contains("entities: 0"));
     assert!(text.contains("entities\n  None"));
 }
 
@@ -935,7 +1008,7 @@ fn sql_recovery_hint_points_stale_canister_to_targeted_refresh() {
     );
 
     assert!(
-        message.contains("icydb canister refresh --environment demo --canister demo_rpg"),
+        message.contains("icydb canister refresh demo_rpg --environment demo"),
         "stale canister errors should include a targeted refresh command"
     );
 }

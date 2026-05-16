@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.156.x] ⚙️ - 2026-05-15 - IcyDB TOML Config
 
+- `0.156.7` adds the config-gated `__icydb_schema` endpoint and direct
+  `icydb schema` CLI command, returning accepted live schema descriptions so
+  tooling can inspect deployed entity fields, relations, and DDL-published
+  indexes without scraping SQL text output. Target-style CLI commands now take
+  exactly one required positional canister and leave `-e/--environment`
+  optional. It also generates entity field-name constants and adds direct
+  `filter_*` helpers so normal app queries can use
+  `QuestState::SESSION_ID`-style constants without exposing `FieldRef`.
+
+```
+icydb config init -c demo_rpg --schema
+icydb canister refresh demo_rpg
+icydb schema demo_rpg
+```
+
 - `0.156.6` makes the developer CLI check `icydb.toml` before calling generated
   SQL, fixture, snapshot, and metrics endpoint families, so disabled surfaces
   fail locally with config diagnostics, generated endpoint methods are paired
@@ -18,13 +33,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.156.5` adds direct `icydb snapshot` and `icydb metrics` CLI commands,
   renders observability payloads as readable summaries and tables, makes
   `icydb canister refresh` the single destructive reset flow with automatic
-  fixture loading when available, and locks `-c`/`-e` help visibility for
-  canister/environment flags.
+  fixture loading when available, and exposes environment shorthand on
+  canister-targeted commands.
 
 ```
-icydb snapshot -c demo_rpg
-icydb metrics -c demo_rpg --reset
-icydb canister refresh -e demo -c demo_rpg
+icydb snapshot demo_rpg
+icydb metrics demo_rpg --reset
+icydb canister refresh demo_rpg -e demo
 ```
 
 - `0.156.4` moves generated metrics and storage snapshot endpoints behind
