@@ -14,11 +14,12 @@ use icydb::{
     ErrorKind, ErrorOrigin, QueryErrorKind,
     db::{
         DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
-        PersistedRow, QueryExecutionAttribution, SqlCompileAttribution, SqlExecutionAttribution,
+        QueryExecutionAttribution, SqlCompileAttribution, SqlExecutionAttribution,
         SqlPureCoveringAttribution, SqlQueryCacheAttribution, SqlQueryExecutionAttribution,
         response::QueryResponse, sql::SqlQueryResult,
     },
     prelude::*,
+    traits::EntityFor,
 };
 use icydb_testing_audit_sql_perf_fixtures::{
     PerfAuditAccount, PerfAuditBlob, PerfAuditCanister, PerfAuditUser,
@@ -371,7 +372,7 @@ fn average_fluent_attribution(
 #[expect(clippy::too_many_lines)]
 fn query_entity_with_perf_loop<E>(sql: &str, runs: u32) -> Result<SqlQueryPerfResult, icydb::Error>
 where
-    E: icydb::db::PersistedRow<Canister = PerfAuditCanister> + icydb::traits::EntityValue,
+    E: EntityFor<PerfAuditCanister>,
 {
     if runs == 0 {
         return Err(invalid_perf_loop_runs_error());
@@ -560,7 +561,7 @@ where
 #[cfg(feature = "sql")]
 fn summarize_fluent_outcome<E>(result: &QueryResponse<E>) -> FluentQueryPerfOutcome
 where
-    E: PersistedRow<Canister = PerfAuditCanister> + icydb::traits::EntityValue,
+    E: EntityFor<PerfAuditCanister>,
 {
     match result {
         QueryResponse::Rows(rows) => FluentQueryPerfOutcome {

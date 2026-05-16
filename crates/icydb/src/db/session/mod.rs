@@ -7,13 +7,13 @@ mod macros;
 use crate::db::sql::{SqlProjectionRows, SqlQueryResult, SqlQueryRowsOutput, render_value_text};
 use crate::{
     db::{
-        EntityFieldDescription, EntitySchemaDescription, PersistedRow, StorageReport,
+        EntityFieldDescription, EntitySchemaDescription, StorageReport,
         query::{MissingRowPolicy, Query, QueryTracePlan},
         response::QueryResponse,
     },
     error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
     metrics::MetricsSink,
-    traits::{CanisterKind, EntityKind, EntityValue},
+    traits::{CanisterKind, Entity},
     value::{InputValue, OutputValue},
 };
 use icydb_core as core;
@@ -195,7 +195,7 @@ const fn finalize_public_sql_query_attribution(
 impl<C: CanisterKind> DbSession<C> {
     fn query_response_from_core<E>(inner: core::db::LoadQueryResult<E>) -> QueryResponse<E>
     where
-        E: EntityKind,
+        E: Entity,
     {
         QueryResponse::from_core(inner)
     }
@@ -228,7 +228,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub const fn load<E>(&self) -> FluentLoadQuery<'_, E>
     where
-        E: PersistedRow<Canister = C>,
+        E: crate::traits::EntityFor<C>,
     {
         FluentLoadQuery {
             inner: self.inner.load::<E>(),
@@ -241,7 +241,7 @@ impl<C: CanisterKind> DbSession<C> {
         consistency: MissingRowPolicy,
     ) -> FluentLoadQuery<'_, E>
     where
-        E: PersistedRow<Canister = C>,
+        E: crate::traits::EntityFor<C>,
     {
         FluentLoadQuery {
             inner: self.inner.load_with_consistency::<E>(consistency),
@@ -257,7 +257,7 @@ impl<C: CanisterKind> DbSession<C> {
         query: &Query<E>,
     ) -> Result<(QueryResponse<E>, crate::db::QueryExecutionAttribution), Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         let (result, attribution) = self.inner.execute_query_result_with_attribution(query)?;
 
@@ -268,7 +268,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[cfg(feature = "sql")]
     pub fn execute_sql_query<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         Ok(crate::db::sql::sql_query_result_from_statement(
             self.inner.execute_sql_query::<E>(sql)?,
@@ -284,7 +284,7 @@ impl<C: CanisterKind> DbSession<C> {
         sql: &str,
     ) -> Result<(SqlQueryResult, SqlQueryPerfAttribution), Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         Ok((
             self.execute_sql_query::<E>(sql)?,
@@ -301,7 +301,7 @@ impl<C: CanisterKind> DbSession<C> {
         sql: &str,
     ) -> Result<(SqlQueryResult, SqlQueryPerfAttribution), Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         let (result, mut attribution) = self.inner.execute_sql_query_with_attribution::<E>(sql)?;
         let entity_name = E::MODEL.name().to_string();
@@ -328,7 +328,7 @@ impl<C: CanisterKind> DbSession<C> {
         sql: &str,
     ) -> Result<(SqlQueryResult, crate::db::SqlQueryExecutionAttribution), Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         let (result, mut attribution) = self.inner.execute_sql_query_with_attribution::<E>(sql)?;
         let entity_name = E::MODEL.name().to_string();
@@ -346,7 +346,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[cfg(feature = "sql")]
     pub fn execute_sql_update<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         Ok(crate::db::sql::sql_query_result_from_statement(
             self.inner.execute_sql_update::<E>(sql)?,
@@ -358,7 +358,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[cfg(feature = "sql")]
     pub fn execute_sql_ddl<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         Ok(crate::db::sql::sql_query_result_from_statement(
             self.inner.execute_sql_ddl::<E>(sql)?,
@@ -371,7 +371,7 @@ impl<C: CanisterKind> DbSession<C> {
         selected_fields: Option<&[String]>,
     ) -> Result<(Vec<String>, Vec<usize>), Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         match selected_fields {
             None => Ok((
@@ -415,7 +415,7 @@ impl<C: CanisterKind> DbSession<C> {
         selected_fields: Option<&[String]>,
     ) -> Result<SqlQueryRowsOutput, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         // Phase 1: resolve the explicit outward projection contract before
         // rendering any row data so every row-producing typed write helper
@@ -470,7 +470,7 @@ impl<C: CanisterKind> DbSession<C> {
         selected_fields: Option<&[String]>,
     ) -> Result<SqlQueryRowsOutput, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         Self::sql_query_rows_output_from_entities::<E>(
             E::PATH.to_string(),
@@ -482,7 +482,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub fn delete<E>(&self) -> SessionDeleteQuery<'_, E>
     where
-        E: PersistedRow<Canister = C>,
+        E: crate::traits::EntityFor<C>,
     {
         SessionDeleteQuery {
             inner: self.inner.delete::<E>(),
@@ -495,7 +495,7 @@ impl<C: CanisterKind> DbSession<C> {
         consistency: MissingRowPolicy,
     ) -> SessionDeleteQuery<'_, E>
     where
-        E: PersistedRow<Canister = C>,
+        E: crate::traits::EntityFor<C>,
     {
         SessionDeleteQuery {
             inner: self.inner.delete_with_consistency::<E>(consistency),
@@ -506,7 +506,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub fn show_indexes<E>(&self) -> Vec<String>
     where
-        E: EntityKind<Canister = C>,
+        E: crate::traits::EntityFor<C>,
     {
         self.inner.show_indexes::<E>()
     }
@@ -515,7 +515,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub fn show_columns<E>(&self) -> Vec<EntityFieldDescription>
     where
-        E: EntityKind<Canister = C>,
+        E: crate::traits::EntityFor<C>,
     {
         self.inner.show_columns::<E>()
     }
@@ -539,7 +539,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub fn describe_entity<E>(&self) -> EntitySchemaDescription
     where
-        E: EntityKind<Canister = C>,
+        E: crate::traits::EntityFor<C>,
     {
         self.inner.describe_entity::<E>()
     }
@@ -551,7 +551,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// payloads instead of only the compiled model proposal.
     pub fn try_describe_entity<E>(&self) -> Result<EntitySchemaDescription, Error>
     where
-        E: EntityKind<Canister = C>,
+        E: crate::traits::EntityFor<C>,
     {
         Ok(self.inner.try_describe_entity::<E>()?)
     }
@@ -570,7 +570,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     pub fn execute_query<E>(&self, query: &Query<E>) -> Result<QueryResponse<E>, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         Ok(Self::query_response_from_core(
             self.inner.execute_query_result(query)?,
@@ -580,7 +580,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// Build one trace payload for a query without executing it.
     pub fn trace_query<E>(&self, query: &Query<E>) -> Result<QueryTracePlan, Error>
     where
-        E: EntityKind<Canister = C>,
+        E: crate::traits::EntityFor<C>,
     {
         Ok(self.inner.trace_query(query)?)
     }
@@ -591,7 +591,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     pub fn insert<E>(&self, entity: E) -> Result<E, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         Ok(self.inner.insert(entity)?)
     }
@@ -600,7 +600,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[cfg(feature = "sql")]
     pub fn insert_returning_all<E>(&self, entity: E) -> Result<SqlQueryRowsOutput, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         let entity = self.inner.insert(entity)?;
 
@@ -615,7 +615,7 @@ impl<C: CanisterKind> DbSession<C> {
         fields: I,
     ) -> Result<SqlQueryRowsOutput, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
@@ -628,8 +628,8 @@ impl<C: CanisterKind> DbSession<C> {
     /// Create one authored typed input.
     pub fn create<I>(&self, input: I) -> Result<I::Entity, Error>
     where
-        I: crate::traits::EntityCreateInput,
-        I::Entity: PersistedRow<Canister = C> + EntityValue,
+        I: crate::traits::CreateInputFor<C>,
+        I::Entity: crate::traits::EntityFor<C>,
     {
         Ok(self.inner.create(input)?)
     }
@@ -638,8 +638,8 @@ impl<C: CanisterKind> DbSession<C> {
     #[cfg(feature = "sql")]
     pub fn create_returning_all<I>(&self, input: I) -> Result<SqlQueryRowsOutput, Error>
     where
-        I: crate::traits::EntityCreateInput,
-        I::Entity: PersistedRow<Canister = C> + EntityValue,
+        I: crate::traits::CreateInputFor<C>,
+        I::Entity: crate::traits::EntityFor<C>,
     {
         let entity = self.inner.create(input)?;
 
@@ -654,8 +654,8 @@ impl<C: CanisterKind> DbSession<C> {
         fields: F,
     ) -> Result<SqlQueryRowsOutput, Error>
     where
-        I: crate::traits::EntityCreateInput,
-        I::Entity: PersistedRow<Canister = C> + EntityValue,
+        I: crate::traits::CreateInputFor<C>,
+        I::Entity: crate::traits::EntityFor<C>,
         F: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
@@ -675,7 +675,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         Ok(self.inner.insert_many_atomic(entities)?.entities())
     }
@@ -688,14 +688,14 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         Ok(self.inner.insert_many_non_atomic(entities)?.entities())
     }
 
     pub fn replace<E>(&self, entity: E) -> Result<E, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         Ok(self.inner.replace(entity)?)
     }
@@ -710,7 +710,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         Ok(self.inner.replace_many_atomic(entities)?.entities())
     }
@@ -723,14 +723,14 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         Ok(self.inner.replace_many_non_atomic(entities)?.entities())
     }
 
     pub fn update<E>(&self, entity: E) -> Result<E, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         Ok(self.inner.update(entity)?)
     }
@@ -739,7 +739,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[cfg(feature = "sql")]
     pub fn update_returning_all<E>(&self, entity: E) -> Result<SqlQueryRowsOutput, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         let entity = self.inner.update(entity)?;
 
@@ -754,7 +754,7 @@ impl<C: CanisterKind> DbSession<C> {
         fields: I,
     ) -> Result<SqlQueryRowsOutput, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
@@ -785,7 +785,7 @@ impl<C: CanisterKind> DbSession<C> {
         mode: MutationMode,
     ) -> Result<E, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         Ok(self
             .inner
@@ -798,7 +798,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// schema metadata before returning the patch to the caller.
     pub fn structural_patch<E, I, S>(&self, fields: I) -> Result<StructuralPatch, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
         I: IntoIterator<Item = (S, InputValue)>,
         S: AsRef<str>,
     {
@@ -820,7 +820,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         Ok(self.inner.update_many_atomic(entities)?.entities())
     }
@@ -833,7 +833,7 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, Error>
     where
-        E: PersistedRow<Canister = C> + EntityValue,
+        E: crate::traits::EntityFor<C>,
     {
         Ok(self.inner.update_many_non_atomic(entities)?.entities())
     }

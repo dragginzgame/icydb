@@ -4,6 +4,7 @@ mod config;
 mod icp;
 mod observability;
 mod shell;
+mod table;
 
 #[cfg(test)]
 mod tests;

@@ -440,7 +440,7 @@ macro_rules! impl_session_materialization_methods {
         /// Execute the session query and materialize scalar or grouped rows.
         pub fn execute(&self) -> Result<QueryResponse<E>, Error>
         where
-            E: EntityValue,
+            E: crate::traits::Entity,
         {
             Ok(QueryResponse::from_core(self.inner.execute()?))
         }
@@ -448,7 +448,7 @@ macro_rules! impl_session_materialization_methods {
         /// Return true when the result set has no rows.
         pub fn is_empty(&self) -> Result<bool, Error>
         where
-            E: EntityValue,
+            E: crate::traits::Entity,
         {
             Ok(self.inner.is_empty()?)
         }
@@ -456,7 +456,7 @@ macro_rules! impl_session_materialization_methods {
         /// Return the row count.
         pub fn count(&self) -> Result<u32, Error>
         where
-            E: EntityValue,
+            E: crate::traits::Entity,
         {
             Ok(self.inner.count()?)
         }
@@ -464,7 +464,7 @@ macro_rules! impl_session_materialization_methods {
         /// Require exactly one row.
         pub fn require_one(&self) -> Result<(), Error>
         where
-            E: EntityValue,
+            E: crate::traits::Entity,
         {
             icydb_core::db::ResponseCardinalityExt::require_one(&self.inner.execute()?.into_rows()?)
                 .map_err(Into::into)
@@ -473,7 +473,7 @@ macro_rules! impl_session_materialization_methods {
         /// Require at least one row.
         pub fn require_some(&self) -> Result<(), Error>
         where
-            E: EntityValue,
+            E: crate::traits::Entity,
         {
             icydb_core::db::ResponseCardinalityExt::require_some(
                 &self.inner.execute()?.into_rows()?,
@@ -484,7 +484,7 @@ macro_rules! impl_session_materialization_methods {
         /// Materialize one row.
         pub fn row(&self) -> Result<Row<E>, Error>
         where
-            E: EntityValue,
+            E: crate::traits::Entity,
         {
             icydb_core::db::ResponseCardinalityExt::row(self.inner.execute()?.into_rows()?)
                 .map_err(Into::into)
@@ -493,7 +493,7 @@ macro_rules! impl_session_materialization_methods {
         /// Materialize an optional row.
         pub fn try_row(&self) -> Result<Option<Row<E>>, Error>
         where
-            E: EntityValue,
+            E: crate::traits::Entity,
         {
             icydb_core::db::ResponseCardinalityExt::try_row(self.inner.execute()?.into_rows()?)
                 .map_err(Into::into)
@@ -502,7 +502,7 @@ macro_rules! impl_session_materialization_methods {
         /// Materialize all rows.
         pub fn rows(&self) -> Result<Vec<Row<E>>, Error>
         where
-            E: EntityValue,
+            E: crate::traits::Entity,
         {
             Ok(self.inner.execute()?.into_rows()?.rows())
         }
@@ -510,7 +510,7 @@ macro_rules! impl_session_materialization_methods {
         /// Materialize an optional id.
         pub fn id(&self) -> Result<Option<Id<E>>, Error>
         where
-            E: EntityValue,
+            E: crate::traits::Entity,
         {
             Ok(self
                 .inner
@@ -524,7 +524,7 @@ macro_rules! impl_session_materialization_methods {
         /// Materialize one required id.
         pub fn require_id(&self) -> Result<Id<E>, Error>
         where
-            E: EntityValue,
+            E: crate::traits::Entity,
         {
             icydb_core::db::ResponseCardinalityExt::require_id(self.inner.execute()?.into_rows()?)
                 .map_err(Into::into)
@@ -533,7 +533,7 @@ macro_rules! impl_session_materialization_methods {
         /// Materialize an optional id from an optional row.
         pub fn try_id(&self) -> Result<Option<Id<E>>, Error>
         where
-            E: EntityValue,
+            E: crate::traits::Entity,
         {
             icydb_core::db::ResponseCardinalityExt::try_row(self.inner.execute()?.into_rows()?)
                 .map(|row| row.map(|entry| entry.id()))
@@ -543,7 +543,7 @@ macro_rules! impl_session_materialization_methods {
         /// Materialize all ids.
         pub fn ids(&self) -> Result<Vec<Id<E>>, Error>
         where
-            E: EntityValue,
+            E: crate::traits::Entity,
         {
             Ok(self.inner.execute()?.into_rows()?.ids().collect())
         }
@@ -551,7 +551,7 @@ macro_rules! impl_session_materialization_methods {
         /// Check whether an id is present in the response.
         pub fn contains_id(&self, id: &Id<E>) -> Result<bool, Error>
         where
-            E: EntityValue,
+            E: crate::traits::Entity,
         {
             Ok(self.inner.execute()?.into_rows()?.contains_id(id))
         }
@@ -559,7 +559,7 @@ macro_rules! impl_session_materialization_methods {
         /// Materialize one entity.
         pub fn entity(&self) -> Result<E, Error>
         where
-            E: EntityValue,
+            E: crate::traits::Entity,
         {
             icydb_core::db::ResponseCardinalityExt::entity(self.inner.execute()?.into_rows()?)
                 .map_err(Into::into)
@@ -568,7 +568,7 @@ macro_rules! impl_session_materialization_methods {
         /// Materialize an optional entity.
         pub fn try_entity(&self) -> Result<Option<E>, Error>
         where
-            E: EntityValue,
+            E: crate::traits::Entity,
         {
             icydb_core::db::ResponseCardinalityExt::try_entity(self.inner.execute()?.into_rows()?)
                 .map_err(Into::into)
@@ -577,7 +577,7 @@ macro_rules! impl_session_materialization_methods {
         /// Materialize all entities.
         pub fn entities(&self) -> Result<Vec<E>, Error>
         where
-            E: EntityValue,
+            E: crate::traits::Entity,
         {
             Ok(self.inner.execute()?.into_rows()?.entities())
         }

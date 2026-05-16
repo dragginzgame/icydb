@@ -2,7 +2,10 @@ use std::path::{Path, PathBuf};
 
 use candid::{Decode, Encode};
 use clap::Parser;
-use icydb::db::sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput};
+use icydb::db::{
+    EntityFieldDescription, EntityIndexDescription, EntitySchemaDescription,
+    sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput},
+};
 use serde_json::json;
 
 use crate::{
@@ -934,6 +937,37 @@ fn schema_report_rendering_uses_human_tables() {
     assert!(text.contains("IcyDB schema"));
     assert!(text.contains("entities: 0"));
     assert!(text.contains("entities\n  None"));
+}
+
+#[test]
+fn schema_report_renders_aligned_summary_table() {
+    let fields = (0..35)
+        .map(|_| {
+            EntityFieldDescription::new("field".to_string(), None, "Text".to_string(), false, true)
+        })
+        .collect();
+    let indexes = (0..2)
+        .map(|_| EntityIndexDescription::new("index".to_string(), false, Vec::new()))
+        .collect();
+    let report = [EntitySchemaDescription::new(
+        "icydb_testing_demo_rpg_fixtures::schema::character::Character".to_string(),
+        "Character".to_string(),
+        "id".to_string(),
+        fields,
+        indexes,
+        Vec::new(),
+    )];
+    let text = render_schema_report(&report);
+
+    assert!(text.contains("  entity      fields   indexes   relations   primary key   path\n"));
+    assert!(
+        text.lines().any(
+            |line| line.starts_with("  ---------   ------   -------   ---------   -----------")
+        )
+    );
+    assert!(text.contains(
+        "  Character       35         2           0   id            icydb_testing_demo_rpg_fixtures::schema::character::Character\n"
+    ));
 }
 
 #[test]

@@ -14,6 +14,7 @@ use crate::{
     },
     icp::require_created_canister,
     shell::{hex_response_bytes, icp_query_command, icp_update_command},
+    table::{ColumnAlign, append_indented_table},
 };
 
 /// Read and print the generated storage snapshot endpoint.
@@ -162,14 +163,14 @@ pub(crate) fn render_schema_report(report: &[EntitySchemaDescription]) -> String
     let rows = report
         .iter()
         .map(|entity| {
-            (
-                entity.entity_path(),
-                entity.entity_name(),
-                entity.primary_key(),
+            [
+                entity.entity_name().to_string(),
                 entity.fields().len().to_string(),
                 entity.indexes().len().to_string(),
                 entity.relations().len().to_string(),
-            )
+                entity.primary_key().to_string(),
+                entity.entity_path().to_string(),
+            ]
         })
         .collect::<Vec<_>>();
 
@@ -319,55 +320,34 @@ fn append_metrics_counters(output: &mut String, counters: &EventCounters) {
     );
 }
 
-fn append_schema_entity_table(
-    output: &mut String,
-    rows: &[(&str, &str, &str, String, String, String)],
-) {
+fn append_schema_entity_table(output: &mut String, rows: &[[String; 6]]) {
     output.push_str("entities\n");
     if rows.is_empty() {
         output.push_str("  None\n");
         return;
     }
 
-    let path_width = table_width("path", rows.iter().map(|(path, _, _, _, _, _)| *path));
-    let entity_width = table_width("entity", rows.iter().map(|(_, entity, _, _, _, _)| *entity));
-    let primary_key_width = table_width(
-        "primary key",
-        rows.iter().map(|(_, _, primary_key, _, _, _)| *primary_key),
+    append_indented_table(
+        output,
+        "  ",
+        &[
+            "entity",
+            "fields",
+            "indexes",
+            "relations",
+            "primary key",
+            "path",
+        ],
+        rows,
+        &[
+            ColumnAlign::Left,
+            ColumnAlign::Right,
+            ColumnAlign::Right,
+            ColumnAlign::Right,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+        ],
     );
-    let fields_width = table_width(
-        "fields",
-        rows.iter().map(|(_, _, _, fields, _, _)| fields.as_str()),
-    );
-    let indexes_width = table_width(
-        "indexes",
-        rows.iter().map(|(_, _, _, _, indexes, _)| indexes.as_str()),
-    );
-    let relations_width = table_width(
-        "relations",
-        rows.iter()
-            .map(|(_, _, _, _, _, relations)| relations.as_str()),
-    );
-    output.push_str(
-        format!(
-            "  {path:<path_width$}  {entity:<entity_width$}  {primary_key:<primary_key_width$}  {fields:>fields_width$}  {indexes:>indexes_width$}  {relations:>relations_width$}\n",
-            path = "path",
-            entity = "entity",
-            primary_key = "primary key",
-            fields = "fields",
-            indexes = "indexes",
-            relations = "relations",
-        )
-        .as_str(),
-    );
-    for (path, entity, primary_key, fields, indexes, relations) in rows {
-        output.push_str(
-            format!(
-                "  {path:<path_width$}  {entity:<entity_width$}  {primary_key:<primary_key_width$}  {fields:>fields_width$}  {indexes:>indexes_width$}  {relations:>relations_width$}\n"
-            )
-            .as_str(),
-        );
-    }
 }
 
 fn append_data_store_table(output: &mut String, rows: &[(&str, String, String)]) {

@@ -213,7 +213,7 @@ pub mod prelude {
             },
         },
         traits::{
-            Collection as _, EntityKind as _, EntityValue, Inner as _, MapCollection as _,
+            Collection as _, Entity as _, EntityKind as _, Inner as _, MapCollection as _,
             Path as _,
         },
         types::*,
@@ -240,9 +240,9 @@ pub mod design {
             },
             macros::*,
             traits::{
-                Collection as _, EntityKind, EntityValue as _, Inner as _, MapCollection as _,
-                Path as _, Sanitize as _, Sanitizer, Serialize as _, Validate as _, ValidateCustom,
-                Validator, Visitable as _,
+                Collection as _, Entity as _, EntityKind, EntityValue as _, Inner as _,
+                MapCollection as _, Path as _, Sanitize as _, Sanitizer, Serialize as _,
+                Validate as _, ValidateCustom, Validator, Visitable as _,
             },
             types::*,
             value::{InputValue, OutputValue},

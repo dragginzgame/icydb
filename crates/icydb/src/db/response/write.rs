@@ -1,6 +1,6 @@
 use crate::{
     error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
-    traits::{EntityKind, EntityValue},
+    traits::Entity,
     types::Id,
 };
 use icydb_core::db::{ResponseError, WriteBatchResponse as CoreWriteBatchResponse};
@@ -15,13 +15,13 @@ use icydb_core::db::{ResponseError, WriteBatchResponse as CoreWriteBatchResponse
 ///
 
 #[derive(Debug)]
-pub enum MutationResult<E: EntityKind> {
+pub enum MutationResult<E: Entity> {
     Count { row_count: u32 },
     Entity(E),
     Entities(Vec<E>),
 }
 
-impl<E: EntityKind> MutationResult<E> {
+impl<E: Entity> MutationResult<E> {
     /// Construct one count-only mutation result.
     #[must_use]
     pub const fn from_count(row_count: u32) -> Self {
@@ -108,7 +108,7 @@ impl<E: EntityKind> MutationResult<E> {
     }
 }
 
-impl<E: EntityKind + EntityValue> MutationResult<E> {
+impl<E: Entity> MutationResult<E> {
     /// Borrow exactly one primary identity from this mutation result.
     pub fn id(&self) -> Result<Id<E>, Error> {
         match self {
@@ -129,7 +129,10 @@ impl<E: EntityKind + EntityValue> MutationResult<E> {
     pub fn ids(&self) -> Result<Vec<Id<E>>, Error> {
         match self {
             Self::Entity(entity) => Ok(vec![entity.id()]),
-            Self::Entities(entities) => Ok(entities.iter().map(EntityValue::id).collect()),
+            Self::Entities(entities) => Ok(entities
+                .iter()
+                .map(icydb_core::traits::EntityValue::id)
+                .collect()),
             Self::Count { .. } => Err(Self::unsupported_shape_error("ids", "count")),
         }
     }

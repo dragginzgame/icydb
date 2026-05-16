@@ -1,12 +1,12 @@
 use crate::{
     db::{
-        DbSession, PersistedRow,
+        DbSession,
         query::{CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery, Query, QueryTracePlan},
         session::macros::impl_session_query_shape_methods,
         sql::SqlQueryRowsOutput,
     },
     error::Error,
-    traits::{EntityValue, SingletonEntity},
+    traits::{Entity, SingletonEntity},
     types::Id,
 };
 use icydb_core as core;
@@ -19,7 +19,7 @@ use icydb_core as core;
 /// `icydb` surface while delegating planning and enforcement to `icydb-core`.
 ///
 
-pub struct SessionDeleteQuery<'a, E: PersistedRow> {
+pub struct SessionDeleteQuery<'a, E: Entity> {
     pub(crate) inner: core::db::FluentDeleteQuery<'a, E>,
 }
 
@@ -40,12 +40,12 @@ enum DeleteReturningSelection {
 /// inventing a second row-returning result family.
 ///
 
-pub struct SessionDeleteReturningQuery<'a, E: PersistedRow> {
+pub struct SessionDeleteReturningQuery<'a, E: Entity> {
     inner: core::db::FluentDeleteQuery<'a, E>,
     selection: DeleteReturningSelection,
 }
 
-impl<'a, E: PersistedRow> SessionDeleteQuery<'a, E> {
+impl<'a, E: Entity> SessionDeleteQuery<'a, E> {
     // ------------------------------------------------------------------
     // Intent inspection
     // ------------------------------------------------------------------
@@ -120,7 +120,7 @@ impl<'a, E: PersistedRow> SessionDeleteQuery<'a, E> {
     /// Execute this delete and return the affected-row count.
     pub fn execute(&self) -> Result<u32, Error>
     where
-        E: EntityValue,
+        E: Entity,
     {
         Ok(self.inner.execute()?)
     }
@@ -128,7 +128,7 @@ impl<'a, E: PersistedRow> SessionDeleteQuery<'a, E> {
     /// Return true when no rows were affected.
     pub fn is_empty(&self) -> Result<bool, Error>
     where
-        E: EntityValue,
+        E: Entity,
     {
         Ok(self.execute()? == 0)
     }
@@ -136,7 +136,7 @@ impl<'a, E: PersistedRow> SessionDeleteQuery<'a, E> {
     /// Return the affected-row count.
     pub fn count(&self) -> Result<u32, Error>
     where
-        E: EntityValue,
+        E: Entity,
     {
         self.execute()
     }
@@ -144,7 +144,7 @@ impl<'a, E: PersistedRow> SessionDeleteQuery<'a, E> {
     /// Require exactly one affected row.
     pub fn require_one(&self) -> Result<(), Error>
     where
-        E: EntityValue,
+        E: Entity,
     {
         Ok(self.inner.require_one()?)
     }
@@ -152,13 +152,13 @@ impl<'a, E: PersistedRow> SessionDeleteQuery<'a, E> {
     /// Require at least one affected row.
     pub fn require_some(&self) -> Result<(), Error>
     where
-        E: EntityValue,
+        E: Entity,
     {
         Ok(self.inner.require_some()?)
     }
 }
 
-impl<E: PersistedRow + SingletonEntity> SessionDeleteQuery<'_, E> {
+impl<E: Entity + SingletonEntity> SessionDeleteQuery<'_, E> {
     /// Delete the singleton entity.
     #[must_use]
     pub fn only(mut self) -> Self
@@ -170,7 +170,7 @@ impl<E: PersistedRow + SingletonEntity> SessionDeleteQuery<'_, E> {
     }
 }
 
-impl<E: PersistedRow> SessionDeleteReturningQuery<'_, E> {
+impl<E: Entity> SessionDeleteReturningQuery<'_, E> {
     // ------------------------------------------------------------------
     // Intent inspection
     // ------------------------------------------------------------------
@@ -218,7 +218,7 @@ impl<E: PersistedRow> SessionDeleteReturningQuery<'_, E> {
     /// Execute this delete and return one SQL-style projection payload.
     pub fn execute(&self) -> Result<SqlQueryRowsOutput, Error>
     where
-        E: EntityValue,
+        E: Entity,
     {
         // Phase 1: materialize deleted entities on the shared typed delete
         // executor boundary so fluent returning follows the same delete
@@ -248,7 +248,7 @@ impl<E: PersistedRow> SessionDeleteReturningQuery<'_, E> {
     /// Return true when the returning payload contains no rows.
     pub fn is_empty(&self) -> Result<bool, Error>
     where
-        E: EntityValue,
+        E: Entity,
     {
         Ok(self.execute()?.row_count == 0)
     }
@@ -256,13 +256,13 @@ impl<E: PersistedRow> SessionDeleteReturningQuery<'_, E> {
     /// Return the number of deleted rows included in the returning payload.
     pub fn count(&self) -> Result<u32, Error>
     where
-        E: EntityValue,
+        E: Entity,
     {
         Ok(self.execute()?.row_count)
     }
 }
 
-impl<E: PersistedRow + SingletonEntity> SessionDeleteReturningQuery<'_, E> {
+impl<E: Entity + SingletonEntity> SessionDeleteReturningQuery<'_, E> {
     /// Delete the singleton entity and return deleted rows.
     #[must_use]
     pub fn only(mut self) -> Self

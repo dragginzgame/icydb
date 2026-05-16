@@ -5,7 +5,23 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
+
+- `0.157.0` opens the next DDL line by continuing accepted-catalog SQL DDL work
+  after the 0.156 config pass, while leaving room for focused developer
+  ergonomics improvements that clarify the public IcyDB API surface.
+
+See detailed breakdown:
+[docs/changelog/0.157.md](docs/changelog/0.157.md)
+
+---
+
 ## [0.156.x] ⚙️ - 2026-05-15 - IcyDB TOML Config
+
+- `0.156.8` starts the IcyDB API boundary cleanup by adding semantic `Entity`
+  and `CreateInput` facade traits, moving public session/query wrapper bounds
+  away from direct `PersistedRow` and `EntityValue` names, and updating the SQL
+  perf audit helper to use the semantic entity contract.
 
 - `0.156.7` adds the config-gated `__icydb_schema` endpoint and direct
   `icydb schema` CLI command, returning accepted live schema descriptions so
