@@ -321,7 +321,7 @@ impl quote::ToTokens for SqlSurfaceTokens {
 }
 
 impl SchemaSurfaceTokens {
-    fn empty() -> Self {
+    const fn empty() -> Self {
         Self {
             entity_rows: Vec::new(),
         }
