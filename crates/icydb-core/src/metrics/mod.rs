@@ -9,7 +9,7 @@ mod state;
 
 // re-exports
 pub use sink::{MetricsSink, metrics_report, metrics_reset_all};
-pub use state::{EventCounters, EventReport};
+pub use state::{EntitySummary, EventCounters, EventOps, EventReport};
 
 ///
 /// TESTS

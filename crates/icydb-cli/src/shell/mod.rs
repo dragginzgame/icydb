@@ -368,7 +368,7 @@ fn looks_like_stale_demo_sql_surface(error: &str) -> bool {
 
 fn sql_recovery_hint(environment: &str, canister: &str) -> String {
     format!(
-        "This looks like stale wasm or stable-memory schema state for '{canister}' in environment '{environment}'. If this is disposable, run `icydb canister refresh --environment {environment} --canister {canister}`; otherwise repair or reinstall it intentionally."
+        "This looks like stale wasm or stable-memory schema state for '{canister}' in environment '{environment}'. If this is disposable, run `icydb canister refresh --environment {environment} --canister {canister}`; otherwise repair it or use `icydb canister upgrade --environment {environment} --canister {canister}` intentionally."
     )
 }
 

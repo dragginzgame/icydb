@@ -314,9 +314,7 @@ pub(crate) enum CanisterCommand {
     List(EnvironmentTarget),
     /// Deploy the canister, preserving stable memory on existing installs.
     Deploy(CanisterTarget),
-    /// Reinstall the canister when it already exists.
-    Reinstall(CanisterTarget),
-    /// Refresh the selected ICP canister, clearing its stable memory.
+    /// Refresh the selected ICP canister and reload fixtures when available.
     Refresh(CanisterTarget),
     /// Build and upgrade the canister without resetting stable memory.
     Upgrade(UpgradeArgs),

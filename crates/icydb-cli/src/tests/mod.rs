@@ -10,7 +10,11 @@ use crate::{
         CanisterCommand, CliArgs, CliCommand, ConfigCommand, ConfigInitArgs, DEFAULT_ENVIRONMENT,
     },
     config::{config_sync_issues, init_config, render_config_report},
-    observability::{METRICS_METHOD, METRICS_RESET_METHOD, SNAPSHOT_METHOD, metrics_candid_arg},
+    icp::{FIXTURES_LOAD_METHOD, fixtures_load_command},
+    observability::{
+        METRICS_METHOD, METRICS_RESET_METHOD, SNAPSHOT_METHOD, metrics_candid_arg,
+        render_metrics_report, render_snapshot_report,
+    },
     shell::{
         SQL_DDL_METHOD, SQL_QUERY_METHOD, ShellConfig, ShellPerfAttribution, SqlShellCallKind,
         drain_complete_shell_statements, finalize_successful_command_output, hex_response_bytes,
@@ -173,6 +177,52 @@ fn help_command_matches_supported_spellings() {
             "input should be treated as shell help: {input:?}",
         );
     }
+}
+
+#[test]
+fn clap_help_exposes_short_canister_and_environment_flags() {
+    for args in [
+        ["icydb", "sql", "--help"].as_slice(),
+        ["icydb", "snapshot", "--help"].as_slice(),
+        ["icydb", "metrics", "--help"].as_slice(),
+        ["icydb", "canister", "refresh", "--help"].as_slice(),
+    ] {
+        let help = clap_help_text(args);
+
+        assert!(
+            help.contains("-c, --canister"),
+            "help should expose -c shorthand: {help}"
+        );
+        assert!(
+            help.contains("-e, --environment"),
+            "help should expose -e shorthand: {help}"
+        );
+    }
+}
+
+#[test]
+fn clap_help_exposes_available_short_flags_on_config_commands() {
+    let init_help = clap_help_text(["icydb", "config", "init", "--help"].as_slice());
+    assert!(init_help.contains("-c, --canister"));
+
+    for args in [
+        ["icydb", "config", "show", "--help"].as_slice(),
+        ["icydb", "config", "check", "--help"].as_slice(),
+    ] {
+        let help = clap_help_text(args);
+        assert!(
+            help.contains("-e, --environment"),
+            "help should expose -e shorthand: {help}"
+        );
+    }
+}
+
+fn clap_help_text(args: &[&str]) -> String {
+    let err = CliArgs::try_parse_from(args).expect_err("help invocation should exit through clap");
+
+    assert_eq!(err.kind(), clap::error::ErrorKind::DisplayHelp);
+
+    err.to_string()
 }
 
 #[test]
@@ -585,13 +635,15 @@ fn cli_args_group_canister_status_under_canister_keyword() {
 
 #[test]
 fn cli_args_group_canister_refresh_under_canister_keyword() {
-    let args = CliArgs::try_parse_from(["icydb", "canister", "refresh", "--canister", "demo"])
-        .expect("canister refresh should parse");
+    let args =
+        CliArgs::try_parse_from(["icydb", "canister", "refresh", "-c", "demo", "-e", "test"])
+            .expect("canister refresh should parse");
     let CliCommand::Canister(CanisterCommand::Refresh(target)) = args.command else {
         panic!("expected canister refresh command");
     };
 
     assert_eq!(target.canister_name(), "demo");
+    assert_eq!(target.environment(), "test");
 }
 
 #[test]
@@ -625,12 +677,33 @@ fn observability_method_constants_match_generated_endpoint_names() {
     assert_eq!(SNAPSHOT_METHOD, "__icydb_snapshot");
     assert_eq!(METRICS_METHOD, "__icydb_metrics");
     assert_eq!(METRICS_RESET_METHOD, "__icydb_metrics_reset");
+    assert_eq!(FIXTURES_LOAD_METHOD, "__icydb_fixtures_load");
 }
 
 #[test]
 fn metrics_candid_arg_renders_optional_window() {
     assert_eq!(metrics_candid_arg(None), "(null)");
     assert_eq!(metrics_candid_arg(Some(123)), "(opt (123 : nat64))");
+}
+
+#[test]
+fn snapshot_report_rendering_uses_human_tables() {
+    let text = render_snapshot_report(&icydb::db::StorageReport::default());
+
+    assert!(text.contains("IcyDB storage snapshot"));
+    assert!(text.contains("data stores\n  None"));
+    assert!(text.contains("index stores\n  None"));
+    assert!(text.contains("entities\n  None"));
+}
+
+#[test]
+fn metrics_report_rendering_uses_human_summary() {
+    let text = render_metrics_report(&icydb::metrics::EventReport::default());
+
+    assert!(text.contains("IcyDB metrics"));
+    assert!(text.contains("requested window start ms: none"));
+    assert!(text.contains("counters: none"));
+    assert!(text.contains("entities\n  None"));
 }
 
 #[test]
@@ -657,6 +730,29 @@ fn icp_update_command_targets_environment_without_query_flag() {
             "(\"CREATE INDEX name_idx\")",
             "--output",
             "hex",
+            "--environment",
+            "demo",
+        ],
+    );
+}
+
+#[test]
+fn fixtures_load_command_targets_fixed_generated_endpoint() {
+    let command = fixtures_load_command("demo", "demo_rpg");
+    let args = command
+        .get_args()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+
+    assert_eq!(command.get_program().to_string_lossy(), "icp");
+    assert_eq!(
+        args,
+        vec![
+            "canister",
+            "call",
+            "demo_rpg",
+            "__icydb_fixtures_load",
+            "()",
             "--environment",
             "demo",
         ],

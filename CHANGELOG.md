@@ -7,10 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.156.x] ⚙️ - 2026-05-15 - IcyDB TOML Config
 
+- `0.156.5` adds direct `icydb snapshot` and `icydb metrics` CLI commands,
+  renders observability payloads as readable summaries and tables, makes
+  `icydb canister refresh` the single destructive reset flow with automatic
+  fixture loading when available, and locks `-c`/`-e` help visibility for
+  canister/environment flags.
+
 - `0.156.4` moves generated metrics and storage snapshot endpoints behind
   `icydb.toml`, adds matching `icydb config init` switches, and keeps generated
-  observability endpoints on fixed `__icydb_*` names while adding direct
-  `icydb snapshot` and `icydb metrics` CLI commands.
+  observability endpoints on fixed `__icydb_*` names.
 
 - `0.156.3` improves the config follow-through by adding `icydb config init`, splitting fixture lifecycle endpoints into their own `fixtures` SQL switch, hard-cutting the active generated SQL/DDL/fixture surfaces to fixed `__icydb_query`, `__icydb_ddl`, `__icydb_fixtures_reset`, and `__icydb_fixtures_load` endpoint names, fixing README SQL examples to use the now-required `--canister`, and making `icydb config check` say when it skipped environment sync.
 

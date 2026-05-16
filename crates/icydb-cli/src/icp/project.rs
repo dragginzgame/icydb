@@ -104,7 +104,7 @@ fn missing_canister_message(environment: &str, canister: &str) -> String {
         format!("canister '{canister}' is not created in the '{environment}' ICP environment.");
     message.push_str("\nRun `icydb canister refresh --canister ");
     message.push_str(canister);
-    message.push_str("` to rebuild and reinstall that canister.");
+    message.push_str("` to rebuild and refresh that canister.");
     message.push_str("\nRun `icydb canister list` to see known local canisters.");
     message.push_str(
         "\nThe CLI never starts or stops the ICP network; manage that lifecycle outside icydb.",

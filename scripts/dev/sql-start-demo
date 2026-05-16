@@ -5,10 +5,7 @@ environment="${1:-demo}"
 canister="${2:-demo_rpg}"
 
 echo "[sql-start-demo] refreshing ${canister} in environment ${environment}"
-icydb canister refresh --environment "${environment}" --canister "${canister}"
-
-echo "[sql-start-demo] loading fixture data"
-icp canister call "${canister}" fixtures_load_default '()' --environment "${environment}"
+icydb canister refresh -e "${environment}" -c "${canister}"
 
 echo "[sql-start-demo] smoke checking admin SQL"
-icydb sql --environment "${environment}" --canister "${canister}" --sql "SHOW TABLES"
+icydb sql -e "${environment}" -c "${canister}" --sql "SHOW TABLES"

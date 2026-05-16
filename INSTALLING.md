@@ -169,8 +169,8 @@ cargo run -q -p icydb-cli -- sql --environment demo --canister demo_rpg
 
 ### `icydb canister refresh` looks destructive
 
-It is destructive to the selected ICP canister state: the command rebuilds and
-reinstalls that canister and clears its stable memory. It does not wipe host
+It is destructive to the selected ICP canister state: the command resets that
+canister's local install and clears its stable memory. It does not wipe host
 disk contents.
 
 ### Publishing crates

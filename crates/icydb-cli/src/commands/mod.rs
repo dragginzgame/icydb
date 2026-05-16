@@ -1,7 +1,7 @@
 use crate::{
     cli::{CanisterCommand, CliArgs, CliCommand, ConfigCommand},
     config::{check_config, init_config, show_config},
-    icp::{deploy_canister, list_canisters, reinstall_canister, status_canister, upgrade_canister},
+    icp::{deploy_canister, list_canisters, refresh_canister, status_canister, upgrade_canister},
     observability::{run_metrics_command, run_snapshot_command},
     shell::run_sql_command,
 };
@@ -31,8 +31,8 @@ fn run_canister_command(command: CanisterCommand) -> Result<(), String> {
         CanisterCommand::Deploy(target) => {
             deploy_canister(target.environment(), target.canister_name())
         }
-        CanisterCommand::Reinstall(target) | CanisterCommand::Refresh(target) => {
-            reinstall_canister(target.environment(), target.canister_name())
+        CanisterCommand::Refresh(target) => {
+            refresh_canister(target.environment(), target.canister_name())
         }
         CanisterCommand::Upgrade(args) => upgrade_canister(
             args.target.environment(),

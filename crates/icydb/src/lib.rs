@@ -103,7 +103,8 @@ pub mod model {
 #[doc(hidden)]
 pub mod metrics {
     pub use icydb_core::metrics::{
-        EventCounters, EventReport, MetricsSink, metrics_report, metrics_reset_all,
+        EntitySummary, EventCounters, EventOps, EventReport, MetricsSink, metrics_report,
+        metrics_reset_all,
     };
 }
 

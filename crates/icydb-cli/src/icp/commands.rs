@@ -1,4 +1,7 @@
-use std::{path::PathBuf, process::Command};
+use std::{
+    path::PathBuf,
+    process::{Command, Stdio},
+};
 
 use crate::icp::{
     process::{canister_id, canister_is_installed, run_external_command, unreachable_network_hint},
@@ -6,6 +9,7 @@ use crate::icp::{
 };
 
 type CanisterListRow = (String, &'static str, String);
+pub(crate) const FIXTURES_LOAD_METHOD: &str = "__icydb_fixtures_load";
 
 /// Print canisters known to the selected local ICP environment and their local id status.
 pub(crate) fn list_canisters(environment: &str) -> Result<(), String> {
@@ -76,8 +80,8 @@ pub(crate) fn deploy_canister(environment: &str, canister: &str) -> Result<(), S
     run_external_command(command, "icp deploy")
 }
 
-/// Deploy a canister and request reinstall mode only when an install exists.
-pub(crate) fn reinstall_canister(environment: &str, canister: &str) -> Result<(), String> {
+/// Deploy a canister and request reinstall mode only when refresh targets an existing install.
+fn reinstall_for_refresh(environment: &str, canister: &str) -> Result<(), String> {
     eprintln!(
         "[icydb] reinstalling canister '{canister}' when already installed in environment '{environment}'"
     );
@@ -92,6 +96,58 @@ pub(crate) fn reinstall_canister(environment: &str, canister: &str) -> Result<()
     }
 
     run_external_command(command, "icp deploy reinstall")
+}
+
+/// Refresh a local canister and load deterministic fixtures when the endpoint exists.
+pub(crate) fn refresh_canister(environment: &str, canister: &str) -> Result<(), String> {
+    reinstall_for_refresh(environment, canister)?;
+    load_fixtures_after_refresh(environment, canister)
+}
+
+fn load_fixtures_after_refresh(environment: &str, canister: &str) -> Result<(), String> {
+    eprintln!("[icydb] loading fixtures for canister '{canister}' in environment '{environment}'");
+    let output = fixtures_load_command(environment, canister)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|err| err.to_string())?;
+    if output.status.success() {
+        print!("{}", String::from_utf8_lossy(output.stdout.as_slice()));
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(output.stderr.as_slice())
+        .trim()
+        .to_string();
+    if looks_like_missing_fixtures_endpoint(stderr.as_str()) {
+        eprintln!(
+            "[icydb] fixture endpoint '{FIXTURES_LOAD_METHOD}' is not exported by '{canister}'; skipping fixture load"
+        );
+        return Ok(());
+    }
+
+    Err(format!(
+        "icp canister call {FIXTURES_LOAD_METHOD} failed: {stderr}"
+    ))
+}
+
+pub(crate) fn fixtures_load_command(environment: &str, canister: &str) -> Command {
+    let mut command = Command::new("icp");
+    command
+        .arg("canister")
+        .arg("call")
+        .arg(canister)
+        .arg(FIXTURES_LOAD_METHOD)
+        .arg("()")
+        .arg("--environment")
+        .arg(environment);
+
+    command
+}
+
+fn looks_like_missing_fixtures_endpoint(stderr: &str) -> bool {
+    stderr.contains("CanisterMethodNotFound")
+        || stderr.contains("has no update method")
+        || stderr.contains("has no query method")
 }
 
 /// Build and upgrade a local canister without clearing stable memory.

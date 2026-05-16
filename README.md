@@ -148,10 +148,10 @@ cargo run -q -p icydb-cli -- canister list --environment test
 ```
 
 `icydb sql` only queries the current canister state. It does not create or load
-demo data automatically. Use `canister refresh` for a generic destructive
-rebuild/reinstall of the selected ICP canister; it clears that canister's stable
-memory, not host disk contents. Any fixture loading is a canister-specific API
-call, not an IcyDB CLI command:
+demo data automatically. Use `canister refresh` for the destructive local reset
+flow for the selected ICP canister; it clears that canister's stable
+memory, not host disk contents, then calls `__icydb_fixtures_load` when the
+canister exports the configured fixture endpoint.
 
 Read SQL is sent through the canister's standard controller-gated
 `__icydb_query` endpoint, which returns the shell's perf footer
@@ -187,9 +187,8 @@ fn icydb_fixtures_load() -> Result<(), icydb::Error> {
 ```bash
 cargo run -q -p icydb-cli -- config init --canister demo_rpg --ddl --fixtures --metrics --metrics-reset --snapshot
 cargo run -q -p icydb-cli -- config show
-cargo run -q -p icydb-cli -- config check --environment demo
-cargo run -q -p icydb-cli -- canister refresh --canister demo_rpg
-icp canister call demo_rpg __icydb_fixtures_load '()' --environment demo
+cargo run -q -p icydb-cli -- config check -e demo
+cargo run -q -p icydb-cli -- canister refresh -e demo -c demo_rpg
 ```
 
 Interactive shell:
@@ -203,7 +202,7 @@ Installed CLI:
 ```bash
 make install
 icydb sql --canister demo_rpg --sql "SELECT COUNT(*) FROM character"
-icydb sql --environment test --canister demo_rpg --sql "SHOW TABLES"
+icydb sql -e test -c demo_rpg --sql "SHOW TABLES"
 icydb snapshot --canister demo_rpg
 icydb metrics --canister demo_rpg
 icydb metrics --canister demo_rpg --reset
