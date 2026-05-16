@@ -11,10 +11,11 @@ canisters. It gives Rust canisters typed entities, stable-memory storage,
 indexes, fluent queries, reduced SQL, pagination, aggregate/grouped execution,
 and explain/metrics surfaces.
 
-Current workspace version: `0.156.1`
+Current workspace version: `0.156.2`
 
-Local development commands that install tools, download binaries, or reset
-canister state are documented in [SECURITY.md](SECURITY.md).
+For local development setup, test prerequisites, and troubleshooting, see
+[INSTALLING.md](INSTALLING.md). Safety notes for host-touching commands live in
+[SECURITY.md](SECURITY.md).
 
 ## Why Use It?
 
@@ -27,62 +28,20 @@ canister state are documented in [SECURITY.md](SECURITY.md).
 - **Operational visibility:** SQL/fluent explain output, attribution counters,
   storage snapshots, and metrics are available for debugging and audits.
 
-## Install
-
-### Development Prerequisites
-
-Install system prerequisites with your normal package manager before running the
-repo's local targets. On Ubuntu, the packages are:
-
-```bash
-build-essential cmake curl wget gzip libssl-dev pkg-config ripgrep python3 python-is-python3
-```
-
-Canister development also needs:
-
-```bash
-binaryen wabt jq
-```
-
-Use the Rust toolchain pinned by this workspace:
-
-```bash
-rustup toolchain install 1.95.0
-rustup target add wasm32-unknown-unknown
-```
-
-Local ICP workflows require the current Canic ICP tools with `icp` on `PATH`.
-Install those tools through the Canic ICP distribution you normally use.
-
-Optional canister-operation utilities should also be installed explicitly when
-you need them, rather than through a repo bootstrap script:
-
-- `didc` from DFINITY Candid releases.
-- `idl2json` and `yaml2candid` from DFINITY idl2json releases.
-- `quill` from DFINITY Quill releases.
-
-For local repo maintenance after prerequisites are installed:
-
-```bash
-make update-dev            # check local prerequisites and fetch locked deps
-make install-canister-deps # install wasm target plus cargo canister tools
-make install-hooks         # opt into repo git hooks
-```
-
-This repository's local Make targets do not install OS packages or run `sudo`.
+## Use IcyDB
 
 Pin IcyDB by tag in downstream canisters:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.156.1" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.156.2" }
 ```
 
 SQL is enabled by default. For typed/fluent-only builds:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.156.1", default-features = false }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.156.2", default-features = false }
 ```
 
 ## Minimal Shape
@@ -195,15 +154,15 @@ memory, not host disk contents. Any fixture loading is a canister-specific API
 call, not an IcyDB CLI command:
 
 Read SQL is sent through the canister's standard controller-gated
-`icydb_sql_query` endpoint, which returns the shell's perf footer
-payload. SQL DDL uses the canister's `ddl` update endpoint for supported
+`__icydb_query` endpoint, which returns the shell's perf footer
+payload. SQL DDL uses the canister's `__icydb_ddl` update endpoint for supported
 `CREATE INDEX` commands.
 
 Canisters opt into SQL surfaces through `icydb.toml`. `readonly = true`
-generates the controller-gated `icydb_sql_query` endpoint. `ddl = true`
-generates the `ddl` update endpoint. `fixtures = true` generates the
-`fixtures_reset` and `fixtures_load_default` update endpoints. The generated
-canister glue routes each SQL statement to the matching accepted entity:
+generates the controller-gated `__icydb_query` endpoint. `ddl = true`
+generates the `__icydb_ddl` update endpoint. `fixtures = true` generates the
+`__icydb_fixtures_reset` and `__icydb_fixtures_load` update endpoints. The
+generated canister glue routes each SQL statement to the matching accepted entity:
 
 ```toml
 [canisters.demo_rpg.sql]
@@ -213,7 +172,7 @@ fixtures = true
 ```
 
 ```rust
-fn icydb_sql_load_default() -> Result<(), icydb::Error> {
+fn icydb_fixtures_load() -> Result<(), icydb::Error> {
     Ok(())
 }
 ```
@@ -223,7 +182,7 @@ cargo run -q -p icydb-cli -- config init --canister demo_rpg --ddl --fixtures
 cargo run -q -p icydb-cli -- config show
 cargo run -q -p icydb-cli -- config check --environment demo
 cargo run -q -p icydb-cli -- canister refresh --canister demo_rpg
-icp canister call demo_rpg fixtures_load_default '()' --environment demo
+icp canister call demo_rpg __icydb_fixtures_load '()' --environment demo
 ```
 
 Interactive shell:
@@ -271,31 +230,13 @@ icp canister call <canister> icydb_metrics_reset '()' --environment demo
 
 ## Development
 
-```bash
-make check      # type-check workspace
-make clippy     # lint with warnings denied
-make test       # unit + integration tests; PocketIC tests need a binary
-make fmt        # format workspace
-make build      # release build
-```
-
-PocketIC-backed tests use `POCKET_IC_BIN` when it points at an executable
-binary. To let the test helper download the pinned PocketIC release instead,
-set `ICYDB_ALLOW_POCKET_IC_DOWNLOAD=1`; set `POCKET_IC_SERVER_SHA256` as well
-when you want checksum verification for the provided, cached, or downloaded
-binary.
-
-Useful audit commands:
-
-```bash
-make wasm-size-report
-make wasm-size-report SIZE_REPORT_ARGS="--profile wasm-release --canister minimal"
-make wasm-audit-report
-make wasm-audit-report AUDIT_REPORT_ARGS="--profile wasm-release --canister minimal"
-```
+Local workstation setup, common checks, PocketIC test setup, wasm audit commands,
+and troubleshooting are in [INSTALLING.md](INSTALLING.md).
 
 ## More Docs
 
+- [INSTALLING.md](INSTALLING.md)
+- [SECURITY.md](SECURITY.md)
 - [CHANGELOG.md](CHANGELOG.md)
 - [docs/contracts/QUERY_CONTRACT.md](docs/contracts/QUERY_CONTRACT.md)
 - [docs/contracts/QUERY_PRACTICE.md](docs/contracts/QUERY_PRACTICE.md)

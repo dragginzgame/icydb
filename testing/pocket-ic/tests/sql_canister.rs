@@ -45,21 +45,21 @@ fn reset_sql_fixtures(fixture: &StandaloneCanisterFixture) {
     // baseline fixture set through the live canister update surface.
     let reset: Result<(), Error> = fixture
         .pic()
-        .update_call(fixture.canister_id(), "fixtures_reset", ())
-        .expect("fixtures_reset should decode");
-    reset.expect("fixtures_reset should succeed");
+        .update_call(fixture.canister_id(), "__icydb_fixtures_reset", ())
+        .expect("__icydb_fixtures_reset should decode");
+    reset.expect("__icydb_fixtures_reset should succeed");
 
     let load: Result<(), Error> = fixture
         .pic()
-        .update_call(fixture.canister_id(), "fixtures_load_default", ())
-        .expect("fixtures_load_default should decode");
-    load.expect("fixtures_load_default should succeed");
+        .update_call(fixture.canister_id(), "__icydb_fixtures_load", ())
+        .expect("__icydb_fixtures_load should decode");
+    load.expect("__icydb_fixtures_load should succeed");
 }
 
 fn query_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
     let response: Result<SqlQueryPerfResult, Error> = fixture
         .pic()
-        .query_call(fixture.canister_id(), "icydb_sql_query", (sql.to_string(),))
+        .query_call(fixture.canister_id(), "__icydb_query", (sql.to_string(),))
         .expect("sql query canister call should decode");
 
     response.map(|payload| payload.result)
@@ -75,7 +75,7 @@ fn query_numeric_types(
 fn ddl_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
     fixture
         .pic()
-        .update_call(fixture.canister_id(), "ddl", (sql.to_string(),))
+        .update_call(fixture.canister_id(), "__icydb_ddl", (sql.to_string(),))
         .expect("sql DDL canister call should decode")
 }
 

@@ -10,10 +10,13 @@ that boundary and should be run only on hosts where that is acceptable.
   prerequisites with your normal package manager before running repo targets.
 - There is no repo bootstrap target that installs Rust, OS packages, or
   user-level GitHub release binaries. Local setup prerequisites are documented
-  in the README and remain operator-owned.
+  in `INSTALLING.md` and remain operator-owned.
 - `make update-dev` checks local prerequisites, adds the pinned Wasm Rust target,
   and runs a locked cargo fetch. It does not install cargo tools, update rustup,
   or mutate `Cargo.lock`.
+- `make install-canister-deps` adds the pinned Wasm Rust target and installs
+  `candid-extractor`, `ic-wasm`, and `twiggy` through Cargo. It does not run
+  `sudo` or install OS packages.
 - `make test` may need a PocketIC server binary. If `POCKET_IC_BIN` is not set
   and the repo cache does not already contain the binary, the download path now
   requires `ICYDB_ALLOW_POCKET_IC_DOWNLOAD=1`.

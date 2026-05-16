@@ -310,7 +310,7 @@ impl SqlSurfaceTokens {
         quote! {
             #[cfg(feature = "sql")]
             #[allow(dead_code)]
-            fn icydb_sql_query_dispatch(
+            fn __icydb_query_dispatch(
                 sql: &str,
             ) -> Result<
                 (
@@ -457,12 +457,12 @@ fn sql_surface_endpoint_exports(
         quote! {
         #[cfg(feature = "sql")]
         #[::icydb::__reexports::canic_cdk::query]
-        fn icydb_sql_query(
+        fn __icydb_query(
             sql: String,
         ) -> Result<IcydbSqlQueryPerfResult, ::icydb::Error> {
             icydb_sql_surface_require_controller("query")?;
 
-            let (result, attribution) = icydb_sql_query_dispatch(sql.as_str())?;
+            let (result, attribution) = __icydb_query_dispatch(sql.as_str())?;
 
             Ok(IcydbSqlQueryPerfResult::from_attribution(
                 result,
@@ -476,7 +476,7 @@ fn sql_surface_endpoint_exports(
         quote! {
         #[cfg(feature = "sql")]
         #[::icydb::__reexports::canic_cdk::update]
-        fn ddl(sql: String) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
+        fn __icydb_ddl(sql: String) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
             icydb_sql_surface_require_controller("DDL")?;
 
             icydb_sql_surface_ddl_dispatch(sql.as_str())
@@ -488,7 +488,7 @@ fn sql_surface_endpoint_exports(
         quote! {
         #[cfg(feature = "sql")]
         #[::icydb::__reexports::canic_cdk::update]
-        fn fixtures_reset() -> Result<(), ::icydb::Error> {
+        fn __icydb_fixtures_reset() -> Result<(), ::icydb::Error> {
             icydb_sql_surface_require_controller("lifecycle reset")?;
 
             icydb_sql_surface_reset_all_tables()
@@ -496,9 +496,9 @@ fn sql_surface_endpoint_exports(
 
         #[cfg(feature = "sql")]
         #[::icydb::__reexports::canic_cdk::update]
-        fn fixtures_load_default() -> Result<(), ::icydb::Error> {
-            icydb_sql_surface_require_controller("lifecycle load_default")?;
-            let hook: fn() -> Result<(), ::icydb::Error> = crate::icydb_sql_load_default;
+        fn __icydb_fixtures_load() -> Result<(), ::icydb::Error> {
+            icydb_sql_surface_require_controller("lifecycle load")?;
+            let hook: fn() -> Result<(), ::icydb::Error> = crate::icydb_fixtures_load;
 
             icydb_sql_surface_reset_all_tables()?;
             hook()

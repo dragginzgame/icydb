@@ -21,8 +21,8 @@ use crate::{
     },
 };
 
-pub(crate) const SQL_QUERY_METHOD: &str = "icydb_sql_query";
-pub(crate) const SQL_DDL_METHOD: &str = "ddl";
+pub(crate) const SQL_QUERY_METHOD: &str = "__icydb_query";
+pub(crate) const SQL_DDL_METHOD: &str = "__icydb_ddl";
 
 #[cfg(test)]
 pub(crate) use crate::shell::{
@@ -360,7 +360,7 @@ pub(crate) fn sql_error_with_recovery_hint(
 }
 
 fn looks_like_stale_demo_sql_surface(error: &str) -> bool {
-    error.contains("has no query method 'icydb_sql_query'")
+    error.contains("has no query method '__icydb_query'")
         || (error.contains("startup index rebuild failed")
             && error.contains("store '")
             && error.contains("' not found"))

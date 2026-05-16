@@ -36,7 +36,7 @@ resolver = "2"
 [workspace.package]
 rust-version = "1.91.0"
 edition = "2024"
-version = "0.156.1"
+version = "0.156.2"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
 description = "IcyDB — A schema-first typed query engine and persistence runtime for Internet Computer canisters"
 categories = ["database", "web-programming", "wasm"]
@@ -45,9 +45,9 @@ repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
 candid = "0.10"
-canic-cdk = "0.35.5"
-canic-memory = "0.35.5"
-canic-testkit = "0.35.5"
+canic-cdk = "0.36.0"
+canic-memory = "0.36.0"
+canic-testkit = "0.36.0"
 convert_case = "0.11"
 ctor = "1.0.0"
 darling = "0.23"
@@ -59,14 +59,14 @@ derive_more = { version = "2.0", default-features = false, features = [
     "into_iterator",
     "sum",
 ] }
-icydb = { path = "crates/icydb", version = "0.156.1" }
-icydb-build = { path = "crates/icydb-build", version = "0.156.1" }
-icydb-config-build = { path = "crates/icydb-config-build", version = "0.156.1" }
-icydb-core = { path = "crates/icydb-core", version = "0.156.1" }
-icydb-derive = { path = "crates/icydb-derive", version = "0.156.1" }
-icydb-primitives = { path = "crates/icydb-primitives", version = "0.156.1" }
-icydb-schema = { path = "crates/icydb-schema", version = "0.156.1" }
-icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.156.1" }
+icydb = { path = "crates/icydb", version = "0.156.2" }
+icydb-build = { path = "crates/icydb-build", version = "0.156.2" }
+icydb-config-build = { path = "crates/icydb-config-build", version = "0.156.2" }
+icydb-core = { path = "crates/icydb-core", version = "0.156.2" }
+icydb-derive = { path = "crates/icydb-derive", version = "0.156.2" }
+icydb-primitives = { path = "crates/icydb-primitives", version = "0.156.2" }
+icydb-schema = { path = "crates/icydb-schema", version = "0.156.2" }
+icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.156.2" }
 icydb-testing-audit-minimal-fixtures = { path = "schema/audit/minimal" }
 icydb-testing-audit-one-complex-fixtures = { path = "schema/audit/one_complex" }
 icydb-testing-audit-one-simple-fixtures = { path = "schema/audit/one_simple" }
@@ -77,7 +77,7 @@ icydb-testing-demo-rpg-fixtures = { path = "schema/demo/rpg" }
 icydb-testing-test-fixtures = { path = "schema/test/fixtures" }
 icydb-testing-test-sql-fixtures = { path = "schema/test/sql" }
 icydb-testing-wasm-helpers = { path = "testing/wasm-helpers" }
-icydb-utils = { path = "crates/icydb-utils", version = "0.156.1" }
+icydb-utils = { path = "crates/icydb-utils", version = "0.156.2" }
 num-bigint = "0.4"
 proc-macro2 = "1.0"
 proptest = "1.9.0"

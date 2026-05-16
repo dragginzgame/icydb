@@ -887,7 +887,7 @@ fn query_fluent_scenario_loop(
 
 /// Clear all dedicated perf fixture rows from this canister.
 #[update]
-fn fixtures_reset() -> Result<(), icydb::Error> {
+fn __icydb_fixtures_reset() -> Result<(), icydb::Error> {
     db().delete::<PerfAuditAccount>().execute()?;
     db().delete::<PerfAuditBlob>().execute()?;
     db().delete::<PerfAuditUser>().execute()?;
@@ -897,8 +897,8 @@ fn fixtures_reset() -> Result<(), icydb::Error> {
 
 /// Load one deterministic fixture batch tuned for SQL perf audit queries.
 #[update]
-fn fixtures_load_default() -> Result<(), icydb::Error> {
-    fixtures_reset()?;
+fn __icydb_fixtures_load() -> Result<(), icydb::Error> {
+    __icydb_fixtures_reset()?;
     db().insert_many_atomic(perf_audit_users())?;
     db().insert_many_atomic(perf_audit_blobs())?;
     db().insert_many_atomic(perf_audit_accounts())?;

@@ -19,6 +19,7 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Generated `EntityModel` / `IndexModel` are allowed only for proposal, reconciliation, model-only convenience, and tests.
 - Do not add runtime fallback reconstruction from generated models.
 - Schema mutation work must remain catalog-native; SQL DDL is a frontend, not the source of mutation semantics.
+- Generated canister endpoints use verbatim `__icydb_*` Rust/export names with no endpoint `name = ...` override; user hooks stay plain non-exported `icydb_*`.
 
 ## Cost / Scope Control
 

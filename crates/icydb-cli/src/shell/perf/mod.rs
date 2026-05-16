@@ -30,7 +30,7 @@ pub(crate) struct ShellPerfAttribution {
 
 impl ShellPerfAttribution {
     // Sum the current top-level SQL query perf contract exactly as emitted by
-    // icydb_sql_query: compiler, planner, store, executor, then public decode.
+    // __icydb_query: compiler, planner, store, executor, then public decode.
     pub(crate) const fn attributed_total(&self) -> u64 {
         self.compiler
             .saturating_add(self.planner)

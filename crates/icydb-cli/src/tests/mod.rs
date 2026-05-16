@@ -530,7 +530,7 @@ fn icp_query_command_targets_environment_and_hex_query_output() {
             "canister",
             "call",
             "demo_rpg",
-            "icydb_sql_query",
+            "__icydb_query",
             "(\"SELECT 1\")",
             "--query",
             "--output",
@@ -561,7 +561,7 @@ fn icp_update_command_targets_environment_without_query_flag() {
             "canister",
             "call",
             "demo_rpg",
-            "ddl",
+            "__icydb_ddl",
             "(\"CREATE INDEX name_idx\")",
             "--output",
             "hex",
@@ -574,7 +574,7 @@ fn icp_update_command_targets_environment_without_query_flag() {
 #[test]
 fn sql_recovery_hint_points_stale_canister_to_targeted_refresh() {
     let message = sql_error_with_recovery_hint(
-        "Canister has no query method 'icydb_sql_query'.",
+        "Canister has no query method '__icydb_query'.",
         DEFAULT_ENVIRONMENT,
         "demo_rpg",
     );

@@ -337,15 +337,15 @@ fn install_sql_perf_canister_fixture() -> StandaloneCanisterFixture {
 fn reset_sql_perf_fixtures(fixture: &StandaloneCanisterFixture) {
     let reset: Result<(), Error> = fixture
         .pic()
-        .update_call(fixture.canister_id(), "fixtures_reset", ())
-        .expect("fixtures_reset should decode");
-    reset.expect("fixtures_reset should succeed");
+        .update_call(fixture.canister_id(), "__icydb_fixtures_reset", ())
+        .expect("__icydb_fixtures_reset should decode");
+    reset.expect("__icydb_fixtures_reset should succeed");
 
     let load: Result<(), Error> = fixture
         .pic()
-        .update_call(fixture.canister_id(), "fixtures_load_default", ())
-        .expect("fixtures_load_default should decode");
-    load.expect("fixtures_load_default should succeed");
+        .update_call(fixture.canister_id(), "__icydb_fixtures_load", ())
+        .expect("__icydb_fixtures_load should decode");
+    load.expect("__icydb_fixtures_load should succeed");
 }
 
 fn query_fluent_surface_with_perf(

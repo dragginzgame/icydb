@@ -192,16 +192,16 @@ fn reset_sql_perf_fixtures(fixture: &StandaloneCanisterFixture) {
     // Phase 1: clear any retained state from an earlier scenario batch.
     let reset: Result<(), Error> = fixture
         .pic()
-        .update_call(fixture.canister_id(), "fixtures_reset", ())
-        .expect("fixtures_reset should decode");
-    reset.expect("fixtures_reset should succeed");
+        .update_call(fixture.canister_id(), "__icydb_fixtures_reset", ())
+        .expect("__icydb_fixtures_reset should decode");
+    reset.expect("__icydb_fixtures_reset should succeed");
 
     // Phase 2: reload the deterministic perf fixture window before sampling.
     let load: Result<(), Error> = fixture
         .pic()
-        .update_call(fixture.canister_id(), "fixtures_load_default", ())
-        .expect("fixtures_load_default should decode");
-    load.expect("fixtures_load_default should succeed");
+        .update_call(fixture.canister_id(), "__icydb_fixtures_load", ())
+        .expect("__icydb_fixtures_load should decode");
+    load.expect("__icydb_fixtures_load should succeed");
 }
 
 fn query_surface_with_perf(
@@ -350,7 +350,7 @@ fn summarize_perf_outcome(result: &SqlQueryResult) -> SqlPerfOutcome {
             row_count: entities.len(),
         },
         SqlQueryResult::Ddl { entity, .. } => SqlPerfOutcome {
-            result_kind: "ddl",
+            result_kind: "__icydb_ddl",
             entity: entity.clone(),
             row_count: 1,
         },
