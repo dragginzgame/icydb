@@ -30,7 +30,7 @@ pub(crate) struct ShellPerfAttribution {
 
 impl ShellPerfAttribution {
     // Sum the current top-level SQL query perf contract exactly as emitted by
-    // icydb_admin_sql_query: compiler, planner, store, executor, then public decode.
+    // icydb_sql_query: compiler, planner, store, executor, then public decode.
     pub(crate) const fn attributed_total(&self) -> u64 {
         self.compiler
             .saturating_add(self.planner)
@@ -39,7 +39,7 @@ impl ShellPerfAttribution {
             .saturating_add(self.decode)
     }
 
-    // Preserve one visible fallback bucket for legacy or future payloads whose
+    // Preserve one visible fallback bucket for payloads whose
     // total exceeds the current top-level query perf contract.
     pub(crate) const fn residual_total(&self) -> u64 {
         self.total.saturating_sub(self.attributed_total())

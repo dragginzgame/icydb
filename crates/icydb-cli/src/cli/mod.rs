@@ -81,8 +81,8 @@ pub(crate) struct SqlArgs {
 /// CanisterTarget
 ///
 /// CanisterTarget is the shared target selector for icp-cli-backed commands. It
-/// keeps the canister default and environment override consistent across SQL
-/// and lifecycle commands.
+/// keeps explicit canister selection and the environment override consistent
+/// across lifecycle commands.
 ///
 
 #[derive(Args, Clone, Debug)]
@@ -128,6 +128,8 @@ impl EnvironmentTarget {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum ConfigCommand {
+    /// Create a default IcyDB config file.
+    Init(ConfigInitArgs),
     /// Show resolved IcyDB config and compare it with the selected ICP environment.
     Show(ConfigArgs),
     /// Validate resolved IcyDB config against the selected ICP environment.
@@ -160,6 +162,75 @@ impl ConfigArgs {
 
     pub(crate) fn start_dir(&self) -> Option<&Path> {
         self.start_dir.as_deref()
+    }
+}
+
+///
+/// ConfigInitArgs
+///
+/// ConfigInitArgs carries the inputs for creating a new DB-surface config.
+/// It writes to the workspace root when one is visible from `start_dir`,
+/// otherwise to `start_dir` itself.
+///
+
+#[derive(Args, Clone, Debug)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "clap flag bags intentionally mirror independent command-line switches"
+)]
+pub(crate) struct ConfigInitArgs {
+    /// Directory used to choose where `icydb.toml` should be written.
+    #[arg(long)]
+    pub(crate) start_dir: Option<PathBuf>,
+
+    /// Canister whose generated DB SQL surfaces should be configured.
+    #[arg(short, long, required = true)]
+    pub(crate) canister: String,
+
+    /// Also generate the DDL endpoint.
+    #[arg(long)]
+    pub(crate) ddl: bool,
+
+    /// Also generate fixture lifecycle endpoints.
+    #[arg(long)]
+    pub(crate) fixtures: bool,
+
+    /// Generate readonly, DDL, and fixture lifecycle endpoints.
+    #[arg(long)]
+    pub(crate) all: bool,
+
+    /// Disable the default readonly SQL endpoint.
+    #[arg(long = "no-readonly")]
+    pub(crate) no_readonly: bool,
+
+    /// Replace an existing target config file.
+    #[arg(long)]
+    pub(crate) force: bool,
+}
+
+impl ConfigInitArgs {
+    pub(crate) fn start_dir(&self) -> Option<&Path> {
+        self.start_dir.as_deref()
+    }
+
+    pub(crate) const fn canister_name(&self) -> &str {
+        self.canister.as_str()
+    }
+
+    pub(crate) const fn readonly(&self) -> bool {
+        !self.no_readonly || self.all
+    }
+
+    pub(crate) const fn ddl(&self) -> bool {
+        self.ddl || self.all
+    }
+
+    pub(crate) const fn fixtures(&self) -> bool {
+        self.fixtures || self.all
+    }
+
+    pub(crate) const fn force(&self) -> bool {
+        self.force
     }
 }
 

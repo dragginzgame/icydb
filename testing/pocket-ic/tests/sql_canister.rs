@@ -12,10 +12,10 @@ use icydb::{
 use icydb_testing_integration::build_canister;
 use serde::Deserialize;
 
-// Mirror the generated admin SQL query envelope so these boundary tests can
+// Mirror the generated IcyDB SQL query envelope so these boundary tests can
 // keep asserting the ordinary SQL payload while the CLI also receives perf data.
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-struct AdminSqlQueryPerfResult {
+struct SqlQueryPerfResult {
     result: SqlQueryResult,
     instructions: u64,
     planner_instructions: u64,
@@ -57,13 +57,9 @@ fn reset_sql_fixtures(fixture: &StandaloneCanisterFixture) {
 }
 
 fn query_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
-    let response: Result<AdminSqlQueryPerfResult, Error> = fixture
+    let response: Result<SqlQueryPerfResult, Error> = fixture
         .pic()
-        .query_call(
-            fixture.canister_id(),
-            "icydb_admin_sql_query",
-            (sql.to_string(),),
-        )
+        .query_call(fixture.canister_id(), "icydb_sql_query", (sql.to_string(),))
         .expect("sql query canister call should decode");
 
     response.map(|payload| payload.result)

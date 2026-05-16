@@ -6,12 +6,14 @@ use icydb::db::sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput};
 use serde_json::json;
 
 use crate::{
-    cli::{CanisterCommand, CliArgs, CliCommand, ConfigCommand, DEFAULT_ENVIRONMENT},
-    config::{config_sync_issues, render_config_report},
+    cli::{
+        CanisterCommand, CliArgs, CliCommand, ConfigCommand, ConfigInitArgs, DEFAULT_ENVIRONMENT,
+    },
+    config::{config_sync_issues, init_config, render_config_report},
     shell::{
-        ADMIN_SQL_QUERY_METHOD, SQL_DDL_METHOD, ShellConfig, ShellPerfAttribution,
-        SqlShellCallKind, drain_complete_shell_statements, finalize_successful_command_output,
-        hex_response_bytes, icp_query_command, icp_update_command, is_shell_help_command,
+        SQL_DDL_METHOD, SQL_QUERY_METHOD, ShellConfig, ShellPerfAttribution, SqlShellCallKind,
+        drain_complete_shell_statements, finalize_successful_command_output, hex_response_bytes,
+        icp_query_command, icp_update_command, is_shell_help_command,
         normalize_grouped_next_cursor_json, normalize_shell_statement_line, parse_perf_result,
         render_grouped_shell_text, render_perf_suffix, render_projection_shell_text,
         shell_help_text, sql_error_with_recovery_hint, sql_shell_call_kind,
@@ -362,6 +364,31 @@ fn cli_args_group_config_check_under_config_keyword() {
 }
 
 #[test]
+fn cli_args_group_config_init_under_config_keyword() {
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "config",
+        "init",
+        "--canister",
+        "demo_rpg",
+        "--ddl",
+        "--fixtures",
+        "--start-dir",
+        "canisters/demo/rpg",
+    ])
+    .expect("config init should parse");
+    let CliCommand::Config(ConfigCommand::Init(args)) = args.command else {
+        panic!("expected config init command");
+    };
+
+    assert_eq!(args.canister_name(), "demo_rpg");
+    assert!(args.readonly());
+    assert!(args.ddl());
+    assert!(args.fixtures());
+    assert_eq!(args.start_dir(), Some(Path::new("canisters/demo/rpg")));
+}
+
+#[test]
 fn cli_args_group_canister_list_under_canister_keyword() {
     let args = CliArgs::try_parse_from(["icydb", "canister", "list", "--environment", "test"])
         .expect("canister list should parse");
@@ -370,6 +397,37 @@ fn cli_args_group_canister_list_under_canister_keyword() {
     };
 
     assert_eq!(target.environment(), "test");
+}
+
+#[test]
+fn config_init_writes_default_config_at_workspace_root() {
+    let root =
+        std::env::temp_dir().join(format!("icydb-cli-config-init-test-{}", std::process::id()));
+    let workspace = root.join("workspace");
+    let canister = workspace.join("canisters").join("demo").join("rpg");
+    std::fs::create_dir_all(canister.as_path()).expect("test directory should be created");
+    std::fs::write(workspace.join("Cargo.toml"), "[workspace]\n")
+        .expect("workspace manifest should be written");
+
+    init_config(ConfigInitArgs {
+        start_dir: Some(canister),
+        canister: "demo_rpg".to_string(),
+        ddl: true,
+        fixtures: true,
+        all: false,
+        no_readonly: false,
+        force: false,
+    })
+    .expect("config init should succeed");
+
+    let config = std::fs::read_to_string(workspace.join("icydb.toml"))
+        .expect("config file should be written");
+    assert_eq!(
+        config,
+        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = true\nfixtures = true\n"
+    );
+
+    std::fs::remove_dir_all(root).expect("test directory should be removed");
 }
 
 #[test]
@@ -387,6 +445,7 @@ fn config_report_marks_canister_settings_against_icp_environment() {
             [canisters.demo_rpg.sql]
             readonly = true
             ddl = true
+            fixtures = true
         ",
     )
     .expect("config should be written");
@@ -400,7 +459,7 @@ fn config_report_marks_canister_settings_against_icp_environment() {
         &resolved,
     );
 
-    assert!(report.contains("demo_rpg  readonly, ddl  ok"));
+    assert!(report.contains("demo_rpg  readonly, ddl, fixtures  ok"));
     std::fs::remove_dir_all(root).expect("test directory should be removed");
 }
 
@@ -458,7 +517,7 @@ fn cli_args_group_canister_refresh_under_canister_keyword() {
 
 #[test]
 fn icp_query_command_targets_environment_and_hex_query_output() {
-    let command = icp_query_command("demo", "demo_rpg", ADMIN_SQL_QUERY_METHOD, "(\"SELECT 1\")");
+    let command = icp_query_command("demo", "demo_rpg", SQL_QUERY_METHOD, "(\"SELECT 1\")");
     let args = command
         .get_args()
         .map(|arg| arg.to_string_lossy().into_owned())
@@ -471,7 +530,7 @@ fn icp_query_command_targets_environment_and_hex_query_output() {
             "canister",
             "call",
             "demo_rpg",
-            "icydb_admin_sql_query",
+            "icydb_sql_query",
             "(\"SELECT 1\")",
             "--query",
             "--output",
@@ -515,7 +574,7 @@ fn icp_update_command_targets_environment_without_query_flag() {
 #[test]
 fn sql_recovery_hint_points_stale_canister_to_targeted_refresh() {
     let message = sql_error_with_recovery_hint(
-        "Canister has no query method 'icydb_admin_sql_query'.",
+        "Canister has no query method 'icydb_sql_query'.",
         DEFAULT_ENVIRONMENT,
         "demo_rpg",
     );
@@ -548,11 +607,11 @@ fn sql_shell_call_kind_routes_supported_ddl_to_update_method() {
     );
     assert_eq!(
         sql_shell_call_kind("SELECT * FROM Character"),
-        SqlShellCallKind::AdminQuery,
+        SqlShellCallKind::Query,
     );
     assert_eq!(
         sql_shell_call_kind("CREATE UNIQUE INDEX name_idx ON Character (name)"),
-        SqlShellCallKind::AdminQuery,
+        SqlShellCallKind::Query,
     );
 }
 

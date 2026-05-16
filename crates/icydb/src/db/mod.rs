@@ -9,13 +9,13 @@ pub use response::{
     ExecutionTrace, GroupedRow, MutationResult, PagedResponse, ProjectedRow, ProjectionResponse,
     Response,
 };
+pub use session::{
+    DbSession, FluentLoadQuery, MutationMode, PagedLoadQuery, SessionDeleteQuery, StructuralPatch,
+};
 #[cfg(feature = "sql")]
 #[doc(hidden)]
 pub use session::{
-    AdminSqlExecutionAttribution, AdminSqlPureCoveringAttribution, AdminSqlQueryAttribution,
-};
-pub use session::{
-    DbSession, FluentLoadQuery, MutationMode, PagedLoadQuery, SessionDeleteQuery, StructuralPatch,
+    SqlExecutionPerfAttribution, SqlPureCoveringPerfAttribution, SqlQueryPerfAttribution,
 };
 
 // Public core DTOs intentionally carried through the facade database surface.

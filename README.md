@@ -175,14 +175,13 @@ The repository includes a demo RPG canister with a `Character` table.
 
 ```bash
 scripts/dev/sql-start-demo
-cargo run -q -p icydb-cli -- sql --sql "SELECT name, charisma FROM character ORDER BY charisma DESC LIMIT 5"
-cargo run -q -p icydb-cli -- sql --sql "DESCRIBE character"
-cargo run -q -p icydb-cli -- sql --sql "SHOW TABLES"
+cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SELECT name, charisma FROM character ORDER BY charisma DESC LIMIT 5"
+cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "DESCRIBE character"
+cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SHOW TABLES"
 ```
 
-The `sql` and `canister` commands default to the `demo_rpg` canister in the
-`demo` ICP environment when `--canister` and `--environment` are omitted. To
-inspect local canister IDs:
+The `sql` and canister lifecycle commands require an explicit `--canister` and
+default only the ICP environment to `demo`. To inspect local canister IDs:
 
 ```bash
 cargo run -q -p icydb-cli -- canister list
@@ -196,29 +195,31 @@ memory, not host disk contents. Any fixture loading is a canister-specific API
 call, not an IcyDB CLI command:
 
 Read SQL is sent through the canister's standard controller-gated
-`icydb_admin_sql_query` endpoint, which returns the shell's perf footer
+`icydb_sql_query` endpoint, which returns the shell's perf footer
 payload. SQL DDL uses the canister's `ddl` update endpoint for supported
 `CREATE INDEX` commands.
 
 Canisters opt into SQL surfaces through `icydb.toml`. `readonly = true`
-generates the controller-gated `icydb_admin_sql_query` endpoint. `ddl = true`
-generates the `ddl`, `fixtures_reset`, and `fixtures_load_default` update
-endpoints. The generated canister glue routes each SQL statement to the
-matching accepted entity:
+generates the controller-gated `icydb_sql_query` endpoint. `ddl = true`
+generates the `ddl` update endpoint. `fixtures = true` generates the
+`fixtures_reset` and `fixtures_load_default` update endpoints. The generated
+canister glue routes each SQL statement to the matching accepted entity:
 
 ```toml
 [canisters.demo_rpg.sql]
 readonly = true
 ddl = true
+fixtures = true
 ```
 
 ```rust
-fn icydb_admin_sql_load_default() -> Result<(), icydb::Error> {
+fn icydb_sql_load_default() -> Result<(), icydb::Error> {
     Ok(())
 }
 ```
 
 ```bash
+cargo run -q -p icydb-cli -- config init --canister demo_rpg --ddl --fixtures
 cargo run -q -p icydb-cli -- config show
 cargo run -q -p icydb-cli -- config check --environment demo
 cargo run -q -p icydb-cli -- canister refresh --canister demo_rpg

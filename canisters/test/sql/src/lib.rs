@@ -10,7 +10,7 @@ use icydb_testing_test_sql_fixtures::sql::{SqlTestNumericTypes, SqlTestUser};
 icydb::start!();
 
 /// Load one deterministic baseline fixture dataset for SQL smoke tests.
-fn icydb_admin_sql_load_default() -> Result<(), icydb::Error> {
+fn icydb_sql_load_default() -> Result<(), icydb::Error> {
     db().insert_many_atomic(sql_users())?;
     db().insert_many_atomic(sql_numeric_type_rows())?;
 

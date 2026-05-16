@@ -1,6 +1,6 @@
 use crate::{
     cli::{CanisterCommand, CliArgs, CliCommand, ConfigCommand},
-    config::{check_config, show_config},
+    config::{check_config, init_config, show_config},
     icp::{deploy_canister, list_canisters, reinstall_canister, status_canister, upgrade_canister},
     shell::run_sql_command,
 };
@@ -16,6 +16,7 @@ pub(crate) fn run_cli(args: CliArgs) -> Result<(), String> {
 
 fn run_config_command(command: ConfigCommand) -> Result<(), String> {
     match command {
+        ConfigCommand::Init(args) => init_config(args),
         ConfigCommand::Show(args) => show_config(args),
         ConfigCommand::Check(args) => check_config(args),
     }

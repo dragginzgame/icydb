@@ -1,15 +1,47 @@
 use std::{
     collections::BTreeSet,
+    env, fs,
     path::{Path, PathBuf},
 };
 
-use crate::{cli::ConfigArgs, icp::known_canisters};
+use crate::{
+    cli::{ConfigArgs, ConfigInitArgs},
+    icp::known_canisters,
+};
+
+const CONFIG_FILE_NAME: &str = "icydb.toml";
+const CONFIG_PATH_ENV: &str = "ICYDB_CONFIG_PATH";
 
 struct ConfigContext {
     environment: Option<String>,
     known_canisters: Vec<String>,
     start_dir: PathBuf,
     resolved: icydb_config_build::ResolvedIcydbConfig,
+}
+
+/// Create a default IcyDB config file at the repository/workspace config root.
+pub(crate) fn init_config(args: ConfigInitArgs) -> Result<(), String> {
+    let start_dir = resolve_start_dir(args.start_dir())?;
+    let path = resolved_config_path(start_dir.as_path())
+        .unwrap_or_else(|| init_config_path(start_dir.as_path()));
+
+    if path.exists() && !args.force() {
+        return Err(format!(
+            "IcyDB config already exists at '{}'; pass --force to replace it",
+            path.display()
+        ));
+    }
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("create config directory '{}': {err}", parent.display()))?;
+    }
+    fs::write(path.as_path(), render_default_config(&args))
+        .map_err(|err| format!("write IcyDB config '{}': {err}", path.display()))?;
+
+    println!("Wrote IcyDB config: {}", path.display());
+
+    Ok(())
 }
 
 /// Resolve, validate, and display the IcyDB config visible from one directory.
@@ -39,6 +71,9 @@ pub(crate) fn check_config(args: ConfigArgs) -> Result<(), String> {
     );
     if issues.is_empty() {
         println!("IcyDB config check passed");
+        if context.environment.is_none() {
+            println!("ICP sync check not run; pass --environment <name>");
+        }
 
         return Ok(());
     }
@@ -78,6 +113,56 @@ fn resolve_start_dir(start_dir: Option<&Path>) -> Result<PathBuf, String> {
         .map_err(|err| format!("resolve config start directory '{}': {err}", path.display()))
 }
 
+fn init_config_path(start_dir: &Path) -> PathBuf {
+    workspace_root(start_dir)
+        .unwrap_or_else(|| start_dir.to_path_buf())
+        .join(CONFIG_FILE_NAME)
+}
+
+fn resolved_config_path(start_dir: &Path) -> Option<PathBuf> {
+    if let Some(explicit) = env::var_os(CONFIG_PATH_ENV) {
+        return Some(PathBuf::from(explicit));
+    }
+
+    for ancestor in start_dir.ancestors() {
+        let candidate = ancestor.join(CONFIG_FILE_NAME);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+        if is_workspace_root(ancestor) {
+            break;
+        }
+    }
+
+    None
+}
+
+fn workspace_root(start_dir: &Path) -> Option<PathBuf> {
+    start_dir
+        .ancestors()
+        .find(|ancestor| is_workspace_root(ancestor))
+        .map(Path::to_path_buf)
+}
+
+fn is_workspace_root(path: &Path) -> bool {
+    fs::read_to_string(path.join("Cargo.toml")).is_ok_and(|source| source.contains("[workspace]"))
+}
+
+fn render_default_config(args: &ConfigInitArgs) -> String {
+    format!(
+        "\
+[canisters.{canister}.sql]
+readonly = {readonly}
+ddl = {ddl}
+fixtures = {fixtures}
+",
+        canister = args.canister_name(),
+        readonly = args.readonly(),
+        ddl = args.ddl(),
+        fixtures = args.fixtures(),
+    )
+}
+
 pub(crate) fn render_config_report(
     start_dir: &Path,
     environment: Option<&str>,
@@ -115,7 +200,11 @@ pub(crate) fn render_config_report(
             .map(|(name, canister)| {
                 (
                     name.as_str(),
-                    sql_surface_status(canister.sql_readonly(), canister.sql_ddl()),
+                    sql_surface_status(
+                        canister.sql_readonly(),
+                        canister.sql_ddl(),
+                        canister.sql_fixtures(),
+                    ),
                     Some(status_text(known.contains(name.as_str()))),
                 )
             })
@@ -128,7 +217,11 @@ pub(crate) fn render_config_report(
             .map(|(name, canister)| {
                 (
                     name.as_str(),
-                    sql_surface_status(canister.sql_readonly(), canister.sql_ddl()),
+                    sql_surface_status(
+                        canister.sql_readonly(),
+                        canister.sql_ddl(),
+                        canister.sql_fixtures(),
+                    ),
                     None,
                 )
             })
@@ -214,11 +307,15 @@ const fn status_text(ok: bool) -> &'static str {
     if ok { "ok" } else { "mismatch" }
 }
 
-const fn sql_surface_status(readonly: bool, ddl: bool) -> &'static str {
-    match (readonly, ddl) {
-        (true, true) => "readonly, ddl",
-        (true, false) => "readonly",
-        (false, true) => "ddl",
-        (false, false) => "off",
+const fn sql_surface_status(readonly: bool, ddl: bool, fixtures: bool) -> &'static str {
+    match (readonly, ddl, fixtures) {
+        (true, true, true) => "readonly, ddl, fixtures",
+        (true, true, false) => "readonly, ddl",
+        (true, false, true) => "readonly, fixtures",
+        (true, false, false) => "readonly",
+        (false, true, true) => "ddl, fixtures",
+        (false, true, false) => "ddl",
+        (false, false, true) => "fixtures",
+        (false, false, false) => "off",
     }
 }

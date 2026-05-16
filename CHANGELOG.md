@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.156.x] ⚙️ - 2026-05-15 - IcyDB TOML Config
 
+- `0.156.2` improves the config follow-through by adding `icydb config init`, splitting fixture lifecycle endpoints into their own `fixtures` SQL switch, renaming the active generated SQL query/hook surface away from historical admin wording, fixing README SQL examples to use the now-required `--canister`, and making `icydb config check` say when it skipped environment sync.
+
 - `0.156.1` finishes the developer-friendliness pass by removing the unused
   workspace publish wrapper and local bootstrap target, documenting local setup
   plus PocketIC test binary requirements in the README, and replacing stale wasm

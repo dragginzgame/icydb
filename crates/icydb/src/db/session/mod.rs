@@ -47,46 +47,46 @@ impl MutationMode {
     }
 }
 
-/// Admin SQL query attribution envelope used by generated canister endpoints.
+/// SQL query attribution envelope used by generated canister endpoints.
 #[cfg(feature = "sql")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct AdminSqlQueryAttribution {
+pub struct SqlQueryPerfAttribution {
     pub compile_local_instructions: u64,
-    pub execution: AdminSqlExecutionAttribution,
-    pub pure_covering: Option<AdminSqlPureCoveringAttribution>,
+    pub execution: SqlExecutionPerfAttribution,
+    pub pure_covering: Option<SqlPureCoveringPerfAttribution>,
     pub response_decode_local_instructions: u64,
     pub total_local_instructions: u64,
 }
 
-/// Admin SQL execution-stage attribution.
+/// SQL execution-stage attribution.
 #[cfg(feature = "sql")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct AdminSqlExecutionAttribution {
+pub struct SqlExecutionPerfAttribution {
     pub planner_local_instructions: u64,
     pub store_local_instructions: u64,
     pub executor_local_instructions: u64,
 }
 
-/// Admin SQL pure-covering attribution.
+/// SQL pure-covering attribution.
 #[cfg(feature = "sql")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct AdminSqlPureCoveringAttribution {
+pub struct SqlPureCoveringPerfAttribution {
     pub decode_local_instructions: u64,
     pub row_assembly_local_instructions: u64,
 }
 
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
-impl From<crate::db::SqlQueryExecutionAttribution> for AdminSqlQueryAttribution {
+impl From<crate::db::SqlQueryExecutionAttribution> for SqlQueryPerfAttribution {
     fn from(attribution: crate::db::SqlQueryExecutionAttribution) -> Self {
         Self {
             compile_local_instructions: attribution.compile_local_instructions,
-            execution: AdminSqlExecutionAttribution {
+            execution: SqlExecutionPerfAttribution {
                 planner_local_instructions: attribution.execution.planner_local_instructions,
                 store_local_instructions: attribution.execution.store_local_instructions,
                 executor_local_instructions: attribution.execution.executor_local_instructions,
             },
             pure_covering: attribution.pure_covering.map(|pure_covering| {
-                AdminSqlPureCoveringAttribution {
+                SqlPureCoveringPerfAttribution {
                     decode_local_instructions: pure_covering.decode_local_instructions,
                     row_assembly_local_instructions: pure_covering.row_assembly_local_instructions,
                 }
@@ -276,19 +276,19 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    /// Execute one admin SQL query and return the shell perf envelope shape.
+    /// Execute one SQL query and return the shell perf envelope shape.
     #[cfg(all(feature = "sql", not(feature = "diagnostics")))]
     #[doc(hidden)]
-    pub fn execute_admin_sql_query_with_attribution<E>(
+    pub fn execute_sql_query_with_perf_attribution<E>(
         &self,
         sql: &str,
-    ) -> Result<(SqlQueryResult, AdminSqlQueryAttribution), Error>
+    ) -> Result<(SqlQueryResult, SqlQueryPerfAttribution), Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         Ok((
             self.execute_sql_query::<E>(sql)?,
-            AdminSqlQueryAttribution::default(),
+            SqlQueryPerfAttribution::default(),
         ))
     }
 
@@ -296,10 +296,10 @@ impl<C: CanisterKind> DbSession<C> {
     /// cost split at the SQL seam.
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     #[doc(hidden)]
-    pub fn execute_admin_sql_query_with_attribution<E>(
+    pub fn execute_sql_query_with_perf_attribution<E>(
         &self,
         sql: &str,
-    ) -> Result<(SqlQueryResult, AdminSqlQueryAttribution), Error>
+    ) -> Result<(SqlQueryResult, SqlQueryPerfAttribution), Error>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -316,7 +316,7 @@ impl<C: CanisterKind> DbSession<C> {
         attribution =
             finalize_public_sql_query_attribution(attribution, response_decode_local_instructions);
 
-        Ok((result, AdminSqlQueryAttribution::from(attribution)))
+        Ok((result, SqlQueryPerfAttribution::from(attribution)))
     }
 
     /// Execute one reduced SQL query and report the top-level compile/execute

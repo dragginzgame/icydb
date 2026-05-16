@@ -47,16 +47,17 @@ struct StoreRegistryTokens {
 }
 
 ///
-/// AdminSqlTokens
+/// SqlSurfaceTokens
 ///
-/// Generated token bundle for the opted-in admin SQL helper surface. These
+/// Generated token bundle for the opted-in IcyDB SQL helper surface. These
 /// helpers stay non-exported; the public controller-gated methods are owned by
 /// the runtime macro.
 ///
 
-struct AdminSqlTokens {
+struct SqlSurfaceTokens {
     readonly_enabled: bool,
     ddl_enabled: bool,
+    fixtures_enabled: bool,
     reset_statements: TokenStream,
     query_arms: TokenStream,
     ddl_arms: TokenStream,
@@ -213,10 +214,11 @@ fn store_wiring_tokens(
 /// Emit the entity runtime hook table for all entities bound to this canister.
 fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> TokenStream {
     let mut hook_inits = quote!();
-    let mut admin_sql = builder.options.sql_enabled().then(|| {
-        AdminSqlTokens::empty(
+    let mut sql_surface = builder.options.sql_enabled().then(|| {
+        SqlSurfaceTokens::empty(
             builder.options.sql_readonly_enabled(),
             builder.options.sql_ddl_enabled(),
+            builder.options.sql_fixtures_enabled(),
         )
     });
     let entities = builder.get_entities();
@@ -227,11 +229,11 @@ fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> To
         hook_inits.extend(quote! {
             ::icydb::__macro::EntityRuntimeHooks::<#canister_path>::for_entity::<#entity_ty>(),
         });
-        if let Some(admin_sql) = admin_sql.as_mut() {
-            admin_sql.push_entity(&entity_ty);
+        if let Some(sql_surface) = sql_surface.as_mut() {
+            sql_surface.push_entity(&entity_ty);
         }
     }
-    let admin_sql = admin_sql.map_or_else(TokenStream::new, |admin_sql| quote!(#admin_sql));
+    let sql_surface = sql_surface.map_or_else(TokenStream::new, |sql_surface| quote!(#sql_surface));
 
     quote! {
         static ENTITY_RUNTIME_HOOKS: &[
@@ -240,15 +242,16 @@ fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> To
             #hook_inits
         ];
 
-        #admin_sql
+        #sql_surface
     }
 }
 
-impl AdminSqlTokens {
-    fn empty(readonly_enabled: bool, ddl_enabled: bool) -> Self {
+impl SqlSurfaceTokens {
+    fn empty(readonly_enabled: bool, ddl_enabled: bool, fixtures_enabled: bool) -> Self {
         Self {
             readonly_enabled,
             ddl_enabled,
+            fixtures_enabled,
             reset_statements: quote!(),
             query_arms: quote!(),
             ddl_arms: quote!(),
@@ -261,23 +264,28 @@ impl AdminSqlTokens {
             self.show_entities_dispatch = show_entities_dispatch_for(entity_ty);
         }
         self.reset_statements
-            .extend(admin_sql_reset_statement(entity_ty));
+            .extend(sql_surface_reset_statement(entity_ty));
         self.query_arms
-            .extend(admin_sql_query_dispatch_arm(entity_ty));
-        self.ddl_arms.extend(admin_sql_ddl_dispatch_arm(entity_ty));
+            .extend(sql_surface_query_dispatch_arm(entity_ty));
+        self.ddl_arms
+            .extend(sql_surface_ddl_dispatch_arm(entity_ty));
     }
 }
 
-impl quote::ToTokens for AdminSqlTokens {
+impl quote::ToTokens for SqlSurfaceTokens {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let controller_guard = admin_sql_controller_guard();
-        let perf_result = self.readonly_enabled.then(admin_sql_perf_result);
+        let controller_guard = sql_surface_controller_guard();
+        let perf_result = self.readonly_enabled.then(sql_surface_perf_result);
         let readonly_dispatch = self
             .readonly_enabled
             .then(|| self.readonly_dispatch_tokens());
         let ddl_dispatch = self.ddl_enabled.then(|| self.ddl_dispatch_tokens());
-        let endpoints = admin_sql_endpoint_exports(self.readonly_enabled, self.ddl_enabled);
-        let reset_helper = self.ddl_enabled.then(|| self.reset_helper_tokens());
+        let endpoints = sql_surface_endpoint_exports(
+            self.readonly_enabled,
+            self.ddl_enabled,
+            self.fixtures_enabled,
+        );
+        let reset_helper = self.fixtures_enabled.then(|| self.reset_helper_tokens());
 
         tokens.extend(quote! {
             #controller_guard
@@ -290,11 +298,11 @@ impl quote::ToTokens for AdminSqlTokens {
     }
 }
 
-impl AdminSqlTokens {
+impl SqlSurfaceTokens {
     fn readonly_dispatch_tokens(&self) -> TokenStream {
         let query_arms = &self.query_arms;
         let show_entities_dispatch = if self.show_entities_dispatch.is_empty() {
-            empty_admin_sql_query_dispatch()
+            empty_sql_surface_query_dispatch()
         } else {
             self.show_entities_dispatch.clone()
         };
@@ -302,12 +310,12 @@ impl AdminSqlTokens {
         quote! {
             #[cfg(feature = "sql")]
             #[allow(dead_code)]
-            fn icydb_admin_sql_query_dispatch(
+            fn icydb_sql_query_dispatch(
                 sql: &str,
             ) -> Result<
                 (
                     ::icydb::db::sql::SqlQueryResult,
-                    ::icydb::db::AdminSqlQueryAttribution,
+                    ::icydb::db::SqlQueryPerfAttribution,
                 ),
                 ::icydb::Error,
             > {
@@ -318,7 +326,7 @@ impl AdminSqlTokens {
                         ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
                         ::icydb::ErrorOrigin::Interface,
                         format!(
-                            "admin SQL query target entity '{entity}' is not available on this canister"
+                            "IcyDB SQL query target entity '{entity}' is not available on this canister"
                         ),
                     )),
                 }
@@ -340,7 +348,7 @@ impl AdminSqlTokens {
                 clippy::missing_const_for_fn,
                 reason = "the same generated reset helper is non-const when a canister owns entities"
             )]
-            fn icydb_admin_sql_reset_all_tables() -> Result<(), ::icydb::Error> {
+            fn icydb_sql_surface_reset_all_tables() -> Result<(), ::icydb::Error> {
                 #reset_statements
 
                 Ok(())
@@ -355,7 +363,7 @@ impl AdminSqlTokens {
 
             #[cfg(feature = "sql")]
             #[allow(dead_code)]
-            fn icydb_admin_sql_ddl_dispatch(
+            fn icydb_sql_surface_ddl_dispatch(
                 sql: &str,
             ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
                 match ::icydb::__macro::sql_statement_entity_name(sql)?.as_deref() {
@@ -363,13 +371,13 @@ impl AdminSqlTokens {
                     None => Err(::icydb::Error::new(
                         ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
                         ::icydb::ErrorOrigin::Interface,
-                        "admin SQL DDL requires one target entity",
+                        "IcyDB SQL DDL requires one target entity",
                     )),
                     Some(entity) => Err(::icydb::Error::new(
                         ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
                         ::icydb::ErrorOrigin::Interface,
                         format!(
-                            "admin SQL DDL target entity '{entity}' is not available on this canister"
+                            "IcyDB SQL DDL target entity '{entity}' is not available on this canister"
                         ),
                     )),
                 }
@@ -378,16 +386,16 @@ impl AdminSqlTokens {
     }
 }
 
-fn admin_sql_controller_guard() -> TokenStream {
+fn sql_surface_controller_guard() -> TokenStream {
     quote! {
         #[cfg(feature = "sql")]
-        fn icydb_admin_sql_require_controller(action: &str) -> Result<(), ::icydb::Error> {
+        fn icydb_sql_surface_require_controller(action: &str) -> Result<(), ::icydb::Error> {
             let caller = ::icydb::__reexports::canic_cdk::api::msg_caller();
             if !::icydb::__reexports::canic_cdk::api::is_controller(&caller) {
                 return Err(::icydb::Error::new(
                     ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
                     ::icydb::ErrorOrigin::Interface,
-                    format!("admin SQL {action} requires a controller caller"),
+                    format!("IcyDB SQL {action} requires a controller caller"),
                 ));
             }
 
@@ -396,11 +404,11 @@ fn admin_sql_controller_guard() -> TokenStream {
     }
 }
 
-fn admin_sql_perf_result() -> TokenStream {
+fn sql_surface_perf_result() -> TokenStream {
     quote! {
         #[cfg(feature = "sql")]
         #[derive(::icydb::__reexports::candid::CandidType, Clone, Debug, Eq, PartialEq)]
-        struct IcydbAdminSqlQueryPerfResult {
+        struct IcydbSqlQueryPerfResult {
             result: ::icydb::db::sql::SqlQueryResult,
             instructions: u64,
             planner_instructions: u64,
@@ -413,10 +421,10 @@ fn admin_sql_perf_result() -> TokenStream {
         }
 
         #[cfg(feature = "sql")]
-        impl IcydbAdminSqlQueryPerfResult {
+        impl IcydbSqlQueryPerfResult {
             fn from_attribution(
                 result: ::icydb::db::sql::SqlQueryResult,
-                attribution: ::icydb::db::AdminSqlQueryAttribution,
+                attribution: ::icydb::db::SqlQueryPerfAttribution,
             ) -> Self {
                 Self {
                     result,
@@ -440,19 +448,23 @@ fn admin_sql_perf_result() -> TokenStream {
     }
 }
 
-fn admin_sql_endpoint_exports(readonly_enabled: bool, ddl_enabled: bool) -> TokenStream {
+fn sql_surface_endpoint_exports(
+    readonly_enabled: bool,
+    ddl_enabled: bool,
+    fixtures_enabled: bool,
+) -> TokenStream {
     let query_endpoint = readonly_enabled.then(|| {
         quote! {
         #[cfg(feature = "sql")]
         #[::icydb::__reexports::canic_cdk::query]
-        fn icydb_admin_sql_query(
+        fn icydb_sql_query(
             sql: String,
-        ) -> Result<IcydbAdminSqlQueryPerfResult, ::icydb::Error> {
-            icydb_admin_sql_require_controller("query")?;
+        ) -> Result<IcydbSqlQueryPerfResult, ::icydb::Error> {
+            icydb_sql_surface_require_controller("query")?;
 
-            let (result, attribution) = icydb_admin_sql_query_dispatch(sql.as_str())?;
+            let (result, attribution) = icydb_sql_query_dispatch(sql.as_str())?;
 
-            Ok(IcydbAdminSqlQueryPerfResult::from_attribution(
+            Ok(IcydbSqlQueryPerfResult::from_attribution(
                 result,
                 attribution,
             ))
@@ -460,31 +472,35 @@ fn admin_sql_endpoint_exports(readonly_enabled: bool, ddl_enabled: bool) -> Toke
         }
     });
 
-    let ddl_endpoints = ddl_enabled.then(|| {
+    let ddl_endpoint = ddl_enabled.then(|| {
         quote! {
         #[cfg(feature = "sql")]
         #[::icydb::__reexports::canic_cdk::update]
         fn ddl(sql: String) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
-            icydb_admin_sql_require_controller("DDL")?;
+            icydb_sql_surface_require_controller("DDL")?;
 
-            icydb_admin_sql_ddl_dispatch(sql.as_str())
+            icydb_sql_surface_ddl_dispatch(sql.as_str())
         }
+        }
+    });
 
+    let fixture_endpoints = fixtures_enabled.then(|| {
+        quote! {
         #[cfg(feature = "sql")]
         #[::icydb::__reexports::canic_cdk::update]
         fn fixtures_reset() -> Result<(), ::icydb::Error> {
-            icydb_admin_sql_require_controller("lifecycle reset")?;
+            icydb_sql_surface_require_controller("lifecycle reset")?;
 
-            icydb_admin_sql_reset_all_tables()
+            icydb_sql_surface_reset_all_tables()
         }
 
         #[cfg(feature = "sql")]
         #[::icydb::__reexports::canic_cdk::update]
         fn fixtures_load_default() -> Result<(), ::icydb::Error> {
-            icydb_admin_sql_require_controller("lifecycle load_default")?;
-            let hook: fn() -> Result<(), ::icydb::Error> = crate::icydb_admin_sql_load_default;
+            icydb_sql_surface_require_controller("lifecycle load_default")?;
+            let hook: fn() -> Result<(), ::icydb::Error> = crate::icydb_sql_load_default;
 
-            icydb_admin_sql_reset_all_tables()?;
+            icydb_sql_surface_reset_all_tables()?;
             hook()
         }
         }
@@ -492,17 +508,18 @@ fn admin_sql_endpoint_exports(readonly_enabled: bool, ddl_enabled: bool) -> Toke
 
     quote! {
         #query_endpoint
-        #ddl_endpoints
+        #ddl_endpoint
+        #fixture_endpoints
     }
 }
 
-fn admin_sql_reset_statement(entity_ty: &syn::Path) -> TokenStream {
+fn sql_surface_reset_statement(entity_ty: &syn::Path) -> TokenStream {
     quote! {
         db().delete::<#entity_ty>().execute()?;
     }
 }
 
-fn admin_sql_query_dispatch_arm(entity_ty: &syn::Path) -> TokenStream {
+fn sql_surface_query_dispatch_arm(entity_ty: &syn::Path) -> TokenStream {
     quote! {
             Some(entity)
                 if ::icydb::__macro::identifiers_tail_match(
@@ -513,12 +530,12 @@ fn admin_sql_query_dispatch_arm(entity_ty: &syn::Path) -> TokenStream {
                     <#entity_ty as ::icydb::traits::EntitySchema>::NAME
                 ) =>
             {
-                db().execute_admin_sql_query_with_attribution::<#entity_ty>(sql)
+                db().execute_sql_query_with_perf_attribution::<#entity_ty>(sql)
             }
     }
 }
 
-fn admin_sql_ddl_dispatch_arm(entity_ty: &syn::Path) -> TokenStream {
+fn sql_surface_ddl_dispatch_arm(entity_ty: &syn::Path) -> TokenStream {
     quote! {
             Some(entity)
                 if ::icydb::__macro::identifiers_tail_match(
@@ -534,18 +551,18 @@ fn admin_sql_ddl_dispatch_arm(entity_ty: &syn::Path) -> TokenStream {
     }
 }
 
-fn empty_admin_sql_query_dispatch() -> TokenStream {
+fn empty_sql_surface_query_dispatch() -> TokenStream {
     quote! {
         Err(::icydb::Error::new(
             ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
             ::icydb::ErrorOrigin::Interface,
-            "admin SQL query requires at least one canister entity",
+            "IcyDB SQL query requires at least one canister entity",
         ))
     }
 }
 
 fn show_entities_dispatch_for(entity_ty: &syn::Path) -> TokenStream {
     quote! {
-        db().execute_admin_sql_query_with_attribution::<#entity_ty>(sql)
+        db().execute_sql_query_with_perf_attribution::<#entity_ty>(sql)
     }
 }

@@ -21,7 +21,7 @@ use crate::{
     },
 };
 
-pub(crate) const ADMIN_SQL_QUERY_METHOD: &str = "icydb_admin_sql_query";
+pub(crate) const SQL_QUERY_METHOD: &str = "icydb_sql_query";
 pub(crate) const SQL_DDL_METHOD: &str = "ddl";
 
 #[cfg(test)]
@@ -160,11 +160,11 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
 
     let escaped_sql = candid_escape_string(sql);
     match sql_shell_call_kind(sql) {
-        SqlShellCallKind::AdminQuery => {
+        SqlShellCallKind::Query => {
             let candid_bytes = icp_query(
                 environment,
                 canister,
-                ADMIN_SQL_QUERY_METHOD,
+                SQL_QUERY_METHOD,
                 escaped_sql.as_str(),
             )?;
             let response = Decode!(
@@ -215,7 +215,7 @@ fn icp_query(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let error = format!(
-            "admin SQL query method '{method}' failed on canister '{canister}' in environment '{environment}': {}",
+            "IcyDB SQL query method '{method}' failed on canister '{canister}' in environment '{environment}': {}",
             stderr.trim()
         );
         return Err(sql_error_with_recovery_hint(
@@ -303,7 +303,7 @@ pub(crate) fn icp_update_command(
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SqlShellCallKind {
-    AdminQuery,
+    Query,
     Ddl,
 }
 
@@ -321,7 +321,7 @@ pub(crate) fn sql_shell_call_kind(sql: &str) -> SqlShellCallKind {
         return SqlShellCallKind::Ddl;
     }
 
-    SqlShellCallKind::AdminQuery
+    SqlShellCallKind::Query
 }
 
 pub(crate) fn hex_response_bytes(output: &str) -> Result<Vec<u8>, String> {
@@ -360,7 +360,7 @@ pub(crate) fn sql_error_with_recovery_hint(
 }
 
 fn looks_like_stale_demo_sql_surface(error: &str) -> bool {
-    error.contains("has no query method 'icydb_admin_sql_query'")
+    error.contains("has no query method 'icydb_sql_query'")
         || (error.contains("startup index rebuild failed")
             && error.contains("store '")
             && error.contains("' not found"))

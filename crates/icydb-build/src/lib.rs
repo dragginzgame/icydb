@@ -33,6 +33,7 @@ pub fn generate_with_options(canister_path: &str, options: BuildOptions) -> Stri
 pub struct BuildOptions {
     sql_readonly_enabled: bool,
     sql_ddl_enabled: bool,
+    sql_fixtures_enabled: bool,
 }
 
 impl BuildOptions {
@@ -52,6 +53,14 @@ impl BuildOptions {
         self
     }
 
+    /// Build options with generated SQL fixture lifecycle endpoint emission configured.
+    #[must_use]
+    pub const fn with_sql_fixtures_enabled(mut self, enabled: bool) -> Self {
+        self.sql_fixtures_enabled = enabled;
+
+        self
+    }
+
     /// Return whether generated actor glue should export the read-only SQL endpoint.
     #[must_use]
     pub const fn sql_readonly_enabled(self) -> bool {
@@ -64,10 +73,16 @@ impl BuildOptions {
         self.sql_ddl_enabled
     }
 
+    /// Return whether generated actor glue should export SQL fixture lifecycle endpoints.
+    #[must_use]
+    pub const fn sql_fixtures_enabled(self) -> bool {
+        self.sql_fixtures_enabled
+    }
+
     /// Return whether any generated SQL endpoint surface is enabled.
     #[must_use]
     pub const fn sql_enabled(self) -> bool {
-        self.sql_readonly_enabled || self.sql_ddl_enabled
+        self.sql_readonly_enabled || self.sql_ddl_enabled || self.sql_fixtures_enabled
     }
 }
 
