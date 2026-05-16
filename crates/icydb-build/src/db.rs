@@ -73,7 +73,7 @@ struct SqlSurfaceTokens {
 ///
 
 struct SchemaSurfaceTokens {
-    entity_rows: TokenStream,
+    entity_rows: Vec<TokenStream>,
 }
 
 fn store_registry_tokens(builder: &ActorBuilder) -> StoreRegistryTokens {
@@ -323,13 +323,13 @@ impl quote::ToTokens for SqlSurfaceTokens {
 impl SchemaSurfaceTokens {
     fn empty() -> Self {
         Self {
-            entity_rows: quote!(),
+            entity_rows: Vec::new(),
         }
     }
 
     fn push_entity(&mut self, entity_ty: &syn::Path) {
-        self.entity_rows.extend(quote! {
-            schemas.push(db().try_describe_entity::<#entity_ty>()?);
+        self.entity_rows.push(quote! {
+            db().try_describe_entity::<#entity_ty>()?
         });
     }
 }
@@ -356,10 +356,9 @@ impl quote::ToTokens for SchemaSurfaceTokens {
             fn __icydb_schema() -> Result<Vec<::icydb::db::EntitySchemaDescription>, ::icydb::Error> {
                 icydb_schema_surface_require_controller()?;
 
-                let mut schemas = Vec::new();
-                #entity_rows
-
-                Ok(schemas)
+                Ok(vec![
+                    #(#entity_rows),*
+                ])
             }
         });
     }
