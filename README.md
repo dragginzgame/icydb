@@ -11,7 +11,7 @@ canisters. It gives Rust canisters typed entities, stable-memory storage,
 indexes, fluent queries, reduced SQL, pagination, aggregate/grouped execution,
 and explain/metrics surfaces.
 
-Current workspace version: `0.156.3`
+Current workspace version: `0.156.4`
 
 For local development setup, test prerequisites, and troubleshooting, see
 [INSTALLING.md](INSTALLING.md). Safety notes for host-touching commands live in
@@ -34,14 +34,14 @@ Pin IcyDB by tag in downstream canisters:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.156.3" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.156.4" }
 ```
 
 SQL is enabled by default. For typed/fluent-only builds:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.156.3", default-features = false }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.156.4", default-features = false }
 ```
 
 ## Minimal Shape
