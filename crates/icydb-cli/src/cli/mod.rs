@@ -36,6 +36,12 @@ pub(crate) enum CliCommand {
     /// Run SQL against an IcyDB canister.
     Sql(SqlArgs),
 
+    /// Read storage inventory from an IcyDB canister.
+    Snapshot(CanisterTarget),
+
+    /// Read or reset metrics on an IcyDB canister.
+    Metrics(MetricsArgs),
+
     /// Inspect and validate IcyDB TOML config.
     #[command(subcommand)]
     Config(ConfigCommand),
@@ -120,6 +126,42 @@ impl EnvironmentTarget {
 }
 
 ///
+/// MetricsArgs
+///
+/// MetricsArgs owns the generated metrics endpoint command surface. The reset
+/// switch keeps normal read usage short while still making the destructive
+/// operation explicit.
+///
+
+#[derive(Args, Debug)]
+pub(crate) struct MetricsArgs {
+    #[command(flatten)]
+    pub(crate) target: CanisterTarget,
+
+    /// Only include metrics windows starting at this millisecond timestamp.
+    #[arg(long, conflicts_with = "reset")]
+    pub(crate) window_start_ms: Option<u64>,
+
+    /// Reset in-memory metrics instead of reading the metrics report.
+    #[arg(long)]
+    pub(crate) reset: bool,
+}
+
+impl MetricsArgs {
+    pub(crate) const fn target(&self) -> &CanisterTarget {
+        &self.target
+    }
+
+    pub(crate) const fn window_start_ms(&self) -> Option<u64> {
+        self.window_start_ms
+    }
+
+    pub(crate) const fn reset(&self) -> bool {
+        self.reset
+    }
+}
+
+///
 /// ConfigCommand
 ///
 /// ConfigCommand owns read-only inspection of `icydb.toml`. It can optionally
@@ -195,7 +237,19 @@ pub(crate) struct ConfigInitArgs {
     #[arg(long)]
     pub(crate) fixtures: bool,
 
-    /// Generate readonly, DDL, and fixture lifecycle endpoints.
+    /// Also generate metrics report endpoint.
+    #[arg(long)]
+    pub(crate) metrics: bool,
+
+    /// Also generate metrics reset endpoint.
+    #[arg(long = "metrics-reset")]
+    pub(crate) metrics_reset: bool,
+
+    /// Also generate storage snapshot endpoint.
+    #[arg(long)]
+    pub(crate) snapshot: bool,
+
+    /// Generate all currently supported DB endpoint families.
     #[arg(long)]
     pub(crate) all: bool,
 
@@ -227,6 +281,18 @@ impl ConfigInitArgs {
 
     pub(crate) const fn fixtures(&self) -> bool {
         self.fixtures || self.all
+    }
+
+    pub(crate) const fn metrics(&self) -> bool {
+        self.metrics || self.all
+    }
+
+    pub(crate) const fn metrics_reset(&self) -> bool {
+        self.metrics_reset || self.all
+    }
+
+    pub(crate) const fn snapshot(&self) -> bool {
+        self.snapshot || self.all
     }
 
     pub(crate) const fn force(&self) -> bool {

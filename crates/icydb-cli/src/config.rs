@@ -155,11 +155,21 @@ fn render_default_config(args: &ConfigInitArgs) -> String {
 readonly = {readonly}
 ddl = {ddl}
 fixtures = {fixtures}
+
+[canisters.{canister}.metrics]
+enabled = {metrics}
+reset = {metrics_reset}
+
+[canisters.{canister}.snapshot]
+enabled = {snapshot}
 ",
         canister = args.canister_name(),
         readonly = args.readonly(),
         ddl = args.ddl(),
         fixtures = args.fixtures(),
+        metrics = args.metrics(),
+        metrics_reset = args.metrics_reset(),
+        snapshot = args.snapshot(),
     )
 }
 
@@ -205,6 +215,8 @@ pub(crate) fn render_config_report(
                         canister.sql_ddl(),
                         canister.sql_fixtures(),
                     ),
+                    metrics_surface_status(canister.metrics(), canister.metrics_reset()),
+                    enabled_status(canister.snapshot()),
                     Some(status_text(known.contains(name.as_str()))),
                 )
             })
@@ -222,6 +234,8 @@ pub(crate) fn render_config_report(
                         canister.sql_ddl(),
                         canister.sql_fixtures(),
                     ),
+                    metrics_surface_status(canister.metrics(), canister.metrics_reset()),
+                    enabled_status(canister.snapshot()),
                     None,
                 )
             })
@@ -263,17 +277,24 @@ pub(crate) fn config_sync_issues(
     issues
 }
 
-fn append_canister_table(report: &mut String, rows: &[(&str, &str, Option<&str>)]) {
-    let canister_width = table_width("canister", rows.iter().map(|(name, _, _)| *name));
-    let sql_width = table_width("SQL surfaces", rows.iter().map(|(_, sql, _)| *sql));
-    let include_in_env = rows.iter().any(|(_, _, in_env)| in_env.is_some());
+fn append_canister_table(report: &mut String, rows: &[(&str, &str, &str, &str, Option<&str>)]) {
+    let canister_width = table_width("canister", rows.iter().map(|(name, _, _, _, _)| *name));
+    let sql_width = table_width("SQL surfaces", rows.iter().map(|(_, sql, _, _, _)| *sql));
+    let metrics_width = table_width("metrics", rows.iter().map(|(_, _, metrics, _, _)| *metrics));
+    let snapshot_width = table_width(
+        "snapshot",
+        rows.iter().map(|(_, _, _, snapshot, _)| *snapshot),
+    );
+    let include_in_env = rows.iter().any(|(_, _, _, _, in_env)| in_env.is_some());
 
     if include_in_env {
         report.push_str(
             format!(
-                "  {canister:<canister_width$}  {sql:<sql_width$}  {in_env}\n",
+                "  {canister:<canister_width$}  {sql:<sql_width$}  {metrics:<metrics_width$}  {snapshot:<snapshot_width$}  {in_env}\n",
                 canister = "canister",
                 sql = "SQL surfaces",
+                metrics = "metrics",
+                snapshot = "snapshot",
                 in_env = "ICP environment",
             )
             .as_str(),
@@ -281,20 +302,30 @@ fn append_canister_table(report: &mut String, rows: &[(&str, &str, Option<&str>)
     } else {
         report.push_str(
             format!(
-                "  {canister:<canister_width$}  {sql}\n",
+                "  {canister:<canister_width$}  {sql:<sql_width$}  {metrics:<metrics_width$}  {snapshot}\n",
                 canister = "canister",
                 sql = "SQL surfaces",
+                metrics = "metrics",
+                snapshot = "snapshot",
             )
             .as_str(),
         );
     }
-    for (canister, sql, in_env) in rows {
+    for (canister, sql, metrics, snapshot, in_env) in rows {
         if let Some(in_env) = in_env {
             report.push_str(
-                format!("  {canister:<canister_width$}  {sql:<sql_width$}  {in_env}\n").as_str(),
+                format!(
+                    "  {canister:<canister_width$}  {sql:<sql_width$}  {metrics:<metrics_width$}  {snapshot:<snapshot_width$}  {in_env}\n"
+                )
+                .as_str(),
             );
         } else {
-            report.push_str(format!("  {canister:<canister_width$}  {sql}\n").as_str());
+            report.push_str(
+                format!(
+                    "  {canister:<canister_width$}  {sql:<sql_width$}  {metrics:<metrics_width$}  {snapshot}\n"
+                )
+                .as_str(),
+            );
         }
     }
 }
@@ -318,4 +349,17 @@ const fn sql_surface_status(readonly: bool, ddl: bool, fixtures: bool) -> &'stat
         (false, false, true) => "fixtures",
         (false, false, false) => "off",
     }
+}
+
+const fn metrics_surface_status(metrics: bool, reset: bool) -> &'static str {
+    match (metrics, reset) {
+        (true, true) => "enabled, reset",
+        (true, false) => "enabled",
+        (false, true) => "reset",
+        (false, false) => "off",
+    }
+}
+
+const fn enabled_status(enabled: bool) -> &'static str {
+    if enabled { "enabled" } else { "off" }
 }

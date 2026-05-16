@@ -31,16 +31,29 @@ pub fn generate_with_options(canister_path: &str, options: BuildOptions) -> Stri
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct BuildOptions {
-    sql_readonly_enabled: bool,
-    sql_ddl_enabled: bool,
-    sql_fixtures_enabled: bool,
+    sql: BuildSqlOptions,
+    metrics: BuildMetricsOptions,
+    snapshot_enabled: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct BuildSqlOptions {
+    readonly_enabled: bool,
+    ddl_enabled: bool,
+    fixtures_enabled: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct BuildMetricsOptions {
+    enabled: bool,
+    reset_enabled: bool,
 }
 
 impl BuildOptions {
     /// Build options with generated read-only SQL endpoint emission configured.
     #[must_use]
     pub const fn with_sql_readonly_enabled(mut self, enabled: bool) -> Self {
-        self.sql_readonly_enabled = enabled;
+        self.sql.readonly_enabled = enabled;
 
         self
     }
@@ -48,7 +61,7 @@ impl BuildOptions {
     /// Build options with generated SQL DDL/write endpoint emission configured.
     #[must_use]
     pub const fn with_sql_ddl_enabled(mut self, enabled: bool) -> Self {
-        self.sql_ddl_enabled = enabled;
+        self.sql.ddl_enabled = enabled;
 
         self
     }
@@ -56,7 +69,31 @@ impl BuildOptions {
     /// Build options with generated SQL fixture lifecycle endpoint emission configured.
     #[must_use]
     pub const fn with_sql_fixtures_enabled(mut self, enabled: bool) -> Self {
-        self.sql_fixtures_enabled = enabled;
+        self.sql.fixtures_enabled = enabled;
+
+        self
+    }
+
+    /// Build options with generated metrics report endpoint emission configured.
+    #[must_use]
+    pub const fn with_metrics_enabled(mut self, enabled: bool) -> Self {
+        self.metrics.enabled = enabled;
+
+        self
+    }
+
+    /// Build options with generated metrics reset endpoint emission configured.
+    #[must_use]
+    pub const fn with_metrics_reset_enabled(mut self, enabled: bool) -> Self {
+        self.metrics.reset_enabled = enabled;
+
+        self
+    }
+
+    /// Build options with generated storage snapshot endpoint emission configured.
+    #[must_use]
+    pub const fn with_snapshot_enabled(mut self, enabled: bool) -> Self {
+        self.snapshot_enabled = enabled;
 
         self
     }
@@ -64,25 +101,43 @@ impl BuildOptions {
     /// Return whether generated actor glue should export the read-only SQL endpoint.
     #[must_use]
     pub const fn sql_readonly_enabled(self) -> bool {
-        self.sql_readonly_enabled
+        self.sql.readonly_enabled
     }
 
     /// Return whether generated actor glue should export SQL DDL/write endpoints.
     #[must_use]
     pub const fn sql_ddl_enabled(self) -> bool {
-        self.sql_ddl_enabled
+        self.sql.ddl_enabled
     }
 
     /// Return whether generated actor glue should export SQL fixture lifecycle endpoints.
     #[must_use]
     pub const fn sql_fixtures_enabled(self) -> bool {
-        self.sql_fixtures_enabled
+        self.sql.fixtures_enabled
+    }
+
+    /// Return whether generated actor glue should export metrics report endpoints.
+    #[must_use]
+    pub const fn metrics_enabled(self) -> bool {
+        self.metrics.enabled
+    }
+
+    /// Return whether generated actor glue should export metrics reset endpoints.
+    #[must_use]
+    pub const fn metrics_reset_enabled(self) -> bool {
+        self.metrics.reset_enabled
+    }
+
+    /// Return whether generated actor glue should export storage snapshot endpoints.
+    #[must_use]
+    pub const fn snapshot_enabled(self) -> bool {
+        self.snapshot_enabled
     }
 
     /// Return whether any generated SQL endpoint surface is enabled.
     #[must_use]
     pub const fn sql_enabled(self) -> bool {
-        self.sql_readonly_enabled || self.sql_ddl_enabled || self.sql_fixtures_enabled
+        self.sql_readonly_enabled() || self.sql_ddl_enabled() || self.sql_fixtures_enabled()
     }
 }
 
@@ -138,8 +193,9 @@ impl ActorBuilder {
     pub fn generate(self) -> TokenStream {
         let mut tokens = quote!();
 
-        // Emit the shared runtime wiring and the generated metrics endpoints.
+        // Emit the shared runtime wiring and configured generated endpoints.
         tokens.extend(db::generate(&self));
+        tokens.extend(generate_snapshot(&self));
         tokens.extend(generate_metrics(&self));
 
         quote! {
@@ -177,25 +233,46 @@ impl ActorBuilder {
     }
 }
 
-/// Render the metrics/snapshot endpoints for a canister actor.
+/// Render the storage snapshot endpoint for a canister actor.
 #[must_use]
-fn generate_metrics(_builder: &ActorBuilder) -> TokenStream {
-    quote! {
+fn generate_snapshot(builder: &ActorBuilder) -> TokenStream {
+    if builder.options.snapshot_enabled() {
+        quote! {
         #[::icydb::__reexports::canic_cdk::query]
-        pub fn icydb_snapshot() -> Result<::icydb::db::StorageReport, ::icydb::Error> {
+        pub fn __icydb_snapshot() -> Result<::icydb::db::StorageReport, ::icydb::Error> {
             ::icydb::__macro::execute_generated_storage_report(&db())
         }
+        }
+    } else {
+        TokenStream::new()
+    }
+}
 
+/// Render the configured metrics endpoints for a canister actor.
+#[must_use]
+fn generate_metrics(builder: &ActorBuilder) -> TokenStream {
+    let metrics_endpoint = builder.options.metrics_enabled().then(|| {
+        quote! {
         #[::icydb::__reexports::canic_cdk::query]
-        pub fn icydb_metrics(window_start_ms: Option<u64>) -> Result<::icydb::metrics::EventReport, ::icydb::Error> {
+        pub fn __icydb_metrics(window_start_ms: Option<u64>) -> Result<::icydb::metrics::EventReport, ::icydb::Error> {
             Ok(::icydb::metrics::metrics_report(window_start_ms))
         }
+        }
+    });
 
+    let metrics_reset_endpoint = builder.options.metrics_reset_enabled().then(|| {
+        quote! {
         #[::icydb::__reexports::canic_cdk::update]
-        pub fn icydb_metrics_reset() -> Result<(), ::icydb::Error> {
+        pub fn __icydb_metrics_reset() -> Result<(), ::icydb::Error> {
             ::icydb::metrics::metrics_reset_all();
 
             Ok(())
         }
+        }
+    });
+
+    quote! {
+        #metrics_endpoint
+        #metrics_reset_endpoint
     }
 }

@@ -2,3 +2,10 @@
 readonly = true
 ddl = true
 fixtures = true
+
+[canisters.test_sql.metrics]
+enabled = true
+reset = true
+
+[canisters.test_sql.snapshot]
+enabled = true

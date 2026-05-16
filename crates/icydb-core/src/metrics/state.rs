@@ -1254,7 +1254,7 @@ impl EventReport {
 //
 // EventCounters
 //
-// Top-level metrics counters returned by `icydb_metrics()`.
+// Top-level metrics counters returned by the generated metrics endpoint.
 // This keeps aggregate ops/perf totals while leaving per-entity detail to the
 // separate `entity_counters` payload.
 //

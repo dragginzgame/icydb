@@ -2,6 +2,7 @@ mod cli;
 mod commands;
 mod config;
 mod icp;
+mod observability;
 mod shell;
 
 #[cfg(test)]

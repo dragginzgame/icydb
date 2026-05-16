@@ -10,6 +10,7 @@ use crate::{
         CanisterCommand, CliArgs, CliCommand, ConfigCommand, ConfigInitArgs, DEFAULT_ENVIRONMENT,
     },
     config::{config_sync_issues, init_config, render_config_report},
+    observability::{METRICS_METHOD, METRICS_RESET_METHOD, SNAPSHOT_METHOD, metrics_candid_arg},
     shell::{
         SQL_DDL_METHOD, SQL_QUERY_METHOD, ShellConfig, ShellPerfAttribution, SqlShellCallKind,
         drain_complete_shell_statements, finalize_successful_command_output, hex_response_bytes,
@@ -324,6 +325,68 @@ fn cli_args_accept_explicit_icp_environment() {
 }
 
 #[test]
+fn cli_args_group_snapshot_under_top_level_keyword() {
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "snapshot",
+        "--canister",
+        "demo_rpg",
+        "--environment",
+        "test",
+    ])
+    .expect("snapshot command should parse");
+    let CliCommand::Snapshot(target) = args.command else {
+        panic!("expected snapshot command");
+    };
+
+    assert_eq!(target.canister_name(), "demo_rpg");
+    assert_eq!(target.environment(), "test");
+}
+
+#[test]
+fn cli_args_group_metrics_under_top_level_keyword() {
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "metrics",
+        "--canister",
+        "demo_rpg",
+        "--window-start-ms",
+        "123",
+    ])
+    .expect("metrics command should parse");
+    let CliCommand::Metrics(args) = args.command else {
+        panic!("expected metrics command");
+    };
+
+    assert_eq!(args.target().canister_name(), "demo_rpg");
+    assert_eq!(args.target().environment(), DEFAULT_ENVIRONMENT);
+    assert_eq!(args.window_start_ms(), Some(123));
+    assert!(!args.reset());
+}
+
+#[test]
+fn cli_args_group_metrics_reset_under_top_level_keyword() {
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "metrics",
+        "--canister",
+        "demo_rpg",
+        "--environment",
+        "test",
+        "--reset",
+    ])
+    .expect("metrics reset command should parse");
+    let CliCommand::Metrics(args) = args.command else {
+        panic!("expected metrics command");
+    };
+
+    assert_eq!(args.target().canister_name(), "demo_rpg");
+    assert_eq!(args.target().environment(), "test");
+    assert_eq!(args.window_start_ms(), None);
+    assert!(args.reset());
+}
+
+#[test]
 fn cli_args_group_config_show_under_config_keyword() {
     let args = CliArgs::try_parse_from([
         "icydb",
@@ -373,6 +436,9 @@ fn cli_args_group_config_init_under_config_keyword() {
         "demo_rpg",
         "--ddl",
         "--fixtures",
+        "--metrics",
+        "--metrics-reset",
+        "--snapshot",
         "--start-dir",
         "canisters/demo/rpg",
     ])
@@ -385,6 +451,9 @@ fn cli_args_group_config_init_under_config_keyword() {
     assert!(args.readonly());
     assert!(args.ddl());
     assert!(args.fixtures());
+    assert!(args.metrics());
+    assert!(args.metrics_reset());
+    assert!(args.snapshot());
     assert_eq!(args.start_dir(), Some(Path::new("canisters/demo/rpg")));
 }
 
@@ -414,6 +483,9 @@ fn config_init_writes_default_config_at_workspace_root() {
         canister: "demo_rpg".to_string(),
         ddl: true,
         fixtures: true,
+        metrics: true,
+        metrics_reset: true,
+        snapshot: true,
         all: false,
         no_readonly: false,
         force: false,
@@ -424,7 +496,7 @@ fn config_init_writes_default_config_at_workspace_root() {
         .expect("config file should be written");
     assert_eq!(
         config,
-        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = true\nfixtures = true\n"
+        "[canisters.demo_rpg.sql]\nreadonly = true\nddl = true\nfixtures = true\n\n[canisters.demo_rpg.metrics]\nenabled = true\nreset = true\n\n[canisters.demo_rpg.snapshot]\nenabled = true\n"
     );
 
     std::fs::remove_dir_all(root).expect("test directory should be removed");
@@ -446,6 +518,13 @@ fn config_report_marks_canister_settings_against_icp_environment() {
             readonly = true
             ddl = true
             fixtures = true
+
+            [canisters.demo_rpg.metrics]
+            enabled = true
+            reset = true
+
+            [canisters.demo_rpg.snapshot]
+            enabled = true
         ",
     )
     .expect("config should be written");
@@ -459,7 +538,7 @@ fn config_report_marks_canister_settings_against_icp_environment() {
         &resolved,
     );
 
-    assert!(report.contains("demo_rpg  readonly, ddl, fixtures  ok"));
+    assert!(report.contains("demo_rpg  readonly, ddl, fixtures  enabled, reset  enabled   ok"));
     std::fs::remove_dir_all(root).expect("test directory should be removed");
 }
 
@@ -539,6 +618,19 @@ fn icp_query_command_targets_environment_and_hex_query_output() {
             "demo",
         ],
     );
+}
+
+#[test]
+fn observability_method_constants_match_generated_endpoint_names() {
+    assert_eq!(SNAPSHOT_METHOD, "__icydb_snapshot");
+    assert_eq!(METRICS_METHOD, "__icydb_metrics");
+    assert_eq!(METRICS_RESET_METHOD, "__icydb_metrics_reset");
+}
+
+#[test]
+fn metrics_candid_arg_renders_optional_window() {
+    assert_eq!(metrics_candid_arg(None), "(null)");
+    assert_eq!(metrics_candid_arg(Some(123)), "(opt (123 : nat64))");
 }
 
 #[test]

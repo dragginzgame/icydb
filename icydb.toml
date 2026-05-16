@@ -2,3 +2,10 @@
 readonly = true
 ddl = true
 fixtures = true
+
+[canisters.demo_rpg.metrics]
+enabled = true
+reset = true
+
+[canisters.demo_rpg.snapshot]
+enabled = true

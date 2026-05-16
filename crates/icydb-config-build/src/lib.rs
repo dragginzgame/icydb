@@ -79,34 +79,91 @@ impl GeneratedIcydbConfig {
             .get(canister_name)
             .is_some_and(GeneratedCanisterConfig::sql_fixtures)
     }
+
+    /// Return whether metrics report endpoints should be generated for one canister.
+    #[must_use]
+    pub fn canister_metrics_enabled(&self, canister_name: &str) -> bool {
+        self.canisters
+            .get(canister_name)
+            .is_some_and(GeneratedCanisterConfig::metrics)
+    }
+
+    /// Return whether metrics reset endpoints should be generated for one canister.
+    #[must_use]
+    pub fn canister_metrics_reset_enabled(&self, canister_name: &str) -> bool {
+        self.canisters
+            .get(canister_name)
+            .is_some_and(GeneratedCanisterConfig::metrics_reset)
+    }
+
+    /// Return whether storage snapshot endpoints should be generated for one canister.
+    #[must_use]
+    pub fn canister_snapshot_enabled(&self, canister_name: &str) -> bool {
+        self.canisters
+            .get(canister_name)
+            .is_some_and(GeneratedCanisterConfig::snapshot)
+    }
 }
 
 /// Validated generated settings for one canister.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct GeneratedCanisterConfig {
-    sql_readonly: bool,
-    sql_ddl: bool,
-    sql_fixtures: bool,
+    sql: GeneratedCanisterSqlConfig,
+    metrics: GeneratedCanisterMetricsConfig,
+    snapshot: bool,
 }
 
 impl GeneratedCanisterConfig {
     /// Return whether generated actor glue should export read-only SQL endpoints.
     #[must_use]
     pub const fn sql_readonly(&self) -> bool {
-        self.sql_readonly
+        self.sql.readonly
     }
 
     /// Return whether generated actor glue should export SQL DDL/write endpoints.
     #[must_use]
     pub const fn sql_ddl(&self) -> bool {
-        self.sql_ddl
+        self.sql.ddl
     }
 
     /// Return whether generated actor glue should export SQL fixture lifecycle endpoints.
     #[must_use]
     pub const fn sql_fixtures(&self) -> bool {
-        self.sql_fixtures
+        self.sql.fixtures
     }
+
+    /// Return whether generated actor glue should export metrics report endpoints.
+    #[must_use]
+    pub const fn metrics(&self) -> bool {
+        self.metrics.enabled
+    }
+
+    /// Return whether generated actor glue should export metrics reset endpoints.
+    #[must_use]
+    pub const fn metrics_reset(&self) -> bool {
+        self.metrics.reset
+    }
+
+    /// Return whether generated actor glue should export storage snapshot endpoints.
+    #[must_use]
+    pub const fn snapshot(&self) -> bool {
+        self.snapshot
+    }
+}
+
+/// Validated generated SQL endpoint switches for one canister.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct GeneratedCanisterSqlConfig {
+    readonly: bool,
+    ddl: bool,
+    fixtures: bool,
+}
+
+/// Validated generated metrics endpoint switches for one canister.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct GeneratedCanisterMetricsConfig {
+    enabled: bool,
+    reset: bool,
 }
 
 /// Build-script config loading error with path-aware diagnostics.
@@ -196,6 +253,9 @@ pub fn render_rust_config_for_canister(
     let sql_readonly_enabled = config.canister_sql_readonly_enabled(canister_name);
     let sql_ddl_enabled = config.canister_sql_ddl_enabled(canister_name);
     let sql_fixtures_enabled = config.canister_sql_fixtures_enabled(canister_name);
+    let metrics_enabled = config.canister_metrics_enabled(canister_name);
+    let metrics_reset_enabled = config.canister_metrics_reset_enabled(canister_name);
+    let snapshot_enabled = config.canister_snapshot_enabled(canister_name);
 
     format!(
         "\
@@ -203,6 +263,9 @@ pub fn render_rust_config_for_canister(
 pub const ICYDB_SQL_READONLY_ENABLED: bool = {sql_readonly_enabled};
 pub const ICYDB_SQL_DDL_ENABLED: bool = {sql_ddl_enabled};
 pub const ICYDB_SQL_FIXTURES_ENABLED: bool = {sql_fixtures_enabled};
+pub const ICYDB_METRICS_ENABLED: bool = {metrics_enabled};
+pub const ICYDB_METRICS_RESET_ENABLED: bool = {metrics_reset_enabled};
+pub const ICYDB_SNAPSHOT_ENABLED: bool = {snapshot_enabled};
 "
     )
 }
@@ -330,20 +393,39 @@ fn validate_canisters(
         generated.insert(
             resolved_name,
             GeneratedCanisterConfig {
-                sql_readonly: raw_config
-                    .sql
+                sql: GeneratedCanisterSqlConfig {
+                    readonly: raw_config
+                        .sql
+                        .as_ref()
+                        .and_then(|sql| sql.readonly)
+                        .unwrap_or(false),
+                    ddl: raw_config
+                        .sql
+                        .as_ref()
+                        .and_then(|sql| sql.ddl)
+                        .unwrap_or(false),
+                    fixtures: raw_config
+                        .sql
+                        .as_ref()
+                        .and_then(|sql| sql.fixtures)
+                        .unwrap_or(false),
+                },
+                metrics: GeneratedCanisterMetricsConfig {
+                    enabled: raw_config
+                        .metrics
+                        .as_ref()
+                        .and_then(|metrics| metrics.enabled)
+                        .unwrap_or(false),
+                    reset: raw_config
+                        .metrics
+                        .as_ref()
+                        .and_then(|metrics| metrics.reset)
+                        .unwrap_or(false),
+                },
+                snapshot: raw_config
+                    .snapshot
                     .as_ref()
-                    .and_then(|sql| sql.readonly)
-                    .unwrap_or(false),
-                sql_ddl: raw_config
-                    .sql
-                    .as_ref()
-                    .and_then(|sql| sql.ddl)
-                    .unwrap_or(false),
-                sql_fixtures: raw_config
-                    .sql
-                    .as_ref()
-                    .and_then(|sql| sql.fixtures)
+                    .and_then(|snapshot| snapshot.enabled)
                     .unwrap_or(false),
             },
         );
@@ -439,6 +521,8 @@ struct RawIcydbProjectConfig {
 #[serde(deny_unknown_fields)]
 struct RawCanisterConfig {
     sql: Option<RawCanisterSqlConfig>,
+    metrics: Option<RawCanisterMetricsConfig>,
+    snapshot: Option<RawCanisterSnapshotConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -447,6 +531,19 @@ struct RawCanisterSqlConfig {
     readonly: Option<bool>,
     ddl: Option<bool>,
     fixtures: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawCanisterMetricsConfig {
+    enabled: Option<bool>,
+    reset: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawCanisterSnapshotConfig {
+    enabled: Option<bool>,
 }
 
 #[cfg(test)]
@@ -460,16 +557,26 @@ mod tests {
         assert!(!config.canister_sql_readonly_enabled("demo_rpg"));
         assert!(!config.canister_sql_ddl_enabled("demo_rpg"));
         assert!(!config.canister_sql_fixtures_enabled("demo_rpg"));
+        assert!(!config.canister_metrics_enabled("demo_rpg"));
+        assert!(!config.canister_metrics_reset_enabled("demo_rpg"));
+        assert!(!config.canister_snapshot_enabled("demo_rpg"));
     }
 
     #[test]
-    fn readonly_ddl_and_fixtures_sql_config_validate() {
+    fn readonly_ddl_fixtures_metrics_and_snapshot_config_validate() {
         let config = parse_icydb_toml(
             r"
                 [canisters.demo_rpg.sql]
                 readonly = true
                 ddl = true
                 fixtures = true
+
+                [canisters.demo_rpg.metrics]
+                enabled = true
+                reset = true
+
+                [canisters.demo_rpg.snapshot]
+                enabled = true
             ",
             &["demo_rpg"],
         )
@@ -478,6 +585,9 @@ mod tests {
         assert!(config.canister_sql_readonly_enabled("demo_rpg"));
         assert!(config.canister_sql_ddl_enabled("demo_rpg"));
         assert!(config.canister_sql_fixtures_enabled("demo_rpg"));
+        assert!(config.canister_metrics_enabled("demo_rpg"));
+        assert!(config.canister_metrics_reset_enabled("demo_rpg"));
+        assert!(config.canister_snapshot_enabled("demo_rpg"));
     }
 
     #[test]
@@ -553,6 +663,13 @@ mod tests {
                 readonly = true
                 ddl = true
                 fixtures = true
+
+                [canisters.demo_rpg.metrics]
+                enabled = true
+                reset = true
+
+                [canisters.demo_rpg.snapshot]
+                enabled = true
             ",
             &["demo_rpg"],
         )
@@ -563,6 +680,9 @@ mod tests {
         assert!(generated.contains("pub const ICYDB_SQL_READONLY_ENABLED: bool = true;"));
         assert!(generated.contains("pub const ICYDB_SQL_DDL_ENABLED: bool = true;"));
         assert!(generated.contains("pub const ICYDB_SQL_FIXTURES_ENABLED: bool = true;"));
+        assert!(generated.contains("pub const ICYDB_METRICS_ENABLED: bool = true;"));
+        assert!(generated.contains("pub const ICYDB_METRICS_RESET_ENABLED: bool = true;"));
+        assert!(generated.contains("pub const ICYDB_SNAPSHOT_ENABLED: bool = true;"));
         assert!(!generated.contains("[demo.sql]"));
     }
 

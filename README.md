@@ -158,7 +158,7 @@ Read SQL is sent through the canister's standard controller-gated
 payload. SQL DDL uses the canister's `__icydb_ddl` update endpoint for supported
 `CREATE INDEX` commands.
 
-Canisters opt into SQL surfaces through `icydb.toml`. `readonly = true`
+Canisters opt into DB endpoint surfaces through `icydb.toml`. `readonly = true`
 generates the controller-gated `__icydb_query` endpoint. `ddl = true`
 generates the `__icydb_ddl` update endpoint. `fixtures = true` generates the
 `__icydb_fixtures_reset` and `__icydb_fixtures_load` update endpoints. The
@@ -169,6 +169,13 @@ generated canister glue routes each SQL statement to the matching accepted entit
 readonly = true
 ddl = true
 fixtures = true
+
+[canisters.demo_rpg.metrics]
+enabled = true
+reset = true
+
+[canisters.demo_rpg.snapshot]
+enabled = true
 ```
 
 ```rust
@@ -178,7 +185,7 @@ fn icydb_fixtures_load() -> Result<(), icydb::Error> {
 ```
 
 ```bash
-cargo run -q -p icydb-cli -- config init --canister demo_rpg --ddl --fixtures
+cargo run -q -p icydb-cli -- config init --canister demo_rpg --ddl --fixtures --metrics --metrics-reset --snapshot
 cargo run -q -p icydb-cli -- config show
 cargo run -q -p icydb-cli -- config check --environment demo
 cargo run -q -p icydb-cli -- canister refresh --canister demo_rpg
@@ -197,22 +204,26 @@ Installed CLI:
 make install
 icydb sql --canister demo_rpg --sql "SELECT COUNT(*) FROM character"
 icydb sql --environment test --canister demo_rpg --sql "SHOW TABLES"
+icydb snapshot --canister demo_rpg
+icydb metrics --canister demo_rpg
+icydb metrics --canister demo_rpg --reset
 ```
 
 ## Observability
 
-Generated canisters expose:
+Generated canisters can expose:
 
-- `icydb_snapshot()` for current storage shape
-- `icydb_metrics(window_start_ms: Option<u64>)` for metrics
-- `icydb_metrics_reset()` to clear in-memory metrics
+- `__icydb_snapshot()` for configured current storage inventory
+- `__icydb_metrics(window_start_ms: Option<u64>)` for configured metrics
+- `__icydb_metrics_reset()` to clear configured in-memory metrics
 
 Example:
 
 ```bash
-icp canister call <canister> icydb_snapshot '()' --environment demo
-icp canister call <canister> icydb_metrics '(null)' --environment demo
-icp canister call <canister> icydb_metrics_reset '()' --environment demo
+icydb snapshot --canister <canister>
+icydb metrics --canister <canister>
+icydb metrics --canister <canister> --window-start-ms <timestamp>
+icydb metrics --canister <canister> --reset
 ```
 
 ## Repository Map
