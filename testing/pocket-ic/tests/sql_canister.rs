@@ -203,7 +203,7 @@ fn sql_canister_ddl_endpoint_publishes_supported_field_path_index() {
     assert!(
         indexes
             .iter()
-            .any(|index| index == "INDEX sql_test_user_rank_idx (rank) [state=ready]"),
+            .any(|index| index == "INDEX sql_test_user_rank_idx (rank) [state=ready] [origin=ddl]"),
         "SHOW INDEXES FROM should expose the DDL-published accepted index: {indexes:?}",
     );
 }
