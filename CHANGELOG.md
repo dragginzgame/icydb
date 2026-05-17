@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
+- `0.157.14` accepts explicit `ASC` key ordering in SQL `CREATE INDEX` and
+  `CREATE UNIQUE INDEX` as syntax for IcyDB's default ascending physical key
+  order. `DESC` remains unsupported until there is a runtime storage/planner
+  contract for descending index keys.
+
+  ```
+  CREATE INDEX character_level_class_idx ON Character (level ASC, class_name ASC);
+  CREATE UNIQUE INDEX character_level_class_unique_idx ON Character (level ASC, class_name ASC);
+  ```
+
 - `0.157.13` widens SQL `CREATE INDEX` and `CREATE UNIQUE INDEX` to accept
   multi-field field-path indexes, carrying the composite key through parser
   intent, accepted-catalog binding, rebuild publication, `SHOW INDEXES`, and

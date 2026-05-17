@@ -142,7 +142,10 @@ impl Parser {
                     "SQL DDL expression index keys",
                 ));
             }
-            if self.peek_keyword(Keyword::Asc) || self.peek_keyword(Keyword::Desc) {
+            if self.eat_keyword(Keyword::Asc) {
+                // ASC is the current physical key default; keep it as syntax
+                // sugar rather than a stored DDL contract.
+            } else if self.peek_keyword(Keyword::Desc) {
                 return Err(SqlParseError::unsupported_feature(
                     "SQL DDL CREATE INDEX key ordering modifiers",
                 ));

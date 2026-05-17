@@ -2654,6 +2654,45 @@ fn execute_sql_ddl_publishes_and_drops_supported_multi_field_path_index() {
 }
 
 #[test]
+fn execute_sql_ddl_treats_asc_index_order_as_default_order() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
+
+    let result = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE INDEX session_sql_age_name_asc_idx ON SessionSqlEntity (age ASC, name ASC)",
+        )
+        .expect("DDL execution should publish ASC as the default field-path index order");
+    let SqlStatementResult::Ddl(report) = result else {
+        panic!("DDL execution should return a DDL report");
+    };
+
+    assert_eq!(
+        report.mutation_kind(),
+        SqlDdlMutationKind::AddFieldPathIndex
+    );
+    assert_eq!(report.target_index(), "session_sql_age_name_asc_idx");
+    assert_eq!(report.field_path(), ["age,name".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+
+    let SqlStatementResult::ShowIndexes(indexes) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .expect("SHOW INDEXES FROM should read the accepted published index set")
+    else {
+        panic!("SHOW INDEXES FROM should return an index metadata payload");
+    };
+    assert!(
+        indexes.iter().any(|index| index
+            == "INDEX session_sql_age_name_asc_idx (age, name) [state=ready] [origin=ddl]"),
+        "SHOW INDEXES FROM should expose ASC syntax as the default index order",
+    );
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
 fn execute_sql_ddl_publishes_supported_unique_multi_field_path_index() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);

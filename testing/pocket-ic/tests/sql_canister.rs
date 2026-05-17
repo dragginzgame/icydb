@@ -283,6 +283,47 @@ fn sql_canister_ddl_endpoint_publishes_supported_multi_field_path_index() {
 }
 
 #[test]
+fn sql_canister_ddl_endpoint_treats_asc_index_order_as_default_order() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let ddl = ddl_sql(
+        &fixture,
+        "CREATE INDEX sql_test_user_rank_age_asc_idx ON SqlTestUser (rank ASC, age ASC)",
+    )
+    .expect("CREATE INDEX with explicit ASC should publish through the canister endpoint");
+
+    let SqlQueryResult::Ddl {
+        mutation_kind,
+        target_index,
+        field_path,
+        status,
+        rows_scanned,
+        index_keys_written,
+        ..
+    } = ddl
+    else {
+        panic!("supported ASC CREATE INDEX should return a DDL payload");
+    };
+    assert_eq!(mutation_kind, "add_field_path_index");
+    assert_eq!(target_index, "sql_test_user_rank_age_asc_idx");
+    assert_eq!(field_path, vec!["rank,age".to_string()]);
+    assert_eq!(status, "published");
+    assert_eq!(rows_scanned, 3);
+    assert_eq!(index_keys_written, 3);
+
+    let indexes = expect_show_indexes(
+        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+            .expect("SHOW INDEXES FROM should read accepted indexes after ASC DDL publication"),
+    );
+    assert!(
+        indexes.iter().any(|index| index
+            == "INDEX sql_test_user_rank_age_asc_idx (rank, age) [state=ready] [origin=ddl]"),
+        "SHOW INDEXES FROM should expose explicit ASC as the default index order: {indexes:?}",
+    );
+}
+
+#[test]
 fn sql_canister_ddl_endpoint_publishes_and_drops_supported_unique_field_path_index() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);

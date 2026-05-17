@@ -1862,6 +1862,23 @@ fn parse_create_multi_field_index_statement_keeps_ddl_intent_unresolved() {
 }
 
 #[test]
+fn parse_create_index_treats_asc_as_default_order() {
+    let statement = parse_sql("CREATE INDEX user_age_name_idx ON public.users (age ASC, name ASC)")
+        .expect("CREATE INDEX with explicit ASC field paths should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::CreateIndex(SqlCreateIndexStatement {
+            name: "user_age_name_idx".to_string(),
+            entity: "public.users".to_string(),
+            field_paths: vec!["age".to_string(), "name".to_string()],
+            uniqueness: SqlCreateIndexUniqueness::NonUnique,
+            if_not_exists: false,
+        })),
+    );
+}
+
+#[test]
 fn parse_create_unique_index_statement_keeps_ddl_intent_unresolved() {
     let statement = parse_sql("CREATE UNIQUE INDEX user_age_idx ON public.users (profile.age)")
         .expect("CREATE UNIQUE INDEX statement should parse");
@@ -3677,10 +3694,6 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         ("SHOW ENTITIES users", "SHOW ENTITIES modifiers"),
         (
             "CREATE INDEX user_age_idx ON users (age DESC)",
-            "SQL DDL CREATE INDEX key ordering modifiers",
-        ),
-        (
-            "CREATE INDEX user_age_idx ON users (age ASC)",
             "SQL DDL CREATE INDEX key ordering modifiers",
         ),
     ];
