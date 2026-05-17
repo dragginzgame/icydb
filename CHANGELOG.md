@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
+- `0.157.10` hardens the generated canister boundary for idempotent SQL DDL,
+  adding live PocketIC coverage that `CREATE INDEX IF NOT EXISTS` publishes
+  absent indexes, reports a `no_op` without duplicating accepted indexes when
+  the matching index already exists, and still rejects conflicting definitions.
+  `DROP INDEX IF EXISTS` now has matching live coverage for dropping existing
+  DDL-owned indexes, reporting a `no_op` without changing accepted visibility
+  when the target is absent, and preserving generated/model-owned index drop
+  rejection. It also locks the CLI shell routing/rendering expectations for
+  idempotent DDL update calls and `no_op` DDL payloads.
+
 - `0.157.9` adds conservative idempotent SQL DDL support. `CREATE INDEX IF
   NOT EXISTS` now no-ops only when the accepted catalog already has the exact
   requested non-unique field-path index contract, while conflicting existing

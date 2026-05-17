@@ -295,6 +295,229 @@ fn sql_canister_ddl_endpoint_rejects_generated_index_drop_without_publication() 
 }
 
 #[test]
+fn sql_canister_ddl_endpoint_publishes_create_index_if_not_exists_for_absent_index() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let ddl = ddl_sql(
+        &fixture,
+        "CREATE INDEX IF NOT EXISTS sql_test_user_rank_idx ON SqlTestUser (rank)",
+    )
+    .expect("absent CREATE INDEX IF NOT EXISTS should publish through the canister endpoint");
+    let SqlQueryResult::Ddl {
+        entity,
+        mutation_kind,
+        target_index,
+        field_path,
+        status,
+        rows_scanned,
+        index_keys_written,
+        ..
+    } = ddl
+    else {
+        panic!("absent CREATE INDEX IF NOT EXISTS should return a DDL payload");
+    };
+
+    assert_eq!(entity, "SqlTestUser");
+    assert_eq!(mutation_kind, "add_non_unique_field_path_index");
+    assert_eq!(target_index, "sql_test_user_rank_idx");
+    assert_eq!(field_path, vec!["rank".to_string()]);
+    assert_eq!(status, "published");
+    assert_eq!(rows_scanned, 3);
+    assert_eq!(index_keys_written, 3);
+
+    let indexes = expect_show_indexes(
+        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+            .expect("SHOW INDEXES FROM should read accepted indexes after idempotent CREATE INDEX"),
+    );
+    assert!(
+        indexes
+            .iter()
+            .any(|index| index == "INDEX sql_test_user_rank_idx (rank) [state=ready] [origin=ddl]"),
+        "CREATE INDEX IF NOT EXISTS should expose the published accepted index: {indexes:?}",
+    );
+}
+
+#[test]
+fn sql_canister_ddl_endpoint_noops_create_index_if_not_exists_for_existing_index() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    ddl_sql(
+        &fixture,
+        "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
+    )
+    .expect("setup CREATE INDEX should publish before idempotent CREATE INDEX");
+
+    let ddl = ddl_sql(
+        &fixture,
+        "CREATE INDEX IF NOT EXISTS sql_test_user_rank_idx ON SqlTestUser (rank)",
+    )
+    .expect("matching CREATE INDEX IF NOT EXISTS should no-op through the canister endpoint");
+    let SqlQueryResult::Ddl {
+        entity,
+        mutation_kind,
+        target_index,
+        field_path,
+        status,
+        rows_scanned,
+        index_keys_written,
+        ..
+    } = ddl
+    else {
+        panic!("matching CREATE INDEX IF NOT EXISTS should return a DDL payload");
+    };
+
+    assert_eq!(entity, "SqlTestUser");
+    assert_eq!(mutation_kind, "add_non_unique_field_path_index");
+    assert_eq!(target_index, "sql_test_user_rank_idx");
+    assert_eq!(field_path, vec!["rank".to_string()]);
+    assert_eq!(status, "no_op");
+    assert_eq!(rows_scanned, 0);
+    assert_eq!(index_keys_written, 0);
+
+    let indexes = expect_show_indexes(
+        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+            .expect("SHOW INDEXES FROM should read accepted indexes after no-op CREATE INDEX"),
+    );
+    let rank_index = "INDEX sql_test_user_rank_idx (rank) [state=ready] [origin=ddl]";
+    let occurrences = indexes
+        .iter()
+        .filter(|index| index.as_str() == rank_index)
+        .count();
+    assert_eq!(
+        occurrences, 1,
+        "no-op CREATE INDEX IF NOT EXISTS should not duplicate accepted indexes: {indexes:?}",
+    );
+}
+
+#[test]
+fn sql_canister_ddl_endpoint_rejects_conflicting_create_index_if_not_exists() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    ddl_sql(
+        &fixture,
+        "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
+    )
+    .expect("setup CREATE INDEX should publish before conflicting idempotent CREATE INDEX");
+
+    assert_ddl_rejects_without_index_visibility_change(
+        &fixture,
+        "CREATE INDEX IF NOT EXISTS sql_test_user_rank_idx ON SqlTestUser (age)",
+        "INDEX sql_test_user_rank_idx (age)",
+    );
+}
+
+#[test]
+fn sql_canister_ddl_endpoint_drops_existing_index_with_if_exists() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    ddl_sql(
+        &fixture,
+        "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
+    )
+    .expect("setup CREATE INDEX should publish before idempotent DROP INDEX");
+
+    let ddl = ddl_sql(
+        &fixture,
+        "DROP INDEX IF EXISTS sql_test_user_rank_idx ON SqlTestUser",
+    )
+    .expect("existing DROP INDEX IF EXISTS should publish through the canister endpoint");
+    let SqlQueryResult::Ddl {
+        entity,
+        mutation_kind,
+        target_index,
+        field_path,
+        status,
+        rows_scanned,
+        index_keys_written,
+        ..
+    } = ddl
+    else {
+        panic!("existing DROP INDEX IF EXISTS should return a DDL payload");
+    };
+
+    assert_eq!(entity, "SqlTestUser");
+    assert_eq!(mutation_kind, "drop_non_unique_secondary_index");
+    assert_eq!(target_index, "sql_test_user_rank_idx");
+    assert_eq!(field_path, vec!["rank".to_string()]);
+    assert_eq!(status, "published");
+    assert_eq!(rows_scanned, 0);
+    assert_eq!(index_keys_written, 0);
+
+    let indexes = expect_show_indexes(
+        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+            .expect("SHOW INDEXES FROM should read accepted indexes after idempotent DROP INDEX"),
+    );
+    assert!(
+        indexes
+            .iter()
+            .all(|index| !index.contains("sql_test_user_rank_idx")),
+        "DROP INDEX IF EXISTS should hide the dropped DDL index: {indexes:?}",
+    );
+}
+
+#[test]
+fn sql_canister_ddl_endpoint_noops_drop_index_if_exists_for_missing_index() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let before = expect_show_indexes(
+        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+            .expect("SHOW INDEXES FROM should read accepted indexes before no-op DROP INDEX"),
+    );
+    let ddl = ddl_sql(
+        &fixture,
+        "DROP INDEX IF EXISTS sql_test_user_missing_idx ON SqlTestUser",
+    )
+    .expect("missing DROP INDEX IF EXISTS should no-op through the canister endpoint");
+    let SqlQueryResult::Ddl {
+        entity,
+        mutation_kind,
+        target_index,
+        field_path,
+        status,
+        rows_scanned,
+        index_keys_written,
+        ..
+    } = ddl
+    else {
+        panic!("missing DROP INDEX IF EXISTS should return a DDL payload");
+    };
+
+    assert_eq!(entity, "SqlTestUser");
+    assert_eq!(mutation_kind, "drop_non_unique_secondary_index");
+    assert_eq!(target_index, "sql_test_user_missing_idx");
+    assert!(field_path.is_empty());
+    assert_eq!(status, "no_op");
+    assert_eq!(rows_scanned, 0);
+    assert_eq!(index_keys_written, 0);
+
+    let after = expect_show_indexes(
+        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+            .expect("SHOW INDEXES FROM should read accepted indexes after no-op DROP INDEX"),
+    );
+    assert_eq!(
+        after, before,
+        "no-op DROP INDEX IF EXISTS should leave accepted index visibility unchanged",
+    );
+}
+
+#[test]
+fn sql_canister_ddl_endpoint_rejects_generated_index_drop_with_if_exists() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    assert_ddl_rejects_with_index_visibility_unchanged(
+        &fixture,
+        "DROP INDEX IF EXISTS idx_sql_test_user__name ON SqlTestUser",
+        "generated by the entity model",
+    );
+}
+
+#[test]
 fn sql_canister_ddl_publication_updates_describe_explain_and_reads() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);

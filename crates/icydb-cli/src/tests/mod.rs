@@ -1119,11 +1119,19 @@ fn sql_shell_call_kind_routes_supported_ddl_to_update_method() {
         SqlShellCallKind::Ddl,
     );
     assert_eq!(
+        sql_shell_call_kind("CREATE INDEX IF NOT EXISTS name_idx ON Character (name);"),
+        SqlShellCallKind::Ddl,
+    );
+    assert_eq!(
         sql_shell_call_kind("DROP INDEX name_idx ON Character;"),
         SqlShellCallKind::Ddl,
     );
     assert_eq!(
         sql_shell_call_kind("  drop   index name_idx ON Character  ; "),
+        SqlShellCallKind::Ddl,
+    );
+    assert_eq!(
+        sql_shell_call_kind("DROP INDEX IF EXISTS name_idx ON Character;"),
         SqlShellCallKind::Ddl,
     );
     assert_eq!(
@@ -1160,6 +1168,33 @@ fn ddl_response_rendering_includes_execution_metrics() {
         decoded.render_text(),
         "surface=ddl entity=Character mutation_kind=add_non_unique_field_path_index target_index=character_level_idx target_store=demo::CharacterStore field_path=level status=published rows_scanned=7 index_keys_written=7",
         "CLI DDL response rendering should surface rebuild metrics from the decoded canister payload",
+    );
+}
+
+#[test]
+fn ddl_no_op_response_rendering_includes_zero_execution_metrics() {
+    let response: Result<SqlQueryResult, icydb::Error> = Ok(SqlQueryResult::Ddl {
+        entity: "Character".to_string(),
+        mutation_kind: "drop_non_unique_secondary_index".to_string(),
+        target_index: "character_missing_idx".to_string(),
+        target_store: String::new(),
+        field_path: Vec::new(),
+        status: "no_op".to_string(),
+        rows_scanned: 0,
+        index_keys_written: 0,
+    });
+    let candid_bytes = Encode!(&response).expect("no-op DDL response should encode");
+    let decoded = Decode!(
+        candid_bytes.as_slice(),
+        Result<SqlQueryResult, icydb::Error>
+    )
+    .expect("no-op DDL response should decode")
+    .expect("no-op DDL response should succeed");
+
+    assert_eq!(
+        decoded.render_text(),
+        "surface=ddl entity=Character mutation_kind=drop_non_unique_secondary_index target_index=character_missing_idx target_store= field_path= status=no_op rows_scanned=0 index_keys_written=0",
+        "CLI DDL response rendering should keep no-op status and zero work metrics visible",
     );
 }
 
