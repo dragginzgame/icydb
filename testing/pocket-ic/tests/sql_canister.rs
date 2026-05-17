@@ -220,7 +220,7 @@ fn sql_canister_ddl_endpoint_publishes_supported_field_path_index() {
         panic!("supported CREATE INDEX should return a DDL payload");
     };
     assert_eq!(entity, "SqlTestUser");
-    assert_eq!(mutation_kind, "add_non_unique_field_path_index");
+    assert_eq!(mutation_kind, "add_field_path_index");
     assert_eq!(target_index, "sql_test_user_rank_idx");
     assert_eq!(field_path, vec!["rank".to_string()]);
     assert_eq!(status, "published");
@@ -236,6 +236,79 @@ fn sql_canister_ddl_endpoint_publishes_supported_field_path_index() {
             .iter()
             .any(|index| index == "INDEX sql_test_user_rank_idx (rank) [state=ready] [origin=ddl]"),
         "SHOW INDEXES FROM should expose the DDL-published accepted index: {indexes:?}",
+    );
+}
+
+#[test]
+fn sql_canister_ddl_endpoint_publishes_and_drops_supported_unique_field_path_index() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let ddl = ddl_sql(
+        &fixture,
+        "CREATE UNIQUE INDEX sql_test_user_unique_rank_idx ON SqlTestUser (rank)",
+    )
+    .expect("supported CREATE UNIQUE INDEX DDL should publish through the canister endpoint");
+    let SqlQueryResult::Ddl {
+        entity,
+        mutation_kind,
+        target_index,
+        field_path,
+        status,
+        rows_scanned,
+        index_keys_written,
+        ..
+    } = ddl
+    else {
+        panic!("supported CREATE UNIQUE INDEX should return a DDL payload");
+    };
+    assert_eq!(entity, "SqlTestUser");
+    assert_eq!(mutation_kind, "add_field_path_index");
+    assert_eq!(target_index, "sql_test_user_unique_rank_idx");
+    assert_eq!(field_path, vec!["rank".to_string()]);
+    assert_eq!(status, "published");
+    assert_eq!(rows_scanned, 3);
+    assert_eq!(index_keys_written, 3);
+
+    let indexes = expect_show_indexes(
+        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+            .expect("SHOW INDEXES FROM should read accepted indexes after unique DDL publication"),
+    );
+    assert!(
+        indexes.iter().any(|index| index
+            == "UNIQUE INDEX sql_test_user_unique_rank_idx (rank) [state=ready] [origin=ddl]"),
+        "SHOW INDEXES FROM should expose the DDL-published unique index: {indexes:?}",
+    );
+
+    let ddl = ddl_sql(
+        &fixture,
+        "DROP INDEX sql_test_user_unique_rank_idx ON SqlTestUser",
+    )
+    .expect("supported DROP INDEX should remove a DDL-published unique field-path index");
+    let SqlQueryResult::Ddl {
+        mutation_kind,
+        target_index,
+        field_path,
+        status,
+        ..
+    } = ddl
+    else {
+        panic!("supported DROP INDEX should return a DDL payload");
+    };
+    assert_eq!(mutation_kind, "drop_secondary_index");
+    assert_eq!(target_index, "sql_test_user_unique_rank_idx");
+    assert_eq!(field_path, vec!["rank".to_string()]);
+    assert_eq!(status, "published");
+
+    let indexes = expect_show_indexes(
+        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+            .expect("SHOW INDEXES FROM should read accepted indexes after unique DROP INDEX"),
+    );
+    assert!(
+        indexes
+            .iter()
+            .all(|index| !index.contains("sql_test_user_unique_rank_idx")),
+        "SHOW INDEXES FROM should hide the dropped DDL unique index: {indexes:?}",
     );
 }
 
@@ -265,7 +338,7 @@ fn sql_canister_ddl_endpoint_drops_supported_ddl_field_path_index() {
     };
 
     assert_eq!(entity, "SqlTestUser");
-    assert_eq!(mutation_kind, "drop_non_unique_secondary_index");
+    assert_eq!(mutation_kind, "drop_secondary_index");
     assert_eq!(target_index, "sql_test_user_rank_idx");
     assert_eq!(field_path, vec!["rank".to_string()]);
     assert_eq!(status, "published");
@@ -319,7 +392,7 @@ fn sql_canister_ddl_endpoint_publishes_create_index_if_not_exists_for_absent_ind
     };
 
     assert_eq!(entity, "SqlTestUser");
-    assert_eq!(mutation_kind, "add_non_unique_field_path_index");
+    assert_eq!(mutation_kind, "add_field_path_index");
     assert_eq!(target_index, "sql_test_user_rank_idx");
     assert_eq!(field_path, vec!["rank".to_string()]);
     assert_eq!(status, "published");
@@ -369,7 +442,7 @@ fn sql_canister_ddl_endpoint_noops_create_index_if_not_exists_for_existing_index
     };
 
     assert_eq!(entity, "SqlTestUser");
-    assert_eq!(mutation_kind, "add_non_unique_field_path_index");
+    assert_eq!(mutation_kind, "add_field_path_index");
     assert_eq!(target_index, "sql_test_user_rank_idx");
     assert_eq!(field_path, vec!["rank".to_string()]);
     assert_eq!(status, "no_op");
@@ -440,7 +513,7 @@ fn sql_canister_ddl_endpoint_drops_existing_index_with_if_exists() {
     };
 
     assert_eq!(entity, "SqlTestUser");
-    assert_eq!(mutation_kind, "drop_non_unique_secondary_index");
+    assert_eq!(mutation_kind, "drop_secondary_index");
     assert_eq!(target_index, "sql_test_user_rank_idx");
     assert_eq!(field_path, vec!["rank".to_string()]);
     assert_eq!(status, "published");
@@ -488,7 +561,7 @@ fn sql_canister_ddl_endpoint_noops_drop_index_if_exists_for_missing_index() {
     };
 
     assert_eq!(entity, "SqlTestUser");
-    assert_eq!(mutation_kind, "drop_non_unique_secondary_index");
+    assert_eq!(mutation_kind, "drop_secondary_index");
     assert_eq!(target_index, "sql_test_user_missing_idx");
     assert!(field_path.is_empty());
     assert_eq!(status, "no_op");
@@ -654,10 +727,6 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_create_index_shapes_without_pub
 
     for (sql, forbidden_visibility_fragment) in [
         (
-            "CREATE UNIQUE INDEX sql_test_user_unique_rank_idx ON SqlTestUser (rank)",
-            "sql_test_user_unique_rank_idx",
-        ),
-        (
             "CREATE INDEX sql_test_user_rank_age_idx ON SqlTestUser (rank, age)",
             "sql_test_user_rank_age_idx",
         ),
@@ -676,18 +745,6 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_create_index_shapes_without_pub
             forbidden_visibility_fragment,
         );
     }
-}
-
-#[test]
-fn sql_canister_ddl_endpoint_reports_unique_index_as_unsupported_ddl_shape() {
-    let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
-
-    assert_ddl_rejects_with_index_visibility_unchanged(
-        &fixture,
-        "CREATE UNIQUE INDEX sql_test_user_unique_rank_idx ON SqlTestUser (rank)",
-        "SQL DDL CREATE UNIQUE INDEX",
-    );
 }
 
 #[test]

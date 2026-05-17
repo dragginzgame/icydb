@@ -70,9 +70,9 @@ pub(in crate::db) fn execute_sql_ddl_field_path_index_addition(
             )));
         }
     };
-    if plan.kind() != SchemaTransitionPlanKind::AddNonUniqueFieldPathIndex {
+    if plan.kind() != SchemaTransitionPlanKind::AddFieldPathIndex {
         return Err(InternalError::store_unsupported(format!(
-            "SQL DDL execution supports only add_non_unique_field_path_index for entity '{entity_path}': actual={:?}",
+            "SQL DDL execution supports only add_field_path_index for entity '{entity_path}': actual={:?}",
             plan.kind(),
         )));
     }
@@ -310,8 +310,9 @@ pub(in crate::db) fn ensure_accepted_schema_snapshot(
             return Err(error);
         }
         let accepted_snapshot = match plan.kind() {
-            SchemaTransitionPlanKind::AddNonUniqueFieldPathIndex
-            | SchemaTransitionPlanKind::ExactMatch => actual,
+            SchemaTransitionPlanKind::AddFieldPathIndex | SchemaTransitionPlanKind::ExactMatch => {
+                actual
+            }
             SchemaTransitionPlanKind::AppendOnlyNullableFields => {
                 if let Err(error) = schema_store.insert_persisted_snapshot(entity_tag, &expected) {
                     record_schema_store_footprint(schema_store, entity_tag, entity_path);
@@ -410,7 +411,7 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
                 })?;
                 merged
             }
-            SchemaTransitionPlanKind::AddNonUniqueFieldPathIndex => {
+            SchemaTransitionPlanKind::AddFieldPathIndex => {
                 execute_supported_field_path_index_addition(
                     store,
                     entity_tag,
@@ -527,7 +528,7 @@ fn supported_physical_work_unavailable_error(
 ) -> InternalError {
     match plan.supported_developer_physical_path() {
         Ok(path) => InternalError::store_unsupported(format!(
-            "supported schema mutation physical work is preflight-ready but startup execution is unavailable for entity '{entity_path}': mutation=add_non_unique_field_path_index target='{}' store='{}' steps={step_count} capabilities={required:?}",
+            "supported schema mutation physical work is preflight-ready but startup execution is unavailable for entity '{entity_path}': mutation=add_field_path_index target='{}' store='{}' steps={step_count} capabilities={required:?}",
             path.target().name(),
             path.target().store(),
         )),
@@ -544,7 +545,7 @@ fn missing_physical_runner_error(
 ) -> InternalError {
     match plan.supported_developer_physical_path() {
         Ok(path) => InternalError::store_unsupported(format!(
-            "supported schema mutation requires startup runner execution before publication for entity '{entity_path}': mutation=add_non_unique_field_path_index target='{}' store='{}' missing_capabilities={missing:?}",
+            "supported schema mutation requires startup runner execution before publication for entity '{entity_path}': mutation=add_field_path_index target='{}' store='{}' missing_capabilities={missing:?}",
             path.target().name(),
             path.target().store(),
         )),
@@ -625,7 +626,7 @@ const fn schema_transition_plan_outcome(kind: SchemaTransitionPlanKind) -> Schem
         SchemaTransitionPlanKind::AppendOnlyNullableFields => {
             SchemaTransitionOutcome::AppendOnlyNullableFields
         }
-        SchemaTransitionPlanKind::AddNonUniqueFieldPathIndex
+        SchemaTransitionPlanKind::AddFieldPathIndex
         | SchemaTransitionPlanKind::ExactMatch
         | SchemaTransitionPlanKind::MetadataOnlyIndexRename => SchemaTransitionOutcome::ExactMatch,
     }

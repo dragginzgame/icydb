@@ -138,10 +138,9 @@ fn field_path_runner_rejects_target_mismatch_before_physical_work() {
         PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
         Some("name IS NOT NULL".to_string()),
     );
-    let request =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&mismatched_index)
-            .expect("mismatched field-path index should lower to a rebuild target");
-    let SchemaMutationRequest::AddNonUniqueFieldPathIndex {
+    let request = SchemaMutationRequest::from_accepted_field_path_index(&mismatched_index)
+        .expect("mismatched field-path index should lower to a rebuild target");
+    let SchemaMutationRequest::AddFieldPathIndex {
         target: mismatched_target,
     } = request
     else {
@@ -302,7 +301,7 @@ fn assert_field_path_success_developer_report(report: &super::SchemaFieldPathInd
     );
     assert_eq!(
         developer_report.mutation_kind(),
-        super::SchemaMutationDeveloperKind::AddNonUniqueFieldPathIndex,
+        super::SchemaMutationDeveloperKind::AddFieldPathIndex,
     );
     assert_eq!(developer_report.entity_path(), "test::MutationEntity");
     assert_eq!(developer_report.target_index(), "by_name");

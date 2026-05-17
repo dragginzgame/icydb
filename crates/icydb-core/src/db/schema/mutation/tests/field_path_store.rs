@@ -2,14 +2,12 @@ use super::*;
 
 #[test]
 fn field_path_rebuild_writer_reports_staged_write_intents_without_physical_mutation() {
-    let plan =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower")
-            .lower_to_plan();
-    let request =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower to a rebuild target");
-    let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } = request else {
+    let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower")
+        .lower_to_plan();
+    let request = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower to a rebuild target");
+    let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
         panic!("field-path index request should preserve rebuild target");
     };
     let first = RebuildSlotReader {
@@ -55,14 +53,12 @@ fn field_path_rebuild_writer_reports_staged_write_intents_without_physical_mutat
 
 #[test]
 fn field_path_rebuild_write_batch_snapshots_physical_rollback_without_publication() {
-    let plan =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower")
-            .lower_to_plan();
-    let request =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower to a rebuild target");
-    let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } = request else {
+    let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower")
+        .lower_to_plan();
+    let request = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower to a rebuild target");
+    let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
         panic!("field-path index request should preserve rebuild target");
     };
     let first = RebuildSlotReader {
@@ -133,14 +129,12 @@ fn field_path_rebuild_write_batch_snapshots_physical_rollback_without_publicatio
 
 #[test]
 fn field_path_rebuild_write_batch_derives_reverse_rollback_plan() {
-    let plan =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower")
-            .lower_to_plan();
-    let request =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower to a rebuild target");
-    let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } = request else {
+    let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower")
+        .lower_to_plan();
+    let request = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower to a rebuild target");
+    let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
         panic!("field-path index request should preserve rebuild target");
     };
     let first = RebuildSlotReader {
@@ -199,14 +193,12 @@ fn field_path_rebuild_write_batch_derives_reverse_rollback_plan() {
 
 #[test]
 fn field_path_rebuild_rollback_plan_reports_mocked_restore_and_remove_actions() {
-    let plan =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower")
-            .lower_to_plan();
-    let request =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower to a rebuild target");
-    let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } = request else {
+    let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower")
+        .lower_to_plan();
+    let request = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower to a rebuild target");
+    let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
         panic!("field-path index request should preserve rebuild target");
     };
     let first = RebuildSlotReader {
@@ -476,10 +468,9 @@ fn field_path_rebuild_runtime_invalidation_records_epoch_handoff_without_publica
         .expect("isolated IndexStore should validate before invalidation");
     let before = base_snapshot();
     let after = snapshot_with_indexes(&before, vec![non_unique_name_index()]);
-    let plan =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower")
-            .lower_to_plan();
+    let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower")
+        .lower_to_plan();
     let input = super::SchemaMutationRunnerInput::new(&before, &after, plan.execution_plan())
         .expect("same-entity accepted snapshots should build runner input");
 

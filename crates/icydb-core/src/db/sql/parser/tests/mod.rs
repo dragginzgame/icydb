@@ -1845,9 +1845,25 @@ fn parse_create_index_statement_keeps_ddl_intent_unresolved() {
 }
 
 #[test]
+fn parse_create_unique_index_statement_keeps_ddl_intent_unresolved() {
+    let statement = parse_sql("CREATE UNIQUE INDEX user_age_idx ON public.users (profile.age)")
+        .expect("CREATE UNIQUE INDEX statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::CreateIndex(SqlCreateIndexStatement {
+            name: "user_age_idx".to_string(),
+            entity: "public.users".to_string(),
+            field_path: "profile.age".to_string(),
+            uniqueness: SqlCreateIndexUniqueness::Unique,
+            if_not_exists: false,
+        })),
+    );
+}
+
+#[test]
 fn parse_create_index_rejects_unsupported_ddl_shapes() {
     for sql in [
-        "CREATE UNIQUE INDEX user_age_idx ON users (age)",
         "CREATE INDEX user_age_idx ON users (age, name)",
         "CREATE INDEX user_lower_name_idx ON users (LOWER(name))",
         "CREATE INDEX user_age_idx ON users (age) WHERE active = true",
@@ -3643,10 +3659,6 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         ),
         ("SHOW COLUMNS users WHERE age > 1", "SHOW COLUMNS modifiers"),
         ("SHOW ENTITIES users", "SHOW ENTITIES modifiers"),
-        (
-            "CREATE UNIQUE INDEX user_age_idx ON users (age)",
-            "SQL DDL CREATE UNIQUE INDEX",
-        ),
         (
             "CREATE INDEX user_age_idx ON users (age DESC)",
             "SQL DDL CREATE INDEX key ordering modifiers",

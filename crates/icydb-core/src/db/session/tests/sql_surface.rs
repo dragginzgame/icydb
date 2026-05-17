@@ -2052,7 +2052,7 @@ fn execute_sql_query_admits_supported_single_entity_read_shapes() {
 }
 
 #[test]
-fn sql_ddl_create_index_is_parsed_but_not_executable_in_current_slice() {
+fn sql_ddl_create_index_is_rejected_by_query_and_update_surfaces() {
     reset_session_sql_store();
     let session = sql_session();
     let sql = "CREATE INDEX session_sql_name_idx ON SessionSqlEntity (name)";
@@ -2102,6 +2102,33 @@ fn sql_ddl_create_index_binds_against_accepted_catalog() {
     assert!(
         !create.candidate_index().generated(),
         "SQL DDL-created indexes should carry DDL origin in accepted metadata",
+    );
+}
+
+#[test]
+fn sql_ddl_create_unique_index_binds_against_accepted_catalog() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let statement =
+        parse_sql("CREATE UNIQUE INDEX session_sql_name_idx ON SessionSqlEntity (name)")
+            .expect("CREATE UNIQUE INDEX should parse before binding");
+
+    let bound =
+        bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("CREATE UNIQUE INDEX should bind against accepted schema metadata");
+    let BoundSqlDdlStatement::CreateIndex(create) = bound.statement() else {
+        panic!("CREATE UNIQUE INDEX should bind to a create-index DDL request");
+    };
+
+    assert_eq!(create.index_name(), "session_sql_name_idx");
+    assert_eq!(create.entity_name(), "SessionSqlEntity");
+    assert_eq!(create.field_path().accepted_path(), ["name".to_string()]);
+    assert_eq!(create.candidate_index().name(), "session_sql_name_idx");
+    assert_eq!(create.candidate_index().store(), SessionSqlStore::PATH);
+    assert!(create.candidate_index().unique());
+    assert!(
+        !create.candidate_index().generated(),
+        "SQL DDL-created unique indexes should carry DDL origin in accepted metadata",
     );
 }
 
@@ -2200,10 +2227,7 @@ fn sql_ddl_create_index_if_not_exists_binds_exact_existing_index_as_no_op() {
         panic!("matching CREATE INDEX IF NOT EXISTS should not request physical work");
     };
 
-    assert_eq!(
-        no_op.mutation_kind(),
-        SqlDdlMutationKind::AddNonUniqueFieldPathIndex,
-    );
+    assert_eq!(no_op.mutation_kind(), SqlDdlMutationKind::AddFieldPathIndex,);
     assert_eq!(no_op.index_name(), "name");
     assert_eq!(no_op.entity_name(), "IndexedSessionSqlEntity");
     assert_eq!(no_op.field_path(), ["name".to_string()]);
@@ -2267,7 +2291,7 @@ fn sql_ddl_drop_index_if_exists_binds_missing_index_as_no_op() {
 
     assert_eq!(
         no_op.mutation_kind(),
-        SqlDdlMutationKind::DropNonUniqueSecondaryIndex,
+        SqlDdlMutationKind::DropSecondaryIndex,
     );
     assert_eq!(no_op.index_name(), "missing_idx");
     assert_eq!(no_op.entity_name(), "SessionSqlEntity");
@@ -2385,7 +2409,7 @@ fn sql_ddl_create_index_preparation_reports_non_executed_command() {
     assert_eq!(create.index_name(), "session_sql_age_idx");
     assert_eq!(
         prepared.report().mutation_kind(),
-        SqlDdlMutationKind::AddNonUniqueFieldPathIndex,
+        SqlDdlMutationKind::AddFieldPathIndex,
     );
     assert_eq!(prepared.report().target_index(), "session_sql_age_idx");
     assert_eq!(prepared.report().target_store(), SessionSqlStore::PATH);
@@ -2418,7 +2442,7 @@ fn prepare_sql_ddl_reports_supported_create_index_without_execution() {
 
     assert_eq!(
         report.mutation_kind(),
-        SqlDdlMutationKind::AddNonUniqueFieldPathIndex,
+        SqlDdlMutationKind::AddFieldPathIndex,
     );
     assert_eq!(report.target_index(), "session_sql_age_idx");
     assert_eq!(report.field_path(), ["age".to_string()]);
@@ -2456,7 +2480,7 @@ fn execute_sql_ddl_publishes_supported_field_path_index() {
 
     assert_eq!(
         report.mutation_kind(),
-        SqlDdlMutationKind::AddNonUniqueFieldPathIndex,
+        SqlDdlMutationKind::AddFieldPathIndex,
     );
     assert_eq!(report.target_index(), "session_sql_age_idx");
     assert_eq!(report.field_path(), ["age".to_string()]);
@@ -2496,6 +2520,74 @@ fn execute_sql_ddl_publishes_supported_field_path_index() {
 }
 
 #[test]
+fn execute_sql_ddl_publishes_supported_unique_field_path_index() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
+
+    let result = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE UNIQUE INDEX session_sql_name_unique_idx ON SessionSqlEntity (name)",
+        )
+        .expect("DDL execution should publish the supported unique field-path index");
+    let SqlStatementResult::Ddl(report) = result else {
+        panic!("DDL execution should return a DDL report");
+    };
+
+    assert_eq!(
+        report.mutation_kind(),
+        SqlDdlMutationKind::AddFieldPathIndex
+    );
+    assert_eq!(report.target_index(), "session_sql_name_unique_idx");
+    assert_eq!(report.field_path(), ["name".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+
+    let SqlStatementResult::ShowIndexes(indexes) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .expect("SHOW INDEXES FROM should read the accepted published index set")
+    else {
+        panic!("SHOW INDEXES FROM should return an index metadata payload");
+    };
+    assert!(
+        indexes.iter().any(|index| index
+            == "UNIQUE INDEX session_sql_name_unique_idx (name) [state=ready] [origin=ddl]"),
+        "SHOW INDEXES FROM should expose the DDL-created unique index",
+    );
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
+fn execute_sql_ddl_rejects_duplicate_unique_field_path_values_without_publication() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 21), ("cyd", 55)]);
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE UNIQUE INDEX session_sql_age_unique_idx ON SessionSqlEntity (age)",
+        )
+        .expect_err("duplicate values should reject unique field-path index publication");
+
+    let SqlStatementResult::ShowIndexes(indexes) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .expect("SHOW INDEXES FROM should remain readable after rejected DDL")
+    else {
+        panic!("SHOW INDEXES FROM should return an index metadata payload");
+    };
+    assert!(
+        indexes
+            .iter()
+            .all(|index| !index.contains("session_sql_age_unique_idx")),
+        "rejected unique DDL should not publish accepted index metadata",
+    );
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
 fn execute_sql_ddl_create_index_if_not_exists_reports_no_op_for_existing_index() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
@@ -2518,7 +2610,7 @@ fn execute_sql_ddl_create_index_if_not_exists_reports_no_op_for_existing_index()
 
     assert_eq!(
         report.mutation_kind(),
-        SqlDdlMutationKind::AddNonUniqueFieldPathIndex,
+        SqlDdlMutationKind::AddFieldPathIndex,
     );
     assert_eq!(report.target_index(), "session_sql_age_idx");
     assert_eq!(report.field_path(), ["age".to_string()]);
@@ -2567,7 +2659,7 @@ fn execute_sql_ddl_drops_supported_ddl_published_index() {
 
     assert_eq!(
         report.mutation_kind(),
-        SqlDdlMutationKind::DropNonUniqueSecondaryIndex,
+        SqlDdlMutationKind::DropSecondaryIndex,
     );
     assert_eq!(report.target_index(), "session_sql_age_idx");
     assert_eq!(report.field_path(), ["age".to_string()]);
@@ -2588,6 +2680,50 @@ fn execute_sql_ddl_drops_supported_ddl_published_index() {
 }
 
 #[test]
+fn execute_sql_ddl_drops_supported_unique_ddl_published_index() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE UNIQUE INDEX session_sql_name_unique_idx ON SessionSqlEntity (name)",
+        )
+        .expect("DDL execution should publish the unique field-path index before dropping it");
+    let result = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "DROP INDEX session_sql_name_unique_idx ON SessionSqlEntity",
+        )
+        .expect("DDL execution should drop a DDL-published unique field-path index");
+    let SqlStatementResult::Ddl(report) = result else {
+        panic!("DROP INDEX should return a DDL report");
+    };
+
+    assert_eq!(
+        report.mutation_kind(),
+        SqlDdlMutationKind::DropSecondaryIndex
+    );
+    assert_eq!(report.target_index(), "session_sql_name_unique_idx");
+    assert_eq!(report.field_path(), ["name".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    let SqlStatementResult::ShowIndexes(indexes) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .expect("SHOW INDEXES FROM should remain readable after unique index drop")
+    else {
+        panic!("SHOW INDEXES FROM should return an index metadata payload");
+    };
+    assert!(
+        indexes
+            .iter()
+            .all(|index| !index.contains("session_sql_name_unique_idx")),
+        "DROP INDEX should remove DDL-created unique index metadata",
+    );
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
 fn execute_sql_ddl_drop_index_if_exists_reports_no_op_for_missing_index() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
@@ -2602,7 +2738,7 @@ fn execute_sql_ddl_drop_index_if_exists_reports_no_op_for_missing_index() {
 
     assert_eq!(
         report.mutation_kind(),
-        SqlDdlMutationKind::DropNonUniqueSecondaryIndex,
+        SqlDdlMutationKind::DropSecondaryIndex,
     );
     assert_eq!(report.target_index(), "missing_idx");
     assert!(report.field_path().is_empty());

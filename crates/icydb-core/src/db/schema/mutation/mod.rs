@@ -58,7 +58,7 @@ pub(in crate::db::schema) enum SchemaMutation {
         name: String,
         slot: SchemaFieldSlot,
     },
-    AddNonUniqueFieldPathIndex {
+    AddFieldPathIndex {
         target: SchemaFieldPathIndexRebuildTarget,
     },
     AddExpressionIndex {
@@ -88,7 +88,7 @@ pub(in crate::db::schema) enum SchemaMutation {
 pub(in crate::db::schema) enum SchemaMutationRequest<'a> {
     ExactMatch,
     AppendOnlyFields(&'a [PersistedFieldSnapshot]),
-    AddNonUniqueFieldPathIndex {
+    AddFieldPathIndex {
         target: SchemaFieldPathIndexRebuildTarget,
     },
     AddExpressionIndex {
@@ -1080,10 +1080,6 @@ impl SchemaMutationExecutionPlan {
             };
         };
 
-        if target.unique() {
-            return Err(SchemaMutationSupportedPathRejection::UniqueIndexUnsupported);
-        }
-
         if target.key_paths().is_empty() {
             return Err(SchemaMutationSupportedPathRejection::EmptyFieldPathKey);
         }
@@ -1130,7 +1126,7 @@ pub(in crate::db::schema) enum MutationPublicationStatus {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationDelta<'a> {
     AppendOnlyFields(&'a [PersistedFieldSnapshot]),
-    AddNonUniqueFieldPathIndex(&'a PersistedIndexSnapshot),
+    AddFieldPathIndex(&'a PersistedIndexSnapshot),
     ExactMatch,
     Incompatible,
 }
@@ -1151,9 +1147,9 @@ pub(in crate::db::schema) fn classify_schema_mutation_delta<'a>(
     }
 
     if let Some(index) = single_added_index(actual, expected)
-        && SchemaMutationRequest::from_accepted_non_unique_field_path_index(index).is_ok()
+        && SchemaMutationRequest::from_accepted_field_path_index(index).is_ok()
     {
-        return SchemaMutationDelta::AddNonUniqueFieldPathIndex(index);
+        return SchemaMutationDelta::AddFieldPathIndex(index);
     }
 
     SchemaMutationDelta::Incompatible
@@ -1223,12 +1219,12 @@ impl MutationPlan {
         }
     }
 
-    /// Stage a non-unique field-path index addition from accepted index
-    /// metadata. This is a planning artifact only until rebuild orchestration
-    /// can construct the physical index safely.
-    fn non_unique_field_path_index_addition(target: SchemaFieldPathIndexRebuildTarget) -> Self {
+    /// Stage a field-path index addition from accepted index metadata. This is
+    /// a planning artifact only until rebuild orchestration can construct and
+    /// validate the physical index safely.
+    fn field_path_index_addition(target: SchemaFieldPathIndexRebuildTarget) -> Self {
         Self {
-            mutations: vec![SchemaMutation::AddNonUniqueFieldPathIndex { target }],
+            mutations: vec![SchemaMutation::AddFieldPathIndex { target }],
             compatibility: MutationCompatibility::RequiresRebuild,
             rebuild: RebuildRequirement::IndexRebuildRequired,
         }
@@ -1373,7 +1369,7 @@ impl MutationPlan {
             match mutation {
                 SchemaMutation::AddNullableField { .. }
                 | SchemaMutation::AddDefaultedField { .. } => {}
-                SchemaMutation::AddNonUniqueFieldPathIndex { target } => {
+                SchemaMutation::AddFieldPathIndex { target } => {
                     actions.push(SchemaRebuildAction::BuildFieldPathIndex {
                         target: target.clone(),
                     });
@@ -1426,10 +1422,10 @@ impl MutationPlan {
         SchemaMutationExecutionPlan::from_rebuild_plan(self.rebuild_plan())
     }
 
-    /// Admit the only 0.154 developer-supported physical mutation shape:
-    /// exactly one non-unique field-path secondary index addition. This
-    /// plan-level guard prevents mixed catalog changes from slipping through a
-    /// valid-looking execution step sequence.
+    /// Admit the developer-supported physical mutation shape: exactly one
+    /// field-path secondary index addition. This plan-level guard prevents
+    /// mixed catalog changes from slipping through a valid-looking execution
+    /// step sequence.
     #[allow(
         dead_code,
         reason = "0.154 starts supported-path admission before reconciliation consumes it"
@@ -1437,8 +1433,7 @@ impl MutationPlan {
     pub(in crate::db::schema) fn supported_developer_physical_path(
         &self,
     ) -> Result<SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection> {
-        let [SchemaMutation::AddNonUniqueFieldPathIndex { target }] = self.mutations.as_slice()
-        else {
+        let [SchemaMutation::AddFieldPathIndex { target }] = self.mutations.as_slice() else {
             return match self.rebuild {
                 RebuildRequirement::NoRebuildRequired => {
                     Err(SchemaMutationSupportedPathRejection::NoPhysicalWork)
@@ -1502,20 +1497,15 @@ impl MutationPlan {
 }
 
 impl SchemaMutationRequest<'_> {
-    /// Lower one accepted non-unique field-path index snapshot into a mutation
-    /// request. Unique and expression/mixed indexes fail closed until their
-    /// rebuild validators exist.
+    /// Lower one accepted field-path index snapshot into a mutation request.
+    /// Expression/mixed indexes stay on their dedicated lowering path.
     #[allow(
         dead_code,
         reason = "0.152 stages accepted index mutation lowering before DDL/rebuild callers use it"
     )]
-    pub(in crate::db::schema) fn from_accepted_non_unique_field_path_index(
+    pub(in crate::db::schema) fn from_accepted_field_path_index(
         index: &PersistedIndexSnapshot,
     ) -> Result<Self, AcceptedSchemaMutationError> {
-        if index.unique() {
-            return Err(AcceptedSchemaMutationError::UniqueIndexRequiresDedicatedValidation);
-        }
-
         let PersistedIndexKeySnapshot::FieldPath(paths) = index.key() else {
             return Err(AcceptedSchemaMutationError::UnsupportedIndexKeyShape);
         };
@@ -1526,7 +1516,7 @@ impl SchemaMutationRequest<'_> {
 
         let key_paths = paths.iter().map(field_path_rebuild_key).collect();
 
-        Ok(Self::AddNonUniqueFieldPathIndex {
+        Ok(Self::AddFieldPathIndex {
             target: SchemaFieldPathIndexRebuildTarget {
                 ordinal: index.ordinal(),
                 name: index.name().to_string(),
@@ -1598,21 +1588,15 @@ impl SchemaMutationRequest<'_> {
         })
     }
 
-    /// Lower one accepted non-unique secondary index snapshot into a cleanup
-    /// request. Unique indexes are constraints and stay fail-closed until drop
-    /// policy can prove constraint removal explicitly.
+    /// Lower one accepted secondary index snapshot into a cleanup request.
     #[allow(
         dead_code,
         reason = "0.152 stages accepted index cleanup lowering before DDL/rebuild callers use it"
     )]
-    pub(in crate::db::schema) fn from_accepted_non_unique_secondary_index_drop(
+    pub(in crate::db::schema) fn from_accepted_secondary_index_drop(
         index: &PersistedIndexSnapshot,
-    ) -> Result<Self, AcceptedSchemaMutationError> {
-        if index.unique() {
-            return Err(AcceptedSchemaMutationError::UniqueIndexRequiresDedicatedValidation);
-        }
-
-        Ok(Self::DropNonRequiredSecondaryIndex {
+    ) -> Self {
+        Self::DropNonRequiredSecondaryIndex {
             target: SchemaSecondaryIndexDropCleanupTarget {
                 ordinal: index.ordinal(),
                 name: index.name().to_string(),
@@ -1620,7 +1604,7 @@ impl SchemaMutationRequest<'_> {
                 unique: index.unique(),
                 predicate_sql: index.predicate_sql().map(str::to_string),
             },
-        })
+        }
     }
 
     /// Lower this request into the deterministic mutation plan consumed by
@@ -1630,9 +1614,7 @@ impl SchemaMutationRequest<'_> {
         match self {
             Self::ExactMatch => MutationPlan::exact_match(),
             Self::AppendOnlyFields(fields) => MutationPlan::append_only_fields(fields),
-            Self::AddNonUniqueFieldPathIndex { target } => {
-                MutationPlan::non_unique_field_path_index_addition(target)
-            }
+            Self::AddFieldPathIndex { target } => MutationPlan::field_path_index_addition(target),
             Self::AddExpressionIndex { target } => MutationPlan::expression_index_addition(target),
             Self::DropNonRequiredSecondaryIndex { target } => {
                 MutationPlan::secondary_index_drop(target)
@@ -1648,7 +1630,7 @@ impl SchemaMutationRequest<'_> {
 pub(in crate::db) fn admit_sql_ddl_field_path_index_candidate(
     index: &PersistedIndexSnapshot,
 ) -> Result<SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError> {
-    let request = SchemaMutationRequest::from_accepted_non_unique_field_path_index(index)
+    let request = SchemaMutationRequest::from_accepted_field_path_index(index)
         .map_err(SchemaDdlMutationAdmissionError::AcceptedIndex)?;
     let plan = request.lower_to_plan();
     let supported = plan
@@ -1665,8 +1647,7 @@ pub(in crate::db) fn admit_sql_ddl_field_path_index_candidate(
 pub(in crate::db) fn admit_sql_ddl_secondary_index_drop_candidate(
     index: &PersistedIndexSnapshot,
 ) -> Result<SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError> {
-    let request = SchemaMutationRequest::from_accepted_non_unique_secondary_index_drop(index)
-        .map_err(SchemaDdlMutationAdmissionError::AcceptedIndex)?;
+    let request = SchemaMutationRequest::from_accepted_secondary_index_drop(index);
     let SchemaMutationRequest::DropNonRequiredSecondaryIndex { target } = request else {
         return Err(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath);
     };
@@ -1691,9 +1672,6 @@ pub(in crate::db) fn resolve_sql_ddl_secondary_index_drop_candidate(
         .ok_or(SchemaDdlIndexDropCandidateError::Unknown)?;
     if index.generated() {
         return Err(SchemaDdlIndexDropCandidateError::Generated);
-    }
-    if index.unique() {
-        return Err(SchemaDdlIndexDropCandidateError::Unsupported);
     }
     let [field_path] = index.key().field_paths() else {
         return Err(SchemaDdlIndexDropCandidateError::Unsupported);
@@ -1776,8 +1754,8 @@ impl<'a> From<SchemaMutationDelta<'a>> for SchemaMutationRequest<'a> {
     fn from(delta: SchemaMutationDelta<'a>) -> Self {
         match delta {
             SchemaMutationDelta::AppendOnlyFields(fields) => Self::AppendOnlyFields(fields),
-            SchemaMutationDelta::AddNonUniqueFieldPathIndex(index) => {
-                Self::from_accepted_non_unique_field_path_index(index).unwrap_or(Self::Incompatible)
+            SchemaMutationDelta::AddFieldPathIndex(index) => {
+                Self::from_accepted_field_path_index(index).unwrap_or(Self::Incompatible)
             }
             SchemaMutationDelta::ExactMatch => Self::ExactMatch,
             SchemaMutationDelta::Incompatible => Self::Incompatible,
@@ -1808,7 +1786,7 @@ impl SchemaMutation {
                 write_hash_tag_u8(hasher, 2);
                 hash_field_identity(hasher, *field_id, name, *slot);
             }
-            Self::AddNonUniqueFieldPathIndex { target } => {
+            Self::AddFieldPathIndex { target } => {
                 write_hash_tag_u8(hasher, 3);
                 target.hash_into(hasher);
             }

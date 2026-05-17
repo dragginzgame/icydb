@@ -199,6 +199,23 @@ fn non_unique_name_index() -> PersistedIndexSnapshot {
     )
 }
 
+fn unique_name_rebuild_target() -> SchemaFieldPathIndexRebuildTarget {
+    SchemaFieldPathIndexRebuildTarget {
+        ordinal: 3,
+        name: "uniq_name".to_string(),
+        store: "test::mutation::uniq_name".to_string(),
+        unique: true,
+        predicate_sql: Some("name IS NOT NULL".to_string()),
+        key_paths: vec![SchemaFieldPathIndexRebuildKey {
+            field_id: FieldId::new(2),
+            slot: SchemaFieldSlot::new(1),
+            path: vec!["name".to_string()],
+            kind: PersistedFieldKind::Text { max_len: None },
+            nullable: false,
+        }],
+    }
+}
+
 fn name_key_path() -> PersistedIndexFieldPathSnapshot {
     PersistedIndexFieldPathSnapshot::new(
         FieldId::new(2),
@@ -229,20 +246,18 @@ fn expression_name_index() -> PersistedIndexSnapshot {
 }
 
 fn accepted_name_field_path_target() -> super::SchemaFieldPathIndexRebuildTarget {
-    let request =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower to a rebuild target");
-    let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } = request else {
+    let request = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower to a rebuild target");
+    let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
         panic!("field-path index request should preserve rebuild target");
     };
     target
 }
 
 fn staged_name_index_store() -> super::SchemaFieldPathIndexStagedStore {
-    let plan =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower")
-            .lower_to_plan();
+    let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower")
+        .lower_to_plan();
     let first = RebuildSlotReader {
         values: vec![None, Some(Value::Text("Ada".to_string()))],
     };
@@ -310,10 +325,9 @@ fn field_path_index_runner_context() -> (
 ) {
     let before = base_snapshot();
     let after = snapshot_with_indexes(&before, vec![non_unique_name_index()]);
-    let plan =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower")
-            .lower_to_plan();
+    let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower")
+        .lower_to_plan();
 
     (before, after, plan.execution_plan())
 }

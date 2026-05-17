@@ -1152,7 +1152,7 @@ fn sql_shell_call_kind_routes_supported_ddl_to_update_method() {
 fn ddl_response_rendering_includes_execution_metrics() {
     let response: Result<SqlQueryResult, icydb::Error> = Ok(SqlQueryResult::Ddl {
         entity: "Character".to_string(),
-        mutation_kind: "add_non_unique_field_path_index".to_string(),
+        mutation_kind: "add_field_path_index".to_string(),
         target_index: "character_level_idx".to_string(),
         target_store: "demo::CharacterStore".to_string(),
         field_path: vec!["level".to_string()],
@@ -1170,7 +1170,7 @@ fn ddl_response_rendering_includes_execution_metrics() {
 
     assert_eq!(
         decoded.render_text(),
-        "surface=ddl entity=Character mutation_kind=add_non_unique_field_path_index target_index=character_level_idx target_store=demo::CharacterStore field_path=level status=published rows_scanned=7 index_keys_written=7",
+        "surface=ddl entity=Character mutation_kind=add_field_path_index target_index=character_level_idx target_store=demo::CharacterStore field_path=level status=published rows_scanned=7 index_keys_written=7",
         "CLI DDL response rendering should surface rebuild metrics from the decoded canister payload",
     );
 }
@@ -1179,7 +1179,7 @@ fn ddl_response_rendering_includes_execution_metrics() {
 fn ddl_no_op_response_rendering_includes_zero_execution_metrics() {
     let response: Result<SqlQueryResult, icydb::Error> = Ok(SqlQueryResult::Ddl {
         entity: "Character".to_string(),
-        mutation_kind: "drop_non_unique_secondary_index".to_string(),
+        mutation_kind: "drop_secondary_index".to_string(),
         target_index: "character_missing_idx".to_string(),
         target_store: String::new(),
         field_path: Vec::new(),
@@ -1197,7 +1197,7 @@ fn ddl_no_op_response_rendering_includes_zero_execution_metrics() {
 
     assert_eq!(
         decoded.render_text(),
-        "surface=ddl entity=Character mutation_kind=drop_non_unique_secondary_index target_index=character_missing_idx target_store= field_path= status=no_op rows_scanned=0 index_keys_written=0",
+        "surface=ddl entity=Character mutation_kind=drop_secondary_index target_index=character_missing_idx target_store= field_path= status=no_op rows_scanned=0 index_keys_written=0",
         "CLI DDL response rendering should keep no-op status and zero work metrics visible",
     );
 }

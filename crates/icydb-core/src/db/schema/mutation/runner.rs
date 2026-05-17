@@ -108,8 +108,8 @@ pub(in crate::db::schema) enum SchemaMutationExecutionAdmission {
 /// SchemaMutationSupportedPathRejection
 ///
 /// Fail-closed reason for the developer-supported physical mutation path. The
-/// generic execution planner may describe future physical work, but 0.154 only
-/// admits one path: a single non-unique field-path secondary index add.
+/// generic execution planner may describe future physical work, but this gate
+/// admits only the field-path secondary-index rebuild path.
 ///
 
 #[allow(
@@ -122,16 +122,15 @@ pub(in crate::db::schema) enum SchemaMutationSupportedPathRejection {
     UnsupportedRequirement(RebuildRequirement),
     UnsupportedMutationKind,
     UnsupportedExecutionShape,
-    UniqueIndexUnsupported,
     EmptyFieldPathKey,
 }
 
 ///
 /// SchemaMutationSupportedExecutionPath
 ///
-/// The single physical mutation path supported for developer testing in 0.154:
-/// add one non-unique field-path secondary index from accepted catalog
-/// metadata, then validate physical work and invalidate runtime state.
+/// The single physical mutation path supported for developer testing: add one
+/// field-path secondary index from accepted catalog metadata, then validate
+/// physical work and invalidate runtime state.
 ///
 
 #[allow(
@@ -248,14 +247,14 @@ impl SchemaMutationRunnerPhase {
 )]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaMutationDeveloperKind {
-    AddNonUniqueFieldPathIndex,
+    AddFieldPathIndex,
 }
 
 impl SchemaMutationDeveloperKind {
     #[must_use]
     pub(in crate::db::schema) const fn as_str(self) -> &'static str {
         match self {
-            Self::AddNonUniqueFieldPathIndex => "add_non_unique_field_path_index",
+            Self::AddFieldPathIndex => "add_field_path_index",
         }
     }
 }
@@ -362,7 +361,7 @@ impl SchemaMutationDeveloperReport {
     ) -> Self {
         Self {
             phase,
-            mutation_kind: SchemaMutationDeveloperKind::AddNonUniqueFieldPathIndex,
+            mutation_kind: SchemaMutationDeveloperKind::AddFieldPathIndex,
             entity_path,
             target_index: target.name().to_string(),
             target_store: target.store().to_string(),

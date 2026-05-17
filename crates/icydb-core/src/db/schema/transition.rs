@@ -44,7 +44,7 @@ pub(in crate::db::schema) enum SchemaTransitionDecision {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) enum SchemaTransitionPlanKind {
-    AddNonUniqueFieldPathIndex,
+    AddFieldPathIndex,
     AppendOnlyNullableFields,
     ExactMatch,
     MetadataOnlyIndexRename,
@@ -235,11 +235,11 @@ pub(in crate::db::schema) fn decide_schema_transition(
                 ),
             );
         }
-        SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } => {
+        SchemaMutationRequest::AddFieldPathIndex { target } => {
             return SchemaTransitionDecision::Accepted(
                 SchemaTransitionPlan::from_mutation_request(
-                    SchemaTransitionPlanKind::AddNonUniqueFieldPathIndex,
-                    SchemaMutationRequest::AddNonUniqueFieldPathIndex { target },
+                    SchemaTransitionPlanKind::AddFieldPathIndex,
+                    SchemaMutationRequest::AddFieldPathIndex { target },
                 ),
             );
         }
@@ -301,9 +301,7 @@ fn generated_index_names_only_changed(
                     .iter()
                     .any(|expected_index| expected_index.ordinal() == index.ordinal())
             })
-            .all(|index| {
-                SchemaMutationRequest::from_accepted_non_unique_field_path_index(index).is_ok()
-            })
+            .all(|index| SchemaMutationRequest::from_accepted_field_path_index(index).is_ok())
 }
 
 fn index_contract_matches_ignoring_name(
@@ -320,7 +318,7 @@ fn index_contract_matches_ignoring_name(
 // Accepted schema remains the authority after SQL DDL publishes an index that
 // generated metadata does not declare. Treat those snapshots as compatible
 // when all generated facts are still present and every extra accepted index is
-// a supported non-unique field-path index.
+// a supported field-path index.
 fn accepted_snapshot_extends_generated_indexes(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
@@ -349,9 +347,7 @@ fn accepted_snapshot_extends_generated_indexes(
         .indexes()
         .iter()
         .filter(|index| !expected.indexes().contains(index))
-        .all(|index| {
-            SchemaMutationRequest::from_accepted_non_unique_field_path_index(index).is_ok()
-        })
+        .all(|index| SchemaMutationRequest::from_accepted_field_path_index(index).is_ok())
 }
 
 // Decide whether one added field can be absent from older physical rows.

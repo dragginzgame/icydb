@@ -2,10 +2,9 @@ use super::*;
 
 #[test]
 fn field_path_rebuild_key_materializes_from_accepted_target_slots() {
-    let request =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower to a rebuild target");
-    let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } = request else {
+    let request = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower to a rebuild target");
+    let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
         panic!("field-path index request should preserve rebuild target");
     };
     let slots = RebuildSlotReader {
@@ -33,10 +32,9 @@ fn field_path_rebuild_key_materializes_from_accepted_target_slots() {
 
 #[test]
 fn field_path_rebuild_stages_sorted_entries_without_publication() {
-    let request =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower to a rebuild target");
-    let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } = request else {
+    let request = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower to a rebuild target");
+    let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
         panic!("field-path index request should preserve rebuild target");
     };
     let first = RebuildSlotReader {
@@ -107,10 +105,9 @@ fn field_path_rebuild_stages_sorted_entries_without_publication() {
 
 #[test]
 fn field_path_rebuild_validation_fails_closed_for_mutated_staged_state() {
-    let request =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower to a rebuild target");
-    let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } = request else {
+    let request = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower to a rebuild target");
+    let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
         panic!("field-path index request should preserve rebuild target");
     };
     let first = RebuildSlotReader {
@@ -136,10 +133,9 @@ fn field_path_rebuild_validation_fails_closed_for_mutated_staged_state() {
         duplicate.validate(),
         Err(super::SchemaFieldPathIndexStagedValidationError::UnsortedOrDuplicateEntries),
     );
-    let plan =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower to a rebuild target")
-            .lower_to_plan();
+    let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower to a rebuild target")
+        .lower_to_plan();
     let rejection = duplicate
         .validated_runner_report(&plan.execution_plan())
         .expect_err("invalid staged state should reject runner reporting");
@@ -172,15 +168,69 @@ fn field_path_rebuild_validation_fails_closed_for_mutated_staged_state() {
 }
 
 #[test]
+fn field_path_unique_rebuild_validation_rejects_duplicate_components() {
+    let target = unique_name_rebuild_target();
+    let first = RebuildSlotReader {
+        values: vec![None, Some(Value::Text("Ada".to_string()))],
+    };
+    let duplicate = RebuildSlotReader {
+        values: vec![None, Some(Value::Text("Ada".to_string()))],
+    };
+    let staged = super::SchemaFieldPathIndexStagedRebuild::from_rows(
+        "test::mutation::entity",
+        EntityTag::new(7),
+        target,
+        [
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &duplicate),
+        ],
+    )
+    .expect("unique field-path rebuild rows should stage before validation");
+
+    assert_eq!(staged.entries().len(), 2);
+    assert_eq!(
+        staged.validate(),
+        Err(super::SchemaFieldPathIndexStagedValidationError::DuplicateUniqueKey),
+        "unique rebuild validation must reject duplicate indexed values before publication",
+    );
+}
+
+#[test]
+fn field_path_unique_rebuild_validation_accepts_distinct_components() {
+    let target = unique_name_rebuild_target();
+    let first = RebuildSlotReader {
+        values: vec![None, Some(Value::Text("Ada".to_string()))],
+    };
+    let second = RebuildSlotReader {
+        values: vec![None, Some(Value::Text("Grace".to_string()))],
+    };
+    let staged = super::SchemaFieldPathIndexStagedRebuild::from_rows(
+        "test::mutation::entity",
+        EntityTag::new(7),
+        target,
+        [
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
+            super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
+        ],
+    )
+    .expect("distinct unique field-path rebuild rows should stage");
+
+    let validation = staged
+        .validate()
+        .expect("distinct unique field-path values should validate");
+    assert_eq!(validation.entry_count(), 2);
+    assert_eq!(validation.source_rows(), 2);
+    assert_eq!(validation.skipped_rows(), 0);
+}
+
+#[test]
 fn field_path_rebuild_validation_reports_runner_diagnostics_without_publication() {
-    let plan =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower")
-            .lower_to_plan();
-    let request =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower to a rebuild target");
-    let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } = request else {
+    let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower")
+        .lower_to_plan();
+    let request = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower to a rebuild target");
+    let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
         panic!("field-path index request should preserve rebuild target");
     };
     let first = RebuildSlotReader {
@@ -240,14 +290,12 @@ fn field_path_rebuild_validation_reports_runner_diagnostics_without_publication(
 
 #[test]
 fn field_path_rebuild_writes_validated_entries_to_staged_store_buffer() {
-    let plan =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower")
-            .lower_to_plan();
-    let request =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
-            .expect("non-unique field-path index should lower to a rebuild target");
-    let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } = request else {
+    let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower")
+        .lower_to_plan();
+    let request = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower to a rebuild target");
+    let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
         panic!("field-path index request should preserve rebuild target");
     };
     let first = RebuildSlotReader {

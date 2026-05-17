@@ -39,18 +39,15 @@ fn mutation_plan_fingerprint_is_deterministic_and_semantic() {
 #[test]
 fn index_mutation_plans_are_rebuild_gated() {
     let field_path =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
+        SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
             .expect("non-unique field-path index should lower")
             .lower_to_plan();
     let expression =
         SchemaMutationRequest::from_accepted_expression_index(&expression_name_index())
             .expect("accepted expression index should lower")
             .lower_to_plan();
-    let drop = SchemaMutationRequest::from_accepted_non_unique_secondary_index_drop(
-        &non_unique_name_index(),
-    )
-    .expect("non-unique secondary index should lower to drop cleanup")
-    .lower_to_plan();
+    let drop = SchemaMutationRequest::from_accepted_secondary_index_drop(&non_unique_name_index())
+        .lower_to_plan();
 
     for plan in [&field_path, &expression, &drop] {
         assert_eq!(plan.compatibility(), MutationCompatibility::RequiresRebuild);
@@ -70,18 +67,15 @@ fn index_mutation_plans_are_rebuild_gated() {
 #[test]
 fn rebuild_plan_derives_physical_index_actions() {
     let field_path =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
+        SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
             .expect("non-unique field-path index should lower")
             .lower_to_plan();
     let expression =
         SchemaMutationRequest::from_accepted_expression_index(&expression_name_index())
             .expect("accepted expression index should lower")
             .lower_to_plan();
-    let drop = SchemaMutationRequest::from_accepted_non_unique_secondary_index_drop(
-        &non_unique_name_index(),
-    )
-    .expect("non-unique secondary index should lower to drop cleanup")
-    .lower_to_plan();
+    let drop = SchemaMutationRequest::from_accepted_secondary_index_drop(&non_unique_name_index())
+        .lower_to_plan();
 
     let field_path_rebuild = field_path.rebuild_plan();
     let [SchemaRebuildAction::BuildFieldPathIndex { target }] = field_path_rebuild.actions() else {
@@ -165,11 +159,8 @@ fn execution_plan_keeps_metadata_only_mutations_publishable_without_steps() {
 
 #[test]
 fn execution_plan_schedules_index_work_before_validation_and_invalidation() {
-    let drop = SchemaMutationRequest::from_accepted_non_unique_secondary_index_drop(
-        &non_unique_name_index(),
-    )
-    .expect("non-unique secondary index should lower to drop cleanup")
-    .lower_to_plan();
+    let drop = SchemaMutationRequest::from_accepted_secondary_index_drop(&non_unique_name_index())
+        .lower_to_plan();
     let execution = drop.execution_plan();
 
     assert_eq!(
@@ -200,18 +191,15 @@ fn execution_plan_schedules_index_work_before_validation_and_invalidation() {
 #[test]
 fn execution_plan_reports_runner_capabilities_without_duplicates() {
     let field_path =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
+        SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
             .expect("non-unique field-path index should lower")
             .lower_to_plan();
     let expression =
         SchemaMutationRequest::from_accepted_expression_index(&expression_name_index())
             .expect("accepted expression index should lower")
             .lower_to_plan();
-    let drop = SchemaMutationRequest::from_accepted_non_unique_secondary_index_drop(
-        &non_unique_name_index(),
-    )
-    .expect("non-unique secondary index should lower to drop cleanup")
-    .lower_to_plan();
+    let drop = SchemaMutationRequest::from_accepted_secondary_index_drop(&non_unique_name_index())
+        .lower_to_plan();
 
     assert_eq!(
         field_path.execution_plan().runner_capabilities(),
@@ -242,18 +230,26 @@ fn execution_plan_reports_runner_capabilities_without_duplicates() {
 #[test]
 fn supported_developer_physical_path_admits_only_single_field_path_index_add() {
     let field_path =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
+        SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
             .expect("non-unique field-path index should lower")
             .lower_to_plan();
+    let unique = PersistedIndexSnapshot::new(
+        4,
+        "unique_name".to_string(),
+        "test::mutation::unique_name".to_string(),
+        true,
+        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        None,
+    );
+    let unique_field_path = SchemaMutationRequest::from_accepted_field_path_index(&unique)
+        .expect("unique field-path index should lower")
+        .lower_to_plan();
     let expression =
         SchemaMutationRequest::from_accepted_expression_index(&expression_name_index())
             .expect("accepted expression index should lower")
             .lower_to_plan();
-    let drop = SchemaMutationRequest::from_accepted_non_unique_secondary_index_drop(
-        &non_unique_name_index(),
-    )
-    .expect("non-unique secondary index should lower to drop cleanup")
-    .lower_to_plan();
+    let drop = SchemaMutationRequest::from_accepted_secondary_index_drop(&non_unique_name_index())
+        .lower_to_plan();
     let metadata_only = MutationPlan::append_only_fields(&[nullable_text_field("nickname", 3, 2)]);
     let rewrite = SchemaMutationRequest::Incompatible.lower_to_plan();
     let unsupported = SchemaMutationRequest::AlterNullability {
@@ -263,7 +259,7 @@ fn supported_developer_physical_path_admits_only_single_field_path_index_add() {
 
     let supported = field_path
         .supported_developer_physical_path()
-        .expect("non-unique field-path index add is the only 0.154 supported path");
+        .expect("field-path index add should be supported by the developer path");
     assert_eq!(supported.target().name(), "by_name");
     assert_eq!(supported.target().store(), "test::mutation::by_name");
     assert!(!supported.target().unique());
@@ -281,6 +277,11 @@ fn supported_developer_physical_path_admits_only_single_field_path_index_add() {
             .supported_developer_execution_path(),
         Ok(supported),
     );
+    let unique_supported = unique_field_path
+        .supported_developer_physical_path()
+        .expect("unique field-path index add should be admitted after staged validation proof");
+    assert_eq!(unique_supported.target().name(), "unique_name");
+    assert!(unique_supported.target().unique());
 
     assert_eq!(
         expression.supported_developer_physical_path(),
@@ -330,11 +331,8 @@ fn supported_developer_physical_path_admits_only_single_field_path_index_add() {
 
 #[test]
 fn execution_admission_fails_closed_on_missing_runner_capabilities() {
-    let drop = SchemaMutationRequest::from_accepted_non_unique_secondary_index_drop(
-        &non_unique_name_index(),
-    )
-    .expect("non-unique secondary index should lower to drop cleanup")
-    .lower_to_plan();
+    let drop = SchemaMutationRequest::from_accepted_secondary_index_drop(&non_unique_name_index())
+        .lower_to_plan();
     let execution = drop.execution_plan();
 
     assert_eq!(
@@ -375,7 +373,7 @@ fn execution_admission_fails_closed_on_missing_runner_capabilities() {
 #[test]
 fn runner_contract_preflight_deduplicates_capabilities_and_preserves_gate() {
     let field_path =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
+        SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
             .expect("non-unique field-path index should lower")
             .lower_to_plan();
     let execution = field_path.execution_plan();
@@ -448,7 +446,7 @@ fn runner_contract_preflight_keeps_no_work_and_rejections_non_executable() {
 fn runner_outcome_reports_no_work_and_ready_physical_work() {
     let metadata_only = MutationPlan::append_only_fields(&[nullable_text_field("nickname", 3, 2)]);
     let field_path =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
+        SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
             .expect("non-unique field-path index should lower")
             .lower_to_plan();
     let runner = super::SchemaMutationRunnerContract::new(&[
@@ -506,7 +504,7 @@ fn runner_outcome_reports_no_work_and_ready_physical_work() {
 #[test]
 fn runner_outcome_classifies_missing_capabilities_and_unsupported_requirements() {
     let field_path =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
+        SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
             .expect("non-unique field-path index should lower")
             .lower_to_plan();
     let incompatible = SchemaMutationRequest::Incompatible.lower_to_plan();
@@ -643,7 +641,7 @@ fn noop_runner_accepts_metadata_only_input_and_rejects_physical_work() {
     .expect("metadata-only same-entity input should build");
     let index_after = snapshot_with_indexes(&before, vec![non_unique_name_index()]);
     let index_plan =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
+        SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
             .expect("non-unique field-path index should lower")
             .lower_to_plan();
     let index_input =
@@ -826,16 +824,19 @@ fn field_path_index_request_lowering_fails_closed_for_unsupported_indexes() {
         None,
     );
 
+    let unique_request = SchemaMutationRequest::from_accepted_field_path_index(&unique)
+        .expect("unique field-path indexes should lower after staged validation proof exists");
+    let SchemaMutationRequest::AddFieldPathIndex { target } = unique_request else {
+        panic!("unique field-path index should lower to the field-path rebuild request");
+    };
+    assert!(target.unique());
+    assert_eq!(target.name(), "unique_name");
     assert_eq!(
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&unique),
-        Err(AcceptedSchemaMutationError::UniqueIndexRequiresDedicatedValidation),
-    );
-    assert_eq!(
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&explicit_items),
+        SchemaMutationRequest::from_accepted_field_path_index(&explicit_items),
         Err(AcceptedSchemaMutationError::UnsupportedIndexKeyShape),
     );
     assert_eq!(
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&empty),
+        SchemaMutationRequest::from_accepted_field_path_index(&empty),
         Err(AcceptedSchemaMutationError::EmptyIndexKey),
     );
 }
@@ -889,7 +890,7 @@ fn expression_index_request_lowering_fails_closed_for_unsupported_indexes() {
 }
 
 #[test]
-fn secondary_index_drop_request_lowering_fails_closed_for_unique_indexes() {
+fn secondary_index_drop_request_lowering_preserves_unique_indexes() {
     let unique = PersistedIndexSnapshot::new(
         1,
         "unique_name".to_string(),
@@ -899,10 +900,12 @@ fn secondary_index_drop_request_lowering_fails_closed_for_unique_indexes() {
         None,
     );
 
-    assert_eq!(
-        SchemaMutationRequest::from_accepted_non_unique_secondary_index_drop(&unique),
-        Err(AcceptedSchemaMutationError::UniqueIndexRequiresDedicatedValidation),
-    );
+    let request = SchemaMutationRequest::from_accepted_secondary_index_drop(&unique);
+    let SchemaMutationRequest::DropNonRequiredSecondaryIndex { target } = request else {
+        panic!("unique secondary index drop should preserve cleanup target");
+    };
+    assert_eq!(target.name(), "unique_name");
+    assert!(target.unique());
 }
 
 #[test]
@@ -991,7 +994,7 @@ fn publication_preflight_requires_runner_readiness_before_physical_work() {
     let field = nullable_text_field("nickname", 3, 2);
     let append_only = MutationPlan::append_only_fields(&[field]);
     let field_path =
-        SchemaMutationRequest::from_accepted_non_unique_field_path_index(&non_unique_name_index())
+        SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
             .expect("non-unique field-path index should lower")
             .lower_to_plan();
     let no_runner = super::SchemaMutationRunnerContract::new(&[]);
@@ -1106,22 +1109,22 @@ fn snapshot_delta_request_lowers_single_field_path_index_add_to_supported_path()
     let stored = base_snapshot();
     let generated = snapshot_with_indexes(&stored, vec![non_unique_name_index()]);
 
-    let SchemaMutationDelta::AddNonUniqueFieldPathIndex(index) =
+    let SchemaMutationDelta::AddFieldPathIndex(index) =
         classify_schema_mutation_delta(&stored, &generated)
     else {
-        panic!("single non-unique field-path index addition should classify explicitly");
+        panic!("single field-path index addition should classify explicitly");
     };
     assert_eq!(index.name(), "by_name");
 
-    let SchemaMutationRequest::AddNonUniqueFieldPathIndex { target } =
+    let SchemaMutationRequest::AddFieldPathIndex { target } =
         schema_mutation_request_for_snapshots(&stored, &generated)
     else {
-        panic!("single non-unique field-path index addition should lower into index request");
+        panic!("single field-path index addition should lower into index request");
     };
     assert_eq!(target.name(), "by_name");
     assert_eq!(target.store(), "test::mutation::by_name");
 
-    let plan = SchemaMutationRequest::AddNonUniqueFieldPathIndex { target }.lower_to_plan();
+    let plan = SchemaMutationRequest::AddFieldPathIndex { target }.lower_to_plan();
     assert!(plan.supported_developer_physical_path().is_ok());
     assert_eq!(
         plan.publication_status(),
@@ -1132,7 +1135,7 @@ fn snapshot_delta_request_lowers_single_field_path_index_add_to_supported_path()
 }
 
 #[test]
-fn snapshot_delta_classifier_rejects_multiple_or_unsupported_index_additions() {
+fn snapshot_delta_classifier_accepts_unique_field_path_index_addition() {
     let stored = base_snapshot();
     let unique = PersistedIndexSnapshot::new(
         2,
@@ -1143,10 +1146,20 @@ fn snapshot_delta_classifier_rejects_multiple_or_unsupported_index_additions() {
         None,
     );
 
-    assert_eq!(
-        classify_schema_mutation_delta(&stored, &snapshot_with_indexes(&stored, vec![unique])),
-        SchemaMutationDelta::Incompatible,
-    );
+    let generated = snapshot_with_indexes(&stored, vec![unique]);
+    let SchemaMutationDelta::AddFieldPathIndex(index) =
+        classify_schema_mutation_delta(&stored, &generated)
+    else {
+        panic!("single unique field-path index addition should classify explicitly");
+    };
+    assert_eq!(index.name(), "unique_name");
+    assert!(index.unique());
+}
+
+#[test]
+fn snapshot_delta_classifier_rejects_multiple_or_unsupported_index_additions() {
+    let stored = base_snapshot();
+
     assert_eq!(
         classify_schema_mutation_delta(
             &stored,

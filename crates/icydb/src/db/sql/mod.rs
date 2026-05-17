@@ -490,7 +490,7 @@ mod tests {
     fn sql_query_result_renders_ddl_publication_payload() {
         let result = SqlQueryResult::Ddl {
             entity: "User".to_string(),
-            mutation_kind: "add_non_unique_field_path_index".to_string(),
+            mutation_kind: "add_field_path_index".to_string(),
             target_index: "user_age_idx".to_string(),
             target_store: "test::User::user_age_idx".to_string(),
             field_path: vec!["age".to_string()],
@@ -502,7 +502,7 @@ mod tests {
         assert_eq!(
             result.render_lines(),
             vec![
-                "surface=ddl entity=User mutation_kind=add_non_unique_field_path_index target_index=user_age_idx target_store=test::User::user_age_idx field_path=age status=published rows_scanned=3 index_keys_written=3".to_string()
+                "surface=ddl entity=User mutation_kind=add_field_path_index target_index=user_age_idx target_store=test::User::user_age_idx field_path=age status=published rows_scanned=3 index_keys_written=3".to_string()
             ],
             "public SQL DDL payloads should render a stable developer diagnostic line",
         );

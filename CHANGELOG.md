@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
+- `0.157.12` enables SQL `CREATE UNIQUE INDEX` for single field-path indexes.
+  Field-path rebuild staging now validates unique index component ownership
+  before publication, so duplicate unique values fail closed while distinct
+  values publish normally. The DDL path also uses neutral mutation labels
+  (`add_field_path_index`, `drop_secondary_index`) and `DROP INDEX` can remove
+  DDL-created unique secondary indexes.
+
+  ```
+  CREATE UNIQUE INDEX character_name_unique_idx ON Character (name);
+  SHOW INDEXES FROM Character;
+  DROP INDEX character_name_unique_idx ON Character;
+  ```
+
 - `0.157.11` tightens CLI SQL shell routing for DDL-shaped index commands:
   unsupported `CREATE UNIQUE INDEX ...` statements now route through the
   DDL-gated update endpoint instead of the readonly query endpoint, preserving

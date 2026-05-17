@@ -20,7 +20,10 @@ use crate::db::{
     },
     sql::{
         identifier::identifiers_tail_match,
-        parser::{SqlCreateIndexStatement, SqlDdlStatement, SqlDropIndexStatement, SqlStatement},
+        parser::{
+            SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement,
+            SqlDropIndexStatement, SqlStatement,
+        },
     },
 };
 use thiserror::Error as ThisError;
@@ -151,8 +154,8 @@ impl SqlDdlPreparationReport {
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SqlDdlMutationKind {
-    AddNonUniqueFieldPathIndex,
-    DropNonUniqueSecondaryIndex,
+    AddFieldPathIndex,
+    DropSecondaryIndex,
 }
 
 impl SqlDdlMutationKind {
@@ -160,8 +163,8 @@ impl SqlDdlMutationKind {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::AddNonUniqueFieldPathIndex => "add_non_unique_field_path_index",
-            Self::DropNonUniqueSecondaryIndex => "drop_non_unique_secondary_index",
+            Self::AddFieldPathIndex => "add_field_path_index",
+            Self::DropSecondaryIndex => "drop_secondary_index",
         }
     }
 }
@@ -270,8 +273,7 @@ impl BoundSqlDdlNoOpRequest {
 ///
 /// BoundSqlCreateIndexRequest
 ///
-/// Catalog-resolved request for adding one non-unique field-path secondary
-/// index.
+/// Catalog-resolved request for adding one field-path secondary index.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct BoundSqlCreateIndexRequest {
@@ -310,8 +312,7 @@ impl BoundSqlCreateIndexRequest {
 ///
 /// BoundSqlDropIndexRequest
 ///
-/// Catalog-resolved request for dropping one DDL-published non-unique
-/// secondary index.
+/// Catalog-resolved request for dropping one DDL-published secondary index.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct BoundSqlDropIndexRequest {
@@ -434,7 +435,7 @@ pub(in crate::db) enum SqlDdlBindError {
     GeneratedIndexDropRejected { index_name: String },
 
     #[error(
-        "index '{index_name}' is not a supported DDL-droppable field-path index; SQL DDL can currently drop only non-unique field-path indexes created through SQL DDL"
+        "index '{index_name}' is not a supported DDL-droppable field-path index; SQL DDL can currently drop only field-path indexes created through SQL DDL"
     )]
     UnsupportedDropIndex { index_name: String },
 }
@@ -534,11 +535,15 @@ fn bind_create_index_statement(
         bind_create_index_field_path(statement.field_path.as_str(), entity_name, schema)?;
     if let Some(existing_index) = find_field_path_index_by_name(schema, statement.name.as_str()) {
         if statement.if_not_exists
-            && existing_field_path_index_matches_request(existing_index, &field_path)
+            && existing_field_path_index_matches_request(
+                existing_index,
+                &field_path,
+                statement.uniqueness,
+            )
         {
             return Ok(BoundSqlDdlRequest {
                 statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
-                    mutation_kind: SqlDdlMutationKind::AddNonUniqueFieldPathIndex,
+                    mutation_kind: SqlDdlMutationKind::AddFieldPathIndex,
                     index_name: statement.name.clone(),
                     entity_name: entity_name.to_string(),
                     target_store: existing_index.store().to_string(),
@@ -556,6 +561,7 @@ fn bind_create_index_statement(
     let candidate_index = candidate_index_snapshot(
         statement.name.as_str(),
         &field_path,
+        statement.uniqueness,
         schema,
         index_store_path,
     )?;
@@ -608,7 +614,7 @@ fn bind_drop_index_statement(
         Err(SqlDdlBindError::UnknownIndex { .. }) if statement.if_exists => {
             return Ok(BoundSqlDdlRequest {
                 statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
-                    mutation_kind: SqlDdlMutationKind::DropNonUniqueSecondaryIndex,
+                    mutation_kind: SqlDdlMutationKind::DropSecondaryIndex,
                     index_name: statement.name.clone(),
                     entity_name: entity_name.to_string(),
                     target_store: "-".to_string(),
@@ -685,10 +691,13 @@ fn find_field_path_index_by_name<'a>(
 fn existing_field_path_index_matches_request(
     index: &crate::db::schema::SchemaIndexInfo,
     field_path: &BoundSqlDdlFieldPath,
+    uniqueness: SqlCreateIndexUniqueness,
 ) -> bool {
     let fields = index.fields();
 
-    !index.unique() && fields.len() == 1 && fields[0].path() == field_path.accepted_path()
+    index.unique() == matches!(uniqueness, SqlCreateIndexUniqueness::Unique)
+        && fields.len() == 1
+        && fields[0].path() == field_path.accepted_path()
 }
 
 fn reject_duplicate_expression_index_name(
@@ -728,6 +737,7 @@ fn reject_duplicate_field_path_index(
 fn candidate_index_snapshot(
     index_name: &str,
     field_path: &BoundSqlDdlFieldPath,
+    uniqueness: SqlCreateIndexUniqueness,
     schema: &SchemaInfo,
     index_store_path: &'static str,
 ) -> Result<PersistedIndexSnapshot, SqlDdlBindError> {
@@ -741,7 +751,7 @@ fn candidate_index_snapshot(
         schema.next_secondary_index_ordinal(),
         index_name.to_string(),
         index_store_path.to_string(),
-        false,
+        matches!(uniqueness, SqlCreateIndexUniqueness::Unique),
         PersistedIndexKeySnapshot::FieldPath(vec![key]),
         None,
     ))
@@ -792,7 +802,7 @@ fn ddl_preparation_report(bound: &BoundSqlDdlRequest) -> SqlDdlPreparationReport
             let target = create.candidate_index();
 
             SqlDdlPreparationReport {
-                mutation_kind: SqlDdlMutationKind::AddNonUniqueFieldPathIndex,
+                mutation_kind: SqlDdlMutationKind::AddFieldPathIndex,
                 target_index: target.name().to_string(),
                 target_store: target.store().to_string(),
                 field_path: create.field_path().accepted_path().to_vec(),
@@ -802,7 +812,7 @@ fn ddl_preparation_report(bound: &BoundSqlDdlRequest) -> SqlDdlPreparationReport
             }
         }
         BoundSqlDdlStatement::DropIndex(drop) => SqlDdlPreparationReport {
-            mutation_kind: SqlDdlMutationKind::DropNonUniqueSecondaryIndex,
+            mutation_kind: SqlDdlMutationKind::DropSecondaryIndex,
             target_index: drop.index_name().to_string(),
             target_store: drop.dropped_index().store().to_string(),
             field_path: drop.field_path().to_vec(),

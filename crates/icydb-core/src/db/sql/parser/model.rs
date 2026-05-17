@@ -62,13 +62,13 @@ pub(crate) struct SqlCreateIndexStatement {
 ///
 /// SqlCreateIndexUniqueness
 ///
-/// Parser-owned uniqueness flag for future DDL binding. The current supported
-/// grammar only produces `NonUnique`; unique index syntax remains fail-closed.
+/// Parser-owned uniqueness flag for SQL DDL index creation.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SqlCreateIndexUniqueness {
     NonUnique,
+    Unique,
 }
 
 ///

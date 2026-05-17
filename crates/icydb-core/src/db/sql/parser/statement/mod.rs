@@ -90,11 +90,11 @@ impl Parser {
     }
 
     fn parse_create_statement(&mut self) -> Result<SqlDdlStatement, SqlParseError> {
-        if self.eat_keyword(Keyword::Unique) {
-            return Err(SqlParseError::unsupported_feature(
-                "SQL DDL CREATE UNIQUE INDEX",
-            ));
-        }
+        let uniqueness = if self.eat_keyword(Keyword::Unique) {
+            SqlCreateIndexUniqueness::Unique
+        } else {
+            SqlCreateIndexUniqueness::NonUnique
+        };
         if !self.eat_keyword(Keyword::Index) {
             return Err(SqlParseError::unsupported_feature(
                 "SQL DDL CREATE statements beyond CREATE INDEX",
@@ -102,11 +102,14 @@ impl Parser {
         }
 
         Ok(SqlDdlStatement::CreateIndex(
-            self.parse_create_index_statement()?,
+            self.parse_create_index_statement(uniqueness)?,
         ))
     }
 
-    fn parse_create_index_statement(&mut self) -> Result<SqlCreateIndexStatement, SqlParseError> {
+    fn parse_create_index_statement(
+        &mut self,
+        uniqueness: SqlCreateIndexUniqueness,
+    ) -> Result<SqlCreateIndexStatement, SqlParseError> {
         let if_not_exists = self.parse_create_index_if_not_exists()?;
         let name = self.expect_identifier()?;
         self.expect_keyword(Keyword::On)?;
@@ -142,7 +145,7 @@ impl Parser {
             name,
             entity,
             field_path,
-            uniqueness: SqlCreateIndexUniqueness::NonUnique,
+            uniqueness,
             if_not_exists,
         })
     }
