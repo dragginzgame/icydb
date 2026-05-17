@@ -23,7 +23,6 @@ use crate::db::{
         parser::{SqlCreateIndexStatement, SqlDdlStatement, SqlDropIndexStatement, SqlStatement},
     },
 };
-use crate::model::EntityModel;
 use thiserror::Error as ThisError;
 
 ///
@@ -419,11 +418,9 @@ pub(in crate::db) fn prepare_sql_ddl_statement(
     statement: &SqlStatement,
     accepted_before: &AcceptedSchemaSnapshot,
     schema: &SchemaInfo,
-    model: &EntityModel,
     index_store_path: &'static str,
 ) -> Result<PreparedSqlDdlCommand, SqlDdlPrepareError> {
-    let bound =
-        bind_sql_ddl_statement(statement, accepted_before, schema, model, index_store_path)?;
+    let bound = bind_sql_ddl_statement(statement, accepted_before, schema, index_store_path)?;
     let derivation = derive_bound_sql_ddl_accepted_after(accepted_before, &bound)?;
     let report = ddl_preparation_report(&bound, &derivation);
 
@@ -439,7 +436,6 @@ pub(in crate::db) fn bind_sql_ddl_statement(
     statement: &SqlStatement,
     accepted_before: &AcceptedSchemaSnapshot,
     schema: &SchemaInfo,
-    model: &EntityModel,
     index_store_path: &'static str,
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
     let SqlStatement::Ddl(ddl) = statement else {
@@ -451,7 +447,7 @@ pub(in crate::db) fn bind_sql_ddl_statement(
             bind_create_index_statement(statement, schema, index_store_path)
         }
         SqlDdlStatement::DropIndex(statement) => {
-            bind_drop_index_statement(statement, accepted_before, schema, model)
+            bind_drop_index_statement(statement, accepted_before, schema)
         }
     }
 }
@@ -497,7 +493,6 @@ fn bind_drop_index_statement(
     statement: &SqlDropIndexStatement,
     accepted_before: &AcceptedSchemaSnapshot,
     schema: &SchemaInfo,
-    model: &EntityModel,
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
     let entity_name = schema
         .entity_name()
@@ -509,24 +504,24 @@ fn bind_drop_index_statement(
             expected_entity: entity_name.to_string(),
         });
     }
-    let (dropped_index, field_path) =
-        resolve_sql_ddl_secondary_index_drop_candidate(accepted_before, model, &statement.name)
-            .map_err(|error| match error {
-                SchemaDdlIndexDropCandidateError::Generated => {
-                    SqlDdlBindError::GeneratedIndexDropRejected {
-                        index_name: statement.name.clone(),
-                    }
-                }
-                SchemaDdlIndexDropCandidateError::Unknown => SqlDdlBindError::UnknownIndex {
-                    entity_name: entity_name.to_string(),
-                    index_name: statement.name.clone(),
-                },
-                SchemaDdlIndexDropCandidateError::Unsupported => {
-                    SqlDdlBindError::UnsupportedDropIndex {
-                        index_name: statement.name.clone(),
-                    }
-                }
-            })?;
+    let (dropped_index, field_path) = resolve_sql_ddl_secondary_index_drop_candidate(
+        accepted_before,
+        &statement.name,
+    )
+    .map_err(|error| match error {
+        SchemaDdlIndexDropCandidateError::Generated => {
+            SqlDdlBindError::GeneratedIndexDropRejected {
+                index_name: statement.name.clone(),
+            }
+        }
+        SchemaDdlIndexDropCandidateError::Unknown => SqlDdlBindError::UnknownIndex {
+            entity_name: entity_name.to_string(),
+            index_name: statement.name.clone(),
+        },
+        SchemaDdlIndexDropCandidateError::Unsupported => SqlDdlBindError::UnsupportedDropIndex {
+            index_name: statement.name.clone(),
+        },
+    })?;
     Ok(BoundSqlDdlRequest {
         statement: BoundSqlDdlStatement::DropIndex(BoundSqlDropIndexRequest {
             index_name: statement.name.clone(),

@@ -406,6 +406,38 @@ fn accepted_schema_info_index_membership_uses_persisted_index_contracts() {
 }
 
 #[test]
+fn sql_ddl_drop_index_uses_persisted_index_origin() {
+    let ddl = read_source("src/db/sql/ddl.rs");
+    let mutation = read_source("src/db/schema/mutation/mod.rs");
+    let session_sql = read_source("src/db/session/sql/mod.rs");
+
+    assert!(
+        ddl.contains("pub(in crate::db) fn prepare_sql_ddl_statement(")
+            && ddl.contains("pub(in crate::db) fn bind_sql_ddl_statement(")
+            && !ddl.contains("use crate::model::EntityModel")
+            && !ddl.contains("model: &EntityModel")
+            && !ddl.contains("model: &'static EntityModel")
+            && !ddl.contains("model.indexes()")
+            && !ddl.contains("E::MODEL"),
+        "SQL DDL binding must stay catalog-native and must not reopen generated EntityModel authority",
+    );
+    assert!(
+        mutation.contains("fn resolve_sql_ddl_secondary_index_drop_candidate(")
+            && mutation.contains("if index.generated()")
+            && !mutation.contains("model.indexes()")
+            && !mutation.contains("model: &EntityModel")
+            && !mutation.contains("use crate::model::EntityModel"),
+        "DROP INDEX resolution must reject generated indexes through persisted accepted index origin",
+    );
+    assert!(
+        session_sql.contains("SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema)")
+            && session_sql.contains("prepare_sql_ddl_statement(\n            &statement,\n            &accepted_schema,\n            &schema_info,\n            E::Store::PATH,\n        )")
+            && !session_sql.contains("prepare_sql_ddl_statement(\n            &statement,\n            &accepted_schema,\n            &schema_info,\n            E::MODEL,"),
+        "session DDL preparation may bridge generated model into accepted SchemaInfo but must not pass it into DDL binding",
+    );
+}
+
+#[test]
 fn schema_mutation_publication_boundary_uses_runner_preflight() {
     let mutation = read_sources(&[
         "src/db/schema/mutation/mod.rs",

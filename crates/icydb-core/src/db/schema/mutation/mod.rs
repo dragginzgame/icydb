@@ -18,7 +18,6 @@ use crate::db::{
     },
 };
 use crate::error::InternalError;
-use crate::model::EntityModel;
 use crate::types::EntityTag;
 use sha2::Digest;
 use std::collections::BTreeMap;
@@ -1678,20 +1677,11 @@ pub(in crate::db) fn admit_sql_ddl_secondary_index_drop_candidate(
 }
 
 /// Resolve one accepted SQL DDL index-drop candidate and reject generated
-/// model indexes before the frontend can derive a catalog mutation.
+/// accepted indexes before the frontend can derive a catalog mutation.
 pub(in crate::db) fn resolve_sql_ddl_secondary_index_drop_candidate(
     accepted_before: &AcceptedSchemaSnapshot,
-    model: &EntityModel,
     index_name: &str,
 ) -> Result<(PersistedIndexSnapshot, Vec<String>), SchemaDdlIndexDropCandidateError> {
-    if model
-        .indexes()
-        .iter()
-        .any(|index| index.name() == index_name)
-    {
-        return Err(SchemaDdlIndexDropCandidateError::Generated);
-    }
-
     let index = accepted_before
         .persisted_snapshot()
         .indexes()
@@ -1699,6 +1689,9 @@ pub(in crate::db) fn resolve_sql_ddl_secondary_index_drop_candidate(
         .find(|index| index.name() == index_name)
         .cloned()
         .ok_or(SchemaDdlIndexDropCandidateError::Unknown)?;
+    if index.generated() {
+        return Err(SchemaDdlIndexDropCandidateError::Generated);
+    }
     if index.unique() {
         return Err(SchemaDdlIndexDropCandidateError::Unsupported);
     }

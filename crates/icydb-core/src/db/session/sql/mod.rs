@@ -434,18 +434,19 @@ impl<C: CanisterKind> DbSession<C> {
             .accepted_entity_authority::<E>()
             .map_err(QueryError::execute)?;
         let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema);
-        let prepared = prepare_sql_ddl_statement(
+        let prepared = match prepare_sql_ddl_statement(
             &statement,
             &accepted_schema,
             &schema_info,
-            E::MODEL,
             E::Store::PATH,
-        )
-        .map_err(|err| {
-            QueryError::unsupported_query(format!(
-                "SQL DDL preparation failed before execution: {err}"
-            ))
-        })?;
+        ) {
+            Ok(prepared) => prepared,
+            Err(err) => {
+                return Err(QueryError::unsupported_query(format!(
+                    "SQL DDL preparation failed before execution: {err}"
+                )));
+            }
+        };
 
         Ok((accepted_schema, prepared))
     }

@@ -2084,14 +2084,9 @@ fn sql_ddl_create_index_binds_against_accepted_catalog() {
     let statement = parse_sql("CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)")
         .expect("CREATE INDEX should parse before binding");
 
-    let bound = bind_sql_ddl_statement(
-        &statement,
-        &accepted_before,
-        &schema,
-        SessionSqlEntity::MODEL,
-        SessionSqlStore::PATH,
-    )
-    .expect("CREATE INDEX should bind against accepted schema metadata");
+    let bound =
+        bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("CREATE INDEX should bind against accepted schema metadata");
     let BoundSqlDdlStatement::CreateIndex(create) = bound.statement() else {
         panic!("CREATE INDEX should bind to a create-index DDL request");
     };
@@ -2104,6 +2099,10 @@ fn sql_ddl_create_index_binds_against_accepted_catalog() {
     assert_eq!(create.candidate_index().name(), "session_sql_age_idx");
     assert_eq!(create.candidate_index().store(), SessionSqlStore::PATH);
     assert!(!create.candidate_index().unique());
+    assert!(
+        !create.candidate_index().generated(),
+        "SQL DDL-created indexes should carry DDL origin in accepted metadata",
+    );
 }
 
 #[test]
@@ -2117,7 +2116,6 @@ fn sql_ddl_create_index_binding_rejects_unknown_catalog_targets() {
         &entity_mismatch,
         &accepted_before,
         &schema,
-        SessionSqlEntity::MODEL,
         SessionSqlStore::PATH,
     )
     .expect_err("DDL binding should reject non-owned entity targets");
@@ -2136,7 +2134,6 @@ fn sql_ddl_create_index_binding_rejects_unknown_catalog_targets() {
         &unknown_field,
         &accepted_before,
         &schema,
-        SessionSqlEntity::MODEL,
         SessionSqlStore::PATH,
     )
     .expect_err("DDL binding should reject unknown accepted field paths");
@@ -2159,7 +2156,6 @@ fn sql_ddl_create_index_binding_rejects_duplicate_accepted_indexes() {
         &duplicate_name,
         &accepted_before,
         &schema,
-        IndexedSessionSqlEntity::MODEL,
         IndexedSessionSqlStore::PATH,
     )
     .expect_err("DDL binding should reject accepted duplicate index names");
@@ -2174,7 +2170,6 @@ fn sql_ddl_create_index_binding_rejects_duplicate_accepted_indexes() {
         &duplicate_key,
         &accepted_before,
         &schema,
-        IndexedSessionSqlEntity::MODEL,
         IndexedSessionSqlStore::PATH,
     )
     .expect_err("DDL binding should reject accepted duplicate field-path indexes");
@@ -2198,7 +2193,6 @@ fn sql_ddl_drop_index_binding_rejects_generated_indexes() {
         &statement,
         &accepted_before,
         &schema,
-        IndexedSessionSqlEntity::MODEL,
         IndexedSessionSqlStore::PATH,
     )
     .expect_err("DDL binding should reject generated index drops");
@@ -2235,14 +2229,9 @@ fn sql_ddl_create_index_lowers_to_supported_schema_mutation_admission() {
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
     let statement = parse_sql("CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)")
         .expect("CREATE INDEX should parse before binding");
-    let bound = bind_sql_ddl_statement(
-        &statement,
-        &accepted_before,
-        &schema,
-        SessionSqlEntity::MODEL,
-        SessionSqlStore::PATH,
-    )
-    .expect("CREATE INDEX should bind against accepted schema metadata");
+    let bound =
+        bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("CREATE INDEX should bind against accepted schema metadata");
 
     let admission = lower_bound_sql_ddl_to_schema_mutation_admission(&bound)
         .expect("bound CREATE INDEX should lower to supported mutation admission");
@@ -2260,14 +2249,9 @@ fn sql_ddl_create_index_derives_accepted_after_snapshot_without_execution() {
         SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
     let statement = parse_sql("CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)")
         .expect("CREATE INDEX should parse before binding");
-    let bound = bind_sql_ddl_statement(
-        &statement,
-        &accepted_before,
-        &schema,
-        SessionSqlEntity::MODEL,
-        SessionSqlStore::PATH,
-    )
-    .expect("CREATE INDEX should bind against accepted schema metadata");
+    let bound =
+        bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("CREATE INDEX should bind against accepted schema metadata");
 
     let derivation = derive_bound_sql_ddl_accepted_after(&accepted_before, &bound)
         .expect("bound CREATE INDEX should derive an accepted-after schema snapshot");
@@ -2299,14 +2283,9 @@ fn sql_ddl_create_index_preparation_reports_non_executed_command() {
     let statement = parse_sql("CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)")
         .expect("CREATE INDEX should parse before preparation");
 
-    let prepared = prepare_sql_ddl_statement(
-        &statement,
-        &accepted_before,
-        &schema,
-        SessionSqlEntity::MODEL,
-        SessionSqlStore::PATH,
-    )
-    .expect("CREATE INDEX should prepare through all pre-execution DDL checks");
+    let prepared =
+        prepare_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("CREATE INDEX should prepare through all pre-execution DDL checks");
     let BoundSqlDdlStatement::CreateIndex(create) = prepared.bound().statement() else {
         panic!("CREATE INDEX should prepare a create-index DDL request");
     };
