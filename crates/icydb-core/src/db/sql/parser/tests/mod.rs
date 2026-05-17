@@ -3644,6 +3644,10 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         ("SHOW COLUMNS users WHERE age > 1", "SHOW COLUMNS modifiers"),
         ("SHOW ENTITIES users", "SHOW ENTITIES modifiers"),
         (
+            "CREATE UNIQUE INDEX user_age_idx ON users (age)",
+            "SQL DDL CREATE UNIQUE INDEX",
+        ),
+        (
             "CREATE INDEX user_age_idx ON users (age DESC)",
             "SQL DDL CREATE INDEX key ordering modifiers",
         ),

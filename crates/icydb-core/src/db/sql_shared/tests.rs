@@ -37,6 +37,22 @@ fn tokenize_sql_classifies_mixed_case_keywords_without_normalization_changes() {
 }
 
 #[test]
+fn tokenize_sql_classifies_unique_as_keyword() {
+    let tokens =
+        tokenize_sql("CREATE UNIQUE INDEX name_idx").expect("UNIQUE index SQL should tokenize");
+
+    let kinds = tokens
+        .into_iter()
+        .map(|token| token.kind)
+        .collect::<Vec<_>>();
+
+    assert!(matches!(
+        kinds.get(1),
+        Some(TokenKind::Keyword(Keyword::Unique))
+    ));
+}
+
+#[test]
 fn tokenize_sql_preserves_non_keyword_identifiers() {
     let tokens = tokenize_sql("selectivity customer_order order_total")
         .expect("identifiers should tokenize");

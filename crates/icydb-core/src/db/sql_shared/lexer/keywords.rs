@@ -58,6 +58,7 @@ const KEYWORDS_LEN_6: &[(&str, Keyword)] = &[
     ("OFFSET", Keyword::Offset),
     ("SELECT", Keyword::Select),
     ("TABLES", Keyword::Tables),
+    ("UNIQUE", Keyword::Unique),
     ("UPDATE", Keyword::Update),
 ];
 
@@ -66,7 +67,6 @@ const KEYWORDS_LEN_7: &[(&str, Keyword)] = &[
     ("COLUMNS", Keyword::Columns),
     ("EXPLAIN", Keyword::Explain),
     ("INDEXES", Keyword::Indexes),
-    ("UNIQUE", Keyword::Unique),
     ("VERBOSE", Keyword::Verbose),
 ];
 

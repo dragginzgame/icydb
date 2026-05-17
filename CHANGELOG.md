@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
+- `0.157.11` tightens CLI SQL shell routing for DDL-shaped index commands:
+  unsupported `CREATE UNIQUE INDEX ...` statements now route through the
+  DDL-gated update endpoint instead of the readonly query endpoint, preserving
+  the existing fail-closed unsupported-feature behavior while keeping DDL
+  syntax on the DDL surface. It also fixes `UNIQUE` keyword tokenization so
+  the parser emits the specific `SQL DDL CREATE UNIQUE INDEX` unsupported
+  feature label instead of a generic CREATE-DDL fallback, including through the
+  generated DDL canister endpoint.
+
 - `0.157.10` hardens the generated canister boundary for idempotent SQL DDL,
   adding live PocketIC coverage that `CREATE INDEX IF NOT EXISTS` publishes
   absent indexes, reports a `no_op` without duplicating accepted indexes when

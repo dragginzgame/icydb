@@ -679,6 +679,18 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_create_index_shapes_without_pub
 }
 
 #[test]
+fn sql_canister_ddl_endpoint_reports_unique_index_as_unsupported_ddl_shape() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    assert_ddl_rejects_with_index_visibility_unchanged(
+        &fixture,
+        "CREATE UNIQUE INDEX sql_test_user_unique_rank_idx ON SqlTestUser (rank)",
+        "SQL DDL CREATE UNIQUE INDEX",
+    );
+}
+
+#[test]
 fn sql_canister_query_endpoint_executes_scalar_and_grouped_queries() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);

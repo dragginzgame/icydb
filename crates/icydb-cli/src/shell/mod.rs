@@ -323,14 +323,24 @@ pub(crate) fn sql_shell_call_kind(sql: &str) -> SqlShellCallKind {
     let mut words = normalized.split_whitespace().map(str::to_ascii_uppercase);
     let first = words.next();
     let second = words.next();
-    if matches!(
-        (first.as_deref(), second.as_deref()),
-        (Some("CREATE" | "DROP"), Some("INDEX"))
-    ) {
+    let third = words.next();
+    if sql_shell_statement_is_index_ddl(first.as_deref(), second.as_deref(), third.as_deref()) {
         return SqlShellCallKind::Ddl;
     }
 
     SqlShellCallKind::Query
+}
+
+fn sql_shell_statement_is_index_ddl(
+    first: Option<&str>,
+    second: Option<&str>,
+    third: Option<&str>,
+) -> bool {
+    matches!(
+        (first, second, third),
+        (Some("CREATE" | "DROP"), Some("INDEX"), _)
+            | (Some("CREATE"), Some("UNIQUE"), Some("INDEX"))
+    )
 }
 
 pub(crate) fn hex_response_bytes(output: &str) -> Result<Vec<u8>, String> {
