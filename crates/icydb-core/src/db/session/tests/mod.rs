@@ -2235,6 +2235,7 @@ fn session_describe_entity_reports_fields_and_indexes() {
             name: "name".to_string(),
             unique: false,
             fields: vec!["name".to_string()],
+            origin: "generated".to_string(),
         }],
         "secondary index metadata should be projected for describe consumers",
     );

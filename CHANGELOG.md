@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
+- `0.157.7` carries accepted index origin metadata through structured schema
+  descriptions and `DESCRIBE` output, so DDL-created indexes and generated
+  model indexes can be distinguished consistently across `SHOW INDEXES`,
+  schema/describe DTOs, human shell output, and the `icydb schema` CLI report.
+  The schema report now expands accepted fields, indexes, and relations instead
+  of showing only entity-level counts.
+
+- `0.157.6` was published accidentally as a duplicate no-op patch after a
+  local filesystem error; it contains no intentional user-facing changes beyond
+  the already published `0.157.5` work.
+
 - `0.157.5` makes SQL DDL `DROP INDEX` ownership catalog-native by resolving
   generated-vs-DDL authority from the accepted persisted index origin instead
   of reopening generated entity-model index names during DDL binding.

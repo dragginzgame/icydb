@@ -124,6 +124,10 @@ entity-model indexes report `origin=generated`; indexes added through SQL DDL
 report `origin=ddl`. Only DDL-origin non-unique field-path indexes are
 droppable through SQL DDL.
 
+`DESCRIBE` includes the same generated-vs-DDL index origin metadata in its
+structured index payload and shell rendering, so schema tooling can distinguish
+model-owned indexes from DDL-created indexes without scraping `SHOW INDEXES`.
+
 ### DDL
 
 Supported shapes:

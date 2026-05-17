@@ -178,16 +178,18 @@ pub struct EntityIndexDescription {
     pub(crate) name: String,
     pub(crate) unique: bool,
     pub(crate) fields: Vec<String>,
+    pub(crate) origin: String,
 }
 
 impl EntityIndexDescription {
     /// Construct one index description entry.
     #[must_use]
-    pub const fn new(name: String, unique: bool, fields: Vec<String>) -> Self {
+    pub const fn new(name: String, unique: bool, fields: Vec<String>, origin: String) -> Self {
         Self {
             name,
             unique,
             fields,
+            origin,
         }
     }
 
@@ -207,6 +209,12 @@ impl EntityIndexDescription {
     #[must_use]
     pub const fn fields(&self) -> &[String] {
         self.fields.as_slice()
+    }
+
+    /// Borrow the accepted index origin label.
+    #[must_use]
+    pub const fn origin(&self) -> &str {
+        self.origin.as_str()
     }
 }
 
@@ -378,6 +386,7 @@ fn describe_entity_indexes_from_model(model: &EntityModel) -> Vec<EntityIndexDes
                 .iter()
                 .map(|field| (*field).to_string())
                 .collect(),
+            "generated".to_string(),
         ));
     }
 
@@ -396,6 +405,11 @@ fn describe_entity_indexes_with_persisted_schema(
                 index.name().to_string(),
                 index.unique(),
                 describe_persisted_index_fields(index.key()),
+                if index.generated() {
+                    "generated".to_string()
+                } else {
+                    "ddl".to_string()
+                },
             )
         })
         .collect()
@@ -1022,7 +1036,7 @@ mod tests {
     fn entity_index_description_candid_shape_is_stable() {
         let fields = expect_record_fields(EntityIndexDescription::ty());
 
-        for field in ["name", "unique", "fields"] {
+        for field in ["name", "unique", "fields", "origin"] {
             assert!(
                 fields.iter().any(|candidate| candidate == field),
                 "EntityIndexDescription must keep `{field}` field key",
@@ -1083,6 +1097,7 @@ mod tests {
                 "idx_email".to_string(),
                 true,
                 vec!["email".to_string()],
+                "generated".to_string(),
             )],
             vec![EntityRelationDescription::new(
                 "account_id".to_string(),

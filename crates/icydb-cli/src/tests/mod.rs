@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use candid::{Decode, Encode};
 use clap::Parser;
 use icydb::db::{
-    EntityFieldDescription, EntityIndexDescription, EntitySchemaDescription,
+    EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
+    EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription,
     sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput},
 };
 use serde_json::json;
@@ -944,29 +945,57 @@ fn schema_report_rendering_uses_human_tables() {
 
     assert!(text.contains("IcyDB schema"));
     assert!(text.contains("entities: 0"));
+    assert!(text.contains("fields: 0"));
+    assert!(text.contains("indexes: 0"));
+    assert!(text.contains("relations: 0"));
     assert!(text.contains("entities\n  None"));
+    assert!(text.contains("fields\n  None"));
+    assert!(text.contains("indexes\n  None"));
+    assert!(text.contains("relations\n  None"));
 }
 
 #[test]
-fn schema_report_renders_aligned_summary_table() {
+fn schema_report_renders_aligned_summary_and_index_tables() {
     let fields = (0..35)
         .map(|_| {
             EntityFieldDescription::new("field".to_string(), None, "Text".to_string(), false, true)
         })
         .collect();
-    let indexes = (0..2)
-        .map(|_| EntityIndexDescription::new("index".to_string(), false, Vec::new()))
-        .collect();
+    let indexes = vec![
+        EntityIndexDescription::new(
+            "idx_character__name".to_string(),
+            false,
+            vec!["name".to_string()],
+            "generated".to_string(),
+        ),
+        EntityIndexDescription::new(
+            "character_level_idx".to_string(),
+            false,
+            vec!["level".to_string()],
+            "ddl".to_string(),
+        ),
+    ];
     let report = [EntitySchemaDescription::new(
         "icydb_testing_demo_rpg_fixtures::schema::character::Character".to_string(),
         "Character".to_string(),
         "id".to_string(),
         fields,
         indexes,
-        Vec::new(),
+        vec![EntityRelationDescription::new(
+            "account_id".to_string(),
+            "icydb_testing_demo_rpg_fixtures::schema::account::Account".to_string(),
+            "Account".to_string(),
+            "accounts".to_string(),
+            EntityRelationStrength::Strong,
+            EntityRelationCardinality::Single,
+        )],
     )];
     let text = render_schema_report(&report);
 
+    assert!(text.contains("entities: 1"));
+    assert!(text.contains("fields: 35"));
+    assert!(text.contains("indexes: 2"));
+    assert!(text.contains("relations: 1"));
     assert!(text.contains("  entity      fields   indexes   relations   primary key   path\n"));
     assert!(
         text.lines().any(
@@ -974,8 +1003,18 @@ fn schema_report_renders_aligned_summary_table() {
         )
     );
     assert!(text.contains(
-        "  Character       35         2           0   id            icydb_testing_demo_rpg_fixtures::schema::character::Character\n"
+        "  Character       35         2           1   id            icydb_testing_demo_rpg_fixtures::schema::character::Character\n"
     ));
+    assert!(text.contains("fields\n"));
+    assert!(text.contains("  entity      field   slot   type   pk   queryable\n"));
+    assert!(text.contains("  Character   field      -   Text   no   yes\n"));
+    assert!(text.contains("indexes\n"));
+    assert!(text.contains("  entity      index                 fields   unique   origin\n"));
+    assert!(text.contains("  Character   idx_character__name   name     no       generated\n"));
+    assert!(text.contains("  Character   character_level_idx   level    no       ddl\n"));
+    assert!(text.contains("relations\n"));
+    assert!(text.contains("  entity      field        target    strength   cardinality\n"));
+    assert!(text.contains("  Character   account_id   Account   Strong     Single\n"));
 }
 
 #[test]

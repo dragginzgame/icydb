@@ -51,6 +51,7 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
                     } else {
                         "no".to_string()
                     },
+                    index.origin().to_string(),
                 ]
             })
             .collect::<Vec<_>>();
@@ -60,6 +61,7 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
                 "name".to_string(),
                 "fields".to_string(),
                 "unique".to_string(),
+                "origin".to_string(),
             ],
             &index_rows,
         );

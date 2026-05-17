@@ -160,7 +160,7 @@ pub(crate) fn metrics_candid_arg(window_start_ms: Option<u64>) -> String {
 
 pub(crate) fn render_schema_report(report: &[EntitySchemaDescription]) -> String {
     let mut output = String::new();
-    let rows = report
+    let entity_rows = report
         .iter()
         .map(|entity| {
             [
@@ -173,10 +173,70 @@ pub(crate) fn render_schema_report(report: &[EntitySchemaDescription]) -> String
             ]
         })
         .collect::<Vec<_>>();
+    let field_rows = report
+        .iter()
+        .flat_map(|entity| {
+            entity.fields().iter().map(|field| {
+                [
+                    entity.entity_name().to_string(),
+                    field.name().to_string(),
+                    field
+                        .slot()
+                        .map_or_else(|| "-".to_string(), |slot| slot.to_string()),
+                    field.kind().to_string(),
+                    yes_no(field.primary_key()).to_string(),
+                    yes_no(field.queryable()).to_string(),
+                ]
+            })
+        })
+        .collect::<Vec<_>>();
+    let index_rows = report
+        .iter()
+        .flat_map(|entity| {
+            entity.indexes().iter().map(|index| {
+                [
+                    entity.entity_name().to_string(),
+                    index.name().to_string(),
+                    render_field_list(index.fields()),
+                    yes_no(index.unique()).to_string(),
+                    index.origin().to_string(),
+                ]
+            })
+        })
+        .collect::<Vec<_>>();
+    let relation_rows = report
+        .iter()
+        .flat_map(|entity| {
+            entity.relations().iter().map(|relation| {
+                [
+                    entity.entity_name().to_string(),
+                    relation.field().to_string(),
+                    relation.target_entity_name().to_string(),
+                    format!("{:?}", relation.strength()),
+                    format!("{:?}", relation.cardinality()),
+                ]
+            })
+        })
+        .collect::<Vec<_>>();
 
     output.push_str("IcyDB schema\n");
-    output.push_str(format!("  entities: {}\n\n", report.len()).as_str());
-    append_schema_entity_table(&mut output, rows.as_slice());
+    output.push_str(
+        format!(
+            "  entities: {}\n  fields: {}\n  indexes: {}\n  relations: {}\n\n",
+            report.len(),
+            field_rows.len(),
+            index_rows.len(),
+            relation_rows.len(),
+        )
+        .as_str(),
+    );
+    append_schema_entity_table(&mut output, entity_rows.as_slice());
+    output.push('\n');
+    append_schema_field_table(&mut output, field_rows.as_slice());
+    output.push('\n');
+    append_schema_index_table(&mut output, index_rows.as_slice());
+    output.push('\n');
+    append_schema_relation_table(&mut output, relation_rows.as_slice());
 
     output
 }
@@ -344,6 +404,73 @@ fn append_schema_entity_table(output: &mut String, rows: &[[String; 6]]) {
             ColumnAlign::Right,
             ColumnAlign::Right,
             ColumnAlign::Right,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+        ],
+    );
+}
+
+fn append_schema_field_table(output: &mut String, rows: &[[String; 6]]) {
+    output.push_str("fields\n");
+    if rows.is_empty() {
+        output.push_str("  None\n");
+        return;
+    }
+
+    append_indented_table(
+        output,
+        "  ",
+        &["entity", "field", "slot", "type", "pk", "queryable"],
+        rows,
+        &[
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Right,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+        ],
+    );
+}
+
+fn append_schema_index_table(output: &mut String, rows: &[[String; 5]]) {
+    output.push_str("indexes\n");
+    if rows.is_empty() {
+        output.push_str("  None\n");
+        return;
+    }
+
+    append_indented_table(
+        output,
+        "  ",
+        &["entity", "index", "fields", "unique", "origin"],
+        rows,
+        &[
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+        ],
+    );
+}
+
+fn append_schema_relation_table(output: &mut String, rows: &[[String; 5]]) {
+    output.push_str("relations\n");
+    if rows.is_empty() {
+        output.push_str("  None\n");
+        return;
+    }
+
+    append_indented_table(
+        output,
+        "  ",
+        &["entity", "field", "target", "strength", "cardinality"],
+        rows,
+        &[
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
             ColumnAlign::Left,
             ColumnAlign::Left,
         ],
@@ -543,6 +670,14 @@ const fn entity_exec_errors(entity: &icydb::metrics::EntitySummary) -> u64 {
 
 fn optional_u64(value: Option<u64>) -> String {
     value.map_or_else(|| "none".to_string(), |value| value.to_string())
+}
+
+fn render_field_list(fields: &[String]) -> String {
+    if fields.is_empty() {
+        "-".to_string()
+    } else {
+        fields.join(", ")
+    }
 }
 
 const fn yes_no(value: bool) -> &'static str {

@@ -342,6 +342,7 @@ fn sql_canister_ddl_publication_updates_describe_explain_and_reads() {
             index.name() == "sql_test_user_rank_idx"
                 && index.fields().iter().map(String::as_str).eq(["rank"])
                 && !index.unique()
+                && index.origin() == "ddl"
         }),
         "post-DDL DESCRIBE should expose the published accepted index: {after_describe:?}",
     );
