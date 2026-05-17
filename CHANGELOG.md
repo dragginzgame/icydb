@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
+- `0.157.3` widens generated index rename reconciliation so accepted snapshots
+  that also contain DDL-created indexes can still hard-cut generated index names,
+  publishing a merged accepted snapshot that uses current generated index
+  contracts while preserving extra accepted DDL indexes. It also tightens the
+  SQL DDL contract around `DROP INDEX`, making generated/model-declared index
+  rejection actionable at the public DDL execution boundary and documenting that
+  SQL DDL can only drop non-unique field-path indexes created through SQL DDL.
+
 - `0.157.2` adds metadata-only reconciliation for hard-cut generated index
   renames, allowing stored accepted schema snapshots with old generated index
   names to publish the new generated names when ordinal, store, key, uniqueness,

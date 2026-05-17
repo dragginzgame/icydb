@@ -12,7 +12,7 @@ use crate::{
         registry::StoreHandle,
         schema::{
             AcceptedSchemaSnapshot, MutationPublicationBlocker, MutationPublicationPreflight,
-            PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
+            PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
             SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
             SchemaSecondaryIndexDropCleanupTarget, SchemaStore, SchemaTransitionDecision,
             SchemaTransitionPlanKind, compiled_schema_proposal_for_model, decide_schema_transition,
@@ -29,6 +29,7 @@ use crate::{
     traits::CanisterKind,
     types::EntityTag,
 };
+use std::collections::BTreeSet;
 
 use startup_field_path::execute_supported_field_path_index_addition;
 
@@ -149,6 +150,35 @@ pub(in crate::db) fn execute_sql_ddl_secondary_index_drop(
     })?;
 
     Ok(removed)
+}
+
+fn merge_generated_indexes_with_extra_accepted_indexes(
+    accepted: &PersistedSchemaSnapshot,
+    generated: &PersistedSchemaSnapshot,
+) -> PersistedSchemaSnapshot {
+    let generated_ordinals = generated
+        .indexes()
+        .iter()
+        .map(PersistedIndexSnapshot::ordinal)
+        .collect::<BTreeSet<_>>();
+    let mut indexes = generated.indexes().to_vec();
+    indexes.extend(
+        accepted
+            .indexes()
+            .iter()
+            .filter(|index| !generated_ordinals.contains(&index.ordinal()))
+            .cloned(),
+    );
+
+    PersistedSchemaSnapshot::new_with_indexes(
+        generated.version(),
+        generated.entity_path().to_string(),
+        generated.entity_name().to_string(),
+        generated.primary_key_field_id(),
+        generated.row_layout().clone(),
+        generated.fields().to_vec(),
+        indexes,
+    )
 }
 
 fn sql_ddl_drop_target_index_keys(
@@ -282,14 +312,23 @@ pub(in crate::db) fn ensure_accepted_schema_snapshot(
         let accepted_snapshot = match plan.kind() {
             SchemaTransitionPlanKind::AddNonUniqueFieldPathIndex
             | SchemaTransitionPlanKind::ExactMatch => actual,
-            SchemaTransitionPlanKind::AppendOnlyNullableFields
-            | SchemaTransitionPlanKind::MetadataOnlyIndexRename => {
+            SchemaTransitionPlanKind::AppendOnlyNullableFields => {
                 if let Err(error) = schema_store.insert_persisted_snapshot(entity_tag, &expected) {
                     record_schema_store_footprint(schema_store, entity_tag, entity_path);
                     record_schema_reconcile(entity_path, SchemaReconcileOutcome::StoreWriteError);
                     return Err(error);
                 }
                 expected
+            }
+            SchemaTransitionPlanKind::MetadataOnlyIndexRename => {
+                let merged =
+                    merge_generated_indexes_with_extra_accepted_indexes(&actual, &expected);
+                if let Err(error) = schema_store.insert_persisted_snapshot(entity_tag, &merged) {
+                    record_schema_store_footprint(schema_store, entity_tag, entity_path);
+                    record_schema_reconcile(entity_path, SchemaReconcileOutcome::StoreWriteError);
+                    return Err(error);
+                }
+                merged
             }
         };
         return accept_reconciled_schema_snapshot(
@@ -355,13 +394,21 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
                 validate_publishable_transition_plan(entity_path, &plan)?;
                 actual
             }
-            SchemaTransitionPlanKind::AppendOnlyNullableFields
-            | SchemaTransitionPlanKind::MetadataOnlyIndexRename => {
+            SchemaTransitionPlanKind::AppendOnlyNullableFields => {
                 validate_publishable_transition_plan(entity_path, &plan)?;
                 store.with_schema_mut(|schema_store| {
                     schema_store.insert_persisted_snapshot(entity_tag, &expected)
                 })?;
                 expected
+            }
+            SchemaTransitionPlanKind::MetadataOnlyIndexRename => {
+                validate_publishable_transition_plan(entity_path, &plan)?;
+                let merged =
+                    merge_generated_indexes_with_extra_accepted_indexes(&actual, &expected);
+                store.with_schema_mut(|schema_store| {
+                    schema_store.insert_persisted_snapshot(entity_tag, &merged)
+                })?;
+                merged
             }
             SchemaTransitionPlanKind::AddNonUniqueFieldPathIndex => {
                 execute_supported_field_path_index_addition(
@@ -830,6 +877,13 @@ mod tests {
     }
 
     fn indexed_schema_snapshot_with_renamed_index(index_name: &str) -> PersistedSchemaSnapshot {
+        indexed_schema_snapshot_with_renamed_index_and_extra_indexes(index_name, Vec::new())
+    }
+
+    fn indexed_schema_snapshot_with_renamed_index_and_extra_indexes(
+        index_name: &str,
+        extra_indexes: Vec<PersistedIndexSnapshot>,
+    ) -> PersistedSchemaSnapshot {
         let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
         let expected = proposal.initial_persisted_schema_snapshot();
         let [expected_index] = expected.indexes() else {
@@ -843,6 +897,8 @@ mod tests {
             expected_index.key().clone(),
             expected_index.predicate_sql().map(str::to_string),
         );
+        let mut indexes = vec![renamed_index];
+        indexes.extend(extra_indexes);
 
         PersistedSchemaSnapshot::new_with_indexes(
             expected.version(),
@@ -851,7 +907,24 @@ mod tests {
             expected.primary_key_field_id(),
             expected.row_layout().clone(),
             expected.fields().to_vec(),
-            vec![renamed_index],
+            indexes,
+        )
+    }
+
+    fn indexed_schema_ddl_extra_index() -> PersistedIndexSnapshot {
+        let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
+        let expected = proposal.initial_persisted_schema_snapshot();
+        let [expected_index] = expected.indexes() else {
+            panic!("indexed schema fixture should have one generated index");
+        };
+
+        PersistedIndexSnapshot::new(
+            expected_index.ordinal() + 1,
+            "ddl_name_idx".to_string(),
+            "schema::reconcile::tests::IndexedSchemaEntity::ddl_name_idx".to_string(),
+            false,
+            expected_index.key().clone(),
+            None,
         )
     }
 
@@ -1047,6 +1120,40 @@ mod tests {
         assert_eq!(accepted.persisted_snapshot().indexes()[0].name(), "by_name");
         assert_eq!(latest.indexes()[0].name(), "by_name");
         assert_eq!(schema_store.len(), 1);
+    }
+
+    #[test]
+    fn ensure_accepted_schema_snapshot_preserves_ddl_indexes_during_generated_index_rename() {
+        let mut schema_store = SchemaStore::init(test_memory(239));
+        let stored = indexed_schema_snapshot_with_renamed_index_and_extra_indexes(
+            "IndexedSchemaEntity|name",
+            vec![indexed_schema_ddl_extra_index()],
+        );
+        schema_store
+            .insert_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG, &stored)
+            .expect("stored renamed-index schema snapshot should encode");
+
+        let accepted = super::ensure_accepted_schema_snapshot(
+            &mut schema_store,
+            IndexedSchemaEntity::ENTITY_TAG,
+            IndexedSchemaEntity::MODEL.path(),
+            IndexedSchemaEntity::MODEL,
+        )
+        .expect("generated index rename with extra DDL indexes should be accepted");
+        let latest = schema_store
+            .latest_persisted_snapshot(IndexedSchemaEntity::ENTITY_TAG)
+            .expect("schema store latest snapshot should decode")
+            .expect("schema store should retain accepted merged snapshot");
+
+        assert_eq!(accepted.persisted_snapshot().indexes().len(), 2);
+        assert_eq!(accepted.persisted_snapshot().indexes()[0].name(), "by_name");
+        assert_eq!(
+            accepted.persisted_snapshot().indexes()[1].name(),
+            "ddl_name_idx",
+        );
+        assert_eq!(latest.indexes().len(), 2);
+        assert_eq!(latest.indexes()[0].name(), "by_name");
+        assert_eq!(latest.indexes()[1].name(), "ddl_name_idx");
     }
 
     #[test]

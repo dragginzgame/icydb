@@ -257,7 +257,8 @@ pub(in crate::db::schema) fn decide_schema_transition(
 
 // Generated index names are diagnostic/catalog metadata; physical index keys
 // are addressed by stable ordinal. This admits hard-cut generated-name changes
-// only when every durable index contract other than `name` is unchanged.
+// while preserving extra accepted DDL indexes, but only when every durable
+// generated index contract other than `name` is unchanged.
 fn generated_index_names_only_changed(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
@@ -271,13 +272,19 @@ fn generated_index_names_only_changed(
         || actual.primary_key_field_id() != expected.primary_key_field_id()
         || actual.row_layout() != expected.row_layout()
         || actual.fields() != expected.fields()
-        || actual.indexes().len() != expected.indexes().len()
     {
         return false;
     }
 
     let mut renamed = false;
-    for (actual_index, expected_index) in actual.indexes().iter().zip(expected.indexes()) {
+    for expected_index in expected.indexes() {
+        let Some(actual_index) = actual
+            .indexes()
+            .iter()
+            .find(|index| index.ordinal() == expected_index.ordinal())
+        else {
+            return false;
+        };
         if !index_contract_matches_ignoring_name(actual_index, expected_index) {
             return false;
         }
@@ -285,6 +292,18 @@ fn generated_index_names_only_changed(
     }
 
     renamed
+        && actual
+            .indexes()
+            .iter()
+            .filter(|index| {
+                !expected
+                    .indexes()
+                    .iter()
+                    .any(|expected_index| expected_index.ordinal() == index.ordinal())
+            })
+            .all(|index| {
+                SchemaMutationRequest::from_accepted_non_unique_field_path_index(index).is_ok()
+            })
 }
 
 fn index_contract_matches_ignoring_name(
@@ -923,8 +942,16 @@ mod tests {
     }
 
     fn name_field_path_index_in_store(name: &str, store: String) -> PersistedIndexSnapshot {
+        named_field_path_index_with_ordinal(name, 1, store)
+    }
+
+    fn named_field_path_index_with_ordinal(
+        name: &str,
+        ordinal: u16,
+        store: String,
+    ) -> PersistedIndexSnapshot {
         PersistedIndexSnapshot::new(
-            1,
+            ordinal,
             name.to_string(),
             store,
             false,
@@ -986,6 +1013,49 @@ mod tests {
         assert_eq!(
             plan.mutation_plan().compatibility(),
             MutationCompatibility::MetadataOnlySafe,
+        );
+        assert_eq!(
+            plan.mutation_plan().rebuild_requirement(),
+            RebuildRequirement::NoRebuildRequired,
+        );
+    }
+
+    #[test]
+    fn schema_transition_policy_accepts_generated_index_rename_with_extra_ddl_indexes() {
+        let base = expected_snapshot();
+        let generated_store = "test::SchemaReconcileEntity::name_index".to_string();
+        let ddl_index = named_field_path_index_with_ordinal(
+            "ddl_name_idx",
+            2,
+            "test::SchemaReconcileEntity::ddl_name_idx".to_string(),
+        );
+        let stored = snapshot_with_indexes(
+            &base,
+            vec![
+                name_field_path_index_in_store(
+                    "SchemaReconcileEntity|name",
+                    generated_store.clone(),
+                ),
+                ddl_index,
+            ],
+        );
+        let generated = snapshot_with_indexes(
+            &base,
+            vec![name_field_path_index_in_store(
+                "idx_schema_reconcile_entity__name",
+                generated_store,
+            )],
+        );
+
+        let SchemaTransitionDecision::Accepted(plan) =
+            decide_schema_transition(&stored, &generated)
+        else {
+            panic!("generated index rename with extra DDL index should be metadata-only accepted");
+        };
+
+        assert_eq!(
+            plan.kind(),
+            SchemaTransitionPlanKind::MetadataOnlyIndexRename
         );
         assert_eq!(
             plan.mutation_plan().rebuild_requirement(),

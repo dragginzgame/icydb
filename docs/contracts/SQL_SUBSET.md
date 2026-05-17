@@ -35,6 +35,7 @@ The remaining public SQL surfaces are:
 
 - `execute_sql_query::<E>(...)`
 - `execute_sql_update::<E>(...)`
+- `execute_sql_ddl::<E>(...)`
 
 Both stay hard-bound to one concrete entity type and return SQL-shaped output.
 
@@ -118,6 +119,25 @@ Supported commands:
 `SHOW TABLES` is not a separate metadata family.
 It is an alias for `SHOW ENTITIES` and should return the same payload.
 
+### DDL
+
+Supported shapes:
+
+- `CREATE INDEX name ON entity (field_path)`
+- `DROP INDEX name ON entity`
+
+SQL DDL is a frontend over accepted schema catalog mutation, not the source of
+schema authority.
+
+`CREATE INDEX` currently admits one non-unique field-path secondary index.
+The field path must already exist in the accepted schema, must be indexable,
+and must not duplicate an accepted index name or field-path index.
+
+`DROP INDEX` currently admits only non-unique field-path indexes that were
+created through SQL DDL. Generated/model-declared indexes are owned by the
+entity schema macro and must be removed there, then reconciled through the
+normal accepted-schema publication path.
+
 ## Public SQL Mutation Execution
 
 Supported public mutation shapes are:
@@ -140,6 +160,7 @@ Public SQL ownership is split deliberately:
 
 - `execute_sql_query::<E>(...)` owns read, explain, and introspection SQL
 - `execute_sql_update::<E>(...)` owns state-changing SQL
+- `execute_sql_ddl::<E>(...)` owns accepted-catalog schema DDL SQL
 
 ## Blob Literals and Blob Values
 
