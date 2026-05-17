@@ -47,14 +47,14 @@ pub(crate) enum SqlDdlStatement {
 ///
 /// SqlCreateIndexStatement
 ///
-/// Narrow parsed `CREATE INDEX` frontend supported by the first DDL slice.
+/// Parsed `CREATE INDEX` frontend supported by SQL DDL.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlCreateIndexStatement {
     pub(crate) name: String,
     pub(crate) entity: String,
-    pub(crate) field_path: String,
+    pub(crate) field_paths: Vec<String>,
     pub(crate) uniqueness: SqlCreateIndexUniqueness,
     pub(crate) if_not_exists: bool,
 }

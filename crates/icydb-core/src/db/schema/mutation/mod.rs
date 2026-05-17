@@ -1673,10 +1673,20 @@ pub(in crate::db) fn resolve_sql_ddl_secondary_index_drop_candidate(
     if index.generated() {
         return Err(SchemaDdlIndexDropCandidateError::Generated);
     }
-    let [field_path] = index.key().field_paths() else {
+    let field_paths = index.key().field_paths();
+    if field_paths.is_empty() {
         return Err(SchemaDdlIndexDropCandidateError::Unsupported);
+    }
+    let field_path = match field_paths {
+        [field_path] => field_path.path().to_vec(),
+        _ => vec![
+            field_paths
+                .iter()
+                .map(|field_path| field_path.path().join("."))
+                .collect::<Vec<_>>()
+                .join(","),
+        ],
     };
-    let field_path = field_path.path().to_vec();
 
     Ok((index, field_path))
 }

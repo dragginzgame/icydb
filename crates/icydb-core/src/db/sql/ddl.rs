@@ -279,7 +279,7 @@ impl BoundSqlDdlNoOpRequest {
 pub(in crate::db) struct BoundSqlCreateIndexRequest {
     index_name: String,
     entity_name: String,
-    field_path: BoundSqlDdlFieldPath,
+    field_paths: Vec<BoundSqlDdlFieldPath>,
     candidate_index: PersistedIndexSnapshot,
 }
 
@@ -296,10 +296,10 @@ impl BoundSqlCreateIndexRequest {
         self.entity_name.as_str()
     }
 
-    /// Borrow the accepted field-path target.
+    /// Borrow the accepted field-path targets.
     #[must_use]
-    pub(in crate::db) const fn field_path(&self) -> &BoundSqlDdlFieldPath {
-        &self.field_path
+    pub(in crate::db) const fn field_paths(&self) -> &[BoundSqlDdlFieldPath] {
+        self.field_paths.as_slice()
     }
 
     /// Borrow the candidate accepted index snapshot for mutation admission.
@@ -531,13 +531,16 @@ fn bind_create_index_statement(
         });
     }
 
-    let field_path =
-        bind_create_index_field_path(statement.field_path.as_str(), entity_name, schema)?;
+    let field_paths = statement
+        .field_paths
+        .iter()
+        .map(|field_path| bind_create_index_field_path(field_path.as_str(), entity_name, schema))
+        .collect::<Result<Vec<_>, _>>()?;
     if let Some(existing_index) = find_field_path_index_by_name(schema, statement.name.as_str()) {
         if statement.if_not_exists
             && existing_field_path_index_matches_request(
                 existing_index,
-                &field_path,
+                field_paths.as_slice(),
                 statement.uniqueness,
             )
         {
@@ -547,7 +550,7 @@ fn bind_create_index_statement(
                     index_name: statement.name.clone(),
                     entity_name: entity_name.to_string(),
                     target_store: existing_index.store().to_string(),
-                    field_path: field_path.accepted_path().to_vec(),
+                    field_path: ddl_field_path_report(field_paths.as_slice()),
                 }),
             });
         }
@@ -557,10 +560,10 @@ fn bind_create_index_statement(
         });
     }
     reject_duplicate_expression_index_name(statement.name.as_str(), schema)?;
-    reject_duplicate_field_path_index(&field_path, schema)?;
+    reject_duplicate_field_path_index(field_paths.as_slice(), schema)?;
     let candidate_index = candidate_index_snapshot(
         statement.name.as_str(),
-        &field_path,
+        field_paths.as_slice(),
         statement.uniqueness,
         schema,
         index_store_path,
@@ -570,7 +573,7 @@ fn bind_create_index_statement(
         statement: BoundSqlDdlStatement::CreateIndex(BoundSqlCreateIndexRequest {
             index_name: statement.name.clone(),
             entity_name: entity_name.to_string(),
-            field_path,
+            field_paths,
             candidate_index,
         }),
     })
@@ -690,14 +693,17 @@ fn find_field_path_index_by_name<'a>(
 
 fn existing_field_path_index_matches_request(
     index: &crate::db::schema::SchemaIndexInfo,
-    field_path: &BoundSqlDdlFieldPath,
+    field_paths: &[BoundSqlDdlFieldPath],
     uniqueness: SqlCreateIndexUniqueness,
 ) -> bool {
     let fields = index.fields();
 
     index.unique() == matches!(uniqueness, SqlCreateIndexUniqueness::Unique)
-        && fields.len() == 1
-        && fields[0].path() == field_path.accepted_path()
+        && fields.len() == field_paths.len()
+        && fields
+            .iter()
+            .zip(field_paths)
+            .all(|(field, requested)| field.path() == requested.accepted_path())
 }
 
 fn reject_duplicate_expression_index_name(
@@ -718,43 +724,65 @@ fn reject_duplicate_expression_index_name(
 }
 
 fn reject_duplicate_field_path_index(
-    field_path: &BoundSqlDdlFieldPath,
+    field_paths: &[BoundSqlDdlFieldPath],
     schema: &SchemaInfo,
 ) -> Result<(), SqlDdlBindError> {
     let Some(existing_index) = schema.field_path_indexes().iter().find(|index| {
         let fields = index.fields();
-        fields.len() == 1 && fields[0].path() == field_path.accepted_path()
+        fields.len() == field_paths.len()
+            && fields
+                .iter()
+                .zip(field_paths)
+                .all(|(field, requested)| field.path() == requested.accepted_path())
     }) else {
         return Ok(());
     };
 
     Err(SqlDdlBindError::DuplicateFieldPathIndex {
-        field_path: field_path.accepted_path().join("."),
+        field_path: ddl_field_path_report(field_paths).join(","),
         existing_index: existing_index.name().to_string(),
     })
 }
 
 fn candidate_index_snapshot(
     index_name: &str,
-    field_path: &BoundSqlDdlFieldPath,
+    field_paths: &[BoundSqlDdlFieldPath],
     uniqueness: SqlCreateIndexUniqueness,
     schema: &SchemaInfo,
     index_store_path: &'static str,
 ) -> Result<PersistedIndexSnapshot, SqlDdlBindError> {
-    let key = schema
-        .accepted_index_field_path_snapshot(field_path.root(), field_path.segments())
-        .ok_or_else(|| SqlDdlBindError::FieldPathNotAcceptedCatalogBacked {
-            field_path: field_path.accepted_path().join("."),
-        })?;
+    let keys = field_paths
+        .iter()
+        .map(|field_path| {
+            schema
+                .accepted_index_field_path_snapshot(field_path.root(), field_path.segments())
+                .ok_or_else(|| SqlDdlBindError::FieldPathNotAcceptedCatalogBacked {
+                    field_path: field_path.accepted_path().join("."),
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(PersistedIndexSnapshot::new_sql_ddl(
         schema.next_secondary_index_ordinal(),
         index_name.to_string(),
         index_store_path.to_string(),
         matches!(uniqueness, SqlCreateIndexUniqueness::Unique),
-        PersistedIndexKeySnapshot::FieldPath(vec![key]),
+        PersistedIndexKeySnapshot::FieldPath(keys),
         None,
     ))
+}
+
+fn ddl_field_path_report(field_paths: &[BoundSqlDdlFieldPath]) -> Vec<String> {
+    match field_paths {
+        [field_path] => field_path.accepted_path().to_vec(),
+        _ => vec![
+            field_paths
+                .iter()
+                .map(|field_path| field_path.accepted_path().join("."))
+                .collect::<Vec<_>>()
+                .join(","),
+        ],
+    }
 }
 
 /// Lower one bound SQL DDL request through schema mutation admission.
@@ -805,7 +833,7 @@ fn ddl_preparation_report(bound: &BoundSqlDdlRequest) -> SqlDdlPreparationReport
                 mutation_kind: SqlDdlMutationKind::AddFieldPathIndex,
                 target_index: target.name().to_string(),
                 target_store: target.store().to_string(),
-                field_path: create.field_path().accepted_path().to_vec(),
+                field_path: ddl_field_path_report(create.field_paths()),
                 execution_status: SqlDdlExecutionStatus::PreparedOnly,
                 rows_scanned: 0,
                 index_keys_written: 0,

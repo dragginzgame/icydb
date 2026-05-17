@@ -2093,9 +2093,12 @@ fn sql_ddl_create_index_binds_against_accepted_catalog() {
 
     assert_eq!(create.index_name(), "session_sql_age_idx");
     assert_eq!(create.entity_name(), "SessionSqlEntity");
-    assert_eq!(create.field_path().root(), "age");
-    assert!(create.field_path().segments().is_empty());
-    assert_eq!(create.field_path().accepted_path(), ["age".to_string()]);
+    let [field_path] = create.field_paths() else {
+        panic!("single-field CREATE INDEX should bind one field path");
+    };
+    assert_eq!(field_path.root(), "age");
+    assert!(field_path.segments().is_empty());
+    assert_eq!(field_path.accepted_path(), ["age".to_string()]);
     assert_eq!(create.candidate_index().name(), "session_sql_age_idx");
     assert_eq!(create.candidate_index().store(), SessionSqlStore::PATH);
     assert!(!create.candidate_index().unique());
@@ -2122,13 +2125,50 @@ fn sql_ddl_create_unique_index_binds_against_accepted_catalog() {
 
     assert_eq!(create.index_name(), "session_sql_name_idx");
     assert_eq!(create.entity_name(), "SessionSqlEntity");
-    assert_eq!(create.field_path().accepted_path(), ["name".to_string()]);
+    let [field_path] = create.field_paths() else {
+        panic!("single-field CREATE UNIQUE INDEX should bind one field path");
+    };
+    assert_eq!(field_path.accepted_path(), ["name".to_string()]);
     assert_eq!(create.candidate_index().name(), "session_sql_name_idx");
     assert_eq!(create.candidate_index().store(), SessionSqlStore::PATH);
     assert!(create.candidate_index().unique());
     assert!(
         !create.candidate_index().generated(),
         "SQL DDL-created unique indexes should carry DDL origin in accepted metadata",
+    );
+}
+
+#[test]
+fn sql_ddl_create_multi_field_index_binds_against_accepted_catalog() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let statement =
+        parse_sql("CREATE INDEX session_sql_age_name_idx ON SessionSqlEntity (age, name)")
+            .expect("multi-field CREATE INDEX should parse before binding");
+
+    let bound =
+        bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("multi-field CREATE INDEX should bind against accepted schema metadata");
+    let BoundSqlDdlStatement::CreateIndex(create) = bound.statement() else {
+        panic!("multi-field CREATE INDEX should bind to a create-index DDL request");
+    };
+
+    assert_eq!(create.index_name(), "session_sql_age_name_idx");
+    assert_eq!(create.entity_name(), "SessionSqlEntity");
+    assert_eq!(
+        create
+            .field_paths()
+            .iter()
+            .map(|field_path| field_path.accepted_path().join("."))
+            .collect::<Vec<_>>(),
+        vec!["age".to_string(), "name".to_string()],
+    );
+    assert_eq!(create.candidate_index().name(), "session_sql_age_name_idx");
+    assert_eq!(create.candidate_index().store(), SessionSqlStore::PATH);
+    assert!(!create.candidate_index().unique());
+    assert!(
+        !create.candidate_index().generated(),
+        "SQL DDL-created composite indexes should carry DDL origin in accepted metadata",
     );
 }
 
@@ -2553,6 +2593,100 @@ fn execute_sql_ddl_publishes_supported_unique_field_path_index() {
         indexes.iter().any(|index| index
             == "UNIQUE INDEX session_sql_name_unique_idx (name) [state=ready] [origin=ddl]"),
         "SHOW INDEXES FROM should expose the DDL-created unique index",
+    );
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
+fn execute_sql_ddl_publishes_and_drops_supported_multi_field_path_index() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
+
+    let result = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE INDEX session_sql_age_name_idx ON SessionSqlEntity (age, name)",
+        )
+        .expect("DDL execution should publish the supported multi-field index");
+    let SqlStatementResult::Ddl(report) = result else {
+        panic!("DDL execution should return a DDL report");
+    };
+
+    assert_eq!(
+        report.mutation_kind(),
+        SqlDdlMutationKind::AddFieldPathIndex
+    );
+    assert_eq!(report.target_index(), "session_sql_age_name_idx");
+    assert_eq!(report.field_path(), ["age,name".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+
+    let SqlStatementResult::ShowIndexes(indexes) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .expect("SHOW INDEXES FROM should read the accepted published index set")
+    else {
+        panic!("SHOW INDEXES FROM should return an index metadata payload");
+    };
+    assert!(
+        indexes.iter().any(|index| index
+            == "INDEX session_sql_age_name_idx (age, name) [state=ready] [origin=ddl]"),
+        "SHOW INDEXES FROM should expose the DDL-created multi-field index",
+    );
+
+    let result = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "DROP INDEX session_sql_age_name_idx ON SessionSqlEntity",
+        )
+        .expect("DDL execution should drop the supported multi-field index");
+    let SqlStatementResult::Ddl(report) = result else {
+        panic!("DROP INDEX should return a DDL report");
+    };
+    assert_eq!(
+        report.mutation_kind(),
+        SqlDdlMutationKind::DropSecondaryIndex
+    );
+    assert_eq!(report.target_index(), "session_sql_age_name_idx");
+    assert_eq!(report.field_path(), ["age,name".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
+fn execute_sql_ddl_publishes_supported_unique_multi_field_path_index() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
+
+    let result = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE UNIQUE INDEX session_sql_age_name_unique_idx ON SessionSqlEntity (age, name)",
+        )
+        .expect("DDL execution should publish the supported unique multi-field index");
+    let SqlStatementResult::Ddl(report) = result else {
+        panic!("DDL execution should return a DDL report");
+    };
+
+    assert_eq!(
+        report.mutation_kind(),
+        SqlDdlMutationKind::AddFieldPathIndex
+    );
+    assert_eq!(report.target_index(), "session_sql_age_name_unique_idx");
+    assert_eq!(report.field_path(), ["age,name".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+
+    let SqlStatementResult::ShowIndexes(indexes) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .expect("SHOW INDEXES FROM should read the accepted published index set")
+    else {
+        panic!("SHOW INDEXES FROM should return an index metadata payload");
+    };
+    assert!(
+        indexes.iter().any(|index| index
+            == "UNIQUE INDEX session_sql_age_name_unique_idx (age, name) [state=ready] [origin=ddl]"),
+        "SHOW INDEXES FROM should expose the DDL-created unique multi-field index",
     );
 
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);

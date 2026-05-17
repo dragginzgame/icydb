@@ -115,24 +115,7 @@ impl Parser {
         self.expect_keyword(Keyword::On)?;
         let entity = self.expect_identifier()?;
         self.expect_lparen()?;
-        let field_path = self.expect_identifier()?;
-
-        if self.peek_lparen() {
-            return Err(SqlParseError::unsupported_feature(
-                "SQL DDL expression index keys",
-            ));
-        }
-        if self.peek_keyword(Keyword::Asc) || self.peek_keyword(Keyword::Desc) {
-            return Err(SqlParseError::unsupported_feature(
-                "SQL DDL CREATE INDEX key ordering modifiers",
-            ));
-        }
-        if self.eat_comma() {
-            return Err(SqlParseError::unsupported_feature(
-                "SQL DDL multi-field CREATE INDEX keys",
-            ));
-        }
-
+        let field_paths = self.parse_create_index_field_paths()?;
         self.expect_rparen()?;
 
         if self.peek_keyword(Keyword::Where) {
@@ -144,10 +127,34 @@ impl Parser {
         Ok(SqlCreateIndexStatement {
             name,
             entity,
-            field_path,
+            field_paths,
             uniqueness,
             if_not_exists,
         })
+    }
+
+    fn parse_create_index_field_paths(&mut self) -> Result<Vec<String>, SqlParseError> {
+        let mut field_paths = Vec::new();
+        loop {
+            let field_path = self.expect_identifier()?;
+            if self.peek_lparen() {
+                return Err(SqlParseError::unsupported_feature(
+                    "SQL DDL expression index keys",
+                ));
+            }
+            if self.peek_keyword(Keyword::Asc) || self.peek_keyword(Keyword::Desc) {
+                return Err(SqlParseError::unsupported_feature(
+                    "SQL DDL CREATE INDEX key ordering modifiers",
+                ));
+            }
+            field_paths.push(field_path);
+
+            if !self.eat_comma() {
+                break;
+            }
+        }
+
+        Ok(field_paths)
     }
 
     fn parse_create_index_if_not_exists(&mut self) -> Result<bool, SqlParseError> {

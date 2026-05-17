@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
+- `0.157.13` widens SQL `CREATE INDEX` and `CREATE UNIQUE INDEX` to accept
+  multi-field field-path indexes, carrying the composite key through parser
+  intent, accepted-catalog binding, rebuild publication, `SHOW INDEXES`, and
+  `DROP INDEX`. Composite DDL reports keep the existing `field_path` payload
+  stable by reporting the indexed fields as a comma-separated field list.
+
+  ```
+  CREATE INDEX character_level_class_idx ON Character (level, class_name);
+  CREATE UNIQUE INDEX character_level_class_unique_idx ON Character (level, class_name);
+  SHOW INDEXES FROM Character;
+  DROP INDEX character_level_class_idx ON Character;
+  ```
+
 - `0.157.12` enables SQL `CREATE UNIQUE INDEX` for single field-path indexes.
   Field-path rebuild staging now validates unique index component ownership
   before publication, so duplicate unique values fail closed while distinct
