@@ -107,6 +107,15 @@ impl Parser {
     }
 
     fn parse_create_index_statement(&mut self) -> Result<SqlCreateIndexStatement, SqlParseError> {
+        if self.eat_identifier_keyword("IF") {
+            if self.eat_keyword(Keyword::Not) {
+                let _ = self.eat_identifier_keyword("EXISTS");
+            }
+            return Err(SqlParseError::unsupported_feature(
+                "CREATE INDEX IF NOT EXISTS",
+            ));
+        }
+
         let name = self.expect_identifier()?;
         self.expect_keyword(Keyword::On)?;
         let entity = self.expect_identifier()?;
@@ -116,6 +125,11 @@ impl Parser {
         if self.peek_lparen() {
             return Err(SqlParseError::unsupported_feature(
                 "SQL DDL expression index keys",
+            ));
+        }
+        if self.peek_keyword(Keyword::Asc) || self.peek_keyword(Keyword::Desc) {
+            return Err(SqlParseError::unsupported_feature(
+                "SQL DDL CREATE INDEX key ordering modifiers",
             ));
         }
         if self.eat_comma() {
@@ -153,6 +167,11 @@ impl Parser {
     }
 
     fn parse_drop_index_statement(&mut self) -> Result<SqlDropIndexStatement, SqlParseError> {
+        if self.eat_identifier_keyword("IF") {
+            let _ = self.eat_identifier_keyword("EXISTS");
+            return Err(SqlParseError::unsupported_feature("DROP INDEX IF EXISTS"));
+        }
+
         let name = self.expect_identifier()?;
         self.expect_keyword(Keyword::On)?;
         let entity = self.expect_identifier()?;

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
+- `0.157.8` improves SQL DDL usability around the current index lifecycle
+  surface. `CREATE INDEX IF NOT EXISTS` and `DROP INDEX IF EXISTS` now fail
+  with explicit unsupported-feature diagnostics while those idempotency forms
+  remain unsupported, `CREATE INDEX ... (field ASC|DESC)` now reports an
+  explicit unsupported key-ordering diagnostic, and the interactive SQL shell
+  help now includes the supported create/show/describe/drop index loop.
+
+```
+CREATE INDEX character_level_idx ON Character (level);
+SHOW INDEXES FROM Character;
+DESCRIBE Character;
+DROP INDEX character_level_idx ON Character;
+```
+
 - `0.157.7` carries accepted index origin metadata through structured schema
   descriptions and `DESCRIBE` output, so DDL-created indexes and generated
   model indexes can be distinguished consistently across `SHOW INDEXES`,

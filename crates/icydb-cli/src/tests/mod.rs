@@ -310,6 +310,10 @@ fn shell_help_text_mentions_current_perf_legend() {
     assert!(help.contains("{pc=.../...}"));
     assert!(help.contains("{er=...}"));
     assert!(help.contains("{r=...}"));
+    assert!(help.contains("CREATE INDEX character_level_idx ON character (level);"));
+    assert!(help.contains("SHOW INDEXES FROM character;"));
+    assert!(help.contains("DESCRIBE character;"));
+    assert!(help.contains("DROP INDEX character_level_idx ON character;"));
 }
 
 #[test]

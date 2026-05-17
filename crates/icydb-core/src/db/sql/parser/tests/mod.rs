@@ -3614,6 +3614,22 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         ),
         ("SHOW COLUMNS users WHERE age > 1", "SHOW COLUMNS modifiers"),
         ("SHOW ENTITIES users", "SHOW ENTITIES modifiers"),
+        (
+            "CREATE INDEX IF NOT EXISTS user_age_idx ON users (age)",
+            "CREATE INDEX IF NOT EXISTS",
+        ),
+        (
+            "CREATE INDEX user_age_idx ON users (age DESC)",
+            "SQL DDL CREATE INDEX key ordering modifiers",
+        ),
+        (
+            "CREATE INDEX user_age_idx ON users (age ASC)",
+            "SQL DDL CREATE INDEX key ordering modifiers",
+        ),
+        (
+            "DROP INDEX IF EXISTS user_age_idx ON users",
+            "DROP INDEX IF EXISTS",
+        ),
     ];
 
     for (sql, expected_feature) in cases {

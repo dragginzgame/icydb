@@ -141,11 +141,17 @@ schema authority.
 `CREATE INDEX` currently admits one non-unique field-path secondary index.
 The field path must already exist in the accepted schema, must be indexable,
 and must not duplicate an accepted index name or field-path index.
+`CREATE INDEX IF NOT EXISTS` is not yet supported and fails with an explicit
+unsupported-feature diagnostic.
+Per-key ordering modifiers such as `ASC` and `DESC` are not yet supported for
+SQL DDL indexes and fail with an explicit unsupported-feature diagnostic.
 
 `DROP INDEX` currently admits only non-unique field-path indexes that were
 created through SQL DDL. Generated/model-declared indexes are owned by the
 entity schema macro and must be removed there, then reconciled through the
 normal accepted-schema publication path.
+`DROP INDEX IF EXISTS` is not yet supported and fails with an explicit
+unsupported-feature diagnostic.
 
 ## Public SQL Mutation Execution
 
