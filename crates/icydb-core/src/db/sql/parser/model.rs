@@ -55,6 +55,7 @@ pub(crate) struct SqlCreateIndexStatement {
     pub(crate) name: String,
     pub(crate) entity: String,
     pub(crate) field_paths: Vec<String>,
+    pub(crate) predicate_sql: Option<String>,
     pub(crate) uniqueness: SqlCreateIndexUniqueness,
     pub(crate) if_not_exists: bool,
 }

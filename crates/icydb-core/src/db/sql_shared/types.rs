@@ -235,6 +235,48 @@ pub(crate) fn token_kind_label(kind: &TokenKind) -> String {
     }
 }
 
+pub(crate) fn token_kind_sql_fragment(kind: &TokenKind) -> String {
+    match kind {
+        TokenKind::Identifier(name) | TokenKind::Number(name) => name.clone(),
+        TokenKind::StringLiteral(value) => format!("'{}'", value.replace('\'', "''")),
+        TokenKind::BlobLiteral(bytes) => {
+            let mut rendered = String::with_capacity(bytes.len().saturating_mul(2) + 3);
+            rendered.push_str("X'");
+            for byte in bytes {
+                rendered.push(hex_digit(byte >> 4));
+                rendered.push(hex_digit(byte & 0x0f));
+            }
+            rendered.push('\'');
+            rendered
+        }
+        TokenKind::Keyword(keyword) => keyword.as_str().to_string(),
+        TokenKind::Question => "?".to_string(),
+        TokenKind::Comma => ",".to_string(),
+        TokenKind::Dot => ".".to_string(),
+        TokenKind::Plus => "+".to_string(),
+        TokenKind::Minus => "-".to_string(),
+        TokenKind::Slash => "/".to_string(),
+        TokenKind::LParen => "(".to_string(),
+        TokenKind::RParen => ")".to_string(),
+        TokenKind::Semicolon => ";".to_string(),
+        TokenKind::Star => "*".to_string(),
+        TokenKind::Eq => "=".to_string(),
+        TokenKind::Ne => "!=".to_string(),
+        TokenKind::Lt => "<".to_string(),
+        TokenKind::Lte => "<=".to_string(),
+        TokenKind::Gt => ">".to_string(),
+        TokenKind::Gte => ">=".to_string(),
+    }
+}
+
+const fn hex_digit(nibble: u8) -> char {
+    match nibble {
+        0..=9 => (b'0' + nibble) as char,
+        10..=15 => (b'A' + nibble - 10) as char,
+        _ => '?',
+    }
+}
+
 pub(in crate::db::sql_shared) fn parse_number_literal(raw: &str) -> Result<Value, SqlParseError> {
     if raw.contains('.') {
         let decimal =

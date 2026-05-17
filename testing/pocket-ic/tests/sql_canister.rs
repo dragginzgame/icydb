@@ -240,6 +240,49 @@ fn sql_canister_ddl_endpoint_publishes_supported_field_path_index() {
 }
 
 #[test]
+fn sql_canister_ddl_endpoint_publishes_supported_filtered_field_path_index() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let ddl = ddl_sql(
+        &fixture,
+        "CREATE INDEX sql_test_user_filtered_rank_idx ON SqlTestUser (rank) WHERE age > 30",
+    )
+    .expect("supported filtered CREATE INDEX DDL should publish through the canister endpoint");
+
+    let SqlQueryResult::Ddl {
+        entity,
+        mutation_kind,
+        target_index,
+        field_path,
+        status,
+        rows_scanned,
+        index_keys_written,
+        ..
+    } = ddl
+    else {
+        panic!("supported filtered CREATE INDEX should return a DDL payload");
+    };
+    assert_eq!(entity, "SqlTestUser");
+    assert_eq!(mutation_kind, "add_field_path_index");
+    assert_eq!(target_index, "sql_test_user_filtered_rank_idx");
+    assert_eq!(field_path, vec!["rank".to_string()]);
+    assert_eq!(status, "published");
+    assert_eq!(rows_scanned, 3);
+    assert_eq!(index_keys_written, 2);
+
+    let indexes =
+        expect_show_indexes(query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser").expect(
+            "SHOW INDEXES FROM should read accepted indexes after filtered DDL publication",
+        ));
+    assert!(
+        indexes.iter().any(|index| index
+            == "INDEX sql_test_user_filtered_rank_idx (rank) WHERE age > 30 [state=ready] [origin=ddl]"),
+        "SHOW INDEXES FROM should expose the DDL-published filtered index: {indexes:?}",
+    );
+}
+
+#[test]
 fn sql_canister_ddl_endpoint_publishes_supported_multi_field_path_index() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
@@ -809,22 +852,11 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_create_index_shapes_without_pub
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
 
-    for (sql, forbidden_visibility_fragment) in [
-        (
-            "CREATE INDEX sql_test_user_lower_name_idx ON SqlTestUser (LOWER(name))",
-            "sql_test_user_lower_name_idx",
-        ),
-        (
-            "CREATE INDEX sql_test_user_filtered_rank_idx ON SqlTestUser (rank) WHERE age > 20",
-            "sql_test_user_filtered_rank_idx",
-        ),
-    ] {
-        assert_ddl_rejects_without_index_visibility_change(
-            &fixture,
-            sql,
-            forbidden_visibility_fragment,
-        );
-    }
+    assert_ddl_rejects_without_index_visibility_change(
+        &fixture,
+        "CREATE INDEX sql_test_user_lower_name_idx ON SqlTestUser (LOWER(name))",
+        "sql_test_user_lower_name_idx",
+    );
 }
 
 #[test]

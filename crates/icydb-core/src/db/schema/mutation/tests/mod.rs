@@ -268,6 +268,7 @@ fn staged_name_index_store() -> super::SchemaFieldPathIndexStagedStore {
         "test::mutation::entity",
         EntityTag::new(7),
         accepted_name_field_path_target(),
+        None,
         [
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
@@ -287,6 +288,7 @@ fn extra_staged_name_index_entry() -> super::SchemaFieldPathIndexStagedEntry {
         "test::mutation::entity",
         EntityTag::new(7),
         accepted_name_field_path_target(),
+        None,
         [super::SchemaFieldPathIndexRebuildRow::new(
             StorageKey::Nat(3),
             &extra,

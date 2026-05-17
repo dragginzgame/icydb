@@ -272,10 +272,15 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexRunner;
     reason = "0.153 stages field-path runner orchestration before public DDL consumes it"
 )]
 impl SchemaFieldPathIndexRunner {
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "runner boundary keeps schema input, target, row stream, physical store, and publication sinks explicit"
+    )]
     pub(in crate::db::schema) fn run<'a>(
         input: &SchemaMutationRunnerInput<'_>,
         entity_tag: EntityTag,
         target: SchemaFieldPathIndexRebuildTarget,
+        predicate_program: Option<&PredicateProgram>,
         rows: impl IntoIterator<Item = SchemaFieldPathIndexRebuildRow<'a>>,
         index_store: &mut IndexStore,
         invalidation_sink: &mut impl SchemaMutationRuntimeInvalidationSink,
@@ -289,6 +294,7 @@ impl SchemaFieldPathIndexRunner {
             input.accepted_after().entity_path(),
             entity_tag,
             target,
+            predicate_program,
             rows,
         )
         .map_err(|_| {

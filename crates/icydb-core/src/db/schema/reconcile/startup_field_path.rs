@@ -9,6 +9,7 @@ use crate::{
     db::{
         data::{DataKey, RawRow, StorageKey, StructuralRowContract, StructuralSlotReader},
         index::{IndexId, IndexKey, IndexState, IndexStore},
+        predicate::{PredicateProgram, normalize, parse_sql_predicate},
         registry::StoreHandle,
         schema::{
             AcceptedSchemaSnapshot, PersistedSchemaSnapshot, SchemaFieldPathIndexRebuildRow,
@@ -53,6 +54,8 @@ pub(super) fn execute_supported_field_path_index_addition(
     let accepted = AcceptedSchemaSnapshot::try_new(accepted_before.clone())?;
     let row_contract =
         StructuralRowContract::from_accepted_schema_snapshot(entity_path, &accepted)?;
+    let predicate_program =
+        field_path_rebuild_predicate_program(supported.target(), &row_contract)?;
     let raw_rows = field_path_rebuild_raw_rows_for_entity(store, entity_tag, entity_path)?;
     let rebuild_gate = StartupFieldPathRebuildGate::from_raw_rows(
         entity_tag,
@@ -116,6 +119,7 @@ pub(super) fn execute_supported_field_path_index_addition(
             &input,
             entity_tag,
             supported.target().clone(),
+            predicate_program.as_ref(),
             rebuild_rows,
             index_store,
             &mut invalidation_sink,
@@ -135,6 +139,26 @@ pub(super) fn execute_supported_field_path_index_addition(
     publication.publish_accepted_snapshot(store, entity_tag, accepted_after)?;
 
     Ok(publication.diagnostic)
+}
+
+fn field_path_rebuild_predicate_program(
+    target: &SchemaFieldPathIndexRebuildTarget,
+    row_contract: &StructuralRowContract,
+) -> Result<Option<PredicateProgram>, InternalError> {
+    let Some(predicate_sql) = target.predicate_sql() else {
+        return Ok(None);
+    };
+    let predicate = parse_sql_predicate(predicate_sql).map_err(|error| {
+        InternalError::store_unsupported(format!(
+            "schema mutation field-path rebuild predicate failed to parse for target '{}': {error}",
+            target.name(),
+        ))
+    })?;
+
+    Ok(Some(PredicateProgram::compile_with_row_contract(
+        row_contract,
+        &normalize(&predicate),
+    )))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

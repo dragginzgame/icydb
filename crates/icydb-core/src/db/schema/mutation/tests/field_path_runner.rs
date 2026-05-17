@@ -19,6 +19,7 @@ fn field_path_runner_orchestrates_staging_to_publication_handoff() {
         &input,
         EntityTag::new(7),
         accepted_name_field_path_target(),
+        None,
         [
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
@@ -110,6 +111,7 @@ fn field_path_runner_orchestrates_handoff_with_unrelated_index_entries() {
         &input,
         EntityTag::new(7),
         accepted_name_field_path_target(),
+        None,
         [
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
@@ -157,6 +159,7 @@ fn field_path_runner_rejects_target_mismatch_before_physical_work() {
         &input,
         EntityTag::new(7),
         mismatched_target,
+        None,
         std::iter::empty(),
         &mut index_store,
         &mut invalidation_sink,
@@ -194,6 +197,7 @@ fn field_path_runner_rejects_non_field_path_execution_plan_before_physical_work(
         &input,
         EntityTag::new(7),
         accepted_name_field_path_target(),
+        None,
         std::iter::empty(),
         &mut index_store,
         &mut invalidation_sink,
@@ -233,6 +237,7 @@ fn field_path_runner_rolls_back_staged_writes_after_isolated_validation_failure(
         &input,
         EntityTag::new(7),
         accepted_name_field_path_target(),
+        None,
         [
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),

@@ -1838,6 +1838,7 @@ fn parse_create_index_statement_keeps_ddl_intent_unresolved() {
             name: "user_age_idx".to_string(),
             entity: "public.users".to_string(),
             field_paths: vec!["profile.age".to_string()],
+            predicate_sql: None,
             uniqueness: SqlCreateIndexUniqueness::NonUnique,
             if_not_exists: false,
         })),
@@ -1855,6 +1856,7 @@ fn parse_create_multi_field_index_statement_keeps_ddl_intent_unresolved() {
             name: "user_age_name_idx".to_string(),
             entity: "public.users".to_string(),
             field_paths: vec!["age".to_string(), "name".to_string()],
+            predicate_sql: None,
             uniqueness: SqlCreateIndexUniqueness::NonUnique,
             if_not_exists: false,
         })),
@@ -1872,6 +1874,7 @@ fn parse_create_index_treats_asc_as_default_order() {
             name: "user_age_name_idx".to_string(),
             entity: "public.users".to_string(),
             field_paths: vec!["age".to_string(), "name".to_string()],
+            predicate_sql: None,
             uniqueness: SqlCreateIndexUniqueness::NonUnique,
             if_not_exists: false,
         })),
@@ -1889,6 +1892,7 @@ fn parse_create_unique_index_statement_keeps_ddl_intent_unresolved() {
             name: "user_age_idx".to_string(),
             entity: "public.users".to_string(),
             field_paths: vec!["profile.age".to_string()],
+            predicate_sql: None,
             uniqueness: SqlCreateIndexUniqueness::Unique,
             if_not_exists: false,
         })),
@@ -1897,16 +1901,30 @@ fn parse_create_unique_index_statement_keeps_ddl_intent_unresolved() {
 
 #[test]
 fn parse_create_index_rejects_unsupported_ddl_shapes() {
-    for sql in [
-        "CREATE INDEX user_lower_name_idx ON users (LOWER(name))",
-        "CREATE INDEX user_age_idx ON users (age) WHERE active = true",
-    ] {
-        let err = parse_sql(sql).expect_err("unsupported DDL shape should fail closed");
-        assert!(
-            matches!(err, SqlParseError::UnsupportedFeature { .. }),
-            "unsupported DDL shape should report a typed unsupported feature",
-        );
-    }
+    let sql = "CREATE INDEX user_lower_name_idx ON users (LOWER(name))";
+    let err = parse_sql(sql).expect_err("unsupported DDL shape should fail closed");
+    assert!(
+        matches!(err, SqlParseError::UnsupportedFeature { .. }),
+        "unsupported DDL shape should report a typed unsupported feature",
+    );
+}
+
+#[test]
+fn parse_create_index_keeps_filtered_index_predicate_sql() {
+    let statement = parse_sql("CREATE INDEX user_age_idx ON users (age) WHERE active = true")
+        .expect("filtered CREATE INDEX should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::CreateIndex(SqlCreateIndexStatement {
+            name: "user_age_idx".to_string(),
+            entity: "users".to_string(),
+            field_paths: vec!["age".to_string()],
+            predicate_sql: Some("active = TRUE".to_string()),
+            uniqueness: SqlCreateIndexUniqueness::NonUnique,
+            if_not_exists: false,
+        })),
+    );
 }
 
 #[test]
@@ -1934,6 +1952,7 @@ fn parse_ddl_idempotency_clauses_keep_explicit_intent() {
             name: "user_age_idx".to_string(),
             entity: "users".to_string(),
             field_paths: vec!["age".to_string()],
+            predicate_sql: None,
             uniqueness: SqlCreateIndexUniqueness::NonUnique,
             if_not_exists: true,
         })),

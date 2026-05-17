@@ -51,6 +51,7 @@ fn field_path_rebuild_stages_sorted_entries_without_publication() {
         "test::mutation::entity",
         EntityTag::new(7),
         target,
+        None,
         [
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
@@ -120,6 +121,7 @@ fn field_path_rebuild_validation_fails_closed_for_mutated_staged_state() {
         "test::mutation::entity",
         EntityTag::new(7),
         target,
+        None,
         [
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
@@ -180,6 +182,7 @@ fn field_path_unique_rebuild_validation_rejects_duplicate_components() {
         "test::mutation::entity",
         EntityTag::new(7),
         target,
+        None,
         [
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &duplicate),
@@ -208,6 +211,7 @@ fn field_path_unique_rebuild_validation_accepts_distinct_components() {
         "test::mutation::entity",
         EntityTag::new(7),
         target,
+        None,
         [
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
@@ -246,6 +250,7 @@ fn field_path_rebuild_validation_reports_runner_diagnostics_without_publication(
         "test::mutation::entity",
         EntityTag::new(7),
         target,
+        None,
         [
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(3), &skipped),
@@ -308,6 +313,7 @@ fn field_path_rebuild_writes_validated_entries_to_staged_store_buffer() {
         "test::mutation::entity",
         EntityTag::new(7),
         target,
+        None,
         [
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),

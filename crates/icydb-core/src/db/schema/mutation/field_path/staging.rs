@@ -104,6 +104,7 @@ impl SchemaFieldPathIndexStagedRebuild {
         entity_path: &str,
         entity_tag: EntityTag,
         target: SchemaFieldPathIndexRebuildTarget,
+        predicate_program: Option<&PredicateProgram>,
         rows: impl IntoIterator<Item = SchemaFieldPathIndexRebuildRow<'a>>,
     ) -> Result<Self, InternalError> {
         let mut entries = Vec::new();
@@ -112,6 +113,12 @@ impl SchemaFieldPathIndexStagedRebuild {
 
         for row in rows {
             source_rows = source_rows.saturating_add(1);
+            if let Some(predicate_program) = predicate_program
+                && !predicate_program.eval_with_structural_slot_reader(row.slots())?
+            {
+                skipped_rows = skipped_rows.saturating_add(1);
+                continue;
+            }
             let Some(key) = IndexKey::new_from_slots_with_field_path_rebuild_target(
                 entity_tag,
                 row.storage_key(),

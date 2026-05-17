@@ -1,7 +1,7 @@
 use crate::{
     db::sql_shared::{
         Keyword, SqlParseError, TokenKind,
-        types::{Token, parse_number_literal},
+        types::{Token, parse_number_literal, token_kind_sql_fragment},
     },
     value::Value,
 };
@@ -295,6 +295,17 @@ impl SqlTokenCursor {
 
     pub(in crate::db) fn peek_next_kind(&self) -> Option<&TokenKind> {
         self.tokens.get(self.pos + 1).map(|token| &token.kind)
+    }
+
+    #[cfg(feature = "sql")]
+    pub(crate) fn remaining_sql_until_semicolon(&self) -> String {
+        self.tokens[self.pos..]
+            .iter()
+            .map(|token| &token.kind)
+            .take_while(|kind| !matches!(kind, TokenKind::Semicolon))
+            .map(token_kind_sql_fragment)
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     pub(in crate::db) const fn is_eof(&self) -> bool {

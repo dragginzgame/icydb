@@ -2560,6 +2560,70 @@ fn execute_sql_ddl_publishes_supported_field_path_index() {
 }
 
 #[test]
+fn execute_sql_ddl_publishes_supported_filtered_field_path_index() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
+
+    let result = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE INDEX session_sql_age_filtered_idx ON SessionSqlEntity (age) WHERE age > 30",
+        )
+        .expect("DDL execution should publish the supported filtered field-path index");
+    let SqlStatementResult::Ddl(report) = result else {
+        panic!("DDL execution should return a DDL report");
+    };
+    let schema_info = SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("DDL-published schema should remain readable")
+            .expect("DDL execution should publish an accepted snapshot");
+        let accepted = AcceptedSchemaSnapshot::try_new(latest)
+            .expect("DDL-published schema snapshot should remain accepted");
+
+        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted)
+    });
+
+    assert_eq!(
+        report.mutation_kind(),
+        SqlDdlMutationKind::AddFieldPathIndex,
+    );
+    assert_eq!(report.target_index(), "session_sql_age_filtered_idx");
+    assert_eq!(report.field_path(), ["age".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    assert_eq!(report.rows_scanned(), 3);
+    assert_eq!(report.index_keys_written(), 2);
+    assert!(
+        schema_info.field_path_indexes().iter().any(|index| {
+            index.name() == "session_sql_age_filtered_idx"
+                && index.predicate_sql() == Some("age > 30")
+        }),
+        "accepted schema publication should expose the filtered DDL-created index",
+    );
+    let SqlStatementResult::ShowIndexes(indexes) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .expect("SHOW INDEXES FROM should read the accepted published index set")
+    else {
+        panic!("SHOW INDEXES FROM should return an index metadata payload");
+    };
+    assert!(
+        indexes.iter().any(|index| index
+            == "INDEX session_sql_age_filtered_idx (age) WHERE age > 30 [state=ready] [origin=ddl]"),
+        "SHOW INDEXES FROM should expose DDL-created filtered indexes",
+    );
+    SESSION_SQL_INDEX_STORE.with_borrow(|store| {
+        assert_eq!(
+            store.len(),
+            2,
+            "DDL execution should build physical index keys only for predicate-matching rows",
+        );
+    });
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
 fn execute_sql_ddl_publishes_supported_unique_field_path_index() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);

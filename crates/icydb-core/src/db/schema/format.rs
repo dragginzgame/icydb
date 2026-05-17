@@ -26,6 +26,7 @@ pub(in crate::db) fn show_indexes_for_model_with_runtime_state(
         "PRIMARY KEY",
         None,
         &[model.primary_key.name],
+        None,
         runtime_state,
         Some("generated"),
     ));
@@ -39,6 +40,7 @@ pub(in crate::db) fn show_indexes_for_model_with_runtime_state(
             },
             Some(index.name()),
             index.fields(),
+            index.predicate(),
             runtime_state,
             Some("generated"),
         ));
@@ -67,6 +69,7 @@ pub(in crate::db) fn show_indexes_for_schema_info_with_runtime_state(
             "PRIMARY KEY",
             None,
             &[primary_key],
+            None,
             runtime_state,
             Some("generated"),
         ));
@@ -87,6 +90,7 @@ pub(in crate::db) fn show_indexes_for_schema_info_with_runtime_state(
             },
             Some(index.name()),
             &field_refs,
+            index.predicate_sql(),
             runtime_state,
             Some(if index.generated() {
                 "generated"
@@ -116,6 +120,7 @@ pub(in crate::db) fn show_indexes_for_schema_info_with_runtime_state(
             },
             Some(index.name()),
             &field_refs,
+            index.predicate_sql(),
             runtime_state,
             Some("generated"),
         ));
@@ -130,6 +135,7 @@ fn render_index_listing_line(
     kind: &str,
     name: Option<&str>,
     fields: &[&str],
+    predicate_sql: Option<&str>,
     runtime_state: Option<IndexState>,
     origin: Option<&str>,
 ) -> String {
@@ -151,6 +157,10 @@ fn render_index_listing_line(
     }
 
     rendered.push(')');
+
+    if let Some(predicate_sql) = predicate_sql {
+        let _ = write!(rendered, " WHERE {predicate_sql}");
+    }
 
     if let Some(state) = runtime_state {
         let _ = write!(rendered, " [state={}]", state.as_str());

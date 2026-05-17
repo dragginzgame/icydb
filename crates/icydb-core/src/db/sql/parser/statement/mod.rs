@@ -69,7 +69,7 @@ impl Parser {
             SqlStatement::Delete(delete) => self.delete_clause_order_error(delete),
             SqlStatement::Insert(_) => None,
             SqlStatement::Update(update) => self.update_clause_order_error(update),
-            SqlStatement::Ddl(ddl) => Some(self.ddl_clause_order_error(ddl)),
+            SqlStatement::Ddl(ddl) => Some(Self::ddl_clause_order_error(ddl)),
             SqlStatement::Explain(explain) => match &explain.statement {
                 SqlExplainTarget::Select(select) => self.select_clause_order_error(select),
                 SqlExplainTarget::Delete(delete) => self.delete_clause_order_error(delete),
@@ -117,20 +117,26 @@ impl Parser {
         self.expect_lparen()?;
         let field_paths = self.parse_create_index_field_paths()?;
         self.expect_rparen()?;
-
-        if self.peek_keyword(Keyword::Where) {
-            return Err(SqlParseError::unsupported_feature(
-                "SQL DDL filtered CREATE INDEX",
-            ));
-        }
+        let predicate_sql = self.parse_create_index_predicate_sql()?;
 
         Ok(SqlCreateIndexStatement {
             name,
             entity,
             field_paths,
+            predicate_sql,
             uniqueness,
             if_not_exists,
         })
+    }
+
+    fn parse_create_index_predicate_sql(&mut self) -> Result<Option<String>, SqlParseError> {
+        if !self.eat_keyword(Keyword::Where) {
+            return Ok(None);
+        }
+        let predicate_sql = self.cursor.remaining_sql_until_semicolon();
+        let _ = self.parse_where_expr()?;
+
+        Ok(Some(predicate_sql))
     }
 
     fn parse_create_index_field_paths(&mut self) -> Result<Vec<String>, SqlParseError> {
@@ -211,11 +217,8 @@ impl Parser {
         Ok(false)
     }
 
-    fn ddl_clause_order_error(&self, statement: &SqlDdlStatement) -> SqlParseError {
+    const fn ddl_clause_order_error(statement: &SqlDdlStatement) -> SqlParseError {
         match statement {
-            SqlDdlStatement::CreateIndex(_) if self.peek_keyword(Keyword::Where) => {
-                SqlParseError::unsupported_feature("SQL DDL filtered CREATE INDEX")
-            }
             SqlDdlStatement::CreateIndex(_) => {
                 SqlParseError::unsupported_feature("CREATE INDEX modifiers")
             }

@@ -20,6 +20,7 @@ fn field_path_rebuild_writer_reports_staged_write_intents_without_physical_mutat
         "test::mutation::entity",
         EntityTag::new(7),
         target,
+        None,
         [
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
@@ -71,6 +72,7 @@ fn field_path_rebuild_write_batch_snapshots_physical_rollback_without_publicatio
         "test::mutation::entity",
         EntityTag::new(7),
         target,
+        None,
         [
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
@@ -147,6 +149,7 @@ fn field_path_rebuild_write_batch_derives_reverse_rollback_plan() {
         "test::mutation::entity",
         EntityTag::new(7),
         target,
+        None,
         [
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),
@@ -211,6 +214,7 @@ fn field_path_rebuild_rollback_plan_reports_mocked_restore_and_remove_actions() 
         "test::mutation::entity",
         EntityTag::new(7),
         target,
+        None,
         [
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(2), &second),
             super::SchemaFieldPathIndexRebuildRow::new(StorageKey::Nat(1), &first),

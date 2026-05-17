@@ -9,6 +9,8 @@
 )]
 
 use crate::db::{
+    predicate::parse_sql_predicate,
+    query::predicate::validate_predicate,
     schema::{
         AcceptedSchemaSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
         SchemaDdlAcceptedSnapshotDerivation, SchemaDdlIndexDropCandidateError,
@@ -414,6 +416,9 @@ pub(in crate::db) enum SqlDdlBindError {
     #[error("field path '{field_path}' depends on generated-only metadata")]
     FieldPathNotAcceptedCatalogBacked { field_path: String },
 
+    #[error("invalid filtered index predicate: {detail}")]
+    InvalidFilteredIndexPredicate { detail: String },
+
     #[error("index name '{index_name}' already exists in the accepted schema")]
     DuplicateIndexName { index_name: String },
 
@@ -541,6 +546,7 @@ fn bind_create_index_statement(
             && existing_field_path_index_matches_request(
                 existing_index,
                 field_paths.as_slice(),
+                statement.predicate_sql.as_deref(),
                 statement.uniqueness,
             )
         {
@@ -560,10 +566,13 @@ fn bind_create_index_statement(
         });
     }
     reject_duplicate_expression_index_name(statement.name.as_str(), schema)?;
-    reject_duplicate_field_path_index(field_paths.as_slice(), schema)?;
+    let predicate_sql =
+        validated_create_index_predicate_sql(statement.predicate_sql.as_deref(), schema)?;
+    reject_duplicate_field_path_index(field_paths.as_slice(), predicate_sql.as_deref(), schema)?;
     let candidate_index = candidate_index_snapshot(
         statement.name.as_str(),
         field_paths.as_slice(),
+        predicate_sql.as_deref(),
         statement.uniqueness,
         schema,
         index_store_path,
@@ -694,11 +703,13 @@ fn find_field_path_index_by_name<'a>(
 fn existing_field_path_index_matches_request(
     index: &crate::db::schema::SchemaIndexInfo,
     field_paths: &[BoundSqlDdlFieldPath],
+    predicate_sql: Option<&str>,
     uniqueness: SqlCreateIndexUniqueness,
 ) -> bool {
     let fields = index.fields();
 
     index.unique() == matches!(uniqueness, SqlCreateIndexUniqueness::Unique)
+        && index.predicate_sql() == predicate_sql
         && fields.len() == field_paths.len()
         && fields
             .iter()
@@ -725,11 +736,13 @@ fn reject_duplicate_expression_index_name(
 
 fn reject_duplicate_field_path_index(
     field_paths: &[BoundSqlDdlFieldPath],
+    predicate_sql: Option<&str>,
     schema: &SchemaInfo,
 ) -> Result<(), SqlDdlBindError> {
     let Some(existing_index) = schema.field_path_indexes().iter().find(|index| {
         let fields = index.fields();
-        fields.len() == field_paths.len()
+        index.predicate_sql() == predicate_sql
+            && fields.len() == field_paths.len()
             && fields
                 .iter()
                 .zip(field_paths)
@@ -747,6 +760,7 @@ fn reject_duplicate_field_path_index(
 fn candidate_index_snapshot(
     index_name: &str,
     field_paths: &[BoundSqlDdlFieldPath],
+    predicate_sql: Option<&str>,
     uniqueness: SqlCreateIndexUniqueness,
     schema: &SchemaInfo,
     index_store_path: &'static str,
@@ -768,8 +782,29 @@ fn candidate_index_snapshot(
         index_store_path.to_string(),
         matches!(uniqueness, SqlCreateIndexUniqueness::Unique),
         PersistedIndexKeySnapshot::FieldPath(keys),
-        None,
+        predicate_sql.map(str::to_string),
     ))
+}
+
+fn validated_create_index_predicate_sql(
+    predicate_sql: Option<&str>,
+    schema: &SchemaInfo,
+) -> Result<Option<String>, SqlDdlBindError> {
+    let Some(predicate_sql) = predicate_sql else {
+        return Ok(None);
+    };
+    let predicate = parse_sql_predicate(predicate_sql).map_err(|error| {
+        SqlDdlBindError::InvalidFilteredIndexPredicate {
+            detail: error.to_string(),
+        }
+    })?;
+    validate_predicate(schema, &predicate).map_err(|error| {
+        SqlDdlBindError::InvalidFilteredIndexPredicate {
+            detail: error.to_string(),
+        }
+    })?;
+
+    Ok(Some(predicate_sql.to_string()))
 }
 
 fn ddl_field_path_report(field_paths: &[BoundSqlDdlFieldPath]) -> Vec<String> {
