@@ -107,15 +107,7 @@ impl Parser {
     }
 
     fn parse_create_index_statement(&mut self) -> Result<SqlCreateIndexStatement, SqlParseError> {
-        if self.eat_identifier_keyword("IF") {
-            if self.eat_keyword(Keyword::Not) {
-                let _ = self.eat_identifier_keyword("EXISTS");
-            }
-            return Err(SqlParseError::unsupported_feature(
-                "CREATE INDEX IF NOT EXISTS",
-            ));
-        }
-
+        let if_not_exists = self.parse_create_index_if_not_exists()?;
         let name = self.expect_identifier()?;
         self.expect_keyword(Keyword::On)?;
         let entity = self.expect_identifier()?;
@@ -151,7 +143,22 @@ impl Parser {
             entity,
             field_path,
             uniqueness: SqlCreateIndexUniqueness::NonUnique,
+            if_not_exists,
         })
+    }
+
+    fn parse_create_index_if_not_exists(&mut self) -> Result<bool, SqlParseError> {
+        if self.eat_identifier_keyword("IF") {
+            if !self.eat_keyword(Keyword::Not) || !self.eat_identifier_keyword("EXISTS") {
+                return Err(SqlParseError::unsupported_feature(
+                    "CREATE INDEX IF NOT EXISTS",
+                ));
+            }
+
+            return Ok(true);
+        }
+
+        Ok(false)
     }
 
     fn parse_drop_statement(&mut self) -> Result<SqlDdlStatement, SqlParseError> {
@@ -167,16 +174,28 @@ impl Parser {
     }
 
     fn parse_drop_index_statement(&mut self) -> Result<SqlDropIndexStatement, SqlParseError> {
-        if self.eat_identifier_keyword("IF") {
-            let _ = self.eat_identifier_keyword("EXISTS");
-            return Err(SqlParseError::unsupported_feature("DROP INDEX IF EXISTS"));
-        }
-
+        let if_exists = self.parse_drop_index_if_exists()?;
         let name = self.expect_identifier()?;
         self.expect_keyword(Keyword::On)?;
         let entity = self.expect_identifier()?;
 
-        Ok(SqlDropIndexStatement { name, entity })
+        Ok(SqlDropIndexStatement {
+            name,
+            entity,
+            if_exists,
+        })
+    }
+
+    fn parse_drop_index_if_exists(&mut self) -> Result<bool, SqlParseError> {
+        if self.eat_identifier_keyword("IF") {
+            if !self.eat_identifier_keyword("EXISTS") {
+                return Err(SqlParseError::unsupported_feature("DROP INDEX IF EXISTS"));
+            }
+
+            return Ok(true);
+        }
+
+        Ok(false)
     }
 
     fn ddl_clause_order_error(&self, statement: &SqlDdlStatement) -> SqlParseError {

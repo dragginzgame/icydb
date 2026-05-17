@@ -1839,6 +1839,7 @@ fn parse_create_index_statement_keeps_ddl_intent_unresolved() {
             entity: "public.users".to_string(),
             field_path: "profile.age".to_string(),
             uniqueness: SqlCreateIndexUniqueness::NonUnique,
+            if_not_exists: false,
         })),
     );
 }
@@ -1869,6 +1870,34 @@ fn parse_drop_index_statement_keeps_ddl_intent_unresolved() {
         SqlStatement::Ddl(SqlDdlStatement::DropIndex(SqlDropIndexStatement {
             name: "user_age_idx".to_string(),
             entity: "public.users".to_string(),
+            if_exists: false,
+        })),
+    );
+}
+
+#[test]
+fn parse_ddl_idempotency_clauses_keep_explicit_intent() {
+    let statement = parse_sql("CREATE INDEX IF NOT EXISTS user_age_idx ON users (age)")
+        .expect("CREATE INDEX IF NOT EXISTS should parse");
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::CreateIndex(SqlCreateIndexStatement {
+            name: "user_age_idx".to_string(),
+            entity: "users".to_string(),
+            field_path: "age".to_string(),
+            uniqueness: SqlCreateIndexUniqueness::NonUnique,
+            if_not_exists: true,
+        })),
+    );
+
+    let statement =
+        parse_sql("DROP INDEX IF EXISTS user_age_idx ON users").expect("DROP INDEX IF EXISTS");
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::DropIndex(SqlDropIndexStatement {
+            name: "user_age_idx".to_string(),
+            entity: "users".to_string(),
+            if_exists: true,
         })),
     );
 }
@@ -3615,20 +3644,12 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         ("SHOW COLUMNS users WHERE age > 1", "SHOW COLUMNS modifiers"),
         ("SHOW ENTITIES users", "SHOW ENTITIES modifiers"),
         (
-            "CREATE INDEX IF NOT EXISTS user_age_idx ON users (age)",
-            "CREATE INDEX IF NOT EXISTS",
-        ),
-        (
             "CREATE INDEX user_age_idx ON users (age DESC)",
             "SQL DDL CREATE INDEX key ordering modifiers",
         ),
         (
             "CREATE INDEX user_age_idx ON users (age ASC)",
             "SQL DDL CREATE INDEX key ordering modifiers",
-        ),
-        (
-            "DROP INDEX IF EXISTS user_age_idx ON users",
-            "DROP INDEX IF EXISTS",
         ),
     ];
 

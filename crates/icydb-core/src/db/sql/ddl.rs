@@ -35,7 +35,7 @@ use thiserror::Error as ThisError;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct PreparedSqlDdlCommand {
     bound: BoundSqlDdlRequest,
-    derivation: SchemaDdlAcceptedSnapshotDerivation,
+    derivation: Option<SchemaDdlAcceptedSnapshotDerivation>,
     report: SqlDdlPreparationReport,
 }
 
@@ -48,14 +48,20 @@ impl PreparedSqlDdlCommand {
 
     /// Borrow the accepted-after derivation proof.
     #[must_use]
-    pub(in crate::db) const fn derivation(&self) -> &SchemaDdlAcceptedSnapshotDerivation {
-        &self.derivation
+    pub(in crate::db) const fn derivation(&self) -> Option<&SchemaDdlAcceptedSnapshotDerivation> {
+        self.derivation.as_ref()
     }
 
     /// Borrow the developer-facing preparation report.
     #[must_use]
     pub(in crate::db) const fn report(&self) -> &SqlDdlPreparationReport {
         &self.report
+    }
+
+    /// Return whether this prepared command needs schema or storage mutation.
+    #[must_use]
+    pub(in crate::db) const fn mutates_schema(&self) -> bool {
+        self.derivation.is_some()
     }
 }
 
@@ -169,6 +175,7 @@ impl SqlDdlMutationKind {
 pub enum SqlDdlExecutionStatus {
     PreparedOnly,
     Published,
+    NoOp,
 }
 
 impl SqlDdlExecutionStatus {
@@ -178,6 +185,7 @@ impl SqlDdlExecutionStatus {
         match self {
             Self::PreparedOnly => "prepared_only",
             Self::Published => "published",
+            Self::NoOp => "no_op",
         }
     }
 }
@@ -210,6 +218,53 @@ impl BoundSqlDdlRequest {
 pub(in crate::db) enum BoundSqlDdlStatement {
     CreateIndex(BoundSqlCreateIndexRequest),
     DropIndex(BoundSqlDropIndexRequest),
+    NoOp(BoundSqlDdlNoOpRequest),
+}
+
+///
+/// BoundSqlDdlNoOpRequest
+///
+/// Catalog-resolved idempotent DDL request that is already satisfied or absent.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct BoundSqlDdlNoOpRequest {
+    mutation_kind: SqlDdlMutationKind,
+    index_name: String,
+    entity_name: String,
+    target_store: String,
+    field_path: Vec<String>,
+}
+
+impl BoundSqlDdlNoOpRequest {
+    /// Return the user-facing mutation family this no-op belongs to.
+    #[must_use]
+    pub(in crate::db) const fn mutation_kind(&self) -> SqlDdlMutationKind {
+        self.mutation_kind
+    }
+
+    /// Borrow the requested index name.
+    #[must_use]
+    pub(in crate::db) const fn index_name(&self) -> &str {
+        self.index_name.as_str()
+    }
+
+    /// Borrow the accepted entity name that owns this request.
+    #[must_use]
+    pub(in crate::db) const fn entity_name(&self) -> &str {
+        self.entity_name.as_str()
+    }
+
+    /// Borrow the accepted index store path, or `-` when no target exists.
+    #[must_use]
+    pub(in crate::db) const fn target_store(&self) -> &str {
+        self.target_store.as_str()
+    }
+
+    /// Borrow the target field path, empty when no target exists.
+    #[must_use]
+    pub(in crate::db) const fn field_path(&self) -> &[String] {
+        self.field_path.as_slice()
+    }
 }
 
 ///
@@ -421,8 +476,15 @@ pub(in crate::db) fn prepare_sql_ddl_statement(
     index_store_path: &'static str,
 ) -> Result<PreparedSqlDdlCommand, SqlDdlPrepareError> {
     let bound = bind_sql_ddl_statement(statement, accepted_before, schema, index_store_path)?;
-    let derivation = derive_bound_sql_ddl_accepted_after(accepted_before, &bound)?;
-    let report = ddl_preparation_report(&bound, &derivation);
+    let derivation = if matches!(bound.statement(), BoundSqlDdlStatement::NoOp(_)) {
+        None
+    } else {
+        Some(derive_bound_sql_ddl_accepted_after(
+            accepted_before,
+            &bound,
+        )?)
+    };
+    let report = ddl_preparation_report(&bound);
 
     Ok(PreparedSqlDdlCommand {
         bound,
@@ -468,9 +530,28 @@ fn bind_create_index_statement(
         });
     }
 
-    reject_duplicate_index_name(statement.name.as_str(), schema)?;
     let field_path =
         bind_create_index_field_path(statement.field_path.as_str(), entity_name, schema)?;
+    if let Some(existing_index) = find_field_path_index_by_name(schema, statement.name.as_str()) {
+        if statement.if_not_exists
+            && existing_field_path_index_matches_request(existing_index, &field_path)
+        {
+            return Ok(BoundSqlDdlRequest {
+                statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
+                    mutation_kind: SqlDdlMutationKind::AddNonUniqueFieldPathIndex,
+                    index_name: statement.name.clone(),
+                    entity_name: entity_name.to_string(),
+                    target_store: existing_index.store().to_string(),
+                    field_path: field_path.accepted_path().to_vec(),
+                }),
+            });
+        }
+
+        return Err(SqlDdlBindError::DuplicateIndexName {
+            index_name: statement.name.clone(),
+        });
+    }
+    reject_duplicate_expression_index_name(statement.name.as_str(), schema)?;
     reject_duplicate_field_path_index(&field_path, schema)?;
     let candidate_index = candidate_index_snapshot(
         statement.name.as_str(),
@@ -504,7 +585,7 @@ fn bind_drop_index_statement(
             expected_entity: entity_name.to_string(),
         });
     }
-    let (dropped_index, field_path) = resolve_sql_ddl_secondary_index_drop_candidate(
+    let drop_candidate = resolve_sql_ddl_secondary_index_drop_candidate(
         accepted_before,
         &statement.name,
     )
@@ -521,7 +602,22 @@ fn bind_drop_index_statement(
         SchemaDdlIndexDropCandidateError::Unsupported => SqlDdlBindError::UnsupportedDropIndex {
             index_name: statement.name.clone(),
         },
-    })?;
+    });
+    let (dropped_index, field_path) = match drop_candidate {
+        Ok((dropped_index, field_path)) => (dropped_index, field_path),
+        Err(SqlDdlBindError::UnknownIndex { .. }) if statement.if_exists => {
+            return Ok(BoundSqlDdlRequest {
+                statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
+                    mutation_kind: SqlDdlMutationKind::DropNonUniqueSecondaryIndex,
+                    index_name: statement.name.clone(),
+                    entity_name: entity_name.to_string(),
+                    target_store: "-".to_string(),
+                    field_path: Vec::new(),
+                }),
+            });
+        }
+        Err(error) => return Err(error),
+    };
     Ok(BoundSqlDdlRequest {
         statement: BoundSqlDdlStatement::DropIndex(BoundSqlDropIndexRequest {
             index_name: statement.name.clone(),
@@ -576,18 +672,33 @@ fn bind_create_index_field_path(
     })
 }
 
-fn reject_duplicate_index_name(
+fn find_field_path_index_by_name<'a>(
+    schema: &'a SchemaInfo,
+    index_name: &str,
+) -> Option<&'a crate::db::schema::SchemaIndexInfo> {
+    schema
+        .field_path_indexes()
+        .iter()
+        .find(|index| index.name() == index_name)
+}
+
+fn existing_field_path_index_matches_request(
+    index: &crate::db::schema::SchemaIndexInfo,
+    field_path: &BoundSqlDdlFieldPath,
+) -> bool {
+    let fields = index.fields();
+
+    !index.unique() && fields.len() == 1 && fields[0].path() == field_path.accepted_path()
+}
+
+fn reject_duplicate_expression_index_name(
     index_name: &str,
     schema: &SchemaInfo,
 ) -> Result<(), SqlDdlBindError> {
     if schema
-        .field_path_indexes()
+        .expression_indexes()
         .iter()
         .any(|index| index.name() == index_name)
-        || schema
-            .expression_indexes()
-            .iter()
-            .any(|index| index.name() == index_name)
     {
         return Err(SqlDdlBindError::DuplicateIndexName {
             index_name: index_name.to_string(),
@@ -647,6 +758,7 @@ pub(in crate::db) fn lower_bound_sql_ddl_to_schema_mutation_admission(
         BoundSqlDdlStatement::DropIndex(drop) => {
             admit_sql_ddl_secondary_index_drop_candidate(drop.dropped_index())
         }
+        BoundSqlDdlStatement::NoOp(_) => return Err(SqlDdlLoweringError::UnsupportedStatement),
     }
     .map_err(SqlDdlLoweringError::MutationAdmission)
 }
@@ -669,17 +781,15 @@ pub(in crate::db) fn derive_bound_sql_ddl_accepted_after(
                 drop.dropped_index(),
             )
         }
+        BoundSqlDdlStatement::NoOp(_) => return Err(SqlDdlLoweringError::UnsupportedStatement),
     }
     .map_err(SqlDdlLoweringError::MutationAdmission)
 }
 
-fn ddl_preparation_report(
-    bound: &BoundSqlDdlRequest,
-    derivation: &SchemaDdlAcceptedSnapshotDerivation,
-) -> SqlDdlPreparationReport {
+fn ddl_preparation_report(bound: &BoundSqlDdlRequest) -> SqlDdlPreparationReport {
     match bound.statement() {
         BoundSqlDdlStatement::CreateIndex(create) => {
-            let target = derivation.admission().target();
+            let target = create.candidate_index();
 
             SqlDdlPreparationReport {
                 mutation_kind: SqlDdlMutationKind::AddNonUniqueFieldPathIndex,
@@ -696,6 +806,15 @@ fn ddl_preparation_report(
             target_index: drop.index_name().to_string(),
             target_store: drop.dropped_index().store().to_string(),
             field_path: drop.field_path().to_vec(),
+            execution_status: SqlDdlExecutionStatus::PreparedOnly,
+            rows_scanned: 0,
+            index_keys_written: 0,
+        },
+        BoundSqlDdlStatement::NoOp(no_op) => SqlDdlPreparationReport {
+            mutation_kind: no_op.mutation_kind(),
+            target_index: no_op.index_name().to_string(),
+            target_store: no_op.target_store().to_string(),
+            field_path: no_op.field_path().to_vec(),
             execution_status: SqlDdlExecutionStatus::PreparedOnly,
             rows_scanned: 0,
             index_keys_written: 0,

@@ -478,7 +478,7 @@ fn ensure_sql_selectable_field_path(
 ) -> Result<(), SqlLoweringError> {
     let Some(capabilities) = schema.nested_sql_capabilities(path.root().as_str(), path.segments())
     else {
-        return Ok(());
+        return Err(SqlLoweringError::unknown_field(render_field_path(path)));
     };
     if !capabilities.selectable() {
         return Err(SqlLoweringError::unsupported_select_projection());
@@ -495,7 +495,7 @@ fn validate_group_by_sql_capabilities(
 ) -> Result<(), SqlLoweringError> {
     for field in fields {
         let Some(capabilities) = schema.sql_capabilities(field) else {
-            continue;
+            return Err(SqlLoweringError::unknown_field(field.as_str()));
         };
         if !capabilities.groupable() {
             return Err(SqlLoweringError::unsupported_select_group_by());
@@ -538,7 +538,7 @@ fn ensure_sql_selectable_field(
     field_name: &str,
 ) -> Result<(), SqlLoweringError> {
     let Some(capabilities) = schema.sql_capabilities(field_name) else {
-        return Ok(());
+        return Err(SqlLoweringError::unknown_field(field_name));
     };
     if !capabilities.selectable() {
         if sql_result_projectable_field(schema, field_name) {
@@ -560,6 +560,15 @@ fn sql_result_projectable_field(schema: &SchemaInfo, field_name: &str) -> bool {
         .is_some_and(SqlCapabilities::selectable)
         || schema.field_is_structured_value(field_name)
         || schema.field_has_nested_paths(field_name)
+}
+
+fn render_field_path(path: &FieldPath) -> String {
+    let mut rendered = path.root().as_str().to_string();
+    for segment in path.segments() {
+        rendered.push('.');
+        rendered.push_str(segment);
+    }
+    rendered
 }
 
 /// Validate accepted-schema SQL capabilities for one lowered base-query tail.

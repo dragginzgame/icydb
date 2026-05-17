@@ -378,6 +378,51 @@ fn accepted_sql_lower_schema_with_name_kind(kind: PersistedFieldKind) -> SchemaI
     SchemaInfo::from_accepted_snapshot_for_model(SqlLowerEntity::MODEL, &snapshot)
 }
 
+// Build an intentionally incomplete accepted schema view for authority tests.
+// Model-only lowering still knows about `name`; accepted-schema binding must not
+// reopen that generated fact after an explicit runtime schema view is supplied.
+fn accepted_sql_lower_schema_without_name() -> SchemaInfo {
+    let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        SqlLowerEntity::MODEL.path().to_string(),
+        SqlLowerEntity::MODEL.name().to_string(),
+        SchemaFieldId::new(1),
+        SchemaRowLayout::new(
+            SchemaVersion::initial(),
+            vec![
+                (SchemaFieldId::new(1), SchemaFieldSlot::new(0)),
+                (SchemaFieldId::new(3), SchemaFieldSlot::new(1)),
+            ],
+        ),
+        vec![
+            PersistedFieldSnapshot::new(
+                SchemaFieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                PersistedFieldKind::Ulid,
+                Vec::new(),
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::StructuralFallback,
+            ),
+            PersistedFieldSnapshot::new(
+                SchemaFieldId::new(3),
+                "age".to_string(),
+                SchemaFieldSlot::new(1),
+                PersistedFieldKind::Nat,
+                Vec::new(),
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::StructuralFallback,
+            ),
+        ],
+    ));
+
+    SchemaInfo::from_accepted_snapshot_for_model(SqlLowerEntity::MODEL, &snapshot)
+}
+
 // Build an accepted schema variant where the `name` field exposes one nested
 // leaf whose capability facts deliberately differ from generated metadata.
 fn accepted_sql_lower_schema_with_name_nested_leaf_kind(kind: PersistedFieldKind) -> SchemaInfo {
@@ -3472,6 +3517,63 @@ fn bind_sql_select_with_schema_rejects_non_selectable_accepted_nested_leaf() {
     .expect_err("accepted non-queryable nested field should not be selectable");
 
     assert!(matches!(err, SqlLoweringError::UnsupportedSelectProjection));
+}
+
+#[test]
+fn bind_sql_select_with_schema_rejects_field_missing_from_accepted_schema() {
+    let select = lower_sql_select_shape_for_test(
+        "SELECT name FROM SqlLowerEntity",
+        "accepted missing-field projection",
+    );
+    let schema = accepted_sql_lower_schema_without_name();
+
+    let err = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
+        SqlLowerEntity::MODEL,
+        select,
+        MissingRowPolicy::Ignore,
+        &schema,
+    )
+    .expect_err("accepted schema must be authoritative for SELECT field admission");
+
+    assert!(matches!(err, SqlLoweringError::UnknownField { field } if field == "name"));
+}
+
+#[test]
+fn bind_sql_select_with_schema_rejects_field_path_missing_from_accepted_schema() {
+    let select = lower_sql_select_shape_for_test(
+        "SELECT name.leaf FROM SqlLowerEntity",
+        "accepted missing field-path projection",
+    );
+    let schema = accepted_sql_lower_schema_without_name();
+
+    let err = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
+        SqlLowerEntity::MODEL,
+        select,
+        MissingRowPolicy::Ignore,
+        &schema,
+    )
+    .expect_err("accepted schema must be authoritative for SELECT field-path admission");
+
+    assert!(matches!(err, SqlLoweringError::UnknownField { field } if field == "name.leaf"));
+}
+
+#[test]
+fn bind_sql_select_with_schema_rejects_group_by_field_missing_from_accepted_schema() {
+    let select = lower_sql_select_shape_for_test(
+        "SELECT name, COUNT(*) FROM SqlLowerEntity GROUP BY name",
+        "accepted missing GROUP BY field",
+    );
+    let schema = accepted_sql_lower_schema_without_name();
+
+    let err = crate::db::sql::lowering::bind_lowered_sql_select_query_structural_with_schema(
+        SqlLowerEntity::MODEL,
+        select,
+        MissingRowPolicy::Ignore,
+        &schema,
+    )
+    .expect_err("accepted schema must be authoritative for GROUP BY field admission");
+
+    assert!(matches!(err, SqlLoweringError::UnknownField { field } if field == "name"));
 }
 
 #[test]

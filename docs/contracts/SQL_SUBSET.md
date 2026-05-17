@@ -133,7 +133,9 @@ model-owned indexes from DDL-created indexes without scraping `SHOW INDEXES`.
 Supported shapes:
 
 - `CREATE INDEX name ON entity (field_path)`
+- `CREATE INDEX IF NOT EXISTS name ON entity (field_path)`
 - `DROP INDEX name ON entity`
+- `DROP INDEX IF EXISTS name ON entity`
 
 SQL DDL is a frontend over accepted schema catalog mutation, not the source of
 schema authority.
@@ -141,8 +143,9 @@ schema authority.
 `CREATE INDEX` currently admits one non-unique field-path secondary index.
 The field path must already exist in the accepted schema, must be indexable,
 and must not duplicate an accepted index name or field-path index.
-`CREATE INDEX IF NOT EXISTS` is not yet supported and fails with an explicit
-unsupported-feature diagnostic.
+`CREATE INDEX IF NOT EXISTS` no-ops only when the accepted catalog already has
+the exact requested non-unique field-path index contract. Conflicting existing
+definitions still reject.
 Per-key ordering modifiers such as `ASC` and `DESC` are not yet supported for
 SQL DDL indexes and fail with an explicit unsupported-feature diagnostic.
 
@@ -150,8 +153,8 @@ SQL DDL indexes and fail with an explicit unsupported-feature diagnostic.
 created through SQL DDL. Generated/model-declared indexes are owned by the
 entity schema macro and must be removed there, then reconciled through the
 normal accepted-schema publication path.
-`DROP INDEX IF EXISTS` is not yet supported and fails with an explicit
-unsupported-feature diagnostic.
+`DROP INDEX IF EXISTS` no-ops only when the target index is absent. Existing
+generated/model-owned and otherwise unsupported indexes still reject.
 
 ## Public SQL Mutation Execution
 

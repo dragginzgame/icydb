@@ -460,6 +460,20 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let (accepted_before, prepared) = self.prepare_sql_ddl_command::<E>(sql)?;
+        if !prepared.mutates_schema() {
+            return Ok(SqlStatementResult::Ddl(
+                prepared
+                    .report()
+                    .clone()
+                    .with_execution_status(SqlDdlExecutionStatus::NoOp),
+            ));
+        }
+
+        let Some(derivation) = prepared.derivation() else {
+            return Err(QueryError::unsupported_query(
+                "SQL DDL execution could not find a prepared schema derivation".to_string(),
+            ));
+        };
         let store = self
             .db
             .recovered_store(E::Store::PATH)
@@ -472,7 +486,7 @@ impl<C: CanisterKind> DbSession<C> {
                     E::ENTITY_TAG,
                     E::PATH,
                     &accepted_before,
-                    prepared.derivation(),
+                    derivation,
                 )
                 .map_err(QueryError::execute)?
             }
@@ -482,12 +496,13 @@ impl<C: CanisterKind> DbSession<C> {
                     E::ENTITY_TAG,
                     E::PATH,
                     &accepted_before,
-                    prepared.derivation(),
+                    derivation,
                 )
                 .map_err(QueryError::execute)?;
 
                 (0, 0)
             }
+            crate::db::sql::ddl::BoundSqlDdlStatement::NoOp(_) => (0, 0),
         };
 
         Ok(SqlStatementResult::Ddl(

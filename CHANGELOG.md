@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
+- `0.157.9` adds conservative idempotent SQL DDL support. `CREATE INDEX IF
+  NOT EXISTS` now no-ops only when the accepted catalog already has the exact
+  requested non-unique field-path index contract, while conflicting existing
+  definitions still reject. `DROP INDEX IF EXISTS` now no-ops only when the
+  target index is absent; generated/model-owned and otherwise unsupported
+  indexes still reject.
+
+```
+CREATE INDEX IF NOT EXISTS character_level_idx ON Character (level);
+DROP INDEX IF EXISTS character_level_idx ON Character;
+```
+
 - `0.157.8` improves SQL DDL usability around the current index lifecycle
   surface. `CREATE INDEX IF NOT EXISTS` and `DROP INDEX IF EXISTS` now fail
   with explicit unsupported-feature diagnostics while those idempotency forms
@@ -15,10 +27,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   help now includes the supported create/show/describe/drop index loop.
 
 ```
-CREATE INDEX character_level_idx ON Character (level);
-SHOW INDEXES FROM Character;
-DESCRIBE Character;
-DROP INDEX character_level_idx ON Character;
+CREATE INDEX character_level_desc_idx ON Character (level DESC);
 ```
 
 - `0.157.7` carries accepted index origin metadata through structured schema
@@ -64,6 +73,12 @@ DROP INDEX character_level_idx ON Character;
   `idx_<entity>__<field>` / `uniq_<entity>__<field>` identifiers. The CLI SQL
   shell now routes `DROP INDEX` through the generated DDL update endpoint
   instead of the readonly query endpoint.
+
+```
+SHOW INDEXES FROM Character;
+SHOW INDEXES IN Character;
+DROP INDEX character_level_idx ON Character;
+```
 
 - `0.157.0` opens the next DDL line by continuing accepted-catalog SQL DDL work
   after the 0.156 config pass, while leaving room for focused developer

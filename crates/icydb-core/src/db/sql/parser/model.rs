@@ -56,6 +56,7 @@ pub(crate) struct SqlCreateIndexStatement {
     pub(crate) entity: String,
     pub(crate) field_path: String,
     pub(crate) uniqueness: SqlCreateIndexUniqueness,
+    pub(crate) if_not_exists: bool,
 }
 
 ///
@@ -82,6 +83,7 @@ pub(crate) enum SqlCreateIndexUniqueness {
 pub(crate) struct SqlDropIndexStatement {
     pub(crate) name: String,
     pub(crate) entity: String,
+    pub(crate) if_exists: bool,
 }
 
 ///

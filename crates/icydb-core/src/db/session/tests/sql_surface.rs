@@ -2183,6 +2183,54 @@ fn sql_ddl_create_index_binding_rejects_duplicate_accepted_indexes() {
 }
 
 #[test]
+fn sql_ddl_create_index_if_not_exists_binds_exact_existing_index_as_no_op() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<IndexedSessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<IndexedSessionSqlEntity>();
+    let statement = parse_sql("CREATE INDEX IF NOT EXISTS name ON IndexedSessionSqlEntity (name)")
+        .expect("CREATE INDEX IF NOT EXISTS should parse before binding");
+
+    let bound = bind_sql_ddl_statement(
+        &statement,
+        &accepted_before,
+        &schema,
+        IndexedSessionSqlStore::PATH,
+    )
+    .expect("matching CREATE INDEX IF NOT EXISTS should bind as a no-op");
+    let BoundSqlDdlStatement::NoOp(no_op) = bound.statement() else {
+        panic!("matching CREATE INDEX IF NOT EXISTS should not request physical work");
+    };
+
+    assert_eq!(
+        no_op.mutation_kind(),
+        SqlDdlMutationKind::AddNonUniqueFieldPathIndex,
+    );
+    assert_eq!(no_op.index_name(), "name");
+    assert_eq!(no_op.entity_name(), "IndexedSessionSqlEntity");
+    assert_eq!(no_op.field_path(), ["name".to_string()]);
+}
+
+#[test]
+fn sql_ddl_create_index_if_not_exists_rejects_conflicting_existing_index_name() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<IndexedSessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<IndexedSessionSqlEntity>();
+    let statement = parse_sql("CREATE INDEX IF NOT EXISTS name ON IndexedSessionSqlEntity (age)")
+        .expect("CREATE INDEX IF NOT EXISTS should parse before binding");
+
+    let err = bind_sql_ddl_statement(
+        &statement,
+        &accepted_before,
+        &schema,
+        IndexedSessionSqlStore::PATH,
+    )
+    .expect_err("IF NOT EXISTS should not hide conflicting index definitions");
+
+    assert!(matches!(
+        err,
+        SqlDdlBindError::DuplicateIndexName { index_name } if index_name == "name"
+    ));
+}
+
+#[test]
 fn sql_ddl_drop_index_binding_rejects_generated_indexes() {
     let accepted_before = accepted_schema_snapshot_for_entity::<IndexedSessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<IndexedSessionSqlEntity>();
@@ -2196,6 +2244,50 @@ fn sql_ddl_drop_index_binding_rejects_generated_indexes() {
         IndexedSessionSqlStore::PATH,
     )
     .expect_err("DDL binding should reject generated index drops");
+
+    assert!(matches!(
+        err,
+        SqlDdlBindError::GeneratedIndexDropRejected { index_name } if index_name == "name"
+    ));
+}
+
+#[test]
+fn sql_ddl_drop_index_if_exists_binds_missing_index_as_no_op() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let statement = parse_sql("DROP INDEX IF EXISTS missing_idx ON SessionSqlEntity")
+        .expect("DROP INDEX IF EXISTS should parse before binding");
+
+    let bound =
+        bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("missing DROP INDEX IF EXISTS should bind as a no-op");
+    let BoundSqlDdlStatement::NoOp(no_op) = bound.statement() else {
+        panic!("missing DROP INDEX IF EXISTS should not request physical work");
+    };
+
+    assert_eq!(
+        no_op.mutation_kind(),
+        SqlDdlMutationKind::DropNonUniqueSecondaryIndex,
+    );
+    assert_eq!(no_op.index_name(), "missing_idx");
+    assert_eq!(no_op.entity_name(), "SessionSqlEntity");
+    assert!(no_op.field_path().is_empty());
+}
+
+#[test]
+fn sql_ddl_drop_index_if_exists_still_rejects_generated_indexes() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<IndexedSessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<IndexedSessionSqlEntity>();
+    let statement = parse_sql("DROP INDEX IF EXISTS name ON IndexedSessionSqlEntity")
+        .expect("DROP INDEX IF EXISTS should parse before generated-index binding");
+
+    let err = bind_sql_ddl_statement(
+        &statement,
+        &accepted_before,
+        &schema,
+        IndexedSessionSqlStore::PATH,
+    )
+    .expect_err("IF EXISTS should not hide generated index ownership");
 
     assert!(matches!(
         err,
@@ -2303,7 +2395,12 @@ fn sql_ddl_create_index_preparation_reports_non_executed_command() {
         SqlDdlExecutionStatus::PreparedOnly,
     );
     assert_eq!(
-        prepared.derivation().admission().target().name(),
+        prepared
+            .derivation()
+            .expect("CREATE INDEX should carry a schema derivation")
+            .admission()
+            .target()
+            .name(),
         "session_sql_age_idx",
     );
 }
@@ -2399,6 +2496,47 @@ fn execute_sql_ddl_publishes_supported_field_path_index() {
 }
 
 #[test]
+fn execute_sql_ddl_create_index_if_not_exists_reports_no_op_for_existing_index() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
+        )
+        .expect("setup DDL execution should publish the field-path index");
+    let result = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE INDEX IF NOT EXISTS session_sql_age_idx ON SessionSqlEntity (age)",
+        )
+        .expect("matching CREATE INDEX IF NOT EXISTS should execute as a no-op");
+    let SqlStatementResult::Ddl(report) = result else {
+        panic!("no-op CREATE INDEX IF NOT EXISTS should return a DDL report");
+    };
+
+    assert_eq!(
+        report.mutation_kind(),
+        SqlDdlMutationKind::AddNonUniqueFieldPathIndex,
+    );
+    assert_eq!(report.target_index(), "session_sql_age_idx");
+    assert_eq!(report.field_path(), ["age".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::NoOp);
+    assert_eq!(report.rows_scanned(), 0);
+    assert_eq!(report.index_keys_written(), 0);
+    SESSION_SQL_INDEX_STORE.with_borrow(|store| {
+        assert_eq!(
+            store.len(),
+            3,
+            "no-op CREATE INDEX IF NOT EXISTS should not rebuild physical index entries",
+        );
+    });
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
 fn execute_sql_ddl_drops_supported_ddl_published_index() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
@@ -2443,6 +2581,39 @@ fn execute_sql_ddl_drops_supported_ddl_published_index() {
             store.len(),
             0,
             "DROP INDEX should remove the target physical index entries",
+        );
+    });
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
+fn execute_sql_ddl_drop_index_if_exists_reports_no_op_for_missing_index() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    let result = session
+        .execute_sql_ddl::<SessionSqlEntity>("DROP INDEX IF EXISTS missing_idx ON SessionSqlEntity")
+        .expect("missing DROP INDEX IF EXISTS should execute as a no-op");
+    let SqlStatementResult::Ddl(report) = result else {
+        panic!("no-op DROP INDEX IF EXISTS should return a DDL report");
+    };
+
+    assert_eq!(
+        report.mutation_kind(),
+        SqlDdlMutationKind::DropNonUniqueSecondaryIndex,
+    );
+    assert_eq!(report.target_index(), "missing_idx");
+    assert!(report.field_path().is_empty());
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::NoOp);
+    assert_eq!(report.rows_scanned(), 0);
+    assert_eq!(report.index_keys_written(), 0);
+    SESSION_SQL_INDEX_STORE.with_borrow(|store| {
+        assert_eq!(
+            store.len(),
+            0,
+            "no-op DROP INDEX IF EXISTS should not touch physical index storage",
         );
     });
 
