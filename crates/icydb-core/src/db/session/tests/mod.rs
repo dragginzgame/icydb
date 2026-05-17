@@ -1500,25 +1500,62 @@ crate::test_entity_schema! {
     canister = SessionSqlCanister,
 }
 
-crate::test_entity_schema! {
-    ident = SessionSqlRecordFieldPathEntity,
-    id = Ulid,
-    id_field = id,
-    entity_name = "SessionSqlRecordFieldPathEntity",
-    entity_tag = EntityTag::new(0x1057),
-    pk_index = 0,
+crate::impl_test_entity_markers!(SessionSqlRecordFieldPathEntity);
+
+impl SessionSqlRecordFieldPathEntity {
+    const PROFILE_NESTED_FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("rank", FieldKind::Int),
+        FieldModel::generated("nickname", FieldKind::Text { max_len: None }),
+    ];
+}
+
+crate::impl_test_entity_model_storage!(
+    SessionSqlRecordFieldPathEntity,
+    "SessionSqlRecordFieldPathEntity",
+    0,
     fields = [
-        ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
-        ("name", FieldKind::Text { max_len: None }),
-        (
+        FieldModel::generated_with_storage_decode_nullability_and_write_policies(
+            "id",
+            FieldKind::Ulid,
+            FieldStorageDecode::ByKind,
+            false,
+            Some(crate::model::field::FieldInsertGeneration::Ulid),
+            None,
+        ),
+        FieldModel::generated("name", FieldKind::Text { max_len: None }),
+        FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
             "profile",
             FieldKind::Structured { queryable: false },
-            FieldStorageDecode::Value
+            FieldStorageDecode::Value,
+            false,
+            None,
+            None,
+            &SessionSqlRecordFieldPathEntity::PROFILE_NESTED_FIELDS,
         ),
     ],
     indexes = [],
-    store = SessionSqlStore,
-    canister = SessionSqlCanister,
+);
+
+crate::impl_test_entity_runtime_surface!(
+    SessionSqlRecordFieldPathEntity,
+    Ulid,
+    "SessionSqlRecordFieldPathEntity",
+    MODEL_DEF
+);
+
+impl crate::traits::EntityPlacement for SessionSqlRecordFieldPathEntity {
+    type Store = SessionSqlStore;
+    type Canister = SessionSqlCanister;
+}
+
+impl crate::traits::EntityKind for SessionSqlRecordFieldPathEntity {
+    const ENTITY_TAG: EntityTag = EntityTag::new(0x1057);
+}
+
+impl crate::traits::EntityValue for SessionSqlRecordFieldPathEntity {
+    fn id(&self) -> Id<Self> {
+        Id::from_key(self.id)
+    }
 }
 
 crate::impl_test_entity_markers!(SessionNullableSqlEntity);

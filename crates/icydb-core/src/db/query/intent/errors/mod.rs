@@ -18,7 +18,7 @@ use crate::{
         numeric::NumericEvalError,
         query::plan::{
             CursorPagingPolicyError, FluentLoadPolicyViolation, IntentKeyAccessPolicyViolation,
-            PlanError, PlannerError, PolicyPlanError,
+            PlanError, PlannerError, PolicyPlanError, validate::ExprPlanError,
         },
         response::ResponseError,
         schema::ValidateError,
@@ -147,6 +147,9 @@ impl QueryError {
             }
             SqlLoweringError::UnexpectedQueryLaneStatement => {
                 Self::unsupported_query_lane_sql_statement()
+            }
+            SqlLoweringError::UnknownField { field } => {
+                Self::from(PlanError::from(ExprPlanError::unknown_field(field)))
             }
             other => Self::unsupported_query(format!(
                 "SQL query is not executable in this release: {other}"

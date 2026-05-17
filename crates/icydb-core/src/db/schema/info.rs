@@ -800,9 +800,9 @@ impl SchemaInfo {
     /// Build one owned schema view from an accepted persisted snapshot.
     ///
     /// This is the live-schema counterpart to the generated metadata cache.
-    /// It intentionally keeps generated nested-field metadata until persisted
-    /// snapshots carry nested leaf descriptions, but top-level SQL/query type
-    /// checks now read the accepted persisted field kind.
+    /// Accepted nested-path authority comes from persisted nested leaf
+    /// descriptors; generated nested metadata is retained only for model-only
+    /// views and compile-time/test bridge parity.
     #[must_use]
     pub(in crate::db) fn from_accepted_snapshot_for_model(
         model: &EntityModel,

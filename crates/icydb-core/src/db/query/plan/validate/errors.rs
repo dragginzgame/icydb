@@ -516,6 +516,10 @@ impl GroupPlanError {
 
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
 pub enum ExprPlanError {
+    /// SQL lowering references a field that does not exist in schema.
+    #[error("unknown field '{field}'")]
+    UnknownField { field: String },
+
     /// Expression references a field that does not exist in schema.
     #[error("unknown expression field '{field}'")]
     UnknownExprField { field: String },
@@ -564,6 +568,13 @@ pub enum ExprPlanError {
 }
 
 impl ExprPlanError {
+    /// Construct one unknown-field planner error.
+    pub(in crate::db::query) fn unknown_field(field: impl Into<String>) -> Self {
+        Self::UnknownField {
+            field: field.into(),
+        }
+    }
+
     /// Construct one unknown-expression-field planner error.
     pub(in crate::db::query) fn unknown_expr_field(field: impl Into<String>) -> Self {
         Self::UnknownExprField {
