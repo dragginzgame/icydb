@@ -147,6 +147,7 @@ pub(in crate::db) struct SchemaIndexInfo {
     name: String,
     store: String,
     unique: bool,
+    generated: bool,
     fields: Vec<SchemaIndexFieldPathInfo>,
     predicate_sql: Option<String>,
 }
@@ -178,6 +179,12 @@ impl SchemaIndexInfo {
     #[must_use]
     pub(in crate::db) const fn unique(&self) -> bool {
         self.unique
+    }
+
+    /// Return whether this index is declared by the generated entity model.
+    #[must_use]
+    pub(in crate::db) const fn generated(&self) -> bool {
+        self.generated
     }
 
     /// Borrow accepted field-path key item metadata for this index.
@@ -865,7 +872,13 @@ impl SchemaInfo {
             indexes: snapshot
                 .indexes()
                 .iter()
-                .filter_map(|index| schema_index_info_from_accepted_index(index, snapshot))
+                .filter_map(|index| {
+                    schema_index_info_from_accepted_index(
+                        index,
+                        snapshot,
+                        accepted_index_is_generated(model, index),
+                    )
+                })
                 .collect(),
             expression_indexes: snapshot
                 .indexes()
@@ -945,6 +958,7 @@ fn schema_index_info_from_generated_index(
         name: index.name().to_string(),
         store: index.store().to_string(),
         unique: index.is_unique(),
+        generated: true,
         fields: key_fields,
         predicate_sql: index.predicate().map(str::to_string),
     })
@@ -966,6 +980,7 @@ fn generated_index_field_names(index: &IndexModel) -> Option<Vec<&'static str>> 
 fn schema_index_info_from_accepted_index(
     index: &PersistedIndexSnapshot,
     snapshot: &PersistedSchemaSnapshot,
+    generated: bool,
 ) -> Option<SchemaIndexInfo> {
     if !index.key().is_field_path_only() {
         return None;
@@ -976,6 +991,7 @@ fn schema_index_info_from_accepted_index(
         name: index.name().to_string(),
         store: index.store().to_string(),
         unique: index.unique(),
+        generated,
         fields: index
             .key()
             .field_paths()
@@ -984,6 +1000,13 @@ fn schema_index_info_from_accepted_index(
             .collect(),
         predicate_sql: index.predicate_sql().map(str::to_string),
     })
+}
+
+fn accepted_index_is_generated(model: &EntityModel, index: &PersistedIndexSnapshot) -> bool {
+    model
+        .indexes()
+        .iter()
+        .any(|generated| generated.name() == index.name())
 }
 
 fn schema_expression_index_info_from_accepted_index(

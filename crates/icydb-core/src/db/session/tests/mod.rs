@@ -2139,14 +2139,14 @@ fn session_show_indexes_reports_primary_and_secondary_indexes() {
 
     assert_eq!(
         session.show_indexes::<SessionSqlEntity>(),
-        vec!["PRIMARY KEY (id) [state=ready]".to_string()],
+        vec!["PRIMARY KEY (id) [state=ready] [origin=generated]".to_string()],
         "entities without secondary indexes should only report primary key metadata",
     );
     assert_eq!(
         indexed_session.show_indexes::<IndexedSessionSqlEntity>(),
         vec![
-            "PRIMARY KEY (id) [state=ready]".to_string(),
-            "INDEX name (name) [state=ready]".to_string(),
+            "PRIMARY KEY (id) [state=ready] [origin=generated]".to_string(),
+            "INDEX name (name) [state=ready] [origin=generated]".to_string(),
         ],
         "entities with one secondary index should report both primary and index rows",
     );
@@ -2164,8 +2164,8 @@ fn session_show_indexes_sql_reports_runtime_index_state_transitions() {
         )
         .expect("SHOW INDEXES FROM should succeed for ready index"),
         vec![
-            "PRIMARY KEY (id) [state=ready]".to_string(),
-            "INDEX name (name) [state=ready]".to_string(),
+            "PRIMARY KEY (id) [state=ready] [origin=generated]".to_string(),
+            "INDEX name (name) [state=ready] [origin=generated]".to_string(),
         ],
         "SHOW INDEXES FROM should expose the default ready lifecycle state on the runtime metadata surface",
     );
@@ -2181,8 +2181,8 @@ fn session_show_indexes_sql_reports_runtime_index_state_transitions() {
         )
         .expect("SHOW INDEXES FROM should succeed for building index"),
         vec![
-            "PRIMARY KEY (id) [state=building]".to_string(),
-            "INDEX name (name) [state=building]".to_string(),
+            "PRIMARY KEY (id) [state=building] [origin=generated]".to_string(),
+            "INDEX name (name) [state=building] [origin=generated]".to_string(),
         ],
         "SHOW INDEXES FROM should expose Building while planner visibility removes the index from covering routes",
     );
@@ -2198,8 +2198,8 @@ fn session_show_indexes_sql_reports_runtime_index_state_transitions() {
         )
         .expect("SHOW INDEXES FROM should succeed for dropping index"),
         vec![
-            "PRIMARY KEY (id) [state=dropping]".to_string(),
-            "INDEX name (name) [state=dropping]".to_string(),
+            "PRIMARY KEY (id) [state=dropping] [origin=generated]".to_string(),
+            "INDEX name (name) [state=dropping] [origin=generated]".to_string(),
         ],
         "SHOW INDEXES FROM should expose Dropping while planner visibility removes the index from covering routes",
     );

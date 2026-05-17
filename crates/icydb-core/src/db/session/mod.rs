@@ -262,9 +262,9 @@ impl<C: CanisterKind> DbSession<C> {
     /// Return one stable, human-readable index listing for the entity schema.
     ///
     /// Output format mirrors SQL-style introspection:
-    /// - `PRIMARY KEY (field)`
-    /// - `INDEX name (field_a, field_b)`
-    /// - `UNIQUE INDEX name (field_a, field_b)`
+    /// - `PRIMARY KEY (field) [state=ready] [origin=generated]`
+    /// - `INDEX name (field_a, field_b) [state=ready] [origin=generated]`
+    /// - `UNIQUE INDEX name (field_a, field_b) [state=ready] [origin=generated]`
     #[must_use]
     pub fn show_indexes<E>(&self) -> Vec<String>
     where

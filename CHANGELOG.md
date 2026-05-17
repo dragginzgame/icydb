@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
+- `0.157.4` adds index-origin annotations to `SHOW INDEXES`, distinguishing
+  generated entity-model indexes from SQL DDL-created indexes so developers can
+  see which indexes are eligible for `DROP INDEX`.
+
 - `0.157.3` widens generated index rename reconciliation so accepted snapshots
   that also contain DDL-created indexes can still hard-cut generated index names,
   publishing a merged accepted snapshot that uses current generated index

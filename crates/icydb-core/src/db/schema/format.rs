@@ -27,6 +27,7 @@ pub(in crate::db) fn show_indexes_for_model_with_runtime_state(
         None,
         &[model.primary_key.name],
         runtime_state,
+        Some("generated"),
     ));
 
     for index in model.indexes {
@@ -39,6 +40,7 @@ pub(in crate::db) fn show_indexes_for_model_with_runtime_state(
             Some(index.name()),
             index.fields(),
             runtime_state,
+            Some("generated"),
         ));
     }
 
@@ -66,6 +68,7 @@ pub(in crate::db) fn show_indexes_for_schema_info_with_runtime_state(
             None,
             &[primary_key],
             runtime_state,
+            Some("generated"),
         ));
     }
 
@@ -85,6 +88,11 @@ pub(in crate::db) fn show_indexes_for_schema_info_with_runtime_state(
             Some(index.name()),
             &field_refs,
             runtime_state,
+            Some(if index.generated() {
+                "generated"
+            } else {
+                "ddl"
+            }),
         ));
     }
 
@@ -109,6 +117,7 @@ pub(in crate::db) fn show_indexes_for_schema_info_with_runtime_state(
             Some(index.name()),
             &field_refs,
             runtime_state,
+            Some("generated"),
         ));
     }
 
@@ -122,6 +131,7 @@ fn render_index_listing_line(
     name: Option<&str>,
     fields: &[&str],
     runtime_state: Option<IndexState>,
+    origin: Option<&str>,
 ) -> String {
     let mut rendered = String::with_capacity(48 + fields.len().saturating_mul(16));
     rendered.push_str(kind);
@@ -144,6 +154,10 @@ fn render_index_listing_line(
 
     if let Some(state) = runtime_state {
         let _ = write!(rendered, " [state={}]", state.as_str());
+    }
+
+    if let Some(origin) = origin {
+        let _ = write!(rendered, " [origin={origin}]");
     }
 
     rendered

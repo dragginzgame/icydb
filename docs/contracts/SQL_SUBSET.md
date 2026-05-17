@@ -119,6 +119,11 @@ Supported commands:
 `SHOW TABLES` is not a separate metadata family.
 It is an alias for `SHOW ENTITIES` and should return the same payload.
 
+`SHOW INDEXES` includes index lifecycle and origin annotations. Generated
+entity-model indexes report `origin=generated`; indexes added through SQL DDL
+report `origin=ddl`. Only DDL-origin non-unique field-path indexes are
+droppable through SQL DDL.
+
 ### DDL
 
 Supported shapes:

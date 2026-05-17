@@ -2405,7 +2405,7 @@ fn execute_sql_ddl_publishes_supported_field_path_index() {
     assert!(
         indexes
             .iter()
-            .any(|index| index == "INDEX session_sql_age_idx (age) [state=ready]"),
+            .any(|index| index == "INDEX session_sql_age_idx (age) [state=ready] [origin=ddl]"),
         "SHOW INDEXES FROM should expose DDL-created accepted indexes",
     );
     SESSION_SQL_INDEX_STORE.with_borrow(|store| {
