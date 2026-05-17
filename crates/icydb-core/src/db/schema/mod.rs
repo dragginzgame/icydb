@@ -94,9 +94,9 @@ pub(in crate::db) use runtime::{
 pub(in crate::db) use snapshot::{
     AcceptedSchemaSnapshot, PersistedEnumVariant, PersistedFieldKind, PersistedFieldSnapshot,
     PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
-    PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-    PersistedNestedLeafSnapshot, PersistedRelationStrength, PersistedSchemaSnapshot,
-    SchemaFieldDefault, SchemaFieldWritePolicy,
+    PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexOrigin,
+    PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedRelationStrength,
+    PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldWritePolicy,
 };
 pub use store::SchemaStore;
 pub(in crate::db::schema) use transition::{

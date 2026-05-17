@@ -8,10 +8,10 @@ use crate::{
         FieldId, PersistedEnumVariant, PersistedFieldKind, PersistedFieldSnapshot,
         PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
-        PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedRelationStrength,
-        PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy,
-        SchemaRowLayout, SchemaVersion, schema_snapshot_index_integrity_detail,
-        schema_snapshot_integrity_detail,
+        PersistedIndexOrigin, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
+        PersistedRelationStrength, PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot,
+        SchemaFieldWritePolicy, SchemaRowLayout, SchemaVersion,
+        schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
     },
     error::InternalError,
     model::field::{
@@ -79,8 +79,16 @@ struct PersistedIndexSnapshotWire {
     name: String,
     store: String,
     unique: bool,
+    origin: PersistedIndexOriginWire,
     key: PersistedIndexKeySnapshotWire,
     predicate_sql: Option<String>,
+}
+
+// Candid wire enum for accepted index origin.
+#[derive(CandidType, Deserialize)]
+enum PersistedIndexOriginWire {
+    Generated,
+    SqlDdl,
 }
 
 // Candid wire enum for accepted index key contracts.
@@ -449,20 +457,38 @@ impl PersistedIndexSnapshotWire {
             name: index.name().to_string(),
             store: index.store().to_string(),
             unique: index.unique(),
+            origin: PersistedIndexOriginWire::from_origin(index.origin()),
             key: PersistedIndexKeySnapshotWire::from_key(index.key()),
             predicate_sql: index.predicate_sql().map(str::to_string),
         }
     }
 
     fn into_index(self) -> Result<PersistedIndexSnapshot, InternalError> {
-        Ok(PersistedIndexSnapshot::new(
+        Ok(PersistedIndexSnapshot::new_with_origin(
             self.ordinal,
             self.name,
             self.store,
             self.unique,
+            self.origin.into_origin(),
             self.key.into_key()?,
             self.predicate_sql,
         ))
+    }
+}
+
+impl PersistedIndexOriginWire {
+    const fn from_origin(origin: PersistedIndexOrigin) -> Self {
+        match origin {
+            PersistedIndexOrigin::Generated => Self::Generated,
+            PersistedIndexOrigin::SqlDdl => Self::SqlDdl,
+        }
+    }
+
+    const fn into_origin(self) -> PersistedIndexOrigin {
+        match self {
+            Self::Generated => PersistedIndexOrigin::Generated,
+            Self::SqlDdl => PersistedIndexOrigin::SqlDdl,
+        }
     }
 }
 

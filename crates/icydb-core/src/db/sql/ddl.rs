@@ -631,7 +631,7 @@ fn candidate_index_snapshot(
             field_path: field_path.accepted_path().join("."),
         })?;
 
-    Ok(PersistedIndexSnapshot::new(
+    Ok(PersistedIndexSnapshot::new_sql_ddl(
         schema.next_secondary_index_ordinal(),
         index_name.to_string(),
         index_store_path.to_string(),

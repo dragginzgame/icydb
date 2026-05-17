@@ -297,12 +297,13 @@ pub(in crate::db) struct PersistedIndexSnapshot {
     name: String,
     store: String,
     unique: bool,
+    origin: PersistedIndexOrigin,
     key: PersistedIndexKeySnapshot,
     predicate_sql: Option<String>,
 }
 
 impl PersistedIndexSnapshot {
-    /// Build one accepted field-path index snapshot.
+    /// Build one generated accepted index snapshot.
     #[must_use]
     pub(in crate::db) const fn new(
         ordinal: u16,
@@ -312,11 +313,55 @@ impl PersistedIndexSnapshot {
         key: PersistedIndexKeySnapshot,
         predicate_sql: Option<String>,
     ) -> Self {
+        Self::new_with_origin(
+            ordinal,
+            name,
+            store,
+            unique,
+            PersistedIndexOrigin::Generated,
+            key,
+            predicate_sql,
+        )
+    }
+
+    /// Build one SQL DDL-created accepted index snapshot.
+    #[must_use]
+    pub(in crate::db) const fn new_sql_ddl(
+        ordinal: u16,
+        name: String,
+        store: String,
+        unique: bool,
+        key: PersistedIndexKeySnapshot,
+        predicate_sql: Option<String>,
+    ) -> Self {
+        Self::new_with_origin(
+            ordinal,
+            name,
+            store,
+            unique,
+            PersistedIndexOrigin::SqlDdl,
+            key,
+            predicate_sql,
+        )
+    }
+
+    /// Build one accepted index snapshot from already-validated pieces.
+    #[must_use]
+    pub(in crate::db) const fn new_with_origin(
+        ordinal: u16,
+        name: String,
+        store: String,
+        unique: bool,
+        origin: PersistedIndexOrigin,
+        key: PersistedIndexKeySnapshot,
+        predicate_sql: Option<String>,
+    ) -> Self {
         Self {
             ordinal,
             name,
             store,
             unique,
+            origin,
             key,
             predicate_sql,
         }
@@ -346,6 +391,18 @@ impl PersistedIndexSnapshot {
         self.unique
     }
 
+    /// Return whether this accepted index came from the generated entity model.
+    #[must_use]
+    pub(in crate::db) const fn generated(&self) -> bool {
+        matches!(self.origin, PersistedIndexOrigin::Generated)
+    }
+
+    /// Return the persisted origin for this accepted index.
+    #[must_use]
+    pub(in crate::db) const fn origin(&self) -> PersistedIndexOrigin {
+        self.origin
+    }
+
     /// Borrow the accepted index key contract.
     #[must_use]
     pub(in crate::db) const fn key(&self) -> &PersistedIndexKeySnapshot {
@@ -360,6 +417,17 @@ impl PersistedIndexSnapshot {
             None => None,
         }
     }
+}
+
+///
+/// PersistedIndexOrigin
+///
+/// Catalog-owned origin marker for one accepted secondary index.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum PersistedIndexOrigin {
+    Generated,
+    SqlDdl,
 }
 
 ///
