@@ -113,6 +113,11 @@ fn render_describe_field_section(lines: &mut Vec<String>, fields: &[EntityFieldD
                     .slot()
                     .map_or_else(|| "-".to_string(), |slot| slot.to_string()),
                 field.kind().to_string(),
+                if field.nullable() {
+                    "yes".to_string()
+                } else {
+                    "no".to_string()
+                },
                 if field.primary_key() {
                     "yes".to_string()
                 } else {
@@ -133,6 +138,7 @@ fn render_describe_field_section(lines: &mut Vec<String>, fields: &[EntityFieldD
             "name".to_string(),
             "slot".to_string(),
             "type".to_string(),
+            "nullable".to_string(),
             "pk".to_string(),
             "queryable".to_string(),
             "origin".to_string(),
