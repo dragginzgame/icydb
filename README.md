@@ -119,6 +119,8 @@ IcyDB supports a focused, canister-friendly SQL subset:
 
 - `SELECT`, `EXPLAIN`, `DESCRIBE`, `SHOW TABLES`, `SHOW COLUMNS`, `SHOW INDEXES`
 - `INSERT`, `UPDATE`, `DELETE`, including supported `RETURNING` shapes
+- `CREATE INDEX`, `CREATE UNIQUE INDEX`, and `DROP INDEX` for supported
+  accepted-catalog field-path indexes
 - `WHERE`, `ORDER BY`, `LIMIT`, `OFFSET`, projection aliases, `DISTINCT`,
   aggregates, grouped aggregates, and common scalar/numeric functions
 - single-entity execution only
@@ -137,6 +139,8 @@ scripts/dev/sql-start-demo
 cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SELECT name, charisma FROM character ORDER BY charisma DESC LIMIT 5"
 cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "DESCRIBE character"
 cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SHOW TABLES"
+cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "CREATE INDEX character_renown_idx ON character (renown)"
+cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "DROP INDEX character_renown_idx"
 ```
 
 `sql` keeps an explicit `--canister/-c` flag because it also accepts trailing
@@ -159,7 +163,7 @@ canister exports the configured fixture endpoint.
 Read SQL is sent through the canister's standard controller-gated
 `__icydb_query` endpoint, which returns the shell's perf footer
 payload. SQL DDL uses the canister's `__icydb_ddl` update endpoint for supported
-`CREATE INDEX` commands.
+`CREATE INDEX` and `DROP INDEX` commands.
 
 Canisters opt into DB endpoint surfaces through `icydb.toml`. `readonly = true`
 generates the controller-gated `__icydb_query` endpoint. `ddl = true`

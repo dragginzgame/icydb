@@ -70,15 +70,6 @@ pub(crate) fn run_sql_command(args: SqlArgs) -> Result<(), String> {
     let config = ShellConfig::from_sql_args(args);
 
     if let Some(sql) = config.sql {
-        if input::is_shell_help_command(sql.as_str()) {
-            print!(
-                "{}",
-                render::finalize_successful_command_output(input::shell_help_text())
-            );
-
-            return Ok(());
-        }
-
         let output = execute_sql(
             config.environment.as_str(),
             config.canister.as_str(),

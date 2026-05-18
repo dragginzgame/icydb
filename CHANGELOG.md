@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
+- `0.157.17` tightens the `DROP INDEX` shorthand rollout with live generated
+  canister coverage: single-entity canisters can route targetless drops, while
+  multi-entity canisters still reject ambiguous targetless DDL. The interactive
+  SQL shell help now shows the shorthand form, and the SQL docs now reflect the
+  current unique, composite, filtered, and explicit-`ASC` DDL surface. The
+  process-level `icydb sql --help` output now carries concrete examples through
+  Clap, one-shot SQL no longer has a second non-Clap help path, and
+  `config init --no-readonly` now uses Clap's negative-flag action instead of
+  post-parse boolean inversion.
+
+  ```
+  DROP INDEX character_renown_idx;
+  ```
+
 - `0.157.16` lets typed and single-entity SQL DDL surfaces use PostgreSQL-style
   `DROP INDEX <name>` without restating `ON <entity>`. Multi-entity generated
   canister dispatch still requires `ON <entity>` when the target is ambiguous.

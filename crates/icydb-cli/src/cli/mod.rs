@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use clap::{Args, Parser, Subcommand};
+use clap::{ArgAction, Args, Parser, Subcommand};
 
 pub(crate) const DEFAULT_ENVIRONMENT: &str = "demo";
 
@@ -63,7 +63,14 @@ pub(crate) enum CliCommand {
 ///
 
 #[derive(Args, Debug)]
-#[command(trailing_var_arg = true)]
+#[command(
+    trailing_var_arg = true,
+    after_help = "Examples:
+  icydb sql -c demo_rpg
+  icydb sql -c demo_rpg --sql \"SELECT name FROM character LIMIT 5\"
+  icydb sql -c demo_rpg --sql \"CREATE INDEX character_renown_idx ON character (renown)\"
+  icydb sql -c demo_rpg --sql \"DROP INDEX character_renown_idx\""
+)]
 pub(crate) struct SqlArgs {
     /// Target ICP canister name.
     #[arg(short, long, required = true)]
@@ -77,11 +84,11 @@ pub(crate) struct SqlArgs {
     #[arg(long, default_value = ".cache/sql_history")]
     pub(crate) history_file: PathBuf,
 
-    /// Execute one SQL statement and exit.
+    /// Execute one SQL statement, including supported DDL, and exit.
     #[arg(long, conflicts_with = "trailing_sql")]
     pub(crate) sql: Option<String>,
 
-    /// SQL statement passed without --sql.
+    /// SQL statement, including supported DDL, passed without --sql.
     #[arg(value_name = "SQL", allow_hyphen_values = true)]
     pub(crate) trailing_sql: Vec<String>,
 }
@@ -262,8 +269,8 @@ pub(crate) struct ConfigInitArgs {
     pub(crate) all: bool,
 
     /// Disable the default readonly SQL endpoint.
-    #[arg(long = "no-readonly")]
-    pub(crate) no_readonly: bool,
+    #[arg(long = "no-readonly", action = ArgAction::SetFalse, default_value_t = true)]
+    pub(crate) readonly: bool,
 
     /// Replace an existing target config file.
     #[arg(long)]
@@ -280,7 +287,7 @@ impl ConfigInitArgs {
     }
 
     pub(crate) const fn readonly(&self) -> bool {
-        !self.no_readonly
+        self.readonly
     }
 
     pub(crate) const fn ddl(&self) -> bool {

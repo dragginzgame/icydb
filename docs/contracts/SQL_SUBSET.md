@@ -121,8 +121,8 @@ It is an alias for `SHOW ENTITIES` and should return the same payload.
 
 `SHOW INDEXES` includes index lifecycle and origin annotations. Generated
 entity-model indexes report `origin=generated`; indexes added through SQL DDL
-report `origin=ddl`. Only DDL-origin non-unique field-path indexes are
-droppable through SQL DDL.
+report `origin=ddl`. Only DDL-origin field-path indexes are droppable through
+SQL DDL.
 
 `DESCRIBE` includes the same generated-vs-DDL index origin metadata in its
 structured index payload and shell rendering, so schema tooling can distinguish
@@ -133,28 +133,40 @@ model-owned indexes from DDL-created indexes without scraping `SHOW INDEXES`.
 Supported shapes:
 
 - `CREATE INDEX name ON entity (field_path)`
+- `CREATE INDEX name ON entity (field_path, another_field_path)`
+- `CREATE INDEX name ON entity (field_path ASC)`
+- `CREATE INDEX name ON entity (field_path) WHERE predicate`
 - `CREATE INDEX IF NOT EXISTS name ON entity (field_path)`
+- `CREATE UNIQUE INDEX name ON entity (field_path)`
 - `DROP INDEX name ON entity`
+- `DROP INDEX name`
 - `DROP INDEX IF EXISTS name ON entity`
+- `DROP INDEX IF EXISTS name`
 
 SQL DDL is a frontend over accepted schema catalog mutation, not the source of
 schema authority.
 
-`CREATE INDEX` currently admits one non-unique field-path secondary index.
-The field path must already exist in the accepted schema, must be indexable,
-and must not duplicate an accepted index name or field-path index.
+`CREATE INDEX` currently admits field-path secondary indexes. Single-field,
+multi-field, unique, explicit `ASC`, and filtered `WHERE` predicates are
+supported. Every field path must already exist in the accepted schema, must be
+indexable, and must not duplicate an accepted index name or identical accepted
+field-path/predicate index contract.
 `CREATE INDEX IF NOT EXISTS` no-ops only when the accepted catalog already has
-the exact requested non-unique field-path index contract. Conflicting existing
-definitions still reject.
-Per-key ordering modifiers such as `ASC` and `DESC` are not yet supported for
-SQL DDL indexes and fail with an explicit unsupported-feature diagnostic.
+the exact requested field-path index contract. Conflicting existing definitions
+still reject.
+`ASC` is accepted as IcyDB's default deterministic physical key order. `DESC`
+and expression key items such as `LOWER(field)` are not yet supported for SQL
+DDL indexes and fail with explicit unsupported-feature diagnostics.
 
-`DROP INDEX` currently admits only non-unique field-path indexes that were
-created through SQL DDL. Generated/model-declared indexes are owned by the
-entity schema macro and must be removed there, then reconciled through the
-normal accepted-schema publication path.
+`DROP INDEX` currently admits only field-path indexes that were created through
+SQL DDL. Generated/model-declared indexes are owned by the entity schema macro
+and must be removed there, then reconciled through the normal accepted-schema
+publication path.
 `DROP INDEX IF EXISTS` no-ops only when the target index is absent. Existing
 generated/model-owned and otherwise unsupported indexes still reject.
+Typed SQL DDL and generated single-entity canisters may omit `ON entity` for
+`DROP INDEX`; generated multi-entity canisters require `ON entity` so DDL
+dispatch does not guess a target.
 
 ## Public SQL Mutation Execution
 

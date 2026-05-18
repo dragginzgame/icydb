@@ -217,6 +217,10 @@ fn clap_help_exposes_target_environment_flags() {
 fn clap_help_exposes_available_short_flags_on_config_commands() {
     let sql_help = clap_help_text(["icydb", "sql", "--help"].as_slice());
     assert!(sql_help.contains("-c, --canister"));
+    assert!(sql_help.contains("including supported DDL"));
+    assert!(sql_help.contains("icydb sql -c demo_rpg"));
+    assert!(sql_help.contains("CREATE INDEX character_renown_idx ON character (renown)"));
+    assert!(sql_help.contains("DROP INDEX character_renown_idx"));
 
     let init_help = clap_help_text(["icydb", "config", "init", "--help"].as_slice());
     assert!(init_help.contains("-c, --canister"));
@@ -313,7 +317,7 @@ fn shell_help_text_mentions_current_perf_legend() {
     assert!(help.contains("CREATE INDEX character_level_idx ON character (level);"));
     assert!(help.contains("SHOW INDEXES FROM character;"));
     assert!(help.contains("DESCRIBE character;"));
-    assert!(help.contains("DROP INDEX character_level_idx ON character;"));
+    assert!(help.contains("DROP INDEX character_level_idx;"));
 }
 
 #[test]
@@ -591,7 +595,7 @@ fn config_init_writes_default_config_at_workspace_root() {
         snapshot: true,
         schema: true,
         all: false,
-        no_readonly: false,
+        readonly: true,
         force: false,
     })
     .expect("config init should succeed");
@@ -1124,6 +1128,10 @@ fn sql_shell_call_kind_routes_supported_ddl_to_update_method() {
     );
     assert_eq!(
         sql_shell_call_kind("DROP INDEX name_idx ON Character;"),
+        SqlShellCallKind::Ddl,
+    );
+    assert_eq!(
+        sql_shell_call_kind("DROP INDEX name_idx;"),
         SqlShellCallKind::Ddl,
     );
     assert_eq!(

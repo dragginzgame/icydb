@@ -40,6 +40,20 @@ fn install_sql_canister_fixture() -> StandaloneCanisterFixture {
     )
 }
 
+fn install_demo_rpg_canister_fixture() -> StandaloneCanisterFixture {
+    // The demo RPG canister has exactly one generated entity, which lets the
+    // generated DDL endpoint route targetless DROP INDEX statements safely.
+    let wasm_path =
+        build_canister("demo_rpg").expect("demo RPG canister should build for PocketIC tests");
+    let wasm = fs::read(&wasm_path)
+        .unwrap_or_else(|err| panic!("failed to read built demo RPG canister wasm: {err}"));
+
+    install_prebuilt_canister(
+        wasm,
+        candid::encode_args(()).expect("encode empty init args"),
+    )
+}
+
 fn reset_sql_fixtures(fixture: &StandaloneCanisterFixture) {
     // Keep each test isolated by resetting and then loading the deterministic
     // baseline fixture set through the live canister update surface.
@@ -479,6 +493,67 @@ fn sql_canister_ddl_endpoint_drops_supported_ddl_field_path_index() {
             .iter()
             .all(|index| !index.contains("sql_test_user_rank_idx")),
         "SHOW INDEXES FROM should hide the dropped DDL index: {indexes:?}",
+    );
+}
+
+#[test]
+fn demo_rpg_ddl_endpoint_drops_index_with_single_entity_shorthand() {
+    let fixture = install_demo_rpg_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    ddl_sql(
+        &fixture,
+        "CREATE INDEX character_renown_idx ON Character (renown)",
+    )
+    .expect("setup CREATE INDEX should publish before shorthand DROP INDEX");
+
+    let ddl = ddl_sql(&fixture, "DROP INDEX character_renown_idx")
+        .expect("single-entity generated DDL should route targetless DROP INDEX");
+    let SqlQueryResult::Ddl {
+        entity,
+        mutation_kind,
+        target_index,
+        field_path,
+        status,
+        ..
+    } = ddl
+    else {
+        panic!("shorthand DROP INDEX should return a DDL payload");
+    };
+
+    assert_eq!(entity, "Character");
+    assert_eq!(mutation_kind, "drop_secondary_index");
+    assert_eq!(target_index, "character_renown_idx");
+    assert_eq!(field_path, vec!["renown".to_string()]);
+    assert_eq!(status, "published");
+
+    let indexes = expect_show_indexes(
+        query_sql(&fixture, "SHOW INDEXES FROM Character")
+            .expect("SHOW INDEXES FROM should read accepted indexes after shorthand DROP INDEX"),
+    );
+    assert!(
+        indexes
+            .iter()
+            .all(|index| !index.contains("character_renown_idx")),
+        "single-entity shorthand DROP INDEX should hide the dropped DDL index: {indexes:?}",
+    );
+}
+
+#[test]
+fn sql_canister_ddl_endpoint_rejects_ambiguous_drop_index_shorthand() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    ddl_sql(
+        &fixture,
+        "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
+    )
+    .expect("setup CREATE INDEX should publish before ambiguous DROP INDEX");
+
+    assert_ddl_rejects_with_index_visibility_unchanged(
+        &fixture,
+        "DROP INDEX sql_test_user_rank_idx",
+        "IcyDB SQL DDL requires one target entity",
     );
 }
 
