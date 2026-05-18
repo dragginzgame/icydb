@@ -1147,6 +1147,10 @@ fn sql_shell_call_kind_routes_supported_ddl_to_update_method() {
         SqlShellCallKind::Ddl,
     );
     assert_eq!(
+        sql_shell_call_kind("ALTER TABLE Character ADD COLUMN nickname text"),
+        SqlShellCallKind::Ddl,
+    );
+    assert_eq!(
         sql_shell_call_kind("SELECT * FROM Character"),
         SqlShellCallKind::Query,
     );

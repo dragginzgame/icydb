@@ -331,6 +331,7 @@ fn sql_shell_statement_is_index_ddl(
         (first, second, third),
         (Some("CREATE" | "DROP"), Some("INDEX"), _)
             | (Some("CREATE"), Some("UNIQUE"), Some("INDEX"))
+            | (Some("ALTER"), Some("TABLE"), _)
     )
 }
 

@@ -4,7 +4,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::{
-    SqlAggregateCall, SqlAggregateKind, SqlAssignment, SqlCaseArm,
+    SqlAggregateCall, SqlAggregateKind, SqlAlterTableAddColumnStatement, SqlAssignment, SqlCaseArm,
     SqlCreateIndexExpressionFunction, SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem,
     SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement, SqlDeleteStatement,
     SqlDescribeStatement, SqlDropIndexStatement, SqlExplainMode, SqlExplainStatement,
@@ -1896,6 +1896,44 @@ fn parse_create_index_treats_asc_as_default_order() {
             uniqueness: SqlCreateIndexUniqueness::NonUnique,
             if_not_exists: false,
         })),
+    );
+}
+
+#[test]
+fn parse_alter_table_add_column_statement_keeps_ddl_intent_unresolved() {
+    let statement = parse_sql("ALTER TABLE public.users ADD COLUMN nickname text NULL")
+        .expect("ALTER TABLE ADD COLUMN should parse as DDL intent");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::AlterTableAddColumn(
+            SqlAlterTableAddColumnStatement {
+                entity: "public.users".to_string(),
+                column_name: "nickname".to_string(),
+                column_type: "text".to_string(),
+                nullable: true,
+                default: None,
+            },
+        )),
+    );
+}
+
+#[test]
+fn parse_alter_table_add_column_statement_keeps_default_and_nullability_intent() {
+    let statement = parse_sql("ALTER TABLE users ADD COLUMN score nat DEFAULT 7 NOT NULL")
+        .expect("ALTER TABLE ADD COLUMN with DEFAULT and NOT NULL should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::AlterTableAddColumn(
+            SqlAlterTableAddColumnStatement {
+                entity: "users".to_string(),
+                column_name: "score".to_string(),
+                column_type: "nat".to_string(),
+                nullable: false,
+                default: Some(Value::Int(7)),
+            },
+        )),
     );
 }
 

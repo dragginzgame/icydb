@@ -27,8 +27,9 @@ use crate::db::{
     sql::{
         identifier::identifiers_tail_match,
         parser::{
-            SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem, SqlCreateIndexStatement,
-            SqlCreateIndexUniqueness, SqlDdlStatement, SqlDropIndexStatement, SqlStatement,
+            SqlAlterTableAddColumnStatement, SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem,
+            SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement,
+            SqlDropIndexStatement, SqlStatement,
         },
     },
 };
@@ -456,6 +457,14 @@ pub(in crate::db) enum SqlDdlBindError {
         "index '{index_name}' is not a supported DDL-droppable secondary index; SQL DDL can currently drop only indexes created through SQL DDL"
     )]
     UnsupportedDropIndex { index_name: String },
+
+    #[error(
+        "SQL DDL ALTER TABLE ADD COLUMN is not executable yet for accepted entity '{entity_name}' column '{column_name}'"
+    )]
+    UnsupportedAlterTableAddColumn {
+        entity_name: String,
+        column_name: String,
+    },
 }
 
 ///
@@ -529,6 +538,9 @@ pub(in crate::db) fn bind_sql_ddl_statement(
         }
         SqlDdlStatement::DropIndex(statement) => {
             bind_drop_index_statement(statement, accepted_before, schema)
+        }
+        SqlDdlStatement::AlterTableAddColumn(statement) => {
+            bind_alter_table_add_column_statement(statement, schema)
         }
     }
 }
@@ -692,6 +704,27 @@ fn bind_drop_index_statement(
             dropped_index,
             field_path,
         }),
+    })
+}
+
+fn bind_alter_table_add_column_statement(
+    statement: &SqlAlterTableAddColumnStatement,
+    schema: &SchemaInfo,
+) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
+    let entity_name = schema
+        .entity_name()
+        .ok_or(SqlDdlBindError::MissingEntityName)?;
+
+    if !identifiers_tail_match(statement.entity.as_str(), entity_name) {
+        return Err(SqlDdlBindError::EntityMismatch {
+            sql_entity: statement.entity.clone(),
+            expected_entity: entity_name.to_string(),
+        });
+    }
+
+    Err(SqlDdlBindError::UnsupportedAlterTableAddColumn {
+        entity_name: entity_name.to_string(),
+        column_name: statement.column_name.clone(),
     })
 }
 

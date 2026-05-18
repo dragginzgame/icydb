@@ -39,6 +39,9 @@ impl Parser {
         if self.eat_keyword(Keyword::Drop) {
             return Ok(SqlStatement::Ddl(self.parse_drop_statement()?));
         }
+        if self.eat_identifier_keyword("ALTER") {
+            return Ok(SqlStatement::Ddl(self.parse_alter_statement()?));
+        }
         if self.eat_keyword(Keyword::Explain) {
             return Ok(SqlStatement::Explain(self.parse_explain_statement()?));
         }
@@ -54,7 +57,7 @@ impl Parser {
         }
 
         Err(SqlParseError::expected(
-            "one of SELECT, DELETE, INSERT, UPDATE, CREATE, DROP, EXPLAIN, DESCRIBE, SHOW",
+            "one of SELECT, DELETE, INSERT, UPDATE, CREATE, DROP, ALTER, EXPLAIN, DESCRIBE, SHOW",
             self.peek_kind(),
         ))
     }
@@ -241,6 +244,59 @@ impl Parser {
         Ok(false)
     }
 
+    fn parse_alter_statement(&mut self) -> Result<SqlDdlStatement, SqlParseError> {
+        if !self.eat_identifier_keyword("TABLE") {
+            return Err(SqlParseError::unsupported_feature(
+                "SQL DDL ALTER statements beyond ALTER TABLE",
+            ));
+        }
+
+        Ok(SqlDdlStatement::AlterTableAddColumn(
+            self.parse_alter_table_add_column_statement()?,
+        ))
+    }
+
+    fn parse_alter_table_add_column_statement(
+        &mut self,
+    ) -> Result<crate::db::sql::parser::SqlAlterTableAddColumnStatement, SqlParseError> {
+        let entity = self.expect_identifier()?;
+        if !self.eat_identifier_keyword("ADD") || !self.eat_identifier_keyword("COLUMN") {
+            return Err(SqlParseError::unsupported_feature(
+                "SQL DDL ALTER TABLE statements beyond ADD COLUMN",
+            ));
+        }
+        let column_name = self.expect_identifier()?;
+        let column_type = self.expect_identifier()?;
+        let mut nullable = true;
+        let mut default = None;
+
+        loop {
+            if self.eat_identifier_keyword("DEFAULT") {
+                if default.is_some() {
+                    return Err(SqlParseError::unsupported_feature(
+                        "ALTER TABLE ADD COLUMN duplicate DEFAULT clauses",
+                    ));
+                }
+                default = Some(self.parse_literal()?);
+            } else if self.eat_keyword(Keyword::Not) {
+                self.expect_keyword(Keyword::Null)?;
+                nullable = false;
+            } else if self.eat_keyword(Keyword::Null) {
+                nullable = true;
+            } else {
+                break;
+            }
+        }
+
+        Ok(crate::db::sql::parser::SqlAlterTableAddColumnStatement {
+            entity,
+            column_name,
+            column_type,
+            nullable,
+            default,
+        })
+    }
+
     const fn ddl_clause_order_error(statement: &SqlDdlStatement) -> SqlParseError {
         match statement {
             SqlDdlStatement::CreateIndex(_) => {
@@ -248,6 +304,9 @@ impl Parser {
             }
             SqlDdlStatement::DropIndex(_) => {
                 SqlParseError::unsupported_feature("DROP INDEX modifiers")
+            }
+            SqlDdlStatement::AlterTableAddColumn(_) => {
+                SqlParseError::unsupported_feature("ALTER TABLE ADD COLUMN modifiers")
             }
         }
     }

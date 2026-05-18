@@ -42,6 +42,22 @@ pub(crate) enum SqlStatement {
 pub(crate) enum SqlDdlStatement {
     CreateIndex(SqlCreateIndexStatement),
     DropIndex(SqlDropIndexStatement),
+    AlterTableAddColumn(SqlAlterTableAddColumnStatement),
+}
+
+///
+/// SqlAlterTableAddColumnStatement
+///
+/// Parsed `ALTER TABLE ... ADD COLUMN ...` frontend staged for schema DDL.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlAlterTableAddColumnStatement {
+    pub(crate) entity: String,
+    pub(crate) column_name: String,
+    pub(crate) column_type: String,
+    pub(crate) nullable: bool,
+    pub(crate) default: Option<Value>,
 }
 
 ///

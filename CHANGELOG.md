@@ -5,6 +5,20 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.158.x] 🧬 - 2026-05-18 - Schema DDL And Field Evolution
+
+- `0.158.0` starts the schema-DDL line by parsing
+  `ALTER TABLE ... ADD COLUMN ...` into the SQL DDL frontend model, including
+  nullable/default intent. The command now routes through the DDL surface,
+  binds the target accepted entity, and fails closed with an explicit
+  unsupported schema-DDL diagnostic before any accepted schema publication or
+  row rewrite work.
+
+  ```
+  ALTER TABLE Character ADD COLUMN nickname text;
+  ALTER TABLE Character ADD COLUMN score nat DEFAULT 0 NOT NULL;
+  ```
+
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
 - `0.157.23` enables `CREATE UNIQUE INDEX` for supported deterministic

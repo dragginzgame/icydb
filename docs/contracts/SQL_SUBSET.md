@@ -147,6 +147,8 @@ Supported shapes:
 - `DROP INDEX name`
 - `DROP INDEX IF EXISTS name ON entity`
 - `DROP INDEX IF EXISTS name`
+- `ALTER TABLE entity ADD COLUMN field type` is parsed and routed through the
+  DDL surface, but is not executable yet.
 
 SQL DDL is a frontend over accepted schema catalog mutation, not the source of
 schema authority.
@@ -172,6 +174,10 @@ publication path.
 generated/model-owned and otherwise unsupported indexes still reject.
 Typed SQL DDL may omit `ON entity` for `DROP INDEX`. Generated canister DDL
 requires `ON entity` so dispatch does not guess a target from canister shape.
+
+`ALTER TABLE ... ADD COLUMN ...` currently binds the target entity and then
+fails closed before accepted schema mutation or physical work. Field DDL belongs
+to the 0.158 schema-evolution line.
 
 ## Public SQL Mutation Execution
 

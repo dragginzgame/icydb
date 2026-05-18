@@ -1293,7 +1293,7 @@ docs/design/0.159-streaming-execution/materialization-audit.md
 or, if this belongs under the current key/index work:
 
 ```text
-docs/design/0.158-index-key-refactor/streaming-execution-addendum.md
+docs/design/0.159-index-key-refactor/streaming-execution-addendum.md
 ```
 
 ---

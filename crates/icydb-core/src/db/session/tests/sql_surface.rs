@@ -2288,6 +2288,26 @@ fn sql_ddl_create_index_binding_accepts_expression_keys_as_catalog_metadata() {
 }
 
 #[test]
+fn sql_ddl_alter_table_add_column_binds_entity_then_fails_closed() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let statement =
+        parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text DEFAULT 'none'")
+            .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
+
+    let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+        .expect_err("schema DDL should fail closed until field mutation execution is wired");
+
+    assert!(matches!(
+        err,
+        SqlDdlBindError::UnsupportedAlterTableAddColumn {
+            entity_name,
+            column_name,
+        } if entity_name == "SessionSqlEntity" && column_name == "nickname"
+    ));
+}
+
+#[test]
 fn sql_ddl_create_index_binding_rejects_duplicate_accepted_indexes() {
     let accepted_before = accepted_schema_snapshot_for_entity::<IndexedSessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<IndexedSessionSqlEntity>();
