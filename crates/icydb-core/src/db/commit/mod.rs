@@ -32,9 +32,10 @@ mod tests;
 #[cfg(test)]
 use crate::error::InternalError;
 #[cfg(test)]
-use crate::testing::{TEST_MEMORY_RANGE_END, TEST_MEMORY_RANGE_START, test_commit_memory_id};
+use crate::testing::test_commit_memory_id;
+
 #[cfg(test)]
-use canic_memory::api::MemoryApi;
+const TEST_COMMIT_STABLE_KEY: &str = "icydb.test.commit.v1";
 
 ///
 /// Re-exports
@@ -90,20 +91,11 @@ pub(in crate::db) fn persist_raw_commit_marker_for_tests(
 /// canonical id managed by `test_support`.
 #[cfg(test)]
 pub(in crate::db) fn init_commit_store_for_tests() -> Result<(), InternalError> {
-    // Phase 1: bootstrap the reserved test range through the public memory API.
-    MemoryApi::declare_with_key(
-        test_commit_memory_id(),
-        "icydb_test",
-        marker::COMMIT_LABEL,
-        "icydb.test.commit.v1",
-    )
-    .map_err(InternalError::commit_memory_registry_init_failed)?;
-    MemoryApi::bootstrap_owner_range("icydb_test", TEST_MEMORY_RANGE_START, TEST_MEMORY_RANGE_END)
-        .map_err(InternalError::commit_memory_registry_init_failed)?;
+    // Phase 1: pin the explicit commit marker slot. Core unit tests use a
+    // test-memory backend because Canic's bootstrap seal is process-global
+    // while Rust test bodies run in separate OS threads.
+    memory::configure_commit_memory_id(test_commit_memory_id(), TEST_COMMIT_STABLE_KEY)?;
 
-    // Phase 2: pin and register the explicit commit marker slot.
-    memory::configure_commit_memory_id(test_commit_memory_id(), "icydb.test.commit.v1")?;
-
-    // Phase 3: initialize the commit store in the configured slot.
+    // Phase 2: initialize the commit store in the configured slot.
     store::with_commit_store(|_| Ok(()))
 }

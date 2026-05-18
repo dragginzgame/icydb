@@ -22,6 +22,7 @@ use std::{borrow::Cow, cell::RefCell, thread::LocalKey};
 // - Recovery replays marker row ops deterministically.
 // This makes partial mutations deterministic without a WAL.
 
+#[cfg_attr(test, allow(dead_code))]
 pub(crate) const COMMIT_LABEL: &str = "CommitMarker";
 /// Stored commit-id byte width shared by marker and guard paths.
 pub(in crate::db) const COMMIT_ID_BYTES: usize = 16;

@@ -15,9 +15,7 @@ pub(crate) use entity_tags::*;
 pub(crate) use fixtures::*;
 
 pub(crate) const RESERVED_INTERNAL_MEMORY_ID: u8 = u8::MAX;
-pub(crate) const TEST_MEMORY_RANGE_START: u8 = 1;
 pub(crate) const TEST_COMMIT_MEMORY_ID: u8 = RESERVED_INTERNAL_MEMORY_ID - 1;
-pub(crate) const TEST_MEMORY_RANGE_END: u8 = TEST_COMMIT_MEMORY_ID;
 
 /// Return a validated test memory id.
 ///

@@ -703,6 +703,7 @@ impl InternalError {
     }
 
     /// Construct the canonical memory-registry initialization failure for commit memory.
+    #[cfg_attr(test, allow(dead_code))]
     pub(crate) fn commit_memory_registry_init_failed(err: impl fmt::Display) -> Self {
         Self::store_internal(format!("memory registry init failed: {err}"))
     }
@@ -820,6 +821,7 @@ impl InternalError {
     }
 
     /// Construct the canonical multiple-commit-memory-ids corruption error.
+    #[cfg_attr(test, allow(dead_code))]
     pub(crate) fn multiple_commit_memory_ids_registered(ids: impl fmt::Debug) -> Self {
         Self::store_corruption(format!(
             "multiple commit marker memory ids registered: {ids:?}"
@@ -1386,6 +1388,7 @@ impl InternalError {
     }
 
     /// Construct the canonical configured-vs-registered commit-memory id mismatch error.
+    #[cfg_attr(test, allow(dead_code))]
     pub(crate) fn configured_commit_memory_id_mismatch(
         configured_id: u8,
         registered_id: u8,
@@ -1396,6 +1399,7 @@ impl InternalError {
     }
 
     /// Construct the canonical unregistered commit-memory stable key error.
+    #[cfg_attr(test, allow(dead_code))]
     pub(crate) fn commit_memory_stable_key_unregistered(memory_id: u8, stable_key: &str) -> Self {
         Self::store_unsupported(format!(
             "configured commit memory id {memory_id} is not declared with stable key '{stable_key}'",
@@ -1410,6 +1414,7 @@ impl InternalError {
     }
 
     /// Construct the canonical commit-memory id registration failure.
+    #[cfg_attr(test, allow(dead_code))]
     pub(crate) fn commit_memory_id_registration_failed(err: impl fmt::Display) -> Self {
         Self::store_internal(format!("commit memory id registration failed: {err}"))
     }
