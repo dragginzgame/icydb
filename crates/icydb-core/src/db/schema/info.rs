@@ -220,6 +220,7 @@ pub(in crate::db) struct SchemaExpressionIndexInfo {
     name: String,
     store: String,
     unique: bool,
+    generated: bool,
     key_items: Vec<SchemaExpressionIndexKeyItemInfo>,
     predicate_sql: Option<String>,
 }
@@ -251,6 +252,12 @@ impl SchemaExpressionIndexInfo {
     #[must_use]
     pub(in crate::db) const fn unique(&self) -> bool {
         self.unique
+    }
+
+    /// Return whether this expression index came from generated entity metadata.
+    #[must_use]
+    pub(in crate::db) const fn generated(&self) -> bool {
+        self.generated
     }
 
     /// Borrow accepted key-item contracts in index key order.
@@ -1015,6 +1022,7 @@ fn schema_expression_index_info_from_accepted_index(
         name: index.name().to_string(),
         store: index.store().to_string(),
         unique: index.unique(),
+        generated: index.generated(),
         key_items: items
             .iter()
             .map(|item| schema_expression_index_key_item_info(item, snapshot))

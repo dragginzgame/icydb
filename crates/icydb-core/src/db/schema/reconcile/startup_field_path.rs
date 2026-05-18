@@ -484,8 +484,8 @@ pub(super) fn field_path_startup_index_store_preflight(
 }
 
 pub(super) struct StartupFieldPathRebuildRow {
-    storage_key: StorageKey,
-    row: RawRow,
+    pub(super) storage_key: StorageKey,
+    pub(super) row: RawRow,
 }
 
 pub(super) struct StartupDecodedFieldPathRebuildRow<'a> {

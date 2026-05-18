@@ -12,10 +12,13 @@ use crate::db::{
     predicate::parse_sql_predicate,
     query::predicate::validate_predicate,
     schema::{
-        AcceptedSchemaSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-        SchemaDdlAcceptedSnapshotDerivation, SchemaDdlIndexDropCandidateError,
-        SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError, SchemaInfo,
+        AcceptedSchemaSnapshot, PersistedFieldKind, PersistedIndexExpressionOp,
+        PersistedIndexExpressionSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
+        PersistedIndexSnapshot, SchemaDdlAcceptedSnapshotDerivation,
+        SchemaDdlIndexDropCandidateError, SchemaDdlMutationAdmission,
+        SchemaDdlMutationAdmissionError, SchemaInfo, admit_sql_ddl_expression_index_candidate,
         admit_sql_ddl_field_path_index_candidate, admit_sql_ddl_secondary_index_drop_candidate,
+        derive_sql_ddl_expression_index_accepted_after,
         derive_sql_ddl_field_path_index_accepted_after,
         derive_sql_ddl_secondary_index_drop_accepted_after,
         resolve_sql_ddl_secondary_index_drop_candidate,
@@ -157,6 +160,7 @@ impl SqlDdlPreparationReport {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SqlDdlMutationKind {
     AddFieldPathIndex,
+    AddExpressionIndex,
     DropSecondaryIndex,
 }
 
@@ -166,6 +170,7 @@ impl SqlDdlMutationKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::AddFieldPathIndex => "add_field_path_index",
+            Self::AddExpressionIndex => "add_expression_index",
             Self::DropSecondaryIndex => "drop_secondary_index",
         }
     }
@@ -275,12 +280,13 @@ impl BoundSqlDdlNoOpRequest {
 ///
 /// BoundSqlCreateIndexRequest
 ///
-/// Catalog-resolved request for adding one field-path secondary index.
+/// Catalog-resolved request for adding one secondary index.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct BoundSqlCreateIndexRequest {
     index_name: String,
     entity_name: String,
+    key_items: Vec<BoundSqlDdlCreateIndexKey>,
     field_paths: Vec<BoundSqlDdlFieldPath>,
     candidate_index: PersistedIndexSnapshot,
 }
@@ -302,6 +308,12 @@ impl BoundSqlCreateIndexRequest {
     #[must_use]
     pub(in crate::db) const fn field_paths(&self) -> &[BoundSqlDdlFieldPath] {
         self.field_paths.as_slice()
+    }
+
+    /// Borrow the accepted key targets in DDL key order.
+    #[must_use]
+    pub(in crate::db) const fn key_items(&self) -> &[BoundSqlDdlCreateIndexKey] {
+        self.key_items.as_slice()
     }
 
     /// Borrow the candidate accepted index snapshot for mutation admission.
@@ -419,9 +431,6 @@ pub(in crate::db) enum SqlDdlBindError {
     #[error("invalid filtered index predicate: {detail}")]
     InvalidFilteredIndexPredicate { detail: String },
 
-    #[error("SQL DDL expression index keys are not executable in this release: {expression}")]
-    UnsupportedExpressionIndexKey { expression: String },
-
     #[error("index name '{index_name}' already exists in the accepted schema")]
     DuplicateIndexName { index_name: String },
 
@@ -443,7 +452,7 @@ pub(in crate::db) enum SqlDdlBindError {
     GeneratedIndexDropRejected { index_name: String },
 
     #[error(
-        "index '{index_name}' is not a supported DDL-droppable field-path index; SQL DDL can currently drop only field-path indexes created through SQL DDL"
+        "index '{index_name}' is not a supported DDL-droppable secondary index; SQL DDL can currently drop only indexes created through SQL DDL"
     )]
     UnsupportedDropIndex { index_name: String },
 }
@@ -544,9 +553,10 @@ fn bind_create_index_statement(
         .iter()
         .map(|key_item| bind_create_index_key_item(key_item, entity_name, schema))
         .collect::<Result<Vec<_>, _>>()?;
-    let field_paths = create_index_field_path_keys_only(key_items.as_slice())?;
+    let field_paths = create_index_field_path_report_items(key_items.as_slice());
     if let Some(existing_index) = find_field_path_index_by_name(schema, statement.name.as_str()) {
-        if statement.if_not_exists
+        if key_items_are_field_path_only(key_items.as_slice())
+            && statement.if_not_exists
             && existing_field_path_index_matches_request(
                 existing_index,
                 field_paths.as_slice(),
@@ -572,10 +582,16 @@ fn bind_create_index_statement(
     reject_duplicate_expression_index_name(statement.name.as_str(), schema)?;
     let predicate_sql =
         validated_create_index_predicate_sql(statement.predicate_sql.as_deref(), schema)?;
-    reject_duplicate_field_path_index(field_paths.as_slice(), predicate_sql.as_deref(), schema)?;
+    if key_items_are_field_path_only(key_items.as_slice()) {
+        reject_duplicate_field_path_index(
+            field_paths.as_slice(),
+            predicate_sql.as_deref(),
+            schema,
+        )?;
+    }
     let candidate_index = candidate_index_snapshot(
         statement.name.as_str(),
-        field_paths.as_slice(),
+        key_items.as_slice(),
         predicate_sql.as_deref(),
         statement.uniqueness,
         schema,
@@ -586,6 +602,7 @@ fn bind_create_index_statement(
         statement: BoundSqlDdlStatement::CreateIndex(BoundSqlCreateIndexRequest {
             index_name: statement.name.clone(),
             entity_name: entity_name.to_string(),
+            key_items,
             field_paths,
             candidate_index,
         }),
@@ -653,9 +670,41 @@ fn bind_drop_index_statement(
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum BoundSqlDdlCreateIndexKey {
+pub(in crate::db) enum BoundSqlDdlCreateIndexKey {
     FieldPath(BoundSqlDdlFieldPath),
-    Expression(String),
+    Expression(BoundSqlDdlExpressionKey),
+}
+
+///
+/// BoundSqlDdlExpressionKey
+///
+/// Accepted expression-index key target for SQL DDL binding.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct BoundSqlDdlExpressionKey {
+    op: PersistedIndexExpressionOp,
+    source: BoundSqlDdlFieldPath,
+    canonical_sql: String,
+}
+
+impl BoundSqlDdlExpressionKey {
+    /// Return the accepted expression operation.
+    #[must_use]
+    pub(in crate::db) const fn op(&self) -> PersistedIndexExpressionOp {
+        self.op
+    }
+
+    /// Borrow the accepted source field path.
+    #[must_use]
+    pub(in crate::db) const fn source(&self) -> &BoundSqlDdlFieldPath {
+        &self.source
+    }
+
+    /// Borrow the SQL-facing canonical expression text.
+    #[must_use]
+    pub(in crate::db) const fn canonical_sql(&self) -> &str {
+        self.canonical_sql.as_str()
+    }
 }
 
 fn bind_create_index_key_item(
@@ -679,25 +728,47 @@ fn bind_create_index_expression_key(
     entity_name: &str,
     schema: &SchemaInfo,
 ) -> Result<BoundSqlDdlCreateIndexKey, SqlDdlBindError> {
-    let _ = bind_create_index_field_path(expression.field_path.as_str(), entity_name, schema)?;
+    let source = bind_create_index_field_path(expression.field_path.as_str(), entity_name, schema)?;
 
     Ok(BoundSqlDdlCreateIndexKey::Expression(
-        expression.canonical_sql(),
+        BoundSqlDdlExpressionKey {
+            op: expression_op_from_sql_function(expression.function),
+            source,
+            canonical_sql: expression.canonical_sql(),
+        },
     ))
 }
 
-fn create_index_field_path_keys_only(
+const fn expression_op_from_sql_function(
+    function: crate::db::sql::parser::SqlCreateIndexExpressionFunction,
+) -> PersistedIndexExpressionOp {
+    match function {
+        crate::db::sql::parser::SqlCreateIndexExpressionFunction::Lower => {
+            PersistedIndexExpressionOp::Lower
+        }
+        crate::db::sql::parser::SqlCreateIndexExpressionFunction::Upper => {
+            PersistedIndexExpressionOp::Upper
+        }
+        crate::db::sql::parser::SqlCreateIndexExpressionFunction::Trim => {
+            PersistedIndexExpressionOp::Trim
+        }
+    }
+}
+
+fn key_items_are_field_path_only(key_items: &[BoundSqlDdlCreateIndexKey]) -> bool {
+    key_items
+        .iter()
+        .all(|key_item| matches!(key_item, BoundSqlDdlCreateIndexKey::FieldPath(_)))
+}
+
+fn create_index_field_path_report_items(
     key_items: &[BoundSqlDdlCreateIndexKey],
-) -> Result<Vec<BoundSqlDdlFieldPath>, SqlDdlBindError> {
+) -> Vec<BoundSqlDdlFieldPath> {
     key_items
         .iter()
         .map(|key_item| match key_item {
-            BoundSqlDdlCreateIndexKey::FieldPath(field_path) => Ok(field_path.clone()),
-            BoundSqlDdlCreateIndexKey::Expression(expression) => {
-                Err(SqlDdlBindError::UnsupportedExpressionIndexKey {
-                    expression: expression.clone(),
-                })
-            }
+            BoundSqlDdlCreateIndexKey::FieldPath(field_path) => field_path.clone(),
+            BoundSqlDdlCreateIndexKey::Expression(expression) => expression.source().clone(),
         })
         .collect()
 }
@@ -815,31 +886,123 @@ fn reject_duplicate_field_path_index(
 
 fn candidate_index_snapshot(
     index_name: &str,
-    field_paths: &[BoundSqlDdlFieldPath],
+    key_items: &[BoundSqlDdlCreateIndexKey],
     predicate_sql: Option<&str>,
     uniqueness: SqlCreateIndexUniqueness,
     schema: &SchemaInfo,
     index_store_path: &'static str,
 ) -> Result<PersistedIndexSnapshot, SqlDdlBindError> {
-    let keys = field_paths
-        .iter()
-        .map(|field_path| {
-            schema
-                .accepted_index_field_path_snapshot(field_path.root(), field_path.segments())
-                .ok_or_else(|| SqlDdlBindError::FieldPathNotAcceptedCatalogBacked {
-                    field_path: field_path.accepted_path().join("."),
+    let key = if key_items_are_field_path_only(key_items) {
+        PersistedIndexKeySnapshot::FieldPath(
+            key_items
+                .iter()
+                .map(|key_item| {
+                    let BoundSqlDdlCreateIndexKey::FieldPath(field_path) = key_item else {
+                        unreachable!("field-path-only index checked before field-path lowering");
+                    };
+
+                    accepted_index_field_path_snapshot(schema, field_path)
                 })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+                .collect::<Result<Vec<_>, _>>()?,
+        )
+    } else {
+        PersistedIndexKeySnapshot::Items(
+            key_items
+                .iter()
+                .map(|key_item| match key_item {
+                    BoundSqlDdlCreateIndexKey::FieldPath(field_path) => {
+                        accepted_index_field_path_snapshot(schema, field_path)
+                            .map(PersistedIndexKeyItemSnapshot::FieldPath)
+                    }
+                    BoundSqlDdlCreateIndexKey::Expression(expression) => {
+                        accepted_index_expression_snapshot(schema, expression)
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        )
+    };
 
     Ok(PersistedIndexSnapshot::new_sql_ddl(
         schema.next_secondary_index_ordinal(),
         index_name.to_string(),
         index_store_path.to_string(),
         matches!(uniqueness, SqlCreateIndexUniqueness::Unique),
-        PersistedIndexKeySnapshot::FieldPath(keys),
+        key,
         predicate_sql.map(str::to_string),
     ))
+}
+
+fn accepted_index_field_path_snapshot(
+    schema: &SchemaInfo,
+    field_path: &BoundSqlDdlFieldPath,
+) -> Result<crate::db::schema::PersistedIndexFieldPathSnapshot, SqlDdlBindError> {
+    schema
+        .accepted_index_field_path_snapshot(field_path.root(), field_path.segments())
+        .ok_or_else(|| SqlDdlBindError::FieldPathNotAcceptedCatalogBacked {
+            field_path: field_path.accepted_path().join("."),
+        })
+}
+
+fn accepted_index_expression_snapshot(
+    schema: &SchemaInfo,
+    expression: &BoundSqlDdlExpressionKey,
+) -> Result<PersistedIndexKeyItemSnapshot, SqlDdlBindError> {
+    let source = accepted_index_field_path_snapshot(schema, expression.source())?;
+    let Some(output_kind) = expression_output_kind(expression.op(), source.kind()) else {
+        return Err(SqlDdlBindError::FieldPathNotIndexable {
+            field_path: expression.source().accepted_path().join("."),
+        });
+    };
+
+    Ok(PersistedIndexKeyItemSnapshot::Expression(Box::new(
+        PersistedIndexExpressionSnapshot::new(
+            expression.op(),
+            source.clone(),
+            source.kind().clone(),
+            output_kind,
+            format!("expr:v1:{}", expression.canonical_sql()),
+        ),
+    )))
+}
+
+fn expression_output_kind(
+    op: PersistedIndexExpressionOp,
+    source_kind: &PersistedFieldKind,
+) -> Option<PersistedFieldKind> {
+    match op {
+        PersistedIndexExpressionOp::Lower
+        | PersistedIndexExpressionOp::Upper
+        | PersistedIndexExpressionOp::Trim
+        | PersistedIndexExpressionOp::LowerTrim => {
+            if matches!(source_kind, PersistedFieldKind::Text { .. }) {
+                Some(source_kind.clone())
+            } else {
+                None
+            }
+        }
+        PersistedIndexExpressionOp::Date => {
+            if matches!(
+                source_kind,
+                PersistedFieldKind::Date | PersistedFieldKind::Timestamp
+            ) {
+                Some(PersistedFieldKind::Date)
+            } else {
+                None
+            }
+        }
+        PersistedIndexExpressionOp::Year
+        | PersistedIndexExpressionOp::Month
+        | PersistedIndexExpressionOp::Day => {
+            if matches!(
+                source_kind,
+                PersistedFieldKind::Date | PersistedFieldKind::Timestamp
+            ) {
+                Some(PersistedFieldKind::Int)
+            } else {
+                None
+            }
+        }
+    }
 }
 
 fn validated_create_index_predicate_sql(
@@ -876,13 +1039,37 @@ fn ddl_field_path_report(field_paths: &[BoundSqlDdlFieldPath]) -> Vec<String> {
     }
 }
 
+fn ddl_key_item_report(key_items: &[BoundSqlDdlCreateIndexKey]) -> Vec<String> {
+    match key_items {
+        [key_item] => vec![ddl_key_item_text(key_item)],
+        _ => vec![
+            key_items
+                .iter()
+                .map(ddl_key_item_text)
+                .collect::<Vec<_>>()
+                .join(","),
+        ],
+    }
+}
+
+fn ddl_key_item_text(key_item: &BoundSqlDdlCreateIndexKey) -> String {
+    match key_item {
+        BoundSqlDdlCreateIndexKey::FieldPath(field_path) => field_path.accepted_path().join("."),
+        BoundSqlDdlCreateIndexKey::Expression(expression) => expression.canonical_sql().to_string(),
+    }
+}
+
 /// Lower one bound SQL DDL request through schema mutation admission.
 pub(in crate::db) fn lower_bound_sql_ddl_to_schema_mutation_admission(
     request: &BoundSqlDdlRequest,
 ) -> Result<SchemaDdlMutationAdmission, SqlDdlLoweringError> {
     match request.statement() {
         BoundSqlDdlStatement::CreateIndex(create) => {
-            admit_sql_ddl_field_path_index_candidate(create.candidate_index())
+            if create.candidate_index().key().is_field_path_only() {
+                admit_sql_ddl_field_path_index_candidate(create.candidate_index())
+            } else {
+                admit_sql_ddl_expression_index_candidate(create.candidate_index())
+            }
         }
         BoundSqlDdlStatement::DropIndex(drop) => {
             admit_sql_ddl_secondary_index_drop_candidate(drop.dropped_index())
@@ -899,10 +1086,17 @@ pub(in crate::db) fn derive_bound_sql_ddl_accepted_after(
 ) -> Result<SchemaDdlAcceptedSnapshotDerivation, SqlDdlLoweringError> {
     match request.statement() {
         BoundSqlDdlStatement::CreateIndex(create) => {
-            derive_sql_ddl_field_path_index_accepted_after(
-                accepted_before,
-                create.candidate_index().clone(),
-            )
+            if create.candidate_index().key().is_field_path_only() {
+                derive_sql_ddl_field_path_index_accepted_after(
+                    accepted_before,
+                    create.candidate_index().clone(),
+                )
+            } else {
+                derive_sql_ddl_expression_index_accepted_after(
+                    accepted_before,
+                    create.candidate_index().clone(),
+                )
+            }
         }
         BoundSqlDdlStatement::DropIndex(drop) => {
             derive_sql_ddl_secondary_index_drop_accepted_after(
@@ -921,10 +1115,14 @@ fn ddl_preparation_report(bound: &BoundSqlDdlRequest) -> SqlDdlPreparationReport
             let target = create.candidate_index();
 
             SqlDdlPreparationReport {
-                mutation_kind: SqlDdlMutationKind::AddFieldPathIndex,
+                mutation_kind: if target.key().is_field_path_only() {
+                    SqlDdlMutationKind::AddFieldPathIndex
+                } else {
+                    SqlDdlMutationKind::AddExpressionIndex
+                },
                 target_index: target.name().to_string(),
                 target_store: target.store().to_string(),
-                field_path: ddl_field_path_report(create.field_paths()),
+                field_path: ddl_key_item_report(create.key_items()),
                 execution_status: SqlDdlExecutionStatus::PreparedOnly,
                 rows_scanned: 0,
                 index_keys_written: 0,

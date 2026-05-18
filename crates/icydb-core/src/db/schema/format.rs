@@ -122,7 +122,11 @@ pub(in crate::db) fn show_indexes_for_schema_info_with_runtime_state(
             &field_refs,
             index.predicate_sql(),
             runtime_state,
-            Some("generated"),
+            Some(if index.generated() {
+                "generated"
+            } else {
+                "ddl"
+            }),
         ));
     }
 

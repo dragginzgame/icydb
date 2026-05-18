@@ -165,11 +165,23 @@ impl SchemaDdlMutationAdmission {
     /// Borrow the admitted field-path index rebuild target.
     #[must_use]
     pub(in crate::db) fn target(&self) -> &SchemaFieldPathIndexRebuildTarget {
-        let SchemaDdlMutationTarget::AddFieldPathIndex(target) = &self.target else {
+        let SchemaDdlMutationTarget::FieldPathAddition(target) = &self.target else {
             panic!("SQL DDL admission does not carry a field-path index rebuild target");
         };
 
         target
+    }
+
+    /// Borrow the admitted expression index rebuild target.
+    #[must_use]
+    pub(in crate::db) const fn expression_target(
+        &self,
+    ) -> Option<&SchemaExpressionIndexRebuildTarget> {
+        match &self.target {
+            SchemaDdlMutationTarget::ExpressionAddition(target) => Some(target),
+            SchemaDdlMutationTarget::FieldPathAddition(_)
+            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
+        }
     }
 
     /// Borrow the admitted secondary-index drop cleanup target.
@@ -178,8 +190,9 @@ impl SchemaDdlMutationAdmission {
         &self,
     ) -> Option<&SchemaSecondaryIndexDropCleanupTarget> {
         match &self.target {
-            SchemaDdlMutationTarget::AddFieldPathIndex(_) => None,
-            SchemaDdlMutationTarget::DropSecondaryIndex(target) => Some(target),
+            SchemaDdlMutationTarget::FieldPathAddition(_)
+            | SchemaDdlMutationTarget::ExpressionAddition(_) => None,
+            SchemaDdlMutationTarget::SecondaryDrop(target) => Some(target),
         }
     }
 }
@@ -192,8 +205,9 @@ impl SchemaDdlMutationAdmission {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum SchemaDdlMutationTarget {
-    AddFieldPathIndex(SchemaFieldPathIndexRebuildTarget),
-    DropSecondaryIndex(SchemaSecondaryIndexDropCleanupTarget),
+    FieldPathAddition(SchemaFieldPathIndexRebuildTarget),
+    ExpressionAddition(SchemaExpressionIndexRebuildTarget),
+    SecondaryDrop(SchemaSecondaryIndexDropCleanupTarget),
 }
 
 ///
@@ -1135,6 +1149,7 @@ pub(in crate::db::schema) enum MutationPublicationStatus {
 pub(in crate::db::schema) enum SchemaMutationDelta<'a> {
     AppendOnlyFields(&'a [PersistedFieldSnapshot]),
     AddFieldPathIndex(&'a PersistedIndexSnapshot),
+    AddExpressionIndex(&'a PersistedIndexSnapshot),
     ExactMatch,
     Incompatible,
 }
@@ -1158,6 +1173,12 @@ pub(in crate::db::schema) fn classify_schema_mutation_delta<'a>(
         && SchemaMutationRequest::from_accepted_field_path_index(index).is_ok()
     {
         return SchemaMutationDelta::AddFieldPathIndex(index);
+    }
+
+    if let Some(index) = single_added_index(actual, expected)
+        && SchemaMutationRequest::from_accepted_expression_index(index).is_ok()
+    {
+        return SchemaMutationDelta::AddExpressionIndex(index);
     }
 
     SchemaMutationDelta::Incompatible
@@ -1646,7 +1667,23 @@ pub(in crate::db) fn admit_sql_ddl_field_path_index_candidate(
         .map_err(|_| SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
 
     Ok(SchemaDdlMutationAdmission {
-        target: SchemaDdlMutationTarget::AddFieldPathIndex(supported.target().clone()),
+        target: SchemaDdlMutationTarget::FieldPathAddition(supported.target().clone()),
+    })
+}
+
+/// Admit one SQL DDL expression index candidate through the schema-owned
+/// mutation request boundary.
+pub(in crate::db) fn admit_sql_ddl_expression_index_candidate(
+    index: &PersistedIndexSnapshot,
+) -> Result<SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError> {
+    let request = SchemaMutationRequest::from_accepted_expression_index(index)
+        .map_err(SchemaDdlMutationAdmissionError::AcceptedIndex)?;
+    let SchemaMutationRequest::AddExpressionIndex { target } = request else {
+        return Err(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath);
+    };
+
+    Ok(SchemaDdlMutationAdmission {
+        target: SchemaDdlMutationTarget::ExpressionAddition(target),
     })
 }
 
@@ -1661,7 +1698,7 @@ pub(in crate::db) fn admit_sql_ddl_secondary_index_drop_candidate(
     };
 
     Ok(SchemaDdlMutationAdmission {
-        target: SchemaDdlMutationTarget::DropSecondaryIndex(target),
+        target: SchemaDdlMutationTarget::SecondaryDrop(target),
     })
 }
 
@@ -1681,22 +1718,47 @@ pub(in crate::db) fn resolve_sql_ddl_secondary_index_drop_candidate(
     if index.generated() {
         return Err(SchemaDdlIndexDropCandidateError::Generated);
     }
-    let field_paths = index.key().field_paths();
-    if field_paths.is_empty() {
-        return Err(SchemaDdlIndexDropCandidateError::Unsupported);
-    }
-    let field_path = match field_paths {
-        [field_path] => field_path.path().to_vec(),
-        _ => vec![
-            field_paths
-                .iter()
-                .map(|field_path| field_path.path().join("."))
-                .collect::<Vec<_>>()
-                .join(","),
-        ],
-    };
+    let field_path = ddl_drop_index_key_report(index.key())
+        .ok_or(SchemaDdlIndexDropCandidateError::Unsupported)?;
 
     Ok((index, field_path))
+}
+
+fn ddl_drop_index_key_report(key: &PersistedIndexKeySnapshot) -> Option<Vec<String>> {
+    match key {
+        PersistedIndexKeySnapshot::FieldPath(field_paths) => match field_paths.as_slice() {
+            [] => None,
+            [field_path] => Some(field_path.path().to_vec()),
+            _ => Some(vec![
+                field_paths
+                    .iter()
+                    .map(|field_path| field_path.path().join("."))
+                    .collect::<Vec<_>>()
+                    .join(","),
+            ]),
+        },
+        PersistedIndexKeySnapshot::Items(items) => match items.as_slice() {
+            [] => None,
+            [item] => Some(vec![ddl_drop_index_key_item_text(item)]),
+            _ => Some(vec![
+                items
+                    .iter()
+                    .map(ddl_drop_index_key_item_text)
+                    .collect::<Vec<_>>()
+                    .join(","),
+            ]),
+        },
+    }
+}
+
+fn ddl_drop_index_key_item_text(item: &PersistedIndexKeyItemSnapshot) -> String {
+    match item {
+        PersistedIndexKeyItemSnapshot::FieldPath(field_path) => field_path.path().join("."),
+        PersistedIndexKeyItemSnapshot::Expression(expression) => expression
+            .canonical_text()
+            .trim_start_matches("expr:v1:")
+            .to_string(),
+    }
 }
 
 /// Derive and admit the accepted-after schema snapshot for one SQL DDL
@@ -1731,8 +1793,36 @@ pub(in crate::db) fn derive_sql_ddl_field_path_index_accepted_after(
     Ok(SchemaDdlAcceptedSnapshotDerivation {
         accepted_after,
         admission: SchemaDdlMutationAdmission {
-            target: SchemaDdlMutationTarget::AddFieldPathIndex(supported.target().clone()),
+            target: SchemaDdlMutationTarget::FieldPathAddition(supported.target().clone()),
         },
+    })
+}
+
+/// Derive and admit the accepted-after schema snapshot for one SQL DDL
+/// expression index candidate.
+pub(in crate::db) fn derive_sql_ddl_expression_index_accepted_after(
+    accepted_before: &AcceptedSchemaSnapshot,
+    index: PersistedIndexSnapshot,
+) -> Result<SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError> {
+    let before = accepted_before.persisted_snapshot();
+    let mut indexes = before.indexes().to_vec();
+    indexes.push(index.clone());
+    let persisted_after = PersistedSchemaSnapshot::new_with_indexes(
+        before.version(),
+        before.entity_path().to_string(),
+        before.entity_name().to_string(),
+        before.primary_key_field_id(),
+        before.row_layout().clone(),
+        before.fields().to_vec(),
+        indexes,
+    );
+    let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
+        .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
+    let admission = admit_sql_ddl_expression_index_candidate(&index)?;
+
+    Ok(SchemaDdlAcceptedSnapshotDerivation {
+        accepted_after,
+        admission,
     })
 }
 
@@ -1774,6 +1864,9 @@ impl<'a> From<SchemaMutationDelta<'a>> for SchemaMutationRequest<'a> {
             SchemaMutationDelta::AppendOnlyFields(fields) => Self::AppendOnlyFields(fields),
             SchemaMutationDelta::AddFieldPathIndex(index) => {
                 Self::from_accepted_field_path_index(index).unwrap_or(Self::Incompatible)
+            }
+            SchemaMutationDelta::AddExpressionIndex(index) => {
+                Self::from_accepted_expression_index(index).unwrap_or(Self::Incompatible)
             }
             SchemaMutationDelta::ExactMatch => Self::ExactMatch,
             SchemaMutationDelta::Incompatible => Self::Incompatible,

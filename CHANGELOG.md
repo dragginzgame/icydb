@@ -7,19 +7,25 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
-- `0.157.22` cleans up the Canic 0.38 stable-memory naming introduced in the
-  previous slice. Canister schema declarations now use `memory_namespace`,
-  stores keep a single `store_name`, and generated keys are derived from the
-  canister namespace, store name, and physical memory role, for example
-  `icydb.demo_rpg.main.data.v1` and
-  `icydb.demo_rpg.commit.control.v1`. The intermediate `db_name` and
-  `stable_name` naming has been hard-cut from schema, derive, generated wiring,
-  docs, and compile-fail fixtures, and the invalid intermediate `__commit`
-  key segment has been replaced with the canonical `commit` segment.
+- `0.157.22` moves expression-index SQL DDL past the old field-path-only
+  binder gate. `CREATE INDEX` with `LOWER(field)`, `UPPER(field)`, or
+  `TRIM(field)` now prepares as accepted expression key-item metadata with
+  canonical `expr:v1:*` text, mixed field/expression keys preserve key order,
+  and accepted-after derivation classifies expression-index additions as a
+  schema mutation shape. Supported non-unique expression indexes now publish
+  through physical rebuild, appear in `SHOW INDEXES` with `origin=ddl`, and can
+  be removed with `DROP INDEX`.
 
 - `0.157.21` updates IcyDB stable-memory wiring for the Canic 0.38 ABI by
   binding every generated store and commit memory to explicit durable stable
-  keys in the application-owned memory range.
+  keys in the application-owned memory range. The same patch cleans up the
+  stable-memory naming shape: canister schema declarations now use
+  `memory_namespace`, stores keep a single `store_name`, generated keys are
+  derived from the canister namespace, store name, and physical memory role,
+  and the intermediate `db_name` / `stable_name` names have been hard-cut.
+  Commit keys use the canonical `commit` segment, for example
+  `icydb.demo_rpg.commit.control.v1`, instead of the invalid intermediate
+  `__commit` segment.
 
 - `0.157.20` adds expression-index rebuild staging below the SQL DDL surface.
   Accepted expression rebuild rows now stage sorted raw index entries, skip

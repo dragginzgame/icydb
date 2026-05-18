@@ -7,8 +7,8 @@ use crate::{
         executor::EntityAuthority,
         response::Row,
         schema::{
-            AcceptedSchemaSnapshot, SchemaInfo, accepted_schema_cache_fingerprint,
-            compiled_schema_proposal_for_model,
+            AcceptedSchemaSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
+            SchemaInfo, accepted_schema_cache_fingerprint, compiled_schema_proposal_for_model,
         },
         session::{query::QueryPlanVisibility, sql::SqlCompiledCommandCacheKey},
         sql::{
@@ -2232,40 +2232,58 @@ fn sql_ddl_create_index_binding_rejects_unknown_catalog_targets() {
 }
 
 #[test]
-fn sql_ddl_create_index_binding_rejects_expression_keys_after_catalog_binding() {
+fn sql_ddl_create_index_binding_accepts_expression_keys_as_catalog_metadata() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
     let expression_index =
         parse_sql("CREATE INDEX lower_name_idx ON SessionSqlEntity (LOWER(name))")
             .expect("expression CREATE INDEX should parse before binding");
 
-    let err = bind_sql_ddl_statement(
+    let bound = bind_sql_ddl_statement(
         &expression_index,
         &accepted_before,
         &schema,
         SessionSqlStore::PATH,
     )
-    .expect_err("DDL binding should reject expression index keys until rebuild execution exists");
-    assert!(matches!(
-        err,
-        SqlDdlBindError::UnsupportedExpressionIndexKey { expression }
-            if expression == "LOWER(name)"
-    ));
+    .expect("DDL binding should accept expression index keys as accepted metadata");
+    let BoundSqlDdlStatement::CreateIndex(create) = bound.statement() else {
+        panic!("expression CREATE INDEX should bind to a create-index DDL request");
+    };
+    assert_eq!(create.index_name(), "lower_name_idx");
+    assert_eq!(
+        create.field_paths()[0].accepted_path(),
+        ["name".to_string()]
+    );
+    let PersistedIndexKeySnapshot::Items(items) = create.candidate_index().key() else {
+        panic!("expression CREATE INDEX should use explicit key-item metadata");
+    };
+    let [PersistedIndexKeyItemSnapshot::Expression(expression)] = items.as_slice() else {
+        panic!("expression CREATE INDEX should persist one expression key item");
+    };
+    assert_eq!(expression.canonical_text(), "expr:v1:LOWER(name)");
 
     let mixed_index =
         parse_sql("CREATE INDEX age_lower_name_idx ON SessionSqlEntity (age, LOWER(name))")
             .expect("mixed field/expression CREATE INDEX should parse before binding");
-    let err = bind_sql_ddl_statement(
+    let bound = bind_sql_ddl_statement(
         &mixed_index,
         &accepted_before,
         &schema,
         SessionSqlStore::PATH,
     )
-    .expect_err("DDL binding should reject mixed expression keys until rebuild execution exists");
+    .expect("DDL binding should preserve mixed field/expression key items");
+    let BoundSqlDdlStatement::CreateIndex(create) = bound.statement() else {
+        panic!("mixed CREATE INDEX should bind to a create-index DDL request");
+    };
+    let PersistedIndexKeySnapshot::Items(items) = create.candidate_index().key() else {
+        panic!("mixed CREATE INDEX should use explicit key-item metadata");
+    };
     assert!(matches!(
-        err,
-        SqlDdlBindError::UnsupportedExpressionIndexKey { expression }
-            if expression == "LOWER(name)"
+        items.as_slice(),
+        [
+            PersistedIndexKeyItemSnapshot::FieldPath(_),
+            PersistedIndexKeyItemSnapshot::Expression(_)
+        ]
     ));
 }
 
@@ -2436,6 +2454,101 @@ fn execute_sql_ddl_rejects_generated_index_drop_with_actionable_message() {
 }
 
 #[test]
+fn execute_sql_ddl_publishes_supported_expression_index() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 21), ("bob", 34), ("Cyd", 55)]);
+
+    let result = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE INDEX session_sql_lower_name_idx ON SessionSqlEntity (LOWER(name))",
+        )
+        .expect("expression index DDL should publish after physical expression rebuild");
+    let SqlStatementResult::Ddl(report) = result else {
+        panic!("DDL execution should return a DDL report");
+    };
+    let schema_info = SESSION_SQL_SCHEMA_STORE.with_borrow_mut(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("DDL-published schema should remain readable")
+            .expect("DDL execution should publish an accepted snapshot");
+        let accepted = AcceptedSchemaSnapshot::try_new(latest)
+            .expect("DDL-published schema snapshot should remain accepted");
+
+        SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
+            SessionSqlEntity::MODEL,
+            &accepted,
+            true,
+        )
+    });
+
+    assert_eq!(
+        report.mutation_kind(),
+        SqlDdlMutationKind::AddExpressionIndex,
+    );
+    assert_eq!(report.target_index(), "session_sql_lower_name_idx");
+    assert_eq!(report.field_path(), ["LOWER(name)".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    assert_eq!(report.rows_scanned(), 3);
+    assert_eq!(report.index_keys_written(), 3);
+    assert!(
+        schema_info
+            .expression_indexes()
+            .iter()
+            .any(|index| index.name() == "session_sql_lower_name_idx"
+                && index.store() == SessionSqlStore::PATH
+                && index.key_items().len() == 1
+                && !index.unique()
+                && !index.generated()),
+        "accepted schema publication should expose the DDL-created expression index",
+    );
+    let SqlStatementResult::ShowIndexes(indexes) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .expect("SHOW INDEXES FROM should read the accepted expression index set")
+    else {
+        panic!("SHOW INDEXES FROM should return an index metadata payload");
+    };
+    assert!(
+        indexes.iter().any(|index| index
+            == "INDEX session_sql_lower_name_idx (expr:v1:LOWER(name)) [state=ready] [origin=ddl]"),
+        "SHOW INDEXES FROM should expose DDL-created expression indexes",
+    );
+    SESSION_SQL_INDEX_STORE.with_borrow(|store| {
+        assert_eq!(
+            store.len(),
+            3,
+            "expression DDL execution should build one physical index key per fixture row",
+        );
+    });
+
+    let drop_result = session
+        .execute_sql_ddl::<SessionSqlEntity>("DROP INDEX session_sql_lower_name_idx")
+        .expect("DDL execution should drop the supported expression index");
+    let SqlStatementResult::Ddl(drop_report) = drop_result else {
+        panic!("DROP INDEX should return a DDL report");
+    };
+    assert_eq!(
+        drop_report.mutation_kind(),
+        SqlDdlMutationKind::DropSecondaryIndex
+    );
+    assert_eq!(drop_report.field_path(), ["LOWER(name)".to_string()]);
+    assert_eq!(
+        drop_report.execution_status(),
+        SqlDdlExecutionStatus::Published
+    );
+    SESSION_SQL_INDEX_STORE.with_borrow(|store| {
+        assert_eq!(
+            store.len(),
+            0,
+            "DROP INDEX should remove expression index physical keys",
+        );
+    });
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
 fn sql_ddl_create_index_lowers_to_supported_schema_mutation_admission() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
@@ -2522,6 +2635,59 @@ fn sql_ddl_create_index_preparation_reports_non_executed_command() {
             .target()
             .name(),
         "session_sql_age_idx",
+    );
+}
+
+#[test]
+fn sql_ddl_create_expression_index_preparation_reports_non_executed_command() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema =
+        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let statement =
+        parse_sql("CREATE INDEX session_sql_lower_name_idx ON SessionSqlEntity (LOWER(name))")
+            .expect("expression CREATE INDEX should parse before preparation");
+
+    let prepared =
+        prepare_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("expression CREATE INDEX should prepare through accepted schema metadata");
+
+    assert_eq!(
+        prepared.report().mutation_kind(),
+        SqlDdlMutationKind::AddExpressionIndex,
+    );
+    assert_eq!(
+        prepared.report().target_index(),
+        "session_sql_lower_name_idx"
+    );
+    assert_eq!(prepared.report().target_store(), SessionSqlStore::PATH);
+    assert_eq!(prepared.report().field_path(), ["LOWER(name)".to_string()]);
+    assert_eq!(
+        prepared.report().execution_status(),
+        SqlDdlExecutionStatus::PreparedOnly,
+    );
+    let derivation = prepared
+        .derivation()
+        .expect("expression CREATE INDEX should carry a schema derivation");
+    assert_eq!(
+        derivation
+            .admission()
+            .expression_target()
+            .expect("expression CREATE INDEX should carry an expression target")
+            .name(),
+        "session_sql_lower_name_idx",
+    );
+    assert!(
+        matches!(
+            derivation
+                .accepted_after()
+                .persisted_snapshot()
+                .indexes()
+                .last()
+                .expect("accepted-after should append the expression index")
+                .key(),
+            PersistedIndexKeySnapshot::Items(_)
+        ),
+        "accepted-after should preserve expression index key-item metadata",
     );
 }
 

@@ -62,14 +62,16 @@ pub(in crate::db::schema) use mutation::SchemaRebuildAction;
 pub(in crate::db::schema) use mutation::{MutationCompatibility, RebuildRequirement};
 pub(in crate::db::schema) use mutation::{
     MutationPlan, MutationPublicationBlocker, MutationPublicationPreflight,
-    MutationPublicationStatus, SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRunner,
+    MutationPublicationStatus, SchemaExpressionIndexRebuildRow, SchemaExpressionIndexStagedEntry,
+    SchemaExpressionIndexStagedRebuild, SchemaFieldPathIndexRebuildRow, SchemaFieldPathIndexRunner,
     SchemaFieldPathIndexRunnerFailure, SchemaFieldPathIndexRunnerReport,
     SchemaMutationAcceptedSnapshotPublicationSink, SchemaMutationDeveloperReport,
-    SchemaMutationExecutionPlan, SchemaMutationPublishStatus, SchemaMutationRequest,
-    SchemaMutationRunnerCapability, SchemaMutationRunnerContract, SchemaMutationRunnerInput,
-    SchemaMutationRunnerPhase, SchemaMutationRuntimeEpoch, SchemaMutationRuntimeInvalidationSink,
-    SchemaMutationSupportedExecutionPath, SchemaMutationSupportedPathRejection,
-    SchemaMutationValidationStatus, schema_mutation_request_for_snapshots,
+    SchemaMutationExecutionPlan, SchemaMutationExecutionStep, SchemaMutationPublishStatus,
+    SchemaMutationRequest, SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
+    SchemaMutationRunnerInput, SchemaMutationRunnerPhase, SchemaMutationRuntimeEpoch,
+    SchemaMutationRuntimeInvalidationSink, SchemaMutationSupportedExecutionPath,
+    SchemaMutationSupportedPathRejection, SchemaMutationValidationStatus,
+    schema_mutation_request_for_snapshots,
 };
 pub(in crate::db) use mutation::{
     SchemaDdlAcceptedSnapshotDerivation, SchemaDdlIndexDropCandidateError,
@@ -77,7 +79,8 @@ pub(in crate::db) use mutation::{
     SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
     SchemaExpressionIndexRebuildTarget, SchemaFieldPathIndexRebuildKey,
     SchemaFieldPathIndexRebuildTarget, SchemaSecondaryIndexDropCleanupTarget,
-    admit_sql_ddl_field_path_index_candidate, admit_sql_ddl_secondary_index_drop_candidate,
+    admit_sql_ddl_expression_index_candidate, admit_sql_ddl_field_path_index_candidate,
+    admit_sql_ddl_secondary_index_drop_candidate, derive_sql_ddl_expression_index_accepted_after,
     derive_sql_ddl_field_path_index_accepted_after,
     derive_sql_ddl_secondary_index_drop_accepted_after,
     resolve_sql_ddl_secondary_index_drop_candidate,
@@ -86,8 +89,9 @@ pub(in crate::db) use mutation::{
 pub(in crate::db::schema) use mutation::{SchemaMutationDelta, classify_schema_mutation_delta};
 pub(in crate::db) use proposal::compiled_schema_proposal_for_model;
 pub(in crate::db) use reconcile::{
-    ensure_accepted_schema_snapshot, execute_sql_ddl_field_path_index_addition,
-    execute_sql_ddl_secondary_index_drop, reconcile_runtime_schemas,
+    ensure_accepted_schema_snapshot, execute_sql_ddl_expression_index_addition,
+    execute_sql_ddl_field_path_index_addition, execute_sql_ddl_secondary_index_drop,
+    reconcile_runtime_schemas,
 };
 pub(in crate::db) use runtime::{
     AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract, AcceptedGeneratedCompatibleRowShape,

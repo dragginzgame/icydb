@@ -30,7 +30,10 @@ use crate::{
         executor::{EntityAuthority, SharedPreparedExecutionPlan},
         query::intent::StructuralQuery,
         schema::{AcceptedSchemaSnapshot, SchemaInfo},
-        schema::{execute_sql_ddl_field_path_index_addition, execute_sql_ddl_secondary_index_drop},
+        schema::{
+            execute_sql_ddl_expression_index_addition, execute_sql_ddl_field_path_index_addition,
+            execute_sql_ddl_secondary_index_drop,
+        },
         session::query::QueryPlanCacheAttribution,
         session::sql::projection::{
             projection_fixed_scales_from_projection_spec, projection_labels_from_projection_spec,
@@ -483,8 +486,20 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::execute)?;
 
         let (rows_scanned, index_keys_written) = match prepared.bound().statement() {
-            crate::db::sql::ddl::BoundSqlDdlStatement::CreateIndex(_) => {
+            crate::db::sql::ddl::BoundSqlDdlStatement::CreateIndex(create)
+                if create.candidate_index().key().is_field_path_only() =>
+            {
                 execute_sql_ddl_field_path_index_addition(
+                    store,
+                    E::ENTITY_TAG,
+                    E::PATH,
+                    &accepted_before,
+                    derivation,
+                )
+                .map_err(QueryError::execute)?
+            }
+            crate::db::sql::ddl::BoundSqlDdlStatement::CreateIndex(_) => {
+                execute_sql_ddl_expression_index_addition(
                     store,
                     E::ENTITY_TAG,
                     E::PATH,

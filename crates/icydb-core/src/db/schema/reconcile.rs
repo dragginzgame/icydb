@@ -3,6 +3,7 @@
 //! Does not own: row/index recovery, generated model construction, or runtime layout authority.
 //! Boundary: compares generated schema proposals with persisted schema snapshots.
 
+mod startup_expression;
 mod startup_field_path;
 
 use crate::{
@@ -31,6 +32,7 @@ use crate::{
 };
 use std::collections::BTreeSet;
 
+use startup_expression::execute_supported_expression_index_addition;
 use startup_field_path::execute_supported_field_path_index_addition;
 
 /// Reconcile registered runtime schemas with the schema metadata store.
@@ -99,6 +101,49 @@ pub(in crate::db) fn execute_sql_ddl_field_path_index_addition(
     )?;
 
     Ok((report.rows_scanned(), report.index_keys_written()))
+}
+
+/// Execute one supported SQL DDL expression index addition through the schema
+/// mutation staging and publication boundary.
+pub(in crate::db) fn execute_sql_ddl_expression_index_addition(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    accepted_before: &AcceptedSchemaSnapshot,
+    derivation: &SchemaDdlAcceptedSnapshotDerivation,
+) -> Result<(usize, usize), InternalError> {
+    let before = accepted_before.persisted_snapshot();
+    let after = derivation.accepted_after().persisted_snapshot();
+    let plan = match decide_schema_transition(before, after) {
+        SchemaTransitionDecision::Accepted(plan) => plan,
+        SchemaTransitionDecision::Rejected(rejection) => {
+            return Err(InternalError::store_unsupported(format!(
+                "SQL DDL expression-index schema mutation rejected before physical execution for entity '{entity_path}': {}",
+                rejection.detail(),
+            )));
+        }
+    };
+    if plan.kind() != SchemaTransitionPlanKind::AddExpressionIndex {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL expression-index execution supports only add_expression_index for entity '{entity_path}': actual={:?}",
+            plan.kind(),
+        )));
+    }
+    let Some(target) = derivation.admission().expression_target() else {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL expression-index execution requires an expression target for entity '{entity_path}'",
+        )));
+    };
+
+    execute_supported_expression_index_addition(
+        store,
+        entity_tag,
+        entity_path,
+        before,
+        after,
+        &plan,
+        target,
+    )
 }
 
 /// Execute one supported SQL DDL secondary-index drop by cleaning the target
@@ -310,9 +355,9 @@ pub(in crate::db) fn ensure_accepted_schema_snapshot(
             return Err(error);
         }
         let accepted_snapshot = match plan.kind() {
-            SchemaTransitionPlanKind::AddFieldPathIndex | SchemaTransitionPlanKind::ExactMatch => {
-                actual
-            }
+            SchemaTransitionPlanKind::AddExpressionIndex
+            | SchemaTransitionPlanKind::AddFieldPathIndex
+            | SchemaTransitionPlanKind::ExactMatch => actual,
             SchemaTransitionPlanKind::AppendOnlyNullableFields => {
                 if let Err(error) = schema_store.insert_persisted_snapshot(entity_tag, &expected) {
                     record_schema_store_footprint(schema_store, entity_tag, entity_path);
@@ -391,7 +436,7 @@ fn ensure_accepted_schema_snapshot_for_runtime_store(
         };
 
         let accepted_snapshot = match plan.kind() {
-            SchemaTransitionPlanKind::ExactMatch => {
+            SchemaTransitionPlanKind::AddExpressionIndex | SchemaTransitionPlanKind::ExactMatch => {
                 validate_publishable_transition_plan(entity_path, &plan)?;
                 actual
             }
@@ -626,7 +671,8 @@ const fn schema_transition_plan_outcome(kind: SchemaTransitionPlanKind) -> Schem
         SchemaTransitionPlanKind::AppendOnlyNullableFields => {
             SchemaTransitionOutcome::AppendOnlyNullableFields
         }
-        SchemaTransitionPlanKind::AddFieldPathIndex
+        SchemaTransitionPlanKind::AddExpressionIndex
+        | SchemaTransitionPlanKind::AddFieldPathIndex
         | SchemaTransitionPlanKind::ExactMatch
         | SchemaTransitionPlanKind::MetadataOnlyIndexRename => SchemaTransitionOutcome::ExactMatch,
     }
