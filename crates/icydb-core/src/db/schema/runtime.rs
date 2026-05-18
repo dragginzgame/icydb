@@ -1276,7 +1276,55 @@ mod tests {
 
         assert!(
             err.message
-                .contains("accepted row layout field count is not generated-compatible"),
+                .contains("accepted row layout slot is not generated-compatible"),
+            "unexpected generated-compatible shape error: {}",
+            err.message,
+        );
+    }
+
+    #[test]
+    fn accepted_row_layout_runtime_descriptor_rejects_extra_generated_field_shape() {
+        let mut snapshot = generated_compatible_accepted_schema_fixture()
+            .persisted_snapshot()
+            .clone();
+        let mut fields = snapshot.fields().to_vec();
+        fields.push(PersistedFieldSnapshot::new(
+            FieldId::new(3),
+            "generated_extra".to_string(),
+            SchemaFieldSlot::new(2),
+            PersistedFieldKind::Text { max_len: None },
+            Vec::new(),
+            true,
+            SchemaFieldDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Text),
+        ));
+        snapshot = PersistedSchemaSnapshot::new(
+            snapshot.version(),
+            snapshot.entity_path().to_string(),
+            snapshot.entity_name().to_string(),
+            snapshot.primary_key_field_id(),
+            SchemaRowLayout::new(
+                snapshot.row_layout().version(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                    (FieldId::new(3), SchemaFieldSlot::new(2)),
+                ],
+            ),
+            fields,
+        );
+        let accepted = AcceptedSchemaSnapshot::new(snapshot);
+        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+            .expect("extra generated accepted schema should build descriptor");
+
+        let err = descriptor
+            .generated_compatible_row_shape_for_model(&RUNTIME_ENTITY_MODEL)
+            .expect_err("extra generated field must not produce generated-compatible shape proof");
+
+        assert!(
+            err.message
+                .contains("accepted row layout has generated field outside generated model"),
             "unexpected generated-compatible shape error: {}",
             err.message,
         );
