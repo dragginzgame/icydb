@@ -1135,16 +1135,23 @@ fn sql_metadata_surfaces_show_added_nullable_field_after_schema_transition() {
             .map(|field| (
                 field.name().to_string(),
                 field.slot(),
-                field.kind().to_string()
+                field.kind().to_string(),
+                field.nullable(),
             ))
             .collect::<Vec<_>>(),
         vec![
-            ("id".to_string(), Some(0), "ulid".to_string()),
-            ("name".to_string(), Some(1), "text(unbounded)".to_string()),
+            ("id".to_string(), Some(0), "ulid".to_string(), false),
+            (
+                "name".to_string(),
+                Some(1),
+                "text(unbounded)".to_string(),
+                false,
+            ),
             (
                 "nickname".to_string(),
                 Some(2),
                 "text(unbounded)".to_string(),
+                true,
             ),
         ],
     );
@@ -2417,9 +2424,18 @@ fn execute_sql_ddl_publishes_supported_nullable_add_column() {
     let columns =
         statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
             .expect("SHOW COLUMNS should read DDL-published fields");
+    let described =
+        statement_describe_sql::<SessionSqlEntity>(&session, "DESCRIBE SessionSqlEntity")
+            .expect("DESCRIBE should read DDL-published fields");
+    assert_eq!(
+        described.fields(),
+        columns.as_slice(),
+        "DESCRIBE and SHOW COLUMNS should share DDL-published accepted column rows",
+    );
     assert!(
         columns.iter().any(|field| field.name() == "nickname"
             && field.kind() == "text(unbounded)"
+            && field.nullable()
             && field.origin() == "ddl"),
         "metadata surfaces should expose the DDL-published nullable column",
     );
@@ -2494,6 +2510,24 @@ fn execute_sql_ddl_publishes_supported_defaulted_add_column() {
         assert!(!score.nullable());
         assert!(!score.default().is_none());
     });
+    let columns =
+        statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
+            .expect("SHOW COLUMNS should read DDL-published defaulted fields");
+    let described =
+        statement_describe_sql::<SessionSqlEntity>(&session, "DESCRIBE SessionSqlEntity")
+            .expect("DESCRIBE should read DDL-published defaulted fields");
+    assert_eq!(
+        described.fields(),
+        columns.as_slice(),
+        "DESCRIBE and SHOW COLUMNS should share defaulted DDL-published accepted column rows",
+    );
+    assert!(
+        columns.iter().any(|field| field.name() == "score"
+            && field.kind().starts_with("nat default=slot_payload(")
+            && !field.nullable()
+            && field.origin() == "ddl"),
+        "metadata surfaces should expose the DDL-published defaulted column",
+    );
     session
         .insert(SessionSqlEntity {
             id: Ulid::from_u128(15_804),
@@ -3739,6 +3773,142 @@ fn execute_sql_ddl_publication_rejects_pre_ddl_continuation_cursor() {
     let err = session
         .execute_load_query_paged_with_trace(&query, Some(cursor.as_str()))
         .expect_err("post-DDL execution should reject a pre-DDL cursor");
+    assert_query_error_is_cursor_plan(err, |inner| {
+        matches!(
+            inner,
+            CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+        )
+    });
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
+fn execute_sql_field_ddl_publication_invalidates_shared_query_plan_cache_key() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
+
+    let sql = "SELECT * FROM SessionSqlEntity \
+               WHERE age >= 21 \
+               ORDER BY age ASC, id ASC \
+               LIMIT 2";
+    let query =
+        lower_select_query_for_tests::<SessionSqlEntity>(&session, sql).expect("SQL should lower");
+
+    let _ = session
+        .execute_query_result(&query)
+        .expect("pre-field-DDL query should execute");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "pre-field-DDL execution should populate one schema-scoped query plan",
+    );
+    let _ = session
+        .execute_query_result(&query)
+        .expect("repeated pre-field-DDL query should execute");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "repeated pre-field-DDL execution should reuse the schema-scoped query plan",
+    );
+
+    let _ = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        )
+        .expect("field DDL execution should publish the supported nullable column");
+
+    let _ = session
+        .execute_query_result(&query)
+        .expect("post-field-DDL query should execute");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        2,
+        "post-field-DDL execution should keep a distinct schema-scoped query plan",
+    );
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
+fn execute_sql_field_ddl_publication_invalidates_compiled_sql_cache_key() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    let sql = "SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1";
+    let _ = session
+        .compile_sql_query::<SessionSqlEntity>(sql)
+        .expect("pre-field-DDL SQL should compile");
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        1,
+        "pre-field-DDL compile should populate one schema-scoped SQL artifact",
+    );
+    let _ = session
+        .compile_sql_query::<SessionSqlEntity>(sql)
+        .expect("repeated pre-field-DDL SQL should compile from cache");
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        1,
+        "repeated pre-field-DDL compile should reuse the schema-scoped SQL artifact",
+    );
+
+    let _ = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        )
+        .expect("field DDL execution should publish the supported nullable column");
+
+    let _ = session
+        .compile_sql_query::<SessionSqlEntity>(sql)
+        .expect("post-field-DDL SQL should compile under the new schema identity");
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        2,
+        "post-field-DDL compile should keep a distinct schema-scoped SQL artifact",
+    );
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
+fn execute_sql_field_ddl_publication_rejects_pre_ddl_continuation_cursor() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[("ada", 21), ("bob", 34), ("cyd", 55), ("dee", 89)],
+    );
+
+    let sql = "SELECT * FROM SessionSqlEntity \
+               WHERE age >= 21 \
+               ORDER BY age ASC, id ASC \
+               LIMIT 2";
+    let query =
+        lower_select_query_for_tests::<SessionSqlEntity>(&session, sql).expect("SQL should lower");
+    let first_page = session
+        .execute_load_query_paged_with_trace(&query, None)
+        .expect("pre-field-DDL first page should execute")
+        .into_execution();
+    let cursor = crate::db::encode_cursor(
+        first_page
+            .continuation_cursor()
+            .expect("pre-field-DDL first page should emit a continuation cursor"),
+    );
+
+    let _ = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        )
+        .expect("field DDL execution should publish the supported nullable column");
+
+    let err = session
+        .execute_load_query_paged_with_trace(&query, Some(cursor.as_str()))
+        .expect_err("post-field-DDL execution should reject a pre-DDL cursor");
     assert_query_error_is_cursor_plan(err, |inner| {
         matches!(
             inner,

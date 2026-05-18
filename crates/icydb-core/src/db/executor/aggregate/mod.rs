@@ -148,6 +148,7 @@ impl ExecutionKernel {
         let PreparedAggregateStreamingPlanParts {
             authority,
             logical_plan,
+            schema_fingerprint,
             index_prefix_specs,
             index_range_specs,
         } = plan.into_streaming_parts()?;
@@ -163,6 +164,7 @@ impl ExecutionKernel {
             authority,
             store,
             logical_plan,
+            schema_fingerprint,
             execution_preparation,
             index_prefix_specs,
             index_range_specs,

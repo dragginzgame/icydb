@@ -56,6 +56,7 @@ impl PreparedAggregatePlan {
         Ok(PreparedAggregateStreamingPlanParts {
             authority,
             logical_plan: shared.plan,
+            schema_fingerprint: shared.schema_fingerprint,
             index_prefix_specs: shared.index_prefix_specs,
             index_range_specs: shared.index_range_specs,
         })
@@ -82,6 +83,7 @@ impl PreparedAggregatePlan {
             core: build_prepared_execution_plan_core_with_lowered_access(
                 authority,
                 grouped_plan,
+                shared.schema_fingerprint,
                 shared.index_prefix_specs,
                 shared.index_prefix_spec_invalid,
                 shared.index_range_specs,

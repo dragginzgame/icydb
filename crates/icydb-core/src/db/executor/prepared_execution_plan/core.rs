@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        commit::CommitSchemaFingerprint,
         cursor::{ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor},
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutorPlanError, GroupedPaginationWindow,
@@ -53,6 +54,8 @@ pub enum ExecutionFamily {
 #[derive(Debug)]
 pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPlanCoreShared {
     pub(in crate::db::executor::prepared_execution_plan) plan: Arc<AccessPlannedQuery>,
+    pub(in crate::db::executor::prepared_execution_plan) schema_fingerprint:
+        Option<CommitSchemaFingerprint>,
     pub(in crate::db::executor::prepared_execution_plan) prepared_projection_shape:
         OnceLock<Option<Arc<PreparedProjectionShape>>>,
     pub(in crate::db::executor::prepared_execution_plan) prepared_grouped_runtime_residents:
@@ -81,6 +84,7 @@ impl Clone for PreparedExecutionPlanCoreShared {
     fn clone(&self) -> Self {
         Self {
             plan: Arc::clone(&self.plan),
+            schema_fingerprint: self.schema_fingerprint,
             prepared_projection_shape: clone_once_lock(&self.prepared_projection_shape),
             prepared_grouped_runtime_residents: clone_once_lock(
                 &self.prepared_grouped_runtime_residents,
@@ -227,6 +231,7 @@ impl PreparedExecutionPlanCore {
     #[must_use]
     fn new(
         plan: Arc<AccessPlannedQuery>,
+        schema_fingerprint: Option<CommitSchemaFingerprint>,
         continuation: Option<PlannedContinuationContract>,
         index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
         index_prefix_spec_invalid: bool,
@@ -236,6 +241,7 @@ impl PreparedExecutionPlanCore {
         Self {
             shared: Arc::new(PreparedExecutionPlanCoreShared {
                 plan,
+                schema_fingerprint,
                 prepared_projection_shape: OnceLock::new(),
                 prepared_grouped_runtime_residents: OnceLock::new(),
                 aggregate_execution_preparation: OnceLock::new(),
@@ -567,13 +573,20 @@ impl PreparedExecutionPlanCore {
     }
 }
 
-// Build one canonical lowered prepared execution-plan core from resolved
-// authority plus one logical plan, regardless of whether the caller started
-// from a typed `PreparedExecutionPlan<E>` shell or a structural follow-on
-// rewrite.
+// Build one canonical test-only lowered prepared execution-plan core from
+// resolved authority plus one generated logical plan.
+#[cfg(test)]
 pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core(
     authority: EntityAuthority,
+    plan: AccessPlannedQuery,
+) -> PreparedExecutionPlanCore {
+    build_prepared_execution_plan_core_with_schema_fingerprint(authority, plan, None)
+}
+
+pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core_with_schema_fingerprint(
+    authority: EntityAuthority,
     mut plan: AccessPlannedQuery,
+    schema_fingerprint: Option<CommitSchemaFingerprint>,
 ) -> PreparedExecutionPlanCore {
     authority.finalize_static_planning_shape(&mut plan);
 
@@ -614,6 +627,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
     build_prepared_execution_plan_core_with_lowered_access(
         authority,
         plan,
+        schema_fingerprint,
         index_prefix_specs,
         index_prefix_spec_invalid,
         index_range_specs,
@@ -627,6 +641,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
 pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core_with_lowered_access(
     authority: EntityAuthority,
     plan: AccessPlannedQuery,
+    schema_fingerprint: Option<CommitSchemaFingerprint>,
     index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
     index_prefix_spec_invalid: bool,
     index_range_specs: Arc<[LoweredIndexRangeSpec]>,
@@ -635,6 +650,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
     build_prepared_execution_plan_core_with_shared_lowered_access(
         authority,
         Arc::new(plan),
+        schema_fingerprint,
         index_prefix_specs,
         index_prefix_spec_invalid,
         index_range_specs,
@@ -648,6 +664,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
 pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core_with_shared_lowered_access(
     authority: EntityAuthority,
     plan: Arc<AccessPlannedQuery>,
+    schema_fingerprint: Option<CommitSchemaFingerprint>,
     index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
     index_prefix_spec_invalid: bool,
     index_range_specs: Arc<[LoweredIndexRangeSpec]>,
@@ -656,10 +673,14 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
     // Recompute continuation after the logical-shape rewrite so grouped cursor
     // signatures and boundary arity reflect the grouped plan, not the scalar
     // aggregate source plan.
-    let continuation = plan.planned_continuation_contract(authority.entity_path());
+    let continuation = plan.planned_continuation_contract_with_schema_fingerprint(
+        authority.entity_path(),
+        schema_fingerprint,
+    );
 
     PreparedExecutionPlanCore::new(
         plan,
+        schema_fingerprint,
         continuation,
         index_prefix_specs,
         index_prefix_spec_invalid,

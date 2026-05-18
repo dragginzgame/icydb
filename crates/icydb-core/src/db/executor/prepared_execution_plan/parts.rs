@@ -1,4 +1,5 @@
 use crate::db::{
+    commit::CommitSchemaFingerprint,
     executor::{
         EntityAuthority, ExecutionPreparation, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
         PreparedScalarPlanCore,
@@ -46,6 +47,7 @@ impl PreparedScalarRuntimeParts {
         let core = build_prepared_execution_plan_core_with_lowered_access(
             authority.clone(),
             execution_plan,
+            shared.schema_fingerprint,
             shared.index_prefix_specs,
             shared.index_prefix_spec_invalid,
             shared.index_range_specs,
@@ -102,6 +104,7 @@ pub(in crate::db::executor) struct PreparedAccessPlanParts {
 pub(in crate::db::executor) struct PreparedAggregateStreamingPlanParts {
     pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) logical_plan: Arc<AccessPlannedQuery>,
+    pub(in crate::db::executor) schema_fingerprint: Option<CommitSchemaFingerprint>,
     pub(in crate::db::executor) index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
     pub(in crate::db::executor) index_range_specs: Arc<[LoweredIndexRangeSpec]>,
 }

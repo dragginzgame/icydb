@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.158.x] 🧬 - 2026-05-18 - Schema DDL And Field Evolution
 
+- `0.158.4` locks field-DDL schema identity behavior: pre-`ADD COLUMN`
+  shared query plans, compiled SQL artifacts, and continuation cursors do not
+  silently carry across accepted field-schema publication. Schema describe
+  payloads also now expose explicit field nullability, so SQL-added columns are
+  visible through `DESCRIBE`, `SHOW COLUMNS`, `icydb schema show`, and
+  `icydb schema check` with origin, nullability, and default metadata intact.
+  Schema check now prints recommendations for preserved DDL-owned catalog drift
+  and keeps accepted-only generated fields in the mismatch lane.
+
+  ```
+  ALTER TABLE Character ADD COLUMN nickname text;
+  DESCRIBE Character;
+  SHOW COLUMNS Character;
+  icydb schema check demo_rpg -e demo
+  SELECT * FROM Character ORDER BY level ASC LIMIT 2;
+  ```
+
 - `0.158.3` publishes supported `ALTER TABLE ... ADD COLUMN ...` statements
   as DDL-owned accepted fields. Nullable no-default additions materialize
   missing values as `NULL`, and supported `DEFAULT` additions persist encoded

@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        commit::CommitSchemaFingerprint,
         cursor::{ContinuationSignature, GroupedPlannedCursor, PlannedCursor},
         executor::{
             EntityAuthority, ExecutorPlanError, GroupedPaginationWindow, PreparedScalarPlanCore,
@@ -43,6 +44,7 @@ impl PreparedLoadPlan {
     pub(in crate::db::executor) fn from_valid_shared_parts(
         authority: EntityAuthority,
         plan: Arc<AccessPlannedQuery>,
+        schema_fingerprint: Option<CommitSchemaFingerprint>,
         index_prefix_specs: Arc<[crate::db::executor::LoweredIndexPrefixSpec]>,
         index_range_specs: Arc<[crate::db::executor::LoweredIndexRangeSpec]>,
     ) -> Self {
@@ -51,6 +53,7 @@ impl PreparedLoadPlan {
             core: build_prepared_execution_plan_core_with_shared_lowered_access(
                 authority,
                 plan,
+                schema_fingerprint,
                 index_prefix_specs,
                 false,
                 index_range_specs,

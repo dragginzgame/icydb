@@ -1002,6 +1002,7 @@ fn schema_report_renders_aligned_summary_and_index_tables() {
                 None,
                 "Text".to_string(),
                 false,
+                false,
                 true,
                 "generated".to_string(),
             )
@@ -1052,8 +1053,14 @@ fn schema_report_renders_aligned_summary_and_index_tables() {
         "  Character       35         2           1   id            icydb_testing_demo_rpg_fixtures::schema::character::Character\n"
     ));
     assert!(text.contains("fields\n"));
-    assert!(text.contains("  entity      field   slot   type   pk   queryable   origin\n"));
-    assert!(text.contains("  Character   field      -   Text   no   yes         generated\n"));
+    assert!(
+        text.contains("  entity      field   slot   type   nullable   pk   queryable   origin\n")
+    );
+    assert!(
+        text.contains(
+            "  Character   field      -   Text   no         no   yes         generated\n"
+        )
+    );
     assert!(text.contains("indexes\n"));
     assert!(text.contains("  entity      index                 fields   unique   origin\n"));
     assert!(text.contains("  Character   idx_character__name   name     no       generated\n"));
@@ -1074,6 +1081,7 @@ fn schema_check_report_renders_generated_accepted_drift() {
                 "id".to_string(),
                 Some(0),
                 "Id".to_string(),
+                false,
                 true,
                 true,
                 "generated".to_string(),
@@ -1082,6 +1090,7 @@ fn schema_check_report_renders_generated_accepted_drift() {
                 "name".to_string(),
                 Some(1),
                 "Text".to_string(),
+                false,
                 false,
                 true,
                 "generated".to_string(),
@@ -1104,6 +1113,7 @@ fn schema_check_report_renders_generated_accepted_drift() {
                 "id".to_string(),
                 Some(0),
                 "Id".to_string(),
+                false,
                 true,
                 true,
                 "generated".to_string(),
@@ -1113,6 +1123,7 @@ fn schema_check_report_renders_generated_accepted_drift() {
                 Some(1),
                 "Text".to_string(),
                 false,
+                false,
                 true,
                 "generated".to_string(),
             ),
@@ -1120,6 +1131,7 @@ fn schema_check_report_renders_generated_accepted_drift() {
                 "nickname".to_string(),
                 Some(2),
                 "Text".to_string(),
+                true,
                 false,
                 true,
                 "ddl".to_string(),
@@ -1153,6 +1165,74 @@ fn schema_check_report_renders_generated_accepted_drift() {
     assert!(text.contains("Character   drift"));
     assert!(text.contains("accepted-only field"));
     assert!(text.contains("DDL index"));
+    assert!(text.contains("recommendations"));
+    assert!(
+        text.contains("ok: DDL-owned accepted fields are preserved catalog drift across upgrade")
+    );
+    assert!(text.contains(
+        "action: add DDL-owned fields to Rust schema only when an explicit adoption flow exists"
+    ));
+    assert!(text.contains("ok: DDL-owned accepted indexes remain planner-visible catalog drift"));
+}
+
+#[test]
+fn schema_check_report_treats_accepted_only_generated_fields_as_mismatch() {
+    let generated = EntitySchemaDescription::new(
+        "demo::Character".to_string(),
+        "Character".to_string(),
+        "id".to_string(),
+        vec![EntityFieldDescription::new(
+            "id".to_string(),
+            Some(0),
+            "Id".to_string(),
+            false,
+            true,
+            true,
+            "generated".to_string(),
+        )],
+        Vec::new(),
+        Vec::new(),
+    );
+    let accepted = EntitySchemaDescription::new(
+        "demo::Character".to_string(),
+        "Character".to_string(),
+        "id".to_string(),
+        vec![
+            EntityFieldDescription::new(
+                "id".to_string(),
+                Some(0),
+                "Id".to_string(),
+                false,
+                true,
+                true,
+                "generated".to_string(),
+            ),
+            EntityFieldDescription::new(
+                "retired_generated".to_string(),
+                Some(1),
+                "Text".to_string(),
+                false,
+                false,
+                true,
+                "generated".to_string(),
+            ),
+        ],
+        Vec::new(),
+        Vec::new(),
+    );
+
+    let text =
+        render_schema_check_report(&[EntitySchemaCheckDescription::new(generated, accepted)]);
+
+    assert!(text.contains("status: mismatch"));
+    assert!(text.contains("accepted-only fields: 0"));
+    assert!(text.contains("mismatches: 1"));
+    assert!(text.contains("accepted-only generated field"));
+    assert!(
+        text.contains(
+            "fix: resolve generated-vs-accepted mismatches before relying on schema parity"
+        )
+    );
 }
 
 #[test]
@@ -1165,6 +1245,7 @@ fn schema_check_report_renders_readable_default_mismatch() {
             "level".to_string(),
             Some(1),
             "nat16 default=slot_payload(bytes=4, sha256=aaaaaaaaaaaaaaaa)".to_string(),
+            false,
             false,
             true,
             "generated".to_string(),
@@ -1180,6 +1261,7 @@ fn schema_check_report_renders_readable_default_mismatch() {
             "level".to_string(),
             Some(1),
             "nat16 default=slot_payload(bytes=4, sha256=bbbbbbbbbbbbbbbb)".to_string(),
+            false,
             false,
             true,
             "generated".to_string(),

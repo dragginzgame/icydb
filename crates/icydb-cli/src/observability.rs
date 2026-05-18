@@ -227,6 +227,7 @@ pub(crate) fn render_schema_report(report: &[EntitySchemaDescription]) -> String
                         .slot()
                         .map_or_else(|| "-".to_string(), |slot| slot.to_string()),
                     field.kind().to_string(),
+                    yes_no(field.nullable()).to_string(),
                     yes_no(field.primary_key()).to_string(),
                     yes_no(field.queryable()).to_string(),
                     field.origin().to_string(),
@@ -298,6 +299,7 @@ struct SchemaCheckSummary {
     accepted_only_fields: usize,
     accepted_ddl_indexes: usize,
     mismatches: usize,
+    recommendations: Vec<String>,
     entity_rows: Vec<[String; 8]>,
     drift_rows: Vec<[String; 4]>,
     mismatch_rows: Vec<[String; 4]>,
@@ -335,6 +337,11 @@ fn analyze_schema_check(report: &[EntitySchemaCheckDescription]) -> SchemaCheckS
         accepted_only_fields,
         accepted_ddl_indexes,
         mismatches,
+        recommendations: schema_check_recommendations(
+            mismatches,
+            accepted_only_fields,
+            accepted_ddl_indexes,
+        ),
         entity_rows,
         drift_rows,
         mismatch_rows,
@@ -479,11 +486,20 @@ fn analyze_entity_schema_fields(
                     field_signature(accepted_field).as_str(),
                 ));
             }
-            None => {
+            None if accepted_field.origin() == "ddl" => {
                 accepted_only += 1;
                 drift_rows.push(schema_check_detail_row(
                     entity_name,
                     "accepted-only field",
+                    "-",
+                    field_signature(accepted_field).as_str(),
+                ));
+            }
+            None => {
+                mismatches += 1;
+                mismatch_rows.push(schema_check_detail_row(
+                    entity_name,
+                    "accepted-only generated field",
                     "-",
                     field_signature(accepted_field).as_str(),
                 ));
@@ -602,8 +618,53 @@ fn render_schema_check_report_from_summary(summary: &SchemaCheckSummary) -> Stri
     append_schema_check_detail_table(&mut output, "accepted drift", summary.drift_rows.as_slice());
     output.push('\n');
     append_schema_check_detail_table(&mut output, "mismatches", summary.mismatch_rows.as_slice());
+    output.push('\n');
+    append_schema_check_recommendations(&mut output, summary.recommendations.as_slice());
 
     output
+}
+
+fn schema_check_recommendations(
+    mismatches: usize,
+    accepted_only_fields: usize,
+    accepted_ddl_indexes: usize,
+) -> Vec<String> {
+    let mut recommendations = Vec::new();
+
+    if mismatches > 0 {
+        recommendations.push(
+            "fix: resolve generated-vs-accepted mismatches before relying on schema parity"
+                .to_string(),
+        );
+    }
+    if accepted_only_fields > 0 {
+        recommendations.push(
+            "ok: DDL-owned accepted fields are preserved catalog drift across upgrade".to_string(),
+        );
+        recommendations.push(
+            "action: add DDL-owned fields to Rust schema only when an explicit adoption flow exists"
+                .to_string(),
+        );
+    }
+    if accepted_ddl_indexes > 0 {
+        recommendations.push(
+            "ok: DDL-owned accepted indexes remain planner-visible catalog drift".to_string(),
+        );
+    }
+    if recommendations.is_empty() {
+        recommendations.push("ok: generated and accepted schema are aligned".to_string());
+    }
+
+    recommendations
+}
+
+fn append_schema_check_recommendations(output: &mut String, recommendations: &[String]) {
+    output.push_str("recommendations\n");
+    for recommendation in recommendations {
+        output.push_str("  ");
+        output.push_str(recommendation);
+        output.push('\n');
+    }
 }
 
 pub(crate) fn render_snapshot_report(report: &StorageReport) -> String {
@@ -775,7 +836,7 @@ fn append_schema_entity_table(output: &mut String, rows: &[[String; 6]]) {
     );
 }
 
-fn append_schema_field_table(output: &mut String, rows: &[[String; 7]]) {
+fn append_schema_field_table(output: &mut String, rows: &[[String; 8]]) {
     output.push_str("fields\n");
     if rows.is_empty() {
         output.push_str("  None\n");
@@ -790,6 +851,7 @@ fn append_schema_field_table(output: &mut String, rows: &[[String; 7]]) {
             "field",
             "slot",
             "type",
+            "nullable",
             "pk",
             "queryable",
             "origin",
@@ -799,6 +861,7 @@ fn append_schema_field_table(output: &mut String, rows: &[[String; 7]]) {
             ColumnAlign::Left,
             ColumnAlign::Left,
             ColumnAlign::Right,
+            ColumnAlign::Left,
             ColumnAlign::Left,
             ColumnAlign::Left,
             ColumnAlign::Left,
@@ -929,12 +992,13 @@ fn indexes_match(generated: &EntityIndexDescription, accepted: &EntityIndexDescr
 
 fn field_signature(field: &EntityFieldDescription) -> String {
     format!(
-        "{}:{}:{}:{}:{}:{}",
+        "{}:{}:{}:{}:{}:{}:{}",
         field.name(),
         field
             .slot()
             .map_or_else(|| "-".to_string(), |slot| slot.to_string()),
         field.kind(),
+        yes_no(field.nullable()),
         yes_no(field.primary_key()),
         yes_no(field.queryable()),
         field.origin(),

@@ -510,6 +510,7 @@ where
         let plan = PreparedLoadPlan::from_valid_shared_parts(
             prepared.authority,
             prepared.logical_plan,
+            prepared.schema_fingerprint,
             prepared.index_prefix_specs,
             prepared.index_range_specs,
         );

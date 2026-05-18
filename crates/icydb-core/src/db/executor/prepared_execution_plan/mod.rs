@@ -38,8 +38,8 @@ pub(in crate::db::executor) use bytes_projection::classify_bytes_by_projection_m
 pub use core::ExecutionFamily;
 pub(in crate::db::executor) use core::PreparedScalarPlanCore;
 pub(in crate::db::executor::prepared_execution_plan) use core::{
-    PreparedExecutionPlanCore, build_prepared_execution_plan_core,
-    build_prepared_execution_plan_core_with_lowered_access,
+    PreparedExecutionPlanCore, build_prepared_execution_plan_core_with_lowered_access,
+    build_prepared_execution_plan_core_with_schema_fingerprint,
     build_prepared_execution_plan_core_with_shared_lowered_access,
 };
 pub(in crate::db::executor) use load_plan::PreparedLoadPlan;
@@ -78,7 +78,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
 
         Self {
             authority: authority.clone(),
-            core: build_prepared_execution_plan_core(authority, plan),
+            core: core::build_prepared_execution_plan_core(authority, plan),
             marker: PhantomData,
         }
     }

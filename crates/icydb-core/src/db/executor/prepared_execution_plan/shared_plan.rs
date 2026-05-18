@@ -1,11 +1,13 @@
 use crate::{
     db::{
+        commit::CommitSchemaFingerprint,
         executor::{
             EntityAuthority, ExecutorPlanError, PreparedScalarPlanCore, PreparedScalarRuntimeParts,
             pipeline::contracts::{CursorEmissionMode, ProjectionMaterializationMode},
             prepared_execution_plan::{
                 PreparedExecutionPlan, PreparedExecutionPlanCore,
-                SharedPreparedProjectionRuntimeParts, build_prepared_execution_plan_core,
+                SharedPreparedProjectionRuntimeParts,
+                build_prepared_execution_plan_core_with_schema_fingerprint,
             },
         },
         query::plan::AccessPlannedQuery,
@@ -35,12 +37,17 @@ impl SharedPreparedExecutionPlan {
     pub(in crate::db) fn from_plan(
         authority: EntityAuthority,
         mut plan: AccessPlannedQuery,
+        schema_fingerprint: CommitSchemaFingerprint,
     ) -> Self {
         authority.finalize_planner_route_profile(&mut plan);
 
         Self {
             authority: authority.clone(),
-            core: build_prepared_execution_plan_core(authority, plan),
+            core: build_prepared_execution_plan_core_with_schema_fingerprint(
+                authority,
+                plan,
+                Some(schema_fingerprint),
+            ),
         }
     }
 

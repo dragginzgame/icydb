@@ -384,6 +384,7 @@ where
             authority,
             store,
             logical_plan,
+            schema_fingerprint: _,
             execution_preparation,
             index_prefix_specs,
             index_range_specs,

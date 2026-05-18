@@ -143,6 +143,7 @@ pub struct EntityFieldDescription {
     pub(crate) name: String,
     pub(crate) slot: u16,
     pub(crate) kind: String,
+    pub(crate) nullable: bool,
     pub(crate) primary_key: bool,
     pub(crate) queryable: bool,
     pub(crate) origin: String,
@@ -155,6 +156,7 @@ impl EntityFieldDescription {
         name: String,
         slot: Option<u16>,
         kind: String,
+        nullable: bool,
         primary_key: bool,
         queryable: bool,
         origin: String,
@@ -168,6 +170,7 @@ impl EntityFieldDescription {
             name,
             slot,
             kind,
+            nullable,
             primary_key,
             queryable,
             origin,
@@ -194,6 +197,12 @@ impl EntityFieldDescription {
     #[must_use]
     pub const fn kind(&self) -> &str {
         self.kind.as_str()
+    }
+
+    /// Return whether this field permits explicit `NULL`.
+    #[must_use]
+    pub const fn nullable(&self) -> bool {
+        self.nullable
     }
 
     /// Return whether this field is the primary key.
@@ -512,6 +521,7 @@ pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
         write_schema_default_summary(&mut kind, field.default());
         let metadata = DescribeFieldMetadata::new(
             kind,
+            field.nullable(),
             field_type_from_persisted_kind(field.kind())
                 .value_kind()
                 .is_queryable(),
@@ -567,15 +577,17 @@ fn describe_entity_fields_with_slot_lookup(
 
 struct DescribeFieldMetadata {
     kind: String,
+    nullable: bool,
     queryable: bool,
     origin: String,
 }
 
 impl DescribeFieldMetadata {
     // Build one metadata bundle from already-rendered field facts.
-    const fn new(kind: String, queryable: bool, origin: String) -> Self {
+    const fn new(kind: String, nullable: bool, queryable: bool, origin: String) -> Self {
         Self {
             kind,
+            nullable,
             queryable,
             origin,
         }
@@ -599,6 +611,7 @@ fn describe_field_recursive(
 
         DescribeFieldMetadata::new(
             kind,
+            field.nullable(),
             field.kind.value_kind().is_queryable(),
             "generated".to_string(),
         )
@@ -630,6 +643,7 @@ fn push_described_field_row(
         display_name,
         slot,
         metadata.kind,
+        metadata.nullable,
         primary_key,
         metadata.queryable,
         metadata.origin,
@@ -677,6 +691,7 @@ fn describe_persisted_nested_leaves(
         let name = leaf.path().last().map_or("", String::as_str);
         let metadata = DescribeFieldMetadata::new(
             summarize_persisted_field_kind(leaf.kind()),
+            leaf.nullable(),
             field_type_from_persisted_kind(leaf.kind())
                 .value_kind()
                 .is_queryable(),
@@ -1175,6 +1190,7 @@ mod tests {
                 "id".to_string(),
                 Some(0),
                 "ulid".to_string(),
+                false,
                 true,
                 true,
                 "generated".to_string(),

@@ -6,6 +6,8 @@
 use crate::{
     db::{
         access::AccessPlan,
+        codec::{finalize_hash_sha256, new_hash_sha256_prefixed},
+        commit::CommitSchemaFingerprint,
         cursor::{ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor},
         query::plan::{
             AccessPlannedQuery, ExecutionOrderContract, ExecutionShapeSignature,
@@ -15,6 +17,11 @@ use crate::{
     },
     value::Value,
 };
+use sha2::Digest;
+
+const SCHEMA_BOUND_CONTINUATION_SIGNATURE_PROFILE_TAG: &[u8] = b"contsig_schema_v1";
+const CONTINUATION_SHAPE_SIGNATURE_TAG: u8 = 0x01;
+const ACCEPTED_SCHEMA_FINGERPRINT_TAG: u8 = 0x02;
 
 ///
 /// PlannedContinuationContract
@@ -27,6 +34,7 @@ use crate::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct PlannedContinuationContract {
     pub(in crate::db) shape_signature: ExecutionShapeSignature,
+    schema_fingerprint: Option<CommitSchemaFingerprint>,
     pub(in crate::db) boundary_arity: usize,
     pub(in crate::db) window_size: usize,
     pub(in crate::db) order_contract: ExecutionOrderContract,
@@ -264,6 +272,7 @@ impl PlannedContinuationContract {
     ) -> Self {
         Self {
             shape_signature,
+            schema_fingerprint: None,
             boundary_arity,
             window_size,
             order_contract,
@@ -271,6 +280,15 @@ impl PlannedContinuationContract {
             access,
             grouped_cursor_policy_violation,
         }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn with_schema_fingerprint(
+        mut self,
+        schema_fingerprint: Option<CommitSchemaFingerprint>,
+    ) -> Self {
+        self.schema_fingerprint = schema_fingerprint;
+        self
     }
 
     #[must_use]
@@ -311,8 +329,13 @@ impl PlannedContinuationContract {
     }
 
     #[must_use]
-    pub(in crate::db) const fn continuation_signature(&self) -> ContinuationSignature {
-        self.shape_signature.continuation_signature()
+    pub(in crate::db) fn continuation_signature(&self) -> ContinuationSignature {
+        let shape_signature = self.shape_signature.continuation_signature();
+        let Some(schema_fingerprint) = self.schema_fingerprint else {
+            return shape_signature;
+        };
+
+        schema_bound_continuation_signature(shape_signature, schema_fingerprint)
     }
 
     #[must_use]
@@ -502,9 +525,21 @@ impl AccessPlannedQuery {
 
     /// Build one immutable continuation contract from planner-owned semantics.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) fn planned_continuation_contract(
         &self,
         entity_path: &'static str,
+    ) -> Option<PlannedContinuationContract> {
+        self.planned_continuation_contract_with_schema_fingerprint(entity_path, None)
+    }
+
+    /// Build one immutable continuation contract from planner-owned semantics
+    /// and an optional accepted schema identity.
+    #[must_use]
+    pub(in crate::db) fn planned_continuation_contract_with_schema_fingerprint(
+        &self,
+        entity_path: &'static str,
+        schema_fingerprint: Option<CommitSchemaFingerprint>,
     ) -> Option<PlannedContinuationContract> {
         if !self.scalar_plan().mode.is_load() {
             return None;
@@ -529,16 +564,32 @@ impl AccessPlannedQuery {
             .grouped_plan()
             .and_then(|grouped| grouped_cursor_policy_violation(grouped, true));
 
-        Some(PlannedContinuationContract::new(
-            shape_signature,
-            boundary_arity,
-            page_window.offset_usize(),
-            order_contract,
-            page_window.limit_usize(),
-            access,
-            grouped_cursor_policy_violation,
-        ))
+        Some(
+            PlannedContinuationContract::new(
+                shape_signature,
+                boundary_arity,
+                page_window.offset_usize(),
+                order_contract,
+                page_window.limit_usize(),
+                access,
+                grouped_cursor_policy_violation,
+            )
+            .with_schema_fingerprint(schema_fingerprint),
+        )
     }
+}
+
+fn schema_bound_continuation_signature(
+    shape_signature: ContinuationSignature,
+    schema_fingerprint: CommitSchemaFingerprint,
+) -> ContinuationSignature {
+    let mut hasher = new_hash_sha256_prefixed(SCHEMA_BOUND_CONTINUATION_SIGNATURE_PROFILE_TAG);
+    hasher.update([CONTINUATION_SHAPE_SIGNATURE_TAG]);
+    hasher.update(shape_signature.into_bytes());
+    hasher.update([ACCEPTED_SCHEMA_FINGERPRINT_TAG]);
+    hasher.update(schema_fingerprint);
+
+    ContinuationSignature::from_bytes(finalize_hash_sha256(hasher))
 }
 
 // Freeze one planner-owned page-window view so scalar access-window planning

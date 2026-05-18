@@ -227,6 +227,8 @@ pub(in crate::db::executor) struct PreparedAggregateStreamingInputs<'ctx> {
     pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) store: StoreHandle,
     pub(in crate::db::executor) logical_plan: Arc<AccessPlannedQuery>,
+    pub(in crate::db::executor) schema_fingerprint:
+        Option<crate::db::commit::CommitSchemaFingerprint>,
     pub(in crate::db::executor) execution_preparation: ExecutionPreparation,
     pub(in crate::db::executor) index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
     pub(in crate::db::executor) index_range_specs: Arc<[LoweredIndexRangeSpec]>,
