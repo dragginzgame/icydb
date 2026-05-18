@@ -6,7 +6,12 @@ use icydb::design::prelude::*;
 /// Test-only canister model used by runtime SQL integration harnesses.
 ///
 
-#[canister(memory_min = 104, memory_max = 154, commit_memory_id = 154)]
+#[canister(
+    db_name = "demo_rpg",
+    memory_min = 104,
+    memory_max = 154,
+    commit_memory_id = 154
+)]
 pub struct DemoRpgCanister {}
 
 ///
@@ -17,6 +22,7 @@ pub struct DemoRpgCanister {}
 
 #[store(
     ident = "DEMO_RPG_STORE",
+    store_name = "main",
     canister = "DemoRpgCanister",
     data_memory_id = 104,
     index_memory_id = 105,

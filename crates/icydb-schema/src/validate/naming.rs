@@ -61,13 +61,15 @@ mod tests {
     ) {
         schema.insert_node(SchemaNode::Canister(Canister::new(
             Def::new(module_path, canister_ident),
-            0,
-            255,
+            "test_db",
+            100,
+            254,
             254,
         )));
         schema.insert_node(SchemaNode::Store(Store::new(
             Def::new(module_path, store_ident),
             store_ident,
+            "test_store",
             canister_path,
             data_memory_id,
             index_memory_id,
@@ -110,9 +112,9 @@ mod tests {
             "schema_case_conflict::Canister",
             "Store",
             "schema_case_conflict::Store",
-            10,
-            11,
-            12,
+            110,
+            111,
+            112,
         );
         insert_entity(
             &mut schema,
@@ -162,9 +164,9 @@ mod tests {
             "schema_case_allowed_a::CanisterA",
             "StoreA",
             "schema_case_allowed_a::StoreA",
-            20,
-            21,
-            22,
+            120,
+            121,
+            122,
         );
         insert_canister_store(
             &mut schema,
@@ -173,9 +175,9 @@ mod tests {
             "schema_case_allowed_b::CanisterB",
             "StoreB",
             "schema_case_allowed_b::StoreB",
-            30,
-            31,
-            32,
+            130,
+            131,
+            132,
         );
         insert_entity(
             &mut schema,

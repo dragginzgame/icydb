@@ -6,7 +6,12 @@ use icydb::design::prelude::*;
 /// Small canister model dedicated to lightweight SQL smoke-test coverage.
 ///
 
-#[canister(memory_min = 155, memory_max = 165, commit_memory_id = 157)]
+#[canister(
+    db_name = "test_sql",
+    memory_min = 155,
+    memory_max = 165,
+    commit_memory_id = 157
+)]
 pub struct SqlTestCanister {}
 
 ///
@@ -18,6 +23,7 @@ pub struct SqlTestCanister {}
 
 #[store(
     ident = "SQL_TEST_STORE",
+    store_name = "main",
     canister = "SqlTestCanister",
     data_memory_id = 155,
     index_memory_id = 156,

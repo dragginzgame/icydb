@@ -1,4 +1,6 @@
-use crate::validate::memory::memory_id_reserved_error;
+use crate::validate::memory::{
+    app_memory_id_error, memory_id_reserved_error, stable_key_segment_is_canonical,
+};
 use crate::{imp::*, prelude::*};
 use icydb_utils::{Case, Casing};
 
@@ -12,6 +14,8 @@ pub struct Store {
     pub(crate) def: Def,
 
     pub(crate) ident: Ident,
+    #[darling(rename = "store_name")]
+    pub(crate) name: String,
     pub(crate) canister: Path,
     pub(crate) data_memory_id: u8,
     pub(crate) index_memory_id: u8,
@@ -32,6 +36,21 @@ impl ValidateNode for Store {
                 "ident '{ident_str}' must be UPPER_SNAKE_CASE",
             ))
             .with_span(&self.ident));
+        }
+        if !stable_key_segment_is_canonical(&self.name) {
+            return Err(DarlingError::custom(
+                "store_name must use lowercase ASCII letters, digits, and underscores",
+            )
+            .with_span(&self.ident));
+        }
+        if let Some(message) = app_memory_id_error("data_memory_id", self.data_memory_id) {
+            return Err(DarlingError::custom(message).with_span(&self.ident));
+        }
+        if let Some(message) = app_memory_id_error("index_memory_id", self.index_memory_id) {
+            return Err(DarlingError::custom(message).with_span(&self.ident));
+        }
+        if let Some(message) = app_memory_id_error("schema_memory_id", self.schema_memory_id) {
+            return Err(DarlingError::custom(message).with_span(&self.ident));
         }
         if let Some(message) = memory_id_reserved_error("data_memory_id", self.data_memory_id) {
             return Err(DarlingError::custom(message).with_span(&self.ident));
@@ -57,6 +76,7 @@ impl HasSchemaPart for Store {
     fn schema_part(&self) -> TokenStream {
         let def = &self.def.schema_part();
         let ident = quote_one(&self.ident, to_str_lit);
+        let store_name = &self.name;
         let canister = quote_one(&self.canister, to_path);
         let data_memory_id = &self.data_memory_id;
         let index_memory_id = &self.index_memory_id;
@@ -67,6 +87,7 @@ impl HasSchemaPart for Store {
             ::icydb::schema::node::Store::new(
                 #def,
                 #ident,
+                #store_name,
                 #canister,
                 #data_memory_id,
                 #index_memory_id,

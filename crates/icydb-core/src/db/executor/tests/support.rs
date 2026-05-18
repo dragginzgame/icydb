@@ -127,6 +127,7 @@ impl Path for TestCanister {
 
 impl crate::traits::CanisterKind for TestCanister {
     const COMMIT_MEMORY_ID: u8 = crate::testing::test_commit_memory_id();
+    const COMMIT_STABLE_KEY: &'static str = "icydb.test.commit.v1";
 }
 
 // TestDataStore
@@ -403,6 +404,7 @@ impl Path for RelationTestCanister {
 
 impl crate::traits::CanisterKind for RelationTestCanister {
     const COMMIT_MEMORY_ID: u8 = crate::testing::test_commit_memory_id();
+    const COMMIT_STABLE_KEY: &'static str = "icydb.test.commit.v1";
 }
 
 // RelationSourceStore

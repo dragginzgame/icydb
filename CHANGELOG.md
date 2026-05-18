@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
+- `0.157.21` updates IcyDB stable-memory wiring for the Canic 0.38 ABI by
+  binding every generated store and commit memory to explicit durable stable
+  keys in the application-owned memory range.
+
 - `0.157.20` adds expression-index rebuild staging below the SQL DDL surface.
   Accepted expression rebuild rows now stage sorted raw index entries, skip
   non-indexable expression outputs, preserve staged-only visibility, and emit

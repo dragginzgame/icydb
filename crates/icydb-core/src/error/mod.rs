@@ -687,6 +687,16 @@ impl InternalError {
         ))
     }
 
+    /// Construct the canonical commit-memory stable-key mismatch internal error.
+    pub(crate) fn commit_memory_stable_key_mismatch(
+        cached_key: &str,
+        configured_key: &str,
+    ) -> Self {
+        Self::store_internal(format!(
+            "commit memory stable key mismatch: cached={cached_key}, configured={configured_key}",
+        ))
+    }
+
     /// Construct the canonical missing rollback-row invariant for delete execution.
     pub(crate) fn delete_rollback_row_required() -> Self {
         Self::store_internal("missing raw row for delete rollback")
@@ -1385,10 +1395,10 @@ impl InternalError {
         ))
     }
 
-    /// Construct the canonical occupied commit-memory id unsupported error.
-    pub(crate) fn commit_memory_id_already_registered(memory_id: u8, label: &str) -> Self {
+    /// Construct the canonical unregistered commit-memory stable key error.
+    pub(crate) fn commit_memory_stable_key_unregistered(memory_id: u8, stable_key: &str) -> Self {
         Self::store_unsupported(format!(
-            "configured commit memory id {memory_id} is already registered as '{label}'",
+            "configured commit memory id {memory_id} is not declared with stable key '{stable_key}'",
         ))
     }
 

@@ -5,7 +5,12 @@ pub mod relation {
     /// RelationCanister
     ///
 
-    #[canister(memory_min = 10, memory_max = 20, commit_memory_id = 20)]
+    #[canister(
+        db_name = "relation",
+        memory_min = 100,
+        memory_max = 120,
+        commit_memory_id = 120
+    )]
     pub struct RelationCanister {}
 
     ///
@@ -13,10 +18,11 @@ pub mod relation {
     ///
     #[store(
         ident = "RELATION_DATA_STORE",
+        store_name = "main",
         canister = "RelationCanister",
-        data_memory_id = 10,
-        index_memory_id = 11,
-        schema_memory_id = 12
+        data_memory_id = 100,
+        index_memory_id = 101,
+        schema_memory_id = 102
     )]
     pub struct RelationDataStore {}
 }
@@ -28,17 +34,23 @@ pub mod test {
     /// TestCanister
     ///
 
-    #[canister(memory_min = 50, memory_max = 100, commit_memory_id = 100)]
+    #[canister(
+        db_name = "test",
+        memory_min = 130,
+        memory_max = 150,
+        commit_memory_id = 150
+    )]
     pub struct TestCanister {}
 
     /// TestStore
     ///
     #[store(
         ident = "TEST_STORE",
+        store_name = "main",
         canister = "TestCanister",
-        data_memory_id = 50,
-        index_memory_id = 51,
-        schema_memory_id = 52
+        data_memory_id = 130,
+        index_memory_id = 131,
+        schema_memory_id = 132
     )]
     pub struct TestStore {}
 }

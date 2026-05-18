@@ -54,6 +54,8 @@ pub use r#type::*;
 pub use validator::*;
 pub use value::*;
 
+pub const APP_MEMORY_ID_MIN: u8 = 100;
+pub const APP_MEMORY_ID_MAX: u8 = 254;
 const RESERVED_INTERNAL_MEMORY_ID: u8 = u8::MAX;
 
 ///
@@ -159,4 +161,59 @@ pub(crate) fn validate_memory_id_not_reserved(errs: &mut ErrorTree, label: &str,
             "{label} {memory_id} is reserved for stable-structures internals",
         );
     }
+}
+
+// Validate one application-owned memory id against Canic's stable ABI range.
+pub(crate) fn validate_app_memory_id(errs: &mut ErrorTree, label: &str, memory_id: u8) {
+    if !(APP_MEMORY_ID_MIN..=APP_MEMORY_ID_MAX).contains(&memory_id) {
+        err!(
+            errs,
+            "{label} {memory_id} outside of application memory range {APP_MEMORY_ID_MIN}-{APP_MEMORY_ID_MAX}",
+        );
+    }
+}
+
+pub(crate) fn validate_stable_key_segment(errs: &mut ErrorTree, label: &str, value: &str) {
+    if !stable_key_segment_is_canonical(value) {
+        err!(
+            errs,
+            "{label} `{value}` must use lowercase ASCII letters, digits, and underscores",
+        );
+    }
+}
+
+pub(crate) fn validate_stable_key(errs: &mut ErrorTree, label: &str, value: &str) {
+    if !stable_key_is_canonical(value) {
+        err!(
+            errs,
+            "{label} `{value}` must be canonical lowercase ASCII, must use dots as separators, must use underscores instead of hyphens, must end in .v1, and must not start with canic.",
+        );
+    }
+}
+
+#[must_use]
+pub fn stable_key_segment_is_canonical(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+}
+
+#[must_use]
+pub fn stable_key_is_canonical(value: &str) -> bool {
+    if value.starts_with("canic.") {
+        return false;
+    }
+
+    let mut saw_segment = false;
+    let mut last_segment = "";
+    for segment in value.split('.') {
+        if !stable_key_segment_is_canonical(segment) {
+            return false;
+        }
+        saw_segment = true;
+        last_segment = segment;
+    }
+
+    saw_segment && last_segment == "v1"
 }

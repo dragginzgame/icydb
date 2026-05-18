@@ -7,7 +7,12 @@ use icydb_testing_wasm_helpers::{define_complex_audit_entities, define_complex_a
 /// Single-entity complex canister model used for wasm-footprint auditing.
 ///
 
-#[canister(memory_min = 83, memory_max = 103, commit_memory_id = 85)]
+#[canister(
+    db_name = "one_complex",
+    memory_min = 100,
+    memory_max = 110,
+    commit_memory_id = 103
+)]
 pub struct OneComplexCanister {}
 
 ///
@@ -18,10 +23,11 @@ pub struct OneComplexCanister {}
 
 #[store(
     ident = "ONE_COMPLEX_STORE",
+    store_name = "main",
     canister = "OneComplexCanister",
-    data_memory_id = 83,
-    index_memory_id = 84,
-    schema_memory_id = 86
+    data_memory_id = 100,
+    index_memory_id = 101,
+    schema_memory_id = 102
 )]
 pub struct OneComplexStore {}
 

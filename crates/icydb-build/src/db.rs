@@ -17,10 +17,12 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
     let canister = &builder.canister;
     let canister_path: syn::Path = parse_str(&canister.def().path())
         .unwrap_or_else(|_| panic!("invalid canister path: {}", canister.def().path()));
-    let store_registry = store_registry_tokens(builder);
+    let store_registry = store_registry_tokens(builder, canister.db_name());
     let entity_runtime_hooks = entity_runtime_hooks(builder, &canister_path);
     let memory_min = canister.memory_min();
     let memory_max = canister.memory_max();
+    let commit_memory_id = canister.commit_memory_id();
+    let commit_stable_key = canister.commit_stable_key();
 
     store_wiring_tokens(
         &canister_path,
@@ -28,6 +30,8 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
         entity_runtime_hooks,
         memory_min,
         memory_max,
+        commit_memory_id,
+        &commit_stable_key,
     )
 }
 
@@ -76,7 +80,7 @@ struct SchemaSurfaceTokens {
     entity_rows: Vec<TokenStream>,
 }
 
-fn store_registry_tokens(builder: &ActorBuilder) -> StoreRegistryTokens {
+fn store_registry_tokens(builder: &ActorBuilder, db_name: &str) -> StoreRegistryTokens {
     let mut data_defs = quote!();
     let mut index_defs = quote!();
     let mut schema_defs = quote!();
@@ -84,7 +88,7 @@ fn store_registry_tokens(builder: &ActorBuilder) -> StoreRegistryTokens {
 
     for (store_path, store) in builder.get_stores() {
         let (data_def, index_def, schema_def, store_init) =
-            store_registry_entry_tokens(&store_path, &store);
+            store_registry_entry_tokens(&store_path, &store, db_name);
         data_defs.extend(data_def);
         index_defs.extend(index_def);
         schema_defs.extend(schema_def);
@@ -103,13 +107,20 @@ fn store_registry_tokens(builder: &ActorBuilder) -> StoreRegistryTokens {
 fn store_registry_entry_tokens(
     store_path: &str,
     store: &Store,
+    db_name: &str,
 ) -> (TokenStream, TokenStream, TokenStream, TokenStream) {
     let data_cell_ident = format_ident!("{}_DATA", store.ident());
     let index_cell_ident = format_ident!("{}_INDEX", store.ident());
     let schema_cell_ident = format_ident!("{}_SCHEMA", store.ident());
-    let data_memory_id = store.data_memory_id();
-    let index_memory_id = store.index_memory_id();
-    let schema_memory_id = store.schema_memory_id();
+    let data_allocation = store.data_allocation(db_name);
+    let index_allocation = store.index_allocation(db_name);
+    let schema_allocation = store.schema_allocation(db_name);
+    let data_memory_id = data_allocation.memory_id();
+    let index_memory_id = index_allocation.memory_id();
+    let schema_memory_id = schema_allocation.memory_id();
+    let data_stable_key = data_allocation.stable_key();
+    let index_stable_key = index_allocation.stable_key();
+    let schema_stable_key = schema_allocation.stable_key();
 
     let data_def = quote! {
         ::icydb::__reexports::canic_memory::eager_static! {
@@ -117,7 +128,8 @@ fn store_registry_entry_tokens(
                 ::icydb::__macro::DataStore
             > = ::std::cell::RefCell::new(
                 ::icydb::__macro::DataStore::init(
-                    ::icydb::__reexports::canic_memory::ic_memory!(
+                    ::icydb::__reexports::canic_memory::ic_memory_key!(
+                        #data_stable_key,
                         ::icydb::__macro::DataStore,
                         #data_memory_id
                     )
@@ -131,7 +143,8 @@ fn store_registry_entry_tokens(
                 ::icydb::__macro::IndexStore
             > = ::std::cell::RefCell::new(
                 ::icydb::__macro::IndexStore::init(
-                    ::icydb::__reexports::canic_memory::ic_memory!(
+                    ::icydb::__reexports::canic_memory::ic_memory_key!(
+                        #index_stable_key,
                         ::icydb::__macro::IndexStore,
                         #index_memory_id
                     )
@@ -145,7 +158,8 @@ fn store_registry_entry_tokens(
                 ::icydb::__macro::SchemaStore
             > = ::std::cell::RefCell::new(
                 ::icydb::__macro::SchemaStore::init(
-                    ::icydb::__reexports::canic_memory::ic_memory!(
+                    ::icydb::__reexports::canic_memory::ic_memory_key!(
+                        #schema_stable_key,
                         ::icydb::__macro::SchemaStore,
                         #schema_memory_id
                     )
@@ -168,6 +182,8 @@ fn store_wiring_tokens(
     entity_runtime_hooks: TokenStream,
     memory_min: u8,
     memory_max: u8,
+    commit_memory_id: u8,
+    commit_stable_key: &str,
 ) -> TokenStream {
     let StoreRegistryTokens {
         data_defs,
@@ -179,6 +195,13 @@ fn store_wiring_tokens(
     quote! {
         ::icydb::__reexports::canic_memory::eager_init!({
             ::icydb::__reexports::canic_memory::ic_memory_range!(#memory_min, #memory_max);
+            ::icydb::__reexports::canic_memory::api::MemoryApi::declare_with_key(
+                #commit_memory_id,
+                env!("CARGO_PKG_NAME"),
+                "CommitMarker",
+                #commit_stable_key,
+            )
+            .expect("generated commit memory declaration should succeed");
         });
 
         #data_defs

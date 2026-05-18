@@ -70,6 +70,9 @@ impl<T> Kind for T where T: Path + 'static {}
 pub trait CanisterKind: Kind {
     /// Stable memory slot used for commit marker storage.
     const COMMIT_MEMORY_ID: u8;
+
+    /// Durable stable-memory allocation key for commit marker storage.
+    const COMMIT_STABLE_KEY: &'static str;
 }
 
 ///

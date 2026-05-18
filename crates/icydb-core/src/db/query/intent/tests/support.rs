@@ -322,6 +322,7 @@ impl Path for PlanCanister {
 
 impl crate::traits::CanisterKind for PlanCanister {
     const COMMIT_MEMORY_ID: u8 = crate::testing::test_commit_memory_id();
+    const COMMIT_STABLE_KEY: &'static str = "icydb.test.commit.v1";
 }
 
 pub(in crate::db::query::intent::tests) struct PlanDataStore;

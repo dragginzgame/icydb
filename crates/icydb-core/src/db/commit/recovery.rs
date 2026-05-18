@@ -53,7 +53,7 @@ static RECOVERED: OnceLock<()> = OnceLock::new();
 /// entrypoints), but must always complete **before** any operation-specific
 /// planning, validation, or apply phase begins.
 pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
-    configure_commit_memory_id(C::COMMIT_MEMORY_ID)
+    configure_commit_memory_id(C::COMMIT_MEMORY_ID, C::COMMIT_STABLE_KEY)
         .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
 
     if RECOVERED.get().is_none() {

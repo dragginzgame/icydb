@@ -11,10 +11,12 @@ pub struct Canister {
     #[darling(skip, default)]
     pub(crate) def: Def,
 
+    pub(crate) db_name: String,
+
     // inclusive range of ic memories
     pub(crate) memory_min: u8,
     pub(crate) memory_max: u8,
-    pub commit_memory_id: u8,
+    commit_memory_id: u8,
 }
 
 impl HasDef for Canister {
@@ -25,6 +27,12 @@ impl HasDef for Canister {
 
 impl ValidateNode for Canister {
     fn validate(&self) -> Result<(), DarlingError> {
+        if !crate::validate::memory::stable_key_segment_is_canonical(&self.db_name) {
+            return Err(DarlingError::custom(
+                "db_name must use lowercase ASCII letters, digits, and underscores",
+            )
+            .with_span(&self.def.ident()));
+        }
         if self.memory_min > self.memory_max {
             return Err(DarlingError::custom(
                 "memory_min must be equal to or less than memory_max",
@@ -38,6 +46,11 @@ impl ValidateNode for Canister {
             self.memory_min,
             self.memory_max,
         ) {
+            return Err(DarlingError::custom(message).with_span(&self.def.ident()));
+        }
+        if let Some(message) =
+            crate::validate::memory::app_memory_id_error("commit_memory_id", self.commit_memory_id)
+        {
             return Err(DarlingError::custom(message).with_span(&self.def.ident()));
         }
         if let Some(message) = memory_id_reserved_error("commit_memory_id", self.commit_memory_id) {
@@ -57,6 +70,7 @@ impl HasSchema for Canister {
 impl HasSchemaPart for Canister {
     fn schema_part(&self) -> TokenStream {
         let def = self.def.schema_part();
+        let db_name = &self.db_name;
         let memory_min = self.memory_min;
         let memory_max = self.memory_max;
         let commit_memory_id = self.commit_memory_id;
@@ -65,6 +79,7 @@ impl HasSchemaPart for Canister {
         quote! {
             ::icydb::schema::node::Canister::new(
                 #def,
+                #db_name,
                 #memory_min,
                 #memory_max,
                 #commit_memory_id,
@@ -85,9 +100,11 @@ impl HasTraits for Canister {
         match t {
             TraitKind::CanisterKind => {
                 let commit_memory_id = self.commit_memory_id;
+                let commit_stable_key = format!("icydb.{}.__commit.control.v1", self.db_name);
                 let tokens = Implementor::new(self.def(), t)
                     .set_tokens(quote! {
                         const COMMIT_MEMORY_ID: u8 = #commit_memory_id;
+                        const COMMIT_STABLE_KEY: &'static str = #commit_stable_key;
                     })
                     .to_token_stream();
 

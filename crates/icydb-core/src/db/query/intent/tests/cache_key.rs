@@ -40,6 +40,7 @@ impl Path for CacheKeyCanister {
 
 impl crate::traits::CanisterKind for CacheKeyCanister {
     const COMMIT_MEMORY_ID: u8 = crate::testing::test_commit_memory_id();
+    const COMMIT_STABLE_KEY: &'static str = "icydb.test.commit.v1";
 }
 
 struct CacheKeyStore;

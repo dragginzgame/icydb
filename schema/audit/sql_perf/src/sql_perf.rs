@@ -7,7 +7,12 @@ use icydb::design::prelude::*;
 /// and access-shape coverage.
 ///
 
-#[canister(memory_min = 180, memory_max = 210, commit_memory_id = 182)]
+#[canister(
+    db_name = "sql_perf",
+    memory_min = 180,
+    memory_max = 210,
+    commit_memory_id = 182
+)]
 pub struct PerfAuditCanister {}
 
 ///
@@ -18,6 +23,7 @@ pub struct PerfAuditCanister {}
 
 #[store(
     ident = "PERF_AUDIT_STORE",
+    store_name = "main",
     canister = "PerfAuditCanister",
     data_memory_id = 180,
     index_memory_id = 181,

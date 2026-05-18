@@ -91,11 +91,18 @@ pub(in crate::db) fn persist_raw_commit_marker_for_tests(
 #[cfg(test)]
 pub(in crate::db) fn init_commit_store_for_tests() -> Result<(), InternalError> {
     // Phase 1: bootstrap the reserved test range through the public memory API.
+    MemoryApi::declare_with_key(
+        test_commit_memory_id(),
+        "icydb_test",
+        marker::COMMIT_LABEL,
+        "icydb.test.commit.v1",
+    )
+    .map_err(InternalError::commit_memory_registry_init_failed)?;
     MemoryApi::bootstrap_owner_range("icydb_test", TEST_MEMORY_RANGE_START, TEST_MEMORY_RANGE_END)
         .map_err(InternalError::commit_memory_registry_init_failed)?;
 
     // Phase 2: pin and register the explicit commit marker slot.
-    memory::configure_commit_memory_id(test_commit_memory_id())?;
+    memory::configure_commit_memory_id(test_commit_memory_id(), "icydb.test.commit.v1")?;
 
     // Phase 3: initialize the commit store in the configured slot.
     store::with_commit_store(|_| Ok(()))

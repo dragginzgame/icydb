@@ -8,11 +8,16 @@ use canic_cdk::structures::{DefaultMemoryImpl, memory::VirtualMemory};
 use canic_memory::api::{MemoryApi, MemoryInspection};
 use std::sync::OnceLock;
 
-static COMMIT_STORE_ID: OnceLock<u8> = OnceLock::new();
+static COMMIT_STORE_ALLOCATION: OnceLock<CommitMemoryAllocation> = OnceLock::new();
 
-/// Resolve the configured memory id used for commit marker storage.
-pub(super) fn commit_memory_id() -> Result<u8, InternalError> {
-    COMMIT_STORE_ID
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CommitMemoryAllocation {
+    memory_id: u8,
+    stable_key: &'static str,
+}
+
+fn commit_memory_allocation() -> Result<CommitMemoryAllocation, InternalError> {
+    COMMIT_STORE_ALLOCATION
         .get()
         .copied()
         .ok_or_else(InternalError::commit_memory_id_unconfigured)
@@ -21,48 +26,69 @@ pub(super) fn commit_memory_id() -> Result<u8, InternalError> {
 /// Configure and register the commit marker memory id.
 pub(in crate::db::commit) fn configure_commit_memory_id(
     memory_id: u8,
+    stable_key: &'static str,
 ) -> Result<u8, InternalError> {
     // Phase 1: enforce one immutable runtime slot id per process.
-    if let Some(cached_id) = COMMIT_STORE_ID.get() {
-        if *cached_id != memory_id {
+    if let Some(cached) = COMMIT_STORE_ALLOCATION.get() {
+        if cached.memory_id != memory_id {
             return Err(InternalError::commit_memory_id_mismatch(
-                *cached_id, memory_id,
+                cached.memory_id,
+                memory_id,
+            ));
+        }
+        if cached.stable_key != stable_key {
+            return Err(InternalError::commit_memory_stable_key_mismatch(
+                cached.stable_key,
+                stable_key,
             ));
         }
 
-        return Ok(*cached_id);
+        return Ok(cached.memory_id);
     }
 
     // Phase 2: flush deferred registry state and validate slot ownership.
     MemoryApi::bootstrap_pending().map_err(InternalError::commit_memory_registry_init_failed)?;
 
-    validate_commit_slot_registration(memory_id)?;
+    validate_commit_slot_registration(memory_id, stable_key)?;
 
     // Phase 3: cache the validated slot id for all future accesses.
-    let _ = COMMIT_STORE_ID.set(memory_id);
+    let _ = COMMIT_STORE_ALLOCATION.set(CommitMemoryAllocation {
+        memory_id,
+        stable_key,
+    });
     Ok(memory_id)
 }
 
 /// Open the configured commit-marker memory slot through the shared memory API.
 pub(super) fn commit_memory_handle() -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
-    let memory_id = commit_memory_id()?;
-    let owner = owner_for_memory_id(memory_id)?;
+    let allocation = commit_memory_allocation()?;
+    let owner = owner_for_memory_id(allocation.memory_id)?;
 
-    MemoryApi::register(memory_id, &owner, COMMIT_LABEL)
-        .map_err(InternalError::commit_memory_id_registration_failed)
+    MemoryApi::register_with_key(
+        allocation.memory_id,
+        &owner,
+        COMMIT_LABEL,
+        allocation.stable_key,
+    )
+    .map_err(InternalError::commit_memory_id_registration_failed)
 }
 
 /// Validate that exactly one canonical commit-marker slot exists.
-fn validate_commit_slot_registration(memory_id: u8) -> Result<(), InternalError> {
+fn validate_commit_slot_registration(
+    memory_id: u8,
+    stable_key: &'static str,
+) -> Result<(), InternalError> {
     let mut commit_ids = MemoryApi::registered()
         .into_iter()
-        .filter_map(|entry| (entry.label == COMMIT_LABEL).then_some(entry.id))
+        .filter_map(|entry| (entry.stable_key == stable_key).then_some(entry.id))
         .collect::<Vec<_>>();
     commit_ids.sort_unstable();
     commit_ids.dedup();
 
     match commit_ids.as_slice() {
-        [] => register_commit_slot(memory_id),
+        [] => Err(InternalError::commit_memory_stable_key_unregistered(
+            memory_id, stable_key,
+        )),
         [registered_id] if *registered_id == memory_id => Ok(()),
         [registered_id] => Err(InternalError::configured_commit_memory_id_mismatch(
             memory_id,
@@ -72,21 +98,6 @@ fn validate_commit_slot_registration(memory_id: u8) -> Result<(), InternalError>
             commit_ids,
         )),
     }
-}
-
-/// Register the configured commit-marker slot when no prior slot exists.
-fn register_commit_slot(memory_id: u8) -> Result<(), InternalError> {
-    let inspection = inspect_memory(memory_id)?;
-    if let Some(label) = inspection.label.as_deref() {
-        return Err(InternalError::commit_memory_id_already_registered(
-            memory_id, label,
-        ));
-    }
-
-    MemoryApi::register(memory_id, &inspection.owner, COMMIT_LABEL)
-        .map_err(InternalError::commit_memory_id_registration_failed)?;
-
-    Ok(())
 }
 
 /// Resolve the canonical owner label for one configured memory id.
@@ -116,6 +127,9 @@ mod tests {
             owner: "b".to_string(),
             range: canic_memory::registry::MemoryRange { start: 11, end: 20 },
             label: None,
+            stable_key: None,
+            schema_version: None,
+            schema_fingerprint: None,
         };
         let owner = inspection.owner;
         assert_eq!(owner, "b");

@@ -65,6 +65,7 @@ macro_rules! test_canister {
 
         impl $crate::traits::CanisterKind for $canister {
             const COMMIT_MEMORY_ID: u8 = $commit_memory_id;
+            const COMMIT_STABLE_KEY: &'static str = "icydb.test.commit.v1";
         }
     };
 }
