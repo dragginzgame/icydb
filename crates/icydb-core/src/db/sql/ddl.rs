@@ -597,9 +597,11 @@ fn bind_drop_index_statement(
         .entity_name()
         .ok_or(SqlDdlBindError::MissingEntityName)?;
 
-    if !identifiers_tail_match(statement.entity.as_str(), entity_name) {
+    if let Some(sql_entity) = statement.entity.as_deref()
+        && !identifiers_tail_match(sql_entity, entity_name)
+    {
         return Err(SqlDdlBindError::EntityMismatch {
-            sql_entity: statement.entity.clone(),
+            sql_entity: sql_entity.to_string(),
             expected_entity: entity_name.to_string(),
         });
     }

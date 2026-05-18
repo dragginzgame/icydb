@@ -1936,7 +1936,21 @@ fn parse_drop_index_statement_keeps_ddl_intent_unresolved() {
         statement,
         SqlStatement::Ddl(SqlDdlStatement::DropIndex(SqlDropIndexStatement {
             name: "user_age_idx".to_string(),
-            entity: "public.users".to_string(),
+            entity: Some("public.users".to_string()),
+            if_exists: false,
+        })),
+    );
+}
+
+#[test]
+fn parse_drop_index_statement_allows_implicit_typed_target() {
+    let statement = parse_sql("DROP INDEX user_age_idx").expect("DROP INDEX should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::DropIndex(SqlDropIndexStatement {
+            name: "user_age_idx".to_string(),
+            entity: None,
             if_exists: false,
         })),
     );
@@ -1964,7 +1978,18 @@ fn parse_ddl_idempotency_clauses_keep_explicit_intent() {
         statement,
         SqlStatement::Ddl(SqlDdlStatement::DropIndex(SqlDropIndexStatement {
             name: "user_age_idx".to_string(),
-            entity: "users".to_string(),
+            entity: Some("users".to_string()),
+            if_exists: true,
+        })),
+    );
+
+    let statement = parse_sql("DROP INDEX IF EXISTS user_age_idx")
+        .expect("DROP INDEX IF EXISTS without ON should parse");
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::DropIndex(SqlDropIndexStatement {
+            name: "user_age_idx".to_string(),
+            entity: None,
             if_exists: true,
         })),
     );

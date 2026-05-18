@@ -75,15 +75,15 @@ pub(crate) enum SqlCreateIndexUniqueness {
 ///
 /// SqlDropIndexStatement
 ///
-/// Narrow parsed `DROP INDEX` frontend. The entity remains explicit so
-/// generated canister dispatch can route DDL without guessing in multi-entity
-/// canisters.
+/// Narrow parsed `DROP INDEX` frontend. The entity may be omitted when the
+/// caller already has a typed entity target; generated multi-entity canister
+/// dispatch still requires an explicit target to avoid guessing.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlDropIndexStatement {
     pub(crate) name: String,
-    pub(crate) entity: String,
+    pub(crate) entity: Option<String>,
     pub(crate) if_exists: bool,
 }
 

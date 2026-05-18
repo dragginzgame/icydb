@@ -2917,6 +2917,48 @@ fn execute_sql_ddl_drops_supported_ddl_published_index() {
 }
 
 #[test]
+fn execute_sql_ddl_drops_supported_index_with_typed_target_shorthand() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34), ("cyd", 55)]);
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE INDEX session_sql_age_idx ON SessionSqlEntity (age)",
+        )
+        .expect("DDL execution should publish the field-path index before dropping it");
+    let result = session
+        .execute_sql_ddl::<SessionSqlEntity>("DROP INDEX session_sql_age_idx")
+        .expect("typed DDL execution should drop an index without restating the entity");
+    let SqlStatementResult::Ddl(report) = result else {
+        panic!("DROP INDEX should return a DDL report");
+    };
+
+    assert_eq!(
+        report.mutation_kind(),
+        SqlDdlMutationKind::DropSecondaryIndex,
+    );
+    assert_eq!(report.target_index(), "session_sql_age_idx");
+    assert_eq!(report.field_path(), ["age".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    let SqlStatementResult::ShowIndexes(indexes) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .expect("SHOW INDEXES FROM should remain readable after shorthand index drop")
+    else {
+        panic!("SHOW INDEXES FROM should return an index metadata payload");
+    };
+    assert!(
+        indexes
+            .iter()
+            .all(|index| !index.contains("session_sql_age_idx")),
+        "DROP INDEX shorthand should remove DDL-created index metadata",
+    );
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
 fn execute_sql_ddl_drops_supported_unique_ddl_published_index() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
@@ -2967,7 +3009,7 @@ fn execute_sql_ddl_drop_index_if_exists_reports_no_op_for_missing_index() {
     let session = sql_session();
 
     let result = session
-        .execute_sql_ddl::<SessionSqlEntity>("DROP INDEX IF EXISTS missing_idx ON SessionSqlEntity")
+        .execute_sql_ddl::<SessionSqlEntity>("DROP INDEX IF EXISTS missing_idx")
         .expect("missing DROP INDEX IF EXISTS should execute as a no-op");
     let SqlStatementResult::Ddl(report) = result else {
         panic!("no-op DROP INDEX IF EXISTS should return a DDL report");

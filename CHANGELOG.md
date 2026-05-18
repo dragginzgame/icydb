@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
+- `0.157.16` lets typed and single-entity SQL DDL surfaces use PostgreSQL-style
+  `DROP INDEX <name>` without restating `ON <entity>`. Multi-entity generated
+  canister dispatch still requires `ON <entity>` when the target is ambiguous.
+
+  ```
+  DROP INDEX character_high_level_idx;
+  DROP INDEX IF EXISTS character_high_level_idx;
+  ```
+
 - `0.157.15` enables filtered SQL field-path indexes with
   `CREATE INDEX ... WHERE <predicate>`. The DDL binder validates the filter
   against accepted schema metadata, physical rebuilds index only matching rows,

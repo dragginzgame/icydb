@@ -195,8 +195,11 @@ impl Parser {
     fn parse_drop_index_statement(&mut self) -> Result<SqlDropIndexStatement, SqlParseError> {
         let if_exists = self.parse_drop_index_if_exists()?;
         let name = self.expect_identifier()?;
-        self.expect_keyword(Keyword::On)?;
-        let entity = self.expect_identifier()?;
+        let entity = if self.eat_keyword(Keyword::On) {
+            Some(self.expect_identifier()?)
+        } else {
+            None
+        };
 
         Ok(SqlDropIndexStatement {
             name,
