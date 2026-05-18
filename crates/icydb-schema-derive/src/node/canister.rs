@@ -101,7 +101,7 @@ impl HasTraits for Canister {
             TraitKind::CanisterKind => {
                 let commit_memory_id = self.commit_memory_id;
                 let commit_stable_key =
-                    format!("icydb.{}.__commit.control.v1", self.memory_namespace);
+                    format!("icydb.{}.commit.control.v1", self.memory_namespace);
                 let tokens = Implementor::new(self.def(), t)
                     .set_tokens(quote! {
                         const COMMIT_MEMORY_ID: u8 = #commit_memory_id;

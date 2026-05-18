@@ -63,7 +63,7 @@ impl Canister {
 
     #[must_use]
     pub fn commit_stable_key(&self) -> String {
-        stable_memory_key(self.memory_namespace(), "__commit", "control")
+        stable_memory_key(self.memory_namespace(), "commit", "control")
     }
 }
 
