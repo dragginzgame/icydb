@@ -136,8 +136,13 @@ Supported shapes:
 - `CREATE INDEX name ON entity (field_path, another_field_path)`
 - `CREATE INDEX name ON entity (field_path ASC)`
 - `CREATE INDEX name ON entity (field_path) WHERE predicate`
+- `CREATE INDEX name ON entity (LOWER(field_path))`
+- `CREATE INDEX name ON entity (UPPER(field_path))`
+- `CREATE INDEX name ON entity (TRIM(field_path))`
 - `CREATE INDEX IF NOT EXISTS name ON entity (field_path)`
+- `CREATE INDEX IF NOT EXISTS name ON entity (LOWER(field_path))`
 - `CREATE UNIQUE INDEX name ON entity (field_path)`
+- `CREATE UNIQUE INDEX name ON entity (LOWER(field_path))`
 - `DROP INDEX name ON entity`
 - `DROP INDEX name`
 - `DROP INDEX IF EXISTS name ON entity`
@@ -146,23 +151,22 @@ Supported shapes:
 SQL DDL is a frontend over accepted schema catalog mutation, not the source of
 schema authority.
 
-`CREATE INDEX` currently admits field-path secondary indexes. Single-field,
-multi-field, unique, explicit `ASC`, and filtered `WHERE` predicates are
-supported. Every field path must already exist in the accepted schema, must be
-indexable, and must not duplicate an accepted index name or identical accepted
-field-path/predicate index contract.
+`CREATE INDEX` currently admits field-path secondary indexes and deterministic
+text expression secondary indexes. Single-field, multi-field, unique, explicit
+`ASC`, filtered `WHERE` predicates, and `LOWER`/`UPPER`/`TRIM` expression keys
+are supported. Every field path must already exist in the accepted schema, must
+be indexable, and must not duplicate an accepted index name or identical
+accepted index contract.
 `CREATE INDEX IF NOT EXISTS` no-ops only when the accepted catalog already has
-the exact requested field-path index contract. Conflicting existing definitions
-still reject.
+the exact requested index contract. Conflicting existing definitions still
+reject.
 `ASC` is accepted as IcyDB's default deterministic physical key order. `DESC`
-and expression key items such as `LOWER(field)` are not yet supported for SQL
-DDL indexes and fail with explicit unsupported-feature diagnostics. Supported
-expression key syntax is parsed and catalog-bound for source-field diagnostics,
-but it is not executable until physical expression-index rebuilds are wired.
+is not yet supported for SQL DDL indexes and fails with explicit
+unsupported-feature diagnostics.
 
-`DROP INDEX` currently admits only field-path indexes that were created through
-SQL DDL. Generated/model-declared indexes are owned by the entity schema macro
-and must be removed there, then reconciled through the normal accepted-schema
+`DROP INDEX` currently admits secondary indexes that were created through SQL
+DDL. Generated/model-declared indexes are owned by the entity schema macro and
+must be removed there, then reconciled through the normal accepted-schema
 publication path.
 `DROP INDEX IF EXISTS` no-ops only when the target index is absent. Existing
 generated/model-owned and otherwise unsupported indexes still reject.

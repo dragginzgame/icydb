@@ -2549,6 +2549,151 @@ fn execute_sql_ddl_publishes_supported_expression_index() {
 }
 
 #[test]
+fn execute_sql_ddl_create_expression_index_if_not_exists_reports_no_op_for_existing_index() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 21), ("bob", 34), ("Cyd", 55)]);
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE INDEX session_sql_lower_name_idx ON SessionSqlEntity (LOWER(name))",
+        )
+        .expect("setup expression index DDL should publish");
+    let result = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE INDEX IF NOT EXISTS session_sql_lower_name_idx ON SessionSqlEntity (LOWER(name))",
+        )
+        .expect("matching expression CREATE INDEX IF NOT EXISTS should no-op");
+    let SqlStatementResult::Ddl(report) = result else {
+        panic!("no-op expression DDL execution should return a DDL report");
+    };
+
+    assert_eq!(
+        report.mutation_kind(),
+        SqlDdlMutationKind::AddExpressionIndex
+    );
+    assert_eq!(report.target_index(), "session_sql_lower_name_idx");
+    assert_eq!(report.field_path(), ["LOWER(name)".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::NoOp);
+    assert_eq!(report.rows_scanned(), 0);
+    assert_eq!(report.index_keys_written(), 0);
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
+fn execute_sql_ddl_rejects_duplicate_expression_index_contract_without_publication() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 21), ("bob", 34), ("Cyd", 55)]);
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE INDEX session_sql_lower_name_idx ON SessionSqlEntity (LOWER(name))",
+        )
+        .expect("setup expression index DDL should publish");
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE INDEX session_sql_lower_name_duplicate_idx ON SessionSqlEntity (LOWER(name))",
+        )
+        .expect_err("duplicate expression index contracts should reject");
+
+    let SqlStatementResult::ShowIndexes(indexes) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .expect("SHOW INDEXES FROM should remain readable after duplicate expression rejection")
+    else {
+        panic!("SHOW INDEXES FROM should return an index metadata payload");
+    };
+    assert!(
+        indexes
+            .iter()
+            .all(|index| !index.contains("session_sql_lower_name_duplicate_idx")),
+        "rejected duplicate expression DDL should not publish accepted index metadata",
+    );
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
+fn execute_sql_ddl_publishes_supported_unique_expression_index() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 21), ("bob", 34), ("Cyd", 55)]);
+
+    let result = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE UNIQUE INDEX session_sql_lower_name_unique_idx ON SessionSqlEntity (LOWER(name))",
+        )
+        .expect("unique expression index DDL should publish when normalized values are unique");
+    let SqlStatementResult::Ddl(report) = result else {
+        panic!("DDL execution should return a DDL report");
+    };
+
+    assert_eq!(
+        report.mutation_kind(),
+        SqlDdlMutationKind::AddExpressionIndex,
+    );
+    assert_eq!(report.target_index(), "session_sql_lower_name_unique_idx");
+    assert_eq!(report.field_path(), ["LOWER(name)".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    assert_eq!(report.rows_scanned(), 3);
+    assert_eq!(report.index_keys_written(), 3);
+
+    let SqlStatementResult::ShowIndexes(indexes) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .expect("SHOW INDEXES FROM should read the accepted expression index set")
+    else {
+        panic!("SHOW INDEXES FROM should return an index metadata payload");
+    };
+    assert!(
+        indexes.iter().any(|index| index
+            == "UNIQUE INDEX session_sql_lower_name_unique_idx (expr:v1:LOWER(name)) [state=ready] [origin=ddl]"),
+        "SHOW INDEXES FROM should expose DDL-created unique expression indexes",
+    );
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
+fn execute_sql_ddl_rejects_duplicate_unique_expression_values_without_publication() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 21), ("ada", 34), ("Cyd", 55)]);
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE UNIQUE INDEX session_sql_lower_name_unique_idx ON SessionSqlEntity (LOWER(name))",
+        )
+        .expect_err("duplicate normalized values should reject unique expression index publication");
+
+    let SqlStatementResult::ShowIndexes(indexes) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .expect("SHOW INDEXES FROM should remain readable after rejected DDL")
+    else {
+        panic!("SHOW INDEXES FROM should return an index metadata payload");
+    };
+    assert!(
+        indexes
+            .iter()
+            .all(|index| !index.contains("session_sql_lower_name_unique_idx")),
+        "rejected unique expression DDL should not publish accepted index metadata",
+    );
+
+    SESSION_SQL_INDEX_STORE.with_borrow(|store| {
+        assert_eq!(
+            store.len(),
+            0,
+            "rejected unique expression DDL should not write physical index keys",
+        );
+    });
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+}
+
+#[test]
 fn sql_ddl_create_index_lowers_to_supported_schema_mutation_admission() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();

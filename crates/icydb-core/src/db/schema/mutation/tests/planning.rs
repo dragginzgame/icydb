@@ -871,9 +871,15 @@ fn expression_index_request_lowering_fails_closed_for_unsupported_indexes() {
         None,
     );
 
-    assert_eq!(
-        SchemaMutationRequest::from_accepted_expression_index(&unique),
-        Err(AcceptedSchemaMutationError::UniqueIndexRequiresDedicatedValidation),
+    let SchemaMutationRequest::AddExpressionIndex { target } =
+        SchemaMutationRequest::from_accepted_expression_index(&unique)
+            .expect("unique expression indexes should lower to expression rebuild targets")
+    else {
+        panic!("unique expression index should lower to expression index addition");
+    };
+    assert!(
+        target.unique(),
+        "unique expression index lowering should preserve uniqueness",
     );
     assert_eq!(
         SchemaMutationRequest::from_accepted_expression_index(&field_path_only),

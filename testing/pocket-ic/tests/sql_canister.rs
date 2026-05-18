@@ -308,6 +308,76 @@ fn sql_canister_ddl_endpoint_publishes_supported_expression_index() {
             == "INDEX sql_test_user_lower_name_idx (expr:v1:LOWER(name)) [state=ready] [origin=ddl]"),
         "SHOW INDEXES FROM should expose the DDL-published expression index: {indexes:?}",
     );
+
+    let no_op = ddl_sql(
+        &fixture,
+        "CREATE INDEX IF NOT EXISTS sql_test_user_lower_name_idx ON SqlTestUser (LOWER(name))",
+    )
+    .expect("matching expression CREATE INDEX IF NOT EXISTS should no-op at the canister endpoint");
+    let SqlQueryResult::Ddl {
+        entity,
+        mutation_kind,
+        target_index,
+        field_path,
+        status,
+        rows_scanned,
+        index_keys_written,
+        ..
+    } = no_op
+    else {
+        panic!("matching expression CREATE INDEX IF NOT EXISTS should return a DDL payload");
+    };
+    assert_eq!(entity, "SqlTestUser");
+    assert_eq!(mutation_kind, "add_expression_index");
+    assert_eq!(target_index, "sql_test_user_lower_name_idx");
+    assert_eq!(field_path, vec!["LOWER(name)".to_string()]);
+    assert_eq!(status, "no_op");
+    assert_eq!(rows_scanned, 0);
+    assert_eq!(index_keys_written, 0);
+}
+
+#[test]
+fn sql_canister_ddl_endpoint_publishes_supported_unique_expression_index() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let ddl = ddl_sql(
+        &fixture,
+        "CREATE UNIQUE INDEX sql_test_user_lower_name_unique_idx ON SqlTestUser (LOWER(name))",
+    )
+    .expect(
+        "supported unique expression CREATE INDEX DDL should publish through the canister endpoint",
+    );
+
+    let SqlQueryResult::Ddl {
+        entity,
+        mutation_kind,
+        target_index,
+        field_path,
+        status,
+        rows_scanned,
+        index_keys_written,
+        ..
+    } = ddl
+    else {
+        panic!("supported unique expression CREATE INDEX should return a DDL payload");
+    };
+    assert_eq!(entity, "SqlTestUser");
+    assert_eq!(mutation_kind, "add_expression_index");
+    assert_eq!(target_index, "sql_test_user_lower_name_unique_idx");
+    assert_eq!(field_path, vec!["LOWER(name)".to_string()]);
+    assert_eq!(status, "published");
+    assert_eq!(rows_scanned, 3);
+    assert_eq!(index_keys_written, 3);
+
+    let indexes = expect_show_indexes(query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser").expect(
+        "SHOW INDEXES FROM should read accepted indexes after unique expression DDL publication",
+    ));
+    assert!(
+        indexes.iter().any(|index| index
+            == "UNIQUE INDEX sql_test_user_lower_name_unique_idx (expr:v1:LOWER(name)) [state=ready] [origin=ddl]"),
+        "SHOW INDEXES FROM should expose the DDL-published unique expression index: {indexes:?}",
+    );
 }
 
 #[test]

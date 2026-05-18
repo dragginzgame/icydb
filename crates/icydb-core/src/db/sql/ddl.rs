@@ -16,7 +16,8 @@ use crate::db::{
         PersistedIndexExpressionSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexSnapshot, SchemaDdlAcceptedSnapshotDerivation,
         SchemaDdlIndexDropCandidateError, SchemaDdlMutationAdmission,
-        SchemaDdlMutationAdmissionError, SchemaInfo, admit_sql_ddl_expression_index_candidate,
+        SchemaDdlMutationAdmissionError, SchemaExpressionIndexInfo,
+        SchemaExpressionIndexKeyItemInfo, SchemaInfo, admit_sql_ddl_expression_index_candidate,
         admit_sql_ddl_field_path_index_candidate, admit_sql_ddl_secondary_index_drop_candidate,
         derive_sql_ddl_expression_index_accepted_after,
         derive_sql_ddl_field_path_index_accepted_after,
@@ -579,15 +580,40 @@ fn bind_create_index_statement(
             index_name: statement.name.clone(),
         });
     }
-    reject_duplicate_expression_index_name(statement.name.as_str(), schema)?;
     let predicate_sql =
         validated_create_index_predicate_sql(statement.predicate_sql.as_deref(), schema)?;
+    if let Some(existing_index) = find_expression_index_by_name(schema, statement.name.as_str()) {
+        if statement.if_not_exists
+            && existing_expression_index_matches_request(
+                existing_index,
+                key_items.as_slice(),
+                predicate_sql.as_deref(),
+                statement.uniqueness,
+            )
+        {
+            return Ok(BoundSqlDdlRequest {
+                statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
+                    mutation_kind: SqlDdlMutationKind::AddExpressionIndex,
+                    index_name: statement.name.clone(),
+                    entity_name: entity_name.to_string(),
+                    target_store: existing_index.store().to_string(),
+                    field_path: ddl_key_item_report(key_items.as_slice()),
+                }),
+            });
+        }
+
+        return Err(SqlDdlBindError::DuplicateIndexName {
+            index_name: statement.name.clone(),
+        });
+    }
     if key_items_are_field_path_only(key_items.as_slice()) {
         reject_duplicate_field_path_index(
             field_paths.as_slice(),
             predicate_sql.as_deref(),
             schema,
         )?;
+    } else {
+        reject_duplicate_expression_index(key_items.as_slice(), predicate_sql.as_deref(), schema)?;
     }
     let candidate_index = candidate_index_snapshot(
         statement.name.as_str(),
@@ -844,21 +870,96 @@ fn existing_field_path_index_matches_request(
             .all(|(field, requested)| field.path() == requested.accepted_path())
 }
 
-fn reject_duplicate_expression_index_name(
+fn find_expression_index_by_name<'a>(
+    schema: &'a SchemaInfo,
     index_name: &str,
-    schema: &SchemaInfo,
-) -> Result<(), SqlDdlBindError> {
-    if schema
+) -> Option<&'a SchemaExpressionIndexInfo> {
+    schema
         .expression_indexes()
         .iter()
-        .any(|index| index.name() == index_name)
-    {
-        return Err(SqlDdlBindError::DuplicateIndexName {
-            index_name: index_name.to_string(),
-        });
-    }
+        .find(|index| index.name() == index_name)
+}
 
-    Ok(())
+fn existing_expression_index_matches_request(
+    index: &SchemaExpressionIndexInfo,
+    key_items: &[BoundSqlDdlCreateIndexKey],
+    predicate_sql: Option<&str>,
+    uniqueness: SqlCreateIndexUniqueness,
+) -> bool {
+    let existing_key_items = index.key_items();
+
+    index.unique() == matches!(uniqueness, SqlCreateIndexUniqueness::Unique)
+        && index.predicate_sql() == predicate_sql
+        && existing_key_items.len() == key_items.len()
+        && existing_key_items
+            .iter()
+            .zip(key_items)
+            .all(existing_expression_key_item_matches_request)
+}
+
+fn existing_expression_key_item_matches_request(
+    existing: (
+        &SchemaExpressionIndexKeyItemInfo,
+        &BoundSqlDdlCreateIndexKey,
+    ),
+) -> bool {
+    let (existing, requested) = existing;
+    match (existing, requested) {
+        (
+            SchemaExpressionIndexKeyItemInfo::FieldPath(existing),
+            BoundSqlDdlCreateIndexKey::FieldPath(requested),
+        ) => existing.path() == requested.accepted_path(),
+        (
+            SchemaExpressionIndexKeyItemInfo::Expression(existing),
+            BoundSqlDdlCreateIndexKey::Expression(requested),
+        ) => existing_expression_component_matches_request(
+            existing.op(),
+            existing.source().path(),
+            existing.canonical_text(),
+            requested,
+        ),
+        _ => false,
+    }
+}
+
+fn existing_expression_component_matches_request(
+    existing_op: PersistedIndexExpressionOp,
+    existing_path: &[String],
+    existing_canonical_text: &str,
+    requested: &BoundSqlDdlExpressionKey,
+) -> bool {
+    let requested_path = requested.source().accepted_path();
+    let requested_canonical_text = format!("expr:v1:{}", requested.canonical_sql());
+
+    existing_op == requested.op()
+        && existing_path == requested_path
+        && existing_canonical_text == requested_canonical_text
+}
+
+fn reject_duplicate_expression_index(
+    key_items: &[BoundSqlDdlCreateIndexKey],
+    predicate_sql: Option<&str>,
+    schema: &SchemaInfo,
+) -> Result<(), SqlDdlBindError> {
+    let Some(existing_index) = schema.expression_indexes().iter().find(|index| {
+        existing_expression_index_matches_request(
+            index,
+            key_items,
+            predicate_sql,
+            if index.unique() {
+                SqlCreateIndexUniqueness::Unique
+            } else {
+                SqlCreateIndexUniqueness::NonUnique
+            },
+        )
+    }) else {
+        return Ok(());
+    };
+
+    Err(SqlDdlBindError::DuplicateFieldPathIndex {
+        field_path: ddl_key_item_report(key_items).join(","),
+        existing_index: existing_index.name().to_string(),
+    })
 }
 
 fn reject_duplicate_field_path_index(

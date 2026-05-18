@@ -113,13 +113,8 @@ pub(in crate::db::schema) enum SchemaMutationRequest<'a> {
 /// metadata.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.152 stages fail-closed mutation lowering before DDL diagnostics expose it"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum AcceptedSchemaMutationError {
-    UniqueIndexRequiresDedicatedValidation,
     UnsupportedIndexKeyShape,
     EmptyIndexKey,
     ExpressionIndexRequiresExpressionKey,
@@ -1558,8 +1553,8 @@ impl SchemaMutationRequest<'_> {
     }
 
     /// Lower one accepted deterministic expression index snapshot into a
-    /// mutation request. Unique indexes, field-path-only keys, and empty keys
-    /// fail closed until their validators and rebuild semantics exist.
+    /// mutation request. Field-path-only keys and empty keys fail closed
+    /// because this path exists only for expression-backed index contracts.
     #[allow(
         dead_code,
         reason = "0.152 stages accepted expression-index mutation lowering before DDL/rebuild callers use it"
@@ -1567,10 +1562,6 @@ impl SchemaMutationRequest<'_> {
     pub(in crate::db::schema) fn from_accepted_expression_index(
         index: &PersistedIndexSnapshot,
     ) -> Result<Self, AcceptedSchemaMutationError> {
-        if index.unique() {
-            return Err(AcceptedSchemaMutationError::UniqueIndexRequiresDedicatedValidation);
-        }
-
         let PersistedIndexKeySnapshot::Items(items) = index.key() else {
             return Err(AcceptedSchemaMutationError::UnsupportedIndexKeyShape);
         };

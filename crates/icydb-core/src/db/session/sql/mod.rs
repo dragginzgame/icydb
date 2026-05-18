@@ -439,7 +439,11 @@ impl<C: CanisterKind> DbSession<C> {
         let (accepted_schema, _) = self
             .accepted_entity_authority::<E>()
             .map_err(QueryError::execute)?;
-        let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema);
+        let schema_info = SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(
+            E::MODEL,
+            &accepted_schema,
+            true,
+        );
         let prepared = match prepare_sql_ddl_statement(
             &statement,
             &accepted_schema,

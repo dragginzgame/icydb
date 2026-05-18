@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
+- `0.157.23` enables `CREATE UNIQUE INDEX` for supported deterministic
+  expression keys. Unique expression-index rebuilds now validate normalized
+  expression keys before publication, so duplicate `LOWER`/`UPPER`/`TRIM`
+  values reject without publishing accepted schema metadata or physical index
+  entries. `CREATE INDEX IF NOT EXISTS` now recognizes exact existing
+  expression-index contracts as `no_op`, and duplicate expression-key
+  contracts with different names reject instead of publishing redundant
+  accepted metadata.
+
+  ```
+  CREATE UNIQUE INDEX character_lower_name_unique_idx ON Character (LOWER(name));
+  CREATE INDEX IF NOT EXISTS character_lower_name_idx ON Character (LOWER(name));
+  ```
+
 - `0.157.22` moves expression-index SQL DDL past the old field-path-only
   binder gate. `CREATE INDEX` with `LOWER(field)`, `UPPER(field)`, or
   `TRIM(field)` now prepares as accepted expression key-item metadata with
