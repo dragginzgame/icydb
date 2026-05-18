@@ -9,17 +9,23 @@
 )]
 
 use crate::db::{
+    data::encode_runtime_value_for_accepted_field_contract,
     predicate::parse_sql_predicate,
     query::predicate::validate_predicate,
     schema::{
-        AcceptedSchemaSnapshot, PersistedFieldKind, PersistedIndexExpressionOp,
+        AcceptedFieldDecodeContract, AcceptedSchemaSnapshot, FieldId, PersistedFieldKind,
+        PersistedFieldOrigin, PersistedFieldSnapshot, PersistedIndexExpressionOp,
         PersistedIndexExpressionSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexSnapshot, SchemaDdlAcceptedSnapshotDerivation,
         SchemaDdlIndexDropCandidateError, SchemaDdlMutationAdmission,
         SchemaDdlMutationAdmissionError, SchemaExpressionIndexInfo,
-        SchemaExpressionIndexKeyItemInfo, SchemaInfo, admit_sql_ddl_expression_index_candidate,
-        admit_sql_ddl_field_path_index_candidate, admit_sql_ddl_secondary_index_drop_candidate,
+        SchemaExpressionIndexKeyItemInfo, SchemaFieldDefault, SchemaFieldSlot,
+        SchemaFieldWritePolicy, SchemaInfo, admit_sql_ddl_expression_index_candidate,
+        admit_sql_ddl_field_addition_candidate, admit_sql_ddl_field_path_index_candidate,
+        admit_sql_ddl_secondary_index_drop_candidate,
+        canonicalize_strict_sql_literal_for_persisted_kind,
         derive_sql_ddl_expression_index_accepted_after,
+        derive_sql_ddl_field_addition_accepted_after,
         derive_sql_ddl_field_path_index_accepted_after,
         derive_sql_ddl_secondary_index_drop_accepted_after,
         resolve_sql_ddl_secondary_index_drop_candidate,
@@ -33,6 +39,7 @@ use crate::db::{
         },
     },
 };
+use crate::model::field::{FieldStorageDecode, LeafCodec, ScalarCodec};
 use thiserror::Error as ThisError;
 
 ///
@@ -161,6 +168,8 @@ impl SqlDdlPreparationReport {
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SqlDdlMutationKind {
+    AddDefaultedField,
+    AddNullableField,
     AddFieldPathIndex,
     AddExpressionIndex,
     DropSecondaryIndex,
@@ -171,6 +180,8 @@ impl SqlDdlMutationKind {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::AddDefaultedField => "add_defaulted_field",
+            Self::AddNullableField => "add_nullable_field",
             Self::AddFieldPathIndex => "add_field_path_index",
             Self::AddExpressionIndex => "add_expression_index",
             Self::DropSecondaryIndex => "drop_secondary_index",
@@ -228,9 +239,35 @@ impl BoundSqlDdlRequest {
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum BoundSqlDdlStatement {
+    AddColumn(BoundSqlAddColumnRequest),
     CreateIndex(BoundSqlCreateIndexRequest),
     DropIndex(BoundSqlDropIndexRequest),
     NoOp(BoundSqlDdlNoOpRequest),
+}
+
+///
+/// BoundSqlAddColumnRequest
+///
+/// Catalog-resolved additive field DDL request.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct BoundSqlAddColumnRequest {
+    entity_name: String,
+    field: PersistedFieldSnapshot,
+}
+
+impl BoundSqlAddColumnRequest {
+    /// Borrow the accepted entity name.
+    #[must_use]
+    pub(in crate::db) const fn entity_name(&self) -> &str {
+        self.entity_name.as_str()
+    }
+
+    /// Borrow the accepted DDL-owned field snapshot to publish.
+    #[must_use]
+    pub(in crate::db) const fn field(&self) -> &PersistedFieldSnapshot {
+        &self.field
+    }
 }
 
 ///
@@ -465,6 +502,38 @@ pub(in crate::db) enum SqlDdlBindError {
         entity_name: String,
         column_name: String,
     },
+
+    #[error(
+        "SQL DDL ALTER TABLE ADD COLUMN DEFAULT value is not encodable for accepted entity '{entity_name}' column '{column_name}': {detail}"
+    )]
+    InvalidAlterTableAddColumnDefault {
+        entity_name: String,
+        column_name: String,
+        detail: String,
+    },
+
+    #[error(
+        "SQL DDL ALTER TABLE ADD COLUMN NOT NULL is not executable yet for accepted entity '{entity_name}' column '{column_name}'"
+    )]
+    UnsupportedAlterTableAddColumnNotNull {
+        entity_name: String,
+        column_name: String,
+    },
+
+    #[error("field '{column_name}' already exists in accepted entity '{entity_name}'")]
+    DuplicateColumn {
+        entity_name: String,
+        column_name: String,
+    },
+
+    #[error(
+        "SQL DDL ALTER TABLE ADD COLUMN type '{column_type}' is not supported yet for accepted entity '{entity_name}' column '{column_name}'"
+    )]
+    UnsupportedAlterTableAddColumnType {
+        entity_name: String,
+        column_name: String,
+        column_type: String,
+    },
 }
 
 ///
@@ -540,7 +609,7 @@ pub(in crate::db) fn bind_sql_ddl_statement(
             bind_drop_index_statement(statement, accepted_before, schema)
         }
         SqlDdlStatement::AlterTableAddColumn(statement) => {
-            bind_alter_table_add_column_statement(statement, schema)
+            bind_alter_table_add_column_statement(statement, accepted_before, schema)
         }
     }
 }
@@ -709,6 +778,7 @@ fn bind_drop_index_statement(
 
 fn bind_alter_table_add_column_statement(
     statement: &SqlAlterTableAddColumnStatement,
+    accepted_before: &AcceptedSchemaSnapshot,
     schema: &SchemaInfo,
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
     let entity_name = schema
@@ -722,10 +792,152 @@ fn bind_alter_table_add_column_statement(
         });
     }
 
-    Err(SqlDdlBindError::UnsupportedAlterTableAddColumn {
+    if schema
+        .field_nullable(statement.column_name.as_str())
+        .is_some()
+    {
+        return Err(SqlDdlBindError::DuplicateColumn {
+            entity_name: entity_name.to_string(),
+            column_name: statement.column_name.clone(),
+        });
+    }
+
+    let (kind, storage_decode, leaf_codec) = persisted_field_contract_for_sql_column_type(
+        statement.column_type.as_str(),
+    )
+    .ok_or_else(|| SqlDdlBindError::UnsupportedAlterTableAddColumnType {
         entity_name: entity_name.to_string(),
         column_name: statement.column_name.clone(),
+        column_type: statement.column_type.clone(),
+    })?;
+    let default = schema_field_default_for_sql_default(
+        entity_name,
+        statement.column_name.as_str(),
+        statement.default.as_ref(),
+        &kind,
+        statement.nullable,
+        storage_decode,
+        leaf_codec,
+    )?;
+    if !statement.nullable && default.is_none() {
+        return Err(SqlDdlBindError::UnsupportedAlterTableAddColumnNotNull {
+            entity_name: entity_name.to_string(),
+            column_name: statement.column_name.clone(),
+        });
+    }
+    let field = PersistedFieldSnapshot::new_with_write_policy_and_origin(
+        next_sql_ddl_field_id(accepted_before),
+        statement.column_name.clone(),
+        next_sql_ddl_field_slot(accepted_before),
+        kind,
+        Vec::new(),
+        statement.nullable,
+        default,
+        SchemaFieldWritePolicy::from_model_policies(None, None),
+        PersistedFieldOrigin::SqlDdl,
+        storage_decode,
+        leaf_codec,
+    );
+
+    Ok(BoundSqlDdlRequest {
+        statement: BoundSqlDdlStatement::AddColumn(BoundSqlAddColumnRequest {
+            entity_name: entity_name.to_string(),
+            field,
+        }),
     })
+}
+
+fn schema_field_default_for_sql_default(
+    entity_name: &str,
+    column_name: &str,
+    default: Option<&crate::value::Value>,
+    kind: &PersistedFieldKind,
+    nullable: bool,
+    storage_decode: FieldStorageDecode,
+    leaf_codec: LeafCodec,
+) -> Result<SchemaFieldDefault, SqlDdlBindError> {
+    let Some(default) = default else {
+        return Ok(SchemaFieldDefault::None);
+    };
+    if matches!(default, crate::value::Value::Null) {
+        return Err(SqlDdlBindError::InvalidAlterTableAddColumnDefault {
+            entity_name: entity_name.to_string(),
+            column_name: column_name.to_string(),
+            detail: "NULL cannot be used as an accepted database default".to_string(),
+        });
+    }
+
+    let normalized = canonicalize_strict_sql_literal_for_persisted_kind(kind, default)
+        .unwrap_or_else(|| default.clone());
+    let contract =
+        AcceptedFieldDecodeContract::new(column_name, kind, nullable, storage_decode, leaf_codec);
+    let payload = encode_runtime_value_for_accepted_field_contract(contract, &normalized).map_err(
+        |error| SqlDdlBindError::InvalidAlterTableAddColumnDefault {
+            entity_name: entity_name.to_string(),
+            column_name: column_name.to_string(),
+            detail: error.to_string(),
+        },
+    )?;
+
+    Ok(SchemaFieldDefault::SlotPayload(payload))
+}
+
+fn next_sql_ddl_field_id(accepted_before: &AcceptedSchemaSnapshot) -> FieldId {
+    let next = accepted_before
+        .persisted_snapshot()
+        .fields()
+        .iter()
+        .map(|field| field.id().get())
+        .max()
+        .unwrap_or(0)
+        .checked_add(1)
+        .expect("accepted field IDs should not be exhausted");
+
+    FieldId::new(next)
+}
+
+fn next_sql_ddl_field_slot(accepted_before: &AcceptedSchemaSnapshot) -> SchemaFieldSlot {
+    let next = accepted_before
+        .persisted_snapshot()
+        .row_layout()
+        .field_to_slot()
+        .iter()
+        .map(|(_, slot)| slot.get())
+        .max()
+        .unwrap_or(0)
+        .checked_add(1)
+        .expect("accepted row slots should not be exhausted");
+
+    SchemaFieldSlot::new(next)
+}
+
+fn persisted_field_contract_for_sql_column_type(
+    column_type: &str,
+) -> Option<(PersistedFieldKind, FieldStorageDecode, LeafCodec)> {
+    let normalized = column_type.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "bool" | "boolean" => Some((
+            PersistedFieldKind::Bool,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Bool),
+        )),
+        "int" | "integer" => Some((
+            PersistedFieldKind::Int,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Int64),
+        )),
+        "nat" | "natural" => Some((
+            PersistedFieldKind::Nat,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Nat64),
+        )),
+        "text" | "string" => Some((
+            PersistedFieldKind::Text { max_len: None },
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Text),
+        )),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1198,6 +1410,9 @@ pub(in crate::db) fn lower_bound_sql_ddl_to_schema_mutation_admission(
     request: &BoundSqlDdlRequest,
 ) -> Result<SchemaDdlMutationAdmission, SqlDdlLoweringError> {
     match request.statement() {
+        BoundSqlDdlStatement::AddColumn(add) => {
+            Ok(admit_sql_ddl_field_addition_candidate(add.field()))
+        }
         BoundSqlDdlStatement::CreateIndex(create) => {
             if create.candidate_index().key().is_field_path_only() {
                 admit_sql_ddl_field_path_index_candidate(create.candidate_index())
@@ -1219,6 +1434,9 @@ pub(in crate::db) fn derive_bound_sql_ddl_accepted_after(
     request: &BoundSqlDdlRequest,
 ) -> Result<SchemaDdlAcceptedSnapshotDerivation, SqlDdlLoweringError> {
     match request.statement() {
+        BoundSqlDdlStatement::AddColumn(add) => {
+            derive_sql_ddl_field_addition_accepted_after(accepted_before, add.field().clone())
+        }
         BoundSqlDdlStatement::CreateIndex(create) => {
             if create.candidate_index().key().is_field_path_only() {
                 derive_sql_ddl_field_path_index_accepted_after(
@@ -1245,6 +1463,19 @@ pub(in crate::db) fn derive_bound_sql_ddl_accepted_after(
 
 fn ddl_preparation_report(bound: &BoundSqlDdlRequest) -> SqlDdlPreparationReport {
     match bound.statement() {
+        BoundSqlDdlStatement::AddColumn(add) => SqlDdlPreparationReport {
+            mutation_kind: if add.field().default().is_none() {
+                SqlDdlMutationKind::AddNullableField
+            } else {
+                SqlDdlMutationKind::AddDefaultedField
+            },
+            target_index: add.field().name().to_string(),
+            target_store: add.entity_name().to_string(),
+            field_path: vec![add.field().name().to_string()],
+            execution_status: SqlDdlExecutionStatus::PreparedOnly,
+            rows_scanned: 0,
+            index_keys_written: 0,
+        },
         BoundSqlDdlStatement::CreateIndex(create) => {
             let target = create.candidate_index();
 

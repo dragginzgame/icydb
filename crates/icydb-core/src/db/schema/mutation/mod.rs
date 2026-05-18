@@ -15,7 +15,7 @@ use crate::db::{
         AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
         PersistedIndexExpressionOp, PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
         PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
-        SchemaFieldSlot, encode_persisted_schema_snapshot,
+        SchemaFieldSlot, SchemaRowLayout, encode_persisted_schema_snapshot,
     },
 };
 use crate::error::InternalError;
@@ -175,6 +175,7 @@ impl SchemaDdlMutationAdmission {
         match &self.target {
             SchemaDdlMutationTarget::ExpressionAddition(target) => Some(target),
             SchemaDdlMutationTarget::FieldPathAddition(_)
+            | SchemaDdlMutationTarget::FieldAddition(_)
             | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
         }
     }
@@ -186,8 +187,20 @@ impl SchemaDdlMutationAdmission {
     ) -> Option<&SchemaSecondaryIndexDropCleanupTarget> {
         match &self.target {
             SchemaDdlMutationTarget::FieldPathAddition(_)
+            | SchemaDdlMutationTarget::FieldAddition(_)
             | SchemaDdlMutationTarget::ExpressionAddition(_) => None,
             SchemaDdlMutationTarget::SecondaryDrop(target) => Some(target),
+        }
+    }
+
+    /// Borrow the admitted additive-field target.
+    #[must_use]
+    pub(in crate::db) const fn field_addition_target(&self) -> Option<&SchemaFieldAdditionTarget> {
+        match &self.target {
+            SchemaDdlMutationTarget::FieldAddition(target) => Some(target),
+            SchemaDdlMutationTarget::FieldPathAddition(_)
+            | SchemaDdlMutationTarget::ExpressionAddition(_)
+            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
         }
     }
 }
@@ -200,9 +213,53 @@ impl SchemaDdlMutationAdmission {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum SchemaDdlMutationTarget {
+    FieldAddition(SchemaFieldAdditionTarget),
     FieldPathAddition(SchemaFieldPathIndexRebuildTarget),
     ExpressionAddition(SchemaExpressionIndexRebuildTarget),
     SecondaryDrop(SchemaSecondaryIndexDropCleanupTarget),
+}
+
+///
+/// SchemaFieldAdditionTarget
+///
+/// Accepted additive-field target admitted for SQL DDL publication.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct SchemaFieldAdditionTarget {
+    field_id: FieldId,
+    name: String,
+    slot: SchemaFieldSlot,
+}
+
+impl SchemaFieldAdditionTarget {
+    /// Build one additive-field DDL target from accepted field metadata.
+    #[must_use]
+    fn from_field(field: &PersistedFieldSnapshot) -> Self {
+        Self {
+            field_id: field.id(),
+            name: field.name().to_string(),
+            slot: field.slot(),
+        }
+    }
+
+    /// Return the accepted field ID.
+    #[must_use]
+    pub(in crate::db) const fn field_id(&self) -> FieldId {
+        self.field_id
+    }
+
+    /// Borrow the accepted field name.
+    #[must_use]
+    pub(in crate::db) const fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// Return the accepted row slot.
+    #[must_use]
+    pub(in crate::db) const fn slot(&self) -> SchemaFieldSlot {
+        self.slot
+    }
 }
 
 ///
@@ -1693,6 +1750,19 @@ pub(in crate::db) fn admit_sql_ddl_secondary_index_drop_candidate(
     })
 }
 
+/// Admit one SQL DDL field addition through the schema-owned mutation request
+/// boundary. Publication policy is validated against the full accepted-before
+/// and accepted-after snapshots before execution stores the derived snapshot.
+pub(in crate::db) fn admit_sql_ddl_field_addition_candidate(
+    field: &PersistedFieldSnapshot,
+) -> SchemaDdlMutationAdmission {
+    SchemaDdlMutationAdmission {
+        target: SchemaDdlMutationTarget::FieldAddition(SchemaFieldAdditionTarget::from_field(
+            field,
+        )),
+    }
+}
+
 /// Resolve one accepted SQL DDL index-drop candidate and reject generated
 /// accepted indexes before the frontend can derive a catalog mutation.
 pub(in crate::db) fn resolve_sql_ddl_secondary_index_drop_candidate(
@@ -1786,6 +1856,36 @@ pub(in crate::db) fn derive_sql_ddl_field_path_index_accepted_after(
         admission: SchemaDdlMutationAdmission {
             target: SchemaDdlMutationTarget::FieldPathAddition(supported.target().clone()),
         },
+    })
+}
+
+/// Derive and admit the accepted-after schema snapshot for one SQL DDL
+/// additive field candidate.
+pub(in crate::db) fn derive_sql_ddl_field_addition_accepted_after(
+    accepted_before: &AcceptedSchemaSnapshot,
+    field: PersistedFieldSnapshot,
+) -> Result<SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError> {
+    let before = accepted_before.persisted_snapshot();
+    let mut fields = before.fields().to_vec();
+    fields.push(field.clone());
+    let mut field_to_slot = before.row_layout().field_to_slot().to_vec();
+    field_to_slot.push((field.id(), field.slot()));
+    let persisted_after = PersistedSchemaSnapshot::new_with_indexes(
+        before.version(),
+        before.entity_path().to_string(),
+        before.entity_name().to_string(),
+        before.primary_key_field_id(),
+        SchemaRowLayout::new(before.row_layout().version(), field_to_slot),
+        fields,
+        before.indexes().to_vec(),
+    );
+    let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
+        .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
+    let admission = admit_sql_ddl_field_addition_candidate(&field);
+
+    Ok(SchemaDdlAcceptedSnapshotDerivation {
+        accepted_after,
+        admission,
     })
 }
 

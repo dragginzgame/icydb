@@ -146,6 +146,58 @@ pub(in crate::db) fn execute_sql_ddl_expression_index_addition(
     )
 }
 
+/// Execute one metadata-only SQL DDL additive-field publication.
+pub(in crate::db) fn execute_sql_ddl_field_addition(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    accepted_before: &AcceptedSchemaSnapshot,
+    derivation: &SchemaDdlAcceptedSnapshotDerivation,
+) -> Result<(), InternalError> {
+    let Some(target) = derivation.admission().field_addition_target() else {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL field-addition execution requires a field target for entity '{entity_path}'",
+        )));
+    };
+    let before = accepted_before.persisted_snapshot();
+    let after = derivation.accepted_after().persisted_snapshot();
+    let plan = match decide_schema_transition(before, after) {
+        SchemaTransitionDecision::Accepted(plan) => plan,
+        SchemaTransitionDecision::Rejected(rejection) => {
+            return Err(InternalError::store_unsupported(format!(
+                "SQL DDL field-addition schema mutation rejected before publication for entity '{entity_path}': {}",
+                rejection.detail(),
+            )));
+        }
+    };
+    if plan.kind() != SchemaTransitionPlanKind::AppendOnlyNullableFields {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL field-addition execution supports only append-only nullable fields for entity '{entity_path}': actual={:?}",
+            plan.kind(),
+        )));
+    }
+    validate_publishable_transition_plan(entity_path, &plan)?;
+
+    let added_field = after
+        .fields()
+        .iter()
+        .find(|field| field.id() == target.field_id())
+        .ok_or_else(|| {
+            InternalError::store_unsupported(format!(
+                "SQL DDL field-addition target is absent from accepted-after schema for entity '{entity_path}': field='{}'",
+                target.name(),
+            ))
+        })?;
+    if added_field.name() != target.name() || added_field.slot() != target.slot() {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL field-addition target drifted before publication for entity '{entity_path}': field='{}'",
+            target.name(),
+        )));
+    }
+
+    store.with_schema_mut(|schema_store| schema_store.insert_persisted_snapshot(entity_tag, after))
+}
+
 /// Execute one supported SQL DDL secondary-index drop by cleaning the target
 /// physical index namespace before publishing the accepted-after schema.
 pub(in crate::db) fn execute_sql_ddl_secondary_index_drop(

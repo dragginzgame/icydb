@@ -54,6 +54,7 @@ pub(in crate::db) struct AcceptedRowLayoutRuntimeField<'a> {
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
     absence_policy: AcceptedFieldAbsencePolicy,
+    generated: bool,
 }
 
 impl<'a> AcceptedRowLayoutRuntimeField<'a> {
@@ -121,6 +122,12 @@ impl<'a> AcceptedRowLayoutRuntimeField<'a> {
     #[must_use]
     pub(in crate::db) const fn absence_policy(&self) -> AcceptedFieldAbsencePolicy {
         self.absence_policy
+    }
+
+    /// Return whether this accepted field is generated-schema owned.
+    #[must_use]
+    pub(in crate::db) const fn generated(&self) -> bool {
+        self.generated
     }
 
     /// Return the accepted field-level payload decode contract.
@@ -224,6 +231,7 @@ pub(in crate::db) struct OwnedAcceptedFieldDecodeContract {
     write_policy: SchemaFieldWritePolicy,
     absence_policy: AcceptedFieldAbsencePolicy,
     default: SchemaFieldDefault,
+    generated: bool,
 }
 
 impl OwnedAcceptedFieldDecodeContract {
@@ -241,6 +249,7 @@ impl OwnedAcceptedFieldDecodeContract {
             write_policy: field.write_policy(),
             absence_policy: field.absence_policy(),
             default: field.default().clone(),
+            generated: field.generated(),
         }
     }
 
@@ -284,6 +293,12 @@ impl OwnedAcceptedFieldDecodeContract {
     #[must_use]
     pub(in crate::db) const fn kind(&self) -> &PersistedFieldKind {
         &self.kind
+    }
+
+    /// Return whether this accepted field is generated-schema owned.
+    #[must_use]
+    pub(in crate::db) const fn generated(&self) -> bool {
+        self.generated
     }
 }
 
@@ -464,6 +479,7 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
                 storage_decode: field.storage_decode(),
                 leaf_codec: field.leaf_codec(),
                 absence_policy: accepted_field_absence_policy(field.nullable(), field.default()),
+                generated: field.generated(),
             });
         }
         let Some(primary_key_field) = fields
@@ -634,9 +650,11 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
             )));
         }
 
-        // Phase 2: require the accepted row shape to have the same dense slot
-        // count the generated decoder expects.
-        if self.required_slot_count() != model.fields().len() {
+        // Phase 2: require the accepted row shape to cover every generated
+        // slot. Extra trailing DDL-owned slots may exist after SQL ADD COLUMN;
+        // they remain accepted-runtime fields and are not exposed through the
+        // generated typed materializer.
+        if self.required_slot_count() < model.fields().len() {
             return Err(InternalError::store_invariant(format!(
                 "accepted row layout field count is not generated-compatible: accepted={} generated={}",
                 self.required_slot_count(),
@@ -665,6 +683,29 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
             }
 
             ensure_generated_field_decode_contract_compatible(accepted_field, field)?;
+        }
+
+        for slot in model.fields().len()..self.required_slot_count() {
+            let Some(extra_field) = self.field_for_slot_index(slot) else {
+                return Err(InternalError::store_invariant(format!(
+                    "accepted row layout missing trailing DDL-compatible field for slot {slot}",
+                )));
+            };
+            if extra_field.generated() {
+                return Err(InternalError::store_invariant(format!(
+                    "accepted row layout has generated field outside generated model: field='{}' slot={slot}",
+                    extra_field.name(),
+                )));
+            }
+            if matches!(
+                extra_field.absence_policy(),
+                AcceptedFieldAbsencePolicy::Required
+            ) {
+                return Err(InternalError::store_invariant(format!(
+                    "accepted row layout trailing DDL field is required without missing-field policy: field='{}' slot={slot}",
+                    extra_field.name(),
+                )));
+            }
         }
 
         Ok(AcceptedGeneratedCompatibleRowShape {

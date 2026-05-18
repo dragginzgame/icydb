@@ -339,15 +339,11 @@ where
         StructuralRowContract::from_accepted_decode_contract(entity_path, accepted_decode_contract);
 
     canonical_row_from_runtime_value_source_with_accepted_contract(&contract, |slot| {
-        entity
-            .get_value_by_index(slot)
-            .map(Cow::Owned)
-            .ok_or_else(|| {
-                InternalError::persisted_row_encode_failed(format!(
-                    "accepted entity row emission missing slot {slot} for entity '{}'",
-                    contract.entity_path()
-                ))
-            })
+        if let Some(value) = entity.get_value_by_index(slot) {
+            return Ok(Cow::Owned(value));
+        }
+
+        contract.missing_slot_value(slot).map(Cow::Owned)
     })
 }
 

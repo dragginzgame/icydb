@@ -12,7 +12,10 @@ use crate::{
         executor::mutation::save::SaveExecutor,
         predicate::canonical_cmp,
         relation::validate_save_strong_relations_with_accepted_contract,
-        schema::{AcceptedRowDecodeContract, PersistedFieldKind, SchemaInfo, literal_matches_type},
+        schema::{
+            AcceptedFieldAbsencePolicy, AcceptedRowDecodeContract, PersistedFieldKind, SchemaInfo,
+            literal_matches_type,
+        },
     },
     error::InternalError,
     sanitize::{SanitizeWriteContext, sanitize_with_context},
@@ -149,6 +152,11 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let mut missing = Vec::new();
         for slot in 0..accepted_contract.required_slot_count() {
             let field = accepted_contract.required_field_for_slot(E::PATH, slot)?;
+            if !field.generated()
+                && !matches!(field.absence_policy(), AcceptedFieldAbsencePolicy::Required)
+            {
+                continue;
+            }
             let write_policy = field.write_policy();
             let requires_authorship = write_policy.insert_generation().is_none()
                 && write_policy.write_management().is_none();
@@ -243,6 +251,11 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             let field = accepted_contract.required_field_for_slot(E::PATH, field_index)?;
             let field_name = field.field_name();
             let field_kind = field.kind();
+            if !field.generated()
+                && !matches!(field.absence_policy(), AcceptedFieldAbsencePolicy::Required)
+            {
+                continue;
+            }
 
             let value = entity.get_value_by_index(field_index).ok_or_else(|| {
                 InternalError::mutation_entity_field_missing(

@@ -7,8 +7,9 @@ use crate::{
         executor::EntityAuthority,
         response::Row,
         schema::{
-            AcceptedSchemaSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
-            SchemaInfo, accepted_schema_cache_fingerprint, compiled_schema_proposal_for_model,
+            AcceptedSchemaSnapshot, PersistedFieldKind, PersistedFieldOrigin,
+            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, SchemaInfo,
+            accepted_schema_cache_fingerprint, compiled_schema_proposal_for_model,
         },
         session::{query::QueryPlanVisibility, sql::SqlCompiledCommandCacheKey},
         sql::{
@@ -2288,23 +2289,242 @@ fn sql_ddl_create_index_binding_accepts_expression_keys_as_catalog_metadata() {
 }
 
 #[test]
-fn sql_ddl_alter_table_add_column_binds_entity_then_fails_closed() {
+fn sql_ddl_alter_table_add_nullable_column_binds_against_accepted_catalog() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text")
+        .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
+
+    let bound =
+        bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("nullable additive column DDL should bind against accepted schema metadata");
+    let BoundSqlDdlStatement::AddColumn(add_column) = bound.statement() else {
+        panic!("ALTER TABLE ADD COLUMN should bind to an additive field DDL request");
+    };
+
+    assert_eq!(add_column.entity_name(), "SessionSqlEntity");
+    assert_eq!(add_column.field().name(), "nickname");
+    assert_eq!(
+        add_column.field().kind(),
+        &PersistedFieldKind::Text { max_len: None },
+    );
+    assert_eq!(add_column.field().origin(), PersistedFieldOrigin::SqlDdl);
+    assert!(add_column.field().nullable());
+    assert!(add_column.field().default().is_none());
+}
+
+#[test]
+fn sql_ddl_alter_table_add_defaulted_column_binds_against_accepted_catalog() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
     let statement =
-        parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text DEFAULT 'none'")
-            .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
+        parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN score nat DEFAULT 7 NOT NULL")
+            .expect("ALTER TABLE ADD COLUMN DEFAULT should parse before DDL binding");
 
-    let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
-        .expect_err("schema DDL should fail closed until field mutation execution is wired");
+    let bound =
+        bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("defaulted additive column DDL should bind against accepted schema metadata");
+    let BoundSqlDdlStatement::AddColumn(add_column) = bound.statement() else {
+        panic!("ALTER TABLE ADD COLUMN DEFAULT should bind to an additive field DDL request");
+    };
 
+    assert_eq!(add_column.entity_name(), "SessionSqlEntity");
+    assert_eq!(add_column.field().name(), "score");
+    assert_eq!(add_column.field().kind(), &PersistedFieldKind::Nat);
+    assert_eq!(add_column.field().origin(), PersistedFieldOrigin::SqlDdl);
+    assert!(!add_column.field().nullable());
+    assert!(!add_column.field().default().is_none());
+}
+
+#[test]
+fn sql_ddl_alter_table_add_column_rejects_unsupported_shapes() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+
+    let not_null_statement =
+        parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN title text NOT NULL")
+            .expect("ALTER TABLE ADD COLUMN NOT NULL should parse before DDL binding");
+    let err = bind_sql_ddl_statement(
+        &not_null_statement,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect_err("required SQL-added columns should fail closed until default/backfill lands");
     assert!(matches!(
         err,
-        SqlDdlBindError::UnsupportedAlterTableAddColumn {
+        SqlDdlBindError::UnsupportedAlterTableAddColumnNotNull {
             entity_name,
             column_name,
-        } if entity_name == "SessionSqlEntity" && column_name == "nickname"
+        } if entity_name == "SessionSqlEntity" && column_name == "title"
     ));
+
+    let invalid_default_statement =
+        parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN score nat DEFAULT 'seven'")
+            .expect("ALTER TABLE ADD COLUMN invalid DEFAULT should parse before DDL binding");
+    let err = bind_sql_ddl_statement(
+        &invalid_default_statement,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect_err("unencodable SQL-added defaults should fail closed");
+    assert!(matches!(
+        err,
+        SqlDdlBindError::InvalidAlterTableAddColumnDefault {
+            entity_name,
+            column_name,
+            ..
+        } if entity_name == "SessionSqlEntity" && column_name == "score"
+    ));
+}
+
+#[test]
+fn execute_sql_ddl_publishes_supported_nullable_add_column() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    let SqlStatementResult::Ddl(report) = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        )
+        .expect("nullable ADD COLUMN should publish accepted schema metadata")
+    else {
+        panic!("ADD COLUMN should return a DDL report");
+    };
+
+    assert_eq!(report.mutation_kind(), SqlDdlMutationKind::AddNullableField);
+    assert_eq!(report.target_index(), "nickname");
+    assert_eq!(report.field_path(), ["nickname".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("DDL-published schema should remain readable")
+            .expect("DDL execution should publish an accepted snapshot");
+        let nickname = latest
+            .fields()
+            .iter()
+            .find(|field| field.name() == "nickname")
+            .expect("DDL-published schema should include the added field");
+
+        assert_eq!(nickname.origin(), PersistedFieldOrigin::SqlDdl);
+        assert_eq!(nickname.kind(), &PersistedFieldKind::Text { max_len: None });
+        assert!(nickname.nullable());
+        assert!(nickname.default().is_none());
+    });
+    let columns =
+        statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
+            .expect("SHOW COLUMNS should read DDL-published fields");
+    assert!(
+        columns.iter().any(|field| field.name() == "nickname"
+            && field.kind() == "text(unbounded)"
+            && field.origin() == "ddl"),
+        "metadata surfaces should expose the DDL-published nullable column",
+    );
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(15_803),
+            name: "Ada".to_string(),
+            age: 36,
+        })
+        .expect("typed inserts should remain valid after nullable ADD COLUMN");
+
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT name, nickname FROM SessionSqlEntity WHERE name = 'Ada'",
+        )
+        .expect("SQL reads should materialize omitted nullable DDL fields as NULL")
+    else {
+        panic!("SQL SELECT over DDL-added nullable field should emit projection rows");
+    };
+
+    assert_eq!(columns, vec!["name".to_string(), "nickname".to_string()]);
+    assert_eq!(
+        rows,
+        vec![vec![
+            output(Value::Text("Ada".to_string())),
+            output(Value::Null)
+        ]],
+    );
+    assert_eq!(row_count, 1);
+}
+
+#[test]
+fn execute_sql_ddl_publishes_supported_defaulted_add_column() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    let SqlStatementResult::Ddl(report) = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat DEFAULT 7 NOT NULL",
+        )
+        .expect("defaulted ADD COLUMN should publish accepted schema metadata")
+    else {
+        panic!("ADD COLUMN DEFAULT should return a DDL report");
+    };
+
+    assert_eq!(
+        report.mutation_kind(),
+        SqlDdlMutationKind::AddDefaultedField
+    );
+    assert_eq!(report.target_index(), "score");
+    assert_eq!(report.field_path(), ["score".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("DDL-published schema should remain readable")
+            .expect("DDL execution should publish an accepted snapshot");
+        let score = latest
+            .fields()
+            .iter()
+            .find(|field| field.name() == "score")
+            .expect("DDL-published schema should include the defaulted field");
+
+        assert_eq!(score.origin(), PersistedFieldOrigin::SqlDdl);
+        assert_eq!(score.kind(), &PersistedFieldKind::Nat);
+        assert!(!score.nullable());
+        assert!(!score.default().is_none());
+    });
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(15_804),
+            name: "Ada".to_string(),
+            age: 36,
+        })
+        .expect("typed inserts should remain valid after defaulted ADD COLUMN");
+
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT name, score FROM SessionSqlEntity WHERE name = 'Ada'",
+        )
+        .expect("SQL reads should materialize omitted defaulted DDL fields from accepted defaults")
+    else {
+        panic!("SQL SELECT over DDL-added defaulted field should emit projection rows");
+    };
+
+    assert_eq!(columns, vec!["name".to_string(), "score".to_string()]);
+    assert_eq!(
+        rows,
+        vec![vec![
+            output(Value::Text("Ada".to_string())),
+            output(Value::Nat(7))
+        ]],
+    );
+    assert_eq!(row_count, 1);
 }
 
 #[test]

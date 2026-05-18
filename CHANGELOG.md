@@ -7,22 +7,46 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.158.x] 🧬 - 2026-05-18 - Schema DDL And Field Evolution
 
-- `0.158.1` hard-cuts schema defaults to one database-owned authoring concept
+- `0.158.4` publishes supported `ALTER TABLE ... ADD COLUMN ... DEFAULT ...`
+  statements as accepted DDL-owned fields with encoded database defaults.
+  Required SQL-added fields are now allowed when the default is encodable.
+
+  ```
+  ALTER TABLE Character ADD COLUMN score nat DEFAULT 7 NOT NULL;
+  SELECT name, score FROM Character;
+  ```
+
+- `0.158.3` publishes nullable no-default `ALTER TABLE ... ADD COLUMN ...`
+  statements as DDL-owned accepted fields. At this point, `DEFAULT` and
+  `NOT NULL` column additions still failed closed before publication.
+
+  ```
+  ALTER TABLE Character ADD COLUMN nickname text;
+  SHOW COLUMNS Character;
+  DESCRIBE Character;
+  ```
+
+- `0.158.2` hard-cuts schema defaults to one database-owned authoring concept
   before executable field DDL expands.
 
-- `0.158.0` starts schema DDL by parsing and routing
-  `ALTER TABLE ... ADD COLUMN ...` while still failing closed before schema
-  publication, adds `icydb schema show` / `icydb schema check` for inspecting
+- `0.158.1` adds `icydb schema show` / `icydb schema check` for inspecting
   accepted schema metadata and generated-vs-accepted drift, and adds accepted
-  field-origin metadata so future SQL-added columns can be preserved as
-  DDL-owned fields instead of unsafe generated-schema drift.
+  field-origin metadata so SQL-added columns can be preserved as DDL-owned
+  fields instead of unsafe generated-schema drift.
 
   ```
   icydb schema show demo_rpg
   icydb schema check demo_rpg
   icydb schema check demo_rpg -e demo
   DESCRIBE Character;
-  SHOW COLUMNS FROM Character;
+  SHOW COLUMNS Character;
+  ```
+
+- `0.158.0` starts schema DDL by parsing and routing
+  `ALTER TABLE ... ADD COLUMN ...` while still failing closed before schema
+  publication.
+
+  ```
   ALTER TABLE Character ADD COLUMN nickname text;
   ALTER TABLE Character ADD COLUMN score nat DEFAULT 0 NOT NULL;
   ```
