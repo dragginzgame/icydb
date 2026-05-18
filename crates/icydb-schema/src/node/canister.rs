@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 #[derive(CandidType, Clone, Debug, Serialize)]
 pub struct Canister {
     def: Def,
-    db_name: &'static str,
+    memory_namespace: &'static str,
     memory_min: u8,
     memory_max: u8,
     commit_memory_id: u8,
@@ -22,14 +22,14 @@ impl Canister {
     #[must_use]
     pub const fn new(
         def: Def,
-        db_name: &'static str,
+        memory_namespace: &'static str,
         memory_min: u8,
         memory_max: u8,
         commit_memory_id: u8,
     ) -> Self {
         Self {
             def,
-            db_name,
+            memory_namespace,
             memory_min,
             memory_max,
             commit_memory_id,
@@ -42,8 +42,8 @@ impl Canister {
     }
 
     #[must_use]
-    pub const fn db_name(&self) -> &'static str {
-        self.db_name
+    pub const fn memory_namespace(&self) -> &'static str {
+        self.memory_namespace
     }
 
     #[must_use]
@@ -63,7 +63,7 @@ impl Canister {
 
     #[must_use]
     pub fn commit_stable_key(&self) -> String {
-        stable_memory_key(self.db_name(), "__commit", "control")
+        stable_memory_key(self.memory_namespace(), "__commit", "control")
     }
 }
 
@@ -82,7 +82,11 @@ impl ValidateNode for Canister {
         let mut seen_ids = BTreeMap::<u8, (String, String)>::new();
         let mut seen_keys = BTreeMap::<String, (u8, String)>::new();
 
-        validate_stable_key_segment(&mut errs, "canister db_name", self.db_name());
+        validate_stable_key_segment(
+            &mut errs,
+            "canister memory_namespace",
+            self.memory_namespace(),
+        );
 
         validate_memory_id_in_range(
             &mut errs,
@@ -108,9 +112,9 @@ impl ValidateNode for Canister {
         // Check all Store nodes for this canister
         for (path, store) in schema.filter_nodes::<Store>(|node| node.canister() == canister_path) {
             assert_unique_memory_allocation(
-                store.data_allocation(self.db_name()).memory_id(),
+                store.data_allocation(self.memory_namespace()).memory_id(),
                 store
-                    .data_allocation(self.db_name())
+                    .data_allocation(self.memory_namespace())
                     .stable_key()
                     .to_string(),
                 format!("Store `{path}`.data_memory"),
@@ -121,9 +125,9 @@ impl ValidateNode for Canister {
             );
 
             assert_unique_memory_allocation(
-                store.index_allocation(self.db_name()).memory_id(),
+                store.index_allocation(self.memory_namespace()).memory_id(),
                 store
-                    .index_allocation(self.db_name())
+                    .index_allocation(self.memory_namespace())
                     .stable_key()
                     .to_string(),
                 format!("Store `{path}`.index_memory"),
@@ -134,9 +138,9 @@ impl ValidateNode for Canister {
             );
 
             assert_unique_memory_allocation(
-                store.schema_allocation(self.db_name()).memory_id(),
+                store.schema_allocation(self.memory_namespace()).memory_id(),
                 store
-                    .schema_allocation(self.db_name())
+                    .schema_allocation(self.memory_namespace())
                     .stable_key()
                     .to_string(),
                 format!("Store `{path}`.schema_memory"),

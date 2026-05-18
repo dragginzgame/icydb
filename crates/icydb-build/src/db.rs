@@ -17,7 +17,7 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
     let canister = &builder.canister;
     let canister_path: syn::Path = parse_str(&canister.def().path())
         .unwrap_or_else(|_| panic!("invalid canister path: {}", canister.def().path()));
-    let store_registry = store_registry_tokens(builder, canister.db_name());
+    let store_registry = store_registry_tokens(builder, canister.memory_namespace());
     let entity_runtime_hooks = entity_runtime_hooks(builder, &canister_path);
     let memory_min = canister.memory_min();
     let memory_max = canister.memory_max();
@@ -80,7 +80,7 @@ struct SchemaSurfaceTokens {
     entity_rows: Vec<TokenStream>,
 }
 
-fn store_registry_tokens(builder: &ActorBuilder, db_name: &str) -> StoreRegistryTokens {
+fn store_registry_tokens(builder: &ActorBuilder, memory_namespace: &str) -> StoreRegistryTokens {
     let mut data_defs = quote!();
     let mut index_defs = quote!();
     let mut schema_defs = quote!();
@@ -88,7 +88,7 @@ fn store_registry_tokens(builder: &ActorBuilder, db_name: &str) -> StoreRegistry
 
     for (store_path, store) in builder.get_stores() {
         let (data_def, index_def, schema_def, store_init) =
-            store_registry_entry_tokens(&store_path, &store, db_name);
+            store_registry_entry_tokens(&store_path, &store, memory_namespace);
         data_defs.extend(data_def);
         index_defs.extend(index_def);
         schema_defs.extend(schema_def);
@@ -107,14 +107,14 @@ fn store_registry_tokens(builder: &ActorBuilder, db_name: &str) -> StoreRegistry
 fn store_registry_entry_tokens(
     store_path: &str,
     store: &Store,
-    db_name: &str,
+    memory_namespace: &str,
 ) -> (TokenStream, TokenStream, TokenStream, TokenStream) {
     let data_cell_ident = format_ident!("{}_DATA", store.ident());
     let index_cell_ident = format_ident!("{}_INDEX", store.ident());
     let schema_cell_ident = format_ident!("{}_SCHEMA", store.ident());
-    let data_allocation = store.data_allocation(db_name);
-    let index_allocation = store.index_allocation(db_name);
-    let schema_allocation = store.schema_allocation(db_name);
+    let data_allocation = store.data_allocation(memory_namespace);
+    let index_allocation = store.index_allocation(memory_namespace);
+    let schema_allocation = store.schema_allocation(memory_namespace);
     let data_memory_id = data_allocation.memory_id();
     let index_memory_id = index_allocation.memory_id();
     let schema_memory_id = schema_allocation.memory_id();

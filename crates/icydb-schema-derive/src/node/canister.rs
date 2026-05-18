@@ -11,7 +11,7 @@ pub struct Canister {
     #[darling(skip, default)]
     pub(crate) def: Def,
 
-    pub(crate) db_name: String,
+    pub(crate) memory_namespace: String,
 
     // inclusive range of ic memories
     pub(crate) memory_min: u8,
@@ -27,9 +27,9 @@ impl HasDef for Canister {
 
 impl ValidateNode for Canister {
     fn validate(&self) -> Result<(), DarlingError> {
-        if !crate::validate::memory::stable_key_segment_is_canonical(&self.db_name) {
+        if !crate::validate::memory::stable_key_segment_is_canonical(&self.memory_namespace) {
             return Err(DarlingError::custom(
-                "db_name must use lowercase ASCII letters, digits, and underscores",
+                "memory_namespace must use lowercase ASCII letters, digits, and underscores",
             )
             .with_span(&self.def.ident()));
         }
@@ -70,7 +70,7 @@ impl HasSchema for Canister {
 impl HasSchemaPart for Canister {
     fn schema_part(&self) -> TokenStream {
         let def = self.def.schema_part();
-        let db_name = &self.db_name;
+        let memory_namespace = &self.memory_namespace;
         let memory_min = self.memory_min;
         let memory_max = self.memory_max;
         let commit_memory_id = self.commit_memory_id;
@@ -79,7 +79,7 @@ impl HasSchemaPart for Canister {
         quote! {
             ::icydb::schema::node::Canister::new(
                 #def,
-                #db_name,
+                #memory_namespace,
                 #memory_min,
                 #memory_max,
                 #commit_memory_id,
@@ -100,7 +100,8 @@ impl HasTraits for Canister {
         match t {
             TraitKind::CanisterKind => {
                 let commit_memory_id = self.commit_memory_id;
-                let commit_stable_key = format!("icydb.{}.__commit.control.v1", self.db_name);
+                let commit_stable_key =
+                    format!("icydb.{}.__commit.control.v1", self.memory_namespace);
                 let tokens = Implementor::new(self.def(), t)
                     .set_tokens(quote! {
                         const COMMIT_MEMORY_ID: u8 = #commit_memory_id;

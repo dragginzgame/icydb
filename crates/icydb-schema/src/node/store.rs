@@ -82,22 +82,26 @@ impl Store {
     }
 
     #[must_use]
-    pub fn data_allocation(&self, db_name: &str) -> StableMemoryAllocation {
-        self.allocation(db_name, StoreMemoryRole::Data)
+    pub fn data_allocation(&self, memory_namespace: &str) -> StableMemoryAllocation {
+        self.allocation(memory_namespace, StoreMemoryRole::Data)
     }
 
     #[must_use]
-    pub fn index_allocation(&self, db_name: &str) -> StableMemoryAllocation {
-        self.allocation(db_name, StoreMemoryRole::Index)
+    pub fn index_allocation(&self, memory_namespace: &str) -> StableMemoryAllocation {
+        self.allocation(memory_namespace, StoreMemoryRole::Index)
     }
 
     #[must_use]
-    pub fn schema_allocation(&self, db_name: &str) -> StableMemoryAllocation {
-        self.allocation(db_name, StoreMemoryRole::Schema)
+    pub fn schema_allocation(&self, memory_namespace: &str) -> StableMemoryAllocation {
+        self.allocation(memory_namespace, StoreMemoryRole::Schema)
     }
 
     #[must_use]
-    pub fn allocation(&self, db_name: &str, role: StoreMemoryRole) -> StableMemoryAllocation {
+    pub fn allocation(
+        &self,
+        memory_namespace: &str,
+        role: StoreMemoryRole,
+    ) -> StableMemoryAllocation {
         let memory_id = match role {
             StoreMemoryRole::Data => self.data_memory_id,
             StoreMemoryRole::Index => self.index_memory_id,
@@ -106,7 +110,7 @@ impl Store {
 
         StableMemoryAllocation::new(
             memory_id,
-            stable_memory_key(db_name, self.store_name(), role.as_str()),
+            stable_memory_key(memory_namespace, self.store_name(), role.as_str()),
             None,
             None,
         )
@@ -185,8 +189,8 @@ impl StableMemoryAllocation {
 }
 
 #[must_use]
-pub fn stable_memory_key(db_name: &str, store_name: &str, role: &str) -> String {
-    format!("icydb.{db_name}.{store_name}.{role}.v1")
+pub fn stable_memory_key(memory_namespace: &str, store_name: &str, role: &str) -> String {
+    format!("icydb.{memory_namespace}.{store_name}.{role}.v1")
 }
 
 impl MacroNode for Store {
@@ -217,7 +221,8 @@ impl ValidateNode for Store {
                 validate_stable_key(
                     &mut errs,
                     "data stable key",
-                    self.data_allocation(canister.db_name()).stable_key(),
+                    self.data_allocation(canister.memory_namespace())
+                        .stable_key(),
                 );
 
                 // Validate index memory ID
@@ -237,7 +242,8 @@ impl ValidateNode for Store {
                 validate_stable_key(
                     &mut errs,
                     "index stable key",
-                    self.index_allocation(canister.db_name()).stable_key(),
+                    self.index_allocation(canister.memory_namespace())
+                        .stable_key(),
                 );
 
                 // Validate schema memory ID
@@ -257,7 +263,8 @@ impl ValidateNode for Store {
                 validate_stable_key(
                     &mut errs,
                     "schema stable key",
-                    self.schema_allocation(canister.db_name()).stable_key(),
+                    self.schema_allocation(canister.memory_namespace())
+                        .stable_key(),
                 );
 
                 // Ensure the per-store memories are distinct.

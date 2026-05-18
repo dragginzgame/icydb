@@ -8,7 +8,7 @@ use icydb::design::prelude::*;
 ///
 
 #[canister(
-    db_name = "sql_perf",
+    memory_namespace = "sql_perf",
     memory_min = 180,
     memory_max = 210,
     commit_memory_id = 182

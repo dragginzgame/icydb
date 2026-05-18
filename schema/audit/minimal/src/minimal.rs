@@ -7,7 +7,7 @@ use icydb::design::prelude::*;
 ///
 
 #[canister(
-    db_name = "minimal",
+    memory_namespace = "minimal",
     memory_min = 100,
     memory_max = 110,
     commit_memory_id = 103

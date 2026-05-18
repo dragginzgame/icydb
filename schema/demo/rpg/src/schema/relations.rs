@@ -7,7 +7,7 @@ use icydb::design::prelude::*;
 ///
 
 #[canister(
-    db_name = "demo_rpg",
+    memory_namespace = "demo_rpg",
     memory_min = 104,
     memory_max = 154,
     commit_memory_id = 154

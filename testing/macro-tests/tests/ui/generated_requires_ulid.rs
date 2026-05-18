@@ -1,6 +1,6 @@
 use icydb::design::prelude::*;
 
-#[canister(db_name = "ui_test", memory_min = 100, memory_max = 110, commit_memory_id = 110)]
+#[canister(memory_namespace = "ui_test", memory_min = 100, memory_max = 110, commit_memory_id = 110)]
 pub struct UiCanister {}
 
 #[store(

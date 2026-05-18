@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
+- `0.157.22` cleans up the Canic 0.38 stable-memory naming introduced in the
+  previous slice. Canister schema declarations now use `memory_namespace`,
+  stores keep a single `store_name`, and generated keys are derived from the
+  canister namespace, store name, and physical memory role, for example
+  `icydb.demo_rpg.main.data.v1` and
+  `icydb.demo_rpg.__commit.control.v1`. The intermediate `db_name` and
+  `stable_name` naming has been hard-cut from schema, derive, generated wiring,
+  docs, and compile-fail fixtures.
+
 - `0.157.21` updates IcyDB stable-memory wiring for the Canic 0.38 ABI by
   binding every generated store and commit memory to explicit durable stable
   keys in the application-owned memory range.

@@ -8,7 +8,7 @@ use icydb_testing_wasm_helpers::define_simple_audit_entities;
 ///
 
 #[canister(
-    db_name = "ten_simple",
+    memory_namespace = "ten_simple",
     memory_min = 155,
     memory_max = 175,
     commit_memory_id = 157

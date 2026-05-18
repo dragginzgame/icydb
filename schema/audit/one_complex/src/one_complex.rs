@@ -8,7 +8,7 @@ use icydb_testing_wasm_helpers::{define_complex_audit_entities, define_complex_a
 ///
 
 #[canister(
-    db_name = "one_complex",
+    memory_namespace = "one_complex",
     memory_min = 100,
     memory_max = 110,
     commit_memory_id = 103

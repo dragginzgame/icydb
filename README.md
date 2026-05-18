@@ -51,7 +51,7 @@ Schema definitions normally live in a small schema crate used by the canister:
 ```rust
 use icydb::design::prelude::*;
 
-#[canister(db_name = "app", memory_min = 100, memory_max = 110, commit_memory_id = 103)]
+#[canister(memory_namespace = "app", memory_min = 100, memory_max = 110, commit_memory_id = 103)]
 pub struct AppCanister {}
 
 #[store(

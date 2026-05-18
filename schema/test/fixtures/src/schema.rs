@@ -6,7 +6,7 @@ pub mod relation {
     ///
 
     #[canister(
-        db_name = "relation",
+        memory_namespace = "relation",
         memory_min = 100,
         memory_max = 120,
         commit_memory_id = 120
@@ -35,7 +35,7 @@ pub mod test {
     ///
 
     #[canister(
-        db_name = "test",
+        memory_namespace = "test",
         memory_min = 130,
         memory_max = 150,
         commit_memory_id = 150
