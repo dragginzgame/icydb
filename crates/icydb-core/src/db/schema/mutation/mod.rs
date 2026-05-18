@@ -379,7 +379,7 @@ impl SchemaFieldPathIndexRebuildKey {
     reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
 )]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) struct SchemaExpressionIndexRebuildTarget {
+pub(in crate::db) struct SchemaExpressionIndexRebuildTarget {
     ordinal: u16,
     name: String,
     store: String,
@@ -394,27 +394,27 @@ pub(in crate::db::schema) struct SchemaExpressionIndexRebuildTarget {
 )]
 impl SchemaExpressionIndexRebuildTarget {
     #[must_use]
-    pub(in crate::db::schema) const fn ordinal(&self) -> u16 {
+    pub(in crate::db) const fn ordinal(&self) -> u16 {
         self.ordinal
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn name(&self) -> &str {
+    pub(in crate::db) const fn name(&self) -> &str {
         self.name.as_str()
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn store(&self) -> &str {
+    pub(in crate::db) const fn store(&self) -> &str {
         self.store.as_str()
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn unique(&self) -> bool {
+    pub(in crate::db) const fn unique(&self) -> bool {
         self.unique
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn predicate_sql(&self) -> Option<&str> {
+    pub(in crate::db) const fn predicate_sql(&self) -> Option<&str> {
         match &self.predicate_sql {
             Some(predicate_sql) => Some(predicate_sql.as_str()),
             None => None,
@@ -422,7 +422,7 @@ impl SchemaExpressionIndexRebuildTarget {
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn key_items(&self) -> &[SchemaExpressionIndexRebuildKey] {
+    pub(in crate::db) const fn key_items(&self) -> &[SchemaExpressionIndexRebuildKey] {
         self.key_items.as_slice()
     }
 }
@@ -439,7 +439,7 @@ impl SchemaExpressionIndexRebuildTarget {
     reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
 )]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) enum SchemaExpressionIndexRebuildKey {
+pub(in crate::db) enum SchemaExpressionIndexRebuildKey {
     FieldPath(SchemaFieldPathIndexRebuildKey),
     Expression(Box<SchemaExpressionIndexRebuildExpression>),
 }
@@ -455,7 +455,7 @@ pub(in crate::db::schema) enum SchemaExpressionIndexRebuildKey {
     reason = "0.152 stages rebuild target contracts before a physical runner consumes them"
 )]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::schema) struct SchemaExpressionIndexRebuildExpression {
+pub(in crate::db) struct SchemaExpressionIndexRebuildExpression {
     op: PersistedIndexExpressionOp,
     source: SchemaFieldPathIndexRebuildKey,
     input_kind: PersistedFieldKind,
@@ -469,27 +469,27 @@ pub(in crate::db::schema) struct SchemaExpressionIndexRebuildExpression {
 )]
 impl SchemaExpressionIndexRebuildExpression {
     #[must_use]
-    pub(in crate::db::schema) const fn op(&self) -> PersistedIndexExpressionOp {
+    pub(in crate::db) const fn op(&self) -> PersistedIndexExpressionOp {
         self.op
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn source(&self) -> &SchemaFieldPathIndexRebuildKey {
+    pub(in crate::db) const fn source(&self) -> &SchemaFieldPathIndexRebuildKey {
         &self.source
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn input_kind(&self) -> &PersistedFieldKind {
+    pub(in crate::db) const fn input_kind(&self) -> &PersistedFieldKind {
         &self.input_kind
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn output_kind(&self) -> &PersistedFieldKind {
+    pub(in crate::db) const fn output_kind(&self) -> &PersistedFieldKind {
         &self.output_kind
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn canonical_text(&self) -> &str {
+    pub(in crate::db) const fn canonical_text(&self) -> &str {
         self.canonical_text.as_str()
     }
 }

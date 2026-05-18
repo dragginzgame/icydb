@@ -26,9 +26,10 @@ use crate::{
         },
         schema::{
             PersistedIndexExpressionOp, SchemaExpressionIndexInfo,
-            SchemaExpressionIndexKeyItemInfo, SchemaFieldPathIndexRebuildKey,
-            SchemaFieldPathIndexRebuildTarget, SchemaIndexFieldPathInfo, SchemaIndexInfo,
-            SchemaInfo,
+            SchemaExpressionIndexKeyItemInfo, SchemaExpressionIndexRebuildExpression,
+            SchemaExpressionIndexRebuildKey, SchemaExpressionIndexRebuildTarget,
+            SchemaFieldPathIndexRebuildKey, SchemaFieldPathIndexRebuildTarget,
+            SchemaIndexFieldPathInfo, SchemaIndexInfo, SchemaInfo,
         },
     },
     error::InternalError,
@@ -48,6 +49,12 @@ type AcceptedExpressionComponentEncoder<'a> =
 )]
 type FieldPathRebuildComponentEncoder<'a> =
     dyn FnMut(&SchemaFieldPathIndexRebuildKey) -> Result<Option<Vec<u8>>, InternalError> + 'a;
+#[allow(
+    dead_code,
+    reason = "0.157 stages expression rebuild key materialization before physical runners call it"
+)]
+type ExpressionRebuildComponentEncoder<'a> =
+    dyn FnMut(&SchemaExpressionIndexRebuildKey) -> Result<Option<Vec<u8>>, InternalError> + 'a;
 
 #[cfg(test)]
 fn value_for_expression(
@@ -218,6 +225,24 @@ impl IndexKey {
     ) -> Result<Option<Self>, InternalError> {
         build_field_path_rebuild_target_key(entity_tag, storage_key, target, &mut |field| {
             field_path_rebuild_component_bytes_from_slots(field, slots)
+        })
+    }
+
+    /// Build an expression-index rebuild key from one canonical slot reader
+    /// using the accepted mutation target, not generated or runtime planner
+    /// metadata.
+    #[allow(
+        dead_code,
+        reason = "0.157 stages expression rebuild key materialization before physical runners call it"
+    )]
+    pub(crate) fn new_from_slots_with_expression_rebuild_target(
+        entity_tag: EntityTag,
+        storage_key: StorageKey,
+        target: &SchemaExpressionIndexRebuildTarget,
+        slots: &dyn CanonicalSlotReader,
+    ) -> Result<Option<Self>, InternalError> {
+        build_expression_rebuild_target_key(entity_tag, storage_key, target, &mut |key_item| {
+            expression_rebuild_component_bytes_from_slots(target.name(), key_item, slots)
         })
     }
 
@@ -641,6 +666,56 @@ fn field_path_rebuild_component_bytes_from_slots(
     encode_value_index_component_ref(source)
 }
 
+#[allow(
+    dead_code,
+    reason = "0.157 stages expression rebuild key materialization before physical runners call it"
+)]
+fn expression_rebuild_component_bytes_from_slots(
+    index_name: &str,
+    key_item: &SchemaExpressionIndexRebuildKey,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<Option<Vec<u8>>, InternalError> {
+    match key_item {
+        SchemaExpressionIndexRebuildKey::FieldPath(field) => {
+            field_path_rebuild_component_bytes_from_slots(field, slots)
+        }
+        SchemaExpressionIndexRebuildKey::Expression(expression) => {
+            expression_rebuild_expression_component_bytes_from_slots(index_name, expression, slots)
+        }
+    }
+}
+
+#[allow(
+    dead_code,
+    reason = "0.157 stages expression rebuild key materialization before physical runners call it"
+)]
+fn expression_rebuild_expression_component_bytes_from_slots(
+    index_name: &str,
+    expression: &SchemaExpressionIndexRebuildExpression,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<Option<Vec<u8>>, InternalError> {
+    let source =
+        slots.required_value_by_contract_cow(usize::from(expression.source().slot().get()))?;
+    let Some(source) = resolve_field_path_rebuild_component(source.as_ref(), expression.source())?
+    else {
+        return Ok(None);
+    };
+    let semantic_expression = SemanticIndexExpression::new(
+        expression.op(),
+        accepted_field_path_term(expression.source().field_name(), expression.source().path()),
+    );
+    let Some(value) = value_for_accepted_expression_with_index_name(
+        index_name,
+        &semantic_expression,
+        source.clone(),
+    )?
+    else {
+        return Ok(None);
+    };
+
+    encode_value_index_component(value)
+}
+
 fn resolve_accepted_field_path_component<'a>(
     root: &'a Value,
     field: &SchemaIndexFieldPathInfo,
@@ -712,6 +787,21 @@ fn accepted_expression_key_item_label(key_item: &SchemaExpressionIndexKeyItemInf
     }
 }
 
+#[allow(
+    dead_code,
+    reason = "0.157 stages expression rebuild key materialization before physical runners call it"
+)]
+fn expression_rebuild_key_item_label(key_item: &SchemaExpressionIndexRebuildKey) -> String {
+    match key_item {
+        SchemaExpressionIndexRebuildKey::FieldPath(field) => {
+            accepted_field_path_term(field.field_name(), field.path())
+        }
+        SchemaExpressionIndexRebuildKey::Expression(expression) => {
+            expression.canonical_text().to_string()
+        }
+    }
+}
+
 fn build_accepted_field_path_index_key_from_slots(
     entity_tag: EntityTag,
     storage_key: StorageKey,
@@ -772,6 +862,49 @@ fn build_field_path_rebuild_target_key(
         if component.len() > IndexKey::MAX_COMPONENT_SIZE {
             return Err(InternalError::index_component_exceeds_max_size(
                 accepted_field_path_term(field.field_name(), field.path()),
+                component.len(),
+                IndexKey::MAX_COMPONENT_SIZE,
+            ));
+        }
+        components.push(component);
+    }
+
+    Ok(Some(IndexKey {
+        key_kind: IndexKeyKind::User,
+        index_id: IndexId::new(entity_tag, target.ordinal()),
+        components,
+        primary_key: storage_key.to_bytes()?.to_vec(),
+    }))
+}
+
+#[allow(
+    dead_code,
+    reason = "0.157 stages expression rebuild key materialization before physical runners call it"
+)]
+fn build_expression_rebuild_target_key(
+    entity_tag: EntityTag,
+    storage_key: StorageKey,
+    target: &SchemaExpressionIndexRebuildTarget,
+    component_bytes: &mut ExpressionRebuildComponentEncoder<'_>,
+) -> Result<Option<IndexKey>, InternalError> {
+    let component_count = target.key_items().len();
+    if component_count > MAX_INDEX_FIELDS {
+        return Err(InternalError::index_key_field_count_exceeds_max(
+            target.name(),
+            component_count,
+            MAX_INDEX_FIELDS,
+        ));
+    }
+
+    let mut components = Vec::with_capacity(component_count);
+    for key_item in target.key_items() {
+        let Some(component) = component_bytes(key_item)? else {
+            return Ok(None);
+        };
+
+        if component.len() > IndexKey::MAX_COMPONENT_SIZE {
+            return Err(InternalError::index_component_exceeds_max_size(
+                expression_rebuild_key_item_label(key_item),
                 component.len(),
                 IndexKey::MAX_COMPONENT_SIZE,
             ));

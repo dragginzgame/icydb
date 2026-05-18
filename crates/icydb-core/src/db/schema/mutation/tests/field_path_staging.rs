@@ -31,6 +31,49 @@ fn field_path_rebuild_key_materializes_from_accepted_target_slots() {
 }
 
 #[test]
+fn expression_rebuild_key_materializes_from_accepted_target_slots() {
+    let request = SchemaMutationRequest::from_accepted_expression_index(&expression_name_index())
+        .expect("accepted expression index should lower to a rebuild target");
+    let SchemaMutationRequest::AddExpressionIndex { target } = request else {
+        panic!("expression index request should preserve rebuild target");
+    };
+    let mixed_case = RebuildSlotReader {
+        values: vec![None, Some(Value::Text("Ada".to_string()))],
+    };
+    let lower_case = RebuildSlotReader {
+        values: vec![None, Some(Value::Text("ada".to_string()))],
+    };
+    let storage_key = crate::db::data::StorageKey::Nat(42);
+
+    let mixed_key = IndexKey::new_from_slots_with_expression_rebuild_target(
+        EntityTag::new(7),
+        storage_key,
+        &target,
+        &mixed_case,
+    )
+    .expect("accepted expression target should build mixed-case index key")
+    .expect("text expression component should be indexable");
+    let lower_key = IndexKey::new_from_slots_with_expression_rebuild_target(
+        EntityTag::new(7),
+        storage_key,
+        &target,
+        &lower_case,
+    )
+    .expect("accepted expression target should build lower-case index key")
+    .expect("text expression component should be indexable");
+
+    assert_eq!(mixed_key.index_id(), &IndexId::new(EntityTag::new(7), 2));
+    assert_eq!(mixed_key.component_count(), 1);
+    assert!(mixed_key.has_same_components(&lower_key));
+    assert_eq!(
+        mixed_key
+            .primary_storage_key()
+            .expect("index key should carry primary storage key"),
+        storage_key,
+    );
+}
+
+#[test]
 fn field_path_rebuild_stages_sorted_entries_without_publication() {
     let request = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
         .expect("non-unique field-path index should lower to a rebuild target");

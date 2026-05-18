@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
+- `0.157.19` continues the expression-index DDL path below the SQL surface by
+  adding accepted-schema expression rebuild key materialization. Expression
+  rebuild targets can now derive physical index keys from canonical row slots
+  without reopening generated index models, including deterministic
+  `LOWER(field)` component normalization. Full SQL DDL expression-index
+  publication still remains behind the physical runner wiring.
+
 - `0.157.18` starts the expression-index DDL path by parsing supported
   expression key intent such as `LOWER(name)`, `UPPER(name)`, and `TRIM(name)`
   into the SQL DDL model. Binding now validates expression source fields

@@ -73,7 +73,9 @@ pub(in crate::db::schema) use mutation::{
 };
 pub(in crate::db) use mutation::{
     SchemaDdlAcceptedSnapshotDerivation, SchemaDdlIndexDropCandidateError,
-    SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError, SchemaFieldPathIndexRebuildKey,
+    SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError,
+    SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
+    SchemaExpressionIndexRebuildTarget, SchemaFieldPathIndexRebuildKey,
     SchemaFieldPathIndexRebuildTarget, SchemaSecondaryIndexDropCleanupTarget,
     admit_sql_ddl_field_path_index_candidate, admit_sql_ddl_secondary_index_drop_candidate,
     derive_sql_ddl_field_path_index_accepted_after,
