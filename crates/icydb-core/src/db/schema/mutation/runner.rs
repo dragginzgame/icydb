@@ -1,7 +1,8 @@
 use super::{
     RebuildRequirement, SchemaExpressionIndexRebuildTarget, SchemaFieldPathIndexRebuildTarget,
     SchemaFieldPathIndexStagedValidation, SchemaMutationExecutionPlan,
-    SchemaMutationRunnerContract, SchemaSecondaryIndexDropCleanupTarget, runtime_epoch_fingerprint,
+    SchemaMutationRunnerContract, SchemaSecondaryIndexDropCleanupTarget,
+    expression::SchemaExpressionIndexStagedValidation, runtime_epoch_fingerprint,
 };
 use crate::{
     db::schema::{PersistedSchemaSnapshot, SchemaVersion},
@@ -618,6 +619,28 @@ impl SchemaMutationRunnerReport {
         step_count: usize,
         required_capabilities: Vec<SchemaMutationRunnerCapability>,
         validation: SchemaFieldPathIndexStagedValidation,
+    ) -> Self {
+        Self {
+            step_count,
+            required_capabilities,
+            completed_phases: vec![
+                SchemaMutationRunnerPhase::Preflight,
+                SchemaMutationRunnerPhase::StageStores,
+                SchemaMutationRunnerPhase::BuildPhysicalState,
+                SchemaMutationRunnerPhase::ValidatePhysicalState,
+            ],
+            store_visibility: Some(validation.store_visibility()),
+            rows_scanned: validation.source_rows(),
+            rows_skipped: validation.skipped_rows(),
+            index_keys_written: validation.entry_count(),
+        }
+    }
+
+    #[must_use]
+    pub(super) fn expression_index_staged(
+        step_count: usize,
+        required_capabilities: Vec<SchemaMutationRunnerCapability>,
+        validation: SchemaExpressionIndexStagedValidation,
     ) -> Self {
         Self {
             step_count,

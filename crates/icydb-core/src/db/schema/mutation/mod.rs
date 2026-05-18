@@ -687,6 +687,13 @@ pub(in crate::db::schema) use self::runner::*;
 mod field_path;
 pub(in crate::db::schema) use self::field_path::*;
 
+mod expression;
+#[allow(
+    unused_imports,
+    reason = "expression staging is consumed by tests and later physical runner wiring"
+)]
+pub(in crate::db::schema) use self::expression::*;
+
 ///
 /// MutationPublicationPreflight
 ///

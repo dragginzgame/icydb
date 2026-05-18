@@ -254,6 +254,15 @@ fn accepted_name_field_path_target() -> super::SchemaFieldPathIndexRebuildTarget
     target
 }
 
+fn accepted_lower_name_expression_target() -> super::SchemaExpressionIndexRebuildTarget {
+    let request = SchemaMutationRequest::from_accepted_expression_index(&expression_name_index())
+        .expect("accepted expression index should lower to a rebuild target");
+    let SchemaMutationRequest::AddExpressionIndex { target } = request else {
+        panic!("expression index request should preserve rebuild target");
+    };
+    target
+}
+
 fn staged_name_index_store() -> super::SchemaFieldPathIndexStagedStore {
     let plan = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
         .expect("non-unique field-path index should lower")
@@ -415,6 +424,7 @@ fn snapshot_with_indexes(
     )
 }
 
+mod expression_staging;
 mod field_path_runner;
 mod field_path_staging;
 mod field_path_store;

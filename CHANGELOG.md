@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
+- `0.157.20` adds expression-index rebuild staging below the SQL DDL surface.
+  Accepted expression rebuild rows now stage sorted raw index entries, skip
+  non-indexable expression outputs, preserve staged-only visibility, and emit
+  runner diagnostics for the expression-index physical-work capability. The
+  slice also adds expression staged-store buffers with write reports, rollback
+  snapshots, reverse rollback plans, and discard reports. SQL DDL
+  expression-index publication remains gated until the isolated store and
+  publication runner is wired.
+
 - `0.157.19` continues the expression-index DDL path below the SQL surface by
   adding accepted-schema expression rebuild key materialization. Expression
   rebuild targets can now derive physical index keys from canonical row slots
