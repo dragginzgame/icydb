@@ -429,8 +429,11 @@ fn sql_ddl_drop_index_uses_persisted_index_origin() {
             && !mutation.contains("use crate::model::EntityModel"),
         "DROP INDEX resolution must reject generated indexes through persisted accepted index origin",
     );
+    let session_sql_compact = compact_source(&session_sql);
     assert!(
-        session_sql.contains("SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, &accepted_schema)")
+        session_sql_compact.contains(
+            "SchemaInfo::from_accepted_snapshot_for_model_with_expression_indexes(E::MODEL,&accepted_schema,true,)"
+        )
             && session_sql.contains("prepare_sql_ddl_statement(\n            &statement,\n            &accepted_schema,\n            &schema_info,\n            E::Store::PATH,\n        )")
             && !session_sql.contains("prepare_sql_ddl_statement(\n            &statement,\n            &accepted_schema,\n            &schema_info,\n            E::MODEL,"),
         "session DDL preparation may bridge generated model into accepted SchemaInfo but must not pass it into DDL binding",
