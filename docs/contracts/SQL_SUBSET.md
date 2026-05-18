@@ -156,7 +156,9 @@ the exact requested field-path index contract. Conflicting existing definitions
 still reject.
 `ASC` is accepted as IcyDB's default deterministic physical key order. `DESC`
 and expression key items such as `LOWER(field)` are not yet supported for SQL
-DDL indexes and fail with explicit unsupported-feature diagnostics.
+DDL indexes and fail with explicit unsupported-feature diagnostics. Supported
+expression key syntax is parsed and catalog-bound for source-field diagnostics,
+but it is not executable until physical expression-index rebuilds are wired.
 
 `DROP INDEX` currently admits only field-path indexes that were created through
 SQL DDL. Generated/model-declared indexes are owned by the entity schema macro
@@ -164,9 +166,8 @@ and must be removed there, then reconciled through the normal accepted-schema
 publication path.
 `DROP INDEX IF EXISTS` no-ops only when the target index is absent. Existing
 generated/model-owned and otherwise unsupported indexes still reject.
-Typed SQL DDL and generated single-entity canisters may omit `ON entity` for
-`DROP INDEX`; generated multi-entity canisters require `ON entity` so DDL
-dispatch does not guess a target.
+Typed SQL DDL may omit `ON entity` for `DROP INDEX`. Generated canister DDL
+requires `ON entity` so dispatch does not guess a target from canister shape.
 
 ## Public SQL Mutation Execution
 

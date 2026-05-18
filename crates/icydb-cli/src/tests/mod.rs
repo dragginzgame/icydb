@@ -220,7 +220,7 @@ fn clap_help_exposes_available_short_flags_on_config_commands() {
     assert!(sql_help.contains("including supported DDL"));
     assert!(sql_help.contains("icydb sql -c demo_rpg"));
     assert!(sql_help.contains("CREATE INDEX character_renown_idx ON character (renown)"));
-    assert!(sql_help.contains("DROP INDEX character_renown_idx"));
+    assert!(sql_help.contains("DROP INDEX character_renown_idx ON character"));
 
     let init_help = clap_help_text(["icydb", "config", "init", "--help"].as_slice());
     assert!(init_help.contains("-c, --canister"));
@@ -317,7 +317,7 @@ fn shell_help_text_mentions_current_perf_legend() {
     assert!(help.contains("CREATE INDEX character_level_idx ON character (level);"));
     assert!(help.contains("SHOW INDEXES FROM character;"));
     assert!(help.contains("DESCRIBE character;"));
-    assert!(help.contains("DROP INDEX character_level_idx;"));
+    assert!(help.contains("DROP INDEX character_level_idx ON character;"));
 }
 
 #[test]

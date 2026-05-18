@@ -41,8 +41,8 @@ fn install_sql_canister_fixture() -> StandaloneCanisterFixture {
 }
 
 fn install_demo_rpg_canister_fixture() -> StandaloneCanisterFixture {
-    // The demo RPG canister has exactly one generated entity, which lets the
-    // generated DDL endpoint route targetless DROP INDEX statements safely.
+    // The demo RPG canister has one generated entity, making it a useful
+    // boundary fixture for proving generated DDL still requires explicit targets.
     let wasm_path =
         build_canister("demo_rpg").expect("demo RPG canister should build for PocketIC tests");
     let wasm = fs::read(&wasm_path)
@@ -183,8 +183,22 @@ fn assert_ddl_rejects_with_index_visibility_unchanged(
     sql: &str,
     expected_message: &str,
 ) {
+    assert_ddl_rejects_with_entity_index_visibility_unchanged(
+        fixture,
+        "SqlTestUser",
+        sql,
+        expected_message,
+    );
+}
+
+fn assert_ddl_rejects_with_entity_index_visibility_unchanged(
+    fixture: &StandaloneCanisterFixture,
+    entity: &str,
+    sql: &str,
+    expected_message: &str,
+) {
     let before = expect_show_indexes(
-        query_sql(fixture, "SHOW INDEXES FROM SqlTestUser")
+        query_sql(fixture, &format!("SHOW INDEXES FROM {entity}"))
             .expect("SHOW INDEXES FROM should read accepted indexes before rejected DDL"),
     );
     let err = ddl_sql(fixture, sql).expect_err("invalid DDL should reject");
@@ -200,7 +214,7 @@ fn assert_ddl_rejects_with_index_visibility_unchanged(
         err.message(),
     );
     let after = expect_show_indexes(
-        query_sql(fixture, "SHOW INDEXES FROM SqlTestUser")
+        query_sql(fixture, &format!("SHOW INDEXES FROM {entity}"))
             .expect("SHOW INDEXES FROM should still read accepted indexes after rejected DDL"),
     );
     assert_eq!(
@@ -497,7 +511,7 @@ fn sql_canister_ddl_endpoint_drops_supported_ddl_field_path_index() {
 }
 
 #[test]
-fn demo_rpg_ddl_endpoint_drops_index_with_single_entity_shorthand() {
+fn demo_rpg_ddl_endpoint_rejects_targetless_drop_index() {
     let fixture = install_demo_rpg_canister_fixture();
     reset_sql_fixtures(&fixture);
 
@@ -505,37 +519,13 @@ fn demo_rpg_ddl_endpoint_drops_index_with_single_entity_shorthand() {
         &fixture,
         "CREATE INDEX character_renown_idx ON Character (renown)",
     )
-    .expect("setup CREATE INDEX should publish before shorthand DROP INDEX");
+    .expect("setup CREATE INDEX should publish before targetless DROP INDEX");
 
-    let ddl = ddl_sql(&fixture, "DROP INDEX character_renown_idx")
-        .expect("single-entity generated DDL should route targetless DROP INDEX");
-    let SqlQueryResult::Ddl {
-        entity,
-        mutation_kind,
-        target_index,
-        field_path,
-        status,
-        ..
-    } = ddl
-    else {
-        panic!("shorthand DROP INDEX should return a DDL payload");
-    };
-
-    assert_eq!(entity, "Character");
-    assert_eq!(mutation_kind, "drop_secondary_index");
-    assert_eq!(target_index, "character_renown_idx");
-    assert_eq!(field_path, vec!["renown".to_string()]);
-    assert_eq!(status, "published");
-
-    let indexes = expect_show_indexes(
-        query_sql(&fixture, "SHOW INDEXES FROM Character")
-            .expect("SHOW INDEXES FROM should read accepted indexes after shorthand DROP INDEX"),
-    );
-    assert!(
-        indexes
-            .iter()
-            .all(|index| !index.contains("character_renown_idx")),
-        "single-entity shorthand DROP INDEX should hide the dropped DDL index: {indexes:?}",
+    assert_ddl_rejects_with_entity_index_visibility_unchanged(
+        &fixture,
+        "Character",
+        "DROP INDEX character_renown_idx",
+        "IcyDB SQL DDL requires one target entity",
     );
 }
 
@@ -927,10 +917,10 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_create_index_shapes_without_pub
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
 
-    assert_ddl_rejects_without_index_visibility_change(
+    assert_ddl_rejects_with_index_visibility_unchanged(
         &fixture,
         "CREATE INDEX sql_test_user_lower_name_idx ON SqlTestUser (LOWER(name))",
-        "sql_test_user_lower_name_idx",
+        "SQL DDL expression index keys are not executable in this release: LOWER(name)",
     );
 }
 

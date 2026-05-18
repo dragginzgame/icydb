@@ -23,8 +23,8 @@ use crate::db::{
     sql::{
         identifier::identifiers_tail_match,
         parser::{
-            SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement,
-            SqlDropIndexStatement, SqlStatement,
+            SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem, SqlCreateIndexStatement,
+            SqlCreateIndexUniqueness, SqlDdlStatement, SqlDropIndexStatement, SqlStatement,
         },
     },
 };
@@ -419,6 +419,9 @@ pub(in crate::db) enum SqlDdlBindError {
     #[error("invalid filtered index predicate: {detail}")]
     InvalidFilteredIndexPredicate { detail: String },
 
+    #[error("SQL DDL expression index keys are not executable in this release: {expression}")]
+    UnsupportedExpressionIndexKey { expression: String },
+
     #[error("index name '{index_name}' already exists in the accepted schema")]
     DuplicateIndexName { index_name: String },
 
@@ -536,11 +539,12 @@ fn bind_create_index_statement(
         });
     }
 
-    let field_paths = statement
-        .field_paths
+    let key_items = statement
+        .key_items
         .iter()
-        .map(|field_path| bind_create_index_field_path(field_path.as_str(), entity_name, schema))
+        .map(|key_item| bind_create_index_key_item(key_item, entity_name, schema))
         .collect::<Result<Vec<_>, _>>()?;
+    let field_paths = create_index_field_path_keys_only(key_items.as_slice())?;
     if let Some(existing_index) = find_field_path_index_by_name(schema, statement.name.as_str()) {
         if statement.if_not_exists
             && existing_field_path_index_matches_request(
@@ -646,6 +650,56 @@ fn bind_drop_index_statement(
             field_path,
         }),
     })
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum BoundSqlDdlCreateIndexKey {
+    FieldPath(BoundSqlDdlFieldPath),
+    Expression(String),
+}
+
+fn bind_create_index_key_item(
+    key_item: &SqlCreateIndexKeyItem,
+    entity_name: &str,
+    schema: &SchemaInfo,
+) -> Result<BoundSqlDdlCreateIndexKey, SqlDdlBindError> {
+    match key_item {
+        SqlCreateIndexKeyItem::FieldPath(field_path) => {
+            bind_create_index_field_path(field_path.as_str(), entity_name, schema)
+                .map(BoundSqlDdlCreateIndexKey::FieldPath)
+        }
+        SqlCreateIndexKeyItem::Expression(expression) => {
+            bind_create_index_expression_key(expression, entity_name, schema)
+        }
+    }
+}
+
+fn bind_create_index_expression_key(
+    expression: &SqlCreateIndexExpressionKey,
+    entity_name: &str,
+    schema: &SchemaInfo,
+) -> Result<BoundSqlDdlCreateIndexKey, SqlDdlBindError> {
+    let _ = bind_create_index_field_path(expression.field_path.as_str(), entity_name, schema)?;
+
+    Ok(BoundSqlDdlCreateIndexKey::Expression(
+        expression.canonical_sql(),
+    ))
+}
+
+fn create_index_field_path_keys_only(
+    key_items: &[BoundSqlDdlCreateIndexKey],
+) -> Result<Vec<BoundSqlDdlFieldPath>, SqlDdlBindError> {
+    key_items
+        .iter()
+        .map(|key_item| match key_item {
+            BoundSqlDdlCreateIndexKey::FieldPath(field_path) => Ok(field_path.clone()),
+            BoundSqlDdlCreateIndexKey::Expression(expression) => {
+                Err(SqlDdlBindError::UnsupportedExpressionIndexKey {
+                    expression: expression.clone(),
+                })
+            }
+        })
+        .collect()
 }
 
 fn bind_create_index_field_path(

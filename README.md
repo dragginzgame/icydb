@@ -140,7 +140,7 @@ cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SELECT name, charism
 cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "DESCRIBE character"
 cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SHOW TABLES"
 cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "CREATE INDEX character_renown_idx ON character (renown)"
-cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "DROP INDEX character_renown_idx"
+cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "DROP INDEX character_renown_idx ON character"
 ```
 
 `sql` keeps an explicit `--canister/-c` flag because it also accepts trailing

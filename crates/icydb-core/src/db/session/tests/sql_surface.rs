@@ -2211,6 +2211,62 @@ fn sql_ddl_create_index_binding_rejects_unknown_catalog_targets() {
             field_path,
         } if entity_name == "SessionSqlEntity" && field_path == "missing"
     ));
+
+    let unknown_expression_field =
+        parse_sql("CREATE INDEX missing_expression_idx ON SessionSqlEntity (LOWER(missing))")
+            .expect("expression CREATE INDEX should parse before field binding");
+    let err = bind_sql_ddl_statement(
+        &unknown_expression_field,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect_err("DDL binding should reject unknown expression source field paths");
+    assert!(matches!(
+        err,
+        SqlDdlBindError::UnknownFieldPath {
+            entity_name,
+            field_path,
+        } if entity_name == "SessionSqlEntity" && field_path == "missing"
+    ));
+}
+
+#[test]
+fn sql_ddl_create_index_binding_rejects_expression_keys_after_catalog_binding() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let expression_index =
+        parse_sql("CREATE INDEX lower_name_idx ON SessionSqlEntity (LOWER(name))")
+            .expect("expression CREATE INDEX should parse before binding");
+
+    let err = bind_sql_ddl_statement(
+        &expression_index,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect_err("DDL binding should reject expression index keys until rebuild execution exists");
+    assert!(matches!(
+        err,
+        SqlDdlBindError::UnsupportedExpressionIndexKey { expression }
+            if expression == "LOWER(name)"
+    ));
+
+    let mixed_index =
+        parse_sql("CREATE INDEX age_lower_name_idx ON SessionSqlEntity (age, LOWER(name))")
+            .expect("mixed field/expression CREATE INDEX should parse before binding");
+    let err = bind_sql_ddl_statement(
+        &mixed_index,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect_err("DDL binding should reject mixed expression keys until rebuild execution exists");
+    assert!(matches!(
+        err,
+        SqlDdlBindError::UnsupportedExpressionIndexKey { expression }
+            if expression == "LOWER(name)"
+    ));
 }
 
 #[test]

@@ -69,7 +69,7 @@ pub(crate) enum CliCommand {
   icydb sql -c demo_rpg
   icydb sql -c demo_rpg --sql \"SELECT name FROM character LIMIT 5\"
   icydb sql -c demo_rpg --sql \"CREATE INDEX character_renown_idx ON character (renown)\"
-  icydb sql -c demo_rpg --sql \"DROP INDEX character_renown_idx\""
+  icydb sql -c demo_rpg --sql \"DROP INDEX character_renown_idx ON character\""
 )]
 pub(crate) struct SqlArgs {
     /// Target ICP canister name.

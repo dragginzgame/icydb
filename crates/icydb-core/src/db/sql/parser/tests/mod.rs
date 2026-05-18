@@ -4,18 +4,36 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::{
-    SqlAggregateCall, SqlAggregateKind, SqlAssignment, SqlCaseArm, SqlCreateIndexStatement,
-    SqlCreateIndexUniqueness, SqlDdlStatement, SqlDeleteStatement, SqlDescribeStatement,
-    SqlDropIndexStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr,
-    SqlExprBinaryOp, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
-    SqlParseError, SqlProjection, SqlReturningProjection, SqlScalarFunction, SqlSelectItem,
-    SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
-    SqlStatement, SqlUpdateStatement, parse_sql,
+    SqlAggregateCall, SqlAggregateKind, SqlAssignment, SqlCaseArm,
+    SqlCreateIndexExpressionFunction, SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem,
+    SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement, SqlDeleteStatement,
+    SqlDescribeStatement, SqlDropIndexStatement, SqlExplainMode, SqlExplainStatement,
+    SqlExplainTarget, SqlExpr, SqlExprBinaryOp, SqlInsertSource, SqlInsertStatement,
+    SqlOrderDirection, SqlOrderTerm, SqlParseError, SqlProjection, SqlReturningProjection,
+    SqlScalarFunction, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
+    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlUpdateStatement, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
     value::Value,
 };
+
+fn ddl_field_paths(paths: &[&str]) -> Vec<SqlCreateIndexKeyItem> {
+    paths
+        .iter()
+        .map(|path| SqlCreateIndexKeyItem::FieldPath((*path).to_string()))
+        .collect()
+}
+
+fn ddl_expression_key(
+    function: SqlCreateIndexExpressionFunction,
+    field_path: &str,
+) -> SqlCreateIndexKeyItem {
+    SqlCreateIndexKeyItem::Expression(SqlCreateIndexExpressionKey {
+        function,
+        field_path: field_path.to_string(),
+    })
+}
 
 macro_rules! option_sql_pred {
     ($predicate:expr) => {
@@ -1837,7 +1855,7 @@ fn parse_create_index_statement_keeps_ddl_intent_unresolved() {
         SqlStatement::Ddl(SqlDdlStatement::CreateIndex(SqlCreateIndexStatement {
             name: "user_age_idx".to_string(),
             entity: "public.users".to_string(),
-            field_paths: vec!["profile.age".to_string()],
+            key_items: ddl_field_paths(&["profile.age"]),
             predicate_sql: None,
             uniqueness: SqlCreateIndexUniqueness::NonUnique,
             if_not_exists: false,
@@ -1855,7 +1873,7 @@ fn parse_create_multi_field_index_statement_keeps_ddl_intent_unresolved() {
         SqlStatement::Ddl(SqlDdlStatement::CreateIndex(SqlCreateIndexStatement {
             name: "user_age_name_idx".to_string(),
             entity: "public.users".to_string(),
-            field_paths: vec!["age".to_string(), "name".to_string()],
+            key_items: ddl_field_paths(&["age", "name"]),
             predicate_sql: None,
             uniqueness: SqlCreateIndexUniqueness::NonUnique,
             if_not_exists: false,
@@ -1873,7 +1891,7 @@ fn parse_create_index_treats_asc_as_default_order() {
         SqlStatement::Ddl(SqlDdlStatement::CreateIndex(SqlCreateIndexStatement {
             name: "user_age_name_idx".to_string(),
             entity: "public.users".to_string(),
-            field_paths: vec!["age".to_string(), "name".to_string()],
+            key_items: ddl_field_paths(&["age", "name"]),
             predicate_sql: None,
             uniqueness: SqlCreateIndexUniqueness::NonUnique,
             if_not_exists: false,
@@ -1891,7 +1909,7 @@ fn parse_create_unique_index_statement_keeps_ddl_intent_unresolved() {
         SqlStatement::Ddl(SqlDdlStatement::CreateIndex(SqlCreateIndexStatement {
             name: "user_age_idx".to_string(),
             entity: "public.users".to_string(),
-            field_paths: vec!["profile.age".to_string()],
+            key_items: ddl_field_paths(&["profile.age"]),
             predicate_sql: None,
             uniqueness: SqlCreateIndexUniqueness::Unique,
             if_not_exists: false,
@@ -1900,12 +1918,57 @@ fn parse_create_unique_index_statement_keeps_ddl_intent_unresolved() {
 }
 
 #[test]
-fn parse_create_index_rejects_unsupported_ddl_shapes() {
-    let sql = "CREATE INDEX user_lower_name_idx ON users (LOWER(name))";
-    let err = parse_sql(sql).expect_err("unsupported DDL shape should fail closed");
+fn parse_create_index_keeps_expression_key_intent_unresolved() {
+    let statement = parse_sql("CREATE INDEX user_lower_name_idx ON users (LOWER(name) ASC)")
+        .expect("expression key CREATE INDEX should parse before catalog binding");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::CreateIndex(SqlCreateIndexStatement {
+            name: "user_lower_name_idx".to_string(),
+            entity: "users".to_string(),
+            key_items: vec![ddl_expression_key(
+                SqlCreateIndexExpressionFunction::Lower,
+                "name",
+            )],
+            predicate_sql: None,
+            uniqueness: SqlCreateIndexUniqueness::NonUnique,
+            if_not_exists: false,
+        })),
+    );
+}
+
+#[test]
+fn parse_create_index_keeps_supported_expression_key_family_intent_unresolved() {
+    let statement = parse_sql(
+        "CREATE INDEX user_text_expr_idx ON users (LOWER(name), UPPER(code), TRIM(email))",
+    )
+    .expect("supported expression key family should parse before catalog binding");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::CreateIndex(SqlCreateIndexStatement {
+            name: "user_text_expr_idx".to_string(),
+            entity: "users".to_string(),
+            key_items: vec![
+                ddl_expression_key(SqlCreateIndexExpressionFunction::Lower, "name"),
+                ddl_expression_key(SqlCreateIndexExpressionFunction::Upper, "code"),
+                ddl_expression_key(SqlCreateIndexExpressionFunction::Trim, "email"),
+            ],
+            predicate_sql: None,
+            uniqueness: SqlCreateIndexUniqueness::NonUnique,
+            if_not_exists: false,
+        })),
+    );
+}
+
+#[test]
+fn parse_create_index_rejects_unknown_expression_index_functions() {
+    let sql = "CREATE INDEX user_reverse_name_idx ON users (REVERSE(name))";
+    let err = parse_sql(sql).expect_err("unknown expression function should fail closed");
     assert!(
         matches!(err, SqlParseError::UnsupportedFeature { .. }),
-        "unsupported DDL shape should report a typed unsupported feature",
+        "unknown expression key function should report a typed unsupported feature",
     );
 }
 
@@ -1919,7 +1982,7 @@ fn parse_create_index_keeps_filtered_index_predicate_sql() {
         SqlStatement::Ddl(SqlDdlStatement::CreateIndex(SqlCreateIndexStatement {
             name: "user_age_idx".to_string(),
             entity: "users".to_string(),
-            field_paths: vec!["age".to_string()],
+            key_items: ddl_field_paths(&["age"]),
             predicate_sql: Some("active = TRUE".to_string()),
             uniqueness: SqlCreateIndexUniqueness::NonUnique,
             if_not_exists: false,
@@ -1965,7 +2028,7 @@ fn parse_ddl_idempotency_clauses_keep_explicit_intent() {
         SqlStatement::Ddl(SqlDdlStatement::CreateIndex(SqlCreateIndexStatement {
             name: "user_age_idx".to_string(),
             entity: "users".to_string(),
-            field_paths: vec!["age".to_string()],
+            key_items: ddl_field_paths(&["age"]),
             predicate_sql: None,
             uniqueness: SqlCreateIndexUniqueness::NonUnique,
             if_not_exists: true,

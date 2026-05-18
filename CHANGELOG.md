@@ -7,23 +7,34 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.157.x] 🧱 - 2026-05-16 - DDL Continuation And Developer Ergonomics
 
+- `0.157.18` starts the expression-index DDL path by parsing supported
+  expression key intent such as `LOWER(name)`, `UPPER(name)`, and `TRIM(name)`
+  into the SQL DDL model. Binding now validates expression source fields
+  against accepted schema metadata before failing closed with a clear
+  expression-index execution diagnostic; physical expression-index rebuilds
+  remain unsupported.
+
+  ```
+  CREATE INDEX character_lower_name_idx ON Character (LOWER(name));
+  ```
+
 - `0.157.17` tightens the `DROP INDEX` shorthand rollout with live generated
-  canister coverage: single-entity canisters can route targetless drops, while
-  multi-entity canisters still reject ambiguous targetless DDL. The interactive
-  SQL shell help now shows the shorthand form, and the SQL docs now reflect the
-  current unique, composite, filtered, and explicit-`ASC` DDL surface. The
-  process-level `icydb sql --help` output now carries concrete examples through
-  Clap, one-shot SQL no longer has a second non-Clap help path, and
+  canister coverage proving generated DDL requires `ON <entity>` instead of
+  guessing from canister shape. The interactive SQL shell help now shows the
+  generated-safe form, and the SQL docs now reflect the current unique,
+  composite, filtered, and explicit-`ASC` DDL surface. The process-level
+  `icydb sql --help` output now carries concrete examples through Clap,
+  one-shot SQL no longer has a second non-Clap help path, and
   `config init --no-readonly` now uses Clap's negative-flag action instead of
   post-parse boolean inversion.
 
   ```
-  DROP INDEX character_renown_idx;
+  DROP INDEX character_renown_idx ON character;
   ```
 
-- `0.157.16` lets typed and single-entity SQL DDL surfaces use PostgreSQL-style
-  `DROP INDEX <name>` without restating `ON <entity>`. Multi-entity generated
-  canister dispatch still requires `ON <entity>` when the target is ambiguous.
+- `0.157.16` lets typed SQL DDL use PostgreSQL-style `DROP INDEX <name>`
+  without restating `ON <entity>`. Generated canister dispatch still requires
+  `ON <entity>` instead of guessing.
 
   ```
   DROP INDEX character_high_level_idx;

@@ -54,10 +54,78 @@ pub(crate) enum SqlDdlStatement {
 pub(crate) struct SqlCreateIndexStatement {
     pub(crate) name: String,
     pub(crate) entity: String,
-    pub(crate) field_paths: Vec<String>,
+    pub(crate) key_items: Vec<SqlCreateIndexKeyItem>,
     pub(crate) predicate_sql: Option<String>,
     pub(crate) uniqueness: SqlCreateIndexUniqueness,
     pub(crate) if_not_exists: bool,
+}
+
+///
+/// SqlCreateIndexKeyItem
+///
+/// Parser-owned SQL DDL index key item. Field-path keys are executable today;
+/// expression keys are parsed so DDL binding can validate catalog references
+/// before failing closed until the physical expression-index rebuild runner is
+/// available.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SqlCreateIndexKeyItem {
+    FieldPath(String),
+    Expression(SqlCreateIndexExpressionKey),
+}
+
+///
+/// SqlCreateIndexExpressionKey
+///
+/// Parser-owned deterministic expression-index key shape.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlCreateIndexExpressionKey {
+    pub(crate) function: SqlCreateIndexExpressionFunction,
+    pub(crate) field_path: String,
+}
+
+impl SqlCreateIndexExpressionKey {
+    pub(crate) fn canonical_sql(&self) -> String {
+        format!("{}({})", self.function.as_str(), self.field_path.as_str())
+    }
+}
+
+///
+/// SqlCreateIndexExpressionFunction
+///
+/// Parser-owned deterministic function subset staged for expression-index DDL.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SqlCreateIndexExpressionFunction {
+    Lower,
+    Upper,
+    Trim,
+}
+
+impl SqlCreateIndexExpressionFunction {
+    pub(crate) const fn parse(value: &str) -> Option<Self> {
+        if value.eq_ignore_ascii_case("LOWER") {
+            Some(Self::Lower)
+        } else if value.eq_ignore_ascii_case("UPPER") {
+            Some(Self::Upper)
+        } else if value.eq_ignore_ascii_case("TRIM") {
+            Some(Self::Trim)
+        } else {
+            None
+        }
+    }
+
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Lower => "LOWER",
+            Self::Upper => "UPPER",
+            Self::Trim => "TRIM",
+        }
+    }
 }
 
 ///

@@ -10,7 +10,8 @@ mod update;
 
 use crate::db::{
     sql::parser::{
-        Parser, SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement,
+        Parser, SqlCreateIndexExpressionFunction, SqlCreateIndexExpressionKey,
+        SqlCreateIndexKeyItem, SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement,
         SqlDeleteStatement, SqlDescribeStatement, SqlDropIndexStatement, SqlExplainMode,
         SqlExplainStatement, SqlExplainTarget, SqlSelectStatement, SqlShowColumnsStatement,
         SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlUpdateStatement,
@@ -115,14 +116,14 @@ impl Parser {
         self.expect_keyword(Keyword::On)?;
         let entity = self.expect_identifier()?;
         self.expect_lparen()?;
-        let field_paths = self.parse_create_index_field_paths()?;
+        let key_items = self.parse_create_index_key_items()?;
         self.expect_rparen()?;
         let predicate_sql = self.parse_create_index_predicate_sql()?;
 
         Ok(SqlCreateIndexStatement {
             name,
             entity,
-            field_paths,
+            key_items,
             predicate_sql,
             uniqueness,
             if_not_exists,
@@ -139,15 +140,12 @@ impl Parser {
         Ok(Some(predicate_sql))
     }
 
-    fn parse_create_index_field_paths(&mut self) -> Result<Vec<String>, SqlParseError> {
-        let mut field_paths = Vec::new();
+    fn parse_create_index_key_items(
+        &mut self,
+    ) -> Result<Vec<SqlCreateIndexKeyItem>, SqlParseError> {
+        let mut key_items = Vec::new();
         loop {
-            let field_path = self.expect_identifier()?;
-            if self.peek_lparen() {
-                return Err(SqlParseError::unsupported_feature(
-                    "SQL DDL expression index keys",
-                ));
-            }
+            let key_item = self.parse_create_index_key_item()?;
             if self.eat_keyword(Keyword::Asc) {
                 // ASC is the current physical key default; keep it as syntax
                 // sugar rather than a stored DDL contract.
@@ -156,14 +154,37 @@ impl Parser {
                     "SQL DDL CREATE INDEX key ordering modifiers",
                 ));
             }
-            field_paths.push(field_path);
+            key_items.push(key_item);
 
             if !self.eat_comma() {
                 break;
             }
         }
 
-        Ok(field_paths)
+        Ok(key_items)
+    }
+
+    fn parse_create_index_key_item(&mut self) -> Result<SqlCreateIndexKeyItem, SqlParseError> {
+        let head = self.expect_identifier()?;
+        if !self.peek_lparen() {
+            return Ok(SqlCreateIndexKeyItem::FieldPath(head));
+        }
+
+        let Some(function) = SqlCreateIndexExpressionFunction::parse(head.as_str()) else {
+            return Err(SqlParseError::unsupported_feature(
+                "SQL DDL expression index functions beyond LOWER, UPPER, TRIM",
+            ));
+        };
+        self.expect_lparen()?;
+        let field_path = self.expect_identifier()?;
+        self.expect_rparen()?;
+
+        Ok(SqlCreateIndexKeyItem::Expression(
+            SqlCreateIndexExpressionKey {
+                function,
+                field_path,
+            },
+        ))
     }
 
     fn parse_create_index_if_not_exists(&mut self) -> Result<bool, SqlParseError> {

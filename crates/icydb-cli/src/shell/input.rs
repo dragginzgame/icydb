@@ -43,7 +43,7 @@ examples:
   CREATE INDEX character_level_idx ON character (level);
   SHOW INDEXES FROM character;
   DESCRIBE character;
-  DROP INDEX character_level_idx;"
+  DROP INDEX character_level_idx ON character;"
 }
 
 pub(super) fn read_statement(

@@ -58,11 +58,9 @@ struct SqlSurfaceTokens {
     readonly_enabled: bool,
     ddl_enabled: bool,
     fixtures_enabled: bool,
-    entity_count: usize,
     reset_statements: TokenStream,
     query_arms: TokenStream,
     ddl_arms: TokenStream,
-    ddl_single_entity_dispatch: TokenStream,
     show_entities_dispatch: TokenStream,
 }
 
@@ -276,24 +274,16 @@ impl SqlSurfaceTokens {
             readonly_enabled,
             ddl_enabled,
             fixtures_enabled,
-            entity_count: 0,
             reset_statements: quote!(),
             query_arms: quote!(),
             ddl_arms: quote!(),
-            ddl_single_entity_dispatch: quote!(),
             show_entities_dispatch: quote!(),
         }
     }
 
     fn push_entity(&mut self, entity_ty: &syn::Path) {
-        self.entity_count += 1;
         if self.show_entities_dispatch.is_empty() {
             self.show_entities_dispatch = show_entities_dispatch_for(entity_ty);
-        }
-        if self.entity_count == 1 {
-            self.ddl_single_entity_dispatch = sql_surface_ddl_single_entity_dispatch_for(entity_ty);
-        } else {
-            self.ddl_single_entity_dispatch = quote!();
         }
         self.reset_statements
             .extend(sql_surface_reset_statement(entity_ty));
@@ -434,20 +424,6 @@ impl SqlSurfaceTokens {
 
     fn ddl_dispatch_tokens(&self) -> TokenStream {
         let ddl_arms = &self.ddl_arms;
-        let ddl_none_arm = if self.entity_count == 1 {
-            let ddl_single_entity_dispatch = &self.ddl_single_entity_dispatch;
-            quote! {
-                    None => #ddl_single_entity_dispatch,
-            }
-        } else {
-            quote! {
-                    None => Err(::icydb::Error::new(
-                        ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
-                        ::icydb::ErrorOrigin::Interface,
-                        "IcyDB SQL DDL requires one target entity",
-                    )),
-            }
-        };
 
         quote! {
 
@@ -458,7 +434,11 @@ impl SqlSurfaceTokens {
             ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
                 match ::icydb::__macro::sql_statement_entity_name(sql)?.as_deref() {
                     #ddl_arms
-                    #ddl_none_arm
+                    None => Err(::icydb::Error::new(
+                        ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
+                        ::icydb::ErrorOrigin::Interface,
+                        "IcyDB SQL DDL requires one target entity",
+                    )),
                     Some(entity) => Err(::icydb::Error::new(
                         ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
                         ::icydb::ErrorOrigin::Interface,
@@ -634,12 +614,6 @@ fn sql_surface_ddl_dispatch_arm(entity_ty: &syn::Path) -> TokenStream {
             {
                 db().execute_sql_ddl::<#entity_ty>(sql)
             }
-    }
-}
-
-fn sql_surface_ddl_single_entity_dispatch_for(entity_ty: &syn::Path) -> TokenStream {
-    quote! {
-        db().execute_sql_ddl::<#entity_ty>(sql)
     }
 }
 
