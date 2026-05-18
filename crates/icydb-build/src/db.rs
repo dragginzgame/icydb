@@ -44,6 +44,7 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
 ///
 
 struct StoreRegistryTokens {
+    memory_decls: TokenStream,
     data_defs: TokenStream,
     index_defs: TokenStream,
     schema_defs: TokenStream,
@@ -81,14 +82,16 @@ struct SchemaSurfaceTokens {
 }
 
 fn store_registry_tokens(builder: &ActorBuilder, memory_namespace: &str) -> StoreRegistryTokens {
+    let mut memory_decls = quote!();
     let mut data_defs = quote!();
     let mut index_defs = quote!();
     let mut schema_defs = quote!();
     let mut store_inits = quote!();
 
     for (store_path, store) in builder.get_stores() {
-        let (data_def, index_def, schema_def, store_init) =
+        let (memory_decl, data_def, index_def, schema_def, store_init) =
             store_registry_entry_tokens(&store_path, &store, memory_namespace);
+        memory_decls.extend(memory_decl);
         data_defs.extend(data_def);
         index_defs.extend(index_def);
         schema_defs.extend(schema_def);
@@ -96,6 +99,7 @@ fn store_registry_tokens(builder: &ActorBuilder, memory_namespace: &str) -> Stor
     }
 
     StoreRegistryTokens {
+        memory_decls,
         data_defs,
         index_defs,
         schema_defs,
@@ -108,7 +112,13 @@ fn store_registry_entry_tokens(
     store_path: &str,
     store: &Store,
     memory_namespace: &str,
-) -> (TokenStream, TokenStream, TokenStream, TokenStream) {
+) -> (
+    TokenStream,
+    TokenStream,
+    TokenStream,
+    TokenStream,
+    TokenStream,
+) {
     let data_cell_ident = format_ident!("{}_DATA", store.ident());
     let index_cell_ident = format_ident!("{}_INDEX", store.ident());
     let schema_cell_ident = format_ident!("{}_SCHEMA", store.ident());
@@ -122,47 +132,86 @@ fn store_registry_entry_tokens(
     let index_stable_key = index_allocation.stable_key();
     let schema_stable_key = schema_allocation.stable_key();
 
+    let memory_decl = quote! {
+        ::icydb::__reexports::canic_memory::api::MemoryApi::declare_with_key(
+            #data_memory_id,
+            env!("CARGO_PKG_NAME"),
+            "DataStore",
+            #data_stable_key,
+        )
+        .map_err(|err| err.to_string())?;
+        ::icydb::__reexports::canic_memory::api::MemoryApi::declare_with_key(
+            #index_memory_id,
+            env!("CARGO_PKG_NAME"),
+            "IndexStore",
+            #index_stable_key,
+        )
+        .map_err(|err| err.to_string())?;
+        ::icydb::__reexports::canic_memory::api::MemoryApi::declare_with_key(
+            #schema_memory_id,
+            env!("CARGO_PKG_NAME"),
+            "SchemaStore",
+            #schema_stable_key,
+        )
+        .map_err(|err| err.to_string())?;
+    };
+
     let data_def = quote! {
-        ::icydb::__reexports::canic_memory::eager_static! {
+        thread_local! {
             static #data_cell_ident: ::std::cell::RefCell<
                 ::icydb::__macro::DataStore
             > = ::std::cell::RefCell::new(
                 ::icydb::__macro::DataStore::init(
-                    ::icydb::__reexports::canic_memory::ic_memory_key!(
-                        #data_stable_key,
-                        ::icydb::__macro::DataStore,
-                        #data_memory_id
-                    )
+                    {
+                        ensure_memory_bootstrap();
+                        ::icydb::__reexports::canic_memory::api::MemoryApi::register_with_key(
+                            #data_memory_id,
+                            env!("CARGO_PKG_NAME"),
+                            "DataStore",
+                            #data_stable_key,
+                        )
+                        .expect("generated data-store memory registration should succeed")
+                    }
                 )
             );
         }
     };
     let index_def = quote! {
-        ::icydb::__reexports::canic_memory::eager_static! {
+        thread_local! {
             static #index_cell_ident: ::std::cell::RefCell<
                 ::icydb::__macro::IndexStore
             > = ::std::cell::RefCell::new(
                 ::icydb::__macro::IndexStore::init(
-                    ::icydb::__reexports::canic_memory::ic_memory_key!(
-                        #index_stable_key,
-                        ::icydb::__macro::IndexStore,
-                        #index_memory_id
-                    )
+                    {
+                        ensure_memory_bootstrap();
+                        ::icydb::__reexports::canic_memory::api::MemoryApi::register_with_key(
+                            #index_memory_id,
+                            env!("CARGO_PKG_NAME"),
+                            "IndexStore",
+                            #index_stable_key,
+                        )
+                        .expect("generated index-store memory registration should succeed")
+                    }
                 )
             );
         }
     };
     let schema_def = quote! {
-        ::icydb::__reexports::canic_memory::eager_static! {
+        thread_local! {
             static #schema_cell_ident: ::std::cell::RefCell<
                 ::icydb::__macro::SchemaStore
             > = ::std::cell::RefCell::new(
                 ::icydb::__macro::SchemaStore::init(
-                    ::icydb::__reexports::canic_memory::ic_memory_key!(
-                        #schema_stable_key,
-                        ::icydb::__macro::SchemaStore,
-                        #schema_memory_id
-                    )
+                    {
+                        ensure_memory_bootstrap();
+                        ::icydb::__reexports::canic_memory::api::MemoryApi::register_with_key(
+                            #schema_memory_id,
+                            env!("CARGO_PKG_NAME"),
+                            "SchemaStore",
+                            #schema_stable_key,
+                        )
+                        .expect("generated schema-store memory registration should succeed")
+                    }
                 )
             );
         }
@@ -172,7 +221,7 @@ fn store_registry_entry_tokens(
             .expect("store registration should succeed");
     };
 
-    (data_def, index_def, schema_def, store_init)
+    (memory_decl, data_def, index_def, schema_def, store_init)
 }
 
 /// Assemble the outer canister store wiring around the generated registry.
@@ -186,6 +235,7 @@ fn store_wiring_tokens(
     commit_stable_key: &str,
 ) -> TokenStream {
     let StoreRegistryTokens {
+        memory_decls,
         data_defs,
         index_defs,
         schema_defs,
@@ -193,16 +243,34 @@ fn store_wiring_tokens(
     } = store_registry;
 
     quote! {
-        ::icydb::__reexports::canic_memory::eager_init!({
-            ::icydb::__reexports::canic_memory::ic_memory_range!(#memory_min, #memory_max);
-            ::icydb::__reexports::canic_memory::api::MemoryApi::declare_with_key(
-                #commit_memory_id,
-                env!("CARGO_PKG_NAME"),
-                "CommitMarker",
-                #commit_stable_key,
-            )
-            .expect("generated commit memory declaration should succeed");
-        });
+        fn ensure_memory_bootstrap() {
+            static MEMORY_BOOTSTRAP:
+                ::std::sync::OnceLock<::std::result::Result<(), ::std::string::String>> =
+                    ::std::sync::OnceLock::new();
+
+            let result = MEMORY_BOOTSTRAP.get_or_init(|| {
+                ::icydb::__reexports::canic_memory::api::MemoryApi::declare_with_key(
+                    #commit_memory_id,
+                    env!("CARGO_PKG_NAME"),
+                    "CommitMarker",
+                    #commit_stable_key,
+                )
+                .map_err(|err| err.to_string())?;
+                #memory_decls
+                ::icydb::__reexports::canic_memory::api::MemoryApi::bootstrap_owner_range(
+                    env!("CARGO_PKG_NAME"),
+                    #memory_min,
+                    #memory_max,
+                )
+                .map_err(|err| err.to_string())?;
+
+                Ok(())
+            });
+
+            if let Err(err) = result {
+                panic!("generated canister memory bootstrap should succeed: {err}");
+            }
+        }
 
         #data_defs
         #index_defs
@@ -214,18 +282,12 @@ fn store_wiring_tokens(
             static STORE_REGISTRY:
                 ::icydb::__macro::StoreRegistry =
             {
+                ensure_memory_bootstrap();
                 let mut reg =
                     ::icydb::__macro::StoreRegistry::new();
                 #store_inits
                 reg
             };
-        }
-
-        fn ensure_memory_bootstrap() {
-            use ::icydb::__reexports::canic_memory::api::MemoryApi;
-
-            MemoryApi::bootstrap_pending()
-                .expect("generated canister memory registry pending flush should succeed");
         }
 
         #[doc(hidden)]
