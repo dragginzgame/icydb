@@ -8,7 +8,11 @@ use icydb::{base, design::prelude::*};
 #[entity(
     store = "TestStore",
     pk(field = "id"),
-    fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
+    fields(field(
+        ident = "id",
+        value(item(prim = "Ulid")),
+        generated(insert = "Ulid::generate")
+    ))
 )]
 pub struct SimpleEntity {}
 
@@ -20,7 +24,11 @@ pub struct SimpleEntity {}
     store = "TestStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "bytes", value(item(prim = "Blob", unbounded)))
     )
 )]
@@ -34,7 +42,11 @@ pub struct BlobEntity {}
     store = "TestStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "name", value(item(prim = "Text", unbounded))),
         field(ident = "description", value(item(prim = "Text", unbounded)))
     )
@@ -59,7 +71,11 @@ pub struct Limit {}
 #[entity(
     store = "TestStore",
     pk(field = "id"),
-    fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
+    fields(field(
+        ident = "id",
+        value(item(prim = "Ulid")),
+        generated(insert = "Ulid::generate")
+    ))
 )]
 pub struct DataKeyOrder {}
 
@@ -92,7 +108,11 @@ pub struct MissingFieldLarge {}
     store = "TestStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "bytes", value(opt, item(prim = "Blob", unbounded)))
     )
 )]
@@ -106,7 +126,11 @@ pub struct ContainsBlob {}
     store = "TestStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "opt_a", value(opt, item(prim = "Principal"))),
         field(ident = "opt_b", value(opt, item(prim = "Principal"))),
         field(ident = "opt_c", value(opt, item(prim = "Principal"))),
@@ -131,7 +155,11 @@ pub struct ContainsOpts {}
     store = "TestStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(
             ident = "a_ids",
             value(many, item(rel = "ContainsBlob", prim = "Ulid"))
@@ -186,7 +214,11 @@ pub struct ContainsManyRelations {}
     index(fields = "x"),
     index(fields = "y", unique),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "x", value(item(prim = "Int32"))),
         field(ident = "y", value(item(prim = "Int32")))
     )
@@ -197,9 +229,11 @@ impl Index {
     #[must_use]
     pub fn new(x: i32, y: i32) -> Self {
         Self {
+            id: Ulid::generate(),
             x,
             y,
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         }
     }
 }
@@ -224,7 +258,11 @@ pub struct LowerIndexText {}
     pk(field = "id"),
     index(fields = "username", unique),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "username", value(item(is = "LowerIndexText"))),
         field(ident = "score", value(item(prim = "Int32")))
     )
@@ -240,7 +278,11 @@ pub struct IndexSanitized {}
     pk(field = "id"),
     index(fields = "create_blob_id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(
             ident = "create_blob_id",
             value(item(rel = "BlobEntity", prim = "Ulid"))
@@ -258,7 +300,11 @@ pub struct IndexRelation {}
     pk(field = "id"),
     index(fields = "value", unique),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "value", value(opt, item(prim = "Nat8")))
     )
 )]

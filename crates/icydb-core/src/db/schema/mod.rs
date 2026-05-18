@@ -24,7 +24,8 @@ mod types;
 
 pub use describe::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
-    EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription,
+    EntityRelationDescription, EntityRelationStrength, EntitySchemaCheckDescription,
+    EntitySchemaDescription,
 };
 pub use errors::ValidateError;
 
@@ -98,11 +99,11 @@ pub(in crate::db) use runtime::{
     AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeDescriptor, AcceptedRowLayoutRuntimeField,
 };
 pub(in crate::db) use snapshot::{
-    AcceptedSchemaSnapshot, PersistedEnumVariant, PersistedFieldKind, PersistedFieldSnapshot,
-    PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
-    PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexOrigin,
-    PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedRelationStrength,
-    PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldWritePolicy,
+    AcceptedSchemaSnapshot, PersistedEnumVariant, PersistedFieldKind, PersistedFieldOrigin,
+    PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
+    PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
+    PersistedIndexOrigin, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
+    PersistedRelationStrength, PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldWritePolicy,
 };
 pub use store::SchemaStore;
 pub(in crate::db::schema) use transition::{

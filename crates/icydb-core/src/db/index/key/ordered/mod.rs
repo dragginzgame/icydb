@@ -108,18 +108,14 @@ pub(crate) fn encode_canonical_index_component_from_storage_key(
 ) -> Result<Vec<u8>, OrderedValueEncodeError> {
     let mut out = Vec::new();
     out.push(match value {
-        StorageKey::Account(_) => {
-            Value::Account(Account::from_parts(Principal::from_slice(&[]), None))
-                .canonical_tag()
-                .to_u8()
-        }
+        StorageKey::Account(_) => Value::Account(Account::canonical_tag_sentinel())
+            .canonical_tag()
+            .to_u8(),
         StorageKey::Int(_) => Value::Int(0).canonical_tag().to_u8(),
-        StorageKey::Principal(_) => Value::Principal(Principal::default())
+        StorageKey::Principal(_) => Value::Principal(Principal::empty_sentinel())
             .canonical_tag()
             .to_u8(),
-        StorageKey::Subaccount(_) => Value::Subaccount(Subaccount::default())
-            .canonical_tag()
-            .to_u8(),
+        StorageKey::Subaccount(_) => Value::Subaccount(Subaccount::MIN).canonical_tag().to_u8(),
         StorageKey::Timestamp(_) => Value::Timestamp(Timestamp::EPOCH).canonical_tag().to_u8(),
         StorageKey::Nat(_) => Value::Nat(0).canonical_tag().to_u8(),
         StorageKey::Ulid(_) => Value::Ulid(Ulid::nil()).canonical_tag().to_u8(),

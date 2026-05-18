@@ -85,7 +85,7 @@ crate::test_store! {
 /// RecoveryTestEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct RecoveryTestEntity {
     id: Ulid,
 }
@@ -103,7 +103,7 @@ crate::test_entity_schema! {
     canister = RecoveryTestCanister,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct RecoveryPayloadEntity {
     id: Ulid,
     name: String,
@@ -122,7 +122,7 @@ crate::test_entity_schema! {
     canister = RecoveryTestCanister,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct RecoveryIndexedEntity {
     id: Ulid,
     group: u32,
@@ -136,46 +136,46 @@ struct RecoveryIndexedEntity {
 /// field while the seeded stored rows still carry the shorter old layout.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct RecoveryNullableIndexedEntity {
     id: Ulid,
     group: u32,
     nickname: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct RecoveryUniqueEntity {
     id: Ulid,
     email: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct RecoveryUniqueCasefoldEntity {
     id: Ulid,
     email: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct RecoveryUpperExpressionEntity {
     id: Ulid,
     email: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct RecoveryConditionalEntity {
     id: Ulid,
     group: u32,
     active: bool,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct RecoveryConditionalUniqueEntity {
     id: Ulid,
     email: String,
     active: bool,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct RecoveryConditionalUniqueCasefoldEntity {
     id: Ulid,
     email: String,

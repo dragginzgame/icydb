@@ -12,7 +12,11 @@ use icydb::design::prelude::*;
     store = "TestStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "title", value(item(prim = "Text", unbounded))),
         field(ident = "score", value(item(prim = "Nat32"))),
         field(ident = "nickname", value(opt, item(prim = "Text", unbounded))),

@@ -17,7 +17,7 @@ pub struct UiDataStore {}
     pk(field = "id"),
     index(fields = "tags"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
         field(ident = "tags", value(many, item(prim = "Text", unbounded)))
     )
 )]

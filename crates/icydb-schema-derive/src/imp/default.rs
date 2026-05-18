@@ -62,6 +62,10 @@ impl Imp<Record> for DefaultTrait {
 
 // Records use explicit field defaults only when at least one field declares one.
 fn record_default_strategy(def: &Def, fields: &FieldList) -> TraitStrategy {
+    if !fields.iter().all(Field::has_rust_default) {
+        return TraitStrategy::new();
+    }
+
     if fields.iter().all(Field::default_matches_implicit_default) {
         return TraitStrategy::from_derive(TraitKind::Default);
     }
@@ -71,6 +75,10 @@ fn record_default_strategy(def: &Def, fields: &FieldList) -> TraitStrategy {
 
 fn default_strategy_entity(node: &Entity) -> TraitStrategy {
     let fields = &node.fields;
+    if !fields.iter().all(Field::has_rust_default) {
+        return TraitStrategy::new();
+    }
+
     if fields.iter().all(Field::default_matches_implicit_default) {
         return TraitStrategy::from_derive(TraitKind::Default);
     }
@@ -91,9 +99,8 @@ fn default_strategy_entity(node: &Entity) -> TraitStrategy {
 
 impl Imp<Newtype> for DefaultTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
-        // If no default we just want to derive
         let Some(default_expr) = &node.default else {
-            return Some(TraitStrategy::from_derive(TraitKind::Default));
+            return Some(TraitStrategy::new());
         };
 
         let q = quote! {
@@ -127,26 +134,31 @@ fn struct_default_strategy(
     TraitStrategy::from_impl(tokens)
 }
 
-// Record fields always lower through the declared default expression.
+// Record fields lower only through schema-surface Rust construction values.
 fn record_default_assignment(field: &Field) -> TokenStream {
     let ident = &field.ident;
-    let expr = field.default_expr();
+    let expr = field
+        .rust_default_expr()
+        .expect("Default impl is generated only for constructible fields");
 
     quote!(#ident: #expr)
 }
 
-// Entity primary keys keep their special key-conversion/default behavior.
+// Entity primary keys keep their key-conversion behavior when they have an
+// explicit schema-surface construction value.
 fn entity_default_assignment(field: &Field, primary_key: &Ident) -> TokenStream {
     let ident = &field.ident;
+    let expr = field
+        .rust_default_expr()
+        .expect("Default impl is generated only for constructible fields");
 
     if ident == primary_key {
-        if let Some(default) = &field.default {
-            quote!(#ident: (#default).into())
+        if let Some(FieldGeneration::Insert(generator)) = &field.generated {
+            quote!(#ident: (#generator).into())
         } else {
-            quote!(#ident: Default::default())
+            quote!(#ident: #expr)
         }
     } else {
-        let expr = field.default_expr();
         quote!(#ident: #expr)
     }
 }
@@ -181,7 +193,23 @@ mod tests {
                 },
             },
             default: Some(default),
-            db_default: None,
+            generated: None,
+            write_management: None,
+        }
+    }
+
+    fn required_field_without_default(ident: &str, primitive: Primitive) -> Field {
+        Field {
+            ident: format_ident!("{ident}"),
+            value: Value {
+                opt: false,
+                many: false,
+                item: Item {
+                    primitive: Some(primitive),
+                    ..Item::default()
+                },
+            },
+            default: None,
             generated: None,
             write_management: None,
         }
@@ -227,6 +255,20 @@ mod tests {
             strategy.imp.is_none(),
             "redundant defaults should not force a manual Default impl",
         );
+    }
+
+    #[test]
+    fn entity_defaults_are_not_generated_for_required_fields_without_defaults() {
+        let mut entity = redundant_default_entity();
+        entity
+            .fields
+            .fields
+            .push(required_field_without_default("score", Primitive::Int32));
+
+        let strategy = default_strategy_entity(&entity);
+
+        assert!(strategy.derive.is_none());
+        assert!(strategy.imp.is_none());
     }
 
     #[test]
@@ -279,5 +321,25 @@ mod tests {
             strategy.imp.is_none(),
             "records with redundant defaults should derive Default",
         );
+    }
+
+    #[test]
+    fn record_defaults_are_not_generated_for_required_fields_without_defaults() {
+        let fields = FieldList {
+            fields: vec![required_field_without_default("score", Primitive::Int32)],
+        };
+        let record = Record {
+            def: Def::new(syn::parse_quote!(
+                struct RequiredRecord;
+            )),
+            fields,
+            traits: TraitBuilder::default(),
+            ty: Type::default(),
+        };
+
+        let strategy = record_default_strategy(&record.def, &record.fields);
+
+        assert!(strategy.derive.is_none());
+        assert!(strategy.imp.is_none());
     }
 }

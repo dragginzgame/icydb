@@ -9,7 +9,11 @@ use icydb::design::prelude::*;
     store = "TestStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "a_id", value(item(rel = "EntityA", prim = "Ulid"))),
         field(ident = "b_id", value(item(rel = "EntityB", prim = "Nat16"))),
         field(ident = "c_id", value(item(rel = "EntityC", prim = "Principal"))),
@@ -25,7 +29,11 @@ pub struct HasRelation;
     store = "TestStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "a_ids", value(many, item(rel = "EntityA", prim = "Ulid"))),
     )
 )]
@@ -39,7 +47,11 @@ pub struct HasManyRelation;
     store = "TestStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "orders_ids", value(many, item(rel = "Orders", prim = "Ulid"))),
     )
 )]
@@ -52,7 +64,11 @@ pub struct HasPluralRelation;
 #[entity(
     store = "TestStore",
     pk(field = "id"),
-    fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
+    fields(field(
+        ident = "id",
+        value(item(prim = "Ulid")),
+        generated(insert = "Ulid::generate")
+    ))
 )]
 pub struct EntityA;
 
@@ -85,7 +101,11 @@ pub struct EntityC;
 #[entity(
     store = "TestStore",
     pk(field = "id"),
-    fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
+    fields(field(
+        ident = "id",
+        value(item(prim = "Ulid")),
+        generated(insert = "Ulid::generate")
+    ))
 )]
 pub struct Orders;
 
@@ -96,7 +116,11 @@ pub struct Orders;
 #[entity(
     store = "RelationDataStore",
     pk(field = "id"),
-    fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
+    fields(field(
+        ident = "id",
+        value(item(prim = "Ulid")),
+        generated(insert = "Ulid::generate")
+    ))
 )]
 pub struct RelationOwner;
 
@@ -108,7 +132,11 @@ pub struct RelationOwner;
     store = "RelationDataStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "owner_id", value(item(rel = "RelationOwner", prim = "Ulid"))),
     )
 )]
@@ -140,7 +168,11 @@ pub struct RelationRecord;
     store = "TestStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "owner_id", value(item(rel = "RelationOwner", prim = "Ulid"))),
     )
 )]

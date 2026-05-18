@@ -59,7 +59,11 @@ mod tests {
         store = "TestStore",
         pk(field = "id"),
         fields(
-            field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+            field(
+                ident = "id",
+                value(item(prim = "Ulid")),
+                generated(insert = "Ulid::generate")
+            ),
             field(ident = "cint32", value(item(is = "ClampInt32"))),
             field(ident = "cint32_opt", value(opt, item(is = "ClampInt32"))),
             field(ident = "cdec", value(item(is = "ClampDecimal"))),
@@ -138,12 +142,14 @@ mod tests {
     #[test]
     fn test_sanitize_entity() {
         let mut e = ClampEntityHarness {
+            id: Ulid::generate(),
             cint32: ClampInt32::from(5),
             cint32_opt: Some(ClampInt32::from(25)),
             cdec: ClampDecimal::from(10),
             cdec_opt: Some(ClampDecimal::from(0.1)),
             cdec_many: vec![],
-            ..Default::default()
+            created_at: icydb::types::Timestamp::default(),
+            updated_at: icydb::types::Timestamp::default(),
         };
 
         sanitize(&mut e).unwrap();
@@ -157,10 +163,14 @@ mod tests {
     #[test]
     fn item_is_decimal_entity_slots_use_field_meta_storage_contract() {
         let entity = ClampEntityHarness {
+            id: Ulid::generate(),
+            cint32: ClampInt32::from(10),
+            cint32_opt: None,
             cdec: ClampDecimal::from(2.5),
             cdec_opt: Some(ClampDecimal::from(3.5)),
             cdec_many: vec![ClampDecimal::from(1.5), ClampDecimal::from(4.5)],
-            ..Default::default()
+            created_at: icydb::types::Timestamp::default(),
+            updated_at: icydb::types::Timestamp::default(),
         };
         let mut writer = CaptureSlotWriter::new(ClampEntityHarness::MODEL.fields().len());
         entity

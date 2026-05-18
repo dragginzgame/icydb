@@ -162,12 +162,6 @@ impl CandidType for Ulid {
     }
 }
 
-impl Default for Ulid {
-    fn default() -> Self {
-        Self(WrappedUlid::nil())
-    }
-}
-
 impl EntityKeyBytes for Ulid {
     const BYTE_LEN: usize = Self::STORED_SIZE as usize;
 

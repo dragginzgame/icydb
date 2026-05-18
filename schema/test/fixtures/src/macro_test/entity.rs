@@ -12,7 +12,6 @@ use icydb::design::prelude::*;
         field(
             ident = "id",
             value(item(prim = "Ulid")),
-            default = "Ulid::generate",
             generated(insert = "Ulid::generate")
         ),
         field(ident = "a", value(item(prim = "Int32")), default = 3),
@@ -45,7 +44,6 @@ pub struct UnitKey {}
     fields(field(
         ident = "id",
         value(item(prim = "Ulid")),
-        default = "Ulid::generate",
         generated(insert = "Ulid::generate")
     ))
 )]
@@ -62,7 +60,6 @@ pub struct RenamedEntity {}
         field(
             ident = "id",
             value(item(prim = "Ulid")),
-            default = "Ulid::generate",
             generated(insert = "Ulid::generate")
         ),
         field(ident = "name", value(item(prim = "Text", max_len = 12))),
@@ -81,7 +78,6 @@ pub struct BoundedTextEntity {}
         field(
             ident = "id",
             value(item(prim = "Ulid")),
-            default = "Ulid::generate",
             generated(insert = "Ulid::generate")
         ),
         field(ident = "payload", value(item(prim = "Blob", max_len = 4))),
@@ -100,15 +96,9 @@ pub struct BoundedBlobEntity {}
         field(
             ident = "id",
             value(item(prim = "Ulid")),
-            default = "Ulid::generate",
             generated(insert = "Ulid::generate")
         ),
-        field(
-            ident = "rank",
-            value(item(prim = "Int32")),
-            default = 3i32,
-            db_default = 7i32
-        ),
+        field(ident = "rank", value(item(prim = "Int32")), default = 7i32),
         field(
             ident = "label",
             value(item(prim = "Text", max_len = 8)),
@@ -126,11 +116,7 @@ pub struct DatabaseDefaultEntity {}
     store = "TestStore",
     pk(field = "pid", source = "external"),
     fields(
-        field(
-            ident = "pid",
-            value(item(prim = "Principal")),
-            default = "Principal::anonymous"
-        ),
+        field(ident = "pid", value(item(prim = "Principal")), default = "2vxsx-fae"),
         field(ident = "a", value(item(prim = "Int32")), default = 7),
     )
 )]

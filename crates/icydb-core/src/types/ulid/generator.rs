@@ -23,9 +23,16 @@ pub(crate) fn generate() -> Result<Ulid, UlidError> {
 /// as the ulid crate doesn't support a no-std generator
 ///
 
-#[derive(Default)]
 pub(crate) struct Generator {
     previous: Ulid,
+}
+
+impl Default for Generator {
+    fn default() -> Self {
+        Self {
+            previous: Ulid::nil(),
+        }
+    }
 }
 
 impl Generator {

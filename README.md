@@ -69,7 +69,7 @@ pub struct AppStore {}
     pk(field = "id"),
     index(fields = "name"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
         field(ident = "name", value(item(prim = "Text", unbounded))),
         field(ident = "score", value(item(prim = "Decimal", scale = 3)))
     )
@@ -147,7 +147,8 @@ cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "DROP INDEX character
 
 `sql` keeps an explicit `--canister/-c` flag because it also accepts trailing
 SQL text. Target-style commands such as `canister refresh`, `snapshot`,
-`schema`, and `metrics` take the canister as a required positional argument.
+`schema show`, `schema check`, and `metrics` take the canister as a required
+positional argument.
 All canister-targeting commands default the ICP environment to `demo`, or use
 `ICP_ENVIRONMENT` when it is set. To inspect local canister IDs:
 
@@ -176,8 +177,10 @@ endpoint resets all tables before calling the plain non-exported
 `__icydb_metrics` query endpoint, and `metrics.reset = true` generates the
 `__icydb_metrics_reset` update endpoint. `snapshot.enabled = true` generates
 `__icydb_snapshot`; `schema.enabled = true` generates `__icydb_schema` for
-accepted live schema metadata. The generated canister glue routes each SQL
-statement to the matching accepted entity.
+accepted live schema metadata and `__icydb_schema_check` for comparing the
+generated schema proposal compiled into the deployed canister with the accepted
+runtime catalog. The generated canister glue routes each SQL statement to the
+matching accepted entity.
 
 The CLI checks this config before calling generated endpoint families. If a
 surface is disabled for the selected canister, the command fails locally with
@@ -235,7 +238,8 @@ icydb sql --canister demo_rpg --sql "SELECT COUNT(*) FROM character"
 icydb sql -e test -c demo_rpg --sql "SHOW TABLES"
 icydb canister refresh demo_rpg
 icydb snapshot demo_rpg
-icydb schema demo_rpg
+icydb schema show demo_rpg
+icydb schema check demo_rpg
 icydb metrics demo_rpg
 icydb metrics demo_rpg --reset
 ```
@@ -246,6 +250,7 @@ Generated canisters can expose:
 
 - `__icydb_snapshot()` for configured current storage inventory
 - `__icydb_schema()` for configured accepted live schema metadata
+- `__icydb_schema_check()` for configured generated-vs-accepted schema checks
 - `__icydb_metrics(window_start_ms: Option<u64>)` for configured metrics
 - `__icydb_metrics_reset()` to clear configured in-memory metrics
 
@@ -253,7 +258,8 @@ Example:
 
 ```bash
 icydb snapshot <canister>
-icydb schema <canister>
+icydb schema show <canister>
+icydb schema check <canister>
 icydb metrics <canister>
 icydb metrics <canister> --window-start-ms <timestamp>
 icydb metrics <canister> --reset

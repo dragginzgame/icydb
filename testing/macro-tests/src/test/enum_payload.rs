@@ -24,7 +24,11 @@ pub mod test {
         store = "TestStore",
         pk(field = "id"),
         fields(
-            field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+            field(
+                ident = "id",
+                value(item(prim = "Ulid")),
+                generated(insert = "Ulid::generate")
+            ),
             field(ident = "cost", value(item(is = "EnumWithPayload")))
         )
     )]

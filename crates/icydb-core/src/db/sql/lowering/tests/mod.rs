@@ -48,21 +48,21 @@ use std::{
     path::{Path as FsPath, PathBuf},
 };
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 struct SqlLowerEntity {
     id: Ulid,
     name: String,
     age: u64,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 struct SqlLowerExpressionEntity {
     id: Ulid,
     name: String,
     age: u64,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 struct SqlLowerBoolEntity {
     id: Ulid,
     label: String,

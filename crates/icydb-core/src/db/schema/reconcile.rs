@@ -774,7 +774,7 @@ mod tests {
         canister = SchemaReconcileTestCanister,
     }
 
-    #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+    #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
     struct SchemaReconcileEntity {
         id: Ulid,
         name: String,
@@ -804,7 +804,7 @@ mod tests {
         false,
     );
 
-    #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+    #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
     struct IndexedSchemaEntity {
         id: Ulid,
         name: String,

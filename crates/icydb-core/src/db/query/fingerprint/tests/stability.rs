@@ -27,7 +27,7 @@ fn continuation_signature_hasher_profile_seed_matches_manual_contract() {
 
 #[test]
 fn fingerprint_is_deterministic_for_equivalent_predicates() {
-    let id = Ulid::default();
+    let id = Ulid::nil();
 
     let predicate_a = Predicate::And(vec![
         Predicate::eq("id".to_string(), id.to_value()),
@@ -226,7 +226,7 @@ fn explain_hash_matches_plan_fingerprint_for_expression_owned_filter_expr() {
         right: Box::new(Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("id"))),
-            right: Box::new(Expr::Literal(Ulid::default().to_value())),
+            right: Box::new(Expr::Literal(Ulid::nil().to_value())),
         }),
     });
 

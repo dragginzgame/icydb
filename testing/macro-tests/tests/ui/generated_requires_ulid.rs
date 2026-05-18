@@ -19,7 +19,6 @@ pub struct UiDataStore {}
         field(
             ident = "id",
             value(item(prim = "Ulid")),
-            default = "Ulid::generate",
             generated(insert = "Ulid::generate")
         ),
         field(

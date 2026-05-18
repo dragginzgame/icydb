@@ -61,9 +61,6 @@ pub struct Field {
     default: Option<Arg>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    db_default: Option<Arg>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
     generated: Option<FieldGeneration>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -76,7 +73,6 @@ impl Field {
         ident: &'static str,
         value: Value,
         default: Option<Arg>,
-        db_default: Option<Arg>,
         generated: Option<FieldGeneration>,
         write_management: Option<FieldWriteManagement>,
     ) -> Self {
@@ -84,7 +80,6 @@ impl Field {
             ident,
             value,
             default,
-            db_default,
             generated,
             write_management,
         }
@@ -103,11 +98,6 @@ impl Field {
     #[must_use]
     pub const fn default(&self) -> Option<&Arg> {
         self.default.as_ref()
-    }
-
-    #[must_use]
-    pub const fn db_default(&self) -> Option<&Arg> {
-        self.db_default.as_ref()
     }
 
     #[must_use]
@@ -135,9 +125,6 @@ impl VisitableNode for Field {
     fn drive<V: Visitor>(&self, v: &mut V) {
         self.value().accept(v);
         if let Some(node) = self.default() {
-            node.accept(v);
-        }
-        if let Some(node) = self.db_default() {
             node.accept(v);
         }
         if let Some(FieldGeneration::Insert(node)) = self.generated() {

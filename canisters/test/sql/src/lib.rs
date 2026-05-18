@@ -4,7 +4,7 @@
 
 extern crate canic_cdk as ic_cdk;
 
-use icydb::types::{Decimal, Float32, Float64};
+use icydb::types::{Decimal, Float32, Float64, Timestamp, Ulid};
 use icydb_testing_test_sql_fixtures::sql::{SqlTestNumericTypes, SqlTestUser};
 
 icydb::start!();
@@ -21,22 +21,28 @@ fn icydb_fixtures_load() -> Result<(), icydb::Error> {
 fn sql_users() -> Vec<SqlTestUser> {
     vec![
         SqlTestUser {
+            id: Ulid::generate(),
             name: "alice".to_string(),
             age: 31,
             rank: 28,
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
         SqlTestUser {
+            id: Ulid::generate(),
             name: "bob".to_string(),
             age: 24,
             rank: 25,
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
         SqlTestUser {
+            id: Ulid::generate(),
             name: "charlie".to_string(),
             age: 43,
             rank: 43,
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
     ]
 }
@@ -45,6 +51,7 @@ fn sql_users() -> Vec<SqlTestUser> {
 fn sql_numeric_type_rows() -> Vec<SqlTestNumericTypes> {
     vec![
         SqlTestNumericTypes {
+            id: Ulid::generate(),
             label: "alpha".to_string(),
             group_name: "mage".to_string(),
             int8_value: -1,
@@ -58,9 +65,11 @@ fn sql_numeric_type_rows() -> Vec<SqlTestNumericTypes> {
             decimal_value: Decimal::new(15, 2),
             float32_value: Float32::try_new(0.75).expect("finite float32 fixture value"),
             float64_value: Float64::try_new(0.50).expect("finite float64 fixture value"),
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
         SqlTestNumericTypes {
+            id: Ulid::generate(),
             label: "beta".to_string(),
             group_name: "fighter".to_string(),
             int8_value: 2,
@@ -74,7 +83,8 @@ fn sql_numeric_type_rows() -> Vec<SqlTestNumericTypes> {
             decimal_value: Decimal::new(25, 2),
             float32_value: Float32::try_new(0.25).expect("finite float32 fixture value"),
             float64_value: Float64::try_new(0.25).expect("finite float64 fixture value"),
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
     ]
 }

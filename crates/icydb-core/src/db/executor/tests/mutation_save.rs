@@ -148,7 +148,7 @@ fn reset_store() {
 /// TargetEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct TargetEntity {
     id: Ulid,
 }
@@ -170,7 +170,7 @@ crate::test_entity_schema! {
 /// SourceEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SourceEntity {
     id: Ulid,
     target: Ulid,
@@ -207,7 +207,7 @@ crate::test_entity_schema! {
 /// InvalidRelationMetadataEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct InvalidRelationMetadataEntity {
     id: Ulid,
     target: Ulid,
@@ -243,7 +243,7 @@ crate::test_entity_schema! {
 /// WrongTagRelationMetadataEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct WrongTagRelationMetadataEntity {
     id: Ulid,
     target: Ulid,
@@ -280,7 +280,7 @@ crate::test_entity_schema! {
 /// WrongStoreRelationMetadataEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct WrongStoreRelationMetadataEntity {
     id: Ulid,
     target: Ulid,
@@ -317,7 +317,7 @@ crate::test_entity_schema! {
 /// SourceSetEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SourceSetEntity {
     id: Ulid,
     targets: Vec<Ulid>,
@@ -352,7 +352,7 @@ crate::test_entity_schema! {
 /// SelfRelationEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SelfRelationEntity {
     id: Ulid,
     parents: Vec<Ulid>,
@@ -391,7 +391,7 @@ crate::test_entity_schema! {
 /// during typed writes instead of treating them as predicate literals.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd)]
 struct SaveSelectedPart {
     layer_id: Ulid,
     part_id: Ulid,
@@ -530,7 +530,7 @@ impl PersistedStructuredFieldCodec for SaveSelectedPart {
 /// contract that application entities use for `selected_parts`.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
 struct StructuredSelectionEntity {
     id: Ulid,
     selected_parts: Vec<SaveSelectedPart>,
@@ -661,7 +661,7 @@ impl PersistedStructuredFieldCodec for SaveSelectedPartSet {
 /// as `List<Record>` and `Map<..., Record>`.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, FieldProjection, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, FieldProjection, PartialEq)]
 struct StructuredSelectionSetEntity {
     id: Ulid,
     selected_parts: SaveSelectedPartSet,
@@ -814,7 +814,7 @@ impl PersistedStructuredFieldCodec for SaveSelectedPartMap {
 /// persisted `Map<..., ...>` fields.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
 struct StructuredSelectionMapEntity {
     id: Ulid,
     selected_parts_by_layer: SaveSelectedPartMap,
@@ -904,7 +904,7 @@ fn load_structured_selection_map_entity(id: Ulid) -> Option<StructuredSelectionM
 /// UniqueEmailEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct UniqueEmailEntity {
     id: Ulid,
     email: String,
@@ -1069,7 +1069,7 @@ fn load_nullable_account_event_entity(id: Ulid) -> Option<NullableAccountEventEn
 /// MismatchedPkEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct MismatchedPkEntity {
     id: Ulid,
     actual_id: Ulid,
@@ -1175,7 +1175,7 @@ impl PersistedFieldSlotCodec for SaveScale2Decimal {
 /// persisted scale is declared by the field type metadata contract.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct DecimalScaleEntity {
     id: Ulid,
     amount: SaveScale2Decimal,
@@ -1201,7 +1201,7 @@ crate::test_entity_schema! {
 /// BoundedTextEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct BoundedTextEntity {
     id: Ulid,
     name: String,
@@ -1232,7 +1232,7 @@ crate::test_entity_schema! {
 /// derive macro's authoring surface.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct DatabaseDefaultWriteEntity {
     id: Ulid,
     score: i32,
@@ -1288,7 +1288,7 @@ impl crate::traits::EntityValue for DatabaseDefaultWriteEntity {
 /// NullableAccountEventEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct NullableAccountEventEntity {
     id: Ulid,
     from: Option<Account>,

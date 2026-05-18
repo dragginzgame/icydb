@@ -134,7 +134,7 @@ impl StorageKey {
     }
 
     /// Global minimum key for scan bounds.
-    pub const MIN: Self = Self::Account(Account::from_parts(Principal::from_slice(&[]), None));
+    pub const MIN: Self = Self::Account(Account::storage_min_sentinel());
 
     #[must_use]
     pub const fn lower_bound() -> Self {

@@ -16,7 +16,7 @@ pub struct UiDataStore {}
     store = "UiDataStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
         field(
             ident = "token",
             value(opt, item(prim = "Ulid")),

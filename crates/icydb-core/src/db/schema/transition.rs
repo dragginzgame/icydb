@@ -215,6 +215,13 @@ pub(in crate::db::schema) fn decide_schema_transition(
         ));
     }
 
+    if accepted_snapshot_extends_generated_with_ddl_fields(actual, expected) {
+        return SchemaTransitionDecision::Accepted(SchemaTransitionPlan::from_mutation_request(
+            SchemaTransitionPlanKind::ExactMatch,
+            SchemaMutationRequest::ExactMatch,
+        ));
+    }
+
     match schema_mutation_request_for_snapshots(actual, expected) {
         SchemaMutationRequest::ExactMatch => {
             return SchemaTransitionDecision::Accepted(
@@ -340,6 +347,64 @@ fn accepted_snapshot_extends_generated_indexes(
         || actual.primary_key_field_id() != expected.primary_key_field_id()
         || actual.row_layout() != expected.row_layout()
         || actual.fields() != expected.fields()
+    {
+        return false;
+    }
+    if !expected
+        .indexes()
+        .iter()
+        .all(|index| actual.indexes().contains(index))
+    {
+        return false;
+    }
+
+    actual
+        .indexes()
+        .iter()
+        .filter(|index| !expected.indexes().contains(index))
+        .all(is_supported_extra_accepted_index)
+}
+
+// SQL field DDL will publish DDL-owned accepted fields that generated Rust
+// models do not mention. Treat those snapshots as compatible only when all
+// generated field/layout/index facts are still exact prefixes or members, and
+// every extra accepted field is explicitly DDL-owned.
+fn accepted_snapshot_extends_generated_with_ddl_fields(
+    actual: &PersistedSchemaSnapshot,
+    expected: &PersistedSchemaSnapshot,
+) -> bool {
+    if actual == expected {
+        return false;
+    }
+    if actual.version() != expected.version()
+        || actual.entity_path() != expected.entity_path()
+        || actual.entity_name() != expected.entity_name()
+        || actual.primary_key_field_id() != expected.primary_key_field_id()
+        || actual.fields().len() <= expected.fields().len()
+        || actual.row_layout().field_to_slot().len() <= expected.row_layout().field_to_slot().len()
+    {
+        return false;
+    }
+    if !actual
+        .fields()
+        .iter()
+        .zip(expected.fields())
+        .all(|(actual_field, expected_field)| actual_field == expected_field)
+    {
+        return false;
+    }
+    if !actual
+        .row_layout()
+        .field_to_slot()
+        .iter()
+        .zip(expected.row_layout().field_to_slot())
+        .all(|(actual_pair, expected_pair)| actual_pair == expected_pair)
+    {
+        return false;
+    }
+    if actual.fields()[expected.fields().len()..]
+        .iter()
+        .any(PersistedFieldSnapshot::generated)
     {
         return false;
     }
@@ -881,12 +946,12 @@ fn field_snapshot_storage_mismatch_detail(
 mod tests {
     use crate::{
         db::schema::{
-            FieldId, MutationCompatibility, PersistedFieldKind, PersistedFieldSnapshot,
-            PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-            PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, RebuildRequirement,
-            SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, SchemaTransitionDecision,
-            SchemaTransitionPlanKind, SchemaVersion, decide_schema_transition,
-            transition::SchemaTransitionRejectionKind,
+            FieldId, MutationCompatibility, PersistedFieldKind, PersistedFieldOrigin,
+            PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot,
+            PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot,
+            RebuildRequirement, SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy,
+            SchemaRowLayout, SchemaTransitionDecision, SchemaTransitionPlanKind, SchemaVersion,
+            decide_schema_transition, transition::SchemaTransitionRejectionKind,
         },
         model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
     };
@@ -1106,6 +1171,56 @@ mod tests {
             decide_schema_transition(&accepted, &generated)
         else {
             panic!("supported accepted DDL index should remain compatible with generated metadata");
+        };
+
+        assert_eq!(plan.kind(), SchemaTransitionPlanKind::ExactMatch);
+        assert_eq!(
+            plan.mutation_plan().compatibility(),
+            MutationCompatibility::MetadataOnlySafe,
+        );
+        assert_eq!(
+            plan.mutation_plan().rebuild_requirement(),
+            RebuildRequirement::NoRebuildRequired,
+        );
+    }
+
+    #[test]
+    fn schema_transition_policy_accepts_supported_ddl_fields_absent_from_generated_model() {
+        let generated = expected_snapshot();
+        let mut accepted_fields = generated.fields().to_vec();
+        accepted_fields.push(PersistedFieldSnapshot::new_with_write_policy_and_origin(
+            FieldId::new(3),
+            "nickname".to_string(),
+            SchemaFieldSlot::new(2),
+            PersistedFieldKind::Text { max_len: None },
+            Vec::new(),
+            true,
+            SchemaFieldDefault::None,
+            SchemaFieldWritePolicy::none(),
+            PersistedFieldOrigin::SqlDdl,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Text),
+        ));
+        let accepted = PersistedSchemaSnapshot::new(
+            generated.version(),
+            generated.entity_path().to_string(),
+            generated.entity_name().to_string(),
+            generated.primary_key_field_id(),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                    (FieldId::new(3), SchemaFieldSlot::new(2)),
+                ],
+            ),
+            accepted_fields,
+        );
+
+        let SchemaTransitionDecision::Accepted(plan) =
+            decide_schema_transition(&accepted, &generated)
+        else {
+            panic!("supported accepted DDL field should remain compatible with generated metadata");
         };
 
         assert_eq!(plan.kind(), SchemaTransitionPlanKind::ExactMatch);

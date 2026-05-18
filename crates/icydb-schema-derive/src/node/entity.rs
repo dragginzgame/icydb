@@ -470,22 +470,33 @@ fn entity_create_tokens(entity: &Entity) -> TokenStream {
             pub #field_ident: Option<#field_ty>
         }
     });
-    let insert_materialization = entity
-        .fields
-        .iter()
-        .enumerate()
-        .filter(|(_, field)| field_is_insert_authorable(field))
-        .map(|(index, field)| {
-            let field_ident = &field.ident;
-            let index = syn::LitInt::new(&index.to_string(), Span::call_site());
-
+    let entity_field_assignments = entity.fields.iter().enumerate().map(|(index, field)| {
+        let field_ident = &field.ident;
+        let index = syn::LitInt::new(&index.to_string(), Span::call_site());
+        let field_name = field_ident.to_string();
+        let fallback = field.rust_default_expr().unwrap_or_else(|| {
             quote! {
-                if let Some(value) = self.#field_ident {
-                    entity.#field_ident = value;
-                    authored_slots.push(#index);
-                }
+                return Err(::icydb::db::InternalError::mutation_create_missing_authored_fields(
+                    <Self::Entity as ::icydb::traits::Path>::PATH,
+                    #field_name,
+                ))
             }
         });
+
+        if field_is_insert_authorable(field) {
+            quote! {
+                #field_ident: match self.#field_ident {
+                    Some(value) => {
+                        authored_slots.push(#index);
+                        value
+                    }
+                    None => #fallback,
+                }
+            }
+        } else {
+            quote!(#field_ident: #fallback)
+        }
+    });
 
     quote! {
         #[doc = ""]
@@ -509,13 +520,13 @@ fn entity_create_tokens(entity: &Entity) -> TokenStream {
         impl ::icydb::traits::EntityCreateInput for #create_ident {
             type Entity = #ident;
 
-            fn materialize_create(self) -> ::icydb::traits::EntityCreateMaterialization<Self::Entity> {
-                let mut entity = <Self::Entity as ::core::default::Default>::default();
+            fn materialize_create(self) -> Result<::icydb::traits::EntityCreateMaterialization<Self::Entity>, ::icydb::db::InternalError> {
                 let mut authored_slots = ::std::vec::Vec::new();
+                let entity = #ident {
+                    #(#entity_field_assignments),*
+                };
 
-                #(#insert_materialization)*
-
-                ::icydb::traits::EntityCreateMaterialization::new(entity, authored_slots)
+                Ok(::icydb::traits::EntityCreateMaterialization::new(entity, authored_slots))
             }
         }
 
@@ -578,7 +589,6 @@ mod tests {
                 },
             },
             default: None,
-            db_default: None,
             generated: None,
             write_management: None,
         }
@@ -597,7 +607,6 @@ mod tests {
                 },
             },
             default: None,
-            db_default: None,
             generated: None,
             write_management: None,
         }
@@ -689,7 +698,7 @@ mod tests {
             fields(field(
                 ident = "id",
                 value(item(prim = "Ulid")),
-                default = "Ulid::generate"
+                generated(insert = "Ulid::generate")
             ))
         ))
         .expect("entity args should parse");

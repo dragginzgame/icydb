@@ -601,7 +601,7 @@ const fn active_true_and_archived_false_predicate_metadata() -> IndexPredicateMe
 /// Test entity used to lock end-to-end reduced SQL session behavior.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionSqlEntity {
     id: Ulid,
     name: String,
@@ -898,7 +898,7 @@ fn session_sql_profile_record_entry<'a>(
 /// root field is not the untyped `Value` fixture.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionSqlRecordFieldPathEntity {
     id: Ulid,
     name: String,
@@ -913,7 +913,7 @@ struct SessionSqlRecordFieldPathEntity {
 /// persisted nullable text data.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionNullableSqlEntity {
     id: Ulid,
     name: String,
@@ -927,7 +927,7 @@ struct SessionNullableSqlEntity {
 /// statement semantics against literal-addressable primary keys.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionSqlWriteEntity {
     id: u64,
     name: String,
@@ -943,7 +943,7 @@ struct SessionSqlWriteEntity {
 /// small scalar write fixture.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionSqlBlobEntity {
     id: Ulid,
     label: String,
@@ -959,7 +959,7 @@ struct SessionSqlBlobEntity {
 /// limited to primary keys and does not reuse general Rust default semantics.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionSqlGeneratedFieldEntity {
     id: u64,
     token: Ulid,
@@ -974,7 +974,7 @@ struct SessionSqlGeneratedFieldEntity {
 /// ordinary field defaults.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionSqlGeneratedTimestampEntity {
     id: u64,
     created_on_insert: Timestamp,
@@ -988,7 +988,7 @@ struct SessionSqlGeneratedTimestampEntity {
 /// still allowing the write lane to synthesize those fields automatically.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionSqlManagedWriteEntity {
     id: u64,
     name: String,
@@ -1004,7 +1004,7 @@ struct SessionSqlManagedWriteEntity {
 /// surface.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionSqlSignedWriteEntity {
     id: i64,
     delta: i64,
@@ -1017,7 +1017,7 @@ struct SessionSqlSignedWriteEntity {
 /// still validate strong relation targets against committed stores only.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionSqlSelfRelationEntity {
     id: u64,
     parent: Option<u64>,
@@ -1030,7 +1030,7 @@ struct SessionSqlSelfRelationEntity {
 /// across signed and unsigned scalar fields on the live SQL session path.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionSqlMixedNumericCompareEntity {
     id: Ulid,
     label: String,
@@ -1045,7 +1045,7 @@ struct SessionSqlMixedNumericCompareEntity {
 /// field-to-field boolean predicates on the live SQL session path.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionSqlBoolCompareEntity {
     id: Ulid,
     label: String,
@@ -1061,7 +1061,7 @@ struct SessionSqlBoolCompareEntity {
 /// field predicate.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionSqlFloatCompareEntity {
     id: Ulid,
     label: String,
@@ -1075,7 +1075,7 @@ struct SessionSqlFloatCompareEntity {
 /// lowering and execution when both bounds come from sibling fields.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionSqlFieldBoundRangeEntity {
     id: Ulid,
     label: String,
@@ -1091,7 +1091,7 @@ struct SessionSqlFieldBoundRangeEntity {
 /// real secondary `name` index.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct IndexedSessionSqlEntity {
     id: Ulid,
     name: String,
@@ -1105,7 +1105,7 @@ struct IndexedSessionSqlEntity {
 /// fallback against one real `name` index with the `active = true` predicate.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct FilteredIndexedSessionSqlEntity {
     id: Ulid,
     name: String,
@@ -1122,7 +1122,7 @@ struct FilteredIndexedSessionSqlEntity {
 /// covering-read execution on a real secondary `(code, serial)` index.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct CompositeIndexedSessionSqlEntity {
     id: Ulid,
     code: String,
@@ -1137,7 +1137,7 @@ struct CompositeIndexedSessionSqlEntity {
 /// planning and execution against one real expression-key secondary index.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct ExpressionIndexedSessionSqlEntity {
     id: Ulid,
     name: String,
@@ -1151,7 +1151,7 @@ struct ExpressionIndexedSessionSqlEntity {
 /// contracts under the live `db::session` owner.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionAggregateEntity {
     id: Ulid,
     group: u64,
@@ -1166,7 +1166,7 @@ struct SessionAggregateEntity {
 /// explain contracts under the `db::session` owner.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionExplainEntity {
     id: Ulid,
     group: u64,
@@ -1181,7 +1181,7 @@ struct SessionExplainEntity {
 /// planner ranking through the recovered session-visible index boundary.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionDeterministicChoiceEntity {
     id: Ulid,
     tier: String,
@@ -1196,7 +1196,7 @@ struct SessionDeterministicChoiceEntity {
 /// planner ranking through the recovered session-visible index boundary.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionDeterministicRangeEntity {
     id: Ulid,
     tier: String,
@@ -1212,7 +1212,7 @@ struct SessionDeterministicRangeEntity {
 /// through the recovered session-visible index boundary.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionRangeStrengthEntity {
     id: Ulid,
     tier: String,
@@ -1227,7 +1227,7 @@ struct SessionRangeStrengthEntity {
 /// index competition when one route discharges more residual predicate work.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionResidualRankingEntity {
     id: Ulid,
     active: bool,
@@ -1243,7 +1243,7 @@ struct SessionResidualRankingEntity {
 /// admission on one unique secondary `(tier, handle)` route.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionUniquePrefixOffsetEntity {
     id: Ulid,
     tier: String,
@@ -1258,7 +1258,7 @@ struct SessionUniquePrefixOffsetEntity {
 /// fallback ranking through the recovered session-visible index boundary.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionOrderOnlyChoiceEntity {
     id: Ulid,
     alpha: String,
@@ -1273,7 +1273,7 @@ struct SessionOrderOnlyChoiceEntity {
 /// owner instead of the pruned aggregate session matrix.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionTemporalEntity {
     id: Ulid,
     occurred_on: Date,

@@ -7,12 +7,29 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.158.x] 🧬 - 2026-05-18 - Schema DDL And Field Evolution
 
-- `0.158.0` starts the schema-DDL line by parsing
-  `ALTER TABLE ... ADD COLUMN ...` into the SQL DDL frontend model, including
-  nullable/default intent. The command now routes through the DDL surface,
-  binds the target accepted entity, and fails closed with an explicit
-  unsupported schema-DDL diagnostic before any accepted schema publication or
-  row rewrite work.
+- `0.158.3` hard-cuts schema defaults to one database-owned authoring concept
+  before executable field DDL expands.
+
+- `0.158.2` adds accepted field-origin metadata so future SQL-added columns can
+  be preserved as DDL-owned fields instead of unsafe generated-schema drift.
+
+  ```
+  DESCRIBE Character;
+  SHOW COLUMNS FROM Character;
+  ```
+
+- `0.158.1` adds `icydb schema show` and `icydb schema check` for inspecting
+  accepted schema metadata and generated-vs-accepted drift.
+
+  ```
+  icydb schema show demo_rpg
+  icydb schema check demo_rpg
+  icydb schema check demo_rpg -e demo
+  ```
+
+- `0.158.0` starts schema DDL by parsing and routing
+  `ALTER TABLE ... ADD COLUMN ...` while still failing closed before schema
+  publication.
 
   ```
   ALTER TABLE Character ADD COLUMN nickname text;

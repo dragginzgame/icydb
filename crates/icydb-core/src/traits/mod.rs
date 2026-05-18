@@ -635,10 +635,11 @@ impl<E> EntityCreateMaterialization<E> {
 ///
 
 pub trait EntityCreateInput: Sized {
-    type Entity: EntityValue + Default;
+    type Entity: EntityValue;
 
     /// Materialize one typed create payload plus authored-slot provenance.
-    fn materialize_create(self) -> EntityCreateMaterialization<Self::Entity>;
+    fn materialize_create(self)
+    -> Result<EntityCreateMaterialization<Self::Entity>, InternalError>;
 }
 
 ///
@@ -675,12 +676,12 @@ pub trait SingletonEntity: EntityValue {}
 ///
 
 pub trait TypeKind:
-    Kind + Clone + Default + DeserializeOwned + Sanitize + Validate + Visitable + PartialEq
+    Kind + Clone + DeserializeOwned + Sanitize + Validate + Visitable + PartialEq
 {
 }
 
 impl<T> TypeKind for T where
-    T: Kind + Clone + Default + DeserializeOwned + PartialEq + Sanitize + Validate + Visitable
+    T: Kind + Clone + DeserializeOwned + PartialEq + Sanitize + Validate + Visitable
 {
 }
 

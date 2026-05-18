@@ -60,7 +60,7 @@ fn scalar_explain_with_fixed_shape() -> crate::db::query::explain::ExplainPlan {
     let mut plan: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().predicate =
-        Some(Predicate::eq("id".to_string(), Ulid::default().to_value()));
+        Some(Predicate::eq("id".to_string(), Ulid::nil().to_value()));
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![crate::db::query::plan::OrderTerm::field(
             "id",
@@ -109,7 +109,7 @@ fn aggregate_having_expr(group: &GroupSpec, index: usize, op: CompareOp, value: 
 
 #[test]
 fn signature_is_deterministic_for_equivalent_predicates() {
-    let id = Ulid::default();
+    let id = Ulid::nil();
 
     let predicate_a = Predicate::And(vec![
         Predicate::eq("id".to_string(), id.to_value()),
@@ -326,7 +326,7 @@ fn explain_signature_matches_plan_signature_for_expression_owned_filter_expr() {
         right: Box::new(Expr::Binary {
             op: crate::db::query::plan::expr::BinaryOp::Eq,
             left: Box::new(Expr::Field(FieldId::new("id"))),
-            right: Box::new(Expr::Literal(Ulid::default().to_value())),
+            right: Box::new(Expr::Literal(Ulid::nil().to_value())),
         }),
     });
 

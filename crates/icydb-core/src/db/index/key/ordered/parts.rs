@@ -5,7 +5,7 @@
 
 use crate::{
     db::index::key::ordered::{OrderedValueEncodeError, encode_canonical_index_component},
-    types::{Account, Principal},
+    types::{Account, Principal, Subaccount},
     value::ValueEnum,
 };
 
@@ -42,7 +42,7 @@ pub(super) fn push_account_payload(
     owner_padded[..owner_len].copy_from_slice(&owner[..owner_len]);
     out.extend_from_slice(&owner_padded);
 
-    let subaccount = account.subaccount().unwrap_or_default().to_array();
+    let subaccount = account.subaccount().unwrap_or(Subaccount::MIN).to_array();
     let _ = ACCOUNT_SUBACCOUNT_LEN;
     out.extend_from_slice(&subaccount);
 

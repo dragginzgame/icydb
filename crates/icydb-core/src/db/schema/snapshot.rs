@@ -648,6 +648,18 @@ pub(in crate::db) enum PersistedIndexExpressionOp {
 }
 
 ///
+/// PersistedFieldOrigin
+///
+/// Durable ownership marker for one accepted field.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum PersistedFieldOrigin {
+    Generated,
+    SqlDdl,
+}
+
+///
 /// PersistedFieldSnapshot
 ///
 /// Owned schema snapshot for one live field.
@@ -665,6 +677,7 @@ pub(in crate::db) struct PersistedFieldSnapshot {
     nullable: bool,
     default: SchemaFieldDefault,
     write_policy: SchemaFieldWritePolicy,
+    origin: PersistedFieldOrigin,
     storage_decode: FieldStorageDecode,
     leaf_codec: LeafCodec,
 }
@@ -720,6 +733,40 @@ impl PersistedFieldSnapshot {
         storage_decode: FieldStorageDecode,
         leaf_codec: LeafCodec,
     ) -> Self {
+        Self::new_with_write_policy_and_origin(
+            id,
+            name,
+            slot,
+            kind,
+            nested_leaves,
+            nullable,
+            default,
+            write_policy,
+            PersistedFieldOrigin::Generated,
+            storage_decode,
+            leaf_codec,
+        )
+    }
+
+    /// Build one persisted field snapshot with explicit write policy and origin.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "schema snapshot construction keeps every persisted field contract explicit"
+    )]
+    #[must_use]
+    pub(in crate::db) const fn new_with_write_policy_and_origin(
+        id: FieldId,
+        name: String,
+        slot: SchemaFieldSlot,
+        kind: PersistedFieldKind,
+        nested_leaves: Vec<PersistedNestedLeafSnapshot>,
+        nullable: bool,
+        default: SchemaFieldDefault,
+        write_policy: SchemaFieldWritePolicy,
+        origin: PersistedFieldOrigin,
+        storage_decode: FieldStorageDecode,
+        leaf_codec: LeafCodec,
+    ) -> Self {
         Self {
             id,
             name,
@@ -729,6 +776,7 @@ impl PersistedFieldSnapshot {
             nullable,
             default,
             write_policy,
+            origin,
             storage_decode,
             leaf_codec,
         }
@@ -780,6 +828,18 @@ impl PersistedFieldSnapshot {
     #[must_use]
     pub(in crate::db) const fn write_policy(&self) -> SchemaFieldWritePolicy {
         self.write_policy
+    }
+
+    /// Return the durable field origin.
+    #[must_use]
+    pub(in crate::db) const fn origin(&self) -> PersistedFieldOrigin {
+        self.origin
+    }
+
+    /// Return whether this accepted field came from generated schema metadata.
+    #[must_use]
+    pub(in crate::db) const fn generated(&self) -> bool {
+        matches!(self.origin, PersistedFieldOrigin::Generated)
     }
 
     /// Return the stored payload decode contract.

@@ -9,6 +9,7 @@ use candid::CandidType;
 #[cfg(feature = "sql")]
 use canic_cdk::query;
 use canic_cdk::update;
+use icydb::types::Timestamp;
 #[cfg(feature = "sql")]
 use icydb::{
     ErrorKind, ErrorOrigin, QueryErrorKind,
@@ -1106,7 +1107,8 @@ fn perf_audit_users() -> Vec<PerfAuditUser> {
             age_nat: 31,
             rank: 28,
             active: true,
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
         PerfAuditUser {
             id: 2,
@@ -1115,7 +1117,8 @@ fn perf_audit_users() -> Vec<PerfAuditUser> {
             age_nat: 24,
             rank: 25,
             active: true,
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
         PerfAuditUser {
             id: 3,
@@ -1124,7 +1127,8 @@ fn perf_audit_users() -> Vec<PerfAuditUser> {
             age_nat: 43,
             rank: 43,
             active: false,
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
         PerfAuditUser {
             id: 4,
@@ -1133,7 +1137,8 @@ fn perf_audit_users() -> Vec<PerfAuditUser> {
             age_nat: 26,
             rank: 29,
             active: true,
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
         PerfAuditUser {
             id: 5,
@@ -1142,7 +1147,8 @@ fn perf_audit_users() -> Vec<PerfAuditUser> {
             age_nat: 30,
             rank: 30,
             active: true,
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
         PerfAuditUser {
             id: 6,
@@ -1151,7 +1157,8 @@ fn perf_audit_users() -> Vec<PerfAuditUser> {
             age_nat: 19,
             rank: 17,
             active: false,
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
     ]
 }
@@ -1176,7 +1183,8 @@ fn perf_audit_blobs() -> Vec<PerfAuditBlob> {
             bucket: 10,
             thumbnail: perf_blob(11, 1_024),
             chunk: perf_blob(31, 16_384),
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
         PerfAuditBlob {
             id: 2,
@@ -1184,7 +1192,8 @@ fn perf_audit_blobs() -> Vec<PerfAuditBlob> {
             bucket: 10,
             thumbnail: perf_blob(12, 2_048),
             chunk: perf_blob(32, 32_768),
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
         PerfAuditBlob {
             id: 3,
@@ -1192,7 +1201,8 @@ fn perf_audit_blobs() -> Vec<PerfAuditBlob> {
             bucket: 10,
             thumbnail: perf_blob(13, 4_096),
             chunk: perf_blob(33, 65_536),
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
         PerfAuditBlob {
             id: 4,
@@ -1200,7 +1210,8 @@ fn perf_audit_blobs() -> Vec<PerfAuditBlob> {
             bucket: 20,
             thumbnail: perf_blob(14, 1_024),
             chunk: perf_blob(34, 16_384),
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
         PerfAuditBlob {
             id: 5,
@@ -1208,7 +1219,8 @@ fn perf_audit_blobs() -> Vec<PerfAuditBlob> {
             bucket: 20,
             thumbnail: perf_blob(15, 2_048),
             chunk: perf_blob(35, 32_768),
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
         PerfAuditBlob {
             id: 6,
@@ -1216,7 +1228,8 @@ fn perf_audit_blobs() -> Vec<PerfAuditBlob> {
             bucket: 30,
             thumbnail: perf_blob(16, 4_096),
             chunk: perf_blob(36, 65_536),
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
     ]
 }
@@ -1230,7 +1243,8 @@ fn perf_audit_accounts() -> Vec<PerfAuditAccount> {
             tier: "gold".to_string(),
             active: true,
             score: 91,
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
         PerfAuditAccount {
             id: 2,
@@ -1238,7 +1252,8 @@ fn perf_audit_accounts() -> Vec<PerfAuditAccount> {
             tier: "gold".to_string(),
             active: true,
             score: 75,
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
         PerfAuditAccount {
             id: 3,
@@ -1246,7 +1261,8 @@ fn perf_audit_accounts() -> Vec<PerfAuditAccount> {
             tier: "silver".to_string(),
             active: true,
             score: 78,
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
         PerfAuditAccount {
             id: 4,
@@ -1254,7 +1270,8 @@ fn perf_audit_accounts() -> Vec<PerfAuditAccount> {
             tier: "silver".to_string(),
             active: false,
             score: 66,
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
         PerfAuditAccount {
             id: 5,
@@ -1262,7 +1279,8 @@ fn perf_audit_accounts() -> Vec<PerfAuditAccount> {
             tier: "gold".to_string(),
             active: true,
             score: 88,
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
         PerfAuditAccount {
             id: 6,
@@ -1270,7 +1288,8 @@ fn perf_audit_accounts() -> Vec<PerfAuditAccount> {
             tier: "bronze".to_string(),
             active: true,
             score: 63,
-            ..Default::default()
+            created_at: Timestamp::default(),
+            updated_at: Timestamp::default(),
         },
     ]
 }

@@ -14,7 +14,11 @@ use icydb::design::prelude::*;
     store = "TestStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "string_test", value(item(prim = "Text", unbounded))),
         field(ident = "principal_test", value(item(prim = "Principal"))),
         field(ident = "blob_test", value(item(prim = "Blob", unbounded))),
@@ -61,7 +65,11 @@ pub struct ComplexEntity {}
     store = "TestStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "simple_text", value(item(prim = "Text", unbounded))),
         field(ident = "tuple_test", value(item(is = "Tuple"))),
         field(ident = "text_many", value(many, item(prim = "Text", unbounded))),
@@ -88,7 +96,11 @@ pub struct AdminEntity {}
     store = "TestStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "simple_id", value(item(rel = "SimpleEntity", prim = "Ulid"))),
         field(
             ident = "opt_simple_id",
@@ -111,7 +123,11 @@ pub struct RelatedEntity {}
     store = "TestStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "name", value(item(prim = "Text", unbounded)))
     )
 )]
@@ -122,7 +138,11 @@ pub struct SimpleEntity {}
 ///
 
 #[record(fields(
-    field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+    field(
+        ident = "id",
+        value(item(prim = "Ulid")),
+        generated(insert = "Ulid::generate")
+    ),
     field(ident = "variant_a", value(item(is = "EnumA"))),
     field(ident = "description", value(item(prim = "Text", unbounded))),
 ))]

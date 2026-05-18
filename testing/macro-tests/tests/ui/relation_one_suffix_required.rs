@@ -15,7 +15,7 @@ pub struct UiDataStore {}
 #[entity(
     store = "UiDataStore",
     pk(field = "id"),
-    fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
+    fields(field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
 )]
 pub struct User;
 
@@ -23,7 +23,7 @@ pub struct User;
     store = "UiDataStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
         field(ident = "user", value(item(rel = "User", prim = "Ulid")))
     )
 )]

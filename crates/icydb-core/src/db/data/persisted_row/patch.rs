@@ -442,7 +442,7 @@ pub(in crate::db) fn serialize_structural_patch_fields_with_accepted_contract(
 /// Unlike sparse update serialization, this fills omitted accepted slots using
 /// the schema-owned missing-slot policy before typed materialization. That
 /// keeps insert/replace omissions on accepted database defaults instead of
-/// falling through to generated Rust construction defaults.
+/// falling through to generated Rust `Default` behavior.
 pub(in crate::db) fn serialize_complete_structural_patch_fields_with_accepted_contract(
     entity_path: &'static str,
     accepted_decode_contract: AcceptedRowDecodeContract,

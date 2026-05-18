@@ -29,7 +29,8 @@ mod tests {
 
         let row = UserProjects {
             user_id: Ulid::from_parts(7, 1),
-            ..Default::default()
+            created_at: icydb::types::Timestamp::default(),
+            updated_at: icydb::types::Timestamp::default(),
         };
         let _: Ulid = row.user_id;
     }

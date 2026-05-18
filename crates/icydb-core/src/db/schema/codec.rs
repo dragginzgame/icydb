@@ -5,8 +5,8 @@
 
 use crate::{
     db::schema::{
-        FieldId, PersistedEnumVariant, PersistedFieldKind, PersistedFieldSnapshot,
-        PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
+        FieldId, PersistedEnumVariant, PersistedFieldKind, PersistedFieldOrigin,
+        PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexOrigin, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
         PersistedRelationStrength, PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot,
@@ -58,8 +58,16 @@ struct PersistedFieldSnapshotWire {
     nullable: bool,
     default: SchemaFieldDefaultWire,
     write_policy: SchemaFieldWritePolicyWire,
+    origin: PersistedFieldOriginWire,
     storage_decode: FieldStorageDecodeWire,
     leaf_codec: LeafCodecWire,
+}
+
+// Candid wire enum for accepted field origin.
+#[derive(CandidType, Deserialize)]
+enum PersistedFieldOriginWire {
+    Generated,
+    SqlDdl,
 }
 
 // Candid wire container for one nested leaf rooted at a top-level field.
@@ -404,13 +412,14 @@ impl PersistedFieldSnapshotWire {
             nullable: field.nullable(),
             default: SchemaFieldDefaultWire::from_default(field.default()),
             write_policy: SchemaFieldWritePolicyWire::from_policy(field.write_policy()),
+            origin: PersistedFieldOriginWire::from_origin(field.origin()),
             storage_decode: FieldStorageDecodeWire::from_storage_decode(field.storage_decode()),
             leaf_codec: LeafCodecWire::from_leaf_codec(field.leaf_codec()),
         }
     }
 
     fn into_field(self) -> Result<PersistedFieldSnapshot, InternalError> {
-        Ok(PersistedFieldSnapshot::new_with_write_policy(
+        Ok(PersistedFieldSnapshot::new_with_write_policy_and_origin(
             FieldId::new(self.id),
             self.name,
             SchemaFieldSlot::new(self.slot),
@@ -422,9 +431,26 @@ impl PersistedFieldSnapshotWire {
             self.nullable,
             self.default.into_default(),
             self.write_policy.into_policy(),
+            self.origin.into_origin(),
             self.storage_decode.into_storage_decode(),
             self.leaf_codec.into_leaf_codec(),
         ))
+    }
+}
+
+impl PersistedFieldOriginWire {
+    const fn from_origin(origin: PersistedFieldOrigin) -> Self {
+        match origin {
+            PersistedFieldOrigin::Generated => Self::Generated,
+            PersistedFieldOrigin::SqlDdl => Self::SqlDdl,
+        }
+    }
+
+    const fn into_origin(self) -> PersistedFieldOrigin {
+        match self {
+            Self::Generated => PersistedFieldOrigin::Generated,
+            Self::SqlDdl => PersistedFieldOrigin::SqlDdl,
+        }
     }
 }
 
@@ -909,12 +935,12 @@ impl ScalarCodecWire {
 mod tests {
     use crate::{
         db::schema::{
-            FieldId, PersistedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,
-            PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
-            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-            PersistedSchemaSnapshot, SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy,
-            SchemaRowLayout, SchemaVersion, decode_persisted_schema_snapshot,
-            encode_persisted_schema_snapshot,
+            FieldId, PersistedFieldKind, PersistedFieldOrigin, PersistedFieldSnapshot,
+            PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
+            PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
+            PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
+            SchemaFieldDefault, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaRowLayout,
+            SchemaVersion, decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
         },
         model::field::{
             FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec, ScalarCodec,
@@ -1006,6 +1032,65 @@ mod tests {
             decoded.fields()[1].write_policy().write_management(),
             Some(FieldWriteManagement::UpdatedAt),
             "managed write policy should survive schema snapshot round-trip",
+        );
+    }
+
+    #[test]
+    fn persisted_schema_snapshot_round_trips_field_origin() {
+        let snapshot = PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "entities::FieldOrigin".to_string(),
+            "FieldOrigin".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new_with_write_policy_and_origin(
+                    FieldId::new(2),
+                    "nickname".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Text { max_len: None },
+                    Vec::new(),
+                    true,
+                    SchemaFieldDefault::None,
+                    SchemaFieldWritePolicy::none(),
+                    PersistedFieldOrigin::SqlDdl,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Text),
+                ),
+            ],
+        );
+        let encoded = encode_persisted_schema_snapshot(&snapshot)
+            .expect("schema snapshot should encode field origin");
+
+        let decoded = decode_persisted_schema_snapshot(&encoded)
+            .expect("schema snapshot should decode field origin");
+
+        assert_eq!(
+            decoded.fields()[0].origin(),
+            PersistedFieldOrigin::Generated,
+            "generated field origin should survive schema snapshot round-trip",
+        );
+        assert_eq!(
+            decoded.fields()[1].origin(),
+            PersistedFieldOrigin::SqlDdl,
+            "DDL field origin should survive schema snapshot round-trip",
         );
     }
 

@@ -9,7 +9,11 @@ use icydb::design::prelude::*;
     store = "TestStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "multiple_ten", value(item(is = "MultipleTenType"))),
         field(
             ident = "lte_ten",

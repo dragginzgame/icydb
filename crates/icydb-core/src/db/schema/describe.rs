@@ -21,6 +21,7 @@ use crate::{
 };
 use candid::CandidType;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::fmt::Write;
 
 const ENTITY_FIELD_DESCRIPTION_NO_SLOT: u16 = u16::MAX;
@@ -37,6 +38,42 @@ pub struct EntitySchemaDescription {
     pub(crate) fields: Vec<EntityFieldDescription>,
     pub(crate) indexes: Vec<EntityIndexDescription>,
     pub(crate) relations: Vec<EntityRelationDescription>,
+}
+
+#[cfg_attr(
+    doc,
+    doc = "EntitySchemaCheckDescription\n\nGenerated-vs-accepted schema description payload for one entity."
+)]
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct EntitySchemaCheckDescription {
+    pub(crate) generated: EntitySchemaDescription,
+    pub(crate) accepted: EntitySchemaDescription,
+}
+
+impl EntitySchemaCheckDescription {
+    /// Construct one generated-vs-accepted schema check payload.
+    #[must_use]
+    pub const fn new(
+        generated: EntitySchemaDescription,
+        accepted: EntitySchemaDescription,
+    ) -> Self {
+        Self {
+            generated,
+            accepted,
+        }
+    }
+
+    /// Borrow the generated schema proposal description.
+    #[must_use]
+    pub const fn generated(&self) -> &EntitySchemaDescription {
+        &self.generated
+    }
+
+    /// Borrow the accepted live-schema description.
+    #[must_use]
+    pub const fn accepted(&self) -> &EntitySchemaDescription {
+        &self.accepted
+    }
 }
 
 impl EntitySchemaDescription {
@@ -108,6 +145,7 @@ pub struct EntityFieldDescription {
     pub(crate) kind: String,
     pub(crate) primary_key: bool,
     pub(crate) queryable: bool,
+    pub(crate) origin: String,
 }
 
 impl EntityFieldDescription {
@@ -119,6 +157,7 @@ impl EntityFieldDescription {
         kind: String,
         primary_key: bool,
         queryable: bool,
+        origin: String,
     ) -> Self {
         let slot = match slot {
             Some(slot) => slot,
@@ -131,6 +170,7 @@ impl EntityFieldDescription {
             kind,
             primary_key,
             queryable,
+            origin,
         }
     }
 
@@ -166,6 +206,12 @@ impl EntityFieldDescription {
     #[must_use]
     pub const fn queryable(&self) -> bool {
         self.queryable
+    }
+
+    /// Borrow the accepted/generated field origin label.
+    #[must_use]
+    pub const fn origin(&self) -> &str {
+        self.origin.as_str()
     }
 }
 
@@ -469,12 +515,17 @@ pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
             field_type_from_persisted_kind(field.kind())
                 .value_kind()
                 .is_queryable(),
+            field_origin_label(field.generated()),
         );
 
         push_described_field_row(&mut fields, field.name(), slot, primary_key, None, metadata);
 
         if !field.nested_leaves().is_empty() {
-            describe_persisted_nested_leaves(&mut fields, field.nested_leaves());
+            describe_persisted_nested_leaves(
+                &mut fields,
+                field.nested_leaves(),
+                field_origin_label(field.generated()),
+            );
         }
     }
 
@@ -517,12 +568,17 @@ fn describe_entity_fields_with_slot_lookup(
 struct DescribeFieldMetadata {
     kind: String,
     queryable: bool,
+    origin: String,
 }
 
 impl DescribeFieldMetadata {
     // Build one metadata bundle from already-rendered field facts.
-    const fn new(kind: String, queryable: bool) -> Self {
-        Self { kind, queryable }
+    const fn new(kind: String, queryable: bool, origin: String) -> Self {
+        Self {
+            kind,
+            queryable,
+            origin,
+        }
     }
 }
 
@@ -541,7 +597,11 @@ fn describe_field_recursive(
         let mut kind = summarize_field_kind(&field.kind);
         write_model_default_summary(&mut kind, field.database_default());
 
-        DescribeFieldMetadata::new(kind, field.kind.value_kind().is_queryable())
+        DescribeFieldMetadata::new(
+            kind,
+            field.kind.value_kind().is_queryable(),
+            "generated".to_string(),
+        )
     });
 
     push_described_field_row(fields, name, slot, primary_key, tree_prefix, metadata);
@@ -572,6 +632,7 @@ fn push_described_field_row(
         metadata.kind,
         primary_key,
         metadata.queryable,
+        metadata.origin,
     ));
 }
 
@@ -605,6 +666,7 @@ fn describe_generated_nested_fields(
 fn describe_persisted_nested_leaves(
     fields: &mut Vec<EntityFieldDescription>,
     nested_leaves: &[PersistedNestedLeafSnapshot],
+    origin: String,
 ) {
     for (index, leaf) in nested_leaves.iter().enumerate() {
         let prefix = if index + 1 == nested_leaves.len() {
@@ -618,9 +680,18 @@ fn describe_persisted_nested_leaves(
             field_type_from_persisted_kind(leaf.kind())
                 .value_kind()
                 .is_queryable(),
+            origin.clone(),
         );
 
         push_described_field_row(fields, name, None, false, Some(prefix), metadata);
+    }
+}
+
+fn field_origin_label(generated: bool) -> String {
+    if generated {
+        "generated".to_string()
+    } else {
+        "ddl".to_string()
     }
 }
 
@@ -769,9 +840,23 @@ fn write_schema_default_summary(out: &mut String, default: &SchemaFieldDefault) 
 
 // Keep default rendering compact and byte-oriented. Persisted schema defaults
 // are field-codec payloads, not SQL literals, so the describe surface reports
-// their presence and encoded size rather than inventing a lossy display value.
+// their presence and a stable fingerprint rather than inventing a lossy value.
 fn write_encoded_default_payload_summary(out: &mut String, payload: &[u8]) {
-    let _ = write!(out, " default=slot_payload(bytes={})", payload.len());
+    let _ = write!(
+        out,
+        " default=slot_payload(bytes={}, sha256={})",
+        payload.len(),
+        short_default_payload_fingerprint(payload),
+    );
+}
+
+fn short_default_payload_fingerprint(payload: &[u8]) -> String {
+    let digest = Sha256::digest(payload);
+    let mut out = String::with_capacity(16);
+    for byte in &digest[..8] {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
 }
 
 #[cfg_attr(
@@ -1016,7 +1101,7 @@ mod tests {
     fn entity_field_description_candid_shape_is_stable() {
         let fields = expect_record_fields(EntityFieldDescription::ty());
 
-        for field in ["name", "slot", "kind", "primary_key", "queryable"] {
+        for field in ["name", "slot", "kind", "primary_key", "queryable", "origin"] {
             assert!(
                 fields.iter().any(|candidate| candidate == field),
                 "EntityFieldDescription must keep `{field}` field key",
@@ -1092,6 +1177,7 @@ mod tests {
                 "ulid".to_string(),
                 true,
                 true,
+                "generated".to_string(),
             )],
             vec![EntityIndexDescription::new(
                 "idx_email".to_string(),
@@ -1209,7 +1295,10 @@ mod tests {
             .find(|field| field.name() == "score")
             .expect("database-defaulted score field should be described");
 
-        assert_eq!(score_field.kind(), "nat default=slot_payload(bytes=10)");
+        assert_eq!(
+            score_field.kind(),
+            "nat default=slot_payload(bytes=10, sha256=37746b8fe16bb6b4)"
+        );
     }
 
     #[test]
@@ -1272,7 +1361,8 @@ mod tests {
                 (
                     "payload".to_string(),
                     Some(7),
-                    "blob(unbounded) default=slot_payload(bytes=3)".to_string()
+                    "blob(unbounded) default=slot_payload(bytes=3, sha256=8e1336ab78ebe687)"
+                        .to_string()
                 ),
             ],
         );

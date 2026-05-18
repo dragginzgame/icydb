@@ -1,4 +1,4 @@
-error: generated(insert = ...) and default = ... must use the same supported generator path when both are present
+error: generated(insert = ...) cannot be combined with default = ...; default is a database/schema default
   --> tests/ui/generated_default_conflict.rs:21:21
    |
 21 |             ident = "created_on_insert",

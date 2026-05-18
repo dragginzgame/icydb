@@ -158,8 +158,8 @@ pub struct FieldModel {
 /// FieldDatabaseDefault
 ///
 /// FieldDatabaseDefault declares the database-level default contract for one
-/// runtime field. It is intentionally separate from Rust `Default` so schema
-/// reconciliation never treats construction defaults as persisted-row policy.
+/// runtime field. It comes only from explicit schema/DDL default intent so
+/// schema reconciliation never treats Rust `Default` as persisted-row policy.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -170,7 +170,7 @@ pub enum FieldDatabaseDefault {
     ///
     /// This is intentionally a field-codec payload, not a runtime `Value`.
     /// Generated schema code may provide this once database defaults are
-    /// explicitly authored, but Rust construction defaults must not flow here.
+    /// explicitly authored, but implicit Rust defaults must not flow here.
     EncodedSlotPayload(&'static [u8]),
 }
 

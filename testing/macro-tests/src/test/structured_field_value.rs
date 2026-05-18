@@ -146,11 +146,7 @@ mod tests {
             value(item(prim = "Text", unbounded)),
             default = "String::new"
         ),
-        field(
-            ident = "address",
-            value(item(is = "StructuredAddressHarness")),
-            default = "StructuredAddressHarness::default"
-        )
+        field(ident = "address", value(item(is = "StructuredAddressHarness")))
     ))]
     pub struct StructuredNestedProfileHarness {}
 
@@ -213,7 +209,11 @@ mod tests {
     #[entity(
         store = "TestStore",
         pk(field = "id"),
-        fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
+        fields(field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ))
     )]
     pub struct StructuredLayerHarness {}
 
@@ -228,7 +228,11 @@ mod tests {
     #[entity(
         store = "TestStore",
         pk(field = "id"),
-        fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
+        fields(field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ))
     )]
     pub struct StructuredPartHarness {}
 
@@ -271,7 +275,11 @@ mod tests {
         store = "TestStore",
         pk(field = "id"),
         fields(
-            field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+            field(
+                ident = "id",
+                value(item(prim = "Ulid")),
+                generated(insert = "Ulid::generate")
+            ),
             field(ident = "profile", value(item(is = "StructuredProfileHarness"))),
             field(
                 ident = "opt_profile",
@@ -285,7 +293,11 @@ mod tests {
         store = "TestStore",
         pk(field = "id"),
         fields(
-            field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+            field(
+                ident = "id",
+                value(item(prim = "Ulid")),
+                generated(insert = "Ulid::generate")
+            ),
             field(ident = "profile", value(item(is = "StructuredProfileHarness"))),
             field(
                 ident = "opt_profile",
@@ -315,7 +327,11 @@ mod tests {
         store = "TestStore",
         pk(field = "id"),
         fields(
-            field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+            field(
+                ident = "id",
+                value(item(prim = "Ulid")),
+                generated(insert = "Ulid::generate")
+            ),
             field(
                 ident = "selected_parts",
                 value(many, item(is = "StructuredSelectedPartHarness"))
@@ -336,7 +352,11 @@ mod tests {
         store = "TestStore",
         pk(field = "id"),
         fields(
-            field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+            field(
+                ident = "id",
+                value(item(prim = "Ulid")),
+                generated(insert = "Ulid::generate")
+            ),
             field(
                 ident = "asset_selection",
                 value(item(is = "StructuredAssetSelectionHarness"))
@@ -349,7 +369,11 @@ mod tests {
         store = "TestStore",
         pk(field = "id"),
         fields(
-            field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+            field(
+                ident = "id",
+                value(item(prim = "Ulid")),
+                generated(insert = "Ulid::generate")
+            ),
             field(
                 ident = "nickname",
                 value(item(prim = "Text", unbounded)),
@@ -558,7 +582,7 @@ mod tests {
     }
 
     fn expected_nested_profile_value() -> Value {
-        nested_profile_value(&StructuredNestedProfileHarness::default())
+        nested_profile_value(&nested_profile_with("", "", 0))
     }
 
     #[test]
@@ -595,7 +619,8 @@ mod tests {
             id: Ulid::from_parts(700, 1),
             profile: StructuredProfileHarness::default(),
             opt_profile: Some(StructuredProfileHarness::default()),
-            ..Default::default()
+            created_at: icydb::types::Timestamp::default(),
+            updated_at: icydb::types::Timestamp::default(),
         };
 
         assert_eq!(entity.get_value_by_index(1), Some(expected_profile_value()));
@@ -605,7 +630,8 @@ mod tests {
             id: Ulid::from_parts(701, 1),
             profile: StructuredProfileHarness::default(),
             opt_profile: None,
-            ..Default::default()
+            created_at: icydb::types::Timestamp::default(),
+            updated_at: icydb::types::Timestamp::default(),
         };
 
         assert_eq!(none_entity.get_value_by_index(2), Some(Value::Null));
@@ -613,7 +639,7 @@ mod tests {
 
     #[test]
     fn nested_record_structured_slot_payload_roundtrips_through_storage_helpers() {
-        let profile = StructuredNestedProfileHarness::default();
+        let profile = nested_profile_with("", "", 0);
         let payload = encode_persisted_structured_slot_payload(&profile, "profile")
             .expect("encode nested record payload");
         let decoded = decode_persisted_structured_slot_payload::<StructuredNestedProfileHarness>(
@@ -637,7 +663,8 @@ mod tests {
             opt_profile: Some(profile_with("Grace", 9)),
             nested_profile: nested_profile_with("Primary", "Paris", 75_001),
             profile_history: vec![profile_with("Ada", 7), profile_with("Grace", 9)],
-            ..Default::default()
+            created_at: icydb::types::Timestamp::default(),
+            updated_at: icydb::types::Timestamp::default(),
         };
 
         let slots = roundtrip_entity_through_captured_slots(&entity);
@@ -685,7 +712,8 @@ mod tests {
             opt_profile: None,
             nested_profile: nested_profile_with("Nested", "Berlin", 10_115),
             profile_history: vec![profile_with("History", 21)],
-            ..Default::default()
+            created_at: icydb::types::Timestamp::default(),
+            updated_at: icydb::types::Timestamp::default(),
         };
 
         let slots = roundtrip_entity_through_captured_slots(&entity);
@@ -727,7 +755,8 @@ mod tests {
                 profile_with("Timeline-B", 2),
                 profile_with("Timeline-C", 3),
             ],
-            ..Default::default()
+            created_at: icydb::types::Timestamp::default(),
+            updated_at: icydb::types::Timestamp::default(),
         };
 
         assert_eq!(
@@ -746,7 +775,8 @@ mod tests {
                 selected_part_with(Ulid::from_parts(721, 1), Ulid::from_parts(721, 2)),
                 selected_part_with(Ulid::from_parts(722, 1), Ulid::from_parts(722, 2)),
             ],
-            ..Default::default()
+            created_at: icydb::types::Timestamp::default(),
+            updated_at: icydb::types::Timestamp::default(),
         };
 
         let slots = roundtrip_entity_through_captured_slots(&entity);
@@ -793,7 +823,8 @@ mod tests {
             let entity = StructuredAssetSelectionEntityHarness {
                 id: Ulid::from_parts(740, u128::try_from(case_index + 1).expect("case id fits")),
                 asset_selection,
-                ..Default::default()
+                created_at: icydb::types::Timestamp::default(),
+                updated_at: icydb::types::Timestamp::default(),
             };
             let slots = roundtrip_entity_through_captured_slots(&entity);
 
@@ -912,7 +943,8 @@ mod tests {
             id: Ulid::from_parts(713, 1),
             nickname: "custom".to_string(),
             note: Some("memo".to_string()),
-            ..Default::default()
+            created_at: icydb::types::Timestamp::default(),
+            updated_at: icydb::types::Timestamp::default(),
         };
         let mut slots = capture_entity_slots(&entity);
 
@@ -933,7 +965,8 @@ mod tests {
             id: Ulid::from_parts(714, 1),
             nickname: "custom".to_string(),
             note: Some("memo".to_string()),
-            ..Default::default()
+            created_at: icydb::types::Timestamp::default(),
+            updated_at: icydb::types::Timestamp::default(),
         };
         let mut sparse_slots = capture_entity_slots(&sparse_source);
 
@@ -947,7 +980,8 @@ mod tests {
             id: sparse_source.id,
             nickname: "\"guest\"".to_string(),
             note: None,
-            ..Default::default()
+            created_at: icydb::types::Timestamp::default(),
+            updated_at: icydb::types::Timestamp::default(),
         };
 
         assert_eq!(

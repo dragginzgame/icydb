@@ -42,7 +42,11 @@ pub struct SqlTestStore {}
     pk(field = "id"),
     index(fields = "name"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "name", value(item(prim = "Text", unbounded))),
         field(ident = "age", value(item(prim = "Int32"))),
         field(ident = "rank", value(item(prim = "Int32")))
@@ -62,7 +66,11 @@ pub struct SqlTestUser {}
     pk(field = "id"),
     index(fields = "label"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "label", value(item(prim = "Text", unbounded))),
         field(ident = "group_name", value(item(prim = "Text", unbounded))),
         field(ident = "int8_value", value(item(prim = "Int8"))),

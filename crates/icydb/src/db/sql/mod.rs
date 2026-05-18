@@ -50,6 +50,7 @@ mod tests {
                     "Ulid".to_string(),
                     true,
                     true,
+                    "generated".to_string(),
                 ),
                 EntityFieldDescription::new(
                     "name".to_string(),
@@ -57,6 +58,7 @@ mod tests {
                     "Text".to_string(),
                     false,
                     true,
+                    "generated".to_string(),
                 ),
             ],
             vec![
@@ -90,12 +92,12 @@ mod tests {
                 "path: schema.public.ExampleEntity".to_string(),
                 String::new(),
                 "fields:".to_string(),
-                "+------+------+------+-----+-----------+".to_string(),
-                "| name | slot | type | pk  | queryable |".to_string(),
-                "+------+------+------+-----+-----------+".to_string(),
-                "| id   | 0    | Ulid | yes | yes       |".to_string(),
-                "| name | 1    | Text | no  | yes       |".to_string(),
-                "+------+------+------+-----+-----------+".to_string(),
+                "+------+------+------+-----+-----------+-----------+".to_string(),
+                "| name | slot | type | pk  | queryable | origin    |".to_string(),
+                "+------+------+------+-----+-----------+-----------+".to_string(),
+                "| id   | 0    | Ulid | yes | yes       | generated |".to_string(),
+                "| name | 1    | Text | no  | yes       | generated |".to_string(),
+                "+------+------+------+-----+-----------+-----------+".to_string(),
                 String::new(),
                 "indexes:".to_string(),
                 "+-------------------------+--------+--------+-----------+".to_string(),
@@ -137,13 +139,21 @@ mod tests {
     #[test]
     fn render_show_columns_lines_output_contract_vector_is_stable() {
         let columns = vec![
-            EntityFieldDescription::new("id".to_string(), Some(0), "Ulid".to_string(), true, true),
+            EntityFieldDescription::new(
+                "id".to_string(),
+                Some(0),
+                "Ulid".to_string(),
+                true,
+                true,
+                "generated".to_string(),
+            ),
             EntityFieldDescription::new(
                 "name".to_string(),
                 Some(1),
                 "Text".to_string(),
                 false,
                 true,
+                "generated".to_string(),
             ),
         ];
 
@@ -153,12 +163,12 @@ mod tests {
                 "entity: ExampleEntity".to_string(),
                 String::new(),
                 "fields:".to_string(),
-                "+------+------+------+-----+-----------+".to_string(),
-                "| name | slot | type | pk  | queryable |".to_string(),
-                "+------+------+------+-----+-----------+".to_string(),
-                "| id   | 0    | Ulid | yes | yes       |".to_string(),
-                "| name | 1    | Text | no  | yes       |".to_string(),
-                "+------+------+------+-----+-----------+".to_string(),
+                "+------+------+------+-----+-----------+-----------+".to_string(),
+                "| name | slot | type | pk  | queryable | origin    |".to_string(),
+                "+------+------+------+-----+-----------+-----------+".to_string(),
+                "| id   | 0    | Ulid | yes | yes       | generated |".to_string(),
+                "| name | 1    | Text | no  | yes       | generated |".to_string(),
+                "+------+------+------+-----+-----------+-----------+".to_string(),
             ],
             "show-columns shell output must remain contract-stable across release lines",
         );

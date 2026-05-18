@@ -1,0 +1,5 @@
+error: identity-like Principal::default() constructors are not valid schema/database defaults; use an explicit persisted literal if this default is intentional
+  --> tests/ui/identity_default_constructor_rejected.rs:21:21
+   |
+21 |             ident = "owner",
+   |                     ^^^^^^^

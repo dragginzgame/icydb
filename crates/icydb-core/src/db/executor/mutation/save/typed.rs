@@ -30,7 +30,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     where
         I: EntityCreateInput<Entity = E>,
     {
-        let materialized = input.materialize_create();
+        let materialized = input.materialize_create()?;
         let authored_create_slots = materialized.authored_slots().to_vec();
         let entity = materialized.into_entity();
         let ctx = mutation_write_context::<E>(&self.db)?;

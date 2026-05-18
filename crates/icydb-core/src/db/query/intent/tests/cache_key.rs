@@ -26,7 +26,7 @@ use crate::{
 use icydb_derive::FieldProjection;
 use serde::Deserialize;
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
 struct CacheKeyEntity {
     id: Ulid,
     name: String,
@@ -166,7 +166,7 @@ fn structural_query_cache_key_treats_equivalent_expression_owned_boolean_shapes_
             right: Box::new(Expr::Binary {
                 op: crate::db::query::plan::expr::BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("id"))),
-                right: Box::new(Expr::Literal(Ulid::default().to_value())),
+                right: Box::new(Expr::Literal(Ulid::nil().to_value())),
             }),
         },
     );
@@ -176,7 +176,7 @@ fn structural_query_cache_key_treats_equivalent_expression_owned_boolean_shapes_
             left: Box::new(Expr::Binary {
                 op: crate::db::query::plan::expr::BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("id"))),
-                right: Box::new(Expr::Literal(Ulid::default().to_value())),
+                right: Box::new(Expr::Literal(Ulid::nil().to_value())),
             }),
             right: Box::new(Expr::Binary {
                 op: crate::db::query::plan::expr::BinaryOp::Eq,
@@ -232,7 +232,7 @@ fn structural_query_cache_key_ignores_predicate_fingerprint_when_filter_expr_exi
             right: Box::new(Expr::Binary {
                 op: crate::db::query::plan::expr::BinaryOp::Eq,
                 left: Box::new(Expr::Field(FieldId::new("id"))),
-                right: Box::new(Expr::Literal(Ulid::default().to_value())),
+                right: Box::new(Expr::Literal(Ulid::nil().to_value())),
             }),
         },
     );

@@ -38,7 +38,7 @@ crate::test_store! {
     canister = RowDecodeCanister,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct RowDecodeEntity {
     id: Ulid,
     title: Text,
@@ -633,7 +633,7 @@ crate::test_entity_schema! {
     canister = RowDecodeCanister,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct RowDecodeValueTextEntity {
     id: Ulid,
     label: Text,

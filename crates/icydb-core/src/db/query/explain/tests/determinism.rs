@@ -21,7 +21,7 @@ use crate::{
 
 #[test]
 fn explain_is_deterministic_for_same_query() {
-    let predicate = Predicate::eq("id".to_string(), Ulid::default().to_value());
+    let predicate = Predicate::eq("id".to_string(), Ulid::nil().to_value());
     let mut plan: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().predicate = Some(predicate);
@@ -31,7 +31,7 @@ fn explain_is_deterministic_for_same_query() {
 
 #[test]
 fn explain_is_deterministic_for_equivalent_predicates() {
-    let id = Ulid::default();
+    let id = Ulid::nil();
 
     let predicate_a = normalize(&Predicate::And(vec![
         Predicate::eq("id".to_string(), id.to_value()),

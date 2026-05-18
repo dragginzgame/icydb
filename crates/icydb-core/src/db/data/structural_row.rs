@@ -293,7 +293,8 @@ impl StructuralRowContract {
 
     // Validate that one physical row slot count can be read through this
     // structural contract. Exact rows stay canonical; older rows may be short
-    // only when every missing trailing accepted slot is explicitly nullable.
+    // only when every missing trailing accepted slot can materialize from
+    // accepted schema metadata.
     fn validate_physical_slot_count(&self, physical_count: usize) -> Result<(), InternalError> {
         if physical_count != self.field_count() && self.accepted_decode_contract.is_none() {
             return Err(InternalError::serialize_corruption(format!(

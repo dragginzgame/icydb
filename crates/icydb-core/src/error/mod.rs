@@ -407,10 +407,8 @@ impl InternalError {
     }
 
     /// Construct an executor-origin typed create omission rejection.
-    pub(crate) fn mutation_create_missing_authored_fields(
-        entity_path: &str,
-        field_names: &str,
-    ) -> Self {
+    #[must_use]
+    pub fn mutation_create_missing_authored_fields(entity_path: &str, field_names: &str) -> Self {
         Self::executor_unsupported(format!(
             "create requires explicit values for authorable fields {field_names}: {entity_path}",
         ))

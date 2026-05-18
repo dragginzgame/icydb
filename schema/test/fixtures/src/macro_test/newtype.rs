@@ -168,6 +168,6 @@ pub struct TimestampD;
 #[newtype(
     primitive = "Ulid",
     item(prim = "Ulid"),
-    default = "icydb::types::Ulid::generate"
+    default = "icydb::types::Ulid::nil"
 )]
 pub struct UlidD;

@@ -123,6 +123,7 @@ fn render_describe_field_section(lines: &mut Vec<String>, fields: &[EntityFieldD
                 } else {
                     "no".to_string()
                 },
+                field.origin().to_string(),
             ]
         })
         .collect::<Vec<_>>();
@@ -134,6 +135,7 @@ fn render_describe_field_section(lines: &mut Vec<String>, fields: &[EntityFieldD
             "type".to_string(),
             "pk".to_string(),
             "queryable".to_string(),
+            "origin".to_string(),
         ],
         &field_rows,
     );

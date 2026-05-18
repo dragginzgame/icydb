@@ -782,7 +782,7 @@ mod tests {
         canister = OrderWindowCanister,
     }
 
-    #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+    #[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
     struct OrderWindowEntity {
         id: Ulid,
         title: Text,

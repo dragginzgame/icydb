@@ -15,8 +15,13 @@ impl Imp<Entity> for PersistedRowTrait {
             let ident = &field.ident;
             let field_name = ident.to_string();
 
+            // Generated PersistedRow is a model/proposal bridge. Accepted
+            // runtime row decode uses StructuralRowContract defaults from the
+            // accepted schema snapshot instead of this Rust construction path.
             let missing_expr = if field.default.is_some() {
-                let expr = field.default_expr();
+                let expr = field
+                    .rust_default_expr()
+                    .expect("schema default should also be a Rust construction value");
                 quote!(#expr)
             } else if field.write_management.is_some() {
                 quote!(Default::default())

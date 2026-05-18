@@ -41,7 +41,7 @@ fn append_accepted_structural_patch_field(
 // entity through generated derive code. This keeps database write ownership and
 // absence/default policy owned by accepted schema metadata instead of
 // accidentally relying on executor-local generated field metadata, Rust
-// construction defaults, or derive-local missing slot behavior.
+// `Default`, or derive-local missing slot behavior.
 fn validate_structural_patch_schema_policy<E>(
     descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
     patch: &StructuralPatch,

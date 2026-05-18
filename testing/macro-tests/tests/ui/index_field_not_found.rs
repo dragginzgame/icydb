@@ -16,7 +16,7 @@ pub struct UiDataStore {}
     store = "UiDataStore",
     pk(field = "id"),
     index(fields = "missing_field"),
-    fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
+    fields(field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
 )]
 pub struct InvalidIndexField;
 

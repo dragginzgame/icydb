@@ -881,7 +881,7 @@ mod tests {
 
     #[test]
     fn filter_expr_model_lowering_rehydrates_string_ulid_literal() {
-        let ulid = Ulid::default();
+        let ulid = Ulid::nil();
         let expr =
             FilterExpr::eq("id", ulid.to_string()).lower_bool_expr_for_model(&FILTER_TEST_MODEL);
 

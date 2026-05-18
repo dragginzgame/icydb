@@ -23,10 +23,12 @@ mod tests {
         assert_entity_key_type::<HasRelation>();
 
         let entity = HasRelation {
+            id: Ulid::generate(),
             a_id: Ulid::from_parts(1, 2),
             b_id: 7u16,
             c_id: Principal::anonymous(),
-            ..Default::default()
+            created_at: icydb::types::Timestamp::default(),
+            updated_at: icydb::types::Timestamp::default(),
         };
 
         let _: Ulid = entity.a_id;
@@ -40,8 +42,10 @@ mod tests {
     #[test]
     fn relation_many_field_uses_primitive_collection_type() {
         let _row: HasManyRelation = HasManyRelation {
+            id: Ulid::generate(),
             a_ids: vec![Ulid::from_parts(2, 2)],
-            ..Default::default()
+            created_at: icydb::types::Timestamp::default(),
+            updated_at: icydb::types::Timestamp::default(),
         };
     }
 
@@ -49,8 +53,10 @@ mod tests {
     fn entity_relation_fields_stay_plain_primitive_storage() {
         let owner_key = Ulid::from_parts(3, 1);
         let row: RelationOwned = RelationOwned {
+            id: Ulid::generate(),
             owner_id: owner_key,
-            ..Default::default()
+            created_at: icydb::types::Timestamp::default(),
+            updated_at: icydb::types::Timestamp::default(),
         };
 
         let _: Ulid = row.owner_id;
@@ -62,8 +68,10 @@ mod tests {
         let owner_a = Ulid::from_parts(4, 20);
         let owner_b = Ulid::from_parts(4, 21);
         let mut row: HasManyRelation = HasManyRelation {
+            id: Ulid::generate(),
             a_ids: vec![owner_a],
-            ..Default::default()
+            created_at: icydb::types::Timestamp::default(),
+            updated_at: icydb::types::Timestamp::default(),
         };
 
         row.a_ids.push(owner_b);
@@ -77,8 +85,10 @@ mod tests {
     fn plural_relation_field_keeps_declared_storage_name() {
         let order_key = Ulid::from_parts(4, 10);
         let row: HasPluralRelation = HasPluralRelation {
+            id: Ulid::generate(),
             orders_ids: vec![order_key],
-            ..Default::default()
+            created_at: icydb::types::Timestamp::default(),
+            updated_at: icydb::types::Timestamp::default(),
         };
 
         assert_eq!(row.orders_ids, vec![order_key]);

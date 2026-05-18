@@ -8,7 +8,11 @@ use icydb::design::prelude::*;
 #[entity(
     store = "TestStore",
     pk(field = "id"),
-    fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
+    fields(field(
+        ident = "id",
+        value(item(prim = "Ulid")),
+        generated(insert = "Ulid::generate")
+    ))
 )]
 pub struct User;
 

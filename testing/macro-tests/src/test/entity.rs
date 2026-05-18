@@ -113,12 +113,12 @@ mod tests {
     }
 
     #[test]
-    fn function_construction_defaults_do_not_become_database_defaults() {
+    fn generated_fields_without_schema_defaults_emit_no_database_default() {
         let generated_id_default = Entity::MODEL
             .fields()
             .iter()
             .find(|field| field.name() == "id")
-            .expect("field with function construction default should be present");
+            .expect("generated id field should be present");
 
         assert_eq!(
             generated_id_default.database_default(),
@@ -127,12 +127,12 @@ mod tests {
     }
 
     #[test]
-    fn supported_literal_construction_defaults_reach_entity_model_as_slot_payloads() {
+    fn supported_schema_defaults_reach_entity_model_as_slot_payloads() {
         let literal_default = Entity::MODEL
             .fields()
             .iter()
             .find(|field| field.name() == "a")
-            .expect("field with literal construction default should be present");
+            .expect("field with schema default should be present");
 
         assert_eq!(
             literal_default.database_default(),

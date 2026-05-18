@@ -105,7 +105,7 @@ mod tests {
     };
     use serde::Deserialize;
 
-    #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+    #[derive(Clone, Debug, Deserialize, PartialEq)]
     struct LoweredExprAnalysisEntity {
         id: Ulid,
         age: u64,

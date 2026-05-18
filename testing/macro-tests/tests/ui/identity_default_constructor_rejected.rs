@@ -16,19 +16,14 @@ pub struct UiDataStore {}
     store = "UiDataStore",
     pk(field = "id"),
     fields(
+        field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
         field(
-            ident = "id",
-            value(item(prim = "Ulid")),
-            generated(insert = "Ulid::generate")
-        ),
-        field(ident = "name", value(item(prim = "Text", unbounded)))
+            ident = "owner",
+            value(item(prim = "Principal")),
+            default = "Principal::default"
+        )
     )
 )]
-pub struct UiEntity {}
+pub struct IdentityDefaultRejectedEntity;
 
-fn main() {
-    let _ = icydb::Create::<UiEntity> {
-        id: Some(Ulid::generate()),
-        name: Some("Ada".to_string()),
-    };
-}
+fn main() {}

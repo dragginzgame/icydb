@@ -15,7 +15,7 @@ pub struct UiDataStore {}
 #[entity(
     store = "UiDataStore",
     pk(field = "id"),
-    fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
+    fields(field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
 )]
 pub struct Target;
 
@@ -23,7 +23,7 @@ pub struct Target;
     store = "UiDataStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
         // Relation fields must always declare storage key shape explicitly.
         field(ident = "target_id", value(item(rel = "Target")))
     )

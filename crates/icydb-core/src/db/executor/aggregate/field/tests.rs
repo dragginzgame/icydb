@@ -71,7 +71,7 @@ crate::test_store! {
     canister = AggregateFieldCanister,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct AggregateFieldEntity {
     id: Ulid,
     rank: u32,

@@ -42,8 +42,9 @@ pub(crate) enum CliCommand {
     /// Read or reset metrics on an IcyDB canister.
     Metrics(MetricsArgs),
 
-    /// Read accepted schema metadata from an IcyDB canister.
-    Schema(CanisterTarget),
+    /// Inspect accepted and generated schema metadata from an IcyDB canister.
+    #[command(subcommand)]
+    Schema(SchemaCommand),
 
     /// Inspect and validate IcyDB TOML config.
     #[command(subcommand)]
@@ -120,6 +121,22 @@ impl CanisterTarget {
     pub(crate) const fn environment(&self) -> &str {
         self.environment.as_str()
     }
+}
+
+///
+/// SchemaCommand
+///
+/// SchemaCommand owns live schema observability. `show` reads the accepted
+/// schema report; `check` compares the generated proposal compiled into the
+/// deployed canister with the accepted runtime catalog.
+///
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum SchemaCommand {
+    /// Read accepted schema metadata from an IcyDB canister.
+    Show(CanisterTarget),
+    /// Compare generated schema metadata with accepted live schema metadata.
+    Check(CanisterTarget),
 }
 
 #[derive(Args, Clone, Debug)]

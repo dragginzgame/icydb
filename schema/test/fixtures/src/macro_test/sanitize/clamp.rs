@@ -9,7 +9,11 @@ use icydb::design::prelude::*;
     store = "TestStore",
     pk(field = "id"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "cint32", value(item(is = "ClampInt32"))),
         field(ident = "cint32_opt", value(opt, item(is = "ClampInt32"))),
         field(ident = "cdec", value(item(is = "ClampDecimal"))),

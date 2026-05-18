@@ -541,7 +541,7 @@ fn build_plan_model_constant_true_elides_logical_predicate() {
 
 #[test]
 fn typed_plan_matches_model_plan_for_same_intent() {
-    let predicate = FieldRef::new("id").eq(Ulid::default());
+    let predicate = FieldRef::new("id").eq(Ulid::nil());
 
     let model_intent = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
         .filter(predicate.clone())

@@ -19,7 +19,11 @@ mod tests {
         store = "TestStore",
         pk(field = "id"),
         fields(
-            field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+            field(
+                ident = "id",
+                value(item(prim = "Ulid")),
+                generated(insert = "Ulid::generate")
+            ),
             field(ident = "title", value(item(prim = "Text", unbounded))),
             field(ident = "score", value(item(prim = "Nat32"))),
             field(ident = "nickname", value(opt, item(prim = "Text", unbounded))),
@@ -36,7 +40,8 @@ mod tests {
             score: 42,
             nickname: Some("nick".to_string()),
             tags: vec!["one".to_string(), "two".to_string()],
-            ..Default::default()
+            created_at: icydb::types::Timestamp::default(),
+            updated_at: icydb::types::Timestamp::default(),
         };
 
         let expected = [
@@ -79,7 +84,8 @@ mod tests {
             score: 7,
             nickname: None,
             tags: Vec::new(),
-            ..Default::default()
+            created_at: icydb::types::Timestamp::default(),
+            updated_at: icydb::types::Timestamp::default(),
         };
 
         // Slot 3 is `nickname` in declared schema order.

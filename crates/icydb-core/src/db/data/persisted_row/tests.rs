@@ -43,7 +43,10 @@ use crate::{
     error::{ErrorClass, InternalError},
     model::{
         EntityModel,
-        field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode, RelationStrength},
+        field::{
+            EnumVariantModel, FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode,
+            RelationStrength,
+        },
     },
     testing::SIMPLE_ENTITY_TAG,
     traits::{
@@ -81,7 +84,7 @@ crate::test_store! {
 /// save/update path now uses.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct PersistedRowPatchBridgeEntity {
     id: crate::types::Ulid,
     name: String,
@@ -119,7 +122,7 @@ impl Default for PersistedRowTypedMetaEntity {
 /// without allowing `Vec<Value>` as a persisted escape hatch.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct PersistedRowManyTypedMetaEntity {
     id: crate::types::Ulid,
     payloads: Vec<PersistedRowProfileValue>,
@@ -401,6 +404,21 @@ static ADDITIVE_REQUIRED_FIELD_MODELS: [FieldModel; 3] = [
     FieldModel::generated("name", FieldKind::Text { max_len: None }),
     FieldModel::generated("score", FieldKind::Nat),
 ];
+static GENERATED_SCORE_DEFAULT_PAYLOAD: &[u8] = &[0xFF, 0x01, 7, 0, 0, 0, 0, 0, 0, 0];
+static ADDITIVE_REQUIRED_GENERATED_DEFAULT_FIELD_MODELS: [FieldModel; 3] = [
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated("name", FieldKind::Text { max_len: None }),
+    FieldModel::generated_with_storage_decode_nullability_write_policies_database_default_and_nested_fields(
+        "score",
+        FieldKind::Nat,
+        FieldStorageDecode::ByKind,
+        false,
+        None,
+        None,
+        FieldDatabaseDefault::EncodedSlotPayload(GENERATED_SCORE_DEFAULT_PAYLOAD),
+        &[],
+    ),
+];
 static LIST_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
     "tags",
     FieldKind::List(&FieldKind::Text { max_len: None }),
@@ -492,6 +510,14 @@ static ADDITIVE_REQUIRED_MODEL: EntityModel = EntityModel::generated(
     &ADDITIVE_REQUIRED_FIELD_MODELS[0],
     0,
     &ADDITIVE_REQUIRED_FIELD_MODELS,
+    &INDEX_MODELS,
+);
+static ADDITIVE_REQUIRED_GENERATED_DEFAULT_MODEL: EntityModel = EntityModel::generated(
+    "tests::PersistedRowAdditiveRequiredGeneratedDefaultEntity",
+    "persisted_row_additive_required_generated_default_entity",
+    &ADDITIVE_REQUIRED_GENERATED_DEFAULT_FIELD_MODELS[0],
+    0,
+    &ADDITIVE_REQUIRED_GENERATED_DEFAULT_FIELD_MODELS,
     &INDEX_MODELS,
 );
 static LIST_MODEL: EntityModel = EntityModel::generated(
@@ -924,6 +950,45 @@ fn accepted_defaulted_required_score_row_contract_for_tests(
     StructuralRowContract::from_generated_model_with_accepted_decode_contract_for_test(
         &ADDITIVE_REQUIRED_MODEL,
         accepted_defaulted_required_score_row_decode_contract_for_tests(score_payload),
+    )
+}
+
+// Build one contract where the generated model proposes a database default but
+// the accepted schema snapshot explicitly has no default. This proves accepted
+// metadata, not generated proposal metadata, controls missing-field decode.
+fn generated_default_model_with_no_accepted_default_contract_for_tests() -> StructuralRowContract {
+    let proposal = compiled_schema_proposal_for_model(&ADDITIVE_REQUIRED_GENERATED_DEFAULT_MODEL);
+    let expected = proposal.initial_persisted_schema_snapshot();
+    let mut fields = expected.fields().to_vec();
+    let score = &expected.fields()[2];
+    fields[2] = PersistedFieldSnapshot::new_with_write_policy(
+        score.id(),
+        score.name().to_string(),
+        score.slot(),
+        score.kind().clone(),
+        score.nested_leaves().to_vec(),
+        score.nullable(),
+        SchemaFieldDefault::None,
+        score.write_policy(),
+        score.storage_decode(),
+        score.leaf_codec(),
+    );
+    let accepted_snapshot = PersistedSchemaSnapshot::new(
+        expected.version(),
+        expected.entity_path().to_string(),
+        expected.entity_name().to_string(),
+        expected.primary_key_field_id(),
+        expected.row_layout().clone(),
+        fields,
+    );
+    let accepted = AcceptedSchemaSnapshot::try_new(accepted_snapshot)
+        .expect("accepted no-default schema fixture should validate");
+    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+        .expect("accepted no-default runtime descriptor should build");
+
+    StructuralRowContract::from_generated_model_with_accepted_decode_contract_for_test(
+        &ADDITIVE_REQUIRED_GENERATED_DEFAULT_MODEL,
+        descriptor.row_decode_contract(),
     )
 }
 
@@ -2001,6 +2066,25 @@ fn accepted_row_contract_reads_missing_trailing_defaulted_slots_as_default() {
     assert_eq!(
         reader.get_value(2).expect("score slot should materialize"),
         Some(Value::Nat(99)),
+    );
+}
+
+#[test]
+fn accepted_row_contract_ignores_generated_default_when_accepted_default_is_none() {
+    let id = Ulid::from_u128(48);
+    let contract = generated_default_model_with_no_accepted_default_contract_for_tests();
+    let raw_row = old_two_slot_additive_raw_row_for_tests(id);
+
+    let Err(err) = StructuralSlotReader::from_raw_row_with_contract(&raw_row, contract) else {
+        panic!(
+            "accepted row contract should reject missing required slot without accepted default"
+        );
+    };
+
+    assert!(
+        err.message.contains("declared field missing")
+            || err.message.contains("missing declared field"),
+        "generated proposal default must not satisfy accepted runtime decode: {err:?}",
     );
 }
 

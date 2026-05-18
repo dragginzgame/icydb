@@ -174,7 +174,7 @@ pub(in crate::db::query::intent::tests) fn query_error_is_predicate_validation_e
 }
 
 // Test-only entity to compare typed vs model planning without schema macros.
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
 pub(in crate::db::query::intent::tests) struct PlanEntity {
     pub(in crate::db::query::intent::tests) id: Ulid,
     pub(in crate::db::query::intent::tests) name: String,
@@ -227,18 +227,18 @@ pub(in crate::db::query::intent::tests) struct PlanSingleton {
     pub(in crate::db::query::intent::tests) id: Unit,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
 pub(in crate::db::query::intent::tests) struct PlanSimpleEntity {
     pub(in crate::db::query::intent::tests) id: Ulid,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
 pub(in crate::db::query::intent::tests) struct PlanNumericEntity {
     pub(in crate::db::query::intent::tests) id: Ulid,
     pub(in crate::db::query::intent::tests) rank: i32,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
 pub(in crate::db::query::intent::tests) struct PlanPushdownEntity {
     pub(in crate::db::query::intent::tests) id: Ulid,
     pub(in crate::db::query::intent::tests) group: u32,
@@ -246,34 +246,34 @@ pub(in crate::db::query::intent::tests) struct PlanPushdownEntity {
     pub(in crate::db::query::intent::tests) label: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
 pub(in crate::db::query::intent::tests) struct PlanUniqueRangeEntity {
     pub(in crate::db::query::intent::tests) id: Ulid,
     pub(in crate::db::query::intent::tests) code: u32,
     pub(in crate::db::query::intent::tests) label: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
 pub(in crate::db::query::intent::tests) struct PlanTextPrefixEntity {
     pub(in crate::db::query::intent::tests) id: Ulid,
     pub(in crate::db::query::intent::tests) label: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
 pub(in crate::db::query::intent::tests) struct PlanPhaseEntity {
     pub(in crate::db::query::intent::tests) id: Ulid,
     pub(in crate::db::query::intent::tests) tags: Vec<u32>,
     pub(in crate::db::query::intent::tests) label: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
 pub(in crate::db::query::intent::tests) struct PlanExpressionCasefoldEntity {
     pub(in crate::db::query::intent::tests) id: Ulid,
     pub(in crate::db::query::intent::tests) email: String,
     pub(in crate::db::query::intent::tests) label: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
 pub(in crate::db::query::intent::tests) struct PlanDeterministicChoiceEntity {
     pub(in crate::db::query::intent::tests) id: Ulid,
     pub(in crate::db::query::intent::tests) tier: String,
@@ -281,7 +281,7 @@ pub(in crate::db::query::intent::tests) struct PlanDeterministicChoiceEntity {
     pub(in crate::db::query::intent::tests) label: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
 pub(in crate::db::query::intent::tests) struct PlanDeterministicRangeEntity {
     pub(in crate::db::query::intent::tests) id: Ulid,
     pub(in crate::db::query::intent::tests) tier: String,
@@ -290,14 +290,14 @@ pub(in crate::db::query::intent::tests) struct PlanDeterministicRangeEntity {
     pub(in crate::db::query::intent::tests) label: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
 pub(in crate::db::query::intent::tests) struct PlanOrderOnlyChoiceEntity {
     pub(in crate::db::query::intent::tests) id: Ulid,
     pub(in crate::db::query::intent::tests) alpha: String,
     pub(in crate::db::query::intent::tests) beta: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq)]
 pub(in crate::db::query::intent::tests) struct PlanTemporalBoundaryEntity {
     pub(in crate::db::query::intent::tests) id: Ulid,
     pub(in crate::db::query::intent::tests) occurred_on: Date,

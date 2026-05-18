@@ -4,7 +4,8 @@ use candid::{Decode, Encode};
 use clap::Parser;
 use icydb::db::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
-    EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription,
+    EntityRelationDescription, EntityRelationStrength, EntitySchemaCheckDescription,
+    EntitySchemaDescription,
     sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput},
 };
 use serde_json::json;
@@ -12,17 +13,19 @@ use serde_json::json;
 use crate::{
     cli::{
         CanisterCommand, CliArgs, CliCommand, ConfigCommand, ConfigInitArgs, DEFAULT_ENVIRONMENT,
+        SchemaCommand,
     },
     config::{
         ConfigSurface, FIXTURES_LOAD_ENDPOINT, METRICS_ENDPOINT, METRICS_RESET_ENDPOINT,
-        SCHEMA_ENDPOINT, SNAPSHOT_ENDPOINT, SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT,
-        config_surface_enabled_for_resolved, config_sync_issues,
+        SCHEMA_CHECK_ENDPOINT, SCHEMA_ENDPOINT, SNAPSHOT_ENDPOINT, SQL_DDL_ENDPOINT,
+        SQL_QUERY_ENDPOINT, config_surface_enabled_for_resolved, config_sync_issues,
         configured_endpoint_enabled_for_resolved, disabled_config_surface_message, init_config,
         render_config_report,
     },
     icp::fixtures_load_command,
     observability::{
-        metrics_candid_arg, render_metrics_report, render_schema_report, render_snapshot_report,
+        metrics_candid_arg, render_metrics_report, render_schema_check_report,
+        render_schema_report, render_snapshot_report,
     },
     shell::{
         ShellConfig, ShellPerfAttribution, SqlShellCallKind, drain_complete_shell_statements,
@@ -193,7 +196,8 @@ fn clap_help_exposes_target_environment_flags() {
     for args in [
         ["icydb", "snapshot", "--help"].as_slice(),
         ["icydb", "metrics", "--help"].as_slice(),
-        ["icydb", "schema", "--help"].as_slice(),
+        ["icydb", "schema", "show", "--help"].as_slice(),
+        ["icydb", "schema", "check", "--help"].as_slice(),
         ["icydb", "canister", "refresh", "--help"].as_slice(),
     ] {
         let help = clap_help_text(args);
@@ -456,10 +460,36 @@ fn cli_args_group_metrics_reset_under_top_level_keyword() {
 
 #[test]
 fn cli_args_group_schema_under_top_level_keyword() {
-    let args = CliArgs::try_parse_from(["icydb", "schema", "demo_rpg", "--environment", "test"])
-        .expect("schema command should parse");
-    let CliCommand::Schema(target) = args.command else {
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "schema",
+        "show",
+        "demo_rpg",
+        "--environment",
+        "test",
+    ])
+    .expect("schema show command should parse");
+    let CliCommand::Schema(SchemaCommand::Show(target)) = args.command else {
         panic!("expected schema command");
+    };
+
+    assert_eq!(target.canister_name(), "demo_rpg");
+    assert_eq!(target.environment(), "test");
+}
+
+#[test]
+fn cli_args_group_schema_check_under_schema_keyword() {
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "schema",
+        "check",
+        "demo_rpg",
+        "--environment",
+        "test",
+    ])
+    .expect("schema check command should parse");
+    let CliCommand::Schema(SchemaCommand::Check(target)) = args.command else {
+        panic!("expected schema check command");
     };
 
     assert_eq!(target.canister_name(), "demo_rpg");
@@ -924,6 +954,7 @@ fn icp_query_command_targets_environment_and_hex_query_output() {
 fn configured_endpoint_methods_match_generated_endpoint_names() {
     assert_eq!(SNAPSHOT_ENDPOINT.method(), "__icydb_snapshot");
     assert_eq!(SCHEMA_ENDPOINT.method(), "__icydb_schema");
+    assert_eq!(SCHEMA_CHECK_ENDPOINT.method(), "__icydb_schema_check");
     assert_eq!(METRICS_ENDPOINT.method(), "__icydb_metrics");
     assert_eq!(METRICS_RESET_ENDPOINT.method(), "__icydb_metrics_reset");
     assert_eq!(FIXTURES_LOAD_ENDPOINT.method(), "__icydb_fixtures_load");
@@ -966,7 +997,14 @@ fn schema_report_rendering_uses_human_tables() {
 fn schema_report_renders_aligned_summary_and_index_tables() {
     let fields = (0..35)
         .map(|_| {
-            EntityFieldDescription::new("field".to_string(), None, "Text".to_string(), false, true)
+            EntityFieldDescription::new(
+                "field".to_string(),
+                None,
+                "Text".to_string(),
+                false,
+                true,
+                "generated".to_string(),
+            )
         })
         .collect();
     let indexes = vec![
@@ -1014,8 +1052,8 @@ fn schema_report_renders_aligned_summary_and_index_tables() {
         "  Character       35         2           1   id            icydb_testing_demo_rpg_fixtures::schema::character::Character\n"
     ));
     assert!(text.contains("fields\n"));
-    assert!(text.contains("  entity      field   slot   type   pk   queryable\n"));
-    assert!(text.contains("  Character   field      -   Text   no   yes\n"));
+    assert!(text.contains("  entity      field   slot   type   pk   queryable   origin\n"));
+    assert!(text.contains("  Character   field      -   Text   no   yes         generated\n"));
     assert!(text.contains("indexes\n"));
     assert!(text.contains("  entity      index                 fields   unique   origin\n"));
     assert!(text.contains("  Character   idx_character__name   name     no       generated\n"));
@@ -1023,6 +1061,139 @@ fn schema_report_renders_aligned_summary_and_index_tables() {
     assert!(text.contains("relations\n"));
     assert!(text.contains("  entity      field        target    strength   cardinality\n"));
     assert!(text.contains("  Character   account_id   Account   Strong     Single\n"));
+}
+
+#[test]
+fn schema_check_report_renders_generated_accepted_drift() {
+    let generated = EntitySchemaDescription::new(
+        "demo::Character".to_string(),
+        "Character".to_string(),
+        "id".to_string(),
+        vec![
+            EntityFieldDescription::new(
+                "id".to_string(),
+                Some(0),
+                "Id".to_string(),
+                true,
+                true,
+                "generated".to_string(),
+            ),
+            EntityFieldDescription::new(
+                "name".to_string(),
+                Some(1),
+                "Text".to_string(),
+                false,
+                true,
+                "generated".to_string(),
+            ),
+        ],
+        vec![EntityIndexDescription::new(
+            "idx_character__name".to_string(),
+            false,
+            vec!["name".to_string()],
+            "generated".to_string(),
+        )],
+        Vec::new(),
+    );
+    let accepted = EntitySchemaDescription::new(
+        "demo::Character".to_string(),
+        "Character".to_string(),
+        "id".to_string(),
+        vec![
+            EntityFieldDescription::new(
+                "id".to_string(),
+                Some(0),
+                "Id".to_string(),
+                true,
+                true,
+                "generated".to_string(),
+            ),
+            EntityFieldDescription::new(
+                "name".to_string(),
+                Some(1),
+                "Text".to_string(),
+                false,
+                true,
+                "generated".to_string(),
+            ),
+            EntityFieldDescription::new(
+                "nickname".to_string(),
+                Some(2),
+                "Text".to_string(),
+                false,
+                true,
+                "ddl".to_string(),
+            ),
+        ],
+        vec![
+            EntityIndexDescription::new(
+                "idx_character__name".to_string(),
+                false,
+                vec!["name".to_string()],
+                "generated".to_string(),
+            ),
+            EntityIndexDescription::new(
+                "character_lower_name_idx".to_string(),
+                false,
+                vec!["expr:v1:LOWER(name)".to_string()],
+                "ddl".to_string(),
+            ),
+        ],
+        Vec::new(),
+    );
+
+    let text =
+        render_schema_check_report(&[EntitySchemaCheckDescription::new(generated, accepted)]);
+
+    assert!(text.contains("IcyDB schema check"));
+    assert!(text.contains("status: drift"));
+    assert!(text.contains("accepted-only fields: 1"));
+    assert!(text.contains("DDL-owned indexes: 1"));
+    assert!(text.contains("mismatches: 0"));
+    assert!(text.contains("Character   drift"));
+    assert!(text.contains("accepted-only field"));
+    assert!(text.contains("DDL index"));
+}
+
+#[test]
+fn schema_check_report_renders_readable_default_mismatch() {
+    let generated = EntitySchemaDescription::new(
+        "demo::Character".to_string(),
+        "Character".to_string(),
+        "id".to_string(),
+        vec![EntityFieldDescription::new(
+            "level".to_string(),
+            Some(1),
+            "nat16 default=slot_payload(bytes=4, sha256=aaaaaaaaaaaaaaaa)".to_string(),
+            false,
+            true,
+            "generated".to_string(),
+        )],
+        Vec::new(),
+        Vec::new(),
+    );
+    let accepted = EntitySchemaDescription::new(
+        "demo::Character".to_string(),
+        "Character".to_string(),
+        "id".to_string(),
+        vec![EntityFieldDescription::new(
+            "level".to_string(),
+            Some(1),
+            "nat16 default=slot_payload(bytes=4, sha256=bbbbbbbbbbbbbbbb)".to_string(),
+            false,
+            true,
+            "generated".to_string(),
+        )],
+        Vec::new(),
+        Vec::new(),
+    );
+
+    let text =
+        render_schema_check_report(&[EntitySchemaCheckDescription::new(generated, accepted)]);
+
+    assert!(text.contains("status: mismatch"));
+    assert!(text.contains("default=slot_payload(bytes=4, sha256=aaaaaaaaaaaaaaaa)"));
+    assert!(text.contains("default=slot_payload(bytes=4, sha256=bbbbbbbbbbbbbbbb)"));
 }
 
 #[test]

@@ -16,11 +16,7 @@ use icydb::design::prelude::*;
         default = "String::new"
     ),
     field(ident = "level", value(item(prim = "Nat16")), default = 0u16),
-    field(
-        ident = "pid",
-        value(item(prim = "Principal")),
-        default = "Principal::anonymous"
-    )
+    field(ident = "pid", value(item(prim = "Principal")), default = "2vxsx-fae")
 ))]
 pub struct CharacterMentor {}
 
@@ -36,7 +32,11 @@ pub struct CharacterMentor {}
     index(fields = "name"),
     index(fields = "level, class_name"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
         field(ident = "name", value(item(prim = "Text", unbounded))),
         field(ident = "description", value(item(prim = "Text", unbounded))),
         field(ident = "class_name", value(item(prim = "Text", unbounded))),

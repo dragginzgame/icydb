@@ -6,11 +6,7 @@ use icydb::design::prelude::*;
 
 #[record(fields(
     field(ident = "nat8_value", value(item(prim = "Nat8")), default = 1u8),
-    field(
-        ident = "nat8_static_fn",
-        value(item(prim = "Nat8")),
-        default = "Record::nat8_static_fn"
-    )
+    field(ident = "nat8_static_fn", value(item(prim = "Nat8")), default = 32u8)
 ))]
 pub struct Record {}
 
@@ -28,7 +24,7 @@ impl Record {
 #[record(fields(field(
     ident = "static_fn",
     value(item(prim = "Principal")),
-    default = "WithPrincipal::static_fn"
+    default = "2vxsx-fae"
 )))]
 pub struct WithPrincipal {}
 

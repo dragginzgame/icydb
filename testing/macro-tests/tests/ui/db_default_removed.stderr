@@ -1,0 +1,5 @@
+error: Unknown field: `db_default`. Did you mean `default`?
+  --> tests/ui/db_default_removed.rs:23:13
+   |
+23 |             db_default = 1u16
+   |             ^^^^^^^^^^

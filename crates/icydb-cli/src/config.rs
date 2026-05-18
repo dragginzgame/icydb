@@ -94,6 +94,10 @@ pub(crate) const SCHEMA_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
     method: "__icydb_schema",
     surface: ConfigSurface::Schema,
 };
+pub(crate) const SCHEMA_CHECK_ENDPOINT: ConfiguredEndpoint = ConfiguredEndpoint {
+    method: "__icydb_schema_check",
+    surface: ConfigSurface::Schema,
+};
 
 struct ConfigContext {
     environment: Option<String>,

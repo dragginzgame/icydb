@@ -18,7 +18,7 @@ macro_rules! define_simple_audit_entities {
                 store = $store,
                 pk(field = "id"),
                 fields(
-                    field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+                    field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
                     field(ident = "name", value(item(prim = "Text", unbounded)))
                 )
             )]
@@ -159,7 +159,7 @@ macro_rules! define_complex_audit_entities {
                 store = $store,
                 pk(field = "id"),
                 fields(
-                    field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+                    field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
                     field(ident = "slug", value(item(is = "AuditText"))),
                     field(ident = "code", value(item(is = "AuditCode"))),
                     field(ident = "profile", value(item(is = "AuditProfile"))),

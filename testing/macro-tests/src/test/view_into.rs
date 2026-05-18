@@ -15,7 +15,11 @@ mod test {
         store = "TestStore",
         pk(field = "id"),
         fields(
-            field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+            field(
+                ident = "id",
+                value(item(prim = "Ulid")),
+                generated(insert = "Ulid::generate")
+            ),
             field(ident = "name", value(item(prim = "Text", unbounded))),
             field(ident = "score", value(item(prim = "Nat32"))),
             field(ident = "tags", value(many, item(prim = "Text", unbounded))),
@@ -27,11 +31,13 @@ mod test {
     #[test]
     fn view_into_round_trip() {
         let mut entity = ViewIntoRoundTripHarness {
+            id: Ulid::generate(),
             name: "primary".into(),
             score: 42,
             tags: vec!["alpha".into(), "beta".into()],
             nickname: Some("prime".into()),
-            ..Default::default()
+            created_at: icydb::types::Timestamp::default(),
+            updated_at: icydb::types::Timestamp::default(),
         };
 
         let cloned: ViewIntoRoundTripHarness = entity.clone();

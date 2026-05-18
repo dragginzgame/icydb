@@ -16,19 +16,14 @@ pub struct UiDataStore {}
     store = "UiDataStore",
     pk(field = "id"),
     fields(
+        field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
         field(
-            ident = "id",
-            value(item(prim = "Ulid")),
-            generated(insert = "Ulid::generate")
-        ),
-        field(ident = "name", value(item(prim = "Text", unbounded)))
+            ident = "level",
+            value(item(prim = "Nat16")),
+            db_default = 1u16
+        )
     )
 )]
-pub struct UiEntity {}
+pub struct DbDefaultRemovedEntity;
 
-fn main() {
-    let _ = icydb::Create::<UiEntity> {
-        id: Some(Ulid::generate()),
-        name: Some("Ada".to_string()),
-    };
-}
+fn main() {}

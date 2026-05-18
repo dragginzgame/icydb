@@ -77,7 +77,7 @@ struct SqlSurfaceTokens {
 ///
 
 struct SchemaSurfaceTokens {
-    entity_rows: Vec<TokenStream>,
+    entity_tys: Vec<syn::Path>,
 }
 
 fn store_registry_tokens(builder: &ActorBuilder, memory_namespace: &str) -> StoreRegistryTokens {
@@ -346,20 +346,18 @@ impl quote::ToTokens for SqlSurfaceTokens {
 impl SchemaSurfaceTokens {
     const fn empty() -> Self {
         Self {
-            entity_rows: Vec::new(),
+            entity_tys: Vec::new(),
         }
     }
 
     fn push_entity(&mut self, entity_ty: &syn::Path) {
-        self.entity_rows.push(quote! {
-            db().try_describe_entity::<#entity_ty>()?
-        });
+        self.entity_tys.push(entity_ty.clone());
     }
 }
 
 impl quote::ToTokens for SchemaSurfaceTokens {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let entity_rows = &self.entity_rows;
+        let entity_tys = &self.entity_tys;
 
         tokens.extend(quote! {
             fn icydb_schema_surface_require_controller() -> Result<(), ::icydb::Error> {
@@ -380,7 +378,19 @@ impl quote::ToTokens for SchemaSurfaceTokens {
                 icydb_schema_surface_require_controller()?;
 
                 Ok(vec![
-                    #(#entity_rows),*
+                    #(db().try_describe_entity::<#entity_tys>()?),*
+                ])
+            }
+
+            #[::icydb::__reexports::canic_cdk::query]
+            fn __icydb_schema_check() -> Result<Vec<::icydb::db::EntitySchemaCheckDescription>, ::icydb::Error> {
+                icydb_schema_surface_require_controller()?;
+
+                Ok(vec![
+                    #(::icydb::db::EntitySchemaCheckDescription::new(
+                        db().describe_entity::<#entity_tys>(),
+                        db().try_describe_entity::<#entity_tys>()?,
+                    )),*
                 ])
             }
         });

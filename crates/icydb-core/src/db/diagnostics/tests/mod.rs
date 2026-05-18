@@ -69,7 +69,7 @@ impl StoreKind for DiagnosticsStoreA {
     type Canister = DiagnosticsCanister;
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct IntegrityIndexedEntity {
     id: Ulid,
     email: String,

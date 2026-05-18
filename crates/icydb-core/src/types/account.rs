@@ -23,7 +23,7 @@ use thiserror::Error as ThisError;
 // Account
 //
 
-#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq)]
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq)]
 pub struct Account {
     owner: Principal,
     subaccount: Option<Subaccount>,
@@ -64,6 +64,21 @@ impl Account {
     #[must_use]
     pub const fn from_parts(owner: Principal, subaccount: Option<Subaccount>) -> Self {
         Self { owner, subaccount }
+    }
+
+    /// Sentinel account for storage lower bounds and tag-only derivation.
+    ///
+    /// This is not a domain account; it exists so storage code does not spell
+    /// empty principals as if they were ordinary identities.
+    #[must_use]
+    pub(crate) const fn storage_min_sentinel() -> Self {
+        Self::from_parts(Principal::empty_sentinel(), None)
+    }
+
+    /// Sentinel value used when only the `Value::Account` canonical tag matters.
+    #[must_use]
+    pub(crate) const fn canonical_tag_sentinel() -> Self {
+        Self::storage_min_sentinel()
     }
 
     /// Return the account owner principal.
@@ -141,7 +156,7 @@ impl Account {
         }
 
         // Subaccount bytes (fixed length).
-        let subaccount_bytes = self.subaccount.unwrap_or_default().to_array();
+        let subaccount_bytes = self.subaccount.unwrap_or(Subaccount::MIN).to_array();
         let sub_offset = 1 + Self::PRINCIPAL_MAX_LEN;
         out[sub_offset..sub_offset + Self::SUBACCOUNT_LEN].copy_from_slice(&subaccount_bytes);
 
@@ -304,8 +319,8 @@ impl Ord for Account {
             return owner_cmp;
         }
 
-        let self_sub = self.subaccount.unwrap_or_default().to_array();
-        let other_sub = other.subaccount.unwrap_or_default().to_array();
+        let self_sub = self.subaccount.unwrap_or(Subaccount::MIN).to_array();
+        let other_sub = other.subaccount.unwrap_or(Subaccount::MIN).to_array();
 
         self_sub.cmp(&other_sub)
     }
@@ -387,13 +402,6 @@ mod tests {
         let p = principal();
         let acc = Account::from(p);
         assert_eq!(acc.owner, p);
-        assert!(acc.subaccount.is_none());
-    }
-
-    #[test]
-    fn default_account_is_empty_principal_and_none_subaccount() {
-        let acc = Account::default();
-        assert!(acc.owner.as_slice().is_empty());
         assert!(acc.subaccount.is_none());
     }
 

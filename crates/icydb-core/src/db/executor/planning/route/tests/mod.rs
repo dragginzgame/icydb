@@ -106,7 +106,7 @@ crate::test_store! {
 /// scalar field, and one non-indexed scalar field for capability checks.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct RouteCapabilityEntity {
     id: Ulid,
     rank: u32,
@@ -155,7 +155,7 @@ crate::test_entity_schema! {
 /// the unique-index budget/hint checks local to the route module.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct UniqueRouteCapabilityEntity {
     id: Ulid,
     code: u32,
