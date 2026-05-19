@@ -22,10 +22,12 @@ use crate::db::{
         SchemaExpressionIndexKeyItemInfo, SchemaFieldDefault, SchemaFieldSlot,
         SchemaFieldWritePolicy, SchemaInfo, admit_sql_ddl_expression_index_candidate,
         admit_sql_ddl_field_addition_candidate, admit_sql_ddl_field_default_candidate,
-        admit_sql_ddl_field_path_index_candidate, admit_sql_ddl_secondary_index_drop_candidate,
+        admit_sql_ddl_field_nullability_candidate, admit_sql_ddl_field_path_index_candidate,
+        admit_sql_ddl_secondary_index_drop_candidate,
         canonicalize_strict_sql_literal_for_persisted_kind,
         derive_sql_ddl_expression_index_accepted_after,
         derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
+        derive_sql_ddl_field_nullability_accepted_after,
         derive_sql_ddl_field_path_index_accepted_after,
         derive_sql_ddl_secondary_index_drop_accepted_after,
         resolve_sql_ddl_secondary_index_drop_candidate,
@@ -173,6 +175,8 @@ pub enum SqlDdlMutationKind {
     AddNullableField,
     SetFieldDefault,
     DropFieldDefault,
+    SetFieldNotNull,
+    DropFieldNotNull,
     AddFieldPathIndex,
     AddExpressionIndex,
     DropSecondaryIndex,
@@ -187,6 +191,8 @@ impl SqlDdlMutationKind {
             Self::AddNullableField => "add_nullable_field",
             Self::SetFieldDefault => "set_field_default",
             Self::DropFieldDefault => "drop_field_default",
+            Self::SetFieldNotNull => "set_field_not_null",
+            Self::DropFieldNotNull => "drop_field_not_null",
             Self::AddFieldPathIndex => "add_field_path_index",
             Self::AddExpressionIndex => "add_expression_index",
             Self::DropSecondaryIndex => "drop_secondary_index",
@@ -246,6 +252,7 @@ impl BoundSqlDdlRequest {
 pub(in crate::db) enum BoundSqlDdlStatement {
     AddColumn(BoundSqlAddColumnRequest),
     AlterColumnDefault(BoundSqlAlterColumnDefaultRequest),
+    AlterColumnNullability(BoundSqlAlterColumnNullabilityRequest),
     CreateIndex(BoundSqlCreateIndexRequest),
     DropIndex(BoundSqlDropIndexRequest),
     NoOp(BoundSqlDdlNoOpRequest),
@@ -315,6 +322,51 @@ impl BoundSqlAlterColumnDefaultRequest {
     }
 
     /// Return the field-default mutation kind.
+    #[must_use]
+    pub(in crate::db) const fn mutation_kind(&self) -> SqlDdlMutationKind {
+        self.mutation_kind
+    }
+}
+
+///
+/// BoundSqlAlterColumnNullabilityRequest
+///
+/// Catalog-resolved field-nullability metadata DDL request.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct BoundSqlAlterColumnNullabilityRequest {
+    entity_name: String,
+    field: PersistedFieldSnapshot,
+    nullable: bool,
+    mutation_kind: SqlDdlMutationKind,
+}
+
+impl BoundSqlAlterColumnNullabilityRequest {
+    /// Borrow the accepted entity name.
+    #[must_use]
+    pub(in crate::db) const fn entity_name(&self) -> &str {
+        self.entity_name.as_str()
+    }
+
+    /// Borrow the accepted field name.
+    #[must_use]
+    pub(in crate::db) const fn field_name(&self) -> &str {
+        self.field.name()
+    }
+
+    /// Borrow the accepted field whose nullability will change.
+    #[must_use]
+    pub(in crate::db) const fn field(&self) -> &PersistedFieldSnapshot {
+        &self.field
+    }
+
+    /// Return the nullable contract to publish.
+    #[must_use]
+    pub(in crate::db) const fn nullable(&self) -> bool {
+        self.nullable
+    }
+
+    /// Return the field-nullability mutation kind.
     #[must_use]
     pub(in crate::db) const fn mutation_kind(&self) -> SqlDdlMutationKind {
         self.mutation_kind
@@ -622,6 +674,14 @@ pub(in crate::db) enum SqlDdlBindError {
         "SQL DDL ALTER TABLE ALTER COLUMN DEFAULT cannot change generated accepted field '{column_name}' on entity '{entity_name}'; change the Rust schema default instead"
     )]
     GeneratedFieldDefaultChangeRejected {
+        entity_name: String,
+        column_name: String,
+    },
+
+    #[error(
+        "SQL DDL ALTER TABLE ALTER COLUMN NULLABILITY cannot change generated accepted field '{column_name}' on entity '{entity_name}'; change the Rust schema nullability instead"
+    )]
+    GeneratedFieldNullabilityChangeRejected {
         entity_name: String,
         column_name: String,
     },
@@ -1028,9 +1088,18 @@ fn bind_alter_table_alter_column_statement(
                 SqlDdlMutationKind::DropFieldDefault,
             ))
         }
-        SqlAlterColumnAction::SetNotNull | SqlAlterColumnAction::DropNotNull => {
-            Err(alter_table_alter_column_bind_error(statement, schema))
-        }
+        SqlAlterColumnAction::SetNotNull => Ok(bind_alter_table_alter_column_nullability(
+            entity_name,
+            field,
+            false,
+            SqlDdlMutationKind::SetFieldNotNull,
+        )?),
+        SqlAlterColumnAction::DropNotNull => Ok(bind_alter_table_alter_column_nullability(
+            entity_name,
+            field,
+            true,
+            SqlDdlMutationKind::DropFieldNotNull,
+        )?),
     }
 }
 
@@ -1068,6 +1137,52 @@ fn reject_generated_field_default_change(
 ) -> Result<(), SqlDdlBindError> {
     if field.generated() {
         return Err(SqlDdlBindError::GeneratedFieldDefaultChangeRejected {
+            entity_name: entity_name.to_string(),
+            column_name: field.name().to_string(),
+        });
+    }
+
+    Ok(())
+}
+
+fn bind_alter_table_alter_column_nullability(
+    entity_name: &str,
+    field: &PersistedFieldSnapshot,
+    nullable: bool,
+    mutation_kind: SqlDdlMutationKind,
+) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
+    if field.nullable() == nullable {
+        return Ok(BoundSqlDdlRequest {
+            statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
+                mutation_kind,
+                index_name: field.name().to_string(),
+                entity_name: entity_name.to_string(),
+                target_store: entity_name.to_string(),
+                field_path: vec![field.name().to_string()],
+            }),
+        });
+    }
+
+    reject_generated_field_nullability_change(entity_name, field)?;
+
+    Ok(BoundSqlDdlRequest {
+        statement: BoundSqlDdlStatement::AlterColumnNullability(
+            BoundSqlAlterColumnNullabilityRequest {
+                entity_name: entity_name.to_string(),
+                field: field.clone(),
+                nullable,
+                mutation_kind,
+            },
+        ),
+    })
+}
+
+fn reject_generated_field_nullability_change(
+    entity_name: &str,
+    field: &PersistedFieldSnapshot,
+) -> Result<(), SqlDdlBindError> {
+    if field.generated() {
+        return Err(SqlDdlBindError::GeneratedFieldNullabilityChangeRejected {
             entity_name: entity_name.to_string(),
             column_name: field.name().to_string(),
         });
@@ -1678,6 +1793,9 @@ pub(in crate::db) fn lower_bound_sql_ddl_to_schema_mutation_admission(
         BoundSqlDdlStatement::AlterColumnDefault(alter) => {
             Ok(admit_sql_ddl_field_default_candidate(alter.field()))
         }
+        BoundSqlDdlStatement::AlterColumnNullability(alter) => {
+            Ok(admit_sql_ddl_field_nullability_candidate(alter.field()))
+        }
         BoundSqlDdlStatement::CreateIndex(create) => {
             if create.candidate_index().key().is_field_path_only() {
                 admit_sql_ddl_field_path_index_candidate(create.candidate_index())
@@ -1707,6 +1825,13 @@ pub(in crate::db) fn derive_bound_sql_ddl_accepted_after(
                 accepted_before,
                 alter.field_name(),
                 alter.default().clone(),
+            )
+        }
+        BoundSqlDdlStatement::AlterColumnNullability(alter) => {
+            derive_sql_ddl_field_nullability_accepted_after(
+                accepted_before,
+                alter.field_name(),
+                alter.nullable(),
             )
         }
         BoundSqlDdlStatement::CreateIndex(create) => {
@@ -1749,6 +1874,15 @@ fn ddl_preparation_report(bound: &BoundSqlDdlRequest) -> SqlDdlPreparationReport
             index_keys_written: 0,
         },
         BoundSqlDdlStatement::AlterColumnDefault(alter) => SqlDdlPreparationReport {
+            mutation_kind: alter.mutation_kind(),
+            target_index: alter.field_name().to_string(),
+            target_store: alter.entity_name().to_string(),
+            field_path: vec![alter.field_name().to_string()],
+            execution_status: SqlDdlExecutionStatus::PreparedOnly,
+            rows_scanned: 0,
+            index_keys_written: 0,
+        },
+        BoundSqlDdlStatement::AlterColumnNullability(alter) => SqlDdlPreparationReport {
             mutation_kind: alter.mutation_kind(),
             target_index: alter.field_name().to_string(),
             target_store: alter.entity_name().to_string(),

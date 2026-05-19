@@ -9,14 +9,16 @@ mod startup_field_path;
 use crate::{
     db::{
         Db, EntityRuntimeHooks,
+        data::{DataKey, StructuralRowContract, decode_sparse_required_slot_with_contract},
         index::{IndexId, IndexKey, IndexState, RawIndexKey},
         registry::StoreHandle,
         schema::{
             AcceptedSchemaSnapshot, MutationPublicationBlocker, MutationPublicationPreflight,
             PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
-            SchemaFieldDefaultTarget, SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
-            SchemaSecondaryIndexDropCleanupTarget, SchemaStore, SchemaTransitionDecision,
-            SchemaTransitionPlanKind, compiled_schema_proposal_for_model, decide_schema_transition,
+            SchemaFieldDefaultTarget, SchemaFieldNullabilityTarget, SchemaMutationRunnerCapability,
+            SchemaMutationRunnerContract, SchemaSecondaryIndexDropCleanupTarget, SchemaStore,
+            SchemaTransitionDecision, SchemaTransitionPlanKind, compiled_schema_proposal_for_model,
+            decide_schema_transition,
             runtime::AcceptedRowLayoutRuntimeDescriptor,
             transition::{SchemaTransitionPlan, SchemaTransitionRejectionKind},
         },
@@ -29,6 +31,7 @@ use crate::{
     model::entity::EntityModel,
     traits::CanisterKind,
     types::EntityTag,
+    value::Value,
 };
 use std::collections::BTreeSet;
 
@@ -276,6 +279,165 @@ fn validate_sql_ddl_field_default_metadata_change(
     }
 
     Ok(())
+}
+
+/// Execute one SQL DDL field-nullability publication.
+pub(in crate::db) fn execute_sql_ddl_field_nullability_change(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    accepted_before: &AcceptedSchemaSnapshot,
+    derivation: &SchemaDdlAcceptedSnapshotDerivation,
+) -> Result<usize, InternalError> {
+    let Some(target) = derivation.admission().field_nullability_target() else {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL field-nullability execution requires a field target for entity '{entity_path}'",
+        )));
+    };
+    let before = accepted_before.persisted_snapshot();
+    let after = derivation.accepted_after().persisted_snapshot();
+    validate_sql_ddl_field_nullability_metadata_change(entity_path, before, after, target)?;
+
+    let rows_scanned = if target_field_is_required(after, target)? {
+        validate_sql_ddl_set_not_null_rows(store, entity_tag, entity_path, accepted_before, target)?
+    } else {
+        0
+    };
+
+    store.with_schema_mut(|schema_store| {
+        schema_store.insert_persisted_snapshot(entity_tag, after)
+    })?;
+
+    Ok(rows_scanned)
+}
+
+fn validate_sql_ddl_field_nullability_metadata_change(
+    entity_path: &'static str,
+    before: &PersistedSchemaSnapshot,
+    after: &PersistedSchemaSnapshot,
+    target: &SchemaFieldNullabilityTarget,
+) -> Result<(), InternalError> {
+    if before.version() != after.version()
+        || before.entity_path() != after.entity_path()
+        || before.entity_name() != after.entity_name()
+        || before.primary_key_field_id() != after.primary_key_field_id()
+        || before.row_layout() != after.row_layout()
+        || before.indexes() != after.indexes()
+        || before.fields().len() != after.fields().len()
+    {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL field-nullability execution supports only metadata nullability changes for entity '{entity_path}'",
+        )));
+    }
+
+    let mut changed = 0usize;
+    for (before_field, after_field) in before.fields().iter().zip(after.fields()) {
+        if before_field.id() == target.field_id() {
+            let field_id_drifted = after_field.id() != target.field_id();
+            let field_name_drifted = after_field.name() != target.name();
+            if field_id_drifted || field_name_drifted {
+                return Err(InternalError::store_unsupported(format!(
+                    "SQL DDL field-nullability target drifted before publication for entity '{entity_path}': field='{}'",
+                    target.name(),
+                )));
+            }
+            if before_field.clone_with_nullable(after_field.nullable()) != *after_field {
+                return Err(InternalError::store_unsupported(format!(
+                    "SQL DDL field-nullability execution found non-nullability field drift for entity '{entity_path}': field='{}'",
+                    target.name(),
+                )));
+            }
+            if before_field.nullable() != after_field.nullable() {
+                changed = changed.saturating_add(1);
+            }
+            continue;
+        }
+
+        if before_field != after_field {
+            return Err(InternalError::store_unsupported(format!(
+                "SQL DDL field-nullability execution found unrelated field drift for entity '{entity_path}': field='{}'",
+                before_field.name(),
+            )));
+        }
+    }
+
+    if changed != 1 {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL field-nullability execution expected exactly one nullability change for entity '{entity_path}': field='{}'",
+            target.name(),
+        )));
+    }
+
+    Ok(())
+}
+
+fn target_field_is_required(
+    snapshot: &PersistedSchemaSnapshot,
+    target: &SchemaFieldNullabilityTarget,
+) -> Result<bool, InternalError> {
+    snapshot
+        .fields()
+        .iter()
+        .find(|field| field.id() == target.field_id())
+        .map(|field| !field.nullable())
+        .ok_or_else(|| {
+            InternalError::store_unsupported(format!(
+                "SQL DDL field-nullability target is absent from accepted-after schema: field='{}'",
+                target.name(),
+            ))
+        })
+}
+
+fn validate_sql_ddl_set_not_null_rows(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    accepted_before: &AcceptedSchemaSnapshot,
+    target: &SchemaFieldNullabilityTarget,
+) -> Result<usize, InternalError> {
+    let field = accepted_before
+        .persisted_snapshot()
+        .fields()
+        .iter()
+        .find(|field| field.id() == target.field_id())
+        .ok_or_else(|| {
+            InternalError::store_unsupported(format!(
+                "SQL DDL SET NOT NULL target is absent from accepted-before schema for entity '{entity_path}': field='{}'",
+                target.name(),
+            ))
+        })?;
+    let contract =
+        StructuralRowContract::from_accepted_schema_snapshot(entity_path, accepted_before)?;
+    let required_slot = usize::from(field.slot().get());
+
+    store.with_data(|data_store| {
+        let mut scanned = 0usize;
+        for entry in data_store.entries() {
+            let key = DataKey::try_from_raw(entry.key()).map_err(|error| {
+                InternalError::store_unsupported(format!(
+                    "SQL DDL SET NOT NULL could not decode data key for entity '{entity_path}': {error}",
+                ))
+            })?;
+            if key.entity_tag() != entity_tag {
+                continue;
+            }
+            scanned = scanned.saturating_add(1);
+            let value = decode_sparse_required_slot_with_contract(
+                &entry.value(),
+                contract.clone(),
+                key.storage_key(),
+                required_slot,
+            )?;
+            if matches!(value, Some(Value::Null) | None) {
+                return Err(InternalError::store_unsupported(format!(
+                    "SQL DDL ALTER COLUMN SET NOT NULL found NULL value for entity '{entity_path}' column '{}'",
+                    target.name(),
+                )));
+            }
+        }
+
+        Ok(scanned)
+    })
 }
 
 /// Execute one supported SQL DDL secondary-index drop by cleaning the target

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.158.x] 🧬 - 2026-05-18 - Schema DDL And Field Evolution
 
+- `0.158.8` publishes supported `ALTER TABLE ... ALTER COLUMN ...`
+  nullability changes for DDL-owned fields. `DROP NOT NULL` is metadata-only,
+  while `SET NOT NULL` scans existing rows through the accepted schema and
+  rejects if any row materializes `NULL`. Generated fields remain owned by the
+  Rust schema, and already-satisfied `SET/DROP NOT NULL` changes report a
+  no-op.
+
+  ```
+  ALTER TABLE Character ADD COLUMN nickname text DEFAULT 'anonymous';
+  ALTER TABLE Character ALTER COLUMN nickname SET NOT NULL;
+  ALTER TABLE Character ALTER COLUMN nickname DROP NOT NULL;
+  DESCRIBE Character;
+  ```
+
 - `0.158.7` publishes supported `ALTER TABLE ... ALTER COLUMN ...`
   default changes as metadata-only accepted schema updates. `SET DEFAULT`
   stores an encoded accepted default for DDL-owned fields when the literal

@@ -2387,39 +2387,35 @@ fn sql_ddl_alter_table_add_column_rejects_unsupported_shapes() {
 }
 
 #[test]
-fn sql_ddl_alter_table_alter_column_nullability_binds_then_fails_closed() {
+fn sql_ddl_alter_table_alter_column_nullability_rejects_generated_changes() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let no_op_statement = parse_sql("ALTER TABLE SessionSqlEntity ALTER COLUMN age SET NOT NULL")
+        .expect("ALTER TABLE ALTER COLUMN SET NOT NULL should parse before binding");
+    let no_op = bind_sql_ddl_statement(
+        &no_op_statement,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect("ALTER COLUMN SET NOT NULL should no-op for already-required fields");
+    let BoundSqlDdlStatement::NoOp(no_op) = no_op.statement() else {
+        panic!("ALTER COLUMN SET NOT NULL should no-op for already-required fields");
+    };
+    assert_eq!(no_op.mutation_kind(), SqlDdlMutationKind::SetFieldNotNull);
 
-    for (sql, expected_action) in [
-        (
-            "ALTER TABLE SessionSqlEntity ALTER COLUMN age SET NOT NULL",
-            "SET NOT NULL",
-        ),
-        (
-            "ALTER TABLE SessionSqlEntity ALTER COLUMN age DROP NOT NULL",
-            "DROP NOT NULL",
-        ),
-    ] {
-        let statement =
-            parse_sql(sql).expect("ALTER TABLE ALTER COLUMN should parse before binding");
-        let err =
-            bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
-                .expect_err(
-                    "ALTER COLUMN nullability should fail closed until publication rules exist",
-                );
+    let statement = parse_sql("ALTER TABLE SessionSqlEntity ALTER COLUMN age DROP NOT NULL")
+        .expect("ALTER TABLE ALTER COLUMN DROP NOT NULL should parse before binding");
+    let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+        .expect_err("ALTER COLUMN DROP NOT NULL should reject generated accepted fields");
 
-        assert!(matches!(
-            err,
-            SqlDdlBindError::UnsupportedAlterTableAlterColumn {
-                entity_name,
-                column_name,
-                action,
-            } if entity_name == "SessionSqlEntity"
-                && column_name == "age"
-                && action == expected_action
-        ));
-    }
+    assert!(matches!(
+        err,
+        SqlDdlBindError::GeneratedFieldNullabilityChangeRejected {
+            entity_name,
+            column_name,
+        } if entity_name == "SessionSqlEntity" && column_name == "age"
+    ));
 }
 
 #[test]
@@ -2861,6 +2857,166 @@ fn execute_sql_ddl_rejects_required_drop_default_without_publication() {
             .expect("setup field should remain present");
 
         assert!(!score.default().is_none());
+    });
+}
+
+#[test]
+fn execute_sql_ddl_publishes_supported_drop_not_null() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat DEFAULT 7 NOT NULL",
+        )
+        .expect("setup required defaulted ADD COLUMN should publish");
+    let SqlStatementResult::Ddl(report) = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN score DROP NOT NULL",
+        )
+        .expect("ALTER COLUMN DROP NOT NULL should publish for DDL-owned fields")
+    else {
+        panic!("ALTER COLUMN DROP NOT NULL should return a DDL report");
+    };
+
+    assert_eq!(report.mutation_kind(), SqlDdlMutationKind::DropFieldNotNull);
+    assert_eq!(report.target_index(), "score");
+    assert_eq!(report.field_path(), ["score".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    assert_eq!(report.rows_scanned(), 0);
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("DDL-published schema should remain readable")
+            .expect("DDL execution should publish an accepted snapshot");
+        let score = latest
+            .fields()
+            .iter()
+            .find(|field| field.name() == "score")
+            .expect("DDL-published schema should include the altered field");
+
+        assert!(score.nullable());
+        assert!(!score.default().is_none());
+    });
+}
+
+#[test]
+fn execute_sql_ddl_alter_column_nullability_reports_no_op_for_matching_contract() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        )
+        .expect("setup nullable ADD COLUMN should publish before matching DROP NOT NULL");
+    let SqlStatementResult::Ddl(report) = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN nickname DROP NOT NULL",
+        )
+        .expect("matching ALTER COLUMN DROP NOT NULL should execute as a no-op")
+    else {
+        panic!("matching ALTER COLUMN DROP NOT NULL should return a DDL report");
+    };
+
+    assert_eq!(report.mutation_kind(), SqlDdlMutationKind::DropFieldNotNull);
+    assert_eq!(report.target_index(), "nickname");
+    assert_eq!(report.field_path(), ["nickname".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::NoOp);
+    assert_eq!(report.rows_scanned(), 0);
+    assert_eq!(report.index_keys_written(), 0);
+}
+
+#[test]
+fn execute_sql_ddl_publishes_supported_set_not_null_after_row_scan() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text DEFAULT 'anonymous'",
+        )
+        .expect("setup nullable defaulted ADD COLUMN should publish");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(15_806),
+            name: "Ada".to_string(),
+            age: 36,
+        })
+        .expect("typed inserts should remain valid before SET NOT NULL");
+    let SqlStatementResult::Ddl(report) = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN nickname SET NOT NULL",
+        )
+        .expect("ALTER COLUMN SET NOT NULL should publish after validating existing rows")
+    else {
+        panic!("ALTER COLUMN SET NOT NULL should return a DDL report");
+    };
+
+    assert_eq!(report.mutation_kind(), SqlDdlMutationKind::SetFieldNotNull);
+    assert_eq!(report.target_index(), "nickname");
+    assert_eq!(report.field_path(), ["nickname".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    assert_eq!(report.rows_scanned(), 1);
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("DDL-published schema should remain readable")
+            .expect("DDL execution should publish an accepted snapshot");
+        let nickname = latest
+            .fields()
+            .iter()
+            .find(|field| field.name() == "nickname")
+            .expect("DDL-published schema should include the altered field");
+
+        assert!(!nickname.nullable());
+        assert!(!nickname.default().is_none());
+    });
+}
+
+#[test]
+fn execute_sql_ddl_rejects_set_not_null_when_rows_materialize_null() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        )
+        .expect("setup nullable ADD COLUMN should publish");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(15_807),
+            name: "Ada".to_string(),
+            age: 36,
+        })
+        .expect("typed inserts should remain valid before rejected SET NOT NULL");
+    let err = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN nickname SET NOT NULL",
+        )
+        .expect_err("SET NOT NULL should reject when any existing row materializes NULL");
+
+    assert!(
+        err.to_string().contains("found NULL value"),
+        "SET NOT NULL rejection should explain the row validation failure: {err}",
+    );
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("schema should remain readable after rejected SET NOT NULL")
+            .expect("schema should remain published after setup ADD COLUMN");
+        let nickname = latest
+            .fields()
+            .iter()
+            .find(|field| field.name() == "nickname")
+            .expect("setup field should remain present");
+
+        assert!(nickname.nullable());
     });
 }
 

@@ -1152,6 +1152,84 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_default() {
 }
 
 #[test]
+fn sql_canister_ddl_endpoint_publishes_alter_column_nullability() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    ddl_sql(
+        &fixture,
+        "ALTER TABLE SqlTestUser ADD COLUMN nickname text DEFAULT 'anonymous'",
+    )
+    .expect("setup nullable defaulted ADD COLUMN should publish through the canister endpoint");
+    let set_not_null = ddl_sql(
+        &fixture,
+        "ALTER TABLE SqlTestUser ALTER COLUMN nickname SET NOT NULL",
+    )
+    .expect("ALTER COLUMN SET NOT NULL should publish through the canister endpoint");
+    let SqlQueryResult::Ddl {
+        mutation_kind,
+        target_index,
+        status,
+        rows_scanned,
+        index_keys_written,
+        ..
+    } = set_not_null
+    else {
+        panic!("ALTER COLUMN SET NOT NULL should return a DDL payload");
+    };
+    assert_eq!(mutation_kind, "set_field_not_null");
+    assert_eq!(target_index, "nickname");
+    assert_eq!(status, "published");
+    assert_eq!(rows_scanned, 3);
+    assert_eq!(index_keys_written, 0);
+
+    let describe_after_set = expect_describe(
+        query_sql(&fixture, "DESCRIBE SqlTestUser")
+            .expect("DESCRIBE should read accepted schema after SET NOT NULL"),
+    );
+    assert!(
+        describe_after_set.fields().iter().any(|field| {
+            field.name() == "nickname"
+                && !field.nullable()
+                && field
+                    .kind()
+                    .starts_with("text(unbounded) default=slot_payload(")
+                && field.origin() == "ddl"
+        }),
+        "DESCRIBE should expose the accepted nullability change: {describe_after_set:?}",
+    );
+
+    let drop_not_null = ddl_sql(
+        &fixture,
+        "ALTER TABLE SqlTestUser ALTER COLUMN nickname DROP NOT NULL",
+    )
+    .expect("ALTER COLUMN DROP NOT NULL should publish through the canister endpoint");
+    let SqlQueryResult::Ddl {
+        mutation_kind,
+        target_index,
+        status,
+        rows_scanned,
+        index_keys_written,
+        ..
+    } = drop_not_null
+    else {
+        panic!("ALTER COLUMN DROP NOT NULL should return a DDL payload");
+    };
+    assert_eq!(mutation_kind, "drop_field_not_null");
+    assert_eq!(target_index, "nickname");
+    assert_eq!(status, "published");
+    assert_eq!(rows_scanned, 0);
+    assert_eq!(index_keys_written, 0);
+
+    let drop_not_null_no_op = ddl_sql(
+        &fixture,
+        "ALTER TABLE SqlTestUser ALTER COLUMN nickname DROP NOT NULL",
+    )
+    .expect("matching ALTER COLUMN DROP NOT NULL should no-op through the canister endpoint");
+    assert_ddl_no_op(drop_not_null_no_op, "drop_field_not_null", "nickname");
+}
+
+#[test]
 fn sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publication() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
@@ -1174,12 +1252,12 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publicatio
             "SET DEFAULT value is not encodable",
         ),
         (
-            "ALTER TABLE SqlTestUser ALTER COLUMN rank SET NOT NULL",
-            "ALTER COLUMN SET NOT NULL is not executable yet",
+            "ALTER TABLE SqlTestUser ALTER COLUMN rank DROP NOT NULL",
+            "cannot change generated accepted field",
         ),
         (
-            "ALTER TABLE SqlTestUser ALTER COLUMN rank DROP NOT NULL",
-            "ALTER COLUMN DROP NOT NULL is not executable yet",
+            "ALTER TABLE SqlTestUser ALTER COLUMN bonus SET NOT NULL",
+            "found NULL value",
         ),
         (
             "ALTER TABLE SqlTestUser ALTER COLUMN required_score DROP DEFAULT",
