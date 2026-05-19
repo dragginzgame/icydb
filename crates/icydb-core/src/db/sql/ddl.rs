@@ -21,11 +21,11 @@ use crate::db::{
         SchemaDdlMutationAdmissionError, SchemaExpressionIndexInfo,
         SchemaExpressionIndexKeyItemInfo, SchemaFieldDefault, SchemaFieldSlot,
         SchemaFieldWritePolicy, SchemaInfo, admit_sql_ddl_expression_index_candidate,
-        admit_sql_ddl_field_addition_candidate, admit_sql_ddl_field_path_index_candidate,
-        admit_sql_ddl_secondary_index_drop_candidate,
+        admit_sql_ddl_field_addition_candidate, admit_sql_ddl_field_default_candidate,
+        admit_sql_ddl_field_path_index_candidate, admit_sql_ddl_secondary_index_drop_candidate,
         canonicalize_strict_sql_literal_for_persisted_kind,
         derive_sql_ddl_expression_index_accepted_after,
-        derive_sql_ddl_field_addition_accepted_after,
+        derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
         derive_sql_ddl_field_path_index_accepted_after,
         derive_sql_ddl_secondary_index_drop_accepted_after,
         resolve_sql_ddl_secondary_index_drop_candidate,
@@ -33,9 +33,10 @@ use crate::db::{
     sql::{
         identifier::identifiers_tail_match,
         parser::{
-            SqlAlterTableAddColumnStatement, SqlAlterTableAlterColumnStatement,
-            SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem, SqlCreateIndexStatement,
-            SqlCreateIndexUniqueness, SqlDdlStatement, SqlDropIndexStatement, SqlStatement,
+            SqlAlterColumnAction, SqlAlterTableAddColumnStatement,
+            SqlAlterTableAlterColumnStatement, SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem,
+            SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement,
+            SqlDropIndexStatement, SqlStatement,
         },
     },
 };
@@ -170,6 +171,8 @@ impl SqlDdlPreparationReport {
 pub enum SqlDdlMutationKind {
     AddDefaultedField,
     AddNullableField,
+    SetFieldDefault,
+    DropFieldDefault,
     AddFieldPathIndex,
     AddExpressionIndex,
     DropSecondaryIndex,
@@ -182,6 +185,8 @@ impl SqlDdlMutationKind {
         match self {
             Self::AddDefaultedField => "add_defaulted_field",
             Self::AddNullableField => "add_nullable_field",
+            Self::SetFieldDefault => "set_field_default",
+            Self::DropFieldDefault => "drop_field_default",
             Self::AddFieldPathIndex => "add_field_path_index",
             Self::AddExpressionIndex => "add_expression_index",
             Self::DropSecondaryIndex => "drop_secondary_index",
@@ -240,6 +245,7 @@ impl BoundSqlDdlRequest {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum BoundSqlDdlStatement {
     AddColumn(BoundSqlAddColumnRequest),
+    AlterColumnDefault(BoundSqlAlterColumnDefaultRequest),
     CreateIndex(BoundSqlCreateIndexRequest),
     DropIndex(BoundSqlDropIndexRequest),
     NoOp(BoundSqlDdlNoOpRequest),
@@ -267,6 +273,51 @@ impl BoundSqlAddColumnRequest {
     #[must_use]
     pub(in crate::db) const fn field(&self) -> &PersistedFieldSnapshot {
         &self.field
+    }
+}
+
+///
+/// BoundSqlAlterColumnDefaultRequest
+///
+/// Catalog-resolved field-default metadata DDL request.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct BoundSqlAlterColumnDefaultRequest {
+    entity_name: String,
+    field: PersistedFieldSnapshot,
+    default: SchemaFieldDefault,
+    mutation_kind: SqlDdlMutationKind,
+}
+
+impl BoundSqlAlterColumnDefaultRequest {
+    /// Borrow the accepted entity name.
+    #[must_use]
+    pub(in crate::db) const fn entity_name(&self) -> &str {
+        self.entity_name.as_str()
+    }
+
+    /// Borrow the accepted field name.
+    #[must_use]
+    pub(in crate::db) const fn field_name(&self) -> &str {
+        self.field.name()
+    }
+
+    /// Borrow the accepted field whose default will change.
+    #[must_use]
+    pub(in crate::db) const fn field(&self) -> &PersistedFieldSnapshot {
+        &self.field
+    }
+
+    /// Borrow the default contract to publish.
+    #[must_use]
+    pub(in crate::db) const fn default(&self) -> &SchemaFieldDefault {
+        &self.default
+    }
+
+    /// Return the field-default mutation kind.
+    #[must_use]
+    pub(in crate::db) const fn mutation_kind(&self) -> SqlDdlMutationKind {
+        self.mutation_kind
     }
 }
 
@@ -549,6 +600,31 @@ pub(in crate::db) enum SqlDdlBindError {
         column_name: String,
         action: String,
     },
+
+    #[error(
+        "SQL DDL ALTER TABLE ALTER COLUMN SET DEFAULT value is not encodable for accepted entity '{entity_name}' column '{column_name}': {detail}"
+    )]
+    InvalidAlterTableAlterColumnDefault {
+        entity_name: String,
+        column_name: String,
+        detail: String,
+    },
+
+    #[error(
+        "SQL DDL ALTER TABLE ALTER COLUMN DROP DEFAULT is not executable yet for required accepted entity '{entity_name}' column '{column_name}'"
+    )]
+    UnsupportedAlterTableDropDefaultRequired {
+        entity_name: String,
+        column_name: String,
+    },
+
+    #[error(
+        "SQL DDL ALTER TABLE ALTER COLUMN DEFAULT cannot change generated accepted field '{column_name}' on entity '{entity_name}'; change the Rust schema default instead"
+    )]
+    GeneratedFieldDefaultChangeRejected {
+        entity_name: String,
+        column_name: String,
+    },
 }
 
 ///
@@ -627,7 +703,7 @@ pub(in crate::db) fn bind_sql_ddl_statement(
             bind_alter_table_add_column_statement(statement, accepted_before, schema)
         }
         SqlDdlStatement::AlterTableAlterColumn(statement) => {
-            Err(alter_table_alter_column_bind_error(statement, schema))
+            bind_alter_table_alter_column_statement(statement, accepted_before, schema)
         }
     }
 }
@@ -897,6 +973,109 @@ fn alter_table_alter_column_bind_error(
     }
 }
 
+fn bind_alter_table_alter_column_statement(
+    statement: &SqlAlterTableAlterColumnStatement,
+    accepted_before: &AcceptedSchemaSnapshot,
+    schema: &SchemaInfo,
+) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
+    let Some(entity_name) = schema.entity_name() else {
+        return Err(SqlDdlBindError::MissingEntityName);
+    };
+
+    if !identifiers_tail_match(statement.entity.as_str(), entity_name) {
+        return Err(SqlDdlBindError::EntityMismatch {
+            sql_entity: statement.entity.clone(),
+            expected_entity: entity_name.to_string(),
+        });
+    }
+
+    let field = accepted_before
+        .persisted_snapshot()
+        .fields()
+        .iter()
+        .find(|field| field.name() == statement.column_name)
+        .ok_or_else(|| SqlDdlBindError::UnknownColumn {
+            entity_name: entity_name.to_string(),
+            column_name: statement.column_name.clone(),
+        })?;
+
+    match &statement.action {
+        SqlAlterColumnAction::SetDefault(default) => {
+            reject_generated_field_default_change(entity_name, field)?;
+            let default =
+                schema_field_default_for_alter_column_default(entity_name, field, default)?;
+            Ok(bind_alter_table_alter_column_default(
+                entity_name,
+                field,
+                default,
+                SqlDdlMutationKind::SetFieldDefault,
+            ))
+        }
+        SqlAlterColumnAction::DropDefault => {
+            if !field.default().is_none() {
+                reject_generated_field_default_change(entity_name, field)?;
+            }
+            if !field.nullable() && !field.default().is_none() {
+                return Err(SqlDdlBindError::UnsupportedAlterTableDropDefaultRequired {
+                    entity_name: entity_name.to_string(),
+                    column_name: statement.column_name.clone(),
+                });
+            }
+            Ok(bind_alter_table_alter_column_default(
+                entity_name,
+                field,
+                SchemaFieldDefault::None,
+                SqlDdlMutationKind::DropFieldDefault,
+            ))
+        }
+        SqlAlterColumnAction::SetNotNull | SqlAlterColumnAction::DropNotNull => {
+            Err(alter_table_alter_column_bind_error(statement, schema))
+        }
+    }
+}
+
+fn bind_alter_table_alter_column_default(
+    entity_name: &str,
+    field: &PersistedFieldSnapshot,
+    default: SchemaFieldDefault,
+    mutation_kind: SqlDdlMutationKind,
+) -> BoundSqlDdlRequest {
+    if field.default() == &default {
+        return BoundSqlDdlRequest {
+            statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
+                mutation_kind,
+                index_name: field.name().to_string(),
+                entity_name: entity_name.to_string(),
+                target_store: entity_name.to_string(),
+                field_path: vec![field.name().to_string()],
+            }),
+        };
+    }
+
+    BoundSqlDdlRequest {
+        statement: BoundSqlDdlStatement::AlterColumnDefault(BoundSqlAlterColumnDefaultRequest {
+            entity_name: entity_name.to_string(),
+            field: field.clone(),
+            default,
+            mutation_kind,
+        }),
+    }
+}
+
+fn reject_generated_field_default_change(
+    entity_name: &str,
+    field: &PersistedFieldSnapshot,
+) -> Result<(), SqlDdlBindError> {
+    if field.generated() {
+        return Err(SqlDdlBindError::GeneratedFieldDefaultChangeRejected {
+            entity_name: entity_name.to_string(),
+            column_name: field.name().to_string(),
+        });
+    }
+
+    Ok(())
+}
+
 fn schema_field_default_for_sql_default(
     entity_name: &str,
     column_name: &str,
@@ -925,6 +1104,39 @@ fn schema_field_default_for_sql_default(
         |error| SqlDdlBindError::InvalidAlterTableAddColumnDefault {
             entity_name: entity_name.to_string(),
             column_name: column_name.to_string(),
+            detail: error.to_string(),
+        },
+    )?;
+
+    Ok(SchemaFieldDefault::SlotPayload(payload))
+}
+
+fn schema_field_default_for_alter_column_default(
+    entity_name: &str,
+    field: &PersistedFieldSnapshot,
+    default: &crate::value::Value,
+) -> Result<SchemaFieldDefault, SqlDdlBindError> {
+    if matches!(default, crate::value::Value::Null) {
+        return Err(SqlDdlBindError::InvalidAlterTableAlterColumnDefault {
+            entity_name: entity_name.to_string(),
+            column_name: field.name().to_string(),
+            detail: "NULL cannot be used as an accepted database default".to_string(),
+        });
+    }
+
+    let normalized = canonicalize_strict_sql_literal_for_persisted_kind(field.kind(), default)
+        .unwrap_or_else(|| default.clone());
+    let contract = AcceptedFieldDecodeContract::new(
+        field.name(),
+        field.kind(),
+        field.nullable(),
+        field.storage_decode(),
+        field.leaf_codec(),
+    );
+    let payload = encode_runtime_value_for_accepted_field_contract(contract, &normalized).map_err(
+        |error| SqlDdlBindError::InvalidAlterTableAlterColumnDefault {
+            entity_name: entity_name.to_string(),
+            column_name: field.name().to_string(),
             detail: error.to_string(),
         },
     )?;
@@ -1463,6 +1675,9 @@ pub(in crate::db) fn lower_bound_sql_ddl_to_schema_mutation_admission(
         BoundSqlDdlStatement::AddColumn(add) => {
             Ok(admit_sql_ddl_field_addition_candidate(add.field()))
         }
+        BoundSqlDdlStatement::AlterColumnDefault(alter) => {
+            Ok(admit_sql_ddl_field_default_candidate(alter.field()))
+        }
         BoundSqlDdlStatement::CreateIndex(create) => {
             if create.candidate_index().key().is_field_path_only() {
                 admit_sql_ddl_field_path_index_candidate(create.candidate_index())
@@ -1486,6 +1701,13 @@ pub(in crate::db) fn derive_bound_sql_ddl_accepted_after(
     match request.statement() {
         BoundSqlDdlStatement::AddColumn(add) => {
             derive_sql_ddl_field_addition_accepted_after(accepted_before, add.field().clone())
+        }
+        BoundSqlDdlStatement::AlterColumnDefault(alter) => {
+            derive_sql_ddl_field_default_accepted_after(
+                accepted_before,
+                alter.field_name(),
+                alter.default().clone(),
+            )
         }
         BoundSqlDdlStatement::CreateIndex(create) => {
             if create.candidate_index().key().is_field_path_only() {
@@ -1522,6 +1744,15 @@ fn ddl_preparation_report(bound: &BoundSqlDdlRequest) -> SqlDdlPreparationReport
             target_index: add.field().name().to_string(),
             target_store: add.entity_name().to_string(),
             field_path: vec![add.field().name().to_string()],
+            execution_status: SqlDdlExecutionStatus::PreparedOnly,
+            rows_scanned: 0,
+            index_keys_written: 0,
+        },
+        BoundSqlDdlStatement::AlterColumnDefault(alter) => SqlDdlPreparationReport {
+            mutation_kind: alter.mutation_kind(),
+            target_index: alter.field_name().to_string(),
+            target_store: alter.entity_name().to_string(),
+            field_path: vec![alter.field_name().to_string()],
             execution_status: SqlDdlExecutionStatus::PreparedOnly,
             rows_scanned: 0,
             index_keys_written: 0,

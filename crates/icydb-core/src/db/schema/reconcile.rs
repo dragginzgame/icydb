@@ -14,7 +14,7 @@ use crate::{
         schema::{
             AcceptedSchemaSnapshot, MutationPublicationBlocker, MutationPublicationPreflight,
             PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
-            SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
+            SchemaFieldDefaultTarget, SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
             SchemaSecondaryIndexDropCleanupTarget, SchemaStore, SchemaTransitionDecision,
             SchemaTransitionPlanKind, compiled_schema_proposal_for_model, decide_schema_transition,
             runtime::AcceptedRowLayoutRuntimeDescriptor,
@@ -196,6 +196,86 @@ pub(in crate::db) fn execute_sql_ddl_field_addition(
     }
 
     store.with_schema_mut(|schema_store| schema_store.insert_persisted_snapshot(entity_tag, after))
+}
+
+/// Execute one metadata-only SQL DDL field-default publication.
+pub(in crate::db) fn execute_sql_ddl_field_default_change(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    accepted_before: &AcceptedSchemaSnapshot,
+    derivation: &SchemaDdlAcceptedSnapshotDerivation,
+) -> Result<(), InternalError> {
+    let Some(target) = derivation.admission().field_default_target() else {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL field-default execution requires a field target for entity '{entity_path}'",
+        )));
+    };
+    let before = accepted_before.persisted_snapshot();
+    let after = derivation.accepted_after().persisted_snapshot();
+    validate_sql_ddl_field_default_metadata_change(entity_path, before, after, target)?;
+
+    store.with_schema_mut(|schema_store| schema_store.insert_persisted_snapshot(entity_tag, after))
+}
+
+fn validate_sql_ddl_field_default_metadata_change(
+    entity_path: &'static str,
+    before: &PersistedSchemaSnapshot,
+    after: &PersistedSchemaSnapshot,
+    target: &SchemaFieldDefaultTarget,
+) -> Result<(), InternalError> {
+    if before.version() != after.version()
+        || before.entity_path() != after.entity_path()
+        || before.entity_name() != after.entity_name()
+        || before.primary_key_field_id() != after.primary_key_field_id()
+        || before.row_layout() != after.row_layout()
+        || before.indexes() != after.indexes()
+        || before.fields().len() != after.fields().len()
+    {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL field-default execution supports only metadata default changes for entity '{entity_path}'",
+        )));
+    }
+
+    let mut changed = 0usize;
+    for (before_field, after_field) in before.fields().iter().zip(after.fields()) {
+        if before_field.id() == target.field_id() {
+            let field_id_drifted = after_field.id() != target.field_id();
+            let field_name_drifted = after_field.name() != target.name();
+            if field_id_drifted || field_name_drifted {
+                return Err(InternalError::store_unsupported(format!(
+                    "SQL DDL field-default target drifted before publication for entity '{entity_path}': field='{}'",
+                    target.name(),
+                )));
+            }
+            if before_field.clone_with_default(after_field.default().clone()) != *after_field {
+                return Err(InternalError::store_unsupported(format!(
+                    "SQL DDL field-default execution found non-default field drift for entity '{entity_path}': field='{}'",
+                    target.name(),
+                )));
+            }
+            if before_field.default() != after_field.default() {
+                changed = changed.saturating_add(1);
+            }
+            continue;
+        }
+
+        if before_field != after_field {
+            return Err(InternalError::store_unsupported(format!(
+                "SQL DDL field-default execution found unrelated field drift for entity '{entity_path}': field='{}'",
+                before_field.name(),
+            )));
+        }
+    }
+
+    if changed != 1 {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL field-default execution expected exactly one default change for entity '{entity_path}': field='{}'",
+            target.name(),
+        )));
+    }
+
+    Ok(())
 }
 
 /// Execute one supported SQL DDL secondary-index drop by cleaning the target

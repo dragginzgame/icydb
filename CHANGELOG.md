@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.158.x] 🧬 - 2026-05-18 - Schema DDL And Field Evolution
 
+- `0.158.7` publishes supported `ALTER TABLE ... ALTER COLUMN ...`
+  default changes as metadata-only accepted schema updates. `SET DEFAULT`
+  stores an encoded accepted default for DDL-owned fields when the literal
+  matches the accepted field contract, and `DROP DEFAULT` is executable for
+  nullable DDL-owned fields. Generated fields remain owned by the Rust schema,
+  matching default changes report a no-op, invalid defaults reject without
+  publication, and dropping the default from required defaulted fields remains
+  fail-closed because older rows may still rely on the accepted default for
+  missing slots.
+
+  ```
+  ALTER TABLE Character ADD COLUMN score nat;
+  ALTER TABLE Character ALTER COLUMN score SET DEFAULT 7;
+  ALTER TABLE Character ALTER COLUMN score SET DEFAULT 7;
+  ALTER TABLE Character ADD COLUMN nickname text DEFAULT 'anonymous';
+  ALTER TABLE Character ALTER COLUMN nickname DROP DEFAULT;
+  DESCRIBE Character;
+  ```
+
 - `0.158.6` adds parser and binder coverage for `ALTER TABLE ... ALTER COLUMN`
   default/nullability statements. These statements now parse as DDL intent,
   validate the accepted entity and column, and then fail closed with typed

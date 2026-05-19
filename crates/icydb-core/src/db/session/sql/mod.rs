@@ -32,7 +32,8 @@ use crate::{
         schema::{AcceptedSchemaSnapshot, SchemaInfo},
         schema::{
             execute_sql_ddl_expression_index_addition, execute_sql_ddl_field_addition,
-            execute_sql_ddl_field_path_index_addition, execute_sql_ddl_secondary_index_drop,
+            execute_sql_ddl_field_default_change, execute_sql_ddl_field_path_index_addition,
+            execute_sql_ddl_secondary_index_drop,
         },
         session::query::QueryPlanCacheAttribution,
         session::sql::projection::{
@@ -498,6 +499,18 @@ impl<C: CanisterKind> DbSession<C> {
         let (rows_scanned, index_keys_written) = match prepared.bound().statement() {
             crate::db::sql::ddl::BoundSqlDdlStatement::AddColumn(_) => {
                 execute_sql_ddl_field_addition(
+                    store,
+                    E::ENTITY_TAG,
+                    E::PATH,
+                    &accepted_before,
+                    derivation,
+                )
+                .map_err(QueryError::execute)?;
+
+                (0, 0)
+            }
+            crate::db::sql::ddl::BoundSqlDdlStatement::AlterColumnDefault(_) => {
+                execute_sql_ddl_field_default_change(
                     store,
                     E::ENTITY_TAG,
                     E::PATH,

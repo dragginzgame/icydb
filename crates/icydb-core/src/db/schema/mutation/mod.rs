@@ -15,7 +15,7 @@ use crate::db::{
         AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
         PersistedIndexExpressionOp, PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
         PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
-        SchemaFieldSlot, SchemaRowLayout, encode_persisted_schema_snapshot,
+        SchemaFieldDefault, SchemaFieldSlot, SchemaRowLayout, encode_persisted_schema_snapshot,
     },
 };
 use crate::error::InternalError;
@@ -176,6 +176,7 @@ impl SchemaDdlMutationAdmission {
             SchemaDdlMutationTarget::ExpressionAddition(target) => Some(target),
             SchemaDdlMutationTarget::FieldPathAddition(_)
             | SchemaDdlMutationTarget::FieldAddition(_)
+            | SchemaDdlMutationTarget::FieldDefaultChange(_)
             | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
         }
     }
@@ -188,6 +189,7 @@ impl SchemaDdlMutationAdmission {
         match &self.target {
             SchemaDdlMutationTarget::FieldPathAddition(_)
             | SchemaDdlMutationTarget::FieldAddition(_)
+            | SchemaDdlMutationTarget::FieldDefaultChange(_)
             | SchemaDdlMutationTarget::ExpressionAddition(_) => None,
             SchemaDdlMutationTarget::SecondaryDrop(target) => Some(target),
         }
@@ -199,6 +201,19 @@ impl SchemaDdlMutationAdmission {
         match &self.target {
             SchemaDdlMutationTarget::FieldAddition(target) => Some(target),
             SchemaDdlMutationTarget::FieldPathAddition(_)
+            | SchemaDdlMutationTarget::FieldDefaultChange(_)
+            | SchemaDdlMutationTarget::ExpressionAddition(_)
+            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
+        }
+    }
+
+    /// Borrow the admitted field-default metadata target.
+    #[must_use]
+    pub(in crate::db) const fn field_default_target(&self) -> Option<&SchemaFieldDefaultTarget> {
+        match &self.target {
+            SchemaDdlMutationTarget::FieldDefaultChange(target) => Some(target),
+            SchemaDdlMutationTarget::FieldAddition(_)
+            | SchemaDdlMutationTarget::FieldPathAddition(_)
             | SchemaDdlMutationTarget::ExpressionAddition(_)
             | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
         }
@@ -214,6 +229,7 @@ impl SchemaDdlMutationAdmission {
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum SchemaDdlMutationTarget {
     FieldAddition(SchemaFieldAdditionTarget),
+    FieldDefaultChange(SchemaFieldDefaultTarget),
     FieldPathAddition(SchemaFieldPathIndexRebuildTarget),
     ExpressionAddition(SchemaExpressionIndexRebuildTarget),
     SecondaryDrop(SchemaSecondaryIndexDropCleanupTarget),
@@ -259,6 +275,41 @@ impl SchemaFieldAdditionTarget {
     #[must_use]
     pub(in crate::db) const fn slot(&self) -> SchemaFieldSlot {
         self.slot
+    }
+}
+
+///
+/// SchemaFieldDefaultTarget
+///
+/// Accepted field-default metadata target admitted for SQL DDL publication.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct SchemaFieldDefaultTarget {
+    field_id: FieldId,
+    name: String,
+}
+
+impl SchemaFieldDefaultTarget {
+    /// Build one field-default DDL target from accepted field metadata.
+    #[must_use]
+    fn from_field(field: &PersistedFieldSnapshot) -> Self {
+        Self {
+            field_id: field.id(),
+            name: field.name().to_string(),
+        }
+    }
+
+    /// Return the accepted field ID.
+    #[must_use]
+    pub(in crate::db) const fn field_id(&self) -> FieldId {
+        self.field_id
+    }
+
+    /// Borrow the accepted field name.
+    #[must_use]
+    pub(in crate::db) const fn name(&self) -> &str {
+        self.name.as_str()
     }
 }
 
@@ -1763,6 +1814,17 @@ pub(in crate::db) fn admit_sql_ddl_field_addition_candidate(
     }
 }
 
+/// Admit one SQL DDL field-default metadata change.
+pub(in crate::db) fn admit_sql_ddl_field_default_candidate(
+    field: &PersistedFieldSnapshot,
+) -> SchemaDdlMutationAdmission {
+    SchemaDdlMutationAdmission {
+        target: SchemaDdlMutationTarget::FieldDefaultChange(SchemaFieldDefaultTarget::from_field(
+            field,
+        )),
+    }
+}
+
 /// Resolve one accepted SQL DDL index-drop candidate and reject generated
 /// accepted indexes before the frontend can derive a catalog mutation.
 pub(in crate::db) fn resolve_sql_ddl_secondary_index_drop_candidate(
@@ -1882,6 +1944,55 @@ pub(in crate::db) fn derive_sql_ddl_field_addition_accepted_after(
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
     let admission = admit_sql_ddl_field_addition_candidate(&field);
+
+    Ok(SchemaDdlAcceptedSnapshotDerivation {
+        accepted_after,
+        admission,
+    })
+}
+
+/// Derive and admit the accepted-after schema snapshot for one SQL DDL
+/// field-default metadata change.
+pub(in crate::db) fn derive_sql_ddl_field_default_accepted_after(
+    accepted_before: &AcceptedSchemaSnapshot,
+    field_name: &str,
+    default: SchemaFieldDefault,
+) -> Result<SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError> {
+    let before = accepted_before.persisted_snapshot();
+    let before_field = before
+        .fields()
+        .iter()
+        .find(|field| field.name() == field_name)
+        .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
+    let fields = before
+        .fields()
+        .iter()
+        .map(|field| {
+            if field.id() == before_field.id() {
+                field.clone_with_default(default.clone())
+            } else {
+                field.clone()
+            }
+        })
+        .collect();
+    let persisted_after = PersistedSchemaSnapshot::new_with_indexes(
+        before.version(),
+        before.entity_path().to_string(),
+        before.entity_name().to_string(),
+        before.primary_key_field_id(),
+        before.row_layout().clone(),
+        fields,
+        before.indexes().to_vec(),
+    );
+    let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
+        .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
+    let after_field = accepted_after
+        .persisted_snapshot()
+        .fields()
+        .iter()
+        .find(|field| field.id() == before_field.id())
+        .ok_or(SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
+    let admission = admit_sql_ddl_field_default_candidate(after_field);
 
     Ok(SchemaDdlAcceptedSnapshotDerivation {
         accepted_after,

@@ -2387,19 +2387,11 @@ fn sql_ddl_alter_table_add_column_rejects_unsupported_shapes() {
 }
 
 #[test]
-fn sql_ddl_alter_table_alter_column_binds_then_fails_closed() {
+fn sql_ddl_alter_table_alter_column_nullability_binds_then_fails_closed() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
 
     for (sql, expected_action) in [
-        (
-            "ALTER TABLE SessionSqlEntity ALTER COLUMN age SET DEFAULT 7",
-            "SET DEFAULT",
-        ),
-        (
-            "ALTER TABLE SessionSqlEntity ALTER COLUMN age DROP DEFAULT",
-            "DROP DEFAULT",
-        ),
         (
             "ALTER TABLE SessionSqlEntity ALTER COLUMN age SET NOT NULL",
             "SET NOT NULL",
@@ -2413,7 +2405,9 @@ fn sql_ddl_alter_table_alter_column_binds_then_fails_closed() {
             parse_sql(sql).expect("ALTER TABLE ALTER COLUMN should parse before binding");
         let err =
             bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
-                .expect_err("ALTER COLUMN should fail closed until publication rules exist");
+                .expect_err(
+                    "ALTER COLUMN nullability should fail closed until publication rules exist",
+                );
 
         assert!(matches!(
             err,
@@ -2445,6 +2439,45 @@ fn sql_ddl_alter_table_alter_column_rejects_unknown_column() {
             column_name,
         } if entity_name == "SessionSqlEntity" && column_name == "missing"
     ));
+}
+
+#[test]
+fn sql_ddl_alter_table_alter_column_default_rejects_generated_fields() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let statement = parse_sql("ALTER TABLE SessionSqlEntity ALTER COLUMN age SET DEFAULT 7")
+        .expect("ALTER TABLE ALTER COLUMN SET DEFAULT should parse before binding");
+
+    let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+        .expect_err("ALTER COLUMN SET DEFAULT should reject generated accepted fields");
+
+    assert!(matches!(
+        err,
+        SqlDdlBindError::GeneratedFieldDefaultChangeRejected {
+            entity_name,
+            column_name,
+        } if entity_name == "SessionSqlEntity" && column_name == "age"
+    ));
+}
+
+#[test]
+fn sql_ddl_alter_table_drop_default_binds_noop_for_absent_default() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let statement = parse_sql("ALTER TABLE SessionSqlEntity ALTER COLUMN age DROP DEFAULT")
+        .expect("ALTER TABLE ALTER COLUMN DROP DEFAULT should parse before binding");
+
+    let bound =
+        bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("ALTER COLUMN DROP DEFAULT should no-op when no default exists");
+    let BoundSqlDdlStatement::NoOp(no_op) = bound.statement() else {
+        panic!("ALTER COLUMN DROP DEFAULT should no-op for absent defaults");
+    };
+
+    assert_eq!(no_op.mutation_kind(), SqlDdlMutationKind::DropFieldDefault);
+    assert_eq!(no_op.index_name(), "age");
+    assert_eq!(no_op.entity_name(), "SessionSqlEntity");
+    assert_eq!(no_op.field_path(), ["age".to_string()]);
 }
 
 #[test]
@@ -2620,6 +2653,215 @@ fn execute_sql_ddl_publishes_supported_defaulted_add_column() {
         ]],
     );
     assert_eq!(row_count, 1);
+}
+
+#[test]
+fn execute_sql_ddl_publishes_supported_set_default() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>("ALTER TABLE SessionSqlEntity ADD COLUMN score nat")
+        .expect("setup nullable ADD COLUMN should publish before SET DEFAULT");
+
+    let SqlStatementResult::Ddl(report) = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN score SET DEFAULT 7",
+        )
+        .expect("ALTER COLUMN SET DEFAULT should publish accepted schema metadata")
+    else {
+        panic!("ALTER COLUMN SET DEFAULT should return a DDL report");
+    };
+
+    assert_eq!(report.mutation_kind(), SqlDdlMutationKind::SetFieldDefault);
+    assert_eq!(report.target_index(), "score");
+    assert_eq!(report.field_path(), ["score".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("DDL-published schema should remain readable")
+            .expect("DDL execution should publish an accepted snapshot");
+        let score = latest
+            .fields()
+            .iter()
+            .find(|field| field.name() == "score")
+            .expect("DDL-published schema should include the altered field");
+
+        assert_eq!(score.origin(), PersistedFieldOrigin::SqlDdl);
+        assert_eq!(score.kind(), &PersistedFieldKind::Nat);
+        assert!(!score.default().is_none());
+    });
+    let columns =
+        statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
+            .expect("SHOW COLUMNS should read DDL-published default changes");
+    assert!(
+        columns.iter().any(|field| field.name() == "score"
+            && field.kind().starts_with("nat default=slot_payload(")
+            && field.origin() == "ddl"),
+        "metadata surfaces should expose the DDL-published default change",
+    );
+}
+
+#[test]
+fn execute_sql_ddl_alter_column_default_reports_no_op_for_matching_default() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat DEFAULT 7",
+        )
+        .expect("setup defaulted ADD COLUMN should publish before matching SET DEFAULT");
+    let SqlStatementResult::Ddl(report) = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN score SET DEFAULT 7",
+        )
+        .expect("matching ALTER COLUMN SET DEFAULT should execute as a no-op")
+    else {
+        panic!("matching ALTER COLUMN SET DEFAULT should return a DDL report");
+    };
+
+    assert_eq!(report.mutation_kind(), SqlDdlMutationKind::SetFieldDefault);
+    assert_eq!(report.target_index(), "score");
+    assert_eq!(report.field_path(), ["score".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::NoOp);
+    assert_eq!(report.rows_scanned(), 0);
+    assert_eq!(report.index_keys_written(), 0);
+}
+
+#[test]
+fn execute_sql_ddl_rejects_unencodable_set_default_without_publication() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>("ALTER TABLE SessionSqlEntity ADD COLUMN score nat")
+        .expect("setup nullable ADD COLUMN should publish before invalid SET DEFAULT");
+    let err = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN score SET DEFAULT 'seven'",
+        )
+        .expect_err("unencodable ALTER COLUMN SET DEFAULT should reject");
+
+    assert!(
+        err.to_string()
+            .contains("SET DEFAULT value is not encodable"),
+        "SET DEFAULT rejection should explain the invalid literal: {err}",
+    );
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("schema should remain readable after rejected SET DEFAULT")
+            .expect("schema should remain published after setup ADD COLUMN");
+        let score = latest
+            .fields()
+            .iter()
+            .find(|field| field.name() == "score")
+            .expect("setup field should remain present");
+
+        assert!(score.default().is_none());
+    });
+}
+
+#[test]
+fn execute_sql_ddl_publishes_supported_nullable_drop_default() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text DEFAULT 'anonymous'",
+        )
+        .expect("setup nullable defaulted ADD COLUMN should publish");
+
+    let SqlStatementResult::Ddl(report) = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN nickname DROP DEFAULT",
+        )
+        .expect("ALTER COLUMN DROP DEFAULT should publish for nullable accepted fields")
+    else {
+        panic!("ALTER COLUMN DROP DEFAULT should return a DDL report");
+    };
+
+    assert_eq!(report.mutation_kind(), SqlDdlMutationKind::DropFieldDefault);
+    assert_eq!(report.target_index(), "nickname");
+    assert_eq!(report.field_path(), ["nickname".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("DDL-published schema should remain readable")
+            .expect("DDL execution should publish an accepted snapshot");
+        let nickname = latest
+            .fields()
+            .iter()
+            .find(|field| field.name() == "nickname")
+            .expect("DDL-published schema should include the altered field");
+
+        assert!(nickname.nullable());
+        assert!(nickname.default().is_none());
+    });
+
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(15_805),
+            name: "Ada".to_string(),
+            age: 36,
+        })
+        .expect("typed inserts should remain valid after nullable DROP DEFAULT");
+
+    let SqlStatementResult::Projection { rows, .. } = session
+        .execute_sql_query::<SessionSqlEntity>(
+            "SELECT nickname FROM SessionSqlEntity WHERE name = 'Ada'",
+        )
+        .expect("SQL reads should materialize omitted nullable fields as NULL after DROP DEFAULT")
+    else {
+        panic!("SQL SELECT over default-dropped nullable field should emit projection rows");
+    };
+
+    assert_eq!(rows, vec![vec![output(Value::Null)]]);
+}
+
+#[test]
+fn execute_sql_ddl_rejects_required_drop_default_without_publication() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat DEFAULT 7 NOT NULL",
+        )
+        .expect("setup required defaulted ADD COLUMN should publish");
+    let err = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN score DROP DEFAULT",
+        )
+        .expect_err("DROP DEFAULT should fail closed for required defaulted fields");
+
+    assert!(
+        err.to_string()
+            .contains("DROP DEFAULT is not executable yet"),
+        "DROP DEFAULT rejection should explain the fail-closed boundary: {err}",
+    );
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("schema should remain readable after rejected DROP DEFAULT")
+            .expect("schema should remain published after setup ADD COLUMN");
+        let score = latest
+            .fields()
+            .iter()
+            .find(|field| field.name() == "score")
+            .expect("setup field should remain present");
+
+        assert!(!score.default().is_none());
+    });
 }
 
 #[test]

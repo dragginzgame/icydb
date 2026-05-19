@@ -78,11 +78,12 @@ pub(in crate::db) use mutation::{
     SchemaDdlAcceptedSnapshotDerivation, SchemaDdlIndexDropCandidateError,
     SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError,
     SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
-    SchemaExpressionIndexRebuildTarget, SchemaFieldPathIndexRebuildKey,
+    SchemaExpressionIndexRebuildTarget, SchemaFieldDefaultTarget, SchemaFieldPathIndexRebuildKey,
     SchemaFieldPathIndexRebuildTarget, SchemaSecondaryIndexDropCleanupTarget,
     admit_sql_ddl_expression_index_candidate, admit_sql_ddl_field_addition_candidate,
-    admit_sql_ddl_field_path_index_candidate, admit_sql_ddl_secondary_index_drop_candidate,
-    derive_sql_ddl_expression_index_accepted_after, derive_sql_ddl_field_addition_accepted_after,
+    admit_sql_ddl_field_default_candidate, admit_sql_ddl_field_path_index_candidate,
+    admit_sql_ddl_secondary_index_drop_candidate, derive_sql_ddl_expression_index_accepted_after,
+    derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
     derive_sql_ddl_field_path_index_accepted_after,
     derive_sql_ddl_secondary_index_drop_accepted_after,
     resolve_sql_ddl_secondary_index_drop_candidate,
@@ -92,8 +93,9 @@ pub(in crate::db::schema) use mutation::{SchemaMutationDelta, classify_schema_mu
 pub(in crate::db) use proposal::compiled_schema_proposal_for_model;
 pub(in crate::db) use reconcile::{
     ensure_accepted_schema_snapshot, execute_sql_ddl_expression_index_addition,
-    execute_sql_ddl_field_addition, execute_sql_ddl_field_path_index_addition,
-    execute_sql_ddl_secondary_index_drop, reconcile_runtime_schemas,
+    execute_sql_ddl_field_addition, execute_sql_ddl_field_default_change,
+    execute_sql_ddl_field_path_index_addition, execute_sql_ddl_secondary_index_drop,
+    reconcile_runtime_schemas,
 };
 pub(in crate::db) use runtime::{
     AcceptedFieldAbsencePolicy, AcceptedFieldDecodeContract, AcceptedGeneratedCompatibleRowShape,

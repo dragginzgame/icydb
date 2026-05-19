@@ -824,6 +824,24 @@ impl PersistedFieldSnapshot {
         &self.default
     }
 
+    /// Return a copy of this field with an updated database-level default.
+    #[must_use]
+    pub(in crate::db) fn clone_with_default(&self, default: SchemaFieldDefault) -> Self {
+        Self {
+            id: self.id,
+            name: self.name.clone(),
+            slot: self.slot,
+            kind: self.kind.clone(),
+            nested_leaves: self.nested_leaves.clone(),
+            nullable: self.nullable,
+            default,
+            write_policy: self.write_policy,
+            origin: self.origin,
+            storage_decode: self.storage_decode,
+            leaf_codec: self.leaf_codec,
+        }
+    }
+
     /// Return the accepted database-level write policy for this field.
     #[must_use]
     pub(in crate::db) const fn write_policy(&self) -> SchemaFieldWritePolicy {
