@@ -2602,7 +2602,7 @@ fn sql_ddl_alter_table_drop_column_rejects_index_dependent_fields() {
 }
 
 #[test]
-fn sql_ddl_alter_table_rename_column_binds_then_fails_closed() {
+fn sql_ddl_alter_table_rename_column_binds_ddl_owned_field() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
     let add_statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text")
@@ -2623,19 +2623,16 @@ fn sql_ddl_alter_table_rename_column_binds_then_fails_closed() {
     let statement = parse_sql("ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle")
         .expect("ALTER TABLE RENAME COLUMN should parse before DDL binding");
 
-    let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
-        .expect_err("RENAME COLUMN should fail closed until rename metadata policy exists");
+    let bound =
+        bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("RENAME COLUMN should bind DDL-owned accepted fields");
+    let BoundSqlDdlStatement::RenameColumn(rename) = bound.statement() else {
+        panic!("RENAME COLUMN should bind a field-rename request");
+    };
 
-    assert!(matches!(
-        err,
-        SqlDdlBindError::UnsupportedAlterTableRenameColumn {
-            entity_name,
-            old_column_name,
-            new_column_name,
-        } if entity_name == "SessionSqlEntity"
-            && old_column_name == "nickname"
-            && new_column_name == "handle"
-    ));
+    assert_eq!(rename.entity_name(), "SessionSqlEntity");
+    assert_eq!(rename.old_name(), "nickname");
+    assert_eq!(rename.new_name(), "handle");
 }
 
 #[test]
@@ -2713,6 +2710,187 @@ fn sql_ddl_alter_table_rename_column_rejects_generated_fields() {
             column_name,
         } if entity_name == "SessionSqlEntity" && column_name == "age"
     ));
+}
+
+#[test]
+fn sql_ddl_alter_table_rename_column_updates_field_path_index_metadata() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let add_statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text")
+        .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
+    let add_bound = bind_sql_ddl_statement(
+        &add_statement,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect("setup ADD COLUMN should bind against accepted schema metadata");
+    let accepted_before = derive_bound_sql_ddl_accepted_after(&accepted_before, &add_bound)
+        .expect("setup ADD COLUMN should derive accepted-after metadata")
+        .accepted_after()
+        .clone();
+    let schema =
+        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let index_statement =
+        parse_sql("CREATE INDEX session_sql_nickname_idx ON SessionSqlEntity (nickname)")
+            .expect("CREATE INDEX should parse before DDL binding");
+    let index_bound = bind_sql_ddl_statement(
+        &index_statement,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect("setup CREATE INDEX should bind against accepted schema metadata");
+    let accepted_before = derive_bound_sql_ddl_accepted_after(&accepted_before, &index_bound)
+        .expect("setup CREATE INDEX should derive accepted-after metadata")
+        .accepted_after()
+        .clone();
+    let schema =
+        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let statement = parse_sql("ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle")
+        .expect("ALTER TABLE RENAME COLUMN should parse before DDL binding");
+
+    let bound =
+        bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("RENAME COLUMN should bind fields referenced by field-path indexes");
+    let accepted_after = derive_bound_sql_ddl_accepted_after(&accepted_before, &bound)
+        .expect("RENAME COLUMN should derive accepted-after metadata for field-path indexes")
+        .accepted_after()
+        .clone();
+    let renamed_index = accepted_after
+        .persisted_snapshot()
+        .indexes()
+        .iter()
+        .find(|index| index.name() == "session_sql_nickname_idx")
+        .expect("renamed field-path index metadata should remain accepted");
+
+    assert_eq!(
+        renamed_index.key().field_paths()[0].path(),
+        &["handle".to_string()],
+    );
+}
+
+#[test]
+fn sql_ddl_alter_table_rename_column_updates_expression_index_metadata() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let add_statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text")
+        .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
+    let add_bound = bind_sql_ddl_statement(
+        &add_statement,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect("setup ADD COLUMN should bind against accepted schema metadata");
+    let accepted_before = derive_bound_sql_ddl_accepted_after(&accepted_before, &add_bound)
+        .expect("setup ADD COLUMN should derive accepted-after metadata")
+        .accepted_after()
+        .clone();
+    let schema =
+        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let index_statement = parse_sql(
+        "CREATE INDEX session_sql_lower_nickname_idx ON SessionSqlEntity (LOWER(nickname))",
+    )
+    .expect("CREATE INDEX should parse before DDL binding");
+    let index_bound = bind_sql_ddl_statement(
+        &index_statement,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect("setup expression CREATE INDEX should bind against accepted schema metadata");
+    let accepted_before = derive_bound_sql_ddl_accepted_after(&accepted_before, &index_bound)
+        .expect("setup expression CREATE INDEX should derive accepted-after metadata")
+        .accepted_after()
+        .clone();
+    let schema =
+        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let statement = parse_sql("ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle")
+        .expect("ALTER TABLE RENAME COLUMN should parse before DDL binding");
+
+    let bound =
+        bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("RENAME COLUMN should bind fields referenced by expression indexes");
+    let accepted_after = derive_bound_sql_ddl_accepted_after(&accepted_before, &bound)
+        .expect("RENAME COLUMN should derive accepted-after metadata for expression indexes")
+        .accepted_after()
+        .clone();
+    let renamed_index = accepted_after
+        .persisted_snapshot()
+        .indexes()
+        .iter()
+        .find(|index| index.name() == "session_sql_lower_nickname_idx")
+        .expect("renamed expression index metadata should remain accepted");
+    let crate::db::schema::PersistedIndexKeySnapshot::Items(items) = renamed_index.key() else {
+        panic!("expression index should retain expression key-item metadata");
+    };
+    let crate::db::schema::PersistedIndexKeyItemSnapshot::Expression(expression) = &items[0] else {
+        panic!("expression index should retain expression metadata");
+    };
+
+    assert_eq!(expression.source().path(), &["handle".to_string()]);
+    assert_eq!(expression.canonical_text(), "expr:v1:LOWER(handle)");
+}
+
+#[test]
+fn sql_ddl_alter_table_rename_column_updates_filtered_index_predicate_metadata() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let add_statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text")
+        .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
+    let add_bound = bind_sql_ddl_statement(
+        &add_statement,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect("setup ADD COLUMN should bind against accepted schema metadata");
+    let accepted_before = derive_bound_sql_ddl_accepted_after(&accepted_before, &add_bound)
+        .expect("setup ADD COLUMN should derive accepted-after metadata")
+        .accepted_after()
+        .clone();
+    let schema =
+        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let index_statement = parse_sql(
+        "CREATE INDEX session_sql_filtered_nickname_idx ON SessionSqlEntity (nickname) WHERE nickname IS NOT NULL",
+    )
+    .expect("CREATE INDEX should parse before DDL binding");
+    let index_bound = bind_sql_ddl_statement(
+        &index_statement,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect("setup filtered CREATE INDEX should bind against accepted schema metadata");
+    let accepted_before = derive_bound_sql_ddl_accepted_after(&accepted_before, &index_bound)
+        .expect("setup filtered CREATE INDEX should derive accepted-after metadata")
+        .accepted_after()
+        .clone();
+    let schema =
+        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let statement = parse_sql("ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle")
+        .expect("ALTER TABLE RENAME COLUMN should parse before DDL binding");
+
+    let bound =
+        bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("RENAME COLUMN should bind fields referenced by filtered indexes");
+    let accepted_after = derive_bound_sql_ddl_accepted_after(&accepted_before, &bound)
+        .expect("RENAME COLUMN should derive accepted-after metadata for filtered indexes")
+        .accepted_after()
+        .clone();
+    let renamed_index = accepted_after
+        .persisted_snapshot()
+        .indexes()
+        .iter()
+        .find(|index| index.name() == "session_sql_filtered_nickname_idx")
+        .expect("renamed filtered index metadata should remain accepted");
+
+    assert_eq!(
+        renamed_index.key().field_paths()[0].path(),
+        &["handle".to_string()],
+    );
+    assert_eq!(renamed_index.predicate_sql(), Some("handle IS NOT NULL"));
 }
 
 #[test]
@@ -3355,7 +3533,7 @@ fn execute_sql_ddl_drop_column_if_exists_reports_no_op_for_missing_column() {
 }
 
 #[test]
-fn execute_sql_ddl_rejects_rename_column_without_publication() {
+fn execute_sql_ddl_publishes_rename_column_for_ddl_owned_field() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
     let session = sql_session();
@@ -3367,25 +3545,151 @@ fn execute_sql_ddl_rejects_rename_column_without_publication() {
         .expect("setup nullable ADD COLUMN should publish before rejected RENAME COLUMN");
     let before =
         statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
-            .expect("SHOW COLUMNS should read accepted schema before rejected RENAME COLUMN");
-    let err = session
+            .expect("SHOW COLUMNS should read accepted schema before RENAME COLUMN");
+
+    let SqlStatementResult::Ddl(report) = session
         .execute_sql_ddl::<SessionSqlEntity>(
             "ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle",
         )
-        .expect_err("RENAME COLUMN should fail closed before metadata policy exists");
-
-    assert!(
-        err.to_string()
-            .contains("field rename metadata policy is not enabled yet"),
-        "RENAME COLUMN rejection should explain the fail-closed boundary: {err}",
-    );
+        .expect("RENAME COLUMN should publish DDL-owned accepted field metadata")
+    else {
+        panic!("RENAME COLUMN should return a DDL report");
+    };
     let after =
         statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
-            .expect("SHOW COLUMNS should read accepted schema after rejected RENAME COLUMN");
+            .expect("SHOW COLUMNS should read accepted schema after RENAME COLUMN");
 
+    assert_eq!(report.mutation_kind(), SqlDdlMutationKind::RenameField);
+    assert_eq!(report.target_index(), "handle");
     assert_eq!(
-        after, before,
-        "rejected RENAME COLUMN must leave accepted schema visibility unchanged",
+        report.field_path(),
+        ["nickname".to_string(), "handle".to_string()],
+    );
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
+    assert!(
+        before.iter().any(|field| field.name() == "nickname"),
+        "setup should expose the DDL-owned source field before rename",
+    );
+    assert!(
+        !after.iter().any(|field| field.name() == "nickname"),
+        "published RENAME COLUMN should remove the old accepted field name",
+    );
+    assert!(
+        after.iter().any(|field| field.name() == "handle"),
+        "published RENAME COLUMN should expose the new accepted field name",
+    );
+}
+
+#[test]
+fn execute_sql_ddl_rename_column_updates_field_path_index_metadata() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34)]);
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        )
+        .expect("setup nullable ADD COLUMN should publish before RENAME COLUMN");
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE INDEX session_sql_nickname_idx ON SessionSqlEntity (nickname)",
+        )
+        .expect("setup field-path CREATE INDEX should publish before RENAME COLUMN");
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle",
+        )
+        .expect("RENAME COLUMN should update dependent field-path index metadata");
+
+    let SqlStatementResult::ShowIndexes(indexes) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .expect("SHOW INDEXES FROM should read renamed field-path index metadata")
+    else {
+        panic!("SHOW INDEXES FROM should return an index metadata payload");
+    };
+
+    assert!(
+        indexes
+            .iter()
+            .any(|index| index
+                == "INDEX session_sql_nickname_idx (handle) [state=ready] [origin=ddl]"),
+        "SHOW INDEXES FROM should expose renamed field-path metadata: {indexes:?}",
+    );
+}
+
+#[test]
+fn execute_sql_ddl_rename_column_updates_expression_index_metadata() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34)]);
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        )
+        .expect("setup nullable ADD COLUMN should publish before RENAME COLUMN");
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE INDEX session_sql_lower_nickname_idx ON SessionSqlEntity (LOWER(nickname))",
+        )
+        .expect("setup expression CREATE INDEX should publish before RENAME COLUMN");
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle",
+        )
+        .expect("RENAME COLUMN should update dependent expression index metadata");
+
+    let SqlStatementResult::ShowIndexes(indexes) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .expect("SHOW INDEXES FROM should read renamed expression index metadata")
+    else {
+        panic!("SHOW INDEXES FROM should return an index metadata payload");
+    };
+
+    assert!(
+        indexes.iter().any(|index| index
+            == "INDEX session_sql_lower_nickname_idx (expr:v1:LOWER(handle)) [state=ready] [origin=ddl]"),
+        "SHOW INDEXES FROM should expose renamed expression metadata: {indexes:?}",
+    );
+}
+
+#[test]
+fn execute_sql_ddl_rename_column_updates_filtered_index_predicate_metadata() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("ada", 21), ("bob", 34)]);
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        )
+        .expect("setup nullable ADD COLUMN should publish before RENAME COLUMN");
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "CREATE INDEX session_sql_filtered_nickname_idx ON SessionSqlEntity (nickname) WHERE nickname IS NOT NULL",
+        )
+        .expect("setup filtered CREATE INDEX should publish before RENAME COLUMN");
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity RENAME COLUMN nickname TO handle",
+        )
+        .expect("RENAME COLUMN should update dependent filtered index metadata");
+
+    let SqlStatementResult::ShowIndexes(indexes) = session
+        .execute_sql_query::<SessionSqlEntity>("SHOW INDEXES FROM SessionSqlEntity")
+        .expect("SHOW INDEXES FROM should read renamed filtered index metadata")
+    else {
+        panic!("SHOW INDEXES FROM should return an index metadata payload");
+    };
+
+    assert!(
+        indexes.iter().any(|index| index
+            == "INDEX session_sql_filtered_nickname_idx (handle) WHERE handle IS NOT NULL [state=ready] [origin=ddl]"),
+        "SHOW INDEXES FROM should expose renamed filtered index metadata: {indexes:?}",
     );
 }
 

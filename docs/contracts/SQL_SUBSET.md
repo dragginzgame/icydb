@@ -147,9 +147,16 @@ Supported shapes:
 - `DROP INDEX name`
 - `DROP INDEX IF EXISTS name ON entity`
 - `DROP INDEX IF EXISTS name`
-- `ALTER TABLE entity ADD COLUMN field type` is parsed and routed through the
-  DDL surface, but is not executable yet. `DEFAULT`, `NULL`, and `NOT NULL`
-  clauses are preserved as DDL intent only.
+- `ALTER TABLE entity ADD COLUMN field type`
+- `ALTER TABLE entity ADD COLUMN field type DEFAULT value`
+- `ALTER TABLE entity ALTER COLUMN field SET DEFAULT value`
+- `ALTER TABLE entity ALTER COLUMN field DROP DEFAULT`
+- `ALTER TABLE entity ALTER COLUMN field SET NOT NULL`
+- `ALTER TABLE entity ALTER COLUMN field DROP NOT NULL`
+- `ALTER TABLE entity RENAME COLUMN old_name TO new_name`
+- `ALTER TABLE entity DROP COLUMN field` and `DROP COLUMN IF EXISTS field` are
+  parsed and routed through the DDL surface, but retained-slot field removal is
+  not executable yet.
 
 SQL DDL is a frontend over accepted schema catalog mutation, not the source of
 schema authority.
@@ -176,11 +183,23 @@ generated/model-owned and otherwise unsupported indexes still reject.
 Typed SQL DDL may omit `ON entity` for `DROP INDEX`. Generated canister DDL
 requires `ON entity` so dispatch does not guess a target from canister shape.
 
-`ALTER TABLE ... ADD COLUMN ...` currently binds the target entity and then
-fails closed before accepted schema mutation or physical work. SQL-added
-defaults, physical backfill, and row rewrite are deferred until executable field
-DDL publication is implemented. Until then, SQL `DEFAULT` never creates accepted
-schema default metadata.
+`ALTER TABLE ... ADD COLUMN ...` publishes DDL-owned accepted fields for
+supported scalar column types. Nullable no-default additions materialize older
+rows as `NULL`; supported SQL defaults are encoded into accepted schema
+metadata and can make a new field required.
+
+`ALTER TABLE ... ALTER COLUMN ... SET/DROP DEFAULT` and `SET/DROP NOT NULL`
+publish metadata changes for DDL-owned fields only. `SET NOT NULL` scans
+existing rows through the accepted schema and rejects if any row materializes
+`NULL`. Generated/model-owned fields remain Rust-schema owned.
+
+`ALTER TABLE ... RENAME COLUMN ... TO ...` publishes metadata-only accepted
+schema changes for DDL-owned fields. Field ID, row slot, default/nullability,
+decode contracts, and direct field-path index identity remain stable; accepted
+field names, direct field-path index labels, and expression-index
+source/canonical labels are updated together. Filtered-index predicate SQL
+labels relabel through the reduced predicate AST. Generated fields reject
+before publication.
 
 ## Public SQL Mutation Execution
 

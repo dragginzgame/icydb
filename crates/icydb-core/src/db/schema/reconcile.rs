@@ -15,10 +15,10 @@ use crate::{
         schema::{
             AcceptedSchemaSnapshot, MutationPublicationBlocker, MutationPublicationPreflight,
             PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
-            SchemaFieldDefaultTarget, SchemaFieldNullabilityTarget, SchemaMutationRunnerCapability,
-            SchemaMutationRunnerContract, SchemaSecondaryIndexDropCleanupTarget, SchemaStore,
-            SchemaTransitionDecision, SchemaTransitionPlanKind, compiled_schema_proposal_for_model,
-            decide_schema_transition,
+            SchemaFieldDefaultTarget, SchemaFieldNullabilityTarget, SchemaFieldRenameTarget,
+            SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
+            SchemaSecondaryIndexDropCleanupTarget, SchemaStore, SchemaTransitionDecision,
+            SchemaTransitionPlanKind, compiled_schema_proposal_for_model, decide_schema_transition,
             runtime::AcceptedRowLayoutRuntimeDescriptor,
             transition::{SchemaTransitionPlan, SchemaTransitionRejectionKind},
         },
@@ -438,6 +438,104 @@ fn validate_sql_ddl_set_not_null_rows(
 
         Ok(scanned)
     })
+}
+
+/// Execute one metadata-only SQL DDL field-rename publication.
+pub(in crate::db) fn execute_sql_ddl_field_rename(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    accepted_before: &AcceptedSchemaSnapshot,
+    derivation: &SchemaDdlAcceptedSnapshotDerivation,
+) -> Result<(), InternalError> {
+    let Some(target) = derivation.admission().field_rename_target() else {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL field-rename execution requires a field target for entity '{entity_path}'",
+        )));
+    };
+    let before = accepted_before.persisted_snapshot();
+    let after = derivation.accepted_after().persisted_snapshot();
+    validate_sql_ddl_field_rename_metadata_change(entity_path, before, after, target)?;
+
+    store.with_schema_mut(|schema_store| schema_store.insert_persisted_snapshot(entity_tag, after))
+}
+
+fn validate_sql_ddl_field_rename_metadata_change(
+    entity_path: &'static str,
+    before: &PersistedSchemaSnapshot,
+    after: &PersistedSchemaSnapshot,
+    target: &SchemaFieldRenameTarget,
+) -> Result<(), InternalError> {
+    if before.version() != after.version()
+        || before.entity_path() != after.entity_path()
+        || before.entity_name() != after.entity_name()
+        || before.primary_key_field_id() != after.primary_key_field_id()
+        || before.row_layout() != after.row_layout()
+        || before.fields().len() != after.fields().len()
+    {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL field-rename execution supports only metadata name changes for entity '{entity_path}'",
+        )));
+    }
+
+    let mut changed = 0usize;
+    for (before_field, after_field) in before.fields().iter().zip(after.fields()) {
+        if before_field.id() == target.field_id() {
+            let field_id_drifted = after_field.id() != target.field_id();
+            let old_name_drifted = before_field.name() != target.old_name();
+            let new_name_drifted = after_field.name() != target.new_name();
+            if field_id_drifted || old_name_drifted || new_name_drifted {
+                return Err(InternalError::store_unsupported(format!(
+                    "SQL DDL field-rename target drifted before publication for entity '{entity_path}': field='{}'",
+                    target.old_name(),
+                )));
+            }
+            if before_field.clone_with_name(after_field.name().to_string()) != *after_field {
+                return Err(InternalError::store_unsupported(format!(
+                    "SQL DDL field-rename execution found non-name field drift for entity '{entity_path}': field='{}'",
+                    target.old_name(),
+                )));
+            }
+            if before_field.name() != after_field.name() {
+                changed = changed.saturating_add(1);
+            }
+            continue;
+        }
+
+        if before_field != after_field {
+            return Err(InternalError::store_unsupported(format!(
+                "SQL DDL field-rename execution found unrelated field drift for entity '{entity_path}': field='{}'",
+                before_field.name(),
+            )));
+        }
+    }
+
+    if changed != 1 {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL field-rename execution expected exactly one name change for entity '{entity_path}': field='{}'",
+            target.old_name(),
+        )));
+    }
+
+    let expected_indexes = before
+        .indexes()
+        .iter()
+        .map(|index| {
+            index.clone_with_renamed_field_path_root(
+                target.field_id(),
+                target.old_name(),
+                target.new_name(),
+            )
+        })
+        .collect::<Vec<_>>();
+    if after.indexes() != expected_indexes {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL field-rename execution found unsupported index metadata drift for entity '{entity_path}': field='{}'",
+            target.old_name(),
+        )));
+    }
+
+    Ok(())
 }
 
 /// Execute one supported SQL DDL secondary-index drop by cleaning the target

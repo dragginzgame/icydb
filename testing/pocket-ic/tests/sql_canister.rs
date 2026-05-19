@@ -148,6 +148,78 @@ fn assert_ddl_no_op(result: SqlQueryResult, expected_kind: &str, expected_target
     assert_eq!(index_keys_written, 0);
 }
 
+fn assert_rename_column_ddl_report(result: SqlQueryResult) {
+    let SqlQueryResult::Ddl {
+        entity,
+        mutation_kind,
+        target_index,
+        target_store,
+        field_path,
+        status,
+        rows_scanned,
+        index_keys_written,
+    } = result
+    else {
+        panic!("RENAME COLUMN should return a DDL payload");
+    };
+
+    assert_eq!(entity, "SqlTestUser");
+    assert_eq!(mutation_kind, "rename_field");
+    assert_eq!(target_index, "handle");
+    assert_eq!(target_store, "SqlTestUser");
+    assert_eq!(
+        field_path,
+        vec!["nickname".to_string(), "handle".to_string()],
+    );
+    assert_eq!(status, "published");
+    assert_eq!(rows_scanned, 0);
+    assert_eq!(index_keys_written, 0);
+}
+
+fn assert_rename_column_schema_visibility(
+    before: &EntitySchemaDescription,
+    after: &EntitySchemaDescription,
+) {
+    assert!(
+        before
+            .fields()
+            .iter()
+            .any(|field| field.name() == "nickname"),
+        "setup should expose DDL-owned source field before RENAME COLUMN",
+    );
+    assert!(
+        !after
+            .fields()
+            .iter()
+            .any(|field| field.name() == "nickname"),
+        "published RENAME COLUMN should remove the old accepted field name",
+    );
+    assert!(
+        after.fields().iter().any(|field| field.name() == "handle"),
+        "published RENAME COLUMN should expose the new accepted field name",
+    );
+}
+
+fn assert_rename_column_index_visibility(indexes: &[String]) {
+    assert!(
+        indexes
+            .iter()
+            .any(|index| index
+                == "INDEX sql_test_user_nickname_idx (handle) [state=ready] [origin=ddl]"),
+        "published RENAME COLUMN should update field-path index metadata: {indexes:?}",
+    );
+    assert!(
+        indexes.iter().any(|index| index
+            == "INDEX sql_test_user_lower_nickname_idx (expr:v1:LOWER(handle)) [state=ready] [origin=ddl]"),
+        "published RENAME COLUMN should update expression index metadata: {indexes:?}",
+    );
+    assert!(
+        indexes.iter().any(|index| index
+            == "INDEX sql_test_user_filtered_nickname_idx (handle) WHERE handle IS NOT NULL [state=ready] [origin=ddl]"),
+        "published RENAME COLUMN should update filtered index predicate metadata: {indexes:?}",
+    );
+}
+
 fn assert_numeric_query_error(err: Error, expected_message: &str, context: &str) {
     assert_eq!(
         err.kind(),
@@ -1349,7 +1421,7 @@ fn sql_canister_ddl_endpoint_rejects_drop_column_without_publication() {
 }
 
 #[test]
-fn sql_canister_ddl_endpoint_rejects_rename_column_without_publication() {
+fn sql_canister_ddl_endpoint_publishes_rename_column_for_ddl_owned_field() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
 
@@ -1378,35 +1450,43 @@ fn sql_canister_ddl_endpoint_rejects_rename_column_without_publication() {
 
     ddl_sql(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN nickname text")
         .expect("setup nullable ADD COLUMN should publish through the canister endpoint");
+    ddl_sql(
+        &fixture,
+        "CREATE INDEX sql_test_user_nickname_idx ON SqlTestUser (nickname)",
+    )
+    .expect("setup field-path CREATE INDEX should publish through the canister endpoint");
+    ddl_sql(
+        &fixture,
+        "CREATE INDEX sql_test_user_lower_nickname_idx ON SqlTestUser (LOWER(nickname))",
+    )
+    .expect("setup expression CREATE INDEX should publish through the canister endpoint");
+    ddl_sql(
+        &fixture,
+        "CREATE INDEX sql_test_user_filtered_nickname_idx ON SqlTestUser (nickname) WHERE nickname IS NOT NULL",
+    )
+    .expect("setup filtered CREATE INDEX should publish through the canister endpoint");
     let before = expect_describe(
         query_sql(&fixture, "DESCRIBE SqlTestUser")
-            .expect("DESCRIBE should read accepted schema before rejected RENAME COLUMN"),
+            .expect("DESCRIBE should read accepted schema before RENAME COLUMN"),
     );
-    let err = ddl_sql(
+    let rename = ddl_sql(
         &fixture,
         "ALTER TABLE SqlTestUser RENAME COLUMN nickname TO handle",
     )
-    .expect_err("RENAME COLUMN should reject before field rename metadata policy exists");
+    .expect("RENAME COLUMN should publish DDL-owned accepted field metadata");
+    assert_rename_column_ddl_report(rename);
 
-    assert_eq!(
-        err.kind(),
-        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-        "RENAME COLUMN should stay an unsupported runtime error at the canister boundary",
-    );
-    assert!(
-        err.message()
-            .contains("field rename metadata policy is not enabled yet"),
-        "RENAME COLUMN should preserve the metadata policy rejection detail, got: {}",
-        err.message(),
-    );
     let after = expect_describe(
         query_sql(&fixture, "DESCRIBE SqlTestUser")
-            .expect("DESCRIBE should read accepted schema after rejected RENAME COLUMN"),
+            .expect("DESCRIBE should read accepted schema after RENAME COLUMN"),
     );
-    assert_eq!(
-        after, before,
-        "rejected RENAME COLUMN must leave accepted schema visibility unchanged",
+    assert_rename_column_schema_visibility(&before, &after);
+
+    let indexes = expect_show_indexes(
+        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+            .expect("SHOW INDEXES should read accepted index metadata after RENAME COLUMN"),
     );
+    assert_rename_column_index_visibility(&indexes);
 }
 
 #[test]

@@ -11,6 +11,7 @@ mod membership;
 mod model;
 mod normalize;
 mod parser;
+mod render;
 mod resolved;
 mod row_policy;
 mod runtime;
@@ -44,6 +45,7 @@ pub(crate) use coercion::CoercionSpec;
 pub(in crate::db) use coercion::supports_coercion;
 pub(in crate::db) use normalize::{normalize, normalize_enum_literals};
 pub(crate) use parser::parse_sql_predicate;
+pub(in crate::db) use render::relabel_sql_predicate_field_root;
 
 #[cfg(test)]
 pub(in crate::db) use fingerprint::predicate_fingerprint;

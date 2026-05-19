@@ -23,12 +23,12 @@ use crate::db::{
         SchemaFieldWritePolicy, SchemaInfo, admit_sql_ddl_expression_index_candidate,
         admit_sql_ddl_field_addition_candidate, admit_sql_ddl_field_default_candidate,
         admit_sql_ddl_field_nullability_candidate, admit_sql_ddl_field_path_index_candidate,
-        admit_sql_ddl_secondary_index_drop_candidate,
+        admit_sql_ddl_field_rename_candidate, admit_sql_ddl_secondary_index_drop_candidate,
         canonicalize_strict_sql_literal_for_persisted_kind,
         derive_sql_ddl_expression_index_accepted_after,
         derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
         derive_sql_ddl_field_nullability_accepted_after,
-        derive_sql_ddl_field_path_index_accepted_after,
+        derive_sql_ddl_field_path_index_accepted_after, derive_sql_ddl_field_rename_accepted_after,
         derive_sql_ddl_secondary_index_drop_accepted_after,
         resolve_sql_ddl_field_drop_dependent_index, resolve_sql_ddl_secondary_index_drop_candidate,
     },
@@ -258,6 +258,7 @@ pub(in crate::db) enum BoundSqlDdlStatement {
     AddColumn(BoundSqlAddColumnRequest),
     AlterColumnDefault(BoundSqlAlterColumnDefaultRequest),
     AlterColumnNullability(BoundSqlAlterColumnNullabilityRequest),
+    RenameColumn(BoundSqlRenameColumnRequest),
     CreateIndex(BoundSqlCreateIndexRequest),
     DropIndex(BoundSqlDropIndexRequest),
     NoOp(BoundSqlDdlNoOpRequest),
@@ -375,6 +376,44 @@ impl BoundSqlAlterColumnNullabilityRequest {
     #[must_use]
     pub(in crate::db) const fn mutation_kind(&self) -> SqlDdlMutationKind {
         self.mutation_kind
+    }
+}
+
+///
+/// BoundSqlRenameColumnRequest
+///
+/// Catalog-resolved field-rename metadata DDL request.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct BoundSqlRenameColumnRequest {
+    entity_name: String,
+    field: PersistedFieldSnapshot,
+    new_name: String,
+}
+
+impl BoundSqlRenameColumnRequest {
+    /// Borrow the accepted entity name.
+    #[must_use]
+    pub(in crate::db) const fn entity_name(&self) -> &str {
+        self.entity_name.as_str()
+    }
+
+    /// Borrow the accepted source field name.
+    #[must_use]
+    pub(in crate::db) const fn old_name(&self) -> &str {
+        self.field.name()
+    }
+
+    /// Borrow the accepted target field name.
+    #[must_use]
+    pub(in crate::db) const fn new_name(&self) -> &str {
+        self.new_name.as_str()
+    }
+
+    /// Borrow the accepted source field.
+    #[must_use]
+    pub(in crate::db) const fn field(&self) -> &PersistedFieldSnapshot {
+        &self.field
     }
 }
 
@@ -733,7 +772,7 @@ pub(in crate::db) enum SqlDdlBindError {
     },
 
     #[error(
-        "SQL DDL ALTER TABLE RENAME COLUMN is not executable yet for accepted entity '{entity_name}' column '{old_column_name}' to '{new_column_name}'; field rename metadata policy is not enabled yet"
+        "SQL DDL ALTER TABLE RENAME COLUMN is not executable for accepted entity '{entity_name}' column '{old_column_name}' to '{new_column_name}'"
     )]
     UnsupportedAlterTableRenameColumn {
         entity_name: String,
@@ -1292,10 +1331,12 @@ fn bind_alter_table_rename_column_statement(
         });
     }
 
-    Err(SqlDdlBindError::UnsupportedAlterTableRenameColumn {
-        entity_name: entity_name.to_string(),
-        old_column_name: statement.old_column_name.clone(),
-        new_column_name: statement.new_column_name.clone(),
+    Ok(BoundSqlDdlRequest {
+        statement: BoundSqlDdlStatement::RenameColumn(BoundSqlRenameColumnRequest {
+            entity_name: entity_name.to_string(),
+            field: field.clone(),
+            new_name: statement.new_column_name.clone(),
+        }),
     })
 }
 
@@ -1992,6 +2033,12 @@ pub(in crate::db) fn lower_bound_sql_ddl_to_schema_mutation_admission(
         BoundSqlDdlStatement::AlterColumnNullability(alter) => {
             Ok(admit_sql_ddl_field_nullability_candidate(alter.field()))
         }
+        BoundSqlDdlStatement::RenameColumn(rename) => {
+            let after = rename
+                .field()
+                .clone_with_name(rename.new_name().to_string());
+            Ok(admit_sql_ddl_field_rename_candidate(rename.field(), &after))
+        }
         BoundSqlDdlStatement::CreateIndex(create) => {
             if create.candidate_index().key().is_field_path_only() {
                 admit_sql_ddl_field_path_index_candidate(create.candidate_index())
@@ -2030,6 +2077,11 @@ pub(in crate::db) fn derive_bound_sql_ddl_accepted_after(
                 alter.nullable(),
             )
         }
+        BoundSqlDdlStatement::RenameColumn(rename) => derive_sql_ddl_field_rename_accepted_after(
+            accepted_before,
+            rename.old_name(),
+            rename.new_name(),
+        ),
         BoundSqlDdlStatement::CreateIndex(create) => {
             if create.candidate_index().key().is_field_path_only() {
                 derive_sql_ddl_field_path_index_accepted_after(
@@ -2083,6 +2135,15 @@ fn ddl_preparation_report(bound: &BoundSqlDdlRequest) -> SqlDdlPreparationReport
             target_index: alter.field_name().to_string(),
             target_store: alter.entity_name().to_string(),
             field_path: vec![alter.field_name().to_string()],
+            execution_status: SqlDdlExecutionStatus::PreparedOnly,
+            rows_scanned: 0,
+            index_keys_written: 0,
+        },
+        BoundSqlDdlStatement::RenameColumn(rename) => SqlDdlPreparationReport {
+            mutation_kind: SqlDdlMutationKind::RenameField,
+            target_index: rename.new_name().to_string(),
+            target_store: rename.entity_name().to_string(),
+            field_path: vec![rename.old_name().to_string(), rename.new_name().to_string()],
             execution_status: SqlDdlExecutionStatus::PreparedOnly,
             rows_scanned: 0,
             index_keys_written: 0,

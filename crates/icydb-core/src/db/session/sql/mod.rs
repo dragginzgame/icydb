@@ -33,7 +33,8 @@ use crate::{
         schema::{
             execute_sql_ddl_expression_index_addition, execute_sql_ddl_field_addition,
             execute_sql_ddl_field_default_change, execute_sql_ddl_field_nullability_change,
-            execute_sql_ddl_field_path_index_addition, execute_sql_ddl_secondary_index_drop,
+            execute_sql_ddl_field_path_index_addition, execute_sql_ddl_field_rename,
+            execute_sql_ddl_secondary_index_drop,
         },
         session::query::QueryPlanCacheAttribution,
         session::sql::projection::{
@@ -502,13 +503,38 @@ impl<C: CanisterKind> DbSession<C> {
             .recovered_store(E::Store::PATH)
             .map_err(QueryError::execute)?;
 
-        let (rows_scanned, index_keys_written) = match prepared.bound().statement() {
+        let (rows_scanned, index_keys_written) = Self::execute_prepared_sql_ddl_mutation::<E>(
+            store,
+            &accepted_before,
+            derivation,
+            &prepared,
+        )?;
+
+        Ok(SqlStatementResult::Ddl(
+            prepared
+                .report()
+                .clone()
+                .with_execution_status(SqlDdlExecutionStatus::Published)
+                .with_execution_metrics(rows_scanned, index_keys_written),
+        ))
+    }
+
+    fn execute_prepared_sql_ddl_mutation<E>(
+        store: crate::db::registry::StoreHandle,
+        accepted_before: &AcceptedSchemaSnapshot,
+        derivation: &crate::db::schema::SchemaDdlAcceptedSnapshotDerivation,
+        prepared: &PreparedSqlDdlCommand,
+    ) -> Result<(usize, usize), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let metrics = match prepared.bound().statement() {
             crate::db::sql::ddl::BoundSqlDdlStatement::AddColumn(_) => {
                 execute_sql_ddl_field_addition(
                     store,
                     E::ENTITY_TAG,
                     E::PATH,
-                    &accepted_before,
+                    accepted_before,
                     derivation,
                 )
                 .map_err(QueryError::execute)?;
@@ -520,7 +546,7 @@ impl<C: CanisterKind> DbSession<C> {
                     store,
                     E::ENTITY_TAG,
                     E::PATH,
-                    &accepted_before,
+                    accepted_before,
                     derivation,
                 )
                 .map_err(QueryError::execute)?;
@@ -532,12 +558,24 @@ impl<C: CanisterKind> DbSession<C> {
                     store,
                     E::ENTITY_TAG,
                     E::PATH,
-                    &accepted_before,
+                    accepted_before,
                     derivation,
                 )
                 .map_err(QueryError::execute)?;
 
                 (rows_scanned, 0)
+            }
+            crate::db::sql::ddl::BoundSqlDdlStatement::RenameColumn(_) => {
+                execute_sql_ddl_field_rename(
+                    store,
+                    E::ENTITY_TAG,
+                    E::PATH,
+                    accepted_before,
+                    derivation,
+                )
+                .map_err(QueryError::execute)?;
+
+                (0, 0)
             }
             crate::db::sql::ddl::BoundSqlDdlStatement::CreateIndex(create)
                 if create.candidate_index().key().is_field_path_only() =>
@@ -546,7 +584,7 @@ impl<C: CanisterKind> DbSession<C> {
                     store,
                     E::ENTITY_TAG,
                     E::PATH,
-                    &accepted_before,
+                    accepted_before,
                     derivation,
                 )
                 .map_err(QueryError::execute)?
@@ -556,7 +594,7 @@ impl<C: CanisterKind> DbSession<C> {
                     store,
                     E::ENTITY_TAG,
                     E::PATH,
-                    &accepted_before,
+                    accepted_before,
                     derivation,
                 )
                 .map_err(QueryError::execute)?
@@ -566,7 +604,7 @@ impl<C: CanisterKind> DbSession<C> {
                     store,
                     E::ENTITY_TAG,
                     E::PATH,
-                    &accepted_before,
+                    accepted_before,
                     derivation,
                 )
                 .map_err(QueryError::execute)?;
@@ -576,12 +614,6 @@ impl<C: CanisterKind> DbSession<C> {
             crate::db::sql::ddl::BoundSqlDdlStatement::NoOp(_) => (0, 0),
         };
 
-        Ok(SqlStatementResult::Ddl(
-            prepared
-                .report()
-                .clone()
-                .with_execution_status(SqlDdlExecutionStatus::Published)
-                .with_execution_metrics(rows_scanned, index_keys_written),
-        ))
+        Ok(metrics)
     }
 }

@@ -4,9 +4,12 @@
 //! Boundary: schema-owned DTOs that can become the `__icydb_schema` payload.
 
 use crate::{
-    db::schema::{
-        FieldId, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
-        schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
+    db::{
+        predicate::relabel_sql_predicate_field_root,
+        schema::{
+            FieldId, SchemaFieldSlot, SchemaRowLayout, SchemaVersion,
+            schema_snapshot_index_integrity_detail, schema_snapshot_integrity_detail,
+        },
     },
     error::InternalError,
     model::field::{
@@ -417,6 +420,31 @@ impl PersistedIndexSnapshot {
             None => None,
         }
     }
+
+    /// Clone this accepted index with display metadata updated for a renamed
+    /// accepted field. Physical index identity and key shape remain unchanged.
+    #[must_use]
+    pub(in crate::db) fn clone_with_renamed_field_path_root(
+        &self,
+        field_id: FieldId,
+        old_name: &str,
+        new_name: &str,
+    ) -> Self {
+        Self {
+            ordinal: self.ordinal,
+            name: self.name.clone(),
+            store: self.store.clone(),
+            unique: self.unique,
+            origin: self.origin,
+            key: self
+                .key
+                .clone_with_renamed_field_path_root(field_id, new_name),
+            predicate_sql: self.predicate_sql.as_deref().map(|predicate_sql| {
+                relabel_sql_predicate_field_root(predicate_sql, old_name, new_name)
+                    .unwrap_or_else(|| predicate_sql.to_string())
+            }),
+        }
+    }
 }
 
 ///
@@ -466,6 +494,30 @@ impl PersistedIndexKeySnapshot {
             Self::Items(items) => items.iter().any(|item| item.references_field(field_id)),
         }
     }
+
+    /// Clone this key with direct field-path root labels renamed for the
+    /// supplied durable field ID.
+    #[must_use]
+    pub(in crate::db) fn clone_with_renamed_field_path_root(
+        &self,
+        field_id: FieldId,
+        new_name: &str,
+    ) -> Self {
+        match self {
+            Self::FieldPath(paths) => Self::FieldPath(
+                paths
+                    .iter()
+                    .map(|path| path.clone_with_renamed_root(field_id, new_name))
+                    .collect(),
+            ),
+            Self::Items(items) => Self::Items(
+                items
+                    .iter()
+                    .map(|item| item.clone_with_renamed_field_path_root(field_id, new_name))
+                    .collect(),
+            ),
+        }
+    }
 }
 
 ///
@@ -489,6 +541,23 @@ impl PersistedIndexKeyItemSnapshot {
         match self {
             Self::FieldPath(path) => path.field_id() == field_id,
             Self::Expression(expression) => expression.source().field_id() == field_id,
+        }
+    }
+
+    /// Clone this item with direct field-path root labels renamed.
+    #[must_use]
+    pub(in crate::db) fn clone_with_renamed_field_path_root(
+        &self,
+        field_id: FieldId,
+        new_name: &str,
+    ) -> Self {
+        match self {
+            Self::FieldPath(path) => {
+                Self::FieldPath(path.clone_with_renamed_root(field_id, new_name))
+            }
+            Self::Expression(expression) => Self::Expression(Box::new(
+                expression.clone_with_renamed_source_root(field_id, new_name),
+            )),
         }
     }
 }
@@ -558,6 +627,26 @@ impl PersistedIndexFieldPathSnapshot {
     pub(in crate::db) const fn nullable(&self) -> bool {
         self.nullable
     }
+
+    /// Clone this key item with a renamed top-level accepted field label when
+    /// it targets the supplied durable field ID.
+    #[must_use]
+    pub(in crate::db) fn clone_with_renamed_root(&self, field_id: FieldId, new_name: &str) -> Self {
+        let mut path = self.path.clone();
+        if self.field_id == field_id
+            && let Some(root) = path.first_mut()
+        {
+            *root = new_name.to_string();
+        }
+
+        Self {
+            field_id: self.field_id,
+            slot: self.slot,
+            path,
+            kind: self.kind.clone(),
+            nullable: self.nullable,
+        }
+    }
 }
 
 ///
@@ -624,6 +713,40 @@ impl PersistedIndexExpressionSnapshot {
     #[must_use]
     pub(in crate::db) const fn canonical_text(&self) -> &str {
         self.canonical_text.as_str()
+    }
+
+    /// Clone this expression with its accepted source field-path root label
+    /// renamed and canonical expression text regenerated from the new path.
+    #[must_use]
+    pub(in crate::db) fn clone_with_renamed_source_root(
+        &self,
+        field_id: FieldId,
+        new_name: &str,
+    ) -> Self {
+        let source = self.source.clone_with_renamed_root(field_id, new_name);
+        let canonical_text = canonical_expression_text_for_path(self.op, source.path());
+
+        Self {
+            op: self.op,
+            source,
+            input_kind: self.input_kind.clone(),
+            output_kind: self.output_kind.clone(),
+            canonical_text,
+        }
+    }
+}
+
+fn canonical_expression_text_for_path(op: PersistedIndexExpressionOp, path: &[String]) -> String {
+    let path = path.join(".");
+    match op {
+        PersistedIndexExpressionOp::Lower => format!("expr:v1:LOWER({path})"),
+        PersistedIndexExpressionOp::Upper => format!("expr:v1:UPPER({path})"),
+        PersistedIndexExpressionOp::Trim => format!("expr:v1:TRIM({path})"),
+        PersistedIndexExpressionOp::LowerTrim => format!("expr:v1:LOWER(TRIM({path}))"),
+        PersistedIndexExpressionOp::Date => format!("expr:v1:DATE({path})"),
+        PersistedIndexExpressionOp::Year => format!("expr:v1:YEAR({path})"),
+        PersistedIndexExpressionOp::Month => format!("expr:v1:MONTH({path})"),
+        PersistedIndexExpressionOp::Day => format!("expr:v1:DAY({path})"),
     }
 }
 
@@ -852,6 +975,24 @@ impl PersistedFieldSnapshot {
             kind: self.kind.clone(),
             nested_leaves: self.nested_leaves.clone(),
             nullable,
+            default: self.default.clone(),
+            write_policy: self.write_policy,
+            origin: self.origin,
+            storage_decode: self.storage_decode,
+            leaf_codec: self.leaf_codec,
+        }
+    }
+
+    /// Return a copy of this field with an updated accepted SQL/catalog name.
+    #[must_use]
+    pub(in crate::db) fn clone_with_name(&self, name: String) -> Self {
+        Self {
+            id: self.id,
+            name,
+            slot: self.slot,
+            kind: self.kind.clone(),
+            nested_leaves: self.nested_leaves.clone(),
+            nullable: self.nullable,
             default: self.default.clone(),
             write_policy: self.write_policy,
             origin: self.origin,

@@ -178,6 +178,7 @@ impl SchemaDdlMutationAdmission {
             | SchemaDdlMutationTarget::FieldAddition(_)
             | SchemaDdlMutationTarget::FieldDefaultChange(_)
             | SchemaDdlMutationTarget::FieldNullabilityChange(_)
+            | SchemaDdlMutationTarget::FieldRename(_)
             | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
         }
     }
@@ -192,6 +193,7 @@ impl SchemaDdlMutationAdmission {
             | SchemaDdlMutationTarget::FieldAddition(_)
             | SchemaDdlMutationTarget::FieldDefaultChange(_)
             | SchemaDdlMutationTarget::FieldNullabilityChange(_)
+            | SchemaDdlMutationTarget::FieldRename(_)
             | SchemaDdlMutationTarget::ExpressionAddition(_) => None,
             SchemaDdlMutationTarget::SecondaryDrop(target) => Some(target),
         }
@@ -205,6 +207,7 @@ impl SchemaDdlMutationAdmission {
             SchemaDdlMutationTarget::FieldPathAddition(_)
             | SchemaDdlMutationTarget::FieldDefaultChange(_)
             | SchemaDdlMutationTarget::FieldNullabilityChange(_)
+            | SchemaDdlMutationTarget::FieldRename(_)
             | SchemaDdlMutationTarget::ExpressionAddition(_)
             | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
         }
@@ -218,6 +221,7 @@ impl SchemaDdlMutationAdmission {
             SchemaDdlMutationTarget::FieldAddition(_)
             | SchemaDdlMutationTarget::FieldPathAddition(_)
             | SchemaDdlMutationTarget::FieldNullabilityChange(_)
+            | SchemaDdlMutationTarget::FieldRename(_)
             | SchemaDdlMutationTarget::ExpressionAddition(_)
             | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
         }
@@ -232,6 +236,21 @@ impl SchemaDdlMutationAdmission {
             SchemaDdlMutationTarget::FieldNullabilityChange(target) => Some(target),
             SchemaDdlMutationTarget::FieldAddition(_)
             | SchemaDdlMutationTarget::FieldDefaultChange(_)
+            | SchemaDdlMutationTarget::FieldPathAddition(_)
+            | SchemaDdlMutationTarget::FieldRename(_)
+            | SchemaDdlMutationTarget::ExpressionAddition(_)
+            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
+        }
+    }
+
+    /// Borrow the admitted field-rename metadata target.
+    #[must_use]
+    pub(in crate::db) const fn field_rename_target(&self) -> Option<&SchemaFieldRenameTarget> {
+        match &self.target {
+            SchemaDdlMutationTarget::FieldRename(target) => Some(target),
+            SchemaDdlMutationTarget::FieldAddition(_)
+            | SchemaDdlMutationTarget::FieldDefaultChange(_)
+            | SchemaDdlMutationTarget::FieldNullabilityChange(_)
             | SchemaDdlMutationTarget::FieldPathAddition(_)
             | SchemaDdlMutationTarget::ExpressionAddition(_)
             | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
@@ -250,6 +269,7 @@ enum SchemaDdlMutationTarget {
     FieldAddition(SchemaFieldAdditionTarget),
     FieldDefaultChange(SchemaFieldDefaultTarget),
     FieldNullabilityChange(SchemaFieldNullabilityTarget),
+    FieldRename(SchemaFieldRenameTarget),
     FieldPathAddition(SchemaFieldPathIndexRebuildTarget),
     ExpressionAddition(SchemaExpressionIndexRebuildTarget),
     SecondaryDrop(SchemaSecondaryIndexDropCleanupTarget),
@@ -365,6 +385,49 @@ impl SchemaFieldNullabilityTarget {
     #[must_use]
     pub(in crate::db) const fn name(&self) -> &str {
         self.name.as_str()
+    }
+}
+
+///
+/// SchemaFieldRenameTarget
+///
+/// Accepted field-name metadata target admitted for SQL DDL publication.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct SchemaFieldRenameTarget {
+    field_id: FieldId,
+    old_name: String,
+    new_name: String,
+}
+
+impl SchemaFieldRenameTarget {
+    /// Build one field-rename DDL target from accepted before/after metadata.
+    #[must_use]
+    fn from_fields(before: &PersistedFieldSnapshot, after: &PersistedFieldSnapshot) -> Self {
+        Self {
+            field_id: before.id(),
+            old_name: before.name().to_string(),
+            new_name: after.name().to_string(),
+        }
+    }
+
+    /// Return the accepted field ID.
+    #[must_use]
+    pub(in crate::db) const fn field_id(&self) -> FieldId {
+        self.field_id
+    }
+
+    /// Borrow the accepted source field name.
+    #[must_use]
+    pub(in crate::db) const fn old_name(&self) -> &str {
+        self.old_name.as_str()
+    }
+
+    /// Borrow the accepted target field name.
+    #[must_use]
+    pub(in crate::db) const fn new_name(&self) -> &str {
+        self.new_name.as_str()
     }
 }
 
@@ -1892,6 +1955,19 @@ pub(in crate::db) fn admit_sql_ddl_field_nullability_candidate(
     }
 }
 
+/// Admit one SQL DDL field-rename metadata candidate.
+#[must_use]
+pub(in crate::db) fn admit_sql_ddl_field_rename_candidate(
+    before: &PersistedFieldSnapshot,
+    after: &PersistedFieldSnapshot,
+) -> SchemaDdlMutationAdmission {
+    SchemaDdlMutationAdmission {
+        target: SchemaDdlMutationTarget::FieldRename(SchemaFieldRenameTarget::from_fields(
+            before, after,
+        )),
+    }
+}
+
 /// Resolve one accepted SQL DDL index-drop candidate and reject generated
 /// accepted indexes before the frontend can derive a catalog mutation.
 pub(in crate::db) fn resolve_sql_ddl_secondary_index_drop_candidate(
@@ -2125,6 +2201,66 @@ pub(in crate::db) fn derive_sql_ddl_field_nullability_accepted_after(
         .find(|field| field.id() == before_field.id())
         .ok_or(SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
     let admission = admit_sql_ddl_field_nullability_candidate(after_field);
+
+    Ok(SchemaDdlAcceptedSnapshotDerivation {
+        accepted_after,
+        admission,
+    })
+}
+
+/// Derive and admit the accepted-after schema snapshot for one SQL DDL
+/// field-rename metadata change.
+pub(in crate::db) fn derive_sql_ddl_field_rename_accepted_after(
+    accepted_before: &AcceptedSchemaSnapshot,
+    old_name: &str,
+    new_name: &str,
+) -> Result<SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError> {
+    let before = accepted_before.persisted_snapshot();
+    let before_field = before
+        .fields()
+        .iter()
+        .find(|field| field.name() == old_name)
+        .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
+    let fields = before
+        .fields()
+        .iter()
+        .map(|field| {
+            if field.id() == before_field.id() {
+                field.clone_with_name(new_name.to_string())
+            } else {
+                field.clone()
+            }
+        })
+        .collect();
+    let indexes = before
+        .indexes()
+        .iter()
+        .map(|index| {
+            index.clone_with_renamed_field_path_root(
+                before_field.id(),
+                before_field.name(),
+                new_name,
+            )
+        })
+        .collect();
+    let persisted_after = PersistedSchemaSnapshot::new_with_indexes(
+        before.version(),
+        before.entity_path().to_string(),
+        before.entity_name().to_string(),
+        before.primary_key_field_id(),
+        before.row_layout().clone(),
+        fields,
+        indexes,
+    );
+    let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
+        .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
+    let after_field = accepted_after
+        .persisted_snapshot()
+        .fields()
+        .iter()
+        .find(|field| field.id() == before_field.id())
+        .ok_or(SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
+    let admission = admit_sql_ddl_field_rename_candidate(before_field, after_field);
 
     Ok(SchemaDdlAcceptedSnapshotDerivation {
         accepted_after,

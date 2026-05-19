@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.158.x] 🧬 - 2026-05-18 - Schema DDL And Field Evolution
 
+- `0.158.11` publishes `ALTER TABLE ... RENAME COLUMN ... TO ...` for
+  DDL-owned accepted fields. The rename is metadata-only: field ID, row slot,
+  default/nullability, decode contract, and field-path index identity stay
+  stable while the accepted SQL/catalog name, direct field-path index labels,
+  expression-index source/canonical text labels, and filtered-index predicate
+  SQL labels change. Generated fields still reject before publication.
+
+  ```
+  ALTER TABLE Character ADD COLUMN nickname text;
+  ALTER TABLE Character RENAME COLUMN nickname TO handle;
+  DESCRIBE Character;
+  ```
+
 - `0.158.10` adds `ALTER TABLE ... RENAME COLUMN ... TO ...` parsing,
   CLI/canister DDL routing, accepted source/target validation, and same-name
   no-op handling. Generated fields remain Rust-schema owned, and DDL-owned
