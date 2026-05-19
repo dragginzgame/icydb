@@ -3129,7 +3129,7 @@ fn execute_sql_ddl_publishes_supported_defaulted_add_column() {
 
     let SqlStatementResult::Ddl(report) = session
         .execute_sql_ddl::<SessionSqlEntity>(
-            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat DEFAULT 7 NOT NULL",
+            "ALTER TABLE SessionSqlEntity ADD COLUMN score nat NOT NULL DEFAULT 0",
         )
         .expect("defaulted ADD COLUMN should publish accepted schema metadata")
     else {
@@ -3204,7 +3204,7 @@ fn execute_sql_ddl_publishes_supported_defaulted_add_column() {
         rows,
         vec![vec![
             output(Value::Text("Ada".to_string())),
-            output(Value::Nat(7))
+            output(Value::Nat(0))
         ]],
     );
     assert_eq!(row_count, 1);

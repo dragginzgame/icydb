@@ -1308,7 +1308,7 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publicatio
 
     ddl_sql(
         &fixture,
-        "ALTER TABLE SqlTestUser ADD COLUMN required_score nat DEFAULT 7 NOT NULL",
+        "ALTER TABLE SqlTestUser ADD COLUMN required_score nat NOT NULL DEFAULT 7",
     )
     .expect("setup required ADD COLUMN DEFAULT should publish before unsupported DROP DEFAULT");
     ddl_sql(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN bonus nat")

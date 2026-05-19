@@ -1940,6 +1940,25 @@ fn parse_alter_table_add_column_statement_keeps_default_and_nullability_intent()
 }
 
 #[test]
+fn parse_alter_table_add_column_statement_accepts_not_null_before_default() {
+    let statement = parse_sql("ALTER TABLE users ADD COLUMN score nat NOT NULL DEFAULT 0")
+        .expect("ALTER TABLE ADD COLUMN with NOT NULL before DEFAULT should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::AlterTableAddColumn(
+            SqlAlterTableAddColumnStatement {
+                entity: "users".to_string(),
+                column_name: "score".to_string(),
+                column_type: "nat".to_string(),
+                nullable: false,
+                default: Some(Value::Int(0)),
+            },
+        )),
+    );
+}
+
+#[test]
 fn parse_alter_table_alter_column_statement_keeps_default_intent_unresolved() {
     let statement = parse_sql("ALTER TABLE users ALTER COLUMN score SET DEFAULT 7")
         .expect("ALTER TABLE ALTER COLUMN SET DEFAULT should parse as DDL intent");

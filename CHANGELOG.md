@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.158.x] 🧬 - 2026-05-18 - Schema DDL And Field Evolution
 
+- `0.158.13` closes the field-DDL line by pinning required `ADD COLUMN`
+  with accepted encoded defaults, including the `NOT NULL DEFAULT` modifier
+  order. Required additions with no default still reject before publication.
+
+  ```
+  ALTER TABLE Character ADD COLUMN score nat NOT NULL DEFAULT 0;
+  DESCRIBE Character;
+  ```
+
 - `0.158.12` publishes `ALTER TABLE ... DROP COLUMN ...` for DDL-owned
   accepted fields. Dropped fields are removed from active accepted metadata,
   while their field IDs and row slots remain retired allocation facts so later
