@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.158.x] 🧬 - 2026-05-18 - Schema DDL And Field Evolution
 
+- `0.158.10` adds `ALTER TABLE ... RENAME COLUMN ... TO ...` parsing,
+  CLI/canister DDL routing, accepted source/target validation, and same-name
+  no-op handling. Generated fields remain Rust-schema owned, and DDL-owned
+  field renames fail closed until field rename metadata policy is enabled.
+
+  ```
+  ALTER TABLE Character ADD COLUMN nickname text;
+  ALTER TABLE Character RENAME COLUMN nickname TO handle;
+  ALTER TABLE Character RENAME COLUMN level TO level;
+  DESCRIBE Character;
+  ```
+
 - `0.158.9` adds `ALTER TABLE ... DROP COLUMN ...` parsing, CLI/canister DDL
   routing, accepted catalog validation, and `DROP COLUMN IF EXISTS` no-op
   handling. The command now distinguishes missing, primary-key, generated, and

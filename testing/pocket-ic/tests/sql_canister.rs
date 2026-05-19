@@ -1349,6 +1349,67 @@ fn sql_canister_ddl_endpoint_rejects_drop_column_without_publication() {
 }
 
 #[test]
+fn sql_canister_ddl_endpoint_rejects_rename_column_without_publication() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let same_name = ddl_sql(
+        &fixture,
+        "ALTER TABLE SqlTestUser RENAME COLUMN rank TO rank",
+    )
+    .expect("same-name RENAME COLUMN should no-op through the canister endpoint");
+    assert_ddl_no_op(same_name, "rename_field", "rank");
+
+    let generated_err = ddl_sql(
+        &fixture,
+        "ALTER TABLE SqlTestUser RENAME COLUMN rank TO score",
+    )
+    .expect_err("RENAME COLUMN should reject generated accepted fields");
+    assert_eq!(
+        generated_err.kind(),
+        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+        "generated RENAME COLUMN rejection should stay at the unsupported runtime boundary",
+    );
+    assert!(
+        generated_err.message().contains("generated accepted field"),
+        "generated RENAME COLUMN should preserve ownership guidance, got: {}",
+        generated_err.message(),
+    );
+
+    ddl_sql(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN nickname text")
+        .expect("setup nullable ADD COLUMN should publish through the canister endpoint");
+    let before = expect_describe(
+        query_sql(&fixture, "DESCRIBE SqlTestUser")
+            .expect("DESCRIBE should read accepted schema before rejected RENAME COLUMN"),
+    );
+    let err = ddl_sql(
+        &fixture,
+        "ALTER TABLE SqlTestUser RENAME COLUMN nickname TO handle",
+    )
+    .expect_err("RENAME COLUMN should reject before field rename metadata policy exists");
+
+    assert_eq!(
+        err.kind(),
+        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+        "RENAME COLUMN should stay an unsupported runtime error at the canister boundary",
+    );
+    assert!(
+        err.message()
+            .contains("field rename metadata policy is not enabled yet"),
+        "RENAME COLUMN should preserve the metadata policy rejection detail, got: {}",
+        err.message(),
+    );
+    let after = expect_describe(
+        query_sql(&fixture, "DESCRIBE SqlTestUser")
+            .expect("DESCRIBE should read accepted schema after rejected RENAME COLUMN"),
+    );
+    assert_eq!(
+        after, before,
+        "rejected RENAME COLUMN must leave accepted schema visibility unchanged",
+    );
+}
+
+#[test]
 fn sql_canister_query_endpoint_executes_scalar_and_grouped_queries() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);

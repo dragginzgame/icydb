@@ -268,9 +268,14 @@ impl Parser {
                 self.parse_alter_table_alter_column_statement(entity)?,
             ));
         }
+        if self.eat_identifier_keyword("RENAME") {
+            return Ok(SqlDdlStatement::AlterTableRenameColumn(
+                self.parse_alter_table_rename_column_statement(entity)?,
+            ));
+        }
 
         Err(SqlParseError::unsupported_feature(
-            "SQL DDL ALTER TABLE statements beyond ADD COLUMN, ALTER COLUMN, and DROP COLUMN",
+            "SQL DDL ALTER TABLE statements beyond ADD COLUMN, ALTER COLUMN, DROP COLUMN, and RENAME COLUMN",
         ))
     }
 
@@ -393,6 +398,30 @@ impl Parser {
         Ok(false)
     }
 
+    fn parse_alter_table_rename_column_statement(
+        &mut self,
+        entity: String,
+    ) -> Result<crate::db::sql::parser::SqlAlterTableRenameColumnStatement, SqlParseError> {
+        if !self.eat_identifier_keyword("COLUMN") {
+            return Err(SqlParseError::unsupported_feature(
+                "SQL DDL ALTER TABLE RENAME statements beyond RENAME COLUMN",
+            ));
+        }
+        let old_column_name = self.expect_identifier()?;
+        if !self.eat_identifier_keyword("TO") {
+            return Err(SqlParseError::unsupported_feature(
+                "ALTER TABLE RENAME COLUMN without TO",
+            ));
+        }
+        let new_column_name = self.expect_identifier()?;
+
+        Ok(crate::db::sql::parser::SqlAlterTableRenameColumnStatement {
+            entity,
+            old_column_name,
+            new_column_name,
+        })
+    }
+
     const fn ddl_clause_order_error(statement: &SqlDdlStatement) -> SqlParseError {
         match statement {
             SqlDdlStatement::CreateIndex(_) => {
@@ -409,6 +438,9 @@ impl Parser {
             }
             SqlDdlStatement::AlterTableDropColumn(_) => {
                 SqlParseError::unsupported_feature("ALTER TABLE DROP COLUMN modifiers")
+            }
+            SqlDdlStatement::AlterTableRenameColumn(_) => {
+                SqlParseError::unsupported_feature("ALTER TABLE RENAME COLUMN modifiers")
             }
         }
     }

@@ -45,6 +45,7 @@ pub(crate) enum SqlDdlStatement {
     AlterTableAddColumn(SqlAlterTableAddColumnStatement),
     AlterTableAlterColumn(SqlAlterTableAlterColumnStatement),
     AlterTableDropColumn(SqlAlterTableDropColumnStatement),
+    AlterTableRenameColumn(SqlAlterTableRenameColumnStatement),
 }
 
 ///
@@ -87,6 +88,20 @@ pub(crate) struct SqlAlterTableDropColumnStatement {
     pub(crate) entity: String,
     pub(crate) column_name: String,
     pub(crate) if_exists: bool,
+}
+
+///
+/// SqlAlterTableRenameColumnStatement
+///
+/// Parsed `ALTER TABLE ... RENAME COLUMN ... TO ...` frontend staged for field
+/// identity-preserving rename policy.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlAlterTableRenameColumnStatement {
+    pub(crate) entity: String,
+    pub(crate) old_column_name: String,
+    pub(crate) new_column_name: String,
 }
 
 ///

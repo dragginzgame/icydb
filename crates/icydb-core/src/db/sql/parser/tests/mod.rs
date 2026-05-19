@@ -5,7 +5,8 @@
 
 use super::{
     SqlAggregateCall, SqlAggregateKind, SqlAlterColumnAction, SqlAlterTableAddColumnStatement,
-    SqlAlterTableAlterColumnStatement, SqlAlterTableDropColumnStatement, SqlAssignment, SqlCaseArm,
+    SqlAlterTableAlterColumnStatement, SqlAlterTableDropColumnStatement,
+    SqlAlterTableRenameColumnStatement, SqlAssignment, SqlCaseArm,
     SqlCreateIndexExpressionFunction, SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem,
     SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement, SqlDeleteStatement,
     SqlDescribeStatement, SqlDropIndexStatement, SqlExplainMode, SqlExplainStatement,
@@ -2025,6 +2026,23 @@ fn parse_alter_table_drop_column_if_exists_statement_keeps_ddl_intent_unresolved
                 entity: "public.users".to_string(),
                 column_name: "nickname".to_string(),
                 if_exists: true,
+            },
+        )),
+    );
+}
+
+#[test]
+fn parse_alter_table_rename_column_statement_keeps_ddl_intent_unresolved() {
+    let statement = parse_sql("ALTER TABLE public.users RENAME COLUMN nickname TO handle")
+        .expect("ALTER TABLE RENAME COLUMN should parse as DDL intent");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::AlterTableRenameColumn(
+            SqlAlterTableRenameColumnStatement {
+                entity: "public.users".to_string(),
+                old_column_name: "nickname".to_string(),
+                new_column_name: "handle".to_string(),
             },
         )),
     );

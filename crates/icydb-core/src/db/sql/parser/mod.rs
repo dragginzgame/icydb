@@ -24,7 +24,8 @@ use crate::{
 pub(crate) use crate::db::sql_shared::SqlParseError;
 pub(crate) use model::{
     SqlAggregateCall, SqlAggregateKind, SqlAlterColumnAction, SqlAlterTableAddColumnStatement,
-    SqlAlterTableAlterColumnStatement, SqlAlterTableDropColumnStatement, SqlAssignment, SqlCaseArm,
+    SqlAlterTableAlterColumnStatement, SqlAlterTableDropColumnStatement,
+    SqlAlterTableRenameColumnStatement, SqlAssignment, SqlCaseArm,
     SqlCreateIndexExpressionFunction, SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem,
     SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement, SqlDeleteStatement,
     SqlDescribeStatement, SqlDropIndexStatement, SqlExplainMode, SqlExplainStatement,

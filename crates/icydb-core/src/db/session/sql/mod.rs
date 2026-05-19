@@ -114,6 +114,9 @@ const fn sql_statement_entity_name_from_statement(statement: &SqlStatement) -> O
         SqlStatement::Ddl(SqlDdlStatement::AlterTableDropColumn(statement)) => {
             Some(statement.entity.as_str())
         }
+        SqlStatement::Ddl(SqlDdlStatement::AlterTableRenameColumn(statement)) => {
+            Some(statement.entity.as_str())
+        }
         SqlStatement::Explain(statement) => match &statement.statement {
             SqlExplainTarget::Select(statement) => Some(statement.entity.as_str()),
             SqlExplainTarget::Delete(statement) => Some(statement.entity.as_str()),

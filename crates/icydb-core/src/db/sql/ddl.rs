@@ -37,8 +37,9 @@ use crate::db::{
         parser::{
             SqlAlterColumnAction, SqlAlterTableAddColumnStatement,
             SqlAlterTableAlterColumnStatement, SqlAlterTableDropColumnStatement,
-            SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem, SqlCreateIndexStatement,
-            SqlCreateIndexUniqueness, SqlDdlStatement, SqlDropIndexStatement, SqlStatement,
+            SqlAlterTableRenameColumnStatement, SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem,
+            SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement,
+            SqlDropIndexStatement, SqlStatement,
         },
     },
 };
@@ -178,6 +179,7 @@ pub enum SqlDdlMutationKind {
     SetFieldNotNull,
     DropFieldNotNull,
     DropField,
+    RenameField,
     AddFieldPathIndex,
     AddExpressionIndex,
     DropSecondaryIndex,
@@ -195,6 +197,7 @@ impl SqlDdlMutationKind {
             Self::SetFieldNotNull => "set_field_not_null",
             Self::DropFieldNotNull => "drop_field_not_null",
             Self::DropField => "drop_field",
+            Self::RenameField => "rename_field",
             Self::AddFieldPathIndex => "add_field_path_index",
             Self::AddExpressionIndex => "add_expression_index",
             Self::DropSecondaryIndex => "drop_secondary_index",
@@ -720,6 +723,23 @@ pub(in crate::db) enum SqlDdlBindError {
         entity_name: String,
         column_name: String,
     },
+
+    #[error(
+        "SQL DDL ALTER TABLE RENAME COLUMN cannot change generated accepted field '{column_name}' on entity '{entity_name}'; rename the field in the Rust schema instead"
+    )]
+    GeneratedFieldRenameRejected {
+        entity_name: String,
+        column_name: String,
+    },
+
+    #[error(
+        "SQL DDL ALTER TABLE RENAME COLUMN is not executable yet for accepted entity '{entity_name}' column '{old_column_name}' to '{new_column_name}'; field rename metadata policy is not enabled yet"
+    )]
+    UnsupportedAlterTableRenameColumn {
+        entity_name: String,
+        old_column_name: String,
+        new_column_name: String,
+    },
 }
 
 ///
@@ -802,6 +822,9 @@ pub(in crate::db) fn bind_sql_ddl_statement(
         }
         SqlDdlStatement::AlterTableDropColumn(statement) => {
             bind_alter_table_drop_column_statement(statement, accepted_before, schema)
+        }
+        SqlDdlStatement::AlterTableRenameColumn(statement) => {
+            bind_alter_table_rename_column_statement(statement, accepted_before, schema)
         }
     }
 }
@@ -1208,6 +1231,71 @@ fn bind_alter_table_drop_column_statement(
     Err(SqlDdlBindError::UnsupportedAlterTableDropColumn {
         entity_name: entity_name.to_string(),
         column_name: statement.column_name.clone(),
+    })
+}
+
+fn bind_alter_table_rename_column_statement(
+    statement: &SqlAlterTableRenameColumnStatement,
+    accepted_before: &AcceptedSchemaSnapshot,
+    schema: &SchemaInfo,
+) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
+    let entity_name = schema
+        .entity_name()
+        .ok_or(SqlDdlBindError::MissingEntityName)?;
+
+    if !identifiers_tail_match(statement.entity.as_str(), entity_name) {
+        return Err(SqlDdlBindError::EntityMismatch {
+            sql_entity: statement.entity.clone(),
+            expected_entity: entity_name.to_string(),
+        });
+    }
+
+    let accepted = accepted_before.persisted_snapshot();
+    let Some(field) = accepted
+        .fields()
+        .iter()
+        .find(|field| field.name() == statement.old_column_name)
+    else {
+        return Err(SqlDdlBindError::UnknownColumn {
+            entity_name: entity_name.to_string(),
+            column_name: statement.old_column_name.clone(),
+        });
+    };
+
+    if statement.old_column_name == statement.new_column_name {
+        return Ok(BoundSqlDdlRequest {
+            statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
+                mutation_kind: SqlDdlMutationKind::RenameField,
+                index_name: statement.old_column_name.clone(),
+                entity_name: entity_name.to_string(),
+                target_store: "-".to_string(),
+                field_path: vec![statement.old_column_name.clone()],
+            }),
+        });
+    }
+
+    if accepted
+        .fields()
+        .iter()
+        .any(|field| field.name() == statement.new_column_name)
+    {
+        return Err(SqlDdlBindError::DuplicateColumn {
+            entity_name: entity_name.to_string(),
+            column_name: statement.new_column_name.clone(),
+        });
+    }
+
+    if field.generated() {
+        return Err(SqlDdlBindError::GeneratedFieldRenameRejected {
+            entity_name: entity_name.to_string(),
+            column_name: statement.old_column_name.clone(),
+        });
+    }
+
+    Err(SqlDdlBindError::UnsupportedAlterTableRenameColumn {
+        entity_name: entity_name.to_string(),
+        old_column_name: statement.old_column_name.clone(),
+        new_column_name: statement.new_column_name.clone(),
     })
 }
 
