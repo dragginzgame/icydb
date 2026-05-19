@@ -30,7 +30,7 @@ use crate::db::{
         derive_sql_ddl_field_nullability_accepted_after,
         derive_sql_ddl_field_path_index_accepted_after,
         derive_sql_ddl_secondary_index_drop_accepted_after,
-        resolve_sql_ddl_secondary_index_drop_candidate,
+        resolve_sql_ddl_field_drop_dependent_index, resolve_sql_ddl_secondary_index_drop_candidate,
     },
     sql::{
         identifier::identifiers_tail_match,
@@ -1195,15 +1195,13 @@ fn bind_alter_table_drop_column_statement(
         });
     }
 
-    if let Some(index) = accepted
-        .indexes()
-        .iter()
-        .find(|index| index.key().references_field(field.id()))
+    if let Some(index_name) =
+        resolve_sql_ddl_field_drop_dependent_index(accepted_before, field.id())
     {
         return Err(SqlDdlBindError::IndexedFieldDropRejected {
             entity_name: entity_name.to_string(),
             column_name: statement.column_name.clone(),
-            index_name: index.name().to_string(),
+            index_name,
         });
     }
 

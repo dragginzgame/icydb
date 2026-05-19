@@ -87,7 +87,7 @@ pub(in crate::db) use mutation::{
     derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
     derive_sql_ddl_field_nullability_accepted_after,
     derive_sql_ddl_field_path_index_accepted_after,
-    derive_sql_ddl_secondary_index_drop_accepted_after,
+    derive_sql_ddl_secondary_index_drop_accepted_after, resolve_sql_ddl_field_drop_dependent_index,
     resolve_sql_ddl_secondary_index_drop_candidate,
 };
 #[cfg(test)]

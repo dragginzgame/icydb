@@ -1914,6 +1914,22 @@ pub(in crate::db) fn resolve_sql_ddl_secondary_index_drop_candidate(
     Ok((index, field_path))
 }
 
+/// Return the first accepted index that depends on a field-drop candidate.
+///
+/// SQL frontends must ask the schema layer for this dependency check instead
+/// of reading accepted index metadata directly.
+pub(in crate::db) fn resolve_sql_ddl_field_drop_dependent_index(
+    accepted_before: &AcceptedSchemaSnapshot,
+    field_id: FieldId,
+) -> Option<String> {
+    accepted_before
+        .persisted_snapshot()
+        .indexes()
+        .iter()
+        .find(|index| index.key().references_field(field_id))
+        .map(|index| index.name().to_string())
+}
+
 fn ddl_drop_index_key_report(key: &PersistedIndexKeySnapshot) -> Option<Vec<String>> {
     match key {
         PersistedIndexKeySnapshot::FieldPath(field_paths) => match field_paths.as_slice() {
