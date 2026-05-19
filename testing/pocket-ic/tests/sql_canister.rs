@@ -1292,6 +1292,63 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publicatio
 }
 
 #[test]
+fn sql_canister_ddl_endpoint_rejects_drop_column_without_publication() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let missing = ddl_sql(
+        &fixture,
+        "ALTER TABLE SqlTestUser DROP COLUMN IF EXISTS missing",
+    )
+    .expect("DROP COLUMN IF EXISTS should no-op for missing accepted fields");
+    assert_ddl_no_op(missing, "drop_field", "missing");
+
+    let generated_err = ddl_sql(&fixture, "ALTER TABLE SqlTestUser DROP COLUMN rank")
+        .expect_err("DROP COLUMN should reject generated accepted fields");
+    assert_eq!(
+        generated_err.kind(),
+        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+        "generated DROP COLUMN rejection should stay at the unsupported runtime boundary",
+    );
+    assert!(
+        generated_err
+            .message()
+            .contains("cannot change generated accepted field"),
+        "generated DROP COLUMN should preserve ownership guidance, got: {}",
+        generated_err.message(),
+    );
+
+    ddl_sql(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN nickname text")
+        .expect("setup nullable ADD COLUMN should publish through the canister endpoint");
+    let before = expect_describe(
+        query_sql(&fixture, "DESCRIBE SqlTestUser")
+            .expect("DESCRIBE should read accepted schema before rejected DROP COLUMN"),
+    );
+    let err = ddl_sql(&fixture, "ALTER TABLE SqlTestUser DROP COLUMN nickname")
+        .expect_err("DROP COLUMN should reject before retained-slot field removal policy exists");
+
+    assert_eq!(
+        err.kind(),
+        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+        "DROP COLUMN should stay an unsupported runtime error at the canister boundary",
+    );
+    assert!(
+        err.message()
+            .contains("retained-slot field removal policy is not enabled yet"),
+        "DROP COLUMN should preserve the retained-slot policy rejection detail, got: {}",
+        err.message(),
+    );
+    let after = expect_describe(
+        query_sql(&fixture, "DESCRIBE SqlTestUser")
+            .expect("DESCRIBE should read accepted schema after rejected DROP COLUMN"),
+    );
+    assert_eq!(
+        after, before,
+        "rejected DROP COLUMN must leave accepted schema visibility unchanged",
+    );
+}
+
+#[test]
 fn sql_canister_query_endpoint_executes_scalar_and_grouped_queries() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);

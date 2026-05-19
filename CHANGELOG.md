@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.158.x] 🧬 - 2026-05-18 - Schema DDL And Field Evolution
 
+- `0.158.9` adds `ALTER TABLE ... DROP COLUMN ...` parsing, CLI/canister DDL
+  routing, accepted catalog validation, and `DROP COLUMN IF EXISTS` no-op
+  handling. The command now distinguishes missing, primary-key, generated, and
+  index-dependent columns before ordinary DDL-owned fields fail closed with a
+  retained-slot field-removal policy error.
+
+  ```
+  ALTER TABLE Character ADD COLUMN nickname text;
+  ALTER TABLE Character DROP COLUMN IF EXISTS old_nickname;
+  ALTER TABLE Character DROP COLUMN nickname;
+  DESCRIBE Character;
+  ```
+
 - `0.158.8` publishes supported `ALTER TABLE ... ALTER COLUMN ...`
   nullability changes for DDL-owned fields. `DROP NOT NULL` is metadata-only,
   while `SET NOT NULL` scans existing rows through the accepted schema and

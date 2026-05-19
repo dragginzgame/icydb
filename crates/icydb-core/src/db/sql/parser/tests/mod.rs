@@ -5,14 +5,14 @@
 
 use super::{
     SqlAggregateCall, SqlAggregateKind, SqlAlterColumnAction, SqlAlterTableAddColumnStatement,
-    SqlAlterTableAlterColumnStatement, SqlAssignment, SqlCaseArm, SqlCreateIndexExpressionFunction,
-    SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem, SqlCreateIndexStatement,
-    SqlCreateIndexUniqueness, SqlDdlStatement, SqlDeleteStatement, SqlDescribeStatement,
-    SqlDropIndexStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr,
-    SqlExprBinaryOp, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
-    SqlParseError, SqlProjection, SqlReturningProjection, SqlScalarFunction, SqlSelectItem,
-    SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
-    SqlStatement, SqlUpdateStatement, parse_sql,
+    SqlAlterTableAlterColumnStatement, SqlAlterTableDropColumnStatement, SqlAssignment, SqlCaseArm,
+    SqlCreateIndexExpressionFunction, SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem,
+    SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement, SqlDeleteStatement,
+    SqlDescribeStatement, SqlDropIndexStatement, SqlExplainMode, SqlExplainStatement,
+    SqlExplainTarget, SqlExpr, SqlExprBinaryOp, SqlInsertSource, SqlInsertStatement,
+    SqlOrderDirection, SqlOrderTerm, SqlParseError, SqlProjection, SqlReturningProjection,
+    SqlScalarFunction, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
+    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlUpdateStatement, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
@@ -1991,6 +1991,40 @@ fn parse_alter_table_alter_column_statement_keeps_nullability_intent_unresolved(
                 entity: "users".to_string(),
                 column_name: "score".to_string(),
                 action: SqlAlterColumnAction::DropDefault,
+            },
+        )),
+    );
+}
+
+#[test]
+fn parse_alter_table_drop_column_statement_keeps_ddl_intent_unresolved() {
+    let statement = parse_sql("ALTER TABLE public.users DROP COLUMN nickname")
+        .expect("ALTER TABLE DROP COLUMN should parse as DDL intent");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::AlterTableDropColumn(
+            SqlAlterTableDropColumnStatement {
+                entity: "public.users".to_string(),
+                column_name: "nickname".to_string(),
+                if_exists: false,
+            },
+        )),
+    );
+}
+
+#[test]
+fn parse_alter_table_drop_column_if_exists_statement_keeps_ddl_intent_unresolved() {
+    let statement = parse_sql("ALTER TABLE public.users DROP COLUMN IF EXISTS nickname")
+        .expect("ALTER TABLE DROP COLUMN IF EXISTS should parse as DDL intent");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::AlterTableDropColumn(
+            SqlAlterTableDropColumnStatement {
+                entity: "public.users".to_string(),
+                column_name: "nickname".to_string(),
+                if_exists: true,
             },
         )),
     );

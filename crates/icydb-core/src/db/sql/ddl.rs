@@ -36,9 +36,9 @@ use crate::db::{
         identifier::identifiers_tail_match,
         parser::{
             SqlAlterColumnAction, SqlAlterTableAddColumnStatement,
-            SqlAlterTableAlterColumnStatement, SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem,
-            SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement,
-            SqlDropIndexStatement, SqlStatement,
+            SqlAlterTableAlterColumnStatement, SqlAlterTableDropColumnStatement,
+            SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem, SqlCreateIndexStatement,
+            SqlCreateIndexUniqueness, SqlDdlStatement, SqlDropIndexStatement, SqlStatement,
         },
     },
 };
@@ -177,6 +177,7 @@ pub enum SqlDdlMutationKind {
     DropFieldDefault,
     SetFieldNotNull,
     DropFieldNotNull,
+    DropField,
     AddFieldPathIndex,
     AddExpressionIndex,
     DropSecondaryIndex,
@@ -193,6 +194,7 @@ impl SqlDdlMutationKind {
             Self::DropFieldDefault => "drop_field_default",
             Self::SetFieldNotNull => "set_field_not_null",
             Self::DropFieldNotNull => "drop_field_not_null",
+            Self::DropField => "drop_field",
             Self::AddFieldPathIndex => "add_field_path_index",
             Self::AddExpressionIndex => "add_expression_index",
             Self::DropSecondaryIndex => "drop_secondary_index",
@@ -685,6 +687,39 @@ pub(in crate::db) enum SqlDdlBindError {
         entity_name: String,
         column_name: String,
     },
+
+    #[error(
+        "SQL DDL ALTER TABLE DROP COLUMN cannot drop primary-key field '{column_name}' on entity '{entity_name}'"
+    )]
+    PrimaryKeyFieldDropRejected {
+        entity_name: String,
+        column_name: String,
+    },
+
+    #[error(
+        "SQL DDL ALTER TABLE DROP COLUMN cannot change generated accepted field '{column_name}' on entity '{entity_name}'; remove the field from the Rust schema instead"
+    )]
+    GeneratedFieldDropRejected {
+        entity_name: String,
+        column_name: String,
+    },
+
+    #[error(
+        "SQL DDL ALTER TABLE DROP COLUMN cannot drop accepted field '{column_name}' on entity '{entity_name}' while index '{index_name}' depends on it; drop dependent DDL-owned indexes first"
+    )]
+    IndexedFieldDropRejected {
+        entity_name: String,
+        column_name: String,
+        index_name: String,
+    },
+
+    #[error(
+        "SQL DDL ALTER TABLE DROP COLUMN is not executable yet for accepted entity '{entity_name}' column '{column_name}'; retained-slot field removal policy is not enabled yet"
+    )]
+    UnsupportedAlterTableDropColumn {
+        entity_name: String,
+        column_name: String,
+    },
 }
 
 ///
@@ -764,6 +799,9 @@ pub(in crate::db) fn bind_sql_ddl_statement(
         }
         SqlDdlStatement::AlterTableAlterColumn(statement) => {
             bind_alter_table_alter_column_statement(statement, accepted_before, schema)
+        }
+        SqlDdlStatement::AlterTableDropColumn(statement) => {
+            bind_alter_table_drop_column_statement(statement, accepted_before, schema)
         }
     }
 }
@@ -1101,6 +1139,78 @@ fn bind_alter_table_alter_column_statement(
             SqlDdlMutationKind::DropFieldNotNull,
         )?),
     }
+}
+
+fn bind_alter_table_drop_column_statement(
+    statement: &SqlAlterTableDropColumnStatement,
+    accepted_before: &AcceptedSchemaSnapshot,
+    schema: &SchemaInfo,
+) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
+    let entity_name = schema
+        .entity_name()
+        .ok_or(SqlDdlBindError::MissingEntityName)?;
+
+    if !identifiers_tail_match(statement.entity.as_str(), entity_name) {
+        return Err(SqlDdlBindError::EntityMismatch {
+            sql_entity: statement.entity.clone(),
+            expected_entity: entity_name.to_string(),
+        });
+    }
+
+    let accepted = accepted_before.persisted_snapshot();
+    let Some(field) = accepted
+        .fields()
+        .iter()
+        .find(|field| field.name() == statement.column_name)
+    else {
+        if statement.if_exists {
+            return Ok(BoundSqlDdlRequest {
+                statement: BoundSqlDdlStatement::NoOp(BoundSqlDdlNoOpRequest {
+                    mutation_kind: SqlDdlMutationKind::DropField,
+                    index_name: statement.column_name.clone(),
+                    entity_name: entity_name.to_string(),
+                    target_store: "-".to_string(),
+                    field_path: vec![statement.column_name.clone()],
+                }),
+            });
+        }
+
+        return Err(SqlDdlBindError::UnknownColumn {
+            entity_name: entity_name.to_string(),
+            column_name: statement.column_name.clone(),
+        });
+    };
+
+    if accepted.primary_key_field_id() == field.id() {
+        return Err(SqlDdlBindError::PrimaryKeyFieldDropRejected {
+            entity_name: entity_name.to_string(),
+            column_name: statement.column_name.clone(),
+        });
+    }
+
+    if field.generated() {
+        return Err(SqlDdlBindError::GeneratedFieldDropRejected {
+            entity_name: entity_name.to_string(),
+            column_name: statement.column_name.clone(),
+        });
+    }
+
+    if let Some(index) = accepted
+        .indexes()
+        .iter()
+        .find(|index| index.key().references_field(field.id()))
+    {
+        return Err(SqlDdlBindError::IndexedFieldDropRejected {
+            entity_name: entity_name.to_string(),
+            column_name: statement.column_name.clone(),
+            index_name: index.name().to_string(),
+        });
+    }
+
+    Err(SqlDdlBindError::UnsupportedAlterTableDropColumn {
+        entity_name: entity_name.to_string(),
+        column_name: statement.column_name.clone(),
+    })
 }
 
 fn bind_alter_table_alter_column_default(

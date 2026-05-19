@@ -44,6 +44,7 @@ pub(crate) enum SqlDdlStatement {
     DropIndex(SqlDropIndexStatement),
     AlterTableAddColumn(SqlAlterTableAddColumnStatement),
     AlterTableAlterColumn(SqlAlterTableAlterColumnStatement),
+    AlterTableDropColumn(SqlAlterTableDropColumnStatement),
 }
 
 ///
@@ -72,6 +73,20 @@ pub(crate) struct SqlAlterTableAlterColumnStatement {
     pub(crate) entity: String,
     pub(crate) column_name: String,
     pub(crate) action: SqlAlterColumnAction,
+}
+
+///
+/// SqlAlterTableDropColumnStatement
+///
+/// Parsed `ALTER TABLE ... DROP COLUMN ...` frontend staged for retained-slot
+/// field removal policy.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlAlterTableDropColumnStatement {
+    pub(crate) entity: String,
+    pub(crate) column_name: String,
+    pub(crate) if_exists: bool,
 }
 
 ///

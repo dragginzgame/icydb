@@ -258,6 +258,11 @@ impl Parser {
                 self.parse_alter_table_add_column_statement(entity)?,
             ));
         }
+        if self.eat_keyword(Keyword::Drop) {
+            return Ok(SqlDdlStatement::AlterTableDropColumn(
+                self.parse_alter_table_drop_column_statement(entity)?,
+            ));
+        }
         if self.eat_identifier_keyword("ALTER") {
             return Ok(SqlDdlStatement::AlterTableAlterColumn(
                 self.parse_alter_table_alter_column_statement(entity)?,
@@ -265,7 +270,7 @@ impl Parser {
         }
 
         Err(SqlParseError::unsupported_feature(
-            "SQL DDL ALTER TABLE statements beyond ADD COLUMN and ALTER COLUMN",
+            "SQL DDL ALTER TABLE statements beyond ADD COLUMN, ALTER COLUMN, and DROP COLUMN",
         ))
     }
 
@@ -355,6 +360,39 @@ impl Parser {
         })
     }
 
+    fn parse_alter_table_drop_column_statement(
+        &mut self,
+        entity: String,
+    ) -> Result<crate::db::sql::parser::SqlAlterTableDropColumnStatement, SqlParseError> {
+        if !self.eat_identifier_keyword("COLUMN") {
+            return Err(SqlParseError::unsupported_feature(
+                "SQL DDL ALTER TABLE DROP statements beyond DROP COLUMN",
+            ));
+        }
+        let if_exists = self.parse_drop_column_if_exists()?;
+        let column_name = self.expect_identifier()?;
+
+        Ok(crate::db::sql::parser::SqlAlterTableDropColumnStatement {
+            entity,
+            column_name,
+            if_exists,
+        })
+    }
+
+    fn parse_drop_column_if_exists(&mut self) -> Result<bool, SqlParseError> {
+        if self.eat_identifier_keyword("IF") {
+            if !self.eat_identifier_keyword("EXISTS") {
+                return Err(SqlParseError::unsupported_feature(
+                    "ALTER TABLE DROP COLUMN IF EXISTS",
+                ));
+            }
+
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
     const fn ddl_clause_order_error(statement: &SqlDdlStatement) -> SqlParseError {
         match statement {
             SqlDdlStatement::CreateIndex(_) => {
@@ -368,6 +406,9 @@ impl Parser {
             }
             SqlDdlStatement::AlterTableAlterColumn(_) => {
                 SqlParseError::unsupported_feature("ALTER TABLE ALTER COLUMN modifiers")
+            }
+            SqlDdlStatement::AlterTableDropColumn(_) => {
+                SqlParseError::unsupported_feature("ALTER TABLE DROP COLUMN modifiers")
             }
         }
     }

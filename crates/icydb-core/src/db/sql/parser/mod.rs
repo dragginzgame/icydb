@@ -24,14 +24,15 @@ use crate::{
 pub(crate) use crate::db::sql_shared::SqlParseError;
 pub(crate) use model::{
     SqlAggregateCall, SqlAggregateKind, SqlAlterColumnAction, SqlAlterTableAddColumnStatement,
-    SqlAlterTableAlterColumnStatement, SqlAssignment, SqlCaseArm, SqlCreateIndexExpressionFunction,
-    SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem, SqlCreateIndexStatement,
-    SqlCreateIndexUniqueness, SqlDdlStatement, SqlDeleteStatement, SqlDescribeStatement,
-    SqlDropIndexStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr,
-    SqlExprBinaryOp, SqlExprUnaryOp, SqlInsertSource, SqlInsertStatement, SqlOrderDirection,
-    SqlOrderTerm, SqlProjection, SqlReturningProjection, SqlScalarFunction,
-    SqlScalarFunctionCallShape, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
-    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlUpdateStatement,
+    SqlAlterTableAlterColumnStatement, SqlAlterTableDropColumnStatement, SqlAssignment, SqlCaseArm,
+    SqlCreateIndexExpressionFunction, SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem,
+    SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement, SqlDeleteStatement,
+    SqlDescribeStatement, SqlDropIndexStatement, SqlExplainMode, SqlExplainStatement,
+    SqlExplainTarget, SqlExpr, SqlExprBinaryOp, SqlExprUnaryOp, SqlInsertSource,
+    SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlProjection, SqlReturningProjection,
+    SqlScalarFunction, SqlScalarFunctionCallShape, SqlSelectItem, SqlSelectStatement,
+    SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
+    SqlUpdateStatement,
 };
 #[cfg(test)]
 pub(in crate::db) use order_expr::{

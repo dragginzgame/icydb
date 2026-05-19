@@ -2438,6 +2438,170 @@ fn sql_ddl_alter_table_alter_column_rejects_unknown_column() {
 }
 
 #[test]
+fn sql_ddl_alter_table_drop_column_binds_then_fails_closed() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let add_statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text")
+        .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
+    let add_bound = bind_sql_ddl_statement(
+        &add_statement,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect("setup ADD COLUMN should bind against accepted schema metadata");
+    let accepted_before = derive_bound_sql_ddl_accepted_after(&accepted_before, &add_bound)
+        .expect("setup ADD COLUMN should derive accepted-after metadata")
+        .accepted_after()
+        .clone();
+    let schema =
+        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let statement = parse_sql("ALTER TABLE SessionSqlEntity DROP COLUMN nickname")
+        .expect("ALTER TABLE DROP COLUMN should parse before DDL binding");
+
+    let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+        .expect_err("DROP COLUMN should fail closed until retained-slot removal policy exists");
+
+    assert!(matches!(
+        err,
+        SqlDdlBindError::UnsupportedAlterTableDropColumn {
+            entity_name,
+            column_name,
+        } if entity_name == "SessionSqlEntity" && column_name == "nickname"
+    ));
+}
+
+#[test]
+fn sql_ddl_alter_table_drop_column_rejects_unknown_column() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let statement = parse_sql("ALTER TABLE SessionSqlEntity DROP COLUMN missing")
+        .expect("ALTER TABLE DROP COLUMN should parse before DDL binding");
+
+    let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+        .expect_err("DROP COLUMN should validate accepted catalog fields before failing");
+
+    assert!(matches!(
+        err,
+        SqlDdlBindError::UnknownColumn {
+            entity_name,
+            column_name,
+        } if entity_name == "SessionSqlEntity" && column_name == "missing"
+    ));
+}
+
+#[test]
+fn sql_ddl_alter_table_drop_column_if_exists_binds_missing_column_as_no_op() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let statement = parse_sql("ALTER TABLE SessionSqlEntity DROP COLUMN IF EXISTS missing")
+        .expect("ALTER TABLE DROP COLUMN IF EXISTS should parse before DDL binding");
+
+    let bound =
+        bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("DROP COLUMN IF EXISTS should bind missing accepted columns as no-op");
+    let BoundSqlDdlStatement::NoOp(no_op) = bound.statement() else {
+        panic!("DROP COLUMN IF EXISTS should not request physical work for a missing field");
+    };
+
+    assert_eq!(no_op.mutation_kind(), SqlDdlMutationKind::DropField);
+    assert_eq!(no_op.index_name(), "missing");
+    assert_eq!(no_op.entity_name(), "SessionSqlEntity");
+    assert_eq!(no_op.field_path(), ["missing".to_string()]);
+}
+
+#[test]
+fn sql_ddl_alter_table_drop_column_rejects_generated_fields() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let statement = parse_sql("ALTER TABLE SessionSqlEntity DROP COLUMN age")
+        .expect("ALTER TABLE DROP COLUMN should parse before DDL binding");
+
+    let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+        .expect_err("DROP COLUMN should reject generated accepted fields");
+
+    assert!(matches!(
+        err,
+        SqlDdlBindError::GeneratedFieldDropRejected {
+            entity_name,
+            column_name,
+        } if entity_name == "SessionSqlEntity" && column_name == "age"
+    ));
+}
+
+#[test]
+fn sql_ddl_alter_table_drop_column_rejects_primary_key_fields() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let statement = parse_sql("ALTER TABLE SessionSqlEntity DROP COLUMN id")
+        .expect("ALTER TABLE DROP COLUMN should parse before DDL binding");
+
+    let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+        .expect_err("DROP COLUMN should reject primary-key accepted fields");
+
+    assert!(matches!(
+        err,
+        SqlDdlBindError::PrimaryKeyFieldDropRejected {
+            entity_name,
+            column_name,
+        } if entity_name == "SessionSqlEntity" && column_name == "id"
+    ));
+}
+
+#[test]
+fn sql_ddl_alter_table_drop_column_rejects_index_dependent_fields() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let add_statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text")
+        .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
+    let add_bound = bind_sql_ddl_statement(
+        &add_statement,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect("setup ADD COLUMN should bind against accepted schema metadata");
+    let accepted_before = derive_bound_sql_ddl_accepted_after(&accepted_before, &add_bound)
+        .expect("setup ADD COLUMN should derive accepted-after metadata")
+        .accepted_after()
+        .clone();
+    let schema =
+        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let index_statement =
+        parse_sql("CREATE INDEX session_sql_nickname_idx ON SessionSqlEntity (nickname)")
+            .expect("CREATE INDEX should parse before DDL binding");
+    let index_bound = bind_sql_ddl_statement(
+        &index_statement,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect("setup CREATE INDEX should bind against accepted schema metadata");
+    let accepted_before = derive_bound_sql_ddl_accepted_after(&accepted_before, &index_bound)
+        .expect("setup CREATE INDEX should derive accepted-after metadata")
+        .accepted_after()
+        .clone();
+    let schema =
+        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let statement = parse_sql("ALTER TABLE SessionSqlEntity DROP COLUMN nickname")
+        .expect("ALTER TABLE DROP COLUMN should parse before DDL binding");
+
+    let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+        .expect_err("DROP COLUMN should reject fields referenced by accepted indexes");
+
+    assert!(matches!(
+        err,
+        SqlDdlBindError::IndexedFieldDropRejected {
+            entity_name,
+            column_name,
+            index_name,
+        } if entity_name == "SessionSqlEntity"
+            && column_name == "nickname"
+            && index_name == "session_sql_nickname_idx"
+    ));
+}
+
+#[test]
 fn sql_ddl_alter_table_alter_column_default_rejects_generated_fields() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
@@ -3018,6 +3182,62 @@ fn execute_sql_ddl_rejects_set_not_null_when_rows_materialize_null() {
 
         assert!(nickname.nullable());
     });
+}
+
+#[test]
+fn execute_sql_ddl_rejects_drop_column_without_publication() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        )
+        .expect("setup nullable ADD COLUMN should publish before rejected DROP COLUMN");
+    let before =
+        statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
+            .expect("SHOW COLUMNS should read accepted schema before rejected DROP COLUMN");
+    let err = session
+        .execute_sql_ddl::<SessionSqlEntity>("ALTER TABLE SessionSqlEntity DROP COLUMN nickname")
+        .expect_err("DROP COLUMN should fail closed before retained-slot policy exists");
+
+    assert!(
+        err.to_string()
+            .contains("retained-slot field removal policy is not enabled yet"),
+        "DROP COLUMN rejection should explain the fail-closed boundary: {err}",
+    );
+    let after =
+        statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
+            .expect("SHOW COLUMNS should read accepted schema after rejected DROP COLUMN");
+
+    assert_eq!(
+        after, before,
+        "rejected DROP COLUMN must leave accepted schema visibility unchanged",
+    );
+}
+
+#[test]
+fn execute_sql_ddl_drop_column_if_exists_reports_no_op_for_missing_column() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    let SqlStatementResult::Ddl(report) = session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity DROP COLUMN IF EXISTS missing",
+        )
+        .expect("DROP COLUMN IF EXISTS should no-op for missing accepted fields")
+    else {
+        panic!("DROP COLUMN IF EXISTS should return a DDL report");
+    };
+
+    assert_eq!(report.mutation_kind(), SqlDdlMutationKind::DropField);
+    assert_eq!(report.target_index(), "missing");
+    assert_eq!(report.field_path(), ["missing".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::NoOp);
+    assert_eq!(report.rows_scanned(), 0);
+    assert_eq!(report.index_keys_written(), 0);
 }
 
 #[test]
