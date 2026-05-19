@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.158.x] 🧬 - 2026-05-18 - Schema DDL And Field Evolution
 
+- `0.158.5` expands `icydb schema check` recommendations for field/index drift.
+  Generated-only fields now point to the accepted additive-transition path,
+  accepted-only generated fields point to retained-slot removal policy, and
+  default/nullability mismatches point to explicit future `ALTER COLUMN`
+  flows. Generated-only, accepted-only generated, and same-name-different-contract
+  indexes now get matching index publication/removal/replacement guidance.
+
+  ```
+  icydb schema check demo_rpg -e demo
+  ```
+
 - `0.158.4` locks field-DDL schema identity behavior: pre-`ADD COLUMN`
   shared query plans, compiled SQL artifacts, and continuation cursors do not
   silently carry across accepted field-schema publication. Schema describe

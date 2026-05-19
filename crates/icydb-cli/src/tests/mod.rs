@@ -1233,6 +1233,197 @@ fn schema_check_report_treats_accepted_only_generated_fields_as_mismatch() {
             "fix: resolve generated-vs-accepted mismatches before relying on schema parity"
         )
     );
+    assert!(text.contains(
+        "fix: accepted-only generated fields require an explicit retained-slot removal policy"
+    ));
+}
+
+#[test]
+fn schema_check_report_recommends_additive_transition_for_generated_only_fields() {
+    let generated = EntitySchemaDescription::new(
+        "demo::Character".to_string(),
+        "Character".to_string(),
+        "id".to_string(),
+        vec![
+            EntityFieldDescription::new(
+                "id".to_string(),
+                Some(0),
+                "Id".to_string(),
+                false,
+                true,
+                true,
+                "generated".to_string(),
+            ),
+            EntityFieldDescription::new(
+                "title".to_string(),
+                Some(1),
+                "Text".to_string(),
+                true,
+                false,
+                true,
+                "generated".to_string(),
+            ),
+        ],
+        Vec::new(),
+        Vec::new(),
+    );
+    let accepted = EntitySchemaDescription::new(
+        "demo::Character".to_string(),
+        "Character".to_string(),
+        "id".to_string(),
+        vec![EntityFieldDescription::new(
+            "id".to_string(),
+            Some(0),
+            "Id".to_string(),
+            false,
+            true,
+            true,
+            "generated".to_string(),
+        )],
+        Vec::new(),
+        Vec::new(),
+    );
+
+    let text =
+        render_schema_check_report(&[EntitySchemaCheckDescription::new(generated, accepted)]);
+
+    assert!(text.contains("status: mismatch"));
+    assert!(text.contains("generated-only field"));
+    assert!(text.contains(
+        "action: generated-only fields need an accepted additive transition before deploy"
+    ));
+}
+
+#[test]
+fn schema_check_report_recommends_explicit_flows_for_default_and_nullability_drift() {
+    let generated = EntitySchemaDescription::new(
+        "demo::Character".to_string(),
+        "Character".to_string(),
+        "id".to_string(),
+        vec![
+            EntityFieldDescription::new(
+                "level".to_string(),
+                Some(1),
+                "nat16 default=slot_payload(bytes=4, sha256=aaaaaaaaaaaaaaaa)".to_string(),
+                false,
+                false,
+                true,
+                "generated".to_string(),
+            ),
+            EntityFieldDescription::new(
+                "nickname".to_string(),
+                Some(2),
+                "Text".to_string(),
+                false,
+                false,
+                true,
+                "generated".to_string(),
+            ),
+        ],
+        Vec::new(),
+        Vec::new(),
+    );
+    let accepted = EntitySchemaDescription::new(
+        "demo::Character".to_string(),
+        "Character".to_string(),
+        "id".to_string(),
+        vec![
+            EntityFieldDescription::new(
+                "level".to_string(),
+                Some(1),
+                "nat16 default=slot_payload(bytes=4, sha256=bbbbbbbbbbbbbbbb)".to_string(),
+                false,
+                false,
+                true,
+                "generated".to_string(),
+            ),
+            EntityFieldDescription::new(
+                "nickname".to_string(),
+                Some(2),
+                "Text".to_string(),
+                true,
+                false,
+                true,
+                "generated".to_string(),
+            ),
+        ],
+        Vec::new(),
+        Vec::new(),
+    );
+
+    let text =
+        render_schema_check_report(&[EntitySchemaCheckDescription::new(generated, accepted)]);
+
+    assert!(text.contains("status: mismatch"));
+    assert!(
+        text.contains("fix: default drift requires an explicit ALTER COLUMN SET/DROP DEFAULT flow")
+    );
+    assert!(text.contains(
+        "fix: nullability drift requires an explicit ALTER COLUMN SET/DROP NOT NULL flow"
+    ));
+}
+
+#[test]
+fn schema_check_report_recommends_explicit_flows_for_generated_index_drift() {
+    let generated = EntitySchemaDescription::new(
+        "demo::Character".to_string(),
+        "Character".to_string(),
+        "id".to_string(),
+        Vec::new(),
+        vec![
+            EntityIndexDescription::new(
+                "idx_character__name".to_string(),
+                false,
+                vec!["name".to_string()],
+                "generated".to_string(),
+            ),
+            EntityIndexDescription::new(
+                "idx_character__class_name".to_string(),
+                false,
+                vec!["class_name".to_string()],
+                "generated".to_string(),
+            ),
+        ],
+        Vec::new(),
+    );
+    let accepted = EntitySchemaDescription::new(
+        "demo::Character".to_string(),
+        "Character".to_string(),
+        "id".to_string(),
+        Vec::new(),
+        vec![
+            EntityIndexDescription::new(
+                "idx_character__name".to_string(),
+                false,
+                vec!["nickname".to_string()],
+                "generated".to_string(),
+            ),
+            EntityIndexDescription::new(
+                "idx_character__level".to_string(),
+                false,
+                vec!["level".to_string()],
+                "generated".to_string(),
+            ),
+        ],
+        Vec::new(),
+    );
+
+    let text =
+        render_schema_check_report(&[EntitySchemaCheckDescription::new(generated, accepted)]);
+
+    assert!(text.contains("status: mismatch"));
+    assert!(text.contains("index"));
+    assert!(text.contains("accepted-only generated index"));
+    assert!(text.contains("generated-only index"));
+    assert!(text.contains(
+        "action: generated-only indexes need accepted index publication before planner parity"
+    ));
+    assert!(text.contains(
+        "fix: accepted-only generated indexes require explicit index removal or generated schema restoration"
+    ));
+    assert!(text.contains(
+        "fix: index contract drift requires explicit index replacement, not same-name mutation"
+    ));
 }
 
 #[test]
