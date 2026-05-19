@@ -339,16 +339,18 @@ fn accepted_row_decode_contract_runtime_lookups_fail_closed() {
     );
     assert!(
         save_validation_compact
-            .contains("accepted_contract.required_field_for_slot(E::PATH,slot)?")
+            .contains("letSome(field)=accepted_contract.field_for_slot(slot)else{continue;};")
             && save_validation_compact
                 .contains("accepted_contract.required_field_for_slot(E::PATH,primary_key_slot)?")
-            && save_validation_compact
-                .contains("accepted_contract.required_field_for_slot(E::PATH,field_index)?")
-            && relation_save_validate_compact
-                .contains("accepted_row_decode_contract.required_field_for_slot(E::PATH,slot)?")
+            && save_validation_compact.contains(
+                "letSome(field)=accepted_contract.field_for_slot(field_index)else{continue;};"
+            )
+            && relation_save_validate_compact.contains(
+                "letSome(field)=accepted_row_decode_contract.field_for_slot(slot)else{continue;};"
+            )
             && !save_validation_compact.contains(".field_for_slot(primary_key_slot).ok_or_else(")
             && !save_validation_compact.contains(".field_for_slot(field_index).ok_or_else("),
-        "accepted typed-save validation must use required accepted row-decode field lookup",
+        "accepted typed-save validation must use required primary-key lookup and skip retired accepted row-decode slots explicitly",
     );
 }
 

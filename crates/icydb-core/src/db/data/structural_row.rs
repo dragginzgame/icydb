@@ -40,6 +40,7 @@ pub(in crate::db) struct StructuralRowContract {
     entity_path: &'static str,
     generated_fields: &'static [FieldModel],
     field_count: usize,
+    max_physical_slot_count: usize,
     primary_key_slot: usize,
     accepted_decode_contract: Option<Arc<AcceptedRowDecodeContract>>,
 }
@@ -55,6 +56,7 @@ impl StructuralRowContract {
             entity_path: model.path(),
             generated_fields: model.fields(),
             field_count: model.fields().len(),
+            max_physical_slot_count: model.fields().len(),
             primary_key_slot: model.primary_key_slot(),
             accepted_decode_contract: None,
         }
@@ -105,6 +107,7 @@ impl StructuralRowContract {
             entity_path,
             generated_fields,
             field_count: accepted_decode_contract.required_slot_count(),
+            max_physical_slot_count: accepted_decode_contract.max_physical_slot_count(),
             primary_key_slot: accepted_decode_contract.primary_key_slot_index(),
             accepted_decode_contract: Some(Arc::new(accepted_decode_contract)),
         }
@@ -155,6 +158,16 @@ impl StructuralRowContract {
         self.field_count
     }
 
+    /// Return the maximum physical slot count this row contract can accept.
+    ///
+    /// Generated-only contracts remain exact. Accepted contracts may allow
+    /// older rows to carry trailing retired slots that are no longer visible
+    /// through the active schema.
+    #[must_use]
+    pub(in crate::db) const fn max_physical_slot_count(&self) -> usize {
+        self.max_physical_slot_count
+    }
+
     /// Return whether this contract was built from accepted persisted schema.
     #[must_use]
     pub(in crate::db) const fn has_accepted_decode_contract(&self) -> bool {
@@ -179,6 +192,19 @@ impl StructuralRowContract {
             })?
             .required_field_for_slot(self.entity_path(), slot)?
             .decode_contract())
+    }
+
+    /// Return whether a physical slot is active in this row contract.
+    ///
+    /// Accepted row layouts may retain retired physical slots as allocation
+    /// history. Those slots can still be present in old rows, but they are no
+    /// longer active fields and must be skipped by dense validation/emission.
+    #[must_use]
+    pub(in crate::db) fn has_active_field_slot(&self, slot: usize) -> bool {
+        match &self.accepted_decode_contract {
+            Some(contract) => contract.field_for_slot(slot).is_some(),
+            None => self.generated_fields.get(slot).is_some(),
+        }
     }
 
     /// Return the field-level decode contract for one structural slot.
@@ -227,7 +253,13 @@ impl StructuralRowContract {
     ) -> Result<usize, InternalError> {
         if self.accepted_decode_contract.is_some() {
             for slot in 0..self.field_count() {
-                let field = self.required_accepted_field_decode_contract(slot)?;
+                let Some(field) = self
+                    .accepted_decode_contract
+                    .as_ref()
+                    .and_then(|contract| contract.field_for_slot(slot))
+                else {
+                    continue;
+                };
                 if field.field_name() == field_name {
                     return Ok(slot);
                 }
@@ -292,9 +324,9 @@ impl StructuralRowContract {
     }
 
     // Validate that one physical row slot count can be read through this
-    // structural contract. Exact rows stay canonical; older rows may be short
-    // only when every missing trailing accepted slot can materialize from
-    // accepted schema metadata.
+    // structural contract. Generated rows stay exact; accepted rows may be
+    // short when trailing additions can materialize from schema metadata, or
+    // long when trailing retired slots still exist in older physical rows.
     fn validate_physical_slot_count(&self, physical_count: usize) -> Result<(), InternalError> {
         if physical_count != self.field_count() && self.accepted_decode_contract.is_none() {
             return Err(InternalError::serialize_corruption(format!(
@@ -304,15 +336,18 @@ impl StructuralRowContract {
             )));
         }
 
-        if physical_count > self.field_count() {
+        if physical_count > self.max_physical_slot_count() {
             return Err(InternalError::serialize_corruption(format!(
-                "row decode: slot count mismatch: expected {}, found {}",
-                self.field_count(),
+                "row decode: slot count mismatch: expected at most {}, found {}",
+                self.max_physical_slot_count(),
                 physical_count,
             )));
         }
 
         for slot in physical_count..self.field_count() {
+            if !self.has_active_field_slot(slot) {
+                continue;
+            }
             let _ = self.missing_slot_value(slot)?;
         }
 

@@ -22,12 +22,13 @@ use crate::db::{
         SchemaExpressionIndexKeyItemInfo, SchemaFieldDefault, SchemaFieldSlot,
         SchemaFieldWritePolicy, SchemaInfo, admit_sql_ddl_expression_index_candidate,
         admit_sql_ddl_field_addition_candidate, admit_sql_ddl_field_default_candidate,
-        admit_sql_ddl_field_nullability_candidate, admit_sql_ddl_field_path_index_candidate,
-        admit_sql_ddl_field_rename_candidate, admit_sql_ddl_secondary_index_drop_candidate,
+        admit_sql_ddl_field_drop_candidate, admit_sql_ddl_field_nullability_candidate,
+        admit_sql_ddl_field_path_index_candidate, admit_sql_ddl_field_rename_candidate,
+        admit_sql_ddl_secondary_index_drop_candidate,
         canonicalize_strict_sql_literal_for_persisted_kind,
         derive_sql_ddl_expression_index_accepted_after,
         derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
-        derive_sql_ddl_field_nullability_accepted_after,
+        derive_sql_ddl_field_drop_accepted_after, derive_sql_ddl_field_nullability_accepted_after,
         derive_sql_ddl_field_path_index_accepted_after, derive_sql_ddl_field_rename_accepted_after,
         derive_sql_ddl_secondary_index_drop_accepted_after,
         resolve_sql_ddl_field_drop_dependent_index, resolve_sql_ddl_secondary_index_drop_candidate,
@@ -258,6 +259,7 @@ pub(in crate::db) enum BoundSqlDdlStatement {
     AddColumn(BoundSqlAddColumnRequest),
     AlterColumnDefault(BoundSqlAlterColumnDefaultRequest),
     AlterColumnNullability(BoundSqlAlterColumnNullabilityRequest),
+    DropColumn(BoundSqlDropColumnRequest),
     RenameColumn(BoundSqlRenameColumnRequest),
     CreateIndex(BoundSqlCreateIndexRequest),
     DropIndex(BoundSqlDropIndexRequest),
@@ -376,6 +378,37 @@ impl BoundSqlAlterColumnNullabilityRequest {
     #[must_use]
     pub(in crate::db) const fn mutation_kind(&self) -> SqlDdlMutationKind {
         self.mutation_kind
+    }
+}
+
+///
+/// BoundSqlDropColumnRequest
+///
+/// Catalog-resolved retained-slot field removal DDL request.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct BoundSqlDropColumnRequest {
+    entity_name: String,
+    field: PersistedFieldSnapshot,
+}
+
+impl BoundSqlDropColumnRequest {
+    /// Borrow the accepted entity name.
+    #[must_use]
+    pub(in crate::db) const fn entity_name(&self) -> &str {
+        self.entity_name.as_str()
+    }
+
+    /// Borrow the accepted field name.
+    #[must_use]
+    pub(in crate::db) const fn field_name(&self) -> &str {
+        self.field.name()
+    }
+
+    /// Borrow the accepted DDL-owned field that will be retired.
+    #[must_use]
+    pub(in crate::db) const fn field(&self) -> &PersistedFieldSnapshot {
+        &self.field
     }
 }
 
@@ -753,14 +786,6 @@ pub(in crate::db) enum SqlDdlBindError {
         entity_name: String,
         column_name: String,
         index_name: String,
-    },
-
-    #[error(
-        "SQL DDL ALTER TABLE DROP COLUMN is not executable yet for accepted entity '{entity_name}' column '{column_name}'; retained-slot field removal policy is not enabled yet"
-    )]
-    UnsupportedAlterTableDropColumn {
-        entity_name: String,
-        column_name: String,
     },
 
     #[error(
@@ -1267,9 +1292,11 @@ fn bind_alter_table_drop_column_statement(
         });
     }
 
-    Err(SqlDdlBindError::UnsupportedAlterTableDropColumn {
-        entity_name: entity_name.to_string(),
-        column_name: statement.column_name.clone(),
+    Ok(BoundSqlDdlRequest {
+        statement: BoundSqlDdlStatement::DropColumn(BoundSqlDropColumnRequest {
+            entity_name: entity_name.to_string(),
+            field: field.clone(),
+        }),
     })
 }
 
@@ -1497,11 +1524,18 @@ fn schema_field_default_for_alter_column_default(
 }
 
 fn next_sql_ddl_field_id(accepted_before: &AcceptedSchemaSnapshot) -> FieldId {
-    let next = accepted_before
-        .persisted_snapshot()
+    let snapshot = accepted_before.persisted_snapshot();
+    let next = snapshot
         .fields()
         .iter()
         .map(|field| field.id().get())
+        .chain(
+            snapshot
+                .row_layout()
+                .retired_field_slots()
+                .iter()
+                .map(|(field_id, _)| field_id.get()),
+        )
         .max()
         .unwrap_or(0)
         .checked_add(1)
@@ -1511,18 +1545,10 @@ fn next_sql_ddl_field_id(accepted_before: &AcceptedSchemaSnapshot) -> FieldId {
 }
 
 fn next_sql_ddl_field_slot(accepted_before: &AcceptedSchemaSnapshot) -> SchemaFieldSlot {
-    let next = accepted_before
+    accepted_before
         .persisted_snapshot()
         .row_layout()
-        .field_to_slot()
-        .iter()
-        .map(|(_, slot)| slot.get())
-        .max()
-        .unwrap_or(0)
-        .checked_add(1)
-        .expect("accepted row slots should not be exhausted");
-
-    SchemaFieldSlot::new(next)
+        .next_unallocated_slot()
 }
 
 fn persisted_field_contract_for_sql_column_type(
@@ -2033,6 +2059,9 @@ pub(in crate::db) fn lower_bound_sql_ddl_to_schema_mutation_admission(
         BoundSqlDdlStatement::AlterColumnNullability(alter) => {
             Ok(admit_sql_ddl_field_nullability_candidate(alter.field()))
         }
+        BoundSqlDdlStatement::DropColumn(drop) => {
+            Ok(admit_sql_ddl_field_drop_candidate(drop.field()))
+        }
         BoundSqlDdlStatement::RenameColumn(rename) => {
             let after = rename
                 .field()
@@ -2076,6 +2105,9 @@ pub(in crate::db) fn derive_bound_sql_ddl_accepted_after(
                 alter.field_name(),
                 alter.nullable(),
             )
+        }
+        BoundSqlDdlStatement::DropColumn(drop) => {
+            derive_sql_ddl_field_drop_accepted_after(accepted_before, drop.field_name())
         }
         BoundSqlDdlStatement::RenameColumn(rename) => derive_sql_ddl_field_rename_accepted_after(
             accepted_before,
@@ -2135,6 +2167,15 @@ fn ddl_preparation_report(bound: &BoundSqlDdlRequest) -> SqlDdlPreparationReport
             target_index: alter.field_name().to_string(),
             target_store: alter.entity_name().to_string(),
             field_path: vec![alter.field_name().to_string()],
+            execution_status: SqlDdlExecutionStatus::PreparedOnly,
+            rows_scanned: 0,
+            index_keys_written: 0,
+        },
+        BoundSqlDdlStatement::DropColumn(drop) => SqlDdlPreparationReport {
+            mutation_kind: SqlDdlMutationKind::DropField,
+            target_index: drop.field_name().to_string(),
+            target_store: drop.entity_name().to_string(),
+            field_path: vec![drop.field_name().to_string()],
             execution_status: SqlDdlExecutionStatus::PreparedOnly,
             rows_scanned: 0,
             index_keys_written: 0,

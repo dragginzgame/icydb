@@ -154,9 +154,8 @@ Supported shapes:
 - `ALTER TABLE entity ALTER COLUMN field SET NOT NULL`
 - `ALTER TABLE entity ALTER COLUMN field DROP NOT NULL`
 - `ALTER TABLE entity RENAME COLUMN old_name TO new_name`
-- `ALTER TABLE entity DROP COLUMN field` and `DROP COLUMN IF EXISTS field` are
-  parsed and routed through the DDL surface, but retained-slot field removal is
-  not executable yet.
+- `ALTER TABLE entity DROP COLUMN field`
+- `ALTER TABLE entity DROP COLUMN IF EXISTS field`
 
 SQL DDL is a frontend over accepted schema catalog mutation, not the source of
 schema authority.
@@ -200,6 +199,15 @@ field names, direct field-path index labels, and expression-index
 source/canonical labels are updated together. Filtered-index predicate SQL
 labels relabel through the reduced predicate AST. Generated fields reject
 before publication.
+
+`ALTER TABLE ... DROP COLUMN ...` publishes retained-slot accepted schema
+changes for DDL-owned fields. Active accepted metadata removes the field, but
+the accepted row layout keeps the retired field ID and physical slot so later
+`ADD COLUMN` commands do not reuse historical allocation facts. Older rows with
+retired slots remain decodable, and non-trailing drops preserve later active
+fields without shifting row slots. Primary-key, generated, and index-dependent
+fields reject before publication.
+`DROP COLUMN IF EXISTS` reports `no_op` only when the target field is absent.
 
 ## Public SQL Mutation Execution
 

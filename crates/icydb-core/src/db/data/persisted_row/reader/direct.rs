@@ -161,7 +161,11 @@ pub(in crate::db) fn decode_dense_raw_row_with_contract(
     // second decode, but we do not flush this probe into the aggregate.
     let probe = StructuralReadProbe::begin(contract.field_count());
     for slot in 0..contract.field_count() {
-        values.push(Some(fields.decode_slot(slot, &probe)?));
+        if contract.has_active_field_slot(slot) {
+            values.push(Some(fields.decode_slot(slot, &probe)?));
+        } else {
+            values.push(None);
+        }
     }
 
     Ok(values)

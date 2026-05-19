@@ -129,7 +129,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let missing_fields = Self::missing_authored_fields_with_accepted_contract(
             self.accepted_row_decode_contract(),
             authored_create_slots,
-        )?;
+        );
 
         if missing_fields.is_empty() {
             return Ok(());
@@ -148,10 +148,12 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     fn missing_authored_fields_with_accepted_contract(
         accepted_contract: &AcceptedRowDecodeContract,
         authored_create_slots: &[usize],
-    ) -> Result<Vec<String>, InternalError> {
+    ) -> Vec<String> {
         let mut missing = Vec::new();
         for slot in 0..accepted_contract.required_slot_count() {
-            let field = accepted_contract.required_field_for_slot(E::PATH, slot)?;
+            let Some(field) = accepted_contract.field_for_slot(slot) else {
+                continue;
+            };
             if !field.generated()
                 && !matches!(field.absence_policy(), AcceptedFieldAbsencePolicy::Required)
             {
@@ -166,7 +168,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             }
         }
 
-        Ok(missing)
+        missing
     }
 
     // Enforce trait boundary invariants for user-provided entities.
@@ -248,7 +250,9 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         accepted_contract: &AcceptedRowDecodeContract,
     ) -> Result<(), InternalError> {
         for field_index in 0..accepted_contract.required_slot_count() {
-            let field = accepted_contract.required_field_for_slot(E::PATH, field_index)?;
+            let Some(field) = accepted_contract.field_for_slot(field_index) else {
+                continue;
+            };
             let field_name = field.field_name();
             let field_kind = field.kind();
             if !field.generated()

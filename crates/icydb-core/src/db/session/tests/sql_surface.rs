@@ -2438,7 +2438,7 @@ fn sql_ddl_alter_table_alter_column_rejects_unknown_column() {
 }
 
 #[test]
-fn sql_ddl_alter_table_drop_column_binds_then_fails_closed() {
+fn sql_ddl_alter_table_drop_column_binds_ddl_owned_trailing_field() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
     let add_statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text")
@@ -2459,16 +2459,41 @@ fn sql_ddl_alter_table_drop_column_binds_then_fails_closed() {
     let statement = parse_sql("ALTER TABLE SessionSqlEntity DROP COLUMN nickname")
         .expect("ALTER TABLE DROP COLUMN should parse before DDL binding");
 
-    let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
-        .expect_err("DROP COLUMN should fail closed until retained-slot removal policy exists");
+    let bound =
+        bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("DROP COLUMN should bind DDL-owned trailing accepted fields");
+    let BoundSqlDdlStatement::DropColumn(drop) = bound.statement() else {
+        panic!("DROP COLUMN should bind a retained-slot field-drop request");
+    };
+    let derivation = derive_bound_sql_ddl_accepted_after(&accepted_before, &bound)
+        .expect("DROP COLUMN should derive accepted-after metadata");
+    let before_field = accepted_before
+        .persisted_snapshot()
+        .fields()
+        .iter()
+        .find(|field| field.name() == "nickname")
+        .expect("setup field should be present before DROP COLUMN");
 
-    assert!(matches!(
-        err,
-        SqlDdlBindError::UnsupportedAlterTableDropColumn {
-            entity_name,
-            column_name,
-        } if entity_name == "SessionSqlEntity" && column_name == "nickname"
-    ));
+    assert_eq!(drop.entity_name(), "SessionSqlEntity");
+    assert_eq!(drop.field_name(), "nickname");
+    assert!(
+        !derivation
+            .accepted_after()
+            .persisted_snapshot()
+            .fields()
+            .iter()
+            .any(|field| field.name() == "nickname"),
+        "DROP COLUMN accepted-after schema should remove the active field",
+    );
+    assert!(
+        derivation
+            .accepted_after()
+            .persisted_snapshot()
+            .row_layout()
+            .retired_field_slots()
+            .contains(&(before_field.id(), before_field.slot())),
+        "DROP COLUMN accepted-after schema should retain the retired field slot",
+    );
 }
 
 #[test]
@@ -2599,6 +2624,84 @@ fn sql_ddl_alter_table_drop_column_rejects_index_dependent_fields() {
             && column_name == "nickname"
             && index_name == "session_sql_nickname_idx"
     ));
+}
+
+#[test]
+fn sql_ddl_alter_table_drop_column_binds_non_trailing_ddl_fields_as_retired_gaps() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let add_nickname_statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text")
+        .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
+    let add_nickname_bound = bind_sql_ddl_statement(
+        &add_nickname_statement,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect("setup ADD COLUMN should bind against accepted schema metadata");
+    let accepted_before =
+        derive_bound_sql_ddl_accepted_after(&accepted_before, &add_nickname_bound)
+            .expect("setup ADD COLUMN should derive accepted-after metadata")
+            .accepted_after()
+            .clone();
+    let schema =
+        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let add_handle_statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN handle text")
+        .expect("second ALTER TABLE ADD COLUMN should parse before DDL binding");
+    let add_handle_bound = bind_sql_ddl_statement(
+        &add_handle_statement,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect("second setup ADD COLUMN should bind against accepted schema metadata");
+    let accepted_before = derive_bound_sql_ddl_accepted_after(&accepted_before, &add_handle_bound)
+        .expect("second setup ADD COLUMN should derive accepted-after metadata")
+        .accepted_after()
+        .clone();
+    let schema =
+        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let statement = parse_sql("ALTER TABLE SessionSqlEntity DROP COLUMN nickname")
+        .expect("ALTER TABLE DROP COLUMN should parse before DDL binding");
+
+    let nickname = accepted_before
+        .persisted_snapshot()
+        .fields()
+        .iter()
+        .find(|field| field.name() == "nickname")
+        .expect("setup field should be active before DROP COLUMN")
+        .clone();
+    let handle = accepted_before
+        .persisted_snapshot()
+        .fields()
+        .iter()
+        .find(|field| field.name() == "handle")
+        .expect("later field should remain active after DROP COLUMN")
+        .clone();
+    let bound =
+        bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+            .expect("DROP COLUMN should bind non-trailing DDL-owned accepted fields");
+    let accepted_after = derive_bound_sql_ddl_accepted_after(&accepted_before, &bound)
+        .expect("DROP COLUMN should derive accepted-after metadata")
+        .accepted_after()
+        .clone();
+
+    assert!(
+        accepted_after
+            .persisted_snapshot()
+            .row_layout()
+            .retired_field_slots()
+            .contains(&(nickname.id(), nickname.slot())),
+        "non-trailing DROP COLUMN should retain the retired field slot",
+    );
+    assert_eq!(
+        accepted_after
+            .persisted_snapshot()
+            .row_layout()
+            .slot_for_field(handle.id()),
+        Some(handle.slot()),
+        "later active field slot should remain stable after non-trailing DROP COLUMN",
+    );
 }
 
 #[test]
@@ -3477,7 +3580,7 @@ fn execute_sql_ddl_rejects_set_not_null_when_rows_materialize_null() {
 }
 
 #[test]
-fn execute_sql_ddl_rejects_drop_column_without_publication() {
+fn execute_sql_ddl_publishes_drop_column_for_ddl_owned_trailing_field() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
     let session = sql_session();
@@ -3486,27 +3589,82 @@ fn execute_sql_ddl_rejects_drop_column_without_publication() {
         .execute_sql_ddl::<SessionSqlEntity>(
             "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
         )
-        .expect("setup nullable ADD COLUMN should publish before rejected DROP COLUMN");
+        .expect("setup nullable ADD COLUMN should publish before DROP COLUMN");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(15_808),
+            name: "Ada".to_string(),
+            age: 36,
+        })
+        .expect("typed inserts should remain valid before DROP COLUMN");
+    let nickname_slot = SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("schema should remain readable after setup ADD COLUMN")
+            .expect("schema should be published after setup ADD COLUMN")
+            .fields()
+            .iter()
+            .find(|field| field.name() == "nickname")
+            .expect("setup DDL field should be visible before DROP COLUMN")
+            .slot()
+    });
     let before =
         statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
-            .expect("SHOW COLUMNS should read accepted schema before rejected DROP COLUMN");
-    let err = session
+            .expect("SHOW COLUMNS should read accepted schema before DROP COLUMN");
+    let SqlStatementResult::Ddl(report) = session
         .execute_sql_ddl::<SessionSqlEntity>("ALTER TABLE SessionSqlEntity DROP COLUMN nickname")
-        .expect_err("DROP COLUMN should fail closed before retained-slot policy exists");
+        .expect("DROP COLUMN should publish retained-slot field removal")
+    else {
+        panic!("DROP COLUMN should return a DDL report");
+    };
 
-    assert!(
-        err.to_string()
-            .contains("retained-slot field removal policy is not enabled yet"),
-        "DROP COLUMN rejection should explain the fail-closed boundary: {err}",
-    );
+    assert_eq!(report.mutation_kind(), SqlDdlMutationKind::DropField);
+    assert_eq!(report.target_index(), "nickname");
+    assert_eq!(report.field_path(), ["nickname".to_string()]);
+    assert_eq!(report.execution_status(), SqlDdlExecutionStatus::Published);
     let after =
         statement_show_columns_sql::<SessionSqlEntity>(&session, "SHOW COLUMNS SessionSqlEntity")
-            .expect("SHOW COLUMNS should read accepted schema after rejected DROP COLUMN");
+            .expect("SHOW COLUMNS should read accepted schema after DROP COLUMN");
 
-    assert_eq!(
-        after, before,
-        "rejected DROP COLUMN must leave accepted schema visibility unchanged",
+    assert!(
+        before.iter().any(|field| field.name() == "nickname"),
+        "setup ADD COLUMN should make the DDL field visible",
     );
+    assert!(
+        !after.iter().any(|field| field.name() == "nickname"),
+        "published DROP COLUMN should remove the DDL field from active metadata",
+    );
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("schema should remain readable after DROP COLUMN")
+            .expect("schema should remain published after DROP COLUMN");
+
+        assert!(
+            latest
+                .row_layout()
+                .retired_field_slots()
+                .iter()
+                .any(|(_, slot)| *slot == nickname_slot),
+            "DROP COLUMN should retain the retired physical slot",
+        );
+    });
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = execute_sql_statement_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT name FROM SessionSqlEntity WHERE name = 'Ada'",
+    )
+    .expect("remaining active fields should query after DROP COLUMN")
+    else {
+        panic!("SELECT after DROP COLUMN should emit projection rows");
+    };
+    assert_eq!(columns, vec!["name".to_string()]);
+    assert_eq!(rows, vec![vec![output(Value::Text("Ada".to_string()))]]);
+    assert_eq!(row_count, 1);
 }
 
 #[test]
@@ -3530,6 +3688,150 @@ fn execute_sql_ddl_drop_column_if_exists_reports_no_op_for_missing_column() {
     assert_eq!(report.execution_status(), SqlDdlExecutionStatus::NoOp);
     assert_eq!(report.rows_scanned(), 0);
     assert_eq!(report.index_keys_written(), 0);
+}
+
+#[test]
+fn execute_sql_ddl_add_column_does_not_reuse_retired_drop_column_slot() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        )
+        .expect("setup ADD COLUMN should publish before DROP COLUMN");
+    let nickname_slot = SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("schema should be readable after ADD COLUMN")
+            .expect("schema should be published after ADD COLUMN")
+            .fields()
+            .iter()
+            .find(|field| field.name() == "nickname")
+            .expect("setup field should be active before DROP COLUMN")
+            .slot()
+    });
+    session
+        .execute_sql_ddl::<SessionSqlEntity>("ALTER TABLE SessionSqlEntity DROP COLUMN nickname")
+        .expect("DROP COLUMN should publish retained-slot field removal");
+    session
+        .execute_sql_ddl::<SessionSqlEntity>("ALTER TABLE SessionSqlEntity ADD COLUMN handle text")
+        .expect("second ADD COLUMN should publish after retained-slot field removal");
+
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("schema should be readable after second ADD COLUMN")
+            .expect("schema should remain published after second ADD COLUMN");
+        let handle = latest
+            .fields()
+            .iter()
+            .find(|field| field.name() == "handle")
+            .expect("second DDL field should be active");
+
+        assert_ne!(
+            handle.slot(),
+            nickname_slot,
+            "ADD COLUMN must not reuse a retained retired slot",
+        );
+        assert!(
+            latest
+                .row_layout()
+                .retired_field_slots()
+                .iter()
+                .any(|(_, slot)| *slot == nickname_slot),
+            "retired DROP COLUMN slot should stay allocated after later ADD COLUMN",
+        );
+    });
+}
+
+#[test]
+fn execute_sql_ddl_publishes_drop_column_for_non_trailing_ddl_owned_field() {
+    reset_session_sql_store();
+    SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);
+    let session = sql_session();
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>(
+            "ALTER TABLE SessionSqlEntity ADD COLUMN nickname text",
+        )
+        .expect("setup first ADD COLUMN should publish");
+    session
+        .execute_sql_ddl::<SessionSqlEntity>("ALTER TABLE SessionSqlEntity ADD COLUMN handle text")
+        .expect("setup second ADD COLUMN should publish");
+    session
+        .insert(SessionSqlEntity {
+            id: Ulid::from_u128(15_809),
+            name: "Ada".to_string(),
+            age: 36,
+        })
+        .expect("typed insert should fill DDL-owned nullable fields before DROP COLUMN");
+    let (nickname_slot, handle_slot) = SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("schema should be readable after setup ADD COLUMN")
+            .expect("schema should remain published after setup ADD COLUMN");
+        let nickname = latest
+            .fields()
+            .iter()
+            .find(|field| field.name() == "nickname")
+            .expect("first DDL field should be active before DROP COLUMN");
+        let handle = latest
+            .fields()
+            .iter()
+            .find(|field| field.name() == "handle")
+            .expect("second DDL field should be active before DROP COLUMN");
+
+        (nickname.slot(), handle.slot())
+    });
+
+    session
+        .execute_sql_ddl::<SessionSqlEntity>("ALTER TABLE SessionSqlEntity DROP COLUMN nickname")
+        .expect("DROP COLUMN should publish non-trailing retained-slot field removal");
+    let SqlStatementResult::Projection {
+        columns,
+        rows,
+        row_count,
+        ..
+    } = execute_sql_statement_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT name, handle FROM SessionSqlEntity WHERE name = 'Ada'",
+    )
+    .expect("later active DDL field should query through a retired slot gap")
+    else {
+        panic!("SELECT after non-trailing DROP COLUMN should emit projection rows");
+    };
+    assert_eq!(columns, vec!["name".to_string(), "handle".to_string()]);
+    assert_eq!(
+        rows,
+        vec![vec![
+            output(Value::Text("Ada".to_string())),
+            output(Value::Null)
+        ]],
+    );
+    assert_eq!(row_count, 1);
+    SESSION_SQL_SCHEMA_STORE.with_borrow(|store| {
+        let latest = store
+            .latest_persisted_snapshot(SessionSqlEntity::ENTITY_TAG)
+            .expect("schema should be readable after non-trailing DROP COLUMN")
+            .expect("schema should remain published after non-trailing DROP COLUMN");
+        let handle = latest
+            .fields()
+            .iter()
+            .find(|field| field.name() == "handle")
+            .expect("later DDL field should remain active after non-trailing DROP COLUMN");
+
+        assert_eq!(handle.slot(), handle_slot);
+        assert!(
+            latest
+                .row_layout()
+                .retired_field_slots()
+                .iter()
+                .any(|(_, slot)| *slot == nickname_slot),
+            "non-trailing DROP COLUMN should retain the retired physical slot",
+        );
+    });
 }
 
 #[test]

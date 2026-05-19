@@ -13,6 +13,7 @@ use crate::{
             persisted_row::{
                 codec::ScalarSlotValueRef,
                 contract::{
+                    RETIRED_SLOT_PLACEHOLDER_PAYLOAD,
                     canonical_row_from_runtime_value_source_with_accepted_contract,
                     decode_runtime_value_from_row_contract,
                     decode_scalar_slot_value_from_row_contract,
@@ -500,6 +501,10 @@ fn serialize_complete_structural_patch_fields_for_accepted_contract(
         if payload.is_some() {
             continue;
         }
+        if !contract.has_active_field_slot(slot) {
+            *payload = Some(RETIRED_SLOT_PLACEHOLDER_PAYLOAD.to_vec());
+            continue;
+        }
         let field = contract.required_accepted_field_decode_contract(slot)?;
         let value = contract.missing_slot_value(slot)?;
         *payload = Some(encode_runtime_value_for_accepted_field_contract(
@@ -573,7 +578,11 @@ pub(in crate::db) fn apply_serialized_structural_patch_to_raw_row_with_accepted_
     // Phase 1: materialize the accepted baseline into current generated slot
     // order, including any nullable appended slots that are absent on disk.
     for slot in 0..contract.field_count() {
-        values.push(row_fields.required_cached_value(slot)?.clone());
+        if contract.has_active_field_slot(slot) {
+            values.push(row_fields.required_cached_value(slot)?.clone());
+        } else {
+            values.push(Value::Null);
+        }
     }
 
     // Phase 2: overlay the sparse current-layout patch. Payloads are already

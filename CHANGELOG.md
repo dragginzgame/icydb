@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.158.x] 🧬 - 2026-05-18 - Schema DDL And Field Evolution
 
+- `0.158.12` publishes `ALTER TABLE ... DROP COLUMN ...` for DDL-owned
+  accepted fields. Dropped fields are removed from active accepted metadata,
+  while their field IDs and row slots remain retired allocation facts so later
+  `ADD COLUMN` commands do not reuse historical physical slots. Non-trailing
+  drops leave active row-layout gaps without shifting later fields. Generated,
+  primary-key, and index-dependent fields still reject before publication.
+
+  ```
+  ALTER TABLE Character ADD COLUMN nickname text;
+  ALTER TABLE Character ADD COLUMN handle text;
+  ALTER TABLE Character DROP COLUMN nickname;
+  DESCRIBE Character;
+  ```
+
 - `0.158.11` publishes `ALTER TABLE ... RENAME COLUMN ... TO ...` for
   DDL-owned accepted fields. The rename is metadata-only: field ID, row slot,
   default/nullability, decode contract, and field-path index identity stay

@@ -158,7 +158,9 @@ where
     E: EntityKind + EntityValue,
 {
     for slot in 0..accepted_row_decode_contract.required_slot_count() {
-        let field = accepted_row_decode_contract.required_field_for_slot(E::PATH, slot)?;
+        let Some(field) = accepted_row_decode_contract.field_for_slot(slot) else {
+            continue;
+        };
         let Some(relation) = accepted_save_strong_relation_from_field(
             E::PATH,
             slot,

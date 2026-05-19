@@ -1364,7 +1364,7 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publicatio
 }
 
 #[test]
-fn sql_canister_ddl_endpoint_rejects_drop_column_without_publication() {
+fn sql_canister_ddl_endpoint_publishes_drop_column_for_ddl_owned_field() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
 
@@ -1392,31 +1392,59 @@ fn sql_canister_ddl_endpoint_rejects_drop_column_without_publication() {
 
     ddl_sql(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN nickname text")
         .expect("setup nullable ADD COLUMN should publish through the canister endpoint");
+    ddl_sql(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN handle text")
+        .expect("setup second nullable ADD COLUMN should publish through the canister endpoint");
     let before = expect_describe(
         query_sql(&fixture, "DESCRIBE SqlTestUser")
-            .expect("DESCRIBE should read accepted schema before rejected DROP COLUMN"),
+            .expect("DESCRIBE should read accepted schema before DROP COLUMN"),
     );
-    let err = ddl_sql(&fixture, "ALTER TABLE SqlTestUser DROP COLUMN nickname")
-        .expect_err("DROP COLUMN should reject before retained-slot field removal policy exists");
-
-    assert_eq!(
-        err.kind(),
-        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-        "DROP COLUMN should stay an unsupported runtime error at the canister boundary",
-    );
-    assert!(
-        err.message()
-            .contains("retained-slot field removal policy is not enabled yet"),
-        "DROP COLUMN should preserve the retained-slot policy rejection detail, got: {}",
-        err.message(),
-    );
+    let SqlQueryResult::Ddl {
+        entity,
+        mutation_kind,
+        target_index,
+        target_store,
+        field_path,
+        status,
+        rows_scanned,
+        index_keys_written,
+    } = ddl_sql(&fixture, "ALTER TABLE SqlTestUser DROP COLUMN nickname")
+        .expect("DROP COLUMN should publish retained-slot field removal")
+    else {
+        panic!("DROP COLUMN should return a DDL payload");
+    };
+    assert_eq!(entity, "SqlTestUser");
+    assert_eq!(mutation_kind, "drop_field");
+    assert_eq!(target_index, "nickname");
+    assert_eq!(target_store, "SqlTestUser");
+    assert_eq!(field_path, vec!["nickname".to_string()]);
+    assert_eq!(status, "published");
+    assert_eq!(rows_scanned, 0);
+    assert_eq!(index_keys_written, 0);
     let after = expect_describe(
         query_sql(&fixture, "DESCRIBE SqlTestUser")
-            .expect("DESCRIBE should read accepted schema after rejected DROP COLUMN"),
+            .expect("DESCRIBE should read accepted schema after DROP COLUMN"),
     );
-    assert_eq!(
-        after, before,
-        "rejected DROP COLUMN must leave accepted schema visibility unchanged",
+    assert!(
+        before
+            .fields()
+            .iter()
+            .any(|field| field.name() == "nickname"),
+        "setup should expose DDL-owned field before DROP COLUMN",
+    );
+    assert!(
+        before.fields().iter().any(|field| field.name() == "handle"),
+        "setup should expose later DDL-owned field before DROP COLUMN",
+    );
+    assert!(
+        !after
+            .fields()
+            .iter()
+            .any(|field| field.name() == "nickname"),
+        "published DROP COLUMN should remove the accepted field",
+    );
+    assert!(
+        after.fields().iter().any(|field| field.name() == "handle"),
+        "published non-trailing DROP COLUMN should preserve later active fields",
     );
 }
 

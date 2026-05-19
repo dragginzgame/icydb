@@ -65,6 +65,12 @@ pub(in crate::db::data::persisted_row) enum CachedSlotValue {
 pub(super) fn build_initial_slot_cache(contract: &StructuralRowContract) -> Vec<CachedSlotValue> {
     (0..contract.field_count())
         .map(|slot| {
+            if !contract.has_active_field_slot(slot) {
+                return CachedSlotValue::Deferred {
+                    materialized: OnceCell::new(),
+                };
+            }
+
             match contract
                 .field_leaf_codec(slot)
                 .expect("cache initialization only visits declared structural slots")

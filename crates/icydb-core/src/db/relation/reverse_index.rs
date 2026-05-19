@@ -291,6 +291,9 @@ pub(in crate::db::relation) fn accepted_strong_relations_for_row_contract(
 ) -> Result<Vec<AcceptedStrongRelationInfo>, InternalError> {
     let mut relations = Vec::new();
     for slot in 0..source_row_contract.field_count() {
+        if !source_row_contract.has_active_field_slot(slot) {
+            continue;
+        }
         let field = source_row_contract.required_accepted_field_decode_contract(slot)?;
         let Some(relation) = accepted_strong_relation_from_field(
             source_path,

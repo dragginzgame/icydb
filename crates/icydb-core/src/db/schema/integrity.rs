@@ -31,6 +31,10 @@ pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
         return Some(detail);
     }
 
+    if let Some(detail) = duplicate_retired_row_layout_detail(subject, row_layout) {
+        return Some(detail);
+    }
+
     if let Some(detail) = duplicate_field_detail(subject, fields) {
         return Some(detail);
     }
@@ -278,6 +282,50 @@ fn duplicate_row_layout_detail(subject: &str, row_layout: &SchemaRowLayout) -> O
             if slot == other_slot {
                 return Some(format!(
                     "{subject} duplicate row-layout slot: slot={}",
+                    slot.get(),
+                ));
+            }
+        }
+    }
+
+    None
+}
+
+fn duplicate_retired_row_layout_detail(
+    subject: &str,
+    row_layout: &SchemaRowLayout,
+) -> Option<String> {
+    for (field_id, slot) in row_layout.field_to_slot() {
+        for (retired_field_id, retired_slot) in row_layout.retired_field_slots() {
+            if field_id == retired_field_id {
+                return Some(format!(
+                    "{subject} active and retired row-layout field id overlap: field_id={}",
+                    field_id.get(),
+                ));
+            }
+
+            if slot == retired_slot {
+                return Some(format!(
+                    "{subject} active and retired row-layout slot overlap: slot={}",
+                    slot.get(),
+                ));
+            }
+        }
+    }
+
+    let entries = row_layout.retired_field_slots();
+    for (index, (field_id, slot)) in entries.iter().enumerate() {
+        for (other_field_id, other_slot) in &entries[index + 1..] {
+            if field_id == other_field_id {
+                return Some(format!(
+                    "{subject} duplicate retired row-layout field id: field_id={}",
+                    field_id.get(),
+                ));
+            }
+
+            if slot == other_slot {
+                return Some(format!(
+                    "{subject} duplicate retired row-layout slot: slot={}",
                     slot.get(),
                 ));
             }

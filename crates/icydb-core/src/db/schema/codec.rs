@@ -45,6 +45,7 @@ struct PersistedSchemaSnapshotWire {
 struct SchemaRowLayoutWire {
     version: u32,
     field_to_slot: Vec<(u32, u16)>,
+    retired_field_slots: Vec<(u32, u16)>,
 }
 
 // Candid wire container for one persisted schema field.
@@ -383,13 +384,22 @@ impl SchemaRowLayoutWire {
                 .iter()
                 .map(|(field_id, slot)| (field_id.get(), slot.get()))
                 .collect(),
+            retired_field_slots: layout
+                .retired_field_slots()
+                .iter()
+                .map(|(field_id, slot)| (field_id.get(), slot.get()))
+                .collect(),
         }
     }
 
     fn into_layout(self) -> SchemaRowLayout {
-        SchemaRowLayout::new(
+        SchemaRowLayout::new_with_retired_slots(
             SchemaVersion::new(self.version),
             self.field_to_slot
+                .into_iter()
+                .map(|(field_id, slot)| (FieldId::new(field_id), SchemaFieldSlot::new(slot)))
+                .collect(),
+            self.retired_field_slots
                 .into_iter()
                 .map(|(field_id, slot)| (FieldId::new(field_id), SchemaFieldSlot::new(slot)))
                 .collect(),

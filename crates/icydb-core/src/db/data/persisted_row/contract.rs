@@ -43,6 +43,8 @@ use crate::db::data::persisted_row::{
     types::generated_compatible_field_model_for_slot,
 };
 
+pub(in crate::db::data::persisted_row) const RETIRED_SLOT_PLACEHOLDER_PAYLOAD: &[u8] = &[0];
+
 /// Decode one structural slot payload into a runtime boundary `Value`.
 ///
 /// This adapter is for runtime row consumers only. It uses the owning
@@ -616,6 +618,10 @@ where
     F: FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
 {
     dense_slot_image_from_source(contract.field_count(), |slot| {
+        if !contract.has_active_field_slot(slot) {
+            return Ok(RETIRED_SLOT_PLACEHOLDER_PAYLOAD.to_vec());
+        }
+
         let value = value_for_slot(slot)?;
         let field = contract.required_accepted_field_decode_contract(slot)?;
 

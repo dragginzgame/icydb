@@ -15,8 +15,8 @@ use crate::{
         schema::{
             AcceptedSchemaSnapshot, MutationPublicationBlocker, MutationPublicationPreflight,
             PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
-            SchemaFieldDefaultTarget, SchemaFieldNullabilityTarget, SchemaFieldRenameTarget,
-            SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
+            SchemaFieldDefaultTarget, SchemaFieldDropTarget, SchemaFieldNullabilityTarget,
+            SchemaFieldRenameTarget, SchemaMutationRunnerCapability, SchemaMutationRunnerContract,
             SchemaSecondaryIndexDropCleanupTarget, SchemaStore, SchemaTransitionDecision,
             SchemaTransitionPlanKind, compiled_schema_proposal_for_model, decide_schema_transition,
             runtime::AcceptedRowLayoutRuntimeDescriptor,
@@ -199,6 +199,115 @@ pub(in crate::db) fn execute_sql_ddl_field_addition(
     }
 
     store.with_schema_mut(|schema_store| schema_store.insert_persisted_snapshot(entity_tag, after))
+}
+
+/// Execute one metadata-only SQL DDL retained-slot field drop publication.
+pub(in crate::db) fn execute_sql_ddl_field_drop(
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    entity_path: &'static str,
+    accepted_before: &AcceptedSchemaSnapshot,
+    derivation: &SchemaDdlAcceptedSnapshotDerivation,
+) -> Result<(), InternalError> {
+    let Some(target) = derivation.admission().field_drop_target() else {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL field-drop execution requires a field target for entity '{entity_path}'",
+        )));
+    };
+    let before = accepted_before.persisted_snapshot();
+    let after = derivation.accepted_after().persisted_snapshot();
+    validate_sql_ddl_field_drop_metadata_change(entity_path, before, after, target)?;
+
+    store.with_schema_mut(|schema_store| schema_store.insert_persisted_snapshot(entity_tag, after))
+}
+
+fn validate_sql_ddl_field_drop_metadata_change(
+    entity_path: &'static str,
+    before: &PersistedSchemaSnapshot,
+    after: &PersistedSchemaSnapshot,
+    target: &SchemaFieldDropTarget,
+) -> Result<(), InternalError> {
+    if before.version() != after.version()
+        || before.entity_path() != after.entity_path()
+        || before.entity_name() != after.entity_name()
+        || before.primary_key_field_id() != after.primary_key_field_id()
+        || before.indexes() != after.indexes()
+        || before.fields().len() != after.fields().len().saturating_add(1)
+    {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL field-drop execution supports only retained-slot field removal for entity '{entity_path}'",
+        )));
+    }
+
+    let before_field = before
+        .fields()
+        .iter()
+        .find(|field| field.id() == target.field_id())
+        .ok_or_else(|| {
+            InternalError::store_unsupported(format!(
+                "SQL DDL field-drop target is absent from accepted-before schema for entity '{entity_path}': field='{}'",
+                target.name(),
+            ))
+        })?;
+    if before_field.name() != target.name() || before_field.slot() != target.slot() {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL field-drop target drifted before publication for entity '{entity_path}': field='{}'",
+            target.name(),
+        )));
+    }
+    let target_id_remains = after
+        .fields()
+        .iter()
+        .any(|field| field.id() == target.field_id());
+    let target_name_remains = after
+        .fields()
+        .iter()
+        .any(|field| field.name() == target.name());
+    if target_id_remains || target_name_remains {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL field-drop target remains in accepted-after schema for entity '{entity_path}': field='{}'",
+            target.name(),
+        )));
+    }
+    if before.row_layout().slot_for_field(target.field_id()) != Some(target.slot())
+        || after
+            .row_layout()
+            .slot_for_field(target.field_id())
+            .is_some()
+        || !after
+            .row_layout()
+            .retired_field_slots()
+            .contains(&(target.field_id(), target.slot()))
+    {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL field-drop retained-slot layout is invalid for entity '{entity_path}': field='{}'",
+            target.name(),
+        )));
+    }
+
+    let expected_fields = before
+        .fields()
+        .iter()
+        .filter(|field| field.id() != target.field_id())
+        .cloned()
+        .collect::<Vec<_>>();
+    let expected_row_layout = before
+        .row_layout()
+        .clone_retiring_field(target.field_id())
+        .ok_or_else(|| {
+            InternalError::store_unsupported(format!(
+                "SQL DDL field-drop target layout is absent before publication for entity '{entity_path}': field='{}'",
+                target.name(),
+            ))
+        })?;
+    if after.fields() != expected_fields.as_slice() || after.row_layout() != &expected_row_layout {
+        return Err(InternalError::store_unsupported(format!(
+            "SQL DDL field-drop execution found unrelated schema drift for entity '{entity_path}': field='{}'",
+            target.name(),
+        )));
+    }
+
+    Ok(())
 }
 
 /// Execute one metadata-only SQL DDL field-default publication.

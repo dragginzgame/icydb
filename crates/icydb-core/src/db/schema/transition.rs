@@ -285,7 +285,7 @@ fn generated_index_names_only_changed(
         || actual.entity_path() != expected.entity_path()
         || actual.entity_name() != expected.entity_name()
         || actual.primary_key_field_id() != expected.primary_key_field_id()
-        || actual.row_layout() != expected.row_layout()
+        || !active_row_layout_matches(actual, expected)
         || actual.fields() != expected.fields()
     {
         return false;
@@ -345,7 +345,7 @@ fn accepted_snapshot_extends_generated_indexes(
         || actual.entity_path() != expected.entity_path()
         || actual.entity_name() != expected.entity_name()
         || actual.primary_key_field_id() != expected.primary_key_field_id()
-        || actual.row_layout() != expected.row_layout()
+        || !active_row_layout_matches(actual, expected)
         || actual.fields() != expected.fields()
     {
         return false;
@@ -382,6 +382,7 @@ fn accepted_snapshot_extends_generated_with_ddl_fields(
         || actual.primary_key_field_id() != expected.primary_key_field_id()
         || actual.fields().len() <= expected.fields().len()
         || actual.row_layout().field_to_slot().len() <= expected.row_layout().field_to_slot().len()
+        || actual.row_layout().version() != expected.row_layout().version()
     {
         return false;
     }
@@ -421,6 +422,14 @@ fn accepted_snapshot_extends_generated_with_ddl_fields(
         .iter()
         .filter(|index| !expected.indexes().contains(index))
         .all(is_supported_extra_accepted_index)
+}
+
+fn active_row_layout_matches(
+    actual: &PersistedSchemaSnapshot,
+    expected: &PersistedSchemaSnapshot,
+) -> bool {
+    actual.row_layout().version() == expected.row_layout().version()
+        && actual.row_layout().field_to_slot() == expected.row_layout().field_to_slot()
 }
 
 fn is_supported_extra_accepted_index(index: &PersistedIndexSnapshot) -> bool {

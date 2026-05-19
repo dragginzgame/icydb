@@ -177,6 +177,7 @@ impl SchemaDdlMutationAdmission {
             SchemaDdlMutationTarget::FieldPathAddition(_)
             | SchemaDdlMutationTarget::FieldAddition(_)
             | SchemaDdlMutationTarget::FieldDefaultChange(_)
+            | SchemaDdlMutationTarget::FieldDrop(_)
             | SchemaDdlMutationTarget::FieldNullabilityChange(_)
             | SchemaDdlMutationTarget::FieldRename(_)
             | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
@@ -192,6 +193,7 @@ impl SchemaDdlMutationAdmission {
             SchemaDdlMutationTarget::FieldPathAddition(_)
             | SchemaDdlMutationTarget::FieldAddition(_)
             | SchemaDdlMutationTarget::FieldDefaultChange(_)
+            | SchemaDdlMutationTarget::FieldDrop(_)
             | SchemaDdlMutationTarget::FieldNullabilityChange(_)
             | SchemaDdlMutationTarget::FieldRename(_)
             | SchemaDdlMutationTarget::ExpressionAddition(_) => None,
@@ -206,6 +208,7 @@ impl SchemaDdlMutationAdmission {
             SchemaDdlMutationTarget::FieldAddition(target) => Some(target),
             SchemaDdlMutationTarget::FieldPathAddition(_)
             | SchemaDdlMutationTarget::FieldDefaultChange(_)
+            | SchemaDdlMutationTarget::FieldDrop(_)
             | SchemaDdlMutationTarget::FieldNullabilityChange(_)
             | SchemaDdlMutationTarget::FieldRename(_)
             | SchemaDdlMutationTarget::ExpressionAddition(_)
@@ -220,6 +223,7 @@ impl SchemaDdlMutationAdmission {
             SchemaDdlMutationTarget::FieldDefaultChange(target) => Some(target),
             SchemaDdlMutationTarget::FieldAddition(_)
             | SchemaDdlMutationTarget::FieldPathAddition(_)
+            | SchemaDdlMutationTarget::FieldDrop(_)
             | SchemaDdlMutationTarget::FieldNullabilityChange(_)
             | SchemaDdlMutationTarget::FieldRename(_)
             | SchemaDdlMutationTarget::ExpressionAddition(_)
@@ -236,6 +240,7 @@ impl SchemaDdlMutationAdmission {
             SchemaDdlMutationTarget::FieldNullabilityChange(target) => Some(target),
             SchemaDdlMutationTarget::FieldAddition(_)
             | SchemaDdlMutationTarget::FieldDefaultChange(_)
+            | SchemaDdlMutationTarget::FieldDrop(_)
             | SchemaDdlMutationTarget::FieldPathAddition(_)
             | SchemaDdlMutationTarget::FieldRename(_)
             | SchemaDdlMutationTarget::ExpressionAddition(_)
@@ -250,7 +255,23 @@ impl SchemaDdlMutationAdmission {
             SchemaDdlMutationTarget::FieldRename(target) => Some(target),
             SchemaDdlMutationTarget::FieldAddition(_)
             | SchemaDdlMutationTarget::FieldDefaultChange(_)
+            | SchemaDdlMutationTarget::FieldDrop(_)
             | SchemaDdlMutationTarget::FieldNullabilityChange(_)
+            | SchemaDdlMutationTarget::FieldPathAddition(_)
+            | SchemaDdlMutationTarget::ExpressionAddition(_)
+            | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
+        }
+    }
+
+    /// Borrow the admitted field-drop metadata target.
+    #[must_use]
+    pub(in crate::db) const fn field_drop_target(&self) -> Option<&SchemaFieldDropTarget> {
+        match &self.target {
+            SchemaDdlMutationTarget::FieldDrop(target) => Some(target),
+            SchemaDdlMutationTarget::FieldAddition(_)
+            | SchemaDdlMutationTarget::FieldDefaultChange(_)
+            | SchemaDdlMutationTarget::FieldNullabilityChange(_)
+            | SchemaDdlMutationTarget::FieldRename(_)
             | SchemaDdlMutationTarget::FieldPathAddition(_)
             | SchemaDdlMutationTarget::ExpressionAddition(_)
             | SchemaDdlMutationTarget::SecondaryDrop(_) => None,
@@ -268,6 +289,7 @@ impl SchemaDdlMutationAdmission {
 enum SchemaDdlMutationTarget {
     FieldAddition(SchemaFieldAdditionTarget),
     FieldDefaultChange(SchemaFieldDefaultTarget),
+    FieldDrop(SchemaFieldDropTarget),
     FieldNullabilityChange(SchemaFieldNullabilityTarget),
     FieldRename(SchemaFieldRenameTarget),
     FieldPathAddition(SchemaFieldPathIndexRebuildTarget),
@@ -312,6 +334,49 @@ impl SchemaFieldAdditionTarget {
     }
 
     /// Return the accepted row slot.
+    #[must_use]
+    pub(in crate::db) const fn slot(&self) -> SchemaFieldSlot {
+        self.slot
+    }
+}
+
+///
+/// SchemaFieldDropTarget
+///
+/// Accepted retained-slot field removal target admitted for SQL DDL publication.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct SchemaFieldDropTarget {
+    field_id: FieldId,
+    name: String,
+    slot: SchemaFieldSlot,
+}
+
+impl SchemaFieldDropTarget {
+    /// Build one field-drop DDL target from accepted field metadata.
+    #[must_use]
+    fn from_field(field: &PersistedFieldSnapshot) -> Self {
+        Self {
+            field_id: field.id(),
+            name: field.name().to_string(),
+            slot: field.slot(),
+        }
+    }
+
+    /// Return the accepted field ID.
+    #[must_use]
+    pub(in crate::db) const fn field_id(&self) -> FieldId {
+        self.field_id
+    }
+
+    /// Borrow the accepted field name.
+    #[must_use]
+    pub(in crate::db) const fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// Return the retired accepted row slot.
     #[must_use]
     pub(in crate::db) const fn slot(&self) -> SchemaFieldSlot {
         self.slot
@@ -1932,6 +1997,16 @@ pub(in crate::db) fn admit_sql_ddl_field_addition_candidate(
     }
 }
 
+/// Admit one SQL DDL retained-slot field drop.
+#[must_use]
+pub(in crate::db) fn admit_sql_ddl_field_drop_candidate(
+    field: &PersistedFieldSnapshot,
+) -> SchemaDdlMutationAdmission {
+    SchemaDdlMutationAdmission {
+        target: SchemaDdlMutationTarget::FieldDrop(SchemaFieldDropTarget::from_field(field)),
+    }
+}
+
 /// Admit one SQL DDL field-default metadata change.
 pub(in crate::db) fn admit_sql_ddl_field_default_candidate(
     field: &PersistedFieldSnapshot,
@@ -2096,13 +2171,58 @@ pub(in crate::db) fn derive_sql_ddl_field_addition_accepted_after(
         before.entity_path().to_string(),
         before.entity_name().to_string(),
         before.primary_key_field_id(),
-        SchemaRowLayout::new(before.row_layout().version(), field_to_slot),
+        SchemaRowLayout::new_with_retired_slots(
+            before.row_layout().version(),
+            field_to_slot,
+            before.row_layout().retired_field_slots().to_vec(),
+        ),
         fields,
         before.indexes().to_vec(),
     );
     let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
         .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
     let admission = admit_sql_ddl_field_addition_candidate(&field);
+
+    Ok(SchemaDdlAcceptedSnapshotDerivation {
+        accepted_after,
+        admission,
+    })
+}
+
+/// Derive and admit the accepted-after schema snapshot for one SQL DDL
+/// retained-slot field drop.
+pub(in crate::db) fn derive_sql_ddl_field_drop_accepted_after(
+    accepted_before: &AcceptedSchemaSnapshot,
+    field_name: &str,
+) -> Result<SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError> {
+    let before = accepted_before.persisted_snapshot();
+    let before_field = before
+        .fields()
+        .iter()
+        .find(|field| field.name() == field_name)
+        .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
+    let fields = before
+        .fields()
+        .iter()
+        .filter(|field| field.id() != before_field.id())
+        .cloned()
+        .collect();
+    let row_layout = before
+        .row_layout()
+        .clone_retiring_field(before_field.id())
+        .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
+    let persisted_after = PersistedSchemaSnapshot::new_with_indexes(
+        before.version(),
+        before.entity_path().to_string(),
+        before.entity_name().to_string(),
+        before.primary_key_field_id(),
+        row_layout,
+        fields,
+        before.indexes().to_vec(),
+    );
+    let accepted_after = AcceptedSchemaSnapshot::try_new(persisted_after)
+        .map_err(|_| SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
+    let admission = admit_sql_ddl_field_drop_candidate(before_field);
 
     Ok(SchemaDdlAcceptedSnapshotDerivation {
         accepted_after,

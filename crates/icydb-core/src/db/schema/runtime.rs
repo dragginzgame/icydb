@@ -315,6 +315,7 @@ impl OwnedAcceptedFieldDecodeContract {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AcceptedRowDecodeContract {
     required_slot_count: usize,
+    max_physical_slot_count: usize,
     primary_key_slot_index: usize,
     fields_by_slot: Vec<Option<OwnedAcceptedFieldDecodeContract>>,
 }
@@ -331,6 +332,7 @@ impl AcceptedRowDecodeContract {
 
         Self {
             required_slot_count: descriptor.required_slot_count(),
+            max_physical_slot_count: descriptor.max_physical_slot_count(),
             primary_key_slot_index: descriptor.primary_key_slot_index(),
             fields_by_slot,
         }
@@ -359,6 +361,12 @@ impl AcceptedRowDecodeContract {
     #[must_use]
     pub(in crate::db) const fn required_slot_count(&self) -> usize {
         self.required_slot_count
+    }
+
+    /// Return the maximum physical row slot count accepted for older rows.
+    #[must_use]
+    pub(in crate::db) const fn max_physical_slot_count(&self) -> usize {
+        self.max_physical_slot_count
     }
 
     /// Return the accepted primary-key physical slot index.
@@ -433,6 +441,7 @@ impl AcceptedGeneratedCompatibleRowShape {
 pub(in crate::db) struct AcceptedRowLayoutRuntimeDescriptor<'a> {
     version: SchemaVersion,
     required_slot_count: usize,
+    max_physical_slot_count: usize,
     primary_key_name: &'a str,
     primary_key_kind: &'a PersistedFieldKind,
     primary_key_slot_index: usize,
@@ -498,6 +507,7 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
         Ok(Self {
             version: row_layout.version(),
             required_slot_count,
+            max_physical_slot_count: row_layout.allocated_slot_count().max(required_slot_count),
             primary_key_name,
             primary_key_kind,
             primary_key_slot_index,
@@ -535,6 +545,12 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
     #[must_use]
     pub(in crate::db) const fn required_slot_count(&self) -> usize {
         self.required_slot_count
+    }
+
+    /// Return the maximum physical row slot count tolerated for older rows.
+    #[must_use]
+    pub(in crate::db) const fn max_physical_slot_count(&self) -> usize {
+        self.max_physical_slot_count
     }
 
     /// Borrow the accepted primary-key field name carried by this layout.
@@ -687,9 +703,7 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
 
         for slot in model.fields().len()..self.required_slot_count() {
             let Some(extra_field) = self.field_for_slot_index(slot) else {
-                return Err(InternalError::store_invariant(format!(
-                    "accepted row layout missing trailing DDL-compatible field for slot {slot}",
-                )));
+                continue;
             };
             if extra_field.generated() {
                 return Err(InternalError::store_invariant(format!(

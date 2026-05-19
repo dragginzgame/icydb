@@ -557,6 +557,10 @@ impl<'a> StructuralSlotReader<'a> {
     // projection, relation, or commit logic runs.
     fn validate_all_declared_slots(&self) -> Result<(), InternalError> {
         for slot in 0..self.contract.field_count() {
+            if !self.contract.has_active_field_slot(slot) {
+                continue;
+            }
+
             let Some(raw_value) = self.field_bytes.field(slot) else {
                 let _ = self.contract.missing_slot_value(slot)?;
                 continue;
