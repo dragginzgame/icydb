@@ -43,6 +43,7 @@ pub(crate) enum SqlDdlStatement {
     CreateIndex(SqlCreateIndexStatement),
     DropIndex(SqlDropIndexStatement),
     AlterTableAddColumn(SqlAlterTableAddColumnStatement),
+    AlterTableAlterColumn(SqlAlterTableAlterColumnStatement),
 }
 
 ///
@@ -58,6 +59,45 @@ pub(crate) struct SqlAlterTableAddColumnStatement {
     pub(crate) column_type: String,
     pub(crate) nullable: bool,
     pub(crate) default: Option<Value>,
+}
+
+///
+/// SqlAlterTableAlterColumnStatement
+///
+/// Parsed `ALTER TABLE ... ALTER COLUMN ...` frontend staged for schema DDL.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlAlterTableAlterColumnStatement {
+    pub(crate) entity: String,
+    pub(crate) column_name: String,
+    pub(crate) action: SqlAlterColumnAction,
+}
+
+///
+/// SqlAlterColumnAction
+///
+/// Parser-owned supported ALTER COLUMN action vocabulary. Execution remains
+/// fail-closed until accepted catalog publication rules exist.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SqlAlterColumnAction {
+    SetDefault(Value),
+    DropDefault,
+    SetNotNull,
+    DropNotNull,
+}
+
+impl SqlAlterColumnAction {
+    pub(crate) const fn label(&self) -> &'static str {
+        match self {
+            Self::SetDefault(_) => "SET DEFAULT",
+            Self::DropDefault => "DROP DEFAULT",
+            Self::SetNotNull => "SET NOT NULL",
+            Self::DropNotNull => "DROP NOT NULL",
+        }
+    }
 }
 
 ///

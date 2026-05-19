@@ -2387,6 +2387,67 @@ fn sql_ddl_alter_table_add_column_rejects_unsupported_shapes() {
 }
 
 #[test]
+fn sql_ddl_alter_table_alter_column_binds_then_fails_closed() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+
+    for (sql, expected_action) in [
+        (
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN age SET DEFAULT 7",
+            "SET DEFAULT",
+        ),
+        (
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN age DROP DEFAULT",
+            "DROP DEFAULT",
+        ),
+        (
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN age SET NOT NULL",
+            "SET NOT NULL",
+        ),
+        (
+            "ALTER TABLE SessionSqlEntity ALTER COLUMN age DROP NOT NULL",
+            "DROP NOT NULL",
+        ),
+    ] {
+        let statement =
+            parse_sql(sql).expect("ALTER TABLE ALTER COLUMN should parse before binding");
+        let err =
+            bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+                .expect_err("ALTER COLUMN should fail closed until publication rules exist");
+
+        assert!(matches!(
+            err,
+            SqlDdlBindError::UnsupportedAlterTableAlterColumn {
+                entity_name,
+                column_name,
+                action,
+            } if entity_name == "SessionSqlEntity"
+                && column_name == "age"
+                && action == expected_action
+        ));
+    }
+}
+
+#[test]
+fn sql_ddl_alter_table_alter_column_rejects_unknown_column() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let statement = parse_sql("ALTER TABLE SessionSqlEntity ALTER COLUMN missing SET DEFAULT 7")
+        .expect("ALTER TABLE ALTER COLUMN should parse before binding");
+
+    let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+        .expect_err("ALTER COLUMN should validate accepted catalog fields before failing");
+
+    assert!(matches!(
+        err,
+        SqlDdlBindError::UnknownColumn {
+            entity_name,
+            column_name,
+        } if entity_name == "SessionSqlEntity" && column_name == "missing"
+    ));
+}
+
+#[test]
 fn execute_sql_ddl_publishes_supported_nullable_add_column() {
     reset_session_sql_store();
     SESSION_SQL_SCHEMA_STORE.with_borrow_mut(SchemaStore::clear);

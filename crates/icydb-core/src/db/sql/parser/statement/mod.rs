@@ -10,11 +10,12 @@ mod update;
 
 use crate::db::{
     sql::parser::{
-        Parser, SqlCreateIndexExpressionFunction, SqlCreateIndexExpressionKey,
-        SqlCreateIndexKeyItem, SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement,
-        SqlDeleteStatement, SqlDescribeStatement, SqlDropIndexStatement, SqlExplainMode,
-        SqlExplainStatement, SqlExplainTarget, SqlSelectStatement, SqlShowColumnsStatement,
-        SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlUpdateStatement,
+        Parser, SqlAlterColumnAction, SqlCreateIndexExpressionFunction,
+        SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem, SqlCreateIndexStatement,
+        SqlCreateIndexUniqueness, SqlDdlStatement, SqlDeleteStatement, SqlDescribeStatement,
+        SqlDropIndexStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget,
+        SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
+        SqlShowIndexesStatement, SqlStatement, SqlUpdateStatement,
     },
     sql_shared::{Keyword, SqlParseError, TokenKind},
 };
@@ -251,18 +252,30 @@ impl Parser {
             ));
         }
 
-        Ok(SqlDdlStatement::AlterTableAddColumn(
-            self.parse_alter_table_add_column_statement()?,
+        let entity = self.expect_identifier()?;
+        if self.eat_identifier_keyword("ADD") {
+            return Ok(SqlDdlStatement::AlterTableAddColumn(
+                self.parse_alter_table_add_column_statement(entity)?,
+            ));
+        }
+        if self.eat_identifier_keyword("ALTER") {
+            return Ok(SqlDdlStatement::AlterTableAlterColumn(
+                self.parse_alter_table_alter_column_statement(entity)?,
+            ));
+        }
+
+        Err(SqlParseError::unsupported_feature(
+            "SQL DDL ALTER TABLE statements beyond ADD COLUMN and ALTER COLUMN",
         ))
     }
 
     fn parse_alter_table_add_column_statement(
         &mut self,
+        entity: String,
     ) -> Result<crate::db::sql::parser::SqlAlterTableAddColumnStatement, SqlParseError> {
-        let entity = self.expect_identifier()?;
-        if !self.eat_identifier_keyword("ADD") || !self.eat_identifier_keyword("COLUMN") {
+        if !self.eat_identifier_keyword("COLUMN") {
             return Err(SqlParseError::unsupported_feature(
-                "SQL DDL ALTER TABLE statements beyond ADD COLUMN",
+                "SQL DDL ALTER TABLE ADD statements beyond ADD COLUMN",
             ));
         }
         let column_name = self.expect_identifier()?;
@@ -297,6 +310,51 @@ impl Parser {
         })
     }
 
+    fn parse_alter_table_alter_column_statement(
+        &mut self,
+        entity: String,
+    ) -> Result<crate::db::sql::parser::SqlAlterTableAlterColumnStatement, SqlParseError> {
+        if !self.eat_identifier_keyword("COLUMN") {
+            return Err(SqlParseError::unsupported_feature(
+                "SQL DDL ALTER TABLE ALTER statements beyond ALTER COLUMN",
+            ));
+        }
+        let column_name = self.expect_identifier()?;
+        let action = if self.eat_identifier_keyword("SET") {
+            if self.eat_identifier_keyword("DEFAULT") {
+                SqlAlterColumnAction::SetDefault(self.parse_literal()?)
+            } else if self.eat_keyword(Keyword::Not) {
+                self.expect_keyword(Keyword::Null)?;
+                SqlAlterColumnAction::SetNotNull
+            } else {
+                return Err(SqlParseError::unsupported_feature(
+                    "ALTER TABLE ALTER COLUMN SET actions beyond DEFAULT and NOT NULL",
+                ));
+            }
+        } else if self.eat_keyword(Keyword::Drop) {
+            if self.eat_identifier_keyword("DEFAULT") {
+                SqlAlterColumnAction::DropDefault
+            } else if self.eat_keyword(Keyword::Not) {
+                self.expect_keyword(Keyword::Null)?;
+                SqlAlterColumnAction::DropNotNull
+            } else {
+                return Err(SqlParseError::unsupported_feature(
+                    "ALTER TABLE ALTER COLUMN DROP actions beyond DEFAULT and NOT NULL",
+                ));
+            }
+        } else {
+            return Err(SqlParseError::unsupported_feature(
+                "ALTER TABLE ALTER COLUMN actions beyond SET/DROP DEFAULT and SET/DROP NOT NULL",
+            ));
+        };
+
+        Ok(crate::db::sql::parser::SqlAlterTableAlterColumnStatement {
+            entity,
+            column_name,
+            action,
+        })
+    }
+
     const fn ddl_clause_order_error(statement: &SqlDdlStatement) -> SqlParseError {
         match statement {
             SqlDdlStatement::CreateIndex(_) => {
@@ -307,6 +365,9 @@ impl Parser {
             }
             SqlDdlStatement::AlterTableAddColumn(_) => {
                 SqlParseError::unsupported_feature("ALTER TABLE ADD COLUMN modifiers")
+            }
+            SqlDdlStatement::AlterTableAlterColumn(_) => {
+                SqlParseError::unsupported_feature("ALTER TABLE ALTER COLUMN modifiers")
             }
         }
     }

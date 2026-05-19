@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.158.x] 🧬 - 2026-05-18 - Schema DDL And Field Evolution
 
+- `0.158.6` adds parser and binder coverage for `ALTER TABLE ... ALTER COLUMN`
+  default/nullability statements. These statements now parse as DDL intent,
+  validate the accepted entity and column, and then fail closed with typed
+  unsupported errors until publication rules exist. The CLI shell routes the
+  statements through the DDL endpoint, and the canister endpoint preserves
+  accepted schema visibility on rejection.
+
+  ```
+  ALTER TABLE Character ALTER COLUMN score SET DEFAULT 7;
+  ALTER TABLE Character ALTER COLUMN score DROP DEFAULT;
+  ALTER TABLE Character ALTER COLUMN score SET NOT NULL;
+  ALTER TABLE Character ALTER COLUMN score DROP NOT NULL;
+  ```
+
 - `0.158.5` expands `icydb schema check` recommendations for field/index drift.
   Generated-only fields now point to the accepted additive-transition path,
   accepted-only generated fields point to retained-slot removal policy, and

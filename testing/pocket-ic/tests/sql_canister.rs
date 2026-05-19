@@ -1038,6 +1038,56 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_create_index_shapes_without_pub
 }
 
 #[test]
+fn sql_canister_ddl_endpoint_rejects_alter_column_without_publication() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    for (sql, expected_message) in [
+        (
+            "ALTER TABLE SqlTestUser ALTER COLUMN rank SET DEFAULT 7",
+            "ALTER COLUMN SET DEFAULT is not executable yet",
+        ),
+        (
+            "ALTER TABLE SqlTestUser ALTER COLUMN rank DROP DEFAULT",
+            "ALTER COLUMN DROP DEFAULT is not executable yet",
+        ),
+        (
+            "ALTER TABLE SqlTestUser ALTER COLUMN rank SET NOT NULL",
+            "ALTER COLUMN SET NOT NULL is not executable yet",
+        ),
+        (
+            "ALTER TABLE SqlTestUser ALTER COLUMN rank DROP NOT NULL",
+            "ALTER COLUMN DROP NOT NULL is not executable yet",
+        ),
+    ] {
+        let before = expect_describe(
+            query_sql(&fixture, "DESCRIBE SqlTestUser")
+                .expect("DESCRIBE should read accepted schema before rejected ALTER COLUMN"),
+        );
+        let err =
+            ddl_sql(&fixture, sql).expect_err("ALTER COLUMN should reject before publication");
+        assert_eq!(
+            err.kind(),
+            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            "ALTER COLUMN should stay an unsupported runtime error at the canister boundary",
+        );
+        assert!(
+            err.message().contains(expected_message),
+            "ALTER COLUMN should preserve rejection detail, got: {}",
+            err.message(),
+        );
+        let after = expect_describe(
+            query_sql(&fixture, "DESCRIBE SqlTestUser")
+                .expect("DESCRIBE should read accepted schema after rejected ALTER COLUMN"),
+        );
+        assert_eq!(
+            after, before,
+            "rejected ALTER COLUMN must leave accepted schema visibility unchanged",
+        );
+    }
+}
+
+#[test]
 fn sql_canister_query_endpoint_executes_scalar_and_grouped_queries() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);

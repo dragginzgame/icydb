@@ -4,14 +4,15 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::{
-    SqlAggregateCall, SqlAggregateKind, SqlAlterTableAddColumnStatement, SqlAssignment, SqlCaseArm,
-    SqlCreateIndexExpressionFunction, SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem,
-    SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement, SqlDeleteStatement,
-    SqlDescribeStatement, SqlDropIndexStatement, SqlExplainMode, SqlExplainStatement,
-    SqlExplainTarget, SqlExpr, SqlExprBinaryOp, SqlInsertSource, SqlInsertStatement,
-    SqlOrderDirection, SqlOrderTerm, SqlParseError, SqlProjection, SqlReturningProjection,
-    SqlScalarFunction, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
-    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlUpdateStatement, parse_sql,
+    SqlAggregateCall, SqlAggregateKind, SqlAlterColumnAction, SqlAlterTableAddColumnStatement,
+    SqlAlterTableAlterColumnStatement, SqlAssignment, SqlCaseArm, SqlCreateIndexExpressionFunction,
+    SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem, SqlCreateIndexStatement,
+    SqlCreateIndexUniqueness, SqlDdlStatement, SqlDeleteStatement, SqlDescribeStatement,
+    SqlDropIndexStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr,
+    SqlExprBinaryOp, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
+    SqlParseError, SqlProjection, SqlReturningProjection, SqlScalarFunction, SqlSelectItem,
+    SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
+    SqlStatement, SqlUpdateStatement, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
@@ -1932,6 +1933,64 @@ fn parse_alter_table_add_column_statement_keeps_default_and_nullability_intent()
                 column_type: "nat".to_string(),
                 nullable: false,
                 default: Some(Value::Int(7)),
+            },
+        )),
+    );
+}
+
+#[test]
+fn parse_alter_table_alter_column_statement_keeps_default_intent_unresolved() {
+    let statement = parse_sql("ALTER TABLE users ALTER COLUMN score SET DEFAULT 7")
+        .expect("ALTER TABLE ALTER COLUMN SET DEFAULT should parse as DDL intent");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::AlterTableAlterColumn(
+            SqlAlterTableAlterColumnStatement {
+                entity: "users".to_string(),
+                column_name: "score".to_string(),
+                action: SqlAlterColumnAction::SetDefault(Value::Int(7)),
+            },
+        )),
+    );
+}
+
+#[test]
+fn parse_alter_table_alter_column_statement_keeps_nullability_intent_unresolved() {
+    let set_statement = parse_sql("ALTER TABLE users ALTER COLUMN score SET NOT NULL")
+        .expect("ALTER TABLE ALTER COLUMN SET NOT NULL should parse as DDL intent");
+    let drop_statement = parse_sql("ALTER TABLE users ALTER COLUMN score DROP NOT NULL")
+        .expect("ALTER TABLE ALTER COLUMN DROP NOT NULL should parse as DDL intent");
+    let drop_default_statement = parse_sql("ALTER TABLE users ALTER COLUMN score DROP DEFAULT")
+        .expect("ALTER TABLE ALTER COLUMN DROP DEFAULT should parse as DDL intent");
+
+    assert_eq!(
+        set_statement,
+        SqlStatement::Ddl(SqlDdlStatement::AlterTableAlterColumn(
+            SqlAlterTableAlterColumnStatement {
+                entity: "users".to_string(),
+                column_name: "score".to_string(),
+                action: SqlAlterColumnAction::SetNotNull,
+            },
+        )),
+    );
+    assert_eq!(
+        drop_statement,
+        SqlStatement::Ddl(SqlDdlStatement::AlterTableAlterColumn(
+            SqlAlterTableAlterColumnStatement {
+                entity: "users".to_string(),
+                column_name: "score".to_string(),
+                action: SqlAlterColumnAction::DropNotNull,
+            },
+        )),
+    );
+    assert_eq!(
+        drop_default_statement,
+        SqlStatement::Ddl(SqlDdlStatement::AlterTableAlterColumn(
+            SqlAlterTableAlterColumnStatement {
+                entity: "users".to_string(),
+                column_name: "score".to_string(),
+                action: SqlAlterColumnAction::DropDefault,
             },
         )),
     );

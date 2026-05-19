@@ -315,14 +315,14 @@ pub(crate) fn sql_shell_call_kind(sql: &str) -> SqlShellCallKind {
     let first = words.next();
     let second = words.next();
     let third = words.next();
-    if sql_shell_statement_is_index_ddl(first.as_deref(), second.as_deref(), third.as_deref()) {
+    if sql_shell_statement_is_ddl(first.as_deref(), second.as_deref(), third.as_deref()) {
         return SqlShellCallKind::Ddl;
     }
 
     SqlShellCallKind::Query
 }
 
-fn sql_shell_statement_is_index_ddl(
+fn sql_shell_statement_is_ddl(
     first: Option<&str>,
     second: Option<&str>,
     third: Option<&str>,

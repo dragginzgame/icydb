@@ -33,9 +33,9 @@ use crate::db::{
     sql::{
         identifier::identifiers_tail_match,
         parser::{
-            SqlAlterTableAddColumnStatement, SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem,
-            SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlStatement,
-            SqlDropIndexStatement, SqlStatement,
+            SqlAlterTableAddColumnStatement, SqlAlterTableAlterColumnStatement,
+            SqlCreateIndexExpressionKey, SqlCreateIndexKeyItem, SqlCreateIndexStatement,
+            SqlCreateIndexUniqueness, SqlDdlStatement, SqlDropIndexStatement, SqlStatement,
         },
     },
 };
@@ -534,6 +534,21 @@ pub(in crate::db) enum SqlDdlBindError {
         column_name: String,
         column_type: String,
     },
+
+    #[error("unknown column '{column_name}' for accepted entity '{entity_name}'")]
+    UnknownColumn {
+        entity_name: String,
+        column_name: String,
+    },
+
+    #[error(
+        "SQL DDL ALTER TABLE ALTER COLUMN {action} is not executable yet for accepted entity '{entity_name}' column '{column_name}'"
+    )]
+    UnsupportedAlterTableAlterColumn {
+        entity_name: String,
+        column_name: String,
+        action: String,
+    },
 }
 
 ///
@@ -610,6 +625,9 @@ pub(in crate::db) fn bind_sql_ddl_statement(
         }
         SqlDdlStatement::AlterTableAddColumn(statement) => {
             bind_alter_table_add_column_statement(statement, accepted_before, schema)
+        }
+        SqlDdlStatement::AlterTableAlterColumn(statement) => {
+            Err(alter_table_alter_column_bind_error(statement, schema))
         }
     }
 }
@@ -845,6 +863,38 @@ fn bind_alter_table_add_column_statement(
             field,
         }),
     })
+}
+
+fn alter_table_alter_column_bind_error(
+    statement: &SqlAlterTableAlterColumnStatement,
+    schema: &SchemaInfo,
+) -> SqlDdlBindError {
+    let Some(entity_name) = schema.entity_name() else {
+        return SqlDdlBindError::MissingEntityName;
+    };
+
+    if !identifiers_tail_match(statement.entity.as_str(), entity_name) {
+        return SqlDdlBindError::EntityMismatch {
+            sql_entity: statement.entity.clone(),
+            expected_entity: entity_name.to_string(),
+        };
+    }
+
+    if schema
+        .field_nullable(statement.column_name.as_str())
+        .is_none()
+    {
+        return SqlDdlBindError::UnknownColumn {
+            entity_name: entity_name.to_string(),
+            column_name: statement.column_name.clone(),
+        };
+    }
+
+    SqlDdlBindError::UnsupportedAlterTableAlterColumn {
+        entity_name: entity_name.to_string(),
+        column_name: statement.column_name.clone(),
+        action: statement.action.label().to_string(),
+    }
 }
 
 fn schema_field_default_for_sql_default(
