@@ -13,8 +13,8 @@ use crate::{
         direction::Direction,
         executor::{
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract, LoweredKey,
-            record_row_check_index_entry_scanned, record_row_check_index_membership_key_decoded,
-            record_row_check_index_membership_single_key_entry,
+            record_row_check_index_entry_scanned, record_row_check_index_key_owned_entry,
+            record_row_check_index_row_identity_decoded,
         },
         index::{
             IndexEntryExistenceWitness, IndexEntryMembership, IndexKey, RawIndexEntry, RawIndexKey,
@@ -344,8 +344,8 @@ impl IndexScan {
         let membership = value
             .decode_single_membership(raw_key)
             .map_err(InternalError::index_entry_decode_failed)?;
-        record_row_check_index_membership_single_key_entry();
-        record_row_check_index_membership_key_decoded();
+        record_row_check_index_key_owned_entry();
+        record_row_check_index_row_identity_decoded();
         out.push(Self::data_key_from_membership(entity, &membership));
 
         if let Some(limit) = limit
@@ -398,8 +398,8 @@ impl IndexScan {
         let membership = value
             .decode_single_membership(raw_key)
             .map_err(InternalError::index_entry_decode_failed)?;
-        record_row_check_index_membership_single_key_entry();
-        record_row_check_index_membership_key_decoded();
+        record_row_check_index_key_owned_entry();
+        record_row_check_index_row_identity_decoded();
         out.push((
             Self::data_key_from_membership(entity, &membership),
             membership.existence_witness(),

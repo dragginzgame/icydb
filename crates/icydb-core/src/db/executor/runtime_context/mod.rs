@@ -104,7 +104,7 @@ impl<'a> StoreResolver<'a> {
 ///
 /// RowCheckMetrics aggregates one test-scoped view of the executor-owned
 /// `row_check_required` boundary for secondary covering reads.
-/// It lets perf probes separate secondary scan traversal, membership decode,
+/// It lets perf probes separate secondary scan traversal, row-identity decode,
 /// and authoritative row-presence probes without changing runtime policy.
 ///
 
@@ -113,9 +113,8 @@ impl<'a> StoreResolver<'a> {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RowCheckMetrics {
     pub index_entries_scanned: u64,
-    pub index_membership_single_key_entries: u64,
-    pub index_membership_multi_key_entries: u64,
-    pub index_membership_keys_decoded: u64,
+    pub index_key_owned_entries: u64,
+    pub index_row_identities_decoded: u64,
     pub row_check_covering_candidates_seen: u64,
     pub row_check_rows_emitted: u64,
     pub row_presence_probe_count: u64,
@@ -239,27 +238,25 @@ pub(in crate::db::executor) fn record_row_check_index_entry_scanned() {
 pub(in crate::db::executor) const fn record_row_check_index_entry_scanned() {}
 
 #[cfg(any(test, feature = "diagnostics"))]
-pub(in crate::db::executor) fn record_row_check_index_membership_single_key_entry() {
+pub(in crate::db::executor) fn record_row_check_index_key_owned_entry() {
     update_row_check_metrics(|metrics| {
-        metrics.index_membership_single_key_entries = metrics
-            .index_membership_single_key_entries
-            .saturating_add(1);
+        metrics.index_key_owned_entries = metrics.index_key_owned_entries.saturating_add(1);
     });
 }
 
 #[cfg(not(any(test, feature = "diagnostics")))]
-pub(in crate::db::executor) const fn record_row_check_index_membership_single_key_entry() {}
+pub(in crate::db::executor) const fn record_row_check_index_key_owned_entry() {}
 
 #[cfg(any(test, feature = "diagnostics"))]
-pub(in crate::db::executor) fn record_row_check_index_membership_key_decoded() {
+pub(in crate::db::executor) fn record_row_check_index_row_identity_decoded() {
     update_row_check_metrics(|metrics| {
-        metrics.index_membership_keys_decoded =
-            metrics.index_membership_keys_decoded.saturating_add(1);
+        metrics.index_row_identities_decoded =
+            metrics.index_row_identities_decoded.saturating_add(1);
     });
 }
 
 #[cfg(not(any(test, feature = "diagnostics")))]
-pub(in crate::db::executor) const fn record_row_check_index_membership_key_decoded() {}
+pub(in crate::db::executor) const fn record_row_check_index_row_identity_decoded() {}
 
 #[cfg(any(test, feature = "diagnostics"))]
 pub(in crate::db::executor) fn record_row_check_covering_candidate_seen() {

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.159.x] 🔑 - 2026-05-19 - Compact Key Encoding
 
+- `0.159.2` cleans up row-check diagnostics after the key-owned index-entry
+  hard cut. Executor metrics now report key-owned index entries and decoded
+  row identities instead of the removed single-key/multi-key membership split.
+
 - `0.159.1` replaces generated canister memory plumbing with `ic-memory`
   `0.5.1` static range/key registration and default runtime bootstrap instead
   of `canic-memory`, and updates the Canic-facing dependencies to
