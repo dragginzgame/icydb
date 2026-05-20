@@ -16,6 +16,7 @@ use crate::{
             route::primary_scan_fetch_hint_shape_supported, traversal::IndexRangeTraversalContract,
         },
         index::{RawIndexKey, predicate::IndexPredicateExecution},
+        key_taxonomy::RawDataStoreKeyRange,
         registry::StoreHandle,
     },
     error::InternalError,
@@ -343,15 +344,16 @@ impl PrimaryRangeKeyStream {
         direction: Direction,
         limit: Option<usize>,
     ) -> Self {
-        let range = DataKey::raw_entity_prefix_range_for(entity);
+        let range = RawDataStoreKeyRange::entity_prefix(entity);
+        let lower_raw = RawDataKey::store_range_lower_key(&range);
         let upper_bound = range
             .upper_exclusive()
-            .cloned()
+            .map(RawDataKey::from_store_range_bound)
             .map_or(Bound::Unbounded, Bound::Excluded);
 
         Self {
             store,
-            lower_raw: range.lower_inclusive().clone(),
+            lower_raw,
             upper_bound,
             direction,
             remaining: limit,

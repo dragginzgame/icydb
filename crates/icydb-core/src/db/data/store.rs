@@ -4,13 +4,16 @@
 //! Boundary: commit/executor call into this layer after prevalidation.
 
 use crate::{
-    db::data::{CanonicalRow, DataKey, RawDataKey, RawRow},
+    db::{
+        data::{CanonicalRow, RawDataKey, RawRow},
+        key_taxonomy::RawDataStoreKeyRange,
+    },
     types::EntityTag,
 };
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, btreemap::Iter, memory::VirtualMemory};
 #[cfg(feature = "diagnostics")]
 use std::cell::Cell;
-use std::ops::{Bound, RangeBounds};
+use std::ops::RangeBounds;
 
 #[cfg(feature = "diagnostics")]
 thread_local! {
@@ -119,17 +122,8 @@ impl DataStore {
         &self,
         entity: EntityTag,
     ) -> Iter<'_, RawDataKey, RawRow, VirtualMemory<DefaultMemoryImpl>> {
-        let range = DataKey::raw_entity_prefix_range_for(entity);
-        match range.upper_exclusive() {
-            Some(upper) => self.map.range((
-                Bound::Included(range.lower_inclusive().clone()),
-                Bound::Excluded(upper.clone()),
-            )),
-            None => self.map.range((
-                Bound::Included(range.lower_inclusive().clone()),
-                Bound::Unbounded,
-            )),
-        }
+        let range = RawDataStoreKeyRange::entity_prefix(entity);
+        self.map.range(RawDataKey::store_range_bounds(&range))
     }
 
     /// Sum of bytes used by all stored rows.

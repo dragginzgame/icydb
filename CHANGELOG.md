@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.159.x] 🔑 - 2026-05-19 - Compact Key Encoding
 
+- `0.159.5` removes the duplicate `DataKeyRawRange` wrapper. Entity-local
+  scans now use `RawDataStoreKeyRange::entity_prefix(...)` directly and only
+  convert to `RawDataKey` at the stable BTree boundary.
+
 - `0.159.4` promotes compact store-key taxonomy wrappers to the active live
   contract. `DataKey` now routes encode/decode through `DataStoreKey`, and
   ordinary `IndexKey` row-key encoding now routes through `IndexStoreKey`,

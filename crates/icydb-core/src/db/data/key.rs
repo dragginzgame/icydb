@@ -18,13 +18,14 @@ use crate::{
         storage_key_from_runtime_value,
     },
 };
-use canic_cdk::structures::storable::Bound;
+use canic_cdk::structures::storable::Bound as StorableBound;
 use std::{
     borrow::Cow,
     cell::OnceCell,
     fmt::{self, Display},
     hash::{Hash, Hasher},
     mem::size_of,
+    ops::Bound as RangeBound,
 };
 use thiserror::Error as ThisError;
 
@@ -306,17 +307,6 @@ impl DataKey {
 
         Ok(Self::new_with_raw(entity, key, raw.clone()))
     }
-
-    #[must_use]
-    pub(in crate::db) fn raw_entity_prefix_range_for(entity: EntityTag) -> DataKeyRawRange {
-        let range = RawDataStoreKeyRange::entity_prefix(entity);
-        DataKeyRawRange {
-            lower_inclusive: RawDataKey::from_unchecked_bytes(range.lower_inclusive().to_vec()),
-            upper_exclusive: range
-                .upper_exclusive()
-                .map(|bytes| RawDataKey::from_unchecked_bytes(bytes.to_vec())),
-        }
-    }
 }
 
 impl Clone for DataKey {
@@ -379,38 +369,6 @@ impl Display for DataKey {
 }
 
 ///
-/// DataKeyRawRange
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct DataKeyRawRange {
-    lower_inclusive: RawDataKey,
-    upper_exclusive: Option<RawDataKey>,
-}
-
-impl DataKeyRawRange {
-    #[must_use]
-    pub(in crate::db) const fn lower_inclusive(&self) -> &RawDataKey {
-        &self.lower_inclusive
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn upper_exclusive(&self) -> Option<&RawDataKey> {
-        self.upper_exclusive.as_ref()
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn contains(&self, key: &RawDataKey) -> bool {
-        key >= &self.lower_inclusive
-            && self
-                .upper_exclusive
-                .as_ref()
-                .is_none_or(|upper| key < upper)
-    }
-}
-
-///
 /// RawDataKey
 ///
 
@@ -424,8 +382,27 @@ impl RawDataKey {
     }
 
     #[must_use]
-    pub(in crate::db) const fn from_unchecked_bytes(bytes: Vec<u8>) -> Self {
-        Self(bytes)
+    pub(in crate::db) fn from_store_range_bound(bytes: &[u8]) -> Self {
+        Self(bytes.to_vec())
+    }
+
+    #[must_use]
+    pub(in crate::db) fn store_range_bounds(
+        range: &RawDataStoreKeyRange,
+    ) -> (RangeBound<Self>, RangeBound<Self>) {
+        let lower = RangeBound::Included(Self::from_store_range_bound(range.lower_inclusive()));
+        let upper = range
+            .upper_exclusive()
+            .map_or(RangeBound::Unbounded, |upper| {
+                RangeBound::Excluded(Self::from_store_range_bound(upper))
+            });
+
+        (lower, upper)
+    }
+
+    #[must_use]
+    pub(in crate::db) fn store_range_lower_key(range: &RawDataStoreKeyRange) -> Self {
+        Self::from_store_range_bound(range.lower_inclusive())
     }
 }
 
@@ -442,7 +419,7 @@ impl Storable for RawDataKey {
         self.0
     }
 
-    const BOUND: Bound = Bound::Bounded {
+    const BOUND: StorableBound = StorableBound::Bounded {
         max_size: DataKey::STORED_SIZE_BYTES as u32,
         is_fixed_size: false,
     };
@@ -517,6 +494,13 @@ mod tests {
         let decoded = K::from_storage_key(storage_key).expect("storage key should decode");
 
         assert_eq!(decoded, key);
+    }
+
+    fn taxonomy_range_contains_raw_key(range: &RawDataStoreKeyRange, key: &RawDataKey) -> bool {
+        key.as_bytes() >= range.lower_inclusive()
+            && range
+                .upper_exclusive()
+                .is_none_or(|upper| key.as_bytes() < upper)
     }
 
     #[test]
@@ -659,7 +643,7 @@ mod tests {
     #[test]
     fn data_key_raw_prefix_bounds_cover_supported_structural_key_domain() {
         let entity = EntityTag::new(29);
-        let range = DataKey::raw_entity_prefix_range_for(entity);
+        let range = RawDataStoreKeyRange::entity_prefix(entity);
         let supported_values = [
             Value::Account(Account::from_parts(
                 Principal::from_slice(&[3, 1, 4]),
@@ -675,15 +659,12 @@ mod tests {
         ];
 
         assert_eq!(
-            range.lower_inclusive().as_bytes(),
-            &entity.value().to_be_bytes()
+            range.lower_inclusive(),
+            entity.value().to_be_bytes().as_slice()
         );
         assert_eq!(
-            range
-                .upper_exclusive()
-                .expect("ordinary entity has upper")
-                .as_bytes(),
-            &(entity.value() + 1).to_be_bytes(),
+            range.upper_exclusive().expect("ordinary entity has upper"),
+            (entity.value() + 1).to_be_bytes().as_slice(),
         );
 
         for value in supported_values {
@@ -691,7 +672,7 @@ mod tests {
                 .expect("supported structural key should encode");
             let raw_key = data_key.to_raw().expect("supported key should encode");
             assert!(
-                range.contains(&raw_key),
+                taxonomy_range_contains_raw_key(&range, &raw_key),
                 "supported structural key {value:?} must stay within entity bounds",
             );
         }
@@ -772,7 +753,7 @@ mod tests {
     #[test]
     fn data_key_raw_entity_prefix_range_contains_only_matching_entity() {
         let entity = EntityTag::new(41);
-        let range = DataKey::raw_entity_prefix_range_for(entity);
+        let range = RawDataStoreKeyRange::entity_prefix(entity);
         let matching = DataKey::new(entity, StorageKey::Nat(1))
             .to_raw()
             .expect("matching key should encode");
@@ -783,8 +764,8 @@ mod tests {
             .to_raw()
             .expect("next key should encode");
 
-        assert!(range.contains(&matching));
-        assert!(!range.contains(&previous));
-        assert!(!range.contains(&next));
+        assert!(taxonomy_range_contains_raw_key(&range, &matching));
+        assert!(!taxonomy_range_contains_raw_key(&range, &previous));
+        assert!(!taxonomy_range_contains_raw_key(&range, &next));
     }
 }
