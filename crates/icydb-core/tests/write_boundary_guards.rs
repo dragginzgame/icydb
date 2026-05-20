@@ -61,14 +61,16 @@ fn compact_source(source: &str) -> String {
 
 #[test]
 fn data_store_insert_stays_canonical_row_only() {
-    let source = read_source("src/db/data/store.rs");
+    let source = compact_source(&read_source("src/db/data/store.rs"));
 
     assert!(
-        source.contains("pub(in crate::db) fn insert(&mut self, key: RawDataKey, row: CanonicalRow) -> Option<RawRow>"),
+        source.contains(
+            "pub(incrate::db)fninsert(&mutself,key:RawDataStoreKey,row:CanonicalRow,)->Option<RawRow>"
+        ),
         "DataStore::insert must remain CanonicalRow-only at the production write boundary",
     );
     assert!(
-        !source.contains("pub fn insert(&mut self, key: RawDataKey, row: RawRow)"),
+        !source.contains("pubfninsert(&mutself,key:RawDataStoreKey,row:RawRow)"),
         "DataStore::insert must not accept RawRow in production code",
     );
 }
