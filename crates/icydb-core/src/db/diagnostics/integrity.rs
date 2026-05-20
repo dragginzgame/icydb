@@ -101,7 +101,7 @@ fn scan_store_forward_integrity<C: CanisterKind>(
         for entry in data_store.entries() {
             snapshot.data_rows_scanned = snapshot.data_rows_scanned.saturating_add(1);
 
-            let raw_key = *entry.key();
+            let raw_key = entry.key().clone();
 
             let Ok(data_key) = DataKey::try_from_raw(&raw_key) else {
                 snapshot.corrupted_data_keys = snapshot.corrupted_data_keys.saturating_add(1);
@@ -203,7 +203,7 @@ fn scan_store_reverse_integrity(
 
             let index_entity_tag = data_entity_tag_for_index_key(&decoded_index_key);
 
-            let Ok(indexed_primary_keys) = raw_index_entry.decode_keys() else {
+            let Ok(indexed_primary_keys) = raw_index_entry.decode_keys(&raw_index_key) else {
                 snapshot.corrupted_index_entries =
                     snapshot.corrupted_index_entries.saturating_add(1);
                 continue;

@@ -192,7 +192,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                     validate_relations,
                     request,
                 )?;
-                if !seen_row_keys.insert(marker_row_op.key) {
+                if !seen_row_keys.insert(marker_row_op.key.clone()) {
                     let data_key = DataKey::try_new::<E>(entity.id().key())?;
                     return Err(InternalError::mutation_atomic_save_duplicate_key(
                         E::PATH,

@@ -14,7 +14,7 @@ use crate::{
     types::{Decimal, EntityTag, Float32, Float64, Int, Principal},
     value::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError, Value, ValueEnum},
 };
-use std::{borrow::Cow, cmp::Ordering, ops::Bound as RangeBound};
+use std::{borrow::Cow, cmp::Ordering, mem::size_of, ops::Bound as RangeBound};
 
 fn index_id() -> IndexId {
     IndexId::new(EntityTag::new(1), 0)
@@ -60,6 +60,10 @@ fn make_component(byte: u8) -> Vec<u8> {
 
 fn make_pk(byte: u8) -> Vec<u8> {
     vec![byte; IndexKey::MAX_PK_SIZE]
+}
+
+fn compact_pk(key: StorageKey) -> Vec<u8> {
+    IndexKey::compact_primary_key_bytes(key)
 }
 
 fn next_random_u64(state: &mut u64) -> u64 {
@@ -927,19 +931,13 @@ fn index_prefix_scan_bounds_are_consistent_with_key_encoding() {
             IndexKeyKind::User,
             index_id(),
             vec![prefix_component.clone(), encode_component(&Value::Nat(1))],
-            StorageKey::Nat(1)
-                .to_bytes()
-                .expect("storage key encoding should succeed")
-                .to_vec(),
+            compact_pk(StorageKey::Nat(1)),
         ),
         key_with(
             IndexKeyKind::User,
             index_id(),
             vec![prefix_component, encode_component(&Value::Nat(2))],
-            StorageKey::Nat(2)
-                .to_bytes()
-                .expect("storage key encoding should succeed")
-                .to_vec(),
+            compact_pk(StorageKey::Nat(2)),
         ),
     ];
     for matching in matching_keys {
@@ -962,10 +960,7 @@ fn index_prefix_scan_bounds_are_consistent_with_key_encoding() {
             encode_component(&Value::Text("aalph".to_string())),
             encode_component(&Value::Nat(1)),
         ],
-        StorageKey::Nat(3)
-            .to_bytes()
-            .expect("storage key encoding should succeed")
-            .to_vec(),
+        compact_pk(StorageKey::Nat(3)),
     )
     .to_raw();
     let after_prefix = key_with(
@@ -975,10 +970,7 @@ fn index_prefix_scan_bounds_are_consistent_with_key_encoding() {
             encode_component(&Value::Text("zebra".to_string())),
             encode_component(&Value::Nat(1)),
         ],
-        StorageKey::Nat(4)
-            .to_bytes()
-            .expect("storage key encoding should succeed")
-            .to_vec(),
+        compact_pk(StorageKey::Nat(4)),
     )
     .to_raw();
     assert!(
@@ -993,10 +985,7 @@ fn index_prefix_scan_bounds_are_consistent_with_key_encoding() {
 
 #[test]
 fn index_key_primary_key_equivalence_accepts_matching_and_rejects_mismatched_boundaries() {
-    let encoded_pk = StorageKey::Int(-7)
-        .to_bytes()
-        .expect("storage key encoding should succeed")
-        .to_vec();
+    let encoded_pk = compact_pk(StorageKey::Int(-7));
     let key = key_with(
         IndexKeyKind::User,
         index_id(),
@@ -1015,8 +1004,7 @@ fn index_key_primary_key_equivalence_accepts_matching_and_rejects_mismatched_bou
 
 #[test]
 fn index_key_primary_key_equivalence_fails_closed_on_corrupted_anchor_payload() {
-    let mut corrupted_pk = vec![0u8; StorageKey::STORED_SIZE_USIZE];
-    corrupted_pk[0] = 0xFF;
+    let corrupted_pk = vec![0xFF];
     let key = key_with(
         IndexKeyKind::User,
         index_id(),
@@ -1036,10 +1024,7 @@ fn index_key_primary_key_equivalence_fails_closed_on_corrupted_anchor_payload() 
 
 #[test]
 fn index_key_primary_key_equivalence_rejects_non_storage_key_boundary_values() {
-    let encoded_pk = StorageKey::Nat(11)
-        .to_bytes()
-        .expect("storage key encoding should succeed")
-        .to_vec();
+    let encoded_pk = compact_pk(StorageKey::Nat(11));
     let key = key_with(
         IndexKeyKind::User,
         index_id(),
@@ -1055,6 +1040,31 @@ fn index_key_primary_key_equivalence_rejects_non_storage_key_boundary_values() {
             source: StorageKeyEncodeError::UnsupportedValueKind { kind: "Text" }
         }
     ));
+}
+
+#[test]
+fn index_key_primary_suffix_uses_compact_primary_key_bytes() {
+    let primary_key = compact_pk(StorageKey::Nat(5));
+    let key = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![encode_component(&Value::Text("rank".to_string()))],
+        primary_key.clone(),
+    );
+
+    assert_eq!(
+        primary_key.len(),
+        1 + size_of::<u64>(),
+        "Nat primary-key suffix should use compact tag + payload bytes",
+    );
+    assert!(primary_key.len() < StorageKey::STORED_SIZE_USIZE);
+    assert_eq!(
+        IndexKey::try_from_raw(&key.to_raw())
+            .expect("compact index key should decode")
+            .primary_storage_key()
+            .expect("compact primary suffix should decode"),
+        StorageKey::Nat(5),
+    );
 }
 
 #[test]
@@ -1080,10 +1090,7 @@ fn index_key_partial_truncation_cases_fail_closed() {
         IndexKeyKind::User,
         index_id(),
         vec![encode_component(&Value::Int(9))],
-        StorageKey::Nat(1)
-            .to_bytes()
-            .expect("storage key encoding should succeed")
-            .to_vec(),
+        compact_pk(StorageKey::Nat(1)),
     )
     .to_raw()
     .as_bytes()

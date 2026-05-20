@@ -862,7 +862,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
     // Phase 1: replay first save marker.
     let first_save_marker = CommitMarker::new(vec![crate::db::commit::CommitRowOp::new(
         RelationSourceEntity::PATH,
-        first_source_key,
+        first_source_key.clone(),
         None,
         Some(first_source_row_bytes.clone()),
         relation_source_accepted_commit_schema_fingerprint(),
@@ -901,8 +901,8 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         })
         .expect("target index store access should succeed");
     assert_eq!(
-        reverse_rows_after_save_b, 1,
-        "second save replay should merge into the existing reverse entry",
+        reverse_rows_after_save_b, 2,
+        "second save replay should create a second key-owned reverse entry",
     );
 
     // Phase 3: replay delete marker for one source row.
@@ -1095,7 +1095,7 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
         .expect("source key should build")
         .to_raw()
         .expect("source key should encode");
-    let source_raw_key = source_key;
+    let source_raw_key = source_key.clone();
     let update_before_row_bytes = relation_source_row_bytes(&RelationSourceEntity {
         id: source_id,
         target: target_a,
@@ -1258,8 +1258,8 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         })
         .expect("target index store access should succeed");
     assert_eq!(
-        seeded_reverse_rows, 1,
-        "initially both referrers share one reverse entry on target A",
+        seeded_reverse_rows, 2,
+        "initially both referrers use separate key-owned reverse entries on target A",
     );
 
     // Phase 2: persist a marker with a partial update in one block:

@@ -2997,7 +2997,7 @@ fn inspect_filtered_expression_order_only_raw_scan(
                 let decoded_key =
                     IndexKey::try_from_raw(&raw_key).expect("filtered expression test key");
                 let decoded_ids = raw_entry
-                    .decode_keys()
+                    .decode_keys(&raw_key)
                     .expect("filtered expression test entry")
                     .into_iter()
                     .collect::<Vec<_>>();
@@ -3019,9 +3019,9 @@ fn inspect_filtered_expression_order_only_raw_scan(
             .visit_raw_entries_in_range(
                 (spec.lower(), spec.upper()),
                 Direction::Asc,
-                |_, raw_entry| {
+                |raw_key, raw_entry| {
                     let entry = raw_entry
-                        .try_decode()
+                        .try_decode_for_key(raw_key)
                         .expect("filtered expression index range scan entry");
                     for storage_key in entry.iter_ids() {
                         keys.push(DataKey::new(

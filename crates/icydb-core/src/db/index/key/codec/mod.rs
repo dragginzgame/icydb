@@ -14,6 +14,7 @@ use crate::{
     db::{
         data::{StorageKey, StorageKeyDecodeError},
         index::key::IndexId,
+        key_taxonomy::{CompactPrimaryKeyDecodeError, EncodedPrimaryKey, PrimaryKeyValue},
     },
 };
 use bounds::{
@@ -165,13 +166,36 @@ impl IndexKey {
     }
 
     pub(in crate::db) fn primary_storage_key(&self) -> Result<StorageKey, StorageKeyDecodeError> {
-        let bytes: &[u8; StorageKey::STORED_SIZE_USIZE] = self
-            .primary_key
-            .as_slice()
-            .try_into()
-            .map_err(|_| StorageKeyDecodeError::InvalidSize)?;
+        let encoded = EncodedPrimaryKey::try_from(self.primary_key.as_slice())
+            .map_err(primary_key_decode_error_to_storage_key_decode_error)?;
 
-        StorageKey::try_from_stored_bytes(bytes)
+        encoded
+            .decode()
+            .map(StorageKey::from)
+            .map_err(primary_key_decode_error_to_storage_key_decode_error)
+    }
+
+    pub(in crate::db) fn compact_primary_key_bytes(primary_key: StorageKey) -> Vec<u8> {
+        EncodedPrimaryKey::encode(PrimaryKeyValue::from(primary_key))
+            .expect("storage-key primary keys must compact-encode")
+            .as_bytes()
+            .to_vec()
+    }
+}
+
+const fn primary_key_decode_error_to_storage_key_decode_error(
+    err: CompactPrimaryKeyDecodeError,
+) -> StorageKeyDecodeError {
+    match err {
+        CompactPrimaryKeyDecodeError::Empty
+        | CompactPrimaryKeyDecodeError::InvalidLength { .. } => StorageKeyDecodeError::InvalidSize,
+        CompactPrimaryKeyDecodeError::UnknownKind { .. } => StorageKeyDecodeError::InvalidTag,
+        CompactPrimaryKeyDecodeError::InvalidPrincipalLength { .. } => {
+            StorageKeyDecodeError::InvalidPrincipalLength
+        }
+        CompactPrimaryKeyDecodeError::InvalidAccount { reason } => {
+            StorageKeyDecodeError::InvalidAccountPayload { reason }
+        }
     }
 }
 

@@ -44,8 +44,8 @@ impl StructuralIndexEntryReader for StoreHandle {
     ) -> Result<Vec<StorageKey>, InternalError> {
         let mut out = Vec::with_capacity(limit.min(32));
         index_store.with_borrow(|store| {
-            store.visit_raw_entries_in_range(bounds, Direction::Asc, |_, raw_entry| {
-                push_index_entry_storage_keys(index, raw_entry, &mut out, limit)
+            store.visit_raw_entries_in_range(bounds, Direction::Asc, |raw_key, raw_entry| {
+                push_index_entry_storage_keys(index, raw_key, raw_entry, &mut out, limit)
             })
         })?;
 
@@ -59,11 +59,13 @@ impl SealedStructuralIndexEntryReader for StoreHandle {}
 // preflight readers.
 fn push_index_entry_storage_keys(
     index: IndexReadContract<'_>,
+    raw_key: &RawIndexKey,
     raw_entry: &RawIndexEntry,
     out: &mut Vec<StorageKey>,
     limit: usize,
 ) -> Result<bool, InternalError> {
     raw_entry.push_membership_storage_keys_limited(
+        raw_key,
         index.unique(),
         out,
         limit,

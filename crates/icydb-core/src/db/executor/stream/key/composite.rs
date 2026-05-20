@@ -169,7 +169,7 @@ impl StreamSideState {
         Some(key)
     }
 
-    const fn clear_item(&mut self) {
+    fn clear_item(&mut self) {
         if let Some(key) = self.item.take() {
             self.last_key = Some(data_key_witness(&key));
         }

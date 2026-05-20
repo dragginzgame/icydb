@@ -265,7 +265,7 @@ impl<'a, C: CanisterKind> PreflightStoreOverlay<'a, C> {
                 .insert(index_op.key.clone(), index_op.value.clone());
         }
         self.data_overrides.insert(
-            row_op.data_key,
+            row_op.data_key.clone(),
             row_op
                 .data_value
                 .as_ref()
@@ -342,8 +342,15 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
         let Some(store_overrides) = self.index_overrides.get(&store_id) else {
             let mut out = Vec::with_capacity(limit.min(32));
             index_store.with_borrow(|store| {
-                store.visit_raw_entries_in_range(bounds, Direction::Asc, |_, raw_entry| {
-                    push_index_entry_storage_keys(index, raw_entry, &mut out, limit, entity_path)
+                store.visit_raw_entries_in_range(bounds, Direction::Asc, |raw_key, raw_entry| {
+                    push_index_entry_storage_keys(
+                        index,
+                        raw_key,
+                        raw_entry,
+                        &mut out,
+                        limit,
+                        entity_path,
+                    )
                 })
             })?;
 
@@ -366,35 +373,35 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
                 while let Some((override_key, _)) = overrides.peek() {
                     match (*override_key).cmp(raw_key) {
                         std::cmp::Ordering::Less => {
+                            let override_key = (*override_key).clone();
                             let (_, override_entry) = overrides
                                 .next()
                                 .expect("peeked override entry must be present");
-                            if let Some(override_entry) = override_entry
-                                && push_index_entry_storage_keys(
-                                    index,
-                                    override_entry,
-                                    &mut out,
-                                    limit,
-                                    entity_path,
-                                )?
-                            {
+                            if push_optional_index_entry_storage_keys(
+                                index,
+                                &override_key,
+                                override_entry.as_ref(),
+                                &mut out,
+                                limit,
+                                entity_path,
+                            )? {
                                 limit_reached = true;
                                 return Ok(true);
                             }
                         }
                         std::cmp::Ordering::Equal => {
+                            let override_key = (*override_key).clone();
                             let (_, override_entry) = overrides
                                 .next()
                                 .expect("peeked override entry must be present");
-                            if let Some(override_entry) = override_entry
-                                && push_index_entry_storage_keys(
-                                    index,
-                                    override_entry,
-                                    &mut out,
-                                    limit,
-                                    entity_path,
-                                )?
-                            {
+                            if push_optional_index_entry_storage_keys(
+                                index,
+                                &override_key,
+                                override_entry.as_ref(),
+                                &mut out,
+                                limit,
+                                entity_path,
+                            )? {
                                 limit_reached = true;
                                 return Ok(true);
                             }
@@ -405,7 +412,14 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
                     }
                 }
 
-                if push_index_entry_storage_keys(index, raw_entry, &mut out, limit, entity_path)? {
+                if push_index_entry_storage_keys(
+                    index,
+                    raw_key,
+                    raw_entry,
+                    &mut out,
+                    limit,
+                    entity_path,
+                )? {
                     limit_reached = true;
                     return Ok(true);
                 }
@@ -415,16 +429,15 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
         })?;
 
         if !limit_reached {
-            for (_, override_entry) in overrides {
-                if let Some(override_entry) = override_entry
-                    && push_index_entry_storage_keys(
-                        index,
-                        override_entry,
-                        &mut out,
-                        limit,
-                        entity_path,
-                    )?
-                {
+            for (override_key, override_entry) in overrides {
+                if push_optional_index_entry_storage_keys(
+                    index,
+                    override_key,
+                    override_entry.as_ref(),
+                    &mut out,
+                    limit,
+                    entity_path,
+                )? {
                     break;
                 }
             }
@@ -471,16 +484,33 @@ impl<E> SealedIndexEntryReader<E> for PreflightStoreOverlay<'_, E::Canister> whe
 {
 }
 
+fn push_optional_index_entry_storage_keys(
+    index: IndexReadContract<'_>,
+    raw_key: &RawIndexKey,
+    raw_entry: Option<&RawIndexEntry>,
+    out: &mut Vec<StorageKey>,
+    limit: usize,
+    entity_path: &'static str,
+) -> Result<bool, InternalError> {
+    let Some(raw_entry) = raw_entry else {
+        return Ok(false);
+    };
+
+    push_index_entry_storage_keys(index, raw_key, raw_entry, out, limit, entity_path)
+}
+
 // Decode one raw index entry into structural storage keys under the preflight
 // overlay's corruption mapping.
 fn push_index_entry_storage_keys(
     index: IndexReadContract<'_>,
+    raw_key: &RawIndexKey,
     raw_entry: &RawIndexEntry,
     out: &mut Vec<StorageKey>,
     limit: usize,
     entity_path: &'static str,
 ) -> Result<bool, InternalError> {
     raw_entry.push_membership_storage_keys_limited(
+        raw_key,
         index.unique(),
         out,
         limit,

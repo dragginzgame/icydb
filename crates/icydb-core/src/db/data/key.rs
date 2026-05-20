@@ -6,9 +6,10 @@
 #![expect(clippy::cast_possible_truncation)]
 
 use crate::{
+    db::key_taxonomy::{EncodedPrimaryKey, PrimaryKeyValue, RawDataStoreKeyRange},
     error::InternalError,
     traits::{EntityKind, Storable, StorageKeyCodec, StorageKeyDecode},
-    types::EntityTag,
+    types::{Account, EntityTag},
     value::{
         StorageKey, StorageKeyDecodeError, StorageKeyEncodeError, Value,
         storage_key_from_runtime_value,
@@ -31,10 +32,10 @@ use thiserror::Error as ThisError;
 
 #[derive(Debug, ThisError)]
 enum DataKeyEncodeError {
-    #[error("data key encoding failed for {key}: {source}")]
-    KeyEncoding {
+    #[error("compact data key encoding failed for {key}: {source}")]
+    CompactKeyEncoding {
         key: DataKey,
-        source: StorageKeyEncodeError,
+        source: crate::db::key_taxonomy::CompactPrimaryKeyEncodeError,
     },
 }
 
@@ -56,11 +57,23 @@ pub(in crate::db) enum KeyDecodeError {
         #[source]
         source: StorageKeyDecodeError,
     },
+
+    #[error("invalid compact primary key encoding: {source}")]
+    InvalidCompactEncoding {
+        #[source]
+        source: crate::db::key_taxonomy::CompactPrimaryKeyDecodeError,
+    },
 }
 
 impl From<StorageKeyDecodeError> for KeyDecodeError {
     fn from(source: StorageKeyDecodeError) -> Self {
         Self::InvalidEncoding { source }
+    }
+}
+
+impl From<crate::db::key_taxonomy::CompactPrimaryKeyDecodeError> for KeyDecodeError {
+    fn from(source: crate::db::key_taxonomy::CompactPrimaryKeyDecodeError) -> Self {
+        Self::InvalidCompactEncoding { source }
     }
 }
 
@@ -90,11 +103,11 @@ impl DataKey {
     pub(in crate::db) const ENTITY_TAG_SIZE_BYTES: u64 = size_of::<u64>() as u64;
     pub(in crate::db) const ENTITY_TAG_SIZE_USIZE: usize = Self::ENTITY_TAG_SIZE_BYTES as usize;
 
-    /// Fixed on-disk size in bytes (stable, protocol-level)
+    /// Maximum compact on-disk size in bytes.
     pub(in crate::db) const STORED_SIZE_BYTES: u64 =
-        Self::ENTITY_TAG_SIZE_BYTES + StorageKey::STORED_SIZE_BYTES;
+        Self::ENTITY_TAG_SIZE_BYTES + 1 + Account::STORED_SIZE as u64;
 
-    /// Fixed in-memory size (for buffers and arrays only)
+    /// Maximum compact in-memory key size (for bounded storable metadata).
     pub(in crate::db) const STORED_SIZE_USIZE: usize = Self::STORED_SIZE_BYTES as usize;
 
     // ------------------------------------------------------------------
@@ -183,16 +196,6 @@ impl DataKey {
         <E::Key as StorageKeyDecode>::from_storage_key(self.key)
     }
 
-    #[must_use]
-    pub(in crate::db) const fn lower_bound_for(entity: EntityTag) -> Self {
-        Self::new(entity, StorageKey::MIN)
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn upper_bound_for(entity: EntityTag) -> Self {
-        Self::new(entity, StorageKey::upper_bound())
-    }
-
     // ------------------------------------------------------------------
     // Accessors
     // ------------------------------------------------------------------
@@ -223,36 +226,54 @@ impl DataKey {
     // Encoding / decoding
     // ------------------------------------------------------------------
 
-    /// Encode into fixed-size on-disk representation.
+    /// Encode into compact on-disk representation.
     pub(in crate::db) fn to_raw(&self) -> Result<RawDataKey, InternalError> {
-        self.to_raw_storage_key_error().map_err(|err| {
-            DataKeyEncodeError::KeyEncoding {
-                key: self.clone(),
-                source: err,
-            }
-            .into()
-        })
+        if let Some(raw) = self.raw.get() {
+            return Ok(raw.clone());
+        }
+
+        self.to_raw_compact_key_error()
+            .map_err(|err| {
+                DataKeyEncodeError::CompactKeyEncoding {
+                    key: self.clone(),
+                    source: err,
+                }
+                .into()
+            })
+            .inspect(|raw| {
+                let _ = self.raw.set(raw.clone());
+            })
     }
 
-    /// Encode into fixed-size on-disk representation, returning storage-key encode errors directly.
+    /// Encode into compact on-disk representation, returning compact-key
+    /// encode errors directly.
+    pub(in crate::db) fn to_raw_compact_key_error(
+        &self,
+    ) -> Result<RawDataKey, crate::db::key_taxonomy::CompactPrimaryKeyEncodeError> {
+        let mut bytes = Vec::with_capacity(Self::STORED_SIZE_USIZE);
+        bytes.extend_from_slice(&self.entity.value().to_be_bytes());
+        bytes.extend_from_slice(
+            EncodedPrimaryKey::encode(PrimaryKeyValue::from(self.key))?.as_bytes(),
+        );
+
+        Ok(RawDataKey(bytes))
+    }
+
+    /// Encode into compact on-disk representation, retaining the historical
+    /// direct storage-key error shape for callers that still report through
+    /// storage-key encode boundaries.
     pub(in crate::db) fn to_raw_storage_key_error(
         &self,
     ) -> Result<RawDataKey, StorageKeyEncodeError> {
         if let Some(raw) = self.raw.get() {
-            return Ok(*raw);
+            return Ok(raw.clone());
         }
 
-        // Phase 1: encode fixed-width big-endian entity tag identity prefix.
-        let mut buf = [0u8; Self::STORED_SIZE_USIZE];
-        let entity_bytes = self.entity.value().to_be_bytes();
-        buf[..Self::ENTITY_TAG_SIZE_USIZE].copy_from_slice(&entity_bytes);
-
-        // Phase 2: encode the scalar storage key and copy into fixed suffix.
-        let key_bytes = self.key.to_bytes()?;
-        let key_offset = Self::ENTITY_TAG_SIZE_USIZE;
-        buf[key_offset..key_offset + StorageKey::STORED_SIZE_USIZE].copy_from_slice(&key_bytes);
-        let raw = RawDataKey(buf);
-        let _ = self.raw.set(raw);
+        self.key.to_bytes()?;
+        let raw = self
+            .to_raw_compact_key_error()
+            .expect("storage-key encodable value must compact-encode");
+        let _ = self.raw.set(raw.clone());
 
         Ok(raw)
     }
@@ -266,20 +287,34 @@ impl DataKey {
     }
 
     pub(in crate::db) fn try_from_raw(raw: &RawDataKey) -> Result<Self, DataKeyDecodeError> {
-        let bytes = &raw.0;
+        let bytes = raw.as_bytes();
+
+        if bytes.len() < Self::ENTITY_TAG_SIZE_USIZE + 1 {
+            return Err(KeyDecodeError::from(StorageKeyDecodeError::InvalidSize).into());
+        }
 
         // Phase 1: decode fixed-size big-endian entity tag identity prefix.
         let mut tag_bytes = [0u8; Self::ENTITY_TAG_SIZE_USIZE];
         tag_bytes.copy_from_slice(&bytes[..Self::ENTITY_TAG_SIZE_USIZE]);
         let entity = EntityTag::new(u64::from_be_bytes(tag_bytes));
 
-        // Phase 2: decode fixed-size storage-key suffix.
-        let key_bytes: &[u8; StorageKey::STORED_SIZE_USIZE] = (&bytes
-            [Self::ENTITY_TAG_SIZE_USIZE..])
-            .try_into()
-            .map_err(|_| KeyDecodeError::from(StorageKeyDecodeError::InvalidSize))?;
-        let key = StorageKey::try_from_stored_bytes(key_bytes).map_err(KeyDecodeError::from)?;
-        Ok(Self::new_with_raw(entity, key, *raw))
+        // Phase 2: decode compact self-describing primary-key suffix.
+        let encoded = EncodedPrimaryKey::try_from(&bytes[Self::ENTITY_TAG_SIZE_USIZE..])
+            .map_err(KeyDecodeError::from)?;
+        let key = StorageKey::from(encoded.decode().map_err(KeyDecodeError::from)?);
+
+        Ok(Self::new_with_raw(entity, key, raw.clone()))
+    }
+
+    #[must_use]
+    pub(in crate::db) fn raw_entity_prefix_range_for(entity: EntityTag) -> DataKeyRawRange {
+        let range = RawDataStoreKeyRange::entity_prefix(entity);
+        DataKeyRawRange {
+            lower_inclusive: RawDataKey::from_unchecked_bytes(range.lower_inclusive().to_vec()),
+            upper_exclusive: range
+                .upper_exclusive()
+                .map(|bytes| RawDataKey::from_unchecked_bytes(bytes.to_vec())),
+        }
     }
 }
 
@@ -287,7 +322,7 @@ impl Clone for DataKey {
     fn clone(&self) -> Self {
         let cache = OnceCell::new();
         if let Some(raw) = self.raw.get() {
-            let _ = cache.set(*raw);
+            let _ = cache.set(raw.clone());
         }
 
         Self {
@@ -325,7 +360,7 @@ impl Ord for DataKey {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.entity
             .cmp(&other.entity)
-            .then_with(|| self.key.cmp(&other.key))
+            .then_with(|| PrimaryKeyValue::from(self.key).cmp(&PrimaryKeyValue::from(other.key)))
     }
 }
 
@@ -343,30 +378,53 @@ impl Display for DataKey {
 }
 
 ///
+/// DataKeyRawRange
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct DataKeyRawRange {
+    lower_inclusive: RawDataKey,
+    upper_exclusive: Option<RawDataKey>,
+}
+
+impl DataKeyRawRange {
+    #[must_use]
+    pub(in crate::db) const fn lower_inclusive(&self) -> &RawDataKey {
+        &self.lower_inclusive
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn upper_exclusive(&self) -> Option<&RawDataKey> {
+        self.upper_exclusive.as_ref()
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) fn contains(&self, key: &RawDataKey) -> bool {
+        key >= &self.lower_inclusive
+            && self
+                .upper_exclusive
+                .as_ref()
+                .is_none_or(|upper| key < upper)
+    }
+}
+
+///
 /// RawDataKey
 ///
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) struct RawDataKey([u8; DataKey::STORED_SIZE_USIZE]);
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct RawDataKey(Vec<u8>);
 
 impl RawDataKey {
     #[must_use]
-    pub(in crate::db) const fn as_bytes(&self) -> &[u8; DataKey::STORED_SIZE_USIZE] {
+    pub(in crate::db) fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
-    /// Build one canonical raw data key from an entity tag plus one already
-    /// encoded storage-key payload.
     #[must_use]
-    pub(in crate::db) fn from_entity_and_stored_storage_key_bytes(
-        entity: EntityTag,
-        key_bytes: &[u8; StorageKey::STORED_SIZE_USIZE],
-    ) -> Self {
-        let mut out = [0u8; DataKey::STORED_SIZE_USIZE];
-        out[..DataKey::ENTITY_TAG_SIZE_USIZE].copy_from_slice(&entity.value().to_be_bytes());
-        out[DataKey::ENTITY_TAG_SIZE_USIZE..].copy_from_slice(key_bytes);
-
-        Self(out)
+    pub(in crate::db) const fn from_unchecked_bytes(bytes: Vec<u8>) -> Self {
+        Self(bytes)
     }
 }
 
@@ -376,31 +434,16 @@ impl Storable for RawDataKey {
     }
 
     fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        // Fixed-size storable contract: callers must provide exact-sized bytes.
-        // Fail closed on any mismatch so malformed payloads cannot materialize
-        // into a potentially valid-looking key.
-        debug_assert_eq!(
-            bytes.len(),
-            DataKey::STORED_SIZE_USIZE,
-            "RawDataKey::from_bytes received unexpected byte length",
-        );
-
-        if bytes.len() != DataKey::STORED_SIZE_USIZE {
-            return Self([0u8; DataKey::STORED_SIZE_USIZE]);
-        }
-
-        let mut out = [0u8; DataKey::STORED_SIZE_USIZE];
-        out.copy_from_slice(bytes.as_ref());
-        Self(out)
+        Self(bytes.into_owned())
     }
 
     fn into_bytes(self) -> Vec<u8> {
-        self.0.to_vec()
+        self.0
     }
 
     const BOUND: Bound = Bound::Bounded {
         max_size: DataKey::STORED_SIZE_BYTES as u32,
-        is_fixed_size: true,
+        is_fixed_size: false,
     };
 }
 
@@ -476,32 +519,25 @@ mod tests {
     }
 
     #[test]
-    fn data_key_is_exactly_fixed_size() {
+    fn data_key_max_storable_uses_max_compact_size() {
         let data_key = DataKey::max_storable();
         let size = data_key.to_raw().unwrap().as_bytes().len();
         assert_eq!(size, DataKey::STORED_SIZE_USIZE);
     }
 
     #[test]
-    fn data_key_golden_snapshot_entity_and_storage_key_layout_is_stable() {
+    fn data_key_golden_snapshot_entity_and_compact_primary_key_layout_is_stable() {
         let key = DataKey::new(EntityTag::new(5), StorageKey::Int(-1));
         let raw = key.to_raw().expect("data key should encode");
 
-        // Freeze the on-disk wire contract:
-        // [EntityTag(u64, big-endian)] + [StorageKey(64)].
-        let mut expected = [0u8; DataKey::STORED_SIZE_USIZE];
-        expected[..DataKey::ENTITY_TAG_SIZE_USIZE].copy_from_slice(&5u64.to_be_bytes());
+        // Freeze the 0.159 on-disk wire contract:
+        // [EntityTag(u64, big-endian)] + [EncodedPrimaryKey].
+        let mut expected = Vec::new();
+        expected.extend_from_slice(&5u64.to_be_bytes());
+        expected.push(PrimaryKeyValue::Int(-1).kind().tag());
+        expected.extend_from_slice(&0x7FFF_FFFF_FFFF_FFFFu64.to_be_bytes());
 
-        let storage_offset = DataKey::ENTITY_TAG_SIZE_USIZE;
-        expected[storage_offset] = 1; // StorageKey::TAG_INT
-        expected[storage_offset + 1..storage_offset + 9]
-            .copy_from_slice(&0x7FFF_FFFF_FFFF_FFFFu64.to_be_bytes());
-
-        assert_eq!(
-            raw.as_bytes(),
-            &expected,
-            "data-key storage layout changed; this is a persistence compatibility boundary",
-        );
+        assert_eq!(raw.as_bytes(), expected.as_slice());
     }
 
     #[test]
@@ -620,10 +656,9 @@ mod tests {
     }
 
     #[test]
-    fn data_key_bounds_cover_supported_structural_key_domain() {
+    fn data_key_raw_prefix_bounds_cover_supported_structural_key_domain() {
         let entity = EntityTag::new(29);
-        let lower = DataKey::lower_bound_for(entity);
-        let upper = DataKey::upper_bound_for(entity);
+        let range = DataKey::raw_entity_prefix_range_for(entity);
         let supported_values = [
             Value::Account(Account::from_parts(
                 Principal::from_slice(&[3, 1, 4]),
@@ -638,17 +673,24 @@ mod tests {
             Value::Unit,
         ];
 
-        assert_eq!(lower.entity_tag(), entity);
-        assert_eq!(upper.entity_tag(), entity);
-        assert_eq!(lower.storage_key(), StorageKey::MIN);
-        assert_eq!(upper.storage_key(), StorageKey::upper_bound());
-        assert!(lower <= upper, "entity bounds must stay ordered");
+        assert_eq!(
+            range.lower_inclusive().as_bytes(),
+            &entity.value().to_be_bytes()
+        );
+        assert_eq!(
+            range
+                .upper_exclusive()
+                .expect("ordinary entity has upper")
+                .as_bytes(),
+            &(entity.value() + 1).to_be_bytes(),
+        );
 
         for value in supported_values {
             let data_key = DataKey::try_from_structural_key(entity, &value)
                 .expect("supported structural key should encode");
+            let raw_key = data_key.to_raw().expect("supported key should encode");
             assert!(
-                lower <= data_key && data_key <= upper,
+                range.contains(&raw_key),
                 "supported structural key {value:?} must stay within entity bounds",
             );
         }
@@ -700,7 +742,7 @@ mod tests {
                 *b = (seed >> 24) as u8;
             }
 
-            let raw = RawDataKey(bytes);
+            let raw = RawDataKey(bytes.to_vec());
             if let Ok(decoded) = DataKey::try_from_raw(&raw) {
                 let re = decoded.to_raw().unwrap();
                 assert_eq!(raw.as_bytes(), re.as_bytes());
@@ -716,14 +758,6 @@ mod tests {
         assert_eq!(key, decoded);
     }
 
-    #[cfg(debug_assertions)]
-    #[test]
-    #[should_panic(expected = "RawDataKey::from_bytes received unexpected byte length")]
-    fn raw_data_key_from_bytes_wrong_length_debug_asserts() {
-        let _ = RawDataKey::from_bytes(Cow::Borrowed(&[1u8, 2u8, 3u8]));
-    }
-
-    #[cfg(not(debug_assertions))]
     #[test]
     fn raw_data_key_from_bytes_wrong_length_fails_closed() {
         let decoded = RawDataKey::from_bytes(Cow::Borrowed(&[1u8, 2u8, 3u8]));
@@ -732,5 +766,24 @@ mod tests {
             DataKey::try_from_raw(&decoded).is_err(),
             "wrong-length raw bytes must not decode into a valid DataKey"
         );
+    }
+
+    #[test]
+    fn data_key_raw_entity_prefix_range_contains_only_matching_entity() {
+        let entity = EntityTag::new(41);
+        let range = DataKey::raw_entity_prefix_range_for(entity);
+        let matching = DataKey::new(entity, StorageKey::Nat(1))
+            .to_raw()
+            .expect("matching key should encode");
+        let previous = DataKey::new(EntityTag::new(40), StorageKey::Unit)
+            .to_raw()
+            .expect("previous key should encode");
+        let next = DataKey::new(EntityTag::new(42), StorageKey::Nat(0))
+            .to_raw()
+            .expect("next key should encode");
+
+        assert!(range.contains(&matching));
+        assert!(!range.contains(&previous));
+        assert!(!range.contains(&next));
     }
 }

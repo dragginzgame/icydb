@@ -356,7 +356,7 @@ impl IndexScan {
         // Phase 2: fast-path one-key entries without allocating the full
         // membership vector.
         if let Some(membership) = value
-            .decode_single_membership()
+            .decode_single_membership(raw_key)
             .map_err(InternalError::index_entry_decode_failed)?
         {
             record_row_check_index_membership_single_key_entry();
@@ -378,7 +378,7 @@ impl IndexScan {
         let mut decoded_keys = 0usize;
         record_row_check_index_membership_multi_key_entry();
         let mut storage_keys = value
-            .iter_memberships()
+            .iter_memberships(raw_key)
             .map_err(InternalError::index_entry_decode_failed)?;
 
         for storage_key in &mut storage_keys {
@@ -445,7 +445,7 @@ impl IndexScan {
         // Phase 2: fast-path one-key entries without allocating the full
         // membership vector.
         if let Some(membership) = value
-            .decode_single_membership()
+            .decode_single_membership(raw_key)
             .map_err(InternalError::index_entry_decode_failed)?
         {
             record_row_check_index_membership_single_key_entry();
@@ -471,7 +471,7 @@ impl IndexScan {
         let mut decoded_keys = 0usize;
         record_row_check_index_membership_multi_key_entry();
         let mut memberships = value
-            .iter_memberships()
+            .iter_memberships(raw_key)
             .map_err(InternalError::index_entry_decode_failed)?;
 
         for membership in &mut memberships {
@@ -505,14 +505,10 @@ impl IndexScan {
 
     // Rebuild one data key from the raw membership payload without re-encoding
     // the primary key through the value layer.
-    fn data_key_from_membership(entity: EntityTag, membership: &IndexEntryMembership) -> DataKey {
-        DataKey::new_with_raw(
-            entity,
-            membership.storage_key(),
-            RawDataKey::from_entity_and_stored_storage_key_bytes(
-                entity,
-                &membership.raw_storage_key_bytes(),
-            ),
-        )
+    const fn data_key_from_membership(
+        entity: EntityTag,
+        membership: &IndexEntryMembership,
+    ) -> DataKey {
+        DataKey::new(entity, membership.storage_key())
     }
 }

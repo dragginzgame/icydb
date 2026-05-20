@@ -538,11 +538,13 @@ where
         )));
     }
     if plan.access.is_single_full_scan() {
-        let start = DataKey::lower_bound_for(authority.entity_tag());
-        let end = DataKey::upper_bound_for(authority.entity_tag());
-
         return Ok(Some(OrderedKeyStreamBox::primary_range(
-            PrimaryRangeKeyStream::new(store, start, end, direction, scan_limit)?,
+            PrimaryRangeKeyStream::new_full_scan(
+                store,
+                authority.entity_tag(),
+                direction,
+                scan_limit,
+            ),
         )));
     }
 

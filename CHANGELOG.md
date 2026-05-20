@@ -5,6 +5,20 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.159.x] 🔑 - 2026-05-19 - Compact Key Encoding
+
+- `0.159.0` starts the compact key redesign and hard-cuts live primary
+  data-store keys from `EntityTag + StorageKey(64)` to compact
+  `EntityTag + EncodedPrimaryKey` bytes. The core now has DB-internal taxonomy
+  wrappers for logical primary-key values, compact encoded primary keys,
+  data/index store key shapes, and presence-only index entry values. Secondary
+  index keys now use compact primary-key suffixes instead of 64-byte
+  `StorageKey` suffixes, and index entry values no longer duplicate
+  primary-key membership. Full data-store scans now use variable-width
+  entity-prefix ranges instead of fake primary-key sentinels, commit markers
+  now size/decode variable-width compact row keys, and reverse indexes now use
+  one key-owned entry per source/target edge.
+
 ## [0.158.x] 🧬 - 2026-05-18 - Schema DDL And Field Evolution
 
 - `0.158.13` closes the field-DDL line by pinning required `ADD COLUMN`

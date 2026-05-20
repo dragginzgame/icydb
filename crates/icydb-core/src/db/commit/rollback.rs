@@ -36,7 +36,7 @@ impl PreparedRowCommitOp {
         Self {
             index_ops,
             data_store: self.data_store,
-            data_key: self.data_key,
+            data_key: self.data_key.clone(),
             data_value,
         }
     }
@@ -56,7 +56,7 @@ impl PreparedRowCommitOp {
         Self {
             index_ops: Vec::new(),
             data_store: self.data_store,
-            data_key: self.data_key,
+            data_key: self.data_key.clone(),
             data_value,
         }
     }

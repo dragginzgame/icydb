@@ -361,6 +361,24 @@ impl IndexKey {
         }
     }
 
+    #[must_use]
+    pub(in crate::db) fn new_from_components_with_kind<C: AsRef<[u8]>>(
+        index_id: &IndexId,
+        key_kind: IndexKeyKind,
+        components: &[C],
+        primary_key: StorageKey,
+    ) -> Self {
+        Self {
+            key_kind,
+            index_id: *index_id,
+            components: components
+                .iter()
+                .map(|component| component.as_ref().to_vec())
+                .collect(),
+            primary_key: Self::compact_primary_key_bytes(primary_key),
+        }
+    }
+
     #[cfg(test)]
     #[must_use]
     pub(in crate::db::index) fn bounds_for_prefix<C: AsRef<[u8]>>(
@@ -873,7 +891,7 @@ fn build_field_path_rebuild_target_key(
         key_kind: IndexKeyKind::User,
         index_id: IndexId::new(entity_tag, target.ordinal()),
         components,
-        primary_key: storage_key.to_bytes()?.to_vec(),
+        primary_key: IndexKey::compact_primary_key_bytes(storage_key),
     }))
 }
 
@@ -916,7 +934,7 @@ fn build_expression_rebuild_target_key(
         key_kind: IndexKeyKind::User,
         index_id: IndexId::new(entity_tag, target.ordinal()),
         components,
-        primary_key: storage_key.to_bytes()?.to_vec(),
+        primary_key: IndexKey::compact_primary_key_bytes(storage_key),
     }))
 }
 
@@ -971,7 +989,7 @@ fn build_accepted_expression_index_key_from_components(
         key_kind: IndexKeyKind::User,
         index_id: IndexId::new(entity_tag, accepted_index.ordinal()),
         components,
-        primary_key: storage_key.to_bytes()?.to_vec(),
+        primary_key: IndexKey::compact_primary_key_bytes(storage_key),
     }))
 }
 
@@ -1010,7 +1028,7 @@ fn build_accepted_field_path_index_key_from_components(
         key_kind: IndexKeyKind::User,
         index_id: IndexId::new(entity_tag, accepted_index.ordinal()),
         components,
-        primary_key: storage_key.to_bytes()?.to_vec(),
+        primary_key: IndexKey::compact_primary_key_bytes(storage_key),
     }))
 }
 
@@ -1061,7 +1079,7 @@ fn build_index_key(
     }
 
     // Phase 3: encode the primary key once and assemble the final user key.
-    let primary_key = storage_key.to_bytes()?.to_vec();
+    let primary_key = IndexKey::compact_primary_key_bytes(storage_key);
 
     Ok(Some(IndexKey {
         key_kind: IndexKeyKind::User,
@@ -1177,7 +1195,7 @@ fn build_index_key_from_access_contract<'a>(
         }
     }
 
-    let primary_key = storage_key.to_bytes()?.to_vec();
+    let primary_key = IndexKey::compact_primary_key_bytes(storage_key);
 
     Ok(Some(IndexKey {
         key_kind: IndexKeyKind::User,

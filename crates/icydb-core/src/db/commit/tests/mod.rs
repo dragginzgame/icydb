@@ -798,7 +798,7 @@ fn indexed_ids_for(entity: &RecoveryIndexedEntity) -> Option<BTreeSet<Ulid>> {
         store.with_index(|index_store| {
             index_store.get(&index_key).map(|entry| {
                 entry
-                    .try_decode()
+                    .try_decode_for_key(&index_key)
                     .expect("index entry decode should succeed")
                     .iter_ids()
                     .map(
@@ -824,7 +824,7 @@ fn nullable_indexed_ids_for(entity: &RecoveryNullableIndexedEntity) -> Option<BT
         store.with_index(|index_store| {
             index_store.get(&index_key).map(|entry| {
                 entry
-                    .try_decode()
+                    .try_decode_for_key(&index_key)
                     .expect("nullable index entry decode should succeed")
                     .iter_ids()
                     .map(
@@ -930,7 +930,7 @@ fn conditional_indexed_ids_for(entity: &RecoveryConditionalEntity) -> Option<BTr
         store.with_index(|index_store| {
             index_store.get(&index_key).map(|entry| {
                 entry
-                    .try_decode()
+                    .try_decode_for_key(&index_key)
                     .expect("conditional index entry decode should succeed")
                     .iter_ids()
                     .map(
@@ -3517,7 +3517,7 @@ fn recovery_replay_updates_old_nullable_row_before_image_with_accepted_contract(
     // entry, then persist a marker that updates the row to current layout.
     with_recovery_store(|store| {
         store.with_data_mut(|data_store| {
-            data_store.insert_raw_for_test(data_key, old_raw_row);
+            data_store.insert_raw_for_test(data_key.clone(), old_raw_row);
         });
         store.with_index_mut(|index_store| {
             index_store.insert(old_index_key, old_entry);
@@ -3776,7 +3776,7 @@ fn recovery_startup_rebuild_rejects_future_row_format_fail_closed() {
     with_recovery_store(|store| {
         store.with_data_mut(|data_store| {
             data_store.insert_raw_for_test(
-                raw_key,
+                raw_key.clone(),
                 RawRow::try_new(future_version_row)
                     .expect("future-version row should fit raw row bounds"),
             );
@@ -3848,7 +3848,7 @@ fn recovery_reconciles_schema_before_rebuilding_indexes_from_rows() {
         });
         store.with_data_mut(|data_store| {
             data_store.insert_raw_for_test(
-                raw_key,
+                raw_key.clone(),
                 RawRow::try_new(future_version_row)
                     .expect("future-version row should fit raw row bounds"),
             );

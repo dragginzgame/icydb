@@ -257,13 +257,7 @@ fn aggregate_count_from_pk_cardinality_with_store(
     // Phase 2: read candidate-row cardinality directly from primary storage.
     let available_rows = match path {
         ExecutionPathPayload::FullScan => {
-            let start_raw = DataKey::lower_bound_for(entity_tag).to_raw()?;
-            let end_raw = DataKey::upper_bound_for(entity_tag).to_raw()?;
-
-            store.with_data(|data| {
-                data.range((Bound::Included(start_raw), Bound::Included(end_raw)))
-                    .count()
-            })
+            store.with_data(|data| data.range_for_entity(entity_tag).count())
         }
         ExecutionPathPayload::KeyRange { start, end } => {
             let start_raw = DataKey::try_from_structural_key(entity_tag, start)?.to_raw()?;

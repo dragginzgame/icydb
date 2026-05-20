@@ -484,7 +484,7 @@ fn prepare_row_commit_structural_inputs(
         ));
     }
 
-    let raw_key = op.key;
+    let raw_key = op.key.clone();
     let data_key = DataKey::try_from_raw(&raw_key).map_err(|_| {
         InternalError::store_corruption("commit marker row op key decode: invalid primary key")
     })?;
@@ -591,7 +591,7 @@ where
 fn build_commit_ops_for_index_group<C>(
     commit_ops: &mut Vec<CommitIndexOp>,
     db: &Db<C>,
-    index_reader: &dyn StructuralIndexEntryReader,
+    _index_reader: &dyn StructuralIndexEntryReader,
     entity_path: &'static str,
     group: IndexDeltaGroup,
 ) -> Result<(), InternalError>
@@ -611,30 +611,6 @@ where
         }
     }
 
-    let old_entry = load_existing_index_entry_for_commit(
-        index_reader,
-        index_store,
-        &group.index_fields,
-        remove_delta.as_ref(),
-        entity_path,
-    )?;
-
-    let new_entry = if remove_delta
-        .as_ref()
-        .zip(insert_delta.as_ref())
-        .is_some_and(|(old_delta, new_delta)| old_delta.key == new_delta.key)
-    {
-        None
-    } else {
-        load_existing_index_entry_for_commit(
-            index_reader,
-            index_store,
-            &group.index_fields,
-            insert_delta.as_ref(),
-            entity_path,
-        )?
-    };
-
     build_commit_ops_for_index_delta_pair(
         commit_ops,
         index_store,
@@ -642,37 +618,10 @@ where
         &group.index_fields,
         remove_delta,
         insert_delta,
-        old_entry,
-        new_entry,
     )
 }
 
-// Load and decode the current raw index entry for one membership delta.
-fn load_existing_index_entry_for_commit(
-    index_reader: &dyn StructuralIndexEntryReader,
-    store: &'static LocalKey<RefCell<crate::db::index::IndexStore>>,
-    index_fields: &str,
-    delta: Option<&IndexMembershipDelta>,
-    entity_path: &'static str,
-) -> Result<Option<IndexEntry>, InternalError> {
-    let Some(delta) = delta else {
-        return Ok(None);
-    };
-
-    let raw_key = delta.key.to_raw();
-
-    index_reader
-        .read_index_entry_structural(store, &raw_key)?
-        .map(|raw_entry| {
-            raw_entry.try_decode().map_err(|err| {
-                InternalError::structural_index_entry_corruption(entity_path, index_fields, err)
-            })
-        })
-        .transpose()
-}
-
 // Compute commit-time index operations for one old/new membership pair.
-#[expect(clippy::too_many_arguments)]
 fn build_commit_ops_for_index_delta_pair(
     commit_ops: &mut Vec<CommitIndexOp>,
     store: &'static LocalKey<RefCell<crate::db::index::IndexStore>>,
@@ -680,8 +629,6 @@ fn build_commit_ops_for_index_delta_pair(
     fields: &str,
     remove_delta: Option<IndexMembershipDelta>,
     insert_delta: Option<IndexMembershipDelta>,
-    old_entry: Option<IndexEntry>,
-    new_entry: Option<IndexEntry>,
 ) -> Result<(), InternalError> {
     // Phase 1: same-key transitions collapse into one entry mutation.
     if remove_delta
@@ -690,20 +637,13 @@ fn build_commit_ops_for_index_delta_pair(
         .is_some_and(|(old_delta, new_delta)| old_delta.key == new_delta.key)
     {
         if let Some(insert_delta) = insert_delta {
-            let old_primary_key = remove_delta.map(|delta| delta.primary_key);
-            let mut entry = old_entry.unwrap_or_else(|| IndexEntry::new(insert_delta.primary_key));
-            if let Some(old_primary_key) = old_primary_key {
-                entry.remove(old_primary_key);
-            }
-            entry.insert(insert_delta.primary_key);
-
             push_commit_op_for_index_entry(
                 commit_ops,
                 store,
                 entity_path,
                 fields,
                 insert_delta.key.to_raw(),
-                Some(entry),
+                Some(IndexEntry::new(insert_delta.primary_key)),
                 CommitIndexOp::unchanged,
             )?;
         }
@@ -717,28 +657,21 @@ fn build_commit_ops_for_index_delta_pair(
     let mut second: Option<(RawIndexKey, Option<IndexEntry>, CommitIndexOpBuilder)> = None;
 
     if let Some(remove_delta) = remove_delta {
-        let after = old_entry.map(|mut entry| {
-            entry.remove(remove_delta.primary_key);
-            entry
-        });
-        let after = after.filter(|entry| !entry.is_empty());
         insert_commit_candidate(
             &mut first,
             &mut second,
             remove_delta.key.to_raw(),
-            after,
+            None,
             CommitIndexOp::index_remove,
         );
     }
 
     if let Some(insert_delta) = insert_delta {
-        let mut entry = new_entry.unwrap_or_else(|| IndexEntry::new(insert_delta.primary_key));
-        entry.insert(insert_delta.primary_key);
         insert_commit_candidate(
             &mut first,
             &mut second,
             insert_delta.key.to_raw(),
-            Some(entry),
+            Some(IndexEntry::new(insert_delta.primary_key)),
             CommitIndexOp::index_insert,
         );
     }

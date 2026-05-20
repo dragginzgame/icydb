@@ -122,7 +122,7 @@ fn rebuild_secondary_indexes_in_place(
         let rows = handle.with_data(|data_store| {
             data_store
                 .entries()
-                .map(|entry| (*entry.key(), entry.value()))
+                .map(|entry| (entry.key().clone(), entry.value()))
                 .collect::<Vec<(RawDataKey, RawRow)>>()
         });
 

@@ -14,7 +14,7 @@ use crate::{
         },
         identity::EntityName,
         index::{
-            IndexEntry, IndexId, IndexKeyKind, IndexStore, RawIndexEntry, RawIndexKey,
+            IndexEntry, IndexId, IndexKey, IndexKeyKind, IndexStore, RawIndexEntry, RawIndexKey,
             StructuralIndexEntryReader, encode_canonical_index_component_from_storage_key,
             raw_keys_for_component_prefix_with_kind,
         },
@@ -421,11 +421,34 @@ fn reverse_index_id_for_relation(
     Ok(IndexId::new(source.entity_tag, ordinal))
 }
 
-/// Build a reverse-index key for one target storage key.
-pub(super) fn reverse_index_key_for_target_storage_key(
+/// Build reverse-index prefix bounds for one target storage key.
+pub(super) fn reverse_index_key_bounds_for_target_storage_key(
     source: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
     target_key_value: StorageKey,
+) -> Result<Option<(RawIndexKey, RawIndexKey)>, InternalError> {
+    let Ok(encoded_value) = encode_canonical_index_component_from_storage_key(target_key_value)
+    else {
+        return Ok(None);
+    };
+
+    let index_id = reverse_index_id_for_relation(source, relation)?;
+    let (start, end) = raw_keys_for_component_prefix_with_kind(
+        &index_id,
+        IndexKeyKind::System,
+        1,
+        std::slice::from_ref(&encoded_value),
+    );
+
+    Ok(Some((start, end)))
+}
+
+/// Build the concrete reverse-index key for one target/source relation edge.
+fn reverse_index_key_for_target_and_source_storage_key(
+    source: ReverseRelationSourceInfo,
+    relation: &AcceptedStrongRelationInfo,
+    target_key_value: StorageKey,
+    source_key_value: StorageKey,
 ) -> Result<Option<RawIndexKey>, InternalError> {
     let Ok(encoded_value) = encode_canonical_index_component_from_storage_key(target_key_value)
     else {
@@ -433,14 +456,14 @@ pub(super) fn reverse_index_key_for_target_storage_key(
     };
 
     let index_id = reverse_index_id_for_relation(source, relation)?;
-    let (key, _) = raw_keys_for_component_prefix_with_kind(
+    let key = IndexKey::new_from_components_with_kind(
         &index_id,
         IndexKeyKind::System,
-        1,
         std::slice::from_ref(&encoded_value),
+        source_key_value,
     );
 
-    Ok(Some(key))
+    Ok(Some(key.to_raw()))
 }
 
 // Read relation-target raw keys directly from one already-decoded structural
@@ -501,7 +524,7 @@ pub(super) fn decode_reverse_entry(
     index_key: &RawIndexKey,
     raw_entry: &RawIndexEntry,
 ) -> Result<IndexEntry, InternalError> {
-    raw_entry.try_decode().map_err(|err| {
+    raw_entry.try_decode_for_key(index_key).map_err(|err| {
         InternalError::reverse_index_entry_corrupted(
             source.path,
             relation.field_name(),
@@ -877,25 +900,25 @@ where
                     (Some(old_key), Some(new_key)) => match old_key.cmp(new_key) {
                         std::cmp::Ordering::Less => {
                             old_index += 1;
-                            (*old_key, true, false)
+                            (old_key.clone(), true, false)
                         }
                         std::cmp::Ordering::Greater => {
                             new_index += 1;
-                            (*new_key, false, true)
+                            (new_key.clone(), false, true)
                         }
                         std::cmp::Ordering::Equal => {
                             old_index += 1;
                             new_index += 1;
-                            (*old_key, true, true)
+                            (old_key.clone(), true, true)
                         }
                     },
                     (Some(old_key), None) => {
                         old_index += 1;
-                        (*old_key, true, false)
+                        (old_key.clone(), true, false)
                     }
                     (None, Some(new_key)) => {
                         new_index += 1;
-                        (*new_key, false, true)
+                        (new_key.clone(), false, true)
                     }
                     (None, None) => break,
                 };
@@ -917,10 +940,11 @@ where
                 );
             };
 
-            let Some(reverse_key) = reverse_index_key_for_target_storage_key(
+            let Some(reverse_key) = reverse_index_key_for_target_and_source_storage_key(
                 source,
                 &relation,
                 target_data_key.storage_key(),
+                source_storage_key,
             )?
             else {
                 continue;

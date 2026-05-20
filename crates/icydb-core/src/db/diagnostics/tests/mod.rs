@@ -253,7 +253,8 @@ fn index_id(entity_name: &str, field: &str) -> IndexId {
 
 fn index_key(kind: IndexKeyKind, entity_name: &str, field: &str) -> RawIndexKey {
     let id = index_id(entity_name, field);
-    IndexKey::empty_with_kind(&id, kind).to_raw()
+    let components: [Vec<u8>; 0] = [];
+    IndexKey::new_from_components_with_kind(&id, kind, &components, StorageKey::Int(1)).to_raw()
 }
 
 fn insert_index_entry(path: &'static str, key: RawIndexKey, entry: RawIndexEntry) {
@@ -585,7 +586,7 @@ fn storage_report_corrupted_index_value_detection() {
     reset_stores();
 
     let key = index_key(IndexKeyKind::User, "diag_index_entity", "email");
-    let corrupted_entry = <RawIndexEntry as Storable>::from_bytes(Cow::Owned(vec![0, 0, 0, 0]));
+    let corrupted_entry = <RawIndexEntry as Storable>::from_bytes(Cow::Owned(vec![9]));
     insert_index_entry(STORE_A_PATH, key, corrupted_entry);
 
     let report = diagnostics_report(&[]);

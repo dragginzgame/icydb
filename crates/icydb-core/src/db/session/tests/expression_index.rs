@@ -324,9 +324,9 @@ fn execute_sql_expression_order_index_range_scan_preserves_lower_name_order() {
             .visit_raw_entries_in_range(
                 (spec.lower(), spec.upper()),
                 Direction::Asc,
-                |_, raw_entry| {
+                |raw_key, raw_entry| {
                     let entry = raw_entry
-                        .try_decode()
+                        .try_decode_for_key(raw_key)
                         .expect("expression-order index range scan entry");
                     for storage_key in entry.iter_ids() {
                         keys.push(DataKey::new(

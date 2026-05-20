@@ -3,11 +3,14 @@
 //! Does not own: key/row validation policy beyond type boundaries.
 //! Boundary: commit/executor call into this layer after prevalidation.
 
-use crate::db::data::{CanonicalRow, DataKey, RawDataKey, RawRow};
+use crate::{
+    db::data::{CanonicalRow, DataKey, RawDataKey, RawRow},
+    types::EntityTag,
+};
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, btreemap::Iter, memory::VirtualMemory};
 #[cfg(feature = "diagnostics")]
 use std::cell::Cell;
-use std::ops::RangeBounds;
+use std::ops::{Bound, RangeBounds};
 
 #[cfg(feature = "diagnostics")]
 thread_local! {
@@ -111,11 +114,29 @@ impl DataStore {
         self.map.range(key_range)
     }
 
+    /// Iterate over raw row entries for one entity using compact prefix bounds.
+    pub(in crate::db) fn range_for_entity(
+        &self,
+        entity: EntityTag,
+    ) -> Iter<'_, RawDataKey, RawRow, VirtualMemory<DefaultMemoryImpl>> {
+        let range = DataKey::raw_entity_prefix_range_for(entity);
+        match range.upper_exclusive() {
+            Some(upper) => self.map.range((
+                Bound::Included(range.lower_inclusive().clone()),
+                Bound::Excluded(upper.clone()),
+            )),
+            None => self.map.range((
+                Bound::Included(range.lower_inclusive().clone()),
+                Bound::Unbounded,
+            )),
+        }
+    }
+
     /// Sum of bytes used by all stored rows.
     pub(in crate::db) fn memory_bytes(&self) -> u64 {
         // Report map footprint as key bytes + row bytes per entry.
         self.entries()
-            .map(|entry| DataKey::STORED_SIZE_BYTES + entry.value().len() as u64)
+            .map(|entry| entry.key().as_bytes().len() as u64 + entry.value().len() as u64)
             .sum()
     }
 

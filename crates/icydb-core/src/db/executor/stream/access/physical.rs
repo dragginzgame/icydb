@@ -150,12 +150,12 @@ impl KeyAccessRuntime {
         &self,
         direction: Direction,
         primary_scan_fetch_hint: Option<usize>,
-    ) -> Result<OrderedKeyStreamBox, InternalError> {
-        let start = DataKey::lower_bound_for(self.entity_tag);
-        let end = DataKey::upper_bound_for(self.entity_tag);
-
-        Ok(OrderedKeyStreamBox::primary_range(
-            PrimaryRangeKeyStream::new(self.store, start, end, direction, primary_scan_fetch_hint)?,
+    ) -> OrderedKeyStreamBox {
+        OrderedKeyStreamBox::primary_range(PrimaryRangeKeyStream::new_full_scan(
+            self.store,
+            self.entity_tag,
+            direction,
+            primary_scan_fetch_hint,
         ))
     }
 
@@ -305,7 +305,7 @@ impl KeyAccessRuntime {
 pub(in crate::db::executor) struct PrimaryRangeKeyStream {
     store: StoreHandle,
     lower_raw: RawDataKey,
-    upper_raw: RawDataKey,
+    upper_bound: Bound<RawDataKey>,
     direction: Direction,
     remaining: Option<usize>,
     last_raw_key: Option<RawDataKey>,
@@ -326,7 +326,7 @@ impl PrimaryRangeKeyStream {
         Ok(Self {
             store,
             lower_raw: start.to_raw()?,
-            upper_raw: end.to_raw()?,
+            upper_bound: Bound::Included(end.to_raw()?),
             direction,
             remaining: limit,
             last_raw_key: None,
@@ -334,6 +334,33 @@ impl PrimaryRangeKeyStream {
             buffer_pos: 0,
             exhausted: false,
         })
+    }
+
+    // Build one primary stream over all rows for one entity using compact
+    // raw-prefix bounds rather than synthetic primary-key sentinels.
+    pub(in crate::db::executor) fn new_full_scan(
+        store: StoreHandle,
+        entity: EntityTag,
+        direction: Direction,
+        limit: Option<usize>,
+    ) -> Self {
+        let range = DataKey::raw_entity_prefix_range_for(entity);
+        let upper_bound = range
+            .upper_exclusive()
+            .cloned()
+            .map_or(Bound::Unbounded, Bound::Excluded);
+
+        Self {
+            store,
+            lower_raw: range.lower_inclusive().clone(),
+            upper_bound,
+            direction,
+            remaining: limit,
+            last_raw_key: None,
+            buffer: Vec::new(),
+            buffer_pos: 0,
+            exhausted: false,
+        }
     }
 
     // Return the maximum number of keys to read during the next store borrow.
@@ -359,9 +386,10 @@ impl PrimaryRangeKeyStream {
                 Direction::Asc => {
                     let lower = self
                         .last_raw_key
-                        .map_or(Bound::Included(self.lower_raw), Bound::Excluded);
-                    for entry in store.range((lower, Bound::Included(self.upper_raw))) {
-                        let raw_key = *entry.key();
+                        .clone()
+                        .map_or_else(|| Bound::Included(self.lower_raw.clone()), Bound::Excluded);
+                    for entry in store.range((lower, self.upper_bound.clone())) {
+                        let raw_key = entry.key().clone();
                         keys.push(PrimaryScan::decode_data_key(&raw_key)?);
                         last_raw_key = Some(raw_key);
                         if keys.len() == chunk_limit {
@@ -372,9 +400,13 @@ impl PrimaryRangeKeyStream {
                 Direction::Desc => {
                     let upper = self
                         .last_raw_key
-                        .map_or(Bound::Included(self.upper_raw), Bound::Excluded);
-                    for entry in store.range((Bound::Included(self.lower_raw), upper)).rev() {
-                        let raw_key = *entry.key();
+                        .clone()
+                        .map_or_else(|| self.upper_bound.clone(), Bound::Excluded);
+                    for entry in store
+                        .range((Bound::Included(self.lower_raw.clone()), upper))
+                        .rev()
+                    {
+                        let raw_key = entry.key().clone();
                         keys.push(PrimaryScan::decode_data_key(&raw_key)?);
                         last_raw_key = Some(raw_key);
                         if keys.len() == chunk_limit {
@@ -443,8 +475,8 @@ impl OrderedKeyStream for PrimaryRangeKeyStream {
         Some(self.store.with_data(|store| {
             store
                 .range((
-                    Bound::Included(self.lower_raw),
-                    Bound::Included(self.upper_raw),
+                    Bound::Included(self.lower_raw.clone()),
+                    self.upper_bound.clone(),
                 ))
                 .count()
         }))
@@ -657,10 +689,10 @@ fn resolve_physical_key_stream(
             );
         }
         ExecutionPathPayload::FullScan => {
-            return runtime.resolve_full_scan_stream(
+            return Ok(runtime.resolve_full_scan_stream(
                 request.continuation.direction(),
                 primary_scan_fetch_hint,
-            );
+            ));
         }
         ExecutionPathPayload::IndexPrefix { .. } => {
             if index_path_can_stream_in_final_order(request) {

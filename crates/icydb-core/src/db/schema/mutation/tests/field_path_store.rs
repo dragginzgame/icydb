@@ -82,8 +82,7 @@ fn field_path_rebuild_write_batch_snapshots_physical_rollback_without_publicatio
     let buffer =
         super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged, &plan.execution_plan())
             .expect("valid staged rebuild should write into an in-memory staged store buffer");
-    let previous_entry =
-        RawIndexEntry::try_from_keys([StorageKey::Nat(99)]).expect("previous entry should encode");
+    let previous_entry = <RawIndexEntry as Storable>::from_bytes(Cow::Owned(vec![9]));
     let mut read_view = RecordingStagedStoreReadView::default();
     read_view.insert(
         buffer.store(),
@@ -159,8 +158,7 @@ fn field_path_rebuild_write_batch_derives_reverse_rollback_plan() {
     let buffer =
         super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged, &plan.execution_plan())
             .expect("valid staged rebuild should write into an in-memory staged store buffer");
-    let previous_entry =
-        RawIndexEntry::try_from_keys([StorageKey::Nat(99)]).expect("previous entry should encode");
+    let previous_entry = <RawIndexEntry as Storable>::from_bytes(Cow::Owned(vec![9]));
     let mut read_view = RecordingStagedStoreReadView::default();
     read_view.insert(
         buffer.store(),
@@ -224,8 +222,7 @@ fn field_path_rebuild_rollback_plan_reports_mocked_restore_and_remove_actions() 
     let buffer =
         super::SchemaFieldPathIndexStagedStore::from_rebuild(&staged, &plan.execution_plan())
             .expect("valid staged rebuild should write into an in-memory staged store buffer");
-    let previous_entry =
-        RawIndexEntry::try_from_keys([StorageKey::Nat(99)]).expect("previous entry should encode");
+    let previous_entry = <RawIndexEntry as Storable>::from_bytes(Cow::Owned(vec![9]));
     let mut read_view = RecordingStagedStoreReadView::default();
     read_view.insert(
         buffer.store(),
@@ -334,8 +331,7 @@ fn field_path_rebuild_isolated_index_store_writer_writes_and_rolls_back() {
 fn field_path_rebuild_isolated_index_store_validation_fails_closed() {
     let buffer = staged_name_index_store();
     let extra_entry = extra_staged_name_index_entry();
-    let previous_entry =
-        RawIndexEntry::try_from_keys([StorageKey::Nat(99)]).expect("previous entry should encode");
+    let previous_entry = <RawIndexEntry as Storable>::from_bytes(Cow::Owned(vec![9]));
     let batch = buffer.write_batch(&super::SchemaFieldPathIndexStagedStoreOverlay::new(
         buffer.store(),
     ));
@@ -737,8 +733,7 @@ fn field_path_rebuild_published_store_scope_rejects_extra_target_entries() {
 #[test]
 fn field_path_rebuild_staged_overlay_writes_and_rolls_back_without_index_store() {
     let buffer = staged_name_index_store();
-    let previous_entry =
-        RawIndexEntry::try_from_keys([StorageKey::Nat(99)]).expect("previous entry should encode");
+    let previous_entry = <RawIndexEntry as Storable>::from_bytes(Cow::Owned(vec![9]));
     let mut overlay = super::SchemaFieldPathIndexStagedStoreOverlay::from_entries(
         buffer.store(),
         [(buffer.entries()[0].key().clone(), previous_entry.clone())],
@@ -818,8 +813,7 @@ fn field_path_rebuild_staged_overlay_writes_and_rolls_back_without_index_store()
 fn field_path_rebuild_staged_overlay_validation_fails_closed() {
     let buffer = staged_name_index_store();
     let extra_entry = extra_staged_name_index_entry();
-    let previous_entry =
-        RawIndexEntry::try_from_keys([StorageKey::Nat(99)]).expect("previous entry should encode");
+    let previous_entry = <RawIndexEntry as Storable>::from_bytes(Cow::Owned(vec![9]));
     let batch = buffer.write_batch(&super::SchemaFieldPathIndexStagedStoreOverlay::new(
         buffer.store(),
     ));

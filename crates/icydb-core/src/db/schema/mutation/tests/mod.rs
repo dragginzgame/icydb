@@ -25,6 +25,7 @@ use crate::{
     model::field::FieldModel,
     model::field::{FieldStorageDecode, LeafCodec, ScalarCodec},
     testing::test_memory,
+    traits::Storable,
     types::EntityTag,
     value::Value,
 };

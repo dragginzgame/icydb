@@ -67,17 +67,15 @@ mod tests {
     use std::borrow::Cow;
 
     fn index_key_with_primary_storage_key(primary_key: StorageKey) -> IndexKey {
-        let primary_key_bytes = primary_key
-            .to_bytes()
-            .expect("test primary key should encode");
+        let primary_key_bytes = IndexKey::compact_primary_key_bytes(primary_key);
         let index_id = IndexId::new(crate::types::EntityTag::new(7), 0);
         let mut bytes = Vec::new();
         bytes.push(IndexKeyKind::User as u8);
         bytes.extend_from_slice(&index_id.to_bytes());
         bytes.push(0);
         bytes.extend_from_slice(
-            &u16::try_from(StorageKey::STORED_SIZE_USIZE)
-                .expect("storage-key size should fit in one index segment length")
+            &u16::try_from(primary_key_bytes.len())
+                .expect("compact primary-key size should fit in one index segment length")
                 .to_be_bytes(),
         );
         bytes.extend_from_slice(&primary_key_bytes);

@@ -315,7 +315,7 @@ pub(in crate::db) fn write_commit_marker_payload(
 fn commit_row_op_payload_capacity(row_op: &CommitRowOp) -> usize {
     let mut capacity = 4 + row_op.entity_path.len();
     capacity = capacity
-        .saturating_add(4 + DataKey::STORED_SIZE_USIZE)
+        .saturating_add(4 + row_op.key.as_bytes().len())
         .saturating_add(1)
         .saturating_add(COMMIT_MARKER_SCHEMA_FINGERPRINT_BYTES);
     if let Some(bytes) = &row_op.before {
@@ -503,16 +503,17 @@ fn read_len_prefixed_bytes<'a>(
 
 /// Decode a raw data key and validate its structural invariants.
 pub(in crate::db) fn decode_data_key(bytes: &[u8]) -> Result<(RawDataKey, DataKey), InternalError> {
-    // Phase 1: enforce fixed-size contract for data keys.
+    // Commit markers store the current data-key wire bytes length-prefixed.
+    // The 0.159 data-key format is variable-width, so this gate is a bounded
+    // maximum check; structural validation belongs to `DataKey::try_from_raw`.
     let len = bytes.len();
-    let expected = DataKey::STORED_SIZE_USIZE;
-    if len != expected {
+    let max = DataKey::STORED_SIZE_USIZE;
+    if len > max {
         return Err(InternalError::commit_component_length_invalid(
-            "data key", len, expected,
+            "data key", len, max,
         ));
     }
 
-    // Phase 2: decode and validate key shape.
     let raw = <RawDataKey as Storable>::from_bytes(Cow::Borrowed(bytes));
     let data_key = DataKey::try_from_raw(&raw)
         .map_err(|err| InternalError::commit_component_corruption("data key", err))?;

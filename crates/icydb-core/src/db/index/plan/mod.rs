@@ -556,7 +556,7 @@ pub(super) fn load_existing_entry_structural(
     read_view
         .read_index_entry(index, &raw_key)?
         .map(|raw_entry| {
-            raw_entry.try_decode().map_err(|err| {
+            raw_entry.try_decode_for_key(&raw_key).map_err(|err| {
                 InternalError::structural_index_entry_corruption(entity_path, index_fields, err)
             })
         })

@@ -346,7 +346,7 @@ fn commit_marker_rejects_row_op_with_invalid_key_length() {
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
     assert!(
-        err.message.contains("invalid length"),
+        err.message.contains("invalid primary key"),
         "unexpected error: {err:?}"
     );
 }

@@ -27,6 +27,7 @@ pub(in crate::db) mod data;
 pub(in crate::db) mod direction;
 pub(in crate::db) mod executor;
 pub(in crate::db) mod index;
+pub(in crate::db) mod key_taxonomy;
 pub(in crate::db) mod numeric;
 pub(in crate::db) mod relation;
 pub(in crate::db) mod sql_shared;

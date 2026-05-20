@@ -7,6 +7,7 @@ use crate::{
     db::{
         Db,
         data::{DataKey, RawDataKey, StructuralRowContract},
+        direction::Direction,
         registry::StoreHandle,
         relation::{
             RelationTargetDecodeContext, RelationTargetMismatchPolicy,
@@ -14,7 +15,8 @@ use crate::{
                 AcceptedStrongRelationInfo, ReverseRelationSourceInfo,
                 accepted_strong_relations_for_row_contract, decode_relation_target_data_key,
                 decode_reverse_entry, relation_target_store,
-                reverse_index_key_for_target_storage_key, source_row_references_relation_target,
+                reverse_index_key_bounds_for_target_storage_key,
+                source_row_references_relation_target,
             },
         },
         schema::ensure_accepted_schema_snapshot,
@@ -24,7 +26,7 @@ use crate::{
     traits::{CanisterKind, EntityKind, EntityValue, Path},
     value::{StorageKey, storage_key_as_runtime_value},
 };
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, ops::Bound};
 
 ///
 /// BlockedDeleteProof
@@ -132,11 +134,12 @@ where
             };
             let target_storage_key = target_data_key.storage_key();
 
-            let Some(reverse_key) = reverse_index_key_for_target_storage_key(
-                source_info,
-                &relation,
-                target_storage_key,
-            )?
+            let Some((reverse_start, reverse_end)) =
+                reverse_index_key_bounds_for_target_storage_key(
+                    source_info,
+                    &relation,
+                    target_storage_key,
+                )?
             else {
                 continue;
             };
@@ -149,53 +152,68 @@ where
                 blocked_deletes: 0,
             });
 
-            let Some(raw_entry) = target_index_store.with_borrow(|store| store.get(&reverse_key))
-            else {
-                continue;
-            };
+            let bounds = (Bound::Included(reverse_start), Bound::Excluded(reverse_end));
+            let mut blocked = None;
+            target_index_store.with_borrow(|store| {
+                store.visit_raw_entries_in_range(
+                    (&bounds.0, &bounds.1),
+                    Direction::Asc,
+                    |reverse_key, raw_entry| {
+                        let entry =
+                            decode_reverse_entry(source_info, &relation, reverse_key, raw_entry)?;
 
-            let entry = decode_reverse_entry(source_info, &relation, &reverse_key, &raw_entry)?;
+                        // Phase 2: verify each candidate source row before rejecting delete.
+                        for source_key in entry.iter_ids() {
+                            let source_data_key =
+                                DataKey::new(source_info.entity_tag(), source_key);
+                            let source_raw_key = source_data_key.to_raw()?;
+                            let source_raw_row =
+                                source_store.with_data(|store| store.get(&source_raw_key));
 
-            // Phase 2: verify each candidate source row before rejecting delete.
-            for source_key in entry.iter_ids() {
-                let source_data_key = DataKey::new(source_info.entity_tag(), source_key);
-                let source_raw_key = source_data_key.to_raw()?;
-                let source_raw_row = source_store.with_data(|store| store.get(&source_raw_key));
+                            let Some(source_raw_row) = source_raw_row else {
+                                let target = relation.target();
+                                return Err(InternalError::reverse_index_entry_corrupted(
+                                    source_path,
+                                    relation.field_name(),
+                                    target.path(),
+                                    reverse_key,
+                                    format!(
+                                        "reverse index points at missing source row: source_id={source_key:?} key={:?}",
+                                        target_data_key.storage_key(),
+                                    ),
+                                ));
+                            };
 
-                let Some(source_raw_row) = source_raw_row else {
-                    let target = relation.target();
-                    return Err(InternalError::reverse_index_entry_corrupted(
-                        source_path,
-                        relation.field_name(),
-                        target.path(),
-                        &reverse_key,
-                        format!(
-                            "reverse index points at missing source row: source_id={source_key:?} key={:?}",
-                            target_data_key.storage_key(),
-                        ),
-                    ));
-                };
+                            let still_references_target = source_row_references_relation_target(
+                                &source_raw_row,
+                                source_row_contract.clone(),
+                                source_info,
+                                &relation,
+                                target_storage_key,
+                            )?;
+                            if still_references_target {
+                                record(MetricsEvent::RelationValidation {
+                                    entity_path: source_path,
+                                    reverse_lookups: 0,
+                                    blocked_deletes: 1,
+                                });
 
-                let still_references_target = source_row_references_relation_target(
-                    &source_raw_row,
-                    source_row_contract.clone(),
-                    source_info,
-                    &relation,
-                    target_storage_key,
-                )?;
-                if still_references_target {
-                    record(MetricsEvent::RelationValidation {
-                        entity_path: source_path,
-                        reverse_lookups: 0,
-                        blocked_deletes: 1,
-                    });
+                                blocked = Some(BlockedDeleteProof {
+                                    relation: relation.clone(),
+                                    source_data_key,
+                                    target_key: target_storage_key,
+                                });
+                                return Ok(true);
+                            }
+                        }
 
-                    return Ok(Some(BlockedDeleteProof {
-                        relation,
-                        source_data_key,
-                        target_key: target_storage_key,
-                    }));
-                }
+                        Ok(false)
+                    },
+                )
+            })?;
+
+            if let Some(blocked) = blocked {
+                return Ok(Some(blocked));
             }
         }
     }

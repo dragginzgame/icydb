@@ -1444,25 +1444,6 @@ impl InternalError {
         ))
     }
 
-    /// Construct the canonical duplicate-key invariant during commit entry encoding.
-    #[cfg(test)]
-    pub(crate) fn index_entry_duplicate_keys_unexpected(entity_path: &str, fields: &str) -> Self {
-        Self::index_invariant(format!(
-            "index entry unexpectedly contains duplicate keys: {entity_path} ({fields})",
-        ))
-    }
-
-    /// Construct the canonical index-entry key-encoding unsupported error during commit encoding.
-    pub(crate) fn index_entry_key_encoding_failed(
-        entity_path: &str,
-        fields: &str,
-        err: impl fmt::Display,
-    ) -> Self {
-        Self::index_unsupported(format!(
-            "index entry key encoding failed: {entity_path} ({fields}) -> {err}",
-        ))
-    }
-
     /// Construct a serialize-origin unsupported error.
     pub(crate) fn serialize_unsupported(message: impl Into<String>) -> Self {
         Self::new(

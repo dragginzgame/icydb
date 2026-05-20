@@ -51,7 +51,7 @@ where
     // Phase 1: reject target deletes that are still strongly referenced.
     let deleted_target_keys = rollback_rows
         .iter()
-        .map(|(raw_key, _)| *raw_key)
+        .map(|(raw_key, _)| raw_key.clone())
         .collect::<BTreeSet<_>>();
     db.validate_delete_strong_relations(authority.entity.entity_path(), &deleted_target_keys)?;
 
