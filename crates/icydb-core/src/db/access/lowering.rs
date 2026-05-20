@@ -120,7 +120,6 @@ pub(in crate::db) fn lower_access<K>(
 pub(in crate::db) struct LoweredIndexScanContract {
     name: String,
     store_path: String,
-    unique: bool,
 }
 
 impl LoweredIndexScanContract {
@@ -129,7 +128,6 @@ impl LoweredIndexScanContract {
         Self {
             name: index.name().to_string(),
             store_path: index.store_path().to_string(),
-            unique: index.is_unique(),
         }
     }
 
@@ -141,11 +139,6 @@ impl LoweredIndexScanContract {
     #[must_use]
     pub(in crate::db) const fn store_path(&self) -> &str {
         self.store_path.as_str()
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn unique(&self) -> bool {
-        self.unique
     }
 }
 

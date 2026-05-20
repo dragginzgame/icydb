@@ -14,7 +14,6 @@ use crate::{
         executor::{
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract, LoweredKey,
             record_row_check_index_entry_scanned, record_row_check_index_membership_key_decoded,
-            record_row_check_index_membership_multi_key_entry,
             record_row_check_index_membership_single_key_entry,
         },
         index::{
@@ -109,7 +108,6 @@ impl IndexScan {
         Self::resolve_data_values_in_raw_range_limited(
             store,
             entity_tag,
-            spec.scan_contract(),
             spec.lower(),
             spec.upper(),
             IndexScanContinuationInput::new(None, direction),
@@ -181,7 +179,6 @@ impl IndexScan {
         Self::resolve_data_values_in_raw_range_limited(
             store,
             entity_tag,
-            spec.scan_contract(),
             spec.lower(),
             spec.upper(),
             continuation,
@@ -191,11 +188,9 @@ impl IndexScan {
     }
 
     /// Resolve one bounded lowered-index chunk through structural store authority.
-    #[expect(clippy::too_many_arguments)]
     pub(in crate::db::executor) fn chunk_structural(
         store: StoreHandle,
         entity_tag: EntityTag,
-        index: LoweredIndexScanContract,
         lower: &Bound<LoweredKey>,
         upper: &Bound<LoweredKey>,
         continuation: IndexScanContinuationInput<'_>,
@@ -205,7 +200,6 @@ impl IndexScan {
         Self::resolve_chunk(
             store,
             entity_tag,
-            index,
             lower,
             upper,
             continuation,
@@ -215,11 +209,9 @@ impl IndexScan {
     }
 
     // Resolve one index range via store registry and index-store iterator boundary.
-    #[expect(clippy::too_many_arguments)]
     fn resolve_data_values_in_raw_range_limited(
         store: StoreHandle,
         entity_tag: EntityTag,
-        index: LoweredIndexScanContract,
         lower: &Bound<LoweredKey>,
         upper: &Bound<LoweredKey>,
         continuation: IndexScanContinuationInput<'_>,
@@ -248,7 +240,6 @@ impl IndexScan {
 
                     Self::decode_index_entry_and_push(
                         entity_tag,
-                        &index,
                         raw_key,
                         value,
                         &mut keys,
@@ -264,11 +255,9 @@ impl IndexScan {
     }
 
     // Resolve one index range chunk via store registry and index-store iterator boundary.
-    #[expect(clippy::too_many_arguments)]
     fn resolve_chunk(
         store: StoreHandle,
         entity_tag: EntityTag,
-        index: LoweredIndexScanContract,
         lower: &Bound<LoweredKey>,
         upper: &Bound<LoweredKey>,
         continuation: IndexScanContinuationInput<'_>,
@@ -301,7 +290,6 @@ impl IndexScan {
 
                     if Self::decode_index_entry_and_push(
                         entity_tag,
-                        &index,
                         raw_key,
                         value,
                         &mut keys,
@@ -330,10 +318,8 @@ impl IndexScan {
         continuation.accept_key(ContinuationKeyRef::scan(raw_key))
     }
 
-    #[expect(clippy::too_many_arguments)]
     fn decode_index_entry_and_push(
         entity: EntityTag,
-        index: &LoweredIndexScanContract,
         raw_key: &RawIndexKey,
         value: &RawIndexEntry,
         out: &mut Vec<DataKey>,
@@ -353,57 +339,22 @@ impl IndexScan {
             }
         }
 
-        // Phase 2: fast-path one-key entries without allocating the full
-        // membership vector.
-        if let Some(membership) = value
+        // Phase 2: decode the key-owned membership. The raw index key now owns
+        // row identity; the raw entry value carries only the existence witness.
+        let membership = value
             .decode_single_membership(raw_key)
-            .map_err(InternalError::index_entry_decode_failed)?
-        {
-            record_row_check_index_membership_single_key_entry();
-            record_row_check_index_membership_key_decoded();
-            out.push(Self::data_key_from_membership(entity, &membership));
-
-            if let Some(limit) = limit
-                && out.len() == limit
-            {
-                return Ok(true);
-            }
-
-            return Ok(false);
-        }
-
-        // Phase 3: stream multi-key entry payloads without first allocating a
-        // membership vector, but still validate the full entry before returning.
-        let mut halted = false;
-        let mut decoded_keys = 0usize;
-        record_row_check_index_membership_multi_key_entry();
-        let mut storage_keys = value
-            .iter_memberships(raw_key)
             .map_err(InternalError::index_entry_decode_failed)?;
+        record_row_check_index_membership_single_key_entry();
+        record_row_check_index_membership_key_decoded();
+        out.push(Self::data_key_from_membership(entity, &membership));
 
-        for storage_key in &mut storage_keys {
-            let membership = storage_key.map_err(InternalError::index_entry_decode_failed)?;
-            decoded_keys = decoded_keys.saturating_add(1);
-            record_row_check_index_membership_key_decoded();
-
-            if halted {
-                continue;
-            }
-
-            out.push(Self::data_key_from_membership(entity, &membership));
-
-            if let Some(limit) = limit
-                && out.len() == limit
-            {
-                halted = true;
-            }
+        if let Some(limit) = limit
+            && out.len() == limit
+        {
+            return Ok(true);
         }
 
-        if index.unique() && decoded_keys != 1 {
-            return Err(InternalError::unique_index_entry_single_key_required());
-        }
-
-        Ok(halted)
+        Ok(false)
     }
 
     #[expect(clippy::too_many_arguments)]
@@ -442,65 +393,26 @@ impl IndexScan {
             return Ok(false);
         }
 
-        // Phase 2: fast-path one-key entries without allocating the full
-        // membership vector.
-        if let Some(membership) = value
+        // Phase 2: decode the key-owned membership. The raw index key now owns
+        // row identity; the raw entry value carries only the existence witness.
+        let membership = value
             .decode_single_membership(raw_key)
-            .map_err(InternalError::index_entry_decode_failed)?
-        {
-            record_row_check_index_membership_single_key_entry();
-            record_row_check_index_membership_key_decoded();
-            out.push((
-                Self::data_key_from_membership(entity, &membership),
-                membership.existence_witness(),
-                components,
-            ));
-
-            if let Some(limit) = limit
-                && out.len() == limit
-            {
-                return Ok(true);
-            }
-
-            return Ok(false);
-        }
-
-        // Phase 3: stream multi-key entry payloads without first allocating a
-        // membership vector, but still validate the full entry before returning.
-        let mut halted = false;
-        let mut decoded_keys = 0usize;
-        record_row_check_index_membership_multi_key_entry();
-        let mut memberships = value
-            .iter_memberships(raw_key)
             .map_err(InternalError::index_entry_decode_failed)?;
+        record_row_check_index_membership_single_key_entry();
+        record_row_check_index_membership_key_decoded();
+        out.push((
+            Self::data_key_from_membership(entity, &membership),
+            membership.existence_witness(),
+            components,
+        ));
 
-        for membership in &mut memberships {
-            let membership = membership.map_err(InternalError::index_entry_decode_failed)?;
-            decoded_keys = decoded_keys.saturating_add(1);
-            record_row_check_index_membership_key_decoded();
-
-            if halted {
-                continue;
-            }
-
-            out.push((
-                Self::data_key_from_membership(entity, &membership),
-                membership.existence_witness(),
-                Arc::clone(&components),
-            ));
-
-            if let Some(limit) = limit
-                && out.len() == limit
-            {
-                halted = true;
-            }
+        if let Some(limit) = limit
+            && out.len() == limit
+        {
+            return Ok(true);
         }
 
-        if index.unique() && decoded_keys != 1 {
-            return Err(InternalError::unique_index_entry_single_key_required());
-        }
-
-        Ok(halted)
+        Ok(false)
     }
 
     // Rebuild one data key from the raw membership payload without re-encoding

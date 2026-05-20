@@ -178,12 +178,8 @@ impl IndexEntry {
         Self { ids }
     }
 
-    pub(crate) fn insert(&mut self, id: StorageKey) {
-        self.ids.insert(id);
-    }
-
-    pub(crate) fn remove(&mut self, id: StorageKey) {
-        self.ids.remove(&id);
+    pub(crate) fn iter_ids(&self) -> impl Iterator<Item = StorageKey> + '_ {
+        self.ids.iter().copied()
     }
 
     #[must_use]
@@ -192,17 +188,8 @@ impl IndexEntry {
     }
 
     #[must_use]
-    pub(crate) fn is_empty(&self) -> bool {
-        self.ids.is_empty()
-    }
-
-    #[must_use]
     pub(crate) fn len(&self) -> usize {
         self.ids.len()
-    }
-
-    pub(crate) fn iter_ids(&self) -> impl Iterator<Item = StorageKey> + '_ {
-        self.ids.iter().copied()
     }
 }
 
@@ -272,32 +259,25 @@ impl RawIndexEntry {
         Ok(IndexEntry { ids })
     }
 
-    /// Decode this raw entry and append membership storage keys until `limit`
-    /// is reached.
+    /// Decode this key-owned raw entry and append its storage key if `limit`
+    /// has not been reached.
     ///
-    /// The helper rebuilds membership from the raw index key, then emits
-    /// through `IndexEntry::iter_ids()` so callers keep the same canonical
-    /// storage-key iteration boundary.
+    /// The raw index key owns row identity; the raw value only validates the
+    /// existence witness. This helper exists for structural preflight readers
+    /// that do not need the witness itself.
     pub(in crate::db) fn push_membership_storage_keys_limited<E>(
         &self,
         raw_key: &RawIndexKey,
-        index_is_unique: bool,
         out: &mut Vec<StorageKey>,
         limit: usize,
         map_corruption: impl FnOnce(IndexEntryCorruption) -> E,
-        unique_entry_error: impl FnOnce() -> E,
     ) -> Result<bool, E> {
-        let entry = self.try_decode_for_key(raw_key).map_err(map_corruption)?;
-
-        if index_is_unique && entry.len() != 1 {
-            return Err(unique_entry_error());
-        }
-
-        for key in entry.iter_ids() {
-            out.push(key);
-            if out.len() >= limit {
-                return Ok(true);
-            }
+        let membership = self
+            .decode_single_membership(raw_key)
+            .map_err(map_corruption)?;
+        out.push(membership.storage_key());
+        if out.len() >= limit {
+            return Ok(true);
         }
 
         Ok(false)
@@ -336,29 +316,26 @@ impl RawIndexEntry {
         Ok(keys)
     }
 
-    // Decode one single-key entry without allocating the full membership
-    // vector when the frame declares exactly one storage key.
+    // Decode the key-owned raw entry membership without allocating a temporary
+    // membership vector.
     #[cfg(test)]
     pub(crate) fn decode_single_key(
         &self,
         raw_key: &RawIndexKey,
-    ) -> Result<Option<StorageKey>, IndexEntryCorruption> {
-        Ok(self
-            .decode_single_membership(raw_key)?
-            .map(IndexEntryMembership::storage_key))
+    ) -> Result<StorageKey, IndexEntryCorruption> {
+        Ok(self.decode_single_membership(raw_key)?.storage_key())
     }
 
-    // Decode one single-key entry plus its storage-owned existence witness
-    // without allocating the full membership vector when the frame declares
-    // exactly one storage key.
+    // Decode the key-owned raw entry membership plus its storage-owned
+    // existence witness without allocating a temporary membership vector.
     pub(in crate::db) fn decode_single_membership(
         &self,
         raw_key: &RawIndexKey,
-    ) -> Result<Option<IndexEntryMembership>, IndexEntryCorruption> {
+    ) -> Result<IndexEntryMembership, IndexEntryCorruption> {
         let witness = self.validate_witness()?;
         let storage_key = storage_key_from_raw_index_key(raw_key)?;
 
-        Ok(Some(IndexEntryMembership::new(storage_key, witness)))
+        Ok(IndexEntryMembership::new(storage_key, witness))
     }
 
     // Stream the validated storage-key membership set without first allocating
@@ -559,7 +536,26 @@ mod tests {
 
         assert_eq!(
             raw.decode_single_key(&raw_key).expect("decode single key"),
-            Some(key)
+            key
+        );
+    }
+
+    #[test]
+    fn raw_index_entry_membership_is_owned_by_raw_key_not_value_constructor_input() {
+        let constructor_key = StorageKey::Int(9);
+        let raw_key_key = StorageKey::Nat(42);
+        let raw_key = raw_key_for(raw_key_key);
+        let raw = RawIndexEntry::try_from_keys([constructor_key]).expect("encode index entry");
+
+        assert_eq!(
+            raw.decode_single_key(&raw_key)
+                .expect("decode key-owned membership"),
+            raw_key_key
+        );
+        assert_eq!(
+            raw.as_bytes(),
+            &[IndexEntryExistenceWitness::Present.to_stored_byte()],
+            "raw index-entry values must stay presence-only"
         );
     }
 
@@ -596,8 +592,7 @@ mod tests {
         let raw = RawIndexEntry::try_from_keys([key]).expect("encode index entry");
         let membership = raw
             .decode_single_membership(&raw_key)
-            .expect("decode single membership")
-            .expect("single-key entry should decode");
+            .expect("decode single membership");
 
         assert_eq!(membership.storage_key(), key);
         assert_eq!(

@@ -700,12 +700,6 @@ impl InternalError {
         Self::store_internal("missing raw row for delete rollback")
     }
 
-    /// Construct the canonical memory-registry initialization failure for commit memory.
-    #[cfg_attr(test, allow(dead_code))]
-    pub(crate) fn commit_memory_registry_init_failed(err: impl fmt::Display) -> Self {
-        Self::store_internal(format!("memory registry init failed: {err}"))
-    }
-
     /// Construct the canonical recovery-integrity totals corruption error.
     pub(crate) fn recovery_integrity_validation_failed(
         missing_index_entries: u64,
@@ -816,14 +810,6 @@ impl InternalError {
     #[inline(never)]
     pub(crate) fn store_corruption(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Corruption, ErrorOrigin::Store, message.into())
-    }
-
-    /// Construct the canonical multiple-commit-memory-ids corruption error.
-    #[cfg_attr(test, allow(dead_code))]
-    pub(crate) fn multiple_commit_memory_ids_registered(ids: impl fmt::Debug) -> Self {
-        Self::store_corruption(format!(
-            "multiple commit marker memory ids registered: {ids:?}"
-        ))
     }
 
     /// Construct a store-origin commit-marker corruption error.
@@ -1003,11 +989,6 @@ impl InternalError {
         Self::index_invariant(format!(
             "index projection referenced missing component: index='{index_name}' component_index={component_index}",
         ))
-    }
-
-    /// Construct the canonical unexpected unique index-entry cardinality corruption error.
-    pub(crate) fn unique_index_entry_single_key_required() -> Self {
-        Self::index_corruption("unique index entry contains an unexpected number of keys")
     }
 
     /// Construct the canonical scan-time index-entry decode corruption error.
@@ -1205,18 +1186,6 @@ impl InternalError {
         ))
     }
 
-    /// Construct the canonical reverse-index entry encode unsupported error.
-    pub(crate) fn reverse_index_entry_encode_failed(
-        source_path: &str,
-        field_name: &str,
-        target_path: &str,
-        detail: impl fmt::Display,
-    ) -> Self {
-        Self::index_unsupported(format!(
-            "reverse index entry encoding failed: source={source_path} field={field_name} target={target_path} ({detail})",
-        ))
-    }
-
     /// Construct the canonical relation-target store missing internal error.
     pub(crate) fn relation_target_store_missing(
         source_path: &str,
@@ -1382,32 +1351,6 @@ impl InternalError {
         Self::store_unsupported(format!(
             "unsupported entity tag in data store: '{}'",
             entity_tag.value()
-        ))
-    }
-
-    /// Construct the canonical configured-vs-registered commit-memory id mismatch error.
-    #[cfg_attr(test, allow(dead_code))]
-    pub(crate) fn configured_commit_memory_id_mismatch(
-        configured_id: u8,
-        registered_id: u8,
-    ) -> Self {
-        Self::store_unsupported(format!(
-            "configured commit memory id {configured_id} does not match existing commit marker id {registered_id}",
-        ))
-    }
-
-    /// Construct the canonical unregistered commit-memory stable key error.
-    #[cfg_attr(test, allow(dead_code))]
-    pub(crate) fn commit_memory_stable_key_unregistered(memory_id: u8, stable_key: &str) -> Self {
-        Self::store_unsupported(format!(
-            "configured commit memory id {memory_id} is not declared with stable key '{stable_key}'",
-        ))
-    }
-
-    /// Construct the canonical out-of-range commit-memory id unsupported error.
-    pub(crate) fn commit_memory_id_outside_reserved_ranges(memory_id: u8) -> Self {
-        Self::store_unsupported(format!(
-            "configured commit memory id {memory_id} is outside reserved ranges",
         ))
     }
 

@@ -10,9 +10,8 @@ use crate::{
         data::{DataKey, RawDataKey},
         direction::Direction,
         executor::{
-            IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract,
-            LoweredKey, OrderedKeyStream, OrderedKeyStreamBox, PrimaryScan,
-            ordered_key_stream_from_materialized_keys,
+            IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, OrderedKeyStream,
+            OrderedKeyStreamBox, PrimaryScan, ordered_key_stream_from_materialized_keys,
             pipeline::contracts::AccessScanContinuationInput,
             route::primary_scan_fetch_hint_shape_supported, traversal::IndexRangeTraversalContract,
         },
@@ -495,7 +494,6 @@ impl OrderedKeyStream for PrimaryRangeKeyStream {
 pub(in crate::db::executor) struct IndexRangeKeyStream {
     store: StoreHandle,
     entity_tag: EntityTag,
-    index: LoweredIndexScanContract,
     lower: Bound<LoweredKey>,
     upper: Bound<LoweredKey>,
     direction: Direction,
@@ -518,7 +516,6 @@ impl IndexRangeKeyStream {
         Self::new(
             store,
             entity_tag,
-            spec.scan_contract(),
             spec.lower().clone(),
             spec.upper().clone(),
             direction,
@@ -538,7 +535,6 @@ impl IndexRangeKeyStream {
         Self::new(
             store,
             entity_tag,
-            spec.scan_contract(),
             spec.lower().clone(),
             spec.upper().clone(),
             continuation.direction(),
@@ -547,11 +543,9 @@ impl IndexRangeKeyStream {
         )
     }
 
-    #[expect(clippy::too_many_arguments)]
     const fn new(
         store: StoreHandle,
         entity_tag: EntityTag,
-        index: LoweredIndexScanContract,
         lower: Bound<LoweredKey>,
         upper: Bound<LoweredKey>,
         direction: Direction,
@@ -561,7 +555,6 @@ impl IndexRangeKeyStream {
         Self {
             store,
             entity_tag,
-            index,
             lower,
             upper,
             direction,
@@ -589,7 +582,6 @@ impl IndexRangeKeyStream {
         let chunk = IndexScan::chunk_structural(
             self.store,
             self.entity_tag,
-            self.index.clone(),
             &self.lower,
             &self.upper,
             continuation,

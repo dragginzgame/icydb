@@ -251,17 +251,6 @@ pub(in crate::db::executor) fn record_row_check_index_membership_single_key_entr
 pub(in crate::db::executor) const fn record_row_check_index_membership_single_key_entry() {}
 
 #[cfg(any(test, feature = "diagnostics"))]
-pub(in crate::db::executor) fn record_row_check_index_membership_multi_key_entry() {
-    update_row_check_metrics(|metrics| {
-        metrics.index_membership_multi_key_entries =
-            metrics.index_membership_multi_key_entries.saturating_add(1);
-    });
-}
-
-#[cfg(not(any(test, feature = "diagnostics")))]
-pub(in crate::db::executor) const fn record_row_check_index_membership_multi_key_entry() {}
-
-#[cfg(any(test, feature = "diagnostics"))]
 pub(in crate::db::executor) fn record_row_check_index_membership_key_decoded() {
     update_row_check_metrics(|metrics| {
         metrics.index_membership_keys_decoded =

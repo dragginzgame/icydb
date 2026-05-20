@@ -49,7 +49,7 @@ Keep this file small. Open detailed governance docs only when the task needs the
 
 ## Final Response
 
-Final reports should be concise and include only:
+Final reports should be brief, nicely formatted, and include only:
 
 - summary
 - files changed, using absolute paths

@@ -1057,6 +1057,7 @@ fn lowered_executor_scans_use_reduced_index_scan_facts() {
     let access_lowering = read_source("src/db/access/lowering.rs");
     let index_scan = read_source("src/db/executor/stream/access/scan.rs");
     let physical_access = read_source("src/db/executor/stream/access/physical.rs");
+    let covering = read_source("src/db/executor/covering.rs");
 
     assert!(
         access_lowering.contains("pub(in crate::db) struct LoweredIndexScanContract")
@@ -1071,11 +1072,12 @@ fn lowered_executor_scans_use_reduced_index_scan_facts() {
                 "pub(in crate::db) struct LoweredIndexRangeSpec {\n    index: IndexModel"
             )
             && index_scan.contains("index: LoweredIndexScanContract")
-            && index_scan.contains("spec.scan_contract()")
-            && index_scan.contains("index.unique()")
+            && index_scan.contains("index: &LoweredIndexScanContract")
             && index_scan.contains("index.name()")
-            && physical_access.contains("index: LoweredIndexScanContract")
-            && physical_access.contains("spec.scan_contract()"),
+            && physical_access.contains("IndexScan::range_structural(")
+            && covering.contains("let scan_contract = spec.scan_contract()")
+            && covering.contains("scan_contract.store_path()")
+            && covering.contains("IndexScan::components_structural("),
         "lowered executor scan specs must reduce generated index models to scan facts after raw bounds are materialized",
     );
 }

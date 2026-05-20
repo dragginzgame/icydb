@@ -45,9 +45,8 @@ repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
 candid = "0.10"
-canic-cdk = "0.39.1"
-canic-memory = "0.39.1"
-canic-testkit = "0.39.1"
+canic-cdk = "0.40.2"
+canic-testkit = "0.40.2"
 convert_case = "0.11"
 ctor = "1.0.0"
 darling = "0.23"
@@ -59,6 +58,7 @@ derive_more = { version = "2.0", default-features = false, features = [
     "into_iterator",
     "sum",
 ] }
+ic-memory = "0.5.1"
 icydb = { path = "crates/icydb", version = "0.159.0" }
 icydb-build = { path = "crates/icydb-build", version = "0.159.0" }
 icydb-config-build = { path = "crates/icydb-config-build", version = "0.159.0" }

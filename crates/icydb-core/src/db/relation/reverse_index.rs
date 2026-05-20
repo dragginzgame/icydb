@@ -15,7 +15,7 @@ use crate::{
         identity::EntityName,
         index::{
             IndexEntry, IndexId, IndexKey, IndexKeyKind, IndexStore, RawIndexEntry, RawIndexKey,
-            StructuralIndexEntryReader, encode_canonical_index_component_from_storage_key,
+            encode_canonical_index_component_from_storage_key,
             raw_keys_for_component_prefix_with_kind,
         },
         relation::{RelationTargetDecodeContext, RelationTargetMismatchPolicy},
@@ -517,7 +517,7 @@ fn canonicalize_relation_target_keys(keys: &mut Vec<RawDataKey>) {
     keys.dedup();
 }
 
-/// Decode a reverse-index entry into source-key membership.
+/// Decode a reverse-index entry into source-key membership for validation.
 pub(super) fn decode_reverse_entry(
     source: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
@@ -530,22 +530,6 @@ pub(super) fn decode_reverse_entry(
             relation.field_name(),
             relation.target().path(),
             index_key,
-            err,
-        )
-    })
-}
-
-/// Encode a reverse-index entry with bounded-size error mapping.
-fn encode_reverse_entry(
-    source: ReverseRelationSourceInfo,
-    relation: &AcceptedStrongRelationInfo,
-    entry: &IndexEntry,
-) -> Result<RawIndexEntry, InternalError> {
-    RawIndexEntry::try_from_entry(entry).map_err(|err| {
-        InternalError::reverse_index_entry_encode_failed(
-            source.path,
-            relation.field_name(),
-            relation.target().path(),
             err,
         )
     })
@@ -774,62 +758,29 @@ fn validate_relation_key_kind(key_kind: &PersistedFieldKind) -> Result<(), Inter
 
 /// Build one reverse-index mutation for one touched target key.
 fn prepare_reverse_relation_index_mutation_for_target(
-    source: ReverseRelationSourceInfo,
-    relation: &AcceptedStrongRelationInfo,
     target: ReverseRelationMutationTarget,
-    existing: Option<&RawIndexEntry>,
-    source_storage_key: StorageKey,
-) -> Result<Option<PreparedIndexMutation>, InternalError> {
+) -> Option<PreparedIndexMutation> {
     if target.old_contains == target.new_contains {
-        return Ok(None);
+        return None;
     }
 
-    let mut entry = existing
-        .map(|raw| decode_reverse_entry(source, relation, &target.reverse_key, raw))
-        .transpose()?;
+    // Each reverse-index raw key now includes both target and source keys, so
+    // the value is just the one-byte existence witness for that edge.
+    let next_value = target.new_contains.then(RawIndexEntry::presence);
 
-    // Phase 1: mutate the stored reverse-index membership directly from the
-    // old/new target-membership booleans. The authoritative source key is the
-    // already-validated commit key, so the old/new lanes do not need separate
-    // optional key plumbing here.
-    if target.old_contains
-        && let Some(current) = entry.as_mut()
-    {
-        current.remove(source_storage_key);
-    }
-
-    if target.new_contains {
-        if let Some(current) = entry.as_mut() {
-            current.insert(source_storage_key);
-        } else {
-            entry = Some(IndexEntry::new(source_storage_key));
-        }
-    }
-
-    let next_value = if let Some(next_entry) = entry {
-        if next_entry.is_empty() {
-            None
-        } else {
-            Some(encode_reverse_entry(source, relation, &next_entry)?)
-        }
-    } else {
-        None
-    };
-
-    Ok(Some(PreparedIndexMutation::from_reverse_index_membership(
+    Some(PreparedIndexMutation::from_reverse_index_membership(
         target.target_store,
         target.reverse_key,
         next_value,
         target.old_contains,
         target.new_contains,
-    )))
+    ))
 }
 
 /// Prepare reverse-index mutations for one source entity transition using
 /// already-decoded structural slot readers from commit preflight.
 pub(crate) fn prepare_reverse_relation_index_mutations_for_source_slot_readers<C>(
     db: &Db<C>,
-    index_reader: &dyn StructuralIndexEntryReader,
     source: ReverseRelationSourceInfo,
     source_row_contract: StructuralRowContract,
     source_storage_key: StorageKey,
@@ -847,7 +798,6 @@ where
 
     prepare_reverse_relation_index_mutations_for_source_rows_impl(
         db,
-        index_reader,
         source,
         source_storage_key,
         source_rows,
@@ -858,7 +808,6 @@ where
 // already been lowered onto accepted row contracts and source identity.
 fn prepare_reverse_relation_index_mutations_for_source_rows_impl<C>(
     db: &Db<C>,
-    index_reader: &dyn StructuralIndexEntryReader,
     source: ReverseRelationSourceInfo,
     source_storage_key: StorageKey,
     source_rows: ReverseRelationSourceTransition<'_, '_>,
@@ -950,21 +899,13 @@ where
                 continue;
             };
 
-            let existing = index_reader.read_index_entry_structural(target_store, &reverse_key)?;
             let target = ReverseRelationMutationTarget {
                 target_store,
                 reverse_key,
                 old_contains,
                 new_contains,
             };
-            let Some(op) = prepare_reverse_relation_index_mutation_for_target(
-                source,
-                &relation,
-                target,
-                existing.as_ref(),
-                source_storage_key,
-            )?
-            else {
+            let Some(op) = prepare_reverse_relation_index_mutation_for_target(target) else {
                 continue;
             };
 

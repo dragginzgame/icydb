@@ -75,6 +75,9 @@ pub mod __macro {
         runtime_value_vec_from_value,
     };
     pub use crate::value::{InputValue, Value, ValueEnum};
+    pub use ic_memory::{
+        bootstrap_default_memory_manager, ic_memory_declaration, ic_memory_key, ic_memory_range,
+    };
 
     #[doc(hidden)]
     #[must_use]

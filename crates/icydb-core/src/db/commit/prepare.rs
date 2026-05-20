@@ -315,7 +315,6 @@ where
 
     let reverse_index_ops = prepare_reverse_relation_index_mutations_for_source_slot_readers(
         db,
-        index_reader,
         authority.relation_source,
         schema_contracts.row_contract.clone(),
         structural.data_key.storage_key(),

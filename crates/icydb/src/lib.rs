@@ -157,6 +157,9 @@ pub mod __macro {
         generated_persisted_structured_payload_decode_failed,
     };
     pub use icydb_core::__macro::{PersistedScalar, ScalarSlotValueRef, ScalarValueRef};
+    pub use icydb_core::__macro::{
+        bootstrap_default_memory_manager, ic_memory_declaration, ic_memory_key, ic_memory_range,
+    };
     pub use icydb_core::db::{
         DataStore, DbSession as CoreDbSession, EntityRuntimeHooks, IndexStore, SchemaStore,
         StoreRegistry,
@@ -189,9 +192,9 @@ pub mod __macro {
 pub mod __reexports {
     pub use candid;
     pub use canic_cdk;
-    pub use canic_memory;
     pub use ctor;
     pub use derive_more;
+    pub use ic_memory;
     pub use icydb_derive;
     pub use remain;
     pub use serde;

@@ -16,9 +16,9 @@ diagnostics = ["icydb-core/diagnostics"]
 [dependencies]
 candid = { workspace = true }
 canic-cdk = { workspace = true }
-canic-memory = { workspace = true }
 ctor = { workspace = true }
 derive_more = { workspace = true }
+ic-memory = { workspace = true }
 icydb-build = { workspace = true }
 icydb-core = { workspace = true }
 icydb-derive = { workspace = true }

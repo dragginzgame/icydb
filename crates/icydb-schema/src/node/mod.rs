@@ -163,7 +163,7 @@ pub(crate) fn validate_memory_id_not_reserved(errs: &mut ErrorTree, label: &str,
     }
 }
 
-// Validate one application-owned memory id against Canic's stable ABI range.
+// Validate one application-owned memory id against IcyDB's generated-store range.
 pub(crate) fn validate_app_memory_id(errs: &mut ErrorTree, label: &str, memory_id: u8) {
     if !(APP_MEMORY_ID_MIN..=APP_MEMORY_ID_MAX).contains(&memory_id) {
         err!(

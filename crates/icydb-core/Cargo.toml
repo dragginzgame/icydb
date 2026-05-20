@@ -19,8 +19,8 @@ diagnostics = []
 [dependencies]
 candid = { workspace = true }
 canic-cdk = { workspace = true }
-canic-memory = { workspace = true }
 derive_more = { workspace = true }
+ic-memory = { workspace = true }
 icydb-primitives = { workspace = true }
 icydb-utils = { workspace = true }
 num-bigint = { workspace = true }

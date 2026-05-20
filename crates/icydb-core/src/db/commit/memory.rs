@@ -3,11 +3,10 @@
 //! Does not own: marker encoding, marker persistence, or recovery orchestration.
 //! Boundary: commit::{recovery,store} -> commit::memory (one-way).
 
-#[cfg(not(test))]
-use crate::db::commit::marker::COMMIT_LABEL;
 use crate::error::InternalError;
 use canic_cdk::structures::{DefaultMemoryImpl, memory::VirtualMemory};
-use canic_memory::api::{MemoryApi, MemoryInspection};
+#[cfg(not(test))]
+use ic_memory::runtime;
 use std::sync::OnceLock;
 
 static COMMIT_STORE_ALLOCATION: OnceLock<CommitMemoryAllocation> = OnceLock::new();
@@ -46,13 +45,6 @@ pub(in crate::db::commit) fn configure_commit_memory_id(
 
     #[cfg(not(test))]
     {
-        // Phase 2: flush deferred registry state and validate slot ownership.
-        MemoryApi::bootstrap_pending()
-            .map_err(InternalError::commit_memory_registry_init_failed)?;
-
-        validate_commit_slot_registration(memory_id, stable_key)?;
-
-        // Phase 3: cache the validated slot id for all future accesses.
         let _ = COMMIT_STORE_ALLOCATION.set(CommitMemoryAllocation {
             memory_id,
             stable_key,
@@ -61,14 +53,41 @@ pub(in crate::db::commit) fn configure_commit_memory_id(
     }
 }
 
+/// Open the configured commit-marker memory slot through the shared memory API.
+pub(super) fn commit_memory_handle() -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
+    let allocation = commit_memory_allocation()?;
+
+    #[cfg(test)]
+    {
+        Ok(crate::testing::test_memory(allocation.memory_id))
+    }
+
+    #[cfg(not(test))]
+    {
+        runtime::open_default_memory_manager_memory(allocation.stable_key, allocation.memory_id)
+            .map_err(InternalError::commit_memory_id_registration_failed)
+    }
+}
+
 fn validate_cached_commit_memory_allocation(
     memory_id: u8,
     stable_key: &'static str,
 ) -> Result<Option<u8>, InternalError> {
-    let Some(cached) = COMMIT_STORE_ALLOCATION.get() else {
+    validate_commit_memory_allocation_compat(
+        COMMIT_STORE_ALLOCATION.get().copied(),
+        memory_id,
+        stable_key,
+    )
+}
+
+fn validate_commit_memory_allocation_compat(
+    cached: Option<CommitMemoryAllocation>,
+    memory_id: u8,
+    stable_key: &'static str,
+) -> Result<Option<u8>, InternalError> {
+    let Some(cached) = cached else {
         return Ok(None);
     };
-
     if cached.memory_id != memory_id {
         return Err(InternalError::commit_memory_id_mismatch(
             cached.memory_id,
@@ -85,70 +104,6 @@ fn validate_cached_commit_memory_allocation(
     Ok(Some(cached.memory_id))
 }
 
-/// Open the configured commit-marker memory slot through the shared memory API.
-pub(super) fn commit_memory_handle() -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
-    let allocation = commit_memory_allocation()?;
-
-    #[cfg(test)]
-    {
-        Ok(crate::testing::test_memory(allocation.memory_id))
-    }
-
-    #[cfg(not(test))]
-    {
-        let owner = owner_for_memory_id(allocation.memory_id)?;
-
-        MemoryApi::register_with_key(
-            allocation.memory_id,
-            &owner,
-            COMMIT_LABEL,
-            allocation.stable_key,
-        )
-        .map_err(InternalError::commit_memory_id_registration_failed)
-    }
-}
-
-/// Validate that exactly one canonical commit-marker slot exists.
-#[cfg(not(test))]
-fn validate_commit_slot_registration(
-    memory_id: u8,
-    stable_key: &'static str,
-) -> Result<(), InternalError> {
-    let mut commit_ids = MemoryApi::registered()
-        .into_iter()
-        .filter_map(|entry| (entry.stable_key == stable_key).then_some(entry.id))
-        .collect::<Vec<_>>();
-    commit_ids.sort_unstable();
-    commit_ids.dedup();
-
-    match commit_ids.as_slice() {
-        [] => Err(InternalError::commit_memory_stable_key_unregistered(
-            memory_id, stable_key,
-        )),
-        [registered_id] if *registered_id == memory_id => Ok(()),
-        [registered_id] => Err(InternalError::configured_commit_memory_id_mismatch(
-            memory_id,
-            *registered_id,
-        )),
-        _ => Err(InternalError::multiple_commit_memory_ids_registered(
-            commit_ids,
-        )),
-    }
-}
-
-/// Resolve the canonical owner label for one configured memory id.
-#[cfg(not(test))]
-fn owner_for_memory_id(memory_id: u8) -> Result<String, InternalError> {
-    Ok(inspect_memory(memory_id)?.owner)
-}
-
-// Inspect one configured memory id through the public Canic memory API.
-#[cfg(not(test))]
-fn inspect_memory(memory_id: u8) -> Result<MemoryInspection, InternalError> {
-    MemoryApi::inspect(memory_id)
-        .ok_or_else(|| InternalError::commit_memory_id_outside_reserved_ranges(memory_id))
-}
-
 ///
 /// TESTS
 ///
@@ -159,26 +114,37 @@ mod tests {
     use crate::error::{ErrorClass, ErrorOrigin};
 
     #[test]
-    fn owner_for_memory_inspection_returns_matching_owner() {
-        let inspection = MemoryInspection {
-            id: 12,
-            owner: "b".to_string(),
-            range: canic_memory::registry::MemoryRange { start: 11, end: 20 },
-            label: None,
-            stable_key: None,
-            schema_version: None,
-            schema_fingerprint: None,
+    fn cached_commit_memory_allocation_reuses_matching_slot() {
+        let cached = CommitMemoryAllocation {
+            memory_id: 12,
+            stable_key: "icydb.test.commit.control.v1",
         };
-        let owner = inspection.owner;
-        assert_eq!(owner, "b");
+
+        assert_eq!(
+            validate_commit_memory_allocation_compat(
+                Some(cached),
+                12,
+                "icydb.test.commit.control.v1"
+            )
+            .expect("matching cache should pass"),
+            Some(12),
+        );
     }
 
     #[test]
-    fn inspect_memory_missing_id_maps_to_out_of_range_error() {
-        let err = MemoryApi::inspect(30)
-            .ok_or_else(|| InternalError::commit_memory_id_outside_reserved_ranges(30))
-            .expect_err("id outside ranges must fail");
-        assert_eq!(err.class, ErrorClass::Unsupported);
+    fn cached_commit_memory_allocation_rejects_mismatched_slot() {
+        let cached = CommitMemoryAllocation {
+            memory_id: 12,
+            stable_key: "icydb.test.commit.control.v1",
+        };
+
+        let err = validate_commit_memory_allocation_compat(
+            Some(cached),
+            30,
+            "icydb.test.commit.control.v1",
+        )
+        .expect_err("mismatched cache should fail");
+        assert_eq!(err.class, ErrorClass::Internal);
         assert_eq!(err.origin, ErrorOrigin::Store);
     }
 }

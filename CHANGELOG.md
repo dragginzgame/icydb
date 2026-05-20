@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.159.x] 🔑 - 2026-05-19 - Compact Key Encoding
 
+- `0.159.1` replaces generated canister memory plumbing with `ic-memory`
+  `0.5.1` static range/key registration and default runtime bootstrap instead
+  of `canic-memory`, and updates the Canic-facing dependencies to
+  `canic-cdk` / `canic-testkit` `0.40.2` without reintroducing a direct
+  `canic` crate dependency.
+
+  It also removes the stale multi-membership index-entry path now that
+  `RawIndexKey` owns row identity and `RawIndexEntry` stores only the existence
+  witness. Structural preflight readers and reverse-index mutation prep now
+  use concrete key-owned edges directly, with cache-test cleanup so the broader
+  core suite can run after allocation mismatch checks.
+
 - `0.159.0` starts the compact key redesign and hard-cuts live primary
   data-store keys from `EntityTag + StorageKey(64)` to compact
   `EntityTag + EncodedPrimaryKey` bytes. The core now has DB-internal taxonomy

@@ -127,17 +127,10 @@ fn push_index_entry_storage_keys(
     out: &mut Vec<StorageKey>,
     limit: usize,
 ) -> Result<bool, InternalError> {
-    raw_entry.push_membership_storage_keys_limited(
-        raw_key,
-        index.unique(),
-        out,
-        limit,
-        |err| {
-            InternalError::index_plan_index_corruption(format!(
-                "index corrupted: ({}) -> {err}",
-                index.fields()
-            ))
-        },
-        InternalError::unique_index_entry_single_key_required,
-    )
+    raw_entry.push_membership_storage_keys_limited(raw_key, out, limit, |err| {
+        InternalError::index_plan_index_corruption(format!(
+            "index corrupted: ({}) -> {err}",
+            index.fields()
+        ))
+    })
 }
