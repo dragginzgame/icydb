@@ -29,7 +29,6 @@ const TIMESTAMP_SIZE: usize = 8;
 const ULID_SIZE: usize = 16;
 const SUBACCOUNT_SIZE: usize = 32;
 const ACCOUNT_SIZE: usize = Account::STORED_SIZE as usize;
-const RAW_INDEX_STORE_KEY_KIND: u8 = 0x01;
 const LENGTH_PREFIX_SIZE: usize = size_of::<u16>();
 
 //
@@ -234,6 +233,9 @@ pub(in crate::db) enum CompactStoreKeyDecodeError {
     #[error("raw index store key has unknown key kind: {kind}")]
     UnknownIndexKeyKind { kind: u8 },
 
+    #[error("raw index store key has empty {segment}")]
+    EmptyIndexSegment { segment: &'static str },
+
     #[error("raw index store key has invalid index id bytes")]
     InvalidIndexId,
 
@@ -308,7 +310,7 @@ impl From<EncodedPrimaryKey> for Vec<u8> {
 // EncodedIndexComponent
 //
 
-/// Future compact ordered bytes for one secondary-index component.
+/// Canonical ordered bytes for one secondary-index component.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(in crate::db) struct EncodedIndexComponent {
     bytes: Vec<u8>,
@@ -321,6 +323,11 @@ impl EncodedIndexComponent {
         let mut bytes = Vec::with_capacity(max_encoded_primary_key_len(value.kind()));
         encode_primary_key_value(value, &mut bytes)?;
         Ok(Self { bytes })
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn from_canonical_bytes(bytes: Vec<u8>) -> Self {
+        Self { bytes }
     }
 
     #[must_use]
@@ -342,7 +349,10 @@ impl TryFrom<&[u8]> for EncodedIndexComponent {
     type Error = CompactPrimaryKeyDecodeError;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        let _ = EncodedPrimaryKey::try_from(bytes)?;
+        if bytes.is_empty() {
+            return Err(CompactPrimaryKeyDecodeError::Empty);
+        }
+
         Ok(Self {
             bytes: bytes.to_vec(),
         })
@@ -350,10 +360,10 @@ impl TryFrom<&[u8]> for EncodedIndexComponent {
 }
 
 //
-// Future store-key wrappers
+// Store-key wrappers
 //
 
-/// Future logical data-store key: `EntityTag + EncodedPrimaryKey`.
+/// Logical data-store key: `EntityTag + EncodedPrimaryKey`.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(in crate::db) struct DataStoreKey {
     entity_tag: EntityTag,
@@ -411,7 +421,7 @@ impl DataStoreKey {
     }
 }
 
-/// Future raw persisted data-store key bytes.
+/// Raw persisted data-store key bytes.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(in crate::db) struct RawDataStoreKey {
     bytes: Vec<u8>,
@@ -435,7 +445,7 @@ impl RawDataStoreKey {
     }
 }
 
-/// Future variable-width entity-local data-store scan range.
+/// Variable-width entity-local data-store scan range.
 ///
 /// Full entity scans use raw entity-prefix bounds. They do not synthesize fake
 /// minimum/maximum primary-key sentinels, because compact primary keys are
@@ -481,10 +491,34 @@ impl RawDataStoreKeyRange {
     }
 }
 
-/// Future logical index-store key:
+/// Logical index-store key namespace.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[repr(u8)]
+pub(in crate::db) enum IndexStoreKeyKind {
+    User = 0x00,
+    System = 0x01,
+}
+
+impl IndexStoreKeyKind {
+    #[must_use]
+    pub(in crate::db) const fn tag(self) -> u8 {
+        self as u8
+    }
+
+    const fn from_tag(tag: u8) -> Option<Self> {
+        match tag {
+            0x00 => Some(Self::User),
+            0x01 => Some(Self::System),
+            _ => None,
+        }
+    }
+}
+
+/// Logical index-store key:
 /// `key_kind + IndexId + EncodedIndexComponent[] + EncodedPrimaryKey`.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(in crate::db) struct IndexStoreKey {
+    key_kind: IndexStoreKeyKind,
     index_id: IndexId,
     components: Vec<EncodedIndexComponent>,
     primary_key: EncodedPrimaryKey,
@@ -497,7 +531,18 @@ impl IndexStoreKey {
         components: Vec<EncodedIndexComponent>,
         primary_key: EncodedPrimaryKey,
     ) -> Self {
+        Self::new_with_kind(IndexStoreKeyKind::User, index_id, components, primary_key)
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn new_with_kind(
+        key_kind: IndexStoreKeyKind,
+        index_id: IndexId,
+        components: Vec<EncodedIndexComponent>,
+        primary_key: EncodedPrimaryKey,
+    ) -> Self {
         Self {
+            key_kind,
             index_id,
             components,
             primary_key,
@@ -526,7 +571,7 @@ impl IndexStoreKey {
                 + primary_len,
         );
 
-        bytes.push(RAW_INDEX_STORE_KEY_KIND);
+        bytes.push(self.key_kind.tag());
         bytes.extend_from_slice(&self.index_id.to_bytes());
         bytes.push(component_count);
         for component in &self.components {
@@ -543,9 +588,8 @@ impl IndexStoreKey {
         let mut input = bytes;
 
         let key_kind = take_exact(&mut input, TAG_SIZE, "key kind")?[0];
-        if key_kind != RAW_INDEX_STORE_KEY_KIND {
-            return Err(CompactStoreKeyDecodeError::UnknownIndexKeyKind { kind: key_kind });
-        }
+        let key_kind = IndexStoreKeyKind::from_tag(key_kind)
+            .ok_or(CompactStoreKeyDecodeError::UnknownIndexKeyKind { kind: key_kind })?;
 
         let index_id = IndexId::from_bytes(take_exact(
             &mut input,
@@ -567,7 +611,17 @@ impl IndexStoreKey {
             return Err(CompactStoreKeyDecodeError::TrailingIndexBytes { len: input.len() });
         }
 
-        Ok(Self::new(index_id, components, primary_key))
+        Ok(Self::new_with_kind(
+            key_kind,
+            index_id,
+            components,
+            primary_key,
+        ))
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn key_kind(&self) -> IndexStoreKeyKind {
+        self.key_kind
     }
 
     #[must_use]
@@ -586,7 +640,7 @@ impl IndexStoreKey {
     }
 }
 
-/// Future raw persisted index-store key bytes.
+/// Raw persisted index-store key bytes.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(in crate::db) struct RawIndexStoreKey {
     bytes: Vec<u8>,
@@ -806,7 +860,11 @@ fn take_len_prefixed<'a>(
     let len_bytes = take_exact(input, LENGTH_PREFIX_SIZE, segment)?;
     let mut len = [0u8; LENGTH_PREFIX_SIZE];
     len.copy_from_slice(len_bytes);
-    take_exact(input, usize::from(u16::from_be_bytes(len)), segment)
+    let len = usize::from(u16::from_be_bytes(len));
+    if len == 0 {
+        return Err(CompactStoreKeyDecodeError::EmptyIndexSegment { segment });
+    }
+    take_exact(input, len, segment)
 }
 
 const fn max_encoded_primary_key_len(kind: PrimaryKeyKind) -> usize {
@@ -825,12 +883,15 @@ const fn max_encoded_primary_key_len(kind: PrimaryKeyKind) -> usize {
 mod tests {
     use super::{
         CompactPrimaryKeyDecodeError, CompactStoreKeyDecodeError, DataStoreKey,
-        EncodedIndexComponent, EncodedPrimaryKey, IndexEntryValue, IndexStoreKey, PrimaryKeyKind,
-        PrimaryKeyValue, RAW_INDEX_STORE_KEY_KIND, RawDataStoreKey, RawDataStoreKeyRange,
+        EncodedIndexComponent, EncodedPrimaryKey, IndexEntryValue, IndexStoreKey,
+        IndexStoreKeyKind, PrimaryKeyKind, PrimaryKeyValue, RawDataStoreKey, RawDataStoreKeyRange,
         RawIndexStoreKey,
     };
     use crate::{
-        db::{data::DataKey, index::IndexId},
+        db::{
+            data::DataKey,
+            index::{IndexId, IndexKey, IndexKeyKind},
+        },
         traits::Repr,
         types::{Account, EntityTag, Principal, Subaccount, Timestamp, Ulid},
         value::StorageKey,
@@ -1177,7 +1238,7 @@ mod tests {
     }
 
     #[test]
-    fn raw_data_store_key_decodes_future_compact_shape() {
+    fn raw_data_store_key_decodes_live_compact_shape() {
         let entity = EntityTag::new(0x1590);
         let primary =
             EncodedPrimaryKey::encode(PrimaryKeyValue::Int(-5)).expect("primary key should encode");
@@ -1196,7 +1257,7 @@ mod tests {
     }
 
     #[test]
-    fn raw_data_store_key_rejects_malformed_future_shape() {
+    fn raw_data_store_key_rejects_malformed_live_shape() {
         let short = [0u8; size_of::<u64>()];
         let err = RawDataStoreKey::from_bytes(&short[..])
             .expect_err("raw data key without primary suffix should reject");
@@ -1275,7 +1336,7 @@ mod tests {
     }
 
     #[test]
-    fn raw_index_store_key_decodes_future_compact_shape() {
+    fn raw_index_store_key_decodes_live_compact_shape() {
         let entity = EntityTag::new(0x1591);
         let index_id = IndexId::new(entity, 7);
         let component = EncodedIndexComponent::encode_primary_overlap(PrimaryKeyValue::Nat(99))
@@ -1288,6 +1349,7 @@ mod tests {
 
         let decoded = raw.decode().expect("raw index key should decode");
 
+        assert_eq!(decoded.key_kind(), IndexStoreKeyKind::User);
         assert_eq!(decoded.index_id(), index_id);
         assert_eq!(decoded.components(), &[component]);
         assert_eq!(decoded.primary_key(), &primary);
@@ -1300,7 +1362,7 @@ mod tests {
     }
 
     #[test]
-    fn raw_index_store_key_rejects_malformed_future_shape() {
+    fn raw_index_store_key_rejects_malformed_live_shape() {
         let err = RawIndexStoreKey::from_bytes(&[])
             .expect_err("empty raw index key should reject before handle open");
         assert!(matches!(
@@ -1310,9 +1372,9 @@ mod tests {
             }
         ));
 
-        let wrong_kind = [RAW_INDEX_STORE_KEY_KIND + 1];
+        let wrong_kind = [0xFF];
         let err = RawIndexStoreKey::from_bytes(&wrong_kind[..])
-            .expect_err("unknown future raw index key kind should reject");
+            .expect_err("unknown raw index key kind should reject");
         assert!(matches!(
             err,
             CompactStoreKeyDecodeError::UnknownIndexKeyKind { .. }
@@ -1335,5 +1397,76 @@ mod tests {
                 segment: "primary key suffix"
             }
         ));
+    }
+
+    #[test]
+    fn raw_index_store_key_rejects_empty_component_and_primary_segments() {
+        let entity = EntityTag::new(0x1594);
+        let index_id = IndexId::new(entity, 3);
+
+        let mut empty_component = Vec::new();
+        empty_component.push(IndexStoreKeyKind::User.tag());
+        empty_component.extend_from_slice(&index_id.to_bytes());
+        empty_component.push(1);
+        empty_component.extend_from_slice(&0u16.to_be_bytes());
+        let err = RawIndexStoreKey::from_bytes(&empty_component)
+            .expect_err("empty component segment should reject");
+        assert!(matches!(
+            err,
+            CompactStoreKeyDecodeError::EmptyIndexSegment {
+                segment: "index component"
+            }
+        ));
+
+        let mut empty_primary = Vec::new();
+        empty_primary.push(IndexStoreKeyKind::User.tag());
+        empty_primary.extend_from_slice(&index_id.to_bytes());
+        empty_primary.push(0);
+        empty_primary.extend_from_slice(&0u16.to_be_bytes());
+        let err = RawIndexStoreKey::from_bytes(&empty_primary)
+            .expect_err("empty primary-key suffix should reject");
+        assert!(matches!(
+            err,
+            CompactStoreKeyDecodeError::EmptyIndexSegment {
+                segment: "primary key suffix"
+            }
+        ));
+    }
+
+    #[test]
+    fn raw_index_store_key_taxonomy_matches_live_user_and_system_codecs() {
+        let entity = EntityTag::new(0x1595);
+        let index_id = IndexId::new(entity, 9);
+        let component = EncodedIndexComponent::from_canonical_bytes(vec![0x20, 0xAA, 0xBB]);
+        let primary =
+            EncodedPrimaryKey::encode(PrimaryKeyValue::Nat(77)).expect("primary key should encode");
+
+        let cases = [
+            (IndexStoreKeyKind::User, IndexKeyKind::User),
+            (IndexStoreKeyKind::System, IndexKeyKind::System),
+        ];
+        for (taxonomy_kind, live_kind) in cases {
+            let taxonomy_raw = IndexStoreKey::new_with_kind(
+                taxonomy_kind,
+                index_id,
+                vec![component.clone()],
+                primary.clone(),
+            )
+            .to_raw()
+            .expect("taxonomy raw index key should encode");
+            let live_raw = IndexKey::new_from_components_with_kind(
+                &index_id,
+                live_kind,
+                &[component.as_bytes()],
+                StorageKey::Nat(77),
+            )
+            .to_raw();
+
+            assert_eq!(
+                taxonomy_raw.as_bytes(),
+                live_raw.as_bytes(),
+                "taxonomy store-key wrapper must match the live index codec for {taxonomy_kind:?}"
+            );
+        }
     }
 }

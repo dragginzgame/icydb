@@ -6,7 +6,10 @@
 #![expect(clippy::cast_possible_truncation)]
 
 use crate::{
-    db::key_taxonomy::{EncodedPrimaryKey, PrimaryKeyValue, RawDataStoreKeyRange},
+    db::key_taxonomy::{
+        CompactStoreKeyDecodeError, DataStoreKey, EncodedPrimaryKey, PrimaryKeyValue,
+        RawDataStoreKeyRange,
+    },
     error::InternalError,
     traits::{EntityKind, Storable, StorageKeyCodec, StorageKeyDecode},
     types::{Account, EntityTag},
@@ -86,6 +89,12 @@ impl From<crate::db::key_taxonomy::CompactPrimaryKeyDecodeError> for KeyDecodeEr
 pub(in crate::db) enum DataKeyDecodeError {
     #[error("invalid primary key")]
     Key(#[from] KeyDecodeError),
+
+    #[error("invalid data store key: {source}")]
+    StoreKey {
+        #[source]
+        source: CompactStoreKeyDecodeError,
+    },
 }
 
 ///
@@ -101,6 +110,7 @@ pub(in crate::db) struct DataKey {
 impl DataKey {
     /// `EntityTag` binary-width contract for on-disk key framing.
     pub(in crate::db) const ENTITY_TAG_SIZE_BYTES: u64 = size_of::<u64>() as u64;
+    #[cfg(test)]
     pub(in crate::db) const ENTITY_TAG_SIZE_USIZE: usize = Self::ENTITY_TAG_SIZE_BYTES as usize;
 
     /// Maximum compact on-disk size in bytes.
@@ -250,13 +260,10 @@ impl DataKey {
     pub(in crate::db) fn to_raw_compact_key_error(
         &self,
     ) -> Result<RawDataKey, crate::db::key_taxonomy::CompactPrimaryKeyEncodeError> {
-        let mut bytes = Vec::with_capacity(Self::STORED_SIZE_USIZE);
-        bytes.extend_from_slice(&self.entity.value().to_be_bytes());
-        bytes.extend_from_slice(
-            EncodedPrimaryKey::encode(PrimaryKeyValue::from(self.key))?.as_bytes(),
-        );
+        let primary_key = EncodedPrimaryKey::encode(PrimaryKeyValue::from(self.key))?;
+        let raw = DataStoreKey::new(self.entity, primary_key).to_raw();
 
-        Ok(RawDataKey(bytes))
+        Ok(RawDataKey(raw.as_bytes().to_vec()))
     }
 
     /// Encode into compact on-disk representation, retaining the historical
@@ -287,21 +294,15 @@ impl DataKey {
     }
 
     pub(in crate::db) fn try_from_raw(raw: &RawDataKey) -> Result<Self, DataKeyDecodeError> {
-        let bytes = raw.as_bytes();
-
-        if bytes.len() < Self::ENTITY_TAG_SIZE_USIZE + 1 {
-            return Err(KeyDecodeError::from(StorageKeyDecodeError::InvalidSize).into());
-        }
-
-        // Phase 1: decode fixed-size big-endian entity tag identity prefix.
-        let mut tag_bytes = [0u8; Self::ENTITY_TAG_SIZE_USIZE];
-        tag_bytes.copy_from_slice(&bytes[..Self::ENTITY_TAG_SIZE_USIZE]);
-        let entity = EntityTag::new(u64::from_be_bytes(tag_bytes));
-
-        // Phase 2: decode compact self-describing primary-key suffix.
-        let encoded = EncodedPrimaryKey::try_from(&bytes[Self::ENTITY_TAG_SIZE_USIZE..])
-            .map_err(KeyDecodeError::from)?;
-        let key = StorageKey::from(encoded.decode().map_err(KeyDecodeError::from)?);
+        let decoded = DataStoreKey::try_from_raw_bytes(raw.as_bytes())
+            .map_err(|source| DataKeyDecodeError::StoreKey { source })?;
+        let entity = decoded.entity_tag();
+        let key = StorageKey::from(
+            decoded
+                .primary_key()
+                .decode()
+                .map_err(KeyDecodeError::from)?,
+        );
 
         Ok(Self::new_with_raw(entity, key, raw.clone()))
     }

@@ -21,11 +21,6 @@ impl IndexKeyKind {
     const USER_TAG: u8 = 0;
     const SYSTEM_TAG: u8 = 1;
 
-    #[must_use]
-    pub(super) const fn tag(self) -> u8 {
-        self as u8
-    }
-
     pub(super) const fn from_tag(tag: u8) -> Result<Self, &'static str> {
         match tag {
             Self::USER_TAG => Ok(Self::User),

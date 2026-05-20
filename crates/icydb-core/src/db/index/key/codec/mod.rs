@@ -14,7 +14,10 @@ use crate::{
     db::{
         data::{StorageKey, StorageKeyDecodeError},
         index::key::IndexId,
-        key_taxonomy::{CompactPrimaryKeyDecodeError, EncodedPrimaryKey, PrimaryKeyValue},
+        key_taxonomy::{
+            CompactPrimaryKeyDecodeError, EncodedIndexComponent, EncodedPrimaryKey, IndexStoreKey,
+            IndexStoreKeyKind, PrimaryKeyValue,
+        },
     },
 };
 use bounds::{
@@ -63,27 +66,53 @@ impl PartialOrd for IndexKey {
 
 impl IndexKey {
     fn to_raw_with_primary_key(&self, primary_key: &[u8]) -> RawIndexKey {
-        // Phase 1: precompute capacity and validate in-memory invariants.
+        // Phase 1: validate in-memory invariants before crossing into the
+        // store-key taxonomy wrapper.
         let component_count = self.components.len();
         debug_assert!(component_count <= MAX_INDEX_FIELDS);
         debug_assert!(u8::try_from(component_count).is_ok());
         debug_assert!(!primary_key.is_empty());
         debug_assert!(primary_key.len() <= Self::MAX_PK_SIZE);
 
-        let mut capacity = KEY_PREFIX_SIZE + SEGMENT_LEN_SIZE + primary_key.len();
         for component in &self.components {
             debug_assert!(!component.is_empty());
             debug_assert!(component.len() <= Self::MAX_COMPONENT_SIZE);
+        }
+
+        // Phase 2: write ordinary row keys through the compact taxonomy
+        // contract. Prefix/range sentinels intentionally use wildcard primary
+        // segments, so they stay on the raw segment path below.
+        let Ok(primary_key) = EncodedPrimaryKey::try_from(primary_key) else {
+            return self.to_raw_with_primary_key_segment(primary_key);
+        };
+        let components = self
+            .components
+            .iter()
+            .cloned()
+            .map(EncodedIndexComponent::from_canonical_bytes)
+            .collect();
+        let raw = IndexStoreKey::new_with_kind(
+            index_key_kind_to_store_key_kind(self.key_kind),
+            self.index_id,
+            components,
+            primary_key,
+        )
+        .to_raw()
+        .expect("validated index key should encode");
+
+        RawIndexKey(raw.as_bytes().to_vec())
+    }
+
+    fn to_raw_with_primary_key_segment(&self, primary_key: &[u8]) -> RawIndexKey {
+        let component_count = self.components.len();
+        let mut capacity = KEY_PREFIX_SIZE + SEGMENT_LEN_SIZE + primary_key.len();
+        for component in &self.components {
             capacity += SEGMENT_LEN_SIZE + component.len();
         }
 
         let mut bytes = Vec::with_capacity(capacity);
-
-        // Phase 2: write key kind, index id, component count, and segments.
-        bytes.push(self.key_kind.tag());
-
+        bytes.push(index_key_kind_to_store_key_kind(self.key_kind).tag());
         bytes.extend_from_slice(&self.index_id.to_bytes());
-
         let component_count_u8 =
             u8::try_from(component_count).expect("component count should fit in one byte");
         bytes.push(component_count_u8);
@@ -91,7 +120,6 @@ impl IndexKey {
         for component in &self.components {
             push_segment(&mut bytes, component);
         }
-
         push_segment(&mut bytes, primary_key);
 
         RawIndexKey(bytes)
@@ -180,6 +208,13 @@ impl IndexKey {
             .expect("storage-key primary keys must compact-encode")
             .as_bytes()
             .to_vec()
+    }
+}
+
+const fn index_key_kind_to_store_key_kind(kind: IndexKeyKind) -> IndexStoreKeyKind {
+    match kind {
+        IndexKeyKind::User => IndexStoreKeyKind::User,
+        IndexKeyKind::System => IndexStoreKeyKind::System,
     }
 }
 

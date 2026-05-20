@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.159.x] 🔑 - 2026-05-19 - Compact Key Encoding
 
+- `0.159.4` promotes compact store-key taxonomy wrappers to the active live
+  contract. `DataKey` now routes encode/decode through `DataStoreKey`, and
+  ordinary `IndexKey` row-key encoding now routes through `IndexStoreKey`,
+  which models the live user/system key-kind discriminator plus arbitrary
+  canonical secondary-index component bytes.
+
 - `0.159.3` collapses the decoded `IndexEntry` model to one key-owned row
   identity. The raw value remains the one-byte presence witness, while
   validation and tests consume the decoded storage key directly instead of
