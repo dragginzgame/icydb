@@ -224,7 +224,7 @@ mod tests {
         let all = ALL_SCALAR_KINDS.into_iter().collect::<HashSet<_>>();
 
         for kind in EXPECTED_SCALAR_KINDS {
-            assert!(all.contains(&kind), "ALL_SCALAR_KINDS missing {kind:?}",);
+            assert!(all.contains(&kind), "ALL_SCALAR_KINDS missing {kind:?}");
             assert_variant_is_known(kind);
         }
     }
