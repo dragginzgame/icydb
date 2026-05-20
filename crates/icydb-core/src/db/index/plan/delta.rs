@@ -36,21 +36,15 @@ impl IndexMutationPlan {
 #[derive(Debug)]
 pub(in crate::db) struct IndexDeltaGroup {
     pub(in crate::db) index_store: String,
-    pub(in crate::db) index_fields: String,
     pub(in crate::db) deltas: Vec<IndexDelta>,
 }
 
 impl IndexDeltaGroup {
     /// Build one per-index delta group.
     #[must_use]
-    pub(in crate::db) fn new(
-        index_store: &str,
-        index_fields: String,
-        deltas: Vec<IndexDelta>,
-    ) -> Self {
+    pub(in crate::db) fn new(index_store: &str, deltas: Vec<IndexDelta>) -> Self {
         Self {
             index_store: index_store.to_string(),
-            index_fields,
             deltas,
         }
     }

@@ -1376,17 +1376,6 @@ impl InternalError {
         ))
     }
 
-    /// Construct the canonical index-entry max-keys unsupported error during commit encoding.
-    pub(crate) fn index_entry_exceeds_max_keys(
-        entity_path: &str,
-        fields: &str,
-        keys: usize,
-    ) -> Self {
-        Self::index_unsupported(format!(
-            "index entry exceeds max keys: {entity_path} ({fields}) -> {keys} keys",
-        ))
-    }
-
     /// Construct a serialize-origin unsupported error.
     pub(crate) fn serialize_unsupported(message: impl Into<String>) -> Self {
         Self::new(

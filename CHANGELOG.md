@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.159.x] 🔑 - 2026-05-19 - Compact Key Encoding
 
+- `0.159.3` collapses the decoded `IndexEntry` model to one key-owned row
+  identity. The raw value remains the one-byte presence witness, while
+  validation and tests consume the decoded storage key directly instead of
+  stale membership-set iterators.
+
 - `0.159.2` cleans up row-check diagnostics after the key-owned index-entry
   hard cut. Executor metrics now report key-owned index entries and decoded
   row identities instead of the removed single-key/multi-key membership split.

@@ -328,14 +328,12 @@ fn execute_sql_expression_order_index_range_scan_preserves_lower_name_order() {
                     let entry = raw_entry
                         .try_decode_for_key(raw_key)
                         .expect("expression-order index range scan entry");
-                    for storage_key in entry.iter_ids() {
-                        keys.push(DataKey::new(
-                            ExpressionIndexedSessionSqlEntity::ENTITY_TAG,
-                            storage_key,
-                        ));
-                        if keys.len() == 3 {
-                            return Ok(true);
-                        }
+                    keys.push(DataKey::new(
+                        ExpressionIndexedSessionSqlEntity::ENTITY_TAG,
+                        entry.storage_key(),
+                    ));
+                    if keys.len() == 3 {
+                        return Ok(true);
                     }
 
                     Ok(false)

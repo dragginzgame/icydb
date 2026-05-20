@@ -8,12 +8,11 @@ use crate::{
         data::StorageKey,
         index::{IndexKey, RawIndexKey},
     },
-    error::InternalError,
     traits::Storable,
     value::{Value, storage_key_as_runtime_value},
 };
 use canic_cdk::structures::storable::Bound;
-use std::{borrow::Cow, collections::BTreeSet};
+use std::borrow::Cow;
 use thiserror::Error as ThisError;
 
 ///
@@ -23,8 +22,6 @@ use thiserror::Error as ThisError;
 const INDEX_ENTRY_WITNESS_BYTES: usize = 1;
 const INDEX_ENTRY_WITNESS_PRESENT: u8 = 0;
 const INDEX_ENTRY_WITNESS_MISSING: u8 = 1;
-pub(crate) const MAX_INDEX_ENTRY_KEYS: usize = 65_535;
-
 pub(crate) const MAX_INDEX_ENTRY_BYTES: u32 = 1;
 
 ///
@@ -48,9 +45,6 @@ pub(crate) enum IndexEntryCorruption {
     #[error("index entry contains zero keys")]
     EmptyEntry,
 
-    #[error("unique index entry contains {keys} keys")]
-    NonUniqueEntry { keys: usize },
-
     #[error("index entry missing expected entity key: {entity_key:?} (index {index_key:?})")]
     MissingKey {
         index_key: Box<RawIndexKey>,
@@ -69,41 +63,22 @@ impl IndexEntryCorruption {
 }
 
 ///
-/// IndexEntryEncodeError
-///
-
-#[derive(Debug, ThisError)]
-pub(crate) enum IndexEntryEncodeError {
-    #[error("index entry exceeds max keys: {keys} (limit {MAX_INDEX_ENTRY_KEYS})")]
-    TooManyKeys { keys: usize },
-
-    #[error("index entry contains zero keys")]
-    EmptyEntry,
-}
-
-impl IndexEntryEncodeError {
-    // Lift one commit-time index-entry encode failure into internal taxonomy.
-    pub(crate) fn into_commit_internal_error(
-        self,
-        entity_path: &str,
-        fields: &str,
-    ) -> InternalError {
-        match self {
-            Self::TooManyKeys { keys } => {
-                InternalError::index_entry_exceeds_max_keys(entity_path, fields, keys)
-            }
-            Self::EmptyEntry => InternalError::index_entry_exceeds_max_keys(entity_path, fields, 0),
-        }
-    }
-}
-
-///
 /// IndexEntry
 ///
 
+#[cfg(test)]
+#[derive(Debug, ThisError)]
+pub(crate) enum IndexEntryEncodeError {
+    #[error("index entry test constructor received more than one key: {keys}")]
+    TooManyKeys { keys: usize },
+
+    #[error("index entry test constructor received no keys")]
+    EmptyEntry,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct IndexEntry {
-    ids: BTreeSet<StorageKey>,
+    id: StorageKey,
 }
 
 ///
@@ -172,24 +147,18 @@ impl IndexEntryMembership {
 
 impl IndexEntry {
     #[must_use]
-    pub(crate) fn new(id: StorageKey) -> Self {
-        let mut ids = BTreeSet::new();
-        ids.insert(id);
-        Self { ids }
+    pub(crate) const fn new(id: StorageKey) -> Self {
+        Self { id }
     }
 
-    pub(crate) fn iter_ids(&self) -> impl Iterator<Item = StorageKey> + '_ {
-        self.ids.iter().copied()
+    #[must_use]
+    pub(crate) const fn storage_key(&self) -> StorageKey {
+        self.id
     }
 
     #[must_use]
     pub(crate) fn contains(&self, id: StorageKey) -> bool {
-        self.ids.contains(&id)
-    }
-
-    #[must_use]
-    pub(crate) fn len(&self) -> usize {
-        self.ids.len()
+        self.id == id
     }
 }
 
@@ -200,63 +169,22 @@ impl IndexEntry {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct RawIndexEntry(Vec<u8>);
 
-///
-/// RawIndexEntryKeyIter
-///
-/// RawIndexEntryKeyIter validates and streams one raw index-entry membership
-/// set without first materializing a temporary `Vec<StorageKey>`.
-///
-
-pub(in crate::db) struct RawIndexEntryKeyIter {
-    inner: RawIndexEntryMembershipIter,
-}
-
-///
-/// RawIndexEntryMembershipIter
-///
-/// RawIndexEntryMembershipIter validates and streams one raw index-entry
-/// membership set, including the storage-owned existence witness for each
-/// decoded storage key.
-///
-
-pub(in crate::db) struct RawIndexEntryMembershipIter {
-    membership: Option<IndexEntryMembership>,
-}
-
 impl RawIndexEntry {
     #[must_use]
     pub(crate) fn presence() -> Self {
         Self(vec![IndexEntryExistenceWitness::Present.to_stored_byte()])
     }
 
-    pub(crate) fn try_from_entry(entry: &IndexEntry) -> Result<Self, IndexEntryEncodeError> {
-        let count = entry.ids.len();
-        if count == 0 {
-            return Err(IndexEntryEncodeError::EmptyEntry);
-        }
-        if count > 1 {
-            return Err(IndexEntryEncodeError::TooManyKeys { keys: count });
-        }
-
-        Ok(Self::presence())
+    #[must_use]
+    pub(crate) fn from_entry(_entry: &IndexEntry) -> Self {
+        Self::presence()
     }
 
     pub(crate) fn try_decode_for_key(
         &self,
         raw_key: &RawIndexKey,
     ) -> Result<IndexEntry, IndexEntryCorruption> {
-        let storage_keys = self.decode_keys_checked(raw_key)?;
-        let mut ids = BTreeSet::new();
-
-        for key in storage_keys {
-            ids.insert(key);
-        }
-
-        if ids.is_empty() {
-            return Err(IndexEntryCorruption::EmptyEntry);
-        }
-
-        Ok(IndexEntry { ids })
+        self.decode_storage_key(raw_key).map(IndexEntry::new)
     }
 
     /// Decode this key-owned raw entry and append its storage key if `limit`
@@ -305,21 +233,12 @@ impl RawIndexEntry {
         &self,
         raw_key: &RawIndexKey,
     ) -> Result<Vec<StorageKey>, IndexEntryCorruption> {
-        let mut keys = Vec::new();
-        let mut iter = self.iter_keys(raw_key)?;
-        keys.reserve(iter.declared_count());
-
-        for key in &mut iter {
-            keys.push(key?);
-        }
-
-        Ok(keys)
+        self.decode_storage_key(raw_key).map(|key| vec![key])
     }
 
-    // Decode the key-owned raw entry membership without allocating a temporary
-    // membership vector.
-    #[cfg(test)]
-    pub(crate) fn decode_single_key(
+    // Decode the key-owned raw entry row identity without allocating a
+    // temporary membership vector.
+    pub(in crate::db) fn decode_storage_key(
         &self,
         raw_key: &RawIndexKey,
     ) -> Result<StorageKey, IndexEntryCorruption> {
@@ -336,41 +255,6 @@ impl RawIndexEntry {
         let storage_key = storage_key_from_raw_index_key(raw_key)?;
 
         Ok(IndexEntryMembership::new(storage_key, witness))
-    }
-
-    // Stream the validated storage-key membership set without first allocating
-    // a temporary vector for multi-key scan callers.
-    pub(in crate::db) fn iter_keys(
-        &self,
-        raw_key: &RawIndexKey,
-    ) -> Result<RawIndexEntryKeyIter, IndexEntryCorruption> {
-        Ok(RawIndexEntryKeyIter {
-            inner: self.iter_memberships(raw_key)?,
-        })
-    }
-
-    // Stream the validated storage-key membership set, including the
-    // storage-owned existence witness for each member.
-    pub(in crate::db) fn iter_memberships(
-        &self,
-        raw_key: &RawIndexKey,
-    ) -> Result<RawIndexEntryMembershipIter, IndexEntryCorruption> {
-        let witness = self.validate_witness()?;
-        let storage_key = storage_key_from_raw_index_key(raw_key)?;
-
-        Ok(RawIndexEntryMembershipIter::new(IndexEntryMembership::new(
-            storage_key,
-            witness,
-        )))
-    }
-
-    // Decode the canonical storage-key payload while validating the raw entry
-    // shape and duplicate-key invariants in the same pass.
-    fn decode_keys_checked(
-        &self,
-        raw_key: &RawIndexKey,
-    ) -> Result<Vec<StorageKey>, IndexEntryCorruption> {
-        self.decode_keys(raw_key)
     }
 
     /// Validate the raw index entry structure without binding to an entity.
@@ -407,45 +291,6 @@ impl RawIndexEntry {
     }
 }
 
-impl RawIndexEntryMembershipIter {
-    // Build one validated storage-key iterator over one canonical raw entry.
-    const fn new(membership: IndexEntryMembership) -> Self {
-        Self {
-            membership: Some(membership),
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn declared_count(&self) -> usize {
-        self.membership.is_some() as usize
-    }
-}
-
-impl RawIndexEntryKeyIter {
-    #[must_use]
-    pub(in crate::db) const fn declared_count(&self) -> usize {
-        self.inner.declared_count()
-    }
-}
-
-impl Iterator for RawIndexEntryKeyIter {
-    type Item = Result<StorageKey, IndexEntryCorruption>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner
-            .next()
-            .map(|membership| membership.map(IndexEntryMembership::storage_key))
-    }
-}
-
-impl Iterator for RawIndexEntryMembershipIter {
-    type Item = Result<IndexEntryMembership, IndexEntryCorruption>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.membership.take().map(Ok)
-    }
-}
-
 fn storage_key_from_raw_index_key(
     raw_key: &RawIndexKey,
 ) -> Result<StorageKey, IndexEntryCorruption> {
@@ -454,11 +299,9 @@ fn storage_key_from_raw_index_key(
         .map_err(|_| IndexEntryCorruption::InvalidKey)
 }
 
-impl TryFrom<&IndexEntry> for RawIndexEntry {
-    type Error = IndexEntryEncodeError;
-
-    fn try_from(entry: &IndexEntry) -> Result<Self, Self::Error> {
-        Self::try_from_entry(entry)
+impl From<&IndexEntry> for RawIndexEntry {
+    fn from(entry: &IndexEntry) -> Self {
+        Self::from_entry(entry)
     }
 }
 
@@ -496,7 +339,6 @@ mod tests {
             data::StorageKey,
             index::{IndexId, IndexKey, IndexKeyKind, RawIndexKey},
         },
-        error::{ErrorClass, ErrorOrigin},
         traits::Storable,
         types::EntityTag,
     };
@@ -529,13 +371,14 @@ mod tests {
     }
 
     #[test]
-    fn raw_index_entry_decode_single_key_recovers_single_member_without_vector_allocation() {
+    fn raw_index_entry_decode_storage_key_recovers_key_owned_row_identity() {
         let key = StorageKey::Int(9);
         let raw_key = raw_key_for(key);
         let raw = RawIndexEntry::try_from_keys([key]).expect("encode index entry");
 
         assert_eq!(
-            raw.decode_single_key(&raw_key).expect("decode single key"),
+            raw.decode_storage_key(&raw_key)
+                .expect("decode key-owned row identity"),
             key
         );
     }
@@ -548,7 +391,7 @@ mod tests {
         let raw = RawIndexEntry::try_from_keys([constructor_key]).expect("encode index entry");
 
         assert_eq!(
-            raw.decode_single_key(&raw_key)
+            raw.decode_storage_key(&raw_key)
                 .expect("decode key-owned membership"),
             raw_key_key
         );
@@ -571,18 +414,12 @@ mod tests {
     }
 
     #[test]
-    fn raw_index_entry_iter_keys_streams_key_owned_membership() {
+    fn raw_index_entry_decode_keys_preserves_single_key_compatibility_surface() {
         let key = StorageKey::Int(3);
         let raw_key = raw_key_for(key);
         let raw = RawIndexEntry::try_from_keys([key]).expect("encode index entry");
-        let mut iter = raw.iter_keys(&raw_key).expect("build key iterator");
 
-        assert_eq!(iter.declared_count(), 1);
-        assert_eq!(iter.next().expect("first key").expect("decode key"), key);
-        assert!(
-            iter.next().is_none(),
-            "iterator should exhaust after one key"
-        );
+        assert_eq!(raw.decode_keys(&raw_key).expect("decode keys"), vec![key]);
     }
 
     #[test]
@@ -661,15 +498,6 @@ mod tests {
         let err = RawIndexEntry::try_from_keys([]).expect_err("encoding should reject no keys");
 
         assert!(matches!(err, IndexEntryEncodeError::EmptyEntry));
-    }
-
-    #[test]
-    fn index_entry_encode_error_owns_commit_internal_mapping() {
-        let err =
-            IndexEntryEncodeError::EmptyEntry.into_commit_internal_error("tests::Entity", "email");
-
-        assert_eq!(err.class, ErrorClass::Unsupported);
-        assert_eq!(err.origin, ErrorOrigin::Index);
     }
 
     #[test]

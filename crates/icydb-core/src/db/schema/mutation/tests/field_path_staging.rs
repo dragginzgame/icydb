@@ -125,15 +125,11 @@ fn field_path_rebuild_stages_sorted_entries_without_publication() {
                 .entry()
                 .try_decode_for_key(entry.key())
                 .expect("staged entry should decode")
-                .iter_ids()
-                .collect::<Vec<_>>()
+                .storage_key()
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(
-        staged_members,
-        vec![vec![StorageKey::Nat(1)], vec![StorageKey::Nat(2)]],
-    );
+    assert_eq!(staged_members, vec![StorageKey::Nat(1), StorageKey::Nat(2)],);
 
     let validation = staged
         .validate()

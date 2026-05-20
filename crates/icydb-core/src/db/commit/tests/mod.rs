@@ -797,17 +797,14 @@ fn indexed_ids_for(entity: &RecoveryIndexedEntity) -> Option<BTreeSet<Ulid>> {
     with_recovery_store(|store| {
         store.with_index(|index_store| {
             index_store.get(&index_key).map(|entry| {
-                entry
+                let storage_key = entry
                     .try_decode_for_key(&index_key)
                     .expect("index entry decode should succeed")
-                    .iter_ids()
-                    .map(
-                        |storage_key| match storage_key_as_runtime_value(&storage_key) {
-                            Value::Ulid(value) => value,
-                            other => panic!("decoded index key should be a Ulid, got {other:?}"),
-                        },
-                    )
-                    .collect::<BTreeSet<_>>()
+                    .storage_key();
+                let Value::Ulid(value) = storage_key_as_runtime_value(&storage_key) else {
+                    panic!("decoded index key should be a Ulid");
+                };
+                BTreeSet::from([value])
             })
         })
     })
@@ -823,19 +820,14 @@ fn nullable_indexed_ids_for(entity: &RecoveryNullableIndexedEntity) -> Option<BT
     with_recovery_store(|store| {
         store.with_index(|index_store| {
             index_store.get(&index_key).map(|entry| {
-                entry
+                let storage_key = entry
                     .try_decode_for_key(&index_key)
                     .expect("nullable index entry decode should succeed")
-                    .iter_ids()
-                    .map(
-                        |storage_key| match storage_key_as_runtime_value(&storage_key) {
-                            Value::Ulid(value) => value,
-                            other => {
-                                panic!("decoded nullable index key should be a Ulid, got {other:?}")
-                            }
-                        },
-                    )
-                    .collect::<BTreeSet<_>>()
+                    .storage_key();
+                let Value::Ulid(value) = storage_key_as_runtime_value(&storage_key) else {
+                    panic!("decoded nullable index key should be a Ulid");
+                };
+                BTreeSet::from([value])
             })
         })
     })
@@ -929,21 +921,14 @@ fn conditional_indexed_ids_for(entity: &RecoveryConditionalEntity) -> Option<BTr
     with_recovery_store(|store| {
         store.with_index(|index_store| {
             index_store.get(&index_key).map(|entry| {
-                entry
+                let storage_key = entry
                     .try_decode_for_key(&index_key)
                     .expect("conditional index entry decode should succeed")
-                    .iter_ids()
-                    .map(
-                        |storage_key| match storage_key_as_runtime_value(&storage_key) {
-                            Value::Ulid(value) => value,
-                            other => {
-                                panic!(
-                                    "decoded conditional index key should be a Ulid, got {other:?}"
-                                )
-                            }
-                        },
-                    )
-                    .collect::<BTreeSet<_>>()
+                    .storage_key();
+                let Value::Ulid(value) = storage_key_as_runtime_value(&storage_key) else {
+                    panic!("decoded conditional index key should be a Ulid");
+                };
+                BTreeSet::from([value])
             })
         })
     })

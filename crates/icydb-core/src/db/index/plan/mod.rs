@@ -196,7 +196,7 @@ fn load_structural_accepted_expression_index_key(
 fn validate_existing_old_index_membership(
     entity_path: &'static str,
     index_fields: &str,
-    index_is_unique: bool,
+    _index_is_unique: bool,
     old_storage_key: Option<StorageKey>,
     old_key: Option<&IndexKey>,
     old_entry: Option<&IndexEntry>,
@@ -216,14 +216,6 @@ fn validate_existing_old_index_membership(
             IndexEntryCorruption::missing_key(old_key.to_raw(), old_storage_key),
         )
     })?;
-
-    if index_is_unique && entry.len() > 1 {
-        return Err(InternalError::structural_index_entry_corruption(
-            entity_path,
-            index_fields,
-            IndexEntryCorruption::NonUniqueEntry { keys: entry.len() },
-        ));
-    }
 
     if !entry.contains(old_storage_key) {
         return Err(InternalError::structural_index_entry_corruption(
@@ -406,7 +398,6 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
     push_index_delta_group(
         groups,
         index_store,
-        index_fields,
         old_key,
         new_key,
         old_storage_key,
@@ -494,7 +485,6 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
     push_index_delta_group(
         groups,
         index_store,
-        index_fields,
         old_key,
         new_key,
         old_storage_key,
@@ -510,7 +500,6 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
 fn push_index_delta_group(
     groups: &mut Vec<IndexDeltaGroup>,
     index_store: &str,
-    index_fields: String,
     old_key: Option<IndexKey>,
     new_key: Option<IndexKey>,
     old_storage_key: Option<StorageKey>,
@@ -533,7 +522,7 @@ fn push_index_delta_group(
     }
 
     if !deltas.is_empty() {
-        groups.push(IndexDeltaGroup::new(index_store, index_fields, deltas));
+        groups.push(IndexDeltaGroup::new(index_store, deltas));
     }
 
     Ok(())

@@ -101,7 +101,7 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedRebuild {
 )]
 impl SchemaFieldPathIndexStagedRebuild {
     pub(in crate::db::schema) fn from_rows<'a>(
-        entity_path: &str,
+        _entity_path: &str,
         entity_tag: EntityTag,
         target: SchemaFieldPathIndexRebuildTarget,
         predicate_program: Option<&PredicateProgram>,
@@ -130,8 +130,7 @@ impl SchemaFieldPathIndexStagedRebuild {
                 continue;
             };
             let entry = IndexEntry::new(row.storage_key());
-            let raw_entry = RawIndexEntry::try_from(&entry)
-                .map_err(|err| err.into_commit_internal_error(entity_path, target.name()))?;
+            let raw_entry = RawIndexEntry::from(&entry);
 
             entries.push(SchemaFieldPathIndexStagedEntry {
                 key: key.to_raw(),

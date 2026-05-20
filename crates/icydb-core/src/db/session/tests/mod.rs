@@ -3023,14 +3023,12 @@ fn inspect_filtered_expression_order_only_raw_scan(
                     let entry = raw_entry
                         .try_decode_for_key(raw_key)
                         .expect("filtered expression index range scan entry");
-                    for storage_key in entry.iter_ids() {
-                        keys.push(DataKey::new(
-                            FilteredIndexedSessionSqlEntity::ENTITY_TAG,
-                            storage_key,
-                        ));
-                        if keys.len() == 4 {
-                            return Ok(true);
-                        }
+                    keys.push(DataKey::new(
+                        FilteredIndexedSessionSqlEntity::ENTITY_TAG,
+                        entry.storage_key(),
+                    ));
+                    if keys.len() == 4 {
+                        return Ok(true);
                     }
 
                     Ok(false)

@@ -303,12 +303,7 @@ where
                 &mut decoded,
             )?
         };
-        let forward_index_ops = materialize_forward_index_commit_ops(
-            db,
-            index_plan,
-            index_reader,
-            authority.entity_path,
-        )?;
+        let forward_index_ops = materialize_forward_index_commit_ops(db, index_plan)?;
 
         (decoded, forward_index_ops)
     };
@@ -569,8 +564,6 @@ fn materialize_prepared_row_commit(
 fn materialize_forward_index_commit_ops<C>(
     db: &Db<C>,
     index_plan: IndexMutationPlan,
-    index_reader: &dyn StructuralIndexEntryReader,
-    entity_path: &'static str,
 ) -> Result<Vec<CommitIndexOp>, InternalError>
 where
     C: crate::traits::CanisterKind,
@@ -578,7 +571,7 @@ where
     let mut commit_ops = Vec::with_capacity(index_plan.groups.len().saturating_mul(2));
 
     for group in index_plan.groups {
-        build_commit_ops_for_index_group(&mut commit_ops, db, index_reader, entity_path, group)?;
+        build_commit_ops_for_index_group(&mut commit_ops, db, group)?;
     }
 
     Ok(commit_ops)
@@ -590,8 +583,6 @@ where
 fn build_commit_ops_for_index_group<C>(
     commit_ops: &mut Vec<CommitIndexOp>,
     db: &Db<C>,
-    _index_reader: &dyn StructuralIndexEntryReader,
-    entity_path: &'static str,
     group: IndexDeltaGroup,
 ) -> Result<(), InternalError>
 where
@@ -610,25 +601,18 @@ where
         }
     }
 
-    build_commit_ops_for_index_delta_pair(
-        commit_ops,
-        index_store,
-        entity_path,
-        &group.index_fields,
-        remove_delta,
-        insert_delta,
-    )
+    build_commit_ops_for_index_delta_pair(commit_ops, index_store, remove_delta, insert_delta);
+
+    Ok(())
 }
 
 // Compute commit-time index operations for one old/new membership pair.
 fn build_commit_ops_for_index_delta_pair(
     commit_ops: &mut Vec<CommitIndexOp>,
     store: &'static LocalKey<RefCell<crate::db::index::IndexStore>>,
-    entity_path: &str,
-    fields: &str,
     remove_delta: Option<IndexMembershipDelta>,
     insert_delta: Option<IndexMembershipDelta>,
-) -> Result<(), InternalError> {
+) {
     // Phase 1: same-key transitions collapse into one entry mutation.
     if remove_delta
         .as_ref()
@@ -639,15 +623,13 @@ fn build_commit_ops_for_index_delta_pair(
             push_commit_op_for_index_entry(
                 commit_ops,
                 store,
-                entity_path,
-                fields,
                 insert_delta.key.to_raw(),
                 Some(IndexEntry::new(insert_delta.primary_key)),
                 CommitIndexOp::unchanged,
-            )?;
+            );
         }
 
-        return Ok(());
+        return;
     }
 
     // Phase 2: different-key transitions can touch at most two keys. Preserve
@@ -676,29 +658,11 @@ fn build_commit_ops_for_index_delta_pair(
     }
 
     if let Some((raw_key, entry, build_commit_op)) = first {
-        push_commit_op_for_index_entry(
-            commit_ops,
-            store,
-            entity_path,
-            fields,
-            raw_key,
-            entry,
-            build_commit_op,
-        )?;
+        push_commit_op_for_index_entry(commit_ops, store, raw_key, entry, build_commit_op);
     }
     if let Some((raw_key, entry, build_commit_op)) = second {
-        push_commit_op_for_index_entry(
-            commit_ops,
-            store,
-            entity_path,
-            fields,
-            raw_key,
-            entry,
-            build_commit_op,
-        )?;
+        push_commit_op_for_index_entry(commit_ops, store, raw_key, entry, build_commit_op);
     }
-
-    Ok(())
 }
 
 /// Insert one touched key into the small fixed-size ordered candidate set.
@@ -729,21 +693,11 @@ type CommitIndexOpBuilder = fn(
 fn push_commit_op_for_index_entry(
     commit_ops: &mut Vec<CommitIndexOp>,
     store: &'static LocalKey<RefCell<crate::db::index::IndexStore>>,
-    entity_path: &str,
-    fields: &str,
     raw_key: RawIndexKey,
     entry: Option<IndexEntry>,
     build_commit_op: CommitIndexOpBuilder,
-) -> Result<(), InternalError> {
-    let value = if let Some(entry) = entry {
-        let raw = RawIndexEntry::try_from(&entry)
-            .map_err(|err| err.into_commit_internal_error(entity_path, fields))?;
-        Some(raw)
-    } else {
-        None
-    };
+) {
+    let value = entry.map(|entry| RawIndexEntry::from(&entry));
 
     commit_ops.push(build_commit_op(store, raw_key, value));
-
-    Ok(())
 }

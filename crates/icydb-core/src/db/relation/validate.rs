@@ -162,10 +162,10 @@ where
                         let entry =
                             decode_reverse_entry(source_info, &relation, reverse_key, raw_entry)?;
 
-                        // Phase 2: verify each candidate source row before rejecting delete.
-                        for source_key in entry.iter_ids() {
-                            let source_data_key =
-                                DataKey::new(source_info.entity_tag(), source_key);
+                        // Phase 2: verify the key-owned source row before rejecting delete.
+                        let source_key = entry.storage_key();
+                        {
+                            let source_data_key = DataKey::new(source_info.entity_tag(), source_key);
                             let source_raw_key = source_data_key.to_raw()?;
                             let source_raw_row =
                                 source_store.with_data(|store| store.get(&source_raw_key));
