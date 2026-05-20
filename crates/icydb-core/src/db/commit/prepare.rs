@@ -16,8 +16,8 @@ use crate::{
             canonical_row_from_structural_slot_reader_with_accepted_contract,
         },
         index::{
-            IndexDelta, IndexDeltaGroup, IndexEntry, IndexEntryValue, IndexMembershipDelta,
-            IndexMutationPlan, IndexPlanReadView, IndexReadContract, RawIndexStoreKey,
+            IndexDelta, IndexDeltaGroup, IndexEntryValue, IndexMembershipDelta, IndexMutationPlan,
+            IndexPlanReadView, IndexReadContract, IndexRowIdentity, RawIndexStoreKey,
             StructuralIndexEntryReader, StructuralPrimaryRowReader,
             plan_index_mutation_for_slot_reader_structural,
         },
@@ -624,7 +624,7 @@ fn build_commit_ops_for_index_delta_pair(
                 commit_ops,
                 store,
                 insert_delta.key.to_raw(),
-                Some(IndexEntry::new(insert_delta.primary_key)),
+                Some(IndexRowIdentity::new(insert_delta.primary_key)),
                 CommitIndexOp::unchanged,
             );
         }
@@ -634,8 +634,16 @@ fn build_commit_ops_for_index_delta_pair(
 
     // Phase 2: different-key transitions can touch at most two keys. Preserve
     // deterministic key order without the general BTreeMap machinery.
-    let mut first: Option<(RawIndexStoreKey, Option<IndexEntry>, CommitIndexOpBuilder)> = None;
-    let mut second: Option<(RawIndexStoreKey, Option<IndexEntry>, CommitIndexOpBuilder)> = None;
+    let mut first: Option<(
+        RawIndexStoreKey,
+        Option<IndexRowIdentity>,
+        CommitIndexOpBuilder,
+    )> = None;
+    let mut second: Option<(
+        RawIndexStoreKey,
+        Option<IndexRowIdentity>,
+        CommitIndexOpBuilder,
+    )> = None;
 
     if let Some(remove_delta) = remove_delta {
         insert_commit_candidate(
@@ -652,7 +660,7 @@ fn build_commit_ops_for_index_delta_pair(
             &mut first,
             &mut second,
             insert_delta.key.to_raw(),
-            Some(IndexEntry::new(insert_delta.primary_key)),
+            Some(IndexRowIdentity::new(insert_delta.primary_key)),
             CommitIndexOp::index_insert,
         );
     }
@@ -667,10 +675,18 @@ fn build_commit_ops_for_index_delta_pair(
 
 /// Insert one touched key into the small fixed-size ordered candidate set.
 fn insert_commit_candidate(
-    first: &mut Option<(RawIndexStoreKey, Option<IndexEntry>, CommitIndexOpBuilder)>,
-    second: &mut Option<(RawIndexStoreKey, Option<IndexEntry>, CommitIndexOpBuilder)>,
+    first: &mut Option<(
+        RawIndexStoreKey,
+        Option<IndexRowIdentity>,
+        CommitIndexOpBuilder,
+    )>,
+    second: &mut Option<(
+        RawIndexStoreKey,
+        Option<IndexRowIdentity>,
+        CommitIndexOpBuilder,
+    )>,
     raw_key: RawIndexStoreKey,
-    entry: Option<IndexEntry>,
+    entry: Option<IndexRowIdentity>,
     build_commit_op: CommitIndexOpBuilder,
 ) {
     match first {
@@ -694,7 +710,7 @@ fn push_commit_op_for_index_entry(
     commit_ops: &mut Vec<CommitIndexOp>,
     store: &'static LocalKey<RefCell<crate::db::index::IndexStore>>,
     raw_key: RawIndexStoreKey,
-    entry: Option<IndexEntry>,
+    entry: Option<IndexRowIdentity>,
     build_commit_op: CommitIndexOpBuilder,
 ) {
     let value = entry.map(|entry| IndexEntryValue::from(&entry));

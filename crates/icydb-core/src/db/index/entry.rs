@@ -64,12 +64,12 @@ impl IndexEntryCorruption {
 }
 
 ///
-/// IndexEntry
+/// IndexRowIdentity
 ///
 
 #[cfg(test)]
 #[derive(Debug, ThisError)]
-pub(crate) enum IndexEntryEncodeError {
+pub(crate) enum IndexEntryValueEncodeError {
     #[error("index entry test constructor received more than one key: {keys}")]
     TooManyKeys { keys: usize },
 
@@ -78,7 +78,7 @@ pub(crate) enum IndexEntryEncodeError {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct IndexEntry {
+pub(crate) struct IndexRowIdentity {
     id: StorageKey,
 }
 
@@ -146,7 +146,7 @@ impl IndexEntryMembership {
     }
 }
 
-impl IndexEntry {
+impl IndexRowIdentity {
     #[must_use]
     pub(crate) const fn new(id: StorageKey) -> Self {
         Self { id }
@@ -174,15 +174,15 @@ impl IndexEntryValue {
     }
 
     #[must_use]
-    pub(crate) fn from_entry(_entry: &IndexEntry) -> Self {
+    pub(crate) fn from_row_identity(_entry: &IndexRowIdentity) -> Self {
         Self::presence()
     }
 
     pub(crate) fn try_decode_for_key(
         &self,
         raw_key: &RawIndexStoreKey,
-    ) -> Result<IndexEntry, IndexEntryCorruption> {
-        self.decode_storage_key(raw_key).map(IndexEntry::new)
+    ) -> Result<IndexRowIdentity, IndexEntryCorruption> {
+        self.decode_storage_key(raw_key).map(IndexRowIdentity::new)
     }
 
     /// Decode this key-owned raw entry and append its storage key if `limit`
@@ -210,7 +210,7 @@ impl IndexEntryValue {
     }
 
     #[cfg(test)]
-    pub(crate) fn try_from_keys<I>(keys: I) -> Result<Self, IndexEntryEncodeError>
+    pub(crate) fn try_from_keys<I>(keys: I) -> Result<Self, IndexEntryValueEncodeError>
     where
         I: IntoIterator<Item = StorageKey>,
     {
@@ -218,10 +218,10 @@ impl IndexEntryValue {
         let count = keys.into_iter().count();
 
         if count == 0 {
-            return Err(IndexEntryEncodeError::EmptyEntry);
+            return Err(IndexEntryValueEncodeError::EmptyEntry);
         }
         if count > 1 {
-            return Err(IndexEntryEncodeError::TooManyKeys { keys: count });
+            return Err(IndexEntryValueEncodeError::TooManyKeys { keys: count });
         }
 
         Ok(Self::presence())
@@ -291,9 +291,9 @@ fn storage_key_from_raw_index_store_key(
         .map_err(|_| IndexEntryCorruption::InvalidKey)
 }
 
-impl From<&IndexEntry> for IndexEntryValue {
-    fn from(entry: &IndexEntry) -> Self {
-        Self::from_entry(entry)
+impl From<&IndexRowIdentity> for IndexEntryValue {
+    fn from(entry: &IndexRowIdentity) -> Self {
+        Self::from_row_identity(entry)
     }
 }
 
@@ -323,8 +323,8 @@ impl Storable for IndexEntryValue {
 #[cfg(test)]
 mod tests {
     use super::{
-        IndexEntryCorruption, IndexEntryEncodeError, IndexEntryExistenceWitness, IndexEntryValue,
-        MAX_INDEX_ENTRY_BYTES,
+        IndexEntryCorruption, IndexEntryExistenceWitness, IndexEntryValue,
+        IndexEntryValueEncodeError, MAX_INDEX_ENTRY_BYTES,
     };
     use crate::{
         db::{
@@ -401,7 +401,7 @@ mod tests {
 
         assert!(matches!(
             err,
-            IndexEntryEncodeError::TooManyKeys { keys: 2 }
+            IndexEntryValueEncodeError::TooManyKeys { keys: 2 }
         ));
     }
 
@@ -489,7 +489,7 @@ mod tests {
     fn index_entry_value_try_from_keys_rejects_empty_membership() {
         let err = IndexEntryValue::try_from_keys([]).expect_err("encoding should reject no keys");
 
-        assert!(matches!(err, IndexEntryEncodeError::EmptyEntry));
+        assert!(matches!(err, IndexEntryValueEncodeError::EmptyEntry));
     }
 
     #[test]

@@ -14,7 +14,7 @@ use crate::{
         },
         identity::EntityName,
         index::{
-            IndexEntry, IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexStore,
+            IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexRowIdentity, IndexStore,
             RawIndexStoreKey, encode_canonical_index_component_from_storage_key,
             raw_keys_for_component_prefix_with_kind,
         },
@@ -523,7 +523,7 @@ pub(super) fn decode_reverse_entry(
     relation: &AcceptedStrongRelationInfo,
     index_key: &RawIndexStoreKey,
     raw_entry: &IndexEntryValue,
-) -> Result<IndexEntry, InternalError> {
+) -> Result<IndexRowIdentity, InternalError> {
     raw_entry.try_decode_for_key(index_key).map_err(|err| {
         InternalError::reverse_index_entry_corrupted(
             source.path,

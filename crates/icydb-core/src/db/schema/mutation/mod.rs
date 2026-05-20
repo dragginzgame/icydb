@@ -10,7 +10,8 @@ use crate::db::{
     },
     data::{CanonicalSlotReader, StorageKey},
     index::{
-        IndexEntry, IndexEntryValue, IndexId, IndexKey, IndexState, IndexStore, RawIndexStoreKey,
+        IndexEntryValue, IndexId, IndexKey, IndexRowIdentity, IndexState, IndexStore,
+        RawIndexStoreKey,
     },
     predicate::PredicateProgram,
     schema::{

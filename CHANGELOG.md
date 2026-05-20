@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.159.md](docs/changelog/0.159.md)
 
+- `0.159.7` renames the decoded secondary-index row identity model to
+  `IndexRowIdentity`, leaving persisted index keys and values unchanged.
+
 - `0.159.6` completes the live compact key/value taxonomy rename for primary
   rows and secondary indexes, and cleans up `icydb-config-build` around its
   direct build-script config model. Raw string/file parser helpers are no

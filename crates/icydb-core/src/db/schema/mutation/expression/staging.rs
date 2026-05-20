@@ -130,7 +130,7 @@ impl SchemaExpressionIndexStagedRebuild {
                 skipped_rows = skipped_rows.saturating_add(1);
                 continue;
             };
-            let entry = IndexEntry::new(row.storage_key());
+            let entry = IndexRowIdentity::new(row.storage_key());
             let raw_entry = IndexEntryValue::from(&entry);
 
             entries.push(SchemaExpressionIndexStagedEntry {

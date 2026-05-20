@@ -11,7 +11,7 @@ mod unique;
 use crate::{
     db::{
         data::{CanonicalSlotReader, StorageKey, StructuralRowContract},
-        index::{IndexEntry, IndexEntryCorruption, IndexKey, IndexReadContract},
+        index::{IndexEntryCorruption, IndexKey, IndexReadContract, IndexRowIdentity},
         predicate::{Predicate, PredicateProgram, normalize, parse_sql_predicate},
         schema::{
             SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo, SchemaIndexInfo,
@@ -199,7 +199,7 @@ fn validate_existing_old_index_membership(
     _index_is_unique: bool,
     old_storage_key: Option<StorageKey>,
     old_key: Option<&IndexKey>,
-    old_entry: Option<&IndexEntry>,
+    old_entry: Option<&IndexRowIdentity>,
 ) -> Result<(), InternalError> {
     let Some(old_key) = old_key else {
         return Ok(());
@@ -534,7 +534,7 @@ pub(super) fn load_existing_entry_structural(
     index_fields: &str,
     key: Option<&IndexKey>,
     entity_path: &'static str,
-) -> Result<Option<IndexEntry>, InternalError> {
+) -> Result<Option<IndexRowIdentity>, InternalError> {
     // No indexed key means no index entry to load.
     let Some(key) = key else {
         return Ok(None);
