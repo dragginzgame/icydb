@@ -10,8 +10,8 @@ use crate::{
         direction::Direction,
         index::{
             IndexBoundsSpec, IndexId, IndexKey, IndexKeyKind, IndexRangeBoundEncodeError,
-            KeyEnvelope, PrimaryKeyEquivalenceError, RawIndexKey, build_index_bounds_for_arity,
-            primary_key_matches_value,
+            KeyEnvelope, PrimaryKeyEquivalenceError, RawIndexStoreKey,
+            build_index_bounds_for_arity, primary_key_matches_value,
         },
     },
     traits::{KeyValueCodec, Storable},
@@ -30,11 +30,11 @@ use std::borrow::Cow;
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ValidatedIdentityIndexRangeCursorAnchor {
     decoded_key: IndexKey,
-    canonical_raw_key: RawIndexKey,
+    canonical_raw_key: RawIndexStoreKey,
 }
 
 impl ValidatedIdentityIndexRangeCursorAnchor {
-    const fn new(decoded_key: IndexKey, canonical_raw_key: RawIndexKey) -> Self {
+    const fn new(decoded_key: IndexKey, canonical_raw_key: RawIndexStoreKey) -> Self {
         Self {
             decoded_key,
             canonical_raw_key,
@@ -47,7 +47,7 @@ impl ValidatedIdentityIndexRangeCursorAnchor {
     }
 
     #[must_use]
-    const fn lowered_key(&self) -> &RawIndexKey {
+    const fn lowered_key(&self) -> &RawIndexStoreKey {
         &self.canonical_raw_key
     }
 
@@ -82,7 +82,7 @@ impl ValidatedInEnvelopeIndexRangeCursorAnchor {
     /// Return the lowered raw key retained on the validated cursor anchor.
     #[expect(dead_code, reason = "retained for cursor-boundary handoff audits")]
     #[must_use]
-    pub(in crate::db::cursor) const fn lowered_key(&self) -> &RawIndexKey {
+    pub(in crate::db::cursor) const fn lowered_key(&self) -> &RawIndexStoreKey {
         self.identity.lowered_key()
     }
 
@@ -97,15 +97,15 @@ impl ValidatedInEnvelopeIndexRangeCursorAnchor {
     }
 
     #[must_use]
-    pub(in crate::db) fn clone_raw_key(&self) -> RawIndexKey {
+    pub(in crate::db) fn clone_raw_key(&self) -> RawIndexStoreKey {
         self.identity.lowered_key().clone()
     }
 }
 
 /// Build a continuation anchor directly from one raw index key.
 #[must_use]
-pub(in crate::db) fn cursor_anchor_from_raw_index_key(
-    index_key: &RawIndexKey,
+pub(in crate::db) fn cursor_anchor_from_raw_index_store_key(
+    index_key: &RawIndexStoreKey,
 ) -> IndexRangeCursorAnchor {
     IndexRangeCursorAnchor::new(index_key.as_bytes().to_vec())
 }
@@ -115,7 +115,8 @@ pub(in crate::db) fn cursor_anchor_from_raw_index_key(
 fn decode_canonical_cursor_anchor(
     anchor: &IndexRangeCursorAnchor,
 ) -> Result<ValidatedIdentityIndexRangeCursorAnchor, CursorPlanError> {
-    let anchor_raw = <RawIndexKey as Storable>::from_bytes(Cow::Borrowed(anchor.last_raw_key()));
+    let anchor_raw =
+        <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(anchor.last_raw_key()));
     let decoded_key = IndexKey::try_from_raw(&anchor_raw)
         .map_err(CursorPlanError::index_range_anchor_decode_failed)?;
     let canonical_raw = decoded_key.to_raw();
@@ -187,7 +188,13 @@ fn lower_cursor_anchor_index_range_bounds(
     prefix: &[crate::value::Value],
     lower: &std::ops::Bound<crate::value::Value>,
     upper: &std::ops::Bound<crate::value::Value>,
-) -> Result<(std::ops::Bound<RawIndexKey>, std::ops::Bound<RawIndexKey>), &'static str> {
+) -> Result<
+    (
+        std::ops::Bound<RawIndexStoreKey>,
+        std::ops::Bound<RawIndexStoreKey>,
+    ),
+    &'static str,
+> {
     let index_id = IndexId::new(entity_tag, index.ordinal());
 
     build_index_bounds_for_arity(

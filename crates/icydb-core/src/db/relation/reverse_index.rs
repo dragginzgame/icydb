@@ -8,14 +8,14 @@ use crate::{
         Db,
         commit::PreparedIndexMutation,
         data::{
-            CanonicalSlotReader, DataKey, RawDataKey, RawRow, ScalarSlotValueRef, ScalarValueRef,
-            StorageKey, StructuralRowContract, StructuralSlotReader,
+            CanonicalSlotReader, DataKey, RawDataStoreKey, RawRow, ScalarSlotValueRef,
+            ScalarValueRef, StorageKey, StructuralRowContract, StructuralSlotReader,
             decode_accepted_relation_target_storage_keys_bytes,
         },
         identity::EntityName,
         index::{
-            IndexEntry, IndexId, IndexKey, IndexKeyKind, IndexStore, RawIndexEntry, RawIndexKey,
-            encode_canonical_index_component_from_storage_key,
+            IndexEntry, IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexStore,
+            RawIndexStoreKey, encode_canonical_index_component_from_storage_key,
             raw_keys_for_component_prefix_with_kind,
         },
         relation::{RelationTargetDecodeContext, RelationTargetMismatchPolicy},
@@ -71,7 +71,7 @@ impl ReverseRelationSourceInfo {
 #[derive(Clone)]
 struct ReverseRelationMutationTarget {
     target_store: &'static LocalKey<RefCell<IndexStore>>,
-    reverse_key: RawIndexKey,
+    reverse_key: RawIndexStoreKey,
     old_contains: bool,
     new_contains: bool,
 }
@@ -426,7 +426,7 @@ pub(super) fn reverse_index_key_bounds_for_target_storage_key(
     source: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
     target_key_value: StorageKey,
-) -> Result<Option<(RawIndexKey, RawIndexKey)>, InternalError> {
+) -> Result<Option<(RawIndexStoreKey, RawIndexStoreKey)>, InternalError> {
     let Ok(encoded_value) = encode_canonical_index_component_from_storage_key(target_key_value)
     else {
         return Ok(None);
@@ -449,7 +449,7 @@ fn reverse_index_key_for_target_and_source_storage_key(
     relation: &AcceptedStrongRelationInfo,
     target_key_value: StorageKey,
     source_key_value: StorageKey,
-) -> Result<Option<RawIndexKey>, InternalError> {
+) -> Result<Option<RawIndexStoreKey>, InternalError> {
     let Ok(encoded_value) = encode_canonical_index_component_from_storage_key(target_key_value)
     else {
         return Ok(None);
@@ -473,7 +473,7 @@ fn relation_target_raw_keys_for_source_slots(
     row_fields: &StructuralSlotReader<'_>,
     source_info: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
-) -> Result<Vec<RawDataKey>, InternalError> {
+) -> Result<Vec<RawDataStoreKey>, InternalError> {
     let keys = relation_target_storage_keys_for_source_slots(row_fields, source_info, relation)?;
 
     relation_target_raw_keys_from_storage_keys(source_info, relation, keys)
@@ -512,7 +512,7 @@ fn source_slots_reference_relation_target(
 }
 
 // Canonicalize reverse-index target keys into deterministic sorted-unique order.
-fn canonicalize_relation_target_keys(keys: &mut Vec<RawDataKey>) {
+fn canonicalize_relation_target_keys(keys: &mut Vec<RawDataStoreKey>) {
     keys.sort_unstable();
     keys.dedup();
 }
@@ -521,8 +521,8 @@ fn canonicalize_relation_target_keys(keys: &mut Vec<RawDataKey>) {
 pub(super) fn decode_reverse_entry(
     source: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
-    index_key: &RawIndexKey,
-    raw_entry: &RawIndexEntry,
+    index_key: &RawIndexStoreKey,
+    raw_entry: &IndexEntryValue,
 ) -> Result<IndexEntry, InternalError> {
     raw_entry.try_decode_for_key(index_key).map_err(|err| {
         InternalError::reverse_index_entry_corrupted(
@@ -566,7 +566,7 @@ where
 pub(in crate::db::relation) fn decode_relation_target_data_key(
     source: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
-    target_raw_key: &RawDataKey,
+    target_raw_key: &RawDataStoreKey,
     context: RelationTargetDecodeContext,
     mismatch_policy: RelationTargetMismatchPolicy,
 ) -> Result<Option<DataKey>, InternalError> {
@@ -605,7 +605,7 @@ fn relation_target_raw_keys_from_storage_keys(
     source: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
     keys: Vec<StorageKey>,
-) -> Result<Vec<RawDataKey>, InternalError> {
+) -> Result<Vec<RawDataStoreKey>, InternalError> {
     let mut keys = keys
         .into_iter()
         .map(|value| raw_relation_target_key_from_storage_key(source, relation, value))
@@ -713,7 +713,7 @@ fn raw_relation_target_key_from_storage_key(
     source: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
     value: StorageKey,
-) -> Result<RawDataKey, InternalError> {
+) -> Result<RawDataStoreKey, InternalError> {
     DataKey::raw_from_parts(relation.target().entity_tag(), value).map_err(|err| {
         InternalError::relation_source_row_decode_failed(
             source.path,
@@ -766,7 +766,7 @@ fn prepare_reverse_relation_index_mutation_for_target(
 
     // Each reverse-index raw key now includes both target and source keys, so
     // the value is just the one-byte existence witness for that edge.
-    let next_value = target.new_contains.then(RawIndexEntry::presence);
+    let next_value = target.new_contains.then(IndexEntryValue::presence);
 
     Some(PreparedIndexMutation::from_reverse_index_membership(
         target.target_store,
@@ -922,7 +922,7 @@ fn relation_target_keys_for_transition_side(
     row_fields: Option<&StructuralSlotReader<'_>>,
     source: ReverseRelationSourceInfo,
     relation: &AcceptedStrongRelationInfo,
-) -> Result<Vec<RawDataKey>, InternalError> {
+) -> Result<Vec<RawDataStoreKey>, InternalError> {
     match row_fields {
         Some(row_fields) => relation_target_raw_keys_for_source_slots(row_fields, source, relation),
         None => Ok(Vec::new()),

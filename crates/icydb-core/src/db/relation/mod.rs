@@ -11,7 +11,7 @@ mod validate;
 use crate::{
     db::{
         Db,
-        data::{RawDataKey, StorageKeyEncodeError},
+        data::{RawDataStoreKey, StorageKeyEncodeError},
     },
     error::InternalError,
     value::Value,
@@ -34,7 +34,7 @@ pub(in crate::db) use validate::validate_delete_strong_relations_for_source;
 ///
 
 pub(crate) type StrongRelationDeleteValidateFn<C> =
-    fn(&Db<C>, &str, &BTreeSet<RawDataKey>) -> Result<(), InternalError>;
+    fn(&Db<C>, &str, &BTreeSet<RawDataStoreKey>) -> Result<(), InternalError>;
 
 ///
 /// RelationTargetDecodeContext
@@ -60,7 +60,7 @@ enum RelationTargetMismatchPolicy {
 
 ///
 /// RelationTargetRawKeyError
-/// Error variants for building a relation target `RawDataKey` from user value.
+/// Error variants for building a relation target `RawDataStoreKey` from user value.
 ///
 
 #[derive(Debug)]

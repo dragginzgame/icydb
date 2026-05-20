@@ -55,8 +55,8 @@ impl<'a> SchemaFieldPathIndexRebuildRow<'a> {
 )]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexStagedEntry {
-    key: RawIndexKey,
-    entry: RawIndexEntry,
+    key: RawIndexStoreKey,
+    entry: IndexEntryValue,
 }
 
 #[allow(
@@ -65,12 +65,12 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexStagedEntry {
 )]
 impl SchemaFieldPathIndexStagedEntry {
     #[must_use]
-    pub(in crate::db::schema) const fn key(&self) -> &RawIndexKey {
+    pub(in crate::db::schema) const fn key(&self) -> &RawIndexStoreKey {
         &self.key
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn entry(&self) -> &RawIndexEntry {
+    pub(in crate::db::schema) const fn entry(&self) -> &IndexEntryValue {
         &self.entry
     }
 }
@@ -130,7 +130,7 @@ impl SchemaFieldPathIndexStagedRebuild {
                 continue;
             };
             let entry = IndexEntry::new(row.storage_key());
-            let raw_entry = RawIndexEntry::from(&entry);
+            let raw_entry = IndexEntryValue::from(&entry);
 
             entries.push(SchemaFieldPathIndexStagedEntry {
                 key: key.to_raw(),
@@ -260,7 +260,7 @@ fn has_duplicate_unique_components(
 }
 
 fn staged_index_key(
-    key: &RawIndexKey,
+    key: &RawIndexStoreKey,
 ) -> Result<IndexKey, SchemaFieldPathIndexStagedValidationError> {
     IndexKey::try_from_raw(key)
         .map_err(|_| SchemaFieldPathIndexStagedValidationError::IndexKeyDecode)

@@ -29,6 +29,7 @@ use error::{
 use std::cmp::Ordering;
 use tuple::{compare_component_segments, compare_segment_bytes, push_segment, read_segment};
 
+pub(crate) use crate::db::key_taxonomy::RawIndexStoreKey;
 pub(crate) use scalar::IndexKeyKind;
 
 ///
@@ -65,7 +66,7 @@ impl PartialOrd for IndexKey {
 }
 
 impl IndexKey {
-    fn to_raw_with_primary_key(&self, primary_key: &[u8]) -> RawIndexKey {
+    fn to_raw_with_primary_key(&self, primary_key: &[u8]) -> RawIndexStoreKey {
         // Phase 1: validate in-memory invariants before crossing into the
         // store-key taxonomy wrapper.
         let component_count = self.components.len();
@@ -100,10 +101,10 @@ impl IndexKey {
         .to_raw()
         .expect("validated index key should encode");
 
-        RawIndexKey(raw.as_bytes().to_vec())
+        RawIndexStoreKey::from_persisted_bytes(raw.as_bytes().to_vec())
     }
 
-    fn to_raw_with_primary_key_segment(&self, primary_key: &[u8]) -> RawIndexKey {
+    fn to_raw_with_primary_key_segment(&self, primary_key: &[u8]) -> RawIndexStoreKey {
         let component_count = self.components.len();
         let mut capacity = KEY_PREFIX_SIZE + SEGMENT_LEN_SIZE + primary_key.len();
         for component in &self.components {
@@ -122,23 +123,25 @@ impl IndexKey {
         }
         push_segment(&mut bytes, primary_key);
 
-        RawIndexKey(bytes)
+        RawIndexStoreKey::from_persisted_bytes(bytes)
     }
 
     #[must_use]
-    pub(crate) fn to_raw(&self) -> RawIndexKey {
+    pub(crate) fn to_raw(&self) -> RawIndexStoreKey {
         self.to_raw_with_primary_key(&self.primary_key)
     }
 
     #[must_use]
-    pub(in crate::db) fn raw_bounds_for_all_components(&self) -> (RawIndexKey, RawIndexKey) {
+    pub(in crate::db) fn raw_bounds_for_all_components(
+        &self,
+    ) -> (RawIndexStoreKey, RawIndexStoreKey) {
         (
             self.to_raw_with_primary_key(&Self::wildcard_low_pk()),
             self.to_raw_with_primary_key(&Self::wildcard_high_pk()),
         )
     }
 
-    pub(crate) fn try_from_raw(raw: &RawIndexKey) -> Result<Self, &'static str> {
+    pub(crate) fn try_from_raw(raw: &RawIndexStoreKey) -> Result<Self, &'static str> {
         let bytes = raw.as_bytes();
         let (key_kind, index_id, component_count_usize, mut offset) =
             parse_index_key_header(bytes)?;
@@ -262,121 +265,7 @@ fn parse_index_key_header(
     Ok((key_kind, index_id, component_count_usize, offset))
 }
 
-fn compare_raw_index_key_bytes(left: &[u8], right: &[u8]) -> Ordering {
-    // Phase 1: compare the fixed-width semantic header, or fall back to raw bytes
-    // if either side is malformed. Stable storage should only contain canonical
-    // keys, but `Ord` still needs a total ordering for diagnostics/tests.
-    let Ok((left_kind, left_index_id, left_component_count, left_offset)) =
-        parse_index_key_header(left)
-    else {
-        return left.cmp(right);
-    };
-    let Ok((right_kind, right_index_id, right_component_count, right_offset)) =
-        parse_index_key_header(right)
-    else {
-        return left.cmp(right);
-    };
-
-    left_kind
-        .cmp(&right_kind)
-        .then_with(|| left_index_id.cmp(&right_index_id))
-        .then_with(|| left_component_count.cmp(&right_component_count))
-        .then_with(|| {
-            compare_raw_index_key_segments(
-                left,
-                right,
-                left_component_count,
-                left_offset,
-                right_offset,
-            )
-        })
-}
-
-fn compare_raw_index_key_segments(
-    left: &[u8],
-    right: &[u8],
-    component_count: usize,
-    mut left_offset: usize,
-    mut right_offset: usize,
-) -> Ordering {
-    // Phase 1: decode and compare the indexed components while ignoring tuple
-    // framing bytes. The ordered component payload already encodes semantic order.
-    for _ in 0..component_count {
-        let Ok(left_segment) = read_segment(
-            left,
-            &mut left_offset,
-            IndexKey::MAX_COMPONENT_SIZE,
-            "component segment",
-        ) else {
-            return left.cmp(right);
-        };
-        let Ok(right_segment) = read_segment(
-            right,
-            &mut right_offset,
-            IndexKey::MAX_COMPONENT_SIZE,
-            "component segment",
-        ) else {
-            return left.cmp(right);
-        };
-
-        let segment_order = compare_segment_bytes(left_segment, right_segment);
-        if segment_order != Ordering::Equal {
-            return segment_order;
-        }
-    }
-
-    // Phase 2: compare the trailing primary-key segment and reject malformed
-    // trailing payloads by falling back to raw bytes.
-    let Ok(left_primary_key) =
-        read_segment(left, &mut left_offset, IndexKey::MAX_PK_SIZE, "primary key")
-    else {
-        return left.cmp(right);
-    };
-    let Ok(right_primary_key) = read_segment(
-        right,
-        &mut right_offset,
-        IndexKey::MAX_PK_SIZE,
-        "primary key",
-    ) else {
-        return left.cmp(right);
-    };
-
-    let primary_key_order = compare_segment_bytes(left_primary_key, right_primary_key);
-    if primary_key_order != Ordering::Equal {
-        return primary_key_order;
-    }
-
-    if left_offset != left.len() || right_offset != right.len() {
-        return left.cmp(right);
-    }
-
-    Ordering::Equal
-}
-
-///
-/// RawIndexKey
-///
-/// Variable-length, stable-memory representation of IndexKey.
-/// This is the form stored in BTreeMap keys.
-/// Ordering follows decoded key semantics rather than serialized tuple framing bytes.
-///
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub(crate) struct RawIndexKey(Vec<u8>);
-
-impl Ord for RawIndexKey {
-    fn cmp(&self, other: &Self) -> Ordering {
-        compare_raw_index_key_bytes(&self.0, &other.0)
-    }
-}
-
-impl PartialOrd for RawIndexKey {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl RawIndexKey {
+impl RawIndexStoreKey {
     // Validate one raw index key while extracting only the requested component
     // segment. This keeps single-component covering scans from allocating a
     // full decoded `IndexKey` when they only need one component payload.

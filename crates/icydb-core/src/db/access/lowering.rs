@@ -7,7 +7,7 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan, ExecutableAccessPlan},
         index::{
-            IndexBoundsSpec, IndexId, IndexRangeBoundEncodeError, RawIndexKey,
+            IndexBoundsSpec, IndexId, IndexRangeBoundEncodeError, RawIndexStoreKey,
             build_index_bounds_for_arity,
         },
     },
@@ -17,7 +17,7 @@ use crate::{
 };
 use std::ops::Bound;
 
-pub(in crate::db) type LoweredKey = RawIndexKey;
+pub(in crate::db) type LoweredKey = RawIndexStoreKey;
 
 ///
 /// LoweredAccess

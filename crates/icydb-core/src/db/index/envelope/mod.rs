@@ -7,7 +7,7 @@
 mod tests;
 
 use crate::{
-    db::{direction::Direction, index::RawIndexKey},
+    db::{direction::Direction, index::RawIndexStoreKey},
     error::InternalError,
 };
 use std::ops::Bound;
@@ -112,8 +112,8 @@ pub(in crate::db) fn resume_bounds_for_continuation<K: Clone + Ord>(
 ///
 #[must_use]
 pub(in crate::db) fn envelope_is_empty(
-    lower: &Bound<RawIndexKey>,
-    upper: &Bound<RawIndexKey>,
+    lower: &Bound<RawIndexStoreKey>,
+    upper: &Bound<RawIndexStoreKey>,
 ) -> bool {
     // Unbounded envelopes are never empty by construction.
     let (Some(lower_key), Some(upper_key)) = (bound_key_ref(lower), bound_key_ref(upper)) else {
@@ -183,7 +183,7 @@ where
     }
 }
 
-const fn bound_key_ref(bound: &Bound<RawIndexKey>) -> Option<&RawIndexKey> {
+const fn bound_key_ref(bound: &Bound<RawIndexStoreKey>) -> Option<&RawIndexStoreKey> {
     match bound {
         Bound::Included(value) | Bound::Excluded(value) => Some(value),
         Bound::Unbounded => None,

@@ -37,7 +37,7 @@ mod tests;
 use crate::{
     db::{
         commit::{CommitRowOp, PreparedRowCommitOp, ensure_recovered},
-        data::RawDataKey,
+        data::RawDataStoreKey,
         executor::Context,
         registry::StoreHandle,
     },
@@ -385,7 +385,7 @@ impl<C: CanisterKind> Db<C> {
     pub(crate) fn validate_delete_strong_relations(
         &self,
         target_path: &str,
-        deleted_target_keys: &BTreeSet<RawDataKey>,
+        deleted_target_keys: &BTreeSet<RawDataStoreKey>,
     ) -> Result<(), InternalError> {
         runtime_hooks::validate_delete_strong_relations_with_hooks(
             self,

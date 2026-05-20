@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::{CanonicalRow, RawDataKey, RawRow},
+        data::{CanonicalRow, RawDataStoreKey, RawRow},
         key_taxonomy::RawDataStoreKeyRange,
     },
     types::EntityTag,
@@ -32,12 +32,12 @@ fn record_data_store_get_call() {
 ///
 /// Thin persistence wrapper over one stable BTreeMap.
 ///
-/// Invariant: callers provide already-validated `RawDataKey` and canonical row bytes.
+/// Invariant: callers provide already-validated `RawDataStoreKey` and canonical row bytes.
 /// This type intentionally does not enforce commit-phase ordering.
 ///
 
 pub struct DataStore {
-    map: BTreeMap<RawDataKey, RawRow, VirtualMemory<DefaultMemoryImpl>>,
+    map: BTreeMap<RawDataStoreKey, RawRow, VirtualMemory<DefaultMemoryImpl>>,
 }
 
 impl DataStore {
@@ -50,7 +50,11 @@ impl DataStore {
     }
 
     /// Insert or replace one row by raw key.
-    pub(in crate::db) fn insert(&mut self, key: RawDataKey, row: CanonicalRow) -> Option<RawRow> {
+    pub(in crate::db) fn insert(
+        &mut self,
+        key: RawDataStoreKey,
+        row: CanonicalRow,
+    ) -> Option<RawRow> {
         self.map.insert(key, row.into_raw_row())
     }
 
@@ -58,19 +62,19 @@ impl DataStore {
     #[cfg(test)]
     pub(in crate::db) fn insert_raw_for_test(
         &mut self,
-        key: RawDataKey,
+        key: RawDataStoreKey,
         row: RawRow,
     ) -> Option<RawRow> {
         self.map.insert(key, row)
     }
 
     /// Remove one row by raw key.
-    pub(in crate::db) fn remove(&mut self, key: &RawDataKey) -> Option<RawRow> {
+    pub(in crate::db) fn remove(&mut self, key: &RawDataStoreKey) -> Option<RawRow> {
         self.map.remove(key)
     }
 
     /// Load one row by raw key.
-    pub(in crate::db) fn get(&self, key: &RawDataKey) -> Option<RawRow> {
+    pub(in crate::db) fn get(&self, key: &RawDataStoreKey) -> Option<RawRow> {
         #[cfg(feature = "diagnostics")]
         record_data_store_get_call();
 
@@ -79,7 +83,7 @@ impl DataStore {
 
     /// Return whether one raw key exists without cloning the row payload.
     #[must_use]
-    pub(in crate::db) fn contains(&self, key: &RawDataKey) -> bool {
+    pub(in crate::db) fn contains(&self, key: &RawDataStoreKey) -> bool {
         self.map.contains_key(key)
     }
 
@@ -105,15 +109,15 @@ impl DataStore {
     /// Return raw row entries in canonical storage order.
     pub(in crate::db) fn entries(
         &self,
-    ) -> Iter<'_, RawDataKey, RawRow, VirtualMemory<DefaultMemoryImpl>> {
+    ) -> Iter<'_, RawDataStoreKey, RawRow, VirtualMemory<DefaultMemoryImpl>> {
         self.map.iter()
     }
 
     /// Iterate over raw row entries whose keys belong to the provided storage range.
     pub(in crate::db) fn range(
         &self,
-        key_range: impl RangeBounds<RawDataKey>,
-    ) -> Iter<'_, RawDataKey, RawRow, VirtualMemory<DefaultMemoryImpl>> {
+        key_range: impl RangeBounds<RawDataStoreKey>,
+    ) -> Iter<'_, RawDataStoreKey, RawRow, VirtualMemory<DefaultMemoryImpl>> {
         self.map.range(key_range)
     }
 
@@ -121,9 +125,9 @@ impl DataStore {
     pub(in crate::db) fn range_for_entity(
         &self,
         entity: EntityTag,
-    ) -> Iter<'_, RawDataKey, RawRow, VirtualMemory<DefaultMemoryImpl>> {
+    ) -> Iter<'_, RawDataStoreKey, RawRow, VirtualMemory<DefaultMemoryImpl>> {
         let range = RawDataStoreKeyRange::entity_prefix(entity);
-        self.map.range(RawDataKey::store_range_bounds(&range))
+        self.map.range(RawDataStoreKey::store_range_bounds(&range))
     }
 
     /// Sum of bytes used by all stored rows.

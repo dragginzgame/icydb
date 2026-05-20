@@ -5,8 +5,8 @@
 
 use crate::db::commit::marker::CommitIndexOp;
 use crate::db::{
-    data::{CanonicalRow, DataStore, RawDataKey},
-    index::{IndexStore, RawIndexEntry, RawIndexKey},
+    data::{CanonicalRow, DataStore, RawDataStoreKey},
+    index::{IndexEntryValue, IndexStore, RawIndexStoreKey},
 };
 use std::{cell::RefCell, thread::LocalKey};
 
@@ -20,8 +20,8 @@ use std::{cell::RefCell, thread::LocalKey};
 #[derive(Clone)]
 pub(crate) struct PreparedIndexMutation {
     pub(crate) index_store: &'static LocalKey<RefCell<IndexStore>>,
-    pub(crate) key: RawIndexKey,
-    pub(crate) value: Option<RawIndexEntry>,
+    pub(crate) key: RawIndexStoreKey,
+    pub(crate) value: Option<IndexEntryValue>,
     pub(crate) delta_kind: PreparedIndexDeltaKind,
 }
 
@@ -40,8 +40,8 @@ impl PreparedIndexMutation {
     /// Build one rollback index mutation without delta counter attribution.
     pub(crate) const fn rollback_snapshot(
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: RawIndexKey,
-        value: Option<RawIndexEntry>,
+        key: RawIndexStoreKey,
+        value: Option<IndexEntryValue>,
     ) -> Self {
         Self {
             index_store,
@@ -54,8 +54,8 @@ impl PreparedIndexMutation {
     /// Build one reverse-index mutation with derived delta attribution.
     pub(crate) const fn from_reverse_index_membership(
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: RawIndexKey,
-        value: Option<RawIndexEntry>,
+        key: RawIndexStoreKey,
+        value: Option<IndexEntryValue>,
         old_contains: bool,
         new_contains: bool,
     ) -> Self {
@@ -188,6 +188,6 @@ mod tests {
 pub(in crate::db) struct PreparedRowCommitOp {
     pub(crate) index_ops: Vec<PreparedIndexMutation>,
     pub(crate) data_store: &'static LocalKey<RefCell<DataStore>>,
-    pub(crate) data_key: RawDataKey,
+    pub(crate) data_key: RawDataStoreKey,
     pub(crate) data_value: Option<CanonicalRow>,
 }

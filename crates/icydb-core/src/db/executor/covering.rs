@@ -136,8 +136,8 @@ fn resolve_covering_projection_components_for_index_bounds(
     entity_tag: EntityTag,
     index: crate::db::access::LoweredIndexScanContract,
     bounds: (
-        &std::ops::Bound<crate::db::index::RawIndexKey>,
-        &std::ops::Bound<crate::db::index::RawIndexKey>,
+        &std::ops::Bound<crate::db::index::RawIndexStoreKey>,
+        &std::ops::Bound<crate::db::index::RawIndexStoreKey>,
     ),
     continuation: IndexScanContinuationInput<'_>,
     limit: usize,

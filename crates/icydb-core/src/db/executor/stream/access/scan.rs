@@ -9,7 +9,7 @@ use crate::{
             ContinuationKeyRef, ContinuationRuntime, IndexScanContinuationInput, LoopAction,
             WindowCursorContract,
         },
-        data::{DataKey, RawDataKey},
+        data::{DataKey, RawDataStoreKey},
         direction::Direction,
         executor::{
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract, LoweredKey,
@@ -17,7 +17,8 @@ use crate::{
             record_row_check_index_row_identity_decoded,
         },
         index::{
-            IndexEntryExistenceWitness, IndexEntryMembership, IndexKey, RawIndexEntry, RawIndexKey,
+            IndexEntryExistenceWitness, IndexEntryMembership, IndexEntryValue, IndexKey,
+            RawIndexStoreKey,
             predicate::{IndexPredicateExecution, eval_index_execution_on_decoded_key},
         },
         registry::StoreHandle,
@@ -43,9 +44,9 @@ pub(in crate::db::executor) type IndexComponentRows =
 pub(in crate::db::executor) struct PrimaryScan;
 
 impl PrimaryScan {
-    // Decode one raw data key through the canonical corruption mapping.
+    // Decode one raw data-store key through the canonical corruption mapping.
     pub(in crate::db::executor) fn decode_data_key(
-        raw: &RawDataKey,
+        raw: &RawDataStoreKey,
     ) -> Result<DataKey, InternalError> {
         DataKey::try_from_raw(raw).map_err(|err| {
             InternalError::identity_corruption(format!("failed to decode data key: {err}"))
@@ -73,19 +74,19 @@ pub(in crate::db::executor) struct IndexScan;
 
 pub(in crate::db::executor) struct IndexDataKeyScanChunk {
     keys: Vec<DataKey>,
-    last_raw_key: Option<RawIndexKey>,
+    last_raw_key: Option<RawIndexStoreKey>,
 }
 
 impl IndexDataKeyScanChunk {
     /// Construct one chunk from decoded keys and the last scanned raw index key.
     #[must_use]
-    const fn new(keys: Vec<DataKey>, last_raw_key: Option<RawIndexKey>) -> Self {
+    const fn new(keys: Vec<DataKey>, last_raw_key: Option<RawIndexStoreKey>) -> Self {
         Self { keys, last_raw_key }
     }
 
     /// Consume this chunk into decoded keys and resume anchor.
     #[must_use]
-    pub(in crate::db::executor) fn into_parts(self) -> (Vec<DataKey>, Option<RawIndexKey>) {
+    pub(in crate::db::executor) fn into_parts(self) -> (Vec<DataKey>, Option<RawIndexStoreKey>) {
         (self.keys, self.last_raw_key)
     }
 }
@@ -313,15 +314,15 @@ impl IndexScan {
     // Apply executor-owned continuation advancement checks for one raw index key.
     fn accept_scan_key(
         continuation: &ContinuationRuntime<'_>,
-        raw_key: &RawIndexKey,
+        raw_key: &RawIndexStoreKey,
     ) -> Result<LoopAction, InternalError> {
         continuation.accept_key(ContinuationKeyRef::scan(raw_key))
     }
 
     fn decode_index_entry_and_push(
         entity: EntityTag,
-        raw_key: &RawIndexKey,
-        value: &RawIndexEntry,
+        raw_key: &RawIndexStoreKey,
+        value: &IndexEntryValue,
         out: &mut Vec<DataKey>,
         limit: Option<usize>,
         context: &'static str,
@@ -361,8 +362,8 @@ impl IndexScan {
     fn decode_index_entry_and_push_with_components(
         entity: EntityTag,
         index: &LoweredIndexScanContract,
-        raw_key: &RawIndexKey,
-        value: &RawIndexEntry,
+        raw_key: &RawIndexStoreKey,
+        value: &IndexEntryValue,
         out: &mut IndexComponentRows,
         limit: Option<usize>,
         component_indices: &[usize],

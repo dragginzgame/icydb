@@ -8,11 +8,11 @@ use crate::{
         access::{AccessPlan, LoweredKey},
         cursor::{
             ContinuationSignature, ContinuationToken, CursorBoundary,
-            cursor_anchor_from_raw_index_key,
+            cursor_anchor_from_raw_index_store_key,
         },
         direction::Direction,
         index::{
-            RawIndexKey, resume_bounds_for_continuation,
+            RawIndexStoreKey, resume_bounds_for_continuation,
             validate_index_scan_continuation_advancement,
         },
         query::plan::{
@@ -32,20 +32,23 @@ use std::ops::Bound;
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct IndexScanContinuationInput<'a> {
-    anchor: Option<&'a RawIndexKey>,
+    anchor: Option<&'a RawIndexStoreKey>,
     direction: Direction,
 }
 
 impl<'a> IndexScanContinuationInput<'a> {
     /// Build one index-scan continuation input.
     #[must_use]
-    pub(in crate::db) const fn new(anchor: Option<&'a RawIndexKey>, direction: Direction) -> Self {
+    pub(in crate::db) const fn new(
+        anchor: Option<&'a RawIndexStoreKey>,
+        direction: Direction,
+    ) -> Self {
         Self { anchor, direction }
     }
 
     /// Borrow the optional raw index-key anchor carried by this scan input.
     #[must_use]
-    pub(in crate::db) const fn anchor(&self) -> Option<&'a RawIndexKey> {
+    pub(in crate::db) const fn anchor(&self) -> Option<&'a RawIndexStoreKey> {
         self.anchor
     }
 
@@ -59,15 +62,15 @@ impl<'a> IndexScanContinuationInput<'a> {
     /// bounds for one directional index scan.
     pub(in crate::db) fn resume_bounds(
         &self,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
-    ) -> Result<(Bound<RawIndexKey>, Bound<RawIndexKey>), InternalError> {
+        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
+    ) -> Result<(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>), InternalError> {
         resume_bounds_for_continuation(self.direction, self.anchor, bounds.0, bounds.1)
     }
 
     /// Validate strict directional advancement for one raw-key scan candidate.
     pub(in crate::db) fn validate_candidate_advancement(
         &self,
-        candidate: &RawIndexKey,
+        candidate: &RawIndexStoreKey,
     ) -> Result<(), InternalError> {
         validate_index_scan_continuation_advancement(self.direction, self.anchor, candidate)
     }
@@ -83,7 +86,7 @@ impl<'a> IndexScanContinuationInput<'a> {
 #[derive(Clone, Debug)]
 pub(in crate::db) struct MaterializedCursorRow {
     boundary: CursorBoundary,
-    index_anchor: Option<RawIndexKey>,
+    index_anchor: Option<RawIndexStoreKey>,
 }
 
 impl MaterializedCursorRow {
@@ -91,7 +94,7 @@ impl MaterializedCursorRow {
     #[must_use]
     pub(in crate::db) const fn new(
         boundary: CursorBoundary,
-        index_anchor: Option<RawIndexKey>,
+        index_anchor: Option<RawIndexStoreKey>,
     ) -> Self {
         Self {
             boundary,
@@ -210,7 +213,7 @@ fn next_cursor_for_row<K>(
         ContinuationToken::new_index_range_with_direction(
             signature,
             boundary,
-            cursor_anchor_from_raw_index_key(last_emitted_raw_key),
+            cursor_anchor_from_raw_index_store_key(last_emitted_raw_key),
             direction,
             initial_offset,
         )
@@ -224,7 +227,7 @@ fn next_cursor_for_row<K>(
 fn validate_next_index_range_anchor_progression(
     direction: Direction,
     previous_anchor: Option<&LoweredKey>,
-    last_emitted_raw_key: &RawIndexKey,
+    last_emitted_raw_key: &RawIndexStoreKey,
 ) -> Result<(), InternalError> {
     validate_index_scan_continuation_advancement(direction, previous_anchor, last_emitted_raw_key)
         .map_err(|_| {

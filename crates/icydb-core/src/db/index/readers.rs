@@ -6,7 +6,7 @@
 use crate::{
     db::{
         data::{DataKey, RawRow, StorageKey},
-        index::{IndexStore, RawIndexEntry, RawIndexKey},
+        index::{IndexEntryValue, IndexStore, RawIndexStoreKey},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -132,8 +132,8 @@ pub(in crate::db) trait IndexEntryReader<E: EntityKind + EntityValue>:
     fn read_index_entry(
         &self,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: &RawIndexKey,
-    ) -> Result<Option<RawIndexEntry>, InternalError>;
+        key: &RawIndexStoreKey,
+    ) -> Result<Option<IndexEntryValue>, InternalError>;
 
     /// Return up to `limit` structural primary-key values resolved from
     /// `index_store` in raw key range.
@@ -141,7 +141,7 @@ pub(in crate::db) trait IndexEntryReader<E: EntityKind + EntityValue>:
         &self,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
         index: IndexReadContract<'_>,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError>;
 }
@@ -160,8 +160,8 @@ pub(in crate::db) trait StructuralIndexEntryReader:
     fn read_index_entry_structural(
         &self,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: &RawIndexKey,
-    ) -> Result<Option<RawIndexEntry>, InternalError>;
+        key: &RawIndexStoreKey,
+    ) -> Result<Option<IndexEntryValue>, InternalError>;
 
     /// Return up to `limit` structural primary-key values resolved from
     /// `index_store` in raw key range.
@@ -171,7 +171,7 @@ pub(in crate::db) trait StructuralIndexEntryReader:
         entity_tag: EntityTag,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
         index: IndexReadContract<'_>,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError>;
 }
@@ -183,8 +183,8 @@ where
     fn read_index_entry_structural(
         &self,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: &RawIndexKey,
-    ) -> Result<Option<RawIndexEntry>, InternalError> {
+        key: &RawIndexStoreKey,
+    ) -> Result<Option<IndexEntryValue>, InternalError> {
         self.read_index_entry(index_store, key)
     }
 
@@ -194,7 +194,7 @@ where
         _entity_tag: EntityTag,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
         index: IndexReadContract<'_>,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
         self.read_index_keys_in_raw_range(index_store, index, bounds, limit)

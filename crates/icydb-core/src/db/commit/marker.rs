@@ -7,8 +7,8 @@ use crate::{
     db::{
         codec::MAX_ROW_BYTES,
         commit::prepared_op::PreparedIndexDeltaKind,
-        data::{DataKey, RawDataKey},
-        index::{IndexStore, RawIndexEntry, RawIndexKey},
+        data::{DataKey, RawDataStoreKey},
+        index::{IndexEntryValue, IndexStore, RawIndexStoreKey},
     },
     error::InternalError,
     types::Ulid,
@@ -43,7 +43,7 @@ pub(crate) const MAX_COMMIT_BYTES: u32 = 16 * 1024 * 1024;
 #[derive(Clone, Debug)]
 pub(in crate::db) struct CommitRowOp {
     pub(crate) entity_path: Cow<'static, str>,
-    pub(crate) key: RawDataKey,
+    pub(crate) key: RawDataStoreKey,
     pub(crate) before: Option<Vec<u8>>,
     pub(crate) after: Option<Vec<u8>>,
     pub(crate) schema_fingerprint: CommitSchemaFingerprint,
@@ -54,7 +54,7 @@ impl CommitRowOp {
     #[must_use]
     pub(crate) fn new(
         entity_path: impl Into<Cow<'static, str>>,
-        key: RawDataKey,
+        key: RawDataStoreKey,
         before: Option<Vec<u8>>,
         after: Option<Vec<u8>>,
         schema_fingerprint: CommitSchemaFingerprint,
@@ -71,7 +71,7 @@ impl CommitRowOp {
     /// Construct one row-level commit operation from raw key bytes.
     ///
     /// This is the raw-key decode boundary for callers that still own opaque
-    /// key bytes rather than a typed `RawDataKey`.
+    /// key bytes rather than a typed `RawDataStoreKey`.
     pub(crate) fn try_new_bytes(
         entity_path: impl Into<Cow<'static, str>>,
         key: &[u8],
@@ -101,8 +101,8 @@ impl CommitRowOp {
 #[derive(Clone, Debug)]
 pub(crate) struct CommitIndexOp {
     pub(crate) index_store: &'static LocalKey<RefCell<IndexStore>>,
-    pub(crate) key: RawIndexKey,
-    pub(crate) value: Option<RawIndexEntry>,
+    pub(crate) key: RawIndexStoreKey,
+    pub(crate) value: Option<IndexEntryValue>,
     pub(crate) delta_kind: PreparedIndexDeltaKind,
 }
 
@@ -110,8 +110,8 @@ impl CommitIndexOp {
     /// Build one index commit op without delta counter attribution.
     pub(crate) const fn unchanged(
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: RawIndexKey,
-        value: Option<RawIndexEntry>,
+        key: RawIndexStoreKey,
+        value: Option<IndexEntryValue>,
     ) -> Self {
         Self {
             index_store,
@@ -124,8 +124,8 @@ impl CommitIndexOp {
     /// Build one index commit op that contributes to insert counters.
     pub(crate) const fn index_insert(
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: RawIndexKey,
-        value: Option<RawIndexEntry>,
+        key: RawIndexStoreKey,
+        value: Option<IndexEntryValue>,
     ) -> Self {
         Self {
             index_store,
@@ -138,8 +138,8 @@ impl CommitIndexOp {
     /// Build one index commit op that contributes to remove counters.
     pub(crate) const fn index_remove(
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: RawIndexKey,
-        value: Option<RawIndexEntry>,
+        key: RawIndexStoreKey,
+        value: Option<IndexEntryValue>,
     ) -> Self {
         Self {
             index_store,
@@ -499,8 +499,10 @@ fn read_len_prefixed_bytes<'a>(
     Ok(payload)
 }
 
-/// Decode a raw data key and validate its structural invariants.
-pub(in crate::db) fn decode_data_key(bytes: &[u8]) -> Result<(RawDataKey, DataKey), InternalError> {
+/// Decode a raw data-store key and validate its structural invariants.
+pub(in crate::db) fn decode_data_key(
+    bytes: &[u8],
+) -> Result<(RawDataStoreKey, DataKey), InternalError> {
     // Commit markers store the current data-key wire bytes length-prefixed.
     // The 0.159 data-key format is variable-width, so this gate is a bounded
     // maximum check; structural validation belongs to `DataKey::try_from_raw`.
@@ -512,7 +514,7 @@ pub(in crate::db) fn decode_data_key(bytes: &[u8]) -> Result<(RawDataKey, DataKe
         ));
     }
 
-    let raw = <RawDataKey as Storable>::from_bytes(Cow::Borrowed(bytes));
+    let raw = <RawDataStoreKey as Storable>::from_bytes(Cow::Borrowed(bytes));
     let data_key = DataKey::try_from_raw(&raw)
         .map_err(|err| InternalError::commit_component_corruption("data key", err))?;
 

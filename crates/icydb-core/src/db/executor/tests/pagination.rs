@@ -3872,7 +3872,7 @@ fn load_index_range_cursor_anchor_matches_last_emitted_row_after_post_access_pip
         .as_index_range_path()
         .expect("comparison plan should remain on index-range access")
         .index();
-    let expected_anchor = crate::db::cursor::cursor_anchor_from_raw_index_key(
+    let expected_anchor = crate::db::cursor::cursor_anchor_from_raw_index_store_key(
         &crate::db::index::IndexKey::new(last_entity, &PUSHDOWN_PARITY_INDEX_MODELS[0])
             .expect("index key derivation should succeed")
             .expect("last emitted row should be indexable")

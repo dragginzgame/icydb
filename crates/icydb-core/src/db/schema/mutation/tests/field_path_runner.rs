@@ -102,7 +102,7 @@ fn field_path_runner_orchestrates_handoff_with_unrelated_index_entries() {
     let other_index_id = IndexId::new(EntityTag::new(7), 99);
     let other_key = IndexKey::empty_with_kind(&other_index_id, IndexKeyKind::User).to_raw();
     let other_entry =
-        RawIndexEntry::try_from_keys([StorageKey::Nat(99)]).expect("other entry should encode");
+        IndexEntryValue::try_from_keys([StorageKey::Nat(99)]).expect("other entry should encode");
     index_store.insert(other_key, other_entry);
     let mut invalidation_sink = RecordingRuntimeInvalidationSink::default();
     let mut publication_sink = RecordingAcceptedSnapshotPublicationSink::default();

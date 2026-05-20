@@ -30,7 +30,7 @@ use crate::{
 };
 
 pub(in crate::db) use anchor::{
-    ValidatedInEnvelopeIndexRangeCursorAnchor, cursor_anchor_from_raw_index_key,
+    ValidatedInEnvelopeIndexRangeCursorAnchor, cursor_anchor_from_raw_index_store_key,
 };
 pub(crate) use boundary::{CursorBoundary, CursorBoundarySlot};
 pub(in crate::db) use boundary::{

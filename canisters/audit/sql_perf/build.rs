@@ -3,8 +3,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         icydb_testing_audit_sql_perf_fixtures::sql_perf::PerfAuditCanister,
     >();
 
-    let config =
-        icydb_config_build::emit_config_for_canister("PerfAuditCanister", &["PerfAuditCanister"])?;
+    let config = icydb_config_build::emit_config_for_build_script()?;
     let options = icydb::build::BuildOptions::default()
         .with_sql_readonly_enabled(config.canister_sql_readonly_enabled("PerfAuditCanister"))
         .with_sql_ddl_enabled(config.canister_sql_ddl_enabled("PerfAuditCanister"))

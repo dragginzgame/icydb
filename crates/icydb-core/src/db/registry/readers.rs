@@ -3,7 +3,7 @@ use crate::{
         data::{DataKey, RawRow, StorageKey},
         direction::Direction,
         index::{
-            IndexReadContract, IndexStore, RawIndexEntry, RawIndexKey,
+            IndexEntryValue, IndexReadContract, IndexStore, RawIndexStoreKey,
             SealedStructuralIndexEntryReader, SealedStructuralPrimaryRowReader,
             StructuralIndexEntryReader, StructuralPrimaryRowReader,
         },
@@ -28,8 +28,8 @@ impl StructuralIndexEntryReader for StoreHandle {
     fn read_index_entry_structural(
         &self,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: &RawIndexKey,
-    ) -> Result<Option<RawIndexEntry>, InternalError> {
+        key: &RawIndexStoreKey,
+    ) -> Result<Option<IndexEntryValue>, InternalError> {
         Ok(index_store.with_borrow(|store| store.get(key)))
     }
 
@@ -39,7 +39,7 @@ impl StructuralIndexEntryReader for StoreHandle {
         _entity_tag: EntityTag,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
         index: IndexReadContract<'_>,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
         let mut out = Vec::with_capacity(limit.min(32));
@@ -59,8 +59,8 @@ impl SealedStructuralIndexEntryReader for StoreHandle {}
 // preflight readers.
 fn push_index_entry_storage_keys(
     index: IndexReadContract<'_>,
-    raw_key: &RawIndexKey,
-    raw_entry: &RawIndexEntry,
+    raw_key: &RawIndexStoreKey,
+    raw_entry: &IndexEntryValue,
     out: &mut Vec<StorageKey>,
     limit: usize,
 ) -> Result<bool, InternalError> {

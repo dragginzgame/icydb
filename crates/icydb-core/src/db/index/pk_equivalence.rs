@@ -59,7 +59,7 @@ pub(in crate::db) fn primary_key_matches_value(
 mod tests {
     use super::*;
     use crate::{
-        db::index::{IndexId, IndexKeyKind, RawIndexKey},
+        db::index::{IndexId, IndexKeyKind, RawIndexStoreKey},
         traits::Storable,
         types::{Principal, Subaccount, Timestamp, Ulid},
         value::StorageKey,
@@ -80,7 +80,7 @@ mod tests {
         );
         bytes.extend_from_slice(&primary_key_bytes);
 
-        let raw = RawIndexKey::from_bytes(Cow::Owned(bytes));
+        let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
 
         IndexKey::try_from_raw(&raw).expect("test raw index key should decode")
     }

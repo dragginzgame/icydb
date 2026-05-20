@@ -176,3 +176,104 @@ pub enum ScalarCoercionFamily {
 
 /// Ordered list of all scalar kinds in registry order.
 pub const ALL_SCALAR_KINDS: [ScalarKind; 21] = scalar_kind_registry!(all_kinds_from_registry);
+
+#[cfg(test)]
+mod tests {
+    use super::{ALL_SCALAR_KINDS, ScalarKind};
+    use std::collections::HashSet;
+
+    const EXPECTED_SCALAR_KINDS: [ScalarKind; 21] = [
+        ScalarKind::Account,
+        ScalarKind::Blob,
+        ScalarKind::Bool,
+        ScalarKind::Date,
+        ScalarKind::Decimal,
+        ScalarKind::Duration,
+        ScalarKind::Enum,
+        ScalarKind::Float32,
+        ScalarKind::Float64,
+        ScalarKind::Int,
+        ScalarKind::Int128,
+        ScalarKind::IntBig,
+        ScalarKind::Principal,
+        ScalarKind::Subaccount,
+        ScalarKind::Text,
+        ScalarKind::Timestamp,
+        ScalarKind::Nat,
+        ScalarKind::Nat128,
+        ScalarKind::NatBig,
+        ScalarKind::Ulid,
+        ScalarKind::Unit,
+    ];
+
+    #[test]
+    fn all_scalar_kinds_has_expected_length_and_order() {
+        assert_eq!(ALL_SCALAR_KINDS.len(), EXPECTED_SCALAR_KINDS.len());
+        assert_eq!(ALL_SCALAR_KINDS, EXPECTED_SCALAR_KINDS);
+    }
+
+    #[test]
+    fn all_scalar_kinds_is_unique() {
+        let unique = ALL_SCALAR_KINDS.into_iter().collect::<HashSet<_>>();
+
+        assert_eq!(unique.len(), ALL_SCALAR_KINDS.len());
+    }
+
+    #[test]
+    fn all_scalar_kinds_covers_every_variant() {
+        let all = ALL_SCALAR_KINDS.into_iter().collect::<HashSet<_>>();
+
+        for kind in EXPECTED_SCALAR_KINDS {
+            assert!(all.contains(&kind), "ALL_SCALAR_KINDS missing {kind:?}",);
+            assert_variant_is_known(kind);
+        }
+    }
+
+    #[test]
+    fn all_scalar_kinds_metadata_is_available() {
+        for kind in ALL_SCALAR_KINDS {
+            let metadata = kind.metadata();
+
+            assert_eq!(kind.coercion_family(), metadata.family());
+            assert_eq!(kind.is_numeric_value(), metadata.is_numeric_value());
+            assert_eq!(
+                kind.supports_numeric_coercion(),
+                metadata.supports_numeric_coercion(),
+            );
+            assert_eq!(kind.supports_arithmetic(), metadata.supports_arithmetic());
+            assert_eq!(kind.supports_equality(), metadata.supports_equality());
+            assert_eq!(kind.supports_ordering(), metadata.supports_ordering());
+            assert_eq!(kind.is_keyable(), metadata.is_keyable());
+            assert_eq!(
+                kind.is_storage_key_encodable(),
+                metadata.is_storage_key_encodable(),
+            );
+        }
+    }
+
+    fn assert_variant_is_known(kind: ScalarKind) {
+        match kind {
+            ScalarKind::Account
+            | ScalarKind::Blob
+            | ScalarKind::Bool
+            | ScalarKind::Date
+            | ScalarKind::Decimal
+            | ScalarKind::Duration
+            | ScalarKind::Enum
+            | ScalarKind::Float32
+            | ScalarKind::Float64
+            | ScalarKind::Int
+            | ScalarKind::Int128
+            | ScalarKind::IntBig
+            | ScalarKind::Principal
+            | ScalarKind::Subaccount
+            | ScalarKind::Text
+            | ScalarKind::Timestamp
+            | ScalarKind::Nat
+            | ScalarKind::Nat128
+            | ScalarKind::NatBig
+            | ScalarKind::Ulid
+            | ScalarKind::Unit => {}
+        }
+    }
+}

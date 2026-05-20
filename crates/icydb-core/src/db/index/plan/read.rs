@@ -6,7 +6,7 @@
 use crate::{
     db::{
         data::{DataKey, RawRow, StorageKey},
-        index::{IndexReadContract, RawIndexEntry, RawIndexKey},
+        index::{IndexEntryValue, IndexReadContract, RawIndexStoreKey},
     },
     error::InternalError,
     types::EntityTag,
@@ -30,8 +30,8 @@ pub(in crate::db) trait IndexPlanReadView {
     fn read_index_entry(
         &self,
         index: IndexReadContract<'_>,
-        key: &RawIndexKey,
-    ) -> Result<Option<RawIndexEntry>, InternalError>;
+        key: &RawIndexStoreKey,
+    ) -> Result<Option<IndexEntryValue>, InternalError>;
 
     /// Return up to `limit` structural primary-key values resolved from one raw
     /// index-key range.
@@ -40,7 +40,7 @@ pub(in crate::db) trait IndexPlanReadView {
         entity_path: &'static str,
         entity_tag: EntityTag,
         index: IndexReadContract<'_>,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError>;
 }

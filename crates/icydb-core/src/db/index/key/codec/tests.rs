@@ -7,7 +7,7 @@ use super::{KEY_KIND_TAG_SIZE, KEY_PREFIX_SIZE, SEGMENT_LEN_SIZE};
 use crate::{
     MAX_INDEX_FIELDS,
     db::index::{
-        IndexId, IndexKey, IndexKeyKind, PrimaryKeyEquivalenceError, RawIndexKey,
+        IndexId, IndexKey, IndexKeyKind, PrimaryKeyEquivalenceError, RawIndexStoreKey,
         primary_key_matches_value,
     },
     traits::Storable,
@@ -46,7 +46,7 @@ fn expected_index_id_entity_email_bytes() -> Vec<u8> {
 }
 
 fn decode_must_fail_corrupted(bytes: Vec<u8>, label: &str) {
-    let raw = RawIndexKey::from_bytes(Cow::Owned(bytes));
+    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
     let err = IndexKey::try_from_raw(&raw).expect_err(label);
     assert!(
         err.contains("corrupted"),
@@ -140,7 +140,7 @@ fn first_component_len_offset() -> usize {
 #[test]
 fn index_key_rejects_undersized_bytes() {
     let bytes = vec![0u8; IndexKey::MIN_STORED_SIZE_USIZE.saturating_sub(1)];
-    let raw = RawIndexKey::from_bytes(Cow::Borrowed(&bytes));
+    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(&bytes));
     let err = IndexKey::try_from_raw(&raw).expect_err("undersized key should fail");
     assert!(err.contains("corrupted"));
 }
@@ -148,7 +148,7 @@ fn index_key_rejects_undersized_bytes() {
 #[test]
 fn index_key_rejects_oversized_bytes() {
     let bytes = vec![0u8; IndexKey::STORED_SIZE_USIZE + 1];
-    let raw = RawIndexKey::from_bytes(Cow::Borrowed(&bytes));
+    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(&bytes));
     let err = IndexKey::try_from_raw(&raw).expect_err("oversized key should fail");
     assert!(err.contains("corrupted"));
 }
@@ -159,7 +159,7 @@ fn index_key_rejects_unknown_kind_tag() {
     let mut bytes = key.to_raw().as_bytes().to_vec();
     bytes[0] = 0xFF;
 
-    let raw = RawIndexKey::from_bytes(Cow::Owned(bytes));
+    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
     let err = IndexKey::try_from_raw(&raw).expect_err("unknown kind tag should fail");
     assert!(err.contains("corrupted"));
 }
@@ -177,7 +177,7 @@ fn index_key_rejects_len_over_max() {
     let mut bytes = key.to_raw().as_bytes().to_vec();
     bytes[len_offset()] = (MAX_INDEX_FIELDS as u8) + 1;
 
-    let raw = RawIndexKey::from_bytes(Cow::Owned(bytes));
+    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
     let err = IndexKey::try_from_raw(&raw).expect_err("oversized length should fail");
     assert!(err.contains("corrupted"));
 }
@@ -203,7 +203,7 @@ fn index_key_rejects_truncated_key() {
     let mut bytes = key.to_raw().as_bytes().to_vec();
     bytes.pop();
 
-    let raw = RawIndexKey::from_bytes(Cow::Owned(bytes));
+    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
     let err = IndexKey::try_from_raw(&raw).expect_err("truncated payload should fail");
     assert!(err.contains("truncated"));
 }
@@ -224,7 +224,7 @@ fn index_key_rejects_overlong_key_segments() {
     let overlong = (IndexKey::MAX_COMPONENT_SIZE + 1) as u16;
     bytes[offset..offset + SEGMENT_LEN_SIZE].copy_from_slice(&overlong.to_be_bytes());
 
-    let raw = RawIndexKey::from_bytes(Cow::Owned(bytes));
+    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
     let err = IndexKey::try_from_raw(&raw).expect_err("overlong payload should fail");
     assert!(err.contains("overlong"));
 }
@@ -241,13 +241,13 @@ fn index_key_rejects_trailing_bytes() {
     let mut bytes = key.to_raw().as_bytes().to_vec();
     bytes.push(42);
 
-    let raw = RawIndexKey::from_bytes(Cow::Owned(bytes));
+    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
     let err = IndexKey::try_from_raw(&raw).expect_err("trailing bytes should fail");
     assert!(err.contains("trailing"));
 }
 
 #[test]
-fn raw_index_key_validated_component_reads_requested_segment() {
+fn raw_index_store_key_validated_component_reads_requested_segment() {
     let first = encode_component(&Value::Text("alpha".to_string()));
     let second = encode_component(&Value::Nat(7));
     let key = key_with(
@@ -271,7 +271,7 @@ fn raw_index_key_validated_component_reads_requested_segment() {
 }
 
 #[test]
-fn raw_index_key_validated_component_returns_none_for_out_of_range_slot() {
+fn raw_index_store_key_validated_component_returns_none_for_out_of_range_slot() {
     let key = key_with(
         IndexKeyKind::User,
         index_id(),
@@ -288,7 +288,7 @@ fn raw_index_key_validated_component_returns_none_for_out_of_range_slot() {
 }
 
 #[test]
-fn raw_index_key_validated_component_rejects_trailing_bytes() {
+fn raw_index_store_key_validated_component_rejects_trailing_bytes() {
     let key = key_with(
         IndexKeyKind::User,
         index_id(),
@@ -298,7 +298,7 @@ fn raw_index_key_validated_component_rejects_trailing_bytes() {
     let mut bytes = key.to_raw().as_bytes().to_vec();
     bytes.push(42);
 
-    let raw = RawIndexKey::from_bytes(Cow::Owned(bytes));
+    let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(bytes));
     let err = raw
         .validated_component(0)
         .expect_err("component extraction should reject trailing bytes");
@@ -435,7 +435,7 @@ fn index_key_ordering_matches_raw_key_semantics() {
 }
 
 #[test]
-fn raw_index_key_ordering_ignores_tuple_length_prefix_bytes() {
+fn raw_index_store_key_ordering_ignores_tuple_length_prefix_bytes() {
     let alex = key_with(
         IndexKeyKind::User,
         index_id(),
@@ -472,7 +472,7 @@ fn index_key_decode_fuzz_roundtrip_is_canonical() {
             *byte = (seed >> 24) as u8;
         }
 
-        let raw = RawIndexKey::from_bytes(Cow::Borrowed(&bytes));
+        let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(&bytes));
         if let Ok(decoded) = IndexKey::try_from_raw(&raw) {
             let reencoded = decoded.to_raw();
             assert_eq!(raw.as_bytes(), reencoded.as_bytes());
@@ -1230,9 +1230,9 @@ fn index_key_prefix_lowering_matches_direct_prefix_membership_property() {
 }
 
 fn in_range(
-    raw: &RawIndexKey,
-    lower: &RangeBound<RawIndexKey>,
-    upper: &RangeBound<RawIndexKey>,
+    raw: &RawIndexStoreKey,
+    lower: &RangeBound<RawIndexStoreKey>,
+    upper: &RangeBound<RawIndexStoreKey>,
 ) -> bool {
     let lower_ok = match lower {
         RangeBound::Unbounded => true,
@@ -1300,8 +1300,8 @@ fn index_key_component_range_excluded_upper_skips_entire_upper_value_group() {
         .filter(|raw| {
             in_range(
                 raw,
-                &raw_index_key_bound(lower.clone()),
-                &raw_index_key_bound(upper.clone()),
+                &raw_index_store_key_bound(lower.clone()),
+                &raw_index_store_key_bound(upper.clone()),
             )
         })
         .count();
@@ -1363,8 +1363,8 @@ fn index_key_component_range_excluded_lower_skips_entire_lower_value_group() {
         .filter(|raw| {
             in_range(
                 raw,
-                &raw_index_key_bound(lower.clone()),
-                &raw_index_key_bound(upper.clone()),
+                &raw_index_store_key_bound(lower.clone()),
+                &raw_index_store_key_bound(upper.clone()),
             )
         })
         .count();
@@ -1430,8 +1430,8 @@ fn index_key_component_range_inclusive_extremes_cover_min_and_max_groups() {
         .filter(|raw| {
             in_range(
                 raw,
-                &raw_index_key_bound(lower.clone()),
-                &raw_index_key_bound(upper.clone()),
+                &raw_index_store_key_bound(lower.clone()),
+                &raw_index_store_key_bound(upper.clone()),
             )
         })
         .count();
@@ -1498,8 +1498,8 @@ fn index_key_component_range_exclusive_extremes_skip_min_and_max_groups() {
         .filter(|raw| {
             in_range(
                 raw,
-                &raw_index_key_bound(lower.clone()),
-                &raw_index_key_bound(upper.clone()),
+                &raw_index_store_key_bound(lower.clone()),
+                &raw_index_store_key_bound(upper.clone()),
             )
         })
         .count();
@@ -1510,7 +1510,7 @@ fn index_key_component_range_exclusive_extremes_skip_min_and_max_groups() {
     );
 }
 
-fn raw_index_key_bound(bound: RangeBound<IndexKey>) -> RangeBound<RawIndexKey> {
+fn raw_index_store_key_bound(bound: RangeBound<IndexKey>) -> RangeBound<RawIndexStoreKey> {
     match bound {
         RangeBound::Unbounded => RangeBound::Unbounded,
         RangeBound::Included(key) => RangeBound::Included(key.to_raw()),

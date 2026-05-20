@@ -14,7 +14,7 @@ use super::*;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexStagedStoreOverlay {
     store: String,
-    entries: BTreeMap<RawIndexKey, RawIndexEntry>,
+    entries: BTreeMap<RawIndexStoreKey, IndexEntryValue>,
     pub(in crate::db::schema) store_visibility: SchemaMutationStoreVisibility,
 }
 
@@ -35,7 +35,7 @@ impl SchemaFieldPathIndexStagedStoreOverlay {
     #[must_use]
     pub(in crate::db::schema) fn from_entries(
         store: &str,
-        entries: impl IntoIterator<Item = (RawIndexKey, RawIndexEntry)>,
+        entries: impl IntoIterator<Item = (RawIndexStoreKey, IndexEntryValue)>,
     ) -> Self {
         Self {
             store: store.to_string(),
@@ -60,12 +60,12 @@ impl SchemaFieldPathIndexStagedStoreOverlay {
     }
 
     #[must_use]
-    pub(in crate::db::schema) fn get(&self, key: &RawIndexKey) -> Option<&RawIndexEntry> {
+    pub(in crate::db::schema) fn get(&self, key: &RawIndexStoreKey) -> Option<&IndexEntryValue> {
         self.entries.get(key)
     }
 
     #[must_use]
-    pub(in crate::db::schema) fn entries(&self) -> Vec<(RawIndexKey, RawIndexEntry)> {
+    pub(in crate::db::schema) fn entries(&self) -> Vec<(RawIndexStoreKey, IndexEntryValue)> {
         self.entries
             .iter()
             .map(|(key, entry)| (key.clone(), entry.clone()))
@@ -118,7 +118,7 @@ impl SchemaFieldPathIndexStagedStoreOverlay {
 }
 
 impl SchemaFieldPathIndexStagedStoreReadView for SchemaFieldPathIndexStagedStoreOverlay {
-    fn read_staged_entry(&self, store: &str, key: &RawIndexKey) -> Option<RawIndexEntry> {
+    fn read_staged_entry(&self, store: &str, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
         self.accepts_store(store)
             .then(|| self.entries.get(key).cloned())
             .flatten()
@@ -126,7 +126,7 @@ impl SchemaFieldPathIndexStagedStoreReadView for SchemaFieldPathIndexStagedStore
 }
 
 impl SchemaFieldPathIndexStagedStoreWriter for SchemaFieldPathIndexStagedStoreOverlay {
-    fn write_staged_entry(&mut self, store: &str, key: &RawIndexKey, entry: &RawIndexEntry) {
+    fn write_staged_entry(&mut self, store: &str, key: &RawIndexStoreKey, entry: &IndexEntryValue) {
         if self.accepts_store(store) {
             self.entries.insert(key.clone(), entry.clone());
         }
@@ -134,13 +134,18 @@ impl SchemaFieldPathIndexStagedStoreWriter for SchemaFieldPathIndexStagedStoreOv
 }
 
 impl SchemaFieldPathIndexStagedStoreRollbackWriter for SchemaFieldPathIndexStagedStoreOverlay {
-    fn restore_staged_entry(&mut self, store: &str, key: &RawIndexKey, entry: &RawIndexEntry) {
+    fn restore_staged_entry(
+        &mut self,
+        store: &str,
+        key: &RawIndexStoreKey,
+        entry: &IndexEntryValue,
+    ) {
         if self.accepts_store(store) {
             self.entries.insert(key.clone(), entry.clone());
         }
     }
 
-    fn remove_staged_entry(&mut self, store: &str, key: &RawIndexKey) {
+    fn remove_staged_entry(&mut self, store: &str, key: &RawIndexStoreKey) {
         if self.accepts_store(store) {
             self.entries.remove(key);
         }

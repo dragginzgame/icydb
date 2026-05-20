@@ -6,7 +6,7 @@ use crate::{
             COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, CommitRowOp, MAX_COMMIT_BYTES,
             decode_commit_marker_payload, encode_commit_marker_payload,
         },
-        data::{DataKey, RawDataKey},
+        data::{DataKey, RawDataStoreKey},
     },
     error::{ErrorClass, ErrorOrigin},
     testing::test_memory,
@@ -22,8 +22,8 @@ fn encode_test_marker_payload(marker: &CommitMarker) -> Vec<u8> {
         .expect("test marker envelope encode should succeed")
 }
 
-// Materialize one canonical fixed-width raw data key for marker tests.
-fn raw_data_key(fill: u8) -> RawDataKey {
+// Materialize one canonical raw data-store key for marker tests.
+fn raw_data_store_key(fill: u8) -> RawDataStoreKey {
     DataKey::try_from_typed_key(EntityTag::new(1), &u64::from(fill))
         .expect("test key should encode")
         .to_raw()
@@ -95,7 +95,7 @@ fn commit_marker_payload_decode_allows_bytes_over_row_limit() {
         id: [0xAA; 16],
         row_ops: vec![CommitRowOp::new(
             "test::Entity",
-            raw_data_key(0),
+            raw_data_store_key(0),
             Some(vec![0x11; MAX_ROW_BYTES as usize + 1]),
             None,
             [0x22; 16],
@@ -196,7 +196,7 @@ fn commit_marker_rejects_oversized_payload_before_persist() {
         id: [2u8; 16],
         row_ops: vec![CommitRowOp::new(
             "test::Entity",
-            raw_data_key(1),
+            raw_data_store_key(1),
             None,
             Some(oversized_after),
             [0u8; 16],
@@ -220,7 +220,7 @@ fn commit_marker_rejects_row_op_without_before_or_after() {
         id: [1u8; 16],
         row_ops: vec![CommitRowOp::new(
             "test::Entity",
-            raw_data_key(9),
+            raw_data_store_key(9),
             None,
             None,
             [0u8; 16],
@@ -247,7 +247,7 @@ fn direct_multi_row_control_slot_rejects_row_op_without_before_or_after_before_p
         id: [0x44; 16],
         row_ops: vec![CommitRowOp::new(
             "test::Entity",
-            raw_data_key(9),
+            raw_data_store_key(9),
             None,
             None,
             [0u8; 16],
@@ -268,7 +268,7 @@ fn direct_multi_row_control_slot_rejects_row_op_without_before_or_after_before_p
 
 #[test]
 fn direct_single_row_control_slot_rejects_invalid_row_op_before_persist() {
-    let row_op = CommitRowOp::new("test::Entity", raw_data_key(9), None, None, [0u8; 16]);
+    let row_op = CommitRowOp::new("test::Entity", raw_data_store_key(9), None, None, [0u8; 16]);
 
     let err = super::CommitStore::encode_raw_single_row_control_slot_for_tests([0x55; 16], &row_op)
         .expect_err("single-row direct encoder must reject invalid row shape");
@@ -310,7 +310,7 @@ fn commit_marker_rejects_row_op_with_empty_entity_path() {
         id: [3u8; 16],
         row_ops: vec![CommitRowOp::new(
             "",
-            raw_data_key(9),
+            raw_data_store_key(9),
             Some(vec![1u8]),
             None,
             [0u8; 16],
@@ -385,7 +385,7 @@ fn commit_marker_rejects_row_op_with_oversized_payload() {
         id: [6u8; 16],
         row_ops: vec![CommitRowOp::new(
             "test::Entity",
-            raw_data_key(9),
+            raw_data_store_key(9),
             Some(vec![0u8; MAX_ROW_BYTES as usize + 1]),
             None,
             [0u8; 16],

@@ -1,25 +1,30 @@
 use super::*;
 
 impl super::SchemaExpressionIndexStagedStoreReadView for RecordingStagedStoreReadView {
-    fn read_staged_entry(&self, store: &str, key: &RawIndexKey) -> Option<RawIndexEntry> {
+    fn read_staged_entry(&self, store: &str, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
         self.entries.get(&(store.to_string(), key.clone())).cloned()
     }
 }
 
 impl super::SchemaExpressionIndexStagedStoreWriter for RecordingStagedStoreWriter {
-    fn write_staged_entry(&mut self, store: &str, key: &RawIndexKey, entry: &RawIndexEntry) {
+    fn write_staged_entry(&mut self, store: &str, key: &RawIndexStoreKey, entry: &IndexEntryValue) {
         self.writes
             .push((store.to_string(), key.clone(), entry.clone()));
     }
 }
 
 impl super::SchemaExpressionIndexStagedStoreRollbackWriter for RecordingStagedStoreRollbackWriter {
-    fn restore_staged_entry(&mut self, store: &str, key: &RawIndexKey, entry: &RawIndexEntry) {
+    fn restore_staged_entry(
+        &mut self,
+        store: &str,
+        key: &RawIndexStoreKey,
+        entry: &IndexEntryValue,
+    ) {
         self.actions
             .push((store.to_string(), key.clone(), Some(entry.clone())));
     }
 
-    fn remove_staged_entry(&mut self, store: &str, key: &RawIndexKey) {
+    fn remove_staged_entry(&mut self, store: &str, key: &RawIndexStoreKey) {
         self.actions.push((store.to_string(), key.clone(), None));
     }
 }
@@ -94,8 +99,8 @@ fn expression_rebuild_writer_reports_staged_write_intents_without_physical_mutat
 #[test]
 fn expression_rebuild_write_batch_snapshots_physical_rollback_without_publication() {
     let buffer = staged_lower_name_expression_store();
-    let previous_entry =
-        RawIndexEntry::try_from_keys([StorageKey::Nat(99)]).expect("previous entry should encode");
+    let previous_entry = IndexEntryValue::try_from_keys([StorageKey::Nat(99)])
+        .expect("previous entry should encode");
     let mut read_view = RecordingStagedStoreReadView::default();
     read_view.insert(
         buffer.store(),
@@ -133,8 +138,8 @@ fn expression_rebuild_write_batch_snapshots_physical_rollback_without_publicatio
 #[test]
 fn expression_rebuild_write_batch_derives_reverse_rollback_plan() {
     let buffer = staged_lower_name_expression_store();
-    let previous_entry =
-        RawIndexEntry::try_from_keys([StorageKey::Nat(99)]).expect("previous entry should encode");
+    let previous_entry = IndexEntryValue::try_from_keys([StorageKey::Nat(99)])
+        .expect("previous entry should encode");
     let mut read_view = RecordingStagedStoreReadView::default();
     read_view.insert(
         buffer.store(),

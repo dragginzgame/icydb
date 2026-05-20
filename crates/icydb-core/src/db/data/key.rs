@@ -1,14 +1,14 @@
 //! Module: data::key
 //! Responsibility: canonical entity-aware data-key encoding and decoding.
 //! Does not own: row payload bytes, commit sequencing, or query semantics.
-//! Boundary: data::store persists `RawDataKey`; higher layers use `DataKey`.
+//! Boundary: data::store persists `RawDataStoreKey`; higher layers use `DataKey`.
 
 #![expect(clippy::cast_possible_truncation)]
 
 use crate::{
     db::key_taxonomy::{
         CompactStoreKeyDecodeError, DataStoreKey, EncodedPrimaryKey, PrimaryKeyValue,
-        RawDataStoreKeyRange,
+        RawDataStoreKey, RawDataStoreKeyRange,
     },
     error::InternalError,
     traits::{EntityKind, Storable, StorageKeyCodec, StorageKeyDecode},
@@ -105,7 +105,7 @@ pub(in crate::db) enum DataKeyDecodeError {
 pub(in crate::db) struct DataKey {
     entity: EntityTag,
     key: StorageKey,
-    raw: OnceCell<RawDataKey>,
+    raw: OnceCell<RawDataStoreKey>,
 }
 
 impl DataKey {
@@ -138,7 +138,11 @@ impl DataKey {
     /// Construct one data key while freezing the already-known raw on-disk
     /// representation alongside the decoded storage key.
     #[must_use]
-    pub(in crate::db) fn new_with_raw(entity: EntityTag, key: StorageKey, raw: RawDataKey) -> Self {
+    pub(in crate::db) fn new_with_raw(
+        entity: EntityTag,
+        key: StorageKey,
+        raw: RawDataStoreKey,
+    ) -> Self {
         let cache = OnceCell::new();
         let _ = cache.set(raw);
 
@@ -238,7 +242,7 @@ impl DataKey {
     // ------------------------------------------------------------------
 
     /// Encode into compact on-disk representation.
-    pub(in crate::db) fn to_raw(&self) -> Result<RawDataKey, InternalError> {
+    pub(in crate::db) fn to_raw(&self) -> Result<RawDataStoreKey, InternalError> {
         if let Some(raw) = self.raw.get() {
             return Ok(raw.clone());
         }
@@ -260,11 +264,11 @@ impl DataKey {
     /// encode errors directly.
     pub(in crate::db) fn to_raw_compact_key_error(
         &self,
-    ) -> Result<RawDataKey, crate::db::key_taxonomy::CompactPrimaryKeyEncodeError> {
+    ) -> Result<RawDataStoreKey, crate::db::key_taxonomy::CompactPrimaryKeyEncodeError> {
         let primary_key = EncodedPrimaryKey::encode(PrimaryKeyValue::from(self.key))?;
         let raw = DataStoreKey::new(self.entity, primary_key).to_raw();
 
-        Ok(RawDataKey(raw.as_bytes().to_vec()))
+        Ok(raw)
     }
 
     /// Encode into compact on-disk representation, retaining the historical
@@ -272,7 +276,7 @@ impl DataKey {
     /// storage-key encode boundaries.
     pub(in crate::db) fn to_raw_storage_key_error(
         &self,
-    ) -> Result<RawDataKey, StorageKeyEncodeError> {
+    ) -> Result<RawDataStoreKey, StorageKeyEncodeError> {
         if let Some(raw) = self.raw.get() {
             return Ok(raw.clone());
         }
@@ -286,15 +290,15 @@ impl DataKey {
         Ok(raw)
     }
 
-    /// Encode a raw data key from validated entity + storage-key parts.
+    /// Encode a raw data-store key from validated entity + storage-key parts.
     pub(in crate::db) fn raw_from_parts(
         entity: EntityTag,
         key: StorageKey,
-    ) -> Result<RawDataKey, StorageKeyEncodeError> {
+    ) -> Result<RawDataStoreKey, StorageKeyEncodeError> {
         Self::new(entity, key).to_raw_storage_key_error()
     }
 
-    pub(in crate::db) fn try_from_raw(raw: &RawDataKey) -> Result<Self, DataKeyDecodeError> {
+    pub(in crate::db) fn try_from_raw(raw: &RawDataStoreKey) -> Result<Self, DataKeyDecodeError> {
         let decoded = DataStoreKey::try_from_raw_bytes(raw.as_bytes())
             .map_err(|source| DataKeyDecodeError::StoreKey { source })?;
         let entity = decoded.entity_tag();
@@ -368,22 +372,10 @@ impl Display for DataKey {
     }
 }
 
-///
-/// RawDataKey
-///
-
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) struct RawDataKey(Vec<u8>);
-
-impl RawDataKey {
-    #[must_use]
-    pub(in crate::db) fn as_bytes(&self) -> &[u8] {
-        &self.0
-    }
-
+impl RawDataStoreKey {
     #[must_use]
     pub(in crate::db) fn from_store_range_bound(bytes: &[u8]) -> Self {
-        Self(bytes.to_vec())
+        Self::from_persisted_bytes(bytes.to_vec())
     }
 
     #[must_use]
@@ -406,17 +398,17 @@ impl RawDataKey {
     }
 }
 
-impl Storable for RawDataKey {
+impl Storable for RawDataStoreKey {
     fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Borrowed(&self.0)
+        Cow::Borrowed(self.as_bytes())
     }
 
     fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        Self(bytes.into_owned())
+        Self::from_persisted_bytes(bytes.into_owned())
     }
 
     fn into_bytes(self) -> Vec<u8> {
-        self.0
+        self.as_bytes().to_vec()
     }
 
     const BOUND: StorableBound = StorableBound::Bounded {
@@ -496,7 +488,10 @@ mod tests {
         assert_eq!(decoded, key);
     }
 
-    fn taxonomy_range_contains_raw_key(range: &RawDataStoreKeyRange, key: &RawDataKey) -> bool {
+    fn taxonomy_range_contains_raw_key(
+        range: &RawDataStoreKeyRange,
+        key: &RawDataStoreKey,
+    ) -> bool {
         key.as_bytes() >= range.lower_inclusive()
             && range
                 .upper_exclusive()
@@ -697,18 +692,20 @@ mod tests {
 
     #[test]
     fn data_key_entity_tag_roundtrip_is_big_endian() {
-        let mut raw = DataKey::max_storable().to_raw().unwrap();
-        raw.0[..DataKey::ENTITY_TAG_SIZE_USIZE]
+        let mut raw_bytes = DataKey::max_storable().to_raw().unwrap().into_bytes();
+        raw_bytes[..DataKey::ENTITY_TAG_SIZE_USIZE]
             .copy_from_slice(&0x0102_0304_0506_0708u64.to_be_bytes());
+        let raw = RawDataStoreKey::from_persisted_bytes(raw_bytes);
         let decoded = DataKey::try_from_raw(&raw).expect("entity tag bytes should decode");
         assert_eq!(decoded.entity_tag().value(), 0x0102_0304_0506_0708u64);
     }
 
     #[test]
     fn data_key_rejects_corrupt_key() {
-        let mut raw = DataKey::max_storable().to_raw().unwrap();
+        let mut raw_bytes = DataKey::max_storable().to_raw().unwrap().into_bytes();
         let off = DataKey::ENTITY_TAG_SIZE_USIZE;
-        raw.0[off] = 0xFF;
+        raw_bytes[off] = 0xFF;
+        let raw = RawDataStoreKey::from_persisted_bytes(raw_bytes);
         assert!(DataKey::try_from_raw(&raw).is_err());
     }
 
@@ -724,7 +721,7 @@ mod tests {
                 *b = (seed >> 24) as u8;
             }
 
-            let raw = RawDataKey(bytes.to_vec());
+            let raw = RawDataStoreKey::from_persisted_bytes(bytes.to_vec());
             if let Ok(decoded) = DataKey::try_from_raw(&raw) {
                 let re = decoded.to_raw().unwrap();
                 assert_eq!(raw.as_bytes(), re.as_bytes());
@@ -733,16 +730,16 @@ mod tests {
     }
 
     #[test]
-    fn raw_data_key_storable_roundtrip() {
+    fn raw_data_store_key_storable_roundtrip() {
         let key = DataKey::max_storable().to_raw().unwrap();
         let bytes = key.to_bytes();
-        let decoded = RawDataKey::from_bytes(Cow::Borrowed(&bytes));
+        let decoded = <RawDataStoreKey as Storable>::from_bytes(Cow::Borrowed(&bytes));
         assert_eq!(key, decoded);
     }
 
     #[test]
-    fn raw_data_key_from_bytes_wrong_length_fails_closed() {
-        let decoded = RawDataKey::from_bytes(Cow::Borrowed(&[1u8, 2u8, 3u8]));
+    fn raw_data_store_key_from_bytes_wrong_length_fails_closed() {
+        let decoded = RawDataStoreKey::from_persisted_bytes(vec![1u8, 2u8, 3u8]);
 
         assert!(
             DataKey::try_from_raw(&decoded).is_err(),

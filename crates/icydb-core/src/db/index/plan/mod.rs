@@ -496,7 +496,7 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
 
 // Convert one validated old/new key transition into index-domain membership
 // deltas. Commit preparation later materializes these deltas against its active
-// reader view, so this helper deliberately does not encode `RawIndexEntry`.
+// reader view, so this helper deliberately does not encode `IndexEntryValue`.
 fn push_index_delta_group(
     groups: &mut Vec<IndexDeltaGroup>,
     index_store: &str,

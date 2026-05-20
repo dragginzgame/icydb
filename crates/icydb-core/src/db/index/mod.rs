@@ -14,16 +14,16 @@ mod readers;
 mod scan;
 mod store;
 
+pub(in crate::db) use crate::db::key_taxonomy::IndexEntryValue;
 pub(in crate::db) use entry::{
     IndexEntry, IndexEntryCorruption, IndexEntryExistenceWitness, IndexEntryMembership,
-    RawIndexEntry,
 };
 pub(in crate::db) use envelope::{
     KeyEnvelope, envelope_is_empty, key_within_envelope, resume_bounds_for_continuation,
     validate_index_scan_continuation_advancement,
 };
 pub(in crate::db) use key::{
-    EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexKey, derive_index_expression_value,
+    EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey, derive_index_expression_value,
     encode_canonical_index_component_from_storage_key,
 };
 pub(in crate::db) use pk_equivalence::{PrimaryKeyEquivalenceError, primary_key_matches_value};

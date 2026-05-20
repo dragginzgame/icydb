@@ -20,9 +20,10 @@ use crate::{
             CommitRowOp, ensure_recovered, init_commit_store_for_tests,
             prepare_row_commit_for_entity_with_structural_readers,
         },
-        data::{CanonicalRow, DataKey, DataStore, RawDataKey, RawRow, StorageKey},
+        data::{CanonicalRow, DataKey, DataStore, RawDataStoreKey, RawRow, StorageKey},
         index::{
-            IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore, RawIndexEntry, RawIndexKey,
+            IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore,
+            RawIndexStoreKey,
         },
         registry::StoreRegistry,
         relation::validate_delete_strong_relations_for_source,
@@ -234,7 +235,7 @@ fn insert_corrupted_data_key(path: &'static str) {
 
     let mut corrupted_bytes = valid.as_bytes().to_vec();
     corrupted_bytes[DataKey::ENTITY_TAG_SIZE_USIZE] = 0xFF;
-    let corrupted_key = <RawDataKey as Storable>::from_bytes(Cow::Owned(corrupted_bytes));
+    let corrupted_key = <RawDataStoreKey as Storable>::from_bytes(Cow::Owned(corrupted_bytes));
     let raw_row = RawRow::try_new(vec![0xCD]).expect("diagnostics test row should encode");
 
     with_data_store_mut(path, |store| {
@@ -251,13 +252,13 @@ fn index_id(entity_name: &str, field: &str) -> IndexId {
     IndexId::new(diagnostics_entity_tag(entity_name), ordinal)
 }
 
-fn index_key(kind: IndexKeyKind, entity_name: &str, field: &str) -> RawIndexKey {
+fn index_key(kind: IndexKeyKind, entity_name: &str, field: &str) -> RawIndexStoreKey {
     let id = index_id(entity_name, field);
     let components: [Vec<u8>; 0] = [];
     IndexKey::new_from_components_with_kind(&id, kind, &components, StorageKey::Int(1)).to_raw()
 }
 
-fn insert_index_entry(path: &'static str, key: RawIndexKey, entry: RawIndexEntry) {
+fn insert_index_entry(path: &'static str, key: RawIndexStoreKey, entry: IndexEntryValue) {
     with_index_store_mut(path, |store| {
         store.insert(key, entry);
     });
@@ -465,7 +466,7 @@ fn storage_report_default_matches_empty_alias_snapshot() {
     insert_index_entry(
         STORE_A_PATH,
         index_key(IndexKeyKind::User, "diag_index_entity", "email"),
-        RawIndexEntry::try_from_keys([StorageKey::Int(1)])
+        IndexEntryValue::try_from_keys([StorageKey::Int(1)])
             .expect("diagnostics test index entry should encode"),
     );
 
@@ -586,7 +587,7 @@ fn storage_report_corrupted_index_value_detection() {
     reset_stores();
 
     let key = index_key(IndexKeyKind::User, "diag_index_entity", "email");
-    let corrupted_entry = <RawIndexEntry as Storable>::from_bytes(Cow::Owned(vec![9]));
+    let corrupted_entry = <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![9]));
     insert_index_entry(STORE_A_PATH, key, corrupted_entry);
 
     let report = diagnostics_report(&[]);
@@ -609,9 +610,9 @@ fn storage_report_system_vs_user_namespace_split() {
     let user_key = index_key(IndexKeyKind::User, "diag_namespace_entity", "email");
     let system_key = index_key(IndexKeyKind::System, "diag_namespace_entity", "email");
     let user_entry =
-        RawIndexEntry::try_from_keys([StorageKey::Int(1)]).expect("user entry should encode");
+        IndexEntryValue::try_from_keys([StorageKey::Int(1)]).expect("user entry should encode");
     let system_entry =
-        RawIndexEntry::try_from_keys([StorageKey::Int(2)]).expect("system entry should encode");
+        IndexEntryValue::try_from_keys([StorageKey::Int(2)]).expect("system entry should encode");
     insert_index_entry(STORE_A_PATH, user_key, user_entry);
     insert_index_entry(STORE_A_PATH, system_key, system_entry);
 

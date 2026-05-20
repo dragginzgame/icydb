@@ -141,7 +141,7 @@ impl SchemaExpressionIndexStagedStore {
     reason = "0.157 stages expression rollback snapshots before physical stores are mutated"
 )]
 pub(in crate::db::schema) trait SchemaExpressionIndexStagedStoreReadView {
-    fn read_staged_entry(&self, store: &str, key: &RawIndexKey) -> Option<RawIndexEntry>;
+    fn read_staged_entry(&self, store: &str, key: &RawIndexStoreKey) -> Option<IndexEntryValue>;
 }
 
 ///
@@ -155,7 +155,7 @@ pub(in crate::db::schema) trait SchemaExpressionIndexStagedStoreReadView {
     reason = "0.157 stages expression physical writer adapter contract before IndexStore mutation exists"
 )]
 pub(in crate::db::schema) trait SchemaExpressionIndexStagedStoreWriter {
-    fn write_staged_entry(&mut self, store: &str, key: &RawIndexKey, entry: &RawIndexEntry);
+    fn write_staged_entry(&mut self, store: &str, key: &RawIndexStoreKey, entry: &IndexEntryValue);
 }
 
 ///
@@ -306,8 +306,8 @@ impl SchemaExpressionIndexStagedStoreWriteBatch {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct SchemaExpressionIndexStagedStoreRollbackSnapshot {
     store: String,
-    key: RawIndexKey,
-    previous_entry: Option<RawIndexEntry>,
+    key: RawIndexStoreKey,
+    previous_entry: Option<IndexEntryValue>,
 }
 
 #[allow(
@@ -321,12 +321,12 @@ impl SchemaExpressionIndexStagedStoreRollbackSnapshot {
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn key(&self) -> &RawIndexKey {
+    pub(in crate::db::schema) const fn key(&self) -> &RawIndexStoreKey {
         &self.key
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn previous_entry(&self) -> Option<&RawIndexEntry> {
+    pub(in crate::db::schema) const fn previous_entry(&self) -> Option<&IndexEntryValue> {
         self.previous_entry.as_ref()
     }
 }
@@ -419,9 +419,14 @@ impl SchemaExpressionIndexStagedStoreRollbackPlan {
     reason = "0.157 stages expression rollback writer contracts before physical stores are mutated"
 )]
 pub(in crate::db::schema) trait SchemaExpressionIndexStagedStoreRollbackWriter {
-    fn restore_staged_entry(&mut self, store: &str, key: &RawIndexKey, entry: &RawIndexEntry);
+    fn restore_staged_entry(
+        &mut self,
+        store: &str,
+        key: &RawIndexStoreKey,
+        entry: &IndexEntryValue,
+    );
 
-    fn remove_staged_entry(&mut self, store: &str, key: &RawIndexKey);
+    fn remove_staged_entry(&mut self, store: &str, key: &RawIndexStoreKey);
 }
 
 ///
@@ -494,12 +499,12 @@ impl SchemaExpressionIndexStagedStoreRollbackReport {
 pub(in crate::db::schema) enum SchemaExpressionIndexStagedStoreRollbackAction {
     Restore {
         store: String,
-        key: RawIndexKey,
-        entry: RawIndexEntry,
+        key: RawIndexStoreKey,
+        entry: IndexEntryValue,
     },
     Remove {
         store: String,
-        key: RawIndexKey,
+        key: RawIndexStoreKey,
     },
 }
 
@@ -531,14 +536,14 @@ impl SchemaExpressionIndexStagedStoreRollbackAction {
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn key(&self) -> &RawIndexKey {
+    pub(in crate::db::schema) const fn key(&self) -> &RawIndexStoreKey {
         match self {
             Self::Restore { key, .. } | Self::Remove { key, .. } => key,
         }
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn restore_entry(&self) -> Option<&RawIndexEntry> {
+    pub(in crate::db::schema) const fn restore_entry(&self) -> Option<&IndexEntryValue> {
         match self {
             Self::Restore { entry, .. } => Some(entry),
             Self::Remove { .. } => None,

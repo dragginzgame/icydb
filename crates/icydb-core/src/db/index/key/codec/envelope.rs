@@ -1,34 +1,26 @@
 //! Module: index::key::codec::envelope
 //! Responsibility: raw-key storable boundary helpers.
 //! Does not own: index-key parsing rules.
-//! Boundary: stable-memory storage adapter for `RawIndexKey`.
+//! Boundary: stable-memory storage adapter for `RawIndexStoreKey`.
 
 use crate::{
-    db::index::key::codec::{IndexKey, RawIndexKey},
+    db::index::key::codec::{IndexKey, RawIndexStoreKey},
     traits::Storable,
 };
 use canic_cdk::structures::storable::Bound;
 use std::borrow::Cow;
 
-impl RawIndexKey {
-    /// Borrow the raw byte representation.
-    #[must_use]
-    pub(crate) fn as_bytes(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-impl Storable for RawIndexKey {
+impl Storable for RawIndexStoreKey {
     fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Borrowed(&self.0)
+        Cow::Borrowed(self.as_bytes())
     }
 
     fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        Self(bytes.into_owned())
+        Self::from_persisted_bytes(bytes.into_owned())
     }
 
     fn into_bytes(self) -> Vec<u8> {
-        self.0
+        self.into_bytes()
     }
 
     #[expect(clippy::cast_possible_truncation)]

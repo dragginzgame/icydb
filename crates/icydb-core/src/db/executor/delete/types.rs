@@ -8,7 +8,7 @@ use crate::db::executor::projection::MaterializedProjectionRows;
 use crate::{
     db::{
         commit::{CommitRowOp, CommitSchemaFingerprint},
-        data::{DataKey, RawDataKey, RawRow},
+        data::{DataKey, RawDataStoreKey, RawRow},
         executor::{
             EntityAuthority, ExecutionPlan, ExecutionPreparation, PreparedExecutionPlan,
             saturating_u32_len, traversal::row_read_consistency_for_plan,
@@ -126,7 +126,7 @@ where
 pub(in crate::db::executor::delete) struct TypedDeleteLeaf<T> {
     pub(in crate::db::executor::delete) output: T,
     pub(in crate::db::executor::delete) row_count: usize,
-    pub(in crate::db::executor::delete) rollback_rows: Vec<(RawDataKey, RawRow)>,
+    pub(in crate::db::executor::delete) rollback_rows: Vec<(RawDataStoreKey, RawRow)>,
 }
 
 ///
@@ -173,7 +173,7 @@ impl DeleteProjection {
 #[cfg(feature = "sql")]
 pub(in crate::db::executor::delete) struct DeletePreparation {
     pub(in crate::db::executor::delete) response_rows: MaterializedProjectionRows,
-    pub(in crate::db::executor::delete) rollback_rows: Vec<(RawDataKey, RawRow)>,
+    pub(in crate::db::executor::delete) rollback_rows: Vec<(RawDataStoreKey, RawRow)>,
 }
 
 ///
@@ -187,7 +187,7 @@ pub(in crate::db::executor::delete) struct DeletePreparation {
 
 pub(in crate::db::executor::delete) struct DeleteCountPreparation {
     pub(in crate::db::executor::delete) row_count: usize,
-    pub(in crate::db::executor::delete) rollback_rows: Vec<(RawDataKey, RawRow)>,
+    pub(in crate::db::executor::delete) rollback_rows: Vec<(RawDataStoreKey, RawRow)>,
 }
 
 ///

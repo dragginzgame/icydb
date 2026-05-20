@@ -44,7 +44,15 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Public APIs need docs; non-trivial private logic needs intent/invariant comments.
 - Do not match error strings in code or tests.
 - Persisted decoding must be bounded and fallible.
+- Before any changelog edit, open and follow `docs/governance/changelog.md`.
 - Update changelogs for user-visible changes; governance-only edits do not need release notes unless requested.
+- Root `CHANGELOG.md` is the concise release ledger: for
+  `<major>.<minor>.x` sections, keep exactly one short bullet per patch
+  version and move implementation detail, examples, validation notes, and
+  command/sql snippets to `docs/changelog/<major>.<minor>.md`.
+- Every root minor-line section with a detailed notes file must include a
+  clickable link to `docs/changelog/<major>.<minor>.md`; when adding or
+  changing a patch note, update the corresponding detailed file too.
 - Do not infer patch numbers for design/status docs.
 
 ## Final Response

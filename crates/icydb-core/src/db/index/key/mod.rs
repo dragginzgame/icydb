@@ -12,7 +12,7 @@ mod ordered;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use codec::{IndexKey, IndexKeyKind, RawIndexKey};
+pub(crate) use codec::{IndexKey, IndexKeyKind, RawIndexStoreKey};
 pub(in crate::db) use expression::derive_index_expression_value;
 pub(crate) use id::IndexId;
 pub(crate) use ordered::{

@@ -5,7 +5,7 @@
 
 use crate::{
     db::direction::Direction,
-    db::index::{entry::RawIndexEntry, envelope_is_empty, key::RawIndexKey, store::IndexStore},
+    db::index::{IndexEntryValue, envelope_is_empty, key::RawIndexStoreKey, store::IndexStore},
     error::InternalError,
 };
 use std::ops::Bound;
@@ -18,12 +18,12 @@ impl IndexStore {
     /// metric attribution while preserving the existing BTreeMap range order.
     pub(in crate::db) fn visit_raw_entries_in_range<F>(
         &self,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         direction: Direction,
         mut visit: F,
     ) -> Result<(), InternalError>
     where
-        F: FnMut(&RawIndexKey, &RawIndexEntry) -> Result<bool, InternalError>,
+        F: FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, InternalError>,
     {
         if envelope_is_empty(bounds.0, bounds.1) {
             return Ok(());

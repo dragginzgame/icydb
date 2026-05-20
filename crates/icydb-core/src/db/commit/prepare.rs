@@ -11,13 +11,13 @@ use crate::{
             PreparedRowCommitOp,
         },
         data::{
-            CanonicalRow, CanonicalSlotReader, DataKey, DataStore, RawDataKey, RawRow, StorageKey,
-            StructuralRowContract, StructuralSlotReader,
+            CanonicalRow, CanonicalSlotReader, DataKey, DataStore, RawDataStoreKey, RawRow,
+            StorageKey, StructuralRowContract, StructuralSlotReader,
             canonical_row_from_structural_slot_reader_with_accepted_contract,
         },
         index::{
-            IndexDelta, IndexDeltaGroup, IndexEntry, IndexMembershipDelta, IndexMutationPlan,
-            IndexPlanReadView, IndexReadContract, RawIndexEntry, RawIndexKey,
+            IndexDelta, IndexDeltaGroup, IndexEntry, IndexEntryValue, IndexMembershipDelta,
+            IndexMutationPlan, IndexPlanReadView, IndexReadContract, RawIndexStoreKey,
             StructuralIndexEntryReader, StructuralPrimaryRowReader,
             plan_index_mutation_for_slot_reader_structural,
         },
@@ -81,7 +81,7 @@ impl CommitPrepareAuthority {
 ///
 
 struct CommitInputs {
-    raw_key: RawDataKey,
+    raw_key: RawDataStoreKey,
     data_key: DataKey,
     old_row: Option<RawRow>,
     new_row: Option<RawRow>,
@@ -154,8 +154,8 @@ where
     fn read_index_entry(
         &self,
         index: IndexReadContract<'_>,
-        key: &RawIndexKey,
-    ) -> Result<Option<RawIndexEntry>, InternalError> {
+        key: &RawIndexStoreKey,
+    ) -> Result<Option<IndexEntryValue>, InternalError> {
         let index_store = self.index_store(index.store_path())?;
 
         self.index_reader
@@ -167,7 +167,7 @@ where
         entity_path: &'static str,
         entity_tag: EntityTag,
         index: IndexReadContract<'_>,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
         let index_store = self.index_store(index.store_path())?;
@@ -512,7 +512,7 @@ fn prepare_row_commit_structural_inputs(
 fn finalize_row_commit_structural<C>(
     db: &Db<C>,
     authority: CommitPrepareAuthority,
-    data_key: RawDataKey,
+    data_key: RawDataStoreKey,
     forward_index_ops: Vec<CommitIndexOp>,
     reverse_index_ops: Vec<PreparedIndexMutation>,
     data_value: Option<CanonicalRow>,
@@ -536,7 +536,7 @@ fn materialize_prepared_row_commit(
     forward_index_ops: Vec<CommitIndexOp>,
     reverse_index_ops: Vec<PreparedIndexMutation>,
     data_store: &'static LocalKey<RefCell<DataStore>>,
-    data_key: RawDataKey,
+    data_key: RawDataStoreKey,
     data_value: Option<CanonicalRow>,
 ) -> PreparedRowCommitOp {
     // Phase 1: lower planned commit ops into mechanical index mutations.
@@ -634,8 +634,8 @@ fn build_commit_ops_for_index_delta_pair(
 
     // Phase 2: different-key transitions can touch at most two keys. Preserve
     // deterministic key order without the general BTreeMap machinery.
-    let mut first: Option<(RawIndexKey, Option<IndexEntry>, CommitIndexOpBuilder)> = None;
-    let mut second: Option<(RawIndexKey, Option<IndexEntry>, CommitIndexOpBuilder)> = None;
+    let mut first: Option<(RawIndexStoreKey, Option<IndexEntry>, CommitIndexOpBuilder)> = None;
+    let mut second: Option<(RawIndexStoreKey, Option<IndexEntry>, CommitIndexOpBuilder)> = None;
 
     if let Some(remove_delta) = remove_delta {
         insert_commit_candidate(
@@ -667,9 +667,9 @@ fn build_commit_ops_for_index_delta_pair(
 
 /// Insert one touched key into the small fixed-size ordered candidate set.
 fn insert_commit_candidate(
-    first: &mut Option<(RawIndexKey, Option<IndexEntry>, CommitIndexOpBuilder)>,
-    second: &mut Option<(RawIndexKey, Option<IndexEntry>, CommitIndexOpBuilder)>,
-    raw_key: RawIndexKey,
+    first: &mut Option<(RawIndexStoreKey, Option<IndexEntry>, CommitIndexOpBuilder)>,
+    second: &mut Option<(RawIndexStoreKey, Option<IndexEntry>, CommitIndexOpBuilder)>,
+    raw_key: RawIndexStoreKey,
     entry: Option<IndexEntry>,
     build_commit_op: CommitIndexOpBuilder,
 ) {
@@ -685,19 +685,19 @@ fn insert_commit_candidate(
 
 type CommitIndexOpBuilder = fn(
     &'static LocalKey<RefCell<crate::db::index::IndexStore>>,
-    RawIndexKey,
-    Option<RawIndexEntry>,
+    RawIndexStoreKey,
+    Option<IndexEntryValue>,
 ) -> CommitIndexOp;
 
 // Encode one touched index entry into one deterministic commit operation.
 fn push_commit_op_for_index_entry(
     commit_ops: &mut Vec<CommitIndexOp>,
     store: &'static LocalKey<RefCell<crate::db::index::IndexStore>>,
-    raw_key: RawIndexKey,
+    raw_key: RawIndexStoreKey,
     entry: Option<IndexEntry>,
     build_commit_op: CommitIndexOpBuilder,
 ) {
-    let value = entry.map(|entry| RawIndexEntry::from(&entry));
+    let value = entry.map(|entry| IndexEntryValue::from(&entry));
 
     commit_ops.push(build_commit_op(store, raw_key, value));
 }

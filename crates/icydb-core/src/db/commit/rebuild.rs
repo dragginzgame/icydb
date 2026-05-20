@@ -7,8 +7,8 @@ use crate::{
     db::{
         Db,
         commit::CommitRowOp,
-        data::{DataKey, RawDataKey, RawRow},
-        index::{IndexState, IndexStore, RawIndexEntry, RawIndexKey},
+        data::{DataKey, RawDataStoreKey, RawRow},
+        index::{IndexEntryValue, IndexState, IndexStore, RawIndexStoreKey},
         registry::StoreHandle,
         schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
     },
@@ -57,7 +57,7 @@ pub(in crate::db) fn rebuild_secondary_indexes_from_rows(
 #[derive(Clone)]
 struct IndexStoreSnapshot {
     handle: StoreHandle,
-    entries: Vec<(RawIndexKey, RawIndexEntry)>,
+    entries: Vec<(RawIndexStoreKey, IndexEntryValue)>,
     state: IndexState,
 }
 
@@ -123,7 +123,7 @@ fn rebuild_secondary_indexes_in_place(
             data_store
                 .entries()
                 .map(|entry| (entry.key().clone(), entry.value()))
-                .collect::<Vec<(RawDataKey, RawRow)>>()
+                .collect::<Vec<(RawDataStoreKey, RawRow)>>()
         });
 
         for (raw_key, raw_row) in rows {

@@ -59,7 +59,7 @@ impl<'a> SchemaFieldPathIndexIsolatedIndexStoreWriter<'a> {
     }
 
     #[must_use]
-    pub(in crate::db::schema) fn get(&self, key: &RawIndexKey) -> Option<RawIndexEntry> {
+    pub(in crate::db::schema) fn get(&self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
         self.index_store.get(key)
     }
 
@@ -185,7 +185,7 @@ impl<'a> SchemaFieldPathIndexIsolatedIndexStoreWriter<'a> {
 }
 
 impl SchemaFieldPathIndexStagedStoreReadView for SchemaFieldPathIndexIsolatedIndexStoreWriter<'_> {
-    fn read_staged_entry(&self, store: &str, key: &RawIndexKey) -> Option<RawIndexEntry> {
+    fn read_staged_entry(&self, store: &str, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
         self.accepts_store(store)
             .then(|| self.index_store.get(key))
             .flatten()
@@ -193,7 +193,7 @@ impl SchemaFieldPathIndexStagedStoreReadView for SchemaFieldPathIndexIsolatedInd
 }
 
 impl SchemaFieldPathIndexStagedStoreWriter for SchemaFieldPathIndexIsolatedIndexStoreWriter<'_> {
-    fn write_staged_entry(&mut self, store: &str, key: &RawIndexKey, entry: &RawIndexEntry) {
+    fn write_staged_entry(&mut self, store: &str, key: &RawIndexStoreKey, entry: &IndexEntryValue) {
         if self.accepts_store(store) {
             self.index_store.insert(key.clone(), entry.clone());
         }
@@ -203,13 +203,18 @@ impl SchemaFieldPathIndexStagedStoreWriter for SchemaFieldPathIndexIsolatedIndex
 impl SchemaFieldPathIndexStagedStoreRollbackWriter
     for SchemaFieldPathIndexIsolatedIndexStoreWriter<'_>
 {
-    fn restore_staged_entry(&mut self, store: &str, key: &RawIndexKey, entry: &RawIndexEntry) {
+    fn restore_staged_entry(
+        &mut self,
+        store: &str,
+        key: &RawIndexStoreKey,
+        entry: &IndexEntryValue,
+    ) {
         if self.accepts_store(store) {
             self.index_store.insert(key.clone(), entry.clone());
         }
     }
 
-    fn remove_staged_entry(&mut self, store: &str, key: &RawIndexKey) {
+    fn remove_staged_entry(&mut self, store: &str, key: &RawIndexStoreKey) {
         if self.accepts_store(store) {
             self.index_store.remove(key);
         }

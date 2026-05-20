@@ -13,11 +13,11 @@ use crate::{
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
             rollback_prepared_row_ops_reverse,
         },
-        data::{DataKey, RawDataKey, RawRow, StorageKey},
+        data::{DataKey, RawDataStoreKey, RawRow, StorageKey},
         direction::Direction,
         index::{
-            IndexEntryReader, IndexReadContract, IndexStore, PrimaryRowReader, RawIndexEntry,
-            RawIndexKey, SealedIndexEntryReader, SealedPrimaryRowReader,
+            IndexEntryReader, IndexEntryValue, IndexReadContract, IndexStore, PrimaryRowReader,
+            RawIndexStoreKey, SealedIndexEntryReader, SealedPrimaryRowReader,
             SealedStructuralIndexEntryReader, SealedStructuralPrimaryRowReader,
             StructuralIndexEntryReader, StructuralPrimaryRowReader, key_within_envelope,
         },
@@ -241,8 +241,8 @@ struct SingleRowApplyPrep {
 
 struct PreflightStoreOverlay<'a, C: CanisterKind> {
     db: &'a Db<C>,
-    data_overrides: HashMap<RawDataKey, Option<RawRow>>,
-    index_overrides: HashMap<usize, HashMap<RawIndexKey, Option<RawIndexEntry>>>,
+    data_overrides: HashMap<RawDataStoreKey, Option<RawRow>>,
+    index_overrides: HashMap<usize, HashMap<RawIndexStoreKey, Option<IndexEntryValue>>>,
 }
 
 impl<'a, C: CanisterKind> PreflightStoreOverlay<'a, C> {
@@ -315,8 +315,8 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
     fn read_index_entry_structural(
         &self,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: &RawIndexKey,
-    ) -> Result<Option<RawIndexEntry>, InternalError> {
+        key: &RawIndexStoreKey,
+    ) -> Result<Option<IndexEntryValue>, InternalError> {
         let store_id = index_store_id(index_store);
         if let Some(store_overrides) = self.index_overrides.get(&store_id)
             && let Some(override_entry) = store_overrides.get(key)
@@ -333,7 +333,7 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
         _entity_tag: crate::types::EntityTag,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
         index: IndexReadContract<'_>,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
         // Phase 1: untouched stores can use the canonical index-store range
@@ -364,7 +364,7 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
         let bounded_overrides = store_overrides
             .iter()
             .filter(|(raw_key, _)| key_within_bounds(raw_key, bounds))
-            .collect::<BTreeMap<&RawIndexKey, &Option<RawIndexEntry>>>();
+            .collect::<BTreeMap<&RawIndexStoreKey, &Option<IndexEntryValue>>>();
         let mut overrides = bounded_overrides.into_iter().peekable();
         let mut limit_reached = false;
 
@@ -456,8 +456,8 @@ where
     fn read_index_entry(
         &self,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: &RawIndexKey,
-    ) -> Result<Option<RawIndexEntry>, InternalError> {
+        key: &RawIndexStoreKey,
+    ) -> Result<Option<IndexEntryValue>, InternalError> {
         self.read_index_entry_structural(index_store, key)
     }
 
@@ -465,7 +465,7 @@ where
         &self,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
         index: IndexReadContract<'_>,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
         self.read_index_keys_in_raw_range_structural(
@@ -486,8 +486,8 @@ impl<E> SealedIndexEntryReader<E> for PreflightStoreOverlay<'_, E::Canister> whe
 
 fn push_optional_index_entry_storage_keys(
     index: IndexReadContract<'_>,
-    raw_key: &RawIndexKey,
-    raw_entry: Option<&RawIndexEntry>,
+    raw_key: &RawIndexStoreKey,
+    raw_entry: Option<&IndexEntryValue>,
     out: &mut Vec<StorageKey>,
     limit: usize,
     entity_path: &'static str,
@@ -503,8 +503,8 @@ fn push_optional_index_entry_storage_keys(
 // overlay's corruption mapping.
 fn push_index_entry_storage_keys(
     index: IndexReadContract<'_>,
-    raw_key: &RawIndexKey,
-    raw_entry: &RawIndexEntry,
+    raw_key: &RawIndexStoreKey,
+    raw_entry: &IndexEntryValue,
     out: &mut Vec<StorageKey>,
     limit: usize,
     entity_path: &'static str,
@@ -1136,8 +1136,8 @@ fn emit_delete_index_delta_metrics_for_path(entity_path: &'static str, delta: &P
 }
 
 fn key_within_bounds(
-    key: &RawIndexKey,
-    bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+    key: &RawIndexStoreKey,
+    bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
 ) -> bool {
     key_within_envelope(key, bounds.0, bounds.1)
 }

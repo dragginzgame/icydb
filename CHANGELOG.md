@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.159.x] 🔑 - 2026-05-19 - Compact Key Encoding
 
+Detailed notes: [docs/changelog/0.159.md](docs/changelog/0.159.md)
+
+- `0.159.6` completes the live compact key/value taxonomy rename for primary
+  rows and secondary indexes, and cleans up `icydb-config-build` around its
+  direct build-script config model. Raw string/file parser helpers are no
+  longer exported as public crate API.
+
 - `0.159.5` removes the duplicate `DataKeyRawRange` wrapper. Entity-local
   scans now use `RawDataStoreKeyRange::entity_prefix(...)` directly and only
   convert to `RawDataKey` at the stable BTree boundary.
@@ -33,10 +40,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   `canic` crate dependency.
 
   It also removes the stale multi-membership index-entry path now that
-  `RawIndexKey` owns row identity and `RawIndexEntry` stores only the existence
-  witness. Structural preflight readers and reverse-index mutation prep now
-  use concrete key-owned edges directly, with cache-test cleanup so the broader
-  core suite can run after allocation mismatch checks.
+  `RawIndexStoreKey` owns row identity and `IndexEntryValue` stores only the
+  existence witness. Structural preflight readers and reverse-index mutation
+  prep now use concrete key-owned edges directly, with cache-test cleanup so
+  the broader core suite can run after allocation mismatch checks.
 
 - `0.159.0` starts the compact key redesign and hard-cuts live primary
   data-store keys from `EntityTag + StorageKey(64)` to compact
@@ -51,6 +58,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   one key-owned entry per source/target edge.
 
 ## [0.158.x] 🧬 - 2026-05-18 - Schema DDL And Field Evolution
+
+Detailed notes: [docs/changelog/0.158.md](docs/changelog/0.158.md)
 
 - `0.158.13` closes the field-DDL line by pinning required `ADD COLUMN`
   with accepted encoded defaults, including the `NOT NULL DEFAULT` modifier

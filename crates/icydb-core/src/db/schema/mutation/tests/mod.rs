@@ -7,7 +7,8 @@ use crate::{
             StructuralFieldDecodeContract,
         },
         index::{
-            IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore, RawIndexEntry, RawIndexKey,
+            IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore,
+            RawIndexStoreKey,
         },
         schema::{
             AcceptedSchemaMutationError, FieldId, MutationCompatibility, MutationPlan,
@@ -37,17 +38,17 @@ struct RebuildSlotReader {
 
 #[derive(Default)]
 struct RecordingStagedStoreWriter {
-    writes: Vec<(String, RawIndexKey, RawIndexEntry)>,
+    writes: Vec<(String, RawIndexStoreKey, IndexEntryValue)>,
 }
 
 #[derive(Default)]
 struct RecordingStagedStoreRollbackWriter {
-    actions: Vec<(String, RawIndexKey, Option<RawIndexEntry>)>,
+    actions: Vec<(String, RawIndexStoreKey, Option<IndexEntryValue>)>,
 }
 
 #[derive(Default)]
 struct RecordingStagedStoreReadView {
-    entries: BTreeMap<(String, RawIndexKey), RawIndexEntry>,
+    entries: BTreeMap<(String, RawIndexStoreKey), IndexEntryValue>,
 }
 
 #[derive(Default)]
@@ -70,31 +71,36 @@ struct RecordingAcceptedSnapshotPublicationSink {
 }
 
 impl RecordingStagedStoreReadView {
-    fn insert(&mut self, store: &str, key: RawIndexKey, entry: RawIndexEntry) {
+    fn insert(&mut self, store: &str, key: RawIndexStoreKey, entry: IndexEntryValue) {
         self.entries.insert((store.to_string(), key), entry);
     }
 }
 
 impl super::SchemaFieldPathIndexStagedStoreReadView for RecordingStagedStoreReadView {
-    fn read_staged_entry(&self, store: &str, key: &RawIndexKey) -> Option<RawIndexEntry> {
+    fn read_staged_entry(&self, store: &str, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
         self.entries.get(&(store.to_string(), key.clone())).cloned()
     }
 }
 
 impl super::SchemaFieldPathIndexStagedStoreWriter for RecordingStagedStoreWriter {
-    fn write_staged_entry(&mut self, store: &str, key: &RawIndexKey, entry: &RawIndexEntry) {
+    fn write_staged_entry(&mut self, store: &str, key: &RawIndexStoreKey, entry: &IndexEntryValue) {
         self.writes
             .push((store.to_string(), key.clone(), entry.clone()));
     }
 }
 
 impl super::SchemaFieldPathIndexStagedStoreRollbackWriter for RecordingStagedStoreRollbackWriter {
-    fn restore_staged_entry(&mut self, store: &str, key: &RawIndexKey, entry: &RawIndexEntry) {
+    fn restore_staged_entry(
+        &mut self,
+        store: &str,
+        key: &RawIndexStoreKey,
+        entry: &IndexEntryValue,
+    ) {
         self.actions
             .push((store.to_string(), key.clone(), Some(entry.clone())));
     }
 
-    fn remove_staged_entry(&mut self, store: &str, key: &RawIndexKey) {
+    fn remove_staged_entry(&mut self, store: &str, key: &RawIndexStoreKey) {
         self.actions.push((store.to_string(), key.clone(), None));
     }
 }

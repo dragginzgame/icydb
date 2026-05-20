@@ -1,3 +1,4 @@
+#[doc(hidden)]
 #[macro_export]
 macro_rules! scalar_kind_registry_entries {
     ($macro:ident $(, @args $($args:tt)+ )?) => {

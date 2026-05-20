@@ -7,7 +7,7 @@ use crate::{
     db::{
         access::ExecutionPathPayload,
         cursor::IndexScanContinuationInput,
-        data::{DataKey, RawDataKey},
+        data::{DataKey, RawDataStoreKey},
         direction::Direction,
         executor::{
             IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, OrderedKeyStream,
@@ -15,7 +15,7 @@ use crate::{
             pipeline::contracts::AccessScanContinuationInput,
             route::primary_scan_fetch_hint_shape_supported, traversal::IndexRangeTraversalContract,
         },
-        index::{RawIndexKey, predicate::IndexPredicateExecution},
+        index::{RawIndexStoreKey, predicate::IndexPredicateExecution},
         key_taxonomy::RawDataStoreKeyRange,
         registry::StoreHandle,
     },
@@ -304,11 +304,11 @@ impl KeyAccessRuntime {
 
 pub(in crate::db::executor) struct PrimaryRangeKeyStream {
     store: StoreHandle,
-    lower_raw: RawDataKey,
-    upper_bound: Bound<RawDataKey>,
+    lower_raw: RawDataStoreKey,
+    upper_bound: Bound<RawDataStoreKey>,
     direction: Direction,
     remaining: Option<usize>,
-    last_raw_key: Option<RawDataKey>,
+    last_raw_key: Option<RawDataStoreKey>,
     buffer: Vec<DataKey>,
     buffer_pos: usize,
     exhausted: bool,
@@ -345,10 +345,10 @@ impl PrimaryRangeKeyStream {
         limit: Option<usize>,
     ) -> Self {
         let range = RawDataStoreKeyRange::entity_prefix(entity);
-        let lower_raw = RawDataKey::store_range_lower_key(&range);
+        let lower_raw = RawDataStoreKey::store_range_lower_key(&range);
         let upper_bound = range
             .upper_exclusive()
-            .map(RawDataKey::from_store_range_bound)
+            .map(RawDataStoreKey::from_store_range_bound)
             .map_or(Bound::Unbounded, Bound::Excluded);
 
         Self {
@@ -499,7 +499,7 @@ pub(in crate::db::executor) struct IndexRangeKeyStream {
     lower: Bound<LoweredKey>,
     upper: Bound<LoweredKey>,
     direction: Direction,
-    anchor: Option<RawIndexKey>,
+    anchor: Option<RawIndexStoreKey>,
     remaining: Option<usize>,
     buffer: Vec<DataKey>,
     buffer_pos: usize,
@@ -551,7 +551,7 @@ impl IndexRangeKeyStream {
         lower: Bound<LoweredKey>,
         upper: Bound<LoweredKey>,
         direction: Direction,
-        anchor: Option<RawIndexKey>,
+        anchor: Option<RawIndexStoreKey>,
         limit: Option<usize>,
     ) -> Self {
         Self {

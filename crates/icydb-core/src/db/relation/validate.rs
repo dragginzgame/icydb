@@ -6,7 +6,7 @@
 use crate::{
     db::{
         Db,
-        data::{DataKey, RawDataKey, StructuralRowContract},
+        data::{DataKey, RawDataStoreKey, StructuralRowContract},
         direction::Direction,
         registry::StoreHandle,
         relation::{
@@ -63,7 +63,7 @@ impl BlockedDeleteProof {
 pub(in crate::db) fn validate_delete_strong_relations_for_source<S>(
     db: &Db<S::Canister>,
     target_path: &str,
-    deleted_target_keys: &BTreeSet<RawDataKey>,
+    deleted_target_keys: &BTreeSet<RawDataStoreKey>,
 ) -> Result<(), InternalError>
 where
     S: EntityKind + EntityValue,
@@ -112,7 +112,7 @@ fn validate_delete_strong_relations_structural<C>(
     source_row_contract: StructuralRowContract,
     relations: Vec<AcceptedStrongRelationInfo>,
     source_store: StoreHandle,
-    deleted_target_keys: &BTreeSet<RawDataKey>,
+    deleted_target_keys: &BTreeSet<RawDataStoreKey>,
 ) -> Result<Option<BlockedDeleteProof>, InternalError>
 where
     C: CanisterKind,

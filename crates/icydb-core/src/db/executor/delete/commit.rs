@@ -7,7 +7,7 @@ use crate::{
     db::{
         Db,
         commit::CommitRowOp,
-        data::{RawDataKey, RawRow},
+        data::{RawDataStoreKey, RawRow},
         executor::{
             EntityAuthority,
             delete::types::{DeleteExecutionAuthority, PreparedDeleteCommit},
@@ -43,7 +43,7 @@ pub(in crate::db::executor::delete) fn prepare_delete_commit<C>(
     db: &Db<C>,
     _store: StoreHandle,
     authority: &DeleteExecutionAuthority,
-    rollback_rows: Vec<(RawDataKey, RawRow)>,
+    rollback_rows: Vec<(RawDataStoreKey, RawRow)>,
 ) -> Result<PreparedDeleteCommit, InternalError>
 where
     C: CanisterKind,

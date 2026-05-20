@@ -10,7 +10,7 @@ use crate::{
     db::{
         Db, EntityRuntimeHooks,
         data::{DataKey, StructuralRowContract, decode_sparse_required_slot_with_contract},
-        index::{IndexId, IndexKey, IndexState, RawIndexKey},
+        index::{IndexId, IndexKey, IndexState, RawIndexStoreKey},
         registry::StoreHandle,
         schema::{
             AcceptedSchemaSnapshot, MutationPublicationBlocker, MutationPublicationPreflight,
@@ -732,7 +732,7 @@ fn sql_ddl_drop_target_index_keys(
     entity_tag: EntityTag,
     entity_path: &'static str,
     target: &SchemaSecondaryIndexDropCleanupTarget,
-) -> Result<Vec<RawIndexKey>, InternalError> {
+) -> Result<Vec<RawIndexStoreKey>, InternalError> {
     let target_index_id = IndexId::new(entity_tag, target.ordinal());
 
     store.with_index(|index_store| {
@@ -1240,7 +1240,7 @@ mod tests {
         db::{
             Db, EntityRuntimeHooks,
             data::{CanonicalRow, DataKey, DataStore, StorageKey, StructuralRowContract},
-            index::{IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore, RawIndexEntry},
+            index::{IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore},
             registry::StoreRegistry,
             schema::{
                 AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
@@ -1787,7 +1787,7 @@ mod tests {
         RECONCILE_INDEX_STORE.with_borrow_mut(|store| {
             let sentinel_id = IndexId::new(IndexedSchemaEntity::ENTITY_TAG, 1);
             let sentinel_key = IndexKey::empty_with_kind(&sentinel_id, IndexKeyKind::User).to_raw();
-            let sentinel_entry = RawIndexEntry::try_from_keys([StorageKey::Nat(99)])
+            let sentinel_entry = IndexEntryValue::try_from_keys([StorageKey::Nat(99)])
                 .expect("sentinel index entry should encode");
             store.insert(sentinel_key, sentinel_entry);
         });
@@ -1875,7 +1875,7 @@ mod tests {
             let unrelated_id = IndexId::new(IndexedSchemaEntity::ENTITY_TAG, 99);
             let unrelated_key =
                 IndexKey::empty_with_kind(&unrelated_id, IndexKeyKind::User).to_raw();
-            let unrelated_entry = RawIndexEntry::try_from_keys([StorageKey::Nat(99)])
+            let unrelated_entry = IndexEntryValue::try_from_keys([StorageKey::Nat(99)])
                 .expect("unrelated index entry should encode");
             store.insert(unrelated_key, unrelated_entry);
         });
@@ -1924,13 +1924,13 @@ mod tests {
         RECONCILE_INDEX_STORE.with_borrow_mut(|store| {
             let target_id = IndexId::new(IndexedSchemaEntity::ENTITY_TAG, target.ordinal());
             let target_key = IndexKey::empty_with_kind(&target_id, IndexKeyKind::User).to_raw();
-            let target_entry = RawIndexEntry::try_from_keys([StorageKey::Nat(1)])
+            let target_entry = IndexEntryValue::try_from_keys([StorageKey::Nat(1)])
                 .expect("target index entry should encode");
             store.insert(target_key, target_entry);
 
             let other_id = IndexId::new(IndexedSchemaEntity::ENTITY_TAG, target.ordinal() + 1);
             let other_key = IndexKey::empty_with_kind(&other_id, IndexKeyKind::User).to_raw();
-            let other_entry = RawIndexEntry::try_from_keys([StorageKey::Nat(2)])
+            let other_entry = IndexEntryValue::try_from_keys([StorageKey::Nat(2)])
                 .expect("other index entry should encode");
             store.insert(other_key, other_entry);
         });
@@ -2323,7 +2323,7 @@ mod tests {
                 supported.target().ordinal(),
             );
             let extra_key = IndexKey::empty_with_kind(&target_id, IndexKeyKind::User).to_raw();
-            let extra_entry = RawIndexEntry::try_from_keys([StorageKey::Nat(99)])
+            let extra_entry = IndexEntryValue::try_from_keys([StorageKey::Nat(99)])
                 .expect("extra target entry should encode");
             store.insert(extra_key, extra_entry);
         });

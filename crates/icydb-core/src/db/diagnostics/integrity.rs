@@ -193,17 +193,18 @@ fn scan_store_reverse_integrity(
     snapshot: &mut IntegrityStoreSnapshot,
 ) {
     store_handle.with_index(|index_store| {
-        for (raw_index_key, raw_index_entry) in index_store.entries() {
+        for (raw_index_store_key, index_entry_value) in index_store.entries() {
             snapshot.index_entries_scanned = snapshot.index_entries_scanned.saturating_add(1);
 
-            let Ok(decoded_index_key) = IndexKey::try_from_raw(&raw_index_key) else {
+            let Ok(decoded_index_key) = IndexKey::try_from_raw(&raw_index_store_key) else {
                 snapshot.corrupted_index_keys = snapshot.corrupted_index_keys.saturating_add(1);
                 continue;
             };
 
             let index_entity_tag = data_entity_tag_for_index_key(&decoded_index_key);
 
-            let Ok(indexed_primary_keys) = raw_index_entry.decode_keys(&raw_index_key) else {
+            let Ok(indexed_primary_keys) = index_entry_value.decode_keys(&raw_index_store_key)
+            else {
                 snapshot.corrupted_index_entries =
                     snapshot.corrupted_index_entries.saturating_add(1);
                 continue;

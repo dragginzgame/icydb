@@ -9,8 +9,8 @@ use crate::{
         direction::Direction,
         executor::Context,
         index::{
-            IndexEntryReader, IndexReadContract, IndexStore, PrimaryRowReader, RawIndexEntry,
-            RawIndexKey, SealedIndexEntryReader, SealedPrimaryRowReader,
+            IndexEntryReader, IndexEntryValue, IndexReadContract, IndexStore, PrimaryRowReader,
+            RawIndexStoreKey, SealedIndexEntryReader, SealedPrimaryRowReader,
             SealedStructuralIndexEntryReader, SealedStructuralPrimaryRowReader,
             StructuralIndexEntryReader, StructuralPrimaryRowReader,
         },
@@ -54,8 +54,8 @@ where
     fn read_index_entry(
         &self,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: &RawIndexKey,
-    ) -> Result<Option<RawIndexEntry>, InternalError> {
+        key: &RawIndexStoreKey,
+    ) -> Result<Option<IndexEntryValue>, InternalError> {
         Ok(index_store.with_borrow(|store| store.get(key)))
     }
 
@@ -63,7 +63,7 @@ where
         &self,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
         index: IndexReadContract<'_>,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
         read_index_storage_keys_in_raw_range(E::ENTITY_TAG, index_store, index, bounds, limit)
@@ -79,8 +79,8 @@ where
     fn read_index_entry_structural(
         &self,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: &RawIndexKey,
-    ) -> Result<Option<RawIndexEntry>, InternalError> {
+        key: &RawIndexStoreKey,
+    ) -> Result<Option<IndexEntryValue>, InternalError> {
         IndexEntryReader::<E>::read_index_entry(self, index_store, key)
     }
 
@@ -90,7 +90,7 @@ where
         entity_tag: EntityTag,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
         index: IndexReadContract<'_>,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
         read_index_storage_keys_in_raw_range(entity_tag, index_store, index, bounds, limit)
@@ -105,7 +105,7 @@ fn read_index_storage_keys_in_raw_range(
     _entity_tag: EntityTag,
     index_store: &'static LocalKey<RefCell<IndexStore>>,
     index: IndexReadContract<'_>,
-    bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+    bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
     limit: usize,
 ) -> Result<Vec<StorageKey>, InternalError> {
     let mut out = Vec::with_capacity(limit.min(32));
@@ -122,8 +122,8 @@ fn read_index_storage_keys_in_raw_range(
 // preflight reads that are not part of a user-visible scan.
 fn push_index_entry_storage_keys(
     index: IndexReadContract<'_>,
-    raw_key: &RawIndexKey,
-    raw_entry: &RawIndexEntry,
+    raw_key: &RawIndexStoreKey,
+    raw_entry: &IndexEntryValue,
     out: &mut Vec<StorageKey>,
     limit: usize,
 ) -> Result<bool, InternalError> {

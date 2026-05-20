@@ -3,7 +3,7 @@
 //! Does not own: range-scan resolution, continuation semantics, or predicate execution.
 //! Boundary: scan/executor layers depend on this storage boundary.
 
-use crate::db::index::{entry::RawIndexEntry, key::RawIndexKey};
+use crate::db::index::{IndexEntryValue, key::RawIndexStoreKey};
 
 use candid::CandidType;
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
@@ -41,11 +41,11 @@ impl IndexState {
 ///
 /// Thin persistence wrapper over one stable BTreeMap.
 ///
-/// Invariant: callers provide already-validated `RawIndexKey`/`RawIndexEntry`.
+/// Invariant: callers provide already-validated `RawIndexStoreKey`/`IndexEntryValue`.
 ///
 
 pub struct IndexStore {
-    pub(super) map: BTreeMap<RawIndexKey, RawIndexEntry, VirtualMemory<DefaultMemoryImpl>>,
+    pub(super) map: BTreeMap<RawIndexStoreKey, IndexEntryValue, VirtualMemory<DefaultMemoryImpl>>,
     generation: u64,
     state: IndexState,
 }
@@ -64,11 +64,11 @@ impl IndexStore {
 
     /// Snapshot all index entry pairs (diagnostics only).
     #[expect(clippy::redundant_closure_for_method_calls)]
-    pub(crate) fn entries(&self) -> Vec<(RawIndexKey, RawIndexEntry)> {
+    pub(crate) fn entries(&self) -> Vec<(RawIndexStoreKey, IndexEntryValue)> {
         self.map.iter().map(|entry| entry.into_pair()).collect()
     }
 
-    pub(in crate::db) fn get(&self, key: &RawIndexKey) -> Option<RawIndexEntry> {
+    pub(in crate::db) fn get(&self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
         self.map.get(key)
     }
 
@@ -109,15 +109,15 @@ impl IndexStore {
 
     pub(crate) fn insert(
         &mut self,
-        key: RawIndexKey,
-        entry: RawIndexEntry,
-    ) -> Option<RawIndexEntry> {
+        key: RawIndexStoreKey,
+        entry: IndexEntryValue,
+    ) -> Option<IndexEntryValue> {
         let previous = self.map.insert(key, entry);
         self.bump_generation();
         previous
     }
 
-    pub(crate) fn remove(&mut self, key: &RawIndexKey) -> Option<RawIndexEntry> {
+    pub(crate) fn remove(&mut self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
         let previous = self.map.remove(key);
         self.bump_generation();
         previous

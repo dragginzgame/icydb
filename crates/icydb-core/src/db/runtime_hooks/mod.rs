@@ -9,7 +9,7 @@ use crate::{
         commit::{
             CommitRowOp, PreparedRowCommitOp, prepare_row_commit_for_entity_with_structural_readers,
         },
-        data::RawDataKey,
+        data::RawDataStoreKey,
         index::{StructuralIndexEntryReader, StructuralPrimaryRowReader},
         relation::StrongRelationDeleteValidateFn,
     },
@@ -185,7 +185,7 @@ pub(in crate::db) fn validate_delete_strong_relations_with_hooks<C: CanisterKind
     db: &Db<C>,
     entity_runtime_hooks: &[EntityRuntimeHooks<C>],
     target_path: &str,
-    deleted_target_keys: &BTreeSet<RawDataKey>,
+    deleted_target_keys: &BTreeSet<RawDataStoreKey>,
 ) -> Result<(), InternalError> {
     // Skip hook traversal when no target keys were deleted.
     if deleted_target_keys.is_empty() {

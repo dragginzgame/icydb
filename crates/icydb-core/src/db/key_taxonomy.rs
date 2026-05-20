@@ -14,6 +14,7 @@
 #![cfg_attr(not(test), allow(dead_code))]
 
 use crate::{
+    MAX_INDEX_FIELDS,
     db::index::IndexId,
     traits::Repr,
     types::{Account, EntityTag, Principal, Subaccount, Timestamp, Ulid},
@@ -30,6 +31,10 @@ const ULID_SIZE: usize = 16;
 const SUBACCOUNT_SIZE: usize = 32;
 const ACCOUNT_SIZE: usize = Account::STORED_SIZE as usize;
 const LENGTH_PREFIX_SIZE: usize = size_of::<u16>();
+const INDEX_COMPONENT_MAX_SIZE: usize = 4 * 1024;
+const INDEX_PRIMARY_KEY_MAX_SIZE: usize = TAG_SIZE + ACCOUNT_SIZE;
+
+type BorrowedIndexStoreKeySegments<'a> = (IndexStoreKeyKind, IndexId, Vec<&'a [u8]>, &'a [u8]);
 
 //
 // PrimaryKeyKind
@@ -242,6 +247,16 @@ pub(in crate::db) enum CompactStoreKeyDecodeError {
     #[error("raw index store key has trailing bytes: {len}")]
     TrailingIndexBytes { len: usize },
 
+    #[error("raw index store key has too many components: {count} (limit {max})")]
+    TooManyIndexComponents { count: usize, max: usize },
+
+    #[error("raw index store key {segment} is too large: {len} bytes (limit {max})")]
+    IndexSegmentTooLarge {
+        segment: &'static str,
+        len: usize,
+        max: usize,
+    },
+
     #[error("raw store key contains invalid primary key: {0}")]
     InvalidPrimaryKey(#[from] CompactPrimaryKeyDecodeError),
 }
@@ -423,7 +438,7 @@ impl DataStoreKey {
 
 /// Raw persisted data-store key bytes.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(in crate::db) struct RawDataStoreKey {
+pub(crate) struct RawDataStoreKey {
     bytes: Vec<u8>,
 }
 
@@ -435,6 +450,11 @@ impl RawDataStoreKey {
         })
     }
 
+    #[must_use]
+    pub(in crate::db) const fn from_persisted_bytes(bytes: Vec<u8>) -> Self {
+        Self { bytes }
+    }
+
     pub(in crate::db) fn decode(&self) -> Result<DataStoreKey, CompactStoreKeyDecodeError> {
         DataStoreKey::try_from_raw_bytes(&self.bytes)
     }
@@ -442,6 +462,11 @@ impl RawDataStoreKey {
     #[must_use]
     pub(in crate::db) fn as_bytes(&self) -> &[u8] {
         &self.bytes
+    }
+
+    #[must_use]
+    pub(in crate::db) fn into_bytes(self) -> Vec<u8> {
+        self.bytes
     }
 }
 
@@ -641,12 +666,17 @@ impl IndexStoreKey {
 }
 
 /// Raw persisted index-store key bytes.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(in crate::db) struct RawIndexStoreKey {
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct RawIndexStoreKey {
     bytes: Vec<u8>,
 }
 
 impl RawIndexStoreKey {
+    #[must_use]
+    pub(in crate::db) const fn from_persisted_bytes(bytes: Vec<u8>) -> Self {
+        Self { bytes }
+    }
+
     pub(in crate::db) fn from_bytes(bytes: &[u8]) -> Result<Self, CompactStoreKeyDecodeError> {
         let _ = IndexStoreKey::try_from_raw_bytes(bytes)?;
         Ok(Self {
@@ -662,12 +692,29 @@ impl RawIndexStoreKey {
     pub(in crate::db) fn as_bytes(&self) -> &[u8] {
         &self.bytes
     }
+
+    #[must_use]
+    pub(in crate::db) fn into_bytes(self) -> Vec<u8> {
+        self.bytes
+    }
+}
+
+impl Ord for RawIndexStoreKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        compare_raw_index_store_key_bytes(&self.bytes, &other.bytes)
+    }
+}
+
+impl PartialOrd for RawIndexStoreKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 /// Secondary-index value. Primary-key membership belongs to the key, so this
 /// value carries only a storage-owned presence/existence witness.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub(in crate::db) struct IndexEntryValue {
+pub(crate) struct IndexEntryValue {
     bytes: Vec<u8>,
 }
 
@@ -678,8 +725,18 @@ impl IndexEntryValue {
     }
 
     #[must_use]
+    pub(in crate::db) const fn from_persisted_bytes(bytes: Vec<u8>) -> Self {
+        Self { bytes }
+    }
+
+    #[must_use]
     pub(in crate::db) fn as_bytes(&self) -> &[u8] {
         &self.bytes
+    }
+
+    #[must_use]
+    pub(in crate::db) fn into_bytes(self) -> Vec<u8> {
+        self.bytes
     }
 }
 
@@ -865,6 +922,89 @@ fn take_len_prefixed<'a>(
         return Err(CompactStoreKeyDecodeError::EmptyIndexSegment { segment });
     }
     take_exact(input, len, segment)
+}
+
+fn compare_raw_index_store_key_bytes(left: &[u8], right: &[u8]) -> Ordering {
+    let Ok((left_kind, left_index_id, left_components, left_primary_key)) =
+        decode_raw_index_store_key_segments(left)
+    else {
+        return left.cmp(right);
+    };
+    let Ok((right_kind, right_index_id, right_components, right_primary_key)) =
+        decode_raw_index_store_key_segments(right)
+    else {
+        return left.cmp(right);
+    };
+
+    left_kind
+        .cmp(&right_kind)
+        .then_with(|| left_index_id.cmp(&right_index_id))
+        .then_with(|| left_components.len().cmp(&right_components.len()))
+        .then_with(|| compare_segments(&left_components, &right_components))
+        .then_with(|| left_primary_key.cmp(right_primary_key))
+}
+
+fn decode_raw_index_store_key_segments(
+    bytes: &[u8],
+) -> Result<BorrowedIndexStoreKeySegments<'_>, CompactStoreKeyDecodeError> {
+    let mut input = bytes;
+
+    let key_kind = take_exact(&mut input, TAG_SIZE, "key kind")?[0];
+    let key_kind = IndexStoreKeyKind::from_tag(key_kind)
+        .ok_or(CompactStoreKeyDecodeError::UnknownIndexKeyKind { kind: key_kind })?;
+
+    let index_id = IndexId::from_bytes(take_exact(
+        &mut input,
+        IndexId::STORED_SIZE_USIZE,
+        "index id",
+    )?)
+    .ok_or(CompactStoreKeyDecodeError::InvalidIndexId)?;
+
+    let component_count = usize::from(take_exact(&mut input, TAG_SIZE, "component count")?[0]);
+    if component_count > MAX_INDEX_FIELDS {
+        return Err(CompactStoreKeyDecodeError::TooManyIndexComponents {
+            count: component_count,
+            max: MAX_INDEX_FIELDS,
+        });
+    }
+
+    let mut components = Vec::with_capacity(component_count);
+    for _ in 0..component_count {
+        let component = take_len_prefixed(&mut input, "index component")?;
+        if component.len() > INDEX_COMPONENT_MAX_SIZE {
+            return Err(CompactStoreKeyDecodeError::IndexSegmentTooLarge {
+                segment: "index component",
+                len: component.len(),
+                max: INDEX_COMPONENT_MAX_SIZE,
+            });
+        }
+        components.push(component);
+    }
+
+    let primary_key = take_len_prefixed(&mut input, "primary key suffix")?;
+    if primary_key.len() > INDEX_PRIMARY_KEY_MAX_SIZE {
+        return Err(CompactStoreKeyDecodeError::IndexSegmentTooLarge {
+            segment: "primary key suffix",
+            len: primary_key.len(),
+            max: INDEX_PRIMARY_KEY_MAX_SIZE,
+        });
+    }
+    if !input.is_empty() {
+        return Err(CompactStoreKeyDecodeError::TrailingIndexBytes { len: input.len() });
+    }
+
+    Ok((key_kind, index_id, components, primary_key))
+}
+
+fn compare_segments(left: &[&[u8]], right: &[&[u8]]) -> Ordering {
+    for (left_segment, right_segment) in left.iter().zip(right.iter()) {
+        let segment_order = left_segment.cmp(right_segment);
+        if segment_order != Ordering::Equal {
+            return segment_order;
+        }
+    }
+
+    Ordering::Equal
 }
 
 const fn max_encoded_primary_key_len(kind: PrimaryKeyKind) -> usize {

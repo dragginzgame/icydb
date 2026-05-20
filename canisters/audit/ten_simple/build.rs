@@ -3,8 +3,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         icydb_testing_audit_ten_simple_fixtures::ten_simple::TenSimpleCanister,
     >();
 
-    let config =
-        icydb_config_build::emit_config_for_canister("TenSimpleCanister", &["TenSimpleCanister"])?;
+    let config = icydb_config_build::emit_config_for_build_script()?;
     let options = icydb::build::BuildOptions::default()
         .with_sql_readonly_enabled(config.canister_sql_readonly_enabled("TenSimpleCanister"))
         .with_sql_ddl_enabled(config.canister_sql_ddl_enabled("TenSimpleCanister"))

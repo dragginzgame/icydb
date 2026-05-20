@@ -4,7 +4,7 @@
 //! Boundary: planner/cursor paths call this module to build raw bounds.
 
 use crate::{
-    db::index::{EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexKey},
+    db::index::{EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey},
     value::Value,
 };
 use std::ops::Bound;
@@ -123,7 +123,7 @@ pub(in crate::db) fn build_index_bounds_for_arity(
     index_id: &IndexId,
     index_len: usize,
     spec: IndexBoundsSpec<'_>,
-) -> Result<(Bound<RawIndexKey>, Bound<RawIndexKey>), IndexRangeBoundEncodeError> {
+) -> Result<(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>), IndexRangeBoundEncodeError> {
     match spec {
         IndexBoundsSpec::Prefix { values } => {
             let encoded_prefix = EncodedValue::try_encode_all(values)
@@ -218,7 +218,7 @@ fn raw_keys_for_encoded_prefix(
     index_id: &IndexId,
     index_len: usize,
     prefix: &[EncodedValue],
-) -> (RawIndexKey, RawIndexKey) {
+) -> (RawIndexStoreKey, RawIndexStoreKey) {
     raw_keys_for_encoded_prefix_with_kind(index_id, IndexKeyKind::User, index_len, prefix)
 }
 
@@ -234,7 +234,7 @@ pub(in crate::db) fn raw_keys_for_encoded_prefix_with_kind(
     key_kind: IndexKeyKind,
     index_len: usize,
     prefix: &[EncodedValue],
-) -> (RawIndexKey, RawIndexKey) {
+) -> (RawIndexStoreKey, RawIndexStoreKey) {
     raw_keys_for_component_prefix_with_kind(index_id, key_kind, index_len, prefix)
 }
 
@@ -246,7 +246,7 @@ pub(in crate::db) fn raw_keys_for_component_prefix_with_kind<C: AsRef<[u8]>>(
     key_kind: IndexKeyKind,
     index_len: usize,
     prefix: &[C],
-) -> (RawIndexKey, RawIndexKey) {
+) -> (RawIndexStoreKey, RawIndexStoreKey) {
     let (start, end) = IndexKey::bounds_for_prefix_with_kind(index_id, key_kind, index_len, prefix);
 
     (start.to_raw(), end.to_raw())
@@ -264,7 +264,7 @@ fn raw_bounds_for_encoded_index_component_range(
     prefix: &[EncodedValue],
     lower: &Bound<EncodedValue>,
     upper: &Bound<EncodedValue>,
-) -> (Bound<RawIndexKey>, Bound<RawIndexKey>) {
+) -> (Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>) {
     let lower_component = encoded_component_bound(lower);
     let upper_component = encoded_component_bound(upper);
     let (start, end) = IndexKey::bounds_for_prefix_component_range(
@@ -275,7 +275,10 @@ fn raw_bounds_for_encoded_index_component_range(
         &upper_component,
     );
 
-    (raw_index_key_bound(start), raw_index_key_bound(end))
+    (
+        raw_index_store_key_bound(start),
+        raw_index_store_key_bound(end),
+    )
 }
 
 ///
@@ -291,7 +294,7 @@ fn raw_bounds_for_semantic_index_component_range(
     prefix: &[Value],
     lower: &Bound<Value>,
     upper: &Bound<Value>,
-) -> Result<(Bound<RawIndexKey>, Bound<RawIndexKey>), IndexRangeBoundEncodeError> {
+) -> Result<(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>), IndexRangeBoundEncodeError> {
     // Phase 1: encode semantic values into canonical index-component bytes.
     let encoded_prefix =
         EncodedValue::try_encode_all(prefix).map_err(|_| IndexRangeBoundEncodeError::Prefix)?;
@@ -347,7 +350,7 @@ fn encode_semantic_component_bound(
     }
 }
 
-fn raw_index_key_bound(bound: Bound<IndexKey>) -> Bound<RawIndexKey> {
+fn raw_index_store_key_bound(bound: Bound<IndexKey>) -> Bound<RawIndexStoreKey> {
     match bound {
         Bound::Unbounded => Bound::Unbounded,
         Bound::Included(key) => Bound::Included(key.to_raw()),

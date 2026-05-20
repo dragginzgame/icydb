@@ -7,7 +7,7 @@ use crate::{
     db::{
         cursor::{CursorBoundary, IndexScanContinuationInput},
         direction::Direction,
-        index::RawIndexKey,
+        index::RawIndexStoreKey,
         query::plan::{AccessPlannedQuery, effective_offset_for_cursor_window},
     },
     error::InternalError,
@@ -120,13 +120,13 @@ pub(in crate::db) enum LoopAction {
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ContinuationKeyRef<'a> {
-    raw_key: &'a RawIndexKey,
+    raw_key: &'a RawIndexStoreKey,
 }
 
 impl<'a> ContinuationKeyRef<'a> {
     /// Build one scan-key reference for continuation runtime checks.
     #[must_use]
-    pub(crate) const fn scan(raw_key: &'a RawIndexKey) -> Self {
+    pub(crate) const fn scan(raw_key: &'a RawIndexStoreKey) -> Self {
         Self { raw_key }
     }
 }
@@ -177,8 +177,8 @@ impl<'a> ContinuationRuntime<'a> {
     /// Validate continuation-envelope consistency and derive resumed scan bounds.
     pub(in crate::db) fn scan_bounds(
         &self,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
-    ) -> Result<(Bound<RawIndexKey>, Bound<RawIndexKey>), InternalError> {
+        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
+    ) -> Result<(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>), InternalError> {
         self.scan.resume_bounds(bounds)
     }
 

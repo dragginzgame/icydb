@@ -6,11 +6,9 @@
 use super::support::*;
 use crate::db::{
     commit::CommitSchemaFingerprint,
-    data::{DataKey, DataStore, RawDataKey},
+    data::{DataKey, DataStore, RawDataStoreKey},
     schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
 };
-use canic_cdk::structures::Storable;
-use std::borrow::Cow;
 
 // Build canonical persisted row bytes for relation-source replay markers.
 fn relation_source_row_bytes(entity: &RelationSourceEntity) -> Vec<u8> {
@@ -1107,7 +1105,7 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
 
     let mut malformed_key = vec![0u8; DataKey::STORED_SIZE_USIZE];
     malformed_key[DataKey::ENTITY_TAG_SIZE_USIZE] = 0xFF;
-    let malformed_raw_key = RawDataKey::from_bytes(Cow::Owned(malformed_key));
+    let malformed_raw_key = RawDataStoreKey::from_persisted_bytes(malformed_key);
 
     let marker = CommitMarker::new(vec![
         crate::db::commit::CommitRowOp::new(

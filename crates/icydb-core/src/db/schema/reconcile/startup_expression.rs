@@ -6,7 +6,7 @@
 use crate::{
     db::{
         data::{DataKey, RawRow, StructuralRowContract},
-        index::{IndexId, IndexKey, IndexState, IndexStore, RawIndexKey},
+        index::{IndexId, IndexKey, IndexState, IndexStore, RawIndexStoreKey},
         predicate::{PredicateProgram, normalize, parse_sql_predicate},
         registry::StoreHandle,
         schema::{
@@ -354,7 +354,7 @@ fn expression_target_index_entry_count(
 }
 
 fn expression_key_targets_index(
-    raw_key: &RawIndexKey,
+    raw_key: &RawIndexStoreKey,
     target_index_id: &IndexId,
     entity_path: &'static str,
     target: &SchemaExpressionIndexRebuildTarget,

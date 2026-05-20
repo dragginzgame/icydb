@@ -21,10 +21,11 @@ use crate::{
             rollback_prepared_row_ops_reverse, store,
         },
         data::{
-            CanonicalRow, DataKey, DataStore, RawDataKey, RawRow, encode_runtime_value_into_slot,
+            CanonicalRow, DataKey, DataStore, RawDataStoreKey, RawRow,
+            encode_runtime_value_into_slot,
         },
         executor::SaveExecutor,
-        index::{IndexKey, IndexStore, RawIndexEntry},
+        index::{IndexEntryValue, IndexKey, IndexStore},
         registry::{StoreHandle, StoreRegistry},
         relation::validate_delete_strong_relations_for_source,
         schema::{
@@ -781,7 +782,7 @@ fn initial_accepted_commit_schema_fingerprint_for_entity<E: EntityKind + 'static
         .expect("initial recovery test schema fingerprint should derive")
 }
 
-fn row_bytes_for(key: &RawDataKey) -> Option<Vec<u8>> {
+fn row_bytes_for(key: &RawDataStoreKey) -> Option<Vec<u8>> {
     with_recovery_store(|store| {
         store.with_data(|data_store| data_store.get(key).map(|row| row.as_bytes().to_vec()))
     })
@@ -987,42 +988,42 @@ fn apply_row_ops_forward(row_ops: &[CommitRowOp]) -> Result<(), InternalError> {
     Ok(())
 }
 
-fn indexed_data_key(id: Ulid) -> RawDataKey {
+fn indexed_data_key(id: Ulid) -> RawDataStoreKey {
     DataKey::try_new::<RecoveryIndexedEntity>(id)
         .expect("indexed key should build")
         .to_raw()
         .expect("indexed key should encode")
 }
 
-fn unique_data_key(id: Ulid) -> RawDataKey {
+fn unique_data_key(id: Ulid) -> RawDataStoreKey {
     DataKey::try_new::<RecoveryUniqueEntity>(id)
         .expect("unique key should build")
         .to_raw()
         .expect("unique key should encode")
 }
 
-fn conditional_data_key(id: Ulid) -> RawDataKey {
+fn conditional_data_key(id: Ulid) -> RawDataStoreKey {
     DataKey::try_new::<RecoveryConditionalEntity>(id)
         .expect("conditional key should build")
         .to_raw()
         .expect("conditional key should encode")
 }
 
-fn conditional_unique_data_key(id: Ulid) -> RawDataKey {
+fn conditional_unique_data_key(id: Ulid) -> RawDataStoreKey {
     DataKey::try_new::<RecoveryConditionalUniqueEntity>(id)
         .expect("conditional-unique key should build")
         .to_raw()
         .expect("conditional-unique key should encode")
 }
 
-fn conditional_unique_casefold_data_key(id: Ulid) -> RawDataKey {
+fn conditional_unique_casefold_data_key(id: Ulid) -> RawDataStoreKey {
     DataKey::try_new::<RecoveryConditionalUniqueCasefoldEntity>(id)
         .expect("conditional-unique-casefold key should build")
         .to_raw()
         .expect("conditional-unique-casefold key should encode")
 }
 
-fn conditional_unique_enum_data_key(id: Ulid) -> RawDataKey {
+fn conditional_unique_enum_data_key(id: Ulid) -> RawDataStoreKey {
     DataKey::try_new::<RecoveryConditionalUniqueEnumEntity>(id)
         .expect("conditional-unique-enum key should build")
         .to_raw()
@@ -3300,7 +3301,7 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_authoritative_rows() {
         .id
         .to_storage_key()
         .expect("stale storage key should encode");
-    let stale_entry = RawIndexEntry::try_from_keys(vec![stale_storage_key])
+    let stale_entry = IndexEntryValue::try_from_keys(vec![stale_storage_key])
         .expect("stale index entry should encode");
 
     with_recovery_store(|store| {
@@ -3400,7 +3401,7 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_old_nullable_rows() {
         .id
         .to_storage_key()
         .expect("stale nullable storage key should encode");
-    let stale_entry = RawIndexEntry::try_from_keys(vec![stale_storage_key])
+    let stale_entry = IndexEntryValue::try_from_keys(vec![stale_storage_key])
         .expect("stale nullable index entry should encode");
 
     // Phase 1: seed old two-slot rows and intentionally stale secondary index
@@ -3491,7 +3492,7 @@ fn recovery_replay_updates_old_nullable_row_before_image_with_accepted_contract(
         .expect("old nullable index key build should succeed")
         .expect("old nullable index key should exist")
         .to_raw();
-    let old_entry = RawIndexEntry::try_from_keys(vec![
+    let old_entry = IndexEntryValue::try_from_keys(vec![
         old.id
             .to_storage_key()
             .expect("old nullable storage key should encode"),
@@ -3577,14 +3578,14 @@ fn recovery_startup_gate_rebuilds_conditional_indexes_from_authoritative_rows() 
         .expect("stale index key build should succeed")
         .expect("stale index key should exist")
         .to_raw();
-    let inactive_entry = RawIndexEntry::try_from_keys(vec![
+    let inactive_entry = IndexEntryValue::try_from_keys(vec![
         inactive
             .id
             .to_storage_key()
             .expect("inactive storage key should encode"),
     ])
     .expect("inactive stale index entry should encode");
-    let stale_entry = RawIndexEntry::try_from_keys(vec![
+    let stale_entry = IndexEntryValue::try_from_keys(vec![
         stale
             .id
             .to_storage_key()
@@ -3682,7 +3683,7 @@ fn recovery_startup_gate_rebuilds_upper_expression_indexes_from_authoritative_ro
         .expect("stale expression index key build should succeed")
         .expect("stale expression index key should exist")
         .to_raw();
-    let stale_entry = RawIndexEntry::try_from_keys(vec![
+    let stale_entry = IndexEntryValue::try_from_keys(vec![
         stale
             .id
             .to_storage_key()
@@ -3889,7 +3890,7 @@ fn recovery_startup_rebuild_fail_closed_restores_previous_index_state_on_corrupt
         .id
         .to_storage_key()
         .expect("sentinel storage key should encode");
-    let sentinel_entry = RawIndexEntry::try_from_keys(vec![sentinel_storage_key])
+    let sentinel_entry = IndexEntryValue::try_from_keys(vec![sentinel_storage_key])
         .expect("sentinel entry should encode");
 
     with_recovery_store(|store| {

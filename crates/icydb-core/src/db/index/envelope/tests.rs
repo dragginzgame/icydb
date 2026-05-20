@@ -7,7 +7,7 @@ use crate::{
     db::{
         direction::Direction,
         index::{
-            EncodedValue, RawIndexKey, envelope_is_empty,
+            EncodedValue, RawIndexStoreKey, envelope_is_empty,
             key::{IndexId, IndexKeyKind},
             raw_keys_for_encoded_prefix_with_kind,
         },
@@ -181,8 +181,8 @@ fn envelope_emptiness_identifies_empty_equal_exclusive_bounds() {
     assert!(envelope_is_empty(&lower, &upper));
 }
 
-fn raw_key(byte: u8) -> RawIndexKey {
-    <RawIndexKey as Storable>::from_bytes(Cow::Owned(vec![byte]))
+fn raw_key(byte: u8) -> RawIndexStoreKey {
+    <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![byte]))
 }
 
 fn property_index_id() -> IndexId {
@@ -190,7 +190,7 @@ fn property_index_id() -> IndexId {
 }
 
 // Build one canonical raw index key from semantic composite components.
-fn canonical_raw_key(values: &[Value]) -> RawIndexKey {
+fn canonical_raw_key(values: &[Value]) -> RawIndexStoreKey {
     let encoded = EncodedValue::try_encode_all(values)
         .expect("property-domain values must remain canonically index-encodable");
     let (key, _) = raw_keys_for_encoded_prefix_with_kind(
