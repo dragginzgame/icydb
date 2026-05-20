@@ -11,8 +11,8 @@ use crate::{
             PreparedRowCommitOp,
         },
         data::{
-            CanonicalRow, CanonicalSlotReader, DataKey, DataStore, RawDataStoreKey, RawRow,
-            StorageKey, StructuralRowContract, StructuralSlotReader,
+            CanonicalRow, CanonicalSlotReader, DataStore, DecodedDataStoreKey, RawDataStoreKey,
+            RawRow, StorageKey, StructuralRowContract, StructuralSlotReader,
             canonical_row_from_structural_slot_reader_with_accepted_contract,
         },
         index::{
@@ -82,7 +82,7 @@ impl CommitPrepareAuthority {
 
 struct CommitInputs {
     raw_key: RawDataStoreKey,
-    data_key: DataKey,
+    data_key: DecodedDataStoreKey,
     old_row: Option<RawRow>,
     new_row: Option<RawRow>,
 }
@@ -147,7 +147,7 @@ impl<C> IndexPlanReadView for CommitIndexPlanReadView<'_, C>
 where
     C: CanisterKind,
 {
-    fn read_primary_row(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError> {
+    fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError> {
         self.row_reader.read_primary_row_structural(key)
     }
 
@@ -240,7 +240,7 @@ pub(in crate::db) fn prepare_row_commit_for_entity_with_structural_readers_and_s
 // Decode both optional commit-marker row images through the structural row
 // boundary once so malformed fields fail closed before index planning.
 fn decode_commit_marker_rows_for_preflight<'a>(
-    data_key: &DataKey,
+    data_key: &DecodedDataStoreKey,
     before: Option<&'a RawRow>,
     after: Option<&'a RawRow>,
     row_contract: StructuralRowContract,
@@ -345,7 +345,7 @@ fn prepare_forward_index_commit_leaf<C>(
     row_reader: &dyn StructuralPrimaryRowReader,
     index_reader: &dyn StructuralIndexEntryReader,
     schema_contracts: &AcceptedCommitSchemaContracts,
-    data_key: &DataKey,
+    data_key: &DecodedDataStoreKey,
     decoded: &mut DecodedCommitRows<'_>,
 ) -> Result<IndexMutationPlan, InternalError>
 where
@@ -390,7 +390,7 @@ where
 // Decode one optional commit-marker row into one validated structural slot
 // reader for forward-index planning.
 fn decode_optional_commit_marker_row_slots<'a>(
-    data_key: &DataKey,
+    data_key: &DecodedDataStoreKey,
     row: Option<&'a RawRow>,
     label: &str,
     row_contract: StructuralRowContract,
@@ -402,7 +402,7 @@ fn decode_optional_commit_marker_row_slots<'a>(
 // Decode one commit-marker row into one validated slot reader so both
 // hardening and forward-index planning share the same structural row boundary.
 fn decode_commit_marker_structural_slots<'a>(
-    data_key: &DataKey,
+    data_key: &DecodedDataStoreKey,
     row: &'a RawRow,
     label: &str,
     row_contract: StructuralRowContract,
@@ -479,7 +479,7 @@ fn prepare_row_commit_structural_inputs(
     }
 
     let raw_key = op.key.clone();
-    let data_key = DataKey::try_from_raw(&raw_key).map_err(|_| {
+    let data_key = DecodedDataStoreKey::try_from_raw(&raw_key).map_err(|_| {
         InternalError::store_corruption("commit marker row op key decode: invalid primary key")
     })?;
     let old_row = op

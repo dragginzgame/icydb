@@ -9,7 +9,9 @@ mod startup_field_path;
 use crate::{
     db::{
         Db, EntityRuntimeHooks,
-        data::{DataKey, StructuralRowContract, decode_sparse_required_slot_with_contract},
+        data::{
+            DecodedDataStoreKey, StructuralRowContract, decode_sparse_required_slot_with_contract,
+        },
         index::{IndexId, IndexKey, IndexState, RawIndexStoreKey},
         registry::StoreHandle,
         schema::{
@@ -522,7 +524,7 @@ fn validate_sql_ddl_set_not_null_rows(
     store.with_data(|data_store| {
         let mut scanned = 0usize;
         for entry in data_store.entries() {
-            let key = DataKey::try_from_raw(entry.key()).map_err(|error| {
+            let key = DecodedDataStoreKey::try_from_raw(entry.key()).map_err(|error| {
                 InternalError::store_unsupported(format!(
                     "SQL DDL SET NOT NULL could not decode data key for entity '{entity_path}': {error}",
                 ))
@@ -1239,7 +1241,9 @@ mod tests {
     use crate::{
         db::{
             Db, EntityRuntimeHooks,
-            data::{CanonicalRow, DataKey, DataStore, StorageKey, StructuralRowContract},
+            data::{
+                CanonicalRow, DataStore, DecodedDataStoreKey, StorageKey, StructuralRowContract,
+            },
             index::{IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore},
             registry::StoreRegistry,
             schema::{
@@ -1478,7 +1482,8 @@ mod tests {
 
     fn insert_indexed_schema_row(id: u128, name: &str) {
         let id = Ulid::from_u128(id);
-        let data_key = DataKey::try_new::<IndexedSchemaEntity>(id).expect("test key should encode");
+        let data_key = DecodedDataStoreKey::try_new::<IndexedSchemaEntity>(id)
+            .expect("test key should encode");
         let raw_key = data_key.to_raw().expect("test key should encode to raw");
         let row = CanonicalRow::from_generated_entity_for_test(&IndexedSchemaEntity {
             id,
@@ -1727,7 +1732,8 @@ mod tests {
         });
 
         let id = Ulid::from_u128(15_401);
-        let data_key = DataKey::try_new::<IndexedSchemaEntity>(id).expect("test key should encode");
+        let data_key = DecodedDataStoreKey::try_new::<IndexedSchemaEntity>(id)
+            .expect("test key should encode");
         let raw_key = data_key.to_raw().expect("test key should encode to raw");
         let row = CanonicalRow::from_generated_entity_for_test(&IndexedSchemaEntity {
             id,

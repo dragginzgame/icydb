@@ -153,7 +153,7 @@ fn install_nullable_sql_old_accepted_schema_prefix() {
 // Seed one old two-slot row directly into the data store so the SQL surface can
 // exercise accepted-schema row decode without first writing a current-layout row.
 fn insert_old_nullable_sql_row_for_test(id: Ulid, name: &str) {
-    let key = DataKey::try_new::<SessionNullableSqlEntity>(id)
+    let key = DecodedDataStoreKey::try_new::<SessionNullableSqlEntity>(id)
         .expect("old nullable SQL data key should build")
         .to_raw()
         .expect("old nullable SQL data key should encode");
@@ -167,7 +167,7 @@ fn insert_old_nullable_sql_row_for_test(id: Ulid, name: &str) {
 // Load the raw nullable SQL fixture row so tests can distinguish accepted
 // short-row reads from current-layout writeback.
 fn nullable_sql_raw_row_for_test(id: Ulid) -> RawRow {
-    let key = DataKey::try_new::<SessionNullableSqlEntity>(id)
+    let key = DecodedDataStoreKey::try_new::<SessionNullableSqlEntity>(id)
         .expect("nullable SQL data key should build")
         .to_raw()
         .expect("nullable SQL data key should encode");
@@ -1214,7 +1214,7 @@ fn compiled_sql_delete_removes_old_rows_after_nullable_additive_schema_transitio
 
     assert_eq!(row_count, 1);
     SESSION_SQL_DATA_STORE.with_borrow(|store| {
-        let key = DataKey::try_new::<SessionNullableSqlEntity>(id)
+        let key = DecodedDataStoreKey::try_new::<SessionNullableSqlEntity>(id)
             .expect("old nullable SQL data key should build")
             .to_raw()
             .expect("old nullable SQL data key should encode");
@@ -1264,7 +1264,7 @@ fn compiled_sql_delete_returning_projects_old_rows_after_nullable_additive_schem
     );
     assert_eq!(row_count, 1);
     SESSION_SQL_DATA_STORE.with_borrow(|store| {
-        let key = DataKey::try_new::<SessionNullableSqlEntity>(id)
+        let key = DecodedDataStoreKey::try_new::<SessionNullableSqlEntity>(id)
             .expect("old nullable SQL data key should build")
             .to_raw()
             .expect("old nullable SQL data key should encode");
@@ -1432,7 +1432,7 @@ fn fluent_delete_returns_old_rows_after_nullable_additive_schema_transition() {
     assert_eq!(entity.name, "Ada");
     assert_eq!(entity.nickname, None);
     SESSION_SQL_DATA_STORE.with_borrow(|store| {
-        let key = DataKey::try_new::<SessionNullableSqlEntity>(id)
+        let key = DecodedDataStoreKey::try_new::<SessionNullableSqlEntity>(id)
             .expect("old nullable SQL data key should build")
             .to_raw()
             .expect("old nullable SQL data key should encode");
@@ -1460,7 +1460,7 @@ fn fluent_delete_count_removes_old_rows_after_nullable_additive_schema_transitio
 
     assert_eq!(count, 1);
     SESSION_SQL_DATA_STORE.with_borrow(|store| {
-        let key = DataKey::try_new::<SessionNullableSqlEntity>(id)
+        let key = DecodedDataStoreKey::try_new::<SessionNullableSqlEntity>(id)
             .expect("old nullable SQL data key should build")
             .to_raw()
             .expect("old nullable SQL data key should encode");
@@ -1919,7 +1919,7 @@ fn execute_sql_delete_returning_projects_old_rows_after_nullable_additive_schema
         ]],
     );
     SESSION_SQL_DATA_STORE.with_borrow(|store| {
-        let key = DataKey::try_new::<SessionNullableSqlEntity>(id)
+        let key = DecodedDataStoreKey::try_new::<SessionNullableSqlEntity>(id)
             .expect("old nullable SQL data key should build")
             .to_raw()
             .expect("old nullable SQL data key should encode");

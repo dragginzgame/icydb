@@ -8,7 +8,10 @@ use crate::model::field::FieldKind;
 use crate::{
     db::{
         PersistedRow,
-        data::{DataKey, RawRow, StructuralPatch, StructuralRowContract, StructuralSlotReader},
+        data::{
+            DecodedDataStoreKey, RawRow, StructuralPatch, StructuralRowContract,
+            StructuralSlotReader,
+        },
         executor::mutation::save::SaveExecutor,
         predicate::canonical_cmp,
         relation::validate_save_strong_relations_with_accepted_contract,
@@ -73,7 +76,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // the accepted-schema path while preserving the same storage-key and field
     // invariant checks as generated-only rows.
     pub(in crate::db::executor::mutation) fn ensure_persisted_row_invariants_with_accepted_contract(
-        data_key: &DataKey,
+        data_key: &DecodedDataStoreKey,
         row: &RawRow,
         accepted_row_decode_contract: AcceptedRowDecodeContract,
         schema: &SchemaInfo,

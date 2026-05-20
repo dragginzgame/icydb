@@ -5,7 +5,7 @@ use crate::{
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
         },
         data::{
-            CanonicalRow, DataKey, PersistedRow, RawRow, SerializedStructuralPatch,
+            CanonicalRow, DecodedDataStoreKey, PersistedRow, RawRow, SerializedStructuralPatch,
             StructuralPatch, StructuralRowContract, StructuralSlotReader,
             apply_serialized_structural_patch_to_raw_row_with_accepted_contract,
             canonical_row_from_entity_with_accepted_contract,
@@ -193,7 +193,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                     request,
                 )?;
                 if !seen_row_keys.insert(marker_row_op.key.clone()) {
-                    let data_key = DataKey::try_new::<E>(entity.id().key())?;
+                    let data_key = DecodedDataStoreKey::try_new::<E>(entity.id().key())?;
                     return Err(InternalError::mutation_atomic_save_duplicate_key(
                         E::PATH,
                         data_key,
@@ -435,7 +435,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // target key and reusing the existing typed save preflight rules.
     fn validate_structural_after_image(
         &self,
-        data_key: &DataKey,
+        data_key: &DecodedDataStoreKey,
         row: &RawRow,
         accepted_row_decode_contract: AcceptedRowDecodeContract,
         schema: &SchemaInfo,
@@ -492,7 +492,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // save preflight emits the final dense row image.
     fn validate_structural_after_image_from_patch(
         &self,
-        data_key: &DataKey,
+        data_key: &DecodedDataStoreKey,
         patch: &SerializedStructuralPatch,
         accepted_row_decode_contract: AcceptedRowDecodeContract,
         schema: &SchemaInfo,

@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::{DataKey, RawRow, StorageKey},
+        data::{DecodedDataStoreKey, RawRow, StorageKey},
         executor::{
             ExecutionOptimization, ExecutionPreparation,
             aggregate::field::{
@@ -372,7 +372,11 @@ impl StructuralGroupedRowRuntime {
 
     // Decode one persisted data row straight into the structural slot view
     // consumed by grouped fold/runtime stages without building a full kernel row.
-    fn row_view_from_data_row(&self, key: &DataKey, row: RawRow) -> Result<RowView, InternalError> {
+    fn row_view_from_data_row(
+        &self,
+        key: &DecodedDataStoreKey,
+        row: RawRow,
+    ) -> Result<RowView, InternalError> {
         match self.row_decode_path() {
             GroupedRowDecodePath::Single(single_grouped_slot_decode) => self
                 .single_slot_row_view_from_data_row(
@@ -461,7 +465,7 @@ impl StructuralGroupedRowRuntime {
     fn read_data_row(
         &self,
         consistency: MissingRowPolicy,
-        key: &DataKey,
+        key: &DecodedDataStoreKey,
     ) -> Result<Option<RawRow>, InternalError> {
         let raw_key = key.to_raw()?;
         let row = self.store.with_data(|store| store.get(&raw_key));
@@ -481,7 +485,7 @@ impl StructuralGroupedRowRuntime {
     pub(in crate::db::executor) fn read_single_group_value(
         &self,
         consistency: MissingRowPolicy,
-        key: &DataKey,
+        key: &DecodedDataStoreKey,
         required_slot: usize,
     ) -> Result<Option<Value>, InternalError> {
         let Some(row) = self.read_data_row(consistency, key)? else {
@@ -507,7 +511,7 @@ impl StructuralGroupedRowRuntime {
     pub(in crate::db::executor) fn read_row_view(
         &self,
         consistency: MissingRowPolicy,
-        key: &DataKey,
+        key: &DecodedDataStoreKey,
     ) -> Result<Option<RowView>, InternalError> {
         self.read_data_row(consistency, key)?
             .map(|row| self.row_view_from_data_row(key, row))

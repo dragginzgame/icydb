@@ -328,7 +328,7 @@ fn execute_sql_expression_order_index_range_scan_preserves_lower_name_order() {
                     let entry = raw_entry
                         .try_decode_for_key(raw_key)
                         .expect("expression-order index range scan entry");
-                    keys.push(DataKey::new(
+                    keys.push(DecodedDataStoreKey::new(
                         ExpressionIndexedSessionSqlEntity::ENTITY_TAG,
                         entry.storage_key(),
                     ));
@@ -345,7 +345,7 @@ fn execute_sql_expression_order_index_range_scan_preserves_lower_name_order() {
     });
     let scanned_ids = keys
         .into_iter()
-        .map(|key: DataKey| match key.storage_key() {
+        .map(|key: DecodedDataStoreKey| match key.storage_key() {
             StorageKey::Ulid(id) => id,
             other => {
                 panic!("expression-order fixture keys should stay on ULID primary keys: {other:?}")

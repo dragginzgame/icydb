@@ -13,7 +13,7 @@ use crate::{
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
             rollback_prepared_row_ops_reverse,
         },
-        data::{DataKey, RawDataStoreKey, RawRow, StorageKey},
+        data::{DecodedDataStoreKey, RawDataStoreKey, RawRow, StorageKey},
         direction::Direction,
         index::{
             IndexEntryReader, IndexEntryValue, IndexReadContract, IndexStore, PrimaryRowReader,
@@ -275,7 +275,10 @@ impl<'a, C: CanisterKind> PreflightStoreOverlay<'a, C> {
 }
 
 impl<C: CanisterKind> StructuralPrimaryRowReader for PreflightStoreOverlay<'_, C> {
-    fn read_primary_row_structural(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError> {
+    fn read_primary_row_structural(
+        &self,
+        key: &DecodedDataStoreKey,
+    ) -> Result<Option<RawRow>, InternalError> {
         let raw_key = key.to_raw()?;
         if let Some(override_row) = self.data_overrides.get(&raw_key) {
             return Ok(override_row.clone());
@@ -294,7 +297,7 @@ impl<E> PrimaryRowReader<E> for PreflightStoreOverlay<'_, E::Canister>
 where
     E: EntityKind + EntityValue,
 {
-    fn read_primary_row(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError> {
+    fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError> {
         let raw_key = key.to_raw()?;
         if let Some(override_row) = self.data_overrides.get(&raw_key) {
             return Ok(override_row.clone());

@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::{DataKey, RawRow, StorageKey},
+        data::{DecodedDataStoreKey, RawRow, StorageKey},
         index::{IndexEntryValue, IndexReadContract, RawIndexStoreKey},
     },
     error::InternalError,
@@ -24,7 +24,7 @@ use std::ops::Bound;
 
 pub(in crate::db) trait IndexPlanReadView {
     /// Return the primary row for `key`, or `None` when no row exists.
-    fn read_primary_row(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError>;
+    fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError>;
 
     /// Return the raw entry for one index key, or `None` when no entry exists.
     fn read_index_entry(

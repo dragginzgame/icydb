@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::DataKey,
+        data::DecodedDataStoreKey,
         direction::Direction,
         executor::{
             aggregate::{
@@ -325,7 +325,7 @@ impl GroupedAggregateBundle {
     // Apply one grouped input row to the resolved per-group aggregate states.
     fn apply_row_to_group(
         group_state: &mut GroupedAggregateGroupState,
-        data_key: &DataKey,
+        data_key: &DecodedDataStoreKey,
         row_view: &RowView,
         execution_context: &mut ExecutionContext,
     ) -> Result<(), GroupError> {
@@ -355,7 +355,7 @@ impl GroupedAggregateBundle {
     // target group index.
     fn apply_row_to_resolved_group(
         &mut self,
-        data_key: &DataKey,
+        data_key: &DecodedDataStoreKey,
         row_view: &RowView,
         execution_context: &mut ExecutionContext,
         group_index: usize,
@@ -377,7 +377,7 @@ impl GroupedAggregateBundle {
     pub(super) fn ingest_row_with_borrowed_group_probe(
         &mut self,
         execution_context: &mut ExecutionContext,
-        data_key: &DataKey,
+        data_key: &DecodedDataStoreKey,
         row_view: &RowView,
         group_fields: &[FieldSlot],
     ) -> Result<(), GroupError> {
@@ -393,7 +393,7 @@ impl GroupedAggregateBundle {
     pub(super) fn ingest_row_with_owned_group_key(
         &mut self,
         execution_context: &mut ExecutionContext,
-        data_key: &DataKey,
+        data_key: &DecodedDataStoreKey,
         row_view: &RowView,
         group_fields: &[FieldSlot],
     ) -> Result<(), GroupError> {

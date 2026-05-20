@@ -6,7 +6,7 @@
 use crate::{
     db::{
         PersistedRow,
-        data::{DataKey, DataRow, RawRow, decode_raw_row_for_entity_key_with_contract},
+        data::{DataRow, DecodedDataStoreKey, RawRow, decode_raw_row_for_entity_key_with_contract},
         executor::{CursorPage, PageCursor, terminal::RowLayout},
         response::{EntityResponse, Row},
     },
@@ -39,7 +39,7 @@ where
 // append-only rows directly without first trying a generated-only decode.
 pub(in crate::db::executor) fn decode_data_row_entity_with_layout<E>(
     row_layout: &RowLayout,
-    data_key: &DataKey,
+    data_key: &DecodedDataStoreKey,
     raw_row: &RawRow,
 ) -> Result<(E::Key, E), InternalError>
 where

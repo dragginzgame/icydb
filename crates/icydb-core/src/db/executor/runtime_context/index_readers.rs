@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::{DataKey, RawRow, StorageKey},
+        data::{DecodedDataStoreKey, RawRow, StorageKey},
         direction::Direction,
         executor::Context,
         index::{
@@ -25,7 +25,7 @@ impl<E> PrimaryRowReader<E> for Context<'_, E>
 where
     E: EntityKind + EntityValue,
 {
-    fn read_primary_row(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError> {
+    fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError> {
         match self.read(key) {
             Ok(row) => Ok(Some(row)),
             Err(err) if err.is_not_found() => Ok(None),
@@ -40,7 +40,10 @@ impl<E> StructuralPrimaryRowReader for Context<'_, E>
 where
     E: EntityKind + EntityValue,
 {
-    fn read_primary_row_structural(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError> {
+    fn read_primary_row_structural(
+        &self,
+        key: &DecodedDataStoreKey,
+    ) -> Result<Option<RawRow>, InternalError> {
         PrimaryRowReader::<E>::read_primary_row(self, key)
     }
 }

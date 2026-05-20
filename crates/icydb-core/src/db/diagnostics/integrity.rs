@@ -7,7 +7,7 @@ use crate::{
     db::{
         Db,
         commit::CommitRowOp,
-        data::{DataKey, StorageKey, decode_structural_row_payload},
+        data::{DecodedDataStoreKey, StorageKey, decode_structural_row_payload},
         diagnostics::{IntegrityReport, IntegrityStoreSnapshot, IntegrityTotals},
         index::IndexKey,
         registry::StoreHandle,
@@ -76,7 +76,7 @@ fn collect_global_live_keys_by_entity<C: CanisterKind>(
         for (_, store_handle) in reg.iter() {
             store_handle.with_data(|data_store| {
                 for entry in data_store.entries() {
-                    if let Ok(data_key) = DataKey::try_from_raw(entry.key()) {
+                    if let Ok(data_key) = DecodedDataStoreKey::try_from_raw(entry.key()) {
                         keys.entry(data_key.entity_tag())
                             .or_default()
                             .insert(data_key.storage_key());
@@ -103,7 +103,7 @@ fn scan_store_forward_integrity<C: CanisterKind>(
 
             let raw_key = entry.key().clone();
 
-            let Ok(data_key) = DataKey::try_from_raw(&raw_key) else {
+            let Ok(data_key) = DecodedDataStoreKey::try_from_raw(&raw_key) else {
                 snapshot.corrupted_data_keys = snapshot.corrupted_data_keys.saturating_add(1);
                 continue;
             };

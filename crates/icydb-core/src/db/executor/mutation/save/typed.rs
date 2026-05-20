@@ -7,7 +7,8 @@ use crate::{
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
         },
         data::{
-            DataKey, PersistedRow, RawRow, canonical_row_from_entity_with_accepted_contract,
+            DecodedDataStoreKey, PersistedRow, RawRow,
+            canonical_row_from_entity_with_accepted_contract,
             canonical_row_from_raw_row_with_accepted_decode_contract,
         },
         executor::{
@@ -60,7 +61,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
     ) -> Result<CommitRowOp, InternalError> {
         // Phase 1: resolve key + current-store baseline from the canonical save rule.
-        let data_key = DataKey::try_new::<E>(entity.id().key())?;
+        let data_key = DecodedDataStoreKey::try_new::<E>(entity.id().key())?;
         let raw_key = data_key.to_raw()?;
         let accepted_row_decode_contract = self.accepted_row_decode_contract();
         let old_raw = Self::resolve_existing_row_for_rule_with_accepted_contract(

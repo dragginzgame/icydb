@@ -20,7 +20,7 @@ use crate::{
             CommitRowOp, ensure_recovered, init_commit_store_for_tests,
             prepare_row_commit_for_entity_with_structural_readers,
         },
-        data::{CanonicalRow, DataKey, DataStore, RawDataStoreKey, RawRow, StorageKey},
+        data::{CanonicalRow, DataStore, DecodedDataStoreKey, RawDataStoreKey, RawRow, StorageKey},
         index::{
             IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore,
             RawIndexStoreKey,
@@ -216,7 +216,7 @@ fn diagnostics_entity_tag(entity_name: &str) -> EntityTag {
 
 fn insert_data_row(path: &'static str, entity_name: &str, key: StorageKey, row_len: usize) {
     let entity = diagnostics_entity_tag(entity_name);
-    let raw_key = DataKey::raw_from_parts(entity, key)
+    let raw_key = DecodedDataStoreKey::raw_from_parts(entity, key)
         .expect("diagnostics test data key should encode from valid parts");
     let row_bytes = vec![0xAB; row_len.max(1)];
     let raw_row = RawRow::try_new(row_bytes).expect("diagnostics test row should encode");
@@ -227,14 +227,14 @@ fn insert_data_row(path: &'static str, entity_name: &str, key: StorageKey, row_l
 }
 
 fn insert_corrupted_data_key(path: &'static str) {
-    let valid = DataKey::raw_from_parts(
+    let valid = DecodedDataStoreKey::raw_from_parts(
         diagnostics_entity_tag(VALID_ENTITY_NAME),
         StorageKey::Int(1),
     )
     .expect("valid data key should encode");
 
     let mut corrupted_bytes = valid.as_bytes().to_vec();
-    corrupted_bytes[DataKey::ENTITY_TAG_SIZE_USIZE] = 0xFF;
+    corrupted_bytes[DecodedDataStoreKey::ENTITY_TAG_SIZE_USIZE] = 0xFF;
     let corrupted_key = <RawDataStoreKey as Storable>::from_bytes(Cow::Owned(corrupted_bytes));
     let raw_row = RawRow::try_new(vec![0xCD]).expect("diagnostics test row should encode");
 
@@ -277,7 +277,7 @@ fn diagnostics_integrity_report() -> IntegrityReport {
 }
 
 fn insert_integrity_entity_row(entity: &IntegrityIndexedEntity) {
-    let raw_key = DataKey::try_new::<IntegrityIndexedEntity>(entity.id)
+    let raw_key = DecodedDataStoreKey::try_new::<IntegrityIndexedEntity>(entity.id)
         .expect("integrity test data key should build")
         .to_raw()
         .expect("integrity test data key should encode");
@@ -290,7 +290,7 @@ fn insert_integrity_entity_row(entity: &IntegrityIndexedEntity) {
 }
 
 fn insert_integrity_entity_row_with_format_version(entity: &IntegrityIndexedEntity, version: u8) {
-    let raw_key = DataKey::try_new::<IntegrityIndexedEntity>(entity.id)
+    let raw_key = DecodedDataStoreKey::try_new::<IntegrityIndexedEntity>(entity.id)
         .expect("integrity test data key should build")
         .to_raw()
         .expect("integrity test data key should encode");
@@ -310,7 +310,7 @@ fn insert_integrity_entity_row_with_format_version(entity: &IntegrityIndexedEnti
 }
 
 fn insert_integrity_expected_indexes(entity: &IntegrityIndexedEntity) {
-    let raw_key = DataKey::try_new::<IntegrityIndexedEntity>(entity.id)
+    let raw_key = DecodedDataStoreKey::try_new::<IntegrityIndexedEntity>(entity.id)
         .expect("integrity test data key should build")
         .to_raw()
         .expect("integrity test data key should encode");

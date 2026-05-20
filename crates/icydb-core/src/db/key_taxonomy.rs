@@ -1029,7 +1029,7 @@ mod tests {
     };
     use crate::{
         db::{
-            data::DataKey,
+            data::DecodedDataStoreKey,
             index::{IndexId, IndexKey, IndexKeyKind},
         },
         traits::Repr,
@@ -1345,7 +1345,7 @@ mod tests {
             EncodedPrimaryKey::encode(PrimaryKeyValue::Nat(5)).expect("primary key should encode");
         let data_key = DataStoreKey::new(entity, primary_key.clone());
         let raw_data: RawDataStoreKey = data_key.to_raw();
-        let live_data_key = DataKey::new(entity, StorageKey::Nat(5))
+        let live_data_key = DecodedDataStoreKey::new(entity, StorageKey::Nat(5))
             .to_raw()
             .expect("live data key should encode");
 
@@ -1357,7 +1357,7 @@ mod tests {
         );
         assert_eq!(StorageKey::STORED_SIZE_USIZE, 64);
         assert_eq!(
-            DataKey::STORED_SIZE_BYTES,
+            DecodedDataStoreKey::STORED_SIZE_BYTES,
             size_of::<u64>() as u64 + 1 + u64::from(Account::STORED_SIZE)
         );
 

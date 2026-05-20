@@ -16,7 +16,7 @@ mod structural_row;
 pub(crate) use crate::db::key_taxonomy::RawDataStoreKey;
 pub(in crate::db) use crate::value::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError};
 pub(in crate::db) use entity_decode::decode_raw_row_for_entity_key_with_contract;
-pub(in crate::db) use key::DataKey;
+pub(in crate::db) use key::DecodedDataStoreKey;
 pub(in crate::db) use persisted_row::{
     CanonicalSlotReader, FieldSlot, SerializedStructuralPatch, StructuralSlotReader,
     apply_serialized_structural_patch_to_raw_row_with_accepted_contract,

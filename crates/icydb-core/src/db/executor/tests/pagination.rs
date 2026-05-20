@@ -7055,7 +7055,7 @@ fn load_row_distinct_keeps_rows_with_same_projected_values_when_datakey_differs(
     assert_eq!(
         projected_ranks,
         vec![10, 10, 20],
-        "equal projected values should remain visible when DataKey identities differ",
+        "equal projected values should remain visible when DecodedDataStoreKey identities differ",
     );
 }
 

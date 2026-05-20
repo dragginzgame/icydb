@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        data::{DataKey, DataRow},
+        data::{DataRow, DecodedDataStoreKey},
         executor::{
             OrderedKeyStreamBox, ScalarContinuationContext, exact_output_key_count_hint,
             key_stream_budget_is_redundant, measure_execution_stats_phase,
@@ -314,7 +314,7 @@ fn scan_kernel_rows_with(
     key_stream: &mut OrderedKeyStreamBox,
     row_keep_cap: Option<usize>,
     row_skip_count: usize,
-    mut read_row: impl FnMut(DataKey) -> Result<Option<KernelRow>, InternalError>,
+    mut read_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<KernelRow>, InternalError>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
     let mut rows_scanned = 0usize;
     let staged_capacity = kernel_row_staged_capacity(key_stream, row_keep_cap, row_skip_count);
@@ -413,7 +413,7 @@ fn scan_data_rows_direct_with_reader(
     key_stream: &mut OrderedKeyStreamBox,
     row_keep_cap: Option<usize>,
     row_skip_count: usize,
-    mut read_data_row: impl FnMut(DataKey) -> Result<Option<DataRow>, InternalError>,
+    mut read_data_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<DataRow>, InternalError>,
 ) -> Result<DirectDataRowScanResult, InternalError> {
     let mut rows_scanned = 0usize;
     let staged_capacity = direct_data_row_staged_capacity(key_stream, row_keep_cap, row_skip_count);
@@ -672,7 +672,7 @@ fn scan_full_retained_rows_into_kernel_with_reader(
     key_stream: &mut OrderedKeyStreamBox,
     row_keep_cap: Option<usize>,
     row_skip_count: usize,
-    read_row: impl FnMut(DataKey) -> Result<Option<KernelRow>, InternalError>,
+    read_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<KernelRow>, InternalError>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
     scan_kernel_rows_with(key_stream, row_keep_cap, row_skip_count, read_row)
 }
@@ -724,7 +724,7 @@ fn scan_slot_rows_into_kernel_with_reader(
     key_stream: &mut OrderedKeyStreamBox,
     row_keep_cap: Option<usize>,
     row_skip_count: usize,
-    read_row: impl FnMut(DataKey) -> Result<Option<KernelRow>, InternalError>,
+    read_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<KernelRow>, InternalError>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
     scan_kernel_rows_with(key_stream, row_keep_cap, row_skip_count, read_row)
 }

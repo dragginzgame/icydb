@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        data::DataKey,
+        data::DecodedDataStoreKey,
         direction::Direction,
         executor::{
             aggregate::contracts::{
@@ -26,7 +26,7 @@ use crate::{
 
 pub(in crate::db::executor) trait ScalarAggregateState {
     /// Apply one candidate data key to this aggregate state machine.
-    fn apply(&mut self, key: &DataKey) -> Result<FoldControl, InternalError>;
+    fn apply(&mut self, key: &DecodedDataStoreKey) -> Result<FoldControl, InternalError>;
 
     /// Finalize this aggregate state into one terminal output payload.
     fn finalize(self) -> ScalarAggregateOutput;
@@ -50,7 +50,7 @@ pub(in crate::db::executor) struct ScalarTerminalAggregateState {
 }
 
 impl ScalarAggregateState for ScalarTerminalAggregateState {
-    fn apply(&mut self, key: &DataKey) -> Result<FoldControl, InternalError> {
+    fn apply(&mut self, key: &DecodedDataStoreKey) -> Result<FoldControl, InternalError> {
         if self.distinct && !record_distinct_key(self.distinct_keys.as_mut(), key)? {
             return Ok(FoldControl::Continue);
         }
@@ -72,7 +72,10 @@ impl ScalarTerminalAggregateState {
     }
 
     // Dispatch one scalar terminal aggregate update by kind at one canonical boundary.
-    fn apply_terminal_update(&mut self, key: &DataKey) -> Result<FoldControl, InternalError> {
+    fn apply_terminal_update(
+        &mut self,
+        key: &DecodedDataStoreKey,
+    ) -> Result<FoldControl, InternalError> {
         let storage_key = self.requires_storage_key.then_some(key.storage_key());
         match self.kind {
             ScalarTerminalKind::Count => self.apply_count(storage_key),

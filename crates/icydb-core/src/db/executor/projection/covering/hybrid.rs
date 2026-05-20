@@ -2,7 +2,7 @@ use crate::{
     db::{
         Db,
         access::lower_access,
-        data::{DataKey, DataStore},
+        data::{DataStore, DecodedDataStoreKey},
         executor::projection::covering::{
             CoveringProjectionMetricsRecorder,
             shared::{covering_projection_component_indices, decode_hybrid_covering_components},
@@ -120,7 +120,7 @@ where
             projected_row_count = projected_row_count.saturating_add(1);
         }
 
-        Ok::<Vec<(DataKey, Vec<Value>)>, InternalError>(projected_rows)
+        Ok::<Vec<(DecodedDataStoreKey, Vec<Value>)>, InternalError>(projected_rows)
     })?;
     crate::db::executor::reorder_covering_projection_pairs(
         hybrid.order_contract,
@@ -226,7 +226,7 @@ fn hybrid_projection_row_field_slots(fields: &[CoveringReadField]) -> Vec<usize>
 fn read_hybrid_projection_row_fields_from_store(
     row_layout: RowLayout,
     data_store: &DataStore,
-    data_key: &DataKey,
+    data_key: &DecodedDataStoreKey,
     row_field_slots: &[usize],
 ) -> Result<Option<BTreeMap<usize, Value>>, InternalError> {
     // Phase 1: empty row-backed hybrids stay on the covering-only path.
@@ -280,7 +280,7 @@ fn read_hybrid_projection_row_fields_from_store(
 
 #[cfg(feature = "sql")]
 fn project_hybrid_covering_row(
-    data_key: &DataKey,
+    data_key: &DecodedDataStoreKey,
     fields: &[CoveringReadField],
     mut decoded_components: BTreeMap<usize, Value>,
     mut row_fields: BTreeMap<usize, Value>,

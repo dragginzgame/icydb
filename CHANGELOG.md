@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.159.md](docs/changelog/0.159.md)
 
+- `0.159.8` renames the decoded primary-row key wrapper to
+  `DecodedDataStoreKey`, keeping `DataStoreKey` and `RawDataStoreKey` as the
+  encoded structured and persisted store-key types.
+
 - `0.159.7` renames the decoded secondary-index row identity model to
   `IndexRowIdentity`, leaving persisted index keys and values unchanged.
 

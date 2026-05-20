@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        data::DataKey,
+        data::DecodedDataStoreKey,
         query::plan::{CoveringReadField, CoveringReadFieldSource},
     },
     error::InternalError,
@@ -28,7 +28,7 @@ pub(super) fn covering_projection_component_indices(fields: &[CoveringReadField]
 
 #[cfg(feature = "sql")]
 pub(super) fn project_covering_row_from_decoded_values(
-    data_key: &DataKey,
+    data_key: &DecodedDataStoreKey,
     fields: &[CoveringReadField],
     component_indices: &[usize],
     decoded_values: &[Value],
@@ -77,7 +77,7 @@ pub(super) fn project_covering_row_from_decoded_values(
 
 #[cfg(feature = "sql")]
 pub(super) fn project_covering_row_from_owned_decoded_values(
-    data_key: &DataKey,
+    data_key: &DecodedDataStoreKey,
     fields: &[CoveringReadField],
     component_indices: &[usize],
     decoded_values: Vec<Value>,
@@ -130,7 +130,7 @@ pub(super) fn project_covering_row_from_owned_decoded_values(
 
 #[cfg(feature = "sql")]
 pub(super) fn project_covering_row_from_single_decoded_value(
-    data_key: &DataKey,
+    data_key: &DecodedDataStoreKey,
     fields: &[CoveringReadField],
     component_index: usize,
     decoded_value: Value,

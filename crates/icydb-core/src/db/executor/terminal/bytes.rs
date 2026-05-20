@@ -5,7 +5,7 @@
 use crate::{
     db::{
         access::ExecutionPathPayload,
-        data::{DataKey, DataRow},
+        data::{DataRow, DecodedDataStoreKey},
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, BytesByProjectionMode,
@@ -440,10 +440,14 @@ where
                 ))
             }
             ExecutionPathPayload::KeyRange { start, end } => {
-                let start_key =
-                    DataKey::try_from_structural_key(prepared.authority.entity_tag(), start)?;
-                let end_key =
-                    DataKey::try_from_structural_key(prepared.authority.entity_tag(), end)?;
+                let start_key = DecodedDataStoreKey::try_from_structural_key(
+                    prepared.authority.entity_tag(),
+                    start,
+                )?;
+                let end_key = DecodedDataStoreKey::try_from_structural_key(
+                    prepared.authority.entity_tag(),
+                    end,
+                )?;
                 sum_row_payload_bytes_key_range_window_with_store(
                     prepared.store,
                     &start_key,

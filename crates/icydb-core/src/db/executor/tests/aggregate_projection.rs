@@ -7,7 +7,7 @@ use super::support::*;
 use crate::{
     db::{
         access::AccessPath,
-        data::DataKey,
+        data::DecodedDataStoreKey,
         executor::{
             PreparedExecutionPlan,
             aggregate::{AggregateKind, ScalarProjectionBoundaryRequest},
@@ -189,7 +189,7 @@ fn seed_phase_entities_custom(rows: Vec<PhaseEntity>) {
 }
 
 fn remove_pushdown_row_data(id: u128) {
-    let raw_key = DataKey::try_new::<PushdownParityEntity>(Ulid::from_u128(id))
+    let raw_key = DecodedDataStoreKey::try_new::<PushdownParityEntity>(Ulid::from_u128(id))
         .expect("pushdown data key should build")
         .to_raw()
         .expect("pushdown data key should encode");

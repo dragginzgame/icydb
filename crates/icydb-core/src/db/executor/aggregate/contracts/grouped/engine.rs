@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::DataKey,
+        data::DecodedDataStoreKey,
         direction::Direction,
         executor::aggregate::contracts::{
             spec::{ScalarAggregateOutput, ScalarTerminalKind},
@@ -173,7 +173,7 @@ impl GroupedAggregateState {
     pub(in crate::db::executor::aggregate) fn apply_borrowed(
         &mut self,
         group_key: &GroupKey,
-        data_key: &DataKey,
+        data_key: &DecodedDataStoreKey,
         execution_context: &mut ExecutionContext,
     ) -> Result<FoldControl, GroupError> {
         self.apply_borrowed_with_row_view(group_key, data_key, None, execution_context)
@@ -184,7 +184,7 @@ impl GroupedAggregateState {
     pub(in crate::db::executor::aggregate) fn apply_borrowed_with_row_view(
         &mut self,
         group_key: &GroupKey,
-        data_key: &DataKey,
+        data_key: &DecodedDataStoreKey,
         row_view: Option<&RowView>,
         execution_context: &mut ExecutionContext,
     ) -> Result<FoldControl, GroupError> {
@@ -226,7 +226,7 @@ impl GroupedAggregateState {
     // slots first and materializing an owned canonical key only on misses.
     pub(in crate::db::executor::aggregate) fn apply_with_borrowed_group_probe(
         &mut self,
-        data_key: &DataKey,
+        data_key: &DecodedDataStoreKey,
         row_view: &RowView,
         group_fields: &[FieldSlot],
         borrowed_group_hash: Option<StableHash>,
@@ -324,7 +324,7 @@ impl ScalarAggregateEngine {
     /// Ingest one scalar candidate key into this aggregate engine.
     pub(in crate::db::executor) fn ingest(
         &mut self,
-        data_key: &DataKey,
+        data_key: &DecodedDataStoreKey,
     ) -> Result<FoldControl, InternalError> {
         self.state.apply(data_key)
     }

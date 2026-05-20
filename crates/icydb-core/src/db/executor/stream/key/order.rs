@@ -4,7 +4,7 @@
 //! Boundary: centralizes ASC/DESC comparison behavior for stream combinators.
 
 use crate::db::{
-    data::{DataKey, StorageKey},
+    data::{DecodedDataStoreKey, StorageKey},
     direction::Direction,
 };
 use std::cmp::Ordering;
@@ -32,8 +32,8 @@ impl KeyOrderComparator {
     /// Compare two data keys under this comparator direction policy.
     pub(in crate::db::executor) fn compare_data_keys(
         self,
-        left: &DataKey,
-        right: &DataKey,
+        left: &DecodedDataStoreKey,
+        right: &DecodedDataStoreKey,
     ) -> Ordering {
         match self.direction {
             Direction::Asc => left.cmp(right),

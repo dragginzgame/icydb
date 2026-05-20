@@ -6,7 +6,7 @@
 use crate::{
     db::{
         Db, EntityRuntimeHooks,
-        data::DataKey,
+        data::DecodedDataStoreKey,
         diagnostics::{DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, StorageReport},
         index::IndexKey,
     },
@@ -32,7 +32,7 @@ impl EntityStats {
         self.entries = self.entries.saturating_add(1);
         self.memory_bytes = self
             .memory_bytes
-            .saturating_add(DataKey::entry_size_bytes(value_len));
+            .saturating_add(DecodedDataStoreKey::entry_size_bytes(value_len));
     }
 }
 
@@ -272,7 +272,7 @@ fn build_storage_report<C: CanisterKind>(
                 let mut by_entity = EntityStatsByMode::new(mode);
 
                 for entry in store.entries() {
-                    let Ok(dk) = DataKey::try_from_raw(entry.key()) else {
+                    let Ok(dk) = DecodedDataStoreKey::try_from_raw(entry.key()) else {
                         corrupted_keys = corrupted_keys.saturating_add(1);
                         continue;
                     };

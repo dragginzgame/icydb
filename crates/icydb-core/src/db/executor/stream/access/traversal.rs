@@ -58,7 +58,7 @@ impl<'a> TraversalInputs<'a> {
         }
     }
 
-    // Composite child streams must stay canonicalized by `DataKey` order so
+    // Composite child streams must stay canonicalized by `DecodedDataStoreKey` order so
     // merge/intersection reducers can consume them under one shared key comparator.
     const fn without_leaf_index_order_preservation(self) -> Self {
         Self {

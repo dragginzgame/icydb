@@ -7,7 +7,7 @@ use crate::{
     db::{
         access::ExecutionPathPayload,
         cursor::IndexScanContinuationInput,
-        data::{DataKey, RawDataStoreKey},
+        data::{DecodedDataStoreKey, RawDataStoreKey},
         direction::Direction,
         executor::{
             IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, OrderedKeyStream,
@@ -107,9 +107,15 @@ impl KeyAccessRuntime {
     }
 
     // Resolve one direct primary-key lookup into its canonical ordered output.
-    fn resolve_by_key(&self, key: Value) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
+    fn resolve_by_key(
+        &self,
+        key: Value,
+    ) -> Result<(Vec<DecodedDataStoreKey>, KeyOrderState), InternalError> {
         Ok((
-            vec![DataKey::try_from_structural_key(self.entity_tag, &key)?],
+            vec![DecodedDataStoreKey::try_from_structural_key(
+                self.entity_tag,
+                &key,
+            )?],
             KeyOrderState::FinalOrder,
         ))
     }
@@ -118,10 +124,13 @@ impl KeyAccessRuntime {
     fn resolve_by_keys(
         &self,
         keys: &[Value],
-    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
+    ) -> Result<(Vec<DecodedDataStoreKey>, KeyOrderState), InternalError> {
         let mut data_keys = Vec::with_capacity(keys.len());
         for key in keys {
-            data_keys.push(DataKey::try_from_structural_key(self.entity_tag, key)?);
+            data_keys.push(DecodedDataStoreKey::try_from_structural_key(
+                self.entity_tag,
+                key,
+            )?);
         }
         data_keys.sort_unstable();
         data_keys.dedup();
@@ -137,8 +146,8 @@ impl KeyAccessRuntime {
         direction: Direction,
         primary_scan_fetch_hint: Option<usize>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        let start = DataKey::try_from_structural_key(self.entity_tag, &start)?;
-        let end = DataKey::try_from_structural_key(self.entity_tag, &end)?;
+        let start = DecodedDataStoreKey::try_from_structural_key(self.entity_tag, &start)?;
+        let end = DecodedDataStoreKey::try_from_structural_key(self.entity_tag, &end)?;
 
         Ok(OrderedKeyStreamBox::primary_range(
             PrimaryRangeKeyStream::new(self.store, start, end, direction, primary_scan_fetch_hint)?,
@@ -166,7 +175,7 @@ impl KeyAccessRuntime {
         direction: Direction,
         index_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
+    ) -> Result<(Vec<DecodedDataStoreKey>, KeyOrderState), InternalError> {
         let [spec] = index_prefix_specs else {
             return Err(InternalError::query_executor_invariant(
                 "index-prefix execution requires pre-lowered index-prefix spec",
@@ -221,7 +230,7 @@ impl KeyAccessRuntime {
         value_count: usize,
         direction: Direction,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
+    ) -> Result<(Vec<DecodedDataStoreKey>, KeyOrderState), InternalError> {
         if index_prefix_specs.len() != value_count {
             return Err(InternalError::query_executor_invariant(
                 "index-multi-lookup execution requires one pre-lowered prefix spec per lookup value",
@@ -252,7 +261,7 @@ impl KeyAccessRuntime {
         continuation: IndexScanContinuationInput<'_>,
         index_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
+    ) -> Result<(Vec<DecodedDataStoreKey>, KeyOrderState), InternalError> {
         let spec = require_index_range_spec(index_range_spec)?;
         let fetch_limit = index_fetch_hint.unwrap_or(usize::MAX);
         let keys = IndexScan::range_structural(
@@ -309,7 +318,7 @@ pub(in crate::db::executor) struct PrimaryRangeKeyStream {
     direction: Direction,
     remaining: Option<usize>,
     last_raw_key: Option<RawDataStoreKey>,
-    buffer: Vec<DataKey>,
+    buffer: Vec<DecodedDataStoreKey>,
     buffer_pos: usize,
     exhausted: bool,
 }
@@ -318,8 +327,8 @@ impl PrimaryRangeKeyStream {
     // Build one primary stream from validated structural data keys.
     pub(in crate::db::executor) fn new(
         store: StoreHandle,
-        start: DataKey,
-        end: DataKey,
+        start: DecodedDataStoreKey,
+        end: DecodedDataStoreKey,
         direction: Direction,
         limit: Option<usize>,
     ) -> Result<Self, InternalError> {
@@ -446,7 +455,7 @@ impl PrimaryRangeKeyStream {
 }
 
 impl OrderedKeyStream for PrimaryRangeKeyStream {
-    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
         if self.buffer_pos == self.buffer.len() {
             self.load_next_chunk()?;
         }
@@ -489,7 +498,7 @@ impl OrderedKeyStream for PrimaryRangeKeyStream {
 ///
 /// IndexRangeKeyStream incrementally resolves one lowered secondary-index
 /// range when physical index order is already the final caller-visible order.
-/// Cases that still require `DataKey` sorting, deduplication, or residual
+/// Cases that still require `DecodedDataStoreKey` sorting, deduplication, or residual
 /// index-predicate filtering intentionally stay on the materialized fallback.
 ///
 
@@ -501,7 +510,7 @@ pub(in crate::db::executor) struct IndexRangeKeyStream {
     direction: Direction,
     anchor: Option<RawIndexStoreKey>,
     remaining: Option<usize>,
-    buffer: Vec<DataKey>,
+    buffer: Vec<DecodedDataStoreKey>,
     buffer_pos: usize,
     exhausted: bool,
 }
@@ -613,7 +622,7 @@ impl IndexRangeKeyStream {
 }
 
 impl OrderedKeyStream for IndexRangeKeyStream {
-    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
         while self.buffer_pos == self.buffer.len() && !self.exhausted {
             self.load_next_chunk()?;
         }
@@ -630,7 +639,7 @@ impl OrderedKeyStream for IndexRangeKeyStream {
 
 // Normalize key ordering according to explicit resolver output state.
 fn normalize_ordered_keys(
-    keys: &mut [DataKey],
+    keys: &mut [DecodedDataStoreKey],
     direction: Direction,
     key_order_state: KeyOrderState,
 ) {
@@ -651,7 +660,7 @@ fn normalize_ordered_keys(
 }
 
 // Return whether one secondary-index path can preserve raw index traversal
-// order directly instead of materializing to sort or deduplicate `DataKey`s.
+// order directly instead of materializing to sort or deduplicate `DecodedDataStoreKey`s.
 const fn index_path_can_stream_in_final_order(request: PhysicalStreamBindings<'_>) -> bool {
     request.index_predicate_execution.is_none()
         && (request.preserve_leaf_index_order || request.physical_fetch_hint.is_some())
@@ -733,7 +742,7 @@ fn resolve_physical_key_stream(
     // traversal order so route-owned secondary ORDER BY contracts can drive
     // paging without an extra materialized reorder. Composite child streams
     // still disable this flag so merge/intersection reducers continue to
-    // consume canonical `DataKey` order.
+    // consume canonical `DecodedDataStoreKey` order.
     if request.preserve_leaf_index_order
         && matches!(
             path,

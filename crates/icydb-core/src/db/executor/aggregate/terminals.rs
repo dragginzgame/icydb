@@ -6,7 +6,7 @@
 use crate::{
     db::{
         access::{ExecutionPathPayload, LoweredAccess},
-        data::DataKey,
+        data::DecodedDataStoreKey,
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutionKernel,
@@ -260,8 +260,10 @@ fn aggregate_count_from_pk_cardinality_with_store(
             store.with_data(|data| data.range_for_entity(entity_tag).count())
         }
         ExecutionPathPayload::KeyRange { start, end } => {
-            let start_raw = DataKey::try_from_structural_key(entity_tag, start)?.to_raw()?;
-            let end_raw = DataKey::try_from_structural_key(entity_tag, end)?.to_raw()?;
+            let start_raw =
+                DecodedDataStoreKey::try_from_structural_key(entity_tag, start)?.to_raw()?;
+            let end_raw =
+                DecodedDataStoreKey::try_from_structural_key(entity_tag, end)?.to_raw()?;
 
             store.with_data(|data| {
                 data.range((Bound::Included(start_raw), Bound::Included(end_raw)))

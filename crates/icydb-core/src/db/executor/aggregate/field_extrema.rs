@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::{DataKey, DataRow},
+        data::{DataRow, DecodedDataStoreKey},
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel, ExecutionPlan,
@@ -337,7 +337,7 @@ impl ExecutionKernel {
         store: StoreHandle,
         row_layout: &RowLayout,
         consistency: MissingRowPolicy,
-        data_key: DataKey,
+        data_key: DecodedDataStoreKey,
         spec: &FieldExtremaFoldSpec<'_>,
         keys_scanned: &mut usize,
         selected: &mut Option<(StorageKey, Value)>,

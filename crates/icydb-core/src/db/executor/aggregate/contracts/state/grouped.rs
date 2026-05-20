@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        data::DataKey,
+        data::DecodedDataStoreKey,
         direction::Direction,
         executor::{
             aggregate::{
@@ -337,7 +337,7 @@ impl GroupedTerminalAggregateState {
     /// grouped field-target semantics need slot access.
     pub(in crate::db::executor) fn apply_with_row_view(
         &mut self,
-        key: &DataKey,
+        key: &DecodedDataStoreKey,
         row_view: Option<&RowView>,
         execution_context: &mut ExecutionContext,
     ) -> Result<FoldControl, GroupError> {
@@ -361,7 +361,7 @@ impl GroupedTerminalAggregateState {
     // Dispatch one grouped terminal aggregate update by kind at one canonical boundary.
     fn apply_terminal_update(
         &mut self,
-        key: &DataKey,
+        key: &DecodedDataStoreKey,
         row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
         let storage_key = self.requires_storage_key.then_some(key.storage_key());
@@ -381,7 +381,7 @@ impl GroupedTerminalAggregateState {
     // while key-based DISTINCT keeps the existing storage-key identity surface.
     fn admit_distinct(
         &mut self,
-        key: &DataKey,
+        key: &DecodedDataStoreKey,
         row_view: Option<&RowView>,
         execution_context: &mut ExecutionContext,
     ) -> Result<bool, GroupError> {

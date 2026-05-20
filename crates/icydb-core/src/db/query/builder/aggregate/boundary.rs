@@ -6,7 +6,7 @@
 
 use crate::{
     db::{
-        data::DataKey,
+        data::DecodedDataStoreKey,
         query::plan::{AggregateKind, FieldSlot, expr::Expr},
     },
     error::InternalError,
@@ -193,7 +193,7 @@ pub(in crate::db) enum ScalarProjectionBoundaryRequest {
 pub(in crate::db) enum ScalarProjectionBoundaryOutput {
     Count(u32),
     Values(Vec<Value>),
-    ValuesWithDataKeys(Vec<(DataKey, Value)>),
+    ValuesWithDataKeys(Vec<(DecodedDataStoreKey, Value)>),
     TerminalValue(Option<Value>),
 }
 

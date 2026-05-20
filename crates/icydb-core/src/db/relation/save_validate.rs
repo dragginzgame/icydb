@@ -273,17 +273,20 @@ where
             "strong relation target key unsupported",
         )
     })?;
-    let raw_key = crate::db::data::DataKey::raw_from_parts(relation.target.entity_tag, storage_key)
-        .map_err(|err| {
-            InternalError::relation_target_raw_key_error(
-                crate::db::relation::RelationTargetRawKeyError::StorageKeyEncode(err),
-                E::PATH,
-                relation.field_name.as_str(),
-                relation.target.path.as_str(),
-                value,
-                "strong relation target key unsupported",
-            )
-        })?;
+    let raw_key = crate::db::data::DecodedDataStoreKey::raw_from_parts(
+        relation.target.entity_tag,
+        storage_key,
+    )
+    .map_err(|err| {
+        InternalError::relation_target_raw_key_error(
+            crate::db::relation::RelationTargetRawKeyError::StorageKeyEncode(err),
+            E::PATH,
+            relation.field_name.as_str(),
+            relation.target.path.as_str(),
+            value,
+            "strong relation target key unsupported",
+        )
+    })?;
     let target_store = db
         .with_store_registry(|registry| registry.try_get_store(relation.target.store_path.as_str()))
         .map_err(|err| {

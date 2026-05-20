@@ -12,7 +12,7 @@ use crate::{
             prepare_row_commit_for_entity_with_structural_readers,
         },
         data::{
-            CanonicalRow, DataKey, DataStore, RawRow, StructuralPatch,
+            CanonicalRow, DataStore, DecodedDataStoreKey, RawRow, StructuralPatch,
             decode_persisted_scalar_slot_payload, decode_persisted_structured_many_slot_payload,
             encode_persisted_scalar_slot_payload, encode_persisted_structured_many_slot_payload,
         },
@@ -599,7 +599,7 @@ impl crate::db::PersistedRow for StructuredSelectionEntity {
 }
 
 fn load_structured_selection_entity(id: Ulid) -> Option<StructuredSelectionEntity> {
-    let data_key = DataKey::try_new::<StructuredSelectionEntity>(id)
+    let data_key = DecodedDataStoreKey::try_new::<StructuredSelectionEntity>(id)
         .expect("structured selection data key should build")
         .to_raw()
         .expect("structured selection data key should encode");
@@ -731,7 +731,7 @@ impl crate::db::PersistedRow for StructuredSelectionSetEntity {
 }
 
 fn load_structured_selection_set_entity(id: Ulid) -> Option<StructuredSelectionSetEntity> {
-    let data_key = DataKey::try_new::<StructuredSelectionSetEntity>(id)
+    let data_key = DecodedDataStoreKey::try_new::<StructuredSelectionSetEntity>(id)
         .expect("structured selection set data key should build")
         .to_raw()
         .expect("structured selection set data key should encode");
@@ -887,7 +887,7 @@ impl crate::db::PersistedRow for StructuredSelectionMapEntity {
 }
 
 fn load_structured_selection_map_entity(id: Ulid) -> Option<StructuredSelectionMapEntity> {
-    let data_key = DataKey::try_new::<StructuredSelectionMapEntity>(id)
+    let data_key = DecodedDataStoreKey::try_new::<StructuredSelectionMapEntity>(id)
         .expect("structured selection map data key should build")
         .to_raw()
         .expect("structured selection map data key should encode");
@@ -932,7 +932,7 @@ crate::test_entity_schema! {
 }
 
 fn load_unique_email_entity(id: Ulid) -> Option<UniqueEmailEntity> {
-    let data_key = DataKey::try_new::<UniqueEmailEntity>(id)
+    let data_key = DecodedDataStoreKey::try_new::<UniqueEmailEntity>(id)
         .expect("unique email data key should build")
         .to_raw()
         .expect("unique email data key should encode");
@@ -946,7 +946,7 @@ fn load_unique_email_entity(id: Ulid) -> Option<UniqueEmailEntity> {
 }
 
 fn load_decimal_scale_entity(id: Ulid) -> Option<DecimalScaleEntity> {
-    let data_key = DataKey::try_new::<DecimalScaleEntity>(id)
+    let data_key = DecodedDataStoreKey::try_new::<DecimalScaleEntity>(id)
         .expect("decimal scale data key should build")
         .to_raw()
         .expect("decimal scale data key should encode");
@@ -960,7 +960,7 @@ fn load_decimal_scale_entity(id: Ulid) -> Option<DecimalScaleEntity> {
 }
 
 fn load_database_default_write_entity(id: Ulid) -> Option<DatabaseDefaultWriteEntity> {
-    let data_key = DataKey::try_new::<DatabaseDefaultWriteEntity>(id)
+    let data_key = DecodedDataStoreKey::try_new::<DatabaseDefaultWriteEntity>(id)
         .expect("database-default write data key should build")
         .to_raw()
         .expect("database-default write data key should encode");
@@ -1024,7 +1024,7 @@ fn install_unique_email_old_accepted_schema_prefix() {
 }
 
 fn load_source_set_entity(id: Ulid) -> Option<SourceSetEntity> {
-    let data_key = DataKey::try_new::<SourceSetEntity>(id)
+    let data_key = DecodedDataStoreKey::try_new::<SourceSetEntity>(id)
         .expect("source-set data key should build")
         .to_raw()
         .expect("source-set data key should encode");
@@ -1038,7 +1038,7 @@ fn load_source_set_entity(id: Ulid) -> Option<SourceSetEntity> {
 }
 
 fn load_self_relation_entity(id: Ulid) -> Option<SelfRelationEntity> {
-    let data_key = DataKey::try_new::<SelfRelationEntity>(id)
+    let data_key = DecodedDataStoreKey::try_new::<SelfRelationEntity>(id)
         .expect("self-relation data key should build")
         .to_raw()
         .expect("self-relation data key should encode");
@@ -1052,7 +1052,7 @@ fn load_self_relation_entity(id: Ulid) -> Option<SelfRelationEntity> {
 }
 
 fn load_nullable_account_event_entity(id: Ulid) -> Option<NullableAccountEventEntity> {
-    let data_key = DataKey::try_new::<NullableAccountEventEntity>(id)
+    let data_key = DecodedDataStoreKey::try_new::<NullableAccountEventEntity>(id)
         .expect("nullable account event data key should build")
         .to_raw()
         .expect("nullable account event data key should encode");
@@ -1983,7 +1983,7 @@ fn commit_window_preflight_does_not_mutate_real_stores_before_apply() {
         id: Ulid::from_u128(89),
         email: "preflight@example.com".to_string(),
     };
-    let data_key = DataKey::try_new::<UniqueEmailEntity>(entity.id)
+    let data_key = DecodedDataStoreKey::try_new::<UniqueEmailEntity>(entity.id)
         .expect("data key should build for preflight test")
         .to_raw()
         .expect("data key should encode for preflight test");
@@ -2058,7 +2058,7 @@ fn commit_window_rejects_apply_when_index_store_generation_changes() {
         id: Ulid::from_u128(90),
         email: "guard@example.com".to_string(),
     };
-    let data_key = DataKey::try_new::<UniqueEmailEntity>(entity.id)
+    let data_key = DecodedDataStoreKey::try_new::<UniqueEmailEntity>(entity.id)
         .expect("data key should build for generation guard test")
         .to_raw()
         .expect("data key should encode for generation guard test");
@@ -2773,7 +2773,7 @@ fn unique_index_row_key_mismatch_surfaces_store_invariant_violation() {
     })
     .expect("seed unique row should save");
 
-    let raw_key = DataKey::try_new::<UniqueEmailEntity>(existing_id)
+    let raw_key = DecodedDataStoreKey::try_new::<UniqueEmailEntity>(existing_id)
         .expect("existing key should build")
         .to_raw()
         .expect("existing key should encode");
@@ -2955,7 +2955,7 @@ fn save_update_rejects_persisted_row_with_decimal_scale_drift() {
     reset_store();
 
     let id = Ulid::from_u128(8201);
-    let data_key = DataKey::try_new::<DecimalScaleEntity>(id)
+    let data_key = DecodedDataStoreKey::try_new::<DecimalScaleEntity>(id)
         .expect("decimal entity key should build")
         .to_raw()
         .expect("decimal entity raw key should encode");

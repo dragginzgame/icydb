@@ -7,7 +7,7 @@ use super::support::*;
 use crate::{
     db::{
         access::AccessPath,
-        data::DataKey,
+        data::DecodedDataStoreKey,
         executor::{
             PreparedExecutionPlan,
             aggregate::{
@@ -95,7 +95,7 @@ fn seed_pushdown_entities(rows: &[(u128, u32, u32)]) {
 }
 
 fn remove_pushdown_row_data(id: u128) {
-    let raw_key = DataKey::try_new::<PushdownParityEntity>(Ulid::from_u128(id))
+    let raw_key = DecodedDataStoreKey::try_new::<PushdownParityEntity>(Ulid::from_u128(id))
         .expect("pushdown data key should build")
         .to_raw()
         .expect("pushdown data key should encode");
@@ -160,7 +160,7 @@ fn seed_indexed_metrics_rows(rows: &[(u128, u32, &str)]) {
 }
 
 fn remove_indexed_metrics_row_data(id: u128) {
-    let raw_key = DataKey::try_new::<IndexedMetricsEntity>(Ulid::from_u128(id))
+    let raw_key = DecodedDataStoreKey::try_new::<IndexedMetricsEntity>(Ulid::from_u128(id))
         .expect("indexed-metrics data key should build")
         .to_raw()
         .expect("indexed-metrics data key should encode");

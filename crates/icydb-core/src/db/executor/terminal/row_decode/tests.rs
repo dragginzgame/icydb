@@ -65,7 +65,7 @@ crate::test_entity_schema! {
 }
 
 fn decode_test_row(entity: &RowDecodeEntity) -> KernelRow {
-    let key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(entity.id)
+    let key = crate::db::data::DecodedDataStoreKey::try_new::<RowDecodeEntity>(entity.id)
         .expect("test key construction should succeed");
     let row = CanonicalRow::from_generated_entity_for_test(entity)
         .expect("test row serialization should succeed")
@@ -89,7 +89,7 @@ fn decode_required_test_slots_with_metrics(
     entity: &RowDecodeEntity,
     required_slots: &[usize],
 ) -> (Vec<Option<Value>>, crate::db::data::StructuralReadMetrics) {
-    let key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(entity.id)
+    let key = crate::db::data::DecodedDataStoreKey::try_new::<RowDecodeEntity>(entity.id)
         .expect("test key construction should succeed");
     let row = CanonicalRow::from_generated_entity_for_test(entity)
         .expect("test row serialization should succeed")
@@ -194,7 +194,7 @@ fn accepted_row_layout_decode_matches_generated_layout_for_full_and_sparse_rows(
         tags: vec!["nested".to_string(), "list".to_string()],
         portrait: Blob::from(vec![0xA1, 0xB2, 0xC3, 0xD4]),
     };
-    let key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(entity.id)
+    let key = crate::db::data::DecodedDataStoreKey::try_new::<RowDecodeEntity>(entity.id)
         .expect("test key construction should succeed");
     let storage_key = key.storage_key();
     let raw_row = CanonicalRow::from_generated_entity_for_test(&entity)
@@ -344,7 +344,7 @@ fn accepted_row_layout_decoder_rejects_malformed_raw_row() {
         .expect("accepted row decode schema should project into runtime descriptor");
     let layout = accepted_row_decode_layout(&descriptor)
         .expect("exact accepted row layout should be generated-compatible");
-    let key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(Ulid::from_u128(31))
+    let key = crate::db::data::DecodedDataStoreKey::try_new::<RowDecodeEntity>(Ulid::from_u128(31))
         .expect("test key construction should succeed");
     let malformed = RawRow::from_untrusted_bytes(vec![0xFF])
         .expect("malformed test row should still be bounded");
@@ -443,7 +443,7 @@ fn retained_slot_decode_can_materialize_scalar_octet_lengths_without_blob_values
         tags: vec!["one".to_string(), "two".to_string()],
         portrait: Blob::from(vec![0x10, 0x20, 0x30, 0x40]),
     };
-    let key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(entity.id)
+    let key = crate::db::data::DecodedDataStoreKey::try_new::<RowDecodeEntity>(entity.id)
         .expect("test key construction should succeed");
     let row = CanonicalRow::from_generated_entity_for_test(&entity)
         .expect("test row serialization should succeed")
@@ -481,8 +481,9 @@ fn structural_row_decoder_rejects_primary_key_mismatch() {
         tags: vec![],
         portrait: Blob::default(),
     };
-    let wrong_key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(Ulid::from_u128(10))
-        .expect("wrong test key construction should succeed");
+    let wrong_key =
+        crate::db::data::DecodedDataStoreKey::try_new::<RowDecodeEntity>(Ulid::from_u128(10))
+            .expect("wrong test key construction should succeed");
     let row = CanonicalRow::from_generated_entity_for_test(&entity)
         .expect("test row serialization should succeed")
         .into_raw_row();
@@ -667,7 +668,7 @@ fn structural_row_decoder_respects_value_storage_decode_contract() {
             ValueEnum::new("Paid", Some("tests::Status")).with_payload(Value::Nat(7)),
         ),
     };
-    let key = crate::db::data::DataKey::try_new::<RowDecodeValueEntity>(entity.id)
+    let key = crate::db::data::DecodedDataStoreKey::try_new::<RowDecodeValueEntity>(entity.id)
         .expect("test key construction should succeed");
     let row = CanonicalRow::from_generated_entity_for_test(&entity)
         .expect("test row serialization should succeed")
@@ -690,7 +691,7 @@ fn accepted_row_layout_decode_matches_generated_layout_for_value_storage_field()
             ValueEnum::new("Settled", Some("tests::Status")).with_payload(Value::Nat(11)),
         ),
     };
-    let key = crate::db::data::DataKey::try_new::<RowDecodeValueEntity>(entity.id)
+    let key = crate::db::data::DecodedDataStoreKey::try_new::<RowDecodeValueEntity>(entity.id)
         .expect("test key construction should succeed");
     let storage_key = key.storage_key();
     let raw_row = CanonicalRow::from_generated_entity_for_test(&entity)

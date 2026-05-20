@@ -7,7 +7,7 @@ use crate::{
     db::{
         codec::MAX_ROW_BYTES,
         commit::prepared_op::PreparedIndexDeltaKind,
-        data::{DataKey, RawDataStoreKey},
+        data::{DecodedDataStoreKey, RawDataStoreKey},
         index::{IndexEntryValue, IndexStore, RawIndexStoreKey},
     },
     error::InternalError,
@@ -502,12 +502,12 @@ fn read_len_prefixed_bytes<'a>(
 /// Decode a raw data-store key and validate its structural invariants.
 pub(in crate::db) fn decode_data_key(
     bytes: &[u8],
-) -> Result<(RawDataStoreKey, DataKey), InternalError> {
+) -> Result<(RawDataStoreKey, DecodedDataStoreKey), InternalError> {
     // Commit markers store the current data-key wire bytes length-prefixed.
     // The 0.159 data-key format is variable-width, so this gate is a bounded
-    // maximum check; structural validation belongs to `DataKey::try_from_raw`.
+    // maximum check; structural validation belongs to `DecodedDataStoreKey::try_from_raw`.
     let len = bytes.len();
-    let max = DataKey::STORED_SIZE_USIZE;
+    let max = DecodedDataStoreKey::STORED_SIZE_USIZE;
     if len > max {
         return Err(InternalError::commit_component_length_invalid(
             "data key", len, max,
@@ -515,7 +515,7 @@ pub(in crate::db) fn decode_data_key(
     }
 
     let raw = <RawDataStoreKey as Storable>::from_bytes(Cow::Borrowed(bytes));
-    let data_key = DataKey::try_from_raw(&raw)
+    let data_key = DecodedDataStoreKey::try_from_raw(&raw)
         .map_err(|err| InternalError::commit_component_corruption("data key", err))?;
 
     Ok((raw, data_key))
@@ -570,7 +570,8 @@ pub(crate) fn validate_commit_row_op_shape(row_op: &CommitRowOp) -> Result<(), I
     }
 
     // Phase 3: enforce data-key byte shape and semantic decode.
-    DataKey::try_from_raw(&row_op.key).map_err(CommitMarker::row_op_key_decode_failed)?;
+    DecodedDataStoreKey::try_from_raw(&row_op.key)
+        .map_err(CommitMarker::row_op_key_decode_failed)?;
 
     Ok(())
 }

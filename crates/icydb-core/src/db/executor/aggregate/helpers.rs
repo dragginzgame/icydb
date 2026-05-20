@@ -6,7 +6,7 @@
 use crate::{
     db::{
         cursor::{ContinuationRuntime, LoopAction},
-        data::{DataKey, DataRow, RawRow},
+        data::{DataRow, DecodedDataStoreKey, RawRow},
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess,
@@ -334,7 +334,7 @@ where
         row_layout: &RowLayout,
         row_decoder: RowDecoder,
         consistency: MissingRowPolicy,
-        key: DataKey,
+        key: DecodedDataStoreKey,
     ) -> Result<Option<KernelRow>, InternalError> {
         let Some(row) = read_owned_data_row_with_consistency_from_store(store, key, consistency)?
         else {
@@ -350,7 +350,7 @@ where
         store: StoreHandle,
         row_layout: &RowLayout,
         consistency: MissingRowPolicy,
-        key: DataKey,
+        key: DecodedDataStoreKey,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Option<Value>, InternalError> {

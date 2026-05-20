@@ -22,7 +22,8 @@ use crate::{
     },
     db::{
         data::{
-            CanonicalRow, CanonicalSlotReader, DataKey, DataRow, SlotReader, StructuralSlotReader,
+            CanonicalRow, CanonicalSlotReader, DataRow, DecodedDataStoreKey, SlotReader,
+            StructuralSlotReader,
         },
         executor::{
             ProjectionMaterializationMetricsRecorder, StructuralCursorPage,
@@ -274,7 +275,7 @@ pub(in crate::db) fn projection_eval_data_row_for_materialize_tests(
     flag: bool,
 ) -> DataRow {
     let (entity_id, entity) = row(id, rank, flag);
-    let data_key = DataKey::try_new::<ProjectionEvalEntity>(entity_id.key())
+    let data_key = DecodedDataStoreKey::try_new::<ProjectionEvalEntity>(entity_id.key())
         .expect("projection eval test key should encode");
     let raw_row = CanonicalRow::from_generated_entity_for_test(&entity)
         .expect("projection eval test row should encode")

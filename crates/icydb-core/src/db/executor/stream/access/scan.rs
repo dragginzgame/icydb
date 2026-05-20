@@ -9,7 +9,7 @@ use crate::{
             ContinuationKeyRef, ContinuationRuntime, IndexScanContinuationInput, LoopAction,
             WindowCursorContract,
         },
-        data::{DataKey, RawDataStoreKey},
+        data::{DecodedDataStoreKey, RawDataStoreKey},
         direction::Direction,
         executor::{
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract, LoweredKey,
@@ -30,8 +30,11 @@ use std::{ops::Bound, sync::Arc};
 
 type IndexComponentValues = Arc<[Vec<u8>]>;
 
-pub(in crate::db::executor) type IndexComponentRows =
-    Vec<(DataKey, IndexEntryExistenceWitness, IndexComponentValues)>;
+pub(in crate::db::executor) type IndexComponentRows = Vec<(
+    DecodedDataStoreKey,
+    IndexEntryExistenceWitness,
+    IndexComponentValues,
+)>;
 
 ///
 /// PrimaryScan
@@ -47,8 +50,8 @@ impl PrimaryScan {
     // Decode one raw data-store key through the canonical corruption mapping.
     pub(in crate::db::executor) fn decode_data_key(
         raw: &RawDataStoreKey,
-    ) -> Result<DataKey, InternalError> {
-        DataKey::try_from_raw(raw).map_err(|err| {
+    ) -> Result<DecodedDataStoreKey, InternalError> {
+        DecodedDataStoreKey::try_from_raw(raw).map_err(|err| {
             InternalError::identity_corruption(format!("failed to decode data key: {err}"))
         })
     }
@@ -73,20 +76,22 @@ pub(in crate::db::executor) struct IndexScan;
 ///
 
 pub(in crate::db::executor) struct IndexDataKeyScanChunk {
-    keys: Vec<DataKey>,
+    keys: Vec<DecodedDataStoreKey>,
     last_raw_key: Option<RawIndexStoreKey>,
 }
 
 impl IndexDataKeyScanChunk {
     /// Construct one chunk from decoded keys and the last scanned raw index key.
     #[must_use]
-    const fn new(keys: Vec<DataKey>, last_raw_key: Option<RawIndexStoreKey>) -> Self {
+    const fn new(keys: Vec<DecodedDataStoreKey>, last_raw_key: Option<RawIndexStoreKey>) -> Self {
         Self { keys, last_raw_key }
     }
 
     /// Consume this chunk into decoded keys and resume anchor.
     #[must_use]
-    pub(in crate::db::executor) fn into_parts(self) -> (Vec<DataKey>, Option<RawIndexStoreKey>) {
+    pub(in crate::db::executor) fn into_parts(
+        self,
+    ) -> (Vec<DecodedDataStoreKey>, Option<RawIndexStoreKey>) {
         (self.keys, self.last_raw_key)
     }
 }
@@ -105,7 +110,7 @@ impl IndexScan {
         direction: Direction,
         limit: usize,
         predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<Vec<DataKey>, InternalError> {
+    ) -> Result<Vec<DecodedDataStoreKey>, InternalError> {
         Self::resolve_data_values_in_raw_range_limited(
             store,
             entity_tag,
@@ -176,7 +181,7 @@ impl IndexScan {
         continuation: IndexScanContinuationInput<'_>,
         limit: usize,
         predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<Vec<DataKey>, InternalError> {
+    ) -> Result<Vec<DecodedDataStoreKey>, InternalError> {
         Self::resolve_data_values_in_raw_range_limited(
             store,
             entity_tag,
@@ -218,7 +223,7 @@ impl IndexScan {
         continuation: IndexScanContinuationInput<'_>,
         limit: usize,
         predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<Vec<DataKey>, InternalError> {
+    ) -> Result<Vec<DecodedDataStoreKey>, InternalError> {
         if limit == 0 {
             return Ok(Vec::new());
         }
@@ -323,7 +328,7 @@ impl IndexScan {
         entity: EntityTag,
         raw_key: &RawIndexStoreKey,
         value: &IndexEntryValue,
-        out: &mut Vec<DataKey>,
+        out: &mut Vec<DecodedDataStoreKey>,
         limit: Option<usize>,
         context: &'static str,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
@@ -421,7 +426,7 @@ impl IndexScan {
     const fn data_key_from_membership(
         entity: EntityTag,
         membership: &IndexEntryMembership,
-    ) -> DataKey {
-        DataKey::new(entity, membership.storage_key())
+    ) -> DecodedDataStoreKey {
+        DecodedDataStoreKey::new(entity, membership.storage_key())
     }
 }

@@ -10,7 +10,7 @@ mod tests;
 use crate::{
     db::{
         Db,
-        data::{DataKey, DataRow, DataStore, RawRow},
+        data::{DataRow, DataStore, DecodedDataStoreKey, RawRow},
         direction::Direction,
         executor::{ExecutorError, OrderedKeyStream, saturating_row_len},
         predicate::MissingRowPolicy,
@@ -204,7 +204,7 @@ impl<'a> FusedSecondaryCoveringAuthority<'a> {
         record_row_check_covering_candidate_seen();
         record_row_presence_probe_source(RowPresenceProbeSource::BorrowedDataStore);
         record_row_presence_key_to_raw_encode();
-        let raw_key = DataKey::raw_from_parts(self.entity_tag, storage_key)?;
+        let raw_key = DecodedDataStoreKey::raw_from_parts(self.entity_tag, storage_key)?;
 
         // Phase 2: probe the borrowed data-store authority and preserve the
         // current missing-row policy exactly.
@@ -216,10 +216,11 @@ impl<'a> FusedSecondaryCoveringAuthority<'a> {
                 if row_exists {
                     Ok(true)
                 } else {
-                    Err(
-                        ExecutorError::missing_row(&DataKey::new(self.entity_tag, storage_key))
-                            .into(),
-                    )
+                    Err(ExecutorError::missing_row(&DecodedDataStoreKey::new(
+                        self.entity_tag,
+                        storage_key,
+                    ))
+                    .into())
                 }
             }
             MissingRowPolicy::Ignore => Ok(row_exists),
@@ -390,7 +391,7 @@ where
     // ------------------------------------------------------------------
 
     /// Read one raw row by key, returning not-found as an error.
-    pub(in crate::db) fn read(&self, key: &DataKey) -> Result<RawRow, InternalError> {
+    pub(in crate::db) fn read(&self, key: &DecodedDataStoreKey) -> Result<RawRow, InternalError> {
         self.with_store(|s| {
             let raw = key.to_raw()?;
             s.get(&raw)
@@ -402,10 +403,10 @@ where
 // Read one raw row under one consistency contract from structural store authority.
 pub(in crate::db::executor) fn read_row_with_consistency_from_store(
     store: StoreHandle,
-    key: &DataKey,
+    key: &DecodedDataStoreKey,
     consistency: MissingRowPolicy,
 ) -> Result<Option<RawRow>, InternalError> {
-    let read_row = |key: &DataKey| -> Result<Option<RawRow>, InternalError> {
+    let read_row = |key: &DecodedDataStoreKey| -> Result<Option<RawRow>, InternalError> {
         let raw = key.to_raw()?;
 
         Ok(store.with_data(|data| data.get(&raw)))
@@ -426,7 +427,7 @@ pub(in crate::db::executor) fn read_row_with_consistency_from_store(
 #[cfg(test)]
 pub(in crate::db::executor) fn read_row_presence_with_consistency_from_store(
     store: StoreHandle,
-    key: &DataKey,
+    key: &DecodedDataStoreKey,
     consistency: MissingRowPolicy,
 ) -> Result<bool, InternalError> {
     store.with_data(|data| {
@@ -445,7 +446,7 @@ pub(in crate::db::executor) fn read_row_presence_with_consistency_from_store(
 // registry per decoded secondary key.
 pub(in crate::db::executor) fn read_row_presence_with_consistency_from_data_store(
     data: &DataStore,
-    key: &DataKey,
+    key: &DecodedDataStoreKey,
     consistency: MissingRowPolicy,
 ) -> Result<bool, InternalError> {
     read_row_presence_with_consistency(
@@ -458,7 +459,7 @@ pub(in crate::db::executor) fn read_row_presence_with_consistency_from_data_stor
 
 fn read_row_presence_with_consistency(
     data: &DataStore,
-    key: &DataKey,
+    key: &DecodedDataStoreKey,
     consistency: MissingRowPolicy,
     source: RowPresenceProbeSource,
 ) -> Result<bool, InternalError> {
@@ -478,7 +479,7 @@ fn read_row_presence_with_consistency(
 
 fn probe_row_presence(
     data: &DataStore,
-    key: &DataKey,
+    key: &DecodedDataStoreKey,
     source: RowPresenceProbeSource,
 ) -> Result<bool, InternalError> {
     record_row_presence_probe_source(source);
@@ -495,7 +496,7 @@ fn probe_row_presence(
 // key without cloning after the raw row read.
 pub(in crate::db::executor) fn read_owned_data_row_with_consistency_from_store(
     store: StoreHandle,
-    key: DataKey,
+    key: DecodedDataStoreKey,
     consistency: MissingRowPolicy,
 ) -> Result<Option<DataRow>, InternalError> {
     let Some(row) = read_row_with_consistency_from_store(store, &key, consistency)? else {
@@ -529,8 +530,8 @@ pub(in crate::db::executor) fn sum_row_payload_bytes_full_scan_window_with_store
 /// Fold persisted row payload bytes over one key-range page window through structural store authority.
 pub(in crate::db::executor) fn sum_row_payload_bytes_key_range_window_with_store(
     store: StoreHandle,
-    start: &DataKey,
-    end: &DataKey,
+    start: &DecodedDataStoreKey,
+    end: &DecodedDataStoreKey,
     direction: Direction,
     offset: usize,
     limit: Option<usize>,
@@ -633,7 +634,7 @@ fn sum_row_payload_bytes_from_ordered_key_stream_shared<S, F>(
 ) -> Result<u64, InternalError>
 where
     S: OrderedKeyStream + ?Sized,
-    F: FnMut(&DataKey) -> Result<Option<RawRow>, InternalError>,
+    F: FnMut(&DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError>,
 {
     let mut total = 0u64;
     let mut offset_remaining = offset;

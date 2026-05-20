@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::DataKey,
+        data::DecodedDataStoreKey,
         executor::stream::{
             access::{IndexRangeKeyStream, PrimaryRangeKeyStream},
             key::{
@@ -21,13 +21,13 @@ use std::{cell::Cell, rc::Rc};
 ///
 /// OrderedKeyStream
 ///
-/// Internal pull-based stream contract for deterministic ordered `DataKey`
+/// Internal pull-based stream contract for deterministic ordered `DecodedDataStoreKey`
 /// production during load execution.
 ///
 
 pub(in crate::db::executor) trait OrderedKeyStream {
     /// Pull the next key from the stream, or `None` when exhausted.
-    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError>;
+    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError>;
 
     // Return the exact total number of keys this stream can emit.
     // Implementations should keep this stable across stream consumption.
@@ -91,7 +91,9 @@ impl OrderedKeyStreamBox {
     }
 
     /// Poll the next key from this owned ordered stream.
-    pub(in crate::db::executor) fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+    pub(in crate::db::executor) fn next_key(
+        &mut self,
+    ) -> Result<Option<DecodedDataStoreKey>, InternalError> {
         OrderedKeyStream::next_key(self)
     }
 
@@ -122,13 +124,13 @@ impl OrderedKeyStreamBox {
 
     /// Construct one owned singleton ordered key stream.
     #[must_use]
-    pub(in crate::db::executor) const fn single(key: DataKey) -> Self {
+    pub(in crate::db::executor) const fn single(key: DecodedDataStoreKey) -> Self {
         Self::Single(SingleOrderedKeyStream::new(key))
     }
 
     /// Construct one owned materialized ordered key stream.
     #[must_use]
-    pub(in crate::db::executor) fn materialized(keys: Vec<DataKey>) -> Self {
+    pub(in crate::db::executor) fn materialized(keys: Vec<DecodedDataStoreKey>) -> Self {
         Self::Materialized(VecOrderedKeyStream::new(keys))
     }
 
@@ -200,7 +202,7 @@ impl OrderedKeyStreamBox {
 }
 
 impl OrderedKeyStream for OrderedKeyStreamBox {
-    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
         match self {
             Self::Empty(stream) => stream.next_key(),
             Self::Single(stream) => stream.next_key(),
@@ -259,7 +261,7 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
 
 /// Return one canonical ordered key stream for already-materialized keys.
 pub(in crate::db::executor) fn ordered_key_stream_from_materialized_keys(
-    mut keys: Vec<DataKey>,
+    mut keys: Vec<DecodedDataStoreKey>,
 ) -> OrderedKeyStreamBox {
     match keys.len() {
         0 => OrderedKeyStreamBox::empty(),
@@ -306,7 +308,7 @@ impl<T> OrderedKeyStream for Box<T>
 where
     T: OrderedKeyStream + ?Sized,
 {
-    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
         self.as_mut().next_key()
     }
 
@@ -327,7 +329,7 @@ impl<T> OrderedKeyStream for &mut T
 where
     T: OrderedKeyStream + ?Sized,
 {
-    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
         (**self).next_key()
     }
 
@@ -356,7 +358,7 @@ where
 pub(in crate::db::executor) struct EmptyOrderedKeyStream;
 
 impl OrderedKeyStream for EmptyOrderedKeyStream {
-    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
         Ok(None)
     }
 
@@ -375,19 +377,19 @@ impl OrderedKeyStream for EmptyOrderedKeyStream {
 
 #[derive(Debug)]
 pub(in crate::db::executor) struct SingleOrderedKeyStream {
-    key: Option<DataKey>,
+    key: Option<DecodedDataStoreKey>,
 }
 
 impl SingleOrderedKeyStream {
     /// Construct one singleton ordered key stream.
     #[must_use]
-    pub(in crate::db::executor) const fn new(key: DataKey) -> Self {
+    pub(in crate::db::executor) const fn new(key: DecodedDataStoreKey) -> Self {
         Self { key: Some(key) }
     }
 }
 
 impl OrderedKeyStream for SingleOrderedKeyStream {
-    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
         Ok(self.key.take())
     }
 
@@ -405,14 +407,14 @@ impl OrderedKeyStream for SingleOrderedKeyStream {
 
 #[derive(Debug)]
 pub(in crate::db::executor) struct VecOrderedKeyStream {
-    keys: std::vec::IntoIter<DataKey>,
+    keys: std::vec::IntoIter<DecodedDataStoreKey>,
     total_len: usize,
 }
 
 impl VecOrderedKeyStream {
     /// Construct a stream adapter over one materialized key vector.
     #[must_use]
-    pub(in crate::db::executor) fn new(keys: Vec<DataKey>) -> Self {
+    pub(in crate::db::executor) fn new(keys: Vec<DecodedDataStoreKey>) -> Self {
         let total_len = keys.len();
 
         Self {
@@ -423,7 +425,7 @@ impl VecOrderedKeyStream {
 }
 
 impl OrderedKeyStream for VecOrderedKeyStream {
-    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
         Ok(self.keys.next())
     }
 
@@ -468,7 +470,7 @@ impl<S> OrderedKeyStream for BudgetedOrderedKeyStream<S>
 where
     S: OrderedKeyStream,
 {
-    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
         if self.remaining == 0 {
             return Ok(None);
         }

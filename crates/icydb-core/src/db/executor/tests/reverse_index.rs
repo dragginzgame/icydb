@@ -6,7 +6,7 @@
 use super::support::*;
 use crate::db::{
     commit::CommitSchemaFingerprint,
-    data::{DataKey, DataStore, RawDataStoreKey},
+    data::{DataStore, DecodedDataStoreKey, RawDataStoreKey},
     schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
 };
 
@@ -553,7 +553,7 @@ fn recovery_replays_reverse_relation_index_mutations() {
         id: source_id,
         target: target_id,
     };
-    let raw_key = DataKey::try_new::<RelationSourceEntity>(source.id)
+    let raw_key = DecodedDataStoreKey::try_new::<RelationSourceEntity>(source.id)
         .expect("source data key should build")
         .to_raw()
         .expect("source data key should encode");
@@ -656,7 +656,7 @@ fn recovery_startup_rebuild_drops_orphan_reverse_relation_entries() {
         .expect("orphan source save should succeed");
 
     // Phase 2: simulate stale reverse-index drift by removing one source row directly.
-    let orphan_source_key = DataKey::try_new::<RelationSourceEntity>(source_orphan)
+    let orphan_source_key = DecodedDataStoreKey::try_new::<RelationSourceEntity>(source_orphan)
         .expect("orphan source key should build")
         .to_raw()
         .expect("orphan source key should encode");
@@ -840,11 +840,11 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         .insert(RelationTargetEntity { id: target_id })
         .expect("target save should succeed");
 
-    let first_source_key = DataKey::try_new::<RelationSourceEntity>(source_a)
+    let first_source_key = DecodedDataStoreKey::try_new::<RelationSourceEntity>(source_a)
         .expect("first source key should build")
         .to_raw()
         .expect("first source key should encode");
-    let second_source_key = DataKey::try_new::<RelationSourceEntity>(source_b)
+    let second_source_key = DecodedDataStoreKey::try_new::<RelationSourceEntity>(source_b)
         .expect("second source key should build")
         .to_raw()
         .expect("second source key should encode");
@@ -994,7 +994,7 @@ fn recovery_replays_retarget_update_moves_reverse_index_membership() {
         })
         .expect("source insert should succeed");
 
-    let source_key = DataKey::try_new::<RelationSourceEntity>(source_id)
+    let source_key = DecodedDataStoreKey::try_new::<RelationSourceEntity>(source_id)
         .expect("source key should build")
         .to_raw()
         .expect("source key should encode");
@@ -1089,7 +1089,7 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
         })
         .expect("source insert should succeed");
 
-    let source_key = DataKey::try_new::<RelationSourceEntity>(source_id)
+    let source_key = DecodedDataStoreKey::try_new::<RelationSourceEntity>(source_id)
         .expect("source key should build")
         .to_raw()
         .expect("source key should encode");
@@ -1103,8 +1103,8 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
         target: target_b,
     });
 
-    let mut malformed_key = vec![0u8; DataKey::STORED_SIZE_USIZE];
-    malformed_key[DataKey::ENTITY_TAG_SIZE_USIZE] = 0xFF;
+    let mut malformed_key = vec![0u8; DecodedDataStoreKey::STORED_SIZE_USIZE];
+    malformed_key[DecodedDataStoreKey::ENTITY_TAG_SIZE_USIZE] = 0xFF;
     let malformed_raw_key = RawDataStoreKey::from_persisted_bytes(malformed_key);
 
     let marker = CommitMarker::new(vec![
@@ -1263,11 +1263,11 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
     // Phase 2: persist a marker with a partial update in one block:
     // - source 1 moves A -> B
     // - source 2 stays on A (before==after relation value)
-    let source_1_key = DataKey::try_new::<RelationSourceEntity>(source_1)
+    let source_1_key = DecodedDataStoreKey::try_new::<RelationSourceEntity>(source_1)
         .expect("source 1 key should build")
         .to_raw()
         .expect("source 1 key should encode");
-    let source_2_key = DataKey::try_new::<RelationSourceEntity>(source_2)
+    let source_2_key = DecodedDataStoreKey::try_new::<RelationSourceEntity>(source_2)
         .expect("source 2 key should build")
         .to_raw()
         .expect("source 2 key should encode");

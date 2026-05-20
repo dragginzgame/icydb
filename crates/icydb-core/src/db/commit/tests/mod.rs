@@ -21,7 +21,7 @@ use crate::{
             rollback_prepared_row_ops_reverse, store,
         },
         data::{
-            CanonicalRow, DataKey, DataStore, RawDataStoreKey, RawRow,
+            CanonicalRow, DataStore, DecodedDataStoreKey, RawDataStoreKey, RawRow,
             encode_runtime_value_into_slot,
         },
         executor::SaveExecutor,
@@ -989,42 +989,42 @@ fn apply_row_ops_forward(row_ops: &[CommitRowOp]) -> Result<(), InternalError> {
 }
 
 fn indexed_data_key(id: Ulid) -> RawDataStoreKey {
-    DataKey::try_new::<RecoveryIndexedEntity>(id)
+    DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(id)
         .expect("indexed key should build")
         .to_raw()
         .expect("indexed key should encode")
 }
 
 fn unique_data_key(id: Ulid) -> RawDataStoreKey {
-    DataKey::try_new::<RecoveryUniqueEntity>(id)
+    DecodedDataStoreKey::try_new::<RecoveryUniqueEntity>(id)
         .expect("unique key should build")
         .to_raw()
         .expect("unique key should encode")
 }
 
 fn conditional_data_key(id: Ulid) -> RawDataStoreKey {
-    DataKey::try_new::<RecoveryConditionalEntity>(id)
+    DecodedDataStoreKey::try_new::<RecoveryConditionalEntity>(id)
         .expect("conditional key should build")
         .to_raw()
         .expect("conditional key should encode")
 }
 
 fn conditional_unique_data_key(id: Ulid) -> RawDataStoreKey {
-    DataKey::try_new::<RecoveryConditionalUniqueEntity>(id)
+    DecodedDataStoreKey::try_new::<RecoveryConditionalUniqueEntity>(id)
         .expect("conditional-unique key should build")
         .to_raw()
         .expect("conditional-unique key should encode")
 }
 
 fn conditional_unique_casefold_data_key(id: Ulid) -> RawDataStoreKey {
-    DataKey::try_new::<RecoveryConditionalUniqueCasefoldEntity>(id)
+    DecodedDataStoreKey::try_new::<RecoveryConditionalUniqueCasefoldEntity>(id)
         .expect("conditional-unique-casefold key should build")
         .to_raw()
         .expect("conditional-unique-casefold key should encode")
 }
 
 fn conditional_unique_enum_data_key(id: Ulid) -> RawDataStoreKey {
-    DataKey::try_new::<RecoveryConditionalUniqueEnumEntity>(id)
+    DecodedDataStoreKey::try_new::<RecoveryConditionalUniqueEnumEntity>(id)
         .expect("conditional-unique-enum key should build")
         .to_raw()
         .expect("conditional-unique-enum key should encode")
@@ -1803,7 +1803,7 @@ fn finish_commit_mixed_state_failure_rolls_back_index_prefix_without_row_visibil
         id: Ulid::from_u128(915),
         group: 19,
     };
-    let data_key = DataKey::try_new::<RecoveryIndexedEntity>(entity.id)
+    let data_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(entity.id)
         .expect("data key should build")
         .to_raw()
         .expect("data key should encode");
@@ -1875,7 +1875,7 @@ fn recovery_replay_is_idempotent() {
     let entity = RecoveryTestEntity {
         id: Ulid::from_u128(901),
     };
-    let raw_key = DataKey::try_new::<RecoveryTestEntity>(entity.id)
+    let raw_key = DecodedDataStoreKey::try_new::<RecoveryTestEntity>(entity.id)
         .expect("data key should build")
         .to_raw()
         .expect("data key should encode");
@@ -1916,7 +1916,7 @@ fn recovery_rejects_corrupt_marker_data_key_decode() {
     let row_bytes = canonical_row_bytes(&RecoveryTestEntity {
         id: Ulid::from_u128(902),
     });
-    let malformed_key = vec![0u8; DataKey::STORED_SIZE_USIZE.saturating_sub(1)];
+    let malformed_key = vec![0u8; DecodedDataStoreKey::STORED_SIZE_USIZE.saturating_sub(1)];
     let mut marker_payload = Vec::new();
     marker_payload.extend_from_slice(&[0u8; 16]);
     marker_payload.extend_from_slice(&1u32.to_le_bytes());
@@ -2018,7 +2018,7 @@ fn recovery_rejects_incompatible_marker_format_version_fail_closed() {
 #[test]
 fn single_row_control_slot_direct_encoder_matches_canonical_two_stage_encoding() {
     let marker_id = [0x5A; 16];
-    let raw_key = DataKey::try_new::<RecoveryPayloadEntity>(Ulid::from_u128(111))
+    let raw_key = DecodedDataStoreKey::try_new::<RecoveryPayloadEntity>(Ulid::from_u128(111))
         .expect("single-row encoder test data key should build")
         .to_raw()
         .expect("single-row encoder test data key should encode");
@@ -2060,7 +2060,7 @@ fn multi_row_control_slot_direct_encoder_matches_canonical_two_stage_encoding() 
         row_ops: vec![
             row_op_for_path(
                 RecoveryPayloadEntity::PATH,
-                DataKey::try_new::<RecoveryPayloadEntity>(Ulid::from_u128(211))
+                DecodedDataStoreKey::try_new::<RecoveryPayloadEntity>(Ulid::from_u128(211))
                     .expect("multi-row encoder first key should build")
                     .to_raw()
                     .expect("multi-row encoder first key should encode")
@@ -2077,7 +2077,7 @@ fn multi_row_control_slot_direct_encoder_matches_canonical_two_stage_encoding() 
             ),
             row_op_for_path(
                 RecoveryPayloadEntity::PATH,
-                DataKey::try_new::<RecoveryPayloadEntity>(Ulid::from_u128(212))
+                DecodedDataStoreKey::try_new::<RecoveryPayloadEntity>(Ulid::from_u128(212))
                     .expect("multi-row encoder second key should build")
                     .to_raw()
                     .expect("multi-row encoder second key should encode")
@@ -2117,7 +2117,7 @@ fn recovery_replay_rolls_back_applied_prefix_when_later_marker_op_fails_prepare(
         id: Ulid::from_u128(913),
         group: 17,
     };
-    let first_key = DataKey::try_new::<RecoveryIndexedEntity>(first.id)
+    let first_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(first.id)
         .expect("first data key should build")
         .to_raw()
         .expect("first data key should encode");
@@ -2127,7 +2127,7 @@ fn recovery_replay_rolls_back_applied_prefix_when_later_marker_op_fails_prepare(
         id: Ulid::from_u128(914),
         group: 18,
     };
-    let second_key = DataKey::try_new::<RecoveryIndexedEntity>(second.id)
+    let second_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(second.id)
         .expect("second data key should build")
         .to_raw()
         .expect("second data key should encode");
@@ -2182,7 +2182,7 @@ fn recovery_replay_rolls_back_applied_prefix_when_later_marker_op_fails_prepare(
 fn recovery_rejects_unsupported_entity_path_without_fallback() {
     reset_recovery_state();
 
-    let raw_key = DataKey::try_new::<RecoveryTestEntity>(Ulid::from_u128(911))
+    let raw_key = DecodedDataStoreKey::try_new::<RecoveryTestEntity>(Ulid::from_u128(911))
         .expect("data key should build")
         .to_raw()
         .expect("data key should encode");
@@ -2237,7 +2237,7 @@ fn recovery_rejects_miswired_hook_entity_path_mismatch_as_corruption() {
     let entity = RecoveryTestEntity {
         id: Ulid::from_u128(912),
     };
-    let raw_key = DataKey::try_new::<RecoveryTestEntity>(entity.id)
+    let raw_key = DecodedDataStoreKey::try_new::<RecoveryTestEntity>(entity.id)
         .expect("data key should build")
         .to_raw()
         .expect("data key should encode");
@@ -2332,7 +2332,7 @@ fn runtime_hook_lookup_rejects_duplicate_entity_tags() {
 
 #[test]
 fn prepare_row_commit_rejects_duplicate_entity_paths() {
-    let raw_key = DataKey::try_new::<RecoveryTestEntity>(Ulid::from_u128(9_991))
+    let raw_key = DecodedDataStoreKey::try_new::<RecoveryTestEntity>(Ulid::from_u128(9_991))
         .expect("duplicate-path test data key should build")
         .to_raw()
         .expect("duplicate-path test data key should encode");
@@ -2365,7 +2365,7 @@ fn recovery_replay_rejects_schema_fingerprint_mismatch() {
     let entity = RecoveryTestEntity {
         id: Ulid::from_u128(9801),
     };
-    let key = DataKey::try_new::<RecoveryTestEntity>(entity.id)
+    let key = DecodedDataStoreKey::try_new::<RecoveryTestEntity>(entity.id)
         .expect("data key should build")
         .to_raw()
         .expect("data key should encode");
@@ -2419,11 +2419,11 @@ fn recovery_replay_merges_multi_row_shared_index_key() {
         group: 7,
     };
 
-    let first_key = DataKey::try_new::<RecoveryIndexedEntity>(first.id)
+    let first_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(first.id)
         .expect("first data key should build")
         .to_raw()
         .expect("first data key should encode");
-    let second_key = DataKey::try_new::<RecoveryIndexedEntity>(second.id)
+    let second_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(second.id)
         .expect("second data key should build")
         .to_raw()
         .expect("second data key should encode");
@@ -2481,11 +2481,11 @@ fn recovery_replays_interrupted_atomic_batch_marker_and_is_idempotent() {
         group: 9,
     };
 
-    let first_key = DataKey::try_new::<RecoveryIndexedEntity>(first.id)
+    let first_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(first.id)
         .expect("first data key should build")
         .to_raw()
         .expect("first data key should encode");
-    let second_key = DataKey::try_new::<RecoveryIndexedEntity>(second.id)
+    let second_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(second.id)
         .expect("second data key should build")
         .to_raw()
         .expect("second data key should encode");
@@ -2572,11 +2572,11 @@ fn recovery_replay_interrupted_conflicting_unique_batch_fails_closed() {
         email: "dup@example.com".to_string(),
     };
 
-    let first_key = DataKey::try_new::<RecoveryUniqueEntity>(first.id)
+    let first_key = DecodedDataStoreKey::try_new::<RecoveryUniqueEntity>(first.id)
         .expect("first unique data key should build")
         .to_raw()
         .expect("first unique data key should encode");
-    let second_key = DataKey::try_new::<RecoveryUniqueEntity>(second.id)
+    let second_key = DecodedDataStoreKey::try_new::<RecoveryUniqueEntity>(second.id)
         .expect("second unique data key should build")
         .to_raw()
         .expect("second unique data key should encode");
@@ -2668,11 +2668,11 @@ fn unique_conflict_classification_parity_holds_between_live_apply_and_replay() {
         email: "dup-live-replay@example.com".to_string(),
     };
 
-    let replay_first_key = DataKey::try_new::<RecoveryUniqueEntity>(replay_first.id)
+    let replay_first_key = DecodedDataStoreKey::try_new::<RecoveryUniqueEntity>(replay_first.id)
         .expect("first replay key should build")
         .to_raw()
         .expect("first replay key should encode");
-    let replay_second_key = DataKey::try_new::<RecoveryUniqueEntity>(replay_second.id)
+    let replay_second_key = DecodedDataStoreKey::try_new::<RecoveryUniqueEntity>(replay_second.id)
         .expect("second replay key should build")
         .to_raw()
         .expect("second replay key should encode");
@@ -2748,10 +2748,11 @@ fn unique_expression_index_enforces_casefolded_conflicts_on_live_saves() {
     );
 
     // Phase 3: rejected insert must not leave a persisted primary row.
-    let conflicting_key = DataKey::try_new::<RecoveryUniqueCasefoldEntity>(conflicting.id)
-        .expect("conflicting casefold key should build")
-        .to_raw()
-        .expect("conflicting casefold key should encode");
+    let conflicting_key =
+        DecodedDataStoreKey::try_new::<RecoveryUniqueCasefoldEntity>(conflicting.id)
+            .expect("conflicting casefold key should build")
+            .to_raw()
+            .expect("conflicting casefold key should encode");
     assert!(
         row_bytes_for(&conflicting_key).is_none(),
         "conflicting casefold insert should not persist primary row",
@@ -2796,7 +2797,7 @@ fn unique_expression_conflict_classification_parity_holds_between_live_apply_and
     let replay_marker = CommitMarker::new(vec![
         row_op_for_path_with_schema(
             RecoveryUniqueCasefoldEntity::PATH,
-            DataKey::try_new::<RecoveryUniqueCasefoldEntity>(replay_first.id)
+            DecodedDataStoreKey::try_new::<RecoveryUniqueCasefoldEntity>(replay_first.id)
                 .expect("first casefold replay key should build")
                 .to_raw()
                 .expect("first casefold replay key should encode")
@@ -2808,7 +2809,7 @@ fn unique_expression_conflict_classification_parity_holds_between_live_apply_and
         ),
         row_op_for_path_with_schema(
             RecoveryUniqueCasefoldEntity::PATH,
-            DataKey::try_new::<RecoveryUniqueCasefoldEntity>(replay_second.id)
+            DecodedDataStoreKey::try_new::<RecoveryUniqueCasefoldEntity>(replay_second.id)
                 .expect("second casefold replay key should build")
                 .to_raw()
                 .expect("second casefold replay key should encode")
@@ -2961,11 +2962,11 @@ fn recovery_replays_interrupted_atomic_update_batch_marker_and_is_idempotent() {
         group: 11,
     };
 
-    let first_key = DataKey::try_new::<RecoveryIndexedEntity>(old_first.id)
+    let first_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(old_first.id)
         .expect("first data key should build")
         .to_raw()
         .expect("first data key should encode");
-    let second_key = DataKey::try_new::<RecoveryIndexedEntity>(old_second.id)
+    let second_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(old_second.id)
         .expect("second data key should build")
         .to_raw()
         .expect("second data key should encode");
@@ -3120,11 +3121,11 @@ fn recovery_replay_mixed_save_save_delete_sequence_preserves_final_index_state()
         group: 8,
     };
 
-    let first_key = DataKey::try_new::<RecoveryIndexedEntity>(first.id)
+    let first_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(first.id)
         .expect("first data key should build")
         .to_raw()
         .expect("first data key should encode");
-    let second_key = DataKey::try_new::<RecoveryIndexedEntity>(second.id)
+    let second_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(second.id)
         .expect("second data key should build")
         .to_raw()
         .expect("second data key should encode");
@@ -3203,11 +3204,11 @@ fn recovery_replay_preserves_index_key_raw_bytes_across_reloads() {
         group: 21,
     };
 
-    let first_key = DataKey::try_new::<RecoveryIndexedEntity>(first.id)
+    let first_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(first.id)
         .expect("first data key should build")
         .to_raw()
         .expect("first data key should encode");
-    let second_key = DataKey::try_new::<RecoveryIndexedEntity>(second.id)
+    let second_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(second.id)
         .expect("second data key should build")
         .to_raw()
         .expect("second data key should encode");
@@ -3281,11 +3282,11 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_authoritative_rows() {
         group: 99,
     };
 
-    let first_key = DataKey::try_new::<RecoveryIndexedEntity>(first.id)
+    let first_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(first.id)
         .expect("first data key should build")
         .to_raw()
         .expect("first data key should encode");
-    let second_key = DataKey::try_new::<RecoveryIndexedEntity>(second.id)
+    let second_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(second.id)
         .expect("second data key should build")
         .to_raw()
         .expect("second data key should encode");
@@ -3381,11 +3382,11 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_old_nullable_rows() {
         nickname: None,
     };
 
-    let first_key = DataKey::try_new::<RecoveryNullableIndexedEntity>(first.id)
+    let first_key = DecodedDataStoreKey::try_new::<RecoveryNullableIndexedEntity>(first.id)
         .expect("first nullable data key should build")
         .to_raw()
         .expect("first nullable data key should encode");
-    let second_key = DataKey::try_new::<RecoveryNullableIndexedEntity>(second.id)
+    let second_key = DecodedDataStoreKey::try_new::<RecoveryNullableIndexedEntity>(second.id)
         .expect("second nullable data key should build")
         .to_raw()
         .expect("second nullable data key should encode");
@@ -3479,7 +3480,7 @@ fn recovery_replay_updates_old_nullable_row_before_image_with_accepted_contract(
         nickname: Some("accepted".to_string()),
     };
 
-    let data_key = DataKey::try_new::<RecoveryNullableIndexedEntity>(old.id)
+    let data_key = DecodedDataStoreKey::try_new::<RecoveryNullableIndexedEntity>(old.id)
         .expect("nullable update data key should build")
         .to_raw()
         .expect("nullable update data key should encode");
@@ -3558,11 +3559,11 @@ fn recovery_startup_gate_rebuilds_conditional_indexes_from_authoritative_rows() 
         active: true,
     };
 
-    let active_key = DataKey::try_new::<RecoveryConditionalEntity>(active.id)
+    let active_key = DecodedDataStoreKey::try_new::<RecoveryConditionalEntity>(active.id)
         .expect("active data key should build")
         .to_raw()
         .expect("active data key should encode");
-    let inactive_key = DataKey::try_new::<RecoveryConditionalEntity>(inactive.id)
+    let inactive_key = DecodedDataStoreKey::try_new::<RecoveryConditionalEntity>(inactive.id)
         .expect("inactive data key should build")
         .to_raw()
         .expect("inactive data key should encode");
@@ -3667,11 +3668,11 @@ fn recovery_startup_gate_rebuilds_upper_expression_indexes_from_authoritative_ro
         email: "stale@example.com".to_string(),
     };
 
-    let first_key = DataKey::try_new::<RecoveryUpperExpressionEntity>(first.id)
+    let first_key = DecodedDataStoreKey::try_new::<RecoveryUpperExpressionEntity>(first.id)
         .expect("first expression data key should build")
         .to_raw()
         .expect("first expression data key should encode");
-    let second_key = DataKey::try_new::<RecoveryUpperExpressionEntity>(second.id)
+    let second_key = DecodedDataStoreKey::try_new::<RecoveryUpperExpressionEntity>(second.id)
         .expect("second expression data key should build")
         .to_raw()
         .expect("second expression data key should encode");
@@ -3750,7 +3751,7 @@ fn recovery_startup_rebuild_rejects_future_row_format_fail_closed() {
         id: Ulid::from_u128(925),
         group: 34,
     };
-    let raw_key = DataKey::try_new::<RecoveryIndexedEntity>(entity.id)
+    let raw_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(entity.id)
         .expect("row key should build")
         .to_raw()
         .expect("row key should encode");
@@ -3803,7 +3804,7 @@ fn recovery_reconciles_schema_before_rebuilding_indexes_from_rows() {
         id: Ulid::from_u128(926),
         group: 35,
     };
-    let raw_key = DataKey::try_new::<RecoveryIndexedEntity>(entity.id)
+    let raw_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(entity.id)
         .expect("row key should build")
         .to_raw()
         .expect("row key should encode");
@@ -3900,7 +3901,7 @@ fn recovery_startup_rebuild_fail_closed_restores_previous_index_state_on_corrupt
     });
     let before_snapshot = index_key_bytes_snapshot();
 
-    let bad_key = DataKey::try_new::<RecoveryIndexedEntity>(Ulid::from_u128(923))
+    let bad_key = DecodedDataStoreKey::try_new::<RecoveryIndexedEntity>(Ulid::from_u128(923))
         .expect("bad data key should build")
         .to_raw()
         .expect("bad data key should encode");

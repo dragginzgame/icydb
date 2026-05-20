@@ -6,7 +6,7 @@
 use crate::{
     db::{
         cursor::{ContinuationRuntime, LoopAction},
-        data::DataKey,
+        data::DecodedDataStoreKey,
         executor::{
             ExecutionKernel, KeyStreamLoopControl, OrderedKeyStream,
             aggregate::{AggregateFoldMode, FoldControl},
@@ -34,7 +34,7 @@ impl ExecutionKernel {
         store: StoreHandle,
         consistency: MissingRowPolicy,
         mode: AggregateFoldMode,
-        key: &DataKey,
+        key: &DecodedDataStoreKey,
     ) -> Result<bool, InternalError> {
         match mode {
             AggregateFoldMode::KeysOnly => Ok(true),
@@ -46,13 +46,14 @@ impl ExecutionKernel {
     fn row_exists_for_key(
         store: StoreHandle,
         consistency: MissingRowPolicy,
-        key: &DataKey,
+        key: &DecodedDataStoreKey,
     ) -> Result<bool, InternalError> {
-        let read_row = |key: &DataKey| -> Result<Option<crate::db::data::RawRow>, InternalError> {
-            let raw_key = key.to_raw()?;
+        let read_row =
+            |key: &DecodedDataStoreKey| -> Result<Option<crate::db::data::RawRow>, InternalError> {
+                let raw_key = key.to_raw()?;
 
-            Ok(store.with_data(|data| data.get(&raw_key)))
-        };
+                Ok(store.with_data(|data| data.get(&raw_key)))
+            };
 
         match consistency {
             MissingRowPolicy::Error => {
@@ -93,7 +94,7 @@ impl ExecutionKernel {
     ) -> Result<usize, InternalError>
     where
         S: OrderedKeyStream + ?Sized,
-        F: FnMut(&DataKey) -> Result<FoldControl, InternalError>,
+        F: FnMut(&DecodedDataStoreKey) -> Result<FoldControl, InternalError>,
     {
         let mut continuation =
             ContinuationRuntime::from_window(Self::window_cursor_contract(plan, None));

@@ -7,7 +7,9 @@
 
 use crate::{
     db::{
-        data::{DataKey, RawRow, StorageKey, StructuralRowContract, StructuralSlotReader},
+        data::{
+            DecodedDataStoreKey, RawRow, StorageKey, StructuralRowContract, StructuralSlotReader,
+        },
         index::{IndexId, IndexKey, IndexState, IndexStore},
         predicate::{PredicateProgram, normalize, parse_sql_predicate},
         registry::StoreHandle,
@@ -417,7 +419,7 @@ fn field_path_rebuild_row_fingerprint_from_rows(
 ) -> Result<StartupFieldPathRebuildRowFingerprint, InternalError> {
     let mut hasher = Sha256::new();
     for row in rows {
-        let raw_key = DataKey::new(entity_tag, row.storage_key).to_raw()?;
+        let raw_key = DecodedDataStoreKey::new(entity_tag, row.storage_key).to_raw()?;
         hash_field_path_rebuild_row(&mut hasher, raw_key.as_bytes(), &row.row);
     }
 
@@ -436,7 +438,7 @@ fn field_path_rebuild_row_fingerprint_for_store(
         let mut rows = 0usize;
         let mut hasher = Sha256::new();
         for entry in data_store.entries() {
-            let data_key = DataKey::try_from_raw(entry.key()).map_err(|error| {
+            let data_key = DecodedDataStoreKey::try_from_raw(entry.key()).map_err(|error| {
                 InternalError::store_corruption(format!(
                     "schema mutation field-path rebuild data key decode failed for entity '{entity_path}' while validating startup rebuild gate: {error}",
                 ))
@@ -501,7 +503,7 @@ pub(super) fn field_path_rebuild_raw_rows_for_entity(
     store.with_data(|data_store| {
         let mut rows = Vec::new();
         for entry in data_store.entries() {
-            let data_key = DataKey::try_from_raw(entry.key()).map_err(|error| {
+            let data_key = DecodedDataStoreKey::try_from_raw(entry.key()).map_err(|error| {
                 InternalError::store_corruption(format!(
                     "schema mutation field-path rebuild data key decode failed for entity '{entity_path}': {error}",
                 ))
@@ -531,7 +533,7 @@ pub(super) fn decode_field_path_rebuild_rows<'a>(
                 &row.row,
                 row_contract.clone(),
             )?;
-            let data_key = DataKey::new(entity_tag, row.storage_key);
+            let data_key = DecodedDataStoreKey::new(entity_tag, row.storage_key);
             slots.validate_storage_key(&data_key)?;
 
             Ok(StartupDecodedFieldPathRebuildRow {

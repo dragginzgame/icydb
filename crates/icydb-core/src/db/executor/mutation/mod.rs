@@ -12,7 +12,7 @@ use crate::{
         Db,
         commit::ensure_recovered,
         data::{
-            DataKey, PersistedRow, SerializedStructuralPatch, StructuralPatch,
+            DecodedDataStoreKey, PersistedRow, SerializedStructuralPatch, StructuralPatch,
             serialize_complete_structural_patch_fields_with_accepted_contract,
             serialize_structural_patch_fields_with_accepted_contract,
         },
@@ -49,7 +49,7 @@ pub(super) use commit_window::{
 ///
 
 pub(in crate::db::executor) struct MutationInput {
-    data_key: DataKey,
+    data_key: DecodedDataStoreKey,
     serialized_slots: SerializedStructuralPatch,
 }
 
@@ -57,7 +57,7 @@ impl MutationInput {
     /// Build one structural mutation input from already lowered key + patch data.
     #[must_use]
     pub(in crate::db::executor) const fn new(
-        data_key: DataKey,
+        data_key: DecodedDataStoreKey,
         serialized_slots: SerializedStructuralPatch,
     ) -> Self {
         Self {
@@ -75,7 +75,7 @@ impl MutationInput {
     where
         E: PersistedRow + EntityValue,
     {
-        let data_key = DataKey::try_new::<E>(key)?;
+        let data_key = DecodedDataStoreKey::try_new::<E>(key)?;
         let serialized_slots = serialize_structural_patch_fields_with_accepted_contract(
             E::PATH,
             accepted_row_decode_contract,
@@ -94,7 +94,7 @@ impl MutationInput {
     where
         E: PersistedRow + EntityValue,
     {
-        let data_key = DataKey::try_new::<E>(key)?;
+        let data_key = DecodedDataStoreKey::try_new::<E>(key)?;
         let serialized_slots = serialize_complete_structural_patch_fields_with_accepted_contract(
             E::PATH,
             accepted_row_decode_contract,
@@ -106,7 +106,7 @@ impl MutationInput {
 
     /// Borrow the target row key for this mutation input.
     #[must_use]
-    pub(in crate::db::executor) const fn data_key(&self) -> &DataKey {
+    pub(in crate::db::executor) const fn data_key(&self) -> &DecodedDataStoreKey {
         &self.data_key
     }
 

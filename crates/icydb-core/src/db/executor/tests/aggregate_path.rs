@@ -7,7 +7,7 @@ use super::support::*;
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        data::{DataKey, PersistedRow, encode_structural_value_storage_bytes},
+        data::{DecodedDataStoreKey, PersistedRow, encode_structural_value_storage_bytes},
         executor::PreparedExecutionPlan,
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
@@ -55,7 +55,7 @@ enum CompositeTerminalResult {
 // Sum persisted row payload lengths for the exact effective execute window.
 fn persisted_payload_bytes_for_simple_ids(ids: impl IntoIterator<Item = Id<SimpleEntity>>) -> u64 {
     ids.into_iter().fold(0u64, |acc, id| {
-        let raw_key = DataKey::try_new::<SimpleEntity>(id.key())
+        let raw_key = DecodedDataStoreKey::try_new::<SimpleEntity>(id.key())
             .expect("simple data key should build")
             .to_raw()
             .expect("simple data key should encode");
@@ -74,7 +74,7 @@ fn persisted_payload_bytes_for_pushdown_ids(
     ids: impl IntoIterator<Item = Id<PushdownParityEntity>>,
 ) -> u64 {
     ids.into_iter().fold(0u64, |acc, id| {
-        let raw_key = DataKey::try_new::<PushdownParityEntity>(id.key())
+        let raw_key = DecodedDataStoreKey::try_new::<PushdownParityEntity>(id.key())
             .expect("pushdown data key should build")
             .to_raw()
             .expect("pushdown data key should encode");
@@ -231,7 +231,7 @@ fn seed_unique_index_range_entities(rows: &[(u128, u32)]) {
 }
 
 fn remove_pushdown_row_data(id: u128) {
-    let raw_key = DataKey::try_new::<PushdownParityEntity>(Ulid::from_u128(id))
+    let raw_key = DecodedDataStoreKey::try_new::<PushdownParityEntity>(Ulid::from_u128(id))
         .expect("pushdown data key should build")
         .to_raw()
         .expect("pushdown data key should encode");

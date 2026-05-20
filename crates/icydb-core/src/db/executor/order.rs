@@ -809,7 +809,7 @@ mod tests {
     }
 
     fn direct_data_row(entity: &OrderWindowEntity) -> DataRow {
-        let key = crate::db::data::DataKey::try_new::<OrderWindowEntity>(entity.id)
+        let key = crate::db::data::DecodedDataStoreKey::try_new::<OrderWindowEntity>(entity.id)
             .expect("test key construction should succeed");
         let row = CanonicalRow::from_generated_entity_for_test(entity)
             .expect("test row serialization should succeed")

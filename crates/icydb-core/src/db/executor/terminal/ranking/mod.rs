@@ -10,7 +10,7 @@ mod take;
 use crate::{
     db::{
         PersistedRow,
-        data::DataKey,
+        data::DecodedDataStoreKey,
         executor::{
             PreparedLoadPlan,
             aggregate::field::{
@@ -45,7 +45,7 @@ enum RankedFieldBoundaryDirection {
 enum RankingTerminalBoundaryOutput<E: EntityKind + EntityValue> {
     Rows(EntityResponse<E>),
     Values(Vec<Value>),
-    ValuesWithDataKeys(Vec<(DataKey, Value)>),
+    ValuesWithDataKeys(Vec<(DecodedDataStoreKey, Value)>),
 }
 
 impl<E> RankingTerminalBoundaryOutput<E>

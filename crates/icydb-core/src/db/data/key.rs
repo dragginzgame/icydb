@@ -1,7 +1,7 @@
 //! Module: data::key
 //! Responsibility: canonical entity-aware data-key encoding and decoding.
 //! Does not own: row payload bytes, commit sequencing, or query semantics.
-//! Boundary: data::store persists `RawDataStoreKey`; higher layers use `DataKey`.
+//! Boundary: data::store persists `RawDataStoreKey`; higher layers use `DecodedDataStoreKey`.
 
 #![expect(clippy::cast_possible_truncation)]
 
@@ -30,21 +30,21 @@ use std::{
 use thiserror::Error as ThisError;
 
 ///
-/// DataKeyEncodeError
+/// DecodedDataStoreKeyEncodeError
 /// (serialize boundary)
 ///
 
 #[derive(Debug, ThisError)]
-enum DataKeyEncodeError {
+enum DecodedDataStoreKeyEncodeError {
     #[error("compact data key encoding failed for {key}: {source}")]
     CompactKeyEncoding {
-        key: DataKey,
+        key: DecodedDataStoreKey,
         source: crate::db::key_taxonomy::CompactPrimaryKeyEncodeError,
     },
 }
 
-impl From<DataKeyEncodeError> for InternalError {
-    fn from(err: DataKeyEncodeError) -> Self {
+impl From<DecodedDataStoreKeyEncodeError> for InternalError {
+    fn from(err: DecodedDataStoreKeyEncodeError) -> Self {
         Self::serialize_unsupported(err.to_string())
     }
 }
@@ -82,12 +82,12 @@ impl From<crate::db::key_taxonomy::CompactPrimaryKeyDecodeError> for KeyDecodeEr
 }
 
 ///
-/// DataKeyDecodeError
+/// DecodedDataStoreKeyDecodeError
 /// (decode / corruption boundary)
 ///
 
 #[derive(Debug, ThisError)]
-pub(in crate::db) enum DataKeyDecodeError {
+pub(in crate::db) enum DecodedDataStoreKeyDecodeError {
     #[error("invalid primary key")]
     Key(#[from] KeyDecodeError),
 
@@ -99,16 +99,16 @@ pub(in crate::db) enum DataKeyDecodeError {
 }
 
 ///
-/// DataKey
+/// DecodedDataStoreKey
 ///
 
-pub(in crate::db) struct DataKey {
+pub(in crate::db) struct DecodedDataStoreKey {
     entity: EntityTag,
     key: StorageKey,
     raw: OnceCell<RawDataStoreKey>,
 }
 
-impl DataKey {
+impl DecodedDataStoreKey {
     /// `EntityTag` binary-width contract for on-disk key framing.
     pub(in crate::db) const ENTITY_TAG_SIZE_BYTES: u64 = size_of::<u64>() as u64;
     #[cfg(test)]
@@ -249,7 +249,7 @@ impl DataKey {
 
         self.to_raw_compact_key_error()
             .map_err(|err| {
-                DataKeyEncodeError::CompactKeyEncoding {
+                DecodedDataStoreKeyEncodeError::CompactKeyEncoding {
                     key: self.clone(),
                     source: err,
                 }
@@ -298,9 +298,11 @@ impl DataKey {
         Self::new(entity, key).to_raw_storage_key_error()
     }
 
-    pub(in crate::db) fn try_from_raw(raw: &RawDataStoreKey) -> Result<Self, DataKeyDecodeError> {
+    pub(in crate::db) fn try_from_raw(
+        raw: &RawDataStoreKey,
+    ) -> Result<Self, DecodedDataStoreKeyDecodeError> {
         let decoded = DataStoreKey::try_from_raw_bytes(raw.as_bytes())
-            .map_err(|source| DataKeyDecodeError::StoreKey { source })?;
+            .map_err(|source| DecodedDataStoreKeyDecodeError::StoreKey { source })?;
         let entity = decoded.entity_tag();
         let key = StorageKey::from(
             decoded
@@ -313,7 +315,7 @@ impl DataKey {
     }
 }
 
-impl Clone for DataKey {
+impl Clone for DecodedDataStoreKey {
     fn clone(&self) -> Self {
         let cache = OnceCell::new();
         if let Some(raw) = self.raw.get() {
@@ -328,30 +330,30 @@ impl Clone for DataKey {
     }
 }
 
-impl fmt::Debug for DataKey {
+impl fmt::Debug for DecodedDataStoreKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("DataKey")
+        f.debug_struct("DecodedDataStoreKey")
             .field("entity", &self.entity)
             .field("key", &self.key)
             .finish_non_exhaustive()
     }
 }
 
-impl PartialEq for DataKey {
+impl PartialEq for DecodedDataStoreKey {
     fn eq(&self, other: &Self) -> bool {
         self.entity == other.entity && self.key == other.key
     }
 }
 
-impl Eq for DataKey {}
+impl Eq for DecodedDataStoreKey {}
 
-impl PartialOrd for DataKey {
+impl PartialOrd for DecodedDataStoreKey {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for DataKey {
+impl Ord for DecodedDataStoreKey {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.entity
             .cmp(&other.entity)
@@ -359,14 +361,14 @@ impl Ord for DataKey {
     }
 }
 
-impl Hash for DataKey {
+impl Hash for DecodedDataStoreKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.entity.hash(state);
         self.key.hash(state);
     }
 }
 
-impl Display for DataKey {
+impl Display for DecodedDataStoreKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "#{} ({:?})", self.entity.value(), self.key)
     }
@@ -412,7 +414,7 @@ impl Storable for RawDataStoreKey {
     }
 
     const BOUND: StorableBound = StorableBound::Bounded {
-        max_size: DataKey::STORED_SIZE_BYTES as u32,
+        max_size: DecodedDataStoreKey::STORED_SIZE_BYTES as u32,
         is_fixed_size: false,
     };
 }
@@ -436,8 +438,9 @@ mod tests {
     where
         K: KeyValueCodec + StorageKeyCodec + std::fmt::Debug,
     {
-        let typed = DataKey::try_from_typed_key(entity, &key).expect("typed key should encode");
-        let structural = DataKey::try_from_structural_key(entity, &key.to_key_value())
+        let typed =
+            DecodedDataStoreKey::try_from_typed_key(entity, &key).expect("typed key should encode");
+        let structural = DecodedDataStoreKey::try_from_structural_key(entity, &key.to_key_value())
             .expect("structural key should encode");
 
         assert_eq!(
@@ -456,7 +459,10 @@ mod tests {
 
         let mut typed_data_keys = typed_keys
             .iter()
-            .map(|key| DataKey::try_from_typed_key(entity, key).expect("typed key should encode"))
+            .map(|key| {
+                DecodedDataStoreKey::try_from_typed_key(entity, key)
+                    .expect("typed key should encode")
+            })
             .collect::<Vec<_>>();
         typed_data_keys.sort();
         typed_data_keys.dedup();
@@ -465,7 +471,7 @@ mod tests {
             .iter()
             .map(KeyValueCodec::to_key_value)
             .map(|key| {
-                DataKey::try_from_structural_key(entity, &key)
+                DecodedDataStoreKey::try_from_structural_key(entity, &key)
                     .expect("structural key should encode")
             })
             .collect::<Vec<_>>();
@@ -474,7 +480,7 @@ mod tests {
 
         assert_eq!(
             structural_data_keys, typed_data_keys,
-            "structural DataKey dedup must match typed-key dedup semantics",
+            "structural DecodedDataStoreKey dedup must match typed-key dedup semantics",
         );
     }
 
@@ -500,14 +506,14 @@ mod tests {
 
     #[test]
     fn data_key_max_storable_uses_max_compact_size() {
-        let data_key = DataKey::max_storable();
+        let data_key = DecodedDataStoreKey::max_storable();
         let size = data_key.to_raw().unwrap().as_bytes().len();
-        assert_eq!(size, DataKey::STORED_SIZE_USIZE);
+        assert_eq!(size, DecodedDataStoreKey::STORED_SIZE_USIZE);
     }
 
     #[test]
     fn data_key_golden_snapshot_entity_and_compact_primary_key_layout_is_stable() {
-        let key = DataKey::new(EntityTag::new(5), StorageKey::Int(-1));
+        let key = DecodedDataStoreKey::new(EntityTag::new(5), StorageKey::Int(-1));
         let raw = key.to_raw().expect("data key should encode");
 
         // Freeze the 0.159 on-disk wire contract:
@@ -523,10 +529,10 @@ mod tests {
     #[test]
     fn data_key_ordering_matches_bytes() {
         let keys = vec![
-            DataKey::new(EntityTag::new(1), StorageKey::Int(0)),
-            DataKey::new(EntityTag::new(1), StorageKey::Int(0)),
-            DataKey::new(EntityTag::new(2), StorageKey::Int(0)),
-            DataKey::new(EntityTag::new(1), StorageKey::Nat(1)),
+            DecodedDataStoreKey::new(EntityTag::new(1), StorageKey::Int(0)),
+            DecodedDataStoreKey::new(EntityTag::new(1), StorageKey::Int(0)),
+            DecodedDataStoreKey::new(EntityTag::new(2), StorageKey::Int(0)),
+            DecodedDataStoreKey::new(EntityTag::new(1), StorageKey::Nat(1)),
         ];
 
         let mut by_ord = keys.clone();
@@ -620,7 +626,7 @@ mod tests {
                 storage_key_from_runtime_value(&value)
                     .expect_err("runtime bridge must reject non-storage-key values"),
             );
-            let structural_err = DataKey::try_from_structural_key(entity, &value)
+            let structural_err = DecodedDataStoreKey::try_from_structural_key(entity, &value)
                 .expect_err("structural constructor must reject non-storage-key values");
 
             assert_eq!(typed_err.class(), ErrorClass::Unsupported);
@@ -663,7 +669,7 @@ mod tests {
         );
 
         for value in supported_values {
-            let data_key = DataKey::try_from_structural_key(entity, &value)
+            let data_key = DecodedDataStoreKey::try_from_structural_key(entity, &value)
                 .expect("supported structural key should encode");
             let raw_key = data_key.to_raw().expect("supported key should encode");
             assert!(
@@ -692,21 +698,28 @@ mod tests {
 
     #[test]
     fn data_key_entity_tag_roundtrip_is_big_endian() {
-        let mut raw_bytes = DataKey::max_storable().to_raw().unwrap().into_bytes();
-        raw_bytes[..DataKey::ENTITY_TAG_SIZE_USIZE]
+        let mut raw_bytes = DecodedDataStoreKey::max_storable()
+            .to_raw()
+            .unwrap()
+            .into_bytes();
+        raw_bytes[..DecodedDataStoreKey::ENTITY_TAG_SIZE_USIZE]
             .copy_from_slice(&0x0102_0304_0506_0708u64.to_be_bytes());
         let raw = RawDataStoreKey::from_persisted_bytes(raw_bytes);
-        let decoded = DataKey::try_from_raw(&raw).expect("entity tag bytes should decode");
+        let decoded =
+            DecodedDataStoreKey::try_from_raw(&raw).expect("entity tag bytes should decode");
         assert_eq!(decoded.entity_tag().value(), 0x0102_0304_0506_0708u64);
     }
 
     #[test]
     fn data_key_rejects_corrupt_key() {
-        let mut raw_bytes = DataKey::max_storable().to_raw().unwrap().into_bytes();
-        let off = DataKey::ENTITY_TAG_SIZE_USIZE;
+        let mut raw_bytes = DecodedDataStoreKey::max_storable()
+            .to_raw()
+            .unwrap()
+            .into_bytes();
+        let off = DecodedDataStoreKey::ENTITY_TAG_SIZE_USIZE;
         raw_bytes[off] = 0xFF;
         let raw = RawDataStoreKey::from_persisted_bytes(raw_bytes);
-        assert!(DataKey::try_from_raw(&raw).is_err());
+        assert!(DecodedDataStoreKey::try_from_raw(&raw).is_err());
     }
 
     #[test]
@@ -715,14 +728,14 @@ mod tests {
         let mut seed = 0xDEAD_BEEF_u64;
 
         for _ in 0..1_000 {
-            let mut bytes = [0u8; DataKey::STORED_SIZE_USIZE];
+            let mut bytes = [0u8; DecodedDataStoreKey::STORED_SIZE_USIZE];
             for b in &mut bytes {
                 seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
                 *b = (seed >> 24) as u8;
             }
 
             let raw = RawDataStoreKey::from_persisted_bytes(bytes.to_vec());
-            if let Ok(decoded) = DataKey::try_from_raw(&raw) {
+            if let Ok(decoded) = DecodedDataStoreKey::try_from_raw(&raw) {
                 let re = decoded.to_raw().unwrap();
                 assert_eq!(raw.as_bytes(), re.as_bytes());
             }
@@ -731,7 +744,7 @@ mod tests {
 
     #[test]
     fn raw_data_store_key_storable_roundtrip() {
-        let key = DataKey::max_storable().to_raw().unwrap();
+        let key = DecodedDataStoreKey::max_storable().to_raw().unwrap();
         let bytes = key.to_bytes();
         let decoded = <RawDataStoreKey as Storable>::from_bytes(Cow::Borrowed(&bytes));
         assert_eq!(key, decoded);
@@ -742,8 +755,8 @@ mod tests {
         let decoded = RawDataStoreKey::from_persisted_bytes(vec![1u8, 2u8, 3u8]);
 
         assert!(
-            DataKey::try_from_raw(&decoded).is_err(),
-            "wrong-length raw bytes must not decode into a valid DataKey"
+            DecodedDataStoreKey::try_from_raw(&decoded).is_err(),
+            "wrong-length raw bytes must not decode into a valid DecodedDataStoreKey"
         );
     }
 
@@ -751,13 +764,13 @@ mod tests {
     fn data_key_raw_entity_prefix_range_contains_only_matching_entity() {
         let entity = EntityTag::new(41);
         let range = RawDataStoreKeyRange::entity_prefix(entity);
-        let matching = DataKey::new(entity, StorageKey::Nat(1))
+        let matching = DecodedDataStoreKey::new(entity, StorageKey::Nat(1))
             .to_raw()
             .expect("matching key should encode");
-        let previous = DataKey::new(EntityTag::new(40), StorageKey::Unit)
+        let previous = DecodedDataStoreKey::new(EntityTag::new(40), StorageKey::Unit)
             .to_raw()
             .expect("previous key should encode");
-        let next = DataKey::new(EntityTag::new(42), StorageKey::Nat(0))
+        let next = DecodedDataStoreKey::new(EntityTag::new(42), StorageKey::Nat(0))
             .to_raw()
             .expect("next key should encode");
 

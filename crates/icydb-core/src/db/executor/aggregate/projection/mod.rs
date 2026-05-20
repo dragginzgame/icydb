@@ -11,7 +11,7 @@ mod covering;
 
 use crate::{
     db::{
-        data::{DataKey, DataRow},
+        data::{DataRow, DecodedDataStoreKey},
         executor::{
             CoveringProjectionComponentRows, ExecutionKernel, PreparedAggregatePlan,
             PreparedExecutionPlan,
@@ -56,8 +56,8 @@ use crate::{
     value::Value,
 };
 
-type ValueProjection = Vec<(DataKey, Value)>;
-type CoveringProjectionPairRows = Vec<(DataKey, Value)>;
+type ValueProjection = Vec<(DecodedDataStoreKey, Value)>;
+type CoveringProjectionPairRows = Vec<(DecodedDataStoreKey, Value)>;
 type CoveringProjectionPairsResolution = Result<Option<CoveringProjectionPairRows>, InternalError>;
 
 impl<E> LoadExecutor<E>
@@ -470,7 +470,7 @@ where
             return Ok(None);
         };
 
-        let key = DataKey::new(entity_tag, selected_key);
+        let key = DecodedDataStoreKey::new(entity_tag, selected_key);
         let Some(value) = Self::read_field_value_for_aggregate(
             store,
             &row_layout,
@@ -970,7 +970,7 @@ fn terminal_value_from_covering_projection_pairs(
 // Apply one prepared scalar projection page window in place so covering
 // projection paths do not allocate a second pair vector after reordering.
 fn apply_scalar_projection_window_in_place<T>(
-    projected_pairs: &mut Vec<(DataKey, T)>,
+    projected_pairs: &mut Vec<(DecodedDataStoreKey, T)>,
     window: ScalarProjectionWindow,
 ) {
     let keep_start = window.offset.min(projected_pairs.len());

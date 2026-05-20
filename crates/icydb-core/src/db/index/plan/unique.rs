@@ -6,7 +6,7 @@
 
 use crate::{
     db::{
-        data::{DataKey, StorageKey, StructuralRowContract, StructuralSlotReader},
+        data::{DecodedDataStoreKey, StorageKey, StructuralRowContract, StructuralSlotReader},
         index::{
             IndexId, IndexKey, IndexPlanReadView, IndexReadContract,
             plan::{accepted_expression_key_item_label, error::IndexPlanError},
@@ -202,7 +202,7 @@ fn validate_unique_constraint_structural_impl(
 
     // Phase 3: prove that the stored row still belongs to this key and value
     // through the structural persisted-row decode path only.
-    let data_key = DataKey::new(entity_tag, existing_key);
+    let data_key = DecodedDataStoreKey::new(entity_tag, existing_key);
     let row = read_view
         .read_primary_row(&data_key)?
         .ok_or_else(|| InternalError::index_unique_validation_row_required(&data_key))?;
@@ -239,7 +239,7 @@ fn validate_unique_constraint_structural_impl(
 // Decode one stored row through the canonical structural persisted-row scanner
 // and validate its authoritative primary-key slot for unique validation.
 fn decode_unique_row_slots<'a>(
-    data_key: &DataKey,
+    data_key: &DecodedDataStoreKey,
     row: &'a crate::db::data::RawRow,
     row_contract: &StructuralRowContract,
 ) -> Result<StructuralSlotReader<'a>, InternalError> {
@@ -262,7 +262,7 @@ fn decode_unique_row_slots<'a>(
 fn build_unique_index_key_from_row_slots(
     entity_tag: EntityTag,
     entity_path: &'static str,
-    data_key: &DataKey,
+    data_key: &DecodedDataStoreKey,
     storage_key: StorageKey,
     row_fields: &StructuralSlotReader<'_>,
     key_authority: &UniqueKeyAuthority<'_>,

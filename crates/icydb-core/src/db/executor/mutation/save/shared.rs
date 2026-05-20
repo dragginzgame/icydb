@@ -2,7 +2,7 @@ use crate::{
     db::{
         Db,
         commit::CommitRowOp,
-        data::{DataKey, PersistedRow, RawRow},
+        data::{DecodedDataStoreKey, PersistedRow, RawRow},
         executor::{
             Context, ExecutorError,
             mutation::{
@@ -25,7 +25,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // explicit at the mutation lane boundary instead of optional inside lookup.
     pub(super) fn resolve_existing_row_for_rule_with_accepted_contract(
         ctx: &Context<'_, E>,
-        data_key: &DataKey,
+        data_key: &DecodedDataStoreKey,
         save_rule: SaveRule,
         accepted_row_decode_contract: &AcceptedRowDecodeContract,
         accepted_schema_info: &SchemaInfo,
@@ -49,9 +49,9 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // caller has selected the identity validator for the active schema lane.
     fn resolve_existing_row_for_rule_with_identity_validator(
         ctx: &Context<'_, E>,
-        data_key: &DataKey,
+        data_key: &DecodedDataStoreKey,
         save_rule: SaveRule,
-        validate_existing_row: impl Fn(&DataKey, &RawRow) -> Result<(), InternalError>,
+        validate_existing_row: impl Fn(&DecodedDataStoreKey, &RawRow) -> Result<(), InternalError>,
     ) -> Result<Option<RawRow>, InternalError> {
         let raw_key = data_key.to_raw()?;
 
@@ -87,7 +87,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // Decode an existing accepted-layout row and verify it is consistent with
     // the target data key before mutation staging treats it as the before image.
     fn validate_existing_row_identity_with_accepted_contract(
-        data_key: &DataKey,
+        data_key: &DecodedDataStoreKey,
         row: &RawRow,
         accepted_row_decode_contract: &AcceptedRowDecodeContract,
         accepted_schema_info: &SchemaInfo,
@@ -106,7 +106,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // Preserve the existing row-identity error taxonomy while allowing accepted
     // and generated validation lanes to stay branch-free.
     fn map_existing_row_identity_error(
-        data_key: &DataKey,
+        data_key: &DecodedDataStoreKey,
         result: Result<(), InternalError>,
     ) -> Result<(), InternalError> {
         result.map_err(|err| match (err.class(), err.origin()) {

@@ -5,7 +5,7 @@ use crate::model::entity::EntityModel;
 use crate::{
     db::{
         data::{
-            DataKey, RawRow, StructuralFieldDecodeContract, StructuralRowContract,
+            DecodedDataStoreKey, RawRow, StructuralFieldDecodeContract, StructuralRowContract,
             StructuralRowDecodeError, StructuralRowFieldBytes, ValueStorageView,
             persisted_row::{
                 codec::{ScalarSlotValueRef, ScalarValueRef},
@@ -147,13 +147,13 @@ impl<'a> StructuralSlotReader<'a> {
     /// Validate the decoded primary-key slot against the authoritative row key.
     pub(in crate::db) fn validate_storage_key(
         &self,
-        data_key: &DataKey,
+        data_key: &DecodedDataStoreKey,
     ) -> Result<(), InternalError> {
         self.validate_storage_key_value(data_key.storage_key())
     }
 
     // Validate the decoded primary-key slot against one authoritative storage
-    // key without rebuilding a full `DataKey` wrapper at the call site.
+    // key without rebuilding a full `DecodedDataStoreKey` wrapper at the call site.
     fn validate_storage_key_value(&self, expected_key: StorageKey) -> Result<(), InternalError> {
         let primary_key_slot = self.contract.primary_key_slot();
 

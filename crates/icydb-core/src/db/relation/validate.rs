@@ -6,7 +6,7 @@
 use crate::{
     db::{
         Db,
-        data::{DataKey, RawDataStoreKey, StructuralRowContract},
+        data::{DecodedDataStoreKey, RawDataStoreKey, StructuralRowContract},
         direction::Direction,
         registry::StoreHandle,
         relation::{
@@ -38,7 +38,7 @@ use std::{collections::BTreeSet, ops::Bound};
 
 struct BlockedDeleteProof {
     relation: AcceptedStrongRelationInfo,
-    source_data_key: DataKey,
+    source_data_key: DecodedDataStoreKey,
     target_key: StorageKey,
 }
 
@@ -165,7 +165,7 @@ where
                         // Phase 2: verify the key-owned source row before rejecting delete.
                         let source_key = entry.storage_key();
                         {
-                            let source_data_key = DataKey::new(source_info.entity_tag(), source_key);
+                            let source_data_key = DecodedDataStoreKey::new(source_info.entity_tag(), source_key);
                             let source_raw_key = source_data_key.to_raw()?;
                             let source_raw_row =
                                 source_store.with_data(|store| store.get(&source_raw_key));

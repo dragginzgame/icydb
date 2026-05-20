@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        data::{DataKey, DataRow, RawRow},
+        data::{DataRow, DecodedDataStoreKey, RawRow},
         executor::{
             ExecutorError,
             projection::eval_effective_runtime_filter_program_with_slot_reader,
@@ -49,7 +49,7 @@ impl ScalarRowRuntimeState {
     fn read_row(
         &self,
         consistency: MissingRowPolicy,
-        key: &DataKey,
+        key: &DecodedDataStoreKey,
     ) -> Result<Option<RawRow>, InternalError> {
         #[cfg(feature = "diagnostics")]
         let (key_encode_local_instructions, raw_key_result) =
@@ -84,7 +84,7 @@ impl ScalarRowRuntimeState {
     fn read_data_row_only(
         &self,
         consistency: MissingRowPolicy,
-        key: DataKey,
+        key: DecodedDataStoreKey,
     ) -> Result<Option<KernelRow>, InternalError> {
         let Some(data_row) = self.read_data_row(consistency, key)? else {
             return Ok(None);
@@ -98,7 +98,7 @@ impl ScalarRowRuntimeState {
     fn read_data_row(
         &self,
         consistency: MissingRowPolicy,
-        key: DataKey,
+        key: DecodedDataStoreKey,
     ) -> Result<Option<DataRow>, InternalError> {
         let Some(row) = self.read_row(consistency, &key)? else {
             return Ok(None);
@@ -113,7 +113,7 @@ impl ScalarRowRuntimeState {
     fn read_data_row_with_filter_program(
         &self,
         consistency: MissingRowPolicy,
-        key: DataKey,
+        key: DecodedDataStoreKey,
         filter_program: &EffectiveRuntimeFilterProgram,
         _retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<DataRow>, InternalError> {
@@ -132,7 +132,7 @@ impl ScalarRowRuntimeState {
     fn read_full_row_retained(
         &self,
         consistency: MissingRowPolicy,
-        key: DataKey,
+        key: DecodedDataStoreKey,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<KernelRow>, InternalError> {
         let Some(row) = self.read_row(consistency, &key)? else {
@@ -157,7 +157,7 @@ impl ScalarRowRuntimeState {
     fn read_full_row_retained_with_filter_program(
         &self,
         consistency: MissingRowPolicy,
-        key: DataKey,
+        key: DecodedDataStoreKey,
         filter_program: &EffectiveRuntimeFilterProgram,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<KernelRow>, InternalError> {
@@ -184,7 +184,7 @@ impl ScalarRowRuntimeState {
     fn read_slot_only(
         &self,
         consistency: MissingRowPolicy,
-        key: &DataKey,
+        key: &DecodedDataStoreKey,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<KernelRow>, InternalError> {
         let Some(row) = self.read_row(consistency, key)? else {
@@ -205,7 +205,7 @@ impl ScalarRowRuntimeState {
     fn read_slot_only_with_filter_program(
         &self,
         consistency: MissingRowPolicy,
-        key: &DataKey,
+        key: &DecodedDataStoreKey,
         filter_program: &EffectiveRuntimeFilterProgram,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<KernelRow>, InternalError> {
@@ -290,7 +290,7 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
     pub(in crate::db::executor) fn read_data_row_only(
         &self,
         consistency: MissingRowPolicy,
-        key: DataKey,
+        key: DecodedDataStoreKey,
     ) -> Result<Option<KernelRow>, InternalError> {
         self.state.read_data_row_only(consistency, key)
     }
@@ -300,7 +300,7 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
     pub(in crate::db::executor) fn read_data_row(
         &self,
         consistency: MissingRowPolicy,
-        key: DataKey,
+        key: DecodedDataStoreKey,
     ) -> Result<Option<DataRow>, InternalError> {
         self.state.read_data_row(consistency, key)
     }
@@ -310,7 +310,7 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
     pub(in crate::db::executor) fn read_data_row_with_filter_program(
         &self,
         consistency: MissingRowPolicy,
-        key: DataKey,
+        key: DecodedDataStoreKey,
         filter_program: &EffectiveRuntimeFilterProgram,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<DataRow>, InternalError> {
@@ -327,7 +327,7 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
     pub(in crate::db::executor) fn read_full_row_retained(
         &self,
         consistency: MissingRowPolicy,
-        key: DataKey,
+        key: DecodedDataStoreKey,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<KernelRow>, InternalError> {
         self.state
@@ -339,7 +339,7 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
     pub(in crate::db::executor) fn read_full_row_retained_with_filter_program(
         &self,
         consistency: MissingRowPolicy,
-        key: DataKey,
+        key: DecodedDataStoreKey,
         filter_program: &EffectiveRuntimeFilterProgram,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<KernelRow>, InternalError> {
@@ -355,7 +355,7 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
     pub(in crate::db::executor) fn read_slot_only(
         &self,
         consistency: MissingRowPolicy,
-        key: &DataKey,
+        key: &DecodedDataStoreKey,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<KernelRow>, InternalError> {
         self.state
@@ -367,7 +367,7 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
     pub(in crate::db::executor) fn read_slot_only_with_filter_program(
         &self,
         consistency: MissingRowPolicy,
-        key: &DataKey,
+        key: &DecodedDataStoreKey,
         filter_program: &EffectiveRuntimeFilterProgram,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<KernelRow>, InternalError> {

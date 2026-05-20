@@ -15,7 +15,7 @@ use crate::{
     model::entity::EntityModel,
 };
 use crate::{
-    db::{codec::MAX_ROW_BYTES, data::DataKey},
+    db::{codec::MAX_ROW_BYTES, data::DecodedDataStoreKey},
     error::InternalError,
     traits::Storable,
 };
@@ -27,7 +27,7 @@ use thiserror::Error as ThisError;
 /// DataRow
 ///
 
-pub(in crate::db) type DataRow = (DataKey, RawRow);
+pub(in crate::db) type DataRow = (DecodedDataStoreKey, RawRow);
 
 ///
 /// CanonicalRow

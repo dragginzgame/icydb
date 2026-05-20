@@ -194,7 +194,7 @@ pub(in crate::db::executor) fn validate_executor_plan_for_authority(
 #[cfg(test)]
 use crate::{db::CompiledQuery, traits::EntityKind};
 use crate::{
-    db::{cursor::CursorPlanError, data::DataKey, query::plan::AccessPlannedQuery},
+    db::{cursor::CursorPlanError, data::DecodedDataStoreKey, query::plan::AccessPlannedQuery},
     error::{ErrorClass, ErrorOrigin, InternalError},
 };
 use thiserror::Error as ThisError;
@@ -307,7 +307,7 @@ pub(in crate::db::executor) enum ExecutorError {
     },
 
     #[error("data key exists: {0}")]
-    KeyExists(DataKey),
+    KeyExists(DecodedDataStoreKey),
 }
 
 impl ExecutorError {
@@ -341,13 +341,13 @@ impl ExecutorError {
     }
 
     // Construct the canonical missing-row store corruption error.
-    pub(in crate::db::executor) fn missing_row(key: &DataKey) -> Self {
+    pub(in crate::db::executor) fn missing_row(key: &DecodedDataStoreKey) -> Self {
         Self::store_corruption(format!("missing row: {key}"))
     }
 
     // Construct the canonical persisted-row invariant-violation corruption error.
     pub(in crate::db::executor) fn persisted_row_invariant_violation(
-        data_key: &DataKey,
+        data_key: &DecodedDataStoreKey,
         detail: impl AsRef<str>,
     ) -> Self {
         Self::store_corruption(format!(

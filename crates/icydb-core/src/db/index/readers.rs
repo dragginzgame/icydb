@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::{DataKey, RawRow, StorageKey},
+        data::{DecodedDataStoreKey, RawRow, StorageKey},
         index::{IndexEntryValue, IndexStore, RawIndexStoreKey},
     },
     error::InternalError,
@@ -101,7 +101,7 @@ pub(in crate::db) trait PrimaryRowReader<E: EntityKind + EntityValue>:
     SealedPrimaryRowReader<E>
 {
     /// Return the primary row for `key`, or `None` when no row exists.
-    fn read_primary_row(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError>;
+    fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError>;
 }
 
 ///
@@ -115,7 +115,10 @@ pub(in crate::db) trait StructuralPrimaryRowReader:
     SealedStructuralPrimaryRowReader
 {
     /// Return the primary row for `key`, or `None` when no row exists.
-    fn read_primary_row_structural(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError>;
+    fn read_primary_row_structural(
+        &self,
+        key: &DecodedDataStoreKey,
+    ) -> Result<Option<RawRow>, InternalError>;
 }
 
 ///
@@ -205,7 +208,10 @@ impl<E> StructuralPrimaryRowReader for dyn PrimaryRowReader<E> + '_
 where
     E: EntityKind + EntityValue,
 {
-    fn read_primary_row_structural(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError> {
+    fn read_primary_row_structural(
+        &self,
+        key: &DecodedDataStoreKey,
+    ) -> Result<Option<RawRow>, InternalError> {
         self.read_primary_row(key)
     }
 }

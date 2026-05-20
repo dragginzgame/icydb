@@ -48,7 +48,7 @@ use crate::{
         commit::{ensure_recovered, init_commit_store_for_tests},
         cursor::CursorPlanError,
         data::{
-            DataKey, DataStore, decode_structural_value_storage_bytes,
+            DataStore, DecodedDataStoreKey, decode_structural_value_storage_bytes,
             encode_structural_value_storage_bytes,
         },
         direction::Direction,
@@ -3023,7 +3023,7 @@ fn inspect_filtered_expression_order_only_raw_scan(
                     let entry = raw_entry
                         .try_decode_for_key(raw_key)
                         .expect("filtered expression index range scan entry");
-                    keys.push(DataKey::new(
+                    keys.push(DecodedDataStoreKey::new(
                         FilteredIndexedSessionSqlEntity::ENTITY_TAG,
                         entry.storage_key(),
                     ));
@@ -3040,7 +3040,7 @@ fn inspect_filtered_expression_order_only_raw_scan(
     });
     let scanned_ids = keys
         .into_iter()
-        .map(|key: DataKey| match key.storage_key() {
+        .map(|key: DecodedDataStoreKey| match key.storage_key() {
             StorageKey::Ulid(id) => id,
             other => panic!(
                 "filtered expression fixture keys should stay on ULID primary keys: {other:?}"
@@ -3295,7 +3295,7 @@ fn capture_rows_scanned_for_entity<R>(
 }
 
 fn session_aggregate_raw_row(id: Ulid) -> crate::db::data::RawRow {
-    let raw_key = DataKey::try_new::<SessionAggregateEntity>(id)
+    let raw_key = DecodedDataStoreKey::try_new::<SessionAggregateEntity>(id)
         .expect("session aggregate data key should build")
         .to_raw()
         .expect("session aggregate data key should encode");

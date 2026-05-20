@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        data::{DataKey, RawRow, StorageKey},
+        data::{DecodedDataStoreKey, RawRow, StorageKey},
         direction::Direction,
         index::{
             IndexEntryValue, IndexReadContract, IndexStore, RawIndexStoreKey,
@@ -15,7 +15,10 @@ use crate::{
 use std::{cell::RefCell, ops::Bound, thread::LocalKey};
 
 impl StructuralPrimaryRowReader for StoreHandle {
-    fn read_primary_row_structural(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError> {
+    fn read_primary_row_structural(
+        &self,
+        key: &DecodedDataStoreKey,
+    ) -> Result<Option<RawRow>, InternalError> {
         let raw_key = key.to_raw()?;
 
         Ok(self.with_data(|store| store.get(&raw_key)))

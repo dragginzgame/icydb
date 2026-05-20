@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::{DataKey, StorageKey},
+        data::{DecodedDataStoreKey, StorageKey},
         executor::stream::key::{KeyOrderComparator, OrderedKeyStream},
     },
     error::InternalError,
@@ -14,11 +14,11 @@ use crate::{
 
 type DataKeyWitness = (EntityTag, StorageKey);
 
-const fn data_key_witness(key: &DataKey) -> DataKeyWitness {
+const fn data_key_witness(key: &DecodedDataStoreKey) -> DataKeyWitness {
     (key.entity_tag(), key.storage_key())
 }
 
-fn witness_matches_key(witness: &DataKeyWitness, key: &DataKey) -> bool {
+fn witness_matches_key(witness: &DataKeyWitness, key: &DecodedDataStoreKey) -> bool {
     witness.0 == key.entity_tag() && witness.1 == key.storage_key()
 }
 
@@ -30,7 +30,7 @@ fn witness_matches_key(witness: &DataKeyWitness, key: &DataKey) -> bool {
 ///
 
 struct StreamSideState {
-    item: Option<DataKey>,
+    item: Option<DecodedDataStoreKey>,
     done: bool,
     last_key: Option<DataKeyWitness>,
     comparator: KeyOrderComparator,
@@ -76,7 +76,7 @@ impl StreamSideState {
     // Push one polled key into this stream-side lookahead slot with direction checks.
     fn push_key(
         &mut self,
-        key: DataKey,
+        key: DecodedDataStoreKey,
         stream_kind: &'static str,
         direction_context: &'static str,
     ) -> Result<(), InternalError> {
@@ -125,7 +125,7 @@ impl StreamSideState {
     // Validate this stream-side monotonicity according to configured direction.
     fn validate_monotonicity(
         &self,
-        current: &DataKey,
+        current: &DecodedDataStoreKey,
         stream_kind: &'static str,
         direction_context: &'static str,
     ) -> Result<(), InternalError> {
@@ -162,7 +162,7 @@ impl StreamSideState {
         ))
     }
 
-    fn take_item(&mut self) -> Option<DataKey> {
+    fn take_item(&mut self) -> Option<DecodedDataStoreKey> {
         let key = self.item.take()?;
         self.last_key = Some(data_key_witness(&key));
 
@@ -250,7 +250,7 @@ where
     A: OrderedKeyStream,
     B: OrderedKeyStream,
 {
-    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
         loop {
             // Maintain one lookahead key on each side.
             self.ensure_left_item()?;
@@ -355,7 +355,7 @@ where
     A: OrderedKeyStream,
     B: OrderedKeyStream,
 {
-    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
         loop {
             // Once either child is exhausted, no further intersection output is possible.
             if self.pair.left.done || self.pair.right.done {

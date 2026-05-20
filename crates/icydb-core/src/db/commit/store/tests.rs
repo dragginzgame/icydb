@@ -6,7 +6,7 @@ use crate::{
             COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, CommitRowOp, MAX_COMMIT_BYTES,
             decode_commit_marker_payload, encode_commit_marker_payload,
         },
-        data::{DataKey, RawDataStoreKey},
+        data::{DecodedDataStoreKey, RawDataStoreKey},
     },
     error::{ErrorClass, ErrorOrigin},
     testing::test_memory,
@@ -24,7 +24,7 @@ fn encode_test_marker_payload(marker: &CommitMarker) -> Vec<u8> {
 
 // Materialize one canonical raw data-store key for marker tests.
 fn raw_data_store_key(fill: u8) -> RawDataStoreKey {
-    DataKey::try_from_typed_key(EntityTag::new(1), &u64::from(fill))
+    DecodedDataStoreKey::try_from_typed_key(EntityTag::new(1), &u64::from(fill))
         .expect("test key should encode")
         .to_raw()
         .expect("test key should materialize")
@@ -353,8 +353,8 @@ fn commit_marker_rejects_row_op_with_invalid_key_length() {
 
 #[test]
 fn commit_marker_rejects_row_op_with_invalid_key_shape() {
-    let mut malformed_key = vec![0u8; DataKey::STORED_SIZE_USIZE];
-    malformed_key[DataKey::ENTITY_TAG_SIZE_USIZE] = 0xFF;
+    let mut malformed_key = vec![0u8; DecodedDataStoreKey::STORED_SIZE_USIZE];
+    malformed_key[DecodedDataStoreKey::ENTITY_TAG_SIZE_USIZE] = 0xFF;
 
     let bytes = encode_test_single_row_payload_from_parts(
         "test::Entity",

@@ -7,7 +7,7 @@ use crate::{
     db::{
         access::{LoweredIndexPrefixSpec, LoweredIndexRangeSpec},
         cursor::IndexScanContinuationInput,
-        data::DataKey,
+        data::DecodedDataStoreKey,
         direction::Direction,
         executor::{
             IndexScan, read_row_presence_with_consistency_from_data_store,
@@ -35,8 +35,11 @@ const COVERING_I64_SIGN_BIT_BIAS: u64 = 1u64 << 63;
 
 pub(in crate::db::executor) type CoveringComponentValues = Arc<[Vec<u8>]>;
 
-pub(in crate::db::executor) type CoveringProjectionComponentRows =
-    Vec<(DataKey, IndexEntryExistenceWitness, CoveringComponentValues)>;
+pub(in crate::db::executor) type CoveringProjectionComponentRows = Vec<(
+    DecodedDataStoreKey,
+    IndexEntryExistenceWitness,
+    CoveringComponentValues,
+)>;
 
 // Build the canonical executor-owned covering mode for fast paths that still
 // must verify row presence before trusting secondary/index-backed payloads.
@@ -60,7 +63,7 @@ pub(in crate::db::executor) const fn covering_projection_scan_direction(
 // Reapply the logical covering projection order after component decoding.
 pub(in crate::db::executor) fn reorder_covering_projection_pairs<T>(
     order_contract: CoveringProjectionOrder,
-    projected_pairs: &mut [(DataKey, T)],
+    projected_pairs: &mut [(DecodedDataStoreKey, T)],
 ) {
     match order_contract {
         CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc) => {
@@ -165,7 +168,7 @@ pub(in crate::db::executor) fn map_covering_projection_pairs<T, F>(
     consistency: MissingRowPolicy,
     existing_row_mode: CoveringExistingRowMode,
     mut map_components: F,
-) -> Result<Option<Vec<(DataKey, T)>>, InternalError>
+) -> Result<Option<Vec<(DecodedDataStoreKey, T)>>, InternalError>
 where
     F: FnMut(CoveringComponentValues) -> Result<Option<T>, InternalError>,
 {
@@ -272,7 +275,7 @@ fn decode_covering_projection_pairs_with<T, D, Decode, Map>(
     existing_row_mode: CoveringExistingRowMode,
     mut decode_components: Decode,
     mut map_decoded: Map,
-) -> Result<Option<Vec<(DataKey, T)>>, InternalError>
+) -> Result<Option<Vec<(DecodedDataStoreKey, T)>>, InternalError>
 where
     Decode: FnMut(CoveringComponentValues) -> Result<Option<D>, InternalError>,
     Map: FnMut(D) -> Result<T, InternalError>,
@@ -300,7 +303,7 @@ pub(in crate::db::executor) fn decode_covering_projection_pairs<T, F>(
     consistency: MissingRowPolicy,
     existing_row_mode: CoveringExistingRowMode,
     map_decoded: F,
-) -> Result<Option<Vec<(DataKey, T)>>, InternalError>
+) -> Result<Option<Vec<(DecodedDataStoreKey, T)>>, InternalError>
 where
     F: FnMut(Vec<Value>) -> Result<T, InternalError>,
 {
@@ -323,7 +326,7 @@ pub(in crate::db::executor) fn decode_single_covering_projection_pairs<T, F>(
     existing_row_mode: CoveringExistingRowMode,
     invariant_message: &'static str,
     map_decoded: F,
-) -> Result<Option<Vec<(DataKey, T)>>, InternalError>
+) -> Result<Option<Vec<(DecodedDataStoreKey, T)>>, InternalError>
 where
     F: FnMut(Value) -> Result<T, InternalError>,
 {

@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        data::{DataKey, StorageKey},
+        data::{DecodedDataStoreKey, StorageKey},
         direction::Direction,
         executor::stream::key::{
             BudgetedOrderedKeyStream, IntersectOrderedKeyStream, KeyOrderComparator,
@@ -12,11 +12,11 @@ use crate::{
     types::EntityTag,
 };
 
-fn data_key(value: u64) -> DataKey {
-    let raw = DataKey::raw_from_parts(EntityTag::new(1), StorageKey::Nat(value))
+fn data_key(value: u64) -> DecodedDataStoreKey {
+    let raw = DecodedDataStoreKey::raw_from_parts(EntityTag::new(1), StorageKey::Nat(value))
         .expect("test key encoding should succeed");
 
-    DataKey::try_from_raw(&raw).expect("test key decode should succeed")
+    DecodedDataStoreKey::try_from_raw(&raw).expect("test key decode should succeed")
 }
 
 ///
@@ -28,13 +28,13 @@ fn data_key(value: u64) -> DataKey {
 ///
 
 struct StaticOrderedKeyStream {
-    keys: Vec<DataKey>,
+    keys: Vec<DecodedDataStoreKey>,
     index: usize,
     fail_at: Option<usize>,
 }
 
 impl StaticOrderedKeyStream {
-    fn new(keys: Vec<DataKey>) -> Self {
+    fn new(keys: Vec<DecodedDataStoreKey>) -> Self {
         Self {
             keys,
             index: 0,
@@ -42,7 +42,7 @@ impl StaticOrderedKeyStream {
         }
     }
 
-    fn with_fail_at(keys: Vec<DataKey>, fail_at: usize) -> Self {
+    fn with_fail_at(keys: Vec<DecodedDataStoreKey>, fail_at: usize) -> Self {
         Self {
             keys,
             index: 0,
@@ -52,7 +52,7 @@ impl StaticOrderedKeyStream {
 }
 
 impl OrderedKeyStream for StaticOrderedKeyStream {
-    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
         if self.fail_at.is_some_and(|idx| self.index == idx) {
             return Err(InternalError::query_internal("forced stream failure"));
         }
@@ -67,7 +67,9 @@ impl OrderedKeyStream for StaticOrderedKeyStream {
     }
 }
 
-fn collect_stream(stream: &mut impl OrderedKeyStream) -> Result<Vec<DataKey>, InternalError> {
+fn collect_stream(
+    stream: &mut impl OrderedKeyStream,
+) -> Result<Vec<DecodedDataStoreKey>, InternalError> {
     let mut out = Vec::new();
     while let Some(key) = stream.next_key()? {
         out.push(key);

@@ -2,7 +2,7 @@ use crate::{
     db::{
         PersistedRow,
         commit::prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
-        data::DataKey,
+        data::DecodedDataStoreKey,
         executor::mutation::save::shared::accumulate_prepared_row_op_delta,
         executor::mutation::{
             PreparedRowOpDelta, emit_index_delta_metrics, mutation_write_context,
@@ -234,7 +234,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                     preflight.schema_fingerprint,
                 )?;
                 if !seen_row_keys.insert(marker_row_op.key.clone()) {
-                    let data_key = DataKey::try_new::<E>(entity.id().key())?;
+                    let data_key = DecodedDataStoreKey::try_new::<E>(entity.id().key())?;
                     return Err(InternalError::mutation_atomic_save_duplicate_key(
                         E::PATH,
                         data_key,

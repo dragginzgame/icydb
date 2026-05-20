@@ -8,7 +8,7 @@ use crate::{
         Db,
         commit::PreparedIndexMutation,
         data::{
-            CanonicalSlotReader, DataKey, RawDataStoreKey, RawRow, ScalarSlotValueRef,
+            CanonicalSlotReader, DecodedDataStoreKey, RawDataStoreKey, RawRow, ScalarSlotValueRef,
             ScalarValueRef, StorageKey, StructuralRowContract, StructuralSlotReader,
             decode_accepted_relation_target_storage_keys_bytes,
         },
@@ -569,8 +569,8 @@ pub(in crate::db::relation) fn decode_relation_target_data_key(
     target_raw_key: &RawDataStoreKey,
     context: RelationTargetDecodeContext,
     mismatch_policy: RelationTargetMismatchPolicy,
-) -> Result<Option<DataKey>, InternalError> {
-    let target_data_key = DataKey::try_from_raw(target_raw_key).map_err(|err| {
+) -> Result<Option<DecodedDataStoreKey>, InternalError> {
+    let target_data_key = DecodedDataStoreKey::try_from_raw(target_raw_key).map_err(|err| {
         InternalError::relation_target_key_decode_failed(
             relation_target_key_decode_context_label(context),
             source.path,
@@ -714,7 +714,7 @@ fn raw_relation_target_key_from_storage_key(
     relation: &AcceptedStrongRelationInfo,
     value: StorageKey,
 ) -> Result<RawDataStoreKey, InternalError> {
-    DataKey::raw_from_parts(relation.target().entity_tag(), value).map_err(|err| {
+    DecodedDataStoreKey::raw_from_parts(relation.target().entity_tag(), value).map_err(|err| {
         InternalError::relation_source_row_decode_failed(
             source.path,
             relation.field_name(),

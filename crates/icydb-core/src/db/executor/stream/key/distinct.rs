@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::DataKey,
+        data::DecodedDataStoreKey,
         executor::stream::key::{KeyOrderComparator, OrderedKeyStream},
     },
     error::InternalError,
@@ -15,13 +15,13 @@ use std::{cell::Cell, rc::Rc};
 ///
 /// DistinctOrderedKeyStream
 ///
-/// Ordered-key stream adapter that suppresses adjacent duplicate `DataKey`
+/// Ordered-key stream adapter that suppresses adjacent duplicate `DecodedDataStoreKey`
 /// values while preserving upstream monotonic key order invariants.
 ///
 
 pub(in crate::db::executor) struct DistinctOrderedKeyStream<S> {
     inner: S,
-    last_emitted: Option<DataKey>,
+    last_emitted: Option<DecodedDataStoreKey>,
     comparator: KeyOrderComparator,
     deduped_keys_counter: Option<Rc<Cell<u64>>>,
 }
@@ -58,7 +58,7 @@ impl<S> OrderedKeyStream for DistinctOrderedKeyStream<S>
 where
     S: OrderedKeyStream,
 {
-    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
         loop {
             let Some(next) = self.inner.next_key()? else {
                 return Ok(None);

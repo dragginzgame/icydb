@@ -8,7 +8,7 @@ use crate::db::executor::projection::MaterializedProjectionRows;
 use crate::{
     db::{
         commit::{CommitRowOp, CommitSchemaFingerprint},
-        data::{DataKey, RawDataStoreKey, RawRow},
+        data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
         executor::{
             EntityAuthority, ExecutionPlan, ExecutionPreparation, PreparedExecutionPlan,
             saturating_u32_len, traversal::row_read_consistency_for_plan,
@@ -31,7 +31,7 @@ pub(in crate::db::executor) struct DeleteRow<E>
 where
     E: EntityKind,
 {
-    pub(in crate::db::executor::delete) key: DataKey,
+    pub(in crate::db::executor::delete) key: DecodedDataStoreKey,
     pub(in crate::db::executor::delete) raw: Option<RawRow>,
     pub(in crate::db::executor::delete) entity: E,
 }

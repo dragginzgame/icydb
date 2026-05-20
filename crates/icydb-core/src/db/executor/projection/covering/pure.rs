@@ -10,7 +10,7 @@ use crate::{
     db::{
         Db,
         access::lower_access,
-        data::DataKey,
+        data::DecodedDataStoreKey,
         executor::projection::covering::shared::{
             covering_projection_component_indices, project_covering_row_from_decoded_values,
             project_covering_row_from_owned_decoded_values,
@@ -131,7 +131,7 @@ where
         #[cfg(all(feature = "sql", feature = "diagnostics"))]
         record_pure_covering_decode_local_instructions(decode_local_instructions);
         #[cfg(all(feature = "sql", feature = "diagnostics"))]
-        let Some(projected_keys): Option<Vec<(DataKey, ())>> = projected_keys? else {
+        let Some(projected_keys): Option<Vec<(DecodedDataStoreKey, ())>> = projected_keys? else {
             return Ok(None);
         };
 
@@ -181,7 +181,7 @@ where
                     &[],
                 )?;
 
-                Ok::<(DataKey, Vec<Value>), InternalError>((data_key, projected_row))
+                Ok::<(DecodedDataStoreKey, Vec<Value>), InternalError>((data_key, projected_row))
             },
         )?;
         apply_pure_covering_page_window(
@@ -221,7 +221,7 @@ where
         #[cfg(all(feature = "sql", feature = "diagnostics"))]
         record_pure_covering_decode_local_instructions(decode_local_instructions);
         #[cfg(all(feature = "sql", feature = "diagnostics"))]
-        let Some(decoded_rows): Option<Vec<(DataKey, Value)>> = decoded_rows? else {
+        let Some(decoded_rows): Option<Vec<(DecodedDataStoreKey, Value)>> = decoded_rows? else {
             return Ok(None);
         };
 
@@ -272,7 +272,7 @@ where
                     decoded_value,
                 )?;
 
-                Ok::<(DataKey, Vec<Value>), InternalError>((data_key, projected_row))
+                Ok::<(DecodedDataStoreKey, Vec<Value>), InternalError>((data_key, projected_row))
             },
         )?;
         apply_pure_covering_page_window(
@@ -358,7 +358,7 @@ where
                 decoded_values,
             )?;
 
-            Ok::<(DataKey, Vec<Value>), InternalError>((data_key, projected_row))
+            Ok::<(DecodedDataStoreKey, Vec<Value>), InternalError>((data_key, projected_row))
         },
     )?;
     apply_pure_covering_page_window(
@@ -530,8 +530,8 @@ where
     let scan_limit = (scan_limit != usize::MAX).then_some(scan_limit);
 
     if let Some((start, end)) = plan.access.as_primary_key_range_path() {
-        let start = DataKey::try_from_structural_key(authority.entity_tag(), start)?;
-        let end = DataKey::try_from_structural_key(authority.entity_tag(), end)?;
+        let start = DecodedDataStoreKey::try_from_structural_key(authority.entity_tag(), start)?;
+        let end = DecodedDataStoreKey::try_from_structural_key(authority.entity_tag(), end)?;
 
         return Ok(Some(OrderedKeyStreamBox::primary_range(
             PrimaryRangeKeyStream::new(store, start, end, direction, scan_limit)?,
@@ -694,7 +694,7 @@ fn assemble_covering_rows_in_index_order<I>(
 fn assemble_covering_rows_with_reorder<I>(
     items: Vec<I>,
     order_contract: CoveringProjectionOrder,
-    build_row: impl FnMut(I) -> Result<(DataKey, Vec<Value>), InternalError>,
+    build_row: impl FnMut(I) -> Result<(DecodedDataStoreKey, Vec<Value>), InternalError>,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     let mut build_row = build_row;
@@ -735,8 +735,8 @@ fn collect_covering_rows_in_index_order<I>(
 #[cfg(feature = "sql")]
 fn collect_covering_row_pairs_for_reorder<I>(
     items: Vec<I>,
-    mut build_row: impl FnMut(I) -> Result<(DataKey, Vec<Value>), InternalError>,
-) -> Result<Vec<(DataKey, Vec<Value>)>, InternalError> {
+    mut build_row: impl FnMut(I) -> Result<(DecodedDataStoreKey, Vec<Value>), InternalError>,
+) -> Result<Vec<(DecodedDataStoreKey, Vec<Value>)>, InternalError> {
     let mut projected_rows = Vec::with_capacity(items.len());
 
     // Phase 1: reordered covering projections must retain keys until the
@@ -749,7 +749,9 @@ fn collect_covering_row_pairs_for_reorder<I>(
 }
 
 #[cfg(feature = "sql")]
-fn strip_covering_projection_keys(projected_rows: Vec<(DataKey, Vec<Value>)>) -> Vec<Vec<Value>> {
+fn strip_covering_projection_keys(
+    projected_rows: Vec<(DecodedDataStoreKey, Vec<Value>)>,
+) -> Vec<Vec<Value>> {
     let mut rows = Vec::with_capacity(projected_rows.len());
 
     // Phase 1: after reordering, keys are no longer part of the public

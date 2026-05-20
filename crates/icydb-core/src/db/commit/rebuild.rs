@@ -7,7 +7,7 @@ use crate::{
     db::{
         Db,
         commit::CommitRowOp,
-        data::{DataKey, RawDataStoreKey, RawRow},
+        data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
         index::{IndexEntryValue, IndexState, IndexStore, RawIndexStoreKey},
         registry::StoreHandle,
         schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
@@ -127,7 +127,7 @@ fn rebuild_secondary_indexes_in_place(
         });
 
         for (raw_key, raw_row) in rows {
-            let data_key = DataKey::try_from_raw(&raw_key).map_err(|err| {
+            let data_key = DecodedDataStoreKey::try_from_raw(&raw_key).map_err(|err| {
                 InternalError::startup_index_rebuild_invalid_data_key(store_path, err)
             })?;
             let hooks = db.runtime_hook_for_entity_tag(data_key.entity_tag())?;

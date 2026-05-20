@@ -11,7 +11,7 @@ mod target_field;
 
 use crate::{
     db::{
-        data::DataKey,
+        data::DecodedDataStoreKey,
         direction::Direction,
         executor::aggregate::{
             FoldControl,
@@ -68,8 +68,8 @@ fn text_group_key(value: &str) -> crate::db::executor::group::GroupKey {
         .expect("group key canonicalization should succeed")
 }
 
-fn data_key(id: u64) -> DataKey {
-    DataKey::try_new::<GroupedStateTestEntity>(id).expect("test data key should build")
+fn data_key(id: u64) -> DecodedDataStoreKey {
+    DecodedDataStoreKey::try_new::<GroupedStateTestEntity>(id).expect("test data key should build")
 }
 
 fn into_value_pairs(

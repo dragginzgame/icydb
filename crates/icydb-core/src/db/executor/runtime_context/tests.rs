@@ -5,7 +5,7 @@ use super::{
 
 use crate::{
     db::{
-        data::{DataKey, DataStore, RawRow},
+        data::{DataStore, DecodedDataStoreKey, RawRow},
         index::IndexStore,
         predicate::MissingRowPolicy,
         registry::StoreHandle,
@@ -27,8 +27,8 @@ thread_local! {
         RefCell::new(SchemaStore::init(test_memory(173)));
 }
 
-fn test_key() -> DataKey {
-    DataKey::new(EntityTag::new(17), StorageKey::Nat(41))
+fn test_key() -> DecodedDataStoreKey {
+    DecodedDataStoreKey::new(EntityTag::new(17), StorageKey::Nat(41))
 }
 
 fn reset_test_store() {

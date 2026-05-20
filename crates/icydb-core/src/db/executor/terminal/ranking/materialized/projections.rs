@@ -6,7 +6,7 @@
 use crate::{
     db::{
         PersistedRow,
-        data::{DataKey, DataRow},
+        data::{DataRow, DecodedDataStoreKey},
         executor::{
             aggregate::field::FieldSlot,
             pipeline::contracts::LoadExecutor,
@@ -69,7 +69,7 @@ where
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
-    ) -> Result<Vec<(DataKey, Value)>, InternalError> {
+    ) -> Result<Vec<(DecodedDataStoreKey, Value)>, InternalError> {
         let ordered_rows = Self::top_k_ranked_rows_from_materialized(
             row_layout,
             &rows,
@@ -125,7 +125,7 @@ where
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
-    ) -> Result<Vec<(DataKey, Value)>, InternalError> {
+    ) -> Result<Vec<(DecodedDataStoreKey, Value)>, InternalError> {
         let ordered_rows = Self::bottom_k_ranked_rows_from_materialized(
             row_layout,
             &rows,
@@ -162,7 +162,7 @@ where
 fn field_values_with_data_keys_from_ranked_rows(
     rows: Vec<DataRow>,
     ordered_rows: Vec<(usize, Value)>,
-) -> Result<Vec<(DataKey, Value)>, InternalError> {
+) -> Result<Vec<(DecodedDataStoreKey, Value)>, InternalError> {
     move_selected_ranked_rows(
         rows,
         ordered_rows,
