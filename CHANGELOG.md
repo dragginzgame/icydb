@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.161.md](docs/changelog/0.161.md)
 
+- `0.161.2` moves generic CLI ICP canister-call transport out of the SQL
+  shell and into the shared `icp` boundary.
+
 - `0.161.1` narrows `icydb-utils` to shared case conversion and moves core
   RNG/hash ownership back into `icydb-core`.
 

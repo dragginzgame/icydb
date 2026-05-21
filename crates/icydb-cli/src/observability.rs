@@ -15,8 +15,7 @@ use crate::{
         METRICS_ENDPOINT, METRICS_RESET_ENDPOINT, SCHEMA_CHECK_ENDPOINT, SCHEMA_ENDPOINT,
         SNAPSHOT_ENDPOINT, require_configured_endpoint,
     },
-    icp::require_created_canister,
-    shell::{hex_response_bytes, icp_query_command, icp_update_command},
+    icp::{hex_response_bytes, icp_query_command, icp_update_command, require_created_canister},
     table::{ColumnAlign, append_indented_table},
 };
 

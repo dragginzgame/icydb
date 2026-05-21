@@ -22,18 +22,17 @@ use crate::{
         configured_endpoint_enabled_for_resolved, disabled_config_surface_message, init_config,
         render_config_report,
     },
-    icp::fixtures_load_command,
+    icp::{fixtures_load_command, hex_response_bytes, icp_query_command, icp_update_command},
     observability::{
         metrics_candid_arg, render_metrics_report, render_schema_check_report,
         render_schema_report, render_snapshot_report,
     },
     shell::{
         ShellConfig, ShellPerfAttribution, SqlShellCallKind, drain_complete_shell_statements,
-        finalize_successful_command_output, hex_response_bytes, icp_query_command,
-        icp_update_command, is_shell_help_command, normalize_grouped_next_cursor_json,
-        normalize_shell_statement_line, parse_perf_result, render_grouped_shell_text,
-        render_perf_suffix, render_projection_shell_text, shell_help_text,
-        sql_error_with_recovery_hint, sql_shell_call_kind,
+        finalize_successful_command_output, is_shell_help_command,
+        normalize_grouped_next_cursor_json, normalize_shell_statement_line, parse_perf_result,
+        render_grouped_shell_text, render_perf_suffix, render_projection_shell_text,
+        shell_help_text, sql_error_with_recovery_hint, sql_shell_call_kind,
     },
 };
 

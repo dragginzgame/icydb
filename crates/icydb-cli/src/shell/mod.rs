@@ -2,11 +2,7 @@ mod input;
 mod perf;
 mod render;
 
-use std::{
-    collections::VecDeque,
-    path::PathBuf,
-    process::{Command, Stdio},
-};
+use std::{collections::VecDeque, path::PathBuf, process::Stdio};
 
 use candid::Decode;
 use icydb::db::sql::SqlQueryResult;
@@ -15,7 +11,7 @@ use rustyline::DefaultEditor;
 use crate::{
     cli::SqlArgs,
     config::{SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, require_configured_endpoint},
-    icp::require_created_canister,
+    icp::{hex_response_bytes, icp_query_command, icp_update_command, require_created_canister},
     shell::{
         input::{ShellInput, read_statement},
         render::{ShellSqlQueryPerfResult, render_shell_text_from_perf_result},
@@ -257,49 +253,6 @@ fn icp_update(
     hex_response_bytes(stdout.as_str())
 }
 
-pub(crate) fn icp_query_command(
-    environment: &str,
-    canister: &str,
-    method: &str,
-    candid_arg: &str,
-) -> Command {
-    let mut command = Command::new("icp");
-    command
-        .arg("canister")
-        .arg("call")
-        .arg(canister)
-        .arg(method)
-        .arg(candid_arg)
-        .arg("--query")
-        .arg("--output")
-        .arg("hex")
-        .arg("--environment")
-        .arg(environment);
-
-    command
-}
-
-pub(crate) fn icp_update_command(
-    environment: &str,
-    canister: &str,
-    method: &str,
-    candid_arg: &str,
-) -> Command {
-    let mut command = Command::new("icp");
-    command
-        .arg("canister")
-        .arg("call")
-        .arg(canister)
-        .arg(method)
-        .arg(candid_arg)
-        .arg("--output")
-        .arg("hex")
-        .arg("--environment")
-        .arg(environment);
-
-    command
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SqlShellCallKind {
     Query,
@@ -335,29 +288,6 @@ fn sql_shell_statement_is_ddl(
     )
 }
 
-pub(crate) fn hex_response_bytes(output: &str) -> Result<Vec<u8>, String> {
-    let candidate = output
-        .rsplit_once("response (hex):")
-        .map_or(output, |(_, value)| value)
-        .trim();
-    let hex = candidate.split_whitespace().collect::<String>();
-    if hex.is_empty() {
-        return Err("icp canister call returned an empty hex response".to_string());
-    }
-    if hex.len() % 2 != 0 {
-        return Err("icp canister call returned odd-length hex response".to_string());
-    }
-
-    let mut bytes = Vec::with_capacity(hex.len() / 2);
-    for pair in hex.as_bytes().chunks_exact(2) {
-        let high = hex_nibble(pair[0])?;
-        let low = hex_nibble(pair[1])?;
-        bytes.push((high << 4) | low);
-    }
-
-    Ok(bytes)
-}
-
 pub(crate) fn sql_error_with_recovery_hint(
     error: &str,
     environment: &str,
@@ -381,18 +311,6 @@ fn sql_recovery_hint(environment: &str, canister: &str) -> String {
     format!(
         "This looks like stale wasm or stable-memory schema state for '{canister}' in environment '{environment}'. If this is disposable, run `icydb canister refresh {canister} --environment {environment}`; otherwise repair it or use `icydb canister upgrade {canister} --environment {environment}` intentionally."
     )
-}
-
-fn hex_nibble(byte: u8) -> Result<u8, String> {
-    match byte {
-        b'0'..=b'9' => Ok(byte - b'0'),
-        b'a'..=b'f' => Ok(byte - b'a' + 10),
-        b'A'..=b'F' => Ok(byte - b'A' + 10),
-        other => Err(format!(
-            "icp canister call returned non-hex byte '{}'",
-            char::from(other)
-        )),
-    }
 }
 
 fn candid_escape_string(sql: &str) -> String {
