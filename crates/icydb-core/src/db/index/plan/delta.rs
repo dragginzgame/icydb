@@ -53,16 +53,16 @@ impl IndexDeltaGroup {
 ///
 /// IndexDelta
 ///
-/// One primary-key membership change for one secondary index key. The delta
-/// records only index-domain facts: which key owns the membership, which row
-/// primary key is affected, and whether that membership is inserted or removed.
+/// One row-identity presence change for one secondary index key. The delta
+/// records only index-domain facts: which key owns the row identity, which row
+/// primary key is affected, and whether that presence is inserted or removed.
 ///
 
 #[derive(Debug)]
 pub(in crate::db) enum IndexDelta {
-    /// Remove one primary-key membership from one index key.
+    /// Remove one row identity from one index key.
     Remove(IndexMembershipDelta),
-    /// Insert one primary-key membership into one index key.
+    /// Insert one row identity into one index key.
     Insert(IndexMembershipDelta),
 }
 

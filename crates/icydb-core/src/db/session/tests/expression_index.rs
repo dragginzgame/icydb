@@ -326,7 +326,7 @@ fn execute_sql_expression_order_index_range_scan_preserves_lower_name_order() {
                 Direction::Asc,
                 |raw_key, raw_entry| {
                     let entry = raw_entry
-                        .try_decode_for_key(raw_key)
+                        .decode_row_identity(raw_key)
                         .expect("expression-order index range scan entry");
                     keys.push(DecodedDataStoreKey::new(
                         ExpressionIndexedSessionSqlEntity::ENTITY_TAG,

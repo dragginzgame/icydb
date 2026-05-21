@@ -279,19 +279,19 @@ fn execute_sql_filtered_expression_index_range_scan_preserves_lower_handle_order
         vec![
             (
                 StorageKey::Ulid(Ulid::from_u128(9_232)),
-                vec![StorageKey::Ulid(Ulid::from_u128(9_232))]
+                StorageKey::Ulid(Ulid::from_u128(9_232))
             ),
             (
                 StorageKey::Ulid(Ulid::from_u128(9_234)),
-                vec![StorageKey::Ulid(Ulid::from_u128(9_234))]
+                StorageKey::Ulid(Ulid::from_u128(9_234))
             ),
             (
                 StorageKey::Ulid(Ulid::from_u128(9_233)),
-                vec![StorageKey::Ulid(Ulid::from_u128(9_233))]
+                StorageKey::Ulid(Ulid::from_u128(9_233))
             ),
             (
                 StorageKey::Ulid(Ulid::from_u128(9_235)),
-                vec![StorageKey::Ulid(Ulid::from_u128(9_235))]
+                StorageKey::Ulid(Ulid::from_u128(9_235))
             ),
         ],
         "filtered expression raw bounds must isolate the expression index instead of bleeding into sibling filtered indexes",

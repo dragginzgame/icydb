@@ -179,7 +179,7 @@ impl IndexEntryValue {
         Self::presence()
     }
 
-    pub(crate) fn try_decode_for_key(
+    pub(crate) fn decode_row_identity(
         &self,
         raw_key: &RawIndexStoreKey,
     ) -> Result<IndexRowIdentity, IndexEntryCorruption> {
@@ -226,15 +226,8 @@ impl IndexEntryValue {
         Ok(Self::presence())
     }
 
-    pub(crate) fn decode_keys(
-        &self,
-        raw_key: &RawIndexStoreKey,
-    ) -> Result<Vec<StorageKey>, IndexEntryCorruption> {
-        self.decode_storage_key(raw_key).map(|key| vec![key])
-    }
-
     // Decode the key-owned raw entry row identity without allocating a
-    // temporary vector.
+    // temporary vector or exposing a stale multi-key value surface.
     pub(in crate::db) fn decode_storage_key(
         &self,
         raw_key: &RawIndexStoreKey,
@@ -352,9 +345,11 @@ mod tests {
         let raw_key = raw_key_for(key);
 
         let raw = IndexEntryValue::try_from_keys([key]).expect("encode index entry");
-        let decoded = raw.decode_keys(&raw_key).expect("decode index entry");
+        let decoded = raw
+            .decode_storage_key(&raw_key)
+            .expect("decode index entry");
 
-        assert_eq!(decoded, vec![key]);
+        assert_eq!(decoded, key);
         assert_eq!(
             raw.as_bytes(),
             &[IndexEntryExistenceWitness::Present.to_stored_byte()]
@@ -405,15 +400,6 @@ mod tests {
     }
 
     #[test]
-    fn index_entry_value_decode_keys_preserves_single_key_compatibility_surface() {
-        let key = StorageKey::Int(3);
-        let raw_key = raw_key_for(key);
-        let raw = IndexEntryValue::try_from_keys([key]).expect("encode index entry");
-
-        assert_eq!(raw.decode_keys(&raw_key).expect("decode keys"), vec![key]);
-    }
-
-    #[test]
     fn index_entry_value_decode_row_witness_recovers_present_witness() {
         let key = StorageKey::Int(9);
         let raw_key = raw_key_for(key);
@@ -437,9 +423,11 @@ mod tests {
         let raw = IndexEntryValue::try_from_keys([key]).expect("encode index entry");
         let encoded = Storable::to_bytes(&raw);
         let raw = IndexEntryValue::from_bytes(encoded);
-        let decoded = raw.decode_keys(&raw_key).expect("decode index entry");
+        let decoded = raw
+            .decode_storage_key(&raw_key)
+            .expect("decode index entry");
 
-        assert_eq!(decoded, vec![key]);
+        assert_eq!(decoded, key);
     }
 
     #[test]
@@ -448,7 +436,7 @@ mod tests {
         let bytes = vec![];
         let raw = IndexEntryValue::from_bytes(Cow::Owned(bytes));
         assert!(matches!(
-            raw.decode_keys(&raw_key),
+            raw.decode_storage_key(&raw_key),
             Err(IndexEntryCorruption::EmptyEntry)
         ));
     }
@@ -458,7 +446,7 @@ mod tests {
         let raw_key = raw_key_for(StorageKey::Int(1));
         let raw = IndexEntryValue::from_bytes(Cow::Owned(vec![9]));
         assert!(matches!(
-            raw.decode_keys(&raw_key),
+            raw.decode_storage_key(&raw_key),
             Err(IndexEntryCorruption::InvalidWitness)
         ));
     }
@@ -469,7 +457,7 @@ mod tests {
         let bytes = vec![0u8; MAX_INDEX_ENTRY_BYTES as usize + 1];
         let raw = IndexEntryValue::from_bytes(Cow::Owned(bytes));
         assert!(matches!(
-            raw.decode_keys(&raw_key),
+            raw.decode_storage_key(&raw_key),
             Err(IndexEntryCorruption::TooLarge { .. })
         ));
     }
@@ -479,7 +467,7 @@ mod tests {
         let raw = IndexEntryValue::presence();
         let invalid_raw_key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![0]));
         assert!(matches!(
-            raw.decode_keys(&invalid_raw_key),
+            raw.decode_storage_key(&invalid_raw_key),
             Err(IndexEntryCorruption::InvalidKey)
         ));
     }
@@ -509,7 +497,7 @@ mod tests {
             }
 
             let raw = IndexEntryValue::from_bytes(Cow::Owned(bytes));
-            let _ = raw.decode_keys(&raw_key_for(StorageKey::Int(1)));
+            let _ = raw.decode_storage_key(&raw_key_for(StorageKey::Int(1)));
         }
     }
 }

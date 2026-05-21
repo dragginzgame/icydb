@@ -2970,7 +2970,7 @@ fn seed_filtered_composite_indexed_session_sql_entities(
 // SQL route so tests can assert both index isolation and scan order directly.
 fn inspect_filtered_expression_order_only_raw_scan(
     session: &DbSession<SessionSqlCanister>,
-) -> (Vec<(StorageKey, Vec<StorageKey>)>, Vec<Ulid>) {
+) -> (Vec<(StorageKey, StorageKey)>, Vec<Ulid>) {
     let plan = lower_select_query_for_tests::<FilteredIndexedSessionSqlEntity>(&session,
             "SELECT id, handle FROM FilteredIndexedSessionSqlEntity WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2",
         )
@@ -2996,15 +2996,13 @@ fn inspect_filtered_expression_order_only_raw_scan(
             .map(|(raw_key, raw_entry)| {
                 let decoded_key =
                     IndexKey::try_from_raw(&raw_key).expect("filtered expression test key");
-                let decoded_ids = raw_entry
-                    .decode_keys(&raw_key)
-                    .expect("filtered expression test entry")
-                    .into_iter()
-                    .collect::<Vec<_>>();
+                let decoded_id = raw_entry
+                    .decode_storage_key(&raw_key)
+                    .expect("filtered expression test entry");
 
                 (
                     decoded_key.primary_key_value().expect("primary-key value"),
-                    decoded_ids,
+                    decoded_id,
                 )
             })
             .collect::<Vec<_>>()
@@ -3019,7 +3017,7 @@ fn inspect_filtered_expression_order_only_raw_scan(
                 Direction::Asc,
                 |raw_key, raw_entry| {
                     let entry = raw_entry
-                        .try_decode_for_key(raw_key)
+                        .decode_row_identity(raw_key)
                         .expect("filtered expression index range scan entry");
                     keys.push(DecodedDataStoreKey::new(
                         FilteredIndexedSessionSqlEntity::ENTITY_TAG,

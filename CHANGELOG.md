@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.159.md](docs/changelog/0.159.md)
 
+- `0.159.10` closes the compact key refactor with final taxonomy cleanup,
+  removes the stale multi-key index-entry decode surface, and refreshes the
+  0.159 design notes to match the implemented hard-cut storage model.
+
 - `0.159.9` renames typed primary-key admission traits to
   `PrimaryKeyCodec` / `PrimaryKeyDecode`, moving user-facing key contracts
   and runtime bridge helpers away from storage-key vocabulary.
@@ -26,8 +30,8 @@ Detailed notes: [docs/changelog/0.159.md](docs/changelog/0.159.md)
   longer exported as public crate API.
 
 - `0.159.5` removes the duplicate `DataKeyRawRange` wrapper. Entity-local
-  scans now use `RawDataStoreKeyRange::entity_prefix(...)` directly and only
-  convert to `RawDataKey` at the stable BTree boundary.
+  scans now use `RawDataStoreKeyRange::entity_prefix(...)` directly at the
+  raw stable BTree boundary.
 
 - `0.159.4` promotes compact store-key taxonomy wrappers to the active live
   contract. `DataKey` now routes encode/decode through `DataStoreKey`, and
@@ -63,7 +67,7 @@ Detailed notes: [docs/changelog/0.159.md](docs/changelog/0.159.md)
   data/index store key shapes, and presence-only index entry values. Secondary
   index keys now use compact primary-key suffixes instead of 64-byte
   `StorageKey` suffixes, and index entry values no longer duplicate
-  primary-key membership. Full data-store scans now use variable-width
+  primary-key row identity. Full data-store scans now use variable-width
   entity-prefix ranges instead of fake primary-key sentinels, commit markers
   now size/decode variable-width compact row keys, and reverse indexes now use
   one key-owned entry per source/target edge.

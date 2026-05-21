@@ -6,7 +6,8 @@ cd "$ROOT"
 
 # Index-path executor files must not rebuild semantic index-order encoding at
 # execution time. Primary-key access paths may still carry planner `Value`
-# literals until they are converted into `DataKey`s at the physical leaf.
+# literals until they are converted into decoded data-store keys at the
+# physical leaf.
 INDEX_EXECUTOR_FILES=(
   "crates/icydb-core/src/db/executor/stream/access/mod.rs"
   "crates/icydb-core/src/db/executor/stream/access/bindings.rs"

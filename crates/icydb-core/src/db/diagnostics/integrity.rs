@@ -203,21 +203,18 @@ fn scan_store_reverse_integrity(
 
             let index_entity_tag = data_entity_tag_for_index_key(&decoded_index_key);
 
-            let Ok(indexed_primary_keys) = index_entry_value.decode_keys(&raw_index_store_key)
-            else {
+            let Ok(primary_key) = index_entry_value.decode_storage_key(&raw_index_store_key) else {
                 snapshot.corrupted_index_entries =
                     snapshot.corrupted_index_entries.saturating_add(1);
                 continue;
             };
 
-            for primary_key in indexed_primary_keys {
-                let exists = live_keys_by_entity
-                    .get(&index_entity_tag)
-                    .is_some_and(|entity_keys| entity_keys.contains(&primary_key));
-                if !exists {
-                    snapshot.orphan_index_references =
-                        snapshot.orphan_index_references.saturating_add(1);
-                }
+            let exists = live_keys_by_entity
+                .get(&index_entity_tag)
+                .is_some_and(|entity_keys| entity_keys.contains(&primary_key));
+            if !exists {
+                snapshot.orphan_index_references =
+                    snapshot.orphan_index_references.saturating_add(1);
             }
         }
     });

@@ -65,7 +65,7 @@ pub struct Searchable {}
 pub struct Limit {}
 
 ///
-/// DataKeyOrder
+/// DecodedDataStoreKeyOrder
 ///
 
 #[entity(
@@ -77,7 +77,7 @@ pub struct Limit {}
         generated(insert = "Ulid::generate")
     ))
 )]
-pub struct DataKeyOrder {}
+pub struct DecodedDataStoreKeyOrder {}
 
 ///
 /// MissingFieldSmall

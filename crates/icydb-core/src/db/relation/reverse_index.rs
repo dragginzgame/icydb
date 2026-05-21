@@ -526,7 +526,7 @@ pub(super) fn decode_reverse_entry(
     index_key: &RawIndexStoreKey,
     raw_entry: &IndexEntryValue,
 ) -> Result<IndexRowIdentity, InternalError> {
-    raw_entry.try_decode_for_key(index_key).map_err(|err| {
+    raw_entry.decode_row_identity(index_key).map_err(|err| {
         InternalError::reverse_index_entry_corrupted(
             source.path,
             relation.field_name(),

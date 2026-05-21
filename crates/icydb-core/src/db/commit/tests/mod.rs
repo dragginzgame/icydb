@@ -799,7 +799,7 @@ fn indexed_ids_for(entity: &RecoveryIndexedEntity) -> Option<BTreeSet<Ulid>> {
         store.with_index(|index_store| {
             index_store.get(&index_key).map(|entry| {
                 let storage_key = entry
-                    .try_decode_for_key(&index_key)
+                    .decode_row_identity(&index_key)
                     .expect("index entry decode should succeed")
                     .storage_key();
                 let Value::Ulid(value) = primary_key_value_as_runtime_value(&storage_key) else {
@@ -822,7 +822,7 @@ fn nullable_indexed_ids_for(entity: &RecoveryNullableIndexedEntity) -> Option<BT
         store.with_index(|index_store| {
             index_store.get(&index_key).map(|entry| {
                 let storage_key = entry
-                    .try_decode_for_key(&index_key)
+                    .decode_row_identity(&index_key)
                     .expect("nullable index entry decode should succeed")
                     .storage_key();
                 let Value::Ulid(value) = primary_key_value_as_runtime_value(&storage_key) else {
@@ -923,7 +923,7 @@ fn conditional_indexed_ids_for(entity: &RecoveryConditionalEntity) -> Option<BTr
         store.with_index(|index_store| {
             index_store.get(&index_key).map(|entry| {
                 let storage_key = entry
-                    .try_decode_for_key(&index_key)
+                    .decode_row_identity(&index_key)
                     .expect("conditional index entry decode should succeed")
                     .storage_key();
                 let Value::Ulid(value) = primary_key_value_as_runtime_value(&storage_key) else {

@@ -123,7 +123,7 @@ fn field_path_rebuild_stages_sorted_entries_without_publication() {
         .map(|entry| {
             entry
                 .entry()
-                .try_decode_for_key(entry.key())
+                .decode_row_identity(entry.key())
                 .expect("staged entry should decode")
                 .storage_key()
         })

@@ -118,7 +118,7 @@ if [[ -n "$grouped_policy_leaks" ]]; then
   status=1
 fi
 
-KEY_COMPARATOR_PATTERN="as_bytes\\(\\)\\.cmp\\(|\\b(RawIndexKey|IndexKey)\\b[^\\n]*\\.cmp\\("
+KEY_COMPARATOR_PATTERN="as_bytes\\(\\)\\.cmp\\(|\\b(RawIndexStoreKey|IndexKey)\\b[^\\n]*\\.cmp\\("
 key_comparator_leaks="$(
   run_rg "$KEY_COMPARATOR_PATTERN" "${ORDERING_AUDIT_DIRS[@]}" | strip_comment_only
 )"
