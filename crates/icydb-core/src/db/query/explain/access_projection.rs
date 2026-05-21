@@ -117,7 +117,9 @@ where
 /// the rest of the access classifiers instead of maintaining another local
 /// recursive `ExplainAccessPath` match tree.
 ///
-struct ExplainAccessJsonProjection;
+struct ExplainAccessJsonProjection {
+    include_detail: bool,
+}
 
 impl AccessPlanProjection<Value> for ExplainAccessJsonProjection {
     type Output = String;
@@ -167,6 +169,17 @@ impl AccessPlanProjection<Value> for ExplainAccessJsonProjection {
         object.field_str_slice("fields", index_fields);
         object.field_u64("prefix_len", prefix_len as u64);
         object.field_debug_slice("values", values);
+        if self.include_detail {
+            object.field_str_slice(
+                "bound_fields",
+                bounded_prefix_fields(index_fields, prefix_len),
+            );
+            object.field_debug_slice("bound_values", values);
+            object.field_str_slice(
+                "unbound_fields",
+                unbound_prefix_fields(index_fields, prefix_len),
+            );
+        }
         object.finish();
 
         out
@@ -207,6 +220,23 @@ impl AccessPlanProjection<Value> for ExplainAccessJsonProjection {
         object.field_debug_slice("prefix", prefix);
         object.field_value_debug("lower", lower);
         object.field_value_debug("upper", upper);
+        if self.include_detail {
+            object.field_str_slice(
+                "equality_prefix_fields",
+                bounded_prefix_fields(index_fields, prefix_len),
+            );
+            object.field_debug_slice("equality_prefix_values", prefix);
+            match index_fields.get(prefix_len) {
+                Some(range_field) => object.field_str("range_field", range_field),
+                None => object.field_null("range_field"),
+            }
+            object.field_str("lower_inclusivity", bound_inclusivity(lower));
+            object.field_str("upper_inclusivity", bound_inclusivity(upper));
+            object.field_str_slice(
+                "trailing_fields",
+                trailing_range_fields(index_fields, prefix_len),
+            );
+        }
         object.finish();
 
         out
@@ -266,7 +296,21 @@ pub(in crate::db::query::explain) fn write_access_json(
 ) {
     out.push_str(&project_explain_access_path(
         access,
-        &mut ExplainAccessJsonProjection,
+        &mut ExplainAccessJsonProjection {
+            include_detail: false,
+        },
+    ));
+}
+
+pub(in crate::db::query::explain) fn write_access_json_detailed(
+    access: &ExplainAccessPath,
+    out: &mut String,
+) {
+    out.push_str(&project_explain_access_path(
+        access,
+        &mut ExplainAccessJsonProjection {
+            include_detail: true,
+        },
     ));
 }
 
@@ -275,6 +319,28 @@ where
     K: KeyValueCodec,
 {
     project_access_plan(access, &mut ExplainAccessProjection)
+}
+
+fn bounded_prefix_fields(index_fields: &[String], prefix_len: usize) -> &[String] {
+    &index_fields[..prefix_len.min(index_fields.len())]
+}
+
+fn unbound_prefix_fields(index_fields: &[String], prefix_len: usize) -> &[String] {
+    &index_fields[prefix_len.min(index_fields.len())..]
+}
+
+fn trailing_range_fields(index_fields: &[String], prefix_len: usize) -> &[String] {
+    let trailing_start = prefix_len.saturating_add(1).min(index_fields.len());
+
+    &index_fields[trailing_start..]
+}
+
+const fn bound_inclusivity(bound: &std::ops::Bound<Value>) -> &'static str {
+    match bound {
+        std::ops::Bound::Included(_) => "inclusive",
+        std::ops::Bound::Excluded(_) => "exclusive",
+        std::ops::Bound::Unbounded => "unbounded",
+    }
 }
 
 ///

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.159.md](docs/changelog/0.159.md)
 
+- `0.159.11` audits the direct `ic-memory 0.6.0` update against the Canic
+  runtime boundary, confirming the current IcyDB integration still compiles
+  while the published Canic CDK line continues to carry its own memory API.
+
 - `0.159.10` closes the compact key refactor with final taxonomy cleanup,
   removes the stale multi-key index-entry decode surface, and refreshes the
   0.159 design notes to match the implemented hard-cut storage model.

@@ -118,16 +118,21 @@ pub use query::{
         upper,
     },
     explain::{
-        ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
-        ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
-        ExplainPlan,
+        ExplainAccessCandidateV1, ExplainAccessDecisionKind, ExplainAccessDecisionV1,
+        ExplainAggregateTerminalPlan, ExplainEligibleAlternativeV1, ExplainExecutionDescriptor,
+        ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
+        ExplainExecutionOrderingSource, ExplainPlan, ExplainRejectedIndexV1,
+        ExplainResidualSummaryV1, ExplainSelectedAccessV1,
     },
     expr::{FilterExpr, FilterValue, OrderExpr, OrderTerm, asc, desc, field},
     fluent::{
         delete::FluentDeleteQuery,
         load::{FluentLoadQuery, LoadQueryResult, PagedLoadQuery},
     },
-    intent::{CompiledQuery, IntentError, PlannedQuery, Query, QueryError, QueryExecutionError},
+    intent::{
+        AccessRequirementError, AccessRequirementViolation, CompiledQuery, IntentError,
+        PlannedQuery, Query, QueryError, QueryExecutionError, RequiredAccessPath,
+    },
     plan::{DeleteSpec, LoadSpec, OrderDirection, PlanError, QueryMode},
     trace::{QueryTracePlan, TraceExecutionFamily, TraceReuseArtifactClass, TraceReuseEvent},
 };

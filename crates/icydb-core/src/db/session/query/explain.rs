@@ -95,7 +95,24 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.try_map_cached_logical_query_plan(query, |plan| Ok(plan.explain()))
+        self.with_query_visible_indexes(query, |query, visible_indexes| {
+            self.try_map_cached_logical_query_plan(query, |plan| {
+                let mut plan = plan.clone();
+                let schema_info = visible_indexes.accepted_schema_info().ok_or_else(|| {
+                    QueryError::invariant(
+                        "session query explain lost accepted schema visibility before access-choice finalization",
+                    )
+                })?;
+                plan.finalize_access_choice_for_model_with_accepted_indexes_and_schema(
+                    query.structural().model(),
+                    visible_indexes.accepted_field_path_indexes(),
+                    visible_indexes.accepted_expression_indexes(),
+                    schema_info,
+                );
+
+                Ok(plan.explain())
+            })
+        })
     }
 
     // Hash one typed query plan using only the indexes currently visible for

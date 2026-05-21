@@ -20,7 +20,11 @@ pub use execution::{
     ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
     ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
 };
-pub use plan::ExplainPlan;
+pub use plan::{
+    ExplainAccessCandidateV1, ExplainAccessDecisionKind, ExplainAccessDecisionV1,
+    ExplainEligibleAlternativeV1, ExplainPlan, ExplainRejectedIndexV1, ExplainResidualSummaryV1,
+    ExplainSelectedAccessV1,
+};
 pub(in crate::db) use plan::{
     ExplainAccessPath, ExplainDeleteLimit, ExplainGroupAggregate, ExplainGroupField,
     ExplainGrouping, ExplainOrderBy, ExplainOrderPushdown, ExplainPagination, ExplainPredicate,

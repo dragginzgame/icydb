@@ -921,6 +921,7 @@ fn explain_grouped_plan_snapshot_for_ordered_having_shape_is_stable() {
     let actual = grouped_explain_plan_snapshot(&grouped.explain());
     let expected = "mode=Load(LoadSpec { limit: None, offset: 0 })
 access=IndexPrefix { name: \"explain::pushdown_tag\", fields: [\"tag\"], prefix_len: 0, values: [] }
+access_decision=kind=IndexPrefix index=explain::pushdown_tag reason=selected_index_not_projected residual=none candidates=0 alternatives=0 rejections=0
 filter_expr=None
 predicate=None
 order_by=None
@@ -943,7 +944,7 @@ fn explain_plan_canonical_json_snapshot_for_simple_shape_is_stable() {
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
 
     let actual = grouped_explain_plan_json_snapshot(&plan.explain());
-    let expected = "{\"mode\":{\"type\":\"Load\",\"limit\":null,\"offset\":0},\"access\":{\"type\":\"FullScan\"},\"filter_expr\":null,\"predicate\":\"None\",\"order_by\":\"None\",\"distinct\":false,\"grouping\":\"None\",\"order_pushdown\":\"MissingModelContext\",\"page\":{\"type\":\"None\"},\"delete_limit\":{\"type\":\"None\"},\"consistency\":\"Ignore\"}";
+    let expected = "{\"mode\":{\"type\":\"Load\",\"limit\":null,\"offset\":0},\"access\":{\"type\":\"FullScan\"},\"access_decision\":{\"schema_version\":1,\"selected\":{\"kind\":\"FullScan\",\"index_name\":null,\"label\":\"FullScan\",\"reason\":\"full_scan_access\"},\"candidates\":[],\"alternatives\":[],\"rejections\":[],\"residual\":{\"burden_class\":\"none\",\"has_residual_filter\":false,\"has_residual_predicate\":false,\"access_bound_predicate_count\":0,\"residual_predicate_count\":0,\"predicate_terms\":0}},\"filter_expr\":null,\"predicate\":\"None\",\"order_by\":\"None\",\"distinct\":false,\"grouping\":\"None\",\"order_pushdown\":\"MissingModelContext\",\"page\":{\"type\":\"None\"},\"delete_limit\":{\"type\":\"None\"},\"consistency\":\"Ignore\"}";
 
     assert_eq!(
         actual, expected,
@@ -970,6 +971,7 @@ fn explain_grouped_plan_snapshot_for_hash_distinct_shape_is_stable() {
     let actual = grouped_explain_plan_snapshot(&grouped.explain());
     let expected = "mode=Load(LoadSpec { limit: None, offset: 0 })
 access=FullScan
+access_decision=kind=FullScan index=none reason=full_scan_access residual=none candidates=0 alternatives=0 rejections=0
 filter_expr=None
 predicate=None
 order_by=None
@@ -1009,6 +1011,7 @@ fn explain_grouped_plan_snapshot_for_filtered_shape_is_stable() {
     let actual = grouped_explain_plan_snapshot(&grouped.explain());
     let expected = "mode=Load(LoadSpec { limit: None, offset: 0 })
 access=FullScan
+access_decision=kind=FullScan index=none reason=full_scan_access residual=none candidates=0 alternatives=0 rejections=0
 filter_expr=None
 predicate=None
 order_by=None

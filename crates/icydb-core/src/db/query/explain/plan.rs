@@ -11,19 +11,22 @@ use crate::{
         query::{
             builder::scalar_projection::render_scalar_projection_expr_plan_label,
             explain::{
-                access_projection::write_access_json, explain_access_plan, writer::JsonWriter,
+                access_projection::write_access_json_detailed, explain_access_plan,
+                writer::JsonWriter,
             },
             plan::{
-                AccessPlannedQuery, AggregateKind, DeleteLimitSpec, GroupedPlanFallbackReason,
-                LogicalPlan, OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan,
-                expr::Expr, grouped_plan_strategy, render_scalar_filter_expr_plan_label,
+                AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot,
+                AccessChoiceResidualBurden, AccessPlannedQuery, AggregateKind, DeleteLimitSpec,
+                GroupedPlanFallbackReason, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
+                QueryMode, ScalarPlan, explain_access_strategy_label, expr::Expr,
+                grouped_plan_strategy, render_scalar_filter_expr_plan_label,
             },
         },
     },
     traits::KeyValueCodec,
     value::Value,
 };
-use std::ops::Bound;
+use std::{fmt, ops::Bound};
 
 ///
 /// ExplainPlan
@@ -31,10 +34,11 @@ use std::ops::Bound;
 /// Stable, deterministic representation of a planned query for observability.
 ///
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct ExplainPlan {
     pub(in crate::db) mode: QueryMode,
     pub(in crate::db) access: ExplainAccessPath,
+    pub(in crate::db) access_decision: ExplainAccessDecisionV1,
     pub(in crate::db) filter_expr: Option<String>,
     filter_expr_model: Option<Expr>,
     pub(in crate::db) predicate: ExplainPredicate,
@@ -48,6 +52,27 @@ pub struct ExplainPlan {
     pub(in crate::db) consistency: MissingRowPolicy,
 }
 
+#[allow(clippy::missing_fields_in_debug)]
+impl fmt::Debug for ExplainPlan {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ExplainPlan")
+            .field("mode", &self.mode)
+            .field("access", &self.access)
+            .field("filter_expr", &self.filter_expr)
+            .field("filter_expr_model", &self.filter_expr_model)
+            .field("predicate", &self.predicate)
+            .field("predicate_model", &self.predicate_model)
+            .field("order_by", &self.order_by)
+            .field("distinct", &self.distinct)
+            .field("grouping", &self.grouping)
+            .field("order_pushdown", &self.order_pushdown)
+            .field("page", &self.page)
+            .field("delete_limit", &self.delete_limit)
+            .field("consistency", &self.consistency)
+            .finish()
+    }
+}
+
 impl ExplainPlan {
     /// Return query mode projected by this explain plan.
     #[must_use]
@@ -59,6 +84,12 @@ impl ExplainPlan {
     #[must_use]
     pub const fn access(&self) -> &ExplainAccessPath {
         &self.access
+    }
+
+    /// Borrow the structured planner access-decision projection.
+    #[must_use]
+    pub const fn access_decision(&self) -> &ExplainAccessDecisionV1 {
+        &self.access_decision
     }
 
     /// Borrow projected semantic scalar filter expression when present.
@@ -169,6 +200,7 @@ impl ExplainPlan {
             concat!(
                 "mode={:?}\n",
                 "access={:?}\n",
+                "access_decision={}\n",
                 "filter_expr={:?}\n",
                 "predicate={:?}\n",
                 "order_by={:?}\n",
@@ -181,6 +213,7 @@ impl ExplainPlan {
             ),
             self.mode(),
             self.access(),
+            self.access_decision().render_compact_summary(),
             self.filter_expr(),
             self.predicate(),
             self.order_by(),
@@ -410,6 +443,264 @@ pub enum ExplainAccessPath {
     Intersection(Vec<Self>),
 }
 
+/// Stable JSON-facing access-decision projection for logical EXPLAIN.
+///
+/// This DTO is derived from the planner-owned access-choice snapshot and the
+/// selected explain access path. It is not an optimizer model and does not
+/// participate in access selection.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExplainAccessDecisionV1 {
+    /// Schema version for this access-decision payload shape.
+    pub schema_version: u32,
+    /// Selected access path summary.
+    pub selected: ExplainSelectedAccessV1,
+    /// Planner candidate summaries recorded for the selected access family.
+    pub candidates: Vec<ExplainAccessCandidateV1>,
+    /// Eligible alternatives not selected by the planner.
+    pub alternatives: Vec<ExplainEligibleAlternativeV1>,
+    /// Rejected index candidates and planner-owned reason strings.
+    pub rejections: Vec<ExplainRejectedIndexV1>,
+    /// Residual-work summary for the selected route when available.
+    pub residual: ExplainResidualSummaryV1,
+}
+
+impl ExplainAccessDecisionV1 {
+    const SCHEMA_VERSION: u32 = 1;
+
+    fn from_snapshot(
+        selected_access: &ExplainAccessPath,
+        snapshot: &AccessChoiceExplainSnapshot,
+    ) -> Self {
+        let selected_label = explain_access_strategy_label(selected_access);
+        let selected_candidate = selected_candidate_summary(&selected_label, &snapshot.candidates);
+
+        Self {
+            schema_version: Self::SCHEMA_VERSION,
+            selected: ExplainSelectedAccessV1 {
+                kind: ExplainAccessDecisionKind::from_access_path(selected_access),
+                index_name: selected_index_name(selected_access).map(ToOwned::to_owned),
+                label: selected_label,
+                reason: snapshot.chosen_reason().code(),
+            },
+            candidates: snapshot
+                .candidates
+                .iter()
+                .map(ExplainAccessCandidateV1::from_candidate)
+                .collect(),
+            alternatives: snapshot
+                .alternatives
+                .iter()
+                .map(|index_name| ExplainEligibleAlternativeV1 {
+                    index_name: index_name.clone(),
+                })
+                .collect(),
+            rejections: snapshot
+                .rejected
+                .iter()
+                .map(|rejection| ExplainRejectedIndexV1::from_rejection(rejection))
+                .collect(),
+            residual: ExplainResidualSummaryV1::from_selected_access_and_candidate(
+                selected_access,
+                selected_candidate,
+            ),
+        }
+    }
+
+    fn render_compact_summary(&self) -> String {
+        let index = self
+            .selected
+            .index_name
+            .as_deref()
+            .map_or("none", |index| index);
+
+        format!(
+            "kind={} index={} reason={} residual={} candidates={} alternatives={} rejections={}",
+            self.selected.kind.code(),
+            index,
+            self.selected.reason,
+            self.residual.burden_class,
+            self.candidates.len(),
+            self.alternatives.len(),
+            self.rejections.len(),
+        )
+    }
+}
+
+/// Selected access path summary inside an access-decision explain payload.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExplainSelectedAccessV1 {
+    /// Selected access kind.
+    pub kind: ExplainAccessDecisionKind,
+    /// Selected semantic index name, when the selected route is index-backed.
+    pub index_name: Option<String>,
+    /// Planner access label used for candidate matching and diagnostics.
+    pub label: String,
+    /// Planner-owned selected reason code.
+    pub reason: &'static str,
+}
+
+/// Stable access-kind code used by the access-decision explain payload.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExplainAccessDecisionKind {
+    /// Direct primary-key lookup.
+    ByKey,
+    /// Multiple primary-key lookup.
+    ByKeys,
+    /// Primary-key range lookup.
+    KeyRange,
+    /// Secondary-index equality prefix lookup.
+    IndexPrefix,
+    /// Secondary-index multi-value lookup.
+    IndexMultiLookup,
+    /// Secondary-index range lookup.
+    IndexRange,
+    /// Full entity scan.
+    FullScan,
+    /// Union access route.
+    Union,
+    /// Intersection access route.
+    Intersection,
+}
+
+impl ExplainAccessDecisionKind {
+    const fn from_access_path(access: &ExplainAccessPath) -> Self {
+        match access {
+            ExplainAccessPath::ByKey { .. } => Self::ByKey,
+            ExplainAccessPath::ByKeys { .. } => Self::ByKeys,
+            ExplainAccessPath::KeyRange { .. } => Self::KeyRange,
+            ExplainAccessPath::IndexPrefix { .. } => Self::IndexPrefix,
+            ExplainAccessPath::IndexMultiLookup { .. } => Self::IndexMultiLookup,
+            ExplainAccessPath::IndexRange { .. } => Self::IndexRange,
+            ExplainAccessPath::FullScan => Self::FullScan,
+            ExplainAccessPath::Union(_) => Self::Union,
+            ExplainAccessPath::Intersection(_) => Self::Intersection,
+        }
+    }
+
+    const fn code(self) -> &'static str {
+        match self {
+            Self::ByKey => "ByKey",
+            Self::ByKeys => "ByKeys",
+            Self::KeyRange => "KeyRange",
+            Self::IndexPrefix => "IndexPrefix",
+            Self::IndexMultiLookup => "IndexMultiLookup",
+            Self::IndexRange => "IndexRange",
+            Self::FullScan => "FullScan",
+            Self::Union => "Union",
+            Self::Intersection => "Intersection",
+        }
+    }
+}
+
+/// Candidate summary recorded by the planner access-choice snapshot.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExplainAccessCandidateV1 {
+    /// Planner access label for the candidate route.
+    pub label: String,
+    /// Whether the candidate structurally satisfied all usable predicates.
+    pub exact: bool,
+    /// Whether the candidate uses a filtered index contract.
+    pub filtered: bool,
+    /// Number of range-bound fields recorded by the planner scorer.
+    pub range_bound_count: usize,
+    /// Whether candidate ordering is compatible with query ordering.
+    pub order_compatible: bool,
+    /// Residual burden class recorded by the planner.
+    pub residual_burden: &'static str,
+    /// Number of residual predicate terms recorded by the planner.
+    pub residual_predicate_terms: usize,
+}
+
+impl ExplainAccessCandidateV1 {
+    fn from_candidate(candidate: &AccessChoiceCandidateExplainSummary) -> Self {
+        Self {
+            label: candidate.label.clone(),
+            exact: candidate.exact,
+            filtered: candidate.filtered,
+            range_bound_count: candidate.range_bound_count,
+            order_compatible: candidate.order_compatible,
+            residual_burden: candidate.residual_burden.label(),
+            residual_predicate_terms: candidate.residual_predicate_terms,
+        }
+    }
+}
+
+/// Eligible alternative index name recorded by the planner.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExplainEligibleAlternativeV1 {
+    /// Semantic index name of the eligible alternative.
+    pub index_name: String,
+}
+
+/// Rejected index candidate summary recorded by the planner.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExplainRejectedIndexV1 {
+    /// Semantic index name when parsed from the planner rejection label.
+    pub index_name: Option<String>,
+    /// Planner-owned rejection reason code when parsed from the rejection label.
+    pub reason: Option<String>,
+    /// Original planner rejection label.
+    pub label: String,
+}
+
+impl ExplainRejectedIndexV1 {
+    fn from_rejection(rejection: &str) -> Self {
+        let (index_name, reason) = parse_rejected_index_label(rejection);
+
+        Self {
+            index_name,
+            reason,
+            label: rejection.to_string(),
+        }
+    }
+}
+
+/// Residual-work summary for the selected access route.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExplainResidualSummaryV1 {
+    /// Residual burden class for the selected access route.
+    pub burden_class: &'static str,
+    /// Whether any residual scalar filter expression survives access planning.
+    pub has_residual_filter: bool,
+    /// Whether any residual predicate model survives access planning.
+    pub has_residual_predicate: bool,
+    /// Number of predicate-like constraints structurally consumed by access.
+    pub access_bound_predicate_count: usize,
+    /// Number of residual predicate terms for the selected access route.
+    pub residual_predicate_count: usize,
+    /// Deprecated JSON compatibility mirror of `residual_predicate_count`.
+    pub predicate_terms: usize,
+}
+
+impl ExplainResidualSummaryV1 {
+    fn from_selected_access_and_candidate(
+        selected_access: &ExplainAccessPath,
+        selected_candidate: Option<&AccessChoiceCandidateExplainSummary>,
+    ) -> Self {
+        match selected_candidate {
+            Some(candidate) => Self {
+                burden_class: candidate.residual_burden.label(),
+                has_residual_filter: matches!(
+                    candidate.residual_burden,
+                    AccessChoiceResidualBurden::ScalarExpression
+                ),
+                has_residual_predicate: candidate.residual_predicate_terms > 0,
+                access_bound_predicate_count: access_bound_predicate_count(selected_access),
+                residual_predicate_count: candidate.residual_predicate_terms,
+                predicate_terms: candidate.residual_predicate_terms,
+            },
+            None => Self {
+                burden_class: AccessChoiceResidualBurden::None.label(),
+                has_residual_filter: false,
+                has_residual_predicate: false,
+                access_bound_predicate_count: access_bound_predicate_count(selected_access),
+                residual_predicate_count: 0,
+                predicate_terms: 0,
+            },
+        }
+    }
+}
+
 ///
 /// ExplainPredicate
 ///
@@ -582,7 +873,7 @@ impl AccessPlannedQuery {
         };
 
         // Phase 2: project scalar plan + access path into deterministic explain surface.
-        explain_scalar_inner(logical, grouping, &self.access)
+        explain_scalar_inner(logical, grouping, &self.access, self.access_choice())
     }
 }
 
@@ -598,6 +889,7 @@ fn explain_scalar_inner<K>(
     logical: &ScalarPlan,
     grouping: ExplainGrouping,
     access: &AccessPlan<K>,
+    access_choice: &AccessChoiceExplainSnapshot,
 ) -> ExplainPlan
 where
     K: KeyValueCodec,
@@ -621,9 +913,13 @@ where
     let delete_limit = explain_delete_limit(logical.delete_limit.as_ref());
 
     // Phase 3: assemble one stable explain payload.
+    let access = explain_access_plan(access);
+    let access_decision = ExplainAccessDecisionV1::from_snapshot(&access, access_choice);
+
     ExplainPlan {
         mode: logical.mode,
-        access: explain_access_plan(access),
+        access,
+        access_decision,
         filter_expr,
         filter_expr_model,
         predicate,
@@ -635,6 +931,68 @@ where
         page,
         delete_limit,
         consistency: logical.consistency,
+    }
+}
+
+fn selected_candidate_summary<'a>(
+    selected_label: &str,
+    candidates: &'a [AccessChoiceCandidateExplainSummary],
+) -> Option<&'a AccessChoiceCandidateExplainSummary> {
+    candidates
+        .iter()
+        .find(|candidate| candidate.label == selected_label)
+        .or_else(|| (candidates.len() == 1).then(|| &candidates[0]))
+}
+
+const fn selected_index_name(access: &ExplainAccessPath) -> Option<&str> {
+    match access {
+        ExplainAccessPath::IndexPrefix { name, .. }
+        | ExplainAccessPath::IndexMultiLookup { name, .. }
+        | ExplainAccessPath::IndexRange { name, .. } => Some(name.as_str()),
+        ExplainAccessPath::ByKey { .. }
+        | ExplainAccessPath::ByKeys { .. }
+        | ExplainAccessPath::KeyRange { .. }
+        | ExplainAccessPath::FullScan
+        | ExplainAccessPath::Union(_)
+        | ExplainAccessPath::Intersection(_) => None,
+    }
+}
+
+fn access_bound_predicate_count(access: &ExplainAccessPath) -> usize {
+    match access {
+        ExplainAccessPath::ByKey { .. }
+        | ExplainAccessPath::ByKeys { .. }
+        | ExplainAccessPath::IndexMultiLookup { .. } => 1,
+        ExplainAccessPath::KeyRange { .. } => 2,
+        ExplainAccessPath::IndexPrefix { prefix_len, .. } => *prefix_len,
+        ExplainAccessPath::IndexRange {
+            prefix_len,
+            lower,
+            upper,
+            ..
+        } => *prefix_len + bound_constraint_count(lower) + bound_constraint_count(upper),
+        ExplainAccessPath::FullScan => 0,
+        ExplainAccessPath::Union(children) | ExplainAccessPath::Intersection(children) => {
+            children.iter().map(access_bound_predicate_count).sum()
+        }
+    }
+}
+
+const fn bound_constraint_count(bound: &Bound<Value>) -> usize {
+    match bound {
+        Bound::Included(_) | Bound::Excluded(_) => 1,
+        Bound::Unbounded => 0,
+    }
+}
+
+fn parse_rejected_index_label(rejection: &str) -> (Option<String>, Option<String>) {
+    let Some(rest) = rejection.strip_prefix("index:") else {
+        return (None, None);
+    };
+
+    match rest.split_once('=') {
+        Some((index_name, reason)) => (Some(index_name.to_string()), Some(reason.to_string())),
+        None => (Some(rest.to_string()), None),
     }
 }
 
@@ -769,7 +1127,12 @@ fn write_logical_explain_json(explain: &ExplainPlan, out: &mut String) {
         }
         object.finish();
     });
-    object.field_with("access", |out| write_access_json(explain.access(), out));
+    object.field_with("access", |out| {
+        write_access_json_detailed(explain.access(), out);
+    });
+    object.field_with("access_decision", |out| {
+        write_access_decision_json(explain.access_decision(), out);
+    });
     match explain.filter_expr() {
         Some(filter_expr) => object.field_str("filter_expr", filter_expr),
         None => object.field_null("filter_expr"),
@@ -818,5 +1181,98 @@ fn write_logical_explain_json(explain: &ExplainPlan, out: &mut String) {
         object.finish();
     });
     object.field_value_debug("consistency", &explain.consistency());
+    object.finish();
+}
+
+fn write_access_decision_json(decision: &ExplainAccessDecisionV1, out: &mut String) {
+    let mut object = JsonWriter::begin_object(out);
+    object.field_u64("schema_version", u64::from(decision.schema_version));
+    object.field_with("selected", |out| {
+        let mut selected = JsonWriter::begin_object(out);
+        selected.field_str("kind", decision.selected.kind.code());
+        match decision.selected.index_name.as_deref() {
+            Some(index_name) => selected.field_str("index_name", index_name),
+            None => selected.field_null("index_name"),
+        }
+        selected.field_str("label", decision.selected.label.as_str());
+        selected.field_str("reason", decision.selected.reason);
+        selected.finish();
+    });
+    object.field_with("candidates", |out| {
+        out.push('[');
+        for (index, candidate) in decision.candidates.iter().enumerate() {
+            if index > 0 {
+                out.push(',');
+            }
+            write_access_candidate_json(candidate, out);
+        }
+        out.push(']');
+    });
+    object.field_with("alternatives", |out| {
+        out.push('[');
+        for (index, alternative) in decision.alternatives.iter().enumerate() {
+            if index > 0 {
+                out.push(',');
+            }
+            let mut object = JsonWriter::begin_object(out);
+            object.field_str("index_name", alternative.index_name.as_str());
+            object.finish();
+        }
+        out.push(']');
+    });
+    object.field_with("rejections", |out| {
+        out.push('[');
+        for (index, rejection) in decision.rejections.iter().enumerate() {
+            if index > 0 {
+                out.push(',');
+            }
+            let mut object = JsonWriter::begin_object(out);
+            match rejection.index_name.as_deref() {
+                Some(index_name) => object.field_str("index_name", index_name),
+                None => object.field_null("index_name"),
+            }
+            match rejection.reason.as_deref() {
+                Some(reason) => object.field_str("reason", reason),
+                None => object.field_null("reason"),
+            }
+            object.field_str("label", rejection.label.as_str());
+            object.finish();
+        }
+        out.push(']');
+    });
+    object.field_with("residual", |out| {
+        let mut residual = JsonWriter::begin_object(out);
+        residual.field_str("burden_class", decision.residual.burden_class);
+        residual.field_bool("has_residual_filter", decision.residual.has_residual_filter);
+        residual.field_bool(
+            "has_residual_predicate",
+            decision.residual.has_residual_predicate,
+        );
+        residual.field_u64(
+            "access_bound_predicate_count",
+            decision.residual.access_bound_predicate_count as u64,
+        );
+        residual.field_u64(
+            "residual_predicate_count",
+            decision.residual.residual_predicate_count as u64,
+        );
+        residual.field_u64("predicate_terms", decision.residual.predicate_terms as u64);
+        residual.finish();
+    });
+    object.finish();
+}
+
+fn write_access_candidate_json(candidate: &ExplainAccessCandidateV1, out: &mut String) {
+    let mut object = JsonWriter::begin_object(out);
+    object.field_str("label", candidate.label.as_str());
+    object.field_bool("exact", candidate.exact);
+    object.field_bool("filtered", candidate.filtered);
+    object.field_u64("range_bound_count", candidate.range_bound_count as u64);
+    object.field_bool("order_compatible", candidate.order_compatible);
+    object.field_str("residual_burden", candidate.residual_burden);
+    object.field_u64(
+        "residual_predicate_terms",
+        candidate.residual_predicate_terms as u64,
+    );
     object.finish();
 }

@@ -95,6 +95,12 @@ impl From<QueryError> for Error {
                 Self::new(ErrorKind::Query(kind), ErrorOrigin::Query, err.to_string())
             }
 
+            QueryError::AccessRequirement(_) => Self::new(
+                ErrorKind::Query(QueryErrorKind::Plan),
+                ErrorOrigin::Query,
+                err.to_string(),
+            ),
+
             QueryError::Response(err) => Self::from_response_error(err),
 
             QueryError::Execute(err) => match err {

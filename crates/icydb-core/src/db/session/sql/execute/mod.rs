@@ -121,9 +121,10 @@ const fn sql_write_error_class(error: &QueryError) -> ErrorClass {
         QueryError::Execute(err) => err.as_internal().class(),
         QueryError::Response(ResponseError::NotFound { .. }) => ErrorClass::NotFound,
         QueryError::Response(ResponseError::NotUnique { .. }) => ErrorClass::Conflict,
-        QueryError::Validate(_) | QueryError::Plan(_) | QueryError::Intent(_) => {
-            ErrorClass::Unsupported
-        }
+        QueryError::Validate(_)
+        | QueryError::Plan(_)
+        | QueryError::Intent(_)
+        | QueryError::AccessRequirement(_) => ErrorClass::Unsupported,
     }
 }
 

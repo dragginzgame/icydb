@@ -10,6 +10,7 @@
 #[cfg(test)]
 mod tests;
 
+use super::AccessRequirementError;
 #[cfg(feature = "sql")]
 use crate::db::sql::{lowering::SqlLoweringError, parser::SqlParseError};
 use crate::{
@@ -41,6 +42,9 @@ pub enum QueryError {
 
     #[error("{0}")]
     Intent(#[from] IntentError),
+
+    #[error("{0}")]
+    AccessRequirement(Box<AccessRequirementError>),
 
     #[error("{0}")]
     Response(#[from] ResponseError),
@@ -184,6 +188,12 @@ impl QueryError {
     /// Construct one invariant violation for grouped pagination emitting the wrong cursor kind.
     pub(in crate::db) fn grouped_paged_emitted_scalar_continuation() -> Self {
         Self::invariant("grouped pagination emitted scalar continuation token")
+    }
+}
+
+impl From<AccessRequirementError> for QueryError {
+    fn from(err: AccessRequirementError) -> Self {
+        Self::AccessRequirement(Box::new(err))
     }
 }
 

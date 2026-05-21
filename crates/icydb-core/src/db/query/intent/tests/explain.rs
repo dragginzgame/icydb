@@ -584,6 +584,409 @@ fn secondary_in_explain_uses_index_multi_lookup_access_shape() {
 }
 
 #[test]
+fn logical_explain_json_includes_structured_access_decision() {
+    let explain = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Nat(7),
+            CoercionId::Strict,
+        )))
+        .explain()
+        .expect("index-prefix explain should build");
+
+    let decision = explain.access_decision();
+    assert_eq!(decision.schema_version, 1);
+    assert_plan(&explain)
+        .uses_index("group_rank")
+        .access_kind(RequiredAccessPath::IndexPrefix)
+        .bound_prefix_len(1)
+        .has_no_residual_filter();
+    assert_eq!(
+        decision.selected.kind,
+        crate::db::ExplainAccessDecisionKind::IndexPrefix
+    );
+    assert_eq!(decision.residual.burden_class, "none");
+    assert!(!decision.residual.has_residual_filter);
+    assert!(!decision.residual.has_residual_predicate);
+    assert_eq!(decision.residual.access_bound_predicate_count, 1);
+    assert_eq!(decision.residual.residual_predicate_count, 0);
+    assert!(
+        decision
+            .candidates
+            .iter()
+            .any(|candidate| candidate.label == "IndexPrefix(group_rank)"),
+        "JSON-facing access decision should carry planner candidate summaries",
+    );
+
+    let json = explain.render_json_canonical();
+    assert!(
+        json.contains("\"access_decision\":{\"schema_version\":1"),
+        "logical JSON explain should expose the structured access-decision DTO",
+    );
+    assert!(
+        json.contains("\"selected\":{\"kind\":\"IndexPrefix\",\"index_name\":\"group_rank\""),
+        "logical JSON explain should expose selected access kind and index name",
+    );
+    assert!(
+        json.contains("\"candidates\":[{\"label\":\"IndexPrefix(group_rank)\""),
+        "logical JSON explain should expose candidate summaries",
+    );
+    assert!(
+        json.contains(
+            "\"residual\":{\"burden_class\":\"none\",\"has_residual_filter\":false,\"has_residual_predicate\":false,\"access_bound_predicate_count\":1,\"residual_predicate_count\":0"
+        ),
+        "logical JSON explain should expose structured residual-work summary fields",
+    );
+
+    let text = explain.render_text_canonical();
+    assert!(
+        text.contains(
+            "access_decision=kind=IndexPrefix index=group_rank reason=single_candidate residual=none candidates=1"
+        ),
+        "text explain should keep access-decision rendering compact",
+    );
+    assert!(
+        !text.contains("rejections=["),
+        "text explain should not dump the full candidate/rejection model by default",
+    );
+}
+
+#[test]
+fn logical_explain_json_reports_composite_prefix_binding_detail() {
+    let explain = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Nat(7),
+            CoercionId::Strict,
+        )))
+        .explain()
+        .expect("index-prefix explain should build");
+
+    let json = explain.render_json_canonical();
+    assert!(
+        json.contains("\"bound_fields\":[\"group\"]"),
+        "prefix explain should expose bound composite fields",
+    );
+    assert!(
+        json.contains("\"bound_values\":[\"Nat(7)\"]"),
+        "prefix explain should expose bound composite values",
+    );
+    assert!(
+        json.contains("\"unbound_fields\":[\"rank\"]"),
+        "prefix explain should expose trailing unbound composite fields",
+    );
+}
+
+#[test]
+fn logical_explain_json_reports_composite_range_binding_detail() {
+    let explain = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter_predicate(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "group",
+                CompareOp::Eq,
+                Value::Nat(7),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "rank",
+                CompareOp::Gte,
+                Value::Nat(3),
+                CoercionId::Strict,
+            )),
+        ]))
+        .explain()
+        .expect("index-range explain should build");
+
+    let json = explain.render_json_canonical();
+    assert!(
+        json.contains("\"equality_prefix_fields\":[\"group\"]"),
+        "range explain should expose equality prefix fields",
+    );
+    assert!(
+        json.contains("\"equality_prefix_values\":[\"Nat(7)\"]"),
+        "range explain should expose equality prefix values",
+    );
+    assert!(
+        json.contains("\"range_field\":\"rank\""),
+        "range explain should expose the range anchor field",
+    );
+    assert!(
+        json.contains("\"lower_inclusivity\":\"inclusive\""),
+        "range explain should expose lower-bound inclusivity",
+    );
+    assert!(
+        json.contains("\"upper_inclusivity\":\"unbounded\""),
+        "range explain should expose upper-bound inclusivity",
+    );
+}
+
+#[test]
+fn logical_explain_json_reports_scalar_residual_filter_summary() {
+    let explain = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("group").eq(7_u32))
+        .filter_expr(Expr::Binary {
+            op: BinaryOp::Gt,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(Expr::Field(FieldId::new("rank"))),
+                right: Box::new(Expr::Literal(Value::Nat(1))),
+            }),
+            right: Box::new(Expr::Literal(Value::Nat(9))),
+        })
+        .explain()
+        .expect("index-prefix explain with residual scalar filter should build");
+
+    assert_plan(&explain)
+        .uses_index("group_rank")
+        .access_kind(RequiredAccessPath::IndexPrefix)
+        .bound_prefix_len(1);
+    assert_eq!(
+        explain.access_decision().residual.burden_class,
+        "scalar_expression"
+    );
+    assert!(explain.access_decision().residual.has_residual_filter);
+    assert!(!explain.access_decision().residual.has_residual_predicate);
+    assert_eq!(
+        explain
+            .access_decision()
+            .residual
+            .access_bound_predicate_count,
+        1,
+    );
+    assert_eq!(
+        explain.access_decision().residual.residual_predicate_count,
+        0,
+    );
+
+    let json = explain.render_json_canonical();
+    assert!(
+        json.contains("\"has_residual_filter\":true"),
+        "logical JSON explain should expose scalar residual filter presence",
+    );
+    assert!(
+        json.contains("\"has_residual_predicate\":false"),
+        "scalar residual filter explain should not invent a residual predicate model",
+    );
+}
+
+#[test]
+fn logical_explain_json_reports_range_anchor_residual_predicate_summary() {
+    let predicate = Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "tier",
+            CompareOp::Eq,
+            Value::Text("gold".to_string()),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "score",
+            CompareOp::Gte,
+            Value::Nat(3),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::Eq,
+            Value::Text("l1".to_string()),
+            CoercionId::Strict,
+        )),
+    ]);
+    let explain = Query::<PlanDeterministicRangeEntity>::new(MissingRowPolicy::Ignore)
+        .filter_predicate(predicate.clone())
+        .explain()
+        .expect("range explain with trailing residual predicate should build");
+
+    assert_plan(&explain)
+        .uses_index("a_tier_score_handle_idx")
+        .access_kind(RequiredAccessPath::IndexRange)
+        .bound_prefix_len(1);
+    assert_eq!(
+        explain.access_decision().residual.burden_class,
+        "predicate_only"
+    );
+    assert!(!explain.access_decision().residual.has_residual_filter);
+    assert!(explain.access_decision().residual.has_residual_predicate);
+    assert_eq!(
+        explain
+            .access_decision()
+            .residual
+            .access_bound_predicate_count,
+        2,
+        "equality prefix and range lower bound should be counted as access-bound",
+    );
+    assert_eq!(
+        explain.access_decision().residual.residual_predicate_count,
+        2,
+        "range-bound safety predicate and non-access predicate should remain visible as residual work",
+    );
+
+    let err = Query::<PlanDeterministicRangeEntity>::new(MissingRowPolicy::Ignore)
+        .filter_predicate(predicate)
+        .require_no_residual_filter()
+        .explain()
+        .expect_err("same residual metadata should fail no-residual requirement");
+    let QueryError::AccessRequirement(err) = err else {
+        panic!("residual predicate should fail as an access-requirement error");
+    };
+    assert_eq!(
+        err.decision().residual,
+        explain.access_decision().residual,
+        "no-residual requirement should preserve the same selected residual metadata exposed by explain",
+    );
+
+    let json = explain.render_json_canonical();
+    assert!(
+        json.contains("\"trailing_fields\":[\"handle\"]"),
+        "range explain should report fields after the range anchor as trailing",
+    );
+    assert!(
+        json.contains("\"access_bound_predicate_count\":2"),
+        "range explain should not count trailing predicates as access-bound",
+    );
+    assert!(
+        json.contains("\"residual_predicate_count\":2"),
+        "range explain should expose the residual predicate count",
+    );
+}
+
+#[test]
+fn fluent_access_requirements_assert_selected_plan_without_reranking() {
+    let baseline = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Nat(7),
+            CoercionId::Strict,
+        )))
+        .explain()
+        .expect("baseline index-prefix explain should build");
+    let required = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Nat(7),
+            CoercionId::Strict,
+        )))
+        .require_index()
+        .require_index_named("group_rank")
+        .require_access_path(RequiredAccessPath::IndexPrefix)
+        .require_no_residual_filter()
+        .explain()
+        .expect("matching access requirements should pass");
+
+    assert_eq!(
+        baseline.access(),
+        required.access(),
+        "access requirements must not change the selected plan",
+    );
+    assert_eq!(
+        baseline.access_decision(),
+        required.access_decision(),
+        "access requirements must not change planner decision metadata",
+    );
+}
+
+#[test]
+fn fluent_access_requirements_fail_closed_with_selected_decision() {
+    let err = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Nat(7),
+            CoercionId::Strict,
+        )))
+        .require_index_named("missing_idx")
+        .explain()
+        .expect_err("mismatched index requirement should fail");
+
+    let QueryError::AccessRequirement(err) = err else {
+        panic!("mismatched index requirement should return an access-requirement error");
+    };
+    assert!(matches!(
+        err.violation(),
+        AccessRequirementViolation::NamedIndexRequired { expected } if expected == "missing_idx"
+    ));
+    assert_eq!(
+        err.decision().selected.index_name.as_deref(),
+        Some("group_rank"),
+        "requirement failure should preserve the actual selected decision",
+    );
+
+    let err = Query::<PlanSimpleEntity>::new(MissingRowPolicy::Ignore)
+        .filter_predicate(Predicate::True)
+        .require_index()
+        .explain()
+        .expect_err("full scan should fail require_index");
+    assert!(matches!(
+        err,
+        QueryError::AccessRequirement(err)
+            if matches!(err.violation(), AccessRequirementViolation::IndexRequired)
+    ));
+
+    let err = Query::<PlanSimpleEntity>::new(MissingRowPolicy::Ignore)
+        .by_id(Ulid::from_u128(9_101))
+        .require_index()
+        .explain()
+        .expect_err("primary-key lookup should not satisfy secondary-index requirement");
+    assert!(matches!(
+        err,
+        QueryError::AccessRequirement(err)
+            if matches!(err.violation(), AccessRequirementViolation::IndexRequired)
+                && err.decision().selected.kind == ExplainAccessDecisionKind::ByKey
+    ));
+
+    let err = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Nat(7),
+            CoercionId::Strict,
+        )))
+        .require_access_path(RequiredAccessPath::IndexRange)
+        .explain()
+        .expect_err("selected index-prefix path should fail index-range requirement");
+    assert!(matches!(
+        err,
+        QueryError::AccessRequirement(err)
+            if matches!(
+                err.violation(),
+                AccessRequirementViolation::AccessPathRequired { expected }
+                    if *expected == RequiredAccessPath::IndexRange
+            )
+                && err.decision().selected.kind == ExplainAccessDecisionKind::IndexPrefix
+    ));
+
+    let err = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
+        .filter_predicate(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "group",
+                CompareOp::Eq,
+                Value::Nat(7),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "label",
+                CompareOp::Eq,
+                Value::Text("kept as residual".to_string()),
+                CoercionId::Strict,
+            )),
+        ]))
+        .require_no_residual_filter()
+        .explain()
+        .expect_err("residual predicate should fail no-residual requirement");
+    assert!(matches!(
+        err,
+        QueryError::AccessRequirement(err)
+            if matches!(
+                err.violation(),
+                AccessRequirementViolation::ResidualFilterForbidden
+            )
+    ));
+}
+
+#[test]
 fn secondary_or_eq_explain_uses_index_multi_lookup_access_shape() {
     let explain = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
         .filter_predicate(Predicate::Or(vec![

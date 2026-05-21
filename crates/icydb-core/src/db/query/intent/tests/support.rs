@@ -7,7 +7,7 @@
 #[cfg(feature = "sql")]
 pub(in crate::db::query::intent::tests) use crate::db::query::plan::{
     AggregateKind,
-    expr::{Expr, ProjectionField},
+    expr::{BinaryOp, Expr, FieldId, ProjectionField},
 };
 pub(in crate::db::query::intent::tests) use crate::{
     db::{
@@ -19,9 +19,11 @@ pub(in crate::db::query::intent::tests) use crate::{
         query::{
             builder::{FieldRef, count, count_by, exists, first, last, max, max_by, min, sum},
             explain::{
-                ExplainAccessPath, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
+                ExplainAccessDecisionKind, ExplainAccessPath, ExplainExecutionNodeDescriptor,
+                ExplainExecutionNodeType, ExplainPlan,
             },
             intent::model::QueryModel,
+            intent::{AccessRequirementViolation, RequiredAccessPath},
             plan::{AccessPlannedQuery, OrderDirection, OrderSpec},
         },
     },
@@ -94,6 +96,127 @@ pub(in crate::db::query::intent::tests) fn assert_expression_access_choice_selec
         Some(&"single_candidate".to_string()),
         "expression lookup parity expects deterministic single-candidate selection",
     );
+}
+
+pub(in crate::db::query::intent::tests) fn assert_plan(plan: &ExplainPlan) -> PlanAssertion<'_> {
+    PlanAssertion { plan }
+}
+
+pub(in crate::db::query::intent::tests) struct PlanAssertion<'a> {
+    plan: &'a ExplainPlan,
+}
+
+impl PlanAssertion<'_> {
+    pub(in crate::db::query::intent::tests) fn uses_index(self, expected: &str) -> Self {
+        assert_eq!(
+            self.plan.access_decision().selected.index_name.as_deref(),
+            Some(expected),
+            "expected selected semantic index '{expected}'",
+        );
+
+        self
+    }
+
+    pub(in crate::db::query::intent::tests) fn access_kind(
+        self,
+        expected: RequiredAccessPath,
+    ) -> Self {
+        assert!(
+            required_access_path_matches(expected, self.plan.access_decision().selected.kind),
+            "expected selected access kind '{}', got {:?}",
+            expected.code(),
+            self.plan.access_decision().selected.kind,
+        );
+
+        self
+    }
+
+    pub(in crate::db::query::intent::tests) fn bound_prefix_len(self, expected: usize) -> Self {
+        let actual = match self.plan.access() {
+            ExplainAccessPath::IndexPrefix { prefix_len, .. }
+            | ExplainAccessPath::IndexRange { prefix_len, .. } => Some(*prefix_len),
+            ExplainAccessPath::ByKey { .. }
+            | ExplainAccessPath::ByKeys { .. }
+            | ExplainAccessPath::KeyRange { .. }
+            | ExplainAccessPath::IndexMultiLookup { .. }
+            | ExplainAccessPath::FullScan
+            | ExplainAccessPath::Union(_)
+            | ExplainAccessPath::Intersection(_) => None,
+        };
+
+        assert_eq!(
+            actual,
+            Some(expected),
+            "expected selected index access prefix length {expected}",
+        );
+
+        self
+    }
+
+    pub(in crate::db::query::intent::tests) fn has_no_residual_filter(self) -> Self {
+        assert_eq!(
+            self.plan.access_decision().residual.burden_class,
+            "none",
+            "expected selected access decision to carry no residual burden",
+        );
+        assert!(
+            !self.plan.access_decision().residual.has_residual_filter,
+            "expected selected access decision to carry no residual scalar filter",
+        );
+        assert!(
+            !self.plan.access_decision().residual.has_residual_predicate,
+            "expected selected access decision to carry no residual predicate",
+        );
+        assert_eq!(
+            self.plan
+                .access_decision()
+                .residual
+                .residual_predicate_count,
+            0,
+            "expected selected access decision to carry no residual predicate terms",
+        );
+
+        self
+    }
+}
+
+fn required_access_path_matches(
+    expected: RequiredAccessPath,
+    actual: ExplainAccessDecisionKind,
+) -> bool {
+    matches!(
+        (expected, actual),
+        (RequiredAccessPath::ByKey, ExplainAccessDecisionKind::ByKey)
+            | (
+                RequiredAccessPath::ByKeys,
+                ExplainAccessDecisionKind::ByKeys
+            )
+            | (
+                RequiredAccessPath::KeyRange,
+                ExplainAccessDecisionKind::KeyRange
+            )
+            | (
+                RequiredAccessPath::IndexPrefix,
+                ExplainAccessDecisionKind::IndexPrefix
+            )
+            | (
+                RequiredAccessPath::IndexMultiLookup,
+                ExplainAccessDecisionKind::IndexMultiLookup
+            )
+            | (
+                RequiredAccessPath::IndexRange,
+                ExplainAccessDecisionKind::IndexRange
+            )
+            | (
+                RequiredAccessPath::FullScan,
+                ExplainAccessDecisionKind::FullScan
+            )
+            | (RequiredAccessPath::Union, ExplainAccessDecisionKind::Union)
+            | (
+                RequiredAccessPath::Intersection,
+                ExplainAccessDecisionKind::Intersection
+            )
+    )
 }
 
 pub(in crate::db::query::intent::tests) fn query_error_is_group_plan_error(

@@ -13,7 +13,7 @@ use crate::{
             explain::ExplainPlan,
             expr::FilterExpr,
             expr::OrderTerm as FluentOrderTerm,
-            intent::{QueryError, QueryModel},
+            intent::{AccessRequirements, QueryError, QueryModel, RequiredAccessPath},
             plan::{
                 AccessPlannedQuery, LoadSpec, OrderSpec, PreparedScalarPlanningState, QueryMode,
                 VisibleIndexes, expr::Expr,
@@ -37,6 +37,7 @@ use core::marker::PhantomData;
 #[derive(Clone, Debug)]
 pub(in crate::db) struct StructuralQuery {
     intent: QueryModel<'static, Value>,
+    access_requirements: AccessRequirements,
 }
 
 impl StructuralQuery {
@@ -47,14 +48,21 @@ impl StructuralQuery {
     ) -> Self {
         Self {
             intent: QueryModel::new(model, consistency),
+            access_requirements: AccessRequirements::new(),
         }
     }
 
     // Rewrap one updated generic-free intent model back into the structural
     // query shell so local transformation helpers do not rebuild `Self`
     // ad hoc at each boundary method.
-    const fn from_intent(intent: QueryModel<'static, Value>) -> Self {
-        Self { intent }
+    const fn from_parts(
+        intent: QueryModel<'static, Value>,
+        access_requirements: AccessRequirements,
+    ) -> Self {
+        Self {
+            intent,
+            access_requirements,
+        }
     }
 
     // Apply one infallible intent transformation while preserving the
@@ -63,7 +71,12 @@ impl StructuralQuery {
         self,
         map: impl FnOnce(QueryModel<'static, Value>) -> QueryModel<'static, Value>,
     ) -> Self {
-        Self::from_intent(map(self.intent))
+        let Self {
+            intent,
+            access_requirements,
+        } = self;
+
+        Self::from_parts(map(intent), access_requirements)
     }
 
     // Apply one fallible intent transformation while keeping result wrapping
@@ -72,7 +85,12 @@ impl StructuralQuery {
         self,
         map: impl FnOnce(QueryModel<'static, Value>) -> Result<QueryModel<'static, Value>, QueryError>,
     ) -> Result<Self, QueryError> {
-        map(self.intent).map(Self::from_intent)
+        let Self {
+            intent,
+            access_requirements,
+        } = self;
+
+        map(intent).map(|intent| Self::from_parts(intent, access_requirements))
     }
 
     #[must_use]
@@ -283,14 +301,20 @@ impl StructuralQuery {
     }
 
     pub(in crate::db) fn build_plan(&self) -> Result<AccessPlannedQuery, QueryError> {
-        self.intent.build_plan_model()
+        let mut plan = self.intent.build_plan_model()?;
+        self.validate_access_requirements_for_visibility(&mut plan, None)?;
+
+        Ok(plan)
     }
 
     pub(in crate::db) fn build_plan_with_visible_indexes(
         &self,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
-        self.intent.build_plan_model_with_indexes(visible_indexes)
+        let mut plan = self.intent.build_plan_model_with_indexes(visible_indexes)?;
+        self.validate_access_requirements_for_visibility(&mut plan, Some(visible_indexes))?;
+
+        Ok(plan)
     }
 
     pub(in crate::db) fn prepare_scalar_planning_state_with_schema_info(
@@ -306,19 +330,29 @@ impl StructuralQuery {
         visible_indexes: &VisibleIndexes<'_>,
         planning_state: PreparedScalarPlanningState<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
-        self.intent
+        let mut plan = self
+            .intent
             .build_plan_model_with_indexes_from_scalar_planning_state(
                 visible_indexes,
                 planning_state,
-            )
+            )?;
+        self.validate_access_requirements_for_visibility(&mut plan, Some(visible_indexes))?;
+
+        Ok(plan)
     }
 
     pub(in crate::db) fn try_build_trivial_scalar_load_plan_with_schema_info(
         &self,
         schema_info: SchemaInfo,
     ) -> Result<Option<AccessPlannedQuery>, QueryError> {
-        self.intent
-            .try_build_trivial_scalar_load_plan_with_schema_info(schema_info)
+        let mut plan = self
+            .intent
+            .try_build_trivial_scalar_load_plan_with_schema_info(schema_info)?;
+        if let Some(plan) = &mut plan {
+            self.validate_access_requirements_for_visibility(plan, None)?;
+        }
+
+        Ok(plan)
     }
 
     #[must_use]
@@ -353,6 +387,69 @@ impl StructuralQuery {
             Some(visible_indexes) => self.build_plan_with_visible_indexes(visible_indexes),
             None => self.build_plan(),
         }
+    }
+
+    fn finalize_access_choice_for_visibility(
+        &self,
+        plan: &mut AccessPlannedQuery,
+        visible_indexes: Option<&VisibleIndexes<'_>>,
+    ) {
+        match visible_indexes {
+            Some(visible_indexes) => {
+                if let Some(schema_info) = visible_indexes.accepted_schema_info() {
+                    plan.finalize_access_choice_for_model_with_accepted_indexes_and_schema(
+                        self.intent.model(),
+                        visible_indexes.accepted_field_path_indexes(),
+                        visible_indexes.accepted_expression_indexes(),
+                        schema_info,
+                    );
+                } else {
+                    plan.finalize_access_choice_for_model_only_with_indexes(
+                        self.intent.model(),
+                        visible_indexes.generated_model_only_indexes(),
+                    );
+                }
+            }
+            None => {
+                plan.finalize_access_choice_for_model_only_with_indexes(
+                    self.intent.model(),
+                    self.intent.model().indexes(),
+                );
+            }
+        }
+    }
+
+    fn validate_access_requirements_for_visibility(
+        &self,
+        plan: &mut AccessPlannedQuery,
+        visible_indexes: Option<&VisibleIndexes<'_>>,
+    ) -> Result<(), QueryError> {
+        if self.access_requirements.is_empty() {
+            return Ok(());
+        }
+
+        self.finalize_access_choice_for_visibility(plan, visible_indexes);
+        self.access_requirements.validate(plan)
+    }
+
+    const fn require_index(mut self) -> Self {
+        self.access_requirements.require_index();
+        self
+    }
+
+    fn require_index_named(mut self, index_name: impl Into<String>) -> Self {
+        self.access_requirements.require_index_named(index_name);
+        self
+    }
+
+    const fn require_access_path(mut self, path: RequiredAccessPath) -> Self {
+        self.access_requirements.require_access_path(path);
+        self
+    }
+
+    const fn require_no_residual_filter(mut self) -> Self {
+        self.access_requirements.require_no_residual_filter();
+        self
     }
 
     #[must_use]
@@ -527,7 +624,9 @@ impl<E: EntityKind> Query<E> {
         &self,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<ExplainPlan, QueryError> {
-        let plan = self.build_plan_for_visibility(Some(visible_indexes))?;
+        let mut plan = self.build_plan_for_visibility(Some(visible_indexes))?;
+        self.inner
+            .finalize_access_choice_for_visibility(&mut plan, Some(visible_indexes));
 
         Ok(plan.explain())
     }
@@ -791,9 +890,50 @@ impl<E: EntityKind> Query<E> {
         self
     }
 
+    /// Require the planner-selected access path to use a secondary index.
+    ///
+    /// This is a fail-closed assertion evaluated after planning. It does not
+    /// hint, rank, or force index selection.
+    #[must_use]
+    pub fn require_index(mut self) -> Self {
+        self.inner = self.inner.require_index();
+        self
+    }
+
+    /// Require the planner-selected access path to use one semantic index name.
+    ///
+    /// This is intended for hot-path regression checks. It validates the
+    /// selected runtime index contract after planning and never changes ranking.
+    #[must_use]
+    pub fn require_index_named(mut self, index_name: impl Into<String>) -> Self {
+        self.inner = self.inner.require_index_named(index_name);
+        self
+    }
+
+    /// Require one selected access path kind after planning.
+    ///
+    /// This assertion does not act as an optimizer hint.
+    #[must_use]
+    pub fn require_access_path(mut self, path: RequiredAccessPath) -> Self {
+        self.inner = self.inner.require_access_path(path);
+        self
+    }
+
+    /// Require the selected plan to leave no residual filter work.
+    ///
+    /// Access-bound predicates are allowed. Remaining scalar or predicate
+    /// filters after access selection fail this requirement.
+    #[must_use]
+    pub fn require_no_residual_filter(mut self) -> Self {
+        self.inner = self.inner.require_no_residual_filter();
+        self
+    }
+
     /// Explain this intent without executing it.
     pub fn explain(&self) -> Result<ExplainPlan, QueryError> {
-        let plan = self.planned()?;
+        let mut plan = self.build_plan_for_visibility(None)?;
+        self.inner
+            .finalize_access_choice_for_visibility(&mut plan, None);
 
         Ok(plan.explain())
     }
