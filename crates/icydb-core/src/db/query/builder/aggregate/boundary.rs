@@ -12,7 +12,7 @@ use crate::{
     error::InternalError,
     traits::{EntityKind, EntityValue, KeyValueCodec},
     types::Id,
-    value::{StorageKey, Value, storage_key_as_runtime_value},
+    value::{StorageKey, Value, primary_key_value_as_runtime_value},
 };
 
 /// Typed optional `(min_id, max_id)` style aggregate terminal output.
@@ -95,7 +95,7 @@ impl ScalarTerminalBoundaryOutput {
         E: EntityKind + EntityValue,
     {
         match self {
-            Self::Id(value) => value.map(decode_storage_key_to_id::<E>).transpose(),
+            Self::Id(value) => value.map(decode_primary_key_value_to_id::<E>).transpose(),
             _ => Err(Self::output_kind_mismatch(
                 "scalar terminal boundary id output kind mismatch",
             )),
@@ -111,8 +111,8 @@ impl ScalarTerminalBoundaryOutput {
             Self::IdPair(value) => value
                 .map(|(left, right)| {
                     Ok((
-                        decode_storage_key_to_id::<E>(left)?,
-                        decode_storage_key_to_id::<E>(right)?,
+                        decode_primary_key_value_to_id::<E>(left)?,
+                        decode_primary_key_value_to_id::<E>(right)?,
                     ))
                 })
                 .transpose(),
@@ -124,11 +124,11 @@ impl ScalarTerminalBoundaryOutput {
 }
 
 // Re-enter typed identity only at the terminal API boundary.
-fn decode_storage_key_to_id<E>(key: StorageKey) -> Result<Id<E>, InternalError>
+fn decode_primary_key_value_to_id<E>(key: StorageKey) -> Result<Id<E>, InternalError>
 where
     E: EntityKind + EntityValue,
 {
-    let value = storage_key_as_runtime_value(&key);
+    let value = primary_key_value_as_runtime_value(&key);
     let decoded = <E::Key as KeyValueCodec>::from_key_value(&value).ok_or_else(|| {
         InternalError::store_corruption(format!(
             "scalar aggregate output primary key decode failed: {value:?}"
@@ -193,7 +193,7 @@ pub(in crate::db) enum ScalarProjectionBoundaryRequest {
 pub(in crate::db) enum ScalarProjectionBoundaryOutput {
     Count(u32),
     Values(Vec<Value>),
-    ValuesWithDataKeys(Vec<(DecodedDataStoreKey, Value)>),
+    ValuesWithDecodedDataStoreKeys(Vec<(DecodedDataStoreKey, Value)>),
     TerminalValue(Option<Value>),
 }
 
@@ -229,7 +229,7 @@ impl ScalarProjectionBoundaryOutput {
         E: EntityKind + EntityValue,
     {
         match self {
-            Self::ValuesWithDataKeys(values) => values
+            Self::ValuesWithDecodedDataStoreKeys(values) => values
                 .into_iter()
                 .map(|(data_key, value)| Ok((Id::from_key(data_key.try_key::<E>()?), value)))
                 .collect(),

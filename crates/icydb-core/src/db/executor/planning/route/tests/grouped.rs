@@ -892,7 +892,7 @@ fn grouped_policy_snapshot_non_specialized_grouped_families_collapse_to_generic_
             GroupedExecutionMode::HashMaterialized,
             true,
         ),
-        "storage-key grouped aggregates should stay on the generic grouped rows family",
+        "primary-key-value grouped aggregates should stay on the generic grouped rows family",
     );
 
     let mixed_grouped =

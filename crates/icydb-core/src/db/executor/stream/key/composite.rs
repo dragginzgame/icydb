@@ -12,13 +12,13 @@ use crate::{
     types::EntityTag,
 };
 
-type DataKeyWitness = (EntityTag, StorageKey);
+type RowKeyWitness = (EntityTag, StorageKey);
 
-const fn data_key_witness(key: &DecodedDataStoreKey) -> DataKeyWitness {
+const fn row_key_witness(key: &DecodedDataStoreKey) -> RowKeyWitness {
     (key.entity_tag(), key.storage_key())
 }
 
-fn witness_matches_key(witness: &DataKeyWitness, key: &DecodedDataStoreKey) -> bool {
+fn witness_matches_key(witness: &RowKeyWitness, key: &DecodedDataStoreKey) -> bool {
     witness.0 == key.entity_tag() && witness.1 == key.storage_key()
 }
 
@@ -32,7 +32,7 @@ fn witness_matches_key(witness: &DataKeyWitness, key: &DecodedDataStoreKey) -> b
 struct StreamSideState {
     item: Option<DecodedDataStoreKey>,
     done: bool,
-    last_key: Option<DataKeyWitness>,
+    last_key: Option<RowKeyWitness>,
     comparator: KeyOrderComparator,
     strict_monotonicity: bool,
     name: &'static str,
@@ -135,7 +135,7 @@ impl StreamSideState {
         let Some((previous_entity, previous_key)) = self.last_key.as_ref() else {
             return Ok(());
         };
-        let (current_entity, current_key) = data_key_witness(current);
+        let (current_entity, current_key) = row_key_witness(current);
 
         if *previous_entity != current_entity {
             return Err(self.entity_monotonicity_required(
@@ -164,14 +164,14 @@ impl StreamSideState {
 
     fn take_item(&mut self) -> Option<DecodedDataStoreKey> {
         let key = self.item.take()?;
-        self.last_key = Some(data_key_witness(&key));
+        self.last_key = Some(row_key_witness(&key));
 
         Some(key)
     }
 
     fn clear_item(&mut self) {
         if let Some(key) = self.item.take() {
-            self.last_key = Some(data_key_witness(&key));
+            self.last_key = Some(row_key_witness(&key));
         }
     }
 }
@@ -210,7 +210,7 @@ pub(in crate::db::executor) struct MergeOrderedKeyStream<A, B> {
     right: B,
     pair: OrderedPairState,
     comparator: KeyOrderComparator,
-    last_emitted: Option<DataKeyWitness>,
+    last_emitted: Option<RowKeyWitness>,
 }
 
 impl<A, B> MergeOrderedKeyStream<A, B>
@@ -295,7 +295,7 @@ where
                 continue;
             }
 
-            self.last_emitted = Some(data_key_witness(&next));
+            self.last_emitted = Some(row_key_witness(&next));
             return Ok(Some(next));
         }
     }
@@ -313,7 +313,7 @@ pub(in crate::db::executor) struct IntersectOrderedKeyStream<A, B> {
     right: B,
     pair: OrderedPairState,
     comparator: KeyOrderComparator,
-    last_emitted: Option<DataKeyWitness>,
+    last_emitted: Option<RowKeyWitness>,
 }
 
 impl<A, B> IntersectOrderedKeyStream<A, B>
@@ -387,7 +387,7 @@ where
                     continue;
                 }
 
-                self.last_emitted = Some(data_key_witness(&next));
+                self.last_emitted = Some(row_key_witness(&next));
                 return Ok(Some(next));
             }
 

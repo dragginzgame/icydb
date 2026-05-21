@@ -195,16 +195,16 @@ impl<'a> FusedSecondaryCoveringAuthority<'a> {
 
     /// Admit or reject one secondary covering candidate under the existing
     /// fail-closed stale-row contract.
-    pub(in crate::db::executor) fn admits_storage_key(
+    pub(in crate::db::executor) fn admits_primary_key_value(
         self,
-        storage_key: StorageKey,
+        primary_key_value: StorageKey,
     ) -> Result<bool, InternalError> {
         // Phase 1: account for the candidate and encode one authoritative
-        // row-store key directly from the entity tag plus storage key.
+        // row-store key directly from the entity tag plus primary key value.
         record_row_check_covering_candidate_seen();
         record_row_presence_probe_source(RowPresenceProbeSource::BorrowedDataStore);
         record_row_presence_key_to_raw_encode();
-        let raw_key = DecodedDataStoreKey::raw_from_parts(self.entity_tag, storage_key)?;
+        let raw_key = DecodedDataStoreKey::raw_from_parts(self.entity_tag, primary_key_value)?;
 
         // Phase 2: probe the borrowed data-store authority and preserve the
         // current missing-row policy exactly.
@@ -218,7 +218,7 @@ impl<'a> FusedSecondaryCoveringAuthority<'a> {
                 } else {
                     Err(ExecutorError::missing_row(&DecodedDataStoreKey::new(
                         self.entity_tag,
-                        storage_key,
+                        primary_key_value,
                     ))
                     .into())
                 }

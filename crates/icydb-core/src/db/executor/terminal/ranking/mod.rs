@@ -45,7 +45,7 @@ enum RankedFieldBoundaryDirection {
 enum RankingTerminalBoundaryOutput<E: EntityKind + EntityValue> {
     Rows(EntityResponse<E>),
     Values(Vec<Value>),
-    ValuesWithDataKeys(Vec<(DecodedDataStoreKey, Value)>),
+    ValuesWithDecodedDataStoreKeys(Vec<(DecodedDataStoreKey, Value)>),
 }
 
 impl<E> RankingTerminalBoundaryOutput<E>
@@ -80,7 +80,7 @@ where
     // Decode `(id, value)` ranking boundary output.
     fn into_values_with_ids(self) -> Result<Vec<(Id<E>, Value)>, InternalError> {
         match self {
-            Self::ValuesWithDataKeys(values) => values
+            Self::ValuesWithDecodedDataStoreKeys(values) => values
                 .into_iter()
                 .map(|(data_key, value)| Ok((Id::from_key(data_key.try_key::<E>()?), value)))
                 .collect(),
@@ -205,7 +205,7 @@ where
                     field_slot,
                     take_count,
                 )
-                .map(RankingTerminalBoundaryOutput::ValuesWithDataKeys)
+                .map(RankingTerminalBoundaryOutput::ValuesWithDecodedDataStoreKeys)
             }
             (
                 RankedFieldBoundaryDirection::Bottom,
@@ -219,7 +219,7 @@ where
                     field_slot,
                     take_count,
                 )
-                .map(RankingTerminalBoundaryOutput::ValuesWithDataKeys)
+                .map(RankingTerminalBoundaryOutput::ValuesWithDecodedDataStoreKeys)
             }
         }
     }

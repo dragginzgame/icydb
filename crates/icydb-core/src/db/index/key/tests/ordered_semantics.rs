@@ -8,14 +8,14 @@ use crate::{
         OrderedValueEncodeError,
         ordered::{
             compare_index_component_values, encode_canonical_index_component,
-            encode_canonical_index_component_from_storage_key,
+            encode_canonical_index_component_from_primary_key_value,
         },
     },
     types::{
         Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128, Principal,
         Subaccount, Timestamp, Ulid,
     },
-    value::{StorageKey, Value, ValueEnum, storage_key_as_runtime_value},
+    value::{StorageKey, Value, ValueEnum, primary_key_value_as_runtime_value},
 };
 use proptest::prelude::*;
 use std::cmp::Ordering;
@@ -158,7 +158,7 @@ fn canonical_encoder_account_payload_uses_exact_owner_length_tag() {
 }
 
 #[test]
-fn storage_key_encoder_matches_value_encoder_for_all_storage_key_variants() {
+fn primary_key_value_encoder_matches_value_encoder_for_all_primary_key_variants() {
     let samples = [
         StorageKey::Account(Account::dummy(7)),
         StorageKey::Int(-7),
@@ -171,14 +171,15 @@ fn storage_key_encoder_matches_value_encoder_for_all_storage_key_variants() {
     ];
 
     for sample in samples {
-        let storage_key_bytes = encode_canonical_index_component_from_storage_key(sample)
-            .expect("storage key should encode");
-        let value_bytes = encode_canonical_index_component(&storage_key_as_runtime_value(&sample))
-            .expect("value should encode");
+        let primary_key_bytes = encode_canonical_index_component_from_primary_key_value(sample)
+            .expect("primary key should encode");
+        let value_bytes =
+            encode_canonical_index_component(&primary_key_value_as_runtime_value(&sample))
+                .expect("value should encode");
 
         assert_eq!(
-            storage_key_bytes, value_bytes,
-            "storage-key encoder diverged from canonical value encoder for {sample:?}"
+            primary_key_bytes, value_bytes,
+            "primary-key encoder diverged from canonical value encoder for {sample:?}"
         );
     }
 }

@@ -48,9 +48,9 @@ impl ExtremumKind {
         }
     }
 
-    // Return the storage-key label used by invariant errors for this extrema
-    // aggregate.
-    pub(in crate::db::executor::aggregate::contracts::state) const fn storage_key_label(
+    // Return the primary-key value label used by invariant errors for this
+    // extrema aggregate.
+    pub(in crate::db::executor::aggregate::contracts::state) const fn primary_key_value_label(
         self,
     ) -> &'static str {
         match self {

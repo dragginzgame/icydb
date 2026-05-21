@@ -69,7 +69,7 @@ where
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
-        read_index_storage_keys_in_raw_range(E::ENTITY_TAG, index_store, index, bounds, limit)
+        read_index_primary_key_values_in_raw_range(E::ENTITY_TAG, index_store, index, bounds, limit)
     }
 }
 
@@ -96,15 +96,15 @@ where
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
-        read_index_storage_keys_in_raw_range(entity_tag, index_store, index, bounds, limit)
+        read_index_primary_key_values_in_raw_range(entity_tag, index_store, index, bounds, limit)
     }
 }
 
 impl<E> SealedStructuralIndexEntryReader for Context<'_, E> where E: EntityKind + EntityValue {}
 
-// Resolve structural storage keys from one raw index range using the shared
+// Resolve structural primary-key values from one raw index range using the shared
 // context-backed index-store reader path.
-fn read_index_storage_keys_in_raw_range(
+fn read_index_primary_key_values_in_raw_range(
     _entity_tag: EntityTag,
     index_store: &'static LocalKey<RefCell<IndexStore>>,
     index: IndexReadContract<'_>,
@@ -114,23 +114,23 @@ fn read_index_storage_keys_in_raw_range(
     let mut out = Vec::with_capacity(limit.min(32));
     index_store.with_borrow(|store| {
         store.visit_raw_entries_in_range(bounds, Direction::Asc, |raw_key, raw_entry| {
-            push_index_entry_storage_keys(index, raw_key, raw_entry, &mut out, limit)
+            push_index_entry_primary_key_values(index, raw_key, raw_entry, &mut out, limit)
         })
     })?;
 
     Ok(out)
 }
 
-// Decode one raw index entry into structural storage keys for executor context
-// preflight reads that are not part of a user-visible scan.
-fn push_index_entry_storage_keys(
+// Decode one raw index entry into structural primary-key values for executor
+// context preflight reads that are not part of a user-visible scan.
+fn push_index_entry_primary_key_values(
     index: IndexReadContract<'_>,
     raw_key: &RawIndexStoreKey,
     raw_entry: &IndexEntryValue,
     out: &mut Vec<StorageKey>,
     limit: usize,
 ) -> Result<bool, InternalError> {
-    raw_entry.push_membership_storage_keys_limited(raw_key, out, limit, |err| {
+    raw_entry.push_row_identity_keys_limited(raw_key, out, limit, |err| {
         InternalError::index_plan_index_corruption(format!(
             "index corrupted: ({}) -> {err}",
             index.fields()

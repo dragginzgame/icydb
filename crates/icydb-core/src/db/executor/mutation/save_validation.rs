@@ -86,7 +86,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             accepted_row_decode_contract,
         );
         let row_fields = StructuralSlotReader::from_raw_row_with_validated_contract(row, contract)?;
-        row_fields.validate_storage_key(data_key)?;
+        row_fields.validate_primary_key(data_key)?;
 
         Self::validate_structural_row_invariants_with_accepted_contract(&row_fields, schema)
     }

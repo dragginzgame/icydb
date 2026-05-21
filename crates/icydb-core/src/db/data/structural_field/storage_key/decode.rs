@@ -20,7 +20,7 @@ use crate::{
     },
     db::schema::PersistedFieldKind,
     model::field::FieldKind,
-    value::{StorageKey, Value, storage_key_as_runtime_value},
+    value::{StorageKey, Value, primary_key_value_as_runtime_value},
 };
 
 /// Decode one strong-relation field payload from Structural Binary v1 directly
@@ -123,17 +123,19 @@ pub(in crate::db) fn decode_storage_key_binary_value_bytes(
     let value = match kind {
         FieldKind::Relation { key_kind, .. } => {
             decode_optional_relation_storage_key_binary_bytes(raw_bytes, *key_kind)?
-                .map_or(Value::Null, |key| storage_key_as_runtime_value(&key))
+                .map_or(Value::Null, |key| primary_key_value_as_runtime_value(&key))
         }
         FieldKind::List(FieldKind::Relation { key_kind, .. })
         | FieldKind::Set(FieldKind::Relation { key_kind, .. }) => Value::List(
             decode_relation_storage_key_binary_list_bytes(raw_bytes, **key_kind)?
                 .into_iter()
-                .map(|key| storage_key_as_runtime_value(&key))
+                .map(|key| primary_key_value_as_runtime_value(&key))
                 .collect(),
         ),
         _ if binary_payload_is_null(raw_bytes)? => Value::Null,
-        _ => storage_key_as_runtime_value(&decode_storage_key_field_binary_bytes(raw_bytes, kind)?),
+        _ => primary_key_value_as_runtime_value(&decode_storage_key_field_binary_bytes(
+            raw_bytes, kind,
+        )?),
     };
 
     Ok(Some(value))

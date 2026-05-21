@@ -2141,9 +2141,9 @@ mod tests {
         let mut publication_sink = startup_field_path::StartupSchemaMutationPublicationSink;
         let report = RECONCILE_INDEX_STORE
             .with_borrow_mut(|index_store| {
-                let rebuild_rows = rows
-                    .iter()
-                    .map(|row| SchemaFieldPathIndexRebuildRow::new(row.storage_key, &row.slots));
+                let rebuild_rows = rows.iter().map(|row| {
+                    SchemaFieldPathIndexRebuildRow::new(row.primary_key_value, &row.slots)
+                });
                 SchemaFieldPathIndexRunner::run(
                     &input,
                     IndexedSchemaEntity::ENTITY_TAG,
@@ -2221,9 +2221,9 @@ mod tests {
         let mut publication_sink = startup_field_path::StartupSchemaMutationPublicationSink;
         let report = RECONCILE_INDEX_STORE
             .with_borrow_mut(|index_store| {
-                let rebuild_rows = rows
-                    .iter()
-                    .map(|row| SchemaFieldPathIndexRebuildRow::new(row.storage_key, &row.slots));
+                let rebuild_rows = rows.iter().map(|row| {
+                    SchemaFieldPathIndexRebuildRow::new(row.primary_key_value, &row.slots)
+                });
                 SchemaFieldPathIndexRunner::run(
                     &input,
                     IndexedSchemaEntity::ENTITY_TAG,
@@ -2300,9 +2300,9 @@ mod tests {
         let mut publication_sink = startup_field_path::StartupSchemaMutationPublicationSink;
         let report = RECONCILE_INDEX_STORE
             .with_borrow_mut(|index_store| {
-                let rebuild_rows = rows
-                    .iter()
-                    .map(|row| SchemaFieldPathIndexRebuildRow::new(row.storage_key, &row.slots));
+                let rebuild_rows = rows.iter().map(|row| {
+                    SchemaFieldPathIndexRebuildRow::new(row.primary_key_value, &row.slots)
+                });
                 SchemaFieldPathIndexRunner::run(
                     &input,
                     IndexedSchemaEntity::ENTITY_TAG,

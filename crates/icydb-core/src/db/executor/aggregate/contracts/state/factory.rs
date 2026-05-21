@@ -41,7 +41,7 @@ impl AggregateStateFactory {
             } else {
                 None
             },
-            requires_storage_key: kind.aggregate_kind().requires_decoded_id(),
+            requires_primary_key_value: kind.aggregate_kind().requires_decoded_id(),
             reducer: ScalarAggregateReducerState::for_terminal_kind(kind),
         }
     }
@@ -70,7 +70,7 @@ impl AggregateStateFactory {
             target_field,
             grouped_input_expr,
             grouped_filter_expr,
-            requires_storage_key: kind.requires_decoded_id(),
+            requires_primary_key_value: kind.requires_decoded_id(),
             reducer: GroupedAggregateReducerState::for_kind(kind),
         }
     }

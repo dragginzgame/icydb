@@ -93,7 +93,7 @@ fn distinct_stream_suppresses_consecutive_duplicates() {
 }
 
 #[test]
-fn distinct_stream_identity_equality_never_emits_same_datakey_twice() {
+fn distinct_stream_identity_equality_never_emits_same_decoded_data_store_key_twice() {
     let inner = StaticOrderedKeyStream::new(vec![data_key(7), data_key(7), data_key(7)]);
     let dedup_counter = Rc::new(Cell::new(0u64));
     let mut stream = DistinctOrderedKeyStream::new_with_dedup_counter(
@@ -106,7 +106,7 @@ fn distinct_stream_identity_equality_never_emits_same_datakey_twice() {
     assert_eq!(
         out,
         vec![data_key(7)],
-        "identical DataKeys must collapse to one row under kernel row DISTINCT",
+        "identical decoded data-store keys must collapse to one row under kernel row DISTINCT",
     );
     assert_eq!(
         dedup_counter.get(),

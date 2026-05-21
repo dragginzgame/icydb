@@ -11,11 +11,11 @@ use crate::{
         RawDataStoreKey, RawDataStoreKeyRange,
     },
     error::InternalError,
-    traits::{EntityKind, Storable, StorageKeyCodec, StorageKeyDecode},
+    traits::{EntityKind, PrimaryKeyCodec, PrimaryKeyDecode, Storable},
     types::{Account, EntityTag},
     value::{
         StorageKey, StorageKeyDecodeError, StorageKeyEncodeError, Value,
-        storage_key_from_runtime_value,
+        primary_key_value_from_runtime_value,
     },
 };
 use canic_cdk::structures::storable::Bound as StorableBound;
@@ -50,12 +50,12 @@ impl From<DecodedDataStoreKeyEncodeError> for InternalError {
 }
 
 ///
-/// KeyDecodeError
+/// PrimaryKeyValueDecodeError
 /// (decode / corruption boundary)
 ///
 
 #[derive(Debug, ThisError)]
-pub(in crate::db) enum KeyDecodeError {
+pub(in crate::db) enum PrimaryKeyValueDecodeError {
     #[error("invalid primary key encoding: {source}")]
     InvalidEncoding {
         #[source]
@@ -69,13 +69,13 @@ pub(in crate::db) enum KeyDecodeError {
     },
 }
 
-impl From<StorageKeyDecodeError> for KeyDecodeError {
+impl From<StorageKeyDecodeError> for PrimaryKeyValueDecodeError {
     fn from(source: StorageKeyDecodeError) -> Self {
         Self::InvalidEncoding { source }
     }
 }
 
-impl From<crate::db::key_taxonomy::CompactPrimaryKeyDecodeError> for KeyDecodeError {
+impl From<crate::db::key_taxonomy::CompactPrimaryKeyDecodeError> for PrimaryKeyValueDecodeError {
     fn from(source: crate::db::key_taxonomy::CompactPrimaryKeyDecodeError) -> Self {
         Self::InvalidCompactEncoding { source }
     }
@@ -89,7 +89,7 @@ impl From<crate::db::key_taxonomy::CompactPrimaryKeyDecodeError> for KeyDecodeEr
 #[derive(Debug, ThisError)]
 pub(in crate::db) enum DecodedDataStoreKeyDecodeError {
     #[error("invalid primary key")]
-    Key(#[from] KeyDecodeError),
+    Key(#[from] PrimaryKeyValueDecodeError),
 
     #[error("invalid data store key: {source}")]
     StoreKey {
@@ -172,9 +172,9 @@ impl DecodedDataStoreKey {
         key: &K,
     ) -> Result<Self, InternalError>
     where
-        K: StorageKeyCodec,
+        K: PrimaryKeyCodec,
     {
-        let key = key.to_storage_key()?;
+        let key = key.to_primary_key_value()?;
 
         Ok(Self::new(entity, key))
     }
@@ -187,7 +187,7 @@ impl DecodedDataStoreKey {
         entity: EntityTag,
         key: &Value,
     ) -> Result<Self, InternalError> {
-        let key = storage_key_from_runtime_value(key)?;
+        let key = primary_key_value_from_runtime_value(key)?;
 
         Ok(Self::new(entity, key))
     }
@@ -208,7 +208,7 @@ impl DecodedDataStoreKey {
             ));
         }
 
-        <E::Key as StorageKeyDecode>::from_storage_key(self.key)
+        <E::Key as PrimaryKeyDecode>::from_primary_key_value(self.key)
     }
 
     // ------------------------------------------------------------------
@@ -308,7 +308,7 @@ impl DecodedDataStoreKey {
             decoded
                 .primary_key()
                 .decode()
-                .map_err(KeyDecodeError::from)?,
+                .map_err(PrimaryKeyValueDecodeError::from)?,
         );
 
         Ok(Self::new_with_raw(entity, key, raw.clone()))
@@ -428,15 +428,15 @@ mod tests {
     use super::*;
     use crate::{
         error::{ErrorClass, ErrorOrigin, InternalError},
-        traits::{KeyValueCodec, StorageKeyCodec, StorageKeyDecode},
+        traits::{KeyValueCodec, PrimaryKeyCodec, PrimaryKeyDecode},
         types::{Account, Principal, Subaccount, Timestamp, Ulid},
-        value::{Value, storage_key_from_runtime_value},
+        value::{Value, primary_key_value_from_runtime_value},
     };
     use std::borrow::Cow;
 
     fn assert_constructor_equivalence<K>(entity: EntityTag, key: K)
     where
-        K: KeyValueCodec + StorageKeyCodec + std::fmt::Debug,
+        K: KeyValueCodec + PrimaryKeyCodec + std::fmt::Debug,
     {
         let typed =
             DecodedDataStoreKey::try_from_typed_key(entity, &key).expect("typed key should encode");
@@ -451,7 +451,7 @@ mod tests {
 
     fn assert_structural_dedup_matches_typed_dedup<K>(entity: EntityTag, keys: Vec<K>)
     where
-        K: Clone + KeyValueCodec + StorageKeyCodec + Ord + std::fmt::Debug,
+        K: Clone + KeyValueCodec + PrimaryKeyCodec + Ord + std::fmt::Debug,
     {
         let mut typed_keys = keys.clone();
         typed_keys.sort();
@@ -486,10 +486,11 @@ mod tests {
 
     fn assert_storage_key_roundtrip<K>(key: K)
     where
-        K: Copy + Eq + std::fmt::Debug + StorageKeyCodec + StorageKeyDecode,
+        K: Copy + Eq + std::fmt::Debug + PrimaryKeyCodec + PrimaryKeyDecode,
     {
-        let storage_key = key.to_storage_key().expect("typed key should encode");
-        let decoded = K::from_storage_key(storage_key).expect("storage key should decode");
+        let primary_key_value = key.to_primary_key_value().expect("typed key should encode");
+        let decoded =
+            K::from_primary_key_value(primary_key_value).expect("primary key should decode");
 
         assert_eq!(decoded, key);
     }
@@ -591,10 +592,10 @@ mod tests {
     }
 
     #[test]
-    fn storage_key_decode_rejects_variant_mismatch_and_out_of_range_keys() {
-        let variant_err = u64::from_storage_key(StorageKey::Int(7))
+    fn primary_key_decode_rejects_variant_mismatch_and_out_of_range_keys() {
+        let variant_err = u64::from_primary_key_value(StorageKey::Int(7))
             .expect_err("nat decode must reject signed storage-key variants");
-        let range_err = u8::from_storage_key(StorageKey::Nat(300))
+        let range_err = u8::from_primary_key_value(StorageKey::Nat(300))
             .expect_err("narrow integer decode must reject out-of-range values");
 
         assert_eq!(variant_err.class(), ErrorClass::Corruption);
@@ -623,11 +624,11 @@ mod tests {
 
         for value in unsupported_values {
             let typed_err = InternalError::from(
-                storage_key_from_runtime_value(&value)
-                    .expect_err("runtime bridge must reject non-storage-key values"),
+                primary_key_value_from_runtime_value(&value)
+                    .expect_err("runtime bridge must reject non-primary-key values"),
             );
             let structural_err = DecodedDataStoreKey::try_from_structural_key(entity, &value)
-                .expect_err("structural constructor must reject non-storage-key values");
+                .expect_err("structural constructor must reject non-primary-key values");
 
             assert_eq!(typed_err.class(), ErrorClass::Unsupported);
             assert_eq!(typed_err.origin(), ErrorOrigin::Serialize);

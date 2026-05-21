@@ -53,6 +53,23 @@ Example: `0.33.0`, `0.33.1`, and `0.33.2` all map to [docs/changelog/0.33.md](do
 
 The root changelog must link to the detailed file when present.
 
+## 2.3 Unreleased Work
+
+Ordinary development should collect user-visible changes under an `Unreleased`
+section in the current minor-line detailed notes file:
+
+`docs/changelog/<major>.<minor>.md`
+
+Use `Unreleased` for small slices, exploratory cleanup, and follow-up work that
+is not yet being published. Do not invent patch numbers just to record each
+slice.
+
+Root `CHANGELOG.md` is release-finalized output. It should normally be updated
+when preparing a patch release, not after every small development slice.
+
+When a release is prepared, collapse the current `Unreleased` notes into the
+target patch entry and add exactly one root changelog bullet for that patch.
+
 ---
 
 # 3. Version Entry Rules (Root CHANGELOG.md)
@@ -88,6 +105,8 @@ Rules:
 13. For a root minor-line entry (`<major>.<minor>.x`), use exactly one bullet per patch version listed in that minor line.
 14. Each root minor-line patch bullet must be a high-level summary sentence, not an exhaustive implementation list.
 15. If a patch bullet starts becoming a multi-clause internal inventory, shorten it and move detail to `docs/changelog/<major>.<minor>.md`.
+16. Do not add a new root patch bullet for every code slice. Batch coherent
+    work and create the patch bullet only when release preparation starts.
 
 ## 3.1 Section Header Emoji Mapping
 
@@ -123,6 +142,17 @@ Do not use plain backticked path text for detailed-breakdown links.
 
 # 4. Automation Rules for Agents
 
+During ordinary development:
+
+1. Prefer focused code slices and focused validation.
+2. For user-visible changes, update only the current minor-line detailed
+   `Unreleased` notes when the user asks for release notes or when omitting the
+   note would make the batch hard to reconstruct.
+3. Do not assign patch numbers.
+4. Do not update root `CHANGELOG.md` unless the user is preparing a release,
+   asks for a push-ready/release-ready state, or explicitly requests a root
+   changelog edit.
+
 When preparing a release:
 
 1. Identify all changes since last version tag.
@@ -141,6 +171,8 @@ When preparing a release:
 8. Use the version specified by the release request or the existing latest changelog entry.
 9. Do not create a new version header if the newest entry already exists for the target version.
 10. If a change set is changelog-policy/governance-only, do not add or update release notes in `CHANGELOG.md` or `docs/changelog/<major>.<minor>.md`.
+11. Convert accumulated `Unreleased` notes for the current minor into the target
+    patch entry before running `make patch`, `make minor`, or `make major`.
 
 Agents must never:
 
@@ -149,6 +181,7 @@ Agents must never:
 - Reorder version history.
 - Collapse multiple minor lines into one detailed file.
 - Add release notes for changelog-policy/governance-only edits (for example updates to `docs/governance/changelog.md`, `AGENTS.md`, or changelog formatting policy), unless explicitly requested as a documented release artifact.
+- Treat a small development slice as requiring its own patch release.
 
 ---
 
@@ -239,17 +272,19 @@ Testing section rules:
 
 For each release:
 
-1. Update CHANGELOG.md.
-2. Create or update docs/changelog/<major>.<minor>.md.
-3. Commit the code and changelog changes.
-4. Update version and release-surface files with `make patch`, `make minor`, or `make major`.
-5. Review the release diff.
-6. Run `make release-stage` to stage known release files.
-7. Run `make release-commit` to commit version files and tag the release.
-8. Run `make release-push` to publish the release tag.
+1. Convert any relevant `Unreleased` detailed notes into the target patch entry.
+2. Update CHANGELOG.md with one concise bullet for the target patch.
+3. Create or update docs/changelog/<major>.<minor>.md.
+4. Commit the code and changelog changes.
+5. Update version and release-surface files with `make patch`, `make minor`, or `make major`.
+6. Review the release diff.
+7. Run `make release-stage` to stage known release files.
+8. Run `make release-commit` to commit version files and tag the release.
+9. Run `make release-push` to publish the release tag.
 
 Order must be preserved.
-After code and changelog changes are committed, the reviewable release flow is
+Patch releases are batch boundaries, not required endpoints for each code
+slice. After code and changelog changes are committed, the reviewable release flow is
 `make patch`, `git diff`, `make release-stage`, `make release-commit`,
 `make release-push`, then `cargo publish`.
 

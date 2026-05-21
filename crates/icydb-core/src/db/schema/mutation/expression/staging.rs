@@ -14,7 +14,7 @@ use super::*;
 )]
 #[derive(Clone, Copy)]
 pub(in crate::db::schema) struct SchemaExpressionIndexRebuildRow<'a> {
-    storage_key: StorageKey,
+    primary_key_value: StorageKey,
     slots: &'a dyn CanonicalSlotReader,
 }
 
@@ -25,15 +25,18 @@ pub(in crate::db::schema) struct SchemaExpressionIndexRebuildRow<'a> {
 impl<'a> SchemaExpressionIndexRebuildRow<'a> {
     #[must_use]
     pub(in crate::db::schema) const fn new(
-        storage_key: StorageKey,
+        primary_key_value: StorageKey,
         slots: &'a dyn CanonicalSlotReader,
     ) -> Self {
-        Self { storage_key, slots }
+        Self {
+            primary_key_value,
+            slots,
+        }
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn storage_key(self) -> StorageKey {
-        self.storage_key
+    pub(in crate::db::schema) const fn primary_key_value(self) -> StorageKey {
+        self.primary_key_value
     }
 
     #[must_use]
@@ -122,7 +125,7 @@ impl SchemaExpressionIndexStagedRebuild {
             }
             let Some(key) = IndexKey::new_from_slots_with_expression_rebuild_target(
                 entity_tag,
-                row.storage_key(),
+                row.primary_key_value(),
                 &target,
                 row.slots(),
             )?
@@ -130,7 +133,7 @@ impl SchemaExpressionIndexStagedRebuild {
                 skipped_rows = skipped_rows.saturating_add(1);
                 continue;
             };
-            let entry = IndexRowIdentity::new(row.storage_key());
+            let entry = IndexRowIdentity::new(row.primary_key_value());
             let raw_entry = IndexEntryValue::from(&entry);
 
             entries.push(SchemaExpressionIndexStagedEntry {

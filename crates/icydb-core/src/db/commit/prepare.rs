@@ -416,7 +416,7 @@ fn decode_commit_marker_structural_slots<'a>(
                 InternalError::serialize_corruption(message)
             }
         })?;
-    slots.validate_storage_key(data_key).map_err(|err| {
+    slots.validate_primary_key(data_key).map_err(|err| {
         InternalError::store_corruption(format!("commit marker {label} row key mismatch: {err}"))
     })?;
 

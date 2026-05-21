@@ -27,7 +27,7 @@ use crate::{
     },
     error::InternalError,
     types::Decimal,
-    value::{StorageKey, Value, storage_key_as_runtime_value},
+    value::{StorageKey, Value, primary_key_value_as_runtime_value},
 };
 use std::borrow::Cow;
 
@@ -119,7 +119,7 @@ pub(in crate::db::executor) struct GroupedTerminalAggregateState {
         Option<CompiledExpr>,
     pub(in crate::db::executor::aggregate::contracts::state) grouped_filter_expr:
         Option<CompiledExpr>,
-    pub(in crate::db::executor::aggregate::contracts::state) requires_storage_key: bool,
+    pub(in crate::db::executor::aggregate::contracts::state) requires_primary_key_value: bool,
     pub(in crate::db::executor::aggregate::contracts::state) reducer: GroupedAggregateReducerState,
 }
 
@@ -131,10 +131,10 @@ impl GroupedTerminalAggregateState {
         ))
     }
 
-    // Build the canonical grouped terminal invariant for storage-key-required updates.
-    fn storage_key_required(kind: &'static str) -> InternalError {
+    // Build the canonical grouped terminal invariant for primary-key-value-required updates.
+    fn primary_key_value_required(kind: &'static str) -> InternalError {
         InternalError::query_executor_invariant(format!(
-            "grouped aggregate reducer {kind} update requires storage key"
+            "grouped aggregate reducer {kind} update requires primary key value"
         ))
     }
 
@@ -236,7 +236,7 @@ impl GroupedTerminalAggregateState {
 
     // Resolve the one canonical grouped aggregate input value for COUNT/SUM/AVG
     // and field/expression MIN/MAX reducers. Key-only reducers deliberately stay
-    // outside this helper because their input is the storage key, not a row slot.
+    // outside this helper because their input is a primary-key value, not a row slot.
     fn resolve_input_value(
         &self,
         row_view: Option<&RowView>,
@@ -364,21 +364,27 @@ impl GroupedTerminalAggregateState {
         key: &DecodedDataStoreKey,
         row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
-        let storage_key = self.requires_storage_key.then_some(key.storage_key());
+        let primary_key_value = self.requires_primary_key_value.then_some(key.storage_key());
         match self.kind {
-            AggregateKind::Count => self.apply_count(storage_key, row_view),
-            AggregateKind::Sum | AggregateKind::Avg => self.apply_sum_like(storage_key, row_view),
-            AggregateKind::Exists => self.apply_exists(storage_key, row_view),
-            AggregateKind::Min => self.apply_extremum(ExtremumKind::Min, storage_key, row_view),
-            AggregateKind::Max => self.apply_extremum(ExtremumKind::Max, storage_key, row_view),
-            AggregateKind::First => self.apply_first(storage_key, row_view),
-            AggregateKind::Last => self.apply_last(storage_key, row_view),
+            AggregateKind::Count => self.apply_count(primary_key_value, row_view),
+            AggregateKind::Sum | AggregateKind::Avg => {
+                self.apply_sum_like(primary_key_value, row_view)
+            }
+            AggregateKind::Exists => self.apply_exists(primary_key_value, row_view),
+            AggregateKind::Min => {
+                self.apply_extremum(ExtremumKind::Min, primary_key_value, row_view)
+            }
+            AggregateKind::Max => {
+                self.apply_extremum(ExtremumKind::Max, primary_key_value, row_view)
+            }
+            AggregateKind::First => self.apply_first(primary_key_value, row_view),
+            AggregateKind::Last => self.apply_last(primary_key_value, row_view),
         }
     }
 
     // Admit one grouped DISTINCT candidate at the reducer boundary. Value-based
     // DISTINCT uses the same canonical input resolver as the aggregate update,
-    // while key-based DISTINCT keeps the existing storage-key identity surface.
+    // while key-based DISTINCT keeps the existing primary-key identity surface.
     fn admit_distinct(
         &mut self,
         key: &DecodedDataStoreKey,
@@ -470,7 +476,7 @@ impl GroupedTerminalAggregateState {
 
     // Apply one MIN/MAX grouped terminal update. Field-target extrema keep the
     // slot-aware comparison path, expression extrema use value reducers, and
-    // key-only extrema preserve storage-key ordering.
+    // key-only extrema preserve primary-key ordering.
     fn apply_extremum(
         &mut self,
         kind: ExtremumKind,
@@ -528,9 +534,11 @@ impl GroupedTerminalAggregateState {
             }
         } else {
             let Some(key) = key else {
-                return Err(Self::storage_key_required(kind.storage_key_label()));
+                return Err(Self::primary_key_value_required(
+                    kind.primary_key_value_label(),
+                ));
             };
-            let value = storage_key_as_runtime_value(&key);
+            let value = primary_key_value_as_runtime_value(&key);
             match kind {
                 ExtremumKind::Min => self.reducer.update_min_value(value)?,
                 ExtremumKind::Max => self.reducer.update_max_value(value)?,
@@ -547,7 +555,7 @@ impl GroupedTerminalAggregateState {
         _row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
-            return Err(Self::storage_key_required("FIRST"));
+            return Err(Self::primary_key_value_required("FIRST"));
         };
         self.reducer.set_first(key)?;
 
@@ -561,7 +569,7 @@ impl GroupedTerminalAggregateState {
         _row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
-            return Err(Self::storage_key_required("LAST"));
+            return Err(Self::primary_key_value_required("LAST"));
         };
         self.reducer.set_last(key)?;
 

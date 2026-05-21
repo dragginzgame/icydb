@@ -22,6 +22,10 @@ The goal of this document is to keep routine work:
 - predictable to review
 - cheap to extend in follow-up patches
 
+These rules describe code-review and landing slices. A slice is not a patch
+release. Routine work may accumulate through several small slices before one
+published patch release is prepared.
+
 These rules are intended to be followed by automated agents and by CI checks.
 
 ---
@@ -156,6 +160,10 @@ This phased landing pattern is the default for routine SQL growth.
 If one pull request needs to cross all three phases, use the slice override
 contract and explain why the split was not practical.
 
+These phases may land as several commits or local slices inside one unreleased
+batch. They do not require separate patch versions unless the user explicitly
+chooses to publish them separately.
+
 ---
 
 # 6. Route Planner Controlled Hub Rule
@@ -233,4 +241,3 @@ The route-planner guard should:
 
 - fail on direct `sql::*` or `session::*` imports in the planner root
 - fail if planner-root import families exceed the configured ceiling
-

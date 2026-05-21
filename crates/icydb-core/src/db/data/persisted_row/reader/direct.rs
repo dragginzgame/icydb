@@ -14,8 +14,8 @@ use crate::{
                     primary_key::{
                         materialize_primary_key_slot_value_from_expected_key,
                         materialize_primary_key_slot_value_from_expected_key_with_accepted_field,
-                        validate_storage_key_from_field_bytes,
-                        validate_storage_key_from_primary_key_bytes_with_contract,
+                        validate_primary_key_value_from_field_bytes,
+                        validate_primary_key_value_from_slot_bytes_with_contract,
                     },
                 },
             },
@@ -54,7 +54,7 @@ impl<'a> DirectStructuralRowFields<'a> {
         let field_bytes =
             StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract.clone())
                 .map_err(StructuralRowDecodeError::into_internal_error)?;
-        validate_storage_key_from_field_bytes(contract.clone(), &field_bytes, expected_key)?;
+        validate_primary_key_value_from_field_bytes(contract.clone(), &field_bytes, expected_key)?;
 
         Ok(Self {
             contract,
@@ -111,7 +111,7 @@ impl<'a> DirectSparseRequiredRowField<'a> {
             required_slot,
         )
         .map_err(StructuralRowDecodeError::into_internal_error)?;
-        validate_storage_key_from_primary_key_bytes_with_contract(
+        validate_primary_key_value_from_slot_bytes_with_contract(
             &contract,
             field_bytes.primary_key_field(),
             expected_key,

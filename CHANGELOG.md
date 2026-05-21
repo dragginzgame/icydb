@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.159.md](docs/changelog/0.159.md)
 
+- `0.159.9` renames typed primary-key admission traits to
+  `PrimaryKeyCodec` / `PrimaryKeyDecode`, moving user-facing key contracts
+  and runtime bridge helpers away from storage-key vocabulary.
+
 - `0.159.8` renames the decoded primary-row key wrapper to
   `DecodedDataStoreKey`, keeping `DataStoreKey` and `RawDataStoreKey` as the
   encoded structured and persisted store-key types.

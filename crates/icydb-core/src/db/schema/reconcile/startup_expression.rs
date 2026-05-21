@@ -170,7 +170,7 @@ fn execute_expression_index_store_mutation(
 
     let rebuild_rows = rows
         .iter()
-        .map(|row| SchemaExpressionIndexRebuildRow::new(row.storage_key, &row.slots));
+        .map(|row| SchemaExpressionIndexRebuildRow::new(row.primary_key_value, &row.slots));
     let staged = SchemaExpressionIndexStagedRebuild::from_rows(
         input.accepted_after().entity_path(),
         entity_tag,
@@ -461,7 +461,7 @@ fn expression_rebuild_row_fingerprint_from_rows(
 ) -> Result<StartupExpressionRebuildRowFingerprint, InternalError> {
     let mut hasher = Sha256::new();
     for row in rows {
-        let raw_key = DecodedDataStoreKey::new(entity_tag, row.storage_key).to_raw()?;
+        let raw_key = DecodedDataStoreKey::new(entity_tag, row.primary_key_value).to_raw()?;
         hash_expression_rebuild_row(&mut hasher, raw_key.as_bytes(), &row.row);
     }
 

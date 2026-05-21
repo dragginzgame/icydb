@@ -275,7 +275,9 @@ where
                     let values =
                         project_scalar_value_pairs(values, target_field_name, op.projection())?;
 
-                    return Ok(ScalarProjectionBoundaryOutput::ValuesWithDataKeys(values));
+                    return Ok(
+                        ScalarProjectionBoundaryOutput::ValuesWithDecodedDataStoreKeys(values),
+                    );
                 }
             }
             PreparedScalarProjectionOp::TerminalValue { terminal_kind, .. } => {
@@ -423,7 +425,7 @@ where
                     field_slot,
                     op.projection(),
                 )
-                .map(ScalarProjectionBoundaryOutput::ValuesWithDataKeys)
+                .map(ScalarProjectionBoundaryOutput::ValuesWithDecodedDataStoreKeys)
             }
             PreparedScalarProjectionOp::TerminalValue { .. } => {
                 Err(op.materialized_branch_unreachable())

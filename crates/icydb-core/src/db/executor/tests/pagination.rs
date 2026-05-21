@@ -7012,7 +7012,7 @@ fn load_distinct_flag_preserves_union_pagination_rows_and_boundaries() {
 }
 
 #[test]
-fn load_row_distinct_keeps_rows_with_same_projected_values_when_datakey_differs() {
+fn load_row_distinct_keeps_rows_with_same_projected_values_when_decoded_key_differs() {
     setup_pagination_test();
 
     let rows = [
@@ -7045,7 +7045,7 @@ fn load_row_distinct_keeps_rows_with_same_projected_values_when_datakey_differs(
     assert_eq!(
         pushdown_ids_from_response(&response),
         expected_ids,
-        "row DISTINCT must keep rows with different DataKeys even when projected values are equal",
+        "row DISTINCT must keep rows with different decoded data-store keys even when projected values are equal",
     );
 
     let projected_ranks = response

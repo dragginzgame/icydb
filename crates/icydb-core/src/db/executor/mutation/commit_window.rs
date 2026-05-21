@@ -346,7 +346,7 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
             let mut out = Vec::with_capacity(limit.min(32));
             index_store.with_borrow(|store| {
                 store.visit_raw_entries_in_range(bounds, Direction::Asc, |raw_key, raw_entry| {
-                    push_index_entry_storage_keys(
+                    push_index_entry_primary_key_values(
                         index,
                         raw_key,
                         raw_entry,
@@ -380,7 +380,7 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
                             let (_, override_entry) = overrides
                                 .next()
                                 .expect("peeked override entry must be present");
-                            if push_optional_index_entry_storage_keys(
+                            if push_optional_index_entry_primary_key_values(
                                 index,
                                 &override_key,
                                 override_entry.as_ref(),
@@ -397,7 +397,7 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
                             let (_, override_entry) = overrides
                                 .next()
                                 .expect("peeked override entry must be present");
-                            if push_optional_index_entry_storage_keys(
+                            if push_optional_index_entry_primary_key_values(
                                 index,
                                 &override_key,
                                 override_entry.as_ref(),
@@ -415,7 +415,7 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
                     }
                 }
 
-                if push_index_entry_storage_keys(
+                if push_index_entry_primary_key_values(
                     index,
                     raw_key,
                     raw_entry,
@@ -433,7 +433,7 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
 
         if !limit_reached {
             for (override_key, override_entry) in overrides {
-                if push_optional_index_entry_storage_keys(
+                if push_optional_index_entry_primary_key_values(
                     index,
                     override_key,
                     override_entry.as_ref(),
@@ -487,7 +487,7 @@ impl<E> SealedIndexEntryReader<E> for PreflightStoreOverlay<'_, E::Canister> whe
 {
 }
 
-fn push_optional_index_entry_storage_keys(
+fn push_optional_index_entry_primary_key_values(
     index: IndexReadContract<'_>,
     raw_key: &RawIndexStoreKey,
     raw_entry: Option<&IndexEntryValue>,
@@ -499,12 +499,12 @@ fn push_optional_index_entry_storage_keys(
         return Ok(false);
     };
 
-    push_index_entry_storage_keys(index, raw_key, raw_entry, out, limit, entity_path)
+    push_index_entry_primary_key_values(index, raw_key, raw_entry, out, limit, entity_path)
 }
 
-// Decode one raw index entry into structural storage keys under the preflight
-// overlay's corruption mapping.
-fn push_index_entry_storage_keys(
+// Decode one raw index entry into structural primary-key values under the
+// preflight overlay's corruption mapping.
+fn push_index_entry_primary_key_values(
     index: IndexReadContract<'_>,
     raw_key: &RawIndexStoreKey,
     raw_entry: &IndexEntryValue,
@@ -512,7 +512,7 @@ fn push_index_entry_storage_keys(
     limit: usize,
     entity_path: &'static str,
 ) -> Result<bool, InternalError> {
-    raw_entry.push_membership_storage_keys_limited(raw_key, out, limit, |err| {
+    raw_entry.push_row_identity_keys_limited(raw_key, out, limit, |err| {
         InternalError::index_plan_index_corruption(format!(
             "index corrupted: {entity_path} ({}) -> {err}",
             index.fields(),

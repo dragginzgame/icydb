@@ -8,7 +8,7 @@ use crate::{
         data::{StorageKeyDecodeError, StorageKeyEncodeError},
         index::IndexKey,
     },
-    value::{Value, storage_key_from_runtime_value},
+    value::{Value, primary_key_value_from_runtime_value},
 };
 use thiserror::Error as ThisError;
 
@@ -41,11 +41,11 @@ pub(in crate::db) fn primary_key_matches_value(
 ) -> Result<bool, PrimaryKeyEquivalenceError> {
     // Phase 1: decode the persisted primary-key anchor from the index key.
     let anchor_key = index_key
-        .primary_storage_key()
+        .primary_key_value()
         .map_err(|source| PrimaryKeyEquivalenceError::AnchorDecode { source })?;
 
     // Phase 2: encode the semantic boundary value to comparable storage form.
-    let boundary_key = storage_key_from_runtime_value(boundary_key_value)
+    let boundary_key = primary_key_value_from_runtime_value(boundary_key_value)
         .map_err(|source| PrimaryKeyEquivalenceError::BoundaryEncode { source })?;
 
     Ok(anchor_key == boundary_key)
@@ -66,7 +66,7 @@ mod tests {
     };
     use std::borrow::Cow;
 
-    fn index_key_with_primary_storage_key(primary_key: StorageKey) -> IndexKey {
+    fn index_key_with_primary_key_value(primary_key: StorageKey) -> IndexKey {
         let primary_key_bytes = IndexKey::compact_primary_key_bytes(primary_key);
         let index_id = IndexId::new(crate::types::EntityTag::new(7), 0);
         let mut bytes = Vec::new();
@@ -89,33 +89,31 @@ mod tests {
     fn pk_equivalence_matches_when_anchor_and_boundary_share_storage_key() {
         let cases = [
             (
-                index_key_with_primary_storage_key(StorageKey::Int(-7)),
+                index_key_with_primary_key_value(StorageKey::Int(-7)),
                 Value::Int(-7),
             ),
             (
-                index_key_with_primary_storage_key(StorageKey::Nat(42)),
+                index_key_with_primary_key_value(StorageKey::Nat(42)),
                 Value::Nat(42),
             ),
             (
-                index_key_with_primary_storage_key(StorageKey::Principal(Principal::dummy(9))),
+                index_key_with_primary_key_value(StorageKey::Principal(Principal::dummy(9))),
                 Value::Principal(Principal::dummy(9)),
             ),
             (
-                index_key_with_primary_storage_key(StorageKey::Subaccount(Subaccount::new(
-                    [7; 32],
-                ))),
+                index_key_with_primary_key_value(StorageKey::Subaccount(Subaccount::new([7; 32]))),
                 Value::Subaccount(Subaccount::new([7; 32])),
             ),
             (
-                index_key_with_primary_storage_key(StorageKey::Timestamp(Timestamp::from_secs(17))),
+                index_key_with_primary_key_value(StorageKey::Timestamp(Timestamp::from_secs(17))),
                 Value::Timestamp(Timestamp::from_secs(17)),
             ),
             (
-                index_key_with_primary_storage_key(StorageKey::Ulid(Ulid::from_u128(91))),
+                index_key_with_primary_key_value(StorageKey::Ulid(Ulid::from_u128(91))),
                 Value::Ulid(Ulid::from_u128(91)),
             ),
             (
-                index_key_with_primary_storage_key(StorageKey::Unit),
+                index_key_with_primary_key_value(StorageKey::Unit),
                 Value::Unit,
             ),
         ];
@@ -131,7 +129,7 @@ mod tests {
 
     #[test]
     fn pk_equivalence_rejects_non_storage_key_boundary_values() {
-        let index_key = index_key_with_primary_storage_key(StorageKey::Nat(42));
+        let index_key = index_key_with_primary_key_value(StorageKey::Nat(42));
         let err = primary_key_matches_value(&index_key, &Value::Text("broken".to_string()))
             .expect_err("non-storage-key runtime value must be rejected");
 
@@ -142,12 +140,12 @@ mod tests {
     }
 
     #[test]
-    fn pk_equivalence_reports_false_for_distinct_storage_keys() {
-        let index_key = index_key_with_primary_storage_key(StorageKey::Nat(42));
+    fn pk_equivalence_reports_false_for_distinct_primary_key_values() {
+        let index_key = index_key_with_primary_key_value(StorageKey::Nat(42));
 
         assert!(
             !primary_key_matches_value(&index_key, &Value::Nat(99))
-                .expect("distinct storage keys should still compare cleanly"),
+                .expect("distinct primary keys should still compare cleanly"),
         );
     }
 }

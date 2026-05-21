@@ -1,7 +1,7 @@
 //! Module: index::key::codec
 //! Responsibility: raw byte framing/parsing for `IndexKey`.
 //! Does not own: semantic index key construction policy.
-//! Boundary: this module is the storage-key codec authority for index keys.
+//! Boundary: this module is the raw-key codec authority for index keys.
 
 mod bounds;
 mod envelope;
@@ -196,7 +196,7 @@ impl IndexKey {
         self.components.get(index).map(Vec::as_slice)
     }
 
-    pub(in crate::db) fn primary_storage_key(&self) -> Result<StorageKey, StorageKeyDecodeError> {
+    pub(in crate::db) fn primary_key_value(&self) -> Result<StorageKey, StorageKeyDecodeError> {
         let encoded = EncodedPrimaryKey::try_from(self.primary_key.as_slice())
             .map_err(primary_key_decode_error_to_storage_key_decode_error)?;
 

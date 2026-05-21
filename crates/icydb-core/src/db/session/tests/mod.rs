@@ -3003,9 +3003,7 @@ fn inspect_filtered_expression_order_only_raw_scan(
                     .collect::<Vec<_>>();
 
                 (
-                    decoded_key
-                        .primary_storage_key()
-                        .expect("primary storage key"),
+                    decoded_key.primary_key_value().expect("primary-key value"),
                     decoded_ids,
                 )
             })

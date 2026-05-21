@@ -103,7 +103,7 @@ fn fused_secondary_covering_authority_tracks_candidate_and_probe_metrics() {
     let (row_exists, metrics) = with_row_check_metrics(|| {
         TEST_RUNTIME_CONTEXT_DATA_STORE.with_borrow(|store| {
             FusedSecondaryCoveringAuthority::new(store, EntityTag::new(17), MissingRowPolicy::Error)
-                .admits_storage_key(StorageKey::Nat(41))
+                .admits_primary_key_value(StorageKey::Nat(41))
                 .expect("fused secondary covering probe should succeed")
         })
     });

@@ -1,10 +1,10 @@
 //! Module: value::storage_key
-//! Responsibility: fixed-width scalar key encoding for persistent ordering.
+//! Responsibility: decoded scalar key values and legacy fixed-frame encoding.
 //! Does not own: typed primary-key semantics (`Id<E>`) or query coercion rules.
-//! Boundary: shared by value normalization and data/index persistence layers.
+//! Boundary: shared by primary-key normalization and data/index compatibility layers.
 //!
-//! `StorageKey` is a storage-normalized scalar and MUST NOT be used as a
-//! public primary-key abstraction.
+//! `StorageKey` is the decoded scalar key value used behind public primary-key
+//! traits. New persisted store-key bytes are owned by the compact key taxonomy.
 
 #![expect(clippy::cast_possible_truncation)]
 
@@ -67,10 +67,11 @@ pub enum StorageKeyDecodeError {
 //
 // StorageKey
 //
-// Storage-normalized scalar key used by persistence and indexing.
+// Decoded scalar key value used by persistence and indexing.
 //
-// This type defines the *only* on-disk representation for scalar keys.
-// It is deliberately separated from typed primary-key values (`Id<E>`).
+// The fixed-width byte frame remains a compatibility codec. Compact
+// `EncodedPrimaryKey` / `RawDataStoreKey` bytes are the 0.159 store-key path.
+// This type is deliberately separated from typed primary-key values (`Id<E>`).
 //
 
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq)]
@@ -341,7 +342,7 @@ mod tests {
             Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128,
             Principal, Subaccount, Timestamp, Ulid,
         },
-        value::{Value, ValueEnum, storage_key_from_runtime_value},
+        value::{Value, ValueEnum, primary_key_value_from_runtime_value},
     };
 
     macro_rules! sample_value_for_scalar {
@@ -427,7 +428,7 @@ mod tests {
     fn storage_key_try_from_value_matches_registry_flag() {
         for (value, expected_encodable) in registry_storage_encodable_cases() {
             assert_eq!(
-                storage_key_from_runtime_value(&value).is_ok(),
+                primary_key_value_from_runtime_value(&value).is_ok(),
                 expected_encodable,
                 "value: {value:?}"
             );
@@ -436,22 +437,22 @@ mod tests {
 
     #[test]
     fn storage_key_known_encodability_contracts() {
-        assert!(storage_key_from_runtime_value(&Value::Unit).is_ok());
-        assert!(storage_key_from_runtime_value(&Value::Decimal(Decimal::new(1, 0))).is_err());
-        assert!(storage_key_from_runtime_value(&Value::Text("x".to_string())).is_err());
-        assert!(storage_key_from_runtime_value(&Value::Account(Account::dummy(1))).is_ok());
+        assert!(primary_key_value_from_runtime_value(&Value::Unit).is_ok());
+        assert!(primary_key_value_from_runtime_value(&Value::Decimal(Decimal::new(1, 0))).is_err());
+        assert!(primary_key_value_from_runtime_value(&Value::Text("x".to_string())).is_err());
+        assert!(primary_key_value_from_runtime_value(&Value::Account(Account::dummy(1))).is_ok());
     }
 
     #[test]
     fn storage_key_unsupported_values_report_kind() {
-        let decimal_err = storage_key_from_runtime_value(&Value::Decimal(Decimal::new(1, 0)))
+        let decimal_err = primary_key_value_from_runtime_value(&Value::Decimal(Decimal::new(1, 0)))
             .expect_err("Decimal is not storage-key encodable");
         assert!(matches!(
             decimal_err,
             StorageKeyEncodeError::UnsupportedValueKind { kind } if kind == "Decimal"
         ));
 
-        let text_err = storage_key_from_runtime_value(&Value::Text("x".to_string()))
+        let text_err = primary_key_value_from_runtime_value(&Value::Text("x".to_string()))
             .expect_err("Text is not storage-key encodable");
         assert!(matches!(
             text_err,
@@ -462,18 +463,18 @@ mod tests {
     #[test]
     fn storage_keys_sort_deterministically_across_mixed_variants() {
         let mut keys = vec![
-            storage_key_from_runtime_value(&Value::Unit).expect("Unit is encodable"),
-            storage_key_from_runtime_value(&Value::Ulid(Ulid::from_u128(2)))
+            primary_key_value_from_runtime_value(&Value::Unit).expect("Unit is encodable"),
+            primary_key_value_from_runtime_value(&Value::Ulid(Ulid::from_u128(2)))
                 .expect("Ulid is encodable"),
-            storage_key_from_runtime_value(&Value::Nat(2)).expect("Nat is encodable"),
-            storage_key_from_runtime_value(&Value::Timestamp(Timestamp::from_secs(2)))
+            primary_key_value_from_runtime_value(&Value::Nat(2)).expect("Nat is encodable"),
+            primary_key_value_from_runtime_value(&Value::Timestamp(Timestamp::from_secs(2)))
                 .expect("Timestamp is encodable"),
-            storage_key_from_runtime_value(&Value::Subaccount(Subaccount::new([3u8; 32])))
+            primary_key_value_from_runtime_value(&Value::Subaccount(Subaccount::new([3u8; 32])))
                 .expect("Subaccount is encodable"),
-            storage_key_from_runtime_value(&Value::Principal(Principal::from_slice(&[9u8])))
+            primary_key_value_from_runtime_value(&Value::Principal(Principal::from_slice(&[9u8])))
                 .expect("Principal is encodable"),
-            storage_key_from_runtime_value(&Value::Int(-1)).expect("Int is encodable"),
-            storage_key_from_runtime_value(&Value::Account(Account::dummy(3)))
+            primary_key_value_from_runtime_value(&Value::Int(-1)).expect("Int is encodable"),
+            primary_key_value_from_runtime_value(&Value::Account(Account::dummy(3)))
                 .expect("Account is encodable"),
         ];
 

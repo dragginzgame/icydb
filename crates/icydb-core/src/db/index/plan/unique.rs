@@ -249,7 +249,7 @@ fn decode_unique_row_slots<'a>(
                 InternalError::index_unique_validation_row_deserialize_failed(data_key, source)
             })?;
     row_fields
-        .validate_storage_key(data_key)
+        .validate_primary_key(data_key)
         .map_err(|source| {
             InternalError::index_unique_validation_primary_key_decode_failed(data_key, source)
         })?;

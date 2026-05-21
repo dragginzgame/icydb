@@ -9,7 +9,7 @@ use crate::{
     },
     value::{
         CoercionFamily, CoercionFamilyExt, SchemaInvariantError, TextMode, Value, ValueEnum,
-        hash_value, storage_key_as_runtime_value,
+        hash_value, primary_key_value_as_runtime_value,
     },
 };
 use std::cmp::Ordering;
@@ -166,25 +166,25 @@ fn registry_coercion_family_cases() -> Vec<(Value, CoercionFamily)> {
 // ---- keys --------------------------------------------------------------
 
 #[test]
-fn as_storage_key_some_for_keyable_variants() {
-    assert!(Value::Int(7).as_storage_key().is_some());
-    assert!(Value::Nat(7).as_storage_key().is_some());
-    assert!(Value::Ulid(Ulid::MIN).as_storage_key().is_some());
-    assert!(Value::Unit.as_storage_key().is_some());
+fn as_primary_key_value_some_for_keyable_variants() {
+    assert!(Value::Int(7).as_primary_key_value().is_some());
+    assert!(Value::Nat(7).as_primary_key_value().is_some());
+    assert!(Value::Ulid(Ulid::MIN).as_primary_key_value().is_some());
+    assert!(Value::Unit.as_primary_key_value().is_some());
 
     // Non-key / non-orderable variants
-    assert!(v_txt("x").as_storage_key().is_none());
+    assert!(v_txt("x").as_primary_key_value().is_none());
     assert!(
         Value::Decimal(Decimal::new(1, 0))
-            .as_storage_key()
+            .as_primary_key_value()
             .is_none()
     );
-    assert!(Value::List(vec![]).as_storage_key().is_none());
-    assert!(Value::Null.as_storage_key().is_none());
+    assert!(Value::List(vec![]).as_primary_key_value().is_none());
+    assert!(Value::Null.as_primary_key_value().is_none());
 }
 
 #[test]
-fn storage_key_round_trips_through_value() {
+fn primary_key_value_round_trips_through_value() {
     let values = [
         Value::Int(-9),
         Value::Nat(9),
@@ -194,14 +194,14 @@ fn storage_key_round_trips_through_value() {
 
     for v in values {
         let key = v
-            .as_storage_key()
-            .expect("value should be convertible to storage key");
+            .as_primary_key_value()
+            .expect("value should be convertible to primary-key value");
 
-        let back = storage_key_as_runtime_value(&key);
+        let back = primary_key_value_as_runtime_value(&key);
 
         assert_eq!(
             v, back,
-            "Value <-> StorageKey round trip failed: {v:?} -> {key:?} -> {back:?}"
+            "Value <-> primary-key value round trip failed: {v:?} -> {key:?} -> {back:?}"
         );
     }
 }
@@ -277,10 +277,10 @@ fn value_supports_numeric_coercion_matches_registry_flag() {
 }
 
 #[test]
-fn value_as_storage_key_matches_registry_flag() {
+fn value_as_primary_key_value_matches_registry_flag() {
     for (value, is_keyable) in registry_keyable_cases() {
         assert_eq!(
-            value.as_storage_key().is_some(),
+            value.as_primary_key_value().is_some(),
             is_keyable,
             "value: {value:?}"
         );

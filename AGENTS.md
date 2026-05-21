@@ -26,7 +26,8 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Start with `rg` and targeted inspection; do not read broad directories unless the task requires it.
 - Make the smallest safe patch that satisfies the request.
 - Do not perform opportunistic refactors; list them as follow-up instead.
-- Prefer one patch per requested slice; do not expand scope without explicit instruction.
+- Prefer focused code slices. A slice is a review/landing unit, not automatically a patch release.
+- Batch coherent routine work before asking whether to push; do not stop after every small slice unless the user asks.
 - Run focused checks after edits; run broader checks only when the slice is otherwise ready.
 - Do not repeatedly rerun expensive failing commands; capture the first failure and report it.
 
@@ -44,16 +45,23 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Public APIs need docs; non-trivial private logic needs intent/invariant comments.
 - Do not match error strings in code or tests.
 - Persisted decoding must be bounded and fallible.
+
+## Changelog / Release Notes
+
 - Before any changelog edit, open and follow `docs/governance/changelog.md`.
-- Update changelogs for user-visible changes; governance-only edits do not need release notes unless requested.
-- Root `CHANGELOG.md` is the concise release ledger: for
-  `<major>.<minor>.x` sections, keep exactly one short bullet per patch
-  version and move implementation detail, examples, validation notes, and
-  command/sql snippets to `docs/changelog/<major>.<minor>.md`.
-- Every root minor-line section with a detailed notes file must include a
-  clickable link to `docs/changelog/<major>.<minor>.md`; when adding or
-  changing a patch note, update the corresponding detailed file too.
+- During ordinary development, do not invent patch numbers and do not update root `CHANGELOG.md` unless the user asks for release notes, a push-ready/release-ready state, or a root changelog edit.
+- If a development note is useful before release prep, put it under the current minor's detailed `Unreleased` section in `docs/changelog/<major>.<minor>.md`.
+- When preparing a patch release, collapse `Unreleased` notes into the target patch entry, then add exactly one concise root bullet for that patch.
+- Root `CHANGELOG.md` is the concise release ledger: for `<major>.<minor>.x` sections, keep exactly one short bullet per patch version and move implementation detail, examples, validation notes, and command/sql snippets to `docs/changelog/<major>.<minor>.md`.
+- Every root minor-line section with a detailed notes file must include a clickable link to `docs/changelog/<major>.<minor>.md`; when adding or changing a patch note, update the corresponding detailed file too.
+- Governance-only edits do not need release notes unless requested.
 - Do not infer patch numbers for design/status docs.
+
+## Push / Commit Boundaries
+
+- Do not run `git commit` or `git push`; the user owns commits and pushes.
+- If the user asks "push?", report whether the current slice is ready to push and summarize validation.
+- If the user says a patch is live/pushed, start the next slice from the current worktree state and do not rewrite the published changelog unless asked.
 
 ## Final Response
 

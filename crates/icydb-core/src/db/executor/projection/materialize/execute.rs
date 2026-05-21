@@ -472,7 +472,7 @@ fn project_data_row_from_direct_field_slots_into(
     shaped.clear();
     let (data_key, raw_row) = row;
     let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
-    row_fields.validate_storage_key(data_key)?;
+    row_fields.validate_primary_key(data_key)?;
     shaped.reserve(field_slots.len());
 
     for (_field_name, slot) in field_slots {
@@ -548,7 +548,7 @@ fn project_scalar_data_row_into(
 
     shaped.clear();
     let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
-    row_fields.validate_storage_key(data_key)?;
+    row_fields.validate_primary_key(data_key)?;
     shaped.reserve(compiled_fields.len());
 
     for compiled in compiled_fields {

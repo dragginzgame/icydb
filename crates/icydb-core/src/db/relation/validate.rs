@@ -24,7 +24,7 @@ use crate::{
     error::InternalError,
     metrics::sink::{MetricsEvent, record},
     traits::{CanisterKind, EntityKind, EntityValue, Path},
-    value::{StorageKey, storage_key_as_runtime_value},
+    value::{StorageKey, primary_key_value_as_runtime_value},
 };
 use std::{collections::BTreeSet, ops::Bound};
 
@@ -253,6 +253,6 @@ where
         S::PATH,
         relation.field_name(),
         relation.target().path(),
-        storage_key_as_runtime_value(&target_key),
+        primary_key_value_as_runtime_value(&target_key),
     )
 }

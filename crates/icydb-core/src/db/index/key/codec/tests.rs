@@ -1061,7 +1061,7 @@ fn index_key_primary_suffix_uses_compact_primary_key_bytes() {
     assert_eq!(
         IndexKey::try_from_raw(&key.to_raw())
             .expect("compact index key should decode")
-            .primary_storage_key()
+            .primary_key_value()
             .expect("compact primary suffix should decode"),
         StorageKey::Nat(5),
     );

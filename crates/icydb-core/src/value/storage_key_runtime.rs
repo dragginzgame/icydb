@@ -1,6 +1,6 @@
 use crate::value::{StorageKey, StorageKeyEncodeError, Value};
 
-// Name one runtime `Value` kind for storage-key bridge diagnostics.
+// Name one runtime `Value` kind for primary-key bridge diagnostics.
 const fn runtime_value_kind_label(value: &Value) -> &'static str {
     match value {
         Value::Account(_) => "Account",
@@ -30,12 +30,12 @@ const fn runtime_value_kind_label(value: &Value) -> &'static str {
     }
 }
 
-/// Convert one storage-normalized key into a runtime `Value`.
+/// Convert one decoded primary-key value into a runtime `Value`.
 ///
 /// This bridge is runtime-only. Persistence and indexing must keep working on
-/// `StorageKey` directly rather than routing back through `Value`.
+/// primary-key values directly rather than routing back through `Value`.
 #[must_use]
-pub(crate) const fn storage_key_as_runtime_value(key: &StorageKey) -> Value {
+pub(crate) const fn primary_key_value_as_runtime_value(key: &StorageKey) -> Value {
     match key {
         StorageKey::Account(v) => Value::Account(*v),
         StorageKey::Int(v) => Value::Int(*v),
@@ -48,15 +48,15 @@ pub(crate) const fn storage_key_as_runtime_value(key: &StorageKey) -> Value {
     }
 }
 
-/// Bridge one runtime `Value` into `StorageKey`.
+/// Bridge one runtime `Value` into a decoded primary-key value.
 ///
 /// This quarantine helper exists only for runtime/structural surfaces that
 /// still traffic in `Value`. Typed persistence and indexing must use
-/// `StorageKeyCodec` instead of routing through this bridge.
-pub(crate) const fn storage_key_from_runtime_value(
+/// `PrimaryKeyCodec` instead of routing through this bridge.
+pub(crate) const fn primary_key_value_from_runtime_value(
     value: &Value,
 ) -> Result<StorageKey, StorageKeyEncodeError> {
-    // Storage encodability is a persistent compatibility contract.
+    // Primary-key encodability is a persistent compatibility contract.
     // Changing admission is a breaking change and may require index migration.
     // This bridge is intentionally separate from typed key ownership.
     match value {

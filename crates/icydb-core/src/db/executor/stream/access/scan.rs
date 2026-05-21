@@ -17,7 +17,7 @@ use crate::{
             record_row_check_index_row_identity_decoded,
         },
         index::{
-            IndexEntryExistenceWitness, IndexEntryMembership, IndexEntryValue, IndexKey,
+            IndexEntryExistenceWitness, IndexEntryRowWitness, IndexEntryValue, IndexKey,
             RawIndexStoreKey,
             predicate::{IndexPredicateExecution, eval_index_execution_on_decoded_key},
         },
@@ -68,19 +68,20 @@ impl PrimaryScan {
 pub(in crate::db::executor) struct IndexScan;
 
 ///
-/// IndexDataKeyScanChunk
+/// IndexDecodedKeyScanChunk
 ///
 /// Executor-owned result of one bounded raw-index chunk.
-/// It carries decoded data keys plus the last raw index key visited so callers
-/// can resume later chunks without holding an index-store iterator borrow.
+/// It carries decoded data-store keys plus the last raw index key visited so
+/// callers can resume later chunks without holding an index-store iterator
+/// borrow.
 ///
 
-pub(in crate::db::executor) struct IndexDataKeyScanChunk {
+pub(in crate::db::executor) struct IndexDecodedKeyScanChunk {
     keys: Vec<DecodedDataStoreKey>,
     last_raw_key: Option<RawIndexStoreKey>,
 }
 
-impl IndexDataKeyScanChunk {
+impl IndexDecodedKeyScanChunk {
     /// Construct one chunk from decoded keys and the last scanned raw index key.
     #[must_use]
     const fn new(keys: Vec<DecodedDataStoreKey>, last_raw_key: Option<RawIndexStoreKey>) -> Self {
@@ -202,7 +203,7 @@ impl IndexScan {
         continuation: IndexScanContinuationInput<'_>,
         max_entries: usize,
         output_limit: Option<usize>,
-    ) -> Result<IndexDataKeyScanChunk, InternalError> {
+    ) -> Result<IndexDecodedKeyScanChunk, InternalError> {
         Self::resolve_chunk(
             store,
             entity_tag,
@@ -269,9 +270,9 @@ impl IndexScan {
         continuation: IndexScanContinuationInput<'_>,
         max_entries: usize,
         output_limit: Option<usize>,
-    ) -> Result<IndexDataKeyScanChunk, InternalError> {
+    ) -> Result<IndexDecodedKeyScanChunk, InternalError> {
         if max_entries == 0 || matches!(output_limit, Some(0)) {
-            return Ok(IndexDataKeyScanChunk::new(Vec::new(), None));
+            return Ok(IndexDecodedKeyScanChunk::new(Vec::new(), None));
         }
 
         let continuation =
@@ -311,7 +312,7 @@ impl IndexScan {
             )
         })?;
 
-        let chunk = IndexDataKeyScanChunk::new(keys, last_raw_key);
+        let chunk = IndexDecodedKeyScanChunk::new(keys, last_raw_key);
 
         Ok(chunk)
     }
@@ -336,7 +337,7 @@ impl IndexScan {
         record_row_check_index_entry_scanned();
 
         // Phase 1: only decode raw key components when an index-only predicate
-        // needs them. Plain membership scans only need the entry payload.
+        // needs them. Plain row-identity scans only need the entry payload.
         if let Some(execution) = index_predicate_execution {
             let decoded_key = IndexKey::try_from_raw(raw_key)
                 .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?;
@@ -345,14 +346,14 @@ impl IndexScan {
             }
         }
 
-        // Phase 2: decode the key-owned membership. The raw index key now owns
+        // Phase 2: decode the key-owned row witness. The raw index key now owns
         // row identity; the raw entry value carries only the existence witness.
-        let membership = value
-            .decode_single_membership(raw_key)
+        let row_witness = value
+            .decode_row_witness(raw_key)
             .map_err(InternalError::index_entry_decode_failed)?;
         record_row_check_index_key_owned_entry();
         record_row_check_index_row_identity_decoded();
-        out.push(Self::data_key_from_membership(entity, &membership));
+        out.push(Self::data_key_from_row_witness(entity, &row_witness));
 
         if let Some(limit) = limit
             && out.len() == limit
@@ -399,16 +400,16 @@ impl IndexScan {
             return Ok(false);
         }
 
-        // Phase 2: decode the key-owned membership. The raw index key now owns
+        // Phase 2: decode the key-owned row witness. The raw index key now owns
         // row identity; the raw entry value carries only the existence witness.
-        let membership = value
-            .decode_single_membership(raw_key)
+        let row_witness = value
+            .decode_row_witness(raw_key)
             .map_err(InternalError::index_entry_decode_failed)?;
         record_row_check_index_key_owned_entry();
         record_row_check_index_row_identity_decoded();
         out.push((
-            Self::data_key_from_membership(entity, &membership),
-            membership.existence_witness(),
+            Self::data_key_from_row_witness(entity, &row_witness),
+            row_witness.existence_witness(),
             components,
         ));
 
@@ -421,12 +422,12 @@ impl IndexScan {
         Ok(false)
     }
 
-    // Rebuild one data key from the raw membership payload without re-encoding
+    // Rebuild one data key from the raw row-witness payload without re-encoding
     // the primary key through the value layer.
-    const fn data_key_from_membership(
+    const fn data_key_from_row_witness(
         entity: EntityTag,
-        membership: &IndexEntryMembership,
+        row_witness: &IndexEntryRowWitness,
     ) -> DecodedDataStoreKey {
-        DecodedDataStoreKey::new(entity, membership.storage_key())
+        DecodedDataStoreKey::new(entity, row_witness.storage_key())
     }
 }

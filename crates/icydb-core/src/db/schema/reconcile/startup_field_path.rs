@@ -115,7 +115,7 @@ pub(super) fn execute_supported_field_path_index_addition(
 
         let rebuild_rows = rows
             .iter()
-            .map(|row| SchemaFieldPathIndexRebuildRow::new(row.storage_key, &row.slots));
+            .map(|row| SchemaFieldPathIndexRebuildRow::new(row.primary_key_value, &row.slots));
 
         SchemaFieldPathIndexRunner::run(
             &input,
@@ -419,7 +419,7 @@ fn field_path_rebuild_row_fingerprint_from_rows(
 ) -> Result<StartupFieldPathRebuildRowFingerprint, InternalError> {
     let mut hasher = Sha256::new();
     for row in rows {
-        let raw_key = DecodedDataStoreKey::new(entity_tag, row.storage_key).to_raw()?;
+        let raw_key = DecodedDataStoreKey::new(entity_tag, row.primary_key_value).to_raw()?;
         hash_field_path_rebuild_row(&mut hasher, raw_key.as_bytes(), &row.row);
     }
 
@@ -486,12 +486,12 @@ pub(super) fn field_path_startup_index_store_preflight(
 }
 
 pub(super) struct StartupFieldPathRebuildRow {
-    pub(super) storage_key: StorageKey,
+    pub(super) primary_key_value: StorageKey,
     pub(super) row: RawRow,
 }
 
 pub(super) struct StartupDecodedFieldPathRebuildRow<'a> {
-    pub(super) storage_key: StorageKey,
+    pub(super) primary_key_value: StorageKey,
     pub(super) slots: StructuralSlotReader<'a>,
 }
 
@@ -512,7 +512,7 @@ pub(super) fn field_path_rebuild_raw_rows_for_entity(
                 continue;
             }
             rows.push(StartupFieldPathRebuildRow {
-                storage_key: data_key.storage_key(),
+                primary_key_value: data_key.storage_key(),
                 row: entry.value().clone(),
             });
         }
@@ -533,11 +533,11 @@ pub(super) fn decode_field_path_rebuild_rows<'a>(
                 &row.row,
                 row_contract.clone(),
             )?;
-            let data_key = DecodedDataStoreKey::new(entity_tag, row.storage_key);
-            slots.validate_storage_key(&data_key)?;
+            let data_key = DecodedDataStoreKey::new(entity_tag, row.primary_key_value);
+            slots.validate_primary_key(&data_key)?;
 
             Ok(StartupDecodedFieldPathRebuildRow {
-                storage_key: row.storage_key,
+                primary_key_value: row.primary_key_value,
                 slots,
             })
         })

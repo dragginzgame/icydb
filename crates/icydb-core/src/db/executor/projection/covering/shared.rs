@@ -4,7 +4,7 @@ use crate::{
         query::plan::{CoveringReadField, CoveringReadFieldSource},
     },
     error::InternalError,
-    value::{Value, storage_key_as_runtime_value},
+    value::{Value, primary_key_value_as_runtime_value},
 };
 use std::collections::BTreeMap;
 
@@ -60,7 +60,7 @@ pub(super) fn project_covering_row_from_decoded_values(
                 })?
             }
             CoveringReadFieldSource::PrimaryKey => {
-                storage_key_as_runtime_value(&data_key.storage_key())
+                primary_key_value_as_runtime_value(&data_key.storage_key())
             }
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {
@@ -113,7 +113,7 @@ pub(super) fn project_covering_row_from_owned_decoded_values(
                 )?
             }
             CoveringReadFieldSource::PrimaryKey => {
-                storage_key_as_runtime_value(&data_key.storage_key())
+                primary_key_value_as_runtime_value(&data_key.storage_key())
             }
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {
@@ -182,7 +182,7 @@ pub(super) fn project_covering_row_from_single_decoded_value(
                 }
             }
             CoveringReadFieldSource::PrimaryKey => {
-                storage_key_as_runtime_value(&data_key.storage_key())
+                primary_key_value_as_runtime_value(&data_key.storage_key())
             }
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {

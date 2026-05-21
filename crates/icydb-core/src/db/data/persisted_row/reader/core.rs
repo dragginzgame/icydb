@@ -20,7 +20,7 @@ use crate::{
                         materialize_validated_scalar_slot_value,
                         scalar_slot_value_ref_from_validated, validated_scalar_slot_value,
                     },
-                    primary_key::validate_storage_key_from_primary_key_bytes_with_contract,
+                    primary_key::validate_primary_key_value_from_slot_bytes_with_contract,
                 },
                 types::{CanonicalSlotReader, SlotReader},
             },
@@ -144,17 +144,18 @@ impl<'a> StructuralSlotReader<'a> {
         self.contract.has_accepted_decode_contract()
     }
 
-    /// Validate the decoded primary-key slot against the authoritative row key.
-    pub(in crate::db) fn validate_storage_key(
+    /// Validate the decoded primary-key slot against the authoritative row identity.
+    pub(in crate::db) fn validate_primary_key(
         &self,
         data_key: &DecodedDataStoreKey,
     ) -> Result<(), InternalError> {
-        self.validate_storage_key_value(data_key.storage_key())
+        self.validate_primary_key_value(data_key.storage_key())
     }
 
-    // Validate the decoded primary-key slot against one authoritative storage
-    // key without rebuilding a full `DecodedDataStoreKey` wrapper at the call site.
-    fn validate_storage_key_value(&self, expected_key: StorageKey) -> Result<(), InternalError> {
+    // Validate the decoded primary-key slot against one authoritative
+    // primary-key value without rebuilding a full `DecodedDataStoreKey`
+    // wrapper at the call site.
+    fn validate_primary_key_value(&self, expected_key: StorageKey) -> Result<(), InternalError> {
         let primary_key_slot = self.contract.primary_key_slot();
 
         // Preserve the reader's scalar validation/cache side effect before the
@@ -172,7 +173,7 @@ impl<'a> StructuralSlotReader<'a> {
         let field_name = self.contract.field_name(primary_key_slot)?;
         let raw_value = self.required_field_bytes(primary_key_slot, field_name)?;
 
-        validate_storage_key_from_primary_key_bytes_with_contract(
+        validate_primary_key_value_from_slot_bytes_with_contract(
             &self.contract,
             raw_value,
             expected_key,

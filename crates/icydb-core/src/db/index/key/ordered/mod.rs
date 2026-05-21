@@ -101,9 +101,9 @@ pub(crate) fn encode_canonical_index_component(
     Ok(out)
 }
 
-/// Encode one storage-key value into canonical index-component bytes without
+/// Encode one decoded primary-key value into canonical index-component bytes without
 /// materializing an owned runtime `Value`.
-pub(crate) fn encode_canonical_index_component_from_storage_key(
+pub(crate) fn encode_canonical_index_component_from_primary_key_value(
     value: StorageKey,
 ) -> Result<Vec<u8>, OrderedValueEncodeError> {
     let mut out = Vec::new();

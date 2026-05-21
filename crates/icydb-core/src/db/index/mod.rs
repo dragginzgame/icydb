@@ -16,7 +16,7 @@ mod store;
 
 pub(in crate::db) use crate::db::key_taxonomy::IndexEntryValue;
 pub(in crate::db) use entry::{
-    IndexEntryCorruption, IndexEntryExistenceWitness, IndexEntryMembership, IndexRowIdentity,
+    IndexEntryCorruption, IndexEntryExistenceWitness, IndexEntryRowWitness, IndexRowIdentity,
 };
 pub(in crate::db) use envelope::{
     KeyEnvelope, envelope_is_empty, key_within_envelope, resume_bounds_for_continuation,
@@ -24,7 +24,7 @@ pub(in crate::db) use envelope::{
 };
 pub(in crate::db) use key::{
     EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey, derive_index_expression_value,
-    encode_canonical_index_component_from_storage_key,
+    encode_canonical_index_component_from_primary_key_value,
 };
 pub(in crate::db) use pk_equivalence::{PrimaryKeyEquivalenceError, primary_key_matches_value};
 pub(in crate::db) use plan::{

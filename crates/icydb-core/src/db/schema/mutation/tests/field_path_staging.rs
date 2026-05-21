@@ -24,8 +24,8 @@ fn field_path_rebuild_key_materializes_from_accepted_target_slots() {
     assert_eq!(key.index_id(), &IndexId::new(EntityTag::new(7), 1));
     assert_eq!(key.component_count(), 1);
     assert_eq!(
-        key.primary_storage_key()
-            .expect("index key should carry primary storage key"),
+        key.primary_key_value()
+            .expect("index key should carry primary-key value"),
         storage_key,
     );
 }
@@ -67,8 +67,8 @@ fn expression_rebuild_key_materializes_from_accepted_target_slots() {
     assert!(mixed_key.has_same_components(&lower_key));
     assert_eq!(
         mixed_key
-            .primary_storage_key()
-            .expect("index key should carry primary storage key"),
+            .primary_key_value()
+            .expect("index key should carry primary-key value"),
         storage_key,
     );
 }
@@ -117,7 +117,7 @@ fn field_path_rebuild_stages_sorted_entries_without_publication() {
             .windows(2)
             .all(|pair| pair[0].key() <= pair[1].key())
     );
-    let staged_members = staged
+    let staged_row_witnesses = staged
         .entries()
         .iter()
         .map(|entry| {
@@ -129,7 +129,10 @@ fn field_path_rebuild_stages_sorted_entries_without_publication() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(staged_members, vec![StorageKey::Nat(1), StorageKey::Nat(2)],);
+    assert_eq!(
+        staged_row_witnesses,
+        vec![StorageKey::Nat(1), StorageKey::Nat(2)],
+    );
 
     let validation = staged
         .validate()

@@ -4,8 +4,8 @@
 
 use crate::{
     traits::{
-        EntityKeyBytes, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
-        SanitizeAuto, SanitizeCustom, StorageKeyCodec, StorageKeyDecode, ValidateAuto,
+        EntityKeyBytes, PrimaryKeyCodec, PrimaryKeyDecode, RuntimeValueDecode, RuntimeValueEncode,
+        RuntimeValueKind, RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto,
         ValidateCustom, Visitable,
     },
     value::{StorageKey, StorageKeyEncodeError, Value},
@@ -66,18 +66,18 @@ impl RuntimeValueDecode for Unit {
     }
 }
 
-impl StorageKeyCodec for Unit {
-    fn to_storage_key(&self) -> Result<StorageKey, StorageKeyEncodeError> {
+impl PrimaryKeyCodec for Unit {
+    fn to_primary_key_value(&self) -> Result<StorageKey, StorageKeyEncodeError> {
         Ok(StorageKey::Unit)
     }
 }
 
-impl StorageKeyDecode for Unit {
-    fn from_storage_key(key: StorageKey) -> Result<Self, crate::error::InternalError> {
+impl PrimaryKeyDecode for Unit {
+    fn from_primary_key_value(key: StorageKey) -> Result<Self, crate::error::InternalError> {
         match key {
             StorageKey::Unit => Ok(Self),
             other => Err(crate::error::InternalError::store_corruption(format!(
-                "storage key decode failed for `{}`: expected StorageKey::Unit, found {other:?}",
+                "primary key decode failed for `{}`: expected StorageKey::Unit, found {other:?}",
                 std::any::type_name::<Self>(),
             ))),
         }

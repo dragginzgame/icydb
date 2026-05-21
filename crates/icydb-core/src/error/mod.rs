@@ -1120,12 +1120,12 @@ impl InternalError {
     }
 
     /// Construct the canonical persisted-row primary-key decode corruption error.
-    pub(crate) fn persisted_row_primary_key_not_storage_encodable(
+    pub(crate) fn persisted_row_primary_key_not_primary_key_encodable(
         data_key: impl fmt::Debug,
         detail: impl fmt::Display,
     ) -> Self {
         Self::persisted_row_decode_failed(format!(
-            "primary-key value is not storage-key encodable: {data_key:?} ({detail})",
+            "primary-key value is not primary-key encodable: {data_key:?} ({detail})",
         ))
     }
 

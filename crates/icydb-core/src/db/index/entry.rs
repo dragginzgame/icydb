@@ -10,7 +10,7 @@ use crate::{
         key_taxonomy::IndexEntryValue,
     },
     traits::Storable,
-    value::{Value, storage_key_as_runtime_value},
+    value::{Value, primary_key_value_as_runtime_value},
 };
 use canic_cdk::structures::storable::Bound;
 use std::borrow::Cow;
@@ -58,7 +58,7 @@ impl IndexEntryCorruption {
     pub(crate) fn missing_key(index_key: RawIndexStoreKey, entity_key: StorageKey) -> Self {
         Self::MissingKey {
             index_key: Box::new(index_key),
-            entity_key: storage_key_as_runtime_value(&entity_key),
+            entity_key: primary_key_value_as_runtime_value(&entity_key),
         }
     }
 }
@@ -85,10 +85,10 @@ pub(crate) struct IndexRowIdentity {
 ///
 /// IndexEntryExistenceWitness
 ///
-/// Narrow storage-owned row-existence witness carried per raw index-entry
-/// membership. `Present` is the normal encoded state; `Missing` exists so the
-/// stale-entry repair path can preserve the secondary entry while
-/// still exposing one explicit storage-level missing-row witness.
+/// Narrow storage-owned row-existence witness carried per raw index entry.
+/// `Present` is the normal encoded state; `Missing` exists so the stale-entry
+/// repair path can preserve the secondary entry while still exposing one
+/// explicit storage-level missing-row witness.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -115,19 +115,20 @@ impl IndexEntryExistenceWitness {
 }
 
 ///
-/// IndexEntryMembership
+/// IndexEntryRowWitness
 ///
-/// One decoded raw index-entry membership plus its storage-owned existence
-/// witness.
+/// One decoded raw index-entry row identity plus its storage-owned existence
+/// witness. The raw index key owns the identity; the raw entry value only
+/// proves whether that key currently has a row.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct IndexEntryMembership {
+pub(in crate::db) struct IndexEntryRowWitness {
     storage_key: StorageKey,
     existence_witness: IndexEntryExistenceWitness,
 }
 
-impl IndexEntryMembership {
+impl IndexEntryRowWitness {
     const fn new(storage_key: StorageKey, existence_witness: IndexEntryExistenceWitness) -> Self {
         Self {
             storage_key,
@@ -185,23 +186,21 @@ impl IndexEntryValue {
         self.decode_storage_key(raw_key).map(IndexRowIdentity::new)
     }
 
-    /// Decode this key-owned raw entry and append its storage key if `limit`
-    /// has not been reached.
+    /// Decode this key-owned raw entry and append its primary-key value if
+    /// `limit` has not been reached.
     ///
     /// The raw index key owns row identity; the raw value only validates the
     /// existence witness. This helper exists for structural preflight readers
     /// that do not need the witness itself.
-    pub(in crate::db) fn push_membership_storage_keys_limited<E>(
+    pub(in crate::db) fn push_row_identity_keys_limited<E>(
         &self,
         raw_key: &RawIndexStoreKey,
         out: &mut Vec<StorageKey>,
         limit: usize,
         map_corruption: impl FnOnce(IndexEntryCorruption) -> E,
     ) -> Result<bool, E> {
-        let membership = self
-            .decode_single_membership(raw_key)
-            .map_err(map_corruption)?;
-        out.push(membership.storage_key());
+        let row_witness = self.decode_row_witness(raw_key).map_err(map_corruption)?;
+        out.push(row_witness.storage_key());
         if out.len() >= limit {
             return Ok(true);
         }
@@ -235,24 +234,24 @@ impl IndexEntryValue {
     }
 
     // Decode the key-owned raw entry row identity without allocating a
-    // temporary membership vector.
+    // temporary vector.
     pub(in crate::db) fn decode_storage_key(
         &self,
         raw_key: &RawIndexStoreKey,
     ) -> Result<StorageKey, IndexEntryCorruption> {
-        Ok(self.decode_single_membership(raw_key)?.storage_key())
+        Ok(self.decode_row_witness(raw_key)?.storage_key())
     }
 
-    // Decode the key-owned raw entry membership plus its storage-owned
-    // existence witness without allocating a temporary membership vector.
-    pub(in crate::db) fn decode_single_membership(
+    // Decode the key-owned raw entry row identity plus its storage-owned
+    // existence witness without allocating a temporary vector.
+    pub(in crate::db) fn decode_row_witness(
         &self,
         raw_key: &RawIndexStoreKey,
-    ) -> Result<IndexEntryMembership, IndexEntryCorruption> {
+    ) -> Result<IndexEntryRowWitness, IndexEntryCorruption> {
         let witness = self.validate_witness()?;
         let storage_key = storage_key_from_raw_index_store_key(raw_key)?;
 
-        Ok(IndexEntryMembership::new(storage_key, witness))
+        Ok(IndexEntryRowWitness::new(storage_key, witness))
     }
 
     /// Validate the raw index entry structure without binding to an entity.
@@ -287,7 +286,7 @@ fn storage_key_from_raw_index_store_key(
     raw_key: &RawIndexStoreKey,
 ) -> Result<StorageKey, IndexEntryCorruption> {
     IndexKey::try_from_raw(raw_key)
-        .and_then(|key| key.primary_storage_key().map_err(|_| "invalid primary key"))
+        .and_then(|key| key.primary_key_value().map_err(|_| "invalid primary key"))
         .map_err(|_| IndexEntryCorruption::InvalidKey)
 }
 
@@ -376,7 +375,7 @@ mod tests {
     }
 
     #[test]
-    fn index_entry_value_membership_is_owned_by_raw_key_not_value_constructor_input() {
+    fn index_entry_value_row_identity_is_owned_by_raw_key_not_value_constructor_input() {
         let constructor_key = StorageKey::Int(9);
         let raw_key_key = StorageKey::Nat(42);
         let raw_key = raw_key_for(raw_key_key);
@@ -384,7 +383,7 @@ mod tests {
 
         assert_eq!(
             raw.decode_storage_key(&raw_key)
-                .expect("decode key-owned membership"),
+                .expect("decode key-owned row witness"),
             raw_key_key
         );
         assert_eq!(
@@ -397,7 +396,7 @@ mod tests {
     #[test]
     fn index_entry_value_try_from_keys_rejects_multi_key_entries() {
         let err = IndexEntryValue::try_from_keys([StorageKey::Int(1), StorageKey::Nat(2)])
-            .expect_err("presence-only entries reject duplicated membership");
+            .expect_err("presence-only entries reject duplicated row identity");
 
         assert!(matches!(
             err,
@@ -415,17 +414,17 @@ mod tests {
     }
 
     #[test]
-    fn index_entry_value_decode_single_membership_recovers_present_witness() {
+    fn index_entry_value_decode_row_witness_recovers_present_witness() {
         let key = StorageKey::Int(9);
         let raw_key = raw_key_for(key);
         let raw = IndexEntryValue::try_from_keys([key]).expect("encode index entry");
-        let membership = raw
-            .decode_single_membership(&raw_key)
-            .expect("decode single membership");
+        let row_witness = raw
+            .decode_row_witness(&raw_key)
+            .expect("decode row witness");
 
-        assert_eq!(membership.storage_key(), key);
+        assert_eq!(row_witness.storage_key(), key);
         assert_eq!(
-            membership.existence_witness(),
+            row_witness.existence_witness(),
             IndexEntryExistenceWitness::Present
         );
     }
@@ -486,7 +485,7 @@ mod tests {
     }
 
     #[test]
-    fn index_entry_value_try_from_keys_rejects_empty_membership() {
+    fn index_entry_value_try_from_keys_rejects_empty_row_identity() {
         let err = IndexEntryValue::try_from_keys([]).expect_err("encoding should reject no keys");
 
         assert!(matches!(err, IndexEntryValueEncodeError::EmptyEntry));

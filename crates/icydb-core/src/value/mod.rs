@@ -1,6 +1,6 @@
 //! Module: value
 //!
-//! Responsibility: canonical dynamic value representation plus storage-key helpers.
+//! Responsibility: canonical dynamic value representation plus primary-key helpers.
 //! Does not own: planner semantics or db-level decode policy.
 //! Boundary: shared value/domain surface used by query, executor, and storage layers.
 
@@ -42,7 +42,7 @@ pub use map::{MapValueError, SchemaInvariantError};
 pub use output::{OutputValue, OutputValueEnum};
 pub use storage_key::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError};
 pub(crate) use storage_key_runtime::{
-    storage_key_as_runtime_value, storage_key_from_runtime_value,
+    primary_key_value_as_runtime_value, primary_key_value_from_runtime_value,
 };
 pub use tag::ValueTag;
 
@@ -335,11 +335,11 @@ impl Value {
     ///
 
     /// NOTE:
-    /// `Unit` is intentionally treated as a valid storage key and indexable,
+    /// `Unit` is intentionally treated as a valid primary-key value and indexable,
     /// used for singleton tables and synthetic identity entities.
     /// Only `Null` is non-indexable.
     #[must_use]
-    pub const fn as_storage_key(&self) -> Option<StorageKey> {
+    pub const fn as_primary_key_value(&self) -> Option<StorageKey> {
         match self {
             Self::Account(value) => Some(StorageKey::Account(*value)),
             Self::Int(value) => Some(StorageKey::Int(*value)),

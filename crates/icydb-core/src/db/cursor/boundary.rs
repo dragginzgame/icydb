@@ -200,7 +200,9 @@ pub(in crate::db) fn validate_cursor_boundary_types(
                     ));
                 }
 
-                if field == Some(model.primary_key.name) && Value::as_storage_key(value).is_none() {
+                if field == Some(model.primary_key.name)
+                    && Value::as_primary_key_value(value).is_none()
+                {
                     return Err(
                         CursorPlanError::continuation_cursor_primary_key_type_mismatch(
                             rendered,
@@ -317,7 +319,7 @@ pub(in crate::db) fn decode_structural_primary_key_cursor_slot_from_name(
     boundary: &CursorBoundary,
 ) -> Result<StorageKey, CursorPlanError> {
     let pk_index = primary_key_boundary_index(order, pk_field)?;
-    let expected = "storage key".to_string();
+    let expected = "primary key value".to_string();
     let pk_slot = &boundary.slots[pk_index];
 
     match pk_slot {
@@ -328,7 +330,7 @@ pub(in crate::db) fn decode_structural_primary_key_cursor_slot_from_name(
                 None,
             ),
         ),
-        CursorBoundarySlot::Present(value) => value.as_storage_key().ok_or_else(|| {
+        CursorBoundarySlot::Present(value) => value.as_primary_key_value().ok_or_else(|| {
             CursorPlanError::continuation_cursor_primary_key_type_mismatch(
                 pk_field.to_string(),
                 expected,
