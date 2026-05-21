@@ -7,11 +7,10 @@ use crate::{
         EntityKeyBytes, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
         SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
-    types::{Principal, Ulid},
+    types::{Principal, Ulid, random},
     value::Value,
 };
 use candid::CandidType;
-use icydb_utils::next_u128;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display};
 
@@ -74,8 +73,8 @@ impl Subaccount {
     /// Falls back to zeroed randomness if the RNG is unavailable.
     #[must_use]
     pub fn random() -> Self {
-        let hi = next_u128().unwrap_or(0).to_le_bytes();
-        let lo = next_u128().unwrap_or(0).to_le_bytes();
+        let hi = random::next_u128().unwrap_or(0).to_le_bytes();
+        let lo = random::next_u128().unwrap_or(0).to_le_bytes();
 
         let mut bytes = [0u8; 32];
         bytes[..16].copy_from_slice(&hi);
@@ -200,12 +199,11 @@ impl Visitable for Subaccount {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb_utils::seed_from;
 
     const RNG_SEED: [u8; 32] = [7; 32];
 
     fn seed_rng() {
-        seed_from(RNG_SEED);
+        random::seed_from(RNG_SEED);
     }
 
     #[test]

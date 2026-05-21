@@ -37,7 +37,7 @@ pub trait Visitor {
 ///
 
 #[derive(Debug, Default)]
-pub struct ValidateVisitor {
+pub(crate) struct ValidateVisitor {
     errors: ErrorTree,
     path: Vec<String>,
     node_count: usize,
@@ -46,7 +46,7 @@ pub struct ValidateVisitor {
 impl ValidateVisitor {
     /// Build one empty validating visitor.
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             errors: ErrorTree::new(),
             ..Default::default()
@@ -54,17 +54,7 @@ impl ValidateVisitor {
     }
 
     #[must_use]
-    pub const fn node_count(&self) -> usize {
-        self.node_count
-    }
-
-    #[must_use]
-    pub const fn errors(&self) -> &ErrorTree {
-        &self.errors
-    }
-
-    #[must_use]
-    pub fn into_errors(self) -> ErrorTree {
+    pub(crate) fn into_errors(self) -> ErrorTree {
         self.errors
     }
 }

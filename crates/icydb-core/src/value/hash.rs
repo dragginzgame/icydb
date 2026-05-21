@@ -10,7 +10,7 @@ use crate::{
     traits::Repr,
     value::{Value, ValueTag},
 };
-use icydb_utils::Xxh3;
+use xxhash_rust::xxh3::Xxh3;
 
 /// Value-hash format version byte used by canonical digest encoding.
 pub(crate) const VALUE_HASH_VERSION: u8 = 1;

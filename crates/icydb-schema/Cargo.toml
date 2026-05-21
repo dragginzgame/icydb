@@ -10,7 +10,6 @@ authors = { workspace = true }
 
 [dependencies]
 candid = { workspace = true }
-canic-cdk = { workspace = true }
 darling = { workspace = true }
 derive_more = { workspace = true }
 icydb-primitives = { workspace = true }

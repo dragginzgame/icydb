@@ -2,9 +2,8 @@
 //! Owns the process-local monotonic ULID generator used by runtime key
 //! generation.
 
-use crate::types::{Ulid, UlidError};
+use crate::types::{Ulid, UlidError, random};
 use canic_cdk::utils::time::now_millis;
-use icydb_utils::next_u128;
 use std::cell::RefCell;
 
 thread_local! {
@@ -56,7 +55,7 @@ impl Generator {
         }
 
         // generate
-        let rand = next_u128().unwrap_or(0);
+        let rand = random::next_u128().unwrap_or(0);
         let ulid = Ulid::from_parts(ts, rand);
 
         self.previous = ulid;

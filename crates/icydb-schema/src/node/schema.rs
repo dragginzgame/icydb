@@ -1,5 +1,5 @@
 use crate::{Error, prelude::*};
-use canic_cdk::utils::time::now_secs;
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{any::Any, collections::BTreeMap};
 
 ///
@@ -21,26 +21,6 @@ pub enum SchemaNode {
     Store(Store),
     Tuple(Tuple),
     Validator(Validator),
-}
-
-impl SchemaNode {
-    #[must_use]
-    pub fn get_type(&self) -> Option<Box<dyn TypeNode>> {
-        match self {
-            Self::Entity(n) => Some(Box::new(n.clone())),
-            Self::Enum(n) => Some(Box::new(n.clone())),
-            Self::List(n) => Some(Box::new(n.clone())),
-            Self::Map(n) => Some(Box::new(n.clone())),
-            Self::Newtype(n) => Some(Box::new(n.clone())),
-            Self::Record(n) => Some(Box::new(n.clone())),
-            Self::Set(n) => Some(Box::new(n.clone())),
-            Self::Tuple(n) => Some(Box::new(n.clone())),
-            _ => {
-                // NOTE: Non-type nodes are intentionally excluded from type lookups.
-                None
-            }
-        }
-    }
 }
 
 impl SchemaNode {
@@ -153,7 +133,7 @@ impl Schema {
     }
 
     // check_node_as
-    pub fn check_node_as<T: 'static>(&self, path: &str) -> Result<(), Error> {
+    pub(crate) fn check_node_as<T: 'static>(&self, path: &str) -> Result<(), Error> {
         self.cast_node::<T>(path).map(|_| ())
     }
 
@@ -162,13 +142,6 @@ impl Schema {
         self.nodes
             .iter()
             .filter_map(|(key, node)| node.as_any().downcast_ref::<T>().map(|n| (key.as_str(), n)))
-    }
-
-    // get_node_values
-    pub fn get_node_values<T: 'static>(&'_ self) -> impl Iterator<Item = &'_ T> + '_ {
-        self.nodes
-            .values()
-            .filter_map(|node| node.as_any().downcast_ref::<T>())
     }
 
     // filter_nodes
@@ -208,6 +181,12 @@ impl Default for Schema {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs())
 }
 
 impl ValidateNode for Schema {}

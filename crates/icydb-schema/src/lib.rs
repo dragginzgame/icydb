@@ -2,7 +2,7 @@ pub mod build;
 pub mod error;
 pub mod node;
 pub mod types;
-pub mod validate;
+mod validate;
 pub mod visit;
 
 // Maximum length for entity schema identifiers.

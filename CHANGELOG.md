@@ -5,6 +5,17 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.161.x] 🧹 - 2026-05-21 - Schema And Utility Hygiene
+
+Detailed notes: [docs/changelog/0.161.md](docs/changelog/0.161.md)
+
+- `0.161.1` narrows `icydb-utils` to shared case conversion and moves core
+  RNG/hash ownership back into `icydb-core`.
+
+- `0.161.0` reduces schema/derive stable-memory policy duplication, removes
+  the schema crate's `canic-cdk` dependency, and narrows internal schema
+  validation/traversal surface.
+
 ## [0.160.x] 🔎 - 2026-05-21 - Planner Transparency And Access Contracts
 
 Detailed notes: [docs/changelog/0.160.md](docs/changelog/0.160.md)

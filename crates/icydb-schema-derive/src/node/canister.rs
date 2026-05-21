@@ -100,8 +100,7 @@ impl HasTraits for Canister {
         match t {
             TraitKind::CanisterKind => {
                 let commit_memory_id = self.commit_memory_id;
-                let commit_stable_key =
-                    format!("icydb.{}.commit.control.v1", self.memory_namespace);
+                let commit_stable_key = self.commit_stable_key();
                 let tokens = Implementor::new(self.def(), t)
                     .set_tokens(quote! {
                         const COMMIT_MEMORY_ID: u8 = #commit_memory_id;
@@ -113,6 +112,12 @@ impl HasTraits for Canister {
             }
             _ => None,
         }
+    }
+}
+
+impl Canister {
+    fn commit_stable_key(&self) -> String {
+        icydb_schema::node::stable_memory_key(&self.memory_namespace, "commit", "control")
     }
 }
 
@@ -129,5 +134,41 @@ impl HasType for Canister {
 impl ToTokens for Canister {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         tokens.extend(self.all_tokens());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_commit_stable_key_matches_schema_formatter() {
+        let item: syn::ItemStruct = syn::parse_quote! {
+            pub struct DemoCanister;
+        };
+        let canister = Canister {
+            def: Def::new(item),
+            memory_namespace: "demo_rpg".to_string(),
+            memory_min: 100,
+            memory_max: 254,
+            commit_memory_id: 254,
+        };
+        let schema_canister = icydb_schema::node::Canister::new(
+            icydb_schema::node::Def::new("demo::rpg", "DemoCanister"),
+            "demo_rpg",
+            100,
+            254,
+            254,
+        );
+
+        assert_eq!(
+            canister.commit_stable_key(),
+            schema_canister.commit_stable_key(),
+            "derive-generated CanisterKind::COMMIT_STABLE_KEY must match schema allocation metadata",
+        );
+        assert_eq!(
+            canister.commit_stable_key(),
+            "icydb.demo_rpg.commit.control.v1",
+        );
     }
 }

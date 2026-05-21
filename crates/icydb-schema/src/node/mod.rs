@@ -217,3 +217,70 @@ pub fn stable_key_is_canonical(value: &str) -> bool {
 
     saw_segment && last_segment == "v1"
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_memory_id_policy_accepts_only_application_range() {
+        for memory_id in APP_MEMORY_ID_MIN..=APP_MEMORY_ID_MAX {
+            let mut errors = ErrorTree::new();
+            validate_app_memory_id(&mut errors, "memory_id", memory_id);
+            validate_memory_id_not_reserved(&mut errors, "memory_id", memory_id);
+            assert!(
+                errors.is_empty(),
+                "schema should accept app memory id {memory_id}: {errors}",
+            );
+        }
+
+        for memory_id in [0, APP_MEMORY_ID_MIN - 1] {
+            let mut errors = ErrorTree::new();
+            validate_app_memory_id(&mut errors, "memory_id", memory_id);
+            assert!(
+                !errors.is_empty(),
+                "schema should reject below-range app memory id {memory_id}",
+            );
+        }
+
+        let mut errors = ErrorTree::new();
+        validate_app_memory_id(&mut errors, "memory_id", u8::MAX);
+        validate_memory_id_not_reserved(&mut errors, "memory_id", u8::MAX);
+        let rendered = errors.to_string();
+        assert!(
+            rendered.contains("outside of application memory range 100-254"),
+            "reserved id should also fail the app range check: {rendered}",
+        );
+        assert!(
+            rendered.contains("reserved for stable-structures internals"),
+            "reserved id should fail closed explicitly: {rendered}",
+        );
+    }
+
+    #[test]
+    fn stable_key_segment_policy_is_canonical_ascii_only() {
+        for segment in ["db", "demo_rpg", "store_1", "v1"] {
+            assert!(stable_key_segment_is_canonical(segment));
+        }
+
+        for segment in ["", "Demo", "demo-rpg", "demo.rpg", "canic.owned"] {
+            assert!(!stable_key_segment_is_canonical(segment));
+        }
+    }
+
+    #[test]
+    fn full_stable_key_policy_rejects_reserved_and_malformed_keys() {
+        assert!(stable_key_is_canonical("icydb.demo_rpg.characters.data.v1"));
+
+        for key in [
+            "canic.demo_rpg.characters.data.v1",
+            "icydb.demo_rpg.characters.data",
+            "icydb.demo-rpg.characters.data.v1",
+            "icydb.demo_rpg..data.v1",
+            "icydb.Demo.characters.data.v1",
+            "icydb.demo_rpg.characters.data.v2",
+        ] {
+            assert!(!stable_key_is_canonical(key), "key should fail: {key}");
+        }
+    }
+}

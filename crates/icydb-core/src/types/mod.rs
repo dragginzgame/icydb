@@ -15,6 +15,7 @@ mod int;
 mod nat;
 mod parse;
 mod principal;
+mod random;
 mod subaccount;
 mod timestamp;
 mod ulid;

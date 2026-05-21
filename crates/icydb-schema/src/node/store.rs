@@ -306,3 +306,34 @@ impl VisitableNode for Store {
         self.def().accept(v);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn store_stable_keys_use_durable_icydb_shape() {
+        let store = Store::new(
+            Def::new("demo::rpg", "CharacterStore"),
+            "CHARACTER_STORE",
+            "characters",
+            "demo::rpg::Canister",
+            110,
+            111,
+            112,
+        );
+
+        assert_eq!(
+            store.data_allocation("demo_rpg").stable_key(),
+            "icydb.demo_rpg.characters.data.v1",
+        );
+        assert_eq!(
+            store.index_allocation("demo_rpg").stable_key(),
+            "icydb.demo_rpg.characters.index.v1",
+        );
+        assert_eq!(
+            store.schema_allocation("demo_rpg").stable_key(),
+            "icydb.demo_rpg.characters.schema.v1",
+        );
+    }
+}

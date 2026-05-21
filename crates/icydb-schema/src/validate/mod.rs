@@ -1,6 +1,6 @@
 //! Schema validation orchestration and shared helpers.
 
-pub mod naming;
+mod naming;
 
 use crate::{
     error::ErrorTree,

@@ -10,9 +10,6 @@ authors = { workspace = true }
 
 [dependencies]
 convert_case = { workspace = true }
-rand_chacha = { workspace = true }
-thiserror = { workspace = true }
-xxhash-rust = { workspace = true }
 
 [lints]
 workspace = true
