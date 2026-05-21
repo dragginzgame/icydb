@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.161.md](docs/changelog/0.161.md)
 
+- `0.161.4` completes audit-driven hygiene across config-build and build-time
+  actor glue boundaries without changing runtime behavior.
+
 - `0.161.3` splits CLI observability into focused surface modules while
   keeping shared ICP transport under the `icp` boundary.
 

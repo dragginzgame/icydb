@@ -1,13 +1,18 @@
 # IcyDB Build
 
-Build-time helpers for generated canister wiring, query/export surfaces, and metrics endpoints.
+Build-time helpers for generated canister wiring, query/export surfaces, and
+observability endpoints.
 
-In the current `0.77` line, this crate generates store/session wiring and actor
-support code, but it does not generate public canister SQL routing glue.
-Canister-owned SQL query helpers remain explicit code in the consuming canister
-crate when that facade is needed.
+This crate generates the actor glue used by `icydb::start!()`, including
+store/session wiring and config-gated `__icydb_*` endpoints for SQL, DDL,
+fixtures, schema reports, snapshots, and metrics. Endpoint emission is driven
+by `BuildOptions`, normally produced from `icydb.toml` by `icydb-config-build`.
 
-This crate is usually consumed transitively through `icydb` and is published to support downstream dependency resolution.
+Generated build failures remain a codegen boundary: invalid schema metadata or
+options panic during generation instead of being exposed as a runtime API.
+
+This crate is usually consumed transitively through `icydb` and is published to
+support downstream dependency resolution.
 
 References:
 

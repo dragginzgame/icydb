@@ -47,61 +47,55 @@ impl GeneratedIcydbConfig {
     /// Return whether read-only SQL should be generated for one canister.
     #[must_use]
     pub fn canister_sql_readonly_enabled(&self, canister_name: &str) -> bool {
-        self.canisters
-            .get(canister_name)
-            .is_some_and(GeneratedCanisterConfig::sql_readonly)
+        self.canister_enabled(canister_name, GeneratedCanisterConfig::sql_readonly)
     }
 
     /// Return whether SQL DDL/write endpoints should be generated for one canister.
     #[must_use]
     pub fn canister_sql_ddl_enabled(&self, canister_name: &str) -> bool {
-        self.canisters
-            .get(canister_name)
-            .is_some_and(GeneratedCanisterConfig::sql_ddl)
+        self.canister_enabled(canister_name, GeneratedCanisterConfig::sql_ddl)
     }
 
     /// Return whether SQL fixture lifecycle endpoints should be generated for one canister.
     #[must_use]
     pub fn canister_sql_fixtures_enabled(&self, canister_name: &str) -> bool {
-        self.canisters
-            .get(canister_name)
-            .is_some_and(GeneratedCanisterConfig::sql_fixtures)
+        self.canister_enabled(canister_name, GeneratedCanisterConfig::sql_fixtures)
     }
 
     /// Return whether metrics report endpoints should be generated for one canister.
     #[must_use]
     pub fn canister_metrics_enabled(&self, canister_name: &str) -> bool {
-        self.canisters
-            .get(canister_name)
-            .is_some_and(GeneratedCanisterConfig::metrics)
+        self.canister_enabled(canister_name, GeneratedCanisterConfig::metrics)
     }
 
     /// Return whether metrics reset endpoints should be generated for one canister.
     #[must_use]
     pub fn canister_metrics_reset_enabled(&self, canister_name: &str) -> bool {
-        self.canisters
-            .get(canister_name)
-            .is_some_and(GeneratedCanisterConfig::metrics_reset)
+        self.canister_enabled(canister_name, GeneratedCanisterConfig::metrics_reset)
     }
 
     /// Return whether storage snapshot endpoints should be generated for one canister.
     #[must_use]
     pub fn canister_snapshot_enabled(&self, canister_name: &str) -> bool {
-        self.canisters
-            .get(canister_name)
-            .is_some_and(GeneratedCanisterConfig::snapshot)
+        self.canister_enabled(canister_name, GeneratedCanisterConfig::snapshot)
     }
 
     /// Return whether schema report endpoints should be generated for one canister.
     #[must_use]
     pub fn canister_schema_enabled(&self, canister_name: &str) -> bool {
-        self.canisters
-            .get(canister_name)
-            .is_some_and(GeneratedCanisterConfig::schema)
+        self.canister_enabled(canister_name, GeneratedCanisterConfig::schema)
     }
 
     pub(crate) const fn new(canisters: BTreeMap<String, GeneratedCanisterConfig>) -> Self {
         Self { canisters }
+    }
+
+    fn canister_enabled(
+        &self,
+        canister_name: &str,
+        is_enabled: impl FnOnce(&GeneratedCanisterConfig) -> bool,
+    ) -> bool {
+        self.canisters.get(canister_name).is_some_and(is_enabled)
     }
 }
 

@@ -13,10 +13,10 @@ use crate::{
 /// 3. absent config, treated as defaults
 pub fn emit_config_for_build_script() -> Result<GeneratedIcydbConfig, ConfigBuildError> {
     println!("cargo:rerun-if-env-changed={CONFIG_PATH_ENV}");
-    let manifest_dir = env::var_os("CARGO_MANIFEST_DIR").map_or_else(
-        || env::current_dir().expect("current directory should resolve"),
-        PathBuf::from,
-    );
+    let manifest_dir = match env::var_os("CARGO_MANIFEST_DIR") {
+        Some(path) => PathBuf::from(path),
+        None => env::current_dir().map_err(|source| ConfigBuildError::CurrentDir { source })?,
+    };
     let resolved = resolve_config_path(manifest_dir.as_path());
     if let Some(path) = resolved.config_path.as_ref() {
         println!("cargo:rerun-if-changed={}", path.display());

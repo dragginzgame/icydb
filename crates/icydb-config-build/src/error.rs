@@ -14,6 +14,9 @@ pub enum ConfigBuildError {
         source: toml::de::Error,
     },
 
+    #[error("failed to resolve current directory for IcyDB config discovery: {source}")]
+    CurrentDir { source: io::Error },
+
     #[error("IcyDB config at '{}' contains an empty canister name", path.display())]
     EmptyCanisterName { path: PathBuf },
 

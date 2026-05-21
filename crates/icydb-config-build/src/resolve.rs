@@ -48,5 +48,7 @@ fn is_workspace_root(path: &Path) -> bool {
         return false;
     };
 
-    source.contains("[workspace]")
+    source
+        .parse::<toml::Value>()
+        .is_ok_and(|manifest| manifest.get("workspace").is_some())
 }
