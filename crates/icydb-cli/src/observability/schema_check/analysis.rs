@@ -1,83 +1,26 @@
 use std::collections::BTreeMap;
 
-use candid::Decode;
 use icydb::db::{
     EntityFieldDescription, EntityIndexDescription, EntitySchemaCheckDescription,
     EntitySchemaDescription,
 };
 
-use crate::{
-    cli::CanisterTarget,
-    config::{SCHEMA_CHECK_ENDPOINT, require_configured_endpoint},
-    icp::require_created_canister,
-    table::{ColumnAlign, append_indented_table},
-};
-
-use super::{
-    call_query,
-    render::{render_field_list, yes_no},
-};
-
-/// Read and print the generated-vs-accepted schema check endpoint.
-pub(crate) fn run_schema_check_command(target: CanisterTarget) -> Result<(), String> {
-    require_configured_endpoint(target.canister_name(), SCHEMA_CHECK_ENDPOINT)?;
-    require_created_canister(target.environment(), target.canister_name())?;
-    let candid_bytes = call_query(
-        target.environment(),
-        target.canister_name(),
-        SCHEMA_CHECK_ENDPOINT.method(),
-        "()",
-    )?;
-    let response = Decode!(
-        candid_bytes.as_slice(),
-        Result<Vec<icydb::db::EntitySchemaCheckDescription>, icydb::Error>
-    )
-    .map_err(|err| err.to_string())?;
-
-    match response {
-        Ok(report) => {
-            print!("{}", render_schema_check_report(report.as_slice()));
-            let summary = analyze_schema_check(report.as_slice());
-            if summary.mismatches == 0 {
-                Ok(())
-            } else {
-                Err(format!(
-                    "IcyDB schema check found {} mismatch(es) on canister '{}' in environment '{}'",
-                    summary.mismatches,
-                    target.canister_name(),
-                    target.environment(),
-                ))
-            }
-        }
-        Err(err) => Err(format!(
-            "IcyDB schema check method '{}' failed on canister '{}' in environment '{}': {err}",
-            SCHEMA_CHECK_ENDPOINT.method(),
-            target.canister_name(),
-            target.environment(),
-        )),
-    }
-}
-
-pub(crate) fn render_schema_check_report(report: &[EntitySchemaCheckDescription]) -> String {
-    let summary = analyze_schema_check(report);
-
-    render_schema_check_report_from_summary(&summary)
-}
+use crate::observability::render::{render_field_list, yes_no};
 
 #[derive(Debug)]
-struct SchemaCheckSummary {
-    status: &'static str,
-    entities: usize,
-    accepted_only_fields: usize,
-    accepted_ddl_indexes: usize,
-    mismatches: usize,
-    recommendations: Vec<String>,
-    entity_rows: Vec<[String; 8]>,
-    drift_rows: Vec<[String; 4]>,
-    mismatch_rows: Vec<[String; 4]>,
+pub(super) struct SchemaCheckSummary {
+    pub(super) status: &'static str,
+    pub(super) entities: usize,
+    pub(super) accepted_only_fields: usize,
+    pub(super) accepted_ddl_indexes: usize,
+    pub(super) mismatches: usize,
+    pub(super) recommendations: Vec<String>,
+    pub(super) entity_rows: Vec<[String; 8]>,
+    pub(super) drift_rows: Vec<[String; 4]>,
+    pub(super) mismatch_rows: Vec<[String; 4]>,
 }
 
-fn analyze_schema_check(report: &[EntitySchemaCheckDescription]) -> SchemaCheckSummary {
+pub(super) fn analyze_schema_check(report: &[EntitySchemaCheckDescription]) -> SchemaCheckSummary {
     let mut accepted_only_fields = 0;
     let mut accepted_ddl_indexes = 0;
     let mut mismatches = 0;
@@ -446,32 +389,6 @@ fn analyze_entity_schema_indexes(
     }
 }
 
-fn render_schema_check_report_from_summary(summary: &SchemaCheckSummary) -> String {
-    let mut output = String::new();
-
-    output.push_str("IcyDB schema check\n");
-    output.push_str(
-        format!(
-            "  status: {}\n  entities: {}\n  accepted-only fields: {}\n  DDL-owned indexes: {}\n  mismatches: {}\n\n",
-            summary.status,
-            summary.entities,
-            summary.accepted_only_fields,
-            summary.accepted_ddl_indexes,
-            summary.mismatches,
-        )
-        .as_str(),
-    );
-    append_schema_check_entity_table(&mut output, summary.entity_rows.as_slice());
-    output.push('\n');
-    append_schema_check_detail_table(&mut output, "accepted drift", summary.drift_rows.as_slice());
-    output.push('\n');
-    append_schema_check_detail_table(&mut output, "mismatches", summary.mismatch_rows.as_slice());
-    output.push('\n');
-    append_schema_check_recommendations(&mut output, summary.recommendations.as_slice());
-
-    output
-}
-
 struct SchemaCheckRecommendationFacts {
     mismatches: usize,
     accepted_only_fields: usize,
@@ -555,71 +472,6 @@ fn schema_check_recommendations(facts: &SchemaCheckRecommendationFacts) -> Vec<S
     }
 
     recommendations
-}
-
-fn append_schema_check_recommendations(output: &mut String, recommendations: &[String]) {
-    output.push_str("recommendations\n");
-    for recommendation in recommendations {
-        output.push_str("  ");
-        output.push_str(recommendation);
-        output.push('\n');
-    }
-}
-
-fn append_schema_check_entity_table(output: &mut String, rows: &[[String; 8]]) {
-    output.push_str("entities\n");
-    if rows.is_empty() {
-        output.push_str("  None\n");
-        return;
-    }
-
-    append_indented_table(
-        output,
-        "  ",
-        &[
-            "entity",
-            "status",
-            "gen fields",
-            "acc fields",
-            "gen indexes",
-            "acc indexes",
-            "acc-only fields",
-            "mismatches",
-        ],
-        rows,
-        &[
-            ColumnAlign::Left,
-            ColumnAlign::Left,
-            ColumnAlign::Right,
-            ColumnAlign::Right,
-            ColumnAlign::Right,
-            ColumnAlign::Right,
-            ColumnAlign::Right,
-            ColumnAlign::Right,
-        ],
-    );
-}
-
-fn append_schema_check_detail_table(output: &mut String, title: &str, rows: &[[String; 4]]) {
-    output.push_str(title);
-    output.push('\n');
-    if rows.is_empty() {
-        output.push_str("  None\n");
-        return;
-    }
-
-    append_indented_table(
-        output,
-        "  ",
-        &["entity", "kind", "generated", "accepted"],
-        rows,
-        &[
-            ColumnAlign::Left,
-            ColumnAlign::Left,
-            ColumnAlign::Left,
-            ColumnAlign::Left,
-        ],
-    );
 }
 
 fn schema_check_detail_row(
