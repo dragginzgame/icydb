@@ -5,6 +5,43 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.160.x] 🔎 - 2026-05-21 - Planner Transparency And Access Contracts
+
+Detailed notes: [docs/changelog/0.160.md](docs/changelog/0.160.md)
+
+- `0.160.0` adds structured planner access-decision explain output and
+  fail-closed query access requirements for index, named-index, access-kind,
+  and residual-free assertions.
+
+  ```rust
+  load::<MovementIntent>()
+      .filter(session_id.eq(id))
+      .filter(turn_number.eq(turn))
+      .require_index()
+      .require_no_residual_filter();
+  ```
+
+  ```rust
+  load::<MovementIntent>()
+      .filter(session_id.eq(id))
+      .require_index_named("movement_intent_session_turn_status");
+  ```
+
+  ```rust
+  load::<MovementIntent>()
+      .filter(session_id.eq(id))
+      .require_access_path(RequiredAccessPath::IndexPrefix);
+  ```
+
+  ```rust
+  let explain = load::<MovementIntent>()
+      .filter(session_id.eq(id))
+      .explain()?;
+
+  let decision = explain.access_decision();
+  let json = explain.render_json_canonical();
+  ```
+
 ## [0.159.x] 🔑 - 2026-05-19 - Compact Key Encoding
 
 Detailed notes: [docs/changelog/0.159.md](docs/changelog/0.159.md)
