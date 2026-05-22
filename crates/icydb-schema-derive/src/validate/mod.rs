@@ -1,2 +1,2 @@
-pub mod memory;
-pub mod reserved;
+pub(crate) mod memory;
+pub(crate) mod reserved;

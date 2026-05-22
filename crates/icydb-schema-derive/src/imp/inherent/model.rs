@@ -10,7 +10,7 @@ use quote::quote;
 ///
 /// This preserves semantic field intent (relation vs primitive)
 /// while keeping relation key representation storage-compatible.
-pub fn model_kind_from_value(value: &Value) -> TokenStream {
+pub(crate) fn model_kind_from_value(value: &Value) -> TokenStream {
     let base = model_kind_from_item(&value.item);
     match value.cardinality() {
         Cardinality::Many => quote!(::icydb::model::field::FieldKind::List(&#base)),
@@ -22,7 +22,7 @@ pub fn model_kind_from_value(value: &Value) -> TokenStream {
 ///
 /// This keeps the field-kind lowering logic in one derive-side owner so entity
 /// model generation does not duplicate field metadata assembly inline.
-pub fn model_field_expr(field: &Field) -> TokenStream {
+pub(crate) fn model_field_expr(field: &Field) -> TokenStream {
     let name = field.ident.to_string();
     let kind = model_kind_from_value(&field.value);
     let storage_decode = model_storage_decode_from_value(&field.value);
@@ -45,17 +45,17 @@ pub fn model_field_expr(field: &Field) -> TokenStream {
 }
 
 /// Returns the persisted model kind for a nested value (e.g. map values).
-pub fn model_kind_from_nested_value(value: &Value) -> TokenStream {
+pub(crate) fn model_kind_from_nested_value(value: &Value) -> TokenStream {
     model_kind_from_value(value)
 }
 
 /// Returns the persisted field decode contract for a value.
-pub fn model_storage_decode_from_value(value: &Value) -> TokenStream {
+pub(crate) fn model_storage_decode_from_value(value: &Value) -> TokenStream {
     model_storage_decode_from_item(&value.item)
 }
 
 /// Returns nested field metadata for generated record items.
-pub fn model_nested_fields_from_value(value: &Value) -> TokenStream {
+fn model_nested_fields_from_value(value: &Value) -> TokenStream {
     if matches!(value.cardinality(), Cardinality::Many) {
         return quote!(&[]);
     }
@@ -70,7 +70,7 @@ pub fn model_nested_fields_from_value(value: &Value) -> TokenStream {
 ///
 /// Relation items emit `FieldKind::Relation` metadata while preserving
 /// the declared/derived storage key shape as `key_kind`.
-pub fn model_kind_from_item(item: &Item) -> TokenStream {
+pub(crate) fn model_kind_from_item(item: &Item) -> TokenStream {
     let key_kind = model_storage_kind_from_item(item);
     let Some(target) = &item.relation else {
         return key_kind;
@@ -124,7 +124,7 @@ fn model_storage_decode_from_item(item: &Item) -> TokenStream {
 }
 
 /// Returns the persisted model kind for a primitive type.
-pub fn model_kind_from_primitive(
+fn model_kind_from_primitive(
     prim: Primitive,
     decimal_scale: u32,
     max_len: Option<u32>,

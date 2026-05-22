@@ -48,14 +48,10 @@ Keep this file small. Open detailed governance docs only when the task needs the
 
 ## Changelog / Release Notes
 
-- Before any changelog edit, open and follow `docs/governance/changelog.md`.
-- During ordinary development, do not invent patch numbers and do not update root `CHANGELOG.md` unless the user asks for release notes, a push-ready/release-ready state, or a root changelog edit.
-- If a development note is useful before release prep, put it under the current minor's detailed `Unreleased` section in `docs/changelog/<major>.<minor>.md`.
-- When preparing a patch release, collapse `Unreleased` notes into the target patch entry, then add exactly one concise root bullet for that patch.
-- Root `CHANGELOG.md` is the concise release ledger: for `<major>.<minor>.x` sections, keep exactly one short bullet per patch version and move implementation detail, examples, validation notes, and command/sql snippets to `docs/changelog/<major>.<minor>.md`.
-- Every root minor-line section with a detailed notes file must include a clickable link to `docs/changelog/<major>.<minor>.md`; when adding or changing a patch note, update the corresponding detailed file too.
+- Before any changelog edit, open and follow `docs/governance/changelog.md`; it is the changelog source of truth.
+- Root `CHANGELOG.md` is the only `Unreleased` location; do not add `Unreleased` sections to detailed minor files.
+- Do not invent patch numbers, do not infer patch numbers for design/status docs, and keep release prep details governed by `docs/governance/changelog.md`.
 - Governance-only edits do not need release notes unless requested.
-- Do not infer patch numbers for design/status docs.
 
 ## Push / Commit Boundaries
 

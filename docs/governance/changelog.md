@@ -55,20 +55,18 @@ The root changelog must link to the detailed file when present.
 
 ## 2.3 Unreleased Work
 
-Ordinary development should collect user-visible changes under an `Unreleased`
-section in the current minor-line detailed notes file:
+Canonical rule: the repository has exactly one `Unreleased` section, and it
+lives in root `CHANGELOG.md`. Do not add `Unreleased` sections to minor-line
+detailed notes files.
 
-`docs/changelog/<major>.<minor>.md`
+Use root `Unreleased` for small slices, exploratory cleanup, and follow-up work
+that is not yet being published. Do not invent patch numbers just to record
+each slice.
 
-Use `Unreleased` for small slices, exploratory cleanup, and follow-up work that
-is not yet being published. Do not invent patch numbers just to record each
-slice.
-
-Root `CHANGELOG.md` is release-finalized output. It should normally be updated
-when preparing a patch release, not after every small development slice.
-
-When a release is prepared, collapse the current `Unreleased` notes into the
-target patch entry and add exactly one root changelog bullet for that patch.
+When a release is prepared, collapse the current root `Unreleased` notes into
+the target patch entry and add exactly one concise root changelog bullet for
+that patch. Move implementation detail into `docs/changelog/<major>.<minor>.md`
+only as part of release prep.
 
 ---
 
@@ -145,13 +143,12 @@ Do not use plain backticked path text for detailed-breakdown links.
 During ordinary development:
 
 1. Prefer focused code slices and focused validation.
-2. For user-visible changes, update only the current minor-line detailed
-   `Unreleased` notes when the user asks for release notes or when omitting the
-   note would make the batch hard to reconstruct.
+2. For user-visible changes, update the root `CHANGELOG.md` `Unreleased`
+   section when the user asks for release notes or when omitting the note would
+   make the batch hard to reconstruct.
 3. Do not assign patch numbers.
-4. Do not update root `CHANGELOG.md` unless the user is preparing a release,
-   asks for a push-ready/release-ready state, or explicitly requests a root
-   changelog edit.
+4. Do not add `Unreleased` sections to `docs/changelog/<major>.<minor>.md`;
+   detailed minor notes are finalized when preparing a patch release.
 
 When preparing a release:
 
@@ -171,8 +168,8 @@ When preparing a release:
 8. Use the version specified by the release request or the existing latest changelog entry.
 9. Do not create a new version header if the newest entry already exists for the target version.
 10. If a change set is changelog-policy/governance-only, do not add or update release notes in `CHANGELOG.md` or `docs/changelog/<major>.<minor>.md`.
-11. Convert accumulated `Unreleased` notes for the current minor into the target
-    patch entry before running `make patch`, `make minor`, or `make major`.
+11. Convert accumulated root `Unreleased` notes for the current minor into the
+    target patch entry before running `make patch`, `make minor`, or `make major`.
 
 Agents must never:
 
@@ -272,7 +269,7 @@ Testing section rules:
 
 For each release:
 
-1. Convert any relevant `Unreleased` detailed notes into the target patch entry.
+1. Convert any relevant root `Unreleased` notes into the target patch entry.
 2. Update CHANGELOG.md with one concise bullet for the target patch.
 3. Create or update docs/changelog/<major>.<minor>.md.
 4. Commit the code and changelog changes.

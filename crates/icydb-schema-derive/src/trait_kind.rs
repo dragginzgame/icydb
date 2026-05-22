@@ -232,16 +232,15 @@ impl ToTokens for TraitKind {
         match self {
             Self::EnumValue
             | Self::FieldProjection
+            | Self::EntityValue
             | Self::PersistedStructuredFieldCodec
+            | Self::PersistedRow
             | Self::RuntimeValue
             | Self::RuntimeValueDecode
             | Self::RuntimeValueEncode
             | Self::RuntimeValueMeta => {
                 let trait_name = format_ident!("{self:?}");
                 quote!(::icydb::__macro::#trait_name).to_tokens(tokens);
-            }
-            Self::PersistedRow => {
-                quote!(::icydb::db::PersistedRow).to_tokens(tokens);
             }
             _ => {
                 let trait_name = format_ident!("{self:?}");

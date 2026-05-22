@@ -10,7 +10,7 @@ use syn::{
 /// This macro is intentionally mechanical: it maps fields to slot indexes and
 /// delegates every storage decision to `PersistedFieldSlotCodec` on the field
 /// type.
-pub fn derive_persisted_row(input: TokenStream) -> TokenStream {
+pub(crate) fn derive_persisted_row(input: TokenStream) -> TokenStream {
     let input: DeriveInput = match syn::parse2(input) {
         Ok(input) => input,
         Err(err) => return err.to_compile_error(),
@@ -56,7 +56,7 @@ pub fn derive_persisted_row(input: TokenStream) -> TokenStream {
                         )?
                     }
                     None => {
-                        return Err(::icydb::db::InternalError::missing_persisted_slot(#field_name));
+                        return Err(::icydb::__macro::InternalError::missing_persisted_slot(#field_name));
                     }
                 }
             }
@@ -92,10 +92,10 @@ pub fn derive_persisted_row(input: TokenStream) -> TokenStream {
     quote! {
         #(#field_codec_assertions)*
 
-        impl #impl_generics ::icydb::db::PersistedRow for #ident #ty_generics #where_clause {
+        impl #impl_generics ::icydb::__macro::PersistedRow for #ident #ty_generics #where_clause {
             fn materialize_from_slots(
-                slots: &mut dyn ::icydb::db::SlotReader,
-            ) -> Result<Self, ::icydb::db::InternalError> {
+                slots: &mut dyn ::icydb::__macro::SlotReader,
+            ) -> Result<Self, ::icydb::__macro::InternalError> {
                 Ok(Self {
                     #(#materializers),*
                 })
@@ -103,8 +103,8 @@ pub fn derive_persisted_row(input: TokenStream) -> TokenStream {
 
             fn write_slots(
                 &self,
-                out: &mut dyn ::icydb::db::SlotWriter,
-            ) -> Result<(), ::icydb::db::InternalError> {
+                out: &mut dyn ::icydb::__macro::SlotWriter,
+            ) -> Result<(), ::icydb::__macro::InternalError> {
                 #(#slot_writes)*
 
                 Ok(())

@@ -29,7 +29,7 @@ impl Imp<Entity> for PersistedRowTrait {
                 match field.value.cardinality() {
                     Cardinality::Opt => quote!(None),
                     Cardinality::One | Cardinality::Many => quote! {
-                        return Err(::icydb::db::InternalError::missing_persisted_slot(#field_name))
+                        return Err(::icydb::__macro::InternalError::missing_persisted_slot(#field_name))
                     },
                 }
             };
@@ -64,8 +64,8 @@ impl Imp<Entity> for PersistedRowTrait {
         let impl_tokens = Implementor::new(node.def(), TraitKind::PersistedRow)
             .set_tokens(quote! {
                 fn materialize_from_slots(
-                    slots: &mut dyn ::icydb::db::SlotReader,
-                ) -> Result<Self, ::icydb::db::InternalError> {
+                    slots: &mut dyn ::icydb::__macro::SlotReader,
+                ) -> Result<Self, ::icydb::__macro::InternalError> {
                     Ok(Self {
                         #(#field_materializers),*
                     })
@@ -73,8 +73,8 @@ impl Imp<Entity> for PersistedRowTrait {
 
                 fn write_slots(
                     &self,
-                    out: &mut dyn ::icydb::db::SlotWriter,
-                ) -> Result<(), ::icydb::db::InternalError> {
+                    out: &mut dyn ::icydb::__macro::SlotWriter,
+                ) -> Result<(), ::icydb::__macro::InternalError> {
                     #(#slot_writes)*
 
                     Ok(())

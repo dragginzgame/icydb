@@ -8,7 +8,7 @@ pub use icydb_testing_test_fixtures::macro_test::identity_borrowing::*;
 mod tests {
     use super::*;
     use icydb::{
-        traits::{EntityKey, EntityValue},
+        traits::EntityKey,
         types::{Id, Ulid},
     };
 
@@ -25,7 +25,8 @@ mod tests {
 
     #[test]
     fn identity_keeps_typed_ids_without_generated_relation_accessors() {
-        let _: fn(&UserProjects) -> Id<UserProjects> = UserProjects::id;
+        let _: fn(&UserProjects) -> Id<UserProjects> =
+            <UserProjects as icydb::__macro::EntityValue>::id;
 
         let row = UserProjects {
             user_id: Ulid::from_parts(7, 1),

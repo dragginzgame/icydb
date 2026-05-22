@@ -2,8 +2,7 @@ use crate::newtype::parse_newtype;
 use proc_macro2::TokenStream;
 use quote::quote;
 
-// derive_inner
-pub fn derive_inner(input: TokenStream) -> TokenStream {
+pub(crate) fn derive_inner(input: TokenStream) -> TokenStream {
     let input = match parse_newtype(input, "Inner") {
         Ok(input) => input,
         Err(err) => return err.to_compile_error(),

@@ -2,8 +2,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Error, Fields, Type};
 
-// derive_field_projection
-pub fn derive_field_projection(input: TokenStream) -> TokenStream {
+pub(crate) fn derive_field_projection(input: TokenStream) -> TokenStream {
     let input: DeriveInput = match syn::parse2(input) {
         Ok(input) => input,
         Err(err) => return err.to_compile_error(),

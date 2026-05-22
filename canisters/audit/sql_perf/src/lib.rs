@@ -616,7 +616,7 @@ fn run_user_fluent_scenario_once(
         "user.active_true.order_age.limit3" => {
             let query = session
                 .load::<PerfAuditUser>()
-                .filter(FieldRef::new("active").eq(true))
+                .filter_eq("active", true)
                 .order_asc("age")
                 .order_asc("id")
                 .limit(3);
@@ -628,7 +628,7 @@ fn run_user_fluent_scenario_once(
         "user.field_compare.age_eq_age_nat.limit3" => {
             let query = session
                 .load::<PerfAuditUser>()
-                .filter(FieldRef::new("age").eq_field("age_nat"))
+                .filter_eq_field("age", "age_nat")
                 .order_asc("age")
                 .order_asc("id")
                 .limit(3);
@@ -640,7 +640,7 @@ fn run_user_fluent_scenario_once(
         "user.field_between.rank_age_age.limit3" => {
             let query = session
                 .load::<PerfAuditUser>()
-                .filter(FieldRef::new("rank").between_fields("age", "age"))
+                .filter_between_fields("rank", "age", "age")
                 .order_asc("age")
                 .order_asc("id")
                 .limit(3);
@@ -652,7 +652,7 @@ fn run_user_fluent_scenario_once(
         "user.rank.in_list.limit3" => {
             let query = session
                 .load::<PerfAuditUser>()
-                .filter(FieldRef::new("rank").in_list([17_i32, 28_i32, 30_i32]))
+                .filter_in("rank", [17_i32, 28_i32, 30_i32])
                 .order_asc("age")
                 .order_asc("id")
                 .limit(3);
@@ -690,7 +690,7 @@ fn run_account_fluent_scenario_once(
         "account.active_true.order_handle.asc.limit3" => {
             let query = session
                 .load::<PerfAuditAccount>()
-                .filter(FieldRef::new("active").eq(true))
+                .filter_eq("active", true)
                 .order_asc("handle")
                 .order_asc("id")
                 .limit(3);
@@ -702,10 +702,8 @@ fn run_account_fluent_scenario_once(
         "account.gold_active.order_handle.asc.limit3" => {
             let query = session
                 .load::<PerfAuditAccount>()
-                .filter(FilterExpr::and(vec![
-                    FieldRef::new("active").eq(true),
-                    FieldRef::new("tier").eq("gold"),
-                ]))
+                .filter_eq("active", true)
+                .filter_eq("tier", "gold")
                 .order_asc("handle")
                 .order_asc("id")
                 .limit(3);
@@ -717,7 +715,7 @@ fn run_account_fluent_scenario_once(
         "account.score_gte_75.order_score.limit3" => {
             let query = session
                 .load::<PerfAuditAccount>()
-                .filter(FieldRef::new("score").gte(75_u64))
+                .filter_gte("score", 75_u64)
                 .order_asc("score")
                 .order_asc("id")
                 .limit(3);

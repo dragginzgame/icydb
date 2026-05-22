@@ -3,7 +3,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::parse_quote;
 
-pub fn derive_display(input: TokenStream) -> TokenStream {
+pub(crate) fn derive_display(input: TokenStream) -> TokenStream {
     let newtype = match newtype::parse_newtype(input, "Display") {
         Ok(newtype) => newtype,
         Err(err) => return err.to_compile_error(),

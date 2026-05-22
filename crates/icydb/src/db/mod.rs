@@ -31,11 +31,8 @@ pub use icydb_core::db::{
 // Hidden core wiring used by generated code and advanced diagnostics.
 #[doc(hidden)]
 pub use icydb_core::db::{
-    CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, EntityAuthority, PersistedRow,
-    Predicate, SlotReader, SlotWriter,
+    CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, EntityAuthority, Predicate,
 };
-#[doc(hidden)]
-pub use icydb_core::error::InternalError;
 #[doc(hidden)]
 pub use session::generated::execute_generated_storage_report;
 

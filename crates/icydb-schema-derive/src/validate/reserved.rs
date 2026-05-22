@@ -56,6 +56,6 @@ static RESERVED_WORDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
 });
 
 /// Check if an identifier is a reserved word.
-pub fn is_reserved_word(word: &str) -> bool {
+pub(crate) fn is_reserved_word(word: &str) -> bool {
     RESERVED_WORDS.contains(word)
 }

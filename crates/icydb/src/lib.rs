@@ -52,7 +52,7 @@
 //!
 //! ## Internal boundaries
 //!
-//! Generated code targets explicit facade surfaces (`traits`, `patch`,
+//! Generated code targets explicit facade surfaces (`traits`, `model`,
 //! and `__macro`) instead of a broad internal-export module.
 
 // export so things just work in base/
@@ -71,8 +71,7 @@ pub use icydb_core::types;
 
 pub mod value {
     pub use icydb_core::value::{
-        InputValue, InputValueEnum, OutputValue, OutputValueEnum, StorageKey,
-        StorageKeyDecodeError, StorageKeyEncodeError, ValueTag,
+        InputValue, InputValueEnum, OutputValue, OutputValueEnum, ValueTag,
     };
 }
 
@@ -161,8 +160,8 @@ pub mod __macro {
         bootstrap_default_memory_manager, ic_memory_declaration, ic_memory_key, ic_memory_range,
     };
     pub use icydb_core::db::{
-        DataStore, DbSession as CoreDbSession, EntityRuntimeHooks, IndexStore, SchemaStore,
-        StoreRegistry,
+        DataStore, DbSession as CoreDbSession, EntityRuntimeHooks, IndexStore, PersistedRow,
+        SchemaStore, SlotReader, SlotWriter, StoreRegistry,
     };
     #[cfg(feature = "sql")]
     pub use icydb_core::db::{
@@ -170,7 +169,7 @@ pub mod __macro {
     };
     pub use icydb_core::error::InternalError;
     pub use icydb_core::traits::{
-        EnumValue, FieldProjection, PersistedByKindCodec, PersistedFieldMetaCodec,
+        EntityValue, EnumValue, FieldProjection, PersistedByKindCodec, PersistedFieldMetaCodec,
         PersistedFieldSlotCodec, PersistedStructuredFieldCodec, RuntimeValueDecode,
         RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, runtime_value_btree_map_from_value,
         runtime_value_btree_set_from_value, runtime_value_collection_to_value,
@@ -243,9 +242,9 @@ pub mod design {
             },
             macros::*,
             traits::{
-                Collection as _, Entity as _, EntityKind, EntityValue as _, Inner as _,
-                MapCollection as _, Path as _, Sanitize as _, Sanitizer, Serialize as _,
-                Validate as _, ValidateCustom, Validator, Visitable as _,
+                Collection as _, Entity as _, EntityKind, Inner as _, MapCollection as _,
+                Path as _, Sanitize as _, Sanitizer, Serialize as _, Validate as _, ValidateCustom,
+                Validator, Visitable as _,
             },
             types::*,
             value::{InputValue, OutputValue},

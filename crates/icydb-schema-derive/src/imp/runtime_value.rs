@@ -253,7 +253,7 @@ fn enum_direct_persisted_structured_codec_tokens(node: &Enum) -> TokenStream {
     quote! {
         fn encode_persisted_structured_payload(
             &self,
-        ) -> Result<Vec<u8>, ::icydb::db::InternalError> {
+        ) -> Result<Vec<u8>, ::icydb::__macro::InternalError> {
             Ok(match self {
                 #(#encode_arms),*
             })
@@ -261,7 +261,7 @@ fn enum_direct_persisted_structured_codec_tokens(node: &Enum) -> TokenStream {
 
         fn decode_persisted_structured_payload(
             bytes: &[u8],
-        ) -> Result<Self, ::icydb::db::InternalError> {
+        ) -> Result<Self, ::icydb::__macro::InternalError> {
             let (variant, path, payload) =
                 ::icydb::__macro::decode_generated_structural_enum_payload_bytes(bytes)?;
             if path.as_deref() != Some(Self::PATH) {
@@ -504,7 +504,7 @@ fn record_direct_persisted_structured_codec_tokens(node: &Record) -> TokenStream
     quote! {
         fn encode_persisted_structured_payload(
             &self,
-        ) -> Result<Vec<u8>, ::icydb::db::InternalError> {
+        ) -> Result<Vec<u8>, ::icydb::__macro::InternalError> {
             let entries = vec![#(#encode_entries),*];
             let entry_refs = entries
                 .iter()
@@ -516,7 +516,7 @@ fn record_direct_persisted_structured_codec_tokens(node: &Record) -> TokenStream
 
         fn decode_persisted_structured_payload(
             bytes: &[u8],
-        ) -> Result<Self, ::icydb::db::InternalError> {
+        ) -> Result<Self, ::icydb::__macro::InternalError> {
             let entries = ::icydb::__macro::decode_generated_structural_map_payload_bytes(bytes)?;
             if entries.len() != #field_count {
                 return Err(::icydb::__macro::generated_persisted_structured_payload_decode_failed(
@@ -559,13 +559,13 @@ fn record_direct_persisted_empty_structured_codec_tokens() -> TokenStream {
     quote! {
         fn encode_persisted_structured_payload(
             &self,
-        ) -> Result<Vec<u8>, ::icydb::db::InternalError> {
+        ) -> Result<Vec<u8>, ::icydb::__macro::InternalError> {
             Ok(::icydb::__macro::encode_generated_structural_map_payload_bytes(&[]))
         }
 
         fn decode_persisted_structured_payload(
             bytes: &[u8],
-        ) -> Result<Self, ::icydb::db::InternalError> {
+        ) -> Result<Self, ::icydb::__macro::InternalError> {
             let entries = ::icydb::__macro::decode_generated_structural_map_payload_bytes(bytes)?;
             if !entries.is_empty() {
                 return Err(::icydb::__macro::generated_persisted_structured_payload_decode_failed(
@@ -682,7 +682,7 @@ fn tuple_direct_persisted_structured_codec_tokens(node: &Tuple) -> TokenStream {
     quote! {
         fn encode_persisted_structured_payload(
             &self,
-        ) -> Result<Vec<u8>, ::icydb::db::InternalError> {
+        ) -> Result<Vec<u8>, ::icydb::__macro::InternalError> {
             let item_bytes = vec![#(#encode_items),*];
             let item_refs = item_bytes.iter().map(Vec::as_slice).collect::<Vec<_>>();
 
@@ -691,7 +691,7 @@ fn tuple_direct_persisted_structured_codec_tokens(node: &Tuple) -> TokenStream {
 
         fn decode_persisted_structured_payload(
             bytes: &[u8],
-        ) -> Result<Self, ::icydb::db::InternalError> {
+        ) -> Result<Self, ::icydb::__macro::InternalError> {
             let item_bytes = ::icydb::__macro::decode_generated_structural_list_payload_bytes(bytes)?;
             if item_bytes.len() != #item_count {
                 return Err(::icydb::__macro::generated_persisted_structured_payload_decode_failed(
@@ -740,14 +740,14 @@ impl Imp<List> for PersistedStructuredFieldCodecTrait {
             quote! {
                 fn encode_persisted_structured_payload(
                     &self,
-                ) -> Result<Vec<u8>, ::icydb::db::InternalError> {
+                ) -> Result<Vec<u8>, ::icydb::__macro::InternalError> {
                     <Vec<#item> as ::icydb::__macro::PersistedStructuredFieldCodec>
                         ::encode_persisted_structured_payload(&self.0)
                 }
 
                 fn decode_persisted_structured_payload(
                     bytes: &[u8],
-                ) -> Result<Self, ::icydb::db::InternalError> {
+                ) -> Result<Self, ::icydb::__macro::InternalError> {
                     Ok(Self(
                         <Vec<#item> as ::icydb::__macro::PersistedStructuredFieldCodec>
                             ::decode_persisted_structured_payload(bytes)?,
@@ -798,14 +798,14 @@ impl Imp<Map> for PersistedStructuredFieldCodecTrait {
             quote! {
                 fn encode_persisted_structured_payload(
                     &self,
-                ) -> Result<Vec<u8>, ::icydb::db::InternalError> {
+                ) -> Result<Vec<u8>, ::icydb::__macro::InternalError> {
                     <::std::collections::BTreeMap<#key_type, #value_type> as ::icydb::__macro::PersistedStructuredFieldCodec>
                         ::encode_persisted_structured_payload(&self.0)
                 }
 
                 fn decode_persisted_structured_payload(
                     bytes: &[u8],
-                ) -> Result<Self, ::icydb::db::InternalError> {
+                ) -> Result<Self, ::icydb::__macro::InternalError> {
                     Ok(Self(
                         <::std::collections::BTreeMap<#key_type, #value_type> as ::icydb::__macro::PersistedStructuredFieldCodec>
                             ::decode_persisted_structured_payload(bytes)?,
@@ -844,14 +844,14 @@ impl Imp<Newtype> for PersistedStructuredFieldCodecTrait {
             quote! {
                 fn encode_persisted_structured_payload(
                     &self,
-                ) -> Result<Vec<u8>, ::icydb::db::InternalError> {
+                ) -> Result<Vec<u8>, ::icydb::__macro::InternalError> {
                     <#item as ::icydb::__macro::PersistedStructuredFieldCodec>
                         ::encode_persisted_structured_payload(&self.0)
                 }
 
                 fn decode_persisted_structured_payload(
                     bytes: &[u8],
-                ) -> Result<Self, ::icydb::db::InternalError> {
+                ) -> Result<Self, ::icydb::__macro::InternalError> {
                     Ok(Self(
                         <#item as ::icydb::__macro::PersistedStructuredFieldCodec>
                             ::decode_persisted_structured_payload(bytes)?,
@@ -894,14 +894,14 @@ impl Imp<Set> for PersistedStructuredFieldCodecTrait {
             quote! {
                 fn encode_persisted_structured_payload(
                     &self,
-                ) -> Result<Vec<u8>, ::icydb::db::InternalError> {
+                ) -> Result<Vec<u8>, ::icydb::__macro::InternalError> {
                     <::std::collections::BTreeSet<#item> as ::icydb::__macro::PersistedStructuredFieldCodec>
                         ::encode_persisted_structured_payload(&self.0)
                 }
 
                 fn decode_persisted_structured_payload(
                     bytes: &[u8],
-                ) -> Result<Self, ::icydb::db::InternalError> {
+                ) -> Result<Self, ::icydb::__macro::InternalError> {
                     Ok(Self(
                         <::std::collections::BTreeSet<#item> as ::icydb::__macro::PersistedStructuredFieldCodec>
                             ::decode_persisted_structured_payload(bytes)?,

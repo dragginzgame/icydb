@@ -8,6 +8,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn camel_case_text_validation() {
+        assert_valid!(CamelCaseText::from("camelCase"));
+        assert_invalid!(CamelCaseText::from("CamelCase"));
+        assert_invalid!(CamelCaseText::from("camel-case"));
+    }
+
+    #[test]
     fn lower_case_text_validation() {
         assert_valid!(LowerCaseText::from("lowercase"));
         assert_invalid!(LowerCaseText::from("NotLower"));
@@ -48,6 +55,13 @@ mod tests {
     }
 
     #[test]
+    fn sentence_case_text_validation() {
+        assert_valid!(SentenceCaseText::from("Sentence case"));
+        assert_invalid!(SentenceCaseText::from("sentence case"));
+        assert_invalid!(SentenceCaseText::from("SentenceCase"));
+    }
+
+    #[test]
     fn title_case_text_validation() {
         assert_valid!(TitleCaseText::from("The Lord of the Rings"));
         assert_invalid!(TitleCaseText::from("the lord of the rings"));
@@ -57,6 +71,13 @@ mod tests {
     fn upper_camel_text_validation() {
         assert_valid!(UpperCamelText::from("UpperCamel"));
         assert_invalid!(UpperCamelText::from("upperCamel"));
+    }
+
+    #[test]
+    fn upper_kebab_text_validation() {
+        assert_valid!(UpperKebabText::from("UPPER-KEBAB"));
+        assert_invalid!(UpperKebabText::from("Upper-Kebab"));
+        assert_invalid!(UpperKebabText::from("upper-kebab"));
     }
 
     #[test]

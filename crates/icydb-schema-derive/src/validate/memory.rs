@@ -1,8 +1,8 @@
 const RESERVED_INTERNAL_MEMORY_ID: u8 = u8::MAX;
-pub use icydb_schema::node::{APP_MEMORY_ID_MAX, APP_MEMORY_ID_MIN};
+pub(crate) use icydb_schema::node::{APP_MEMORY_ID_MAX, APP_MEMORY_ID_MIN};
 
 /// Return a range-validation error message for a memory id, if invalid.
-pub fn memory_id_out_of_range_error(
+pub(crate) fn memory_id_out_of_range_error(
     label: &str,
     memory_id: u8,
     min: u8,
@@ -13,13 +13,13 @@ pub fn memory_id_out_of_range_error(
 }
 
 /// Return a reserved-id validation message for a memory id, if invalid.
-pub fn memory_id_reserved_error(label: &str, memory_id: u8) -> Option<String> {
+pub(crate) fn memory_id_reserved_error(label: &str, memory_id: u8) -> Option<String> {
     (memory_id == RESERVED_INTERNAL_MEMORY_ID)
         .then(|| format!("{label} {memory_id} is reserved for stable-structures internals"))
 }
 
 /// Return an app-owned range validation message for a memory id, if invalid.
-pub fn app_memory_id_error(label: &str, memory_id: u8) -> Option<String> {
+pub(crate) fn app_memory_id_error(label: &str, memory_id: u8) -> Option<String> {
     (!(APP_MEMORY_ID_MIN..=APP_MEMORY_ID_MAX).contains(&memory_id)).then(|| {
         format!(
             "{label} {memory_id} outside of app-owned stable memory range {APP_MEMORY_ID_MIN}-{APP_MEMORY_ID_MAX}"
@@ -29,7 +29,7 @@ pub fn app_memory_id_error(label: &str, memory_id: u8) -> Option<String> {
 
 /// Return whether a stable memory name segment is canonical.
 #[must_use]
-pub fn stable_key_segment_is_canonical(value: &str) -> bool {
+pub(crate) fn stable_key_segment_is_canonical(value: &str) -> bool {
     icydb_schema::node::stable_key_segment_is_canonical(value)
 }
 

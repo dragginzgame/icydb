@@ -10,10 +10,9 @@ mod tests {
     use crate::prelude::*;
     use icydb::{
         __macro::{
-            encode_persisted_many_slot_payload_by_meta,
+            InternalError, PersistedRow, SlotWriter, encode_persisted_many_slot_payload_by_meta,
             encode_persisted_option_slot_payload_by_meta, encode_persisted_slot_payload_by_meta,
         },
-        db::{InternalError, PersistedRow, SlotWriter},
         sanitize,
         traits::{Collection, EntitySchema, Inner},
         types::Decimal,

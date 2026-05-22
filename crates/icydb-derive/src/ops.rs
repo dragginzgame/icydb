@@ -2,14 +2,14 @@ use crate::newtype::{self, NewtypeInput};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
-pub fn derive_add(input: TokenStream) -> TokenStream {
+pub(crate) fn derive_add(input: TokenStream) -> TokenStream {
     derive_op(
         input,
         OpSpec::binary("Add", quote!(::icydb::traits::Add), "add", quote!(+)),
     )
 }
 
-pub fn derive_add_assign(input: TokenStream) -> TokenStream {
+pub(crate) fn derive_add_assign(input: TokenStream) -> TokenStream {
     derive_op(
         input,
         OpSpec::assign(
@@ -21,14 +21,14 @@ pub fn derive_add_assign(input: TokenStream) -> TokenStream {
     )
 }
 
-pub fn derive_sub(input: TokenStream) -> TokenStream {
+pub(crate) fn derive_sub(input: TokenStream) -> TokenStream {
     derive_op(
         input,
         OpSpec::binary("Sub", quote!(::icydb::traits::Sub), "sub", quote!(-)),
     )
 }
 
-pub fn derive_sub_assign(input: TokenStream) -> TokenStream {
+pub(crate) fn derive_sub_assign(input: TokenStream) -> TokenStream {
     derive_op(
         input,
         OpSpec::assign(
@@ -40,14 +40,14 @@ pub fn derive_sub_assign(input: TokenStream) -> TokenStream {
     )
 }
 
-pub fn derive_mul(input: TokenStream) -> TokenStream {
+pub(crate) fn derive_mul(input: TokenStream) -> TokenStream {
     derive_op(
         input,
         OpSpec::binary("Mul", quote!(::icydb::traits::Mul), "mul", quote!(*)),
     )
 }
 
-pub fn derive_mul_assign(input: TokenStream) -> TokenStream {
+pub(crate) fn derive_mul_assign(input: TokenStream) -> TokenStream {
     derive_op(
         input,
         OpSpec::assign(
@@ -59,14 +59,14 @@ pub fn derive_mul_assign(input: TokenStream) -> TokenStream {
     )
 }
 
-pub fn derive_div(input: TokenStream) -> TokenStream {
+pub(crate) fn derive_div(input: TokenStream) -> TokenStream {
     derive_op(
         input,
         OpSpec::binary("Div", quote!(::icydb::traits::Div), "div", quote!(/)),
     )
 }
 
-pub fn derive_div_assign(input: TokenStream) -> TokenStream {
+pub(crate) fn derive_div_assign(input: TokenStream) -> TokenStream {
     derive_op(
         input,
         OpSpec::assign(
@@ -78,14 +78,14 @@ pub fn derive_div_assign(input: TokenStream) -> TokenStream {
     )
 }
 
-pub fn derive_rem(input: TokenStream) -> TokenStream {
+pub(crate) fn derive_rem(input: TokenStream) -> TokenStream {
     derive_op(
         input,
         OpSpec::binary("Rem", quote!(::icydb::traits::Rem), "rem", quote!(%)),
     )
 }
 
-pub fn derive_sum(input: TokenStream) -> TokenStream {
+pub(crate) fn derive_sum(input: TokenStream) -> TokenStream {
     let newtype = match newtype::parse_newtype(input, "Sum") {
         Ok(newtype) => newtype,
         Err(err) => return err.to_compile_error(),

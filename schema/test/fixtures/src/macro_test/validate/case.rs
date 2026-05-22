@@ -1,6 +1,17 @@
 use icydb::design::prelude::*;
 
 ///
+/// CamelCaseText
+///
+
+#[newtype(
+    primitive = "Text",
+    item(prim = "Text", unbounded),
+    ty(validator(path = "base::validator::text::case::Camel"))
+)]
+pub struct CamelCaseText {}
+
+///
 /// LowerCaseText
 ///
 
@@ -34,6 +45,17 @@ pub struct LowerUnderscoreText {}
 pub struct UpperCaseText {}
 
 ///
+/// UpperKebabText
+///
+
+#[newtype(
+    primitive = "Text",
+    item(prim = "Text", unbounded),
+    ty(validator(path = "base::validator::text::case::UpperKebab"))
+)]
+pub struct UpperKebabText {}
+
+///
 /// UpperSnakeText
 ///
 
@@ -43,6 +65,17 @@ pub struct UpperCaseText {}
     ty(validator(path = "base::validator::text::case::UpperSnake"))
 )]
 pub struct UpperSnakeText {}
+
+///
+/// SentenceCaseText
+///
+
+#[newtype(
+    primitive = "Text",
+    item(prim = "Text", unbounded),
+    ty(validator(path = "base::validator::text::case::Sentence"))
+)]
+pub struct SentenceCaseText {}
 
 ///
 /// SnakeCaseText

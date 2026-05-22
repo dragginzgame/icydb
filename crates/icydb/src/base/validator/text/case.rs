@@ -2,6 +2,21 @@ use crate::{design::prelude::*, traits::Validator};
 use icydb_utils::{Case, Casing};
 
 ///
+/// Camel
+///
+
+#[validator]
+pub struct Camel;
+
+impl Validator<str> for Camel {
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        if !s.is_case(Case::Camel) {
+            ctx.issue(format!("'{s}' is not camelCase"));
+        }
+    }
+}
+
+///
 /// Kebab
 ///
 
@@ -42,6 +57,21 @@ impl Validator<str> for LowerUscore {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !s.chars().all(|c| c.is_lowercase() || c == '_') {
             ctx.issue(format!("'{s}' is not lower case with underscores"));
+        }
+    }
+}
+
+///
+/// Sentence
+///
+
+#[validator]
+pub struct Sentence;
+
+impl Validator<str> for Sentence {
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        if !s.is_case(Case::Sentence) {
+            ctx.issue(format!("'{s}' is not Sentence case"));
         }
     }
 }
@@ -102,6 +132,21 @@ impl Validator<str> for UpperCamel {
     fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
         if !s.is_case(Case::UpperCamel) {
             ctx.issue(format!("'{s}' is not UpperCamelCase"));
+        }
+    }
+}
+
+///
+/// UpperKebab
+///
+
+#[validator]
+pub struct UpperKebab;
+
+impl Validator<str> for UpperKebab {
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        if !s.is_case(Case::UpperKebab) {
+            ctx.issue(format!("'{s}' is not UPPER-KEBAB-CASE"));
         }
     }
 }

@@ -476,7 +476,7 @@ fn entity_create_tokens(entity: &Entity) -> TokenStream {
         let field_name = field_ident.to_string();
         let fallback = field.rust_default_expr().unwrap_or_else(|| {
             quote! {
-                return Err(::icydb::db::InternalError::mutation_create_missing_authored_fields(
+                return Err(::icydb::__macro::InternalError::mutation_create_missing_authored_fields(
                     <Self::Entity as ::icydb::traits::Path>::PATH,
                     #field_name,
                 ))
@@ -520,7 +520,7 @@ fn entity_create_tokens(entity: &Entity) -> TokenStream {
         impl ::icydb::traits::EntityCreateInput for #create_ident {
             type Entity = #ident;
 
-            fn materialize_create(self) -> Result<::icydb::traits::EntityCreateMaterialization<Self::Entity>, ::icydb::db::InternalError> {
+            fn materialize_create(self) -> Result<::icydb::traits::EntityCreateMaterialization<Self::Entity>, ::icydb::__macro::InternalError> {
                 let mut authored_slots = ::std::vec::Vec::new();
                 let entity = #ident {
                     #(#entity_field_assignments),*
