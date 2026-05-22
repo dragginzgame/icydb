@@ -2,7 +2,9 @@
 //! Owns the process-local monotonic ULID generator used by runtime key
 //! generation.
 
-use crate::types::{Ulid, UlidError, random};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::types::random;
+use crate::types::{Ulid, UlidError};
 use canic_cdk::utils::time::now_millis;
 use std::cell::RefCell;
 
@@ -24,12 +26,16 @@ pub(crate) fn generate() -> Result<Ulid, UlidError> {
 
 pub(crate) struct Generator {
     previous: Ulid,
+    #[cfg(target_arch = "wasm32")]
+    sequence: u64,
 }
 
 impl Default for Generator {
     fn default() -> Self {
         Self {
             previous: Ulid::nil(),
+            #[cfg(target_arch = "wasm32")]
+            sequence: 0,
         }
     }
 }
@@ -54,13 +60,32 @@ impl Generator {
             return Err(UlidError::GeneratorOverflow);
         }
 
-        // generate
-        let rand = random::next_u128().map_err(|_| UlidError::RandomnessUnavailable)?;
-        let ulid = Ulid::from_parts(ts, rand);
+        #[cfg(not(target_arch = "wasm32"))]
+        let component = Self::next_component(ts)?;
+        #[cfg(target_arch = "wasm32")]
+        let component = self.next_component(ts)?;
+        let ulid = Ulid::from_parts(ts, component);
 
         self.previous = ulid;
 
         Ok(ulid)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn next_component(_ts: u64) -> Result<u128, UlidError> {
+        random::next_u128().map_err(|_| UlidError::RandomnessUnavailable)
+    }
+
+    // IC canisters cannot synchronously request fresh entropy while building generated keys.
+    // Use the ULID timestamp plus a process-local sequence for deterministic uniqueness.
+    #[cfg(target_arch = "wasm32")]
+    fn next_component(&mut self, ts: u64) -> Result<u128, UlidError> {
+        self.sequence = self
+            .sequence
+            .checked_add(1)
+            .ok_or(UlidError::GeneratorOverflow)?;
+
+        Ok((u128::from(ts & 0xFFFF) << 64) | u128::from(self.sequence))
     }
 }
 
@@ -72,6 +97,7 @@ impl Generator {
 mod test {
     use super::*;
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn test_monotonic_generation() {
         random::seed_from([0x22; 32]);
@@ -94,13 +120,9 @@ mod test {
 
     #[cfg(target_arch = "wasm32")]
     #[test]
-    fn generation_fails_when_randomness_is_uninitialized_without_native_entropy() {
-        random::clear_for_tests();
+    fn generation_uses_deterministic_component_without_native_entropy() {
         let mut generator = Generator::default();
 
-        assert!(matches!(
-            generator.generate(),
-            Err(UlidError::RandomnessUnavailable),
-        ));
+        assert!(generator.generate().is_ok());
     }
 }

@@ -15,6 +15,7 @@ mod int;
 mod nat;
 mod parse;
 mod principal;
+#[cfg(any(test, not(target_arch = "wasm32")))]
 mod random;
 mod subaccount;
 mod timestamp;
