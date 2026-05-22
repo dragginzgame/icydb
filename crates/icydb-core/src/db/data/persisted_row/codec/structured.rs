@@ -144,7 +144,7 @@ impl PersistedStructuredFieldCodec for String {
 
 impl PersistedStructuredFieldCodec for Blob {
     fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
-        Ok(storage_encode::blob(self.as_slice()))
+        Ok(storage_encode::blob(self.as_bytes()))
     }
 
     fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {

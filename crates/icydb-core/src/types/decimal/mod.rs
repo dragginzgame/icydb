@@ -142,7 +142,7 @@ impl Decimal {
     /// only be used by checked constructors, tests, or controlled internal
     /// construction. Never call it from runtime execution paths.
     #[must_use]
-    pub const fn new_unchecked(num: i64, scale: u32) -> Self {
+    pub(crate) const fn new_unchecked(num: i64, scale: u32) -> Self {
         Self {
             mantissa: num as i128,
             scale,
@@ -310,10 +310,20 @@ impl Decimal {
         if value.is_finite() { Some(value) } else { None }
     }
 
-    /// Build from a raw mantissa and scale.
+    /// Fallibly build from a raw mantissa and scale.
     #[must_use]
-    pub fn from_i128_with_scale(num: i128, scale: u32) -> Self {
-        Self::checked_from_mantissa_scale(num, scale).unwrap_or(Self::ZERO)
+    pub const fn try_from_i128_with_scale(num: i128, scale: u32) -> Option<Self> {
+        Self::checked_from_mantissa_scale(num, scale)
+    }
+
+    /// Build from a raw mantissa and scale.
+    ///
+    /// Panics when the mantissa and scale cannot be represented without
+    /// violating the decimal scale invariant.
+    #[must_use]
+    pub const fn from_i128_with_scale(num: i128, scale: u32) -> Self {
+        Self::try_from_i128_with_scale(num, scale)
+            .expect("decimal mantissa and scale exceed supported invariant")
     }
 
     /// Normalize trailing zeros.

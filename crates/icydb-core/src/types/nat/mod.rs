@@ -70,9 +70,9 @@ impl Nat {
         u64::try_from(big).ok()
     }
 
-    /// Serialize the arbitrary-precision natural to LEB128 bytes.
+    /// Serialize this arbitrary-precision natural for internal hash and sort-key framing.
     #[must_use]
-    pub fn to_leb128(&self) -> Vec<u8> {
+    pub(crate) fn to_leb128(&self) -> Vec<u8> {
         let mut out = Vec::new();
         self.0.encode(&mut out).expect("Nat LEB128 encode");
 

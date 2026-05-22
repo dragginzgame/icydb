@@ -97,8 +97,10 @@ mod tests {
                 Value::Nat(42),
             ),
             (
-                index_key_with_primary_key_value(StorageKey::Principal(Principal::dummy(9))),
-                Value::Principal(Principal::dummy(9)),
+                index_key_with_primary_key_value(StorageKey::Principal(Principal::from_slice(&[
+                    9,
+                ]))),
+                Value::Principal(Principal::from_slice(&[9])),
             ),
             (
                 index_key_with_primary_key_value(StorageKey::Subaccount(Subaccount::new([7; 32]))),

@@ -119,16 +119,6 @@ impl Principal {
 
         Ok(Self::from_slice(bytes))
     }
-
-    #[must_use]
-    pub const fn dummy(n: u8) -> Self {
-        Self::from_slice(&[n; 29])
-    }
-
-    #[must_use]
-    pub const fn max_storable() -> Self {
-        Self::from_slice(&[0xFF; 29])
-    }
 }
 
 impl fmt::Display for Principal {
@@ -180,7 +170,7 @@ impl RuntimeValueMeta for WrappedPrincipal {
 
 impl RuntimeValueEncode for WrappedPrincipal {
     fn to_value(&self) -> Value {
-        Value::Principal(self.into())
+        Value::Principal((*self).into())
     }
 }
 
@@ -196,12 +186,6 @@ impl RuntimeValueDecode for WrappedPrincipal {
 impl From<WrappedPrincipal> for Principal {
     fn from(p: WrappedPrincipal) -> Self {
         Self(p)
-    }
-}
-
-impl From<&WrappedPrincipal> for Principal {
-    fn from(p: &WrappedPrincipal) -> Self {
-        Self(*p)
     }
 }
 
@@ -221,18 +205,6 @@ impl FromStr for Principal {
             .map_err(|e| PrincipalError::Wrapped(e.to_string()))?;
 
         Ok(this)
-    }
-}
-
-impl PartialEq<WrappedPrincipal> for Principal {
-    fn eq(&self, other: &WrappedPrincipal) -> bool {
-        self.0 == *other
-    }
-}
-
-impl PartialEq<Principal> for WrappedPrincipal {
-    fn eq(&self, other: &Principal) -> bool {
-        *self == other.0
     }
 }
 
@@ -264,7 +236,7 @@ mod tests {
 
     #[test]
     fn principal_max_size_is_bounded() {
-        let principal = Principal::max_storable();
+        let principal = Principal::MAX;
         let size = principal.0.as_slice().len();
 
         assert!(

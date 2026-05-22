@@ -234,7 +234,7 @@ fn insert_corrupted_data_key(path: &'static str) {
     .expect("valid data key should encode");
 
     let mut corrupted_bytes = valid.as_bytes().to_vec();
-    corrupted_bytes[DecodedDataStoreKey::ENTITY_TAG_SIZE_USIZE] = 0xFF;
+    corrupted_bytes[RawDataStoreKey::ENTITY_TAG_SIZE_USIZE] = 0xFF;
     let corrupted_key = <RawDataStoreKey as Storable>::from_bytes(Cow::Owned(corrupted_bytes));
     let raw_row = RawRow::try_new(vec![0xCD]).expect("diagnostics test row should encode");
 

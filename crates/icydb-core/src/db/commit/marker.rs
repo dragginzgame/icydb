@@ -507,7 +507,7 @@ pub(in crate::db) fn decode_data_key(
     // The 0.159 data-key format is variable-width, so this gate is a bounded
     // maximum check; structural validation belongs to `DecodedDataStoreKey::try_from_raw`.
     let len = bytes.len();
-    let max = DecodedDataStoreKey::STORED_SIZE_USIZE;
+    let max = RawDataStoreKey::MAX_STORED_SIZE_USIZE;
     if len > max {
         return Err(InternalError::commit_component_length_invalid(
             "data key", len, max,

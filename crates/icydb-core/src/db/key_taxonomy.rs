@@ -1037,6 +1037,13 @@ mod tests {
         value::StorageKey,
     };
 
+    fn account_fixture(seed: u8) -> Account {
+        Account::from_parts(
+            Principal::from_slice(&[seed]),
+            Some(Subaccount::from_array([seed; 32])),
+        )
+    }
+
     fn roundtrip(value: PrimaryKeyValue) {
         let encoded = EncodedPrimaryKey::encode(value).expect("primary key should encode");
         assert_eq!(encoded.kind().expect("kind should decode"), value.kind());
@@ -1052,7 +1059,7 @@ mod tests {
             PrimaryKeyValue::Ulid(Ulid::from_u128(42)),
             PrimaryKeyValue::Principal(Principal::from_slice(&[1, 2, 3])),
             PrimaryKeyValue::Subaccount(Subaccount::from_array([7; 32])),
-            PrimaryKeyValue::Account(Account::dummy(7)),
+            PrimaryKeyValue::Account(account_fixture(7)),
             PrimaryKeyValue::Unit,
         ];
 
@@ -1163,7 +1170,7 @@ mod tests {
 
     #[test]
     fn compact_primary_key_validates_account_payload() {
-        roundtrip(PrimaryKeyValue::Account(Account::dummy(9)));
+        roundtrip(PrimaryKeyValue::Account(account_fixture(9)));
 
         let mut invalid = vec![PrimaryKeyKind::Account.tag()];
         invalid.extend_from_slice(&[0u8; Account::STORED_SIZE as usize]);
@@ -1213,8 +1220,8 @@ mod tests {
                 PrimaryKeyValue::Subaccount(Subaccount::from_array([2; 32])),
             ),
             (
-                PrimaryKeyValue::Account(Account::dummy(1)),
-                PrimaryKeyValue::Account(Account::dummy(2)),
+                PrimaryKeyValue::Account(account_fixture(1)),
+                PrimaryKeyValue::Account(account_fixture(2)),
             ),
         ];
 
@@ -1296,8 +1303,8 @@ mod tests {
                 PrimaryKeyValue::Subaccount(Subaccount::from_array([8; 32])),
             ),
             (
-                PrimaryKeyValue::Account(Account::dummy(7)),
-                PrimaryKeyValue::Account(Account::dummy(8)),
+                PrimaryKeyValue::Account(account_fixture(7)),
+                PrimaryKeyValue::Account(account_fixture(8)),
             ),
             (PrimaryKeyValue::Unit, PrimaryKeyValue::Unit),
         ];
@@ -1357,7 +1364,7 @@ mod tests {
         );
         assert_eq!(StorageKey::STORED_SIZE_USIZE, 64);
         assert_eq!(
-            DecodedDataStoreKey::STORED_SIZE_BYTES,
+            RawDataStoreKey::MAX_STORED_SIZE_BYTES,
             size_of::<u64>() as u64 + 1 + u64::from(Account::STORED_SIZE)
         );
 

@@ -7,9 +7,24 @@ use super::*;
 
 const ENTITY_64_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const FIELD_64_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+const MAX_ASCII_BYTE: u8 = 0x7F;
 
 fn accepted_ascii_identity_bytes() -> impl Iterator<Item = u8> {
     (0..=MAX_ASCII_BYTE).filter(|byte| *byte != INDEX_NAME_SEGMENT_DELIMITER)
+}
+
+fn max_width_entity_name_fixture() -> EntityName {
+    EntityName {
+        len: MAX_ENTITY_NAME_LEN as u8,
+        bytes: [MAX_ASCII_BYTE; MAX_ENTITY_NAME_LEN],
+    }
+}
+
+fn max_width_index_name_fixture() -> IndexName {
+    IndexName {
+        len: MAX_INDEX_NAME_LEN as u16,
+        bytes: [MAX_ASCII_BYTE; MAX_INDEX_NAME_LEN],
+    }
 }
 
 #[test]
@@ -150,15 +165,15 @@ fn entity_storage_roundtrip() {
 }
 
 #[test]
-fn entity_max_storable_is_ascii_utf8() {
-    let max = EntityName::max_storable();
+fn entity_max_width_fixture_is_ascii_utf8() {
+    let max = max_width_entity_name_fixture();
     assert_eq!(max.len(), MAX_ENTITY_NAME_LEN);
     assert!(max.as_str().is_ascii());
 }
 
 #[test]
-fn entity_max_storable_covers_every_accepted_ascii_byte() {
-    let max = EntityName::max_storable();
+fn entity_max_width_fixture_covers_every_accepted_ascii_byte() {
+    let max = max_width_entity_name_fixture();
 
     for byte in accepted_ascii_identity_bytes() {
         let name = String::from_utf8(vec![byte; MAX_ENTITY_NAME_LEN]).unwrap();
@@ -302,15 +317,15 @@ fn index_from_bytes_decodes_flat_canonical_payload() {
 }
 
 #[test]
-fn index_max_storable_is_ascii_utf8() {
-    let max = IndexName::max_storable();
+fn index_max_width_fixture_is_ascii_utf8() {
+    let max = max_width_index_name_fixture();
     assert_eq!(max.as_bytes().len(), MAX_INDEX_NAME_LEN);
     assert!(max.as_str().is_ascii());
 }
 
 #[test]
-fn index_max_storable_covers_every_accepted_ascii_byte() {
-    let max = IndexName::max_storable();
+fn index_max_width_fixture_covers_every_accepted_ascii_byte() {
+    let max = max_width_index_name_fixture();
 
     for byte in accepted_ascii_identity_bytes() {
         let mut entity_bytes = vec![b'a'];

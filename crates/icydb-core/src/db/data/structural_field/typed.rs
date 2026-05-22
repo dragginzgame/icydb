@@ -210,17 +210,18 @@ pub(in crate::db::data::structural_field) fn decode_decimal_payload_parts(
     scale: u32,
 ) -> Result<Decimal, FieldDecodeError> {
     if scale <= Decimal::max_supported_scale() {
-        return Ok(Decimal::from_i128_with_scale(mantissa, scale));
+        return Decimal::try_from_i128_with_scale(mantissa, scale)
+            .ok_or_else(|| FieldDecodeError::new("structural binary: invalid decimal payload"));
     }
 
     let mut value = mantissa;
     let mut normalized_scale = scale;
     while normalized_scale > Decimal::max_supported_scale() {
         if value == 0 {
-            return Ok(Decimal::from_i128_with_scale(
-                0,
-                Decimal::max_supported_scale(),
-            ));
+            return Decimal::try_from_i128_with_scale(0, Decimal::max_supported_scale())
+                .ok_or_else(|| {
+                    FieldDecodeError::new("structural binary: invalid decimal payload")
+                });
         }
         if value % 10 != 0 {
             return Err(FieldDecodeError::new(
@@ -231,5 +232,6 @@ pub(in crate::db::data::structural_field) fn decode_decimal_payload_parts(
         normalized_scale -= 1;
     }
 
-    Ok(Decimal::from_i128_with_scale(value, normalized_scale))
+    Decimal::try_from_i128_with_scale(value, normalized_scale)
+        .ok_or_else(|| FieldDecodeError::new("structural binary: invalid decimal payload"))
 }

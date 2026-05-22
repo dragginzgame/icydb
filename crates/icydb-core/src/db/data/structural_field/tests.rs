@@ -240,7 +240,10 @@ fn structural_field_decode_value_storage_handles_enum_payload() {
 
 #[test]
 fn structural_field_decode_typed_wrappers_preserves_payloads() {
-    let account = Account::from_parts(Principal::dummy(7), Some(Subaccount::from([7_u8; 32])));
+    let account = Account::from_parts(
+        Principal::from_slice(&[7]),
+        Some(Subaccount::from_array([7_u8; 32])),
+    );
     let decimal = Decimal::new(1234, 2);
 
     let account_bytes = encode_structural_field_by_kind_bytes(

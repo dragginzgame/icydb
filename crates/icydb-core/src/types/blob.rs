@@ -26,19 +26,8 @@ pub struct Blob(ByteBuf);
 
 impl Blob {
     #[must_use]
-    pub fn as_mut_bytes(&mut self) -> &mut Vec<u8> {
-        &mut self.0
-    }
-
-    #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
-    }
-
-    /// View the blob as a byte slice.
-    #[must_use]
-    pub fn as_slice(&self) -> &[u8] {
-        self.0.as_slice()
     }
 
     /// Clone the blob into a new byte vector.

@@ -485,7 +485,7 @@ fn decimal_with_accepted_storage_scale(decimal: Decimal, scale: u32) -> Option<D
         Ordering::Equal => Some(decimal),
         Ordering::Less => decimal
             .scale_to_integer(scale)
-            .map(|mantissa| Decimal::from_i128_with_scale(mantissa, scale)),
+            .and_then(|mantissa| Decimal::try_from_i128_with_scale(mantissa, scale)),
         Ordering::Greater => Some(decimal.round_dp(scale)),
     }
 }

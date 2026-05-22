@@ -48,7 +48,7 @@ use crate::{
         PersistedStructuredFieldCodec, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
         RuntimeValueMeta,
     },
-    types::{Account, Decimal, EntityTag, Id, Ulid},
+    types::{Account, Decimal, EntityTag, Id, Principal, Subaccount, Ulid},
     value::Value,
 };
 use icydb_derive::{FieldProjection, PersistedRow};
@@ -3638,9 +3638,18 @@ fn structural_replace_does_not_inherit_omitted_nullable_fields() {
     let session = DbSession::new(DB);
     let save = SaveExecutor::<NullableAccountEventEntity>::new(DB, false);
     let id = Ulid::from_u128(294);
-    let old_from = Account::dummy(1);
-    let old_to = Account::dummy(2);
-    let new_from = Account::dummy(3);
+    let old_from = Account::from_parts(
+        Principal::from_slice(&[1]),
+        Some(Subaccount::from_array([1; 32])),
+    );
+    let old_to = Account::from_parts(
+        Principal::from_slice(&[2]),
+        Some(Subaccount::from_array([2; 32])),
+    );
+    let new_from = Account::from_parts(
+        Principal::from_slice(&[3]),
+        Some(Subaccount::from_array([3; 32])),
+    );
     save.insert(NullableAccountEventEntity {
         id,
         from: Some(old_from),
@@ -3741,7 +3750,10 @@ fn save_executor_insert_allows_nullable_account_event_with_missing_from() {
 
     let save = SaveExecutor::<NullableAccountEventEntity>::new(DB, false);
     let id = Ulid::from_u128(400);
-    let account = Account::dummy(7);
+    let account = Account::from_parts(
+        Principal::from_slice(&[7]),
+        Some(Subaccount::from_array([7; 32])),
+    );
     let saved = save
         .insert(NullableAccountEventEntity {
             id,
@@ -3764,7 +3776,10 @@ fn save_executor_insert_allows_nullable_account_event_with_missing_to() {
 
     let save = SaveExecutor::<NullableAccountEventEntity>::new(DB, false);
     let id = Ulid::from_u128(401);
-    let account = Account::dummy(9);
+    let account = Account::from_parts(
+        Principal::from_slice(&[9]),
+        Some(Subaccount::from_array([9; 32])),
+    );
     let saved = save
         .insert(NullableAccountEventEntity {
             id,

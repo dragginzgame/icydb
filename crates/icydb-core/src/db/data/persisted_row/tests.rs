@@ -646,7 +646,10 @@ fn representative_value_storage_cases() -> Vec<Value> {
     .expect("nested value storage case should normalize");
 
     vec![
-        Value::Account(Account::dummy(7)),
+        Value::Account(Account::from_parts(
+            Principal::from_slice(&[7]),
+            Some(Subaccount::from_array([7; 32])),
+        )),
         Value::Blob(vec![1u8, 2u8, 3u8]),
         Value::Bool(true),
         Value::Date(Date::new(2024, 1, 2)),
@@ -667,7 +670,7 @@ fn representative_value_storage_cases() -> Vec<Value> {
         ]),
         nested,
         Value::Null,
-        Value::Principal(Principal::dummy(9)),
+        Value::Principal(Principal::from_slice(&[9])),
         Value::Subaccount(Subaccount::new([7u8; 32])),
         Value::Text("example".to_string()),
         Value::Timestamp(Timestamp::from_secs(1)),
@@ -683,7 +686,10 @@ fn representative_structured_value_storage_cases() -> Vec<Value> {
     let nested_map = Value::from_map(vec![
         (
             Value::Text("account".to_string()),
-            Value::Account(Account::dummy(7)),
+            Value::Account(Account::from_parts(
+                Principal::from_slice(&[7]),
+                Some(Subaccount::from_array([7; 32])),
+            )),
         ),
         (
             Value::Text("blob".to_string()),
@@ -729,7 +735,7 @@ fn representative_structured_value_storage_cases() -> Vec<Value> {
         (Value::Text("null".to_string()), Value::Null),
         (
             Value::Text("principal".to_string()),
-            Value::Principal(Principal::dummy(9)),
+            Value::Principal(Principal::from_slice(&[9])),
         ),
         (
             Value::Text("subaccount".to_string()),
@@ -1507,7 +1513,7 @@ fn encode_runtime_value_into_slot_roundtrips_map_by_kind_slots() {
 
 #[test]
 fn encode_runtime_value_into_slot_accepts_value_storage_maps_with_structured_values() {
-    let principal = Principal::dummy(7);
+    let principal = Principal::from_slice(&[7]);
     let project = Value::from_map(vec![
         (Value::Text("pid".to_string()), Value::Principal(principal)),
         (
@@ -1566,7 +1572,10 @@ fn encode_runtime_value_into_slot_roundtrips_enum_by_kind_slots() {
 
 #[test]
 fn encode_runtime_value_into_slot_roundtrips_leaf_by_kind_wrapper_slots() {
-    let account = Account::from_parts(Principal::dummy(7), Some(Subaccount::from([7_u8; 32])));
+    let account = Account::from_parts(
+        Principal::from_slice(&[7]),
+        Some(Subaccount::from_array([7_u8; 32])),
+    );
     let payload = encode_runtime_value_into_slot(&ACCOUNT_MODEL, 0, &Value::Account(account))
         .expect("encode account slot");
     let decoded =

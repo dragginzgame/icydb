@@ -323,13 +323,9 @@ fn read_date(cursor: &mut ByteCursor<'_>) -> Result<Date, TokenWireError> {
 fn read_decimal(cursor: &mut ByteCursor<'_>) -> Result<Decimal, TokenWireError> {
     let mantissa = cursor.read_i128()?;
     let scale = cursor.read_u32()?;
-    let value = Decimal::from_i128_with_scale(mantissa, scale);
-
-    if value.parts().scale() != scale || value.parts().mantissa() != mantissa {
-        return Err(TokenWireError::decode("invalid decimal token payload"));
-    }
-
-    Ok(value)
+    Decimal::try_from_i128_with_scale(mantissa, scale)
+        .filter(|value| value.parts().scale() == scale && value.parts().mantissa() == mantissa)
+        .ok_or_else(|| TokenWireError::decode("invalid decimal token payload"))
 }
 
 fn read_value_enum(cursor: &mut ByteCursor<'_>) -> Result<ValueEnum, TokenWireError> {

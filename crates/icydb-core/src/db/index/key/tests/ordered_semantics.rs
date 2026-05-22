@@ -145,7 +145,7 @@ fn canonical_encoder_rejects_non_indexable_and_unsupported_values() {
 #[test]
 #[expect(clippy::cast_possible_truncation)]
 fn canonical_encoder_account_payload_uses_exact_owner_length_tag() {
-    let account = Account::new(Principal::max_storable(), None::<Subaccount>);
+    let account = Account::new(Principal::MAX, None::<Subaccount>);
     let value = Value::Account(account);
 
     let encoded =
@@ -160,7 +160,10 @@ fn canonical_encoder_account_payload_uses_exact_owner_length_tag() {
 #[test]
 fn primary_key_value_encoder_matches_value_encoder_for_all_primary_key_variants() {
     let samples = [
-        StorageKey::Account(Account::dummy(7)),
+        StorageKey::Account(Account::from_parts(
+            Principal::from_slice(&[7]),
+            Some(Subaccount::from_array([7; 32])),
+        )),
         StorageKey::Int(-7),
         StorageKey::Principal(Principal::from_slice(&[1u8, 2u8, 3u8])),
         StorageKey::Subaccount(Subaccount::new([7u8; 32])),
@@ -590,7 +593,10 @@ fn canonical_encoder_golden_vectors_freeze_primitive_bytes() {
 #[test]
 fn canonical_encoder_total_order_matches_value_canonical_cmp_for_supported_samples() {
     let samples = vec![
-        Value::Account(Account::dummy(1)),
+        Value::Account(Account::from_parts(
+            Principal::from_slice(&[1]),
+            Some(Subaccount::from_array([1; 32])),
+        )),
         Value::Bool(false),
         Value::Bool(true),
         Value::Date(Date::new(2024, 1, 1)),
@@ -611,8 +617,8 @@ fn canonical_encoder_total_order_matches_value_canonical_cmp_for_supported_sampl
         Value::IntBig(Int::from(7i32)),
         Value::Principal(Principal::from_slice(&[1u8])),
         Value::Principal(Principal::from_slice(&[2u8])),
-        Value::Subaccount(Subaccount::dummy(1)),
-        Value::Subaccount(Subaccount::dummy(2)),
+        Value::Subaccount(Subaccount::from_array([1; 32])),
+        Value::Subaccount(Subaccount::from_array([2; 32])),
         Value::Text("a".to_string()),
         Value::Text("b".to_string()),
         Value::Timestamp(Timestamp::from_secs(1)),

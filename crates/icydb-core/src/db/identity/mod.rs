@@ -38,8 +38,6 @@ pub(super) const MAX_INDEX_NAME_LEN: usize = MAX_INDEX_NAME_PREFIX_LEN
     + (MAX_INDEX_FIELDS * MAX_INDEX_FIELD_NAME_SLUG_LEN)
     + (MAX_INDEX_FIELDS - 1);
 const INDEX_NAME_SEGMENT_DELIMITER: u8 = b'|';
-const MAX_ASCII_BYTE: u8 = 0x7F;
-
 ///
 /// IdentityDecodeError
 /// Decode errors (storage / corruption boundary)
@@ -223,15 +221,6 @@ impl EntityName {
             len: len as u8,
             bytes: name,
         })
-    }
-
-    /// Return a maximal sortable entity identity sentinel value.
-    #[must_use]
-    pub const fn max_storable() -> Self {
-        Self {
-            len: MAX_ENTITY_NAME_LEN as u8,
-            bytes: [MAX_ASCII_BYTE; MAX_ENTITY_NAME_LEN],
-        }
     }
 }
 
@@ -434,15 +423,6 @@ impl IndexName {
         let end = *len + bytes.len();
         out[*len..end].copy_from_slice(bytes);
         *len = end;
-    }
-
-    /// Return a maximal sortable index identity sentinel value.
-    #[must_use]
-    pub const fn max_storable() -> Self {
-        Self {
-            len: MAX_INDEX_NAME_LEN as u16,
-            bytes: [MAX_ASCII_BYTE; MAX_INDEX_NAME_LEN],
-        }
     }
 }
 

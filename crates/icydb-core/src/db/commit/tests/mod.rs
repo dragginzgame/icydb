@@ -1916,7 +1916,7 @@ fn recovery_rejects_corrupt_marker_data_key_decode() {
     let row_bytes = canonical_row_bytes(&RecoveryTestEntity {
         id: Ulid::from_u128(902),
     });
-    let malformed_key = vec![0u8; DecodedDataStoreKey::STORED_SIZE_USIZE.saturating_sub(1)];
+    let malformed_key = vec![0u8; RawDataStoreKey::MAX_STORED_SIZE_USIZE.saturating_sub(1)];
     let mut marker_payload = Vec::new();
     marker_payload.extend_from_slice(&[0u8; 16]);
     marker_payload.extend_from_slice(&1u32.to_le_bytes());

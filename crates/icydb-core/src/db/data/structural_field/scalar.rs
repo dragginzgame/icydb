@@ -242,7 +242,7 @@ pub(super) fn encode_blob_fast_path_binary_bytes(
     }
 
     let mut encoded = Vec::new();
-    push_binary_bytes(&mut encoded, value.as_slice());
+    push_binary_bytes(&mut encoded, value.as_bytes());
     Ok(encoded)
 }
 

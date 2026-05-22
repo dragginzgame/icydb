@@ -147,7 +147,7 @@ fn index_key_rejects_undersized_bytes() {
 
 #[test]
 fn index_key_rejects_oversized_bytes() {
-    let bytes = vec![0u8; IndexKey::STORED_SIZE_USIZE + 1];
+    let bytes = vec![0u8; IndexKey::MAX_STORED_SIZE_USIZE + 1];
     let raw = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(&bytes));
     let err = IndexKey::try_from_raw(&raw).expect_err("oversized key should fail");
     assert!(err.contains("corrupted"));
@@ -183,8 +183,8 @@ fn index_key_rejects_len_over_max() {
 }
 
 #[test]
-fn index_key_accepts_max_storable_index_id() {
-    let key = IndexKey::empty(&IndexId::max_storable());
+fn index_key_accepts_max_width_index_id() {
+    let key = IndexKey::empty(&IndexId::new(EntityTag::new(u64::MAX), u16::MAX));
     let raw = key.to_raw();
     let decoded = IndexKey::try_from_raw(&raw).expect("fixed-width index id should decode");
 
@@ -460,7 +460,7 @@ fn index_key_decode_fuzz_roundtrip_is_canonical() {
     const RUNS: u64 = 1_000;
 
     let mut seed = 0xBADC_0FFE_u64;
-    let size_span = IndexKey::STORED_SIZE_USIZE - IndexKey::MIN_STORED_SIZE_USIZE + 1;
+    let size_span = IndexKey::MAX_STORED_SIZE_USIZE - IndexKey::MIN_STORED_SIZE_USIZE + 1;
 
     for _ in 0..RUNS {
         seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
@@ -1549,7 +1549,7 @@ fn index_key_size_bound_enforcement_accepts_max_and_rejects_over_max() {
     );
     let raw = key.to_raw();
 
-    assert_eq!(raw.as_bytes().len(), IndexKey::STORED_SIZE_USIZE);
+    assert_eq!(raw.as_bytes().len(), IndexKey::MAX_STORED_SIZE_USIZE);
     let decoded = IndexKey::try_from_raw(&raw).expect("max-sized key should decode");
     assert_eq!(decoded.to_raw().as_bytes(), raw.as_bytes());
 

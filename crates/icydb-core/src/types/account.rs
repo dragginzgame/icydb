@@ -94,20 +94,12 @@ impl Account {
     }
 
     /// Convert to the upstream ledger account representation.
+    #[must_use]
     pub fn to_icrc_type(self) -> LedgerAccount {
         LedgerAccount {
             owner: self.owner.into(),
-            subaccount: self.subaccount.map(Into::into),
+            subaccount: self.subaccount.map(|subaccount| subaccount.to_array()),
         }
-    }
-
-    /// Test helper that builds a deterministic account from a byte seed.
-    #[must_use]
-    pub fn dummy(v: u8) -> Self {
-        let p = Principal::from_slice(&[v]);
-        let s = [v; 32];
-
-        Self::new(p, Some(s))
     }
 
     /// Encode the account into its fixed-size stored form without heap allocation.
@@ -161,12 +153,6 @@ impl Account {
         out[sub_offset..sub_offset + Self::SUBACCOUNT_LEN].copy_from_slice(&subaccount_bytes);
 
         Ok(())
-    }
-
-    /// Construct the maximum possible account for storage sizing tests.
-    #[must_use]
-    pub fn max_storable() -> Self {
-        Self::new(Principal::MAX, Some(Subaccount::MAX))
     }
 
     #[must_use]
@@ -272,7 +258,7 @@ impl From<LedgerAccount> for Account {
     fn from(acc: LedgerAccount) -> Self {
         Self {
             owner: acc.owner.into(),
-            subaccount: acc.subaccount.map(Into::into),
+            subaccount: acc.subaccount.map(Subaccount::from_array),
         }
     }
 }
@@ -285,7 +271,7 @@ impl FromStr for Account {
 
         Ok(Self {
             owner: icrc.owner.into(),
-            subaccount: icrc.subaccount.map(Into::into),
+            subaccount: icrc.subaccount.map(Subaccount::from_array),
         })
     }
 }
@@ -364,7 +350,7 @@ mod tests {
 
     #[test]
     fn storable_bytes_are_exact_size() {
-        let account = Account::max_storable();
+        let account = Account::from_parts(Principal::MAX, Some(Subaccount::MAX));
         let bytes = account.to_bytes().expect("account encode");
         let size = bytes.len();
 
@@ -388,7 +374,7 @@ mod tests {
 
     #[test]
     fn to_bytes_length_is_consistent() {
-        let acc = Account::new(principal(), Some([1u8; 32]));
+        let acc = Account::new(principal(), Some(Subaccount::from_array([1u8; 32])));
         let bytes = acc.to_bytes().expect("account encode");
         assert_eq!(
             bytes.len(),
@@ -416,7 +402,7 @@ mod tests {
     #[test]
     fn to_bytes_produces_expected_layout() {
         let p = principal();
-        let acc = Account::new(p, Some([0xAAu8; 32]));
+        let acc = Account::new(p, Some(Subaccount::from_array([0xAAu8; 32])));
         let bytes = acc.to_bytes().expect("account encode");
 
         let tag = bytes[0];
@@ -464,7 +450,7 @@ mod tests {
     fn to_bytes_distinguishes_none_and_zero_subaccount() {
         let p = principal();
         let none = Account::new(p, None::<Subaccount>);
-        let zero = Account::new(p, Some([0u8; 32]));
+        let zero = Account::new(p, Some(Subaccount::from_array([0u8; 32])));
 
         assert_ne!(
             none.to_bytes().expect("account encode"),
@@ -477,8 +463,14 @@ mod tests {
     fn account_ordering_matches_bytes() {
         let accounts = vec![
             Account::new(Principal::from_slice(&[1]), None::<Subaccount>),
-            Account::new(Principal::from_slice(&[1]), Some([0u8; 32])),
-            Account::new(Principal::from_slice(&[1]), Some([1u8; 32])),
+            Account::new(
+                Principal::from_slice(&[1]),
+                Some(Subaccount::from_array([0u8; 32])),
+            ),
+            Account::new(
+                Principal::from_slice(&[1]),
+                Some(Subaccount::from_array([1u8; 32])),
+            ),
             Account::new(Principal::from_slice(&[1, 2]), None::<Subaccount>),
             Account::new(Principal::from_slice(&[2]), None::<Subaccount>),
         ];
@@ -497,7 +489,7 @@ mod tests {
 
     #[test]
     fn round_trip_via_storable_preserves_data() {
-        let original = Account::new(principal(), Some([0xABu8; 32]));
+        let original = Account::new(principal(), Some(Subaccount::from_array([0xABu8; 32])));
 
         let bytes = original.to_bytes().expect("account encode");
         let decoded = Account::try_from_bytes(&bytes).expect("decode should succeed");
@@ -507,7 +499,7 @@ mod tests {
 
     #[test]
     fn round_trip_custom_bytes_preserves_data() {
-        let original = Account::new(principal(), Some([0xCDu8; 32]));
+        let original = Account::new(principal(), Some(Subaccount::from_array([0xCDu8; 32])));
         let bytes = original.to_bytes().expect("account encode");
 
         let tag = bytes[0];

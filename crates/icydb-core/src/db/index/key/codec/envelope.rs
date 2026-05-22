@@ -25,7 +25,7 @@ impl Storable for RawIndexStoreKey {
 
     #[expect(clippy::cast_possible_truncation)]
     const BOUND: Bound = Bound::Bounded {
-        max_size: IndexKey::STORED_SIZE_BYTES as u32,
+        max_size: IndexKey::MAX_STORED_SIZE_BYTES as u32,
         is_fixed_size: false,
     };
 }

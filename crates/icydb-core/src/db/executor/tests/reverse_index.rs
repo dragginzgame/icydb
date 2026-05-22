@@ -1103,8 +1103,8 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
         target: target_b,
     });
 
-    let mut malformed_key = vec![0u8; DecodedDataStoreKey::STORED_SIZE_USIZE];
-    malformed_key[DecodedDataStoreKey::ENTITY_TAG_SIZE_USIZE] = 0xFF;
+    let mut malformed_key = vec![0u8; RawDataStoreKey::MAX_STORED_SIZE_USIZE];
+    malformed_key[RawDataStoreKey::ENTITY_TAG_SIZE_USIZE] = 0xFF;
     let malformed_raw_key = RawDataStoreKey::from_persisted_bytes(malformed_key);
 
     let marker = CommitMarker::new(vec![

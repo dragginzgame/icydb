@@ -73,9 +73,9 @@ impl Int {
         i64::try_from(big).ok()
     }
 
-    /// Serialize the arbitrary-precision integer to LEB128 bytes.
+    /// Serialize this arbitrary-precision integer for internal hash and sort-key framing.
     #[must_use]
-    pub fn to_leb128(&self) -> Vec<u8> {
+    pub(crate) fn to_leb128(&self) -> Vec<u8> {
         let mut out = Vec::new();
         self.0.encode(&mut out).expect("Int LEB128 encode");
 

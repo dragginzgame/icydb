@@ -46,7 +46,7 @@ fn binary_value_storage_roundtrips_nested_variants() {
             Value::Text("account".to_string()),
             Value::Account(Account::new(
                 Principal::from_slice(&[1, 2, 3]),
-                Some([7u8; 32]),
+                Some(Subaccount::from_array([7u8; 32])),
             )),
         ),
         (

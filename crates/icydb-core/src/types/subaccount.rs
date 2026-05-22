@@ -1,13 +1,13 @@
 //! Module: types::subaccount
 //! Defines the fixed-width subaccount value used by account identifiers, typed
-//! values, and deterministic key generation.
+//! values, and persistence key encoding.
 
 use crate::{
     traits::{
         EntityKeyBytes, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
         SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
-    types::{Principal, Ulid, random},
+    types::{Principal, Ulid},
     value::Value,
 };
 use candid::CandidType;
@@ -65,25 +65,6 @@ impl Subaccount {
     }
 
     #[must_use]
-    pub const fn dummy(v: u8) -> Self {
-        Self([v; 32])
-    }
-
-    /// Generate a random subaccount using two 128-bit draws.
-    /// Falls back to zeroed randomness if the RNG is unavailable.
-    #[must_use]
-    pub fn random() -> Self {
-        let hi = random::next_u128().unwrap_or(0).to_le_bytes();
-        let lo = random::next_u128().unwrap_or(0).to_le_bytes();
-
-        let mut bytes = [0u8; 32];
-        bytes[..16].copy_from_slice(&hi);
-        bytes[16..].copy_from_slice(&lo);
-
-        Self::from_array(bytes)
-    }
-
-    #[must_use]
     pub const fn as_slice(&self) -> &[u8] {
         &self.0
     }
@@ -91,11 +72,6 @@ impl Subaccount {
     #[must_use]
     pub const fn to_bytes(self) -> [u8; 32] {
         self.0
-    }
-
-    #[must_use]
-    pub const fn max_storable() -> Self {
-        Self([0xFF; 32])
     }
 }
 
@@ -158,30 +134,6 @@ impl From<Principal> for Subaccount {
     }
 }
 
-impl From<Subaccount> for SubaccountBytes {
-    fn from(sub: Subaccount) -> Self {
-        sub.0
-    }
-}
-
-impl From<SubaccountBytes> for Subaccount {
-    fn from(wrap: SubaccountBytes) -> Self {
-        Self(wrap)
-    }
-}
-
-impl PartialEq<Subaccount> for SubaccountBytes {
-    fn eq(&self, other: &Subaccount) -> bool {
-        self == &other.0
-    }
-}
-
-impl PartialEq<SubaccountBytes> for Subaccount {
-    fn eq(&self, other: &SubaccountBytes) -> bool {
-        &self.0 == other
-    }
-}
-
 impl SanitizeAuto for Subaccount {}
 
 impl SanitizeCustom for Subaccount {}
@@ -200,15 +152,9 @@ impl Visitable for Subaccount {}
 mod tests {
     use super::*;
 
-    const RNG_SEED: [u8; 32] = [7; 32];
-
-    fn seed_rng() {
-        random::seed_from(RNG_SEED);
-    }
-
     #[test]
     fn subaccount_max_size_is_bounded() {
-        let subaccount = Subaccount::max_storable();
+        let subaccount = Subaccount::MAX;
         let size = subaccount.to_bytes().len();
 
         assert_eq!(
@@ -217,53 +163,5 @@ mod tests {
             "serialized Subaccount must be exactly {} bytes; got {size}",
             <Subaccount as EntityKeyBytes>::BYTE_LEN
         );
-    }
-
-    #[test]
-    fn generate_produces_valid_subaccount() {
-        seed_rng();
-        let sub = Subaccount::random();
-
-        // Must always be exactly 32 bytes
-        assert_eq!(sub.to_bytes().len(), 32);
-
-        // Should not equal MIN or MAX every time
-        assert_ne!(sub, Subaccount::MIN);
-        assert_ne!(sub, Subaccount::MAX);
-    }
-
-    #[test]
-    fn generate_produces_different_values() {
-        seed_rng();
-        let sub1 = Subaccount::random();
-        let sub2 = Subaccount::random();
-
-        // Extremely unlikely they’re equal in two calls
-        assert_ne!(sub1, sub2);
-    }
-
-    #[test]
-    fn generate_multiple_are_unique() {
-        use std::collections::HashSet;
-
-        seed_rng();
-        let mut set = HashSet::new();
-        for _ in 0..100 {
-            let sub = Subaccount::random();
-            assert!(set.insert(sub), "duplicate subaccount generated");
-        }
-    }
-
-    #[test]
-    fn display_hex_format_is_64_chars() {
-        seed_rng();
-        let sub = Subaccount::random();
-        let hex = sub.to_string();
-
-        // 32 bytes → 64 hex chars
-        assert_eq!(hex.len(), 64);
-
-        // Must be valid hex
-        assert!(hex.chars().all(|c| c.is_ascii_hexdigit()));
     }
 }

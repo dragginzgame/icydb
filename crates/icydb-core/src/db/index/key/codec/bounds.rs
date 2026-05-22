@@ -23,16 +23,13 @@ impl IndexKey {
     const MIN_SEGMENT_SIZE: usize = 1;
 
     /// Maximum on-disk size in bytes (stable, protocol-level bound)
-    pub(crate) const MAX_INDEX_KEY_BYTES: u64 = (KEY_PREFIX_SIZE
+    pub(crate) const MAX_STORED_SIZE_BYTES: u64 = (KEY_PREFIX_SIZE
         + (MAX_INDEX_FIELDS * (SEGMENT_LEN_SIZE + Self::MAX_COMPONENT_SIZE))
         + (SEGMENT_LEN_SIZE + Self::MAX_PK_SIZE))
         as u64;
 
-    /// Maximum on-disk size in bytes (stable, protocol-level bound)
-    pub(crate) const STORED_SIZE_BYTES: u64 = Self::MAX_INDEX_KEY_BYTES;
-
     /// Maximum in-memory size (for bounds checks)
-    pub(crate) const STORED_SIZE_USIZE: usize = Self::STORED_SIZE_BYTES as usize;
+    pub(crate) const MAX_STORED_SIZE_USIZE: usize = Self::MAX_STORED_SIZE_BYTES as usize;
 
     /// Minimum encoded size for an empty index key.
     pub(crate) const MIN_STORED_SIZE_BYTES: u64 =

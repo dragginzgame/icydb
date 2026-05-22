@@ -24,6 +24,20 @@ pub(crate) fn seed_from(seed: [u8; 32]) {
     });
 }
 
+#[cfg(test)]
+pub(crate) fn clear_for_tests() {
+    RNG.with_borrow_mut(|rng| *rng = None);
+}
+
+#[cfg(test)]
+pub(crate) fn seed_if_uninitialized_for_tests(seed: [u8; 32]) {
+    RNG.with_borrow_mut(|rng| {
+        if rng.is_none() {
+            *rng = Some(ChaCha20Rng::from_seed(seed));
+        }
+    });
+}
+
 pub(crate) fn next_u128() -> Result<u128, RandomError> {
     RNG.with_borrow_mut(|rng| match rng.as_mut() {
         Some(rand) => {

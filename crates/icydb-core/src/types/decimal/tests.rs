@@ -75,9 +75,23 @@ fn decimal_new_panics_on_scale_over_max() {
 }
 
 #[test]
-fn decimal_new_unchecked_allows_scale_over_max() {
+fn decimal_new_unchecked_is_internal_invariant_bypass() {
     let d = Decimal::new_unchecked(1, MAX_SUPPORTED_SCALE + 1);
     assert_eq!(d.scale(), MAX_SUPPORTED_SCALE + 1);
+}
+
+#[test]
+fn decimal_try_from_i128_with_scale_rejects_unrepresentable_scale() {
+    assert_eq!(
+        Decimal::try_from_i128_with_scale(1, MAX_SUPPORTED_SCALE + 1),
+        None,
+    );
+}
+
+#[test]
+#[should_panic(expected = "decimal mantissa and scale exceed supported invariant")]
+fn decimal_from_i128_with_scale_panics_on_unrepresentable_scale() {
+    let _ = Decimal::from_i128_with_scale(1, MAX_SUPPORTED_SCALE + 1);
 }
 
 #[test]

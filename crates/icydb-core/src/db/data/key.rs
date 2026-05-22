@@ -109,18 +109,6 @@ pub(in crate::db) struct DecodedDataStoreKey {
 }
 
 impl DecodedDataStoreKey {
-    /// `EntityTag` binary-width contract for on-disk key framing.
-    pub(in crate::db) const ENTITY_TAG_SIZE_BYTES: u64 = size_of::<u64>() as u64;
-    #[cfg(test)]
-    pub(in crate::db) const ENTITY_TAG_SIZE_USIZE: usize = Self::ENTITY_TAG_SIZE_BYTES as usize;
-
-    /// Maximum compact on-disk size in bytes.
-    pub(in crate::db) const STORED_SIZE_BYTES: u64 =
-        Self::ENTITY_TAG_SIZE_BYTES + 1 + Account::STORED_SIZE as u64;
-
-    /// Maximum compact in-memory key size (for bounded storable metadata).
-    pub(in crate::db) const STORED_SIZE_USIZE: usize = Self::STORED_SIZE_BYTES as usize;
-
     // ------------------------------------------------------------------
     // Constructors
     // ------------------------------------------------------------------
@@ -225,16 +213,10 @@ impl DecodedDataStoreKey {
         self.key
     }
 
-    /// Compute on-disk entry size from value length.
+    /// Compute the maximum on-disk entry size from value length.
     #[must_use]
     pub(in crate::db) const fn entry_size_bytes(value_len: u64) -> u64 {
-        Self::STORED_SIZE_BYTES + value_len
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    fn max_storable() -> Self {
-        Self::new(EntityTag::new(u64::MAX), StorageKey::max_storable())
+        RawDataStoreKey::MAX_STORED_SIZE_BYTES + value_len
     }
 
     // ------------------------------------------------------------------
@@ -375,6 +357,18 @@ impl Display for DecodedDataStoreKey {
 }
 
 impl RawDataStoreKey {
+    /// `EntityTag` binary-width contract for raw on-disk key framing.
+    pub(in crate::db) const ENTITY_TAG_SIZE_BYTES: u64 = size_of::<u64>() as u64;
+    #[cfg(test)]
+    pub(in crate::db) const ENTITY_TAG_SIZE_USIZE: usize = Self::ENTITY_TAG_SIZE_BYTES as usize;
+
+    /// Maximum compact on-disk size in bytes.
+    pub(in crate::db) const MAX_STORED_SIZE_BYTES: u64 =
+        Self::ENTITY_TAG_SIZE_BYTES + 1 + Account::STORED_SIZE as u64;
+
+    /// Maximum compact in-memory key size (for bounded storable metadata).
+    pub(in crate::db) const MAX_STORED_SIZE_USIZE: usize = Self::MAX_STORED_SIZE_BYTES as usize;
+
     #[must_use]
     pub(in crate::db) fn from_store_range_bound(bytes: &[u8]) -> Self {
         Self::from_persisted_bytes(bytes.to_vec())
@@ -414,7 +408,7 @@ impl Storable for RawDataStoreKey {
     }
 
     const BOUND: StorableBound = StorableBound::Bounded {
-        max_size: DecodedDataStoreKey::STORED_SIZE_BYTES as u32,
+        max_size: Self::MAX_STORED_SIZE_BYTES as u32,
         is_fixed_size: false,
     };
 }
@@ -433,6 +427,13 @@ mod tests {
         value::{Value, primary_key_value_from_runtime_value},
     };
     use std::borrow::Cow;
+
+    fn max_width_data_store_key_fixture() -> DecodedDataStoreKey {
+        DecodedDataStoreKey::new(
+            EntityTag::new(u64::MAX),
+            StorageKey::Account(Account::from_parts(Principal::MAX, Some(Subaccount::MAX))),
+        )
+    }
 
     fn assert_constructor_equivalence<K>(entity: EntityTag, key: K)
     where
@@ -506,10 +507,10 @@ mod tests {
     }
 
     #[test]
-    fn data_key_max_storable_uses_max_compact_size() {
-        let data_key = DecodedDataStoreKey::max_storable();
+    fn data_key_max_width_fixture_uses_max_compact_size() {
+        let data_key = max_width_data_store_key_fixture();
         let size = data_key.to_raw().unwrap().as_bytes().len();
-        assert_eq!(size, DecodedDataStoreKey::STORED_SIZE_USIZE);
+        assert_eq!(size, RawDataStoreKey::MAX_STORED_SIZE_USIZE);
     }
 
     #[test]
@@ -699,11 +700,11 @@ mod tests {
 
     #[test]
     fn data_key_entity_tag_roundtrip_is_big_endian() {
-        let mut raw_bytes = DecodedDataStoreKey::max_storable()
+        let mut raw_bytes = max_width_data_store_key_fixture()
             .to_raw()
             .unwrap()
             .into_bytes();
-        raw_bytes[..DecodedDataStoreKey::ENTITY_TAG_SIZE_USIZE]
+        raw_bytes[..RawDataStoreKey::ENTITY_TAG_SIZE_USIZE]
             .copy_from_slice(&0x0102_0304_0506_0708u64.to_be_bytes());
         let raw = RawDataStoreKey::from_persisted_bytes(raw_bytes);
         let decoded =
@@ -713,11 +714,11 @@ mod tests {
 
     #[test]
     fn data_key_rejects_corrupt_key() {
-        let mut raw_bytes = DecodedDataStoreKey::max_storable()
+        let mut raw_bytes = max_width_data_store_key_fixture()
             .to_raw()
             .unwrap()
             .into_bytes();
-        let off = DecodedDataStoreKey::ENTITY_TAG_SIZE_USIZE;
+        let off = RawDataStoreKey::ENTITY_TAG_SIZE_USIZE;
         raw_bytes[off] = 0xFF;
         let raw = RawDataStoreKey::from_persisted_bytes(raw_bytes);
         assert!(DecodedDataStoreKey::try_from_raw(&raw).is_err());
@@ -729,7 +730,7 @@ mod tests {
         let mut seed = 0xDEAD_BEEF_u64;
 
         for _ in 0..1_000 {
-            let mut bytes = [0u8; DecodedDataStoreKey::STORED_SIZE_USIZE];
+            let mut bytes = [0u8; RawDataStoreKey::MAX_STORED_SIZE_USIZE];
             for b in &mut bytes {
                 seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
                 *b = (seed >> 24) as u8;
@@ -745,7 +746,7 @@ mod tests {
 
     #[test]
     fn raw_data_store_key_storable_roundtrip() {
-        let key = DecodedDataStoreKey::max_storable().to_raw().unwrap();
+        let key = max_width_data_store_key_fixture().to_raw().unwrap();
         let bytes = key.to_bytes();
         let decoded = <RawDataStoreKey as Storable>::from_bytes(Cow::Borrowed(&bytes));
         assert_eq!(key, decoded);

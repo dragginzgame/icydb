@@ -241,7 +241,9 @@ const fn primary_key_decode_error_to_storage_key_decode_error(
 fn parse_index_key_header(
     bytes: &[u8],
 ) -> Result<(IndexKeyKind, IndexId, usize, usize), &'static str> {
-    if bytes.len() < IndexKey::MIN_STORED_SIZE_USIZE || bytes.len() > IndexKey::STORED_SIZE_USIZE {
+    if bytes.len() < IndexKey::MIN_STORED_SIZE_USIZE
+        || bytes.len() > IndexKey::MAX_STORED_SIZE_USIZE
+    {
         return Err(ERR_INVALID_SIZE);
     }
 

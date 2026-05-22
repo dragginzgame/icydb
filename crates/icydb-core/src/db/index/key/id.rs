@@ -69,13 +69,6 @@ impl IndexId {
             u16::from_be_bytes(ordinal),
         ))
     }
-
-    /// Maximum sentinel value for test-only stable-memory bound checks.
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) const fn max_storable() -> Self {
-        Self::new(EntityTag::new(u64::MAX), u16::MAX)
-    }
 }
 
 impl fmt::Display for IndexId {

@@ -55,7 +55,7 @@ impl Generator {
         }
 
         // generate
-        let rand = random::next_u128().unwrap_or(0);
+        let rand = random::next_u128().map_err(|_| UlidError::RandomnessUnavailable)?;
         let ulid = Ulid::from_parts(ts, rand);
 
         self.previous = ulid;
@@ -74,10 +74,23 @@ mod test {
 
     #[test]
     fn test_monotonic_generation() {
+        random::seed_from([0x22; 32]);
+
         let mut g = Generator::default();
         let a = g.generate().unwrap();
         let b = g.generate().unwrap();
 
         assert!(a < b);
+    }
+
+    #[test]
+    fn generation_fails_when_randomness_is_uninitialized() {
+        random::clear_for_tests();
+        let mut generator = Generator::default();
+
+        assert!(matches!(
+            generator.generate(),
+            Err(UlidError::RandomnessUnavailable),
+        ));
     }
 }

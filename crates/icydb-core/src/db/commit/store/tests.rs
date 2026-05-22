@@ -353,8 +353,8 @@ fn commit_marker_rejects_row_op_with_invalid_key_length() {
 
 #[test]
 fn commit_marker_rejects_row_op_with_invalid_key_shape() {
-    let mut malformed_key = vec![0u8; DecodedDataStoreKey::STORED_SIZE_USIZE];
-    malformed_key[DecodedDataStoreKey::ENTITY_TAG_SIZE_USIZE] = 0xFF;
+    let mut malformed_key = vec![0u8; RawDataStoreKey::MAX_STORED_SIZE_USIZE];
+    malformed_key[RawDataStoreKey::ENTITY_TAG_SIZE_USIZE] = 0xFF;
 
     let bytes = encode_test_single_row_payload_from_parts(
         "test::Entity",

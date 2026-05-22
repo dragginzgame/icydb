@@ -5,7 +5,7 @@ use super::*;
 
 #[test]
 fn ulid_max_size_is_bounded() {
-    let ulid = Ulid::max_storable();
+    let ulid = Ulid::from_bytes([0xFF; 16]);
     let size = ulid.to_bytes().len();
 
     assert!(

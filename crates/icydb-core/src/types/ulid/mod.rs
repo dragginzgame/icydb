@@ -5,6 +5,9 @@ pub(crate) mod generator;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+use crate::types::random;
+
 use crate::{
     traits::{
         EntityKeyBytes, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
@@ -31,6 +34,9 @@ pub enum UlidError {
 
     #[error("monotonic error - overflow")]
     GeneratorOverflow,
+
+    #[error("randomness is not initialized")]
+    RandomnessUnavailable,
 }
 
 //
@@ -69,10 +75,13 @@ impl Ulid {
 
     /// generate
     /// Generate a ULID with the current timestamp and a random value.
-    /// Falls back to zeroed randomness if the RNG is unavailable and to nil on overflow.
+    ///
+    /// Panics if randomness is unavailable or monotonic generation overflows.
     #[must_use]
     pub fn generate() -> Self {
-        Self::try_generate().unwrap_or_else(|_| Self::nil())
+        Self::try_generate().expect(
+            "ULID generation requires initialized randomness and non-overflowing monotonic state",
+        )
     }
 
     /// Monotonic increment; returns `None` on overflow.
@@ -84,6 +93,9 @@ impl Ulid {
     /// try_generate
     /// Fallible ULID generation preserving error type (e.g., overflow).
     pub(crate) fn try_generate() -> Result<Self, UlidError> {
+        #[cfg(test)]
+        random::seed_if_uninitialized_for_tests([0x55; 32]);
+
         generator::generate()
     }
 
@@ -119,11 +131,6 @@ impl Ulid {
     #[must_use]
     pub const fn from_u128(n: u128) -> Self {
         Self(WrappedUlid::from_bytes(n.to_be_bytes()))
-    }
-
-    #[must_use]
-    pub const fn max_storable() -> Self {
-        Self::from_bytes([0xFF; 16])
     }
 }
 

@@ -37,7 +37,10 @@ fn v_txt(s: &str) -> Value {
 
 macro_rules! sample_value_for_scalar {
     (Account) => {
-        Value::Account(Account::dummy(7))
+        Value::Account(Account::from_parts(
+            Principal::from_slice(&[7]),
+            Some(Subaccount::from_array([7; 32])),
+        ))
     };
     (Blob) => {
         Value::Blob(vec![1u8, 2u8, 3u8])
@@ -211,7 +214,13 @@ fn canonical_tag_and_rank_are_stable() {
     let map = Value::Map(vec![]);
     let list = Value::List(vec![]);
     let cases = vec![
-        (Value::Account(Account::dummy(7)), 1u8),
+        (
+            Value::Account(Account::from_parts(
+                Principal::from_slice(&[7]),
+                Some(Subaccount::from_array([7; 32])),
+            )),
+            1u8,
+        ),
         (Value::Blob(vec![1u8]), 2),
         (Value::Bool(true), 3),
         (Value::Date(Date::new(2024, 1, 2)), 4),
@@ -498,7 +507,10 @@ fn canonical_cmp_key_is_total_for_enum_payloads() {
 
 #[test]
 fn canonical_cmp_mixed_variant_follows_rank() {
-    let low = Value::Account(Account::dummy(1));
+    let low = Value::Account(Account::from_parts(
+        Principal::from_slice(&[1]),
+        Some(Subaccount::from_array([1; 32])),
+    ));
     let high = Value::Text("x".to_string());
 
     assert_eq!(Value::canonical_cmp(&low, &high), Ordering::Less);

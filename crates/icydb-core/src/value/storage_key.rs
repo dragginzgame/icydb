@@ -128,12 +128,6 @@ impl StorageKey {
         }
     }
 
-    /// Sentinel key representing the maximum storable value.
-    #[must_use]
-    pub fn max_storable() -> Self {
-        Self::Account(Account::max_storable())
-    }
-
     /// Global minimum key for scan bounds.
     pub const MIN: Self = Self::Account(Account::storage_min_sentinel());
 
@@ -347,7 +341,10 @@ mod tests {
 
     macro_rules! sample_value_for_scalar {
         (Account) => {
-            Value::Account(Account::dummy(7))
+            Value::Account(Account::from_parts(
+                Principal::from_slice(&[7]),
+                Some(Subaccount::from_array([7; 32])),
+            ))
         };
         (Blob) => {
             Value::Blob(vec![1u8, 2u8, 3u8])
@@ -440,7 +437,13 @@ mod tests {
         assert!(primary_key_value_from_runtime_value(&Value::Unit).is_ok());
         assert!(primary_key_value_from_runtime_value(&Value::Decimal(Decimal::new(1, 0))).is_err());
         assert!(primary_key_value_from_runtime_value(&Value::Text("x".to_string())).is_err());
-        assert!(primary_key_value_from_runtime_value(&Value::Account(Account::dummy(1))).is_ok());
+        assert!(
+            primary_key_value_from_runtime_value(&Value::Account(Account::from_parts(
+                Principal::from_slice(&[1]),
+                Some(Subaccount::from_array([1; 32]))
+            )))
+            .is_ok()
+        );
     }
 
     #[test]
@@ -474,14 +477,20 @@ mod tests {
             primary_key_value_from_runtime_value(&Value::Principal(Principal::from_slice(&[9u8])))
                 .expect("Principal is encodable"),
             primary_key_value_from_runtime_value(&Value::Int(-1)).expect("Int is encodable"),
-            primary_key_value_from_runtime_value(&Value::Account(Account::dummy(3)))
-                .expect("Account is encodable"),
+            primary_key_value_from_runtime_value(&Value::Account(Account::from_parts(
+                Principal::from_slice(&[3]),
+                Some(Subaccount::from_array([3; 32])),
+            )))
+            .expect("Account is encodable"),
         ];
 
         keys.sort();
 
         let expected = vec![
-            StorageKey::Account(Account::dummy(3)),
+            StorageKey::Account(Account::from_parts(
+                Principal::from_slice(&[3]),
+                Some(Subaccount::from_array([3; 32])),
+            )),
             StorageKey::Int(-1),
             StorageKey::Principal(Principal::from_slice(&[9u8])),
             StorageKey::Subaccount(Subaccount::new([3u8; 32])),

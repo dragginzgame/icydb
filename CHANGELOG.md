@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.161.md](docs/changelog/0.161.md)
 
+- `0.161.7` continues the core type-surface cleanup by removing stale
+  helper APIs, hardening ULID/Decimal failure behavior, and clarifying
+  variable-width key sizing.
+
 - `0.161.6` removes stale value, ULID, and wrapper-deref surfaces so
   runtime boundary types use explicit APIs instead of accidental helper
   exposure.

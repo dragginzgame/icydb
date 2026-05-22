@@ -82,7 +82,10 @@ fn encode_list(items: &[Vec<u8>]) -> Vec<u8> {
 
 #[test]
 fn storage_key_binary_roundtrips_all_supported_scalar_kinds() {
-    let account = Account::from_parts(Principal::dummy(3), Some(Subaccount::from([3_u8; 32])));
+    let account = Account::from_parts(
+        Principal::from_slice(&[3]),
+        Some(Subaccount::from_array([3_u8; 32])),
+    );
     let timestamp = Timestamp::from_millis(1_710_013_530_123);
     let ulid = Ulid::from_u128(77);
     let cases = vec![
@@ -94,13 +97,13 @@ fn storage_key_binary_roundtrips_all_supported_scalar_kinds() {
         (FieldKind::Int, StorageKey::Int(-9), Value::Int(-9)),
         (
             FieldKind::Principal,
-            StorageKey::Principal(Principal::dummy(5)),
-            Value::Principal(Principal::dummy(5)),
+            StorageKey::Principal(Principal::from_slice(&[5])),
+            Value::Principal(Principal::from_slice(&[5])),
         ),
         (
             FieldKind::Subaccount,
-            StorageKey::Subaccount(Subaccount::from([8_u8; 32])),
-            Value::Subaccount(Subaccount::from([8_u8; 32])),
+            StorageKey::Subaccount(Subaccount::from_array([8_u8; 32])),
+            Value::Subaccount(Subaccount::from_array([8_u8; 32])),
         ),
         (
             FieldKind::Timestamp,
@@ -176,7 +179,7 @@ fn storage_key_binary_roundtrips_relation_payloads() {
 
 #[test]
 fn storage_key_binary_rejects_malformed_account_payload() {
-    let bytes = encode_list(&[encode_bytes(Principal::dummy(1).as_slice())]);
+    let bytes = encode_list(&[encode_bytes(Principal::from_slice(&[1]).as_slice())]);
 
     let decode = decode_storage_key_field_binary_bytes(bytes.as_slice(), FieldKind::Account);
     let validate = validate_storage_key_binary_value_bytes(bytes.as_slice(), FieldKind::Account);
@@ -316,19 +319,19 @@ fn storage_key_scalar_decoders_accept_supported_binary_shapes() {
     );
     assert_eq!(
         decode_storage_key_field_binary_bytes(
-            &encode_bytes(Principal::dummy(11).as_slice()),
+            &encode_bytes(Principal::from_slice(&[11]).as_slice()),
             FieldKind::Principal,
         )
         .expect("principal payload should decode"),
-        StorageKey::Principal(Principal::dummy(11)),
+        StorageKey::Principal(Principal::from_slice(&[11])),
     );
     assert_eq!(
         decode_storage_key_field_binary_bytes(
-            &encode_bytes(&Subaccount::from([4_u8; 32]).to_array()),
+            &encode_bytes(&Subaccount::from_array([4_u8; 32]).to_array()),
             FieldKind::Subaccount,
         )
         .expect("subaccount payload should decode"),
-        StorageKey::Subaccount(Subaccount::from([4_u8; 32])),
+        StorageKey::Subaccount(Subaccount::from_array([4_u8; 32])),
     );
     assert_eq!(
         decode_storage_key_field_binary_bytes(
@@ -378,11 +381,11 @@ fn storage_key_scalar_encode_roundtrips_supported_kinds() {
         (FieldKind::Nat, StorageKey::Nat(42)),
         (
             FieldKind::Principal,
-            StorageKey::Principal(Principal::dummy(5)),
+            StorageKey::Principal(Principal::from_slice(&[5])),
         ),
         (
             FieldKind::Subaccount,
-            StorageKey::Subaccount(Subaccount::from([8_u8; 32])),
+            StorageKey::Subaccount(Subaccount::from_array([8_u8; 32])),
         ),
         (
             FieldKind::Timestamp,
