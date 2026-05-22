@@ -6,7 +6,7 @@
 use crate::{
     db::commit::{
         PreparedRowCommitOp,
-        marker::{COMMIT_ID_BYTES, CommitMarker, CommitRowOp, generate_commit_id},
+        marker::{CommitMarker, CommitRowOp, generate_commit_id},
         store::{with_commit_store, with_commit_store_infallible},
     },
     error::InternalError,
@@ -135,19 +135,15 @@ impl Drop for CommitApplyGuard {
 ///
 
 #[derive(Clone, Debug)]
-pub(crate) struct CommitGuard {
-    commit_id: [u8; COMMIT_ID_BYTES],
-}
+pub(crate) struct CommitGuard;
 
 impl CommitGuard {
-    // Create one guard that only needs persisted marker identity.
-    const fn for_persisted_id(commit_id: [u8; COMMIT_ID_BYTES]) -> Self {
-        Self { commit_id }
+    const fn new() -> Self {
+        Self
     }
 
     /// Clear the commit marker after successful apply.
-    fn clear(self) -> Result<(), InternalError> {
-        let _ = self;
+    fn clear() -> Result<(), InternalError> {
         with_commit_store_infallible(super::store::CommitStore::clear_verified)
     }
 }
@@ -157,10 +153,9 @@ pub(crate) fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, Internal
     with_commit_store(|store| {
         // Phase 1: enforce one in-flight marker at a time before opening the
         // commit window.
-        let commit_id = marker.id;
         store.set_if_empty(&marker)?;
 
-        Ok(CommitGuard::for_persisted_id(commit_id))
+        Ok(CommitGuard::new())
     })
 }
 
@@ -173,7 +168,7 @@ pub(crate) fn begin_single_row_commit(row_op: CommitRowOp) -> Result<CommitGuard
         // Phase 2: persist the single-row marker directly through the hot path.
         store.set_single_row_op_if_empty(commit_id, &row_op)?;
 
-        Ok(CommitGuard::for_persisted_id(commit_id))
+        Ok(CommitGuard::new())
     })
 }
 
@@ -196,21 +191,20 @@ pub(crate) fn finish_commit(
     // We only clear on success; failures keep the marker durable so recovery can
     // re-run the marker payload instead of losing commit authority.
     let result = apply(&mut guard);
-    let commit_id = guard.commit_id;
     if result.is_ok() {
         // Phase 1: successful apply must clear marker authority immediately.
-        guard.clear()?;
+        CommitGuard::clear()?;
         // Internal invariant: successful commit windows must clear the marker.
         assert!(
             with_commit_store_infallible(|store| store.is_empty()),
-            "commit marker must be cleared after successful finish_commit (commit_id={commit_id:?})"
+            "commit marker must be cleared after successful finish_commit"
         );
     } else {
         // Phase 1 (error path): failed apply must preserve marker authority.
         // Internal invariant: failed commit windows must preserve marker authority.
         assert!(
             with_commit_store_infallible(|store| !store.is_empty()),
-            "commit marker must remain persisted after failed finish_commit (commit_id={commit_id:?})"
+            "commit marker must remain persisted after failed finish_commit"
         );
     }
 

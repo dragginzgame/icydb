@@ -162,7 +162,7 @@ impl CommitIndexOp {
 /// Persisted mutation plan covering row-level operations.
 /// Recovery replays the marker exactly as stored.
 /// Unknown fields are rejected as corruption inside one marker payload version.
-/// Cross-version compatibility is owned by the versioned marker envelope in `commit::store`.
+/// Persisted format-version rejection is owned by the marker envelope in `commit::store`.
 /// This is internal commit-protocol metadata, not a user-schema type.
 ///
 
@@ -173,7 +173,7 @@ pub(crate) struct CommitMarker {
 }
 
 impl CommitMarker {
-    /// Construct a new commit marker with a fresh commit id.
+    /// Construct a new commit marker with a deterministic marker id.
     pub(crate) fn new(row_ops: Vec<CommitRowOp>) -> Result<Self, InternalError> {
         let id = generate_commit_id()?;
 
@@ -217,7 +217,10 @@ const COMMIT_MARKER_FLAG_AFTER: u8 = 0b0000_0010;
 const COMMIT_MARKER_FLAG_MASK: u8 = COMMIT_MARKER_FLAG_BEFORE | COMMIT_MARKER_FLAG_AFTER;
 const COMMIT_MARKER_ROW_COUNT_BYTES: usize = 4;
 
-/// Generate one fresh commit id for marker persistence.
+/// Generate one deterministic commit id for marker persistence.
+///
+/// This id is persisted for marker identity and diagnostics; it is not a source
+/// of user-visible randomness or durable commit ordering authority.
 pub(in crate::db) fn generate_commit_id() -> Result<[u8; COMMIT_ID_BYTES], InternalError> {
     let sequence = COMMIT_ID_SEQUENCE
         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {

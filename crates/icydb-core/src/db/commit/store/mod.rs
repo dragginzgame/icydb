@@ -9,12 +9,6 @@ mod marker_envelope;
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-use crate::db::commit::marker::{
-    COMMIT_MARKER_FORMAT_VERSION_CURRENT, encode_commit_marker_payload,
-};
-#[cfg(test)]
-use crate::db::commit::store::marker_envelope::encode_commit_marker_bytes;
 use crate::{
     db::commit::{
         marker::{CommitMarker, CommitRowOp, MAX_COMMIT_BYTES, validate_commit_marker_shape},
@@ -40,6 +34,8 @@ use std::{
 
 #[cfg(test)]
 use crate::db::commit::store::control_slot::encode_commit_control_slot;
+#[cfg(test)]
+use crate::db::commit::store::marker_envelope::encode_commit_marker_bytes;
 
 // Process-local marker presence hint for the recovered common path.
 //
@@ -70,23 +66,6 @@ impl RawCommitMarker {
 
     const fn as_bytes(&self) -> &[u8] {
         self.0.as_slice()
-    }
-
-    /// Serialize and bound-check a commit marker payload.
-    #[cfg(test)]
-    fn try_from_marker(marker: &CommitMarker) -> Result<Self, InternalError> {
-        let marker_payload = encode_commit_marker_payload(marker)?;
-        let bytes =
-            encode_commit_marker_bytes(COMMIT_MARKER_FORMAT_VERSION_CURRENT, &marker_payload)?;
-        if bytes.len() > MAX_COMMIT_BYTES as usize {
-            return Err(
-                InternalError::commit_marker_exceeds_max_size_before_persist(
-                    bytes.len(),
-                    MAX_COMMIT_BYTES,
-                ),
-            );
-        }
-        Ok(Self(bytes))
     }
 
     /// Deserialize the stored payload, treating failures as corruption.

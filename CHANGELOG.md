@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.161.md](docs/changelog/0.161.md)
 
+- `0.161.8` cleans up commit marker and guard internals, removing stale
+  test-only conversion paths and brittle error-message assertions.
+
 - `0.161.7` continues the core type-surface cleanup by removing stale
   helper APIs, hardening ULID/Decimal failure behavior, and clarifying
   variable-width key sizing.

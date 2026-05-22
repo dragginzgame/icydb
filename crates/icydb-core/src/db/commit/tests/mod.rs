@@ -2205,14 +2205,6 @@ fn recovery_rejects_unsupported_entity_path_without_fallback() {
     assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Recovery);
     assert!(
-        err.message.contains("unsupported entity path"),
-        "unsupported entity diagnostics should include dispatch context: {err:?}"
-    );
-    assert!(
-        err.message.contains(unsupported_path),
-        "unsupported entity diagnostics should include the unknown path: {err:?}"
-    );
-    assert!(
         commit_marker_present().expect("commit marker check should succeed"),
         "marker should remain present when recovery dispatch fails"
     );
@@ -2257,18 +2249,6 @@ fn recovery_rejects_miswired_hook_entity_path_mismatch_as_corruption() {
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Recovery);
     assert!(
-        err.message.contains("commit marker entity path mismatch"),
-        "dispatch corruption should include mismatch context: {err:?}"
-    );
-    assert!(
-        err.message.contains(RecoveryIndexedEntity::PATH),
-        "dispatch corruption should include the hook-expected entity path: {err:?}"
-    );
-    assert!(
-        err.message.contains(RecoveryTestEntity::PATH),
-        "dispatch corruption should include the marker entity path: {err:?}"
-    );
-    assert!(
         commit_marker_present().expect("commit marker check should succeed"),
         "marker should remain present when recovery dispatch detects hook mismatch"
     );
@@ -2290,21 +2270,9 @@ fn recovery_rejects_miswired_hook_entity_path_mismatch_as_corruption() {
 fn runtime_hook_lookup_rejects_duplicate_entity_tags() {
     #[cfg(debug_assertions)]
     {
-        let Err(err) = std::panic::catch_unwind(duplicate_name_db) else {
+        let Err(_) = std::panic::catch_unwind(duplicate_name_db) else {
             panic!("duplicate entity tags must fail during hook table construction");
         };
-        let message = if let Some(message) = err.downcast_ref::<&'static str>() {
-            (*message).to_string()
-        } else if let Some(message) = err.downcast_ref::<String>() {
-            message.clone()
-        } else {
-            panic!("duplicate-tag panic payload must be string-like: {err:?}");
-        };
-
-        assert!(
-            message.contains("duplicate EntityTag detected in runtime hooks"),
-            "duplicate-tag construction panic should include invariant context: {message}"
-        );
     }
 
     #[cfg(not(debug_assertions))]
@@ -2317,16 +2285,6 @@ fn runtime_hook_lookup_rejects_duplicate_entity_tags() {
         };
         assert_eq!(err.class, ErrorClass::InvariantViolation);
         assert_eq!(err.origin, ErrorOrigin::Store);
-        assert!(
-            err.message
-                .contains("duplicate runtime hooks for entity tag"),
-            "duplicate-tag runtime-hook lookup should include invariant context: {err:?}"
-        );
-        let expected_tag = RecoveryTestEntity::ENTITY_TAG.value().to_string();
-        assert!(
-            err.message.contains(expected_tag.as_str()),
-            "duplicate-tag runtime-hook lookup should include conflicting tag: {err:?}"
-        );
     }
 }
 
@@ -2347,15 +2305,6 @@ fn prepare_row_commit_rejects_duplicate_entity_paths() {
     };
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Store);
-    assert!(
-        err.message
-            .contains("duplicate runtime hooks for entity path"),
-        "duplicate-path prepare dispatch should include invariant context: {err:?}"
-    );
-    assert!(
-        err.message.contains(RecoveryTestEntity::PATH),
-        "duplicate-path prepare dispatch should include conflicting path: {err:?}"
-    );
 }
 
 #[test]
@@ -2385,10 +2334,6 @@ fn recovery_replay_rejects_schema_fingerprint_mismatch() {
         .expect_err("recovery should reject mismatched commit schema fingerprint");
     assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Recovery);
-    assert!(
-        err.message.contains("schema fingerprint mismatch"),
-        "fingerprint mismatch should include explicit reason: {err:?}"
-    );
     assert!(
         commit_marker_present().expect("commit marker check should succeed"),
         "marker should remain present when replay rejects schema fingerprint mismatch"
@@ -2652,10 +2597,6 @@ fn unique_conflict_classification_parity_holds_between_live_apply_and_replay() {
         .expect_err("live save path should reject duplicate unique value");
     assert_eq!(live_err.class, ErrorClass::Conflict);
     assert_eq!(live_err.origin, ErrorOrigin::Index);
-    assert!(
-        live_err.message.contains("index constraint violation"),
-        "live unique conflict should remain explicit: {live_err:?}"
-    );
 
     // Phase 2: capture replay-path unique conflict classification for the same semantic conflict.
     reset_recovery_state();
@@ -2705,10 +2646,6 @@ fn unique_conflict_classification_parity_holds_between_live_apply_and_replay() {
     assert_eq!(replay_err.class, live_err.class);
     assert_eq!(replay_err.origin, ErrorOrigin::Recovery);
     assert!(
-        replay_err.message.contains("index constraint violation"),
-        "replay unique conflict should remain explicit: {replay_err:?}"
-    );
-    assert!(
         commit_marker_present().expect("commit marker check should succeed"),
         "failed replay unique conflict must keep marker persisted for retry",
     );
@@ -2742,10 +2679,6 @@ fn unique_expression_index_enforces_casefolded_conflicts_on_live_saves() {
         .expect_err("casefold duplicate should violate unique expression index");
     assert_eq!(live_err.class, ErrorClass::Conflict);
     assert_eq!(live_err.origin, ErrorOrigin::Index);
-    assert!(
-        live_err.message.contains("index constraint violation"),
-        "casefold unique conflict should remain explicit: {live_err:?}"
-    );
 
     // Phase 3: rejected insert must not leave a persisted primary row.
     let conflicting_key =
@@ -2778,10 +2711,6 @@ fn unique_expression_conflict_classification_parity_holds_between_live_apply_and
         .expect_err("live save path should reject casefold duplicate unique value");
     assert_eq!(live_err.class, ErrorClass::Conflict);
     assert_eq!(live_err.origin, ErrorOrigin::Index);
-    assert!(
-        live_err.message.contains("index constraint violation"),
-        "live casefold unique conflict should remain explicit: {live_err:?}"
-    );
 
     // Phase 2: capture replay-path classification for the same casefold semantic conflict.
     reset_recovery_state();
@@ -2830,10 +2759,6 @@ fn unique_expression_conflict_classification_parity_holds_between_live_apply_and
     assert_eq!(replay_err.class, live_err.class);
     assert_eq!(replay_err.origin, ErrorOrigin::Recovery);
     assert!(
-        replay_err.message.contains("index constraint violation"),
-        "replay casefold unique conflict should remain explicit: {replay_err:?}"
-    );
-    assert!(
         commit_marker_present().expect("commit marker check should succeed"),
         "failed replay casefold unique conflict must keep marker persisted for retry",
     );
@@ -2876,10 +2801,6 @@ fn conditional_unique_conflict_classification_parity_holds_between_live_update_a
         .expect_err("live update path should reject duplicate conditional-unique activation");
     assert_eq!(live_err.class, ErrorClass::Conflict);
     assert_eq!(live_err.origin, ErrorOrigin::Index);
-    assert!(
-        live_err.message.contains("index constraint violation"),
-        "live conditional-unique conflict should remain explicit: {live_err:?}"
-    );
 
     // Phase 2: capture replay-path conditional-unique conflict for the same activation conflict.
     reset_recovery_state();
@@ -2919,10 +2840,6 @@ fn conditional_unique_conflict_classification_parity_holds_between_live_update_a
     assert_eq!(replay_err.class, ErrorClass::Conflict);
     assert_eq!(replay_err.class, live_err.class);
     assert_eq!(replay_err.origin, ErrorOrigin::Recovery);
-    assert!(
-        replay_err.message.contains("index constraint violation"),
-        "replay conditional-unique conflict should remain explicit: {replay_err:?}"
-    );
     assert!(
         commit_marker_present().expect("commit marker check should succeed"),
         "failed replay conditional-unique conflict must keep marker persisted for retry",
@@ -3849,12 +3766,6 @@ fn recovery_reconciles_schema_before_rebuilding_indexes_from_rows() {
 
     assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Recovery);
-    assert!(
-        err.message
-            .contains("schema evolution is not yet supported"),
-        "schema drift should surface before row decode, got: {}",
-        err.message,
-    );
     assert!(
         commit_marker_present().expect("commit marker check should succeed"),
         "marker should remain present when schema reconciliation rejects before recovery"

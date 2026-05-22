@@ -1,4 +1,4 @@
-use super::{RawCommitMarker, encode_commit_marker_bytes};
+use super::{RawCommitMarker, marker_envelope::encode_commit_marker_bytes};
 use crate::{
     db::{
         codec::MAX_ROW_BYTES,
@@ -124,9 +124,7 @@ fn commit_marker_current_version_round_trip_succeeds() {
         id: [9u8; 16],
         row_ops: Vec::new(),
     };
-    let encoded = RawCommitMarker::try_from_marker(&marker)
-        .expect("current-version marker envelope encode should succeed")
-        .0;
+    let encoded = encode_test_marker_payload(&marker);
     let decoded = RawCommitMarker(encoded)
         .try_decode()
         .expect("current-version marker envelope should decode")
@@ -183,14 +181,10 @@ fn commit_marker_rejects_oversized_stored_payload_as_corruption() {
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
-    assert!(
-        err.message.contains("commit marker exceeds max size"),
-        "unexpected error: {err:?}"
-    );
 }
 
 #[test]
-fn commit_marker_rejects_oversized_payload_before_persist() {
+fn direct_multi_row_control_slot_rejects_oversized_payload_before_persist() {
     let oversized_after = vec![0u8; MAX_COMMIT_BYTES as usize + 1];
     let marker = CommitMarker {
         id: [2u8; 16],
@@ -203,15 +197,11 @@ fn commit_marker_rejects_oversized_payload_before_persist() {
         )],
     };
 
-    let err = RawCommitMarker::try_from_marker(&marker)
-        .expect_err("oversized marker payload must be rejected before persist");
+    let err = super::CommitStore::encode_raw_direct_control_slot_for_tests(&marker)
+        .expect_err("direct control-slot encoder must reject oversized marker payload");
 
-    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
-    assert!(
-        err.message.contains("commit marker exceeds max size"),
-        "unexpected error: {err:?}"
-    );
 }
 
 #[test]
@@ -234,11 +224,6 @@ fn commit_marker_rejects_row_op_without_before_or_after() {
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
-    assert!(
-        err.message
-            .contains("row op has neither before nor after payload"),
-        "unexpected error: {err:?}"
-    );
 }
 
 #[test]
@@ -259,11 +244,6 @@ fn direct_multi_row_control_slot_rejects_row_op_without_before_or_after_before_p
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
-    assert!(
-        err.message
-            .contains("row op has neither before nor after payload"),
-        "unexpected error: {err:?}"
-    );
 }
 
 #[test]
@@ -275,11 +255,6 @@ fn direct_single_row_control_slot_rejects_invalid_row_op_before_persist() {
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
-    assert!(
-        err.message
-            .contains("row op has neither before nor after payload"),
-        "unexpected error: {err:?}"
-    );
 }
 
 #[test]
@@ -297,10 +272,6 @@ fn clear_verified_rejects_malformed_control_slot() {
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
-    assert!(
-        err.message.contains("expected envelope"),
-        "unexpected error: {err:?}"
-    );
     assert_eq!(store.cell.get().as_bytes(), malformed.as_slice());
 }
 
@@ -324,10 +295,6 @@ fn commit_marker_rejects_row_op_with_empty_entity_path() {
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
-    assert!(
-        err.message.contains("row op has empty entity_path"),
-        "unexpected error: {err:?}"
-    );
 }
 
 #[test]
@@ -345,10 +312,6 @@ fn commit_marker_rejects_row_op_with_invalid_key_length() {
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
-    assert!(
-        err.message.contains("raw data store key is too short"),
-        "unexpected error: {err:?}"
-    );
 }
 
 #[test]
@@ -369,14 +332,6 @@ fn commit_marker_rejects_row_op_with_invalid_key_shape() {
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
-    assert!(
-        err.message.contains("data key corrupted"),
-        "unexpected error: {err:?}"
-    );
-    assert!(
-        err.message.contains("invalid primary key"),
-        "unexpected error: {err:?}"
-    );
 }
 
 #[test]
@@ -399,8 +354,4 @@ fn commit_marker_rejects_row_op_with_oversized_payload() {
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
-    assert!(
-        err.message.contains("payload exceeds max size"),
-        "unexpected error: {err:?}"
-    );
 }

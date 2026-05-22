@@ -851,17 +851,6 @@ impl InternalError {
         ))
     }
 
-    /// Construct the canonical pre-persist commit-marker max-size unsupported error.
-    #[cfg(test)]
-    pub(crate) fn commit_marker_exceeds_max_size_before_persist(
-        size: usize,
-        max_size: u32,
-    ) -> Self {
-        Self::store_unsupported(format!(
-            "commit marker exceeds max size: {size} bytes (limit {max_size})",
-        ))
-    }
-
     /// Construct the canonical commit-control slot max-size unsupported error.
     pub(crate) fn commit_control_slot_exceeds_max_size(size: usize, max_size: u32) -> Self {
         Self::store_unsupported(format!(
