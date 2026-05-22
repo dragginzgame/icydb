@@ -11,10 +11,14 @@ use crate::{
         index::{IndexEntryValue, IndexStore, RawIndexStoreKey},
     },
     error::InternalError,
-    types::Ulid,
 };
-use canic_cdk::structures::Storable;
-use std::{borrow::Cow, cell::RefCell, thread::LocalKey};
+use canic_cdk::{structures::Storable, utils::time::now_millis};
+use std::{
+    borrow::Cow,
+    cell::RefCell,
+    sync::atomic::{AtomicU64, Ordering},
+    thread::LocalKey,
+};
 
 // Commit-marker durability invariant:
 // - Persist one marker before any stable mutation.
@@ -28,6 +32,8 @@ const COMMIT_SCHEMA_FINGERPRINT_BYTES: usize = 16;
 pub(in crate::db) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 1;
 
 pub(in crate::db) type CommitSchemaFingerprint = [u8; COMMIT_SCHEMA_FINGERPRINT_BYTES];
+
+static COMMIT_ID_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 // Conservative upper bound to avoid rejecting valid commits when index entries
 // are large; still small enough to fit typical canister constraints.
@@ -213,9 +219,17 @@ const COMMIT_MARKER_ROW_COUNT_BYTES: usize = 4;
 
 /// Generate one fresh commit id for marker persistence.
 pub(in crate::db) fn generate_commit_id() -> Result<[u8; COMMIT_ID_BYTES], InternalError> {
-    Ulid::try_generate()
-        .map_err(InternalError::commit_id_generation_failed)
-        .map(crate::types::Ulid::to_bytes)
+    let sequence = COMMIT_ID_SEQUENCE
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            current.checked_add(1)
+        })
+        .map_err(|_| InternalError::commit_id_generation_failed("commit id sequence exhausted"))?;
+
+    let mut id = [0u8; COMMIT_ID_BYTES];
+    id[..8].copy_from_slice(&now_millis().to_be_bytes());
+    id[8..].copy_from_slice(&sequence.to_be_bytes());
+
+    Ok(id)
 }
 
 /// Encode one commit-marker payload in the canonical binary format.
