@@ -64,15 +64,6 @@ pub struct PagedGroupedExecution {
 }
 
 impl PagedGroupedExecution {
-    /// Construct one grouped paged execution payload.
-    #[must_use]
-    pub const fn new(rows: Vec<GroupedRow>, continuation_cursor: Option<Vec<u8>>) -> Self {
-        Self {
-            rows,
-            continuation_cursor,
-        }
-    }
-
     /// Borrow grouped rows.
     #[must_use]
     pub const fn rows(&self) -> &[GroupedRow] {

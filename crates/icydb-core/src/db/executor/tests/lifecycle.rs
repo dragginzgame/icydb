@@ -34,7 +34,7 @@ fn singleton_only_round_trips_through_runtime_load() {
         "singleton only() should match exactly one row",
     );
     assert_eq!(
-        response[0].entity_ref(),
+        response.as_slice()[0].entity_ref(),
         &expected,
         "loaded singleton should match inserted row",
     );

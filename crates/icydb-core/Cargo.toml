@@ -34,6 +34,9 @@ time = { workspace = true }
 ulid = { workspace = true }
 xxhash-rust = { workspace = true }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+getrandom = { workspace = true }
+
 [dev-dependencies]
 icydb-derive = { workspace = true }
 proptest = { workspace = true }

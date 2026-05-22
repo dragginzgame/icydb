@@ -203,15 +203,6 @@ impl<R: ResponseRow> Response<R> {
         Self(rows)
     }
 
-    /// Construct one response from rows convertible into `R`.
-    #[must_use]
-    pub fn from_rows<T>(rows: Vec<T>) -> Self
-    where
-        T: Into<R>,
-    {
-        Self(rows.into_iter().map(Into::into).collect())
-    }
-
     /// Return the number of rows.
     #[must_use]
     pub const fn len(&self) -> usize {
@@ -243,51 +234,13 @@ impl<R: ResponseRow> Response<R> {
         self.0.as_slice()
     }
 
-    /// Borrow the row at `index`, if present.
-    #[must_use]
-    pub fn get(&self, index: usize) -> Option<&R> {
-        self.0.get(index)
-    }
-
-    /// Borrow the first row, if present.
-    #[must_use]
-    pub fn first(&self) -> Option<&R> {
-        self.0.first()
-    }
-
-    /// Borrow the last row, if present.
-    #[must_use]
-    pub fn last(&self) -> Option<&R> {
-        self.0.last()
-    }
-
     /// Borrow an iterator over rows in response order.
     pub fn iter(&self) -> std::slice::Iter<'_, R> {
         self.0.iter()
     }
 }
 
-impl<R: ResponseRow> AsRef<[R]> for Response<R> {
-    fn as_ref(&self) -> &[R] {
-        self.as_slice()
-    }
-}
-
-impl<R: ResponseRow> std::ops::Index<usize> for Response<R> {
-    type Output = R;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.0[index]
-    }
-}
-
 impl<E: EntityKind> Response<Row<E>> {
-    /// Return the first row identifier, if present.
-    #[must_use]
-    pub fn id(&self) -> Option<Id<E>> {
-        self.0.first().map(Row::id)
-    }
-
     /// Consume and return all entities in response order.
     #[must_use]
     pub fn entities(self) -> Vec<E> {

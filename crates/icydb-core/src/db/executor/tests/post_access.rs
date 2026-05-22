@@ -141,7 +141,7 @@ fn load_in_and_text_ops_respect_ordered_pagination() {
         "ordered pagination should return one row",
     );
     assert_eq!(
-        response[0].entity_ref().rank,
+        response.as_slice()[0].entity_ref().rank,
         30,
         "pagination should apply to the filtered+ordered window",
     );
@@ -265,7 +265,7 @@ fn delete_limit_applies_to_filtered_rows_only() {
         "delete limit should remove one filtered row"
     );
     assert_eq!(
-        deleted[0].entity_ref().rank,
+        deleted.as_slice()[0].entity_ref().rank,
         100,
         "delete limit should apply after filtering+ordering"
     );

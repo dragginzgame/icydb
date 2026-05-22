@@ -24,15 +24,6 @@ pub struct PagedLoadExecution<E: EntityKind> {
 }
 
 impl<E: EntityKind> PagedLoadExecution<E> {
-    /// Create a paged load execution payload.
-    #[must_use]
-    pub const fn new(response: EntityResponse<E>, continuation_cursor: Option<Vec<u8>>) -> Self {
-        Self {
-            response,
-            continuation_cursor,
-        }
-    }
-
     /// Borrow the paged response rows.
     #[must_use]
     pub const fn response(&self) -> &EntityResponse<E> {

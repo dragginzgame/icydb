@@ -215,7 +215,7 @@ fn session_aggregate_identity_terminals_match_execute() {
             .first()
             .expect("session aggregate first should succeed")
             .map(|id| id.key()),
-        expected.id().map(|id| id.key()),
+        expected.ids().next().map(|id| id.key()),
         "session aggregate first should match execute() head id",
     );
     assert_eq!(

@@ -30,7 +30,7 @@ fn delete_applies_order_and_delete_limit() {
     let response = delete.execute(plan).expect("delete should succeed");
     assert_eq!(response.len(), 1, "delete limit should remove one row");
     assert_eq!(
-        response[0].entity_ref().id,
+        response.as_slice()[0].entity_ref().id,
         Ulid::from_u128(10),
         "delete limit should run after canonical ordering by id"
     );

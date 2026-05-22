@@ -2776,7 +2776,7 @@ fn load_applies_order_and_pagination() {
 
     assert_eq!(response.len(), 1, "pagination should return one row");
     assert_eq!(
-        response[0].entity_ref().id,
+        response.as_slice()[0].entity_ref().id,
         Ulid::from_u128(2),
         "pagination should run after canonical ordering by id",
     );
@@ -2809,7 +2809,7 @@ fn load_offset_pagination_preserves_next_cursor_boundary() {
         .expect("offset page should emit continuation cursor");
     let expected_boundary = crate::db::cursor::CursorBoundary {
         slots: vec![crate::db::cursor::CursorBoundarySlot::Present(Value::Ulid(
-            page.items[1].entity_ref().id,
+            page.items.as_slice()[1].entity_ref().id,
         ))],
     };
     assert_eq!(
@@ -3829,6 +3829,7 @@ fn load_index_range_cursor_anchor_matches_last_emitted_row_after_post_access_pip
         .expect("index-range pagination must emit a scalar continuation cursor");
     let last_entity = page
         .items
+        .iter()
         .last()
         .expect("non-empty page must include a trailing emitted row")
         .entity_ref();
@@ -4158,7 +4159,10 @@ fn load_cursor_pagination_skips_strictly_before_limit() {
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
     let page_1 = execute_phase_rank_page(&load, false, 1, None);
     assert_eq!(page_1.items.len(), 1, "page1 should return one row");
-    assert_eq!(page_1.items[0].entity_ref().id, Ulid::from_u128(1100));
+    assert_eq!(
+        page_1.items.as_slice()[0].entity_ref().id,
+        Ulid::from_u128(1100)
+    );
 
     let page_2 = execute_phase_rank_page(
         &load,
@@ -4176,7 +4180,7 @@ fn load_cursor_pagination_skips_strictly_before_limit() {
     );
     assert_eq!(page_2.items.len(), 1, "page2 should return one row");
     assert_eq!(
-        page_2.items[0].entity_ref().id,
+        page_2.items.as_slice()[0].entity_ref().id,
         Ulid::from_u128(1101),
         "cursor boundary must be applied before limit using strict ordering",
     );
@@ -4197,7 +4201,7 @@ fn load_cursor_pagination_skips_strictly_before_limit() {
     );
     assert_eq!(page_3.items.len(), 1, "page3 should return one row");
     assert_eq!(
-        page_3.items[0].entity_ref().id,
+        page_3.items.as_slice()[0].entity_ref().id,
         Ulid::from_u128(1102),
         "strict cursor continuation must advance beyond the last returned row",
     );
@@ -4240,9 +4244,12 @@ fn load_cursor_next_cursor_uses_last_returned_row_boundary() {
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
     let page_1 = execute_phase_rank_page(&load, false, 2, None);
     assert_eq!(page_1.items.len(), 2, "page1 should return two rows");
-    assert_eq!(page_1.items[0].entity_ref().id, Ulid::from_u128(1200));
     assert_eq!(
-        page_1.items[1].entity_ref().id,
+        page_1.items.as_slice()[0].entity_ref().id,
+        Ulid::from_u128(1200)
+    );
+    assert_eq!(
+        page_1.items.as_slice()[1].entity_ref().id,
         Ulid::from_u128(1201),
         "page1 second row should be the PK tie-break winner for rank=20",
     );
@@ -8354,7 +8361,7 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
         "final prefix window page should not emit continuation cursor"
     );
 
-    let terminal_entity = page2.items[0].entity_ref();
+    let terminal_entity = page2.items.as_slice()[0].entity_ref();
     assert_resume_from_terminal_entity_exhausts_range(
         terminal_entity,
         "cursor boundary at final prefix row should yield an empty continuation page",

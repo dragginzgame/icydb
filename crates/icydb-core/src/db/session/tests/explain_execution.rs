@@ -784,12 +784,12 @@ fn session_non_ready_secondary_indexes_are_hidden_from_planning_and_execution() 
         "planner visibility fallback must preserve the bounded query window",
     );
     assert_eq!(
-        rows[0].entity_ref().name,
+        rows.as_slice()[0].entity_ref().name,
         "Sam",
         "planner visibility fallback must preserve the filtered row identity",
     );
     assert_eq!(
-        rows[0].entity_ref().age,
+        rows.as_slice()[0].entity_ref().age,
         30,
         "planner visibility fallback must preserve the projected entity payload",
     );

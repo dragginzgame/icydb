@@ -60,7 +60,7 @@ fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
         .expect("page1 should execute");
     assert_eq!(page1.items.len(), 1, "page1 should return one row");
     assert_eq!(
-        page1.items[0].entity_ref().id,
+        page1.items.as_slice()[0].entity_ref().id,
         Ulid::from_u128(4101),
         "page1 should return the initial lowest-rank row"
     );
@@ -98,7 +98,7 @@ fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
         .expect("page2 should execute");
     assert_eq!(page2.items.len(), 1, "page2 should return one row");
     assert_eq!(
-        page2.items[0].entity_ref().id,
+        page2.items.as_slice()[0].entity_ref().id,
         Ulid::from_u128(4102),
         "row moved before boundary should not re-enter forward continuation"
     );
@@ -116,7 +116,7 @@ fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
         .execute(full_plan)
         .expect("full-order load should succeed");
     assert_eq!(
-        now[0].entity_ref().id,
+        now.as_slice()[0].entity_ref().id,
         Ulid::from_u128(4103),
         "updated row now sorts before the boundary in live state"
     );
@@ -176,7 +176,7 @@ fn load_cursor_live_state_insert_after_boundary_can_appear_on_next_page() {
         .expect("page1 should execute");
     assert_eq!(page1.items.len(), 1, "page1 should return one row");
     assert_eq!(
-        page1.items[0].entity_ref().id,
+        page1.items.as_slice()[0].entity_ref().id,
         Ulid::from_u128(4201),
         "page1 should return the initial boundary row"
     );
@@ -214,7 +214,7 @@ fn load_cursor_live_state_insert_after_boundary_can_appear_on_next_page() {
         .expect("page2 should execute");
     assert_eq!(page2.items.len(), 1, "page2 should return one row");
     assert_eq!(
-        page2.items[0].entity_ref().id,
+        page2.items.as_slice()[0].entity_ref().id,
         Ulid::from_u128(4299),
         "new row inserted after boundary may appear on continuation page"
     );
@@ -274,7 +274,7 @@ fn load_cursor_live_state_delete_between_pages_can_shrink_remaining_results() {
         .expect("page1 should execute");
     assert_eq!(page1.items.len(), 1, "page1 should return one row");
     assert_eq!(
-        page1.items[0].entity_ref().id,
+        page1.items.as_slice()[0].entity_ref().id,
         Ulid::from_u128(4301),
         "page1 should return the initial boundary row"
     );
@@ -290,7 +290,7 @@ fn load_cursor_live_state_delete_between_pages_can_shrink_remaining_results() {
     let deleted = delete.execute(delete_plan).expect("delete should succeed");
     assert_eq!(deleted.len(), 1, "one row should be removed");
     assert_eq!(
-        deleted[0].entity_ref().id,
+        deleted.as_slice()[0].entity_ref().id,
         Ulid::from_u128(4302),
         "delete should remove the middle row before continuation"
     );
@@ -318,7 +318,7 @@ fn load_cursor_live_state_delete_between_pages_can_shrink_remaining_results() {
         .expect("page2 should execute");
     assert_eq!(page2.items.len(), 1, "page2 should return one row");
     assert_eq!(
-        page2.items[0].entity_ref().id,
+        page2.items.as_slice()[0].entity_ref().id,
         Ulid::from_u128(4303),
         "deleted rows must not appear on continuation pages"
     );

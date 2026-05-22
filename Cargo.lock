@@ -1265,6 +1265,7 @@ dependencies = [
  "candid",
  "canic-cdk",
  "derive_more",
+ "getrandom 0.3.4",
  "ic-memory",
  "icydb-derive",
  "icydb-primitives",

@@ -216,7 +216,7 @@ fn delete_allows_target_with_weak_single_referrer() {
         .expect("source load should succeed");
     assert_eq!(remaining_source.len(), 1, "weak source row should remain");
     assert_eq!(
-        remaining_source[0].entity_ref().target,
+        remaining_source.as_slice()[0].entity_ref().target,
         target_id,
         "weak source relation value should be preserved",
     );
@@ -276,7 +276,7 @@ fn delete_allows_target_with_weak_optional_referrer() {
         "weak optional source row should remain"
     );
     assert_eq!(
-        remaining_source[0].entity_ref().target,
+        remaining_source.as_slice()[0].entity_ref().target,
         Some(target_id),
         "weak optional source relation value should be preserved",
     );
@@ -336,7 +336,7 @@ fn delete_allows_target_with_weak_list_referrer() {
         "weak list source row should remain"
     );
     assert_eq!(
-        remaining_source[0].entity_ref().targets,
+        remaining_source.as_slice()[0].entity_ref().targets,
         vec![target_id],
         "weak list source relation values should be preserved",
     );
@@ -396,7 +396,7 @@ fn delete_allows_target_with_weak_set_referrer() {
         "weak set source row should remain"
     );
     assert_eq!(
-        remaining_source[0].entity_ref().targets,
+        remaining_source.as_slice()[0].entity_ref().targets,
         vec![target_id],
         "weak set source relation values should be preserved",
     );

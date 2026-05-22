@@ -58,6 +58,7 @@ derive_more = { version = "2.0", default-features = false, features = [
     "into_iterator",
     "sum",
 ] }
+getrandom = "0.3"
 ic-memory = "0.6.2"
 icydb = { path = "crates/icydb", version = "0.161.6" }
 icydb-build = { path = "crates/icydb-build", version = "0.161.6" }

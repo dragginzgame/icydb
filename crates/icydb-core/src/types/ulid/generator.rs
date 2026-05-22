@@ -83,8 +83,18 @@ mod test {
         assert!(a < b);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
-    fn generation_fails_when_randomness_is_uninitialized() {
+    fn generation_uses_native_entropy_when_randomness_is_uninitialized() {
+        random::clear_for_tests();
+        let mut generator = Generator::default();
+
+        assert!(generator.generate().is_ok());
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[test]
+    fn generation_fails_when_randomness_is_uninitialized_without_native_entropy() {
         random::clear_for_tests();
         let mut generator = Generator::default();
 
