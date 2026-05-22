@@ -60,8 +60,8 @@ pub mod prelude {
 #[doc(hidden)]
 pub mod __macro {
     pub use crate::db::{
-        GeneratedStructuralEnumPayload, GeneratedStructuralMapPayloadSlices, PersistedScalar,
-        ScalarSlotValueRef, ScalarValueRef,
+        GeneratedStructuralEnumPayload, GeneratedStructuralMapPayloadSlices, PersistedRow,
+        PersistedScalar, ScalarSlotValueRef, ScalarValueRef, SlotReader, SlotWriter,
     };
     pub use crate::error::InternalError;
     pub use crate::traits::{
