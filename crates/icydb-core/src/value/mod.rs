@@ -3,17 +3,25 @@
 //! Responsibility: canonical dynamic value representation plus primary-key helpers.
 //! Does not own: planner semantics or db-level decode policy.
 //! Boundary: shared value/domain surface used by query, executor, and storage layers.
+//!
+//! `Value` is the runtime canonical value model. Public canister/query boundaries
+//! should prefer `InputValue` for caller-supplied literals and `OutputValue` for
+//! result payloads, so API surfaces do not depend on runtime execution internals.
+//!
+//! `Value` is the runtime canonical value model. Public canister/query boundaries
+//! should prefer `InputValue` for caller-supplied literals and `OutputValue` for
+//! result payloads, so API surfaces do not depend on runtime execution internals.
 
 mod canonical;
 mod coercion;
 mod compare;
 mod hash;
 mod input;
-pub mod map;
-pub mod ops;
+mod map;
+pub(crate) mod ops;
 mod output;
 mod rank;
-pub mod semantics;
+mod semantics;
 mod storage_key;
 mod storage_key_runtime;
 mod tag;
@@ -326,7 +334,7 @@ impl Value {
 
     /// Total canonical comparator used for map-key normalization.
     #[must_use]
-    pub fn canonical_cmp_key(left: &Self, right: &Self) -> Ordering {
+    pub(crate) fn canonical_cmp_key(left: &Self, right: &Self) -> Ordering {
         compare::canonical_cmp_key(left, right)
     }
 
@@ -339,7 +347,7 @@ impl Value {
     /// used for singleton tables and synthetic identity entities.
     /// Only `Null` is non-indexable.
     #[must_use]
-    pub const fn as_primary_key_value(&self) -> Option<StorageKey> {
+    pub(crate) const fn as_primary_key_value(&self) -> Option<StorageKey> {
         match self {
             Self::Account(value) => Some(StorageKey::Account(*value)),
             Self::Int(value) => Some(StorageKey::Int(*value)),
@@ -399,7 +407,6 @@ impl RuntimeValueDecode for Value {
     }
 }
 
-#[macro_export]
 macro_rules! impl_from_for {
     ( $( $type:ty => $variant:ident ),* $(,)? ) => {
         $(

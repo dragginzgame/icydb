@@ -48,9 +48,9 @@ impl TypeSanitizer {
 
     pub fn quote_constructor(&self) -> TokenStream {
         let path = &self.path;
-        let args = &self.args;
+        let args = self.args.iter();
 
-        if args.is_empty() {
+        if self.args.is_empty() {
             quote! { #path }
         } else {
             quote! { #path::new(#(#args),*) }
@@ -85,9 +85,9 @@ pub struct TypeValidator {
 impl TypeValidator {
     pub fn quote_constructor(&self) -> TokenStream {
         let path = &self.path;
-        let args = &self.args;
+        let args = self.args.iter();
 
-        if args.is_empty() {
+        if self.args.is_empty() {
             quote! { #path }
         } else {
             quote! { #path::new(#(#args),*) }

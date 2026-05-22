@@ -114,7 +114,7 @@ fn to_f64_lossless(value: &Value) -> Option<f64> {
 
 /// Compare two runtime values under value-local numeric coercion semantics.
 #[must_use]
-pub fn cmp_numeric(left: &Value, right: &Value) -> Option<Ordering> {
+fn cmp_numeric(left: &Value, right: &Value) -> Option<Ordering> {
     if !semantics::supports_numeric_coercion(left) || !semantics::supports_numeric_coercion(right) {
         return None;
     }

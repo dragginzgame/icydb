@@ -291,7 +291,7 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
             _ => None,
         },
         PersistedFieldKind::Ulid => match value {
-            Value::Text(inner) => Ulid::from_str(inner).ok().map(Value::Ulid),
+            Value::Text(inner) => inner.parse::<Ulid>().ok().map(Value::Ulid),
             _ => None,
         },
         PersistedFieldKind::List(inner) | PersistedFieldKind::Set(inner) => match value {

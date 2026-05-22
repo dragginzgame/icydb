@@ -67,7 +67,7 @@ where
 
 /// Return whether a value is empty when emptiness is defined for its variant.
 #[must_use]
-pub const fn is_empty(value: &Value) -> Option<bool> {
+const fn is_empty(value: &Value) -> Option<bool> {
     match value {
         Value::List(values) => Some(values.is_empty()),
         Value::Map(entries) => Some(entries.is_empty()),
@@ -83,37 +83,37 @@ pub const fn is_empty(value: &Value) -> Option<bool> {
 
 /// Logical negation of [`is_empty`].
 #[must_use]
-pub fn is_not_empty(value: &Value) -> Option<bool> {
+fn is_not_empty(value: &Value) -> Option<bool> {
     is_empty(value).map(|empty| !empty)
 }
 
 /// Returns true if `value` contains `needle`.
 #[must_use]
-pub fn contains(value: &Value, needle: &Value) -> Option<bool> {
+fn contains(value: &Value, needle: &Value) -> Option<bool> {
     contains_by(value, needle, |left, right| left == right)
 }
 
 /// Returns true if any item in `needles` matches a member of `value`.
 #[must_use]
-pub fn contains_any(value: &Value, needles: &Value) -> Option<bool> {
+fn contains_any(value: &Value, needles: &Value) -> Option<bool> {
     contains_any_by(value, needles, |left, right| left == right)
 }
 
 /// Returns true if every item in `needles` matches a member of `value`.
 #[must_use]
-pub fn contains_all(value: &Value, needles: &Value) -> Option<bool> {
+fn contains_all(value: &Value, needles: &Value) -> Option<bool> {
     contains_all_by(value, needles, |left, right| left == right)
 }
 
 /// Returns true if `value` exists inside the provided list.
 #[must_use]
-pub fn in_list(value: &Value, haystack: &Value) -> Option<bool> {
+fn in_list(value: &Value, haystack: &Value) -> Option<bool> {
     in_list_by(value, haystack, |left, right| left == right)
 }
 
 /// Case-insensitive `contains` supporting text and identifier variants.
 #[must_use]
-pub fn contains_ci(value: &Value, needle: &Value) -> Option<bool> {
+fn contains_ci(value: &Value, needle: &Value) -> Option<bool> {
     match value {
         Value::List(_) => contains_by(value, needle, text::eq_ci),
         _ => Some(text::eq_ci(value, needle)),
@@ -122,19 +122,19 @@ pub fn contains_ci(value: &Value, needle: &Value) -> Option<bool> {
 
 /// Case-insensitive variant of [`contains_any`].
 #[must_use]
-pub fn contains_any_ci(value: &Value, needles: &Value) -> Option<bool> {
+fn contains_any_ci(value: &Value, needles: &Value) -> Option<bool> {
     contains_any_by(value, needles, text::eq_ci)
 }
 
 /// Case-insensitive variant of [`contains_all`].
 #[must_use]
-pub fn contains_all_ci(value: &Value, needles: &Value) -> Option<bool> {
+fn contains_all_ci(value: &Value, needles: &Value) -> Option<bool> {
     contains_all_by(value, needles, text::eq_ci)
 }
 
 /// Case-insensitive variant of [`in_list`].
 #[must_use]
-pub fn in_list_ci(value: &Value, haystack: &Value) -> Option<bool> {
+fn in_list_ci(value: &Value, haystack: &Value) -> Option<bool> {
     in_list_by(value, haystack, text::eq_ci)
 }
 

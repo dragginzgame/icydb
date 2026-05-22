@@ -4,8 +4,8 @@
 //! Does not own: the `Value` enum shape or persistence encoding.
 //! Boundary: text, collection, numeric, and ordering helpers.
 
-pub mod collection;
-pub mod numeric;
-pub mod ordering;
-pub mod partial_ord;
-pub mod text;
+mod collection;
+pub(crate) mod numeric;
+pub(crate) mod ordering;
+mod partial_ord;
+mod text;

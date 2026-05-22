@@ -210,10 +210,7 @@ mod tests {
 
     impl crate::visitor::VisitorContext for TestCtx {
         fn add_issue(&mut self, issue: crate::visitor::Issue) {
-            self.issues
-                .entry(String::new())
-                .or_default()
-                .push(issue.into_message());
+            self.issues.push(String::new(), issue);
         }
 
         fn add_issue_at(&mut self, _: crate::visitor::PathSegment, issue: crate::visitor::Issue) {
@@ -228,7 +225,10 @@ mod tests {
 
         v.validate("abcd", &mut ctx);
 
-        assert_eq!(ctx.issues[""][0], "length (4) is not equal to 3");
+        assert_eq!(
+            ctx.issues.get("").expect("root issue should exist")[0],
+            "length (4) is not equal to 3"
+        );
     }
 
     #[test]
@@ -249,7 +249,7 @@ mod tests {
         v.validate("a", &mut ctx);
 
         assert_eq!(
-            ctx.issues[""][0],
+            ctx.issues.get("").expect("root issue should exist")[0],
             "length (1) must be between 2 and 4 (inclusive)"
         );
     }

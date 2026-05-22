@@ -11,8 +11,8 @@ use crate::value::{Value, tag};
 /// Stable rank used for cross-variant ordering.
 ///
 /// IMPORTANT:
-/// Rank order is part of deterministic query behavior and must remain fixed
-/// after 0.7 unless an intentional breaking migration is performed.
+/// Rank order is part of deterministic query behavior; change only as an
+/// explicit breaking value-semantics migration.
 ///
 #[must_use]
 pub(super) const fn canonical_rank(value: &Value) -> u8 {

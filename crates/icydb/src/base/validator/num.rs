@@ -146,10 +146,7 @@ mod tests {
 
     impl crate::visitor::VisitorContext for TestCtx {
         fn add_issue(&mut self, issue: crate::visitor::Issue) {
-            self.issues
-                .entry(String::new())
-                .or_default()
-                .push(issue.into_message());
+            self.issues.push(String::new(), issue);
         }
 
         fn add_issue_at(&mut self, _: crate::visitor::PathSegment, issue: crate::visitor::Issue) {

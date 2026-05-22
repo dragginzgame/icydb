@@ -9,7 +9,7 @@ use std::cmp::Ordering;
 
 /// Total canonical comparator for one map entry `(key, value)`.
 #[must_use]
-pub fn canonical_cmp_map_entry(
+fn canonical_cmp_map_entry(
     left_key: &Value,
     left_value: &Value,
     right_key: &Value,
@@ -22,7 +22,7 @@ pub fn canonical_cmp_map_entry(
 /// Build one borrowed canonical map-entry order for hashing and
 /// fingerprint-adjacent encoding surfaces.
 #[must_use]
-pub fn ordered_map_entries(entries: &[(Value, Value)]) -> Vec<&(Value, Value)> {
+fn ordered_map_entries(entries: &[(Value, Value)]) -> Vec<&(Value, Value)> {
     let mut ordered = entries.iter().collect::<Vec<_>>();
     ordered.sort_by(|left, right| canonical_cmp_map_entry(&left.0, &left.1, &right.0, &right.1));
 

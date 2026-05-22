@@ -327,7 +327,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                     )?;
                 self.validate_structural_after_image(
                     &data_key,
-                    &raw_after_image,
+                    raw_after_image.as_raw_row(),
                     accepted_row_decode_contract.clone(),
                     schema,
                     validate_relations,

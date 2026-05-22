@@ -1,6 +1,6 @@
 use crate::prelude::*;
 use darling::{Error as DarlingError, FromMeta, ast::NestedMeta};
-use derive_more::{Deref, DerefMut, IntoIterator};
+use derive_more::IntoIterator;
 use std::{collections::HashSet, hash::Hash, str::FromStr, sync::LazyLock};
 
 //
@@ -254,7 +254,7 @@ impl ToTokens for TraitKind {
 // TraitSet
 //
 
-#[derive(Clone, Debug, Default, Deref, DerefMut, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TraitSet(pub HashSet<TraitKind>);
 
 impl TraitSet {
@@ -264,6 +264,18 @@ impl TraitSet {
 
     pub(crate) fn add(&mut self, tr: TraitKind) {
         self.insert(tr);
+    }
+
+    pub(crate) fn insert(&mut self, tr: TraitKind) -> bool {
+        self.0.insert(tr)
+    }
+
+    pub(crate) fn remove(&mut self, tr: TraitKind) -> bool {
+        self.0.remove(&tr)
+    }
+
+    pub(crate) fn contains(&self, tr: TraitKind) -> bool {
+        self.0.contains(&tr)
     }
 
     pub(crate) fn extend<I: IntoIterator<Item = TraitKind>>(&mut self, traits: I) {
@@ -336,7 +348,7 @@ impl TraitBuilder {
         }
 
         for tr in self.remove.iter() {
-            if !set.remove(tr) {
+            if !set.remove(*tr) {
                 return Err(DarlingError::custom(format!(
                     "cannot remove trait {tr:?} from {set:?}"
                 )));
@@ -361,7 +373,7 @@ impl TraitBuilder {
 
         // self.remove
         for tr in self.remove.iter() {
-            assert!(set.remove(tr), "cannot remove trait {tr:?} from {set:?}");
+            assert!(set.remove(*tr), "cannot remove trait {tr:?} from {set:?}");
         }
 
         set
@@ -373,8 +385,22 @@ impl TraitBuilder {
 // Used only for parsing trait lists from schema attributes via darling.
 //
 
-#[derive(Clone, Debug, Default, Deref, DerefMut, IntoIterator)]
+#[derive(Clone, Debug, Default, IntoIterator)]
 pub struct TraitListMeta(pub Vec<TraitKind>);
+
+impl TraitListMeta {
+    pub(crate) fn push(&mut self, tr: TraitKind) {
+        self.0.push(tr);
+    }
+
+    pub(crate) fn extend<I: IntoIterator<Item = TraitKind>>(&mut self, traits: I) {
+        self.0.extend(traits);
+    }
+
+    pub(crate) fn iter(&self) -> std::slice::Iter<'_, TraitKind> {
+        self.0.iter()
+    }
+}
 
 impl FromMeta for TraitListMeta {
     fn from_list(items: &[NestedMeta]) -> Result<Self, DarlingError> {

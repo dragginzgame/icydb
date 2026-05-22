@@ -2,7 +2,6 @@ mod number;
 
 use crate::prelude::*;
 use darling::{Error as DarlingError, FromMeta, ast::NestedMeta};
-use derive_more::Deref;
 use syn::{Lit, LitStr, Path};
 
 pub use number::*;
@@ -127,13 +126,22 @@ impl ToTokens for Arg {
 /// Generic re-useable list of arguments
 ///
 
-#[derive(Clone, Debug, Default, Deref)]
+#[derive(Clone, Debug, Default)]
 pub struct Args(Vec<Arg>);
 
 impl Args {
     #[must_use]
     pub const fn none() -> Self {
         Self(vec![])
+    }
+
+    #[must_use]
+    pub(crate) const fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub(crate) fn iter(&self) -> std::slice::Iter<'_, Arg> {
+        self.0.iter()
     }
 }
 

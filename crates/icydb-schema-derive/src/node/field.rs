@@ -494,7 +494,7 @@ fn schema_default_rust_expr(default: &Arg, value: &Value) -> TokenStream {
             quote!(::icydb::types::Subaccount::from_array([#(#byte_tokens),*]).into())
         }
         (Some(Primitive::Ulid), Arg::String(value)) => {
-            quote!(::icydb::types::Ulid::from_str(#value)
+            quote!(<::icydb::types::Ulid as ::core::str::FromStr>::from_str(#value)
                 .expect("validated Ulid schema default should parse")
                 .into())
         }
@@ -1021,7 +1021,7 @@ fn encode_subaccount_database_default_payload(value: &str) -> Result<Vec<u8>, St
 }
 
 fn encode_ulid_database_default_payload(value: &str) -> Result<Vec<u8>, String> {
-    let value = icydb_core::types::Ulid::from_str(value)
+    let value = <icydb_core::types::Ulid as ::core::str::FromStr>::from_str(value)
         .map_err(|err| format!("default for primitive Ulid is invalid: {err}"))?;
 
     encode_by_kind_database_default_payload(

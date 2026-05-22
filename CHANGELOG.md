@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.161.md](docs/changelog/0.161.md)
 
+- `0.161.6` removes stale value, ULID, and wrapper-deref surfaces so
+  runtime boundary types use explicit APIs instead of accidental helper
+  exposure.
+
 - `0.161.5` continues the non-core hygiene line by tightening derive and
   changelog governance boundaries and completing the shared text-case validator
   surface.

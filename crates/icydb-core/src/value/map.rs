@@ -90,7 +90,7 @@ impl From<MapValueError> for SchemaInvariantError {
 }
 
 /// Validate map entry invariants without changing order.
-pub fn validate_map_entries(entries: &[(Value, Value)]) -> Result<(), MapValueError> {
+fn validate_map_entries(entries: &[(Value, Value)]) -> Result<(), MapValueError> {
     for (index, (key, _value)) in entries.iter().enumerate() {
         if matches!(key, Value::Null) {
             return Err(MapValueError::EmptyKey { index });
@@ -129,7 +129,7 @@ pub(crate) fn map_entries_are_strictly_canonical(entries: &[(Value, Value)]) -> 
 }
 
 /// Normalize map entries into canonical deterministic order.
-pub fn normalize_map_entries(
+pub(super) fn normalize_map_entries(
     mut entries: Vec<(Value, Value)>,
 ) -> Result<Vec<(Value, Value)>, MapValueError> {
     validate_map_entries(&entries)?;

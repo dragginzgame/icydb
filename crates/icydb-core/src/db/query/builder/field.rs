@@ -4,17 +4,16 @@
 //! Boundary: ergonomic query-builder surface for field expressions.
 
 use crate::db::query::expr::{FilterExpr, FilterValue};
-use derive_more::Deref;
 
 ///
 /// FieldRef
 ///
 /// Zero-cost wrapper around a static field name used in predicates.
 /// Enables method-based predicate builders without allocating.
-/// Carries only a `&'static str` and derefs to `str`.
+/// Carries only a `&'static str`; use `as_str` or `AsRef<str>` to borrow it.
 ///
 
-#[derive(Clone, Copy, Deref, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct FieldRef(&'static str);
 
 impl FieldRef {

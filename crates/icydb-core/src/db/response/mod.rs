@@ -237,6 +237,30 @@ impl<R: ResponseRow> Response<R> {
         self.0
     }
 
+    /// Borrow rows as a slice in response order.
+    #[must_use]
+    pub const fn as_slice(&self) -> &[R] {
+        self.0.as_slice()
+    }
+
+    /// Borrow the row at `index`, if present.
+    #[must_use]
+    pub fn get(&self, index: usize) -> Option<&R> {
+        self.0.get(index)
+    }
+
+    /// Borrow the first row, if present.
+    #[must_use]
+    pub fn first(&self) -> Option<&R> {
+        self.0.first()
+    }
+
+    /// Borrow the last row, if present.
+    #[must_use]
+    pub fn last(&self) -> Option<&R> {
+        self.0.last()
+    }
+
     /// Borrow an iterator over rows in response order.
     pub fn iter(&self) -> std::slice::Iter<'_, R> {
         self.0.iter()
@@ -245,15 +269,15 @@ impl<R: ResponseRow> Response<R> {
 
 impl<R: ResponseRow> AsRef<[R]> for Response<R> {
     fn as_ref(&self) -> &[R] {
-        self.0.as_slice()
+        self.as_slice()
     }
 }
 
-impl<R: ResponseRow> std::ops::Deref for Response<R> {
-    type Target = [R];
+impl<R: ResponseRow> std::ops::Index<usize> for Response<R> {
+    type Output = R;
 
-    fn deref(&self) -> &Self::Target {
-        self.0.as_slice()
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
     }
 }
 

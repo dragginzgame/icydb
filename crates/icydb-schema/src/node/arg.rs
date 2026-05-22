@@ -2,7 +2,6 @@ use crate::{
     node::{ValidateNode, VisitableNode},
     visit::Visitor,
 };
-use derive_more::Deref;
 use serde::Serialize;
 
 ///
@@ -37,7 +36,7 @@ impl VisitableNode for Arg {
 /// Args
 ///
 
-#[derive(Clone, Debug, Deref, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Args(pub &'static [Arg]);
 
 impl ValidateNode for Args {}

@@ -215,7 +215,7 @@ const COMMIT_MARKER_ROW_COUNT_BYTES: usize = 4;
 pub(in crate::db) fn generate_commit_id() -> Result<[u8; COMMIT_ID_BYTES], InternalError> {
     Ulid::try_generate()
         .map_err(InternalError::commit_id_generation_failed)
-        .map(|ulid| ulid.to_bytes())
+        .map(crate::types::Ulid::to_bytes)
 }
 
 /// Encode one commit-marker payload in the canonical binary format.

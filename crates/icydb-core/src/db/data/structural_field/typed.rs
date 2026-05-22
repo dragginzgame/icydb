@@ -84,7 +84,9 @@ pub(in crate::db::data::structural_field) const fn decode_timestamp_payload_mill
 }
 
 // Encode one ULID payload into its canonical fixed-width byte form.
-pub(in crate::db::data::structural_field) fn encode_ulid_payload_bytes(value: Ulid) -> [u8; 16] {
+pub(in crate::db::data::structural_field) const fn encode_ulid_payload_bytes(
+    value: Ulid,
+) -> [u8; 16] {
     value.to_bytes()
 }
 

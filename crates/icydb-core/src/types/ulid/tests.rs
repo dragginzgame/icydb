@@ -18,7 +18,7 @@ fn ulid_max_size_is_bounded() {
 #[test]
 fn test_ulid_string_roundtrip() {
     let u1 = Ulid::generate();
-    let u2 = Ulid::from_str(&u1.to_string()).unwrap();
+    let u2 = u1.to_string().parse::<Ulid>().unwrap();
 
     assert_eq!(u1, u2);
 }
@@ -33,7 +33,8 @@ fn ulid_bytes_roundtrip() {
 
 #[test]
 fn ulid_debug_renders_canonical_string() {
-    let ulid = Ulid::from_str("01ARZ3NDEKTSV4RRFFQ69G5FAV")
+    let ulid = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        .parse::<Ulid>()
         .expect("fixture ULID should parse successfully");
     let debug = format!("{ulid:?}");
 

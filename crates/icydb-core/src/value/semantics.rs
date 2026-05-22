@@ -9,7 +9,7 @@ use crate::value::{CoercionFamily, CoercionFamilyExt, Value};
 /// Returns true if the value is one of the numeric-like variants supported by
 /// numeric comparison/ordering.
 #[must_use]
-pub const fn is_numeric(value: &Value) -> bool {
+pub(crate) const fn is_numeric(value: &Value) -> bool {
     matches!(
         value,
         Value::Decimal(_)
@@ -26,7 +26,7 @@ pub const fn is_numeric(value: &Value) -> bool {
 
 /// Returns true when numeric coercion/comparison is explicitly allowed.
 #[must_use]
-pub const fn supports_numeric_coercion(value: &Value) -> bool {
+pub(crate) const fn supports_numeric_coercion(value: &Value) -> bool {
     matches!(
         value,
         Value::Decimal(_)
@@ -43,7 +43,7 @@ pub const fn supports_numeric_coercion(value: &Value) -> bool {
 
 /// Returns the coercion-routing family for this value.
 #[must_use]
-pub const fn coercion_family(value: &Value) -> CoercionFamily {
+pub(crate) const fn coercion_family(value: &Value) -> CoercionFamily {
     match value {
         Value::Account(_) | Value::Principal(_) | Value::Ulid(_) => CoercionFamily::Identifier,
         Value::Blob(_) | Value::Subaccount(_) => CoercionFamily::Blob,

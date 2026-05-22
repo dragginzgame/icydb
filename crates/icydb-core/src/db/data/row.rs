@@ -20,7 +20,7 @@ use crate::{
     traits::Storable,
 };
 use canic_cdk::structures::storable::Bound;
-use std::{borrow::Cow, ops::Deref};
+use std::borrow::Cow;
 use thiserror::Error as ThisError;
 
 ///
@@ -76,14 +76,6 @@ impl CanonicalRow {
         canonical_row_from_complete_serialized_structural_patch_for_generated_model_for_test(
             model, patch,
         )
-    }
-}
-
-impl Deref for CanonicalRow {
-    type Target = RawRow;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }
 

@@ -1,8 +1,6 @@
 //! Module: types::ulid
-//! Defines the ULID runtime type plus generation and fixture helpers used by
-//! typed keys and persistence encoding.
+//! Defines the ULID runtime type used by typed keys and persistence encoding.
 
-pub(crate) mod fixture;
 pub(crate) mod generator;
 #[cfg(test)]
 mod tests;
@@ -17,7 +15,6 @@ use crate::{
     visitor::VisitorContext,
 };
 use candid::CandidType;
-use derive_more::{Deref, DerefMut};
 use serde::{Deserialize, de::Deserializer};
 use std::{fmt, str::FromStr};
 use thiserror::Error as ThisError;
@@ -50,7 +47,7 @@ pub enum UlidDecodeError {
 // Ulid
 //
 
-#[derive(Clone, Copy, Deref, DerefMut, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct Ulid(WrappedUlid);
 
@@ -80,13 +77,13 @@ impl Ulid {
 
     /// Monotonic increment; returns `None` on overflow.
     #[must_use]
-    pub fn increment(&self) -> Option<Self> {
-        self.0.increment().map(Self::from)
+    pub(crate) fn increment(&self) -> Option<Self> {
+        self.0.increment().map(Self)
     }
 
     /// try_generate
     /// Fallible ULID generation preserving error type (e.g., overflow).
-    pub fn try_generate() -> Result<Self, UlidError> {
+    pub(crate) fn try_generate() -> Result<Self, UlidError> {
         generator::generate()
     }
 
@@ -94,6 +91,17 @@ impl Ulid {
     #[must_use]
     pub const fn from_bytes(bytes: [u8; 16]) -> Self {
         Self(WrappedUlid::from_bytes(bytes))
+    }
+
+    /// Return the canonical 16-byte ULID payload.
+    #[must_use]
+    pub const fn to_bytes(self) -> [u8; 16] {
+        self.0.to_bytes()
+    }
+
+    #[must_use]
+    pub(crate) const fn timestamp_ms(self) -> u64 {
+        self.0.timestamp_ms()
     }
 
     pub const fn try_from_bytes(bytes: &[u8]) -> Result<Self, UlidDecodeError> {
@@ -105,14 +113,6 @@ impl Ulid {
         array.copy_from_slice(bytes);
 
         Ok(Self::from_bytes(array))
-    }
-
-    /// from_str
-    #[expect(clippy::should_implement_trait)]
-    pub fn from_str(encoded: &str) -> Result<Self, UlidError> {
-        let this = WrappedUlid::from_string(encoded).map_err(|_| UlidError::InvalidString)?;
-
-        Ok(Self(this))
     }
 
     /// from_u128
@@ -192,27 +192,9 @@ impl RuntimeValueDecode for Ulid {
     }
 }
 
-impl From<WrappedUlid> for Ulid {
-    fn from(ulid: WrappedUlid) -> Self {
-        Self(ulid)
-    }
-}
-
 impl GenerateKey for Ulid {
     fn generate() -> Self {
         Self::generate()
-    }
-}
-
-impl PartialEq<WrappedUlid> for Ulid {
-    fn eq(&self, other: &WrappedUlid) -> bool {
-        self.0 == *other
-    }
-}
-
-impl PartialEq<Ulid> for WrappedUlid {
-    fn eq(&self, other: &Ulid) -> bool {
-        *self == other.0
     }
 }
 

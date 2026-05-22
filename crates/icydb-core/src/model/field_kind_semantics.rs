@@ -405,7 +405,7 @@ fn canonicalize_lossless_field_literal_for_kind(
             _ => None,
         },
         FieldKind::Ulid if allow_text_ulid => match value {
-            Value::Text(inner) => Ulid::from_str(inner).ok().map(Value::Ulid),
+            Value::Text(inner) => inner.parse::<Ulid>().ok().map(Value::Ulid),
             Value::Ulid(inner) => Some(Value::Ulid(*inner)),
             _ => None,
         },
@@ -430,7 +430,7 @@ fn canonicalize_strict_sql_literal_for_kind_impl(kind: FieldKind, value: &Value)
             _ => None,
         },
         FieldKind::Ulid => match value {
-            Value::Text(inner) => Ulid::from_str(inner).ok().map(Value::Ulid),
+            Value::Text(inner) => inner.parse::<Ulid>().ok().map(Value::Ulid),
             _ => None,
         },
         FieldKind::List(inner) | FieldKind::Set(inner) => match value {

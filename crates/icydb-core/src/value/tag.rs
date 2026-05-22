@@ -11,7 +11,8 @@ use crate::value::Value;
 /// Stable canonical value-variant tag used by hashing and ordering surfaces.
 ///
 /// IMPORTANT:
-/// Tag values are part of stable behavior and must remain fixed after 0.7.
+/// Tag values are part of stable hashing and ordering behavior; change only as an
+/// explicit breaking value-semantics migration.
 ///
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

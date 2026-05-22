@@ -14,7 +14,6 @@ use crate::{
     traits::Visitable,
 };
 use candid::CandidType;
-use derive_more::{Deref, DerefMut};
 use serde::Deserialize;
 use std::{collections::BTreeMap, fmt};
 use thiserror::Error as ThisError;
@@ -71,13 +70,27 @@ impl From<VisitorError> for InternalError {
 // may be lifted into an `InternalError` as needed.
 //
 
-#[derive(CandidType, Clone, Debug, Default, Deref, DerefMut, Deserialize, Eq, PartialEq)]
+#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct VisitorIssues(BTreeMap<String, Vec<String>>);
 
 impl VisitorIssues {
     #[must_use]
     pub const fn new() -> Self {
         Self(BTreeMap::new())
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    #[must_use]
+    pub fn get(&self, path: impl AsRef<str>) -> Option<&[String]> {
+        self.0.get(path.as_ref()).map(Vec::as_slice)
+    }
+
+    pub fn push(&mut self, path: String, issue: Issue) {
+        self.0.entry(path).or_default().push(issue.into_message());
     }
 }
 
@@ -276,18 +289,12 @@ struct AdapterContext<'a> {
 impl VisitorContext for AdapterContext<'_> {
     fn add_issue(&mut self, issue: Issue) {
         let key = render_path(self.path, None);
-        self.issues
-            .entry(key)
-            .or_default()
-            .push(issue.into_message());
+        self.issues.push(key, issue);
     }
 
     fn add_issue_at(&mut self, seg: PathSegment, issue: Issue) {
         let key = render_path(self.path, Some(seg));
-        self.issues
-            .entry(key)
-            .or_default()
-            .push(issue.into_message());
+        self.issues.push(key, issue);
     }
 
     fn sanitize_write_context(&self) -> Option<SanitizeWriteContext> {

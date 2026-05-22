@@ -80,7 +80,7 @@ impl ValidateNode for Enum {
         }
 
         let traits = self.traits.with_type_traits().build();
-        if traits.contains(&TraitKind::Default) && self.default_variant().is_none() {
+        if traits.contains(TraitKind::Default) && self.default_variant().is_none() {
             return Err(DarlingError::custom(
                 "default variant is required when Default is enabled",
             ));

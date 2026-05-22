@@ -2404,9 +2404,11 @@ fn apply_structural_patch_to_raw_row_updates_only_targeted_slots() {
         &serialized,
     )
     .expect("apply patch");
-    let mut reader =
-        StructuralSlotReader::from_raw_row_with_generated_model_for_test(&patched, &TEST_MODEL)
-            .expect("decode row");
+    let mut reader = StructuralSlotReader::from_raw_row_with_generated_model_for_test(
+        patched.as_raw_row(),
+        &TEST_MODEL,
+    )
+    .expect("decode row");
 
     assert_eq!(
         reader.get_value(0).expect("decode slot"),
@@ -2577,9 +2579,11 @@ fn apply_structural_patch_to_raw_row_uses_last_write_wins() {
         &serialized,
     )
     .expect("apply patch");
-    let mut reader =
-        StructuralSlotReader::from_raw_row_with_generated_model_for_test(&patched, &TEST_MODEL)
-            .expect("decode row");
+    let mut reader = StructuralSlotReader::from_raw_row_with_generated_model_for_test(
+        patched.as_raw_row(),
+        &TEST_MODEL,
+    )
+    .expect("decode row");
 
     assert_eq!(
         reader.get_value(0).expect("decode slot"),
@@ -2822,9 +2826,11 @@ fn apply_serialized_structural_patch_to_raw_row_replays_preencoded_slots() {
         &serialized,
     )
     .expect("apply serialized patch");
-    let mut reader =
-        StructuralSlotReader::from_raw_row_with_generated_model_for_test(&patched, &TEST_MODEL)
-            .expect("decode row");
+    let mut reader = StructuralSlotReader::from_raw_row_with_generated_model_for_test(
+        patched.as_raw_row(),
+        &TEST_MODEL,
+    )
+    .expect("decode row");
 
     assert_eq!(
         reader.get_value(0).expect("decode slot"),
@@ -2866,6 +2872,7 @@ fn serialize_entity_slots_as_complete_serialized_patch_replays_full_typed_after_
     )
     .expect("apply serialized patch");
     let decoded = patched
+        .as_raw_row()
         .try_decode_with_generated_model_for_test::<PersistedRowPatchBridgeEntity>()
         .expect("decode patched entity");
 
@@ -3264,7 +3271,7 @@ fn canonical_row_from_raw_row_replays_canonical_full_image_bytes() {
     .expect("canonical re-emission should succeed");
 
     assert_eq!(
-        canonical.as_bytes(),
+        canonical.as_raw_row().as_bytes(),
         raw_row.as_bytes(),
         "canonical raw-row rebuild must preserve already canonical row bytes",
     );

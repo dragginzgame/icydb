@@ -55,25 +55,25 @@ pub(crate) fn eq_ci(left: &Value, right: &Value) -> bool {
 
 /// Case-sensitive/insensitive equality check for text-like values.
 #[must_use]
-pub fn text_eq(left: &Value, right: &Value, mode: TextMode) -> Option<bool> {
+fn text_eq(left: &Value, right: &Value, mode: TextMode) -> Option<bool> {
     text_op(left, right, mode, |a, b| a == b)
 }
 
 /// Check whether `needle` is a substring of `value` under the given text mode.
 #[must_use]
-pub fn text_contains(value: &Value, needle: &Value, mode: TextMode) -> Option<bool> {
+fn text_contains(value: &Value, needle: &Value, mode: TextMode) -> Option<bool> {
     text_op(value, needle, mode, |a, b| a.contains(b))
 }
 
 /// Check whether `value` starts with `needle` under the given text mode.
 #[must_use]
-pub fn text_starts_with(value: &Value, needle: &Value, mode: TextMode) -> Option<bool> {
+fn text_starts_with(value: &Value, needle: &Value, mode: TextMode) -> Option<bool> {
     text_op(value, needle, mode, |a, b| a.starts_with(b))
 }
 
 /// Check whether `value` ends with `needle` under the given text mode.
 #[must_use]
-pub fn text_ends_with(value: &Value, needle: &Value, mode: TextMode) -> Option<bool> {
+fn text_ends_with(value: &Value, needle: &Value, mode: TextMode) -> Option<bool> {
     text_op(value, needle, mode, |a, b| a.ends_with(b))
 }
 
