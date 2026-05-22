@@ -61,7 +61,7 @@ mod tests {
 
         for key in ["field", "list[0]", "list[1]"] {
             assert!(
-                issues.contains_key(key),
+                issues.get(key).is_some(),
                 "expected error issues to include path `{key}`"
             );
         }
@@ -80,7 +80,7 @@ mod tests {
 
         let key = "map[0]";
         assert!(
-            issues.contains_key(key),
+            issues.get(key).is_some(),
             "expected error issues to include path `{key}`"
         );
         assert_eq!(issues.len(), 1);

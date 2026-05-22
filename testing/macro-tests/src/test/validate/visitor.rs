@@ -24,7 +24,7 @@ mod tests {
 
         for key in ["list[1]", "tup.0", "map[0]", "rec.leaf"] {
             assert!(
-                issues.contains_key(key),
+                issues.get(key).is_some(),
                 "expected error issues to include `{key}`"
             );
         }
@@ -42,7 +42,7 @@ mod tests {
 
         let key = "set[0]";
         assert!(
-            issues.contains_key(key),
+            issues.get(key).is_some(),
             "expected error issues to include `{key}`"
         );
         assert_eq!(issues.len(), 1);
@@ -62,7 +62,7 @@ mod tests {
 
         let key = "map[0]";
         assert!(
-            issues.contains_key(key),
+            issues.get(key).is_some(),
             "expected error issues to include `{key}`"
         );
         assert_eq!(issues.len(), 1);
@@ -82,7 +82,7 @@ mod tests {
 
         let key = "map[0]";
         assert!(
-            issues.contains_key(key),
+            issues.get(key).is_some(),
             "expected error issues to include `{key}`"
         );
         assert_eq!(issues.len(), 1);
@@ -104,7 +104,7 @@ mod tests {
 
         for key in ["list", "set", "map"] {
             assert!(
-                issues.contains_key(key),
+                issues.get(key).is_some(),
                 "expected error issues to include `{key}`"
             );
         }

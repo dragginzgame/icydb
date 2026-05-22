@@ -29,7 +29,7 @@ mod tests {
 
         for key in ["duration_ms", "attempts", "bytes"] {
             assert!(
-                issues.contains_key(key),
+                issues.get(key).is_some(),
                 "expected error issues to include field `{key}`"
             );
         }

@@ -84,6 +84,12 @@ impl VisitorIssues {
         self.0.is_empty()
     }
 
+    /// Return the number of distinct issue paths.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
     #[must_use]
     pub fn get(&self, path: impl AsRef<str>) -> Option<&[String]> {
         self.0.get(path.as_ref()).map(Vec::as_slice)
