@@ -27,6 +27,8 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 
 ## Workflow
 
+- During active development, run `cargo fmt --all` after edits instead of using `--check` as a discovery step.
+- Use non-mutating format checks (`cargo fmt --all --check` or `make fmt-check`) for final release/readiness verification and CI parity.
 - Pre-commit gate: `make fmt-check && make clippy && make check && make test`.
 - Fast CI gate: `make check && make clippy`.
 - Release: `make security-check && make release`.

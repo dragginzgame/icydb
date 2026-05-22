@@ -12,7 +12,9 @@ pub mod db {
 }
 
 pub mod __macro {
+    pub use crate::db::{PersistedRow, SlotReader, SlotWriter};
     pub use icydb_core::__macro::PersistedFieldSlotCodec;
+    pub use icydb_core::error::InternalError;
 }
 
 use icydb_core::value::Value;

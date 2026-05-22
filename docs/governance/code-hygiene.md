@@ -305,9 +305,14 @@ During maintenance passes, remove:
 
 ## 15. Formatting
 
-All code should pass the following before committing:
+During active development, run:
 
 - `cargo fmt --all`
+
+This should be the default formatter command after edits; it fixes formatting directly instead of producing a failure that then needs another command. Reserve `cargo fmt --all --check` for final non-mutating release/readiness verification or CI parity.
+
+Before committing, code should also pass:
+
 - `cargo clippy`
 
 ## Why This Is Valuable

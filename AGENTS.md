@@ -28,6 +28,7 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Do not perform opportunistic refactors; list them as follow-up instead.
 - Prefer focused code slices. A slice is a review/landing unit, not automatically a patch release.
 - Batch coherent routine work before asking whether to push; do not stop after every small slice unless the user asks.
+- Run `cargo fmt --all` after code edits; reserve `cargo fmt --all --check` for non-mutating release/readiness verification.
 - Run focused checks after edits; run broader checks only when the slice is otherwise ready.
 - Do not repeatedly rerun expensive failing commands; capture the first failure and report it.
 
