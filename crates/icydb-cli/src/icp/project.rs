@@ -1,3 +1,8 @@
+//! Module: ICP project discovery.
+//! Responsibility: resolve known canisters and enforce local canister creation preconditions.
+//! Does not own: canister lifecycle commands, generic process execution, or endpoint config.
+//! Boundary: exposes project-local canister discovery and setup checks to CLI command surfaces.
+
 use serde_json::Value;
 
 use crate::icp::process::{canister_id, unreachable_network_hint};

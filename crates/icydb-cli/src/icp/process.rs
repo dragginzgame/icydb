@@ -1,7 +1,12 @@
+//! Module: ICP process helpers.
+//! Responsibility: run icp-cli process checks and normalize local-network reachability errors.
+//! Does not own: high-level canister workflows, project discovery, or generated endpoint calls.
+//! Boundary: exposes process primitives to sibling ICP modules.
+
 use std::process::{Command, Stdio};
 
 /// Run one icp-cli command as a client call. This never starts or stops a local network.
-pub(crate) fn run_external_command(mut command: Command, label: &str) -> Result<(), String> {
+pub(super) fn run_external_command(mut command: Command, label: &str) -> Result<(), String> {
     let status = command
         .stdin(Stdio::null())
         .status()
@@ -14,7 +19,7 @@ pub(crate) fn run_external_command(mut command: Command, label: &str) -> Result<
 }
 
 /// Return whether icp-cli reports an installed canister in the selected environment.
-pub(crate) fn canister_is_installed(environment: &str, canister: &str) -> Result<bool, String> {
+pub(super) fn canister_is_installed(environment: &str, canister: &str) -> Result<bool, String> {
     let output = Command::new("icp")
         .arg("canister")
         .arg("status")
@@ -41,7 +46,7 @@ pub(crate) fn canister_is_installed(environment: &str, canister: &str) -> Result
 }
 
 /// Resolve an icp-cli canister id without treating absent local ids as fatal.
-pub(crate) fn canister_id(environment: &str, canister: &str) -> Result<Option<String>, String> {
+pub(super) fn canister_id(environment: &str, canister: &str) -> Result<Option<String>, String> {
     let output = Command::new("icp")
         .arg("canister")
         .arg("status")
@@ -73,7 +78,7 @@ pub(crate) fn canister_id(environment: &str, canister: &str) -> Result<Option<St
 }
 
 /// Recognize common icp-cli connection failures and return explicit lifecycle guidance.
-pub(crate) fn unreachable_network_hint(message: &str) -> Option<&'static str> {
+pub(super) fn unreachable_network_hint(message: &str) -> Option<&'static str> {
     let lowered = message.to_ascii_lowercase();
     if lowered.contains("connection refused")
         || lowered.contains("failed to connect")

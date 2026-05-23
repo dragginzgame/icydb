@@ -1,3 +1,8 @@
+//! Module: observability rendering helpers.
+//! Responsibility: share small formatting helpers across observability reports.
+//! Does not own: command execution, report layout, or table rendering.
+//! Boundary: exposes owner-scoped value formatting helpers to observability modules.
+
 pub(super) fn optional_u64(value: Option<u64>) -> String {
     value.map_or_else(|| "none".to_string(), |value| value.to_string())
 }

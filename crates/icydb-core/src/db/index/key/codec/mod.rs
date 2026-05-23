@@ -234,6 +234,12 @@ const fn primary_key_decode_error_to_storage_key_decode_error(
         CompactPrimaryKeyDecodeError::InvalidAccount { reason } => {
             StorageKeyDecodeError::InvalidAccountPayload { reason }
         }
+        CompactPrimaryKeyDecodeError::InvalidCompositeCount { .. }
+        | CompactPrimaryKeyDecodeError::UnitCompositeComponent { .. }
+        | CompactPrimaryKeyDecodeError::NestedComposite
+        | CompactPrimaryKeyDecodeError::TrailingCompositeBytes { .. } => {
+            StorageKeyDecodeError::InvalidSize
+        }
     }
 }
 

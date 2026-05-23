@@ -1,3 +1,8 @@
+//! Module: ICP canister command workflows.
+//! Responsibility: run high-level canister lifecycle commands through icp-cli.
+//! Does not own: generic canister calls, process execution semantics, or project discovery.
+//! Boundary: exposes CLI command handlers and test-covered fixture call construction through icp.
+
 use std::{
     path::PathBuf,
     process::{Command, Stdio},
@@ -144,7 +149,7 @@ fn load_fixtures_after_refresh(environment: &str, canister: &str) -> Result<(), 
     ))
 }
 
-pub(crate) fn fixtures_load_command(environment: &str, canister: &str) -> Command {
+pub(super) fn fixtures_load_command(environment: &str, canister: &str) -> Command {
     let mut command = Command::new("icp");
     command
         .arg("canister")

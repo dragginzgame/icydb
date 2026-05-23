@@ -6,7 +6,7 @@ Keep this file small. Open detailed governance docs only when the task needs the
 
 - Do not add Python to committed files; Codex may use local Python for one-off analysis/audit extraction when it does not become project code.
 - Do not run `git commit` or `git push`.
-- Do not edit Cargo workspace/package version numbers in `Cargo.toml` or `Cargo.lock`; `make patch` owns version bumps.
+- Do not edit Cargo workspace/package version numbers in `Cargo.toml` or `Cargo.lock`; `make patch` owns version bumps. If version churn is present, report it and leave it alone unless the user explicitly asks for release tooling.
 - Do not revert user or unrelated dirty-worktree changes; re-read affected files and continue.
 - Do not start or stop the local ICP network; the user manages its lifecycle elsewhere.
 - Use absolute filesystem paths in final file references.

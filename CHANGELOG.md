@@ -7,16 +7,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Changed schema-derive primary-key nodes to retain ordered field-list metadata
-  internally, leaving scalar runtime projection as an explicit bridge.
-- Added a fixed-capacity composite primary-key value model in the core key
-  taxonomy without changing persisted store-key encoding.
-- Added generated composite primary-key type scaffolding for ordered
-  primary-key metadata while keeping composite declarations gated.
-
 ## [0.162.x] 🔑 - 2026-05-23 - Composite Primary Keys
 
 Detailed notes: [docs/changelog/0.162.md](docs/changelog/0.162.md)
+
+- `0.162.4` adds explicit compact composite primary-key encoding and decoding
+  support without routing persisted rows through it yet.
+
+- `0.162.3` moves derive and key-taxonomy internals onto ordered
+  primary-key metadata, including fixed-capacity composite value and generated
+  key-type scaffolding while keeping composite declarations gated.
 
 - `0.162.2` adds runtime `PrimaryKeyModel` metadata so generated entity models
   can carry ordered primary-key fields before composite storage behavior

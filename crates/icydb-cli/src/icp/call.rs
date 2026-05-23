@@ -1,3 +1,8 @@
+//! Module: ICP canister call construction.
+//! Responsibility: build icp-cli canister call commands and decode hex responses.
+//! Does not own: command execution, endpoint selection, or Candid decoding.
+//! Boundary: exposes reusable call builders and response decoding to CLI command surfaces.
+
 use std::process::Command;
 
 pub(crate) fn icp_query_command(

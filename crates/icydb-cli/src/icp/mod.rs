@@ -10,4 +10,6 @@ pub(crate) use commands::{
 pub(crate) use project::{known_canisters, require_created_canister};
 
 #[cfg(test)]
-pub(crate) use commands::fixtures_load_command;
+pub(crate) fn fixtures_load_command(environment: &str, canister: &str) -> std::process::Command {
+    commands::fixtures_load_command(environment, canister)
+}
