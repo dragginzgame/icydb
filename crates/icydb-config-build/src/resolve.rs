@@ -1,3 +1,8 @@
+//! Module: config path resolution.
+//! Responsibility: locate the effective `icydb.toml` path for host build tools.
+//! Does not own: TOML parsing, validation, or generated config semantics.
+//! Boundary: returns discovery results without reading the resolved config file.
+
 use std::{
     env, fs,
     path::{Path, PathBuf},
@@ -6,8 +11,22 @@ use std::{
 use crate::{CONFIG_FILE_NAME, CONFIG_PATH_ENV};
 
 pub(crate) struct ResolvedConfigPath {
-    pub(crate) config_path: Option<PathBuf>,
-    pub(crate) candidate_paths: Vec<PathBuf>,
+    config_path: Option<PathBuf>,
+    candidate_paths: Vec<PathBuf>,
+}
+
+impl ResolvedConfigPath {
+    pub(crate) fn config_path(&self) -> Option<&Path> {
+        self.config_path.as_deref()
+    }
+
+    pub(crate) fn candidate_paths(&self) -> &[PathBuf] {
+        &self.candidate_paths
+    }
+
+    pub(crate) fn into_config_path(self) -> Option<PathBuf> {
+        self.config_path
+    }
 }
 
 pub(crate) fn resolve_config_path(manifest_dir: &Path) -> ResolvedConfigPath {

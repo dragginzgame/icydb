@@ -20,7 +20,7 @@ use icydb_core::{
 
 #[derive(Debug, FromMeta)]
 pub struct Index {
-    pub(crate) fields: LitStr,
+    pub(crate) fields: Vec<LitStr>,
 
     #[darling(default)]
     pub(crate) unique: bool,
@@ -112,7 +112,17 @@ impl Index {
     }
 
     pub(crate) fn parsed_key_items(&self) -> Result<Vec<IndexKeyItemSpec>, DarlingError> {
-        parse_index_key_items(&self.fields)
+        parse_index_key_items(self.fields.as_slice())
+    }
+
+    pub(crate) fn referenced_field_literals(&self) -> Result<Vec<(Ident, LitStr)>, DarlingError> {
+        self.fields
+            .iter()
+            .map(|item| {
+                let key_item = parse_index_key_item(item.value().trim(), item)?;
+                Ok((key_item.field_ident().clone(), item.clone()))
+            })
+            .collect()
     }
 
     pub(crate) fn validated_key_item_terms(&self) -> Vec<String> {
@@ -365,18 +375,16 @@ impl IndexExpressionSpec {
     }
 }
 
-fn parse_index_key_items(literal: &LitStr) -> Result<Vec<IndexKeyItemSpec>, DarlingError> {
-    let raw_items = split_top_level_key_items(literal)?;
-    if raw_items.is_empty() {
-        return Err(
-            DarlingError::custom("index fields must reference at least one key item")
-                .with_span(literal),
-        );
+fn parse_index_key_items(fields: &[LitStr]) -> Result<Vec<IndexKeyItemSpec>, DarlingError> {
+    if fields.is_empty() {
+        return Err(DarlingError::custom(
+            "index fields must reference at least one key item",
+        ));
     }
 
-    raw_items
+    fields
         .iter()
-        .map(|item| parse_index_key_item(item.as_str(), literal))
+        .map(|item| parse_index_key_item(item.value().trim(), item))
         .collect()
 }
 
@@ -688,51 +696,12 @@ fn predicate_value_runtime_tokens(value: &CoreValue) -> Result<TokenStream, Darl
     })
 }
 
-fn split_top_level_key_items(literal: &LitStr) -> Result<Vec<String>, DarlingError> {
-    let raw = literal.value();
-    let mut items = Vec::new();
-    let mut depth = 0usize;
-    let mut segment_start = 0usize;
-
-    for (index, ch) in raw.char_indices() {
-        match ch {
-            '(' => depth = depth.saturating_add(1),
-            ')' => {
-                if depth == 0 {
-                    return Err(DarlingError::custom(format!(
-                        "index fields '{raw}' has one unmatched closing ')'"
-                    ))
-                    .with_span(literal));
-                }
-                depth = depth.saturating_sub(1);
-            }
-            ',' if depth == 0 => {
-                items.push(raw[segment_start..index].trim().to_string());
-                segment_start = index.saturating_add(1);
-            }
-            _ => {}
-        }
-    }
-
-    if depth != 0 {
-        return Err(DarlingError::custom(format!(
-            "index fields '{raw}' has one unmatched opening '('"
-        ))
-        .with_span(literal));
-    }
-
-    items.push(raw[segment_start..].trim().to_string());
-    if items.iter().any(String::is_empty) {
-        return Err(DarlingError::custom(format!(
-            "index fields '{raw}' contains an empty key item"
-        ))
-        .with_span(literal));
-    }
-
-    Ok(items)
-}
-
 fn parse_index_key_item(item: &str, literal: &LitStr) -> Result<IndexKeyItemSpec, DarlingError> {
+    if item.is_empty() {
+        return Err(
+            DarlingError::custom("index fields contains an empty key item").with_span(literal),
+        );
+    }
     if let Some(expression) = parse_index_expression_item(item, literal)? {
         return Ok(IndexKeyItemSpec::Expression(expression));
     }
@@ -841,10 +810,17 @@ mod tests {
     use proc_macro2::Span;
     use syn::LitStr;
 
+    fn field_list(values: &[&str]) -> Vec<LitStr> {
+        values
+            .iter()
+            .map(|value| LitStr::new(value, Span::call_site()))
+            .collect()
+    }
+
     #[test]
     fn parsed_key_items_accept_supported_expression_and_field_mix() {
         let index = Index {
-            fields: LitStr::new("tenant_id, LOWER(email)", Span::call_site()),
+            fields: field_list(&["tenant_id", "LOWER(email)"]),
             unique: true,
             predicate: None,
         };
@@ -865,7 +841,7 @@ mod tests {
     #[test]
     fn generated_name_uses_expression_key_item_canonical_text() {
         let index = Index {
-            fields: LitStr::new("LOWER(email)", Span::call_site()),
+            fields: field_list(&["LOWER(email)"]),
             unique: false,
             predicate: None,
         };

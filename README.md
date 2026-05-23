@@ -67,7 +67,7 @@ pub struct AppStore {}
 #[entity(
     store = "AppStore",
     pk(field = "id"),
-    index(fields = "name"),
+    index(fields = ["name"]),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
         field(ident = "name", value(item(prim = "Text", unbounded))),

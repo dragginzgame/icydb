@@ -39,7 +39,7 @@ pub fn load_resolved_icydb_toml(
     known_canisters: &[&str],
 ) -> Result<ResolvedIcydbConfig, ConfigBuildError> {
     let resolved = resolve_config_path(start_dir.as_ref());
-    let Some(path) = resolved.config_path else {
+    let Some(path) = resolved.into_config_path() else {
         return Ok(ResolvedIcydbConfig::default());
     };
     let config = load_icydb_toml(path.as_path(), known_canisters)?;

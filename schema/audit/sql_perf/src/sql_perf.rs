@@ -41,9 +41,9 @@ pub struct PerfAuditStore {}
 #[entity(
     store = "PerfAuditStore",
     pk(field = "id"),
-    index(fields = "name"),
-    index(fields = "age, id"),
-    index(fields = "LOWER(name)"),
+    index(fields = ["name"]),
+    index(fields = ["age", "id"]),
+    index(fields = ["LOWER(name)"]),
     fields(
         field(ident = "id", value(item(prim = "Int32"))),
         field(ident = "name", value(item(prim = "Text", unbounded))),
@@ -66,8 +66,8 @@ pub struct PerfAuditUser {}
 #[entity(
     store = "PerfAuditStore",
     pk(field = "id"),
-    index(fields = "bucket, id"),
-    index(fields = "label"),
+    index(fields = ["bucket", "id"]),
+    index(fields = ["label"]),
     fields(
         field(ident = "id", value(item(prim = "Int32"))),
         field(ident = "label", value(item(prim = "Text", unbounded))),
@@ -88,10 +88,10 @@ pub struct PerfAuditBlob {}
 #[entity(
     store = "PerfAuditStore",
     pk(field = "id"),
-    index(fields = "handle", predicate = "active = true"),
-    index(fields = "LOWER(handle)", predicate = "active = true"),
-    index(fields = "tier, handle", predicate = "active = true"),
-    index(fields = "tier, LOWER(handle)", predicate = "active = true"),
+    index(fields = ["handle"], predicate = "active = true"),
+    index(fields = ["LOWER(handle)"], predicate = "active = true"),
+    index(fields = ["tier", "handle"], predicate = "active = true"),
+    index(fields = ["tier", "LOWER(handle)"], predicate = "active = true"),
     fields(
         field(ident = "id", value(item(prim = "Int32"))),
         field(ident = "handle", value(item(prim = "Text", unbounded))),

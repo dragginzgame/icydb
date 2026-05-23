@@ -18,11 +18,11 @@ pub fn emit_config_for_build_script() -> Result<GeneratedIcydbConfig, ConfigBuil
         None => env::current_dir().map_err(|source| ConfigBuildError::CurrentDir { source })?,
     };
     let resolved = resolve_config_path(manifest_dir.as_path());
-    if let Some(path) = resolved.config_path.as_ref() {
+    if let Some(path) = resolved.config_path() {
         println!("cargo:rerun-if-changed={}", path.display());
-        load_icydb_toml(path.as_path(), &[])
+        load_icydb_toml(path, &[])
     } else {
-        for candidate in &resolved.candidate_paths {
+        for candidate in resolved.candidate_paths() {
             println!("cargo:rerun-if-changed={}", candidate.display());
         }
         Ok(GeneratedIcydbConfig::default())

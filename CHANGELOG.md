@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+## [0.162.x] 🔑 - 2026-05-23 - Composite Primary Keys
+
+Detailed notes: [docs/changelog/0.162.md](docs/changelog/0.162.md)
+
+- `0.162.0` starts the composite-primary-key line by formalizing generated
+  index field-list attributes and documenting the accepted-schema, compact-key,
+  and external-only composite key design.
+
 ## [0.161.x] 🧹 - 2026-05-21 - Schema And Utility Hygiene
 
 Detailed notes: [docs/changelog/0.161.md](docs/changelog/0.161.md)

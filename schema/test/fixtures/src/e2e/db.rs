@@ -211,8 +211,8 @@ pub struct ContainsManyRelations {}
 #[entity(
     store = "TestStore",
     pk(field = "id"),
-    index(fields = "x"),
-    index(fields = "y", unique),
+    index(fields = ["x"]),
+    index(fields = ["y"], unique),
     fields(
         field(
             ident = "id",
@@ -256,7 +256,7 @@ pub struct LowerIndexText {}
 #[entity(
     store = "TestStore",
     pk(field = "id"),
-    index(fields = "username", unique),
+    index(fields = ["username"], unique),
     fields(
         field(
             ident = "id",
@@ -276,7 +276,7 @@ pub struct IndexSanitized {}
 #[entity(
     store = "TestStore",
     pk(field = "id"),
-    index(fields = "create_blob_id"),
+    index(fields = ["create_blob_id"]),
     fields(
         field(
             ident = "id",
@@ -298,7 +298,7 @@ pub struct IndexRelation {}
 #[entity(
     store = "TestStore",
     pk(field = "id"),
-    index(fields = "value", unique),
+    index(fields = ["value"], unique),
     fields(
         field(
             ident = "id",

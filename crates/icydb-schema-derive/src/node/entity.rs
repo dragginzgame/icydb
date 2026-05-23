@@ -119,26 +119,26 @@ impl Entity {
     // Validate declared field references against entity fields and indexability rules.
     fn validate_index_fields(&self, index: &Index) -> Result<(), DarlingError> {
         let mut seen = HashSet::new();
-        for field in index.validated_field_idents() {
+        for (field, span) in index.referenced_field_literals()? {
             let field_name = field.to_string();
             if !seen.insert(field_name.clone()) {
                 return Err(DarlingError::custom(format!(
                     "index contains duplicate field '{field_name}'"
                 ))
-                .with_span(&index.fields));
+                .with_span(&span));
             }
 
             let Some(entity_field) = self.fields.get(&field) else {
                 return Err(
                     DarlingError::custom(format!("index field '{field_name}' not found"))
-                        .with_span(&index.fields),
+                        .with_span(&span),
                 );
             };
             if entity_field.value.cardinality() == Cardinality::Many {
                 return Err(DarlingError::custom(
                     "cannot add an index field with many cardinality",
                 )
-                .with_span(&index.fields));
+                .with_span(&span));
             }
         }
 
@@ -225,8 +225,11 @@ trait DarlingErrorExt {
 
 impl DarlingErrorExt for DarlingError {
     fn with_index_or_def_span(self, index: &Index, def_ident: &Ident) -> Self {
-        let _ = def_ident;
-        self.with_span(&index.fields)
+        if let Some(field) = index.fields.first() {
+            self.with_span(field)
+        } else {
+            self.with_span(def_ident)
+        }
     }
 }
 
@@ -613,6 +616,13 @@ mod tests {
         }
     }
 
+    fn field_list(values: &[&str]) -> Vec<LitStr> {
+        values
+            .iter()
+            .map(|value| LitStr::new(value, Span::call_site()))
+            .collect()
+    }
+
     fn entity_with_fields_and_indexes(fields: Vec<Field>, indexes: Vec<Index>) -> Entity {
         Entity {
             def: Def::new(syn::parse_quote!(
@@ -636,7 +646,7 @@ mod tests {
         let entity = entity_with_fields_and_indexes(
             vec![scalar_field("id")],
             vec![Index {
-                fields: LitStr::new("missing_field", Span::call_site()),
+                fields: field_list(&["missing_field"]),
                 unique: false,
                 predicate: None,
             }],
@@ -656,7 +666,7 @@ mod tests {
         let entity = entity_with_fields_and_indexes(
             vec![scalar_field("id"), many_scalar_field("tags")],
             vec![Index {
-                fields: LitStr::new("tags", Span::call_site()),
+                fields: field_list(&["tags"]),
                 unique: false,
                 predicate: None,
             }],
@@ -676,7 +686,7 @@ mod tests {
         let entity = entity_with_fields_and_indexes(
             vec![scalar_field("id"), scalar_field("email")],
             vec![Index {
-                fields: LitStr::new("LOWER(name)", Span::call_site()),
+                fields: field_list(&["LOWER(name)"]),
                 unique: false,
                 predicate: None,
             }],
@@ -695,7 +705,7 @@ mod tests {
         let args = NestedMeta::parse_meta_list(quote!(
             store = "UiDataStore",
             pk(field = "id"),
-            index(fields = "missing_field"),
+            index(fields = ["missing_field"]),
             fields(field(
                 ident = "id",
                 value(item(prim = "Ulid")),

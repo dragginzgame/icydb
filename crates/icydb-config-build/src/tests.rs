@@ -137,7 +137,7 @@ fn config_resolution_uses_nearest_ancestor_before_workspace_root() {
 
     let resolved = resolve_config_path(canister.as_path());
 
-    assert_eq!(resolved.config_path.as_deref(), Some(demo_config.as_path()));
+    assert_eq!(resolved.config_path(), Some(demo_config.as_path()));
     fs::remove_dir_all(root).expect("test directory should be removed");
 }
 
@@ -164,7 +164,7 @@ fn workspace_root_detection_ignores_workspace_text_outside_toml_table() {
     let resolved = resolve_config_path(canister.as_path());
 
     assert_eq!(
-        resolved.config_path.as_deref(),
+        resolved.config_path(),
         Some(root.join("icydb.toml").as_path())
     );
     fs::remove_dir_all(root).expect("test directory should be removed");
