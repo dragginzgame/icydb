@@ -93,21 +93,23 @@ impl ShellConfig {
     }
 
     #[cfg(test)]
-    pub(crate) fn canister(&self) -> &str {
+    pub(crate) const fn canister(&self) -> &str {
         self.canister.as_str()
     }
 
     #[cfg(test)]
-    pub(crate) fn environment(&self) -> &str {
+    pub(crate) const fn environment(&self) -> &str {
         self.environment.as_str()
     }
 
     #[cfg(test)]
+    #[allow(clippy::missing_const_for_fn)]
     pub(crate) fn history_file(&self) -> &std::path::Path {
         self.history_file.as_path()
     }
 
     #[cfg(test)]
+    #[allow(clippy::missing_const_for_fn)]
     pub(crate) fn sql(&self) -> Option<&str> {
         self.sql.as_deref()
     }
