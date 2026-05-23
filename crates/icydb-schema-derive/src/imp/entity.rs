@@ -147,6 +147,17 @@ fn model_consistency_test_tokens(ident: &Ident) -> TokenStream {
                     .fields()
                     .iter()
                     .any(|field| ::core::ptr::eq(field, model.primary_key())));
+                assert_eq!(
+                    model.primary_key_model().len(),
+                    1,
+                    "generated scalar entities should expose one primary-key field",
+                );
+                assert!(model.primary_key_model().is_scalar());
+                assert!(model
+                    .primary_key_model()
+                    .fields()
+                    .iter()
+                    .any(|field| ::core::ptr::eq(field, model.primary_key())));
             }
         }
     }

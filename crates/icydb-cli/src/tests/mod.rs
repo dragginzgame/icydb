@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use candid::{Decode, Encode};
 use clap::Parser;
@@ -351,9 +351,9 @@ fn cli_args_preserve_trailing_sql_convenience_form() {
     };
     let config = ShellConfig::from_sql_args(sql_args);
 
-    assert_eq!(config.canister, "test_sql");
-    assert_eq!(config.environment, DEFAULT_ENVIRONMENT);
-    assert_eq!(config.sql.as_deref(), Some("SELECT name FROM character;"));
+    assert_eq!(config.canister(), "test_sql");
+    assert_eq!(config.environment(), DEFAULT_ENVIRONMENT);
+    assert_eq!(config.sql(), Some("SELECT name FROM character;"));
 }
 
 #[test]
@@ -374,9 +374,9 @@ fn cli_args_accept_explicit_sql_option() {
     };
     let config = ShellConfig::from_sql_args(sql_args);
 
-    assert_eq!(config.history_file, PathBuf::from(".cache/custom_history"));
-    assert_eq!(config.environment, DEFAULT_ENVIRONMENT);
-    assert_eq!(config.sql.as_deref(), Some("SELECT name FROM character;"));
+    assert_eq!(config.history_file(), Path::new(".cache/custom_history"));
+    assert_eq!(config.environment(), DEFAULT_ENVIRONMENT);
+    assert_eq!(config.sql(), Some("SELECT name FROM character;"));
 }
 
 #[test]
@@ -407,8 +407,8 @@ fn cli_args_accept_explicit_icp_environment() {
     };
     let config = ShellConfig::from_sql_args(sql_args);
 
-    assert_eq!(config.environment, "test");
-    assert_eq!(config.sql.as_deref(), Some("SELECT * FROM character;"));
+    assert_eq!(config.environment(), "test");
+    assert_eq!(config.sql(), Some("SELECT * FROM character;"));
 }
 
 #[test]

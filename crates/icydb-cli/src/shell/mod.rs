@@ -1,29 +1,24 @@
+mod call;
 mod input;
+mod interactive;
 mod perf;
 mod render;
+mod route;
 
-use std::{collections::VecDeque, path::PathBuf, process::Stdio};
+use std::path::PathBuf;
 
 use candid::Decode;
 use icydb::db::sql::SqlQueryResult;
-use rustyline::DefaultEditor;
 
 use crate::{
     cli::SqlArgs,
     config::{SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, require_configured_endpoint},
-    icp::{hex_response_bytes, icp_query_command, icp_update_command, require_created_canister},
-    shell::{
-        input::{ShellInput, read_statement},
-        render::{ShellSqlQueryPerfResult, render_shell_text_from_perf_result},
-    },
+    icp::require_created_canister,
+    shell::render::{ShellSqlQueryPerfResult, render_shell_text_from_perf_result},
 };
 
 #[cfg(test)]
 pub(crate) use crate::shell::{
-    input::{
-        drain_complete_shell_statements, is_shell_help_command, normalize_shell_statement_line,
-        shell_help_text,
-    },
     perf::{
         ShellPerfAttribution, ShellPerfAttributionInput, normalize_grouped_next_cursor_json,
         parse_perf_result, render_perf_suffix,
@@ -31,7 +26,44 @@ pub(crate) use crate::shell::{
     render::{
         finalize_successful_command_output, render_grouped_shell_text, render_projection_shell_text,
     },
+    route::SqlShellCallKind,
 };
+
+#[cfg(test)]
+pub(crate) fn drain_complete_shell_statements(
+    statement: &mut String,
+) -> std::collections::VecDeque<String> {
+    input::drain_complete_shell_statements(statement)
+}
+
+#[cfg(test)]
+pub(crate) fn is_shell_help_command(input: &str) -> bool {
+    input::is_shell_help_command(input)
+}
+
+#[cfg(test)]
+pub(crate) fn normalize_shell_statement_line(line: &str) -> String {
+    input::normalize_shell_statement_line(line)
+}
+
+#[cfg(test)]
+pub(crate) const fn shell_help_text() -> &'static str {
+    input::shell_help_text()
+}
+
+#[cfg(test)]
+pub(crate) fn sql_shell_call_kind(sql: &str) -> SqlShellCallKind {
+    route::sql_shell_call_kind(sql)
+}
+
+#[cfg(test)]
+pub(crate) fn sql_error_with_recovery_hint(
+    error: &str,
+    environment: &str,
+    canister: &str,
+) -> String {
+    call::sql_error_with_recovery_hint(error, environment, canister)
+}
 
 ///
 /// ShellConfig
@@ -41,10 +73,10 @@ pub(crate) use crate::shell::{
 ///
 
 pub(crate) struct ShellConfig {
-    pub(crate) canister: String,
-    pub(crate) environment: String,
-    pub(crate) history_file: PathBuf,
-    pub(crate) sql: Option<String>,
+    canister: String,
+    environment: String,
+    history_file: PathBuf,
+    sql: Option<String>,
 }
 
 impl ShellConfig {
@@ -58,6 +90,26 @@ impl ShellConfig {
             history_file: args.history_file,
             sql,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn canister(&self) -> &str {
+        self.canister.as_str()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn environment(&self) -> &str {
+        self.environment.as_str()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn history_file(&self) -> &std::path::Path {
+        self.history_file.as_path()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn sql(&self) -> Option<&str> {
+        self.sql.as_deref()
     }
 }
 
@@ -77,82 +129,25 @@ pub(crate) fn run_sql_command(args: SqlArgs) -> Result<(), String> {
         );
     } else {
         require_created_canister(config.environment.as_str(), config.canister.as_str())?;
-        run_interactive_shell(&config)?;
-    }
-
-    Ok(())
-}
-
-fn run_interactive_shell(config: &ShellConfig) -> Result<(), String> {
-    // Phase 1: prepare the line editor and persistent history file.
-    let mut editor = DefaultEditor::new().map_err(|err| err.to_string())?;
-    let mut pending_sql = VecDeque::<String>::new();
-    let mut partial_statement = String::new();
-    if let Some(parent) = config.history_file.parent() {
-        std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
-    }
-    if config.history_file.exists() {
-        editor
-            .load_history(config.history_file.as_path())
-            .map_err(|err| err.to_string())?;
-    }
-
-    eprintln!(
-        "[icydb sql] interactive mode on '{}:{}' (terminate statements with ';', use \\q, exit, or Ctrl-D to quit)",
-        config.environment, config.canister
-    );
-
-    // Phase 2: collect one semicolon-terminated statement, then execute it.
-    loop {
-        match read_statement(&mut editor, &mut pending_sql, &mut partial_statement)? {
-            ShellInput::Exit => break,
-            ShellInput::Help => {
-                print!(
-                    "{}",
-                    render::finalize_successful_command_output(input::shell_help_text())
-                );
-            }
-            ShellInput::Sql(sql) => {
-                editor
-                    .add_history_entry(sql.as_str())
-                    .map_err(|err| err.to_string())?;
-                editor
-                    .append_history(config.history_file.as_path())
-                    .map_err(|err| err.to_string())?;
-
-                match execute_sql(
-                    config.environment.as_str(),
-                    config.canister.as_str(),
-                    sql.as_str(),
-                ) {
-                    Ok(output) => {
-                        print!(
-                            "{}",
-                            render::finalize_successful_command_output(output.as_str())
-                        );
-                    }
-                    Err(err) => println!("ERROR: {err}"),
-                }
-            }
-        }
+        interactive::run_interactive_shell(&config)?;
     }
 
     Ok(())
 }
 
 fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, String> {
-    let call_kind = sql_shell_call_kind(sql);
+    let call_kind = route::sql_shell_call_kind(sql);
     let endpoint = match call_kind {
-        SqlShellCallKind::Query => SQL_QUERY_ENDPOINT,
-        SqlShellCallKind::Ddl => SQL_DDL_ENDPOINT,
+        route::SqlShellCallKind::Query => SQL_QUERY_ENDPOINT,
+        route::SqlShellCallKind::Ddl => SQL_DDL_ENDPOINT,
     };
     require_configured_endpoint(canister, endpoint)?;
     require_created_canister(environment, canister)?;
 
-    let escaped_sql = candid_escape_string(sql);
+    let escaped_sql = call::candid_escape_string(sql);
     match call_kind {
-        SqlShellCallKind::Query => {
-            let candid_bytes = icp_query(
+        route::SqlShellCallKind::Query => {
+            let candid_bytes = call::icp_query(
                 environment,
                 canister,
                 endpoint.method(),
@@ -168,12 +163,12 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
                 Ok(result) => Ok(render_shell_text_from_perf_result(result)),
                 Err(err) => Ok(format!(
                     "ERROR: {}",
-                    sql_error_with_recovery_hint(&err.to_string(), environment, canister)
+                    call::sql_error_with_recovery_hint(&err.to_string(), environment, canister)
                 )),
             }
         }
-        SqlShellCallKind::Ddl => {
-            let candid_bytes = icp_update(
+        route::SqlShellCallKind::Ddl => {
+            let candid_bytes = call::icp_update(
                 environment,
                 canister,
                 endpoint.method(),
@@ -186,145 +181,9 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
                 Ok(result) => Ok(result.render_text()),
                 Err(err) => Ok(format!(
                     "ERROR: {}",
-                    sql_error_with_recovery_hint(&err.to_string(), environment, canister)
+                    call::sql_error_with_recovery_hint(&err.to_string(), environment, canister)
                 )),
             }
         }
     }
-}
-
-fn icp_query(
-    environment: &str,
-    canister: &str,
-    method: &str,
-    escaped_sql: &str,
-) -> Result<Vec<u8>, String> {
-    let candid_arg = format!("(\"{escaped_sql}\")");
-    let output = icp_query_command(environment, canister, method, candid_arg.as_str())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|err| err.to_string())?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let error = format!(
-            "IcyDB SQL query method '{method}' failed on canister '{canister}' in environment '{environment}': {}",
-            stderr.trim()
-        );
-        return Err(sql_error_with_recovery_hint(
-            error.as_str(),
-            environment,
-            canister,
-        ));
-    }
-
-    let stdout = String::from_utf8(output.stdout).map_err(|err| err.to_string())?;
-
-    hex_response_bytes(stdout.as_str())
-}
-
-fn icp_update(
-    environment: &str,
-    canister: &str,
-    method: &str,
-    escaped_sql: &str,
-) -> Result<Vec<u8>, String> {
-    let candid_arg = format!("(\"{escaped_sql}\")");
-    let output = icp_update_command(environment, canister, method, candid_arg.as_str())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|err| err.to_string())?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(sql_error_with_recovery_hint(
-            stderr.trim(),
-            environment,
-            canister,
-        ));
-    }
-
-    let stdout = String::from_utf8(output.stdout).map_err(|err| err.to_string())?;
-
-    hex_response_bytes(stdout.as_str())
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum SqlShellCallKind {
-    Query,
-    Ddl,
-}
-
-pub(crate) fn sql_shell_call_kind(sql: &str) -> SqlShellCallKind {
-    let normalized = sql
-        .trim_start()
-        .trim_end_matches(|ch: char| ch == ';' || ch.is_whitespace())
-        .trim_start();
-    let mut words = normalized.split_whitespace().map(str::to_ascii_uppercase);
-    let first = words.next();
-    let second = words.next();
-    let third = words.next();
-    if sql_shell_statement_is_ddl(first.as_deref(), second.as_deref(), third.as_deref()) {
-        return SqlShellCallKind::Ddl;
-    }
-
-    SqlShellCallKind::Query
-}
-
-fn sql_shell_statement_is_ddl(
-    first: Option<&str>,
-    second: Option<&str>,
-    third: Option<&str>,
-) -> bool {
-    matches!(
-        (first, second, third),
-        (Some("CREATE" | "DROP"), Some("INDEX"), _)
-            | (Some("CREATE"), Some("UNIQUE"), Some("INDEX"))
-            | (Some("ALTER"), Some("TABLE"), _)
-    )
-}
-
-pub(crate) fn sql_error_with_recovery_hint(
-    error: &str,
-    environment: &str,
-    canister: &str,
-) -> String {
-    if !looks_like_stale_demo_sql_surface(error) {
-        return error.to_string();
-    }
-
-    format!("{error}\n\n{}", sql_recovery_hint(environment, canister))
-}
-
-fn looks_like_stale_demo_sql_surface(error: &str) -> bool {
-    error.contains("has no query method '__icydb_query'")
-        || (error.contains("startup index rebuild failed")
-            && error.contains("store '")
-            && error.contains("' not found"))
-}
-
-fn sql_recovery_hint(environment: &str, canister: &str) -> String {
-    format!(
-        "This looks like stale wasm or stable-memory schema state for '{canister}' in environment '{environment}'. If this is disposable, run `icydb canister refresh {canister} --environment {environment}`; otherwise repair it or use `icydb canister upgrade {canister} --environment {environment}` intentionally."
-    )
-}
-
-fn candid_escape_string(sql: &str) -> String {
-    let mut escaped = String::with_capacity(sql.len());
-    for ch in sql.chars() {
-        match ch {
-            '\\' => escaped.push_str("\\\\"),
-            '"' => escaped.push_str("\\\""),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => escaped.push_str("\\r"),
-            '\t' => escaped.push_str("\\t"),
-            _ => escaped.push(ch),
-        }
-    }
-
-    escaped
 }

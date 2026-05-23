@@ -1,3 +1,8 @@
+//! Module: shell input parsing.
+//! Responsibility: classify interactive shell input and split complete SQL statements.
+//! Does not own: SQL execution, endpoint routing, or rendered output.
+//! Boundary: exposes parsed shell actions to the shell runner and test-only helpers via the parent module.
+
 use std::collections::VecDeque;
 
 use rustyline::{DefaultEditor, error::ReadlineError};
@@ -15,14 +20,14 @@ pub(super) enum ShellInput {
     Exit,
 }
 
-pub(crate) fn is_shell_help_command(input: &str) -> bool {
+pub(super) fn is_shell_help_command(input: &str) -> bool {
     matches!(
         input.trim().trim_end_matches(';').trim(),
         "?" | "help" | "\\?" | "\\help"
     )
 }
 
-pub(crate) const fn shell_help_text() -> &'static str {
+pub(super) const fn shell_help_text() -> &'static str {
     "meta commands:
   ? / help         show this help
   \\q / quit / exit quit the interactive shell
@@ -129,7 +134,7 @@ pub(super) fn read_statement(
 
 // Split every complete top-level SQL statement from one shell buffer while
 // preserving quoted semicolons and any trailing incomplete remainder.
-pub(crate) fn drain_complete_shell_statements(statement: &mut String) -> VecDeque<String> {
+pub(super) fn drain_complete_shell_statements(statement: &mut String) -> VecDeque<String> {
     let mut complete = VecDeque::<String>::new();
     let mut start = 0usize;
     let mut in_single_quote = false;
@@ -171,7 +176,7 @@ pub(crate) fn drain_complete_shell_statements(statement: &mut String) -> VecDequ
 
 // Trim shell-facing line noise while preserving the SQL text itself, so
 // history recall does not force users to remove stray whitespace or `;;`.
-pub(crate) fn normalize_shell_statement_line(line: &str) -> String {
+pub(super) fn normalize_shell_statement_line(line: &str) -> String {
     let trimmed = line.trim();
     let without_extra_semicolons = trimmed.trim_end_matches(';');
 

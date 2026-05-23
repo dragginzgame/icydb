@@ -52,13 +52,24 @@ fn model_storage_tokens(node: &Entity) -> TokenStream {
     let fields_len = LitInt::new(&node.fields.len().to_string(), Span::call_site());
     let indexes_len = LitInt::new(&index_exprs.len().to_string(), Span::call_site());
     let model_fields_ident = model_fields_ident(&ident);
+    let primary_key_fields_ident = primary_key_fields_ident(&ident);
     let indexes_ident = indexes_ident(&ident);
+    let pk_index = node
+        .fields
+        .iter()
+        .position(|field| field.ident == node.primary_key.field)
+        .expect("primary key field not found in entity fields");
+    let pk_index = LitInt::new(&pk_index.to_string(), Span::call_site());
 
     quote! {
         #(#index_support_items)*
         const #model_fields_ident:
             [::icydb::model::field::FieldModel; #fields_len] = [
                 #(#model_fields_exprs),*
+            ];
+        const #primary_key_fields_ident:
+            [&'static ::icydb::model::field::FieldModel; 1] = [
+                &#model_fields_ident[#pk_index],
             ];
         const #indexes_ident:
             [&'static ::icydb::model::index::IndexModel; #indexes_len] = [
@@ -80,15 +91,18 @@ fn entity_model_tokens(node: &Entity) -> TokenStream {
         .expect("primary key field not found in entity fields");
     let pk_index = LitInt::new(&pk_index.to_string(), Span::call_site());
     let model_fields_ident = model_fields_ident(&ident);
+    let primary_key_fields_ident = primary_key_fields_ident(&ident);
     let model_ident = model_ident(&ident);
     let indexes_ident = indexes_ident(&ident);
 
     quote! {
         const #model_ident: ::icydb::model::entity::EntityModel =
-            ::icydb::model::entity::EntityModel::generated(
+            ::icydb::model::entity::EntityModel::generated_with_primary_key_model(
                 <#ident as ::icydb::traits::Path>::PATH,
                 #entity_name,
-                &#model_fields_ident[#pk_index],
+                ::icydb::model::entity::PrimaryKeyModel::ordered(
+                    &#primary_key_fields_ident
+                ),
                 #pk_index,
                 &#model_fields_ident,
                 &#indexes_ident,
@@ -121,6 +135,11 @@ fn model_fields_ident(ident: &Ident) -> Ident {
 fn indexes_ident(ident: &Ident) -> Ident {
     let ident = ident.to_string().to_ascii_uppercase();
     format_ident!("__{}_ENTITY_INDEXES", ident)
+}
+
+fn primary_key_fields_ident(ident: &Ident) -> Ident {
+    let ident = ident.to_string().to_ascii_uppercase();
+    format_ident!("__{}_PRIMARY_KEY_FIELDS", ident)
 }
 
 fn model_ident(ident: &Ident) -> Ident {

@@ -78,7 +78,9 @@ pub mod value {
 #[doc(hidden)]
 pub mod model {
     pub mod entity {
-        pub use icydb_core::model::EntityModel;
+        pub use icydb_core::model::{
+            EntityModel, PrimaryKeyModel, PrimaryKeyModelFieldIter, PrimaryKeyModelFields,
+        };
     }
 
     pub mod field {
@@ -94,7 +96,7 @@ pub mod model {
         };
     }
 
-    pub use entity::EntityModel;
+    pub use entity::{EntityModel, PrimaryKeyModel};
     pub use field::{FieldDatabaseDefault, FieldModel};
     pub use index::{IndexExpression, IndexModel};
 }
