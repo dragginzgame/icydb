@@ -45,7 +45,7 @@ use crate::{
         RuntimeValueDecode, RuntimeValueEncode,
     },
     types::{EntityTag, Ulid},
-    value::{Value, ValueEnum, primary_key_value_as_runtime_value},
+    value::{StorageKey, Value, ValueEnum, primary_key_value_as_runtime_value},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
@@ -58,6 +58,14 @@ static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
 
 fn active_true_predicate() -> &'static Predicate {
     &ACTIVE_TRUE_PREDICATE
+}
+
+fn scalar_storage_key_for_test<K: PrimaryKeyCodec>(key: &K, context: &'static str) -> StorageKey {
+    key.to_primary_key_value()
+        .expect(context)
+        .scalar_component()
+        .map(StorageKey::from)
+        .expect("test fixtures use scalar primary keys")
 }
 
 const fn active_true_predicate_metadata() -> IndexPredicateMetadata {
@@ -3215,10 +3223,8 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_authoritative_rows() {
         .expect("stale key build should succeed")
         .expect("stale key should exist")
         .to_raw();
-    let stale_storage_key = stale
-        .id
-        .to_primary_key_value()
-        .expect("stale storage key should encode");
+    let stale_storage_key =
+        scalar_storage_key_for_test(&stale.id, "stale storage key should encode");
     let stale_entry = IndexEntryValue::try_from_keys(vec![stale_storage_key])
         .expect("stale index entry should encode");
 
@@ -3315,10 +3321,8 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_old_nullable_rows() {
         .expect("stale nullable key build should succeed")
         .expect("stale nullable key should exist")
         .to_raw();
-    let stale_storage_key = stale
-        .id
-        .to_primary_key_value()
-        .expect("stale nullable storage key should encode");
+    let stale_storage_key =
+        scalar_storage_key_for_test(&stale.id, "stale nullable storage key should encode");
     let stale_entry = IndexEntryValue::try_from_keys(vec![stale_storage_key])
         .expect("stale nullable index entry should encode");
 
@@ -3410,11 +3414,10 @@ fn recovery_replay_updates_old_nullable_row_before_image_with_accepted_contract(
         .expect("old nullable index key build should succeed")
         .expect("old nullable index key should exist")
         .to_raw();
-    let old_entry = IndexEntryValue::try_from_keys(vec![
-        old.id
-            .to_primary_key_value()
-            .expect("old nullable storage key should encode"),
-    ])
+    let old_entry = IndexEntryValue::try_from_keys(vec![scalar_storage_key_for_test(
+        &old.id,
+        "old nullable storage key should encode",
+    )])
     .expect("old nullable index entry should encode");
 
     // Phase 1: seed an old-layout authoritative row and matching old index
@@ -3496,19 +3499,15 @@ fn recovery_startup_gate_rebuilds_conditional_indexes_from_authoritative_rows() 
         .expect("stale index key build should succeed")
         .expect("stale index key should exist")
         .to_raw();
-    let inactive_entry = IndexEntryValue::try_from_keys(vec![
-        inactive
-            .id
-            .to_primary_key_value()
-            .expect("inactive storage key should encode"),
-    ])
+    let inactive_entry = IndexEntryValue::try_from_keys(vec![scalar_storage_key_for_test(
+        &inactive.id,
+        "inactive storage key should encode",
+    )])
     .expect("inactive stale index entry should encode");
-    let stale_entry = IndexEntryValue::try_from_keys(vec![
-        stale
-            .id
-            .to_primary_key_value()
-            .expect("stale storage key should encode"),
-    ])
+    let stale_entry = IndexEntryValue::try_from_keys(vec![scalar_storage_key_for_test(
+        &stale.id,
+        "stale storage key should encode",
+    )])
     .expect("stale index entry should encode");
 
     // Phase 1: seed authoritative rows and intentionally stale conditional index state.
@@ -3601,12 +3600,10 @@ fn recovery_startup_gate_rebuilds_upper_expression_indexes_from_authoritative_ro
         .expect("stale expression index key build should succeed")
         .expect("stale expression index key should exist")
         .to_raw();
-    let stale_entry = IndexEntryValue::try_from_keys(vec![
-        stale
-            .id
-            .to_primary_key_value()
-            .expect("stale expression storage key"),
-    ])
+    let stale_entry = IndexEntryValue::try_from_keys(vec![scalar_storage_key_for_test(
+        &stale.id,
+        "stale expression storage key",
+    )])
     .expect("stale expression index entry should encode");
 
     // Phase 1: seed authoritative rows and intentionally stale expression-index state.
@@ -3798,10 +3795,8 @@ fn recovery_startup_rebuild_fail_closed_restores_previous_index_state_on_corrupt
         .expect("sentinel key build should succeed")
         .expect("sentinel key should exist")
         .to_raw();
-    let sentinel_storage_key = sentinel
-        .id
-        .to_primary_key_value()
-        .expect("sentinel storage key should encode");
+    let sentinel_storage_key =
+        scalar_storage_key_for_test(&sentinel.id, "sentinel storage key should encode");
     let sentinel_entry = IndexEntryValue::try_from_keys(vec![sentinel_storage_key])
         .expect("sentinel entry should encode");
 

@@ -21,7 +21,7 @@ use crate::{
 type CanisterListRow = (String, &'static str, String);
 
 /// Print canisters known to the selected local ICP environment and their local id status.
-pub(crate) fn list_canisters(environment: &str) -> Result<(), String> {
+pub(super) fn list_canisters(environment: &str) -> Result<(), String> {
     let canisters = known_canisters(environment)?;
     if canisters.is_empty() {
         println!("No canisters were found in icp.yaml for environment '{environment}'.");
@@ -77,7 +77,7 @@ fn table_width<'a>(heading: &str, values: impl Iterator<Item = &'a str>) -> usiz
 }
 
 /// Deploy a local ICP canister without forcing reinstall mode.
-pub(crate) fn deploy_canister(environment: &str, canister: &str) -> Result<(), String> {
+pub(super) fn deploy_canister(environment: &str, canister: &str) -> Result<(), String> {
     eprintln!("[icydb] deploying canister '{canister}' in environment '{environment}'");
     let mut command = Command::new("icp");
     command
@@ -108,7 +108,7 @@ fn reinstall_for_refresh(environment: &str, canister: &str) -> Result<(), String
 }
 
 /// Refresh a local canister and load deterministic fixtures when the endpoint exists.
-pub(crate) fn refresh_canister(environment: &str, canister: &str) -> Result<(), String> {
+pub(super) fn refresh_canister(environment: &str, canister: &str) -> Result<(), String> {
     let load_fixtures = configured_endpoint_enabled(canister, FIXTURES_LOAD_ENDPOINT)?;
     reinstall_for_refresh(environment, canister)?;
     if load_fixtures {
@@ -170,7 +170,7 @@ fn looks_like_missing_fixtures_endpoint(stderr: &str) -> bool {
 }
 
 /// Build and upgrade a local canister without clearing stable memory.
-pub(crate) fn upgrade_canister(
+pub(super) fn upgrade_canister(
     environment: &str,
     canister: &str,
     wasm: Option<&PathBuf>,
@@ -214,7 +214,7 @@ pub(crate) fn upgrade_canister(
 }
 
 /// Show icp-cli status for one local canister without changing lifecycle state.
-pub(crate) fn status_canister(environment: &str, canister: &str) -> Result<(), String> {
+pub(super) fn status_canister(environment: &str, canister: &str) -> Result<(), String> {
     eprintln!("[icydb] reading canister status for '{canister}' in environment '{environment}'");
     let mut command = Command::new("icp");
     command

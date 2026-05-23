@@ -162,8 +162,9 @@ pub mod __macro {
         bootstrap_default_memory_manager, ic_memory_declaration, ic_memory_key, ic_memory_range,
     };
     pub use icydb_core::db::{
-        DataStore, DbSession as CoreDbSession, EntityRuntimeHooks, IndexStore, PersistedRow,
-        SchemaStore, SlotReader, SlotWriter, StoreRegistry,
+        CompositePrimaryKeyValue, CompositePrimaryKeyValueError, DataStore,
+        DbSession as CoreDbSession, EntityRuntimeHooks, IndexStore, PersistedRow,
+        PrimaryKeyComponent, PrimaryKeyValue, SchemaStore, SlotReader, SlotWriter, StoreRegistry,
     };
     #[cfg(feature = "sql")]
     pub use icydb_core::db::{

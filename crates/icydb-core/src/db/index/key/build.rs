@@ -340,6 +340,14 @@ impl IndexKey {
     ) -> Result<Option<Self>, InternalError> {
         let entity_key = entity.id().key();
         let primary_key_value = crate::traits::PrimaryKeyCodec::to_primary_key_value(&entity_key)?;
+        let Some(primary_key_value) = primary_key_value
+            .scalar_component()
+            .map(crate::value::StorageKey::from)
+        else {
+            return Err(InternalError::store_unsupported(
+                "composite primary keys are not routed through test index-key builders yet",
+            ));
+        };
         let mut read_slot = |slot| entity.get_value_by_index(slot);
 
         Self::new_from_slot_reader(

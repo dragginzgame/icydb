@@ -1,9 +1,14 @@
+//! Module: shell perf payload parsing.
+//! Responsibility: decode JSON-shaped perf responses into SQL results and attribution.
+//! Does not own: canister calls, shell rendering, or instruction collection.
+//! Boundary: normalizes legacy candid JSON shapes before typed deserialization.
+
 use icydb::db::sql::SqlQueryResult;
 use serde_json::Value;
 
 use crate::shell::perf::{ShellPerfAttribution, ShellPerfAttributionInput};
 
-pub(crate) fn parse_perf_result(
+pub(in crate::shell) fn parse_perf_result(
     value: &Value,
 ) -> Result<(SqlQueryResult, ShellPerfAttribution), String> {
     let result_value = value
@@ -37,7 +42,7 @@ pub(crate) fn parse_perf_result(
     ))
 }
 
-pub(crate) fn normalize_grouped_next_cursor_json(value: &mut Value) {
+pub(in crate::shell) fn normalize_grouped_next_cursor_json(value: &mut Value) {
     let Some(grouped) = value.get_mut("Grouped") else {
         return;
     };

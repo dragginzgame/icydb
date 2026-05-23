@@ -1,3 +1,8 @@
+//! Module: SQL shell command integration.
+//! Responsibility: run one-shot SQL and interactive shell flows against configured canisters.
+//! Does not own: CLI parsing, endpoint configuration persistence, or SQL execution semantics.
+//! Boundary: routes SQL to configured query/update endpoints and renders shell-facing output.
+
 mod call;
 mod input;
 mod interactive;
@@ -19,13 +24,7 @@ use crate::{
 
 #[cfg(test)]
 pub(crate) use crate::shell::{
-    perf::{
-        ShellPerfAttribution, ShellPerfAttributionInput, normalize_grouped_next_cursor_json,
-        parse_perf_result, render_perf_suffix,
-    },
-    render::{
-        finalize_successful_command_output, render_grouped_shell_text, render_projection_shell_text,
-    },
+    perf::{ShellPerfAttribution, ShellPerfAttributionInput},
     route::SqlShellCallKind,
 };
 
@@ -47,6 +46,23 @@ pub(crate) fn normalize_shell_statement_line(line: &str) -> String {
 }
 
 #[cfg(test)]
+pub(crate) fn normalize_grouped_next_cursor_json(value: &mut serde_json::Value) {
+    perf::normalize_grouped_next_cursor_json(value)
+}
+
+#[cfg(test)]
+pub(crate) fn parse_perf_result(
+    value: &serde_json::Value,
+) -> Result<(SqlQueryResult, ShellPerfAttribution), String> {
+    perf::parse_perf_result(value)
+}
+
+#[cfg(test)]
+pub(crate) fn render_perf_suffix(attribution: Option<&ShellPerfAttribution>) -> Option<String> {
+    perf::render_perf_suffix(attribution)
+}
+
+#[cfg(test)]
 pub(crate) const fn shell_help_text() -> &'static str {
     input::shell_help_text()
 }
@@ -63,6 +79,29 @@ pub(crate) fn sql_error_with_recovery_hint(
     canister: &str,
 ) -> String {
     call::sql_error_with_recovery_hint(error, environment, canister)
+}
+
+#[cfg(test)]
+pub(crate) fn finalize_successful_command_output(rendered: &str) -> String {
+    render::finalize_successful_command_output(rendered)
+}
+
+#[cfg(test)]
+pub(crate) fn render_grouped_shell_text(
+    rows: icydb::db::sql::SqlGroupedRowsOutput,
+    attribution: Option<ShellPerfAttribution>,
+    render_attribution: Option<perf::ShellLocalRenderAttribution>,
+) -> String {
+    render::render_grouped_shell_text(rows, attribution, render_attribution)
+}
+
+#[cfg(test)]
+pub(crate) fn render_projection_shell_text(
+    rows: icydb::db::sql::SqlQueryRowsOutput,
+    attribution: Option<ShellPerfAttribution>,
+    render_attribution: Option<perf::ShellLocalRenderAttribution>,
+) -> String {
+    render::render_projection_shell_text(rows, attribution, render_attribution)
 }
 
 ///

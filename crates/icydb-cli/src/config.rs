@@ -1,3 +1,8 @@
+//! Module: CLI config commands and endpoint surface gates.
+//! Responsibility: create, render, validate, and enforce `icydb.toml` CLI config.
+//! Does not own: config file parsing, ICP project discovery, or command execution.
+//! Boundary: exposes config command handlers plus test-covered config diagnostics and endpoint constants.
+
 use std::{
     collections::BTreeSet,
     env, fs,

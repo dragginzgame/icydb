@@ -100,6 +100,10 @@ pub(crate) use executor::{
 };
 pub use identity::{EntityName, IndexName};
 pub use index::{IndexState, IndexStore};
+#[doc(hidden)]
+pub use key_taxonomy::{
+    CompositePrimaryKeyValue, CompositePrimaryKeyValueError, PrimaryKeyComponent, PrimaryKeyValue,
+};
 pub use predicate::{
     CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,
     UnsupportedQueryFeature,

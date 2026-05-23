@@ -1,3 +1,8 @@
+//! Module: schema-check report analysis.
+//! Responsibility: summarize generated-vs-accepted schema check descriptions.
+//! Does not own: canister calls, text rendering, or schema mutation semantics.
+//! Boundary: turns runtime descriptions into table rows and recommendations.
+
 use std::collections::BTreeMap;
 
 use icydb::db::{

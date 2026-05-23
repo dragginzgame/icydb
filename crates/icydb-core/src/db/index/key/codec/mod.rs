@@ -16,7 +16,7 @@ use crate::{
         index::key::IndexId,
         key_taxonomy::{
             CompactPrimaryKeyDecodeError, EncodedIndexComponent, EncodedPrimaryKey, IndexStoreKey,
-            IndexStoreKeyKind, PrimaryKeyValue,
+            IndexStoreKeyKind, PrimaryKeyComponent,
         },
     },
 };
@@ -201,13 +201,13 @@ impl IndexKey {
             .map_err(primary_key_decode_error_to_storage_key_decode_error)?;
 
         encoded
-            .decode()
+            .decode_component()
             .map(StorageKey::from)
             .map_err(primary_key_decode_error_to_storage_key_decode_error)
     }
 
     pub(in crate::db) fn compact_primary_key_bytes(primary_key: StorageKey) -> Vec<u8> {
-        EncodedPrimaryKey::encode(PrimaryKeyValue::from(primary_key))
+        EncodedPrimaryKey::encode(PrimaryKeyComponent::from(primary_key))
             .expect("storage-key primary keys must compact-encode")
             .as_bytes()
             .to_vec()
@@ -237,6 +237,7 @@ const fn primary_key_decode_error_to_storage_key_decode_error(
         CompactPrimaryKeyDecodeError::InvalidCompositeCount { .. }
         | CompactPrimaryKeyDecodeError::UnitCompositeComponent { .. }
         | CompactPrimaryKeyDecodeError::NestedComposite
+        | CompactPrimaryKeyDecodeError::CompositeNotScalar
         | CompactPrimaryKeyDecodeError::TrailingCompositeBytes { .. } => {
             StorageKeyDecodeError::InvalidSize
         }

@@ -3,12 +3,13 @@
 //! explicit empty identity.
 
 use crate::{
+    db::{PrimaryKeyComponent, PrimaryKeyValue},
     traits::{
         EntityKeyBytes, PrimaryKeyCodec, PrimaryKeyDecode, RuntimeValueDecode, RuntimeValueEncode,
         RuntimeValueKind, RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto,
         ValidateCustom, Visitable,
     },
-    value::{StorageKey, StorageKeyEncodeError, Value},
+    value::{StorageKeyEncodeError, Value},
 };
 use candid::CandidType;
 use serde::Deserialize;
@@ -67,17 +68,17 @@ impl RuntimeValueDecode for Unit {
 }
 
 impl PrimaryKeyCodec for Unit {
-    fn to_primary_key_value(&self) -> Result<StorageKey, StorageKeyEncodeError> {
-        Ok(StorageKey::Unit)
+    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, StorageKeyEncodeError> {
+        Ok(PrimaryKeyValue::Scalar(PrimaryKeyComponent::Unit))
     }
 }
 
 impl PrimaryKeyDecode for Unit {
-    fn from_primary_key_value(key: StorageKey) -> Result<Self, crate::error::InternalError> {
-        match key {
-            StorageKey::Unit => Ok(Self),
-            other => Err(crate::error::InternalError::store_corruption(format!(
-                "primary key decode failed for `{}`: expected StorageKey::Unit, found {other:?}",
+    fn from_primary_key_value(key: &PrimaryKeyValue) -> Result<Self, crate::error::InternalError> {
+        match *key {
+            PrimaryKeyValue::Scalar(PrimaryKeyComponent::Unit) => Ok(Self),
+            _ => Err(crate::error::InternalError::store_corruption(format!(
+                "primary key decode failed for `{}`: expected PrimaryKeyComponent::Unit, found {key:?}",
                 std::any::type_name::<Self>(),
             ))),
         }

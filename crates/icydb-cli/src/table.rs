@@ -1,3 +1,8 @@
+//! Module: CLI table rendering.
+//! Responsibility: render simple aligned text tables for CLI reports.
+//! Does not own: report content, command execution, or observability-specific formatting.
+//! Boundary: exposes alignment choices and indented table appending to report modules.
+
 const COLUMN_GAP: &str = "   ";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -8,7 +13,7 @@ pub(crate) enum ColumnAlign {
 
 /// Render a whitespace-aligned table with an underlined header row.
 #[must_use]
-pub(crate) fn render_table<const N: usize>(
+fn render_table<const N: usize>(
     headers: &[&str; N],
     rows: &[[String; N]],
     alignments: &[ColumnAlign; N],
@@ -43,10 +48,7 @@ pub(crate) fn append_indented_table<const N: usize>(
 }
 
 #[must_use]
-pub(crate) fn table_widths<const N: usize>(
-    headers: &[&str; N],
-    rows: &[[String; N]],
-) -> [usize; N] {
+fn table_widths<const N: usize>(headers: &[&str; N], rows: &[[String; N]]) -> [usize; N] {
     let mut widths = headers.map(str::chars).map(Iterator::count);
 
     for row in rows {
@@ -59,7 +61,7 @@ pub(crate) fn table_widths<const N: usize>(
 }
 
 #[must_use]
-pub(crate) fn render_table_row<const N: usize>(
+fn render_table_row<const N: usize>(
     row: &[impl AsRef<str>],
     widths: &[usize; N],
     alignments: &[ColumnAlign; N],
@@ -82,7 +84,7 @@ pub(crate) fn render_table_row<const N: usize>(
 }
 
 #[must_use]
-pub(crate) fn render_separator<const N: usize>(widths: &[usize; N]) -> String {
+fn render_separator<const N: usize>(widths: &[usize; N]) -> String {
     widths
         .iter()
         .map(|width| "-".repeat(*width))

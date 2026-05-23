@@ -1,6 +1,13 @@
+//! Module: shell perf suffix formatting.
+//! Responsibility: compact instruction attribution into shell footer text.
+//! Does not own: perf payload parsing, SQL result rendering, or metrics collection.
+//! Boundary: transforms normalized attribution values into display fragments.
+
 use crate::shell::perf::{ShellLocalRenderAttribution, ShellPerfAttribution};
 
-pub(crate) fn render_perf_suffix(attribution: Option<&ShellPerfAttribution>) -> Option<String> {
+pub(in crate::shell) fn render_perf_suffix(
+    attribution: Option<&ShellPerfAttribution>,
+) -> Option<String> {
     let attribution = attribution?;
     if attribution.total == 0 {
         return None;
@@ -14,7 +21,7 @@ pub(crate) fn render_perf_suffix(attribution: Option<&ShellPerfAttribution>) -> 
     Some(format!("{total} {bar}"))
 }
 
-pub(crate) fn render_shell_render_suffix(
+pub(in crate::shell) fn render_shell_render_suffix(
     render_attribution: Option<&ShellLocalRenderAttribution>,
 ) -> Option<String> {
     let render_attribution = render_attribution?;
@@ -28,7 +35,7 @@ pub(crate) fn render_shell_render_suffix(
     ))
 }
 
-pub(crate) fn render_pure_covering_suffix(
+pub(in crate::shell) fn render_pure_covering_suffix(
     attribution: Option<&ShellPerfAttribution>,
 ) -> Option<String> {
     let attribution = attribution?;
@@ -43,7 +50,7 @@ pub(crate) fn render_pure_covering_suffix(
     ))
 }
 
-pub(crate) fn render_executor_residual_suffix(
+pub(in crate::shell) fn render_executor_residual_suffix(
     attribution: Option<&ShellPerfAttribution>,
 ) -> Option<String> {
     let attribution = attribution?;

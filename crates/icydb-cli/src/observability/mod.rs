@@ -1,3 +1,8 @@
+//! Module: observability command integration.
+//! Responsibility: dispatch metrics, schema, schema-check, and snapshot canister calls.
+//! Does not own: endpoint configuration, ICP process construction, or CLI argument parsing.
+//! Boundary: decodes raw canister responses and delegates report rendering to submodules.
+
 mod metrics;
 mod render;
 mod schema;

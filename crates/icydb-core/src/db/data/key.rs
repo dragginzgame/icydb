@@ -163,6 +163,7 @@ impl DecodedDataStoreKey {
         K: PrimaryKeyCodec,
     {
         let key = key.to_primary_key_value()?;
+        let key = scalar_storage_key_from_primary_key_value(&key)?;
 
         Ok(Self::new(entity, key))
     }
@@ -196,7 +197,7 @@ impl DecodedDataStoreKey {
             ));
         }
 
-        <E::Key as PrimaryKeyDecode>::from_primary_key_value(self.key)
+        <E::Key as PrimaryKeyDecode>::from_primary_key_value(&PrimaryKeyValue::from(self.key))
     }
 
     // ------------------------------------------------------------------
@@ -289,12 +290,22 @@ impl DecodedDataStoreKey {
         let key = StorageKey::from(
             decoded
                 .primary_key()
-                .decode()
+                .decode_component()
                 .map_err(PrimaryKeyValueDecodeError::from)?,
         );
 
         Ok(Self::new_with_raw(entity, key, raw.clone()))
     }
+}
+
+fn scalar_storage_key_from_primary_key_value(
+    key: &PrimaryKeyValue,
+) -> Result<StorageKey, InternalError> {
+    key.scalar_component().map(StorageKey::from).ok_or_else(|| {
+        InternalError::store_unsupported(
+            "composite primary keys are not routed through DecodedDataStoreKey yet",
+        )
+    })
 }
 
 impl Clone for DecodedDataStoreKey {
@@ -491,7 +502,7 @@ mod tests {
     {
         let primary_key_value = key.to_primary_key_value().expect("typed key should encode");
         let decoded =
-            K::from_primary_key_value(primary_key_value).expect("primary key should decode");
+            K::from_primary_key_value(&primary_key_value).expect("primary key should decode");
 
         assert_eq!(decoded, key);
     }
@@ -522,7 +533,11 @@ mod tests {
         // [EntityTag(u64, big-endian)] + [EncodedPrimaryKey].
         let mut expected = Vec::new();
         expected.extend_from_slice(&5u64.to_be_bytes());
-        expected.push(PrimaryKeyValue::Int(-1).kind().tag());
+        expected.push(
+            crate::db::key_taxonomy::PrimaryKeyComponent::Int(-1)
+                .kind()
+                .tag(),
+        );
         expected.extend_from_slice(&0x7FFF_FFFF_FFFF_FFFFu64.to_be_bytes());
 
         assert_eq!(raw.as_bytes(), expected.as_slice());
@@ -594,9 +609,9 @@ mod tests {
 
     #[test]
     fn primary_key_decode_rejects_variant_mismatch_and_out_of_range_keys() {
-        let variant_err = u64::from_primary_key_value(StorageKey::Int(7))
+        let variant_err = u64::from_primary_key_value(&StorageKey::Int(7).into())
             .expect_err("nat decode must reject signed storage-key variants");
-        let range_err = u8::from_primary_key_value(StorageKey::Nat(300))
+        let range_err = u8::from_primary_key_value(&StorageKey::Nat(300).into())
             .expect_err("narrow integer decode must reject out-of-range values");
 
         assert_eq!(variant_err.class(), ErrorClass::Corruption);

@@ -5,7 +5,7 @@
 
 use std::process::Command;
 
-pub(crate) fn icp_query_command(
+pub(super) fn icp_query_command(
     environment: &str,
     canister: &str,
     method: &str,
@@ -27,7 +27,7 @@ pub(crate) fn icp_query_command(
     command
 }
 
-pub(crate) fn icp_update_command(
+pub(super) fn icp_update_command(
     environment: &str,
     canister: &str,
     method: &str,
@@ -48,7 +48,7 @@ pub(crate) fn icp_update_command(
     command
 }
 
-pub(crate) fn hex_response_bytes(output: &str) -> Result<Vec<u8>, String> {
+pub(super) fn hex_response_bytes(output: &str) -> Result<Vec<u8>, String> {
     let candidate = output
         .rsplit_once("response (hex):")
         .map_or(output, |(_, value)| value)

@@ -1,3 +1,8 @@
+//! Module: shell SQL result rendering.
+//! Responsibility: render decoded SQL results and shell-local perf suffixes.
+//! Does not own: canister calls, SQL routing, or perf payload parsing.
+//! Boundary: converts typed SQL result values into prompt-ready text.
+
 use std::time::Instant;
 
 use icydb::db::sql::{
@@ -63,7 +68,7 @@ fn render_shell_text(
     }
 }
 
-pub(crate) fn render_projection_shell_text(
+pub(super) fn render_projection_shell_text(
     mut rows: SqlQueryRowsOutput,
     attribution: Option<ShellPerfAttribution>,
     render_attribution: Option<ShellLocalRenderAttribution>,
@@ -81,7 +86,7 @@ pub(crate) fn render_projection_shell_text(
     lines.join("\n")
 }
 
-pub(crate) fn render_grouped_shell_text(
+pub(super) fn render_grouped_shell_text(
     mut rows: SqlGroupedRowsOutput,
     attribution: Option<ShellPerfAttribution>,
     render_attribution: Option<ShellLocalRenderAttribution>,
@@ -100,7 +105,7 @@ pub(crate) fn render_grouped_shell_text(
 
 // Keep successful command output visually isolated so the next prompt or shell
 // continuation appears after one blank separator line.
-pub(crate) fn finalize_successful_command_output(rendered: &str) -> String {
+pub(super) fn finalize_successful_command_output(rendered: &str) -> String {
     let mut finalized = String::with_capacity(rendered.len().saturating_add(2));
     finalized.push_str(rendered);
     finalized.push('\n');
@@ -156,7 +161,7 @@ fn append_perf_suffix(
     *last = format!("{last} {}", suffixes.join(" "));
 }
 
-pub(crate) fn append_shell_render_suffix(
+fn append_shell_render_suffix(
     rendered: String,
     render_attribution: Option<&ShellLocalRenderAttribution>,
 ) -> String {

@@ -1,6 +1,6 @@
 //! Module: db::key_taxonomy
-//! Responsibility: 0.159 compact key vocabulary and canonical primary-key
-//! encoder proof.
+//! Responsibility: compact key vocabulary and canonical primary-key encoder
+//! proof, including the 0.162 scalar-or-composite primary-key value model.
 //! Does not own: index-entry value ownership or cursor semantics.
 //! Boundary: storage-format layers consume these wrappers instead of treating
 //! the old fixed-width `StorageKey` frame as the conceptual API.
@@ -109,12 +109,12 @@ impl PrimaryKeyKind {
 }
 
 //
-// PrimaryKeyValue
+// PrimaryKeyComponent
 //
 
-/// Logical admitted primary-key value before compact canonical encoding.
+/// One admitted scalar primary-key component before compact canonical encoding.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub(in crate::db) enum PrimaryKeyValue {
+pub enum PrimaryKeyComponent {
     Nat(u64),
     Int(i64),
     Timestamp(Timestamp),
@@ -125,7 +125,7 @@ pub(in crate::db) enum PrimaryKeyValue {
     Unit,
 }
 
-impl PrimaryKeyValue {
+impl PrimaryKeyComponent {
     #[must_use]
     pub(in crate::db) const fn kind(self) -> PrimaryKeyKind {
         match self {
@@ -141,7 +141,7 @@ impl PrimaryKeyValue {
     }
 }
 
-impl From<StorageKey> for PrimaryKeyValue {
+impl From<StorageKey> for PrimaryKeyComponent {
     fn from(value: StorageKey) -> Self {
         match value {
             StorageKey::Nat(value) => Self::Nat(value),
@@ -156,22 +156,22 @@ impl From<StorageKey> for PrimaryKeyValue {
     }
 }
 
-impl From<PrimaryKeyValue> for StorageKey {
-    fn from(value: PrimaryKeyValue) -> Self {
+impl From<PrimaryKeyComponent> for StorageKey {
+    fn from(value: PrimaryKeyComponent) -> Self {
         match value {
-            PrimaryKeyValue::Nat(value) => Self::Nat(value),
-            PrimaryKeyValue::Int(value) => Self::Int(value),
-            PrimaryKeyValue::Timestamp(value) => Self::Timestamp(value),
-            PrimaryKeyValue::Ulid(value) => Self::Ulid(value),
-            PrimaryKeyValue::Principal(value) => Self::Principal(value),
-            PrimaryKeyValue::Subaccount(value) => Self::Subaccount(value),
-            PrimaryKeyValue::Account(value) => Self::Account(value),
-            PrimaryKeyValue::Unit => Self::Unit,
+            PrimaryKeyComponent::Nat(value) => Self::Nat(value),
+            PrimaryKeyComponent::Int(value) => Self::Int(value),
+            PrimaryKeyComponent::Timestamp(value) => Self::Timestamp(value),
+            PrimaryKeyComponent::Ulid(value) => Self::Ulid(value),
+            PrimaryKeyComponent::Principal(value) => Self::Principal(value),
+            PrimaryKeyComponent::Subaccount(value) => Self::Subaccount(value),
+            PrimaryKeyComponent::Account(value) => Self::Account(value),
+            PrimaryKeyComponent::Unit => Self::Unit,
         }
     }
 }
 
-impl Ord for PrimaryKeyValue {
+impl Ord for PrimaryKeyComponent {
     fn cmp(&self, other: &Self) -> Ordering {
         match (*self, *other) {
             (Self::Nat(a), Self::Nat(b)) => a.cmp(&b),
@@ -187,7 +187,7 @@ impl Ord for PrimaryKeyValue {
     }
 }
 
-impl PartialOrd for PrimaryKeyValue {
+impl PartialOrd for PrimaryKeyComponent {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -199,17 +199,20 @@ impl PartialOrd for PrimaryKeyValue {
 
 /// Fixed-capacity composite primary-key component list.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub(in crate::db) struct CompositePrimaryKeyValue {
+pub struct CompositePrimaryKeyValue {
     len: u8,
-    components: [PrimaryKeyValue; MAX_PRIMARY_KEY_FIELDS],
+    components: [PrimaryKeyComponent; MAX_PRIMARY_KEY_FIELDS],
 }
 
 impl CompositePrimaryKeyValue {
-    pub(in crate::db) fn try_from_components(
-        components: &[PrimaryKeyValue],
+    pub fn try_from_components(
+        components: &[PrimaryKeyComponent],
     ) -> Result<Self, CompositePrimaryKeyValueError> {
-        if components.is_empty() {
-            return Err(CompositePrimaryKeyValueError::Empty);
+        if components.len() < 2 {
+            return Err(CompositePrimaryKeyValueError::TooFewComponents {
+                count: components.len(),
+                min: 2,
+            });
         }
         if components.len() > MAX_PRIMARY_KEY_FIELDS {
             return Err(CompositePrimaryKeyValueError::TooManyComponents {
@@ -219,12 +222,12 @@ impl CompositePrimaryKeyValue {
         }
         if let Some(index) = components
             .iter()
-            .position(|component| matches!(component, PrimaryKeyValue::Unit))
+            .position(|component| matches!(component, PrimaryKeyComponent::Unit))
         {
             return Err(CompositePrimaryKeyValueError::UnitComponent { index });
         }
 
-        let mut stored = [PrimaryKeyValue::Unit; MAX_PRIMARY_KEY_FIELDS];
+        let mut stored = [PrimaryKeyComponent::Unit; MAX_PRIMARY_KEY_FIELDS];
         stored[..components.len()].copy_from_slice(components);
         let len = u8::try_from(components.len())
             .expect("MAX_PRIMARY_KEY_FIELDS must fit in u8 for compact composite keys");
@@ -236,17 +239,17 @@ impl CompositePrimaryKeyValue {
     }
 
     #[must_use]
-    pub(in crate::db) const fn len(self) -> usize {
+    pub const fn len(self) -> usize {
         self.len as usize
     }
 
     #[must_use]
-    pub(in crate::db) const fn is_empty(self) -> bool {
+    pub const fn is_empty(self) -> bool {
         self.len == 0
     }
 
     #[must_use]
-    pub(in crate::db) fn components(&self) -> &[PrimaryKeyValue] {
+    pub fn components(&self) -> &[PrimaryKeyComponent] {
         &self.components[..self.len()]
     }
 }
@@ -264,13 +267,78 @@ impl PartialOrd for CompositePrimaryKeyValue {
 }
 
 //
+// PrimaryKeyValue
+//
+
+/// Complete logical primary-key value before compact canonical encoding.
+///
+/// Scalar keys remain the one-component case. Composite keys are represented
+/// separately so scalar-only paths cannot silently treat them as the historical
+/// decoded `StorageKey`.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "0.162 primary-key values stay Copy and allocation-free on hot encode/decode paths"
+)]
+pub enum PrimaryKeyValue {
+    Scalar(PrimaryKeyComponent),
+    Composite(CompositePrimaryKeyValue),
+}
+
+impl PrimaryKeyValue {
+    #[must_use]
+    pub(in crate::db) const fn kind(self) -> PrimaryKeyKind {
+        match self {
+            Self::Scalar(value) => value.kind(),
+            Self::Composite(_) => PrimaryKeyKind::Composite,
+        }
+    }
+
+    #[must_use]
+    pub const fn scalar_component(self) -> Option<PrimaryKeyComponent> {
+        match self {
+            Self::Scalar(value) => Some(value),
+            Self::Composite(_) => None,
+        }
+    }
+}
+
+impl From<PrimaryKeyComponent> for PrimaryKeyValue {
+    fn from(value: PrimaryKeyComponent) -> Self {
+        Self::Scalar(value)
+    }
+}
+
+impl From<StorageKey> for PrimaryKeyValue {
+    fn from(value: StorageKey) -> Self {
+        Self::Scalar(PrimaryKeyComponent::from(value))
+    }
+}
+
+impl Ord for PrimaryKeyValue {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (*self, *other) {
+            (Self::Scalar(a), Self::Scalar(b)) => a.cmp(&b),
+            (Self::Composite(a), Self::Composite(b)) => a.cmp(&b),
+            _ => self.kind().cmp(&other.kind()),
+        }
+    }
+}
+
+impl PartialOrd for PrimaryKeyValue {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+//
 // Errors
 //
 
 #[derive(Debug, ThisError)]
-pub(in crate::db) enum CompositePrimaryKeyValueError {
-    #[error("composite primary key requires at least one component")]
-    Empty,
+pub enum CompositePrimaryKeyValueError {
+    #[error("composite primary key has too few components: {count} (minimum {min})")]
+    TooFewComponents { count: usize, min: usize },
 
     #[error("composite primary key has too many components: {count} (limit {max})")]
     TooManyComponents { count: usize, max: usize },
@@ -324,6 +392,9 @@ pub(in crate::db) enum CompactPrimaryKeyDecodeError {
 
     #[error("nested composite primary-key component is not admitted")]
     NestedComposite,
+
+    #[error("encoded composite primary key is not a scalar component")]
+    CompositeNotScalar,
 
     #[error("encoded composite primary key has trailing bytes: {len}")]
     TrailingCompositeBytes { len: usize },
@@ -381,10 +452,19 @@ pub(in crate::db) struct EncodedPrimaryKey {
 
 impl EncodedPrimaryKey {
     pub(in crate::db) fn encode(
-        value: PrimaryKeyValue,
+        value: impl Into<PrimaryKeyValue>,
+    ) -> Result<Self, CompactPrimaryKeyEncodeError> {
+        match value.into() {
+            PrimaryKeyValue::Scalar(value) => Self::encode_component(value),
+            PrimaryKeyValue::Composite(value) => Self::encode_composite(&value),
+        }
+    }
+
+    pub(in crate::db) fn encode_component(
+        value: PrimaryKeyComponent,
     ) -> Result<Self, CompactPrimaryKeyEncodeError> {
         let mut bytes = Vec::with_capacity(max_encoded_primary_key_len(value.kind()));
-        encode_primary_key_value(value, &mut bytes)?;
+        encode_primary_key_component(value, &mut bytes)?;
         Ok(Self { bytes })
     }
 
@@ -397,7 +477,18 @@ impl EncodedPrimaryKey {
     }
 
     pub(in crate::db) fn decode(&self) -> Result<PrimaryKeyValue, CompactPrimaryKeyDecodeError> {
-        decode_primary_key_value(&self.bytes)
+        match self.kind()? {
+            PrimaryKeyKind::Composite => {
+                decode_composite_primary_key_value(&self.bytes).map(PrimaryKeyValue::Composite)
+            }
+            _ => decode_primary_key_component(&self.bytes).map(PrimaryKeyValue::Scalar),
+        }
+    }
+
+    pub(in crate::db) fn decode_component(
+        &self,
+    ) -> Result<PrimaryKeyComponent, CompactPrimaryKeyDecodeError> {
+        decode_primary_key_component(&self.bytes)
     }
 
     pub(in crate::db) fn decode_composite(
@@ -455,10 +546,10 @@ pub(in crate::db) struct EncodedIndexComponent {
 
 impl EncodedIndexComponent {
     pub(in crate::db) fn encode_primary_overlap(
-        value: PrimaryKeyValue,
+        value: PrimaryKeyComponent,
     ) -> Result<Self, CompactPrimaryKeyEncodeError> {
         let mut bytes = Vec::with_capacity(max_encoded_primary_key_len(value.kind()));
-        encode_primary_key_value(value, &mut bytes)?;
+        encode_primary_key_component(value, &mut bytes)?;
         Ok(Self { bytes })
     }
 
@@ -862,8 +953,8 @@ impl IndexEntryValue {
     }
 }
 
-fn encode_primary_key_value(
-    value: PrimaryKeyValue,
+fn encode_primary_key_component(
+    value: PrimaryKeyComponent,
     out: &mut Vec<u8>,
 ) -> Result<(), CompactPrimaryKeyEncodeError> {
     out.push(value.kind().tag());
@@ -877,26 +968,26 @@ fn encode_composite_primary_key_value(
     out.push(PrimaryKeyKind::Composite.tag());
     out.push(value.len);
     for component in value.components() {
-        encode_primary_key_value(*component, out)?;
+        encode_primary_key_component(*component, out)?;
     }
 
     Ok(())
 }
 
 fn encode_primary_key_payload(
-    value: PrimaryKeyValue,
+    value: PrimaryKeyComponent,
     out: &mut Vec<u8>,
 ) -> Result<(), CompactPrimaryKeyEncodeError> {
     match value {
-        PrimaryKeyValue::Nat(value) => out.extend_from_slice(&value.to_be_bytes()),
-        PrimaryKeyValue::Int(value) => out.extend_from_slice(&encode_ordered_i64(value)),
-        PrimaryKeyValue::Timestamp(value) => {
+        PrimaryKeyComponent::Nat(value) => out.extend_from_slice(&value.to_be_bytes()),
+        PrimaryKeyComponent::Int(value) => out.extend_from_slice(&encode_ordered_i64(value)),
+        PrimaryKeyComponent::Timestamp(value) => {
             out.extend_from_slice(&encode_ordered_i64(value.repr()));
         }
-        PrimaryKeyValue::Ulid(value) => out.extend_from_slice(&value.to_bytes()),
-        PrimaryKeyValue::Principal(value) => encode_principal(value, out)?,
-        PrimaryKeyValue::Subaccount(value) => out.extend_from_slice(value.as_slice()),
-        PrimaryKeyValue::Account(value) => {
+        PrimaryKeyComponent::Ulid(value) => out.extend_from_slice(&value.to_bytes()),
+        PrimaryKeyComponent::Principal(value) => encode_principal(value, out)?,
+        PrimaryKeyComponent::Subaccount(value) => out.extend_from_slice(value.as_slice()),
+        PrimaryKeyComponent::Account(value) => {
             let bytes = value.to_stored_bytes().map_err(|_| {
                 CompactPrimaryKeyEncodeError::InvalidAccount {
                     reason: "account payload failed fixed stored encoding",
@@ -904,13 +995,15 @@ fn encode_primary_key_payload(
             })?;
             out.extend_from_slice(&bytes);
         }
-        PrimaryKeyValue::Unit => {}
+        PrimaryKeyComponent::Unit => {}
     }
 
     Ok(())
 }
 
-fn decode_primary_key_value(bytes: &[u8]) -> Result<PrimaryKeyValue, CompactPrimaryKeyDecodeError> {
+fn decode_primary_key_component(
+    bytes: &[u8],
+) -> Result<PrimaryKeyComponent, CompactPrimaryKeyDecodeError> {
     let Some((&tag, payload)) = bytes.split_first() else {
         return Err(CompactPrimaryKeyDecodeError::Empty);
     };
@@ -931,37 +1024,37 @@ fn decode_primary_key_value(bytes: &[u8]) -> Result<PrimaryKeyValue, CompactPrim
         PrimaryKeyKind::Nat => {
             let mut buf = [0u8; NAT_SIZE];
             buf.copy_from_slice(payload);
-            Ok(PrimaryKeyValue::Nat(u64::from_be_bytes(buf)))
+            Ok(PrimaryKeyComponent::Nat(u64::from_be_bytes(buf)))
         }
         PrimaryKeyKind::Int => {
             let mut buf = [0u8; INT_SIZE];
             buf.copy_from_slice(payload);
-            Ok(PrimaryKeyValue::Int(decode_ordered_i64(buf)))
+            Ok(PrimaryKeyComponent::Int(decode_ordered_i64(buf)))
         }
         PrimaryKeyKind::Timestamp => {
             let mut buf = [0u8; TIMESTAMP_SIZE];
             buf.copy_from_slice(payload);
-            Ok(PrimaryKeyValue::Timestamp(Timestamp::from_repr(
+            Ok(PrimaryKeyComponent::Timestamp(Timestamp::from_repr(
                 decode_ordered_i64(buf),
             )))
         }
         PrimaryKeyKind::Ulid => {
             let mut buf = [0u8; ULID_SIZE];
             buf.copy_from_slice(payload);
-            Ok(PrimaryKeyValue::Ulid(Ulid::from_bytes(buf)))
+            Ok(PrimaryKeyComponent::Ulid(Ulid::from_bytes(buf)))
         }
         PrimaryKeyKind::Principal => decode_principal(payload),
         PrimaryKeyKind::Subaccount => {
             let mut buf = [0u8; SUBACCOUNT_SIZE];
             buf.copy_from_slice(payload);
-            Ok(PrimaryKeyValue::Subaccount(Subaccount::from_array(buf)))
+            Ok(PrimaryKeyComponent::Subaccount(Subaccount::from_array(buf)))
         }
-        PrimaryKeyKind::Account => Ok(PrimaryKeyValue::Account(
+        PrimaryKeyKind::Account => Ok(PrimaryKeyComponent::Account(
             Account::try_from_bytes(payload)
                 .map_err(|reason| CompactPrimaryKeyDecodeError::InvalidAccount { reason })?,
         )),
-        PrimaryKeyKind::Unit => Ok(PrimaryKeyValue::Unit),
-        PrimaryKeyKind::Composite => Err(CompactPrimaryKeyDecodeError::NestedComposite),
+        PrimaryKeyKind::Unit => Ok(PrimaryKeyComponent::Unit),
+        PrimaryKeyKind::Composite => Err(CompactPrimaryKeyDecodeError::CompositeNotScalar),
     }
 }
 
@@ -996,11 +1089,11 @@ fn decode_composite_primary_key_value(
     }
 
     let mut input = rest;
-    let mut components = [PrimaryKeyValue::Unit; MAX_PRIMARY_KEY_FIELDS];
+    let mut components = [PrimaryKeyComponent::Unit; MAX_PRIMARY_KEY_FIELDS];
     for (index, component) in components.iter_mut().take(count).enumerate() {
         let bytes = take_encoded_primary_key_component(&mut input)?;
-        let value = decode_primary_key_value(bytes)?;
-        if matches!(value, PrimaryKeyValue::Unit) {
+        let value = decode_primary_key_component(bytes)?;
+        if matches!(value, PrimaryKeyComponent::Unit) {
             return Err(CompactPrimaryKeyDecodeError::UnitCompositeComponent { index });
         }
         *component = value;
@@ -1010,13 +1103,8 @@ fn decode_composite_primary_key_value(
     }
 
     CompositePrimaryKeyValue::try_from_components(&components[..count]).map_err(|err| match err {
-        CompositePrimaryKeyValueError::Empty => {
-            CompactPrimaryKeyDecodeError::InvalidCompositeCount {
-                count: 0,
-                expected: "2..=MAX_PRIMARY_KEY_FIELDS",
-            }
-        }
-        CompositePrimaryKeyValueError::TooManyComponents { count, .. } => {
+        CompositePrimaryKeyValueError::TooFewComponents { count, .. }
+        | CompositePrimaryKeyValueError::TooManyComponents { count, .. } => {
             CompactPrimaryKeyDecodeError::InvalidCompositeCount {
                 count,
                 expected: "2..=MAX_PRIMARY_KEY_FIELDS",
@@ -1103,7 +1191,7 @@ fn encode_principal(
     Ok(())
 }
 
-fn decode_principal(payload: &[u8]) -> Result<PrimaryKeyValue, CompactPrimaryKeyDecodeError> {
+fn decode_principal(payload: &[u8]) -> Result<PrimaryKeyComponent, CompactPrimaryKeyDecodeError> {
     let Some((&len, bytes)) = payload.split_first() else {
         return Err(CompactPrimaryKeyDecodeError::InvalidLength {
             kind: PrimaryKeyKind::Principal,
@@ -1128,7 +1216,7 @@ fn decode_principal(payload: &[u8]) -> Result<PrimaryKeyValue, CompactPrimaryKey
         });
     }
 
-    Ok(PrimaryKeyValue::Principal(Principal::from_slice(bytes)))
+    Ok(PrimaryKeyComponent::Principal(Principal::from_slice(bytes)))
 }
 
 #[must_use]
@@ -1276,8 +1364,9 @@ mod tests {
     use super::{
         CompactPrimaryKeyDecodeError, CompactStoreKeyDecodeError, CompositePrimaryKeyValue,
         CompositePrimaryKeyValueError, DataStoreKey, EncodedIndexComponent, EncodedPrimaryKey,
-        IndexEntryValue, IndexStoreKey, IndexStoreKeyKind, MAX_PRIMARY_KEY_FIELDS, PrimaryKeyKind,
-        PrimaryKeyValue, RawDataStoreKey, RawDataStoreKeyRange, RawIndexStoreKey,
+        IndexEntryValue, IndexStoreKey, IndexStoreKeyKind, MAX_PRIMARY_KEY_FIELDS,
+        PrimaryKeyComponent, PrimaryKeyKind, PrimaryKeyValue, RawDataStoreKey,
+        RawDataStoreKeyRange, RawIndexStoreKey,
     };
     use crate::{
         db::{
@@ -1296,17 +1385,30 @@ mod tests {
         )
     }
 
-    fn roundtrip(value: PrimaryKeyValue) {
+    fn composite_primary_key_fixture() -> CompositePrimaryKeyValue {
+        CompositePrimaryKeyValue::try_from_components(&[
+            PrimaryKeyComponent::Nat(7),
+            PrimaryKeyComponent::Ulid(Ulid::from_u128(11)),
+        ])
+        .expect("composite primary key should construct")
+    }
+
+    fn roundtrip(value: PrimaryKeyComponent) {
         let encoded = EncodedPrimaryKey::encode(value).expect("primary key should encode");
         assert_eq!(encoded.kind().expect("kind should decode"), value.kind());
-        assert_eq!(encoded.decode().expect("primary key should decode"), value);
+        assert_eq!(
+            encoded
+                .decode_component()
+                .expect("primary key should decode"),
+            value
+        );
     }
 
     #[test]
     fn composite_primary_key_value_keeps_fixed_capacity_components() {
         let components = [
-            PrimaryKeyValue::Nat(7),
-            PrimaryKeyValue::Ulid(Ulid::from_u128(9)),
+            PrimaryKeyComponent::Nat(7),
+            PrimaryKeyComponent::Ulid(Ulid::from_u128(9)),
         ];
         let key = CompositePrimaryKeyValue::try_from_components(&components)
             .expect("valid composite primary key should construct");
@@ -1320,9 +1422,19 @@ mod tests {
     fn composite_primary_key_value_rejects_invalid_component_counts() {
         let empty = CompositePrimaryKeyValue::try_from_components(&[])
             .expect_err("empty composite primary key should reject");
-        assert!(matches!(empty, CompositePrimaryKeyValueError::Empty));
+        assert!(matches!(
+            empty,
+            CompositePrimaryKeyValueError::TooFewComponents { count: 0, min: 2 }
+        ));
 
-        let too_many = [PrimaryKeyValue::Nat(1); MAX_PRIMARY_KEY_FIELDS + 1];
+        let one = CompositePrimaryKeyValue::try_from_components(&[PrimaryKeyComponent::Nat(1)])
+            .expect_err("single-component composite primary key should reject");
+        assert!(matches!(
+            one,
+            CompositePrimaryKeyValueError::TooFewComponents { count: 1, min: 2 }
+        ));
+
+        let too_many = [PrimaryKeyComponent::Nat(1); MAX_PRIMARY_KEY_FIELDS + 1];
         let err = CompositePrimaryKeyValue::try_from_components(&too_many)
             .expect_err("overwide composite primary key should reject");
         assert!(matches!(
@@ -1335,8 +1447,8 @@ mod tests {
     #[test]
     fn composite_primary_key_value_rejects_unit_components() {
         let err = CompositePrimaryKeyValue::try_from_components(&[
-            PrimaryKeyValue::Nat(1),
-            PrimaryKeyValue::Unit,
+            PrimaryKeyComponent::Nat(1),
+            PrimaryKeyComponent::Unit,
         ])
         .expect_err("unit is scalar-only and should reject in composite keys");
 
@@ -1349,27 +1461,24 @@ mod tests {
     #[test]
     fn composite_primary_key_value_uses_lexicographic_component_order() {
         let left = CompositePrimaryKeyValue::try_from_components(&[
-            PrimaryKeyValue::Nat(1),
-            PrimaryKeyValue::Int(10),
+            PrimaryKeyComponent::Nat(1),
+            PrimaryKeyComponent::Int(10),
         ])
         .expect("left key should construct");
         let right = CompositePrimaryKeyValue::try_from_components(&[
-            PrimaryKeyValue::Nat(2),
-            PrimaryKeyValue::Int(-10),
+            PrimaryKeyComponent::Nat(2),
+            PrimaryKeyComponent::Int(-10),
         ])
         .expect("right key should construct");
-        let prefix = CompositePrimaryKeyValue::try_from_components(&[PrimaryKeyValue::Nat(1)])
-            .expect("prefix key should construct");
 
         assert!(left < right);
-        assert!(prefix < left);
     }
 
     #[test]
     fn compact_composite_primary_key_roundtrips_components() {
         let value = CompositePrimaryKeyValue::try_from_components(&[
-            PrimaryKeyValue::Nat(7),
-            PrimaryKeyValue::Principal(Principal::from_slice(&[1, 2, 3])),
+            PrimaryKeyComponent::Nat(7),
+            PrimaryKeyComponent::Principal(Principal::from_slice(&[1, 2, 3])),
         ])
         .expect("valid composite primary key should construct");
 
@@ -1386,9 +1495,60 @@ mod tests {
                 .expect("composite primary key should decode"),
             value,
         );
+        assert_eq!(
+            encoded
+                .decode()
+                .expect("composite primary key should decode"),
+            PrimaryKeyValue::Composite(value),
+        );
         assert!(matches!(
-            encoded.decode(),
-            Err(CompactPrimaryKeyDecodeError::NestedComposite)
+            encoded.decode_component(),
+            Err(CompactPrimaryKeyDecodeError::CompositeNotScalar)
+        ));
+    }
+
+    #[test]
+    fn compact_primary_key_value_scalar_wrapper_uses_scalar_encoding() {
+        let encoded =
+            EncodedPrimaryKey::encode(PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat(7)))
+                .expect("scalar primary-key value should encode");
+
+        assert_eq!(
+            encoded.as_bytes(),
+            EncodedPrimaryKey::encode(PrimaryKeyComponent::Nat(7))
+                .expect("component should encode")
+                .as_bytes(),
+        );
+        assert_eq!(
+            encoded
+                .decode()
+                .expect("scalar primary-key value should decode"),
+            PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat(7)),
+        );
+    }
+
+    #[test]
+    fn compact_primary_key_value_composite_wrapper_uses_composite_encoding() {
+        let value = CompositePrimaryKeyValue::try_from_components(&[
+            PrimaryKeyComponent::Nat(7),
+            PrimaryKeyComponent::Ulid(Ulid::from_u128(11)),
+        ])
+        .expect("composite primary-key value should construct");
+
+        let encoded = EncodedPrimaryKey::encode(PrimaryKeyValue::Composite(value))
+            .expect("composite primary-key value should encode");
+
+        assert_eq!(
+            encoded.kind().expect("kind should decode"),
+            PrimaryKeyKind::Composite,
+        );
+        assert_eq!(
+            encoded.decode().expect("primary-key value should decode"),
+            PrimaryKeyValue::Composite(value),
+        );
+        assert!(matches!(
+            encoded.decode_component(),
+            Err(CompactPrimaryKeyDecodeError::CompositeNotScalar)
         ));
     }
 
@@ -1452,13 +1612,13 @@ mod tests {
     #[test]
     fn compact_composite_primary_key_byte_order_matches_component_order() {
         let left = CompositePrimaryKeyValue::try_from_components(&[
-            PrimaryKeyValue::Nat(1),
-            PrimaryKeyValue::Int(-1),
+            PrimaryKeyComponent::Nat(1),
+            PrimaryKeyComponent::Int(-1),
         ])
         .expect("left composite key should construct");
         let right = CompositePrimaryKeyValue::try_from_components(&[
-            PrimaryKeyValue::Nat(1),
-            PrimaryKeyValue::Int(1),
+            PrimaryKeyComponent::Nat(1),
+            PrimaryKeyComponent::Int(1),
         ])
         .expect("right composite key should construct");
         let left_encoded =
@@ -1473,14 +1633,14 @@ mod tests {
     #[test]
     fn compact_primary_key_roundtrip_per_key_type() {
         let values = [
-            PrimaryKeyValue::Nat(42),
-            PrimaryKeyValue::Int(-42),
-            PrimaryKeyValue::Timestamp(Timestamp::from_millis(-42)),
-            PrimaryKeyValue::Ulid(Ulid::from_u128(42)),
-            PrimaryKeyValue::Principal(Principal::from_slice(&[1, 2, 3])),
-            PrimaryKeyValue::Subaccount(Subaccount::from_array([7; 32])),
-            PrimaryKeyValue::Account(account_fixture(7)),
-            PrimaryKeyValue::Unit,
+            PrimaryKeyComponent::Nat(42),
+            PrimaryKeyComponent::Int(-42),
+            PrimaryKeyComponent::Timestamp(Timestamp::from_millis(-42)),
+            PrimaryKeyComponent::Ulid(Ulid::from_u128(42)),
+            PrimaryKeyComponent::Principal(Principal::from_slice(&[1, 2, 3])),
+            PrimaryKeyComponent::Subaccount(Subaccount::from_array([7; 32])),
+            PrimaryKeyComponent::Account(account_fixture(7)),
+            PrimaryKeyComponent::Unit,
         ];
 
         for value in values {
@@ -1556,7 +1716,7 @@ mod tests {
     #[test]
     fn compact_primary_key_accepts_principal_max_length_and_rejects_invalid_length() {
         let max = Principal::from_slice(&[0xAB; Principal::MAX_LENGTH_IN_BYTES as usize]);
-        roundtrip(PrimaryKeyValue::Principal(max));
+        roundtrip(PrimaryKeyComponent::Principal(max));
 
         let missing_length = [PrimaryKeyKind::Principal.tag()];
         let err = EncodedPrimaryKey::try_from(&missing_length[..])
@@ -1583,14 +1743,14 @@ mod tests {
             }
         ));
 
-        roundtrip(PrimaryKeyValue::Subaccount(Subaccount::from_array(
+        roundtrip(PrimaryKeyComponent::Subaccount(Subaccount::from_array(
             [0xCC; 32],
         )));
     }
 
     #[test]
     fn compact_primary_key_validates_account_payload() {
-        roundtrip(PrimaryKeyValue::Account(account_fixture(9)));
+        roundtrip(PrimaryKeyComponent::Account(account_fixture(9)));
 
         let mut invalid = vec![PrimaryKeyKind::Account.tag()];
         invalid.extend_from_slice(&[0u8; Account::STORED_SIZE as usize]);
@@ -1608,40 +1768,42 @@ mod tests {
 
     #[test]
     fn compact_primary_key_unit_is_kind_only_singleton() {
-        let encoded = EncodedPrimaryKey::encode(PrimaryKeyValue::Unit)
+        let encoded = EncodedPrimaryKey::encode(PrimaryKeyComponent::Unit)
             .expect("unit primary key should encode");
 
         assert_eq!(encoded.as_bytes(), &[PrimaryKeyKind::Unit.tag()]);
         assert_eq!(
-            encoded.decode().expect("unit primary key should decode"),
-            PrimaryKeyValue::Unit
+            encoded
+                .decode_component()
+                .expect("unit primary key should decode"),
+            PrimaryKeyComponent::Unit
         );
     }
 
     #[test]
     fn compact_primary_key_ordering_matches_logical_order_per_type() {
         let cases = [
-            (PrimaryKeyValue::Nat(1), PrimaryKeyValue::Nat(2)),
-            (PrimaryKeyValue::Int(-2), PrimaryKeyValue::Int(1)),
+            (PrimaryKeyComponent::Nat(1), PrimaryKeyComponent::Nat(2)),
+            (PrimaryKeyComponent::Int(-2), PrimaryKeyComponent::Int(1)),
             (
-                PrimaryKeyValue::Timestamp(Timestamp::from_millis(-1)),
-                PrimaryKeyValue::Timestamp(Timestamp::from_millis(1)),
+                PrimaryKeyComponent::Timestamp(Timestamp::from_millis(-1)),
+                PrimaryKeyComponent::Timestamp(Timestamp::from_millis(1)),
             ),
             (
-                PrimaryKeyValue::Ulid(Ulid::from_u128(1)),
-                PrimaryKeyValue::Ulid(Ulid::from_u128(2)),
+                PrimaryKeyComponent::Ulid(Ulid::from_u128(1)),
+                PrimaryKeyComponent::Ulid(Ulid::from_u128(2)),
             ),
             (
-                PrimaryKeyValue::Principal(Principal::from_slice(&[9])),
-                PrimaryKeyValue::Principal(Principal::from_slice(&[1, 0])),
+                PrimaryKeyComponent::Principal(Principal::from_slice(&[9])),
+                PrimaryKeyComponent::Principal(Principal::from_slice(&[1, 0])),
             ),
             (
-                PrimaryKeyValue::Subaccount(Subaccount::from_array([1; 32])),
-                PrimaryKeyValue::Subaccount(Subaccount::from_array([2; 32])),
+                PrimaryKeyComponent::Subaccount(Subaccount::from_array([1; 32])),
+                PrimaryKeyComponent::Subaccount(Subaccount::from_array([2; 32])),
             ),
             (
-                PrimaryKeyValue::Account(account_fixture(1)),
-                PrimaryKeyValue::Account(account_fixture(2)),
+                PrimaryKeyComponent::Account(account_fixture(1)),
+                PrimaryKeyComponent::Account(account_fixture(2)),
             ),
         ];
 
@@ -1669,17 +1831,18 @@ mod tests {
         values.sort();
 
         let mut encoded = values.map(|value| {
-            EncodedPrimaryKey::encode(PrimaryKeyValue::Timestamp(value))
+            EncodedPrimaryKey::encode(PrimaryKeyComponent::Timestamp(value))
                 .expect("timestamp primary key should encode")
         });
         encoded.sort();
 
-        let decoded = encoded.map(
-            |value| match value.decode().expect("timestamp should decode") {
-                PrimaryKeyValue::Timestamp(value) => value.repr(),
-                other => panic!("expected timestamp primary key, got {other:?}"),
-            },
-        );
+        let decoded =
+            encoded.map(
+                |value| match value.decode_component().expect("timestamp should decode") {
+                    PrimaryKeyComponent::Timestamp(value) => value.repr(),
+                    other => panic!("expected timestamp primary key, got {other:?}"),
+                },
+            );
         let expected = values.map(|value| value.repr());
 
         assert_eq!(decoded, expected);
@@ -1687,8 +1850,8 @@ mod tests {
 
     #[test]
     fn compact_primary_key_principal_length_first_ordering_fixture() {
-        let short = PrimaryKeyValue::Principal(Principal::from_slice(&[9]));
-        let long = PrimaryKeyValue::Principal(Principal::from_slice(&[1, 0]));
+        let short = PrimaryKeyComponent::Principal(Principal::from_slice(&[9]));
+        let long = PrimaryKeyComponent::Principal(Principal::from_slice(&[1, 0]));
 
         assert_eq!(short.cmp(&long), std::cmp::Ordering::Less);
 
@@ -1704,29 +1867,29 @@ mod tests {
     #[test]
     fn compact_primary_and_index_component_payload_ordering_match_for_overlapping_primitives() {
         let pairs = [
-            (PrimaryKeyValue::Nat(7), PrimaryKeyValue::Nat(8)),
-            (PrimaryKeyValue::Int(-7), PrimaryKeyValue::Int(8)),
+            (PrimaryKeyComponent::Nat(7), PrimaryKeyComponent::Nat(8)),
+            (PrimaryKeyComponent::Int(-7), PrimaryKeyComponent::Int(8)),
             (
-                PrimaryKeyValue::Timestamp(Timestamp::from_millis(-7)),
-                PrimaryKeyValue::Timestamp(Timestamp::from_millis(8)),
+                PrimaryKeyComponent::Timestamp(Timestamp::from_millis(-7)),
+                PrimaryKeyComponent::Timestamp(Timestamp::from_millis(8)),
             ),
             (
-                PrimaryKeyValue::Ulid(Ulid::from_u128(7)),
-                PrimaryKeyValue::Ulid(Ulid::from_u128(8)),
+                PrimaryKeyComponent::Ulid(Ulid::from_u128(7)),
+                PrimaryKeyComponent::Ulid(Ulid::from_u128(8)),
             ),
             (
-                PrimaryKeyValue::Principal(Principal::from_slice(&[7])),
-                PrimaryKeyValue::Principal(Principal::from_slice(&[8])),
+                PrimaryKeyComponent::Principal(Principal::from_slice(&[7])),
+                PrimaryKeyComponent::Principal(Principal::from_slice(&[8])),
             ),
             (
-                PrimaryKeyValue::Subaccount(Subaccount::from_array([7; 32])),
-                PrimaryKeyValue::Subaccount(Subaccount::from_array([8; 32])),
+                PrimaryKeyComponent::Subaccount(Subaccount::from_array([7; 32])),
+                PrimaryKeyComponent::Subaccount(Subaccount::from_array([8; 32])),
             ),
             (
-                PrimaryKeyValue::Account(account_fixture(7)),
-                PrimaryKeyValue::Account(account_fixture(8)),
+                PrimaryKeyComponent::Account(account_fixture(7)),
+                PrimaryKeyComponent::Account(account_fixture(8)),
             ),
-            (PrimaryKeyValue::Unit, PrimaryKeyValue::Unit),
+            (PrimaryKeyComponent::Unit, PrimaryKeyComponent::Unit),
         ];
 
         for (left, right) in pairs {
@@ -1754,12 +1917,12 @@ mod tests {
     #[test]
     fn compact_primary_key_storage_key_bridge_preserves_logical_values() {
         let storage_key = StorageKey::Timestamp(Timestamp::from_millis(-11));
-        let primary_key = PrimaryKeyValue::from(storage_key);
+        let primary_key = PrimaryKeyComponent::from(storage_key);
 
         assert_eq!(
             EncodedPrimaryKey::encode(primary_key)
                 .expect("storage-key bridge should encode")
-                .decode()
+                .decode_component()
                 .expect("storage-key bridge should decode"),
             primary_key
         );
@@ -1768,8 +1931,8 @@ mod tests {
     #[test]
     fn key_taxonomy_wrappers_match_live_compact_data_key_cut() {
         let entity = EntityTag::new(0x159);
-        let primary_key =
-            EncodedPrimaryKey::encode(PrimaryKeyValue::Nat(5)).expect("primary key should encode");
+        let primary_key = EncodedPrimaryKey::encode(PrimaryKeyComponent::Nat(5))
+            .expect("primary key should encode");
         let data_key = DataStoreKey::new(entity, primary_key.clone());
         let raw_data: RawDataStoreKey = data_key.to_raw();
         let live_data_key = DecodedDataStoreKey::new(entity, StorageKey::Nat(5))
@@ -1789,7 +1952,7 @@ mod tests {
         );
 
         let index_component =
-            EncodedIndexComponent::encode_primary_overlap(PrimaryKeyValue::Nat(3))
+            EncodedIndexComponent::encode_primary_overlap(PrimaryKeyComponent::Nat(3))
                 .expect("index component should encode");
         let index_key =
             IndexStoreKey::new(IndexId::new(entity, 1), vec![index_component], primary_key);
@@ -1807,8 +1970,8 @@ mod tests {
     #[test]
     fn raw_data_store_key_decodes_live_compact_shape() {
         let entity = EntityTag::new(0x1590);
-        let primary =
-            EncodedPrimaryKey::encode(PrimaryKeyValue::Int(-5)).expect("primary key should encode");
+        let primary = EncodedPrimaryKey::encode(PrimaryKeyComponent::Int(-5))
+            .expect("primary key should encode");
         let raw = DataStoreKey::new(entity, primary.clone()).to_raw();
 
         let decoded = raw.decode().expect("raw data key should decode");
@@ -1820,6 +1983,27 @@ mod tests {
                 .expect("validated raw data key should be retained")
                 .as_bytes(),
             raw.as_bytes()
+        );
+    }
+
+    #[test]
+    fn raw_data_store_key_accepts_composite_primary_key_suffix() {
+        let entity = EntityTag::new(0x1620);
+        let primary_value = composite_primary_key_fixture();
+        let primary = EncodedPrimaryKey::encode(PrimaryKeyValue::Composite(primary_value))
+            .expect("composite primary key should encode");
+        let raw = DataStoreKey::new(entity, primary.clone()).to_raw();
+
+        let decoded = raw.decode().expect("raw data key should decode");
+
+        assert_eq!(decoded.entity_tag(), entity);
+        assert_eq!(decoded.primary_key(), &primary);
+        assert_eq!(
+            decoded
+                .primary_key()
+                .decode()
+                .expect("primary-key value should decode"),
+            PrimaryKeyValue::Composite(primary_value),
         );
     }
 
@@ -1858,25 +2042,25 @@ mod tests {
 
         let first = DataStoreKey::new(
             entity,
-            EncodedPrimaryKey::encode(PrimaryKeyValue::Nat(0))
+            EncodedPrimaryKey::encode(PrimaryKeyComponent::Nat(0))
                 .expect("first primary key should encode"),
         )
         .to_raw();
         let last = DataStoreKey::new(
             entity,
-            EncodedPrimaryKey::encode(PrimaryKeyValue::Unit)
+            EncodedPrimaryKey::encode(PrimaryKeyComponent::Unit)
                 .expect("unit primary key should encode"),
         )
         .to_raw();
         let previous = DataStoreKey::new(
             EntityTag::new(entity.value() - 1),
-            EncodedPrimaryKey::encode(PrimaryKeyValue::Unit)
+            EncodedPrimaryKey::encode(PrimaryKeyComponent::Unit)
                 .expect("unit primary key should encode"),
         )
         .to_raw();
         let next = DataStoreKey::new(
             EntityTag::new(entity.value() + 1),
-            EncodedPrimaryKey::encode(PrimaryKeyValue::Nat(0))
+            EncodedPrimaryKey::encode(PrimaryKeyComponent::Nat(0))
                 .expect("next primary key should encode"),
         )
         .to_raw();
@@ -1893,7 +2077,8 @@ mod tests {
         let range = RawDataStoreKeyRange::entity_prefix(entity);
         let key = DataStoreKey::new(
             entity,
-            EncodedPrimaryKey::encode(PrimaryKeyValue::Nat(1)).expect("primary key should encode"),
+            EncodedPrimaryKey::encode(PrimaryKeyComponent::Nat(1))
+                .expect("primary key should encode"),
         )
         .to_raw();
 
@@ -1906,9 +2091,9 @@ mod tests {
     fn raw_index_store_key_decodes_live_compact_shape() {
         let entity = EntityTag::new(0x1591);
         let index_id = IndexId::new(entity, 7);
-        let component = EncodedIndexComponent::encode_primary_overlap(PrimaryKeyValue::Nat(99))
+        let component = EncodedIndexComponent::encode_primary_overlap(PrimaryKeyComponent::Nat(99))
             .expect("index component should encode");
-        let primary = EncodedPrimaryKey::encode(PrimaryKeyValue::Ulid(Ulid::from_u128(11)))
+        let primary = EncodedPrimaryKey::encode(PrimaryKeyComponent::Ulid(Ulid::from_u128(11)))
             .expect("primary key should encode");
         let raw = IndexStoreKey::new(index_id, vec![component.clone()], primary.clone())
             .to_raw()
@@ -1925,6 +2110,34 @@ mod tests {
                 .expect("validated raw index key should be retained")
                 .as_bytes(),
             raw.as_bytes()
+        );
+    }
+
+    #[test]
+    fn raw_index_store_key_accepts_composite_primary_key_suffix() {
+        let entity = EntityTag::new(0x1621);
+        let index_id = IndexId::new(entity, 7);
+        let component = EncodedIndexComponent::encode_primary_overlap(PrimaryKeyComponent::Nat(99))
+            .expect("index component should encode");
+        let primary_value = composite_primary_key_fixture();
+        let primary = EncodedPrimaryKey::encode(PrimaryKeyValue::Composite(primary_value))
+            .expect("composite primary key should encode");
+        let raw = IndexStoreKey::new(index_id, vec![component.clone()], primary.clone())
+            .to_raw()
+            .expect("raw index key should encode");
+
+        let decoded = raw.decode().expect("raw index key should decode");
+
+        assert_eq!(decoded.key_kind(), IndexStoreKeyKind::User);
+        assert_eq!(decoded.index_id(), index_id);
+        assert_eq!(decoded.components(), &[component]);
+        assert_eq!(decoded.primary_key(), &primary);
+        assert_eq!(
+            decoded
+                .primary_key()
+                .decode()
+                .expect("primary-key value should decode"),
+            PrimaryKeyValue::Composite(primary_value),
         );
     }
 
@@ -1948,8 +2161,8 @@ mod tests {
         ));
 
         let entity = EntityTag::new(0x1592);
-        let primary =
-            EncodedPrimaryKey::encode(PrimaryKeyValue::Nat(1)).expect("primary key should encode");
+        let primary = EncodedPrimaryKey::encode(PrimaryKeyComponent::Nat(1))
+            .expect("primary key should encode");
         let mut truncated = IndexStoreKey::new(IndexId::new(entity, 1), Vec::new(), primary)
             .to_raw()
             .expect("raw index key should encode")
@@ -2005,8 +2218,8 @@ mod tests {
         let entity = EntityTag::new(0x1595);
         let index_id = IndexId::new(entity, 9);
         let component = EncodedIndexComponent::from_canonical_bytes(vec![0x20, 0xAA, 0xBB]);
-        let primary =
-            EncodedPrimaryKey::encode(PrimaryKeyValue::Nat(77)).expect("primary key should encode");
+        let primary = EncodedPrimaryKey::encode(PrimaryKeyComponent::Nat(77))
+            .expect("primary key should encode");
 
         let cases = [
             (IndexStoreKeyKind::User, IndexKeyKind::User),

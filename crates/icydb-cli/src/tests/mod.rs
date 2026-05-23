@@ -1,3 +1,8 @@
+//! Module: CLI integration-style unit tests.
+//! Responsibility: exercise command parsing, rendering, and shell helper behavior.
+//! Does not own: production CLI behavior or reusable test fixtures.
+//! Boundary: test-only access to crate-private CLI seams.
+
 use std::path::Path;
 
 use candid::{Decode, Encode};

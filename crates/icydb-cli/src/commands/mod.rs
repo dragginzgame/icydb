@@ -1,3 +1,8 @@
+//! Module: CLI command dispatch.
+//! Responsibility: route parsed CLI commands to their owning command family.
+//! Does not own: command implementation, argument parsing, or output rendering.
+//! Boundary: exposes the top-level parsed-command runner used by `main`.
+
 use crate::{
     cli::{CanisterCommand, CliArgs, CliCommand, ConfigCommand, SchemaCommand},
     config::{check_config, init_config, show_config},
@@ -46,9 +51,9 @@ fn run_canister_command(command: CanisterCommand) -> Result<(), String> {
             refresh_canister(target.environment(), target.canister_name())
         }
         CanisterCommand::Upgrade(args) => upgrade_canister(
-            args.target.environment(),
-            args.target.canister_name(),
-            args.wasm.as_ref(),
+            args.target().environment(),
+            args.target().canister_name(),
+            args.wasm(),
         ),
         CanisterCommand::Status(target) => {
             status_canister(target.environment(), target.canister_name())

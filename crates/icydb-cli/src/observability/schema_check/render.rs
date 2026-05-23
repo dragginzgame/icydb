@@ -1,3 +1,8 @@
+//! Module: schema-check report rendering.
+//! Responsibility: render analyzed schema-check summaries as human-readable tables.
+//! Does not own: schema drift analysis, canister calls, or CLI dispatch.
+//! Boundary: formats summary rows without interpreting schema semantics.
+
 use crate::table::{ColumnAlign, append_indented_table};
 
 use super::analysis::SchemaCheckSummary;

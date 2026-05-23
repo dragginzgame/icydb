@@ -10,7 +10,7 @@ use crate::icp::process::{canister_id, unreachable_network_hint};
 const ICP_YAML_PATH: &str = "icp.yaml";
 
 /// Fail with IcyDB-specific setup guidance when icp-cli has no local canister id.
-pub(crate) fn require_created_canister(environment: &str, canister: &str) -> Result<(), String> {
+pub(super) fn require_created_canister(environment: &str, canister: &str) -> Result<(), String> {
     match canister_id(environment, canister) {
         Ok(Some(_)) => Ok(()),
         Ok(None) => Err(missing_canister_message(environment, canister)),
@@ -21,7 +21,7 @@ pub(crate) fn require_created_canister(environment: &str, canister: &str) -> Res
 }
 
 /// Read canister names from the selected icp-cli environment.
-pub(crate) fn known_canisters(environment: &str) -> Result<Vec<String>, String> {
+pub(super) fn known_canisters(environment: &str) -> Result<Vec<String>, String> {
     known_canisters_from_icp(environment).or_else(|_| known_canisters_from_manifest(environment))
 }
 

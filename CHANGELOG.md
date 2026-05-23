@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.162.md](docs/changelog/0.162.md)
 
+- `0.162.5` moves primary-key traits and compact key taxonomy onto the
+  scalar-or-composite `PrimaryKeyValue` model while keeping persisted row
+  routing explicitly scalar-gated.
+
 - `0.162.4` adds explicit compact composite primary-key encoding and decoding
   support without routing persisted rows through it yet.
 

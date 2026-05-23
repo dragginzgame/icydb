@@ -1,3 +1,8 @@
+//! Module: CLI argument surface.
+//! Responsibility: define clap parsing structs and stable accessors for command inputs.
+//! Does not own: command execution, config resolution, or rendered output.
+//! Boundary: exposes parsed command values to the command dispatcher and owner modules.
+
 use std::path::{Path, PathBuf};
 
 use clap::{ArgAction, Args, Parser, Subcommand};
@@ -106,11 +111,11 @@ pub(crate) struct SqlArgs {
 pub(crate) struct CanisterTarget {
     /// Target ICP canister name.
     #[arg(value_name = "CANISTER")]
-    pub(crate) canister: String,
+    canister: String,
 
     /// Target icp-cli environment.
     #[arg(short, long, env = "ICP_ENVIRONMENT", default_value = DEFAULT_ENVIRONMENT)]
-    pub(crate) environment: String,
+    environment: String,
 }
 
 impl CanisterTarget {
@@ -143,7 +148,7 @@ pub(crate) enum SchemaCommand {
 pub(crate) struct EnvironmentTarget {
     /// Target icp-cli environment.
     #[arg(short, long, env = "ICP_ENVIRONMENT", default_value = DEFAULT_ENVIRONMENT)]
-    pub(crate) environment: String,
+    environment: String,
 }
 
 impl EnvironmentTarget {
@@ -163,15 +168,15 @@ impl EnvironmentTarget {
 #[derive(Args, Debug)]
 pub(crate) struct MetricsArgs {
     #[command(flatten)]
-    pub(crate) target: CanisterTarget,
+    target: CanisterTarget,
 
     /// Only include metrics windows starting at this millisecond timestamp.
     #[arg(long, conflicts_with = "reset")]
-    pub(crate) window_start_ms: Option<u64>,
+    window_start_ms: Option<u64>,
 
     /// Reset in-memory metrics instead of reading the metrics report.
     #[arg(long)]
-    pub(crate) reset: bool,
+    reset: bool,
 }
 
 impl MetricsArgs {
@@ -369,9 +374,19 @@ pub(crate) enum CanisterCommand {
 #[derive(Args, Debug)]
 pub(crate) struct UpgradeArgs {
     #[command(flatten)]
-    pub(crate) target: CanisterTarget,
+    target: CanisterTarget,
 
     /// Wasm path to install after build.
     #[arg(long)]
-    pub(crate) wasm: Option<PathBuf>,
+    wasm: Option<PathBuf>,
+}
+
+impl UpgradeArgs {
+    pub(crate) const fn target(&self) -> &CanisterTarget {
+        &self.target
+    }
+
+    pub(crate) const fn wasm(&self) -> Option<&PathBuf> {
+        self.wasm.as_ref()
+    }
 }
