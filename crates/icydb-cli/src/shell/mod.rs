@@ -47,7 +47,7 @@ pub(crate) fn normalize_shell_statement_line(line: &str) -> String {
 
 #[cfg(test)]
 pub(crate) fn normalize_grouped_next_cursor_json(value: &mut serde_json::Value) {
-    perf::normalize_grouped_next_cursor_json(value)
+    perf::normalize_grouped_next_cursor_json(value);
 }
 
 #[cfg(test)]
