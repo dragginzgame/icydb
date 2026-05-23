@@ -97,12 +97,6 @@ impl MacroNode for Entity {
     }
 }
 
-impl TypeNode for Entity {
-    fn ty(&self) -> &Type {
-        self.ty()
-    }
-}
-
 impl ValidateNode for Entity {
     fn validate(&self) -> Result<(), ErrorTree> {
         let mut errs = ErrorTree::new();

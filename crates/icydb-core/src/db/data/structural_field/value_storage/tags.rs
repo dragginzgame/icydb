@@ -1,3 +1,8 @@
+//! Module: data::structural_field::value_storage::tags
+//! Responsibility: owner-local value-storage extension tag allocation.
+//! Does not own: generic Structural Binary tags, payload encoding, or payload decoding.
+//! Boundary: centralizes local tag constants so encode/decode stay ABI-aligned.
+
 pub(super) const VALUE_BINARY_TAG_ACCOUNT: u8 = 0x80;
 pub(super) const VALUE_BINARY_TAG_DATE: u8 = 0x81;
 pub(super) const VALUE_BINARY_TAG_DECIMAL: u8 = 0x82;

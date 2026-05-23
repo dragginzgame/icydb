@@ -1,17 +1,7 @@
-//! Decode-side materialization for the structural value-storage owner.
-//!
-//! Two traversal models intentionally coexist here. Skip-based traversal is the
-//! authoritative boundary detector for borrowed-slice helpers and local tagged
-//! payload extraction: it validates the structural shape, finds the exact byte
-//! boundary, and only then lets callers inspect the bounded slice. Decode-based
-//! traversal is used when this module materializes runtime `Value` trees; those
-//! paths advance a cursor while decoding and may assume any slice handed to a
-//! nested decoder is already bounded by the owning traversal step.
-//!
-//! The distinction is important for maintenance: skip owns structural
-//! validation and boundary discovery, while decode owns `Value` construction.
-//! New callers should pick the model that matches their ownership needs rather
-//! than mixing borrowed boundary detection with runtime materialization.
+//! Module: data::structural_field::value_storage::decode::value
+//! Responsibility: runtime `Value` materialization from structural value-storage bytes.
+//! Does not own: encoding, borrowed view APIs, or field-kind routing.
+//! Boundary: decodes already-bounded value-storage payloads into owned runtime values.
 
 use crate::{
     db::data::structural_field::{
@@ -46,7 +36,6 @@ use crate::{
             walk::{
                 decode_value_storage_binary_list_items_single_pass,
                 decode_value_storage_binary_map_entries_single_pass,
-                visit_value_storage_list_items, visit_value_storage_map_entries,
             },
         },
     },
@@ -80,7 +69,7 @@ pub(in crate::db) fn decode_structural_value_storage_bytes(
 pub(in crate::db) fn validate_structural_value_storage_bytes(
     raw_bytes: &[u8],
 ) -> Result<(), FieldDecodeError> {
-    validate_value_storage_bytes(raw_bytes)
+    ValueStorageSlice::from_raw(raw_bytes).map(|_| ())
 }
 
 /// Return `true` when one structural value-storage payload is the canonical
@@ -369,20 +358,31 @@ pub(in crate::db) fn decode_enum(
 pub(in crate::db) fn decode_value_storage_list_item_slices(
     raw_bytes: &[u8],
 ) -> Result<Vec<&[u8]>, FieldDecodeError> {
-    // TODO(value-storage zero-copy): generated-code list splitting still
-    // stages borrowed slices in a Vec. A streaming visitor would let callers
-    // consume items without this allocation.
-    visit_value_storage_list_items(
-        raw_bytes,
-        "structural binary: expected value list payload",
-        "structural binary: trailing bytes after value list payload",
-        Vec::with_capacity,
-        |items, item| {
-            items.push(item);
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated value list payload",
+        ));
+    };
+    if tag != TAG_LIST {
+        return Err(FieldDecodeError::new(
+            "structural binary: expected value list payload",
+        ));
+    }
 
-            Ok(())
-        },
-    )
+    let mut cursor = payload_start;
+    let mut items = Vec::with_capacity(len as usize);
+    for _ in 0..len {
+        let item_start = cursor;
+        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
+        items.push(&raw_bytes[item_start..cursor]);
+    }
+    if cursor != raw_bytes.len() {
+        return Err(FieldDecodeError::new(
+            "structural binary: trailing bytes after value list payload",
+        ));
+    }
+
+    Ok(items)
 }
 
 /// Split one structural value-storage map payload into borrowed nested key and
@@ -390,20 +390,36 @@ pub(in crate::db) fn decode_value_storage_list_item_slices(
 pub(in crate::db) fn decode_value_storage_map_entry_slices(
     raw_bytes: &[u8],
 ) -> Result<ValueStorageMapEntrySlices<'_>, FieldDecodeError> {
-    // TODO(value-storage zero-copy): map splitting allocates one borrowed
-    // slice pair per entry. A streaming entry visitor would avoid staging for
-    // generated decode paths that can consume entries immediately.
-    visit_value_storage_map_entries(
-        raw_bytes,
-        "structural binary: expected value map payload",
-        "structural binary: trailing bytes after value map payload",
-        Vec::with_capacity,
-        |entries, key, value| {
-            entries.push((key, value));
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated value map payload",
+        ));
+    };
+    if tag != TAG_MAP {
+        return Err(FieldDecodeError::new(
+            "structural binary: expected value map payload",
+        ));
+    }
 
-            Ok(())
-        },
-    )
+    let mut cursor = payload_start;
+    let mut entries = Vec::with_capacity(len as usize);
+    for _ in 0..len {
+        let key_start = cursor;
+        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
+        let value_start = cursor;
+        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
+        entries.push((
+            &raw_bytes[key_start..value_start],
+            &raw_bytes[value_start..cursor],
+        ));
+    }
+    if cursor != raw_bytes.len() {
+        return Err(FieldDecodeError::new(
+            "structural binary: trailing bytes after value map payload",
+        ));
+    }
+
+    Ok(entries)
 }
 
 /// Decode one `FieldStorageDecode::Value` payload from the parallel
@@ -480,12 +496,6 @@ pub(super) fn decode_value_storage_slice(
             "structural binary: unsupported value tag 0x{other:02X}"
         ))),
     }
-}
-
-/// Validate one `FieldStorageDecode::Value` payload from the parallel
-/// Structural Binary v1 `Value` envelope without rebuilding it eagerly.
-fn validate_value_storage_bytes(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
-    ValueStorageSlice::from_raw(raw_bytes).map(|_| ())
 }
 
 // Decode one local enum payload from the fixed positional tuple

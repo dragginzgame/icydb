@@ -247,7 +247,7 @@ impl HasTypeExpr for ItemTarget {
         match self {
             Self::Is(path) => quote!(#path),
             Self::Primitive(prim) => {
-                let ty = prim.as_type();
+                let ty = crate::types::primitive_type_tokens(*prim);
                 quote!(#ty)
             }
         }

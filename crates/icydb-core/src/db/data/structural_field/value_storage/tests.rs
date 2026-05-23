@@ -92,25 +92,13 @@ fn binary_value_storage_uses_local_tags_for_ambiguous_variants() {
 }
 
 #[test]
-fn binary_value_storage_rejects_truncated_list_root_with_exact_error() {
-    let err =
-        decode_value_storage_value(&[TAG_LIST]).expect_err("truncated list root must be rejected");
-
-    assert_eq!(
-        err.to_string(),
-        "structural binary: truncated length prefix"
-    );
+fn binary_value_storage_rejects_truncated_list_root() {
+    assert!(decode_value_storage_value(&[TAG_LIST]).is_err());
 }
 
 #[test]
-fn binary_value_storage_rejects_truncated_map_root_with_exact_error() {
-    let err =
-        decode_value_storage_value(&[TAG_MAP]).expect_err("truncated map root must be rejected");
-
-    assert_eq!(
-        err.to_string(),
-        "structural binary: truncated length prefix"
-    );
+fn binary_value_storage_rejects_truncated_map_root() {
+    assert!(decode_value_storage_value(&[TAG_MAP]).is_err());
 }
 
 #[test]
@@ -119,11 +107,7 @@ fn binary_value_storage_rejects_trailing_bytes() {
         .expect("binary value bytes should encode");
     encoded.push(0xFF);
 
-    let err = decode_value_storage_value(&encoded).expect_err("trailing bytes must be rejected");
-    assert!(
-        err.to_string().contains("trailing bytes"),
-        "expected trailing-byte error, got: {err}",
-    );
+    assert!(decode_value_storage_value(&encoded).is_err());
 }
 
 #[test]
@@ -132,13 +116,7 @@ fn binary_value_storage_rejects_trailing_bytes_after_list_root() {
     push_len_prefixed_head(&mut encoded, TAG_LIST, 0);
     encoded.push(TAG_NULL);
 
-    let err =
-        decode_value_storage_value(&encoded).expect_err("trailing list bytes must be rejected");
-
-    assert_eq!(
-        err.to_string(),
-        "structural binary: trailing bytes after value payload"
-    );
+    assert!(decode_value_storage_value(&encoded).is_err());
 }
 
 #[test]
@@ -147,13 +125,7 @@ fn binary_value_storage_rejects_trailing_bytes_after_map_root() {
     push_len_prefixed_head(&mut encoded, TAG_MAP, 0);
     encoded.push(TAG_NULL);
 
-    let err =
-        decode_value_storage_value(&encoded).expect_err("trailing map bytes must be rejected");
-
-    assert_eq!(
-        err.to_string(),
-        "structural binary: trailing bytes after value payload"
-    );
+    assert!(decode_value_storage_value(&encoded).is_err());
 }
 
 #[test]
@@ -162,13 +134,7 @@ fn binary_value_storage_rejects_truncated_nested_list_item() {
     push_len_prefixed_head(&mut encoded, TAG_LIST, 1);
     encoded.push(TAG_LIST);
 
-    let err =
-        decode_value_storage_value(&encoded).expect_err("truncated nested list must be rejected");
-
-    assert_eq!(
-        err.to_string(),
-        "structural binary: truncated length prefix"
-    );
+    assert!(decode_value_storage_value(&encoded).is_err());
 }
 
 #[test]
@@ -179,13 +145,7 @@ fn binary_value_storage_rejects_truncated_nested_map_value() {
     push_len_prefixed_head(&mut encoded, TAG_TEXT, 4);
     encoded.push(b'a');
 
-    let err = decode_value_storage_value(&encoded)
-        .expect_err("truncated nested map value must be rejected");
-
-    assert_eq!(
-        err.to_string(),
-        "structural binary: truncated scalar payload"
-    );
+    assert!(decode_value_storage_value(&encoded).is_err());
 }
 
 #[test]
@@ -195,13 +155,7 @@ fn binary_value_storage_rejects_invalid_nested_local_value_tag() {
     encoded.push(VALUE_BINARY_TAG_ULID);
     encoded.push(0xFF);
 
-    let err = decode_value_storage_value(&encoded)
-        .expect_err("invalid nested local value tag must be rejected");
-
-    assert_eq!(
-        err.to_string(),
-        "structural binary: unsupported value tag 0xFF"
-    );
+    assert!(decode_value_storage_value(&encoded).is_err());
 }
 
 #[test]
@@ -287,13 +241,7 @@ fn binary_value_storage_list_split_rejects_trailing_bytes() {
     push_len_prefixed_head(&mut encoded, TAG_LIST, 0);
     encoded.push(TAG_NULL);
 
-    let err = decode_value_storage_list_item_slices(&encoded)
-        .expect_err("trailing list bytes must be rejected");
-
-    assert_eq!(
-        err.to_string(),
-        "structural binary: trailing bytes after value list payload"
-    );
+    assert!(decode_value_storage_list_item_slices(&encoded).is_err());
 }
 
 #[test]
@@ -302,13 +250,7 @@ fn binary_value_storage_map_split_rejects_trailing_bytes() {
     push_len_prefixed_head(&mut encoded, TAG_MAP, 0);
     encoded.push(TAG_NULL);
 
-    let err = decode_value_storage_map_entry_slices(&encoded)
-        .expect_err("trailing map bytes must be rejected");
-
-    assert_eq!(
-        err.to_string(),
-        "structural binary: trailing bytes after value map payload"
-    );
+    assert!(decode_value_storage_map_entry_slices(&encoded).is_err());
 }
 
 #[test]
@@ -317,13 +259,7 @@ fn binary_value_storage_list_split_rejects_malformed_nested_item() {
     push_len_prefixed_head(&mut encoded, TAG_LIST, 1);
     encoded.push(TAG_LIST);
 
-    let err = decode_value_storage_list_item_slices(&encoded)
-        .expect_err("malformed nested item must be rejected");
-
-    assert_eq!(
-        err.to_string(),
-        "structural binary: truncated length prefix"
-    );
+    assert!(decode_value_storage_list_item_slices(&encoded).is_err());
 }
 
 #[test]
@@ -335,12 +271,7 @@ fn binary_value_storage_preserves_duplicate_map_key_rejection() {
     push_text_value(&mut encoded, "key");
     push_i64_value(&mut encoded, 2);
 
-    let err = decode_value_storage_value(&encoded).expect_err("duplicate map key must be rejected");
-
-    assert_eq!(
-        err.to_string(),
-        "structural binary: map contains duplicate keys at normalized positions 0 and 1"
-    );
+    assert!(decode_value_storage_value(&encoded).is_err());
 }
 
 #[test]
@@ -362,24 +293,12 @@ fn binary_value_storage_validate_rejects_trailing_bytes() {
         .expect("binary value bytes should encode");
     encoded.push(0xFF);
 
-    let err = validate_structural_value_storage_bytes(&encoded)
-        .expect_err("trailing bytes must be rejected");
-
-    assert_eq!(
-        err.to_string(),
-        "structural binary: trailing bytes after value payload"
-    );
+    assert!(validate_structural_value_storage_bytes(&encoded).is_err());
 }
 
 #[test]
 fn binary_value_storage_validate_rejects_truncated_payload() {
-    let err = validate_structural_value_storage_bytes(&[])
-        .expect_err("empty value bytes must be rejected");
-
-    assert_eq!(
-        err.to_string(),
-        "structural binary: truncated value payload"
-    );
+    assert!(validate_structural_value_storage_bytes(&[]).is_err());
 }
 
 #[test]

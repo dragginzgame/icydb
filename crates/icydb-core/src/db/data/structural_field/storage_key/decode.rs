@@ -1,3 +1,8 @@
+//! Module: data::structural_field::storage_key::decode
+//! Responsibility: storage-key-compatible Structural Binary decode and validation.
+//! Does not own: relation indexing policy, runtime row decode, or generic value-storage envelopes.
+//! Boundary: callers provide field-kind authority; this module returns storage-key/runtime values only.
+
 use crate::{
     db::data::structural_field::{
         FieldDecodeError,

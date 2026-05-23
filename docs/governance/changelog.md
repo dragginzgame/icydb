@@ -56,12 +56,14 @@ The root changelog must link to the detailed file when present.
 ## 2.3 Unreleased Work
 
 Canonical rule: the repository has exactly one `Unreleased` section, and it
-lives in root `CHANGELOG.md`. Do not add `Unreleased` sections to minor-line
-detailed notes files.
+lives in root `CHANGELOG.md` as the first release section, immediately above
+the latest version entry. Do not add `Unreleased` sections to minor-line
+detailed notes files, design docs, status docs, or any other changelog-adjacent
+file.
 
-Use root `Unreleased` for small slices, exploratory cleanup, and follow-up work
-that is not yet being published. Do not invent patch numbers just to record
-each slice.
+Use only the root `Unreleased` section for small slices, exploratory cleanup,
+and follow-up work that is not yet being published. Do not invent patch numbers
+just to record each slice.
 
 When a release is prepared, collapse the current root `Unreleased` notes into
 the target patch entry and add exactly one concise root changelog bullet for
@@ -147,8 +149,9 @@ During ordinary development:
    section when the user asks for release notes or when omitting the note would
    make the batch hard to reconstruct.
 3. Do not assign patch numbers.
-4. Do not add `Unreleased` sections to `docs/changelog/<major>.<minor>.md`;
-   detailed minor notes are finalized when preparing a patch release.
+4. Do not add `Unreleased` sections anywhere except the top of root
+   `CHANGELOG.md`; detailed minor notes are finalized when preparing a patch
+   release.
 
 When preparing a release:
 

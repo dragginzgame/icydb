@@ -1,3 +1,8 @@
+//! Module: data::structural_field::value_storage::decode::scalar
+//! Responsibility: cursor and direct scalar decode helpers for value-storage bytes.
+//! Does not own: collection traversal, local tag dispatch, or row decode.
+//! Boundary: decodes scalar payloads after value-storage root/tag routing selects this lane.
+
 use crate::{
     db::data::structural_field::{
         FieldDecodeError,

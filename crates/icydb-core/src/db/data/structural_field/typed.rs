@@ -1,3 +1,8 @@
+//! Module: data::structural_field::typed
+//! Responsibility: typed wrapper payload conversion shared by structural codecs.
+//! Does not own: outer Structural Binary framing, storage-key routing, or row reconstruction.
+//! Boundary: converts between domain wrapper types and bounded owner-local payload bytes.
+
 use crate::{
     error::InternalError,
     types::{

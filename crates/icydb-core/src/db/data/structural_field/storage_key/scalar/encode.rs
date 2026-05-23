@@ -1,3 +1,8 @@
+//! Module: data::structural_field::storage_key::scalar::encode
+//! Responsibility: storage-key scalar payload encode dispatch.
+//! Does not own: full relation collection framing, accepted-schema routing, or row encode.
+//! Boundary: writes one storage-key-compatible scalar payload for a selected field kind.
+
 use crate::{
     db::data::structural_field::binary::{
         push_binary_bytes, push_binary_int64, push_binary_list_len, push_binary_nat64,

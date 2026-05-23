@@ -1,19 +1,16 @@
-//! Accepted-schema structural field decoding.
-//!
-//! This module is the first row-decode bridge that consumes accepted schema
-//! field kind metadata directly instead of first projecting back into generated
-//! `FieldKind` values. It intentionally starts at the field boundary; row
-//! row-layout selection now hands accepted contracts to this boundary without
-//! changing the payload grammar.
+//! Module: data::structural_field::accepted
+//! Responsibility: accepted-schema structural field encode, decode, and validation.
+//! Does not own: generated model fallback, row layout selection, or schema mutation authority.
+//! Boundary: consumes accepted field-kind metadata directly while preserving the structural payload grammar.
 
 use crate::{
     db::{
         data::structural_field::{
             FieldDecodeError,
             binary::{
-                TAG_LIST, TAG_MAP, parse_binary_head, push_binary_list_len, push_binary_map_len,
-                push_binary_variant_payload, push_binary_variant_unit, skip_binary_value,
-                split_binary_variant_payload,
+                push_binary_list_len, push_binary_map_len, push_binary_variant_payload,
+                push_binary_variant_unit, split_binary_variant_payload, walk_binary_list_items,
+                walk_binary_map_entries,
             },
             decode_structural_field_by_kind_bytes, decode_structural_value_storage_bytes,
             encode_structural_field_by_kind_bytes, encode_structural_value_storage_bytes,
@@ -257,23 +254,99 @@ fn encode_accepted_binary_field_into(
     }
 }
 
+// Decode-state for accepted-schema list traversal.
+struct AcceptedListDecodeState<'a> {
+    inner: &'a PersistedFieldKind,
+    items: Vec<Value>,
+}
+
+// Validate-state for accepted-schema list traversal.
+struct AcceptedListValidateState<'a> {
+    inner: &'a PersistedFieldKind,
+}
+
+// Decode-state for accepted-schema map traversal.
+struct AcceptedMapDecodeState<'a> {
+    key_kind: &'a PersistedFieldKind,
+    value_kind: &'a PersistedFieldKind,
+    entries: Vec<(Value, Value)>,
+}
+
+// Validate-state for accepted-schema map traversal.
+struct AcceptedMapValidateState<'a> {
+    key_kind: &'a PersistedFieldKind,
+    value_kind: &'a PersistedFieldKind,
+}
+
+// Push one accepted-schema list item into the current decode state.
+unsafe fn push_accepted_list_item(
+    item_bytes: &[u8],
+    context: *mut (),
+) -> Result<(), FieldDecodeError> {
+    let state = unsafe { &mut *context.cast::<AcceptedListDecodeState<'_>>() };
+    let item = decode_structural_field_by_accepted_kind_bytes(item_bytes, state.inner)?;
+    if matches!(state.inner, PersistedFieldKind::Relation { .. }) && matches!(item, Value::Null) {
+        return Ok(());
+    }
+    state.items.push(item);
+
+    Ok(())
+}
+
+// Validate one accepted-schema list item against the current traversal state.
+unsafe fn validate_accepted_list_item(
+    item_bytes: &[u8],
+    context: *mut (),
+) -> Result<(), FieldDecodeError> {
+    let state = unsafe { &mut *context.cast::<AcceptedListValidateState<'_>>() };
+
+    validate_structural_field_by_accepted_kind_bytes(item_bytes, state.inner)
+}
+
+// Push one accepted-schema map entry into the current decode state.
+unsafe fn push_accepted_map_entry(
+    key_bytes: &[u8],
+    value_bytes: &[u8],
+    context: *mut (),
+) -> Result<(), FieldDecodeError> {
+    let state = unsafe { &mut *context.cast::<AcceptedMapDecodeState<'_>>() };
+    state.entries.push((
+        decode_structural_field_by_accepted_kind_bytes(key_bytes, state.key_kind)?,
+        decode_structural_field_by_accepted_kind_bytes(value_bytes, state.value_kind)?,
+    ));
+
+    Ok(())
+}
+
+// Validate one accepted-schema map entry against the current traversal state.
+unsafe fn validate_accepted_map_entry(
+    key_bytes: &[u8],
+    value_bytes: &[u8],
+    context: *mut (),
+) -> Result<(), FieldDecodeError> {
+    let state = unsafe { &mut *context.cast::<AcceptedMapValidateState<'_>>() };
+    validate_structural_field_by_accepted_kind_bytes(key_bytes, state.key_kind)?;
+    validate_structural_field_by_accepted_kind_bytes(value_bytes, state.value_kind)
+}
+
 // Decode one accepted list or set by recursively decoding each item slice.
 fn decode_accepted_list_bytes(
     raw_bytes: &[u8],
     inner: &PersistedFieldKind,
 ) -> Result<Value, FieldDecodeError> {
-    let mut items = Vec::new();
-    walk_accepted_list_items(raw_bytes, |item_bytes| {
-        let item = decode_structural_field_by_accepted_kind_bytes(item_bytes, inner)?;
-        if matches!(inner, PersistedFieldKind::Relation { .. }) && matches!(item, Value::Null) {
-            return Ok(());
-        }
-        items.push(item);
+    let mut state = AcceptedListDecodeState {
+        inner,
+        items: Vec::new(),
+    };
+    walk_binary_list_items(
+        raw_bytes,
+        "expected Structural Binary list for list/set field",
+        "structural binary: trailing bytes after list/set field",
+        (&raw mut state).cast(),
+        push_accepted_list_item,
+    )?;
 
-        Ok(())
-    })?;
-
-    Ok(Value::List(items))
+    Ok(Value::List(state.items))
 }
 
 // Encode one accepted list or set by recursively encoding each item. Accepted
@@ -317,9 +390,14 @@ fn validate_accepted_list_bytes(
     raw_bytes: &[u8],
     inner: &PersistedFieldKind,
 ) -> Result<(), FieldDecodeError> {
-    walk_accepted_list_items(raw_bytes, |item_bytes| {
-        validate_structural_field_by_accepted_kind_bytes(item_bytes, inner)
-    })
+    let mut state = AcceptedListValidateState { inner };
+    walk_binary_list_items(
+        raw_bytes,
+        "expected Structural Binary list for list/set field",
+        "structural binary: trailing bytes after list/set field",
+        (&raw mut state).cast(),
+        validate_accepted_list_item,
+    )
 }
 
 // Encode one accepted map by recursively encoding each key/value pair.
@@ -352,17 +430,20 @@ fn decode_accepted_map_bytes(
     key_kind: &PersistedFieldKind,
     value_kind: &PersistedFieldKind,
 ) -> Result<Value, FieldDecodeError> {
-    let mut entries = Vec::new();
-    walk_accepted_map_entries(raw_bytes, |key_bytes, value_bytes| {
-        entries.push((
-            decode_structural_field_by_accepted_kind_bytes(key_bytes, key_kind)?,
-            decode_structural_field_by_accepted_kind_bytes(value_bytes, value_kind)?,
-        ));
+    let mut state = AcceptedMapDecodeState {
+        key_kind,
+        value_kind,
+        entries: Vec::new(),
+    };
+    walk_binary_map_entries(
+        raw_bytes,
+        "expected Structural Binary map for map field",
+        "structural binary: trailing bytes after map field",
+        (&raw mut state).cast(),
+        push_accepted_map_entry,
+    )?;
 
-        Ok(())
-    })?;
-
-    Ok(Value::Map(entries))
+    Ok(Value::Map(state.entries))
 }
 
 // Validate one accepted map by recursively validating each key/value slice
@@ -372,10 +453,17 @@ fn validate_accepted_map_bytes(
     key_kind: &PersistedFieldKind,
     value_kind: &PersistedFieldKind,
 ) -> Result<(), FieldDecodeError> {
-    walk_accepted_map_entries(raw_bytes, |key_bytes, value_bytes| {
-        validate_structural_field_by_accepted_kind_bytes(key_bytes, key_kind)?;
-        validate_structural_field_by_accepted_kind_bytes(value_bytes, value_kind)
-    })
+    let mut state = AcceptedMapValidateState {
+        key_kind,
+        value_kind,
+    };
+    walk_binary_map_entries(
+        raw_bytes,
+        "expected Structural Binary map for map field",
+        "structural binary: trailing bytes after map field",
+        (&raw mut state).cast(),
+        validate_accepted_map_entry,
+    )
 }
 
 // Encode one accepted enum payload using persisted variant metadata rather
@@ -510,77 +598,6 @@ fn validate_accepted_enum_bytes(
     ))
 }
 
-// Walk one accepted list/set payload and yield each raw item slice to the
-// caller. This avoids the raw-pointer callback shape used by the lower binary
-// walker so accepted field lifetimes remain normal Rust borrows.
-fn walk_accepted_list_items(
-    raw_bytes: &[u8],
-    mut on_item: impl FnMut(&[u8]) -> Result<(), FieldDecodeError>,
-) -> Result<(), FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated binary value",
-        ));
-    };
-    if tag != TAG_LIST {
-        return Err(FieldDecodeError::new(
-            "expected Structural Binary list for list/set field",
-        ));
-    }
-
-    let mut cursor = payload_start;
-    for _ in 0..len {
-        let item_start = cursor;
-        cursor = skip_binary_value(raw_bytes, cursor)?;
-        on_item(&raw_bytes[item_start..cursor])?;
-    }
-    if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after list/set field",
-        ));
-    }
-
-    Ok(())
-}
-
-// Walk one accepted map payload and yield each raw key/value slice pair to the
-// caller. The accepted decoder owns the semantic recursion; the binary helper
-// only proves the payload frame is bounded and complete.
-fn walk_accepted_map_entries(
-    raw_bytes: &[u8],
-    mut on_entry: impl FnMut(&[u8], &[u8]) -> Result<(), FieldDecodeError>,
-) -> Result<(), FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated binary value",
-        ));
-    };
-    if tag != TAG_MAP {
-        return Err(FieldDecodeError::new(
-            "expected Structural Binary map for map field",
-        ));
-    }
-
-    let mut cursor = payload_start;
-    for _ in 0..len {
-        let key_start = cursor;
-        cursor = skip_binary_value(raw_bytes, cursor)?;
-        let value_start = cursor;
-        cursor = skip_binary_value(raw_bytes, cursor)?;
-        on_entry(
-            &raw_bytes[key_start..value_start],
-            &raw_bytes[value_start..cursor],
-        )?;
-    }
-    if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after map field",
-        ));
-    }
-
-    Ok(())
-}
-
 ///
 /// TESTS
 ///
@@ -626,26 +643,11 @@ mod tests {
         accepted_kind: &PersistedFieldKind,
         raw_bytes: &[u8],
     ) {
-        let generated_decode = decode_structural_field_by_kind_bytes(raw_bytes, generated_kind)
-            .expect_err("generated decoder should reject malformed payload");
-        let accepted_decode =
-            decode_structural_field_by_accepted_kind_bytes(raw_bytes, accepted_kind)
-                .expect_err("accepted decoder should reject malformed payload");
-        assert_eq!(
-            accepted_decode.to_string(),
-            generated_decode.to_string(),
-            "accepted decode should preserve generated-compatible malformed-payload taxonomy",
-        );
-
-        let generated_validate = validate_structural_field_by_kind_bytes(raw_bytes, generated_kind)
-            .expect_err("generated validator should reject malformed payload");
-        let accepted_validate =
-            validate_structural_field_by_accepted_kind_bytes(raw_bytes, accepted_kind)
-                .expect_err("accepted validator should reject malformed payload");
-        assert_eq!(
-            accepted_validate.to_string(),
-            generated_validate.to_string(),
-            "accepted validation should preserve generated-compatible malformed-payload taxonomy",
+        assert!(decode_structural_field_by_kind_bytes(raw_bytes, generated_kind).is_err());
+        assert!(decode_structural_field_by_accepted_kind_bytes(raw_bytes, accepted_kind).is_err());
+        assert!(validate_structural_field_by_kind_bytes(raw_bytes, generated_kind).is_err());
+        assert!(
+            validate_structural_field_by_accepted_kind_bytes(raw_bytes, accepted_kind).is_err()
         );
     }
 

@@ -14,7 +14,7 @@ impl Imp<Newtype> for PartialOrdTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
         let primitive = node.primitive.as_ref()?; // bail early if no primitive
         let ident = &node.def.ident();
-        let prim = &primitive.as_type();
+        let prim = &crate::types::primitive_type_tokens(*primitive);
         Some(TraitStrategy::from_impl(newtype_partial_ord_tokens(
             ident, prim,
         )))

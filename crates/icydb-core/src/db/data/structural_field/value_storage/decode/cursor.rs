@@ -1,3 +1,8 @@
+//! Module: data::structural_field::value_storage::decode::cursor
+//! Responsibility: cursor-based recursive value-storage decode.
+//! Does not own: top-level validation, borrowed views, or encode policy.
+//! Boundary: advances through already-bounded payload bytes while materializing runtime values.
+
 use crate::{
     db::data::structural_field::{
         FieldDecodeError,

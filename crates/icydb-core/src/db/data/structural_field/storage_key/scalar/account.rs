@@ -1,3 +1,8 @@
+//! Module: data::structural_field::storage_key::scalar::account
+//! Responsibility: account storage-key scalar decode.
+//! Does not own: generic scalar dispatch, relation traversal, or row decode.
+//! Boundary: decodes the account-specific storage-key payload after callers select this scalar lane.
+
 use crate::{
     db::data::structural_field::{
         FieldDecodeError,

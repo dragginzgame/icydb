@@ -86,19 +86,8 @@ pub enum NodeError {
 /// boundary instead of leaking it into callers.
 ///
 
-pub trait MacroNode: Any {
+pub(crate) trait MacroNode: Any {
     fn as_any(&self) -> &dyn Any;
-}
-
-///
-/// TypeNode
-///
-/// Shared trait for schema nodes that expose one canonical runtime `Type`
-/// descriptor to validators and code generators.
-///
-
-pub trait TypeNode: MacroNode {
-    fn ty(&self) -> &Type;
 }
 
 ///
@@ -108,7 +97,7 @@ pub trait TypeNode: MacroNode {
 /// the surrounding schema graph.
 ///
 
-pub trait ValidateNode {
+pub(crate) trait ValidateNode {
     fn validate(&self) -> Result<(), ErrorTree> {
         Ok(())
     }
@@ -121,7 +110,7 @@ pub trait ValidateNode {
 /// traversal with canonical route-key ordering.
 ///
 
-pub trait VisitableNode: ValidateNode {
+pub(crate) trait VisitableNode: ValidateNode {
     // Route key contributes one node-local path segment to the visitor path.
     fn route_key(&self) -> String {
         String::new()
@@ -148,14 +137,14 @@ pub(crate) fn validate_memory_id_in_range(
     min: u8,
     max: u8,
 ) {
-    if memory_id < min || memory_id > max {
+    if !memory_id_is_in_range(memory_id, min, max) {
         err!(errs, "{label} {memory_id} outside of range {min}-{max}");
     }
 }
 
 // Reject memory id values reserved by stable-structures internals.
 pub(crate) fn validate_memory_id_not_reserved(errs: &mut ErrorTree, label: &str, memory_id: u8) {
-    if memory_id == RESERVED_INTERNAL_MEMORY_ID {
+    if memory_id_is_reserved(memory_id) {
         err!(
             errs,
             "{label} {memory_id} is reserved for stable-structures internals",
@@ -165,12 +154,27 @@ pub(crate) fn validate_memory_id_not_reserved(errs: &mut ErrorTree, label: &str,
 
 // Validate one application-owned memory id against IcyDB's generated-store range.
 pub(crate) fn validate_app_memory_id(errs: &mut ErrorTree, label: &str, memory_id: u8) {
-    if !(APP_MEMORY_ID_MIN..=APP_MEMORY_ID_MAX).contains(&memory_id) {
+    if !app_memory_id_is_valid(memory_id) {
         err!(
             errs,
             "{label} {memory_id} outside of application memory range {APP_MEMORY_ID_MIN}-{APP_MEMORY_ID_MAX}",
         );
     }
+}
+
+#[must_use]
+pub const fn memory_id_is_in_range(memory_id: u8, min: u8, max: u8) -> bool {
+    memory_id >= min && memory_id <= max
+}
+
+#[must_use]
+pub const fn memory_id_is_reserved(memory_id: u8) -> bool {
+    memory_id == RESERVED_INTERNAL_MEMORY_ID
+}
+
+#[must_use]
+pub const fn app_memory_id_is_valid(memory_id: u8) -> bool {
+    memory_id >= APP_MEMORY_ID_MIN && memory_id <= APP_MEMORY_ID_MAX
 }
 
 pub(crate) fn validate_stable_key_segment(errs: &mut ErrorTree, label: &str, value: &str) {
@@ -200,7 +204,7 @@ pub fn stable_key_segment_is_canonical(value: &str) -> bool {
 }
 
 #[must_use]
-pub fn stable_key_is_canonical(value: &str) -> bool {
+pub(crate) fn stable_key_is_canonical(value: &str) -> bool {
     if value.starts_with("canic.") {
         return false;
     }

@@ -1,4 +1,3 @@
-const RESERVED_INTERNAL_MEMORY_ID: u8 = u8::MAX;
 pub(crate) use icydb_schema::node::{APP_MEMORY_ID_MAX, APP_MEMORY_ID_MIN};
 
 /// Return a range-validation error message for a memory id, if invalid.
@@ -8,19 +7,19 @@ pub(crate) fn memory_id_out_of_range_error(
     min: u8,
     max: u8,
 ) -> Option<String> {
-    (memory_id < min || memory_id > max)
+    (!icydb_schema::node::memory_id_is_in_range(memory_id, min, max))
         .then(|| format!("{label} {memory_id} outside of range {min}-{max}"))
 }
 
 /// Return a reserved-id validation message for a memory id, if invalid.
 pub(crate) fn memory_id_reserved_error(label: &str, memory_id: u8) -> Option<String> {
-    (memory_id == RESERVED_INTERNAL_MEMORY_ID)
+    icydb_schema::node::memory_id_is_reserved(memory_id)
         .then(|| format!("{label} {memory_id} is reserved for stable-structures internals"))
 }
 
 /// Return an app-owned range validation message for a memory id, if invalid.
 pub(crate) fn app_memory_id_error(label: &str, memory_id: u8) -> Option<String> {
-    (!(APP_MEMORY_ID_MIN..=APP_MEMORY_ID_MAX).contains(&memory_id)).then(|| {
+    (!icydb_schema::node::app_memory_id_is_valid(memory_id)).then(|| {
         format!(
             "{label} {memory_id} outside of app-owned stable memory range {APP_MEMORY_ID_MIN}-{APP_MEMORY_ID_MAX}"
         )

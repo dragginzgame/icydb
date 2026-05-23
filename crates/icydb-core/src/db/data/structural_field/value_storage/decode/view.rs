@@ -1,12 +1,13 @@
-//! Borrowed, non-materializing access to validated value-storage bytes.
-//!
-//! This module is the execution-facing half of value-storage traversal. It
-//! lets callers walk nested collection payloads as bounded byte slices after
-//! skip validation has established that the root contains exactly one value.
+//! Module: data::structural_field::value_storage::decode::view
+//! Responsibility: borrowed non-materializing access to validated value-storage bytes.
+//! Does not own: runtime `Value` construction, encode policy, or field-kind routing.
+//! Boundary: exposes typed borrowed access only after skip validation proves one bounded root value.
 
 use crate::db::data::structural_field::{
     FieldDecodeError,
-    binary::{TAG_FALSE, TAG_INT64, TAG_NAT64, TAG_NULL, TAG_TEXT, TAG_TRUE},
+    binary::{
+        TAG_FALSE, TAG_INT64, TAG_MAP, TAG_NAT64, TAG_NULL, TAG_TEXT, TAG_TRUE, parse_binary_head,
+    },
     value_storage::{
         decode::{
             ValueStorageSlice,
@@ -15,7 +16,7 @@ use crate::db::data::structural_field::{
                 decode_binary_text_scalar, decode_binary_u64_scalar,
             },
         },
-        walk::visit_value_storage_map_entries,
+        skip::skip_value_storage_binary_value,
     },
 };
 
@@ -123,26 +124,40 @@ impl<'a> ValueStorageView<'a> {
 
         // Segment bytes are compiled once from Rust `String`s. Comparing them
         // against borrowed text payload bytes avoids per-row UTF-8 decoding
-        // while preserving map-entry boundary validation in the walker.
-        visit_value_storage_map_entries(
-            self.as_bytes(),
-            "structural binary: expected value map payload",
-            "structural binary: trailing bytes after value map payload",
-            |_| (),
-            |(), entry_key, entry_value| {
-                if found.is_some() {
-                    return Ok(());
-                }
+        // while preserving map-entry boundary validation.
+        let raw_bytes = self.as_bytes();
+        let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+            return Err(FieldDecodeError::new(
+                "structural binary: truncated value map payload",
+            ));
+        };
+        if tag != TAG_MAP {
+            return Err(FieldDecodeError::new(
+                "structural binary: expected value map payload",
+            ));
+        }
 
-                if decode_binary_text_payload_bytes_if_text(entry_key)?
+        let mut cursor = payload_start;
+        for _ in 0..len {
+            let key_start = cursor;
+            cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
+            let value_start = cursor;
+            cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
+
+            if found.is_none()
+                && decode_binary_text_payload_bytes_if_text(&raw_bytes[key_start..value_start])?
                     .is_some_and(|found| found == key)
-                {
-                    found = Some(Self::from_skip_bounded_unchecked(entry_value));
-                }
-
-                Ok(())
-            },
-        )?;
+            {
+                found = Some(Self::from_skip_bounded_unchecked(
+                    &raw_bytes[value_start..cursor],
+                ));
+            }
+        }
+        if cursor != raw_bytes.len() {
+            return Err(FieldDecodeError::new(
+                "structural binary: trailing bytes after value map payload",
+            ));
+        }
 
         Ok(found)
     }

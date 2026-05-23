@@ -46,12 +46,6 @@ impl MacroNode for Set {
     }
 }
 
-impl TypeNode for Set {
-    fn ty(&self) -> &Type {
-        self.ty()
-    }
-}
-
 impl ValidateNode for Set {}
 
 impl VisitableNode for Set {

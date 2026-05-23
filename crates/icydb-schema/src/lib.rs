@@ -3,7 +3,7 @@ pub mod error;
 pub mod node;
 pub mod types;
 mod validate;
-pub mod visit;
+mod visit;
 
 // Maximum length for entity schema identifiers.
 pub const MAX_ENTITY_NAME_LEN: usize = 64;
@@ -29,6 +29,9 @@ pub mod prelude {
         error::ErrorTree,
         node::*,
         types::{Cardinality, Primitive},
+    };
+    pub(crate) use crate::{
+        node::{MacroNode, ValidateNode, VisitableNode},
         visit::Visitor,
     };
     pub use candid::CandidType;

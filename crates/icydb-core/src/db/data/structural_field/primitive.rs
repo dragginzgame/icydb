@@ -1,3 +1,8 @@
+//! Module: data::structural_field::primitive
+//! Responsibility: fixed-width primitive payload byte conversion shared by structural codecs.
+//! Does not own: outer Structural Binary framing, runtime `Value` materialization, or row policy.
+//! Boundary: sibling lanes call this for canonical primitive payload bytes only.
+
 use crate::db::data::structural_field::FieldDecodeError;
 
 // Keep fixed-width primitive payload bytes under one owner so structural

@@ -43,12 +43,6 @@ impl MacroNode for Tuple {
     }
 }
 
-impl TypeNode for Tuple {
-    fn ty(&self) -> &Type {
-        self.ty()
-    }
-}
-
 impl ValidateNode for Tuple {}
 
 impl VisitableNode for Tuple {

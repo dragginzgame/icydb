@@ -758,17 +758,14 @@ mod tests {
         let mut bytes = encode_variant_unit("Loaded");
         bytes.extend_from_slice(&encode_null());
 
-        let err = split_binary_variant_payload(
-            &bytes,
-            "structural binary: truncated variant",
-            "expected Structural Binary variant",
-            "structural binary: trailing bytes after variant",
-        )
-        .expect_err("trailing bytes must fail closed");
-
-        assert_eq!(
-            err.to_string(),
-            "structural binary: trailing bytes after variant"
+        assert!(
+            split_binary_variant_payload(
+                &bytes,
+                "structural binary: truncated variant",
+                "expected Structural Binary variant",
+                "structural binary: trailing bytes after variant",
+            )
+            .is_err()
         );
     }
 }

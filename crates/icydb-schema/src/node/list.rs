@@ -46,12 +46,6 @@ impl MacroNode for List {
     }
 }
 
-impl TypeNode for List {
-    fn ty(&self) -> &Type {
-        self.ty()
-    }
-}
-
 impl ValidateNode for List {}
 
 impl VisitableNode for List {

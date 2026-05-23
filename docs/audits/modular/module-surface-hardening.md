@@ -1,4 +1,4 @@
-# MODULAR AUDIT - Complexity / Surface Hygiene
+# MODULAR AUDIT - Module Surface Hardening
 
 `icydb-core` first; facade, build, config, CLI, and schema crates only where they
 own reachable runtime surface, generated-code wiring, or code whose retention
@@ -6,15 +6,26 @@ keeps complexity alive.
 
 ## Audit Name
 
-Use **Complexity / Surface Hygiene**, not **Code Hygiene**.
+Use **Module Surface Hardening**, not **Code Hygiene**.
 
 Reason: `code hygiene` already means formatting, imports, docs, ordering, and
 small readability standards in `docs/governance/code-hygiene.md`. This audit is
 narrower and more consequential: remove dead or stale exposed surface, collapse
 unnecessary complexity lanes, and verify that every retained in-scope code unit
-has a current IcyDB authority reason.
+has a current IcyDB authority reason without regressing hot-path or wasm-sensitive
+runtime shape.
 
-Recommended slug: `complexity-surface-hygiene`.
+Historical name: **Complexity / Surface Hygiene** (`CSH`).
+
+Recommended slug for new reports: `module-surface-hardening`.
+
+Old reports using `complexity-surface-hygiene` remain valid historical reports,
+but they are non-comparable with `MSH-2.0` unless the hot-path and wasm
+regression gates are backfilled.
+
+Use `docs/audits/modular/module-cleanup-runner.md` for implementation slices
+that should patch safe findings. This document is the policy and classification
+framework; the cleanup runner is the shorter per-module workflow.
 
 ## Purpose
 
@@ -32,13 +43,15 @@ This audit targets:
 * complexity that exists only to preserve an obsolete route, format, or caller
 * code that is "live" only because current callers preserve an old shape
 * abstractions whose vocabulary or indirection costs more than their invariant
+* cleanup candidates whose simpler shape risks worse wasm size, instruction
+  count, allocation behavior, dispatch, or monomorphization
 
 This is NOT:
 
 * a style audit
 * a general DRY audit
 * a correctness audit
-* a performance audit
+* a general performance audit
 * a LoC-reduction contest
 * a module-boundary audit unless ownership or exposure is the reason code cannot
   justify itself
@@ -46,10 +59,10 @@ This is NOT:
 * a request for line-by-line prose when adjacent implementation lines share one
   clear authority reason
 
-The goal is simplification with authority intact: delete, narrow, inline, or
-move code when that makes the current architecture smaller and clearer. Do not
-reduce LoC by removing useful invariants, diagnostics, or generated-boundary
-proofs.
+The goal is simplification with authority and runtime shape intact: delete,
+narrow, inline, or move code when that makes the current architecture smaller and
+clearer. Do not reduce LoC by removing useful invariants, diagnostics,
+generated-boundary proofs, or intentionally optimized hot-path structure.
 
 ## IcyDB Authority Rules
 
@@ -96,22 +109,29 @@ production dead surface`.
 
 Include this manifest in each report:
 
-* `method_version = CSH-1.2`
+* `method_version = MSH-2.0`
 * `surface_taxonomy = ST-1`
 * `authority_taxonomy = AT-1`
 * `deletion_confidence_model = DC-1`
 * `compatibility_policy = pre-1.0-hard-cut`
 * `wasm_signal_rule = raw-wasm-primary`
+* `hot_path_risk_model = HP-1`
+* `proof_policy = read-only-first`
 
 Mark the run `non-comparable` if any manifest item changes, if in-scope roots
 change, or if test/generated-code inclusion rules change.
 
-`CSH-1.2` strengthens `CSH-1.1` by adding deletion pressure and required
-disposition decisions. A reference is no longer enough to classify a surface as
-live; the audit must also decide whether the consumer should continue to exist,
-whether the surface can be narrowed or inlined, and who owns the retained shape.
-Reports using `CSH-1.2` are non-comparable with `CSH-1.1` unless they explicitly
-explain how the stricter retention/disposition standard was backfilled.
+`MSH-2.0` supersedes `CSH-1.2`. It keeps the deletion-pressure standard and adds
+two release-quality gates:
+
+* cleanup in hot or wasm-sensitive code must include an optimization-risk
+  classification before a patch is recommended.
+* audits are read-only by default; they produce findings first. Code changes
+  require an explicit implementation request or an already-approved cleanup
+  slice.
+
+Reports using `MSH-2.0` are non-comparable with `CSH-1.2` unless they explicitly
+explain how the hot-path, wasm, and read-only-first standards were backfilled.
 
 ## Evidence Classes
 
@@ -138,10 +158,15 @@ The audit question is:
 > If this code unit disappeared or became narrower, what current IcyDB authority
 > would fail?
 
-Then ask the stricter CSH-1.2 follow-up:
+Then ask the deletion-pressure follow-up:
 
 > Is that failure desirable because it removes an obsolete consumer, broad
 > surface, or old vocabulary?
+
+Then ask the MSH-2.0 runtime-shape follow-up:
+
+> Would the simpler shape add allocation, cloning, formatting, dynamic dispatch,
+> generic monomorphization, or wasm size/instruction risk in a hot path?
 
 A code unit can be a module, function, type, trait impl, enum variant, match arm,
 DTO field, re-export, cfg branch, diagnostics hook, generated-boundary helper,
@@ -199,6 +224,62 @@ Special pressure rules:
 * If a huge module is live, the audit must name the owner and either a concrete
   shrink trigger or an explicit reason the module should stay whole.
 
+## Hot-Path / Wasm Regression Gate
+
+Evidence mode: `classified`
+
+MSH is allowed to flag optimization risk, but it is not a broad optimizer pass.
+The gate exists to stop cleanup from reintroducing shapes the project has
+already worked to avoid.
+
+Hotness classes:
+
+* `cold`: setup, CLI, diagnostics, docs, or rare error path.
+* `warm`: normal runtime path but not known to dominate canister execution.
+* `hot-runtime`: storage, query, executor, schema decode, commit, recovery, or
+  endpoint path with repeated execution.
+* `encode-decode-hot`: binary/canonical encode or decode loops.
+* `query-executor-hot`: planner, iterator, index scan, filter, projection, or
+  materialization loops.
+* `wasm-sensitive`: code shape likely to affect canister raw `.wasm` bytes or
+  instruction count.
+* `test-only`: no production/runtime reachability.
+
+Optimization-risk signals:
+
+* new closure-based generic visitors in encode/decode or query loops
+* broad generic helpers likely to increase monomorphization
+* trait objects or dynamic dispatch on repeated runtime paths
+* extra `Vec`, `String`, `format!`, clone, allocation, or staging buffers on the
+  success path
+* replacing callback/state walkers with closures or iterator adapters without
+  proof
+* moving from direct field access or direct calls to layered helper chains in a
+  hot loop
+* success-path diagnostics or rendering work
+* widening public APIs in a way that forces retained generic implementations
+
+Required dispositions for optimization-risk findings:
+
+* `RETAIN HOT PATH`: keep the current shape because the optimized structure is
+  intentional and the cleanup does not justify the risk.
+* `MEASURE FIRST`: do not patch until focused wasm, instruction, or benchmark
+  evidence exists.
+* `PATCH WITH PROOF`: cleanup is acceptable only with the named proof.
+* `REJECT CLEANUP`: the simpler shape is structurally nice but worse for the
+  current runtime goal.
+
+Produce:
+
+| Code Unit [M] | Hotness [C] | Proposed Cleanup [C] | Optimization Risk [C] | Required Proof [C] | Disposition [C] |
+| ---- | ---- | ---- | ---- | ---- | ---- |
+
+Example:
+
+| Code Unit [M] | Hotness [C] | Proposed Cleanup [C] | Optimization Risk [C] | Required Proof [C] | Disposition [C] |
+| ---- | ---- | ---- | ---- | ---- | ---- |
+| binary collection walkers | encode-decode-hot, wasm-sensitive | replace callback/state walker with closure visitor | possible monomorphization and closure codegen growth | raw wasm delta or instruction audit | RETAIN HOT PATH / MEASURE FIRST |
+
 ## Disposition Taxonomy
 
 Every retained or candidate item gets exactly one disposition:
@@ -213,10 +294,32 @@ Every retained or candidate item gets exactly one disposition:
 * `RETAIN WITH OWNER`: keep the item; report the owner and invariant it protects.
 * `DEFER WITH TRIGGER`: keep temporarily; report the exact future event that
   should force deletion, narrowing, inlining, or movement.
+* `RETAIN HOT PATH`: keep because a cleanup would risk a known hot or
+  wasm-sensitive shape without enough proof.
+* `MEASURE FIRST`: require wasm, instruction, or benchmark evidence before any
+  code change.
+* `PATCH WITH PROOF`: perform the cleanup only with the named focused
+  validation, measurement, or regression test.
+* `REJECT CLEANUP`: reject the cleanup because it simplifies code at the expense
+  of a current runtime or wasm goal.
 * `BLOCKED`: owner decision, generated artifact, or release policy evidence is
   required before changing it.
 
 Avoid bare "defer". A deferral without a trigger is just retention by default.
+
+## Read-Only-First Rule
+
+MSH reports are read-only by default. The auditor should produce findings,
+classifications, dispositions, and proof requirements before changing code.
+
+Code changes are allowed only when the user explicitly asks to implement a
+cleanup, or when the current task is already an implementation slice. Even then,
+the patch should be the smallest change that satisfies the report disposition
+and required proof.
+
+When the task says to "run the audit", use this read-only mode. When the task
+says to "clean up" or "run MSH cleanup", use the module cleanup runner and patch
+only the safe dispositions allowed there.
 
 ## Surface Taxonomy
 
@@ -260,7 +363,7 @@ Capture:
 
 | Field [M/C] | Value |
 | ---- | ---- |
-| `method_version` | `CSH-1.2` |
+| `method_version` | `MSH-2.0` |
 | `baseline_report` | path or `N/A` |
 | `comparability_status` | `comparable` / `non-comparable` |
 | `code_snapshot` | git short SHA or `N/A` |
@@ -268,6 +371,7 @@ Capture:
 | `excluded_roots` | roots excluded |
 | `generated_code_inclusion` | included / excluded / sampled |
 | `test_surface_inclusion` | included / excluded / sampled |
+| `patch_mode` | `read-only` / `implementation-requested` |
 
 ## STEP 1 - Reachable Surface And Retention Inventory
 
@@ -424,15 +528,35 @@ Allowed actions:
 * move owner
 * move to test-only module
 * replace stale compatibility branch with current-format hard cut
+* retain hot-path shape
+* measure before changing
+* reject cleanup on optimization grounds
 * defer with a specific trigger
 * block on owner decision before touching
 
 Produce:
 
-| Candidate [M] | Action [C] | Disposition [C] | Owner Boundary [C] | Required Proof [C] | Focused Validation [C] | Wasm Raw Bytes Relevant? [C] | Follow-Up Trigger [C] |
-| ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- |
+| Candidate [M] | Action [C] | Disposition [C] | Owner Boundary [C] | Hotness [C] | Required Proof [C] | Focused Validation [C] | Wasm Raw Bytes Relevant? [C] | Follow-Up Trigger [C] |
+| ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- |
 
-## STEP 8 - Risk Scoring
+## STEP 8 - Runtime Shape / Optimization Risk Review
+
+Evidence mode: `classified`
+
+For every candidate that touches hot or wasm-sensitive code, classify the
+runtime-shape risk before recommending a patch.
+
+Do not require wasm or instruction measurement for every cleanup. Require it
+when the code sits in a hotness class and the cleanup changes allocation,
+dispatch, generic expansion, data movement, encode/decode flow, or endpoint
+success-path work.
+
+Produce:
+
+| Candidate [M] | Hotness [C] | Runtime Shape Today [C] | Proposed Shape [C] | Risk Signal [C] | Required Proof [C] | Disposition [C] |
+| ---- | ---- | ---- | ---- | ---- | ---- | ---- |
+
+## STEP 9 - Risk Scoring
 
 Evidence mode: `classified`
 
@@ -456,6 +580,7 @@ Produce:
 | overexposed internal |  |  |  |
 | duplicate surface |  |  |  |
 | unclear |  |  |  |
+| optimization-risk cleanup |  |  |  |
 
 ## Required Report Sections
 
@@ -468,10 +593,11 @@ Every report must include:
 5. runtime authority drift findings
 6. facade/generated-boundary findings
 7. removal safety plan
-8. risk score
-9. verification readout
-10. disposition summary
-11. follow-up actions or explicit "none"
+8. runtime shape / optimization risk findings
+9. risk score
+10. verification readout
+11. disposition summary
+12. follow-up actions or explicit "none"
 
 Step status table:
 
@@ -486,6 +612,7 @@ Step status table:
 | STEP 6 |  |  |  |
 | STEP 7 |  |  |  |
 | STEP 8 |  |  |  |
+| STEP 9 |  |  |  |
 
 Allowed statuses:
 
@@ -504,6 +631,9 @@ These are prompts for the auditor, not mandatory exact commands:
 * run focused compile/tests after proposed deletions or visibility narrowing
 * compare raw non-gzipped wasm bytes only when the candidate affects canister
   runtime payload
+* run existing instruction/perf tests when a cleanup changes a measured hot path
+* inspect generated wasm-impacting code for added closures, generic helpers,
+  allocations, clones, formatting, or dynamic dispatch on success paths
 
 Suggested deletion-pressure prompts:
 
@@ -517,5 +647,8 @@ Suggested deletion-pressure prompts:
   concrete split/deletion trigger
 * inspect crate boundaries where a crate remains for one or two helpers and ask
   whether ownership should move back to the real caller
+* reject or measure any cleanup that makes hot code prettier by replacing an
+  explicit state/callback loop with a generic closure, iterator stack, or
+  allocation-heavy helper
 
 Do not start or stop the local ICP network for this audit.

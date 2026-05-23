@@ -1,3 +1,8 @@
+//! Module: data::structural_field::storage_key::encode
+//! Responsibility: storage-key-compatible Structural Binary encode.
+//! Does not own: relation indexing policy, runtime row encode, or generic value-storage envelopes.
+//! Boundary: callers provide field-kind authority; this module writes storage-key-compatible payloads only.
+
 use crate::{
     db::data::structural_field::{
         binary::{push_binary_list_len, push_binary_null},

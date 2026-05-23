@@ -58,12 +58,6 @@ impl MacroNode for Newtype {
     }
 }
 
-impl TypeNode for Newtype {
-    fn ty(&self) -> &Type {
-        self.ty()
-    }
-}
-
 impl ValidateNode for Newtype {}
 
 impl VisitableNode for Newtype {

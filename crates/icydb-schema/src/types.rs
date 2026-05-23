@@ -263,13 +263,6 @@ impl Primitive {
     pub const fn is_int(self) -> bool {
         self.is_signed_int() || self.is_unsigned_int()
     }
-
-    #[must_use]
-    pub fn as_type(self) -> TokenStream {
-        let ident = format_ident!("{self:?}");
-
-        quote!(::icydb::types::#ident)
-    }
 }
 
 impl FromMeta for Primitive {

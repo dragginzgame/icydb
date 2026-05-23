@@ -1,3 +1,8 @@
+//! Module: data::structural_field::value_storage::primitives
+//! Responsibility: primitive decode/split helpers for structural value-storage bytes.
+//! Does not own: runtime `Value` materialization, map/list traversal policy, or row decode.
+//! Boundary: exposes bounded scalar and tuple helpers to value-storage decode paths.
+
 use crate::db::data::structural_field::{
     FieldDecodeError,
     binary::{

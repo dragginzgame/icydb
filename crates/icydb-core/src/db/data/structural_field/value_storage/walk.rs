@@ -1,62 +1,17 @@
-//! Traversal helpers for structural value-storage collection payloads.
-//!
-//! Skip-based traversal is the authoritative structural validation model in
-//! this module. It walks bytes with `skip_value_storage_binary_value`, proves
-//! each nested item boundary, and yields borrowed slices without constructing a
-//! runtime `Value`. The visitor and retained callback walkers use that model.
-//!
-//! Decode-based traversal is a materialization model for recursive
-//! `Value::List` and `Value::Map` decode. It advances the cursor as each nested
-//! value is decoded and may assume the current collection frame owns the byte
-//! range being traversed. It does not replace skip as the general boundary
-//! authority for borrowed structural slices.
+//! Module: data::structural_field::value_storage::walk
+//! Responsibility: decode-oriented value-storage collection materialization.
+//! Does not own: scalar decode, runtime row policy, or value-storage encoding.
+//! Boundary: advances nested decode cursors for recursive `Value` materialization.
 
 use crate::db::data::structural_field::{
     FieldDecodeError,
     binary::{TAG_LIST, TAG_MAP, parse_binary_head},
-    value_storage::skip::skip_value_storage_binary_value,
 };
 use crate::value::Value;
 
 // Alias the cursor-returning decoder used by single-pass recursive collection
 // materialization.
 type ValueBinaryDecodeFn = fn(&[u8], usize) -> Result<(Value, usize), FieldDecodeError>;
-
-// Visit one binary value list as borrowed nested item slices without forcing
-// callers to stage the slices in a Vec.
-pub(super) fn visit_value_storage_list_items<'a, T, Init, Visit>(
-    raw_bytes: &'a [u8],
-    shape_label: &'static str,
-    trailing_label: &'static str,
-    init: Init,
-    mut visit_item: Visit,
-) -> Result<T, FieldDecodeError>
-where
-    Init: FnOnce(usize) -> T,
-    Visit: FnMut(&mut T, &'a [u8]) -> Result<(), FieldDecodeError>,
-{
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated value list payload",
-        ));
-    };
-    if tag != TAG_LIST {
-        return Err(FieldDecodeError::new(shape_label));
-    }
-
-    let mut state = init(len as usize);
-    let mut cursor = payload_start;
-    for _ in 0..len {
-        let item_start = cursor;
-        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
-        visit_item(&mut state, &raw_bytes[item_start..cursor])?;
-    }
-    if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new(trailing_label));
-    }
-
-    Ok(state)
-}
 
 // Decode one binary value list directly into runtime `Value` items while
 // advancing the same cursor that identifies each nested payload boundary.
@@ -90,48 +45,6 @@ pub(super) fn decode_value_storage_binary_list_items_single_pass(
     }
 
     Ok((items, cursor))
-}
-
-// Visit one binary value map as borrowed nested key/value slice pairs without
-// forcing callers to stage the pairs in a Vec.
-pub(super) fn visit_value_storage_map_entries<'a, T, Init, Visit>(
-    raw_bytes: &'a [u8],
-    shape_label: &'static str,
-    trailing_label: &'static str,
-    init: Init,
-    mut visit_entry: Visit,
-) -> Result<T, FieldDecodeError>
-where
-    Init: FnOnce(usize) -> T,
-    Visit: FnMut(&mut T, &'a [u8], &'a [u8]) -> Result<(), FieldDecodeError>,
-{
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated value map payload",
-        ));
-    };
-    if tag != TAG_MAP {
-        return Err(FieldDecodeError::new(shape_label));
-    }
-
-    let mut state = init(len as usize);
-    let mut cursor = payload_start;
-    for _ in 0..len {
-        let key_start = cursor;
-        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
-        let value_start = cursor;
-        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
-        visit_entry(
-            &mut state,
-            &raw_bytes[key_start..value_start],
-            &raw_bytes[value_start..cursor],
-        )?;
-    }
-    if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new(trailing_label));
-    }
-
-    Ok(state)
 }
 
 // Decode one binary value map directly into runtime entry pairs while

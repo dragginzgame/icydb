@@ -40,12 +40,6 @@ impl MacroNode for Enum {
     }
 }
 
-impl TypeNode for Enum {
-    fn ty(&self) -> &Type {
-        self.ty()
-    }
-}
-
 impl ValidateNode for Enum {
     fn validate(&self) -> Result<(), ErrorTree> {
         Ok(())

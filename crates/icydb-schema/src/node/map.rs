@@ -58,12 +58,6 @@ impl MacroNode for Map {
     }
 }
 
-impl TypeNode for Map {
-    fn ty(&self) -> &Type {
-        self.ty()
-    }
-}
-
 impl ValidateNode for Map {}
 
 impl VisitableNode for Map {

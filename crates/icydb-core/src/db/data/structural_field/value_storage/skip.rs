@@ -1,3 +1,8 @@
+//! Module: data::structural_field::value_storage::skip
+//! Responsibility: non-materializing value-storage byte skipping and boundary validation.
+//! Does not own: runtime `Value` construction, field-kind routing, or row decode.
+//! Boundary: proves where one value-storage payload ends before borrowed decode inspects it.
+
 use crate::db::data::structural_field::{
     FieldDecodeError,
     binary::{

@@ -1,3 +1,8 @@
+//! Module: data::structural_field::storage_key::scalar
+//! Responsibility: storage-key scalar codec module wiring.
+//! Does not own: relation collection traversal, value-storage envelopes, or row policy.
+//! Boundary: re-exports scalar helpers only to the storage-key owner.
+
 mod account;
 mod bytes;
 mod encode;

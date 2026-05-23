@@ -7,7 +7,7 @@ use crate::{node::VisitableNode, prelude::*};
 ///
 
 #[derive(Debug)]
-pub enum Event {
+pub(crate) enum Event {
     Enter,
     Exit,
 }
@@ -20,7 +20,7 @@ pub enum Event {
 /// metadata while nodes drive traversal.
 ///
 
-pub trait Visitor {
+pub(crate) trait Visitor {
     // Observe one node at one traversal phase.
     fn visit<V: VisitableNode + ?Sized>(&mut self, _: &V, _: Event) {}
 

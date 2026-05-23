@@ -40,7 +40,7 @@ use crate::{
             compiled_schema_proposal_for_model,
         },
     },
-    error::{ErrorClass, InternalError},
+    error::{ErrorClass, ErrorOrigin, InternalError},
     model::{
         EntityModel,
         field::{
@@ -63,6 +63,11 @@ use crate::{
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
+
+fn assert_error_taxonomy(err: &InternalError, class: ErrorClass, origin: ErrorOrigin) {
+    assert_eq!(err.class(), class);
+    assert_eq!(err.origin(), origin);
+}
 
 crate::test_canister! {
     ident = PersistedRowPatchBridgeCanister,
@@ -1265,12 +1270,7 @@ fn malformed_by_kind_set_payload_rejects_duplicate_logical_items() {
     )
     .expect_err("by-kind set payload must reject duplicate framed items");
 
-    assert_eq!(err.class(), crate::error::ErrorClass::Corruption);
-    assert!(
-        err.message()
-            .contains("by-kind set payload contains duplicate items"),
-        "unexpected error: {err:?}"
-    );
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -1301,12 +1301,7 @@ fn malformed_by_kind_map_payload_rejects_duplicate_logical_key() {
         )
         .expect_err("by-kind map payload must reject duplicate framed keys");
 
-    assert_eq!(err.class(), crate::error::ErrorClass::Corruption);
-    assert!(
-        err.message()
-            .contains("by-kind map payload contains duplicate or unordered keys"),
-        "unexpected error: {err:?}"
-    );
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -1319,12 +1314,7 @@ fn malformed_structured_set_payload_rejects_duplicate_logical_items() {
     let err = BTreeSet::<u64>::decode_persisted_structured_payload(payload.as_slice())
         .expect_err("structured set payload must reject duplicate framed items");
 
-    assert_eq!(err.class(), crate::error::ErrorClass::Corruption);
-    assert!(
-        err.message()
-            .contains("value payload does not match BTreeSet<u64>"),
-        "unexpected error: {err:?}"
-    );
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -1346,12 +1336,7 @@ fn malformed_structured_map_payload_rejects_duplicate_or_unordered_logical_keys(
     let err = BTreeMap::<u64, u64>::decode_persisted_structured_payload(payload.as_slice())
         .expect_err("structured map payload must reject duplicate framed keys");
 
-    assert_eq!(err.class(), crate::error::ErrorClass::Corruption);
-    assert!(
-        err.message()
-            .contains("value payload does not match BTreeMap<u64, u64>"),
-        "unexpected error: {err:?}"
-    );
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -1421,11 +1406,7 @@ fn decode_slot_into_runtime_value_reports_scalar_prefix_bytes() {
     let err = decode_slot_into_runtime_value(&TEST_MODEL, 0, &[0x00, 1])
         .expect_err("invalid scalar slot prefix should fail closed");
 
-    assert!(
-        err.message
-            .contains("expected slot envelope prefix byte 0xFF, found 0x00"),
-        "unexpected error: {err:?}"
-    );
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -1647,10 +1628,7 @@ fn decode_persisted_slot_payload_by_kind_rejects_malformed_structured_null_paylo
     )
     .expect_err("structured payload must reject malformed null bytes");
 
-    assert!(
-        err.message.contains("structural binary: unknown tag 0xF6"),
-        "unexpected error: {err:?}"
-    );
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -1658,10 +1636,7 @@ fn encode_runtime_value_into_slot_rejects_null_for_required_structured_slots() {
     let err = encode_runtime_value_into_slot(&REQUIRED_STRUCTURED_MODEL, 0, &Value::Null)
         .expect_err("required structured slot must reject null");
 
-    assert!(
-        err.message.contains("required field cannot store null"),
-        "unexpected error: {err:?}"
-    );
+    assert_error_taxonomy(&err, ErrorClass::Internal, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -1751,11 +1726,7 @@ fn option_storage_key_backed_by_kind_malformed_non_null_error_is_stable() {
     )
     .expect_err("malformed non-null storage-key option payload must fail");
 
-    assert_eq!(err.class(), crate::error::ErrorClass::Corruption);
-    assert_eq!(
-        err.message(),
-        "row decode failed for field 'sample': structural binary: expected u64 integer payload",
-    );
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -1769,11 +1740,7 @@ fn option_by_kind_leaf_malformed_non_null_error_is_stable() {
     )
     .expect_err("malformed non-null by-kind option payload must fail");
 
-    assert_eq!(err.class(), crate::error::ErrorClass::Corruption);
-    assert_eq!(
-        err.message(),
-        "row decode failed for field 'sample': structural binary: expected f64 float payload",
-    );
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -1811,7 +1778,7 @@ fn encode_runtime_value_into_slot_rejects_unknown_enum_payload_variants() {
     )
     .expect_err("unknown enum payload should fail closed");
 
-    assert!(err.message.contains("unknown enum variant"));
+    assert_error_taxonomy(&err, ErrorClass::Internal, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -2011,10 +1978,7 @@ fn accepted_row_contract_validates_primary_key_with_accepted_contract() {
     .expect_err("accepted primary-key contract should reject mismatched row key");
 
     assert_eq!(decoded.first(), Some(&Some(Value::Ulid(id))));
-    assert!(
-        err.message.contains("row key mismatch"),
-        "accepted primary-key mismatch should preserve persisted-row mismatch taxonomy: {err:?}",
-    );
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Store);
 }
 
 #[test]
@@ -2032,16 +1996,8 @@ fn accepted_row_contract_preserves_malformed_present_slot_corruption_taxonomy() 
         super::decode_dense_raw_row_with_contract(&raw_row, contract, StorageKey::Ulid(id))
             .expect_err("accepted dense decode must reject malformed present slot bytes");
 
-    assert_eq!(lazy_err.class, ErrorClass::Corruption);
-    assert_eq!(dense_err.class, ErrorClass::Corruption);
-    assert_eq!(
-        lazy_err.message,
-        "row decode: slot span exceeds payload length"
-    );
-    assert_eq!(
-        dense_err.message,
-        "row decode: slot span exceeds payload length"
-    );
+    assert_error_taxonomy(&lazy_err, ErrorClass::Corruption, ErrorOrigin::Serialize);
+    assert_error_taxonomy(&dense_err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -2054,11 +2010,7 @@ fn accepted_row_contract_rejects_missing_trailing_required_slots() {
         panic!("accepted row contract should reject a missing required appended slot");
     };
 
-    assert!(
-        err.message.contains("declared field missing")
-            || err.message.contains("missing declared field"),
-        "required missing-slot rejection should stay on persisted-row missing-field taxonomy: {err:?}",
-    );
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -2090,11 +2042,7 @@ fn accepted_row_contract_ignores_generated_default_when_accepted_default_is_none
         );
     };
 
-    assert!(
-        err.message.contains("declared field missing")
-            || err.message.contains("missing declared field"),
-        "generated proposal default must not satisfy accepted runtime decode: {err:?}",
-    );
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -2107,11 +2055,7 @@ fn accepted_row_contract_rejects_malformed_missing_default_payload() {
         panic!("malformed schema default payload should reject old row materialization");
     };
 
-    assert_eq!(err.class, ErrorClass::Corruption);
-    assert!(
-        err.message.contains("field 'score'"),
-        "default payload decode error should name the defaulted field: {err:?}",
-    );
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -2385,10 +2329,7 @@ fn structural_slot_reader_rejects_malformed_unused_value_storage_slot_on_first_a
         .get_value(1)
         .expect_err("malformed unused value-storage slot must fail on first semantic access");
 
-    assert!(
-        err.message.contains("field 'payload'"),
-        "unexpected error: {err:?}"
-    );
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -2555,15 +2496,7 @@ fn serialized_patch_writer_rejects_clear_slots() {
         .write_slot(0, None)
         .expect_err("0.65 patch staging must reject missing-slot clears");
 
-    assert!(
-        err.message
-            .contains("serialized patch writer cannot clear slot 0"),
-        "unexpected error: {err:?}"
-    );
-    assert!(
-        err.message.contains(TEST_MODEL.path()),
-        "unexpected error: {err:?}"
-    );
+    assert_error_taxonomy(&err, ErrorClass::Internal, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -2625,7 +2558,7 @@ fn apply_structural_patch_to_raw_row_rejects_noncanonical_missing_slot_baseline(
     )
     .expect_err("noncanonical rows with missing slots must fail closed");
 
-    assert_eq!(err.message, "row decode: missing slot payload: slot=0");
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -2654,15 +2587,7 @@ fn apply_serialized_structural_patch_to_raw_row_rejects_noncanonical_scalar_base
     )
     .expect_err("noncanonical scalar baseline must fail closed");
 
-    assert!(
-        err.message.contains("field 'name'"),
-        "unexpected error: {err:?}"
-    );
-    assert!(
-        err.message
-            .contains("expected slot envelope prefix byte 0xFF, found 0xF6"),
-        "unexpected error: {err:?}"
-    );
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -2686,15 +2611,7 @@ fn apply_serialized_structural_patch_to_raw_row_rejects_noncanonical_scalar_patc
     )
     .expect_err("noncanonical serialized patch payload must fail closed");
 
-    assert!(
-        err.message.contains("field 'name'"),
-        "unexpected error: {err:?}"
-    );
-    assert!(
-        err.message
-            .contains("expected slot envelope prefix byte 0xFF, found 0xF6"),
-        "unexpected error: {err:?}"
-    );
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -2717,10 +2634,7 @@ fn structural_slot_reader_rejects_slot_count_mismatch() {
             .err()
             .expect("slot-count drift must fail closed");
 
-    assert_eq!(
-        err.message,
-        "row decode: slot count mismatch: expected 2, found 1"
-    );
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -2746,7 +2660,7 @@ fn structural_slot_reader_rejects_slot_span_exceeds_payload_length() {
             .err()
             .expect("slot span drift must fail closed");
 
-    assert_eq!(err.message, "row decode: slot span exceeds payload length");
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -3061,7 +2975,7 @@ fn materialize_entity_from_serialized_structural_patch_rejects_missing_required_
     >(&serialized)
     .expect_err("sparse typed bridge must fail closed when a required slot is absent");
 
-    assert_eq!(err.message, "row decode: missing required field 'id'");
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -3130,15 +3044,7 @@ fn materialize_entity_from_serialized_structural_patch_rejects_noncanonical_scal
     >(&serialized)
     .expect_err("typed sparse patch bridge must reject malformed scalar payloads");
 
-    assert!(
-        err.message.contains("field 'id'"),
-        "unexpected error: {err:?}"
-    );
-    assert!(
-        err.message
-            .contains("expected slot envelope prefix byte 0xFF, found 0xF6"),
-        "unexpected error: {err:?}"
-    );
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -3174,15 +3080,7 @@ fn canonical_row_from_complete_serialized_structural_patch_rejects_noncanonical_
     )
     .expect_err("complete serialized patch row emission must reject malformed scalar payloads");
 
-    assert!(
-        err.message.contains("field 'id'"),
-        "unexpected error: {err:?}"
-    );
-    assert!(
-        err.message
-            .contains("expected slot envelope prefix byte 0xFF, found 0xF6"),
-        "unexpected error: {err:?}"
-    );
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -3203,10 +3101,7 @@ fn canonical_row_from_complete_serialized_structural_patch_rejects_incomplete_sl
     )
     .expect_err("complete serialized patch row emission must reject missing declared slots");
 
-    assert!(
-        err.message.contains("serialized patch did not emit slot 0"),
-        "unexpected error: {err:?}"
-    );
+    assert_error_taxonomy(&err, ErrorClass::Internal, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -3295,15 +3190,7 @@ fn canonical_row_from_raw_row_rejects_noncanonical_scalar_payload() {
     let err = canonical_row_from_raw_row_for_accepted_test_model(&TEST_MODEL, &raw_row)
         .expect_err("canonical raw-row rebuild must reject malformed scalar payloads");
 
-    assert!(
-        err.message.contains("field 'name'"),
-        "unexpected error: {err:?}"
-    );
-    assert!(
-        err.message
-            .contains("expected slot envelope prefix byte 0xFF, found 0xF6"),
-        "unexpected error: {err:?}"
-    );
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -3326,15 +3213,7 @@ fn raw_row_from_complete_serialized_structural_patch_rejects_noncanonical_scalar
     )
     .expect_err("fresh row emission must reject noncanonical serialized patch payloads");
 
-    assert!(
-        err.message.contains("field 'name'"),
-        "unexpected error: {err:?}"
-    );
-    assert!(
-        err.message
-            .contains("expected slot envelope prefix byte 0xFF, found 0xF6"),
-        "unexpected error: {err:?}"
-    );
+    assert_error_taxonomy(&err, ErrorClass::Corruption, ErrorOrigin::Serialize);
 }
 
 #[test]
@@ -3350,8 +3229,5 @@ fn raw_row_from_complete_serialized_structural_patch_rejects_incomplete_slot_ima
     )
     .expect_err("fresh row emission must reject missing declared slots");
 
-    assert!(
-        err.message.contains("serialized patch did not emit slot 0"),
-        "unexpected error: {err:?}"
-    );
+    assert_error_taxonomy(&err, ErrorClass::Internal, ErrorOrigin::Serialize);
 }

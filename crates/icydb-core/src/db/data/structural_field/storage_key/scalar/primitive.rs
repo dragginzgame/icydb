@@ -1,3 +1,8 @@
+//! Module: data::structural_field::storage_key::scalar::primitive
+//! Responsibility: primitive storage-key scalar decode for unit, integers, and timestamp.
+//! Does not own: generic scalar dispatch, relation traversal, or row decode.
+//! Boundary: decodes primitive storage-key payloads after callers select this scalar lane.
+
 use crate::{
     db::data::structural_field::{
         FieldDecodeError,

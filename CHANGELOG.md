@@ -5,9 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## Unreleased
+
 ## [0.161.x] 🧹 - 2026-05-21 - Schema And Utility Hygiene
 
 Detailed notes: [docs/changelog/0.161.md](docs/changelog/0.161.md)
+
+- `0.161.9` tightens the schema/derive boundary by hiding schema traversal
+  internals, removing stale schema traits, moving token rendering into derive,
+  and centralizing memory-ID policy predicates.
 
 - `0.161.8` cleans up commit marker and guard internals, removing stale
   test-only conversion paths and brittle error-message assertions.

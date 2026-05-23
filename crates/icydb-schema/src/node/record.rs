@@ -43,12 +43,6 @@ impl MacroNode for Record {
     }
 }
 
-impl TypeNode for Record {
-    fn ty(&self) -> &Type {
-        self.ty()
-    }
-}
-
 impl ValidateNode for Record {}
 
 impl VisitableNode for Record {

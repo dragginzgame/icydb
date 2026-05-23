@@ -1,17 +1,7 @@
-//! Decode-side materialization for the structural value-storage owner.
-//!
-//! Two traversal models intentionally coexist here. Skip-based traversal is the
-//! authoritative boundary detector for borrowed-slice helpers and local tagged
-//! payload extraction: it validates the structural shape, finds the exact byte
-//! boundary, and only then lets callers inspect the bounded slice. Decode-based
-//! traversal is used when this module materializes runtime `Value` trees; those
-//! paths advance a cursor while decoding and may assume any slice handed to a
-//! nested decoder is already bounded by the owning traversal step.
-//!
-//! The distinction is important for maintenance: skip owns structural
-//! validation and boundary discovery, while decode owns `Value` construction.
-//! New callers should pick the model that matches their ownership needs rather
-//! than mixing borrowed boundary detection with runtime materialization.
+//! Module: data::structural_field::value_storage::decode
+//! Responsibility: decode-side wiring for structural value-storage materialization and borrowed views.
+//! Does not own: value-storage encoding, field-kind routing, or row reconstruction.
+//! Boundary: chooses between skip-validated borrowed traversal and runtime `Value` materialization.
 
 mod cursor;
 mod scalar;
