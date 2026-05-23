@@ -512,6 +512,7 @@ fn entity_create_tokens(entity: &Entity) -> TokenStream {
             Default,
             ::icydb::__reexports::serde::Deserialize
         )]
+        #[candid_path("::icydb::__reexports::candid")]
         #[serde(crate = "::icydb::__reexports::serde")]
         pub struct #create_ident {
             #(#insert_struct_fields),*

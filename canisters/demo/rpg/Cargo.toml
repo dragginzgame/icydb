@@ -5,6 +5,9 @@ rust-version = { workspace = true }
 version = { workspace = true }
 publish = false
 
+[package.metadata.cargo-machete]
+ignored = ["candid"]
+
 [lib]
 crate-type = ["cdylib"]
 
@@ -23,9 +26,6 @@ icydb-testing-demo-rpg-fixtures = { workspace = true }
 icydb = { path = "../../../crates/icydb", default-features = false }
 icydb-config-build = { workspace = true }
 icydb-testing-demo-rpg-fixtures = { workspace = true }
-
-[package.metadata.cargo-machete]
-ignored = ["candid"]
 
 [lints]
 workspace = true

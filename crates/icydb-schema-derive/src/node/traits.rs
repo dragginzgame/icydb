@@ -84,11 +84,21 @@ pub trait HasMacro: HasSchema + HasTraits + HasType + ToTokens {
                     if matches!(derive_tr, TraitKind::Deserialize) {
                         has_serde_deserialize = true;
                     }
+                    if matches!(derive_tr, TraitKind::CandidType) {
+                        attrs.push(quote!(
+                            #[candid_path("::icydb::__reexports::candid")]
+                        ));
+                    }
                     derive_traits.push(path);
                 }
             } else if let Some(path) = tr.derive_path() {
                 if matches!(tr, TraitKind::Deserialize) {
                     has_serde_deserialize = true;
+                }
+                if matches!(tr, TraitKind::CandidType) {
+                    attrs.push(quote!(
+                        #[candid_path("::icydb::__reexports::candid")]
+                    ));
                 }
                 derive_traits.push(path);
             }
