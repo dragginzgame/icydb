@@ -1,3 +1,8 @@
+//! Module: snapshot command handling.
+//! Responsibility: call the generated storage snapshot endpoint and render storage reports.
+//! Does not own: stable-memory inspection, config surface gating, or generic ICP command construction.
+//! Boundary: exposes the snapshot command and test-covered report rendering through observability.
+
 use candid::Decode;
 use icydb::db::StorageReport;
 
@@ -40,7 +45,7 @@ pub(crate) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String>
     }
 }
 
-pub(crate) fn render_snapshot_report(report: &StorageReport) -> String {
+pub(super) fn render_snapshot_report(report: &StorageReport) -> String {
     let mut output = String::new();
     let data_rows = report
         .storage_data()

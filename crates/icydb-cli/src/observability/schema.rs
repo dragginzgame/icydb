@@ -1,3 +1,8 @@
+//! Module: schema report command handling.
+//! Responsibility: call the generated accepted-schema endpoint and render schema reports.
+//! Does not own: schema reconciliation, config surface gating, or generic ICP command construction.
+//! Boundary: exposes the schema show command and test-covered report rendering through observability.
+
 use candid::Decode;
 use icydb::db::EntitySchemaDescription;
 
@@ -44,7 +49,7 @@ pub(crate) fn run_schema_show_command(target: CanisterTarget) -> Result<(), Stri
     }
 }
 
-pub(crate) fn render_schema_report(report: &[EntitySchemaDescription]) -> String {
+pub(super) fn render_schema_report(report: &[EntitySchemaDescription]) -> String {
     let mut output = String::new();
     let entity_rows = report
         .iter()

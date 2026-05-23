@@ -1,3 +1,8 @@
+//! Module: metrics command handling.
+//! Responsibility: call generated metrics endpoints and render human metrics reports.
+//! Does not own: config surface gating, generic ICP command construction, or other observability reports.
+//! Boundary: exposes the metrics command runner and test-covered report helpers through observability.
+
 use candid::Decode;
 use icydb::metrics::{EventCounters, EventReport};
 
@@ -84,14 +89,14 @@ fn run_metrics_reset(target: &CanisterTarget) -> Result<(), String> {
     }
 }
 
-pub(crate) fn metrics_candid_arg(window_start_ms: Option<u64>) -> String {
+pub(super) fn metrics_candid_arg(window_start_ms: Option<u64>) -> String {
     match window_start_ms {
         Some(value) => format!("(opt ({value} : nat64))"),
         None => "(null)".to_string(),
     }
 }
 
-pub(crate) fn render_metrics_report(report: &EventReport) -> String {
+pub(super) fn render_metrics_report(report: &EventReport) -> String {
     let mut output = String::new();
 
     output.push_str("IcyDB metrics\n");

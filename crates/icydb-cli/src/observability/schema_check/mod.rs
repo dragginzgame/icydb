@@ -1,3 +1,8 @@
+//! Module: schema check command handling.
+//! Responsibility: call the generated schema-check endpoint and report generated-vs-accepted drift.
+//! Does not own: schema mutation semantics, config surface gating, or generic ICP command construction.
+//! Boundary: exposes the schema-check command and test-covered report rendering through observability.
+
 mod analysis;
 mod render;
 
@@ -53,7 +58,7 @@ pub(crate) fn run_schema_check_command(target: CanisterTarget) -> Result<(), Str
     }
 }
 
-pub(crate) fn render_schema_check_report(report: &[EntitySchemaCheckDescription]) -> String {
+pub(super) fn render_schema_check_report(report: &[EntitySchemaCheckDescription]) -> String {
     let summary = analyze_schema_check(report);
 
     render_schema_check_report_from_summary(&summary)

@@ -10,11 +10,11 @@ impl Imp<Entity> for EntityKindTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
         let pk_entry = node
             .fields
-            .get(&node.primary_key.field)
+            .get(node.primary_key.scalar_field())
             .expect("primary key field must be validated before derive generation");
 
         // PK key shape must always follow the declared field type.
-        let pk_key_type = pk_entry.value.item.type_expr();
+        let pk_key_type = primary_key_type_expr(node);
         let store = &node.store;
         let resolved_entity_name = resolved_entity_name(node);
         let relation_key_type_assertions = relation_key_type_assertions(node);
@@ -30,6 +30,23 @@ impl Imp<Entity> for EntityKindTrait {
             &ident,
         )))
     }
+}
+
+fn primary_key_type_expr(node: &Entity) -> TokenStream {
+    if node.primary_key.fields().len() == 1 {
+        return node
+            .fields
+            .get(node.primary_key.scalar_field())
+            .expect("primary key field must be validated before derive generation")
+            .value
+            .item
+            .type_expr();
+    }
+
+    let ident = node.def.ident();
+    let key_ident = format_ident!("{ident}Key");
+
+    quote!(#key_ident)
 }
 
 fn entity_kind_strategy_tokens(
@@ -205,7 +222,7 @@ pub struct EntityValueTrait {}
 
 impl Imp<Entity> for EntityValueTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
-        let pk_ident = &node.primary_key.field;
+        let pk_ident = node.primary_key.scalar_field();
 
         let tokens = Implementor::new(&node.def, TraitKind::EntityValue)
             .set_tokens(quote! {

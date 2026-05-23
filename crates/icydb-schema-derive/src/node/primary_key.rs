@@ -7,9 +7,20 @@ use darling::ast::NestedMeta;
 
 #[derive(Debug)]
 pub struct PrimaryKey {
-    pub(crate) field: Ident,
-
+    pub(crate) fields: Vec<Ident>,
     pub(crate) source: PrimaryKeySource,
+}
+
+impl PrimaryKey {
+    pub(crate) const fn fields(&self) -> &[Ident] {
+        self.fields.as_slice()
+    }
+
+    pub(crate) fn scalar_field(&self) -> &Ident {
+        self.fields
+            .first()
+            .expect("primary-key parsing must reject empty field lists")
+    }
 }
 
 impl FromMeta for PrimaryKey {
@@ -71,19 +82,22 @@ impl FromMeta for PrimaryKey {
             .with_span(&fields[1]));
         }
 
-        let field = parse_primary_key_field(&fields[0])?;
+        let fields = fields
+            .iter()
+            .map(parse_primary_key_field)
+            .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(Self { field, source })
+        Ok(Self { fields, source })
     }
 }
 
 impl HasSchemaPart for PrimaryKey {
     fn schema_part(&self) -> TokenStream {
-        let field = quote_one(&self.field, to_str_lit);
+        let fields = quote_slice(self.fields(), to_str_lit);
         let source = self.source.schema_part();
 
         quote! {
-            ::icydb::schema::node::PrimaryKey::new(&[#field], #source)
+            ::icydb::schema::node::PrimaryKey::new(#fields, #source)
         }
     }
 }
@@ -186,7 +200,8 @@ mod tests {
         let primary_key = parse_primary_key(quote!(fields = ["id"]))
             .expect("scalar primary-key fields syntax should parse");
 
-        assert_eq!(primary_key.field.to_string(), "id");
+        assert_eq!(primary_key.scalar_field().to_string(), "id");
+        assert_eq!(primary_key.fields().len(), 1);
         assert_eq!(primary_key.source, PrimaryKeySource::Internal);
     }
 
@@ -195,7 +210,8 @@ mod tests {
         let primary_key = parse_primary_key(quote!(fields = ["pid"], source = "external"))
             .expect("explicit external primary-key source should parse");
 
-        assert_eq!(primary_key.field.to_string(), "pid");
+        assert_eq!(primary_key.scalar_field().to_string(), "pid");
+        assert_eq!(primary_key.fields().len(), 1);
         assert_eq!(primary_key.source, PrimaryKeySource::External);
     }
 

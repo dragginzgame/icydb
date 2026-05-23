@@ -83,7 +83,7 @@ fn default_strategy_entity(node: &Entity) -> TraitStrategy {
         return TraitStrategy::from_derive(TraitKind::Default);
     }
 
-    let primary_key = &node.primary_key.field;
+    let primary_key = node.primary_key.scalar_field();
 
     struct_default_strategy(
         node.def(),
@@ -222,7 +222,7 @@ mod tests {
             )),
             store: syn::parse_quote!(UiDataStore),
             primary_key: PrimaryKey {
-                field: format_ident!("id"),
+                fields: vec![format_ident!("id")],
                 source: PrimaryKeySource::Internal,
             },
             name: None,

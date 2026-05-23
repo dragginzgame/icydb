@@ -33,6 +33,7 @@ const ACCOUNT_SIZE: usize = Account::STORED_SIZE as usize;
 const LENGTH_PREFIX_SIZE: usize = size_of::<u16>();
 const INDEX_COMPONENT_MAX_SIZE: usize = 4 * 1024;
 const INDEX_PRIMARY_KEY_MAX_SIZE: usize = TAG_SIZE + ACCOUNT_SIZE;
+const MAX_PRIMARY_KEY_FIELDS: usize = 4;
 
 type BorrowedIndexStoreKeySegments<'a> = (IndexStoreKeyKind, IndexId, Vec<&'a [u8]>, &'a [u8]);
 
@@ -185,8 +186,90 @@ impl PartialOrd for PrimaryKeyValue {
 }
 
 //
+// CompositePrimaryKeyValue
+//
+
+/// Fixed-capacity composite primary-key component list.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(in crate::db) struct CompositePrimaryKeyValue {
+    len: u8,
+    components: [PrimaryKeyValue; MAX_PRIMARY_KEY_FIELDS],
+}
+
+impl CompositePrimaryKeyValue {
+    pub(in crate::db) fn try_from_components(
+        components: &[PrimaryKeyValue],
+    ) -> Result<Self, CompositePrimaryKeyValueError> {
+        if components.is_empty() {
+            return Err(CompositePrimaryKeyValueError::Empty);
+        }
+        if components.len() > MAX_PRIMARY_KEY_FIELDS {
+            return Err(CompositePrimaryKeyValueError::TooManyComponents {
+                count: components.len(),
+                max: MAX_PRIMARY_KEY_FIELDS,
+            });
+        }
+        if let Some(index) = components
+            .iter()
+            .position(|component| matches!(component, PrimaryKeyValue::Unit))
+        {
+            return Err(CompositePrimaryKeyValueError::UnitComponent { index });
+        }
+
+        let mut stored = [PrimaryKeyValue::Unit; MAX_PRIMARY_KEY_FIELDS];
+        stored[..components.len()].copy_from_slice(components);
+        let len = u8::try_from(components.len())
+            .expect("MAX_PRIMARY_KEY_FIELDS must fit in u8 for compact composite keys");
+
+        Ok(Self {
+            len,
+            components: stored,
+        })
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn len(self) -> usize {
+        self.len as usize
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn is_empty(self) -> bool {
+        self.len == 0
+    }
+
+    #[must_use]
+    pub(in crate::db) fn components(&self) -> &[PrimaryKeyValue] {
+        &self.components[..self.len()]
+    }
+}
+
+impl Ord for CompositePrimaryKeyValue {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.components().cmp(other.components())
+    }
+}
+
+impl PartialOrd for CompositePrimaryKeyValue {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+//
 // Errors
 //
+
+#[derive(Debug, ThisError)]
+pub(in crate::db) enum CompositePrimaryKeyValueError {
+    #[error("composite primary key requires at least one component")]
+    Empty,
+
+    #[error("composite primary key has too many components: {count} (limit {max})")]
+    TooManyComponents { count: usize, max: usize },
+
+    #[error("unit is not admitted as composite primary-key component {index}")]
+    UnitComponent { index: usize },
+}
 
 #[derive(Debug, ThisError)]
 pub(in crate::db) enum CompactPrimaryKeyEncodeError {
@@ -1022,10 +1105,10 @@ const fn max_encoded_primary_key_len(kind: PrimaryKeyKind) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        CompactPrimaryKeyDecodeError, CompactStoreKeyDecodeError, DataStoreKey,
-        EncodedIndexComponent, EncodedPrimaryKey, IndexEntryValue, IndexStoreKey,
-        IndexStoreKeyKind, PrimaryKeyKind, PrimaryKeyValue, RawDataStoreKey, RawDataStoreKeyRange,
-        RawIndexStoreKey,
+        CompactPrimaryKeyDecodeError, CompactStoreKeyDecodeError, CompositePrimaryKeyValue,
+        CompositePrimaryKeyValueError, DataStoreKey, EncodedIndexComponent, EncodedPrimaryKey,
+        IndexEntryValue, IndexStoreKey, IndexStoreKeyKind, MAX_PRIMARY_KEY_FIELDS, PrimaryKeyKind,
+        PrimaryKeyValue, RawDataStoreKey, RawDataStoreKeyRange, RawIndexStoreKey,
     };
     use crate::{
         db::{
@@ -1048,6 +1131,69 @@ mod tests {
         let encoded = EncodedPrimaryKey::encode(value).expect("primary key should encode");
         assert_eq!(encoded.kind().expect("kind should decode"), value.kind());
         assert_eq!(encoded.decode().expect("primary key should decode"), value);
+    }
+
+    #[test]
+    fn composite_primary_key_value_keeps_fixed_capacity_components() {
+        let components = [
+            PrimaryKeyValue::Nat(7),
+            PrimaryKeyValue::Ulid(Ulid::from_u128(9)),
+        ];
+        let key = CompositePrimaryKeyValue::try_from_components(&components)
+            .expect("valid composite primary key should construct");
+
+        assert_eq!(key.len(), 2);
+        assert!(!key.is_empty());
+        assert_eq!(key.components(), components);
+    }
+
+    #[test]
+    fn composite_primary_key_value_rejects_invalid_component_counts() {
+        let empty = CompositePrimaryKeyValue::try_from_components(&[])
+            .expect_err("empty composite primary key should reject");
+        assert!(matches!(empty, CompositePrimaryKeyValueError::Empty));
+
+        let too_many = [PrimaryKeyValue::Nat(1); MAX_PRIMARY_KEY_FIELDS + 1];
+        let err = CompositePrimaryKeyValue::try_from_components(&too_many)
+            .expect_err("overwide composite primary key should reject");
+        assert!(matches!(
+            err,
+            CompositePrimaryKeyValueError::TooManyComponents { count, max }
+                if count == MAX_PRIMARY_KEY_FIELDS + 1 && max == MAX_PRIMARY_KEY_FIELDS
+        ));
+    }
+
+    #[test]
+    fn composite_primary_key_value_rejects_unit_components() {
+        let err = CompositePrimaryKeyValue::try_from_components(&[
+            PrimaryKeyValue::Nat(1),
+            PrimaryKeyValue::Unit,
+        ])
+        .expect_err("unit is scalar-only and should reject in composite keys");
+
+        assert!(matches!(
+            err,
+            CompositePrimaryKeyValueError::UnitComponent { index: 1 }
+        ));
+    }
+
+    #[test]
+    fn composite_primary_key_value_uses_lexicographic_component_order() {
+        let left = CompositePrimaryKeyValue::try_from_components(&[
+            PrimaryKeyValue::Nat(1),
+            PrimaryKeyValue::Int(10),
+        ])
+        .expect("left key should construct");
+        let right = CompositePrimaryKeyValue::try_from_components(&[
+            PrimaryKeyValue::Nat(2),
+            PrimaryKeyValue::Int(-10),
+        ])
+        .expect("right key should construct");
+        let prefix = CompositePrimaryKeyValue::try_from_components(&[PrimaryKeyValue::Nat(1)])
+            .expect("prefix key should construct");
+
+        assert!(left < right);
+        assert!(prefix < left);
     }
 
     #[test]

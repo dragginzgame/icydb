@@ -270,9 +270,20 @@ impl ValidateNode for Entity {
 
     fn fatal_errors(&self) -> Vec<syn::Error> {
         let mut errors = Vec::new();
-        let pk_ident = &self.primary_key.field;
 
-        // Primary key resolution must succeed before checking shape.
+        // Primary key resolution must succeed before checking each component
+        // shape. Composite declarations are still gated by parsing, but the
+        // validator already consumes ordered primary-key fields.
+        for pk_ident in self.primary_key.fields() {
+            self.collect_primary_key_field_errors(pk_ident, &mut errors);
+        }
+
+        errors
+    }
+}
+
+impl Entity {
+    fn collect_primary_key_field_errors(&self, pk_ident: &Ident, errors: &mut Vec<syn::Error>) {
         let mut pk_count = 0;
         for field in &self.fields {
             if field.ident == *pk_ident {
@@ -281,8 +292,7 @@ impl ValidateNode for Entity {
                     errors.push(syn::Error::new_spanned(
                         &field.ident,
                         format!(
-                            "primary key field '{}' must appear exactly once in entity fields",
-                            self.primary_key.field
+                            "primary key field '{pk_ident}' must appear exactly once in entity fields"
                         ),
                     ));
                 }
@@ -291,26 +301,20 @@ impl ValidateNode for Entity {
         if pk_count == 0 {
             errors.push(syn::Error::new_spanned(
                 pk_ident,
-                format!(
-                    "primary key field '{}' not found in entity fields",
-                    self.primary_key.field
-                ),
+                format!("primary key field '{pk_ident}' not found in entity fields"),
             ));
-            return errors;
+            return;
         }
 
         let Some(pk_field) = self.fields.get(pk_ident) else {
-            return errors;
+            return;
         };
 
         // Enforce primary key cardinality and relation restrictions.
         if pk_field.value.cardinality() != Cardinality::One {
             errors.push(syn::Error::new_spanned(
                 pk_ident,
-                format!(
-                    "primary key field '{}' must have cardinality One",
-                    self.primary_key.field
-                ),
+                format!("primary key field '{pk_ident}' must have cardinality One"),
             ));
         }
 
@@ -320,8 +324,7 @@ impl ValidateNode for Entity {
                 errors.push(syn::Error::new_spanned(
                     pk_ident,
                     format!(
-                        "primary key field `{}` is a relation but has no declared primitive type; explicit prim = \"...\" is required for PK fields",
-                        self.primary_key.field
+                        "primary key field `{pk_ident}` is a relation but has no declared primitive type; explicit prim = \"...\" is required for PK fields"
                     ),
                 ));
             }
@@ -329,10 +332,7 @@ impl ValidateNode for Entity {
         if pk_field.value.item.indirect {
             errors.push(syn::Error::new_spanned(
                 pk_ident,
-                format!(
-                    "primary key field '{}' cannot use indirect item storage",
-                    self.primary_key.field
-                ),
+                format!("primary key field '{pk_ident}' cannot use indirect item storage"),
             ));
         }
 
@@ -342,8 +342,7 @@ impl ValidateNode for Entity {
                     errors.push(syn::Error::new_spanned(
                         pk_ident,
                         format!(
-                            "primary key field '{}' must use a scalar key primitive; got '{primitive:?}'",
-                            self.primary_key.field
+                            "primary key field '{pk_ident}' must use a scalar key primitive; got '{primitive:?}'"
                         ),
                     ));
                 }
@@ -352,15 +351,12 @@ impl ValidateNode for Entity {
                 errors.push(syn::Error::new_spanned(
                     pk_ident,
                     format!(
-                        "primary key field '{}' must declare a scalar primitive key type via \
-                         prim = \"...\"; derived item(is = \"...\") types are not allowed for PKs",
-                        self.primary_key.field
+                        "primary key field '{pk_ident}' must declare a scalar primitive key type via \
+                         prim = \"...\"; derived item(is = \"...\") types are not allowed for PKs"
                     ),
                 ));
             }
         }
-
-        errors
     }
 }
 
@@ -448,6 +444,49 @@ impl HasType for Entity {
             }
         }
     }
+}
+
+fn composite_primary_key_type_part(entity: &Entity) -> TokenStream {
+    if entity.primary_key.fields().len() <= 1 {
+        return TokenStream::new();
+    }
+
+    let key_ident = composite_primary_key_ident(&entity.def.ident());
+    let key_fields = entity.primary_key.fields().iter().map(|primary_key_field| {
+        let field = entity
+            .fields
+            .get(primary_key_field)
+            .expect("primary key field must be validated before derive generation");
+        let field_ty = field.value.type_expr();
+
+        quote! {
+            pub #primary_key_field: #field_ty
+        }
+    });
+
+    quote! {
+        #[derive(
+            ::icydb::__reexports::candid::CandidType,
+            Clone,
+            Copy,
+            Debug,
+            ::icydb::__reexports::serde::Deserialize,
+            Eq,
+            PartialEq,
+            Ord,
+            PartialOrd,
+            Hash
+        )]
+        #[candid_path("::icydb::__reexports::candid")]
+        #[serde(crate = "::icydb::__reexports::serde")]
+        pub struct #key_ident {
+            #(#key_fields),*
+        }
+    }
+}
+
+fn composite_primary_key_ident(ident: &Ident) -> Ident {
+    format_ident!("{ident}Key")
 }
 
 fn entity_create_ident(ident: &Ident) -> Ident {
@@ -544,12 +583,16 @@ impl ToTokens for Entity {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let TraitTokens { derive, impls } = self.resolve_trait_tokens();
         let schema = self.schema_tokens();
+        let key_part = composite_primary_key_type_part(self);
         let type_part = self.type_part();
         let insert_part = entity_create_tokens(self);
 
         tokens.extend(quote! {
             // SCHEMA CONSTANT
             #schema
+
+            // PRIMARY KEY TYPE
+            #key_part
 
             // MAIN TYPE
             #derive
@@ -570,7 +613,7 @@ impl ToTokens for Entity {
 
 #[cfg(test)]
 mod tests {
-    use super::Entity;
+    use super::{Entity, composite_primary_key_type_part};
     use crate::node::{
         Def, Field, FieldList, Index, Item, PrimaryKey, PrimaryKeySource, Type, ValidateNode, Value,
     };
@@ -630,7 +673,7 @@ mod tests {
             )),
             store: syn::parse_quote!(UiDataStore),
             primary_key: PrimaryKey {
-                field: format_ident!("id"),
+                fields: vec![format_ident!("id")],
                 source: PrimaryKeySource::Internal,
             },
             name: None,
@@ -639,6 +682,76 @@ mod tests {
             ty: Type::default(),
             traits: crate::trait_kind::TraitBuilder::default(),
         }
+    }
+
+    #[test]
+    fn scalar_primary_key_does_not_emit_generated_key_struct() {
+        let entity = entity_with_fields_and_indexes(vec![scalar_field("id")], vec![]);
+
+        assert!(composite_primary_key_type_part(&entity).is_empty());
+    }
+
+    #[test]
+    fn composite_primary_key_emits_deterministic_public_key_struct() {
+        let mut entity = entity_with_fields_and_indexes(
+            vec![scalar_field("tenant_id"), scalar_field("local_id")],
+            vec![],
+        );
+        entity.primary_key.fields = vec![format_ident!("tenant_id"), format_ident!("local_id")];
+
+        let tokens = composite_primary_key_type_part(&entity).to_string();
+
+        assert!(
+            tokens.contains("pub struct TestEntityKey"),
+            "unexpected key struct tokens: {tokens}",
+        );
+        assert!(
+            tokens.contains("pub tenant_id"),
+            "unexpected key struct tokens: {tokens}",
+        );
+        assert!(
+            tokens.contains("pub local_id"),
+            "unexpected key struct tokens: {tokens}",
+        );
+    }
+
+    #[test]
+    fn fatal_errors_validate_each_ordered_primary_key_field() {
+        let mut entity = entity_with_fields_and_indexes(
+            vec![scalar_field("id"), many_scalar_field("tenant_id")],
+            vec![],
+        );
+        entity.primary_key.fields = vec![format_ident!("id"), format_ident!("tenant_id")];
+
+        let errors = entity.fatal_errors();
+        let error_text = errors
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(
+            error_text.contains("primary key field 'tenant_id' must have cardinality One"),
+            "unexpected fatal errors: {error_text}",
+        );
+    }
+
+    #[test]
+    fn fatal_errors_report_missing_ordered_primary_key_field() {
+        let mut entity = entity_with_fields_and_indexes(vec![scalar_field("id")], vec![]);
+        entity.primary_key.fields = vec![format_ident!("id"), format_ident!("tenant_id")];
+
+        let errors = entity.fatal_errors();
+        let error_text = errors
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(
+            error_text.contains("primary key field 'tenant_id' not found in entity fields"),
+            "unexpected fatal errors: {error_text}",
+        );
     }
 
     #[test]

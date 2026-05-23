@@ -54,12 +54,15 @@ fn model_storage_tokens(node: &Entity) -> TokenStream {
     let model_fields_ident = model_fields_ident(&ident);
     let primary_key_fields_ident = primary_key_fields_ident(&ident);
     let indexes_ident = indexes_ident(&ident);
-    let pk_index = node
-        .fields
+    let primary_key_field_indexes = primary_key_field_indexes(node);
+    let primary_key_fields_len = LitInt::new(
+        &primary_key_field_indexes.len().to_string(),
+        Span::call_site(),
+    );
+    let primary_key_field_refs = primary_key_field_indexes
         .iter()
-        .position(|field| field.ident == node.primary_key.field)
-        .expect("primary key field not found in entity fields");
-    let pk_index = LitInt::new(&pk_index.to_string(), Span::call_site());
+        .map(|index| quote!(&#model_fields_ident[#index]))
+        .collect::<Vec<_>>();
 
     quote! {
         #(#index_support_items)*
@@ -68,8 +71,8 @@ fn model_storage_tokens(node: &Entity) -> TokenStream {
                 #(#model_fields_exprs),*
             ];
         const #primary_key_fields_ident:
-            [&'static ::icydb::model::field::FieldModel; 1] = [
-                &#model_fields_ident[#pk_index],
+            [&'static ::icydb::model::field::FieldModel; #primary_key_fields_len] = [
+                #(#primary_key_field_refs),*
             ];
         const #indexes_ident:
             [&'static ::icydb::model::index::IndexModel; #indexes_len] = [
@@ -84,10 +87,9 @@ fn entity_model_tokens(node: &Entity) -> TokenStream {
         .name
         .as_ref()
         .map_or_else(|| node.def.ident().to_string(), LitStr::value);
-    let pk_index = node
-        .fields
-        .iter()
-        .position(|field| field.ident == node.primary_key.field)
+    let pk_index = primary_key_field_indexes(node)
+        .into_iter()
+        .next()
         .expect("primary key field not found in entity fields");
     let pk_index = LitInt::new(&pk_index.to_string(), Span::call_site());
     let model_fields_ident = model_fields_ident(&ident);
@@ -140,6 +142,22 @@ fn indexes_ident(ident: &Ident) -> Ident {
 fn primary_key_fields_ident(ident: &Ident) -> Ident {
     let ident = ident.to_string().to_ascii_uppercase();
     format_ident!("__{}_PRIMARY_KEY_FIELDS", ident)
+}
+
+fn primary_key_field_indexes(node: &Entity) -> Vec<LitInt> {
+    node.primary_key
+        .fields()
+        .iter()
+        .map(|primary_key_field| {
+            let index = node
+                .fields
+                .iter()
+                .position(|field| field.ident == *primary_key_field)
+                .expect("primary key field not found in entity fields");
+
+            LitInt::new(&index.to_string(), Span::call_site())
+        })
+        .collect()
 }
 
 fn model_ident(ident: &Ident) -> Ident {

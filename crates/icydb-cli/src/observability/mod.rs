@@ -9,17 +9,36 @@ use std::process::Stdio;
 use crate::icp::{hex_response_bytes, icp_query_command, icp_update_command};
 
 pub(crate) use metrics::run_metrics_command;
-#[cfg(test)]
-pub(crate) use metrics::{metrics_candid_arg, render_metrics_report};
-#[cfg(test)]
-pub(crate) use schema::render_schema_report;
 pub(crate) use schema::run_schema_show_command;
-#[cfg(test)]
-pub(crate) use schema_check::render_schema_check_report;
 pub(crate) use schema_check::run_schema_check_command;
-#[cfg(test)]
-pub(crate) use snapshot::render_snapshot_report;
 pub(crate) use snapshot::run_snapshot_command;
+
+#[cfg(test)]
+pub(crate) fn metrics_candid_arg(window_start_ms: Option<u64>) -> String {
+    metrics::metrics_candid_arg(window_start_ms)
+}
+
+#[cfg(test)]
+pub(crate) fn render_metrics_report(report: &icydb::metrics::EventReport) -> String {
+    metrics::render_metrics_report(report)
+}
+
+#[cfg(test)]
+pub(crate) fn render_schema_report(report: &[icydb::db::EntitySchemaDescription]) -> String {
+    schema::render_schema_report(report)
+}
+
+#[cfg(test)]
+pub(crate) fn render_schema_check_report(
+    report: &[icydb::db::EntitySchemaCheckDescription],
+) -> String {
+    schema_check::render_schema_check_report(report)
+}
+
+#[cfg(test)]
+pub(crate) fn render_snapshot_report(report: &icydb::db::StorageReport) -> String {
+    snapshot::render_snapshot_report(report)
+}
 
 fn call_query(
     environment: &str,
