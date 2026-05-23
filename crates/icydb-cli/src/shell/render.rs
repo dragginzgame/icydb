@@ -5,8 +5,9 @@ use icydb::db::sql::{
 };
 
 use crate::shell::perf::{
-    ShellLocalRenderAttribution, ShellPerfAttribution, render_executor_residual_suffix,
-    render_perf_suffix, render_pure_covering_suffix, render_shell_render_suffix,
+    ShellLocalRenderAttribution, ShellPerfAttribution, ShellPerfAttributionInput,
+    render_executor_residual_suffix, render_perf_suffix, render_pure_covering_suffix,
+    render_shell_render_suffix,
 };
 
 #[derive(candid::CandidType, Clone, Debug, serde::Deserialize)]
@@ -24,7 +25,7 @@ pub(crate) struct ShellSqlQueryPerfResult {
 
 impl ShellSqlQueryPerfResult {
     const fn attribution(&self) -> ShellPerfAttribution {
-        ShellPerfAttribution {
+        ShellPerfAttribution::new(ShellPerfAttributionInput {
             total: self.instructions,
             planner: self.planner_instructions,
             store: self.store_instructions,
@@ -33,7 +34,7 @@ impl ShellSqlQueryPerfResult {
             pure_covering_row_assembly: self.pure_covering_row_assembly_instructions,
             decode: self.decode_instructions,
             compiler: self.compiler_instructions,
-        }
+        })
     }
 }
 
@@ -41,9 +42,7 @@ pub(crate) fn render_shell_text_from_perf_result(input: ShellSqlQueryPerfResult)
     let attribution = input.attribution();
     let render_start = Instant::now();
     let rendered = render_shell_text(input.result, Some(attribution), None);
-    let render_attribution = ShellLocalRenderAttribution {
-        render_micros: render_start.elapsed().as_micros(),
-    };
+    let render_attribution = ShellLocalRenderAttribution::new(render_start.elapsed().as_micros());
 
     append_shell_render_suffix(rendered, Some(&render_attribution))
 }

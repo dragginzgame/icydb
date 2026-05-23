@@ -1,0 +1,5 @@
+error: composite primary keys are not implemented yet; use one primary-key field
+  --> tests/ui/pk_fields_composite_unimplemented.rs:17:31
+   |
+17 |     pk(fields = ["tenant_id", "local_id"]),
+   |                               ^^^^^^^^^^

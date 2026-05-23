@@ -93,7 +93,7 @@ mod tests {
         schema.insert_node(SchemaNode::Entity(Entity::new(
             Def::new(module_path, entity_ident),
             store_path,
-            PrimaryKey::new("id", PrimaryKeySource::Internal),
+            PrimaryKey::new(&["id"], PrimaryKeySource::Internal),
             Some(entity_name),
             &[],
             FieldList::new(&[]),

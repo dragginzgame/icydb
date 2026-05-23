@@ -25,8 +25,8 @@ pub(crate) use crate::shell::{
         shell_help_text,
     },
     perf::{
-        ShellPerfAttribution, normalize_grouped_next_cursor_json, parse_perf_result,
-        render_perf_suffix,
+        ShellPerfAttribution, ShellPerfAttributionInput, normalize_grouped_next_cursor_json,
+        parse_perf_result, render_perf_suffix,
     },
     render::{
         finalize_successful_command_output, render_grouped_shell_text, render_projection_shell_text,

@@ -7,7 +7,7 @@ use icydb::design::prelude::*;
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(field(
         ident = "id",
         value(item(prim = "Ulid")),
@@ -22,7 +22,7 @@ pub struct User;
 
 #[entity(
     store = "TestStore",
-    pk(field = "user_id"),
+    pk(fields = ["user_id"]),
     fields(field(ident = "user_id", value(item(rel = "User", prim = "Ulid"))))
 )]
 pub struct UserProjects;

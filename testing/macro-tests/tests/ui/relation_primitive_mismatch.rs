@@ -14,14 +14,14 @@ pub struct UiDataStore {}
 
 #[entity(
     store = "UiDataStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
 )]
 pub struct Target;
 
 #[entity(
     store = "UiDataStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
         // Relation fields must always declare storage key shape explicitly.

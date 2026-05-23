@@ -14,7 +14,7 @@ pub struct UiDataStore {}
 
 #[entity(
     store = "UiDataStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(ident = "id", value(item(prim = "Nat64"))),
         field(ident = "name", value(item(prim = "Text", unbounded)))

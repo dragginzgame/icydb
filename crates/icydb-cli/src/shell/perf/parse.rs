@@ -1,7 +1,7 @@
 use icydb::db::sql::SqlQueryResult;
 use serde_json::Value;
 
-use crate::shell::perf::ShellPerfAttribution;
+use crate::shell::perf::{ShellPerfAttribution, ShellPerfAttributionInput};
 
 pub(crate) fn parse_perf_result(
     value: &Value,
@@ -18,7 +18,7 @@ pub(crate) fn parse_perf_result(
 
     Ok((
         result,
-        ShellPerfAttribution {
+        ShellPerfAttribution::new(ShellPerfAttributionInput {
             total: parse_perf_u64(value, "instructions")?,
             planner: parse_perf_u64(value, "planner_instructions")?,
             store: parse_perf_u64_or_default(value, "store_instructions")?,
@@ -33,7 +33,7 @@ pub(crate) fn parse_perf_result(
             )?,
             decode: parse_perf_u64_or_default(value, "decode_instructions")?,
             compiler: parse_perf_u64(value, "compiler_instructions")?,
-        },
+        }),
     ))
 }
 

@@ -1,0 +1,5 @@
+error: pk(field = ...) was removed; use pk(fields = ["id"])
+  --> tests/ui/pk_field_removed.rs:17:8
+   |
+17 |     pk(field = "id"),
+   |        ^^^^^

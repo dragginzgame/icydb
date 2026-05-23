@@ -7,7 +7,7 @@ use icydb::{base, design::prelude::*};
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(field(
         ident = "id",
         value(item(prim = "Ulid")),
@@ -22,7 +22,7 @@ pub struct SimpleEntity {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(
             ident = "id",
@@ -40,7 +40,7 @@ pub struct BlobEntity {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(
             ident = "id",
@@ -59,7 +59,7 @@ pub struct Searchable {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "value"),
+    pk(fields = ["value"]),
     fields(field(ident = "value", value(item(prim = "Nat32"))))
 )]
 pub struct Limit {}
@@ -70,7 +70,7 @@ pub struct Limit {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(field(
         ident = "id",
         value(item(prim = "Ulid")),
@@ -106,7 +106,7 @@ pub struct MissingFieldLarge {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(
             ident = "id",
@@ -124,7 +124,7 @@ pub struct ContainsBlob {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(
             ident = "id",
@@ -153,7 +153,7 @@ pub struct ContainsOpts {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(
             ident = "id",
@@ -210,7 +210,7 @@ pub struct ContainsManyRelations {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     index(fields = ["x"]),
     index(fields = ["y"], unique),
     fields(
@@ -255,7 +255,7 @@ pub struct LowerIndexText {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     index(fields = ["username"], unique),
     fields(
         field(
@@ -275,7 +275,7 @@ pub struct IndexSanitized {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     index(fields = ["create_blob_id"]),
     fields(
         field(
@@ -297,7 +297,7 @@ pub struct IndexRelation {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     index(fields = ["value"], unique),
     fields(
         field(

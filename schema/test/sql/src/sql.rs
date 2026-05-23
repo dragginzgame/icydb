@@ -39,7 +39,7 @@ pub struct SqlTestStore {}
 
 #[entity(
     store = "SqlTestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     index(fields = ["name"]),
     fields(
         field(
@@ -63,7 +63,7 @@ pub struct SqlTestUser {}
 
 #[entity(
     store = "SqlTestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     index(fields = ["label"]),
     fields(
         field(

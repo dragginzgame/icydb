@@ -704,7 +704,7 @@ mod tests {
     fn from_list_parses_nested_indexes_and_fields() {
         let args = NestedMeta::parse_meta_list(quote!(
             store = "UiDataStore",
-            pk(field = "id"),
+            pk(fields = ["id"]),
             index(fields = ["missing_field"]),
             fields(field(
                 ident = "id",

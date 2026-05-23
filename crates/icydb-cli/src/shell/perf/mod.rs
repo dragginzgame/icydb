@@ -1,3 +1,8 @@
+//! Module: shell perf rendering.
+//! Responsibility: parse and render SQL shell performance attribution.
+//! Does not own: SQL execution, Candid endpoint payload shape, or table output.
+//! Boundary: exposes shell-local attribution values and compact footer renderers.
+
 mod format;
 #[cfg(test)]
 mod parse;
@@ -18,20 +23,33 @@ pub(crate) use parse::{normalize_grouped_next_cursor_json, parse_perf_result};
 ///
 
 pub(crate) struct ShellPerfAttribution {
-    pub(crate) total: u64,
-    pub(crate) planner: u64,
-    pub(crate) store: u64,
-    pub(crate) executor: u64,
-    pub(crate) pure_covering_decode: u64,
-    pub(crate) pure_covering_row_assembly: u64,
-    pub(crate) decode: u64,
-    pub(crate) compiler: u64,
+    total: u64,
+    planner: u64,
+    store: u64,
+    executor: u64,
+    pure_covering_decode: u64,
+    pure_covering_row_assembly: u64,
+    decode: u64,
+    compiler: u64,
 }
 
 impl ShellPerfAttribution {
+    pub(crate) const fn new(input: ShellPerfAttributionInput) -> Self {
+        Self {
+            total: input.total,
+            planner: input.planner,
+            store: input.store,
+            executor: input.executor,
+            pure_covering_decode: input.pure_covering_decode,
+            pure_covering_row_assembly: input.pure_covering_row_assembly,
+            decode: input.decode,
+            compiler: input.compiler,
+        }
+    }
+
     // Sum the current top-level SQL query perf contract exactly as emitted by
     // __icydb_query: compiler, planner, store, executor, then public decode.
-    pub(crate) const fn attributed_total(&self) -> u64 {
+    const fn attributed_total(&self) -> u64 {
         self.compiler
             .saturating_add(self.planner)
             .saturating_add(self.store)
@@ -41,15 +59,26 @@ impl ShellPerfAttribution {
 
     // Preserve one visible fallback bucket for payloads whose
     // total exceeds the current top-level query perf contract.
-    pub(crate) const fn residual_total(&self) -> u64 {
+    const fn residual_total(&self) -> u64 {
         self.total.saturating_sub(self.attributed_total())
     }
 
-    pub(crate) const fn pure_covering_executor_residual(&self) -> u64 {
+    const fn pure_covering_executor_residual(&self) -> u64 {
         self.executor
             .saturating_sub(self.pure_covering_decode)
             .saturating_sub(self.pure_covering_row_assembly)
     }
+}
+
+pub(crate) struct ShellPerfAttributionInput {
+    pub(crate) total: u64,
+    pub(crate) planner: u64,
+    pub(crate) store: u64,
+    pub(crate) executor: u64,
+    pub(crate) pure_covering_decode: u64,
+    pub(crate) pure_covering_row_assembly: u64,
+    pub(crate) decode: u64,
+    pub(crate) compiler: u64,
 }
 
 ///
@@ -63,5 +92,11 @@ impl ShellPerfAttribution {
 ///
 
 pub(crate) struct ShellLocalRenderAttribution {
-    pub(crate) render_micros: u128,
+    render_micros: u128,
+}
+
+impl ShellLocalRenderAttribution {
+    pub(crate) const fn new(render_micros: u128) -> Self {
+        Self { render_micros }
+    }
 }

@@ -208,7 +208,7 @@ mod tests {
 
     #[entity(
         store = "TestStore",
-        pk(field = "id"),
+        pk(fields = ["id"]),
         fields(field(
             ident = "id",
             value(item(prim = "Ulid")),
@@ -227,7 +227,7 @@ mod tests {
 
     #[entity(
         store = "TestStore",
-        pk(field = "id"),
+        pk(fields = ["id"]),
         fields(field(
             ident = "id",
             value(item(prim = "Ulid")),
@@ -273,7 +273,7 @@ mod tests {
 
     #[entity(
         store = "TestStore",
-        pk(field = "id"),
+        pk(fields = ["id"]),
         fields(
             field(
                 ident = "id",
@@ -291,7 +291,7 @@ mod tests {
 
     #[entity(
         store = "TestStore",
-        pk(field = "id"),
+        pk(fields = ["id"]),
         fields(
             field(
                 ident = "id",
@@ -325,7 +325,7 @@ mod tests {
 
     #[entity(
         store = "TestStore",
-        pk(field = "id"),
+        pk(fields = ["id"]),
         fields(
             field(
                 ident = "id",
@@ -350,7 +350,7 @@ mod tests {
 
     #[entity(
         store = "TestStore",
-        pk(field = "id"),
+        pk(fields = ["id"]),
         fields(
             field(
                 ident = "id",
@@ -367,7 +367,7 @@ mod tests {
 
     #[entity(
         store = "TestStore",
-        pk(field = "id"),
+        pk(fields = ["id"]),
         fields(
             field(
                 ident = "id",

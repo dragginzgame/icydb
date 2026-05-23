@@ -17,7 +17,7 @@ pub struct EnumWithPayload {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(
             ident = "id",

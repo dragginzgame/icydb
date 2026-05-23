@@ -7,7 +7,7 @@ use icydb::design::prelude::*;
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     index(fields = ["pid", "ulid", "score"]),
     fields(
         field(
@@ -28,7 +28,7 @@ pub struct Indexable {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(
             ident = "id",
@@ -48,7 +48,7 @@ pub struct NotIndexable {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     index(fields = ["username"], unique),
     fields(
         field(

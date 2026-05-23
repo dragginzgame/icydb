@@ -14,14 +14,14 @@ pub struct UiDataStore {}
 
 #[entity(
     store = "UiDataStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
 )]
 pub struct User;
 
 #[entity(
     store = "UiDataStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
         field(ident = "user", value(item(rel = "User", prim = "Ulid")))

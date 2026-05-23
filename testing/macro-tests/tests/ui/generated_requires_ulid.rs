@@ -14,7 +14,7 @@ pub struct UiDataStore {}
 
 #[entity(
     store = "UiDataStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(
             ident = "id",

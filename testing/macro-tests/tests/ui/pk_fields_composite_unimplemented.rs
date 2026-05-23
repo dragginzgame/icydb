@@ -14,16 +14,12 @@ pub struct UiDataStore {}
 
 #[entity(
     store = "UiDataStore",
-    pk(fields = ["id"]),
+    pk(fields = ["tenant_id", "local_id"]),
     fields(
-        field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
-        field(
-            ident = "created_on_insert",
-            value(opt, item(prim = "Timestamp")),
-            generated(insert = "Timestamp::now")
-        )
+        field(ident = "tenant_id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
+        field(ident = "local_id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate"))
     )
 )]
-pub struct InvalidOptionalGeneratedTimestampField;
+pub struct CompositePkFields;
 
 fn main() {}

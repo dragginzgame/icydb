@@ -40,7 +40,7 @@ pub struct PerfAuditStore {}
 
 #[entity(
     store = "PerfAuditStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     index(fields = ["name"]),
     index(fields = ["age", "id"]),
     index(fields = ["LOWER(name)"]),
@@ -65,7 +65,7 @@ pub struct PerfAuditUser {}
 
 #[entity(
     store = "PerfAuditStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     index(fields = ["bucket", "id"]),
     index(fields = ["label"]),
     fields(
@@ -87,7 +87,7 @@ pub struct PerfAuditBlob {}
 
 #[entity(
     store = "PerfAuditStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     index(fields = ["handle"], predicate = "active = true"),
     index(fields = ["LOWER(handle)"], predicate = "active = true"),
     index(fields = ["tier", "handle"], predicate = "active = true"),

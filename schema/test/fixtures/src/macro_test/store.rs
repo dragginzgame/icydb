@@ -7,7 +7,7 @@ use icydb::design::prelude::*;
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(field(ident = "id", value(item(prim = "Nat64"))))
 )]
 pub struct StoreTestEntity {}

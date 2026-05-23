@@ -28,8 +28,8 @@ use crate::{
         render_schema_report, render_snapshot_report,
     },
     shell::{
-        ShellConfig, ShellPerfAttribution, SqlShellCallKind, drain_complete_shell_statements,
-        finalize_successful_command_output, is_shell_help_command,
+        ShellConfig, ShellPerfAttribution, ShellPerfAttributionInput, SqlShellCallKind,
+        drain_complete_shell_statements, finalize_successful_command_output, is_shell_help_command,
         normalize_grouped_next_cursor_json, normalize_shell_statement_line, parse_perf_result,
         render_grouped_shell_text, render_perf_suffix, render_projection_shell_text,
         shell_help_text, sql_error_with_recovery_hint, sql_shell_call_kind,
@@ -88,16 +88,18 @@ fn normalize_grouped_next_cursor_json_converts_candid_some_to_plain_string() {
 
 #[test]
 fn render_perf_suffix_skips_zero_instruction_segments() {
-    let suffix = render_perf_suffix(Some(&ShellPerfAttribution {
-        total: 2_400,
-        planner: 0,
-        store: 0,
-        executor: 1_900,
-        pure_covering_decode: 0,
-        pure_covering_row_assembly: 0,
-        decode: 0,
-        compiler: 500,
-    }))
+    let suffix = render_perf_suffix(Some(&ShellPerfAttribution::new(
+        ShellPerfAttributionInput {
+            total: 2_400,
+            planner: 0,
+            store: 0,
+            executor: 1_900,
+            pure_covering_decode: 0,
+            pure_covering_row_assembly: 0,
+            decode: 0,
+            compiler: 500,
+        },
+    )))
     .expect("non-zero perf attribution should render a footer");
 
     assert_eq!(suffix, "2.4Ki [cceeeeeeee]");
@@ -106,16 +108,18 @@ fn render_perf_suffix_skips_zero_instruction_segments() {
 #[test]
 fn render_perf_suffix_omits_empty_attribution() {
     assert!(
-        render_perf_suffix(Some(&ShellPerfAttribution {
-            total: 0,
-            planner: 0,
-            store: 0,
-            executor: 0,
-            pure_covering_decode: 0,
-            pure_covering_row_assembly: 0,
-            decode: 0,
-            compiler: 0,
-        }))
+        render_perf_suffix(Some(&ShellPerfAttribution::new(
+            ShellPerfAttributionInput {
+                total: 0,
+                planner: 0,
+                store: 0,
+                executor: 0,
+                pure_covering_decode: 0,
+                pure_covering_row_assembly: 0,
+                decode: 0,
+                compiler: 0,
+            }
+        )))
         .is_none(),
         "all-zero perf attribution should not render a footer",
     );
@@ -123,16 +127,18 @@ fn render_perf_suffix_omits_empty_attribution() {
 
 #[test]
 fn render_perf_suffix_scales_bar_width_by_instruction_magnitude() {
-    let suffix = render_perf_suffix(Some(&ShellPerfAttribution {
-        total: 120_000_000,
-        planner: 20_000_000,
-        store: 20_000_000,
-        executor: 40_000_000,
-        pure_covering_decode: 0,
-        pure_covering_row_assembly: 0,
-        decode: 10_000_000,
-        compiler: 10_000_000,
-    }))
+    let suffix = render_perf_suffix(Some(&ShellPerfAttribution::new(
+        ShellPerfAttributionInput {
+            total: 120_000_000,
+            planner: 20_000_000,
+            store: 20_000_000,
+            executor: 40_000_000,
+            pure_covering_decode: 0,
+            pure_covering_row_assembly: 0,
+            decode: 10_000_000,
+            compiler: 10_000_000,
+        },
+    )))
     .expect("large perf attribution should render a footer");
 
     assert_eq!(suffix, "120.0Mi [ccppppsssseeeeeeeeedd????]");
@@ -140,16 +146,18 @@ fn render_perf_suffix_scales_bar_width_by_instruction_magnitude() {
 
 #[test]
 fn render_perf_suffix_omits_unknown_bucket_when_top_level_attribution_is_exhaustive() {
-    let suffix = render_perf_suffix(Some(&ShellPerfAttribution {
-        total: 10_000_000,
-        planner: 2_000_000,
-        store: 2_000_000,
-        executor: 3_000_000,
-        pure_covering_decode: 0,
-        pure_covering_row_assembly: 0,
-        decode: 2_000_000,
-        compiler: 1_000_000,
-    }))
+    let suffix = render_perf_suffix(Some(&ShellPerfAttribution::new(
+        ShellPerfAttributionInput {
+            total: 10_000_000,
+            planner: 2_000_000,
+            store: 2_000_000,
+            executor: 3_000_000,
+            pure_covering_decode: 0,
+            pure_covering_row_assembly: 0,
+            decode: 2_000_000,
+            compiler: 1_000_000,
+        },
+    )))
     .expect("complete perf attribution should render a footer");
 
     assert_eq!(suffix, "10.0Mi [ccppppsssseeeeeedddd]");
@@ -157,16 +165,18 @@ fn render_perf_suffix_omits_unknown_bucket_when_top_level_attribution_is_exhaust
 
 #[test]
 fn render_perf_suffix_surfaces_unattributed_remainder_as_unknown_bucket() {
-    let suffix = render_perf_suffix(Some(&ShellPerfAttribution {
-        total: 10_000_000,
-        planner: 1_000_000,
-        store: 1_000_000,
-        executor: 4_000_000,
-        pure_covering_decode: 0,
-        pure_covering_row_assembly: 0,
-        decode: 1_000_000,
-        compiler: 1_000_000,
-    }))
+    let suffix = render_perf_suffix(Some(&ShellPerfAttribution::new(
+        ShellPerfAttributionInput {
+            total: 10_000_000,
+            planner: 1_000_000,
+            store: 1_000_000,
+            executor: 4_000_000,
+            pure_covering_decode: 0,
+            pure_covering_row_assembly: 0,
+            decode: 1_000_000,
+            compiler: 1_000_000,
+        },
+    )))
     .expect("residual perf attribution should render a footer");
 
     assert_eq!(suffix, "10.0Mi [ccppsseeeeeeeedd????]");

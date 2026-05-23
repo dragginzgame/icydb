@@ -12,7 +12,7 @@ use icydb::design::prelude::*;
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(
             ident = "id",
@@ -63,7 +63,7 @@ pub struct ComplexEntity {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(
             ident = "id",
@@ -94,7 +94,7 @@ pub struct AdminEntity {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(
             ident = "id",
@@ -121,7 +121,7 @@ pub struct RelatedEntity {}
 #[entity(
     name = "AdminSimpleEntity",
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(
             ident = "id",

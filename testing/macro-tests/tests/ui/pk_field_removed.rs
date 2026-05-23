@@ -14,16 +14,9 @@ pub struct UiDataStore {}
 
 #[entity(
     store = "UiDataStore",
-    pk(fields = ["id"]),
-    fields(
-        field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
-        field(
-            ident = "created_on_insert",
-            value(opt, item(prim = "Timestamp")),
-            generated(insert = "Timestamp::now")
-        )
-    )
+    pk(field = "id"),
+    fields(field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")))
 )]
-pub struct InvalidOptionalGeneratedTimestampField;
+pub struct RemovedPkFieldSyntax;
 
 fn main() {}

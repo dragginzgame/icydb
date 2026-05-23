@@ -1,0 +1,5 @@
+error: pk(fields = ...) must be a Rust array literal of string literals, not a comma-string
+  --> tests/ui/pk_fields_comma_string.rs:17:17
+   |
+17 |     pk(fields = "id, name"),
+   |                 ^^^^^^^^^^

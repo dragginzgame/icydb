@@ -7,7 +7,7 @@ use icydb::design::prelude::*;
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(
             ident = "id",
@@ -25,7 +25,7 @@ pub struct Entity {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(ident = "id", value(item(prim = "Unit"))),
         field(ident = "a", value(item(prim = "Int32")), default = 3),
@@ -40,7 +40,7 @@ pub struct UnitKey {}
 #[entity(
     name = "Potato",
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(field(
         ident = "id",
         value(item(prim = "Ulid")),
@@ -55,7 +55,7 @@ pub struct RenamedEntity {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(
             ident = "id",
@@ -73,7 +73,7 @@ pub struct BoundedTextEntity {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(
             ident = "id",
@@ -91,7 +91,7 @@ pub struct BoundedBlobEntity {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(
             ident = "id",
@@ -114,7 +114,7 @@ pub struct DatabaseDefaultEntity {}
 
 #[entity(
     store = "TestStore",
-    pk(field = "pid", source = "external"),
+    pk(fields = ["pid"], source = "external"),
     fields(
         field(ident = "pid", value(item(prim = "Principal")), default = "2vxsx-fae"),
         field(ident = "a", value(item(prim = "Int32")), default = 7),
