@@ -10,10 +10,8 @@ repository = { workspace = true }
 authors = { workspace = true }
 
 [dependencies]
-candid = { workspace = true }
 icydb = { workspace = true }
 icydb-testing-test-fixtures = { workspace = true }
-serde = { workspace = true }
 
 [dev-dependencies]
 icydb-core = { workspace = true }

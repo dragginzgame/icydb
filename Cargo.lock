@@ -193,9 +193,9 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.40.15"
+version = "0.41.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "998a55e2361680529032ef77a57e3ba43a6963a3fefa51e734f61beac2985ad5"
+checksum = "97500b7d4044507ca65e54de2c819eb1de1b5c91c643e96a68610f0060198bd5"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -212,9 +212,9 @@ dependencies = [
 
 [[package]]
 name = "canic-testkit"
-version = "0.40.15"
+version = "0.41.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58e3ac76d9f8151e686ca8dd8f94f84617dc786dcb161564cc0bfdc47a8a2f3d"
+checksum = "d686f9e29c8afa7dbb3df4770fc1520a0f319ffb4f0b2a4af401620615cfc790"
 dependencies = [
  "candid",
  "pocket-ic",
@@ -296,7 +296,6 @@ dependencies = [
  "icydb",
  "icydb-config-build",
  "icydb-testing-demo-rpg-fixtures",
- "serde",
 ]
 
 [[package]]
@@ -1265,7 +1264,7 @@ dependencies = [
  "candid",
  "canic-cdk",
  "derive_more",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "ic-memory",
  "icydb-derive",
  "icydb-primitives",
@@ -1304,7 +1303,6 @@ version = "0.161.8"
 dependencies = [
  "candid",
  "darling",
- "derive_more",
  "icydb-primitives",
  "proc-macro2",
  "quote",
@@ -1335,11 +1333,9 @@ dependencies = [
 name = "icydb-schema-tests"
 version = "0.161.8"
 dependencies = [
- "candid",
  "icydb",
  "icydb-core",
  "icydb-testing-test-fixtures",
- "serde",
  "trybuild",
 ]
 
@@ -1349,7 +1345,6 @@ version = "0.161.8"
 dependencies = [
  "candid",
  "icydb",
- "serde",
 ]
 
 [[package]]
@@ -1402,7 +1397,6 @@ version = "0.161.8"
 dependencies = [
  "candid",
  "icydb",
- "serde",
 ]
 
 [[package]]
@@ -1423,7 +1417,6 @@ dependencies = [
  "candid",
  "icydb",
  "icydb-core",
- "serde",
 ]
 
 [[package]]
@@ -1437,9 +1430,6 @@ dependencies = [
 [[package]]
 name = "icydb-testing-wasm-helpers"
 version = "0.161.8"
-dependencies = [
- "icydb",
-]
 
 [[package]]
 name = "icydb-utils"

@@ -12,10 +12,12 @@ authors = { workspace = true }
 [dependencies]
 candid = { workspace = true }
 icydb = { workspace = true }
-serde = { workspace = true }
 
 [dev-dependencies]
 icydb-core = { workspace = true }
+
+[package.metadata.cargo-machete]
+ignored = ["candid"]
 
 [lints]
 workspace = true

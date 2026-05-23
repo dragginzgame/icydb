@@ -11,5 +11,8 @@ candid = { workspace = true }
 icydb = { path = "../../../crates/icydb", default-features = false }
 icydb-testing-wasm-helpers = { workspace = true }
 
+[package.metadata.cargo-machete]
+ignored = ["candid"]
+
 [lints]
 workspace = true

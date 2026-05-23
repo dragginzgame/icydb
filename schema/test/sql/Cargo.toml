@@ -10,5 +10,8 @@ description = "Small schema fixture crate for lightweight SQL smoke canisters"
 candid = { workspace = true }
 icydb = { workspace = true }
 
+[package.metadata.cargo-machete]
+ignored = ["candid"]
+
 [lints]
 workspace = true

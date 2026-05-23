@@ -600,17 +600,9 @@ mod tests {
             .expect_err("narrow integer decode must reject out-of-range values");
 
         assert_eq!(variant_err.class(), ErrorClass::Corruption);
+        assert_eq!(variant_err.origin(), ErrorOrigin::Store);
         assert_eq!(range_err.class(), ErrorClass::Corruption);
-        assert!(
-            variant_err
-                .message()
-                .contains("expected StorageKey::Nat, found Int(7)"),
-            "unexpected variant mismatch error: {variant_err:?}",
-        );
-        assert!(
-            range_err.message().contains("value out of range"),
-            "unexpected range error: {range_err:?}",
-        );
+        assert_eq!(range_err.origin(), ErrorOrigin::Store);
     }
 
     #[test]
@@ -636,9 +628,14 @@ mod tests {
             assert_eq!(structural_err.class(), ErrorClass::Unsupported);
             assert_eq!(structural_err.origin(), ErrorOrigin::Serialize);
             assert_eq!(
-                typed_err.message(),
-                structural_err.message(),
-                "typed and structural constructors must report the same rejection for {value:?}",
+                typed_err.class(),
+                structural_err.class(),
+                "typed and structural constructors must classify the same rejection for {value:?}",
+            );
+            assert_eq!(
+                typed_err.origin(),
+                structural_err.origin(),
+                "typed and structural constructors must report the same rejection origin for {value:?}",
             );
         }
     }

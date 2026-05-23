@@ -10,5 +10,8 @@ description = "Dedicated SQL perf audit schema fixture crate"
 candid = { workspace = true }
 icydb = { path = "../../../crates/icydb", default-features = false }
 
+[package.metadata.cargo-machete]
+ignored = ["candid"]
+
 [lints]
 workspace = true

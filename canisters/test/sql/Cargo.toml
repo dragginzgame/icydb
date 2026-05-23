@@ -24,5 +24,8 @@ icydb = { path = "../../../crates/icydb", default-features = false }
 icydb-config-build = { workspace = true }
 icydb-testing-test-sql-fixtures = { workspace = true }
 
+[package.metadata.cargo-machete]
+ignored = ["candid"]
+
 [lints]
 workspace = true
