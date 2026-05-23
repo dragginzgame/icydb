@@ -11,9 +11,6 @@ mod observability;
 mod shell;
 mod table;
 
-#[cfg(test)]
-mod tests;
-
 use clap::Parser;
 
 use crate::{cli::CliArgs, commands::run_cli};
@@ -24,3 +21,6 @@ fn main() {
         std::process::exit(1);
     }
 }
+
+#[cfg(test)]
+mod tests;

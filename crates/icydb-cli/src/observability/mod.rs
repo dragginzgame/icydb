@@ -28,6 +28,32 @@ pub(crate) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String>
     snapshot::run_snapshot_command(target)
 }
 
+fn call_query(
+    environment: &str,
+    canister: &str,
+    method: &str,
+    candid_arg: &str,
+) -> Result<Vec<u8>, String> {
+    call_query_hex(environment, canister, method, candid_arg, |stderr| {
+        format!(
+            "IcyDB query method '{method}' failed on canister '{canister}' in environment '{environment}': {stderr}",
+        )
+    })
+}
+
+fn call_update(
+    environment: &str,
+    canister: &str,
+    method: &str,
+    candid_arg: &str,
+) -> Result<Vec<u8>, String> {
+    call_update_hex(environment, canister, method, candid_arg, |stderr| {
+        format!(
+            "IcyDB update method '{method}' failed on canister '{canister}' in environment '{environment}': {stderr}",
+        )
+    })
+}
+
 #[cfg(test)]
 pub(crate) mod test_support {
     pub(crate) fn metrics_candid_arg(window_start_ms: Option<u64>) -> String {
@@ -51,32 +77,4 @@ pub(crate) mod test_support {
     pub(crate) fn render_snapshot_report(report: &icydb::db::StorageReport) -> String {
         super::snapshot::render_snapshot_report(report)
     }
-}
-
-fn call_query(
-    environment: &str,
-    canister: &str,
-    method: &str,
-    candid_arg: &str,
-) -> Result<Vec<u8>, String> {
-    call_query_hex(environment, canister, method, candid_arg, |stderr| {
-        format!(
-            "IcyDB query method '{method}' failed on canister '{canister}' in environment '{environment}': {}",
-            stderr,
-        )
-    })
-}
-
-fn call_update(
-    environment: &str,
-    canister: &str,
-    method: &str,
-    candid_arg: &str,
-) -> Result<Vec<u8>, String> {
-    call_update_hex(environment, canister, method, candid_arg, |stderr| {
-        format!(
-            "IcyDB update method '{method}' failed on canister '{canister}' in environment '{environment}': {}",
-            stderr,
-        )
-    })
 }

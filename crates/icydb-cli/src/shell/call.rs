@@ -35,8 +35,7 @@ pub(super) fn icp_query(
         candid_arg.as_str(),
         |stderr| {
             let error = format!(
-                "IcyDB SQL query method '{method}' failed on canister '{canister}' in environment '{environment}': {}",
-                stderr
+                "IcyDB SQL query method '{method}' failed on canister '{canister}' in environment '{environment}': {stderr}",
             );
             sql_error_with_recovery_hint(error.as_str(), environment, canister)
         },

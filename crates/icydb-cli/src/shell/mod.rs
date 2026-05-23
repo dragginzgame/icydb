@@ -22,106 +22,6 @@ use crate::{
     shell::render::{ShellSqlQueryPerfResult, render_shell_text_from_perf_result},
 };
 
-#[cfg(test)]
-pub(crate) mod test_support {
-    pub(crate) use super::{perf::ShellPerfAttribution, route::SqlShellCallKind};
-
-    pub(crate) fn drain_complete_shell_statements(
-        statement: &mut String,
-    ) -> std::collections::VecDeque<String> {
-        super::input::drain_complete_shell_statements(statement)
-    }
-
-    pub(crate) fn is_shell_help_command(input: &str) -> bool {
-        super::input::is_shell_help_command(input)
-    }
-
-    pub(crate) fn normalize_shell_statement_line(line: &str) -> String {
-        super::input::normalize_shell_statement_line(line)
-    }
-
-    pub(crate) fn normalize_grouped_next_cursor_json(value: &mut serde_json::Value) {
-        super::perf::normalize_grouped_next_cursor_json(value);
-    }
-
-    pub(crate) fn parse_perf_result(
-        value: &serde_json::Value,
-    ) -> Result<(icydb::db::sql::SqlQueryResult, ShellPerfAttribution), String> {
-        super::perf::parse_perf_result(value)
-    }
-
-    pub(crate) fn render_perf_suffix(attribution: Option<&ShellPerfAttribution>) -> Option<String> {
-        super::perf::render_perf_suffix(attribution)
-    }
-
-    pub(crate) const fn shell_perf_attribution(
-        total: u64,
-        compiler: u64,
-        planner: u64,
-        store: u64,
-        executor: u64,
-        decode: u64,
-    ) -> ShellPerfAttribution {
-        super::perf::ShellPerfAttribution::new(super::perf::ShellPerfAttributionInput {
-            total,
-            planner,
-            store,
-            executor,
-            pure_covering_decode: 0,
-            pure_covering_row_assembly: 0,
-            decode,
-            compiler,
-        })
-    }
-
-    pub(crate) const fn shell_help_text() -> &'static str {
-        super::input::shell_help_text()
-    }
-
-    pub(crate) fn sql_shell_call_kind(sql: &str) -> SqlShellCallKind {
-        super::route::sql_shell_call_kind(sql)
-    }
-
-    pub(crate) fn sql_error_with_recovery_hint(
-        error: &str,
-        environment: &str,
-        canister: &str,
-    ) -> String {
-        super::call::sql_error_with_recovery_hint(error, environment, canister)
-    }
-
-    pub(crate) fn finalize_successful_command_output(rendered: &str) -> String {
-        super::render::finalize_successful_command_output(rendered)
-    }
-
-    pub(crate) fn render_grouped_shell_text(
-        rows: icydb::db::sql::SqlGroupedRowsOutput,
-        attribution: Option<ShellPerfAttribution>,
-    ) -> String {
-        super::render::render_grouped_shell_text(rows, attribution, None)
-    }
-
-    pub(crate) fn render_projection_shell_text(
-        rows: icydb::db::sql::SqlQueryRowsOutput,
-        attribution: Option<ShellPerfAttribution>,
-    ) -> String {
-        super::render::render_projection_shell_text(rows, attribution, None)
-    }
-
-    pub(crate) fn sql_config_parts(
-        args: super::SqlArgs,
-    ) -> (String, String, std::path::PathBuf, Option<String>) {
-        let config = super::ShellConfig::from_sql_args(args);
-
-        (
-            config.canister,
-            config.environment,
-            config.history_file,
-            config.sql,
-        )
-    }
-}
-
 ///
 /// ShellConfig
 ///
@@ -221,5 +121,105 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
                 )),
             }
         }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    pub(crate) use super::{perf::ShellPerfAttribution, route::SqlShellCallKind};
+
+    pub(crate) fn drain_complete_shell_statements(
+        statement: &mut String,
+    ) -> std::collections::VecDeque<String> {
+        super::input::drain_complete_shell_statements(statement)
+    }
+
+    pub(crate) fn is_shell_help_command(input: &str) -> bool {
+        super::input::is_shell_help_command(input)
+    }
+
+    pub(crate) fn normalize_shell_statement_line(line: &str) -> String {
+        super::input::normalize_shell_statement_line(line)
+    }
+
+    pub(crate) fn normalize_grouped_next_cursor_json(value: &mut serde_json::Value) {
+        super::perf::normalize_grouped_next_cursor_json(value);
+    }
+
+    pub(crate) fn parse_perf_result(
+        value: &serde_json::Value,
+    ) -> Result<(icydb::db::sql::SqlQueryResult, ShellPerfAttribution), String> {
+        super::perf::parse_perf_result(value)
+    }
+
+    pub(crate) fn render_perf_suffix(attribution: Option<&ShellPerfAttribution>) -> Option<String> {
+        super::perf::render_perf_suffix(attribution)
+    }
+
+    pub(crate) const fn shell_perf_attribution(
+        total: u64,
+        compiler: u64,
+        planner: u64,
+        store: u64,
+        executor: u64,
+        decode: u64,
+    ) -> ShellPerfAttribution {
+        super::perf::ShellPerfAttribution::new(super::perf::ShellPerfAttributionInput {
+            total,
+            planner,
+            store,
+            executor,
+            pure_covering_decode: 0,
+            pure_covering_row_assembly: 0,
+            decode,
+            compiler,
+        })
+    }
+
+    pub(crate) const fn shell_help_text() -> &'static str {
+        super::input::shell_help_text()
+    }
+
+    pub(crate) fn sql_shell_call_kind(sql: &str) -> SqlShellCallKind {
+        super::route::sql_shell_call_kind(sql)
+    }
+
+    pub(crate) fn sql_error_with_recovery_hint(
+        error: &str,
+        environment: &str,
+        canister: &str,
+    ) -> String {
+        super::call::sql_error_with_recovery_hint(error, environment, canister)
+    }
+
+    pub(crate) fn finalize_successful_command_output(rendered: &str) -> String {
+        super::render::finalize_successful_command_output(rendered)
+    }
+
+    pub(crate) fn render_grouped_shell_text(
+        rows: icydb::db::sql::SqlGroupedRowsOutput,
+        attribution: Option<ShellPerfAttribution>,
+    ) -> String {
+        super::render::render_grouped_shell_text(rows, attribution, None)
+    }
+
+    pub(crate) fn render_projection_shell_text(
+        rows: icydb::db::sql::SqlQueryRowsOutput,
+        attribution: Option<ShellPerfAttribution>,
+    ) -> String {
+        super::render::render_projection_shell_text(rows, attribution, None)
+    }
+
+    pub(crate) fn sql_config_parts(
+        args: super::SqlArgs,
+    ) -> (String, String, std::path::PathBuf, Option<String>) {
+        let config = super::ShellConfig::from_sql_args(args);
+
+        (
+            config.canister,
+            config.environment,
+            config.history_file,
+            config.sql,
+        )
     }
 }

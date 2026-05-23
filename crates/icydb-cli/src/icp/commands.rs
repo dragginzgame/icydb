@@ -175,9 +175,7 @@ pub(super) fn upgrade_canister(
     canister: &str,
     wasm: Option<&Path>,
 ) -> Result<(), String> {
-    let wasm_path = wasm
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| default_canister_wasm_path(canister));
+    let wasm_path = wasm.map_or_else(|| default_canister_wasm_path(canister), Path::to_path_buf);
 
     eprintln!(
         "[icydb] building canister '{canister}' for stable-memory-preserving upgrade in environment '{environment}'"

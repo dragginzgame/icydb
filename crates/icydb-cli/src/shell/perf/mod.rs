@@ -4,8 +4,6 @@
 //! Boundary: exposes shell-local attribution values and compact footer renderers.
 
 mod format;
-#[cfg(test)]
-mod parse;
 
 pub(super) use format::{
     render_executor_residual_suffix, render_perf_suffix, render_pure_covering_suffix,
@@ -100,3 +98,6 @@ impl ShellLocalRenderAttribution {
         Self { render_micros }
     }
 }
+
+#[cfg(test)]
+mod parse;
