@@ -272,8 +272,8 @@ impl ValidateNode for Entity {
         let mut errors = Vec::new();
 
         // Primary key resolution must succeed before checking each component
-        // shape. Composite declarations are still gated by parsing, but the
-        // validator already consumes ordered primary-key fields.
+        // shape. The validator consumes the ordered primary-key field list so
+        // scalar and composite declarations use the same component rules.
         for pk_ident in self.primary_key.fields() {
             self.collect_primary_key_field_errors(pk_ident, &mut errors);
         }
@@ -338,6 +338,14 @@ impl Entity {
 
         match pk_field.value.item.target() {
             ItemTarget::Primitive(primitive) => {
+                if self.primary_key.fields().len() > 1 && primitive == Primitive::Unit {
+                    errors.push(syn::Error::new_spanned(
+                        pk_ident,
+                        format!(
+                            "primary key field '{pk_ident}' cannot use Unit inside a composite primary key"
+                        ),
+                    ));
+                }
                 if !primitive.is_storage_key_encodable() {
                     errors.push(syn::Error::new_spanned(
                         pk_ident,
@@ -452,13 +460,43 @@ fn composite_primary_key_type_part(entity: &Entity) -> TokenStream {
     }
 
     let key_ident = composite_primary_key_ident(&entity.def.ident());
-    let key_fields = entity.primary_key.fields().iter().map(|primary_key_field| {
-        let field = entity
-            .fields
-            .get(primary_key_field)
-            .expect("primary key field must be validated before derive generation");
-        let field_ty = field.value.type_expr();
+    let key_field_specs = composite_primary_key_field_specs(entity);
+    let struct_tokens = composite_primary_key_struct_tokens(&key_ident, &key_field_specs);
+    let key_value_tokens = composite_primary_key_value_codec_tokens(&key_ident, &key_field_specs);
+    let primary_key_codec_tokens = composite_primary_key_codec_tokens(&key_ident, &key_field_specs);
+    let primary_key_decode_tokens =
+        composite_primary_key_decode_tokens(&key_ident, &key_field_specs);
+    let key_bytes_tokens = composite_primary_key_bytes_tokens(&key_ident, &key_field_specs);
 
+    quote! {
+        #struct_tokens
+        #key_value_tokens
+        #primary_key_codec_tokens
+        #primary_key_decode_tokens
+        #key_bytes_tokens
+    }
+}
+
+fn composite_primary_key_field_specs(entity: &Entity) -> Vec<(Ident, TokenStream)> {
+    entity
+        .primary_key
+        .fields()
+        .iter()
+        .map(|primary_key_field| {
+            let field = entity
+                .fields
+                .get(primary_key_field)
+                .expect("primary key field must be validated before derive generation");
+            (primary_key_field.clone(), field.value.type_expr())
+        })
+        .collect()
+}
+
+fn composite_primary_key_struct_tokens(
+    key_ident: &Ident,
+    key_field_specs: &[(Ident, TokenStream)],
+) -> TokenStream {
+    let key_fields = key_field_specs.iter().map(|(primary_key_field, field_ty)| {
         quote! {
             pub #primary_key_field: #field_ty
         }
@@ -483,6 +521,178 @@ fn composite_primary_key_type_part(entity: &Entity) -> TokenStream {
             #(#key_fields),*
         }
     }
+}
+
+fn composite_primary_key_value_codec_tokens(
+    key_ident: &Ident,
+    key_field_specs: &[(Ident, TokenStream)],
+) -> TokenStream {
+    let component_count_lit = component_count_lit(key_field_specs);
+    let key_value_encoders = key_field_specs.iter().map(|(primary_key_field, field_ty)| {
+        quote! {
+            <#field_ty as ::icydb::__macro::KeyValueCodec>::to_key_value(&self.#primary_key_field)
+        }
+    });
+    let key_value_decoders =
+        key_field_specs
+            .iter()
+            .enumerate()
+            .map(|(index, (primary_key_field, field_ty))| {
+                quote! {
+                    #primary_key_field: <#field_ty as ::icydb::__macro::KeyValueCodec>::from_key_value(&values[#index])?
+                }
+            });
+
+    quote! {
+        impl ::icydb::__macro::KeyValueCodec for #key_ident {
+            fn to_key_value(&self) -> ::icydb::__macro::Value {
+                ::icydb::__macro::Value::List(::std::vec![
+                    #(#key_value_encoders),*
+                ])
+            }
+
+            fn from_key_value(value: &::icydb::__macro::Value) -> Option<Self> {
+                let ::icydb::__macro::Value::List(values) = value else {
+                    return None;
+                };
+                if values.len() != #component_count_lit {
+                    return None;
+                }
+
+                Some(Self {
+                    #(#key_value_decoders),*
+                })
+            }
+        }
+    }
+}
+
+fn composite_primary_key_codec_tokens(
+    key_ident: &Ident,
+    key_field_specs: &[(Ident, TokenStream)],
+) -> TokenStream {
+    let primary_key_component_encoders = key_field_specs.iter().map(composite_component_encoder);
+
+    quote! {
+        impl ::icydb::__macro::PrimaryKeyCodec for #key_ident {
+            fn to_primary_key_value(
+                &self,
+            ) -> Result<
+                ::icydb::__macro::PrimaryKeyValue,
+                ::icydb::__macro::PrimaryKeyEncodeError,
+            > {
+                let components = [
+                    #(#primary_key_component_encoders),*
+                ];
+                let composite = ::icydb::__macro::CompositePrimaryKeyValue::try_from_components(
+                    &components,
+                )
+                .map_err(::icydb::__macro::PrimaryKeyEncodeError::from)?;
+
+                Ok(::icydb::__macro::PrimaryKeyValue::Composite(composite))
+            }
+        }
+    }
+}
+
+fn composite_component_encoder(
+    (primary_key_field, field_ty): &(Ident, TokenStream),
+) -> TokenStream {
+    quote! {
+        match <#field_ty as ::icydb::__macro::PrimaryKeyCodec>::to_primary_key_value(&self.#primary_key_field)? {
+            ::icydb::__macro::PrimaryKeyValue::Scalar(component) => component,
+            ::icydb::__macro::PrimaryKeyValue::Composite(_) => {
+                return Err(::icydb::__macro::PrimaryKeyEncodeError::UnsupportedComponentKind {
+                    kind: "CompositePrimaryKeyComponent",
+                });
+            }
+        }
+    }
+}
+
+fn composite_primary_key_decode_tokens(
+    key_ident: &Ident,
+    key_field_specs: &[(Ident, TokenStream)],
+) -> TokenStream {
+    let component_count = key_field_specs.len();
+    let component_count_lit = component_count_lit(key_field_specs);
+    let primary_key_component_decoders =
+        key_field_specs
+            .iter()
+            .enumerate()
+            .map(|(index, (primary_key_field, field_ty))| {
+                quote! {
+                    #primary_key_field: <#field_ty as ::icydb::__macro::PrimaryKeyDecode>::from_primary_key_value(
+                        &::icydb::__macro::PrimaryKeyValue::Scalar(components[#index]),
+                    )?
+                }
+            });
+    let unexpected_kind_message =
+        format!("primary key decode failed for `{key_ident}`: expected composite primary key");
+    let component_count_message = format!(
+        "primary key decode failed for `{key_ident}`: expected {component_count} composite components"
+    );
+
+    quote! {
+        impl ::icydb::__macro::PrimaryKeyDecode for #key_ident {
+            fn from_primary_key_value(
+                key: &::icydb::__macro::PrimaryKeyValue,
+            ) -> Result<Self, ::icydb::__macro::InternalError> {
+                let ::icydb::__macro::PrimaryKeyValue::Composite(composite) = key else {
+                    return Err(::icydb::__macro::InternalError::new(
+                        ::icydb::__macro::ErrorClass::Corruption,
+                        ::icydb::__macro::ErrorOrigin::Store,
+                        #unexpected_kind_message,
+                    ));
+                };
+                if composite.len() != #component_count_lit {
+                    return Err(::icydb::__macro::InternalError::new(
+                        ::icydb::__macro::ErrorClass::Corruption,
+                        ::icydb::__macro::ErrorOrigin::Store,
+                        #component_count_message,
+                    ));
+                }
+                let components = composite.components();
+
+                Ok(Self {
+                    #(#primary_key_component_decoders),*
+                })
+            }
+        }
+    }
+}
+
+fn composite_primary_key_bytes_tokens(
+    key_ident: &Ident,
+    key_field_specs: &[(Ident, TokenStream)],
+) -> TokenStream {
+    let byte_len_terms = key_field_specs
+        .iter()
+        .map(|(_, field_ty)| quote!(<#field_ty as ::icydb::__macro::EntityKeyBytes>::BYTE_LEN));
+    let byte_writers = key_field_specs.iter().map(|(primary_key_field, field_ty)| {
+        quote! {
+            let (head, tail) = rest.split_at_mut(<#field_ty as ::icydb::__macro::EntityKeyBytes>::BYTE_LEN);
+            <#field_ty as ::icydb::__macro::EntityKeyBytes>::write_bytes(&self.#primary_key_field, head);
+            rest = tail;
+        }
+    });
+
+    quote! {
+        impl ::icydb::__macro::EntityKeyBytes for #key_ident {
+            const BYTE_LEN: usize = 0 #( + #byte_len_terms )*;
+
+            fn write_bytes(&self, out: &mut [u8]) {
+                assert_eq!(out.len(), Self::BYTE_LEN);
+                let mut rest = out;
+                #(#byte_writers)*
+                let _ = rest;
+            }
+        }
+    }
+}
+
+fn component_count_lit(key_field_specs: &[(Ident, TokenStream)]) -> syn::LitInt {
+    syn::LitInt::new(&key_field_specs.len().to_string(), Span::call_site())
 }
 
 fn composite_primary_key_ident(ident: &Ident) -> Ident {
@@ -659,6 +869,23 @@ mod tests {
         }
     }
 
+    fn unit_field(ident: &str) -> Field {
+        Field {
+            ident: format_ident!("{ident}"),
+            value: Value {
+                opt: false,
+                many: false,
+                item: Item {
+                    primitive: Some(Primitive::Unit),
+                    ..Item::default()
+                },
+            },
+            default: None,
+            generated: None,
+            write_management: None,
+        }
+    }
+
     fn field_list(values: &[&str]) -> Vec<LitStr> {
         values
             .iter()
@@ -716,6 +943,29 @@ mod tests {
     }
 
     #[test]
+    fn composite_primary_key_struct_implements_key_contracts() {
+        let mut entity = entity_with_fields_and_indexes(
+            vec![scalar_field("tenant_id"), scalar_field("local_id")],
+            vec![],
+        );
+        entity.primary_key.fields = vec![format_ident!("tenant_id"), format_ident!("local_id")];
+
+        let tokens = composite_primary_key_type_part(&entity).to_string();
+
+        for expected in [
+            "impl :: icydb :: __macro :: KeyValueCodec for TestEntityKey",
+            "impl :: icydb :: __macro :: PrimaryKeyCodec for TestEntityKey",
+            "impl :: icydb :: __macro :: PrimaryKeyDecode for TestEntityKey",
+            "impl :: icydb :: __macro :: EntityKeyBytes for TestEntityKey",
+        ] {
+            assert!(
+                tokens.contains(expected),
+                "expected generated key contract `{expected}` in tokens: {tokens}",
+            );
+        }
+    }
+
+    #[test]
     fn fatal_errors_validate_each_ordered_primary_key_field() {
         let mut entity = entity_with_fields_and_indexes(
             vec![scalar_field("id"), many_scalar_field("tenant_id")],
@@ -732,6 +982,29 @@ mod tests {
 
         assert!(
             error_text.contains("primary key field 'tenant_id' must have cardinality One"),
+            "unexpected fatal errors: {error_text}",
+        );
+    }
+
+    #[test]
+    fn fatal_errors_reject_unit_inside_composite_primary_key() {
+        let mut entity = entity_with_fields_and_indexes(
+            vec![scalar_field("tenant_id"), unit_field("singleton")],
+            vec![],
+        );
+        entity.primary_key.fields = vec![format_ident!("tenant_id"), format_ident!("singleton")];
+
+        let errors = entity.fatal_errors();
+        let error_text = errors
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(
+            error_text.contains(
+                "primary key field 'singleton' cannot use Unit inside a composite primary key"
+            ),
             "unexpected fatal errors: {error_text}",
         );
     }

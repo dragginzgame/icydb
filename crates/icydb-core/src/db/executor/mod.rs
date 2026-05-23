@@ -307,7 +307,7 @@ pub(in crate::db::executor) enum ExecutorError {
     },
 
     #[error("data key exists: {0}")]
-    KeyExists(DecodedDataStoreKey),
+    KeyExists(Box<DecodedDataStoreKey>),
 }
 
 impl ExecutorError {

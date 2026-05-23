@@ -17,27 +17,30 @@ use serde_json::json;
 
 use crate::{
     cli::{
-        CanisterCommand, CliArgs, CliCommand, ConfigCommand, ConfigInitArgs, DEFAULT_ENVIRONMENT,
-        SchemaCommand,
+        CanisterCommand, CliArgs, CliCommand, ConfigCommand, DEFAULT_ENVIRONMENT, SchemaCommand,
     },
     config::{
-        ConfigSurface, FIXTURES_LOAD_ENDPOINT, METRICS_ENDPOINT, METRICS_RESET_ENDPOINT,
-        SCHEMA_CHECK_ENDPOINT, SCHEMA_ENDPOINT, SNAPSHOT_ENDPOINT, SQL_DDL_ENDPOINT,
-        SQL_QUERY_ENDPOINT, config_surface_enabled_for_resolved, config_sync_issues,
-        configured_endpoint_enabled_for_resolved, disabled_config_surface_message, init_config,
-        render_config_report,
+        FIXTURES_LOAD_ENDPOINT, METRICS_ENDPOINT, METRICS_RESET_ENDPOINT, SCHEMA_CHECK_ENDPOINT,
+        SCHEMA_ENDPOINT, SNAPSHOT_ENDPOINT, SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, init_config,
+        test_support::{
+            ConfigSurface, config_surface_enabled_for_resolved, config_sync_issues,
+            configured_endpoint_enabled_for_resolved, disabled_config_surface_message,
+            render_config_report,
+        },
     },
-    icp::{fixtures_load_command, hex_response_bytes, icp_query_command, icp_update_command},
-    observability::{
+    icp::test_support::{
+        fixtures_load_command, hex_response_bytes, icp_query_command, icp_update_command,
+    },
+    observability::test_support::{
         metrics_candid_arg, render_metrics_report, render_schema_check_report,
         render_schema_report, render_snapshot_report,
     },
-    shell::{
-        ShellConfig, ShellPerfAttribution, ShellPerfAttributionInput, SqlShellCallKind,
-        drain_complete_shell_statements, finalize_successful_command_output, is_shell_help_command,
-        normalize_grouped_next_cursor_json, normalize_shell_statement_line, parse_perf_result,
-        render_grouped_shell_text, render_perf_suffix, render_projection_shell_text,
-        shell_help_text, sql_error_with_recovery_hint, sql_shell_call_kind,
+    shell::test_support::{
+        SqlShellCallKind, drain_complete_shell_statements, finalize_successful_command_output,
+        is_shell_help_command, normalize_grouped_next_cursor_json, normalize_shell_statement_line,
+        parse_perf_result, render_grouped_shell_text, render_perf_suffix,
+        render_projection_shell_text, shell_help_text, shell_perf_attribution, sql_config_parts,
+        sql_error_with_recovery_hint, sql_shell_call_kind,
     },
 };
 
@@ -93,19 +96,8 @@ fn normalize_grouped_next_cursor_json_converts_candid_some_to_plain_string() {
 
 #[test]
 fn render_perf_suffix_skips_zero_instruction_segments() {
-    let suffix = render_perf_suffix(Some(&ShellPerfAttribution::new(
-        ShellPerfAttributionInput {
-            total: 2_400,
-            planner: 0,
-            store: 0,
-            executor: 1_900,
-            pure_covering_decode: 0,
-            pure_covering_row_assembly: 0,
-            decode: 0,
-            compiler: 500,
-        },
-    )))
-    .expect("non-zero perf attribution should render a footer");
+    let suffix = render_perf_suffix(Some(&shell_perf_attribution(2_400, 500, 0, 0, 1_900, 0)))
+        .expect("non-zero perf attribution should render a footer");
 
     assert_eq!(suffix, "2.4Ki [cceeeeeeee]");
 }
@@ -113,36 +105,20 @@ fn render_perf_suffix_skips_zero_instruction_segments() {
 #[test]
 fn render_perf_suffix_omits_empty_attribution() {
     assert!(
-        render_perf_suffix(Some(&ShellPerfAttribution::new(
-            ShellPerfAttributionInput {
-                total: 0,
-                planner: 0,
-                store: 0,
-                executor: 0,
-                pure_covering_decode: 0,
-                pure_covering_row_assembly: 0,
-                decode: 0,
-                compiler: 0,
-            }
-        )))
-        .is_none(),
+        render_perf_suffix(Some(&shell_perf_attribution(0, 0, 0, 0, 0, 0))).is_none(),
         "all-zero perf attribution should not render a footer",
     );
 }
 
 #[test]
 fn render_perf_suffix_scales_bar_width_by_instruction_magnitude() {
-    let suffix = render_perf_suffix(Some(&ShellPerfAttribution::new(
-        ShellPerfAttributionInput {
-            total: 120_000_000,
-            planner: 20_000_000,
-            store: 20_000_000,
-            executor: 40_000_000,
-            pure_covering_decode: 0,
-            pure_covering_row_assembly: 0,
-            decode: 10_000_000,
-            compiler: 10_000_000,
-        },
+    let suffix = render_perf_suffix(Some(&shell_perf_attribution(
+        120_000_000,
+        10_000_000,
+        20_000_000,
+        20_000_000,
+        40_000_000,
+        10_000_000,
     )))
     .expect("large perf attribution should render a footer");
 
@@ -151,17 +127,8 @@ fn render_perf_suffix_scales_bar_width_by_instruction_magnitude() {
 
 #[test]
 fn render_perf_suffix_omits_unknown_bucket_when_top_level_attribution_is_exhaustive() {
-    let suffix = render_perf_suffix(Some(&ShellPerfAttribution::new(
-        ShellPerfAttributionInput {
-            total: 10_000_000,
-            planner: 2_000_000,
-            store: 2_000_000,
-            executor: 3_000_000,
-            pure_covering_decode: 0,
-            pure_covering_row_assembly: 0,
-            decode: 2_000_000,
-            compiler: 1_000_000,
-        },
+    let suffix = render_perf_suffix(Some(&shell_perf_attribution(
+        10_000_000, 1_000_000, 2_000_000, 2_000_000, 3_000_000, 2_000_000,
     )))
     .expect("complete perf attribution should render a footer");
 
@@ -170,17 +137,8 @@ fn render_perf_suffix_omits_unknown_bucket_when_top_level_attribution_is_exhaust
 
 #[test]
 fn render_perf_suffix_surfaces_unattributed_remainder_as_unknown_bucket() {
-    let suffix = render_perf_suffix(Some(&ShellPerfAttribution::new(
-        ShellPerfAttributionInput {
-            total: 10_000_000,
-            planner: 1_000_000,
-            store: 1_000_000,
-            executor: 4_000_000,
-            pure_covering_decode: 0,
-            pure_covering_row_assembly: 0,
-            decode: 1_000_000,
-            compiler: 1_000_000,
-        },
+    let suffix = render_perf_suffix(Some(&shell_perf_attribution(
+        10_000_000, 1_000_000, 1_000_000, 1_000_000, 4_000_000, 1_000_000,
     )))
     .expect("residual perf attribution should render a footer");
 
@@ -351,14 +309,14 @@ fn cli_args_preserve_trailing_sql_convenience_form() {
         "character;",
     ])
     .expect("trailing SQL should parse");
-    let CliCommand::Sql(sql_args) = args.command else {
+    let CliCommand::Sql(sql_args) = args.into_command() else {
         panic!("expected sql command");
     };
-    let config = ShellConfig::from_sql_args(sql_args);
+    let (canister, environment, _, sql) = sql_config_parts(sql_args);
 
-    assert_eq!(config.canister(), "test_sql");
-    assert_eq!(config.environment(), DEFAULT_ENVIRONMENT);
-    assert_eq!(config.sql(), Some("SELECT name FROM character;"));
+    assert_eq!(canister, "test_sql");
+    assert_eq!(environment, DEFAULT_ENVIRONMENT);
+    assert_eq!(sql.as_deref(), Some("SELECT name FROM character;"));
 }
 
 #[test]
@@ -374,14 +332,14 @@ fn cli_args_accept_explicit_sql_option() {
         "SELECT name FROM character;",
     ])
     .expect("--sql should parse");
-    let CliCommand::Sql(sql_args) = args.command else {
+    let CliCommand::Sql(sql_args) = args.into_command() else {
         panic!("expected sql command");
     };
-    let config = ShellConfig::from_sql_args(sql_args);
+    let (_, environment, history_file, sql) = sql_config_parts(sql_args);
 
-    assert_eq!(config.history_file(), Path::new(".cache/custom_history"));
-    assert_eq!(config.environment(), DEFAULT_ENVIRONMENT);
-    assert_eq!(config.sql(), Some("SELECT name FROM character;"));
+    assert_eq!(history_file, Path::new(".cache/custom_history"));
+    assert_eq!(environment, DEFAULT_ENVIRONMENT);
+    assert_eq!(sql.as_deref(), Some("SELECT name FROM character;"));
 }
 
 #[test]
@@ -407,20 +365,20 @@ fn cli_args_accept_explicit_icp_environment() {
         "character;",
     ])
     .expect("sql environment should parse");
-    let CliCommand::Sql(sql_args) = args.command else {
+    let CliCommand::Sql(sql_args) = args.into_command() else {
         panic!("expected sql command");
     };
-    let config = ShellConfig::from_sql_args(sql_args);
+    let (_, environment, _, sql) = sql_config_parts(sql_args);
 
-    assert_eq!(config.environment(), "test");
-    assert_eq!(config.sql(), Some("SELECT * FROM character;"));
+    assert_eq!(environment, "test");
+    assert_eq!(sql.as_deref(), Some("SELECT * FROM character;"));
 }
 
 #[test]
 fn cli_args_group_snapshot_under_top_level_keyword() {
     let args = CliArgs::try_parse_from(["icydb", "snapshot", "demo_rpg", "--environment", "test"])
         .expect("snapshot command should parse");
-    let CliCommand::Snapshot(target) = args.command else {
+    let CliCommand::Snapshot(target) = args.into_command() else {
         panic!("expected snapshot command");
     };
 
@@ -441,7 +399,7 @@ fn cli_args_group_metrics_under_top_level_keyword() {
     let args =
         CliArgs::try_parse_from(["icydb", "metrics", "demo_rpg", "--window-start-ms", "123"])
             .expect("metrics command should parse");
-    let CliCommand::Metrics(args) = args.command else {
+    let CliCommand::Metrics(args) = args.into_command() else {
         panic!("expected metrics command");
     };
 
@@ -462,7 +420,7 @@ fn cli_args_group_metrics_reset_under_top_level_keyword() {
         "--reset",
     ])
     .expect("metrics reset command should parse");
-    let CliCommand::Metrics(args) = args.command else {
+    let CliCommand::Metrics(args) = args.into_command() else {
         panic!("expected metrics command");
     };
 
@@ -483,7 +441,7 @@ fn cli_args_group_schema_under_top_level_keyword() {
         "test",
     ])
     .expect("schema show command should parse");
-    let CliCommand::Schema(SchemaCommand::Show(target)) = args.command else {
+    let CliCommand::Schema(SchemaCommand::Show(target)) = args.into_command() else {
         panic!("expected schema command");
     };
 
@@ -502,7 +460,7 @@ fn cli_args_group_schema_check_under_schema_keyword() {
         "test",
     ])
     .expect("schema check command should parse");
-    let CliCommand::Schema(SchemaCommand::Check(target)) = args.command else {
+    let CliCommand::Schema(SchemaCommand::Check(target)) = args.into_command() else {
         panic!("expected schema check command");
     };
 
@@ -522,7 +480,7 @@ fn cli_args_group_config_show_under_config_keyword() {
         "canisters/demo/rpg",
     ])
     .expect("config show should parse");
-    let CliCommand::Config(ConfigCommand::Show(args)) = args.command else {
+    let CliCommand::Config(ConfigCommand::Show(args)) = args.into_command() else {
         panic!("expected config show command");
     };
 
@@ -542,7 +500,7 @@ fn cli_args_group_config_check_under_config_keyword() {
         "canisters/demo/rpg",
     ])
     .expect("config check should parse");
-    let CliCommand::Config(ConfigCommand::Check(args)) = args.command else {
+    let CliCommand::Config(ConfigCommand::Check(args)) = args.into_command() else {
         panic!("expected config check command");
     };
 
@@ -568,7 +526,7 @@ fn cli_args_group_config_init_under_config_keyword() {
         "canisters/demo/rpg",
     ])
     .expect("config init should parse");
-    let CliCommand::Config(ConfigCommand::Init(args)) = args.command else {
+    let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
         panic!("expected config init command");
     };
 
@@ -595,7 +553,7 @@ fn cli_args_config_init_no_readonly_overrides_all() {
         "--no-readonly",
     ])
     .expect("config init should parse all without readonly");
-    let CliCommand::Config(ConfigCommand::Init(args)) = args.command else {
+    let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
         panic!("expected config init command");
     };
 
@@ -612,7 +570,7 @@ fn cli_args_config_init_no_readonly_overrides_all() {
 fn cli_args_group_canister_list_under_canister_keyword() {
     let args = CliArgs::try_parse_from(["icydb", "canister", "list", "--environment", "test"])
         .expect("canister list should parse");
-    let CliCommand::Canister(CanisterCommand::List(target)) = args.command else {
+    let CliCommand::Canister(CanisterCommand::List(target)) = args.into_command() else {
         panic!("expected canister list command");
     };
 
@@ -629,20 +587,27 @@ fn config_init_writes_default_config_at_workspace_root() {
     std::fs::write(workspace.join("Cargo.toml"), "[workspace]\n")
         .expect("workspace manifest should be written");
 
-    init_config(ConfigInitArgs {
-        start_dir: Some(canister),
-        canister: "demo_rpg".to_string(),
-        ddl: true,
-        fixtures: true,
-        metrics: true,
-        metrics_reset: true,
-        snapshot: true,
-        schema: true,
-        all: false,
-        readonly: true,
-        force: false,
-    })
-    .expect("config init should succeed");
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "config",
+        "init",
+        "--start-dir",
+        canister.to_str().expect("test path should be UTF-8"),
+        "--canister",
+        "demo_rpg",
+        "--ddl",
+        "--fixtures",
+        "--metrics",
+        "--metrics-reset",
+        "--snapshot",
+        "--schema",
+    ])
+    .expect("config init args should parse");
+    let CliCommand::Config(ConfigCommand::Init(args)) = args.into_command() else {
+        panic!("expected config init command");
+    };
+
+    init_config(args).expect("config init should succeed");
 
     let config = std::fs::read_to_string(workspace.join("icydb.toml"))
         .expect("config file should be written");
@@ -914,7 +879,7 @@ fn disabled_config_surface_message_names_surface_key_and_rebuild_step() {
 fn cli_args_group_canister_status_under_canister_keyword() {
     let args = CliArgs::try_parse_from(["icydb", "canister", "status", "demo"])
         .expect("canister status should parse");
-    let CliCommand::Canister(CanisterCommand::Status(target)) = args.command else {
+    let CliCommand::Canister(CanisterCommand::Status(target)) = args.into_command() else {
         panic!("expected canister status command");
     };
 
@@ -925,7 +890,7 @@ fn cli_args_group_canister_status_under_canister_keyword() {
 fn cli_args_group_canister_refresh_under_canister_keyword() {
     let args = CliArgs::try_parse_from(["icydb", "canister", "refresh", "demo", "-e", "test"])
         .expect("canister refresh should parse");
-    let CliCommand::Canister(CanisterCommand::Refresh(target)) = args.command else {
+    let CliCommand::Canister(CanisterCommand::Refresh(target)) = args.into_command() else {
         panic!("expected canister refresh command");
     };
 
@@ -1698,7 +1663,6 @@ fn projection_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
             row_count: 1,
         },
         None,
-        None,
     );
 
     assert!(
@@ -1717,7 +1681,6 @@ fn grouped_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
             row_count: 1,
             next_cursor: None,
         },
-        None,
         None,
     );
 

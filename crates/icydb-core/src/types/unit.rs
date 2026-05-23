@@ -5,11 +5,11 @@
 use crate::{
     db::{PrimaryKeyComponent, PrimaryKeyValue},
     traits::{
-        EntityKeyBytes, PrimaryKeyCodec, PrimaryKeyDecode, RuntimeValueDecode, RuntimeValueEncode,
-        RuntimeValueKind, RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto,
-        ValidateCustom, Visitable,
+        EntityKeyBytes, PrimaryKeyCodec, PrimaryKeyDecode, PrimaryKeyEncodeError,
+        RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, SanitizeAuto,
+        SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
-    value::{StorageKeyEncodeError, Value},
+    value::Value,
 };
 use candid::CandidType;
 use serde::Deserialize;
@@ -68,7 +68,7 @@ impl RuntimeValueDecode for Unit {
 }
 
 impl PrimaryKeyCodec for Unit {
-    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, StorageKeyEncodeError> {
+    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, PrimaryKeyEncodeError> {
         Ok(PrimaryKeyValue::Scalar(PrimaryKeyComponent::Unit))
     }
 }

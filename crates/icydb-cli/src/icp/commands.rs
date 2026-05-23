@@ -4,7 +4,7 @@
 //! Boundary: exposes CLI command handlers and test-covered fixture call construction through icp.
 
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 
@@ -173,10 +173,10 @@ fn looks_like_missing_fixtures_endpoint(stderr: &str) -> bool {
 pub(super) fn upgrade_canister(
     environment: &str,
     canister: &str,
-    wasm: Option<&PathBuf>,
+    wasm: Option<&Path>,
 ) -> Result<(), String> {
     let wasm_path = wasm
-        .cloned()
+        .map(Path::to_path_buf)
         .unwrap_or_else(|| default_canister_wasm_path(canister));
 
     eprintln!(

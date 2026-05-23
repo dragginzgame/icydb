@@ -34,7 +34,7 @@ pub(crate) struct ShellPerfAttribution {
 }
 
 impl ShellPerfAttribution {
-    pub(crate) const fn new(input: ShellPerfAttributionInput) -> Self {
+    pub(in crate::shell) const fn new(input: ShellPerfAttributionInput) -> Self {
         Self {
             total: input.total,
             planner: input.planner,
@@ -70,15 +70,15 @@ impl ShellPerfAttribution {
     }
 }
 
-pub(crate) struct ShellPerfAttributionInput {
-    pub(crate) total: u64,
-    pub(crate) planner: u64,
-    pub(crate) store: u64,
-    pub(crate) executor: u64,
-    pub(crate) pure_covering_decode: u64,
-    pub(crate) pure_covering_row_assembly: u64,
-    pub(crate) decode: u64,
-    pub(crate) compiler: u64,
+pub(in crate::shell) struct ShellPerfAttributionInput {
+    pub(in crate::shell) total: u64,
+    pub(in crate::shell) planner: u64,
+    pub(in crate::shell) store: u64,
+    pub(in crate::shell) executor: u64,
+    pub(in crate::shell) pure_covering_decode: u64,
+    pub(in crate::shell) pure_covering_row_assembly: u64,
+    pub(in crate::shell) decode: u64,
+    pub(in crate::shell) compiler: u64,
 }
 
 ///
@@ -91,12 +91,12 @@ pub(crate) struct ShellPerfAttributionInput {
 /// engine execution.
 ///
 
-pub(crate) struct ShellLocalRenderAttribution {
+pub(in crate::shell) struct ShellLocalRenderAttribution {
     render_micros: u128,
 }
 
 impl ShellLocalRenderAttribution {
-    pub(crate) const fn new(render_micros: u128) -> Self {
+    pub(in crate::shell) const fn new(render_micros: u128) -> Self {
         Self { render_micros }
     }
 }

@@ -16,7 +16,7 @@ use crate::{
 
 /// Dispatch a parsed CLI invocation to the owning command family.
 pub(crate) fn run_cli(args: CliArgs) -> Result<(), String> {
-    match args.command {
+    match args.into_command() {
         CliCommand::Sql(args) => run_sql_command(args),
         CliCommand::Snapshot(target) => run_snapshot_command(target),
         CliCommand::Metrics(args) => run_metrics_command(args),

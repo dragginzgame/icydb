@@ -3001,7 +3001,9 @@ fn inspect_filtered_expression_order_only_raw_scan(
                     .expect("filtered expression test entry");
 
                 (
-                    decoded_key.primary_key_value().expect("primary-key value"),
+                    decoded_key
+                        .primary_key_storage_key()
+                        .expect("primary-key value"),
                     decoded_id,
                 )
             })

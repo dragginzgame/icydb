@@ -336,7 +336,7 @@ mod tests {
             Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128,
             Principal, Subaccount, Timestamp, Ulid,
         },
-        value::{Value, ValueEnum, primary_key_value_from_runtime_value},
+        value::{Value, ValueEnum, storage_key_from_runtime_value},
     };
 
     macro_rules! sample_value_for_scalar {
@@ -425,7 +425,7 @@ mod tests {
     fn storage_key_try_from_value_matches_registry_flag() {
         for (value, expected_encodable) in registry_storage_encodable_cases() {
             assert_eq!(
-                primary_key_value_from_runtime_value(&value).is_ok(),
+                storage_key_from_runtime_value(&value).is_ok(),
                 expected_encodable,
                 "value: {value:?}"
             );
@@ -434,11 +434,11 @@ mod tests {
 
     #[test]
     fn storage_key_known_encodability_contracts() {
-        assert!(primary_key_value_from_runtime_value(&Value::Unit).is_ok());
-        assert!(primary_key_value_from_runtime_value(&Value::Decimal(Decimal::new(1, 0))).is_err());
-        assert!(primary_key_value_from_runtime_value(&Value::Text("x".to_string())).is_err());
+        assert!(storage_key_from_runtime_value(&Value::Unit).is_ok());
+        assert!(storage_key_from_runtime_value(&Value::Decimal(Decimal::new(1, 0))).is_err());
+        assert!(storage_key_from_runtime_value(&Value::Text("x".to_string())).is_err());
         assert!(
-            primary_key_value_from_runtime_value(&Value::Account(Account::from_parts(
+            storage_key_from_runtime_value(&Value::Account(Account::from_parts(
                 Principal::from_slice(&[1]),
                 Some(Subaccount::from_array([1; 32]))
             )))
@@ -448,14 +448,14 @@ mod tests {
 
     #[test]
     fn storage_key_unsupported_values_report_kind() {
-        let decimal_err = primary_key_value_from_runtime_value(&Value::Decimal(Decimal::new(1, 0)))
+        let decimal_err = storage_key_from_runtime_value(&Value::Decimal(Decimal::new(1, 0)))
             .expect_err("Decimal is not storage-key encodable");
         assert!(matches!(
             decimal_err,
             StorageKeyEncodeError::UnsupportedValueKind { kind } if kind == "Decimal"
         ));
 
-        let text_err = primary_key_value_from_runtime_value(&Value::Text("x".to_string()))
+        let text_err = storage_key_from_runtime_value(&Value::Text("x".to_string()))
             .expect_err("Text is not storage-key encodable");
         assert!(matches!(
             text_err,
@@ -466,18 +466,18 @@ mod tests {
     #[test]
     fn storage_keys_sort_deterministically_across_mixed_variants() {
         let mut keys = vec![
-            primary_key_value_from_runtime_value(&Value::Unit).expect("Unit is encodable"),
-            primary_key_value_from_runtime_value(&Value::Ulid(Ulid::from_u128(2)))
+            storage_key_from_runtime_value(&Value::Unit).expect("Unit is encodable"),
+            storage_key_from_runtime_value(&Value::Ulid(Ulid::from_u128(2)))
                 .expect("Ulid is encodable"),
-            primary_key_value_from_runtime_value(&Value::Nat(2)).expect("Nat is encodable"),
-            primary_key_value_from_runtime_value(&Value::Timestamp(Timestamp::from_secs(2)))
+            storage_key_from_runtime_value(&Value::Nat(2)).expect("Nat is encodable"),
+            storage_key_from_runtime_value(&Value::Timestamp(Timestamp::from_secs(2)))
                 .expect("Timestamp is encodable"),
-            primary_key_value_from_runtime_value(&Value::Subaccount(Subaccount::new([3u8; 32])))
+            storage_key_from_runtime_value(&Value::Subaccount(Subaccount::new([3u8; 32])))
                 .expect("Subaccount is encodable"),
-            primary_key_value_from_runtime_value(&Value::Principal(Principal::from_slice(&[9u8])))
+            storage_key_from_runtime_value(&Value::Principal(Principal::from_slice(&[9u8])))
                 .expect("Principal is encodable"),
-            primary_key_value_from_runtime_value(&Value::Int(-1)).expect("Int is encodable"),
-            primary_key_value_from_runtime_value(&Value::Account(Account::from_parts(
+            storage_key_from_runtime_value(&Value::Int(-1)).expect("Int is encodable"),
+            storage_key_from_runtime_value(&Value::Account(Account::from_parts(
                 Principal::from_slice(&[3]),
                 Some(Subaccount::from_array([3; 32])),
             )))

@@ -36,7 +36,7 @@ const MAX_PRIMARY_KEY_FIELDS: usize = 4;
 const SCALAR_PRIMARY_KEY_MAX_SIZE: usize = TAG_SIZE + ACCOUNT_SIZE;
 const MAX_ENCODED_PRIMARY_KEY_COMPONENT_SIZE: usize = SCALAR_PRIMARY_KEY_MAX_SIZE;
 const COMPOSITE_PRIMARY_KEY_HEADER_SIZE: usize = TAG_SIZE + TAG_SIZE;
-const COMPOSITE_PRIMARY_KEY_MAX_SIZE: usize = COMPOSITE_PRIMARY_KEY_HEADER_SIZE
+pub(in crate::db) const COMPOSITE_PRIMARY_KEY_MAX_SIZE: usize = COMPOSITE_PRIMARY_KEY_HEADER_SIZE
     + (MAX_PRIMARY_KEY_FIELDS * MAX_ENCODED_PRIMARY_KEY_COMPONENT_SIZE);
 const INDEX_PRIMARY_KEY_MAX_SIZE: usize = COMPOSITE_PRIMARY_KEY_MAX_SIZE;
 
@@ -1362,11 +1362,11 @@ const fn max_encoded_primary_key_len(kind: PrimaryKeyKind) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        CompactPrimaryKeyDecodeError, CompactStoreKeyDecodeError, CompositePrimaryKeyValue,
-        CompositePrimaryKeyValueError, DataStoreKey, EncodedIndexComponent, EncodedPrimaryKey,
-        IndexEntryValue, IndexStoreKey, IndexStoreKeyKind, MAX_PRIMARY_KEY_FIELDS,
-        PrimaryKeyComponent, PrimaryKeyKind, PrimaryKeyValue, RawDataStoreKey,
-        RawDataStoreKeyRange, RawIndexStoreKey,
+        COMPOSITE_PRIMARY_KEY_MAX_SIZE, CompactPrimaryKeyDecodeError, CompactStoreKeyDecodeError,
+        CompositePrimaryKeyValue, CompositePrimaryKeyValueError, DataStoreKey,
+        EncodedIndexComponent, EncodedPrimaryKey, IndexEntryValue, IndexStoreKey,
+        IndexStoreKeyKind, MAX_PRIMARY_KEY_FIELDS, PrimaryKeyComponent, PrimaryKeyKind,
+        PrimaryKeyValue, RawDataStoreKey, RawDataStoreKeyRange, RawIndexStoreKey,
     };
     use crate::{
         db::{
@@ -1948,7 +1948,7 @@ mod tests {
         assert_eq!(StorageKey::STORED_SIZE_USIZE, 64);
         assert_eq!(
             RawDataStoreKey::MAX_STORED_SIZE_BYTES,
-            size_of::<u64>() as u64 + 1 + u64::from(Account::STORED_SIZE)
+            size_of::<u64>() as u64 + COMPOSITE_PRIMARY_KEY_MAX_SIZE as u64
         );
 
         let index_component =

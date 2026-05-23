@@ -19,7 +19,7 @@ use self::{analysis::analyze_schema_check, render::render_schema_check_report_fr
 use super::call_query;
 
 /// Read and print the generated-vs-accepted schema check endpoint.
-pub(crate) fn run_schema_check_command(target: CanisterTarget) -> Result<(), String> {
+pub(super) fn run_schema_check_command(target: CanisterTarget) -> Result<(), String> {
     require_configured_endpoint(target.canister_name(), SCHEMA_CHECK_ENDPOINT)?;
     require_created_canister(target.environment(), target.canister_name())?;
     let candid_bytes = call_query(

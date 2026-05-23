@@ -170,13 +170,14 @@ pub mod __macro {
     pub use icydb_core::db::{
         LoweredSqlCommand, identifiers_tail_match, sql_statement_entity_name,
     };
-    pub use icydb_core::error::InternalError;
+    pub use icydb_core::error::{ErrorClass, ErrorOrigin, InternalError};
     pub use icydb_core::traits::{
-        EntityValue, EnumValue, FieldProjection, PersistedByKindCodec, PersistedFieldMetaCodec,
-        PersistedFieldSlotCodec, PersistedStructuredFieldCodec, RuntimeValueDecode,
-        RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, runtime_value_btree_map_from_value,
-        runtime_value_btree_set_from_value, runtime_value_collection_to_value,
-        runtime_value_from_value, runtime_value_from_vec_into,
+        EntityKeyBytes, EntityValue, EnumValue, FieldProjection, KeyValueCodec,
+        PersistedByKindCodec, PersistedFieldMetaCodec, PersistedFieldSlotCodec,
+        PersistedStructuredFieldCodec, PrimaryKeyCodec, PrimaryKeyDecode, PrimaryKeyEncodeError,
+        RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
+        runtime_value_btree_map_from_value, runtime_value_btree_set_from_value,
+        runtime_value_collection_to_value, runtime_value_from_value, runtime_value_from_vec_into,
         runtime_value_from_vec_into_btree_map, runtime_value_from_vec_into_btree_set,
         runtime_value_into, runtime_value_map_collection_to_value, runtime_value_to_value,
         runtime_value_vec_from_value,

@@ -10,15 +10,16 @@ mod numeric_value;
 mod visitor;
 
 use crate::{
-    db::{PrimaryKeyComponent, PrimaryKeyValue},
+    db::{CompositePrimaryKeyValueError, PrimaryKeyComponent, PrimaryKeyValue},
     error::InternalError,
     model::field::{FieldKind, FieldModel, FieldStorageDecode},
     prelude::*,
     types::{EntityTag, Id},
-    value::{StorageKeyEncodeError, Value, ValueEnum},
+    value::{Value, ValueEnum},
     visitor::VisitorContext,
 };
 use std::collections::{BTreeMap, BTreeSet};
+use thiserror::Error as ThisError;
 
 pub use numeric_value::*;
 pub use visitor::*;
@@ -174,6 +175,49 @@ pub trait KeyValueCodec {
 }
 
 ///
+/// PrimaryKeyEncodeError
+///
+/// Typed primary-key admission errors. This is deliberately separate from the
+/// scalar `StorageKey` frame so composite keys do not inherit old storage-key
+/// vocabulary or compatibility lanes.
+///
+
+#[derive(Debug, ThisError)]
+pub enum PrimaryKeyEncodeError {
+    #[error("primary-key component kind '{kind}' is not admitted")]
+    UnsupportedComponentKind { kind: &'static str },
+
+    #[error("composite primary key has too few components: {count} (minimum {min})")]
+    TooFewComponents { count: usize, min: usize },
+
+    #[error("composite primary key has too many components: {count} (limit {max})")]
+    TooManyComponents { count: usize, max: usize },
+
+    #[error("unit is not admitted as composite primary-key component {index}")]
+    UnitComponent { index: usize },
+}
+
+impl From<CompositePrimaryKeyValueError> for PrimaryKeyEncodeError {
+    fn from(err: CompositePrimaryKeyValueError) -> Self {
+        match err {
+            CompositePrimaryKeyValueError::TooFewComponents { count, min } => {
+                Self::TooFewComponents { count, min }
+            }
+            CompositePrimaryKeyValueError::TooManyComponents { count, max } => {
+                Self::TooManyComponents { count, max }
+            }
+            CompositePrimaryKeyValueError::UnitComponent { index } => Self::UnitComponent { index },
+        }
+    }
+}
+
+impl From<PrimaryKeyEncodeError> for InternalError {
+    fn from(err: PrimaryKeyEncodeError) -> Self {
+        Self::serialize_unsupported(err.to_string())
+    }
+}
+
+///
 /// PrimaryKeyCodec
 ///
 /// Narrow typed primary-key codec for persistence and indexing admission.
@@ -182,7 +226,7 @@ pub trait KeyValueCodec {
 /// primary-key value.
 ///
 pub trait PrimaryKeyCodec {
-    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, StorageKeyEncodeError>;
+    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, PrimaryKeyEncodeError>;
 }
 
 ///
@@ -221,7 +265,7 @@ macro_rules! impl_primary_key_codec_signed {
     ($($ty:ty),* $(,)?) => {
         $(
             impl PrimaryKeyCodec for $ty {
-                fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, StorageKeyEncodeError> {
+                fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, PrimaryKeyEncodeError> {
                     Ok(PrimaryKeyValue::Scalar(PrimaryKeyComponent::Int(i64::from(*self))))
                 }
             }
@@ -233,7 +277,7 @@ macro_rules! impl_primary_key_codec_unsigned {
     ($($ty:ty),* $(,)?) => {
         $(
             impl PrimaryKeyCodec for $ty {
-                fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, StorageKeyEncodeError> {
+                fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, PrimaryKeyEncodeError> {
                     Ok(PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat(u64::from(*self))))
                 }
             }
@@ -305,7 +349,7 @@ impl_primary_key_decode_signed!(i8, i16, i32, i64);
 impl_primary_key_decode_unsigned!(u8, u16, u32, u64);
 
 impl PrimaryKeyCodec for crate::types::Principal {
-    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, StorageKeyEncodeError> {
+    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, PrimaryKeyEncodeError> {
         Ok(PrimaryKeyValue::Scalar(PrimaryKeyComponent::Principal(
             *self,
         )))
@@ -326,7 +370,7 @@ impl PrimaryKeyDecode for crate::types::Principal {
 }
 
 impl PrimaryKeyCodec for crate::types::Subaccount {
-    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, StorageKeyEncodeError> {
+    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, PrimaryKeyEncodeError> {
         Ok(PrimaryKeyValue::Scalar(PrimaryKeyComponent::Subaccount(
             *self,
         )))
@@ -347,7 +391,7 @@ impl PrimaryKeyDecode for crate::types::Subaccount {
 }
 
 impl PrimaryKeyCodec for crate::types::Account {
-    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, StorageKeyEncodeError> {
+    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, PrimaryKeyEncodeError> {
         Ok(PrimaryKeyValue::Scalar(PrimaryKeyComponent::Account(*self)))
     }
 }
@@ -366,7 +410,7 @@ impl PrimaryKeyDecode for crate::types::Account {
 }
 
 impl PrimaryKeyCodec for crate::types::Timestamp {
-    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, StorageKeyEncodeError> {
+    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, PrimaryKeyEncodeError> {
         Ok(PrimaryKeyValue::Scalar(PrimaryKeyComponent::Timestamp(
             *self,
         )))
@@ -387,7 +431,7 @@ impl PrimaryKeyDecode for crate::types::Timestamp {
 }
 
 impl PrimaryKeyCodec for crate::types::Ulid {
-    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, StorageKeyEncodeError> {
+    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, PrimaryKeyEncodeError> {
         Ok(PrimaryKeyValue::Scalar(PrimaryKeyComponent::Ulid(*self)))
     }
 }
@@ -406,7 +450,7 @@ impl PrimaryKeyDecode for crate::types::Ulid {
 }
 
 impl PrimaryKeyCodec for () {
-    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, StorageKeyEncodeError> {
+    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, PrimaryKeyEncodeError> {
         Ok(PrimaryKeyValue::Scalar(PrimaryKeyComponent::Unit))
     }
 }

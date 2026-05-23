@@ -263,7 +263,7 @@ fn validate_save_accepted_relation_value<E>(
 where
     E: EntityKind + EntityValue,
 {
-    let storage_key = crate::value::primary_key_value_from_runtime_value(value).map_err(|err| {
+    let storage_key = crate::value::storage_key_from_runtime_value(value).map_err(|err| {
         InternalError::relation_target_raw_key_error(
             crate::db::relation::RelationTargetRawKeyError::StorageKeyEncode(err),
             E::PATH,

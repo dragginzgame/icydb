@@ -6,9 +6,12 @@
 use super::{KEY_KIND_TAG_SIZE, KEY_PREFIX_SIZE, SEGMENT_LEN_SIZE};
 use crate::{
     MAX_INDEX_FIELDS,
-    db::index::{
-        IndexId, IndexKey, IndexKeyKind, PrimaryKeyEquivalenceError, RawIndexStoreKey,
-        primary_key_matches_value,
+    db::{
+        index::{
+            IndexId, IndexKey, IndexKeyKind, PrimaryKeyEquivalenceError, RawIndexStoreKey,
+            primary_key_matches_value,
+        },
+        key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
     },
     traits::Storable,
     types::{Decimal, EntityTag, Float32, Float64, Int, Principal},
@@ -1061,9 +1064,39 @@ fn index_key_primary_suffix_uses_compact_primary_key_bytes() {
     assert_eq!(
         IndexKey::try_from_raw(&key.to_raw())
             .expect("compact index key should decode")
-            .primary_key_value()
+            .primary_key_storage_key()
             .expect("compact primary suffix should decode"),
         StorageKey::Nat(5),
+    );
+}
+
+#[test]
+fn index_key_primary_suffix_decodes_composite_primary_key_value() {
+    let composite = CompositePrimaryKeyValue::try_from_components(&[
+        PrimaryKeyComponent::Nat(5),
+        PrimaryKeyComponent::Principal(Principal::from_slice(&[1, 2, 3])),
+    ])
+    .expect("composite primary key should build");
+    let primary_key = PrimaryKeyValue::Composite(composite);
+    let key = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![encode_component(&Value::Text("rank".to_string()))],
+        IndexKey::compact_primary_key_value_bytes(&primary_key),
+    );
+
+    let decoded = IndexKey::try_from_raw(&key.to_raw())
+        .expect("compact index key should decode")
+        .primary_key_value()
+        .expect("composite primary suffix should decode");
+
+    assert_eq!(decoded, primary_key);
+    assert!(
+        IndexKey::try_from_raw(&key.to_raw())
+            .expect("compact index key should decode")
+            .primary_key_storage_key()
+            .is_err(),
+        "scalar storage-key bridge must reject composite index suffixes",
     );
 }
 

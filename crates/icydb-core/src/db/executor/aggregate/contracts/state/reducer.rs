@@ -6,7 +6,7 @@ use crate::{
     db::numeric::{NumericEvalError, add_decimal_terms_checked, average_decimal_terms_checked},
     error::InternalError,
     types::Decimal,
-    value::{StorageKey, Value, primary_key_value_as_runtime_value},
+    value::{StorageKey, Value, storage_key_as_runtime_value},
 };
 
 ///
@@ -371,7 +371,7 @@ impl GroupedAggregateReducerState {
     ) -> Result<(), InternalError> {
         match self {
             Self::First(first_key) => {
-                *first_key = Some(primary_key_value_as_runtime_value(&key));
+                *first_key = Some(storage_key_as_runtime_value(&key));
                 Ok(())
             }
             _ => Err(Self::state_mismatch("FIRST")),
@@ -385,7 +385,7 @@ impl GroupedAggregateReducerState {
     ) -> Result<(), InternalError> {
         match self {
             Self::Last(last_key) => {
-                *last_key = Some(primary_key_value_as_runtime_value(&key));
+                *last_key = Some(storage_key_as_runtime_value(&key));
                 Ok(())
             }
             _ => Err(Self::state_mismatch("LAST")),

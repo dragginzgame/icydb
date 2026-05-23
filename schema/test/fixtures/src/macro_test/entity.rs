@@ -121,3 +121,18 @@ pub struct DatabaseDefaultEntity {}
     )
 )]
 pub struct ExternalPrimaryKeyEntity {}
+
+///
+/// CompositePrimaryKeyEntity
+///
+
+#[entity(
+    store = "TestStore",
+    pk(fields = ["tenant_id", "local_id"]),
+    fields(
+        field(ident = "tenant_id", value(item(prim = "Nat64")), default = 1u64),
+        field(ident = "local_id", value(item(prim = "Nat64")), default = 2u64),
+        field(ident = "rank", value(item(prim = "Int32")), default = 7),
+    )
+)]
+pub struct CompositePrimaryKeyEntity {}

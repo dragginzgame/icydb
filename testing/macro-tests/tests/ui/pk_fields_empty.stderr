@@ -1,4 +1,4 @@
-error: pk(fields = []) must contain one field in this release
+error: pk(fields = []) must contain at least one field
   --> tests/ui/pk_fields_empty.rs:17:5
    |
 17 |     pk(fields = []),

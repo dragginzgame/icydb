@@ -36,6 +36,7 @@ pub(in crate::db) struct CompiledSchemaProposal {
     )]
     primary_key_name: &'static str,
     primary_key_field_id: FieldId,
+    primary_key_field_ids: Vec<FieldId>,
     fields: Vec<CompiledFieldProposal>,
     indexes: Vec<CompiledIndexProposal>,
 }
@@ -67,6 +68,12 @@ impl CompiledSchemaProposal {
     #[must_use]
     pub(in crate::db) const fn primary_key_field_id(&self) -> FieldId {
         self.primary_key_field_id
+    }
+
+    /// Return the ordered generated primary-key field IDs.
+    #[must_use]
+    pub(in crate::db) const fn primary_key_field_ids(&self) -> &[FieldId] {
+        self.primary_key_field_ids.as_slice()
     }
 
     /// Return generated field proposals in generated slot order.
@@ -466,6 +473,7 @@ pub(in crate::db) fn compiled_schema_proposal_for_model(
         entity_name: model.name(),
         primary_key_name: model.primary_key().name(),
         primary_key_field_id: FieldId::from_initial_slot(model.primary_key_slot()),
+        primary_key_field_ids: compiled_primary_key_field_ids(model),
         fields,
         indexes,
     };
@@ -473,6 +481,27 @@ pub(in crate::db) fn compiled_schema_proposal_for_model(
     debug_assert_compiled_schema_proposal_invariants(model, &proposal);
 
     proposal
+}
+
+fn compiled_primary_key_field_ids(model: &EntityModel) -> Vec<FieldId> {
+    model
+        .primary_key_model()
+        .fields()
+        .iter()
+        .map(|primary_key_field| {
+            let slot = model
+                .fields()
+                .iter()
+                .position(|field| std::ptr::eq(field, primary_key_field))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "primary-key field '{}' must be present in generated field table",
+                        primary_key_field.name()
+                    )
+                });
+            FieldId::from_initial_slot(slot)
+        })
+        .collect()
 }
 
 // Check the initial proposal projection remains a pure slot-order projection.
@@ -485,6 +514,10 @@ fn debug_assert_compiled_schema_proposal_invariants(
     debug_assert_eq!(
         proposal.primary_key_field_id(),
         FieldId::from_initial_slot(model.primary_key_slot())
+    );
+    debug_assert_eq!(
+        proposal.primary_key_field_ids().first().copied(),
+        Some(proposal.primary_key_field_id())
     );
 
     let layout = proposal.initial_row_layout();
@@ -795,7 +828,7 @@ mod tests {
             compiled_schema_proposal_for_model,
         },
         model::{
-            entity::EntityModel,
+            entity::{EntityModel, PrimaryKeyModel},
             field::{
                 FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode, LeafCodec,
                 ScalarCodec,
@@ -856,6 +889,15 @@ mod tests {
         &FIELDS,
         &INDEXES,
     );
+    static COMPOSITE_PRIMARY_KEY_FIELDS: [&FieldModel; 2] = [&FIELDS[0], &FIELDS[2]];
+    static COMPOSITE_MODEL: EntityModel = EntityModel::generated_with_primary_key_model(
+        "schema::proposal::tests::CompositeEntity",
+        "CompositeEntity",
+        PrimaryKeyModel::ordered(&COMPOSITE_PRIMARY_KEY_FIELDS),
+        0,
+        &FIELDS,
+        &INDEXES,
+    );
 
     #[test]
     fn compiled_schema_proposal_assigns_initial_field_ids_from_slots() {
@@ -864,6 +906,7 @@ mod tests {
         assert_eq!(proposal.entity_path(), "schema::proposal::tests::Entity");
         assert_eq!(proposal.entity_name(), "Entity");
         assert_eq!(proposal.primary_key_field_id(), FieldId::new(1));
+        assert_eq!(proposal.primary_key_field_ids(), &[FieldId::new(1)]);
         assert_eq!(proposal.fields().len(), 4);
         assert_eq!(
             proposal.indexes().len(),
@@ -884,6 +927,17 @@ mod tests {
                 FieldId::new(3),
                 FieldId::new(4),
             ],
+        );
+    }
+
+    #[test]
+    fn compiled_schema_proposal_preserves_ordered_primary_key_field_ids() {
+        let proposal = compiled_schema_proposal_for_model(&COMPOSITE_MODEL);
+
+        assert_eq!(proposal.primary_key_field_id(), FieldId::new(1));
+        assert_eq!(
+            proposal.primary_key_field_ids(),
+            &[FieldId::new(1), FieldId::new(3)],
         );
     }
 

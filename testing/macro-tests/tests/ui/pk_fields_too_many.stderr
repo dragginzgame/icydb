@@ -1,0 +1,5 @@
+error: pk(fields = [...]) supports at most 4 fields
+  --> tests/ui/pk_fields_too_many.rs:17:38
+   |
+17 |     pk(fields = ["a", "b", "c", "d", "e"]),
+   |                                      ^^^

@@ -12,7 +12,7 @@ use crate::{
     error::InternalError,
     traits::{EntityKind, EntityValue, KeyValueCodec},
     types::Id,
-    value::{StorageKey, Value, primary_key_value_as_runtime_value},
+    value::{StorageKey, Value, storage_key_as_runtime_value},
 };
 
 /// Typed optional `(min_id, max_id)` style aggregate terminal output.
@@ -128,7 +128,7 @@ fn decode_primary_key_value_to_id<E>(key: StorageKey) -> Result<Id<E>, InternalE
 where
     E: EntityKind + EntityValue,
 {
-    let value = primary_key_value_as_runtime_value(&key);
+    let value = storage_key_as_runtime_value(&key);
     let decoded = <E::Key as KeyValueCodec>::from_key_value(&value).ok_or_else(|| {
         InternalError::store_corruption(format!(
             "scalar aggregate output primary key decode failed: {value:?}"

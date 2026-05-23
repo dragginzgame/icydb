@@ -15,7 +15,7 @@ use crate::{
 use super::{call_query, render::table_width};
 
 /// Read and print the generated storage snapshot endpoint.
-pub(crate) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String> {
+pub(super) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String> {
     require_configured_endpoint(target.canister_name(), SNAPSHOT_ENDPOINT)?;
     require_created_canister(target.environment(), target.canister_name())?;
     let candid_bytes = call_query(

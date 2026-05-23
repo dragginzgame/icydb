@@ -7,10 +7,10 @@ use crate::{
     db::{
         data::StorageKey,
         index::{IndexKey, RawIndexStoreKey},
-        key_taxonomy::IndexEntryValue,
+        key_taxonomy::{IndexEntryValue, PrimaryKeyValue},
     },
     traits::Storable,
-    value::{Value, primary_key_value_as_runtime_value},
+    value::{Value, storage_key_as_runtime_value},
 };
 use canic_cdk::structures::storable::Bound;
 use std::borrow::Cow;
@@ -58,7 +58,7 @@ impl IndexEntryCorruption {
     pub(crate) fn missing_key(index_key: RawIndexStoreKey, entity_key: StorageKey) -> Self {
         Self::MissingKey {
             index_key: Box::new(index_key),
-            entity_key: primary_key_value_as_runtime_value(&entity_key),
+            entity_key: storage_key_as_runtime_value(&entity_key),
         }
     }
 }
@@ -208,6 +208,20 @@ impl IndexEntryValue {
         Ok(false)
     }
 
+    /// Decode the key-owned scalar-or-composite row identity from a raw index
+    /// key after validating this entry's presence witness.
+    #[allow(
+        dead_code,
+        reason = "0.162 stages composite index row-identity decode before callers switch"
+    )]
+    pub(in crate::db) fn decode_primary_key_value(
+        &self,
+        raw_key: &RawIndexStoreKey,
+    ) -> Result<PrimaryKeyValue, IndexEntryCorruption> {
+        let _ = self.validate_witness()?;
+        primary_key_value_from_raw_index_store_key(raw_key)
+    }
+
     #[cfg(test)]
     pub(crate) fn try_from_keys<I>(keys: I) -> Result<Self, IndexEntryValueEncodeError>
     where
@@ -278,6 +292,15 @@ impl IndexEntryValue {
 fn storage_key_from_raw_index_store_key(
     raw_key: &RawIndexStoreKey,
 ) -> Result<StorageKey, IndexEntryCorruption> {
+    primary_key_value_from_raw_index_store_key(raw_key)?
+        .scalar_component()
+        .map(StorageKey::from)
+        .ok_or(IndexEntryCorruption::InvalidKey)
+}
+
+fn primary_key_value_from_raw_index_store_key(
+    raw_key: &RawIndexStoreKey,
+) -> Result<PrimaryKeyValue, IndexEntryCorruption> {
     IndexKey::try_from_raw(raw_key)
         .and_then(|key| key.primary_key_value().map_err(|_| "invalid primary key"))
         .map_err(|_| IndexEntryCorruption::InvalidKey)
@@ -322,15 +345,27 @@ mod tests {
         db::{
             data::StorageKey,
             index::{IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey},
+            key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
         },
         traits::Storable,
-        types::EntityTag,
+        types::{EntityTag, Principal},
     };
     use std::borrow::Cow;
 
     fn raw_key_for(key: StorageKey) -> RawIndexStoreKey {
         let component = vec![0x42];
         IndexKey::new_from_components_with_kind(
+            &IndexId::new(EntityTag::new(0x159), 1),
+            IndexKeyKind::User,
+            std::slice::from_ref(&component),
+            key,
+        )
+        .to_raw()
+    }
+
+    fn raw_key_for_primary_key_value(key: &PrimaryKeyValue) -> RawIndexStoreKey {
+        let component = vec![0x42];
+        IndexKey::new_from_components_with_primary_key_value(
             &IndexId::new(EntityTag::new(0x159), 1),
             IndexKeyKind::User,
             std::slice::from_ref(&component),
@@ -413,6 +448,28 @@ mod tests {
             row_witness.existence_witness(),
             IndexEntryExistenceWitness::Present
         );
+    }
+
+    #[test]
+    fn index_entry_value_decodes_composite_row_identity_from_raw_key() {
+        let composite = CompositePrimaryKeyValue::try_from_components(&[
+            PrimaryKeyComponent::Nat(9),
+            PrimaryKeyComponent::Principal(Principal::from_slice(&[1, 2, 3])),
+        ])
+        .expect("composite primary key should build");
+        let key = PrimaryKeyValue::Composite(composite);
+        let raw_key = raw_key_for_primary_key_value(&key);
+        let raw = IndexEntryValue::presence();
+
+        assert_eq!(
+            raw.decode_primary_key_value(&raw_key)
+                .expect("decode key-owned composite row identity"),
+            key
+        );
+        assert!(matches!(
+            raw.decode_storage_key(&raw_key),
+            Err(IndexEntryCorruption::InvalidKey)
+        ));
     }
 
     #[test]

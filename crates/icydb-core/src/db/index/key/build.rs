@@ -20,6 +20,7 @@ use crate::{
             key::ordered::encode_canonical_index_component,
             key::{IndexId, IndexKey, IndexKeyKind, OrderedValueEncodeError},
         },
+        key_taxonomy::PrimaryKeyValue,
         scalar_expr::{
             ScalarExprValue, ScalarIndexExpressionOp, derive_non_null_scalar_expression_value,
             scalar_expr_value_into_value,
@@ -382,6 +383,21 @@ impl IndexKey {
         components: &[C],
         primary_key: StorageKey,
     ) -> Self {
+        Self::new_from_components_with_primary_key_value(
+            index_id,
+            key_kind,
+            components,
+            &PrimaryKeyValue::from(primary_key),
+        )
+    }
+
+    #[must_use]
+    pub(in crate::db) fn new_from_components_with_primary_key_value<C: AsRef<[u8]>>(
+        index_id: &IndexId,
+        key_kind: IndexKeyKind,
+        components: &[C],
+        primary_key: &PrimaryKeyValue,
+    ) -> Self {
         Self {
             key_kind,
             index_id: *index_id,
@@ -389,7 +405,7 @@ impl IndexKey {
                 .iter()
                 .map(|component| component.as_ref().to_vec())
                 .collect(),
-            primary_key: Self::compact_primary_key_bytes(primary_key),
+            primary_key: Self::compact_primary_key_value_bytes(primary_key),
         }
     }
 

@@ -16,16 +16,16 @@ use crate::shell::perf::{
 };
 
 #[derive(candid::CandidType, Clone, Debug, serde::Deserialize)]
-pub(crate) struct ShellSqlQueryPerfResult {
-    pub(crate) result: SqlQueryResult,
-    pub(crate) instructions: u64,
-    pub(crate) planner_instructions: u64,
-    pub(crate) store_instructions: u64,
-    pub(crate) executor_instructions: u64,
-    pub(crate) pure_covering_decode_instructions: u64,
-    pub(crate) pure_covering_row_assembly_instructions: u64,
-    pub(crate) decode_instructions: u64,
-    pub(crate) compiler_instructions: u64,
+pub(super) struct ShellSqlQueryPerfResult {
+    result: SqlQueryResult,
+    instructions: u64,
+    planner_instructions: u64,
+    store_instructions: u64,
+    executor_instructions: u64,
+    pure_covering_decode_instructions: u64,
+    pure_covering_row_assembly_instructions: u64,
+    decode_instructions: u64,
+    compiler_instructions: u64,
 }
 
 impl ShellSqlQueryPerfResult {
@@ -43,7 +43,7 @@ impl ShellSqlQueryPerfResult {
     }
 }
 
-pub(crate) fn render_shell_text_from_perf_result(input: ShellSqlQueryPerfResult) -> String {
+pub(super) fn render_shell_text_from_perf_result(input: ShellSqlQueryPerfResult) -> String {
     let attribution = input.attribution();
     let render_start = Instant::now();
     let rendered = render_shell_text(input.result, Some(attribution), None);

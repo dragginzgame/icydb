@@ -19,7 +19,7 @@ use super::{
 };
 
 /// Read and print the generated accepted-schema endpoint.
-pub(crate) fn run_schema_show_command(target: CanisterTarget) -> Result<(), String> {
+pub(super) fn run_schema_show_command(target: CanisterTarget) -> Result<(), String> {
     require_configured_endpoint(target.canister_name(), SCHEMA_ENDPOINT)?;
     require_created_canister(target.environment(), target.canister_name())?;
     let candid_bytes = call_query(

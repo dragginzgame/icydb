@@ -24,7 +24,7 @@ fn field_path_rebuild_key_materializes_from_accepted_target_slots() {
     assert_eq!(key.index_id(), &IndexId::new(EntityTag::new(7), 1));
     assert_eq!(key.component_count(), 1);
     assert_eq!(
-        key.primary_key_value()
+        key.primary_key_storage_key()
             .expect("index key should carry primary-key value"),
         storage_key,
     );
@@ -67,7 +67,7 @@ fn expression_rebuild_key_materializes_from_accepted_target_slots() {
     assert!(mixed_key.has_same_components(&lower_key));
     assert_eq!(
         mixed_key
-            .primary_key_value()
+            .primary_key_storage_key()
             .expect("index key should carry primary-key value"),
         storage_key,
     );

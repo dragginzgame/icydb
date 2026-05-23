@@ -15,7 +15,7 @@ use crate::{
         Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128, Principal,
         Subaccount, Timestamp, Ulid,
     },
-    value::{StorageKey, Value, ValueEnum, primary_key_value_as_runtime_value},
+    value::{StorageKey, Value, ValueEnum, storage_key_as_runtime_value},
 };
 use proptest::prelude::*;
 use std::cmp::Ordering;
@@ -176,9 +176,8 @@ fn primary_key_value_encoder_matches_value_encoder_for_all_primary_key_variants(
     for sample in samples {
         let primary_key_bytes = encode_canonical_index_component_from_primary_key_value(sample)
             .expect("primary key should encode");
-        let value_bytes =
-            encode_canonical_index_component(&primary_key_value_as_runtime_value(&sample))
-                .expect("value should encode");
+        let value_bytes = encode_canonical_index_component(&storage_key_as_runtime_value(&sample))
+            .expect("value should encode");
 
         assert_eq!(
             primary_key_bytes, value_bytes,

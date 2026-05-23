@@ -1,0 +1,12 @@
+error: composite primary keys are external-only; remove source = "internal" or use source = "external"
+  --> tests/ui/pk_fields_composite_internal_source.rs:15:1
+   |
+15 | / #[entity(
+16 | |     store = "UiDataStore",
+17 | |     pk(fields = ["tenant_id", "local_id"], source = "internal"),
+18 | |     fields(
+...  |
+22 | | )]
+   | |__^
+   |
+   = note: this error originates in the attribute macro `entity` (in Nightly builds, run with -Z macro-backtrace for more info)

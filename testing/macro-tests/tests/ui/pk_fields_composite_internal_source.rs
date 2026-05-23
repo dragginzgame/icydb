@@ -14,12 +14,12 @@ pub struct UiDataStore {}
 
 #[entity(
     store = "UiDataStore",
-    pk(fields = ["tenant_id", "local_id"]),
+    pk(fields = ["tenant_id", "local_id"], source = "internal"),
     fields(
-        field(ident = "tenant_id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
-        field(ident = "local_id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate"))
+        field(ident = "tenant_id", value(item(prim = "Nat64")), default = 1u64),
+        field(ident = "local_id", value(item(prim = "Nat64")), default = 2u64),
     )
 )]
-pub struct CompositePkFields;
+pub struct CompositeInternalSourcePk;
 
 fn main() {}

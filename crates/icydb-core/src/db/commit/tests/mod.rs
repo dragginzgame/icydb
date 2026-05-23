@@ -45,7 +45,7 @@ use crate::{
         RuntimeValueDecode, RuntimeValueEncode,
     },
     types::{EntityTag, Ulid},
-    value::{StorageKey, Value, ValueEnum, primary_key_value_as_runtime_value},
+    value::{StorageKey, Value, ValueEnum, storage_key_as_runtime_value},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
@@ -810,7 +810,7 @@ fn indexed_ids_for(entity: &RecoveryIndexedEntity) -> Option<BTreeSet<Ulid>> {
                     .decode_row_identity(&index_key)
                     .expect("index entry decode should succeed")
                     .storage_key();
-                let Value::Ulid(value) = primary_key_value_as_runtime_value(&storage_key) else {
+                let Value::Ulid(value) = storage_key_as_runtime_value(&storage_key) else {
                     panic!("decoded index key should be a Ulid");
                 };
                 BTreeSet::from([value])
@@ -833,7 +833,7 @@ fn nullable_indexed_ids_for(entity: &RecoveryNullableIndexedEntity) -> Option<BT
                     .decode_row_identity(&index_key)
                     .expect("nullable index entry decode should succeed")
                     .storage_key();
-                let Value::Ulid(value) = primary_key_value_as_runtime_value(&storage_key) else {
+                let Value::Ulid(value) = storage_key_as_runtime_value(&storage_key) else {
                     panic!("decoded nullable index key should be a Ulid");
                 };
                 BTreeSet::from([value])
@@ -934,7 +934,7 @@ fn conditional_indexed_ids_for(entity: &RecoveryConditionalEntity) -> Option<BTr
                     .decode_row_identity(&index_key)
                     .expect("conditional index entry decode should succeed")
                     .storage_key();
-                let Value::Ulid(value) = primary_key_value_as_runtime_value(&storage_key) else {
+                let Value::Ulid(value) = storage_key_as_runtime_value(&storage_key) else {
                     panic!("decoded conditional index key should be a Ulid");
                 };
                 BTreeSet::from([value])

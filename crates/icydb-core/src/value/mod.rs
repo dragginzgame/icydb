@@ -7,10 +7,6 @@
 //! `Value` is the runtime canonical value model. Public canister/query boundaries
 //! should prefer `InputValue` for caller-supplied literals and `OutputValue` for
 //! result payloads, so API surfaces do not depend on runtime execution internals.
-//!
-//! `Value` is the runtime canonical value model. Public canister/query boundaries
-//! should prefer `InputValue` for caller-supplied literals and `OutputValue` for
-//! result payloads, so API surfaces do not depend on runtime execution internals.
 
 mod canonical;
 mod coercion;
@@ -50,7 +46,7 @@ pub use map::{MapValueError, SchemaInvariantError};
 pub use output::{OutputValue, OutputValueEnum};
 pub use storage_key::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError};
 pub(crate) use storage_key_runtime::{
-    primary_key_value_as_runtime_value, primary_key_value_from_runtime_value,
+    storage_key_as_runtime_value, storage_key_from_runtime_value,
 };
 pub use tag::ValueTag;
 

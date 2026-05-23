@@ -83,13 +83,11 @@ fn default_strategy_entity(node: &Entity) -> TraitStrategy {
         return TraitStrategy::from_derive(TraitKind::Default);
     }
 
-    let primary_key = node.primary_key.scalar_field();
-
     struct_default_strategy(
         node.def(),
         fields
             .iter()
-            .map(|field| entity_default_assignment(field, primary_key)),
+            .map(|field| entity_default_assignment(field, node.primary_key.fields())),
     )
 }
 
@@ -146,13 +144,13 @@ fn record_default_assignment(field: &Field) -> TokenStream {
 
 // Entity primary keys keep their key-conversion behavior when they have an
 // explicit schema-surface construction value.
-fn entity_default_assignment(field: &Field, primary_key: &Ident) -> TokenStream {
+fn entity_default_assignment(field: &Field, primary_keys: &[Ident]) -> TokenStream {
     let ident = &field.ident;
     let expr = field
         .rust_default_expr()
         .expect("Default impl is generated only for constructible fields");
 
-    if ident == primary_key {
+    if primary_keys.iter().any(|primary_key| ident == primary_key) {
         if let Some(FieldGeneration::Insert(generator)) = &field.generated {
             quote!(#ident: (#generator).into())
         } else {

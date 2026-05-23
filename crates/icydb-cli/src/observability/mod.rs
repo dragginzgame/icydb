@@ -9,40 +9,48 @@ mod schema;
 mod schema_check;
 mod snapshot;
 
-use std::process::Stdio;
+use crate::cli::{CanisterTarget, MetricsArgs};
+use crate::icp::{call_query_hex, call_update_hex};
 
-use crate::icp::{hex_response_bytes, icp_query_command, icp_update_command};
+pub(crate) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
+    metrics::run_metrics_command(args)
+}
 
-pub(crate) use metrics::run_metrics_command;
-pub(crate) use schema::run_schema_show_command;
-pub(crate) use schema_check::run_schema_check_command;
-pub(crate) use snapshot::run_snapshot_command;
+pub(crate) fn run_schema_show_command(target: CanisterTarget) -> Result<(), String> {
+    schema::run_schema_show_command(target)
+}
 
-#[cfg(test)]
-pub(crate) fn metrics_candid_arg(window_start_ms: Option<u64>) -> String {
-    metrics::metrics_candid_arg(window_start_ms)
+pub(crate) fn run_schema_check_command(target: CanisterTarget) -> Result<(), String> {
+    schema_check::run_schema_check_command(target)
+}
+
+pub(crate) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String> {
+    snapshot::run_snapshot_command(target)
 }
 
 #[cfg(test)]
-pub(crate) fn render_metrics_report(report: &icydb::metrics::EventReport) -> String {
-    metrics::render_metrics_report(report)
-}
+pub(crate) mod test_support {
+    pub(crate) fn metrics_candid_arg(window_start_ms: Option<u64>) -> String {
+        super::metrics::metrics_candid_arg(window_start_ms)
+    }
 
-#[cfg(test)]
-pub(crate) fn render_schema_report(report: &[icydb::db::EntitySchemaDescription]) -> String {
-    schema::render_schema_report(report)
-}
+    pub(crate) fn render_metrics_report(report: &icydb::metrics::EventReport) -> String {
+        super::metrics::render_metrics_report(report)
+    }
 
-#[cfg(test)]
-pub(crate) fn render_schema_check_report(
-    report: &[icydb::db::EntitySchemaCheckDescription],
-) -> String {
-    schema_check::render_schema_check_report(report)
-}
+    pub(crate) fn render_schema_report(report: &[icydb::db::EntitySchemaDescription]) -> String {
+        super::schema::render_schema_report(report)
+    }
 
-#[cfg(test)]
-pub(crate) fn render_snapshot_report(report: &icydb::db::StorageReport) -> String {
-    snapshot::render_snapshot_report(report)
+    pub(crate) fn render_schema_check_report(
+        report: &[icydb::db::EntitySchemaCheckDescription],
+    ) -> String {
+        super::schema_check::render_schema_check_report(report)
+    }
+
+    pub(crate) fn render_snapshot_report(report: &icydb::db::StorageReport) -> String {
+        super::snapshot::render_snapshot_report(report)
+    }
 }
 
 fn call_query(
@@ -51,24 +59,12 @@ fn call_query(
     method: &str,
     candid_arg: &str,
 ) -> Result<Vec<u8>, String> {
-    let output = icp_query_command(environment, canister, method, candid_arg)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|err| err.to_string())?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
+    call_query_hex(environment, canister, method, candid_arg, |stderr| {
+        format!(
             "IcyDB query method '{method}' failed on canister '{canister}' in environment '{environment}': {}",
-            stderr.trim(),
-        ));
-    }
-
-    let stdout = String::from_utf8(output.stdout).map_err(|err| err.to_string())?;
-
-    hex_response_bytes(stdout.as_str())
+            stderr,
+        )
+    })
 }
 
 fn call_update(
@@ -77,22 +73,10 @@ fn call_update(
     method: &str,
     candid_arg: &str,
 ) -> Result<Vec<u8>, String> {
-    let output = icp_update_command(environment, canister, method, candid_arg)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|err| err.to_string())?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
+    call_update_hex(environment, canister, method, candid_arg, |stderr| {
+        format!(
             "IcyDB update method '{method}' failed on canister '{canister}' in environment '{environment}': {}",
-            stderr.trim(),
-        ));
-    }
-
-    let stdout = String::from_utf8(output.stdout).map_err(|err| err.to_string())?;
-
-    hex_response_bytes(stdout.as_str())
+            stderr,
+        )
+    })
 }

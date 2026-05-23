@@ -27,7 +27,7 @@ use crate::{
     },
     error::InternalError,
     types::Decimal,
-    value::{StorageKey, Value, primary_key_value_as_runtime_value},
+    value::{StorageKey, Value, storage_key_as_runtime_value},
 };
 use std::borrow::Cow;
 
@@ -538,7 +538,7 @@ impl GroupedTerminalAggregateState {
                     kind.primary_key_value_label(),
                 ));
             };
-            let value = primary_key_value_as_runtime_value(&key);
+            let value = storage_key_as_runtime_value(&key);
             match kind {
                 ExtremumKind::Min => self.reducer.update_min_value(value)?,
                 ExtremumKind::Max => self.reducer.update_max_value(value)?,

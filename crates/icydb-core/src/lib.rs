@@ -60,13 +60,15 @@ pub mod prelude {
 #[doc(hidden)]
 pub mod __macro {
     pub use crate::db::{
-        GeneratedStructuralEnumPayload, GeneratedStructuralMapPayloadSlices, PersistedRow,
-        PersistedScalar, ScalarSlotValueRef, ScalarValueRef, SlotReader, SlotWriter,
+        CompositePrimaryKeyValue, CompositePrimaryKeyValueError, GeneratedStructuralEnumPayload,
+        GeneratedStructuralMapPayloadSlices, PersistedRow, PersistedScalar, PrimaryKeyComponent,
+        PrimaryKeyValue, ScalarSlotValueRef, ScalarValueRef, SlotReader, SlotWriter,
     };
-    pub use crate::error::InternalError;
+    pub use crate::error::{ErrorClass, ErrorOrigin, InternalError};
     pub use crate::traits::{
-        EnumValue, FieldProjection, PersistedByKindCodec, PersistedFieldMetaCodec,
-        PersistedFieldSlotCodec, PersistedStructuredFieldCodec, RuntimeValueDecode,
+        EntityKeyBytes, EnumValue, FieldProjection, KeyValueCodec, PersistedByKindCodec,
+        PersistedFieldMetaCodec, PersistedFieldSlotCodec, PersistedStructuredFieldCodec,
+        PrimaryKeyCodec, PrimaryKeyDecode, PrimaryKeyEncodeError, RuntimeValueDecode,
         RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, runtime_value_btree_map_from_value,
         runtime_value_btree_set_from_value, runtime_value_collection_to_value,
         runtime_value_from_value, runtime_value_from_vec_into,

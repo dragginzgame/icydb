@@ -7,15 +7,16 @@
 
 use crate::{
     db::key_taxonomy::{
-        CompactStoreKeyDecodeError, DataStoreKey, EncodedPrimaryKey, PrimaryKeyValue,
-        RawDataStoreKey, RawDataStoreKeyRange,
+        COMPOSITE_PRIMARY_KEY_MAX_SIZE, CompactStoreKeyDecodeError, DataStoreKey,
+        EncodedPrimaryKey, PrimaryKeyComponent, PrimaryKeyValue, RawDataStoreKey,
+        RawDataStoreKeyRange,
     },
     error::InternalError,
     traits::{EntityKind, PrimaryKeyCodec, PrimaryKeyDecode, Storable},
-    types::{Account, EntityTag},
+    types::EntityTag,
     value::{
         StorageKey, StorageKeyDecodeError, StorageKeyEncodeError, Value,
-        primary_key_value_from_runtime_value,
+        storage_key_from_runtime_value,
     },
 };
 use canic_cdk::structures::storable::Bound as StorableBound;
@@ -104,7 +105,7 @@ pub(in crate::db) enum DecodedDataStoreKeyDecodeError {
 
 pub(in crate::db) struct DecodedDataStoreKey {
     entity: EntityTag,
-    key: StorageKey,
+    key: PrimaryKeyValue,
     raw: OnceCell<RawDataStoreKey>,
 }
 
@@ -116,19 +117,31 @@ impl DecodedDataStoreKey {
     /// Construct from runtime identity and key payload.
     #[must_use]
     pub(in crate::db) const fn new(entity: EntityTag, key: StorageKey) -> Self {
+        Self::new_primary_key_value(
+            entity,
+            &PrimaryKeyValue::Scalar(primary_key_component_from_storage_key(key)),
+        )
+    }
+
+    /// Construct from runtime identity and a scalar-or-composite key payload.
+    #[must_use]
+    pub(in crate::db) const fn new_primary_key_value(
+        entity: EntityTag,
+        key: &PrimaryKeyValue,
+    ) -> Self {
         Self {
             entity,
-            key,
+            key: *key,
             raw: OnceCell::new(),
         }
     }
 
     /// Construct one data key while freezing the already-known raw on-disk
-    /// representation alongside the decoded storage key.
+    /// representation alongside the decoded scalar-or-composite primary key.
     #[must_use]
-    pub(in crate::db) fn new_with_raw(
+    pub(in crate::db) fn new_with_raw_primary_key_value(
         entity: EntityTag,
-        key: StorageKey,
+        key: &PrimaryKeyValue,
         raw: RawDataStoreKey,
     ) -> Self {
         let cache = OnceCell::new();
@@ -136,7 +149,7 @@ impl DecodedDataStoreKey {
 
         Self {
             entity,
-            key,
+            key: *key,
             raw: cache,
         }
     }
@@ -163,9 +176,8 @@ impl DecodedDataStoreKey {
         K: PrimaryKeyCodec,
     {
         let key = key.to_primary_key_value()?;
-        let key = scalar_storage_key_from_primary_key_value(&key)?;
 
-        Ok(Self::new(entity, key))
+        Ok(Self::new_primary_key_value(entity, &key))
     }
 
     /// Construct from one entity tag plus one structural planner key literal.
@@ -176,7 +188,7 @@ impl DecodedDataStoreKey {
         entity: EntityTag,
         key: &Value,
     ) -> Result<Self, InternalError> {
-        let key = primary_key_value_from_runtime_value(key)?;
+        let key = storage_key_from_runtime_value(key)?;
 
         Ok(Self::new(entity, key))
     }
@@ -197,7 +209,7 @@ impl DecodedDataStoreKey {
             ));
         }
 
-        <E::Key as PrimaryKeyDecode>::from_primary_key_value(&PrimaryKeyValue::from(self.key))
+        <E::Key as PrimaryKeyDecode>::from_primary_key_value(&self.key)
     }
 
     // ------------------------------------------------------------------
@@ -211,7 +223,11 @@ impl DecodedDataStoreKey {
 
     #[must_use]
     pub(in crate::db) const fn storage_key(&self) -> StorageKey {
-        self.key
+        self.try_storage_key_const()
+    }
+
+    pub(in crate::db) fn try_storage_key(&self) -> Result<StorageKey, InternalError> {
+        scalar_storage_key_from_primary_key_value(&self.key)
     }
 
     /// Compute the maximum on-disk entry size from value length.
@@ -248,7 +264,7 @@ impl DecodedDataStoreKey {
     pub(in crate::db) fn to_raw_compact_key_error(
         &self,
     ) -> Result<RawDataStoreKey, crate::db::key_taxonomy::CompactPrimaryKeyEncodeError> {
-        let primary_key = EncodedPrimaryKey::encode(PrimaryKeyValue::from(self.key))?;
+        let primary_key = EncodedPrimaryKey::encode(self.key)?;
         let raw = DataStoreKey::new(self.entity, primary_key).to_raw();
 
         Ok(raw)
@@ -264,7 +280,12 @@ impl DecodedDataStoreKey {
             return Ok(raw.clone());
         }
 
-        self.key.to_bytes()?;
+        let key =
+            self.try_storage_key()
+                .map_err(|_| StorageKeyEncodeError::UnsupportedValueKind {
+                    kind: "CompositePrimaryKey",
+                })?;
+        key.to_bytes()?;
         let raw = self
             .to_raw_compact_key_error()
             .expect("storage-key encodable value must compact-encode");
@@ -287,14 +308,53 @@ impl DecodedDataStoreKey {
         let decoded = DataStoreKey::try_from_raw_bytes(raw.as_bytes())
             .map_err(|source| DecodedDataStoreKeyDecodeError::StoreKey { source })?;
         let entity = decoded.entity_tag();
-        let key = StorageKey::from(
-            decoded
-                .primary_key()
-                .decode_component()
-                .map_err(PrimaryKeyValueDecodeError::from)?,
-        );
+        let key = decoded
+            .primary_key()
+            .decode()
+            .map_err(PrimaryKeyValueDecodeError::from)?;
 
-        Ok(Self::new_with_raw(entity, key, raw.clone()))
+        Ok(Self::new_with_raw_primary_key_value(
+            entity,
+            &key,
+            raw.clone(),
+        ))
+    }
+}
+
+impl DecodedDataStoreKey {
+    const fn try_storage_key_const(&self) -> StorageKey {
+        match self.key {
+            PrimaryKeyValue::Scalar(component) => storage_key_from_primary_key_component(component),
+            PrimaryKeyValue::Composite(_) => {
+                panic!("composite primary key reached scalar storage-key accessor")
+            }
+        }
+    }
+}
+
+const fn primary_key_component_from_storage_key(key: StorageKey) -> PrimaryKeyComponent {
+    match key {
+        StorageKey::Account(value) => PrimaryKeyComponent::Account(value),
+        StorageKey::Int(value) => PrimaryKeyComponent::Int(value),
+        StorageKey::Principal(value) => PrimaryKeyComponent::Principal(value),
+        StorageKey::Subaccount(value) => PrimaryKeyComponent::Subaccount(value),
+        StorageKey::Timestamp(value) => PrimaryKeyComponent::Timestamp(value),
+        StorageKey::Nat(value) => PrimaryKeyComponent::Nat(value),
+        StorageKey::Ulid(value) => PrimaryKeyComponent::Ulid(value),
+        StorageKey::Unit => PrimaryKeyComponent::Unit,
+    }
+}
+
+const fn storage_key_from_primary_key_component(component: PrimaryKeyComponent) -> StorageKey {
+    match component {
+        PrimaryKeyComponent::Account(value) => StorageKey::Account(value),
+        PrimaryKeyComponent::Int(value) => StorageKey::Int(value),
+        PrimaryKeyComponent::Principal(value) => StorageKey::Principal(value),
+        PrimaryKeyComponent::Subaccount(value) => StorageKey::Subaccount(value),
+        PrimaryKeyComponent::Timestamp(value) => StorageKey::Timestamp(value),
+        PrimaryKeyComponent::Nat(value) => StorageKey::Nat(value),
+        PrimaryKeyComponent::Ulid(value) => StorageKey::Ulid(value),
+        PrimaryKeyComponent::Unit => StorageKey::Unit,
     }
 }
 
@@ -303,7 +363,7 @@ fn scalar_storage_key_from_primary_key_value(
 ) -> Result<StorageKey, InternalError> {
     key.scalar_component().map(StorageKey::from).ok_or_else(|| {
         InternalError::store_unsupported(
-            "composite primary keys are not routed through DecodedDataStoreKey yet",
+            "composite primary key cannot be viewed as scalar StorageKey",
         )
     })
 }
@@ -350,7 +410,7 @@ impl Ord for DecodedDataStoreKey {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.entity
             .cmp(&other.entity)
-            .then_with(|| PrimaryKeyValue::from(self.key).cmp(&PrimaryKeyValue::from(other.key)))
+            .then_with(|| self.key.cmp(&other.key))
     }
 }
 
@@ -375,7 +435,7 @@ impl RawDataStoreKey {
 
     /// Maximum compact on-disk size in bytes.
     pub(in crate::db) const MAX_STORED_SIZE_BYTES: u64 =
-        Self::ENTITY_TAG_SIZE_BYTES + 1 + Account::STORED_SIZE as u64;
+        Self::ENTITY_TAG_SIZE_BYTES + COMPOSITE_PRIMARY_KEY_MAX_SIZE as u64;
 
     /// Maximum compact in-memory key size (for bounded storable metadata).
     pub(in crate::db) const MAX_STORED_SIZE_USIZE: usize = Self::MAX_STORED_SIZE_BYTES as usize;
@@ -432,17 +492,40 @@ impl Storable for RawDataStoreKey {
 mod tests {
     use super::*;
     use crate::{
+        db::key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent},
         error::{ErrorClass, ErrorOrigin, InternalError},
         traits::{KeyValueCodec, PrimaryKeyCodec, PrimaryKeyDecode},
         types::{Account, Principal, Subaccount, Timestamp, Ulid},
-        value::{Value, primary_key_value_from_runtime_value},
+        value::{Value, storage_key_from_runtime_value},
     };
     use std::borrow::Cow;
 
     fn max_width_data_store_key_fixture() -> DecodedDataStoreKey {
-        DecodedDataStoreKey::new(
+        let component = PrimaryKeyComponent::Account(Account::from_parts(
+            Principal::MAX,
+            Some(Subaccount::MAX),
+        ));
+        let key = CompositePrimaryKeyValue::try_from_components(&[
+            component, component, component, component,
+        ])
+        .expect("max-width composite primary key should build");
+
+        DecodedDataStoreKey::new_primary_key_value(
             EntityTag::new(u64::MAX),
-            StorageKey::Account(Account::from_parts(Principal::MAX, Some(Subaccount::MAX))),
+            &PrimaryKeyValue::Composite(key),
+        )
+    }
+
+    fn composite_data_key_fixture() -> DecodedDataStoreKey {
+        let key = CompositePrimaryKeyValue::try_from_components(&[
+            PrimaryKeyComponent::Nat(7),
+            PrimaryKeyComponent::Principal(Principal::from_slice(&[1, 2, 3])),
+        ])
+        .expect("composite primary key should build");
+
+        DecodedDataStoreKey::new_primary_key_value(
+            EntityTag::new(11),
+            &PrimaryKeyValue::Composite(key),
         )
     }
 
@@ -550,6 +633,7 @@ mod tests {
             DecodedDataStoreKey::new(EntityTag::new(1), StorageKey::Int(0)),
             DecodedDataStoreKey::new(EntityTag::new(2), StorageKey::Int(0)),
             DecodedDataStoreKey::new(EntityTag::new(1), StorageKey::Nat(1)),
+            composite_data_key_fixture(),
         ];
 
         let mut by_ord = keys.clone();
@@ -564,6 +648,28 @@ mod tests {
         });
 
         assert_eq!(by_ord, by_bytes);
+    }
+
+    #[test]
+    fn data_key_roundtrips_composite_primary_key_from_raw_bytes() {
+        let key = composite_data_key_fixture();
+        let raw = key.to_raw().expect("composite data key should encode");
+        let decoded =
+            DecodedDataStoreKey::try_from_raw(&raw).expect("composite data key should decode");
+
+        assert_eq!(decoded.entity_tag(), key.entity_tag());
+        assert_eq!(decoded.key, key.key);
+        assert_eq!(decoded.to_raw().unwrap().as_bytes(), raw.as_bytes());
+    }
+
+    #[test]
+    fn data_key_scalar_storage_key_accessor_rejects_composite_primary_key() {
+        let err = composite_data_key_fixture()
+            .try_storage_key()
+            .expect_err("composite key cannot be viewed as scalar StorageKey");
+
+        assert_eq!(err.class(), ErrorClass::Unsupported);
+        assert_eq!(err.origin(), ErrorOrigin::Store);
     }
 
     #[test]
@@ -632,7 +738,7 @@ mod tests {
 
         for value in unsupported_values {
             let typed_err = InternalError::from(
-                primary_key_value_from_runtime_value(&value)
+                storage_key_from_runtime_value(&value)
                     .expect_err("runtime bridge must reject non-primary-key values"),
             );
             let structural_err = DecodedDataStoreKey::try_from_structural_key(entity, &value)

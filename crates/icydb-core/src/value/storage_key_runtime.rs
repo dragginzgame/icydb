@@ -1,6 +1,6 @@
 use crate::value::{StorageKey, StorageKeyEncodeError, Value};
 
-// Name one runtime `Value` kind for primary-key bridge diagnostics.
+// Name one runtime `Value` kind for scalar storage-key bridge diagnostics.
 const fn runtime_value_kind_label(value: &Value) -> &'static str {
     match value {
         Value::Account(_) => "Account",
@@ -30,12 +30,12 @@ const fn runtime_value_kind_label(value: &Value) -> &'static str {
     }
 }
 
-/// Convert one decoded primary-key value into a runtime `Value`.
+/// Convert one decoded scalar storage key into a runtime `Value`.
 ///
 /// This bridge is runtime-only. Persistence and indexing must keep working on
-/// primary-key values directly rather than routing back through `Value`.
+/// key values directly rather than routing back through `Value`.
 #[must_use]
-pub(crate) const fn primary_key_value_as_runtime_value(key: &StorageKey) -> Value {
+pub(crate) const fn storage_key_as_runtime_value(key: &StorageKey) -> Value {
     match key {
         StorageKey::Account(v) => Value::Account(*v),
         StorageKey::Int(v) => Value::Int(*v),
@@ -48,12 +48,12 @@ pub(crate) const fn primary_key_value_as_runtime_value(key: &StorageKey) -> Valu
     }
 }
 
-/// Bridge one runtime `Value` into a decoded primary-key value.
+/// Bridge one runtime `Value` into a decoded scalar storage key.
 ///
 /// This quarantine helper exists only for runtime/structural surfaces that
 /// still traffic in `Value`. Typed persistence and indexing must use
 /// `PrimaryKeyCodec` instead of routing through this bridge.
-pub(crate) const fn primary_key_value_from_runtime_value(
+pub(crate) const fn storage_key_from_runtime_value(
     value: &Value,
 ) -> Result<StorageKey, StorageKeyEncodeError> {
     // Primary-key encodability is a persistent compatibility contract.

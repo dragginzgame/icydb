@@ -3,7 +3,7 @@
 //! Does not own: command execution, endpoint selection, or Candid decoding.
 //! Boundary: exposes reusable call builders and response decoding to CLI command surfaces.
 
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 pub(super) fn icp_query_command(
     environment: &str,
@@ -69,6 +69,53 @@ pub(super) fn hex_response_bytes(output: &str) -> Result<Vec<u8>, String> {
     }
 
     Ok(bytes)
+}
+
+pub(super) fn call_query_hex(
+    environment: &str,
+    canister: &str,
+    method: &str,
+    candid_arg: &str,
+    error_message: impl FnOnce(&str) -> String,
+) -> Result<Vec<u8>, String> {
+    call_hex(
+        icp_query_command(environment, canister, method, candid_arg),
+        error_message,
+    )
+}
+
+pub(super) fn call_update_hex(
+    environment: &str,
+    canister: &str,
+    method: &str,
+    candid_arg: &str,
+    error_message: impl FnOnce(&str) -> String,
+) -> Result<Vec<u8>, String> {
+    call_hex(
+        icp_update_command(environment, canister, method, candid_arg),
+        error_message,
+    )
+}
+
+fn call_hex(
+    mut command: Command,
+    error_message: impl FnOnce(&str) -> String,
+) -> Result<Vec<u8>, String> {
+    let output = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|err| err.to_string())?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(error_message(stderr.trim()));
+    }
+
+    let stdout = String::from_utf8(output.stdout).map_err(|err| err.to_string())?;
+
+    hex_response_bytes(stdout.as_str())
 }
 
 fn hex_nibble(byte: u8) -> Result<u8, String> {

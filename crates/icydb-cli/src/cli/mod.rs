@@ -25,7 +25,13 @@ pub(crate) const DEFAULT_ENVIRONMENT: &str = "demo";
 )]
 pub(crate) struct CliArgs {
     #[command(subcommand)]
-    pub(crate) command: CliCommand,
+    command: CliCommand,
+}
+
+impl CliArgs {
+    pub(crate) fn into_command(self) -> CliCommand {
+        self.command
+    }
 }
 
 ///
@@ -80,23 +86,37 @@ pub(crate) enum CliCommand {
 pub(crate) struct SqlArgs {
     /// Target ICP canister name.
     #[arg(short, long, required = true)]
-    pub(crate) canister: String,
+    canister: String,
 
     /// Target icp-cli environment.
     #[arg(short, long, env = "ICP_ENVIRONMENT", default_value = DEFAULT_ENVIRONMENT)]
-    pub(crate) environment: String,
+    environment: String,
 
     /// Interactive shell history file.
     #[arg(long, default_value = ".cache/sql_history")]
-    pub(crate) history_file: PathBuf,
+    history_file: PathBuf,
 
     /// Execute one SQL statement, including supported DDL, and exit.
     #[arg(long, conflicts_with = "trailing_sql")]
-    pub(crate) sql: Option<String>,
+    sql: Option<String>,
 
     /// SQL statement, including supported DDL, passed without --sql.
     #[arg(value_name = "SQL", allow_hyphen_values = true)]
-    pub(crate) trailing_sql: Vec<String>,
+    trailing_sql: Vec<String>,
+}
+
+impl SqlArgs {
+    pub(crate) fn into_shell_fields(
+        self,
+    ) -> (String, String, PathBuf, Option<String>, Vec<String>) {
+        (
+            self.canister,
+            self.environment,
+            self.history_file,
+            self.sql,
+            self.trailing_sql,
+        )
+    }
 }
 
 ///
@@ -223,11 +243,11 @@ pub(crate) enum ConfigCommand {
 pub(crate) struct ConfigArgs {
     /// Directory to start nearest `icydb.toml` discovery from.
     #[arg(long)]
-    pub(crate) start_dir: Option<PathBuf>,
+    start_dir: Option<PathBuf>,
 
     /// Optional icp-cli environment used for sync checks.
     #[arg(short, long, env = "ICP_ENVIRONMENT")]
-    pub(crate) environment: Option<String>,
+    environment: Option<String>,
 }
 
 impl ConfigArgs {
@@ -256,47 +276,47 @@ impl ConfigArgs {
 pub(crate) struct ConfigInitArgs {
     /// Directory used to choose where `icydb.toml` should be written.
     #[arg(long)]
-    pub(crate) start_dir: Option<PathBuf>,
+    start_dir: Option<PathBuf>,
 
     /// Canister whose generated DB endpoint surfaces should be configured.
     #[arg(short, long, required = true)]
-    pub(crate) canister: String,
+    canister: String,
 
     /// Also generate the DDL endpoint.
     #[arg(long)]
-    pub(crate) ddl: bool,
+    ddl: bool,
 
     /// Also generate fixture lifecycle endpoints.
     #[arg(long)]
-    pub(crate) fixtures: bool,
+    fixtures: bool,
 
     /// Also generate metrics report endpoint.
     #[arg(long)]
-    pub(crate) metrics: bool,
+    metrics: bool,
 
     /// Also generate the metrics reset endpoint.
     #[arg(long = "metrics-reset")]
-    pub(crate) metrics_reset: bool,
+    metrics_reset: bool,
 
     /// Also generate storage snapshot endpoint.
     #[arg(long)]
-    pub(crate) snapshot: bool,
+    snapshot: bool,
 
     /// Also generate accepted schema report endpoint.
     #[arg(long)]
-    pub(crate) schema: bool,
+    schema: bool,
 
     /// Generate all currently supported DB endpoint families.
     #[arg(long)]
-    pub(crate) all: bool,
+    all: bool,
 
     /// Disable the default readonly SQL endpoint.
     #[arg(long = "no-readonly", action = ArgAction::SetFalse, default_value_t = true)]
-    pub(crate) readonly: bool,
+    readonly: bool,
 
     /// Replace an existing target config file.
     #[arg(long)]
-    pub(crate) force: bool,
+    force: bool,
 }
 
 impl ConfigInitArgs {
@@ -386,7 +406,7 @@ impl UpgradeArgs {
         &self.target
     }
 
-    pub(crate) const fn wasm(&self) -> Option<&PathBuf> {
-        self.wasm.as_ref()
+    pub(crate) fn wasm(&self) -> Option<&Path> {
+        self.wasm.as_deref()
     }
 }

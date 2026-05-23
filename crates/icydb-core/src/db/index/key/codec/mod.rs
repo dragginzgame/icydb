@@ -16,7 +16,7 @@ use crate::{
         index::key::IndexId,
         key_taxonomy::{
             CompactPrimaryKeyDecodeError, EncodedIndexComponent, EncodedPrimaryKey, IndexStoreKey,
-            IndexStoreKeyKind, PrimaryKeyComponent,
+            IndexStoreKeyKind, PrimaryKeyComponent, PrimaryKeyValue,
         },
     },
 };
@@ -196,21 +196,36 @@ impl IndexKey {
         self.components.get(index).map(Vec::as_slice)
     }
 
-    pub(in crate::db) fn primary_key_value(&self) -> Result<StorageKey, StorageKeyDecodeError> {
-        let encoded = EncodedPrimaryKey::try_from(self.primary_key.as_slice())
+    pub(in crate::db) fn primary_key_value(
+        &self,
+    ) -> Result<PrimaryKeyValue, CompactPrimaryKeyDecodeError> {
+        EncodedPrimaryKey::try_from(self.primary_key.as_slice())?.decode()
+    }
+
+    pub(in crate::db) fn primary_key_storage_key(
+        &self,
+    ) -> Result<StorageKey, StorageKeyDecodeError> {
+        let value = self
+            .primary_key_value()
             .map_err(primary_key_decode_error_to_storage_key_decode_error)?;
 
-        encoded
-            .decode_component()
+        value
+            .scalar_component()
             .map(StorageKey::from)
-            .map_err(primary_key_decode_error_to_storage_key_decode_error)
+            .ok_or(StorageKeyDecodeError::InvalidSize)
+    }
+
+    pub(in crate::db) fn compact_primary_key_value_bytes(primary_key: &PrimaryKeyValue) -> Vec<u8> {
+        EncodedPrimaryKey::encode(*primary_key)
+            .expect("primary-key values must compact-encode")
+            .as_bytes()
+            .to_vec()
     }
 
     pub(in crate::db) fn compact_primary_key_bytes(primary_key: StorageKey) -> Vec<u8> {
-        EncodedPrimaryKey::encode(PrimaryKeyComponent::from(primary_key))
-            .expect("storage-key primary keys must compact-encode")
-            .as_bytes()
-            .to_vec()
+        Self::compact_primary_key_value_bytes(&PrimaryKeyValue::Scalar(PrimaryKeyComponent::from(
+            primary_key,
+        )))
     }
 }
 

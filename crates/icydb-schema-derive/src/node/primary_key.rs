@@ -1,5 +1,8 @@
 use crate::prelude::*;
 use darling::ast::NestedMeta;
+use std::collections::HashSet;
+
+const MAX_PRIMARY_KEY_FIELDS: usize = 4;
 
 ///
 /// PrimaryKey
@@ -26,7 +29,7 @@ impl PrimaryKey {
 impl FromMeta for PrimaryKey {
     fn from_list(items: &[NestedMeta]) -> Result<Self, DarlingError> {
         let mut fields = None;
-        let mut source = PrimaryKeySource::default();
+        let mut source = None;
 
         for item in items {
             let NestedMeta::Meta(syn::Meta::NameValue(name_value)) = item else {
@@ -56,7 +59,15 @@ impl FromMeta for PrimaryKey {
             }
 
             if name_value.path.is_ident("source") {
-                source = parse_primary_key_source(&name_value.value)?;
+                if source
+                    .replace(parse_primary_key_source(&name_value.value)?)
+                    .is_some()
+                {
+                    return Err(DarlingError::custom(
+                        "pk(...) accepts only one source = \"...\" argument",
+                    )
+                    .with_span(&name_value.path));
+                }
                 continue;
             }
 
@@ -72,23 +83,50 @@ impl FromMeta for PrimaryKey {
 
         if fields.is_empty() {
             return Err(DarlingError::custom(
-                "pk(fields = []) must contain one field in this release",
+                "pk(fields = []) must contain at least one field",
             ));
         }
-        if fields.len() > 1 {
-            return Err(DarlingError::custom(
-                "composite primary keys are not implemented yet; use one primary-key field",
-            )
-            .with_span(&fields[1]));
+        if fields.len() > MAX_PRIMARY_KEY_FIELDS {
+            return Err(DarlingError::custom(format!(
+                "pk(fields = [...]) supports at most {MAX_PRIMARY_KEY_FIELDS} fields"
+            ))
+            .with_span(&fields[MAX_PRIMARY_KEY_FIELDS]));
         }
 
         let fields = fields
             .iter()
             .map(parse_primary_key_field)
             .collect::<Result<Vec<_>, _>>()?;
+        reject_duplicate_primary_key_fields(&fields)?;
+        let source = match (source, fields.len()) {
+            (Some(PrimaryKeySource::Internal), len) if len > 1 => {
+                return Err(DarlingError::custom(
+                    "composite primary keys are external-only; remove source = \"internal\" or use source = \"external\"",
+                )
+                .with_span(&fields[1]));
+            }
+            (Some(source), _) => source,
+            (None, len) if len > 1 => PrimaryKeySource::External,
+            (None, _) => PrimaryKeySource::default(),
+        };
 
         Ok(Self { fields, source })
     }
+}
+
+fn reject_duplicate_primary_key_fields(fields: &[Ident]) -> Result<(), DarlingError> {
+    let mut seen = HashSet::new();
+    for field in fields {
+        let field_name = field.to_string();
+        if !seen.insert(field_name.clone()) {
+            return Err(DarlingError::custom(format!(
+                "primary key field '{field_name}' is declared more than once"
+            ))
+            .with_span(field));
+        }
+    }
+
+    Ok(())
 }
 
 impl HasSchemaPart for PrimaryKey {
@@ -244,19 +282,73 @@ mod tests {
             .expect_err("empty primary-key fields should reject");
 
         assert!(
-            err.to_string().contains("must contain one field"),
+            err.to_string().contains("at least one field"),
             "unexpected error: {err}",
         );
     }
 
     #[test]
-    fn from_list_rejects_composite_until_runtime_support_lands() {
-        let err = parse_primary_key(quote!(fields = ["tenant_id", "local_id"]))
-            .expect_err("composite primary-key syntax should reject until runtime support lands");
+    fn from_list_rejects_duplicate_fields() {
+        let err = parse_primary_key(quote!(fields = ["tenant_id", "tenant_id"]))
+            .expect_err("duplicate primary-key fields should reject");
 
         assert!(
             err.to_string()
-                .contains("composite primary keys are not implemented yet"),
+                .contains("primary key field 'tenant_id' is declared more than once"),
+            "unexpected error: {err}",
+        );
+    }
+
+    #[test]
+    fn from_list_rejects_too_many_fields() {
+        let err = parse_primary_key(quote!(fields = ["a", "b", "c", "d", "e"]))
+            .expect_err("too many primary-key fields should reject");
+
+        assert!(
+            err.to_string().contains("supports at most 4 fields"),
+            "unexpected error: {err}",
+        );
+    }
+
+    #[test]
+    fn from_list_parses_composite_with_external_default() {
+        let primary_key = parse_primary_key(quote!(fields = ["tenant_id", "local_id"]))
+            .expect("composite primary-key fields syntax should parse");
+
+        assert_eq!(
+            primary_key
+                .fields()
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            ["tenant_id", "local_id"],
+        );
+        assert_eq!(primary_key.source, PrimaryKeySource::External);
+    }
+
+    #[test]
+    fn from_list_parses_explicit_external_composite_source() {
+        let primary_key = parse_primary_key(quote!(
+            fields = ["tenant_id", "local_id"],
+            source = "external"
+        ))
+        .expect("explicit external composite primary-key source should parse");
+
+        assert_eq!(primary_key.fields().len(), 2);
+        assert_eq!(primary_key.source, PrimaryKeySource::External);
+    }
+
+    #[test]
+    fn from_list_rejects_explicit_internal_composite_source() {
+        let err = parse_primary_key(quote!(
+            fields = ["tenant_id", "local_id"],
+            source = "internal"
+        ))
+        .expect_err("internal composite primary-key source should reject");
+
+        assert!(
+            err.to_string()
+                .contains("composite primary keys are external-only"),
             "unexpected error: {err}",
         );
     }

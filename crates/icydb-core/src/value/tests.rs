@@ -9,7 +9,7 @@ use crate::{
     },
     value::{
         CoercionFamily, CoercionFamilyExt, SchemaInvariantError, TextMode, Value, ValueEnum,
-        hash_value, primary_key_value_as_runtime_value,
+        hash_value, storage_key_as_runtime_value,
     },
 };
 use std::cmp::Ordering;
@@ -200,7 +200,7 @@ fn primary_key_value_round_trips_through_value() {
             .as_primary_key_value()
             .expect("value should be convertible to primary-key value");
 
-        let back = primary_key_value_as_runtime_value(&key);
+        let back = storage_key_as_runtime_value(&key);
 
         assert_eq!(
             v, back,

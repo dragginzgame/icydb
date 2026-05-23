@@ -19,7 +19,7 @@ const CONFIG_FILE_NAME: &str = "icydb.toml";
 const CONFIG_PATH_ENV: &str = "ICYDB_CONFIG_PATH";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ConfigSurface {
+enum ConfigSurface {
     SqlReadonly,
     SqlDdl,
     SqlFixtures,
@@ -212,7 +212,7 @@ pub(crate) fn require_configured_endpoint(
     ))
 }
 
-pub(crate) fn disabled_config_surface_message(
+fn disabled_config_surface_message(
     resolved: &icydb_config_build::ResolvedIcydbConfig,
     canister: &str,
     surface: ConfigSurface,
@@ -229,7 +229,7 @@ pub(crate) fn disabled_config_surface_message(
     )
 }
 
-pub(crate) fn config_surface_enabled_for_resolved(
+fn config_surface_enabled_for_resolved(
     resolved: &icydb_config_build::ResolvedIcydbConfig,
     canister: &str,
     surface: ConfigSurface,
@@ -246,7 +246,7 @@ pub(crate) fn config_surface_enabled_for_resolved(
     }
 }
 
-pub(crate) fn configured_endpoint_enabled_for_resolved(
+fn configured_endpoint_enabled_for_resolved(
     resolved: &icydb_config_build::ResolvedIcydbConfig,
     canister: &str,
     endpoint: ConfiguredEndpoint,
@@ -344,7 +344,7 @@ enabled = {schema}
     )
 }
 
-pub(crate) fn render_config_report(
+fn render_config_report(
     start_dir: &Path,
     environment: Option<&str>,
     known_canisters: &[String],
@@ -422,7 +422,7 @@ pub(crate) fn render_config_report(
     report
 }
 
-pub(crate) fn config_sync_issues(
+fn config_sync_issues(
     environment: Option<&str>,
     known_canisters: &[String],
     resolved: &icydb_config_build::ResolvedIcydbConfig,
@@ -451,6 +451,75 @@ pub(crate) fn config_sync_issues(
     }
 
     issues
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub(crate) enum ConfigSurface {
+        SqlReadonly,
+        SqlDdl,
+        SqlFixtures,
+        Metrics,
+        MetricsReset,
+        Snapshot,
+        Schema,
+    }
+
+    impl ConfigSurface {
+        const fn into_inner(self) -> super::ConfigSurface {
+            match self {
+                Self::SqlReadonly => super::ConfigSurface::SqlReadonly,
+                Self::SqlDdl => super::ConfigSurface::SqlDdl,
+                Self::SqlFixtures => super::ConfigSurface::SqlFixtures,
+                Self::Metrics => super::ConfigSurface::Metrics,
+                Self::MetricsReset => super::ConfigSurface::MetricsReset,
+                Self::Snapshot => super::ConfigSurface::Snapshot,
+                Self::Schema => super::ConfigSurface::Schema,
+            }
+        }
+    }
+
+    pub(crate) fn disabled_config_surface_message(
+        resolved: &icydb_config_build::ResolvedIcydbConfig,
+        canister: &str,
+        surface: ConfigSurface,
+    ) -> String {
+        super::disabled_config_surface_message(resolved, canister, surface.into_inner())
+    }
+
+    pub(crate) fn config_surface_enabled_for_resolved(
+        resolved: &icydb_config_build::ResolvedIcydbConfig,
+        canister: &str,
+        surface: ConfigSurface,
+    ) -> bool {
+        super::config_surface_enabled_for_resolved(resolved, canister, surface.into_inner())
+    }
+
+    pub(crate) fn configured_endpoint_enabled_for_resolved(
+        resolved: &icydb_config_build::ResolvedIcydbConfig,
+        canister: &str,
+        endpoint: super::ConfiguredEndpoint,
+    ) -> bool {
+        super::configured_endpoint_enabled_for_resolved(resolved, canister, endpoint)
+    }
+
+    pub(crate) fn render_config_report(
+        start_dir: &std::path::Path,
+        environment: Option<&str>,
+        known_canisters: &[String],
+        resolved: &icydb_config_build::ResolvedIcydbConfig,
+    ) -> String {
+        super::render_config_report(start_dir, environment, known_canisters, resolved)
+    }
+
+    pub(crate) fn config_sync_issues(
+        environment: Option<&str>,
+        known_canisters: &[String],
+        resolved: &icydb_config_build::ResolvedIcydbConfig,
+    ) -> Vec<String> {
+        super::config_sync_issues(environment, known_canisters, resolved)
+    }
 }
 
 fn append_canister_table(report: &mut String, rows: &[[String; 5]]) {

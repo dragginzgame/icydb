@@ -8,11 +8,6 @@ pub struct EntityKindTrait {}
 
 impl Imp<Entity> for EntityKindTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
-        let pk_entry = node
-            .fields
-            .get(node.primary_key.scalar_field())
-            .expect("primary key field must be validated before derive generation");
-
         // PK key shape must always follow the declared field type.
         let pk_key_type = primary_key_type_expr(node);
         let store = &node.store;
@@ -22,7 +17,6 @@ impl Imp<Entity> for EntityKindTrait {
 
         Some(TraitStrategy::from_impl(entity_kind_strategy_tokens(
             node,
-            pk_entry,
             &pk_key_type,
             store,
             &resolved_entity_name,
@@ -51,7 +45,6 @@ fn primary_key_type_expr(node: &Entity) -> TokenStream {
 
 fn entity_kind_strategy_tokens(
     node: &Entity,
-    pk_entry: &Field,
     pk_key_type: &TokenStream,
     store: &Path,
     resolved_entity_name: &str,
@@ -66,9 +59,9 @@ fn entity_kind_strategy_tokens(
     tokens.extend(quote! {
         #(#relation_key_type_assertions)*
     });
-    tokens.extend(model_consistency_test_tokens(ident));
+    tokens.extend(model_consistency_test_tokens(node, ident));
 
-    if let Some(singleton) = singleton_entity_tokens(pk_entry, ident) {
+    if let Some(singleton) = singleton_entity_tokens(node, ident) {
         tokens.extend(singleton);
     }
 
@@ -122,7 +115,15 @@ fn entity_kind_impl_tokens(def: &Def, resolved_entity_name: &str) -> TokenStream
         .to_token_stream()
 }
 
-fn singleton_entity_tokens(pk_entry: &Field, ident: &Ident) -> Option<TokenStream> {
+fn singleton_entity_tokens(node: &Entity, ident: &Ident) -> Option<TokenStream> {
+    if node.primary_key.fields().len() != 1 {
+        return None;
+    }
+
+    let pk_entry = node
+        .fields
+        .get(node.primary_key.scalar_field())
+        .expect("primary key field must be validated before derive generation");
     if matches!(
         pk_entry.value.item.target(),
         ItemTarget::Primitive(Primitive::Unit)
@@ -141,8 +142,24 @@ fn resolved_entity_name(node: &Entity) -> String {
         .map_or_else(|| node.def.ident().to_string(), LitStr::value)
 }
 
-fn model_consistency_test_tokens(ident: &Ident) -> TokenStream {
+fn model_consistency_test_tokens(node: &Entity, ident: &Ident) -> TokenStream {
     let test_mod = format_ident!("__entity_model_test_{ident}");
+    let primary_key_len = node.primary_key.fields().len();
+    let primary_key_len_lit = syn::LitInt::new(&primary_key_len.to_string(), Span::call_site());
+    let scalar_assertion = if primary_key_len == 1 {
+        quote! {
+            assert!(model.primary_key_model().is_scalar());
+            assert!(model
+                .primary_key_model()
+                .fields()
+                .iter()
+                .any(|field| ::core::ptr::eq(field, model.primary_key())));
+        }
+    } else {
+        quote! {
+            assert!(!model.primary_key_model().is_scalar());
+        }
+    };
 
     quote! {
         #[cfg(test)]
@@ -166,15 +183,10 @@ fn model_consistency_test_tokens(ident: &Ident) -> TokenStream {
                     .any(|field| ::core::ptr::eq(field, model.primary_key())));
                 assert_eq!(
                     model.primary_key_model().len(),
-                    1,
-                    "generated scalar entities should expose one primary-key field",
+                    #primary_key_len_lit,
+                    "generated entities should expose the declared primary-key field count",
                 );
-                assert!(model.primary_key_model().is_scalar());
-                assert!(model
-                    .primary_key_model()
-                    .fields()
-                    .iter()
-                    .any(|field| ::core::ptr::eq(field, model.primary_key())));
+                #scalar_assertion
             }
         }
     }
@@ -222,16 +234,37 @@ pub struct EntityValueTrait {}
 
 impl Imp<Entity> for EntityValueTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
-        let pk_ident = node.primary_key.scalar_field();
+        let key_expr = entity_value_key_expr(node);
 
         let tokens = Implementor::new(&node.def, TraitKind::EntityValue)
             .set_tokens(quote! {
                 fn id(&self) -> ::icydb::types::Id<Self> {
-                    ::icydb::types::Id::from_key(self.#pk_ident)
+                    ::icydb::types::Id::from_key(#key_expr)
                 }
             })
             .to_token_stream();
 
         Some(TraitStrategy::from_impl(tokens))
+    }
+}
+
+fn entity_value_key_expr(node: &Entity) -> TokenStream {
+    if node.primary_key.fields().len() == 1 {
+        let pk_ident = node.primary_key.scalar_field();
+        return quote!(self.#pk_ident);
+    }
+
+    let ident = node.def.ident();
+    let key_ident = format_ident!("{ident}Key");
+    let fields = node.primary_key.fields().iter().map(|field| {
+        quote! {
+            #field: self.#field
+        }
+    });
+
+    quote! {
+        #key_ident {
+            #(#fields),*
+        }
     }
 }

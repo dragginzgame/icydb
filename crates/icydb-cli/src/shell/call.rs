@@ -3,9 +3,7 @@
 //! Does not own: SQL routing, response decoding, or final shell rendering.
 //! Boundary: exposes shell-call wire helpers to the shell runner and recovery hint tests.
 
-use std::process::Stdio;
-
-use crate::icp::{hex_response_bytes, icp_query_command, icp_update_command};
+use crate::icp::{call_query_hex, call_update_hex};
 
 pub(super) fn candid_escape_string(sql: &str) -> String {
     let mut escaped = String::with_capacity(sql.len());
@@ -30,29 +28,19 @@ pub(super) fn icp_query(
     escaped_sql: &str,
 ) -> Result<Vec<u8>, String> {
     let candid_arg = format!("(\"{escaped_sql}\")");
-    let output = icp_query_command(environment, canister, method, candid_arg.as_str())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|err| err.to_string())?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let error = format!(
-            "IcyDB SQL query method '{method}' failed on canister '{canister}' in environment '{environment}': {}",
-            stderr.trim()
-        );
-        return Err(sql_error_with_recovery_hint(
-            error.as_str(),
-            environment,
-            canister,
-        ));
-    }
-
-    let stdout = String::from_utf8(output.stdout).map_err(|err| err.to_string())?;
-
-    hex_response_bytes(stdout.as_str())
+    call_query_hex(
+        environment,
+        canister,
+        method,
+        candid_arg.as_str(),
+        |stderr| {
+            let error = format!(
+                "IcyDB SQL query method '{method}' failed on canister '{canister}' in environment '{environment}': {}",
+                stderr
+            );
+            sql_error_with_recovery_hint(error.as_str(), environment, canister)
+        },
+    )
 }
 
 pub(super) fn icp_update(
@@ -62,25 +50,13 @@ pub(super) fn icp_update(
     escaped_sql: &str,
 ) -> Result<Vec<u8>, String> {
     let candid_arg = format!("(\"{escaped_sql}\")");
-    let output = icp_update_command(environment, canister, method, candid_arg.as_str())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|err| err.to_string())?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(sql_error_with_recovery_hint(
-            stderr.trim(),
-            environment,
-            canister,
-        ));
-    }
-
-    let stdout = String::from_utf8(output.stdout).map_err(|err| err.to_string())?;
-
-    hex_response_bytes(stdout.as_str())
+    call_update_hex(
+        environment,
+        canister,
+        method,
+        candid_arg.as_str(),
+        |stderr| sql_error_with_recovery_hint(stderr, environment, canister),
+    )
 }
 
 pub(super) fn sql_error_with_recovery_hint(

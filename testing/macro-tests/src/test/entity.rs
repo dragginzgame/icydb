@@ -13,6 +13,10 @@ mod tests {
         traits::{EntityKey, EntitySchema},
         types::Ulid,
     };
+    use icydb_core::{
+        db::{PrimaryKeyComponent, PrimaryKeyValue},
+        traits::{EntityKeyBytes, EntityValue, KeyValueCodec, PrimaryKeyCodec, PrimaryKeyDecode},
+    };
     use icydb_testing_test_fixtures::schema::test::TestCanister;
 
     fn assert_entity_key<T>()
@@ -24,6 +28,93 @@ mod tests {
     #[test]
     fn internal_primary_key_uses_declared_field_type() {
         assert_entity_key::<Entity>();
+    }
+
+    fn assert_composite_entity_key<T>()
+    where
+        T: EntityKey<Key = CompositePrimaryKeyEntityKey>,
+    {
+    }
+
+    #[test]
+    fn composite_primary_key_uses_generated_key_type() {
+        assert_composite_entity_key::<CompositePrimaryKeyEntity>();
+    }
+
+    #[test]
+    fn composite_primary_key_model_preserves_ordered_fields() {
+        let fields = CompositePrimaryKeyEntity::MODEL
+            .primary_key_model()
+            .fields()
+            .iter()
+            .map(icydb_core::model::FieldModel::name)
+            .collect::<Vec<_>>();
+
+        assert_eq!(fields, ["tenant_id", "local_id"]);
+        assert!(
+            !CompositePrimaryKeyEntity::MODEL
+                .primary_key_model()
+                .is_scalar()
+        );
+    }
+
+    #[test]
+    fn composite_primary_key_type_round_trips_runtime_key_contracts() {
+        let key = CompositePrimaryKeyEntityKey {
+            tenant_id: 11,
+            local_id: 22,
+        };
+
+        let value = <CompositePrimaryKeyEntityKey as KeyValueCodec>::to_key_value(&key);
+        let from_value = <CompositePrimaryKeyEntityKey as KeyValueCodec>::from_key_value(&value)
+            .expect("composite key should decode from its runtime value");
+        assert_eq!(from_value, key);
+
+        let primary_key =
+            <CompositePrimaryKeyEntityKey as PrimaryKeyCodec>::to_primary_key_value(&key)
+                .expect("composite key should encode into primary-key value");
+        let PrimaryKeyValue::Composite(composite) = primary_key else {
+            panic!("expected composite primary-key value: {primary_key:?}");
+        };
+        assert_eq!(
+            composite.components(),
+            [PrimaryKeyComponent::Nat(11), PrimaryKeyComponent::Nat(22)],
+        );
+        let decoded = <CompositePrimaryKeyEntityKey as PrimaryKeyDecode>::from_primary_key_value(
+            &primary_key,
+        )
+        .expect("composite key should decode from primary-key value");
+        assert_eq!(decoded, key);
+    }
+
+    #[test]
+    fn composite_entity_id_uses_all_primary_key_fields() {
+        let entity = CompositePrimaryKeyEntity {
+            tenant_id: 31,
+            local_id: 42,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            entity.id().key(),
+            CompositePrimaryKeyEntityKey {
+                tenant_id: 31,
+                local_id: 42,
+            },
+        );
+    }
+
+    #[test]
+    fn composite_primary_key_bytes_concatenate_components() {
+        let key = CompositePrimaryKeyEntityKey {
+            tenant_id: 1,
+            local_id: 2,
+        };
+        let mut bytes = vec![0; CompositePrimaryKeyEntityKey::BYTE_LEN];
+
+        EntityKeyBytes::write_bytes(&key, &mut bytes);
+
+        assert_eq!(bytes, [1_u64.to_be_bytes(), 2_u64.to_be_bytes()].concat(),);
     }
 
     #[test]

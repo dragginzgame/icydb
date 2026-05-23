@@ -1,0 +1,12 @@
+error: primary key field 'tenant_id' is declared more than once
+  --> tests/ui/pk_fields_duplicate.rs:15:1
+   |
+15 | / #[entity(
+16 | |     store = "UiDataStore",
+17 | |     pk(fields = ["tenant_id", "tenant_id"]),
+18 | |     fields(
+...  |
+22 | | )]
+   | |__^
+   |
+   = note: this error originates in the attribute macro `entity` (in Nightly builds, run with -Z macro-backtrace for more info)
