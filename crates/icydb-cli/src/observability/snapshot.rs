@@ -10,9 +10,10 @@ use crate::{
     cli::CanisterTarget,
     config::{SNAPSHOT_ENDPOINT, require_configured_endpoint},
     icp::require_created_canister,
+    table::{ColumnAlign, append_indented_table},
 };
 
-use super::{call_query, render::table_width};
+use super::call_query;
 
 /// Read and print the generated storage snapshot endpoint.
 pub(super) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String> {
@@ -51,37 +52,37 @@ pub(super) fn render_snapshot_report(report: &StorageReport) -> String {
         .storage_data()
         .iter()
         .map(|row| {
-            (
-                row.path(),
+            [
+                row.path().to_string(),
                 row.entries().to_string(),
                 row.memory_bytes().to_string(),
-            )
+            ]
         })
         .collect::<Vec<_>>();
     let index_rows = report
         .storage_index()
         .iter()
         .map(|row| {
-            (
-                row.path(),
+            [
+                row.path().to_string(),
                 row.entries().to_string(),
                 row.user_entries().to_string(),
                 row.system_entries().to_string(),
                 row.memory_bytes().to_string(),
                 format!("{:?}", row.state()),
-            )
+            ]
         })
         .collect::<Vec<_>>();
     let entity_rows = report
         .entity_storage()
         .iter()
         .map(|row| {
-            (
-                row.path(),
-                row.store(),
+            [
+                row.path().to_string(),
+                row.store().to_string(),
                 row.entries().to_string(),
                 row.memory_bytes().to_string(),
-            )
+            ]
         })
         .collect::<Vec<_>>();
 
@@ -107,119 +108,62 @@ pub(super) fn render_snapshot_report(report: &StorageReport) -> String {
     output
 }
 
-fn append_data_store_table(output: &mut String, rows: &[(&str, String, String)]) {
+fn append_data_store_table(output: &mut String, rows: &[[String; 3]]) {
     output.push_str("data stores\n");
     if rows.is_empty() {
         output.push_str("  None\n");
         return;
     }
 
-    let path_width = table_width("path", rows.iter().map(|(path, _, _)| *path));
-    let entries_width = table_width(
-        "entries",
-        rows.iter().map(|(_, entries, _)| entries.as_str()),
+    append_indented_table(
+        output,
+        "  ",
+        &["path", "entries", "bytes"],
+        rows,
+        &[ColumnAlign::Left, ColumnAlign::Right, ColumnAlign::Right],
     );
-    let bytes_width = table_width("bytes", rows.iter().map(|(_, _, bytes)| bytes.as_str()));
-    output.push_str(
-        format!(
-            "  {path:<path_width$}  {entries:>entries_width$}  {bytes:>bytes_width$}\n",
-            path = "path",
-            entries = "entries",
-            bytes = "bytes",
-        )
-        .as_str(),
-    );
-    for (path, entries, bytes) in rows {
-        output.push_str(
-            format!("  {path:<path_width$}  {entries:>entries_width$}  {bytes:>bytes_width$}\n")
-                .as_str(),
-        );
-    }
 }
 
-fn append_index_store_table(
-    output: &mut String,
-    rows: &[(&str, String, String, String, String, String)],
-) {
+fn append_index_store_table(output: &mut String, rows: &[[String; 6]]) {
     output.push_str("index stores\n");
     if rows.is_empty() {
         output.push_str("  None\n");
         return;
     }
 
-    let path_width = table_width("path", rows.iter().map(|(path, _, _, _, _, _)| *path));
-    let entries_width = table_width(
-        "entries",
-        rows.iter().map(|(_, entries, _, _, _, _)| entries.as_str()),
+    append_indented_table(
+        output,
+        "  ",
+        &["path", "entries", "user", "system", "bytes", "state"],
+        rows,
+        &[
+            ColumnAlign::Left,
+            ColumnAlign::Right,
+            ColumnAlign::Right,
+            ColumnAlign::Right,
+            ColumnAlign::Right,
+            ColumnAlign::Left,
+        ],
     );
-    let user_width = table_width(
-        "user",
-        rows.iter().map(|(_, _, user, _, _, _)| user.as_str()),
-    );
-    let system_width = table_width(
-        "system",
-        rows.iter().map(|(_, _, _, system, _, _)| system.as_str()),
-    );
-    let bytes_width = table_width(
-        "bytes",
-        rows.iter().map(|(_, _, _, _, bytes, _)| bytes.as_str()),
-    );
-    let state_width = table_width(
-        "state",
-        rows.iter().map(|(_, _, _, _, _, state)| state.as_str()),
-    );
-    output.push_str(
-        format!(
-            "  {path:<path_width$}  {entries:>entries_width$}  {user:>user_width$}  {system:>system_width$}  {bytes:>bytes_width$}  {state:<state_width$}\n",
-            path = "path",
-            entries = "entries",
-            user = "user",
-            system = "system",
-            bytes = "bytes",
-            state = "state",
-        )
-        .as_str(),
-    );
-    for (path, entries, user, system, bytes, state) in rows {
-        output.push_str(
-            format!(
-                "  {path:<path_width$}  {entries:>entries_width$}  {user:>user_width$}  {system:>system_width$}  {bytes:>bytes_width$}  {state:<state_width$}\n"
-            )
-            .as_str(),
-        );
-    }
 }
 
-fn append_entity_table(output: &mut String, rows: &[(&str, &str, String, String)]) {
+fn append_entity_table(output: &mut String, rows: &[[String; 4]]) {
     output.push_str("entities\n");
     if rows.is_empty() {
         output.push_str("  None\n");
         return;
     }
 
-    let entity_width = table_width("entity", rows.iter().map(|(entity, _, _, _)| *entity));
-    let store_width = table_width("store", rows.iter().map(|(_, store, _, _)| *store));
-    let entries_width = table_width(
-        "entries",
-        rows.iter().map(|(_, _, entries, _)| entries.as_str()),
+    append_indented_table(
+        output,
+        "  ",
+        &["entity", "store", "entries", "bytes"],
+        rows,
+        &[
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Right,
+            ColumnAlign::Right,
+        ],
     );
-    let bytes_width = table_width("bytes", rows.iter().map(|(_, _, _, bytes)| bytes.as_str()));
-    output.push_str(
-        format!(
-            "  {entity:<entity_width$}  {store:<store_width$}  {entries:>entries_width$}  {bytes:>bytes_width$}\n",
-            entity = "entity",
-            store = "store",
-            entries = "entries",
-            bytes = "bytes",
-        )
-        .as_str(),
-    );
-    for (entity, store, entries, bytes) in rows {
-        output.push_str(
-            format!(
-                "  {entity:<entity_width$}  {store:<store_width$}  {entries:>entries_width$}  {bytes:>bytes_width$}\n"
-            )
-            .as_str(),
-        );
-    }
 }

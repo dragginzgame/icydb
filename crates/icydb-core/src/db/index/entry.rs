@@ -124,21 +124,28 @@ impl IndexEntryExistenceWitness {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct IndexEntryRowWitness {
-    storage_key: StorageKey,
+    primary_key_value: PrimaryKeyValue,
     existence_witness: IndexEntryExistenceWitness,
 }
 
 impl IndexEntryRowWitness {
-    const fn new(storage_key: StorageKey, existence_witness: IndexEntryExistenceWitness) -> Self {
+    const fn new(
+        primary_key_value: &PrimaryKeyValue,
+        existence_witness: IndexEntryExistenceWitness,
+    ) -> Self {
         Self {
-            storage_key,
+            primary_key_value: *primary_key_value,
             existence_witness,
         }
     }
 
     #[must_use]
-    pub(in crate::db) const fn storage_key(self) -> StorageKey {
-        self.storage_key
+    pub(in crate::db) const fn primary_key_value(&self) -> &PrimaryKeyValue {
+        &self.primary_key_value
+    }
+
+    pub(in crate::db) fn storage_key(&self) -> Result<StorageKey, IndexEntryCorruption> {
+        storage_key_from_primary_key_value(&self.primary_key_value)
     }
 
     #[must_use]
@@ -199,27 +206,13 @@ impl IndexEntryValue {
         limit: usize,
         map_corruption: impl FnOnce(IndexEntryCorruption) -> E,
     ) -> Result<bool, E> {
-        let row_witness = self.decode_row_witness(raw_key).map_err(map_corruption)?;
-        out.push(row_witness.storage_key());
+        let storage_key = self.decode_storage_key(raw_key).map_err(map_corruption)?;
+        out.push(storage_key);
         if out.len() >= limit {
             return Ok(true);
         }
 
         Ok(false)
-    }
-
-    /// Decode the key-owned scalar-or-composite row identity from a raw index
-    /// key after validating this entry's presence witness.
-    #[allow(
-        dead_code,
-        reason = "0.162 stages composite index row-identity decode before callers switch"
-    )]
-    pub(in crate::db) fn decode_primary_key_value(
-        &self,
-        raw_key: &RawIndexStoreKey,
-    ) -> Result<PrimaryKeyValue, IndexEntryCorruption> {
-        let _ = self.validate_witness()?;
-        primary_key_value_from_raw_index_store_key(raw_key)
     }
 
     #[cfg(test)]
@@ -246,7 +239,7 @@ impl IndexEntryValue {
         &self,
         raw_key: &RawIndexStoreKey,
     ) -> Result<StorageKey, IndexEntryCorruption> {
-        Ok(self.decode_row_witness(raw_key)?.storage_key())
+        self.decode_row_witness(raw_key)?.storage_key()
     }
 
     // Decode the key-owned raw entry row identity plus its storage-owned
@@ -256,9 +249,9 @@ impl IndexEntryValue {
         raw_key: &RawIndexStoreKey,
     ) -> Result<IndexEntryRowWitness, IndexEntryCorruption> {
         let witness = self.validate_witness()?;
-        let storage_key = storage_key_from_raw_index_store_key(raw_key)?;
+        let primary_key_value = primary_key_value_from_raw_index_store_key(raw_key)?;
 
-        Ok(IndexEntryRowWitness::new(storage_key, witness))
+        Ok(IndexEntryRowWitness::new(&primary_key_value, witness))
     }
 
     /// Validate the raw index entry structure without binding to an entity.
@@ -289,10 +282,10 @@ impl IndexEntryValue {
     }
 }
 
-fn storage_key_from_raw_index_store_key(
-    raw_key: &RawIndexStoreKey,
+fn storage_key_from_primary_key_value(
+    primary_key_value: &PrimaryKeyValue,
 ) -> Result<StorageKey, IndexEntryCorruption> {
-    primary_key_value_from_raw_index_store_key(raw_key)?
+    primary_key_value
         .scalar_component()
         .map(StorageKey::from)
         .ok_or(IndexEntryCorruption::InvalidKey)
@@ -443,7 +436,11 @@ mod tests {
             .decode_row_witness(&raw_key)
             .expect("decode row witness");
 
-        assert_eq!(row_witness.storage_key(), key);
+        assert_eq!(row_witness.storage_key().expect("scalar row witness"), key);
+        assert_eq!(
+            row_witness.primary_key_value(),
+            &PrimaryKeyValue::Scalar(PrimaryKeyComponent::from(key))
+        );
         assert_eq!(
             row_witness.existence_witness(),
             IndexEntryExistenceWitness::Present
@@ -461,11 +458,14 @@ mod tests {
         let raw_key = raw_key_for_primary_key_value(&key);
         let raw = IndexEntryValue::presence();
 
-        assert_eq!(
-            raw.decode_primary_key_value(&raw_key)
-                .expect("decode key-owned composite row identity"),
-            key
-        );
+        let row_witness = raw
+            .decode_row_witness(&raw_key)
+            .expect("decode composite row witness");
+        assert_eq!(row_witness.primary_key_value(), &key);
+        assert!(matches!(
+            row_witness.storage_key(),
+            Err(IndexEntryCorruption::InvalidKey)
+        ));
         assert!(matches!(
             raw.decode_storage_key(&raw_key),
             Err(IndexEntryCorruption::InvalidKey)

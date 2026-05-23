@@ -30,11 +30,6 @@ use crate::{
 pub(in crate::db) struct CompiledSchemaProposal {
     entity_path: &'static str,
     entity_name: &'static str,
-    #[allow(
-        dead_code,
-        reason = "generated proposal primary-key names remain pinned by generated compatibility fingerprint tests"
-    )]
-    primary_key_name: &'static str,
     primary_key_field_id: FieldId,
     primary_key_field_ids: Vec<FieldId>,
     fields: Vec<CompiledFieldProposal>,
@@ -52,16 +47,6 @@ impl CompiledSchemaProposal {
     #[must_use]
     pub(in crate::db) const fn entity_name(&self) -> &'static str {
         self.entity_name
-    }
-
-    /// Return the generated primary-key field name.
-    #[must_use]
-    #[allow(
-        dead_code,
-        reason = "generated proposal primary-key names remain pinned by generated compatibility fingerprint tests"
-    )]
-    pub(in crate::db) const fn primary_key_name(&self) -> &'static str {
-        self.primary_key_name
     }
 
     /// Return the schema field ID assigned to the generated primary key.
@@ -124,11 +109,11 @@ impl CompiledSchemaProposal {
             .map(CompiledIndexProposal::initial_persisted_index_snapshot)
             .collect::<Vec<_>>();
 
-        PersistedSchemaSnapshot::new_with_indexes(
+        PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
             SchemaVersion::initial(),
             self.entity_path().to_string(),
             self.entity_name().to_string(),
-            self.primary_key_field_id(),
+            self.primary_key_field_ids().to_vec(),
             self.initial_row_layout(),
             fields,
             indexes,
@@ -471,7 +456,6 @@ pub(in crate::db) fn compiled_schema_proposal_for_model(
     let proposal = CompiledSchemaProposal {
         entity_path: model.path(),
         entity_name: model.name(),
-        primary_key_name: model.primary_key().name(),
         primary_key_field_id: FieldId::from_initial_slot(model.primary_key_slot()),
         primary_key_field_ids: compiled_primary_key_field_ids(model),
         fields,

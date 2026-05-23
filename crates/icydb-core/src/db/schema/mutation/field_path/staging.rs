@@ -14,7 +14,7 @@ use super::*;
 )]
 #[derive(Clone, Copy)]
 pub(in crate::db::schema) struct SchemaFieldPathIndexRebuildRow<'a> {
-    primary_key_value: StorageKey,
+    primary_key_value: PrimaryKeyValue,
     slots: &'a dyn CanonicalSlotReader,
 }
 
@@ -24,18 +24,18 @@ pub(in crate::db::schema) struct SchemaFieldPathIndexRebuildRow<'a> {
 )]
 impl<'a> SchemaFieldPathIndexRebuildRow<'a> {
     #[must_use]
-    pub(in crate::db::schema) const fn new(
-        primary_key_value: StorageKey,
+    pub(in crate::db::schema) fn new(
+        primary_key_value: impl Into<PrimaryKeyValue>,
         slots: &'a dyn CanonicalSlotReader,
     ) -> Self {
         Self {
-            primary_key_value,
+            primary_key_value: primary_key_value.into(),
             slots,
         }
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn primary_key_value(self) -> StorageKey {
+    pub(in crate::db::schema) const fn primary_key_value(self) -> PrimaryKeyValue {
         self.primary_key_value
     }
 
@@ -132,8 +132,7 @@ impl SchemaFieldPathIndexStagedRebuild {
                 skipped_rows = skipped_rows.saturating_add(1);
                 continue;
             };
-            let entry = IndexRowIdentity::new(row.primary_key_value());
-            let raw_entry = IndexEntryValue::from(&entry);
+            let raw_entry = IndexEntryValue::presence();
 
             entries.push(SchemaFieldPathIndexStagedEntry {
                 key: key.to_raw(),

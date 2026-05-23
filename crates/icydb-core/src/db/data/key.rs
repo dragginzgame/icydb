@@ -222,6 +222,11 @@ impl DecodedDataStoreKey {
     }
 
     #[must_use]
+    pub(in crate::db) const fn primary_key_value(&self) -> PrimaryKeyValue {
+        self.key
+    }
+
+    #[must_use]
     pub(in crate::db) const fn storage_key(&self) -> StorageKey {
         self.try_storage_key_const()
     }

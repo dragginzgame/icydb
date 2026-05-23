@@ -1268,7 +1268,7 @@ fn bind_alter_table_drop_column_statement(
         });
     };
 
-    if accepted.primary_key_field_id() == field.id() {
+    if accepted.primary_key_field_ids().contains(&field.id()) {
         return Err(SqlDdlBindError::PrimaryKeyFieldDropRejected {
             entity_name: entity_name.to_string(),
             column_name: statement.column_name.clone(),

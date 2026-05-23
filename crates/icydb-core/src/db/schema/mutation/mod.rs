@@ -8,11 +8,9 @@ use crate::db::{
         finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32, write_hash_tag_u8,
         write_hash_u32,
     },
-    data::{CanonicalSlotReader, StorageKey},
-    index::{
-        IndexEntryValue, IndexId, IndexKey, IndexRowIdentity, IndexState, IndexStore,
-        RawIndexStoreKey,
-    },
+    data::CanonicalSlotReader,
+    index::{IndexEntryValue, IndexId, IndexKey, IndexState, IndexStore, RawIndexStoreKey},
+    key_taxonomy::PrimaryKeyValue,
     predicate::PredicateProgram,
     schema::{
         AcceptedSchemaSnapshot, FieldId, PersistedFieldKind, PersistedFieldSnapshot,
@@ -2130,11 +2128,11 @@ pub(in crate::db) fn derive_sql_ddl_field_path_index_accepted_after(
     let before = accepted_before.persisted_snapshot();
     let mut indexes = before.indexes().to_vec();
     indexes.push(index);
-    let persisted_after = PersistedSchemaSnapshot::new_with_indexes(
+    let persisted_after = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
         before.version(),
         before.entity_path().to_string(),
         before.entity_name().to_string(),
-        before.primary_key_field_id(),
+        before.primary_key_field_ids().to_vec(),
         before.row_layout().clone(),
         before.fields().to_vec(),
         indexes,
@@ -2169,11 +2167,11 @@ pub(in crate::db) fn derive_sql_ddl_field_addition_accepted_after(
     fields.push(field.clone());
     let mut field_to_slot = before.row_layout().field_to_slot().to_vec();
     field_to_slot.push((field.id(), field.slot()));
-    let persisted_after = PersistedSchemaSnapshot::new_with_indexes(
+    let persisted_after = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
         before.version(),
         before.entity_path().to_string(),
         before.entity_name().to_string(),
-        before.primary_key_field_id(),
+        before.primary_key_field_ids().to_vec(),
         SchemaRowLayout::new_with_retired_slots(
             before.row_layout().version(),
             field_to_slot,
@@ -2214,11 +2212,11 @@ pub(in crate::db) fn derive_sql_ddl_field_drop_accepted_after(
         .row_layout()
         .clone_retiring_field(before_field.id())
         .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
-    let persisted_after = PersistedSchemaSnapshot::new_with_indexes(
+    let persisted_after = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
         before.version(),
         before.entity_path().to_string(),
         before.entity_name().to_string(),
-        before.primary_key_field_id(),
+        before.primary_key_field_ids().to_vec(),
         row_layout,
         fields,
         before.indexes().to_vec(),
@@ -2257,11 +2255,11 @@ pub(in crate::db) fn derive_sql_ddl_field_default_accepted_after(
             }
         })
         .collect();
-    let persisted_after = PersistedSchemaSnapshot::new_with_indexes(
+    let persisted_after = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
         before.version(),
         before.entity_path().to_string(),
         before.entity_name().to_string(),
-        before.primary_key_field_id(),
+        before.primary_key_field_ids().to_vec(),
         before.row_layout().clone(),
         fields,
         before.indexes().to_vec(),
@@ -2306,11 +2304,11 @@ pub(in crate::db) fn derive_sql_ddl_field_nullability_accepted_after(
             }
         })
         .collect();
-    let persisted_after = PersistedSchemaSnapshot::new_with_indexes(
+    let persisted_after = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
         before.version(),
         before.entity_path().to_string(),
         before.entity_name().to_string(),
-        before.primary_key_field_id(),
+        before.primary_key_field_ids().to_vec(),
         before.row_layout().clone(),
         fields,
         before.indexes().to_vec(),
@@ -2366,11 +2364,11 @@ pub(in crate::db) fn derive_sql_ddl_field_rename_accepted_after(
             )
         })
         .collect();
-    let persisted_after = PersistedSchemaSnapshot::new_with_indexes(
+    let persisted_after = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
         before.version(),
         before.entity_path().to_string(),
         before.entity_name().to_string(),
-        before.primary_key_field_id(),
+        before.primary_key_field_ids().to_vec(),
         before.row_layout().clone(),
         fields,
         indexes,
@@ -2400,11 +2398,11 @@ pub(in crate::db) fn derive_sql_ddl_expression_index_accepted_after(
     let before = accepted_before.persisted_snapshot();
     let mut indexes = before.indexes().to_vec();
     indexes.push(index.clone());
-    let persisted_after = PersistedSchemaSnapshot::new_with_indexes(
+    let persisted_after = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
         before.version(),
         before.entity_path().to_string(),
         before.entity_name().to_string(),
-        before.primary_key_field_id(),
+        before.primary_key_field_ids().to_vec(),
         before.row_layout().clone(),
         before.fields().to_vec(),
         indexes,
@@ -2432,11 +2430,11 @@ pub(in crate::db) fn derive_sql_ddl_secondary_index_drop_accepted_after(
         .filter(|candidate| candidate.name() != index.name())
         .cloned()
         .collect::<Vec<_>>();
-    let persisted_after = PersistedSchemaSnapshot::new_with_indexes(
+    let persisted_after = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
         before.version(),
         before.entity_path().to_string(),
         before.entity_name().to_string(),
-        before.primary_key_field_id(),
+        before.primary_key_field_ids().to_vec(),
         before.row_layout().clone(),
         before.fields().to_vec(),
         indexes,
@@ -2779,7 +2777,7 @@ fn single_added_index<'a>(
 ) -> Option<&'a PersistedIndexSnapshot> {
     if actual.entity_path() != expected.entity_path()
         || actual.entity_name() != expected.entity_name()
-        || actual.primary_key_field_id() != expected.primary_key_field_id()
+        || actual.primary_key_field_ids() != expected.primary_key_field_ids()
         || actual.row_layout().field_to_slot() != expected.row_layout().field_to_slot()
         || actual.fields() != expected.fields()
         || expected.indexes().len() != actual.indexes().len().saturating_add(1)

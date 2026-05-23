@@ -95,7 +95,14 @@ fn hash_entity_model_for_commit(hasher: &mut Sha256, model: &EntityModel) {
     // Phase 1: hash core entity identity and field-shape contract.
     hash_labeled_str(hasher, "model_path", proposal.entity_path());
     hash_labeled_str(hasher, "entity_name", proposal.entity_name());
-    hash_labeled_str(hasher, "primary_key", proposal.primary_key_name());
+    hash_labeled_len(
+        hasher,
+        "primary_key_field_count",
+        model.primary_key_model().fields().len(),
+    );
+    for primary_key_field in model.primary_key_model().fields().iter() {
+        hash_labeled_str(hasher, "primary_key_field", primary_key_field.name());
+    }
     hash_labeled_len(hasher, "field_count", proposal.fields().len());
 
     for field in proposal.fields() {
@@ -238,7 +245,7 @@ mod tests {
         db::Predicate,
         db::schema::fingerprint::{hash_entity_model_for_commit, hash_labeled_str},
         model::{
-            entity::EntityModel,
+            entity::{EntityModel, PrimaryKeyModel},
             field::{
                 FieldInsertGeneration, FieldKind, FieldModel, FieldStorageDecode,
                 FieldWriteManagement,
@@ -498,6 +505,17 @@ mod tests {
         &CONTRACT_INSERT_GENERATION_FIELDS,
         &EMPTY_INDEX_REFS,
     );
+    static CONTRACT_COMPOSITE_PRIMARY_KEY_FIELDS: [&FieldModel; 2] =
+        [&CONTRACT_BASE_FIELDS[0], &CONTRACT_BASE_FIELDS[1]];
+    static CONTRACT_COMPOSITE_PRIMARY_KEY_MODEL: EntityModel =
+        EntityModel::generated_with_primary_key_model(
+            "fingerprint::ContractEntity",
+            "ContractEntity",
+            PrimaryKeyModel::ordered(&CONTRACT_COMPOSITE_PRIMARY_KEY_FIELDS),
+            0,
+            &CONTRACT_BASE_FIELDS,
+            &EMPTY_INDEX_REFS,
+        );
     static CONTRACT_DECIMAL_SCALE_2_MODEL: EntityModel = EntityModel::generated(
         "fingerprint::ContractEntity",
         "ContractEntity",
@@ -547,6 +565,11 @@ mod tests {
             fingerprint_for_model(&CONTRACT_BASE_MODEL),
             fingerprint_for_model(&CONTRACT_INDEXED_MODEL),
             "index contract changes are part of today's commit schema fingerprint contract",
+        );
+        assert_ne!(
+            fingerprint_for_model(&CONTRACT_BASE_MODEL),
+            fingerprint_for_model(&CONTRACT_COMPOSITE_PRIMARY_KEY_MODEL),
+            "primary-key arity changes are part of today's commit schema fingerprint contract",
         );
     }
 

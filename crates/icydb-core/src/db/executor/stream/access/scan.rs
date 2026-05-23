@@ -428,6 +428,6 @@ impl IndexScan {
         entity: EntityTag,
         row_witness: &IndexEntryRowWitness,
     ) -> DecodedDataStoreKey {
-        DecodedDataStoreKey::new(entity, row_witness.storage_key())
+        DecodedDataStoreKey::new_primary_key_value(entity, row_witness.primary_key_value())
     }
 }

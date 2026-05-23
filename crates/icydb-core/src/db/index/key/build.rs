@@ -220,11 +220,12 @@ impl IndexKey {
     )]
     pub(crate) fn new_from_slots_with_field_path_rebuild_target(
         entity_tag: EntityTag,
-        storage_key: StorageKey,
+        primary_key: impl Into<PrimaryKeyValue>,
         target: &SchemaFieldPathIndexRebuildTarget,
         slots: &dyn CanonicalSlotReader,
     ) -> Result<Option<Self>, InternalError> {
-        build_field_path_rebuild_target_key(entity_tag, storage_key, target, &mut |field| {
+        let primary_key = primary_key.into();
+        build_field_path_rebuild_target_key(entity_tag, &primary_key, target, &mut |field| {
             field_path_rebuild_component_bytes_from_slots(field, slots)
         })
     }
@@ -238,11 +239,12 @@ impl IndexKey {
     )]
     pub(crate) fn new_from_slots_with_expression_rebuild_target(
         entity_tag: EntityTag,
-        storage_key: StorageKey,
+        primary_key: impl Into<PrimaryKeyValue>,
         target: &SchemaExpressionIndexRebuildTarget,
         slots: &dyn CanonicalSlotReader,
     ) -> Result<Option<Self>, InternalError> {
-        build_expression_rebuild_target_key(entity_tag, storage_key, target, &mut |key_item| {
+        let primary_key = primary_key.into();
+        build_expression_rebuild_target_key(entity_tag, &primary_key, target, &mut |key_item| {
             expression_rebuild_component_bytes_from_slots(target.name(), key_item, slots)
         })
     }
@@ -888,7 +890,7 @@ fn build_accepted_expression_index_key_from_slots(
 )]
 fn build_field_path_rebuild_target_key(
     entity_tag: EntityTag,
-    storage_key: StorageKey,
+    primary_key: &PrimaryKeyValue,
     target: &SchemaFieldPathIndexRebuildTarget,
     component_bytes: &mut FieldPathRebuildComponentEncoder<'_>,
 ) -> Result<Option<IndexKey>, InternalError> {
@@ -921,7 +923,7 @@ fn build_field_path_rebuild_target_key(
         key_kind: IndexKeyKind::User,
         index_id: IndexId::new(entity_tag, target.ordinal()),
         components,
-        primary_key: IndexKey::compact_primary_key_bytes(storage_key),
+        primary_key: IndexKey::compact_primary_key_value_bytes(primary_key),
     }))
 }
 
@@ -931,7 +933,7 @@ fn build_field_path_rebuild_target_key(
 )]
 fn build_expression_rebuild_target_key(
     entity_tag: EntityTag,
-    storage_key: StorageKey,
+    primary_key: &PrimaryKeyValue,
     target: &SchemaExpressionIndexRebuildTarget,
     component_bytes: &mut ExpressionRebuildComponentEncoder<'_>,
 ) -> Result<Option<IndexKey>, InternalError> {
@@ -964,7 +966,7 @@ fn build_expression_rebuild_target_key(
         key_kind: IndexKeyKind::User,
         index_id: IndexId::new(entity_tag, target.ordinal()),
         components,
-        primary_key: IndexKey::compact_primary_key_bytes(storage_key),
+        primary_key: IndexKey::compact_primary_key_value_bytes(primary_key),
     }))
 }
 

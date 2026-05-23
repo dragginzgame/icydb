@@ -451,7 +451,7 @@ pub(crate) struct SchemaInfo {
     expression_indexes: Vec<SchemaExpressionIndexInfo>,
     entity_path: Option<String>,
     entity_name: Option<String>,
-    primary_key_name: Option<String>,
+    primary_key_names: Vec<String>,
     has_any_strong_relations: bool,
 }
 
@@ -491,7 +491,7 @@ impl SchemaInfo {
             expression_indexes: Vec::new(),
             entity_path: None,
             entity_name: None,
-            primary_key_name: None,
+            primary_key_names: Vec::new(),
             has_any_strong_relations: false,
         }
     }
@@ -501,7 +501,12 @@ impl SchemaInfo {
         let mut schema = Self::from_trusted_field_models(model.fields());
         schema.entity_path = Some(model.path().to_string());
         schema.entity_name = Some(model.name().to_string());
-        schema.primary_key_name = Some(model.primary_key().name().to_string());
+        schema.primary_key_names = model
+            .primary_key_model()
+            .fields()
+            .iter()
+            .map(|field| field.name().to_string())
+            .collect();
         schema.has_any_strong_relations = model.has_any_strong_relations();
 
         for (field_name, field) in &mut schema.fields {
@@ -583,7 +588,16 @@ impl SchemaInfo {
     /// was built from an entity model or accepted persisted snapshot.
     #[must_use]
     pub(in crate::db) fn primary_key_name(&self) -> Option<&str> {
-        self.primary_key_name.as_deref()
+        self.primary_key_names.first().map(String::as_str)
+    }
+
+    /// Borrow schema-owned primary-key field names in accepted key order.
+    ///
+    /// Scalar-only consumers may still use `primary_key_name`; composite-aware
+    /// admission and deterministic ordering must use the full ordered slice.
+    #[must_use]
+    pub(in crate::db) const fn primary_key_names(&self) -> &[String] {
+        self.primary_key_names.as_slice()
     }
 
     /// Return whether this entity has any strong relation checks.
@@ -868,11 +882,17 @@ impl SchemaInfo {
 
         fields.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
 
-        let primary_key_name = snapshot
-            .fields()
+        let primary_key_names = snapshot
+            .primary_key_field_ids()
             .iter()
-            .find(|field| field.id() == snapshot.primary_key_field_id())
-            .map(|field| field.name().to_string());
+            .filter_map(|field_id| {
+                snapshot
+                    .fields()
+                    .iter()
+                    .find(|field| field.id() == *field_id)
+                    .map(|field| field.name().to_string())
+            })
+            .collect();
 
         Self {
             fields,
@@ -892,7 +912,7 @@ impl SchemaInfo {
                 .collect(),
             entity_path: Some(schema.entity_path().to_string()),
             entity_name: Some(schema.entity_name().to_string()),
-            primary_key_name,
+            primary_key_names,
             has_any_strong_relations: snapshot
                 .fields()
                 .iter()
@@ -1277,6 +1297,58 @@ mod tests {
         ))
     }
 
+    fn accepted_schema_with_composite_primary_key() -> AcceptedSchemaSnapshot {
+        AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "schema::info::tests::Entity".to_string(),
+            "Entity".to_string(),
+            vec![FieldId::new(1), FieldId::new(3)],
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                    (FieldId::new(3), SchemaFieldSlot::new(2)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "name".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Text { max_len: None },
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(3),
+                    "age".to_string(),
+                    SchemaFieldSlot::new(2),
+                    PersistedFieldKind::Nat,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+            ],
+        ))
+    }
+
     fn accepted_schema_with_lower_name_index() -> AcceptedSchemaSnapshot {
         let source = PersistedIndexFieldPathSnapshot::new(
             FieldId::new(2),
@@ -1416,6 +1488,17 @@ mod tests {
         assert_eq!(accepted.entity_name(), Some("Entity"));
         assert_eq!(generated.primary_key_name(), Some("id"));
         assert_eq!(accepted.primary_key_name(), Some("id"));
+        assert_eq!(generated.primary_key_names(), ["id"]);
+        assert_eq!(accepted.primary_key_names(), ["id"]);
+    }
+
+    #[test]
+    fn accepted_snapshot_schema_info_exposes_ordered_primary_key_names() {
+        let snapshot = accepted_schema_with_composite_primary_key();
+        let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
+
+        assert_eq!(accepted.primary_key_name(), Some("id"));
+        assert_eq!(accepted.primary_key_names(), ["id", "age"]);
     }
 
     #[test]

@@ -22,7 +22,7 @@ use crate::{
 use candid::{CandidType, Decode, Encode};
 use serde::Deserialize;
 
-const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 4;
+const SCHEMA_SNAPSHOT_CODEC_VERSION: u32 = 5;
 
 // Candid wire container for one persisted schema snapshot.
 //
@@ -34,7 +34,7 @@ struct PersistedSchemaSnapshotWire {
     version: u32,
     entity_path: String,
     entity_name: String,
-    primary_key_field_id: u32,
+    primary_key_field_ids: Vec<u32>,
     row_layout: SchemaRowLayoutWire,
     fields: Vec<PersistedFieldSnapshotWire>,
     indexes: Vec<PersistedIndexSnapshotWire>,
@@ -308,7 +308,11 @@ impl PersistedSchemaSnapshotWire {
             version: snapshot.version().get(),
             entity_path: snapshot.entity_path().to_string(),
             entity_name: snapshot.entity_name().to_string(),
-            primary_key_field_id: snapshot.primary_key_field_id().get(),
+            primary_key_field_ids: snapshot
+                .primary_key_field_ids()
+                .iter()
+                .map(|field_id| field_id.get())
+                .collect(),
             row_layout: SchemaRowLayoutWire::from_layout(snapshot.row_layout()),
             fields: snapshot
                 .fields()
@@ -338,7 +342,11 @@ impl PersistedSchemaSnapshotWire {
             .into_iter()
             .map(PersistedFieldSnapshotWire::into_field)
             .collect::<Result<Vec<_>, _>>()?;
-        let primary_key_field_id = FieldId::new(self.primary_key_field_id);
+        let primary_key_field_ids = self
+            .primary_key_field_ids
+            .into_iter()
+            .map(FieldId::new)
+            .collect::<Vec<_>>();
         let indexes = self
             .indexes
             .into_iter()
@@ -347,7 +355,7 @@ impl PersistedSchemaSnapshotWire {
         if let Some(detail) = schema_snapshot_integrity_detail(
             "persisted schema snapshot",
             version,
-            primary_key_field_id,
+            primary_key_field_ids.as_slice(),
             &row_layout,
             &fields,
         ) {
@@ -363,15 +371,17 @@ impl PersistedSchemaSnapshotWire {
             return Err(InternalError::store_corruption(detail));
         }
 
-        Ok(PersistedSchemaSnapshot::new_with_indexes(
-            version,
-            self.entity_path,
-            self.entity_name,
-            primary_key_field_id,
-            row_layout,
-            fields,
-            indexes,
-        ))
+        Ok(
+            PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+                version,
+                self.entity_path,
+                self.entity_name,
+                primary_key_field_ids,
+                row_layout,
+                fields,
+                indexes,
+            ),
+        )
     }
 }
 
@@ -1138,6 +1148,75 @@ mod tests {
         assert_eq!(
             decoded.fields()[0].default().slot_payload(),
             Some(default_payload.as_slice())
+        );
+    }
+
+    #[test]
+    fn persisted_schema_snapshot_round_trips_ordered_primary_key_field_ids() {
+        let snapshot = PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "entities::CompositeKeyed".to_string(),
+            "CompositeKeyed".to_string(),
+            vec![FieldId::new(1), FieldId::new(3)],
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                    (FieldId::new(3), SchemaFieldSlot::new(2)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "tenant_id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Nat,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Nat64),
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "name".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Text { max_len: None },
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Text),
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(3),
+                    "local_id".to_string(),
+                    SchemaFieldSlot::new(2),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+            ],
+        );
+        let encoded = encode_persisted_schema_snapshot(&snapshot)
+            .expect("schema snapshot should encode ordered primary-key fields");
+
+        let decoded = decode_persisted_schema_snapshot(&encoded)
+            .expect("schema snapshot should decode ordered primary-key fields");
+
+        assert_eq!(
+            decoded.primary_key_field_ids(),
+            &[FieldId::new(1), FieldId::new(3)],
+            "accepted schema codec must preserve composite primary-key arity and order",
+        );
+        assert_eq!(
+            decoded.primary_key_field_id(),
+            FieldId::new(1),
+            "scalar bridge accessor remains the first primary-key field only",
         );
     }
 

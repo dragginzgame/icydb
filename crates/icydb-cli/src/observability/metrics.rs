@@ -10,12 +10,10 @@ use crate::{
     cli::{CanisterTarget, MetricsArgs},
     config::{METRICS_ENDPOINT, METRICS_RESET_ENDPOINT, require_configured_endpoint},
     icp::require_created_canister,
+    table::{ColumnAlign, append_indented_table},
 };
 
-use super::{
-    call_query, call_update,
-    render::{optional_u64, table_width, yes_no},
-};
+use super::{call_query, call_update, render::yes_no};
 
 /// Read or reset the generated metrics endpoints.
 pub(super) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
@@ -122,14 +120,14 @@ pub(super) fn render_metrics_report(report: &EventReport) -> String {
         .entity_counters()
         .iter()
         .map(|entity| {
-            (
-                entity.path(),
+            [
+                entity.path().to_string(),
                 entity.load_calls().to_string(),
                 entity.save_calls().to_string(),
                 entity.delete_calls().to_string(),
                 entity.exec_success().to_string(),
                 entity_exec_errors(entity).to_string(),
-            )
+            ]
         })
         .collect::<Vec<_>>();
     append_metrics_entity_table(&mut output, entity_rows.as_slice());
@@ -173,57 +171,31 @@ fn append_metrics_counters(output: &mut String, counters: &EventCounters) {
     );
 }
 
-fn append_metrics_entity_table(
-    output: &mut String,
-    rows: &[(&str, String, String, String, String, String)],
-) {
+fn optional_u64(value: Option<u64>) -> String {
+    value.map_or_else(|| "none".to_string(), |value| value.to_string())
+}
+
+fn append_metrics_entity_table(output: &mut String, rows: &[[String; 6]]) {
     output.push_str("entities\n");
     if rows.is_empty() {
         output.push_str("  None\n");
         return;
     }
 
-    let entity_width = table_width("entity", rows.iter().map(|(entity, _, _, _, _, _)| *entity));
-    let load_width = table_width(
-        "load",
-        rows.iter().map(|(_, load, _, _, _, _)| load.as_str()),
+    append_indented_table(
+        output,
+        "  ",
+        &["entity", "load", "save", "delete", "success", "errors"],
+        rows,
+        &[
+            ColumnAlign::Left,
+            ColumnAlign::Right,
+            ColumnAlign::Right,
+            ColumnAlign::Right,
+            ColumnAlign::Right,
+            ColumnAlign::Right,
+        ],
     );
-    let save_width = table_width(
-        "save",
-        rows.iter().map(|(_, _, save, _, _, _)| save.as_str()),
-    );
-    let delete_width = table_width(
-        "delete",
-        rows.iter().map(|(_, _, _, delete, _, _)| delete.as_str()),
-    );
-    let success_width = table_width(
-        "success",
-        rows.iter().map(|(_, _, _, _, success, _)| success.as_str()),
-    );
-    let errors_width = table_width(
-        "errors",
-        rows.iter().map(|(_, _, _, _, _, errors)| errors.as_str()),
-    );
-    output.push_str(
-        format!(
-            "  {entity:<entity_width$}  {load:>load_width$}  {save:>save_width$}  {delete:>delete_width$}  {success:>success_width$}  {errors:>errors_width$}\n",
-            entity = "entity",
-            load = "load",
-            save = "save",
-            delete = "delete",
-            success = "success",
-            errors = "errors",
-        )
-        .as_str(),
-    );
-    for (entity, load, save, delete, success, errors) in rows {
-        output.push_str(
-            format!(
-                "  {entity:<entity_width$}  {load:>load_width$}  {save:>save_width$}  {delete:>delete_width$}  {success:>success_width$}  {errors:>errors_width$}\n"
-            )
-            .as_str(),
-        );
-    }
 }
 
 const fn ops_exec_errors(ops: &icydb::metrics::EventOps) -> u64 {

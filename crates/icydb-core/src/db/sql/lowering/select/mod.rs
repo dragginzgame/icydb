@@ -725,12 +725,14 @@ pub(in crate::db) fn bind_sql_update_selector_query_structural_with_schema(
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
 ) -> Result<StructuralQuery, SqlLoweringError> {
-    let primary_key_name = schema.primary_key_name().ok_or_else(|| {
-        QueryError::invariant(
+    if schema.primary_key_names().is_empty() {
+        return Err(QueryError::invariant(
             "SQL UPDATE selector must resolve the primary key from schema metadata",
         )
-    })?;
-    let base_query = lower_update_selector_shape(statement, primary_key_name)?;
+        .into());
+    }
+
+    let base_query = lower_update_selector_shape(statement, schema.primary_key_names())?;
 
     bind_lowered_sql_base_query_structural_with_schema(model, base_query, consistency, schema)
 }
@@ -819,7 +821,7 @@ fn lower_delete_query_modifiers(
 // an explicit primary-key tie-breaker keep the historical primary-key fallback.
 fn lower_update_selector_shape(
     statement: &SqlUpdateStatement,
-    primary_key_name: &str,
+    primary_key_names: &[String],
 ) -> Result<LoweredBaseQueryShape, SqlLoweringError> {
     let Some(predicate) = statement.predicate.clone() else {
         return Err(QueryError::unsupported_query(
@@ -838,7 +840,7 @@ fn lower_update_selector_shape(
         }
     }
 
-    append_primary_key_order_fallback(&mut order_by, primary_key_name);
+    append_primary_key_order_fallback(&mut order_by, primary_key_names);
 
     let filter_expr = lower_sql_scalar_where_bool_expr(&predicate)?;
     let predicate_subset = lower_sql_where_expr(&predicate)?;
@@ -855,18 +857,43 @@ fn lower_update_selector_shape(
 }
 
 // Keep UPDATE target selection deterministic by preserving the previous
-// session-write fallback: if no explicit primary-key order is present, append
-// ascending primary-key order after caller-supplied terms.
-fn append_primary_key_order_fallback(order_by: &mut Vec<SqlOrderTerm>, primary_key_name: &str) {
-    if order_by
-        .iter()
-        .any(|term| term.direct_field_name() == Some(primary_key_name))
-    {
-        return;
-    }
+// session-write fallback: append every missing accepted primary-key component
+// after caller-supplied terms.
+fn append_primary_key_order_fallback(
+    order_by: &mut Vec<SqlOrderTerm>,
+    primary_key_names: &[String],
+) {
+    for primary_key_name in primary_key_names {
+        if order_by
+            .iter()
+            .any(|term| term.direct_field_name() == Some(primary_key_name.as_str()))
+        {
+            continue;
+        }
 
-    order_by.push(SqlOrderTerm {
-        field: SqlExpr::Field(primary_key_name.to_string()),
-        direction: SqlOrderDirection::Asc,
-    });
+        order_by.push(SqlOrderTerm {
+            field: SqlExpr::Field(primary_key_name.clone()),
+            direction: SqlOrderDirection::Asc,
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn update_selector_primary_key_order_fallback_appends_missing_composite_components() {
+        let mut order_by = vec![SqlOrderTerm {
+            field: SqlExpr::Field("tenant_id".to_string()),
+            direction: SqlOrderDirection::Asc,
+        }];
+        let primary_key_names = vec!["tenant_id".to_string(), "local_id".to_string()];
+
+        append_primary_key_order_fallback(&mut order_by, &primary_key_names);
+
+        assert_eq!(order_by.len(), 2);
+        assert_eq!(order_by[0].direct_field_name(), Some("tenant_id"));
+        assert_eq!(order_by[1].direct_field_name(), Some("local_id"));
+    }
 }

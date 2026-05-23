@@ -106,7 +106,7 @@ where
         let write_policy = accepted_field.write_policy();
 
         if write_policy.insert_generation().is_some()
-            && accepted_field.name() != descriptor.primary_key_name()
+            && !descriptor.is_primary_key_field_name(accepted_field.name())
         {
             return Err(InternalError::mutation_generated_field_explicit(
                 E::PATH,

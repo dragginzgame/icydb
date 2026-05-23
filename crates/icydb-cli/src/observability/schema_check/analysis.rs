@@ -57,16 +57,8 @@ pub(super) fn analyze_schema_check(report: &[EntitySchemaCheckDescription]) -> S
         entity_rows.push(analysis.entity_row);
     }
 
-    let status = if mismatches > 0 {
-        "mismatch"
-    } else if accepted_only_fields > 0 || accepted_ddl_indexes > 0 {
-        "drift"
-    } else {
-        "ok"
-    };
-
     SchemaCheckSummary {
-        status,
+        status: schema_check_status(mismatches, accepted_only_fields, accepted_ddl_indexes),
         entities: report.len(),
         accepted_only_fields,
         accepted_ddl_indexes,
@@ -130,14 +122,6 @@ fn analyze_entity_schema_check(entity: &EntitySchemaCheckDescription) -> EntityS
     ]
     .concat();
 
-    let status = if mismatches > 0 {
-        "mismatch"
-    } else if accepted_only_fields > 0 || accepted_ddl_indexes > 0 {
-        "drift"
-    } else {
-        "ok"
-    };
-
     EntitySchemaCheckAnalysis {
         accepted_only_fields,
         accepted_ddl_indexes,
@@ -151,7 +135,7 @@ fn analyze_entity_schema_check(entity: &EntitySchemaCheckDescription) -> EntityS
         index_contract_mismatches,
         entity_row: [
             accepted.entity_name().to_string(),
-            status.to_string(),
+            schema_check_status(mismatches, accepted_only_fields, accepted_ddl_indexes).to_string(),
             generated.fields().len().to_string(),
             accepted.fields().len().to_string(),
             generated.indexes().len().to_string(),
@@ -161,6 +145,20 @@ fn analyze_entity_schema_check(entity: &EntitySchemaCheckDescription) -> EntityS
         ],
         drift_rows,
         mismatch_rows,
+    }
+}
+
+const fn schema_check_status(
+    mismatches: usize,
+    accepted_only_fields: usize,
+    accepted_ddl_indexes: usize,
+) -> &'static str {
+    if mismatches > 0 {
+        "mismatch"
+    } else if accepted_only_fields > 0 || accepted_ddl_indexes > 0 {
+        "drift"
+    } else {
+        "ok"
     }
 }
 

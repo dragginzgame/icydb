@@ -6,14 +6,12 @@
 mod analysis;
 mod render;
 
-use candid::Decode;
-use icydb::db::EntitySchemaCheckDescription;
-
 use crate::{
     cli::CanisterTarget,
     config::{SCHEMA_CHECK_ENDPOINT, require_configured_endpoint},
     icp::require_created_canister,
 };
+use candid::Decode;
 
 use self::{analysis::analyze_schema_check, render::render_schema_check_report_from_summary};
 use super::call_query;
@@ -36,8 +34,8 @@ pub(super) fn run_schema_check_command(target: CanisterTarget) -> Result<(), Str
 
     match response {
         Ok(report) => {
-            print!("{}", render_schema_check_report(report.as_slice()));
             let summary = analyze_schema_check(report.as_slice());
+            print!("{}", render_schema_check_report_from_summary(&summary));
             if summary.mismatches == 0 {
                 Ok(())
             } else {
@@ -58,7 +56,10 @@ pub(super) fn run_schema_check_command(target: CanisterTarget) -> Result<(), Str
     }
 }
 
-pub(super) fn render_schema_check_report(report: &[EntitySchemaCheckDescription]) -> String {
+#[cfg(test)]
+pub(super) fn render_schema_check_report(
+    report: &[icydb::db::EntitySchemaCheckDescription],
+) -> String {
     let summary = analyze_schema_check(report);
 
     render_schema_check_report_from_summary(&summary)

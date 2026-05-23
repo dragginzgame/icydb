@@ -391,14 +391,17 @@ pub(in crate::db) fn describe_entity_model_with_persisted_schema(
     schema: &AcceptedSchemaSnapshot,
 ) -> EntitySchemaDescription {
     let fields = describe_entity_fields_with_persisted_schema(schema);
-    let primary_key = schema
-        .primary_key_field_name()
-        .unwrap_or(model.primary_key.name);
+    let primary_key_names = schema.primary_key_field_names();
+    let primary_key = if primary_key_names.is_empty() {
+        model.primary_key.name.to_string()
+    } else {
+        primary_key_names.join(", ")
+    };
 
     describe_entity_model_with_parts(
         schema.entity_path(),
         schema.entity_name(),
-        primary_key,
+        primary_key.as_str(),
         fields,
         describe_entity_indexes_with_persisted_schema(schema),
         model,
@@ -512,7 +515,7 @@ pub(in crate::db) fn describe_entity_fields_with_persisted_schema(
     // Accepted-schema describe surfaces must follow the stored schema payload,
     // not the generated model's current field order.
     for field in snapshot.fields() {
-        let primary_key = field.id() == snapshot.primary_key_field_id();
+        let primary_key = snapshot.primary_key_field_ids().contains(&field.id());
         let slot = snapshot
             .row_layout()
             .slot_for_field(field.id())

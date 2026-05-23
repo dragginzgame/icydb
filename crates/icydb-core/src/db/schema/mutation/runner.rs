@@ -815,7 +815,7 @@ impl<'a> SchemaMutationRunnerInput<'a> {
             return Err(SchemaMutationRunnerInputError::EntityName);
         }
 
-        if accepted_before.primary_key_field_id() != accepted_after.primary_key_field_id() {
+        if accepted_before.primary_key_field_ids() != accepted_after.primary_key_field_ids() {
             return Err(SchemaMutationRunnerInputError::PrimaryKeyField);
         }
 

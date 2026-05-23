@@ -2574,6 +2574,57 @@ fn sql_ddl_alter_table_drop_column_rejects_primary_key_fields() {
 }
 
 #[test]
+fn sql_ddl_alter_table_drop_column_rejects_any_composite_primary_key_field() {
+    let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
+    let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();
+    let add_statement = parse_sql("ALTER TABLE SessionSqlEntity ADD COLUMN nickname text")
+        .expect("ALTER TABLE ADD COLUMN should parse before DDL binding");
+    let add_bound = bind_sql_ddl_statement(
+        &add_statement,
+        &accepted_before,
+        &schema,
+        SessionSqlStore::PATH,
+    )
+    .expect("setup ADD COLUMN should bind against accepted schema metadata");
+    let accepted_before = derive_bound_sql_ddl_accepted_after(&accepted_before, &add_bound)
+        .expect("setup ADD COLUMN should derive accepted-after metadata")
+        .accepted_after()
+        .clone();
+    let before = accepted_before.persisted_snapshot();
+    let nickname = before
+        .fields()
+        .iter()
+        .find(|field| field.name() == "nickname")
+        .expect("setup DDL field should be present");
+    let accepted_before = AcceptedSchemaSnapshot::new(
+        PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+            before.version(),
+            before.entity_path().to_string(),
+            before.entity_name().to_string(),
+            vec![before.primary_key_field_id(), nickname.id()],
+            before.row_layout().clone(),
+            before.fields().to_vec(),
+            before.indexes().to_vec(),
+        ),
+    );
+    let schema =
+        SchemaInfo::from_accepted_snapshot_for_model(SessionSqlEntity::MODEL, &accepted_before);
+    let statement = parse_sql("ALTER TABLE SessionSqlEntity DROP COLUMN nickname")
+        .expect("ALTER TABLE DROP COLUMN should parse before DDL binding");
+
+    let err = bind_sql_ddl_statement(&statement, &accepted_before, &schema, SessionSqlStore::PATH)
+        .expect_err("DROP COLUMN should reject every accepted primary-key component");
+
+    assert!(matches!(
+        err,
+        SqlDdlBindError::PrimaryKeyFieldDropRejected {
+            entity_name,
+            column_name,
+        } if entity_name == "SessionSqlEntity" && column_name == "nickname"
+    ));
+}
+
+#[test]
 fn sql_ddl_alter_table_drop_column_rejects_index_dependent_fields() {
     let accepted_before = accepted_schema_snapshot_for_entity::<SessionSqlEntity>();
     let schema = accepted_schema_info_for_entity::<SessionSqlEntity>();

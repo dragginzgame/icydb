@@ -18,7 +18,11 @@ use crate::{
     },
 };
 
-type CanisterListRow = (String, &'static str, String);
+type CanisterListRow = [String; 3];
+
+const CANISTER_LIST_CANISTER: usize = 0;
+const CANISTER_LIST_CREATED: usize = 1;
+const CANISTER_LIST_PRINCIPAL: usize = 2;
 
 /// Print canisters known to the selected local ICP environment and their local id status.
 pub(super) fn list_canisters(environment: &str) -> Result<(), String> {
@@ -41,13 +45,13 @@ pub(super) fn list_canisters(environment: &str) -> Result<(), String> {
 // Convert one ICP canister name into the row shape printed by `canister list`.
 fn canister_list_row(environment: &str, canister: String) -> CanisterListRow {
     match canister_id(environment, canister.as_str()) {
-        Ok(Some(id)) => (canister, "created", id),
-        Err(err) if unreachable_network_hint(err.as_str()).is_some() => (
+        Ok(Some(id)) => [canister, "created".to_string(), id],
+        Err(err) if unreachable_network_hint(err.as_str()).is_some() => [
             canister,
-            "unknown",
+            "unknown".to_string(),
             "local ICP network is not reachable".to_string(),
-        ),
-        Ok(None) | Err(_) => (canister, "not created", "-".to_string()),
+        ],
+        Ok(None) | Err(_) => [canister, "not created".to_string(), "-".to_string()],
     }
 }
 
@@ -55,9 +59,12 @@ fn canister_list_row(environment: &str, canister: String) -> CanisterListRow {
 fn print_canister_table(environment: &str, rows: &[CanisterListRow]) {
     let canister_width = table_width(
         "canister",
-        rows.iter().map(|(canister, _, _)| canister.as_str()),
+        rows.iter().map(|row| row[CANISTER_LIST_CANISTER].as_str()),
     );
-    let created_width = table_width("created", rows.iter().map(|(_, created, _)| *created));
+    let created_width = table_width(
+        "created",
+        rows.iter().map(|row| row[CANISTER_LIST_CREATED].as_str()),
+    );
     let canister_heading = "canister";
     let created_heading = "created";
     let principal_heading = "principal";
@@ -66,7 +73,10 @@ fn print_canister_table(environment: &str, rows: &[CanisterListRow]) {
     println!(
         "  {canister_heading:<canister_width$}  {created_heading:<created_width$}  {principal_heading}"
     );
-    for (canister, created, principal) in rows {
+    for row in rows {
+        let canister = row[CANISTER_LIST_CANISTER].as_str();
+        let created = row[CANISTER_LIST_CREATED].as_str();
+        let principal = row[CANISTER_LIST_PRINCIPAL].as_str();
         println!("  {canister:<canister_width$}  {created:<created_width$}  {principal}");
     }
 }

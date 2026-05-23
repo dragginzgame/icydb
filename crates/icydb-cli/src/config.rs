@@ -18,6 +18,9 @@ use crate::{
 const CONFIG_FILE_NAME: &str = "icydb.toml";
 const CONFIG_PATH_ENV: &str = "ICYDB_CONFIG_PATH";
 
+type CanisterConfigRow = [String; 5];
+type CheckedCanisterConfigRow = [String; 6];
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ConfigSurface {
     SqlReadonly,
@@ -378,43 +381,14 @@ fn render_config_report(
         let rows = config
             .canisters()
             .iter()
-            .map(|(name, canister)| {
-                [
-                    name.clone(),
-                    sql_surface_status(
-                        canister.sql_readonly(),
-                        canister.sql_ddl(),
-                        canister.sql_fixtures(),
-                    )
-                    .to_string(),
-                    metrics_surface_status(canister.metrics(), canister.metrics_reset())
-                        .to_string(),
-                    enabled_status(canister.snapshot()).to_string(),
-                    enabled_status(canister.schema()).to_string(),
-                    status_text(known.contains(name.as_str())).to_string(),
-                ]
-            })
+            .map(|(name, canister)| checked_canister_config_row(name, *canister, &known))
             .collect::<Vec<_>>();
         append_checked_canister_table(&mut report, rows.as_slice());
     } else {
         let rows = config
             .canisters()
             .iter()
-            .map(|(name, canister)| {
-                [
-                    name.clone(),
-                    sql_surface_status(
-                        canister.sql_readonly(),
-                        canister.sql_ddl(),
-                        canister.sql_fixtures(),
-                    )
-                    .to_string(),
-                    metrics_surface_status(canister.metrics(), canister.metrics_reset())
-                        .to_string(),
-                    enabled_status(canister.snapshot()).to_string(),
-                    enabled_status(canister.schema()).to_string(),
-                ]
-            })
+            .map(|(name, canister)| canister_config_row(name, *canister))
             .collect::<Vec<_>>();
         append_canister_table(&mut report, rows.as_slice());
     }
@@ -453,7 +427,36 @@ fn config_sync_issues(
     issues
 }
 
-fn append_canister_table(report: &mut String, rows: &[[String; 5]]) {
+fn canister_config_row(
+    name: &str,
+    canister: icydb_config_build::GeneratedCanisterConfig,
+) -> CanisterConfigRow {
+    [
+        name.to_string(),
+        sql_surface_status(
+            canister.sql_readonly(),
+            canister.sql_ddl(),
+            canister.sql_fixtures(),
+        )
+        .to_string(),
+        metrics_surface_status(canister.metrics(), canister.metrics_reset()).to_string(),
+        enabled_status(canister.snapshot()).to_string(),
+        enabled_status(canister.schema()).to_string(),
+    ]
+}
+
+fn checked_canister_config_row(
+    name: &str,
+    canister: icydb_config_build::GeneratedCanisterConfig,
+    known: &BTreeSet<&str>,
+) -> CheckedCanisterConfigRow {
+    let icp_status = status_text(known.contains(name)).to_string();
+    let [name, sql, metrics, snapshot, schema] = canister_config_row(name, canister);
+
+    [name, sql, metrics, snapshot, schema, icp_status]
+}
+
+fn append_canister_table(report: &mut String, rows: &[CanisterConfigRow]) {
     append_indented_table(
         report,
         "  ",
@@ -469,7 +472,7 @@ fn append_canister_table(report: &mut String, rows: &[[String; 5]]) {
     );
 }
 
-fn append_checked_canister_table(report: &mut String, rows: &[[String; 6]]) {
+fn append_checked_canister_table(report: &mut String, rows: &[CheckedCanisterConfigRow]) {
     append_indented_table(
         report,
         "  ",

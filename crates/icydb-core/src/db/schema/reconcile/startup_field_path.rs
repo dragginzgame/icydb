@@ -7,10 +7,9 @@
 
 use crate::{
     db::{
-        data::{
-            DecodedDataStoreKey, RawRow, StorageKey, StructuralRowContract, StructuralSlotReader,
-        },
+        data::{DecodedDataStoreKey, RawRow, StructuralRowContract, StructuralSlotReader},
         index::{IndexId, IndexKey, IndexState, IndexStore},
+        key_taxonomy::PrimaryKeyValue,
         predicate::{PredicateProgram, normalize, parse_sql_predicate},
         registry::StoreHandle,
         schema::{
@@ -419,7 +418,9 @@ fn field_path_rebuild_row_fingerprint_from_rows(
 ) -> Result<StartupFieldPathRebuildRowFingerprint, InternalError> {
     let mut hasher = Sha256::new();
     for row in rows {
-        let raw_key = DecodedDataStoreKey::new(entity_tag, row.primary_key_value).to_raw()?;
+        let raw_key =
+            DecodedDataStoreKey::new_primary_key_value(entity_tag, &row.primary_key_value)
+                .to_raw()?;
         hash_field_path_rebuild_row(&mut hasher, raw_key.as_bytes(), &row.row);
     }
 
@@ -486,12 +487,12 @@ pub(super) fn field_path_startup_index_store_preflight(
 }
 
 pub(super) struct StartupFieldPathRebuildRow {
-    pub(super) primary_key_value: StorageKey,
+    pub(super) primary_key_value: PrimaryKeyValue,
     pub(super) row: RawRow,
 }
 
 pub(super) struct StartupDecodedFieldPathRebuildRow<'a> {
-    pub(super) primary_key_value: StorageKey,
+    pub(super) primary_key_value: PrimaryKeyValue,
     pub(super) slots: StructuralSlotReader<'a>,
 }
 
@@ -512,7 +513,7 @@ pub(super) fn field_path_rebuild_raw_rows_for_entity(
                 continue;
             }
             rows.push(StartupFieldPathRebuildRow {
-                primary_key_value: data_key.storage_key(),
+                primary_key_value: data_key.primary_key_value(),
                 row: entry.value().clone(),
             });
         }
@@ -533,7 +534,8 @@ pub(super) fn decode_field_path_rebuild_rows<'a>(
                 &row.row,
                 row_contract.clone(),
             )?;
-            let data_key = DecodedDataStoreKey::new(entity_tag, row.primary_key_value);
+            let data_key =
+                DecodedDataStoreKey::new_primary_key_value(entity_tag, &row.primary_key_value);
             slots.validate_primary_key(&data_key)?;
 
             Ok(StartupDecodedFieldPathRebuildRow {

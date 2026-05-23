@@ -31,6 +31,47 @@ fn field_path_rebuild_key_materializes_from_accepted_target_slots() {
 }
 
 #[test]
+fn field_path_rebuild_key_materializes_composite_primary_key_suffix() {
+    let request = SchemaMutationRequest::from_accepted_field_path_index(&non_unique_name_index())
+        .expect("non-unique field-path index should lower to a rebuild target");
+    let SchemaMutationRequest::AddFieldPathIndex { target } = request else {
+        panic!("field-path index request should preserve rebuild target");
+    };
+    let slots = RebuildSlotReader {
+        values: vec![None, Some(Value::Text("Ada".to_string()))],
+    };
+    let composite = crate::db::key_taxonomy::CompositePrimaryKeyValue::try_from_components(&[
+        crate::db::key_taxonomy::PrimaryKeyComponent::Nat(42),
+        crate::db::key_taxonomy::PrimaryKeyComponent::Int(-7),
+    ])
+    .expect("composite primary key should construct");
+    let primary_key = crate::db::key_taxonomy::PrimaryKeyValue::Composite(composite);
+
+    let key = IndexKey::new_from_slots_with_field_path_rebuild_target(
+        EntityTag::new(7),
+        primary_key,
+        &target,
+        &slots,
+    )
+    .expect("accepted field-path target should build index key")
+    .expect("text key component should be indexable");
+    let entry = IndexEntryValue::presence();
+
+    assert_eq!(
+        key.primary_key_value()
+            .expect("index key should carry composite primary-key value"),
+        primary_key,
+    );
+    assert_eq!(
+        entry
+            .decode_row_witness(&key.to_raw())
+            .expect("entry should decode key-owned composite primary-key value")
+            .primary_key_value(),
+        &primary_key,
+    );
+}
+
+#[test]
 fn expression_rebuild_key_materializes_from_accepted_target_slots() {
     let request = SchemaMutationRequest::from_accepted_expression_index(&expression_name_index())
         .expect("accepted expression index should lower to a rebuild target");

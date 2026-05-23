@@ -232,7 +232,7 @@ fn validate_sql_ddl_field_drop_metadata_change(
     if before.version() != after.version()
         || before.entity_path() != after.entity_path()
         || before.entity_name() != after.entity_name()
-        || before.primary_key_field_id() != after.primary_key_field_id()
+        || before.primary_key_field_ids() != after.primary_key_field_ids()
         || before.indexes() != after.indexes()
         || before.fields().len() != after.fields().len().saturating_add(1)
     {
@@ -341,7 +341,7 @@ fn validate_sql_ddl_field_default_metadata_change(
     if before.version() != after.version()
         || before.entity_path() != after.entity_path()
         || before.entity_name() != after.entity_name()
-        || before.primary_key_field_id() != after.primary_key_field_id()
+        || before.primary_key_field_ids() != after.primary_key_field_ids()
         || before.row_layout() != after.row_layout()
         || before.indexes() != after.indexes()
         || before.fields().len() != after.fields().len()
@@ -431,7 +431,7 @@ fn validate_sql_ddl_field_nullability_metadata_change(
     if before.version() != after.version()
         || before.entity_path() != after.entity_path()
         || before.entity_name() != after.entity_name()
-        || before.primary_key_field_id() != after.primary_key_field_id()
+        || before.primary_key_field_ids() != after.primary_key_field_ids()
         || before.row_layout() != after.row_layout()
         || before.indexes() != after.indexes()
         || before.fields().len() != after.fields().len()
@@ -580,7 +580,7 @@ fn validate_sql_ddl_field_rename_metadata_change(
     if before.version() != after.version()
         || before.entity_path() != after.entity_path()
         || before.entity_name() != after.entity_name()
-        || before.primary_key_field_id() != after.primary_key_field_id()
+        || before.primary_key_field_ids() != after.primary_key_field_ids()
         || before.row_layout() != after.row_layout()
         || before.fields().len() != after.fields().len()
     {
@@ -718,11 +718,11 @@ fn merge_generated_indexes_with_extra_accepted_indexes(
             .cloned(),
     );
 
-    PersistedSchemaSnapshot::new_with_indexes(
+    PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
         generated.version(),
         generated.entity_path().to_string(),
         generated.entity_name().to_string(),
-        generated.primary_key_field_id(),
+        generated.primary_key_field_ids().to_vec(),
         generated.row_layout().clone(),
         generated.fields().to_vec(),
         indexes,
@@ -1417,11 +1417,11 @@ mod tests {
     fn indexed_schema_snapshot_without_indexes() -> PersistedSchemaSnapshot {
         let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
         let expected = proposal.initial_persisted_schema_snapshot();
-        PersistedSchemaSnapshot::new_with_indexes(
+        PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
             expected.version(),
             expected.entity_path().to_string(),
             expected.entity_name().to_string(),
-            expected.primary_key_field_id(),
+            expected.primary_key_field_ids().to_vec(),
             expected.row_layout().clone(),
             expected.fields().to_vec(),
             Vec::new(),
@@ -1452,11 +1452,11 @@ mod tests {
         let mut indexes = vec![renamed_index];
         indexes.extend(extra_indexes);
 
-        PersistedSchemaSnapshot::new_with_indexes(
+        PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
             expected.version(),
             expected.entity_path().to_string(),
             expected.entity_name().to_string(),
-            expected.primary_key_field_id(),
+            expected.primary_key_field_ids().to_vec(),
             expected.row_layout().clone(),
             expected.fields().to_vec(),
             indexes,
@@ -1602,7 +1602,7 @@ mod tests {
             expected.version(),
             expected.entity_path().to_string(),
             expected.entity_name().to_string(),
-            expected.primary_key_field_id(),
+            expected.primary_key_field_ids().to_vec(),
             SchemaRowLayout::new(
                 expected.row_layout().version(),
                 vec![
@@ -1716,11 +1716,11 @@ mod tests {
 
         let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
         let expected = proposal.initial_persisted_schema_snapshot();
-        let stored_without_index = PersistedSchemaSnapshot::new_with_indexes(
+        let stored_without_index = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
             expected.version(),
             expected.entity_path().to_string(),
             expected.entity_name().to_string(),
-            expected.primary_key_field_id(),
+            expected.primary_key_field_ids().to_vec(),
             expected.row_layout().clone(),
             expected.fields().to_vec(),
             Vec::new(),
@@ -1775,11 +1775,11 @@ mod tests {
 
         let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
         let expected = proposal.initial_persisted_schema_snapshot();
-        let stored_without_index = PersistedSchemaSnapshot::new_with_indexes(
+        let stored_without_index = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
             expected.version(),
             expected.entity_path().to_string(),
             expected.entity_name().to_string(),
-            expected.primary_key_field_id(),
+            expected.primary_key_field_ids().to_vec(),
             expected.row_layout().clone(),
             expected.fields().to_vec(),
             Vec::new(),
@@ -1820,11 +1820,11 @@ mod tests {
 
         let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
         let expected = proposal.initial_persisted_schema_snapshot();
-        let stored_without_index = PersistedSchemaSnapshot::new_with_indexes(
+        let stored_without_index = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
             expected.version(),
             expected.entity_path().to_string(),
             expected.entity_name().to_string(),
-            expected.primary_key_field_id(),
+            expected.primary_key_field_ids().to_vec(),
             expected.row_layout().clone(),
             expected.fields().to_vec(),
             Vec::new(),
@@ -1862,11 +1862,11 @@ mod tests {
 
         let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
         let expected = proposal.initial_persisted_schema_snapshot();
-        let stored_without_index = PersistedSchemaSnapshot::new_with_indexes(
+        let stored_without_index = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
             expected.version(),
             expected.entity_path().to_string(),
             expected.entity_name().to_string(),
-            expected.primary_key_field_id(),
+            expected.primary_key_field_ids().to_vec(),
             expected.row_layout().clone(),
             expected.fields().to_vec(),
             Vec::new(),
@@ -1907,11 +1907,11 @@ mod tests {
 
         let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
         let expected = proposal.initial_persisted_schema_snapshot();
-        let stored_without_index = PersistedSchemaSnapshot::new_with_indexes(
+        let stored_without_index = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
             expected.version(),
             expected.entity_path().to_string(),
             expected.entity_name().to_string(),
-            expected.primary_key_field_id(),
+            expected.primary_key_field_ids().to_vec(),
             expected.row_layout().clone(),
             expected.fields().to_vec(),
             Vec::new(),
@@ -2352,11 +2352,11 @@ mod tests {
 
         let proposal = compiled_schema_proposal_for_model(IndexedSchemaEntity::MODEL);
         let expected = proposal.initial_persisted_schema_snapshot();
-        let stored_without_index = PersistedSchemaSnapshot::new_with_indexes(
+        let stored_without_index = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
             expected.version(),
             expected.entity_path().to_string(),
             expected.entity_name().to_string(),
-            expected.primary_key_field_id(),
+            expected.primary_key_field_ids().to_vec(),
             expected.row_layout().clone(),
             expected.fields().to_vec(),
             Vec::new(),
@@ -2553,7 +2553,7 @@ mod tests {
             expected.version(),
             expected.entity_path().to_string(),
             expected.entity_name().to_string(),
-            expected.primary_key_field_id(),
+            expected.primary_key_field_ids().to_vec(),
             SchemaRowLayout::new(
                 expected.row_layout().version(),
                 vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
@@ -2617,7 +2617,7 @@ mod tests {
             expected.version(),
             expected.entity_path().to_string(),
             expected.entity_name().to_string(),
-            expected.primary_key_field_id(),
+            expected.primary_key_field_ids().to_vec(),
             SchemaRowLayout::new(
                 expected.row_layout().version(),
                 vec![
@@ -2678,7 +2678,7 @@ mod tests {
             SchemaVersion::new(2),
             expected.entity_path().to_string(),
             expected.entity_name().to_string(),
-            expected.primary_key_field_id(),
+            expected.primary_key_field_ids().to_vec(),
             newer_row_layout,
             expected.fields().to_vec(),
         );

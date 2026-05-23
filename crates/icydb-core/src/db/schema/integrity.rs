@@ -15,7 +15,7 @@ use crate::db::schema::{
 pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
     subject: &str,
     version: SchemaVersion,
-    primary_key_field_id: FieldId,
+    primary_key_field_ids: &[FieldId],
     row_layout: &SchemaRowLayout,
     fields: &[PersistedFieldSnapshot],
 ) -> Option<String> {
@@ -39,11 +39,24 @@ pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
         return Some(detail);
     }
 
-    if row_layout.slot_for_field(primary_key_field_id).is_none() {
-        return Some(format!(
-            "{subject} primary key field missing from row layout: field_id={}",
-            primary_key_field_id.get(),
-        ));
+    if primary_key_field_ids.is_empty() {
+        return Some(format!("{subject} primary key has no fields"));
+    }
+
+    for (index, primary_key_field_id) in primary_key_field_ids.iter().enumerate() {
+        if primary_key_field_ids[..index].contains(primary_key_field_id) {
+            return Some(format!(
+                "{subject} duplicate primary key field: field_id={}",
+                primary_key_field_id.get(),
+            ));
+        }
+
+        if row_layout.slot_for_field(*primary_key_field_id).is_none() {
+            return Some(format!(
+                "{subject} primary key field missing from row layout: field_id={}",
+                primary_key_field_id.get(),
+            ));
+        }
     }
 
     if row_layout.field_to_slot().len() != fields.len() {
@@ -54,9 +67,11 @@ pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
         ));
     }
 
-    let mut has_primary_key_field = false;
+    let mut matched_primary_key_fields = 0usize;
     for field in fields {
-        has_primary_key_field |= field.id() == primary_key_field_id;
+        if primary_key_field_ids.contains(&field.id()) {
+            matched_primary_key_fields += 1;
+        }
 
         let Some(row_layout_slot) = row_layout.slot_for_field(field.id()) else {
             return Some(format!(
@@ -75,10 +90,15 @@ pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
         }
     }
 
-    if !has_primary_key_field {
+    if matched_primary_key_fields != primary_key_field_ids.len() {
+        let missing = primary_key_field_ids
+            .iter()
+            .find(|field_id| !fields.iter().any(|field| field.id() == **field_id))
+            .copied()
+            .unwrap_or(primary_key_field_ids[0]);
         return Some(format!(
             "{subject} primary key field missing from fields: field_id={}",
-            primary_key_field_id.get(),
+            missing.get(),
         ));
     }
 

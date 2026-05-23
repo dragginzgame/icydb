@@ -7,21 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Moves decoded data-store keys onto the scalar-or-composite primary-key value
-  model so raw data-key decode and bounds can admit composite primary keys while
-  existing scalar-only consumers fail closed, and extends index primary-key
-  suffix decoding with the same composite-aware boundary.
-- Opens derive support for `pk(fields = ["a", "b"])` composite declarations,
-  generates public composite key types with key codec contracts, and keeps
-  composite keys external-only.
-- Hard-cuts `PrimaryKeyCodec` onto primary-key-owned encode errors instead of
-  the old scalar storage-key encoder error.
-- Tightens composite primary-key declaration validation for duplicate fields,
-  maximum arity, and disallowed `Unit` components.
-
 ## [0.162.x] 🔑 - 2026-05-23 - Composite Primary Keys
 
 Detailed notes: [docs/changelog/0.162.md](docs/changelog/0.162.md)
+
+- `0.162.7` moves accepted schema authority, runtime descriptors, schema
+  fingerprints, SQL admission, and index rebuild/read diagnostics onto ordered
+  scalar-or-composite primary-key identity.
+
+- `0.162.6` opens composite primary-key declarations and generated key
+  contracts while keeping scalar-only execution paths explicit and
+  fail-closed.
 
 - `0.162.5` moves primary-key traits and compact key taxonomy onto the
   scalar-or-composite `PrimaryKeyValue` model while keeping persisted row

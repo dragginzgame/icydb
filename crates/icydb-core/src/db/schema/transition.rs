@@ -284,7 +284,7 @@ fn generated_index_names_only_changed(
     if actual.version() != expected.version()
         || actual.entity_path() != expected.entity_path()
         || actual.entity_name() != expected.entity_name()
-        || actual.primary_key_field_id() != expected.primary_key_field_id()
+        || actual.primary_key_field_ids() != expected.primary_key_field_ids()
         || !active_row_layout_matches(actual, expected)
         || actual.fields() != expected.fields()
     {
@@ -344,7 +344,7 @@ fn accepted_snapshot_extends_generated_indexes(
     if actual.version() != expected.version()
         || actual.entity_path() != expected.entity_path()
         || actual.entity_name() != expected.entity_name()
-        || actual.primary_key_field_id() != expected.primary_key_field_id()
+        || actual.primary_key_field_ids() != expected.primary_key_field_ids()
         || !active_row_layout_matches(actual, expected)
         || actual.fields() != expected.fields()
     {
@@ -379,7 +379,7 @@ fn accepted_snapshot_extends_generated_with_ddl_fields(
     if actual.version() != expected.version()
         || actual.entity_path() != expected.entity_path()
         || actual.entity_name() != expected.entity_name()
-        || actual.primary_key_field_id() != expected.primary_key_field_id()
+        || actual.primary_key_field_ids() != expected.primary_key_field_ids()
         || actual.fields().len() <= expected.fields().len()
         || actual.row_layout().field_to_slot().len() <= expected.row_layout().field_to_slot().len()
         || actual.row_layout().version() != expected.row_layout().version()
@@ -515,13 +515,21 @@ fn schema_snapshot_structural_mismatch_detail(
     actual: &PersistedSchemaSnapshot,
     expected: &PersistedSchemaSnapshot,
 ) -> (SchemaTransitionRejectionKind, String) {
-    if actual.primary_key_field_id() != expected.primary_key_field_id() {
+    if actual.primary_key_field_ids() != expected.primary_key_field_ids() {
         return (
             SchemaTransitionRejectionKind::EntityIdentity,
             format!(
-                "primary key field id changed: stored={} generated={}",
-                actual.primary_key_field_id().get(),
-                expected.primary_key_field_id().get(),
+                "primary key field ids changed: stored={:?} generated={:?}",
+                actual
+                    .primary_key_field_ids()
+                    .iter()
+                    .map(|field_id| field_id.get())
+                    .collect::<Vec<_>>(),
+                expected
+                    .primary_key_field_ids()
+                    .iter()
+                    .map(|field_id| field_id.get())
+                    .collect::<Vec<_>>(),
             ),
         );
     }
@@ -1460,7 +1468,7 @@ mod tests {
         assert!(
             rejection
                 .detail()
-                .contains("primary key field id changed: stored=2 generated=1"),
+                .contains("primary key field ids changed: stored=[2] generated=[1]"),
             "primary-key drift should be identified before row decode can run",
         );
     }

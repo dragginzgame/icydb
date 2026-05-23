@@ -317,6 +317,7 @@ pub(in crate::db) struct AcceptedRowDecodeContract {
     required_slot_count: usize,
     max_physical_slot_count: usize,
     primary_key_slot_index: usize,
+    primary_key_slot_indices: Vec<usize>,
     fields_by_slot: Vec<Option<OwnedAcceptedFieldDecodeContract>>,
 }
 
@@ -334,6 +335,7 @@ impl AcceptedRowDecodeContract {
             required_slot_count: descriptor.required_slot_count(),
             max_physical_slot_count: descriptor.max_physical_slot_count(),
             primary_key_slot_index: descriptor.primary_key_slot_index(),
+            primary_key_slot_indices: descriptor.primary_key_slot_indices().to_vec(),
             fields_by_slot,
         }
     }
@@ -373,6 +375,16 @@ impl AcceptedRowDecodeContract {
     #[must_use]
     pub(in crate::db) const fn primary_key_slot_index(&self) -> usize {
         self.primary_key_slot_index
+    }
+
+    /// Borrow accepted primary-key physical slot indices in key order.
+    #[allow(
+        dead_code,
+        reason = "ordered primary-key slot access becomes live when row decode exposes composite key component slots"
+    )]
+    #[must_use]
+    pub(in crate::db) const fn primary_key_slot_indices(&self) -> &[usize] {
+        self.primary_key_slot_indices.as_slice()
     }
 
     /// Borrow one accepted field decode contract by physical row slot.
@@ -442,9 +454,9 @@ pub(in crate::db) struct AcceptedRowLayoutRuntimeDescriptor<'a> {
     version: SchemaVersion,
     required_slot_count: usize,
     max_physical_slot_count: usize,
-    primary_key_name: &'a str,
-    primary_key_kind: &'a PersistedFieldKind,
-    primary_key_slot_index: usize,
+    primary_key_names: Vec<&'a str>,
+    primary_key_kinds: Vec<&'a PersistedFieldKind>,
+    primary_key_slot_indices: Vec<usize>,
     fields: Vec<AcceptedRowLayoutRuntimeField<'a>>,
 }
 
@@ -491,26 +503,32 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
                 generated: field.generated(),
             });
         }
-        let Some(primary_key_field) = fields
-            .iter()
-            .find(|field| field.field_id() == snapshot.primary_key_field_id())
-        else {
-            return Err(InternalError::store_invariant(format!(
-                "accepted row layout runtime descriptor missing primary-key field_id={}",
-                snapshot.primary_key_field_id().get(),
-            )));
-        };
-        let primary_key_name = primary_key_field.name();
-        let primary_key_kind = primary_key_field.kind();
-        let primary_key_slot_index = usize::from(primary_key_field.slot().get());
+        let mut primary_key_names = Vec::with_capacity(snapshot.primary_key_field_ids().len());
+        let mut primary_key_kinds = Vec::with_capacity(snapshot.primary_key_field_ids().len());
+        let mut primary_key_slot_indices =
+            Vec::with_capacity(snapshot.primary_key_field_ids().len());
+        for primary_key_field_id in snapshot.primary_key_field_ids() {
+            let Some(primary_key_field) = fields
+                .iter()
+                .find(|field| field.field_id() == *primary_key_field_id)
+            else {
+                return Err(InternalError::store_invariant(format!(
+                    "accepted row layout runtime descriptor missing primary-key field_id={}",
+                    primary_key_field_id.get(),
+                )));
+            };
+            primary_key_names.push(primary_key_field.name());
+            primary_key_kinds.push(primary_key_field.kind());
+            primary_key_slot_indices.push(usize::from(primary_key_field.slot().get()));
+        }
 
         Ok(Self {
             version: row_layout.version(),
             required_slot_count,
             max_physical_slot_count: row_layout.allocated_slot_count().max(required_slot_count),
-            primary_key_name,
-            primary_key_kind,
-            primary_key_slot_index,
+            primary_key_names,
+            primary_key_kinds,
+            primary_key_slot_indices,
             fields,
         })
     }
@@ -553,22 +571,64 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
         self.max_physical_slot_count
     }
 
-    /// Borrow the accepted primary-key field name carried by this layout.
+    /// Borrow the first accepted primary-key field name carried by this layout.
+    ///
+    /// This scalar bridge remains for current scalar-only execution paths.
+    /// Composite-aware code must read `primary_key_names`.
     #[must_use]
-    pub(in crate::db) const fn primary_key_name(&self) -> &'a str {
-        self.primary_key_name
+    pub(in crate::db) fn primary_key_name(&self) -> &'a str {
+        self.primary_key_names[0]
     }
 
-    /// Borrow the accepted primary-key persisted field kind.
+    /// Borrow accepted primary-key field names in key order.
     #[must_use]
-    pub(in crate::db) const fn primary_key_kind(&self) -> &'a PersistedFieldKind {
-        self.primary_key_kind
+    pub(in crate::db) const fn primary_key_names(&self) -> &[&'a str] {
+        self.primary_key_names.as_slice()
     }
 
-    /// Return the accepted primary-key physical slot index.
+    /// Return whether one accepted field name belongs to the primary key.
     #[must_use]
-    pub(in crate::db) const fn primary_key_slot_index(&self) -> usize {
-        self.primary_key_slot_index
+    pub(in crate::db) fn is_primary_key_field_name(&self, field_name: &str) -> bool {
+        self.primary_key_names.contains(&field_name)
+    }
+
+    /// Borrow the first accepted primary-key persisted field kind.
+    ///
+    /// This scalar bridge remains for current scalar-only SQL literal
+    /// coercion paths. Composite-aware code must read `primary_key_kinds`.
+    #[must_use]
+    pub(in crate::db) fn primary_key_kind(&self) -> &'a PersistedFieldKind {
+        self.primary_key_kinds[0]
+    }
+
+    /// Borrow accepted primary-key persisted field kinds in key order.
+    #[allow(
+        dead_code,
+        reason = "ordered primary-key kind access becomes live when SQL/composite key literal admission leaves the scalar bridge"
+    )]
+    #[must_use]
+    pub(in crate::db) const fn primary_key_kinds(&self) -> &[&'a PersistedFieldKind] {
+        self.primary_key_kinds.as_slice()
+    }
+
+    /// Return the first accepted primary-key physical slot index.
+    ///
+    /// This scalar bridge remains for row-decode contracts that currently
+    /// expose one key slot. Composite-aware code must read
+    /// `primary_key_slot_indices`.
+    #[must_use]
+    pub(in crate::db) fn primary_key_slot_index(&self) -> usize {
+        self.primary_key_slot_indices[0]
+    }
+
+    /// Borrow accepted primary-key physical slot indices in key order.
+    #[allow(
+        dead_code,
+        reason = "ordered primary-key slot access becomes live when row decode exposes composite key component slots"
+    )]
+    #[must_use]
+    pub(in crate::db) const fn primary_key_slot_indices(&self) -> &[usize] {
+        self.primary_key_slot_indices.as_slice()
     }
 
     /// Borrow runtime field facts in accepted snapshot field order.
@@ -658,11 +718,17 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
     ) -> Result<AcceptedGeneratedCompatibleRowShape, InternalError> {
         // Phase 1: require primary-key identity and the accepted row shape to
         // match the generated decoder contract.
-        if self.primary_key_name() != model.primary_key.name {
+        let generated_primary_key_names = model
+            .primary_key_model()
+            .fields()
+            .iter()
+            .map(FieldModel::name)
+            .collect::<Vec<_>>();
+        if self.primary_key_names() != generated_primary_key_names.as_slice() {
             return Err(InternalError::store_invariant(format!(
-                "accepted row layout primary key is not generated-compatible: accepted_primary_key='{}' generated_primary_key='{}'",
-                self.primary_key_name(),
-                model.primary_key.name,
+                "accepted row layout primary key is not generated-compatible: accepted_primary_key={:?} generated_primary_key={:?}",
+                self.primary_key_names(),
+                generated_primary_key_names,
             )));
         }
 
@@ -948,6 +1014,46 @@ mod tests {
         ))
     }
 
+    fn accepted_composite_primary_key_schema_fixture() -> AcceptedSchemaSnapshot {
+        AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "schema::tests::RuntimeEntity".to_string(),
+            "RuntimeEntity".to_string(),
+            vec![FieldId::new(1), FieldId::new(2)],
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "nickname".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Text { max_len: Some(32) },
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Text),
+                ),
+            ],
+        ))
+    }
+
     fn generated_slot_compatible_accepted_schema_with_nickname_decode(
         nullable: bool,
         storage_decode: FieldStorageDecode,
@@ -1061,7 +1167,9 @@ mod tests {
         assert_eq!(descriptor.version(), SchemaVersion::initial());
         assert_eq!(descriptor.required_slot_count(), 10);
         assert_eq!(descriptor.primary_key_name(), "id");
+        assert_eq!(descriptor.primary_key_names(), ["id"]);
         assert_eq!(descriptor.primary_key_slot_index(), 0);
+        assert_eq!(descriptor.primary_key_slot_indices(), [0]);
         assert_eq!(descriptor.fields().len(), 2);
 
         let nickname = descriptor
@@ -1121,6 +1229,31 @@ mod tests {
     }
 
     #[test]
+    fn accepted_row_layout_runtime_descriptor_exposes_ordered_primary_key_fields() {
+        let accepted = accepted_composite_primary_key_schema_fixture();
+        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+            .expect("accepted composite primary-key schema should build descriptor");
+
+        assert_eq!(descriptor.primary_key_name(), "id");
+        assert_eq!(descriptor.primary_key_names(), ["id", "nickname"]);
+        assert_eq!(descriptor.primary_key_slot_index(), 0);
+        assert_eq!(descriptor.primary_key_slot_indices(), [0, 1]);
+        let decode_contract = descriptor.row_decode_contract();
+        assert_eq!(decode_contract.primary_key_slot_index(), 0);
+        assert_eq!(decode_contract.primary_key_slot_indices(), [0, 1]);
+        assert!(descriptor.is_primary_key_field_name("id"));
+        assert!(descriptor.is_primary_key_field_name("nickname"));
+        assert!(!descriptor.is_primary_key_field_name("missing"));
+        assert_eq!(
+            descriptor.primary_key_kinds(),
+            [
+                &PersistedFieldKind::Ulid,
+                &PersistedFieldKind::Text { max_len: Some(32) },
+            ],
+        );
+    }
+
+    #[test]
     fn accepted_row_decode_contract_owns_slot_indexed_field_contracts() {
         let accepted = accepted_schema_fixture();
         let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
@@ -1132,6 +1265,7 @@ mod tests {
 
         assert_eq!(contract.required_slot_count(), 10);
         assert_eq!(contract.primary_key_slot_index(), 0);
+        assert_eq!(contract.primary_key_slot_indices(), [0]);
         assert_eq!(nickname.field_name(), "nickname");
         assert!(
             contract.field_for_slot(1).is_none(),
@@ -1152,6 +1286,8 @@ mod tests {
 
             descriptor.row_decode_contract()
         };
+        assert_eq!(contract.primary_key_slot_index(), 0);
+        assert_eq!(contract.primary_key_slot_indices(), [0]);
         let nickname_field = contract
             .field_for_slot(1)
             .expect("nickname field should survive as owned accepted contract");
@@ -1193,6 +1329,7 @@ mod tests {
         assert_eq!(descriptor.required_slot_count(), 2);
         assert_eq!(descriptor.primary_key_slot_index(), 0);
         assert_eq!(descriptor.primary_key_name(), "id");
+        assert_eq!(descriptor.primary_key_names(), ["id"]);
         assert_eq!(descriptor.primary_key_kind(), &PersistedFieldKind::Ulid);
         assert_eq!(shape.required_slot_count(), 2);
         assert_eq!(shape.primary_key_slot_index(), 0);
@@ -1215,6 +1352,24 @@ mod tests {
             nickname_field.write_policy().insert_generation(),
             None,
             "generated-compatible descriptor should project accepted fields to write-policy facts",
+        );
+    }
+
+    #[test]
+    fn accepted_row_layout_runtime_descriptor_rejects_primary_key_shape_drift() {
+        let accepted = accepted_composite_primary_key_schema_fixture();
+        let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+            .expect("accepted composite primary-key schema should build descriptor");
+
+        let err = descriptor
+            .generated_compatible_row_shape_for_model(&RUNTIME_ENTITY_MODEL)
+            .expect_err("generated-compatible bridge should reject composite/scalar drift");
+
+        assert!(
+            err.message
+                .contains("accepted row layout primary key is not generated-compatible"),
+            "unexpected generated-compatible shape error: {}",
+            err.message,
         );
     }
 

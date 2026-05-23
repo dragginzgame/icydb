@@ -80,7 +80,7 @@ impl AcceptedSchemaSnapshot {
         if let Some(detail) = schema_snapshot_integrity_detail(
             "accepted schema snapshot",
             snapshot.version(),
-            snapshot.primary_key_field_id(),
+            snapshot.primary_key_field_ids(),
             snapshot.row_layout(),
             snapshot.fields(),
         ) {
@@ -128,21 +128,28 @@ impl AcceptedSchemaSnapshot {
         self.snapshot.entity_name()
     }
 
-    /// Borrow the accepted primary-key field snapshot, when present.
+    /// Borrow accepted primary-key field snapshots in primary-key order.
     #[must_use]
-    fn primary_key_field(&self) -> Option<&PersistedFieldSnapshot> {
-        let primary_key_field_id = self.snapshot.primary_key_field_id();
-
+    fn primary_key_fields(&self) -> Vec<&PersistedFieldSnapshot> {
         self.snapshot
-            .fields()
+            .primary_key_field_ids()
             .iter()
-            .find(|field| field.id() == primary_key_field_id)
+            .filter_map(|field_id| {
+                self.snapshot
+                    .fields()
+                    .iter()
+                    .find(|field| field.id() == *field_id)
+            })
+            .collect()
     }
 
-    /// Borrow the accepted primary-key field name, when present.
+    /// Return accepted primary-key field names in key order.
     #[must_use]
-    pub(in crate::db) fn primary_key_field_name(&self) -> Option<&str> {
-        self.primary_key_field().map(PersistedFieldSnapshot::name)
+    pub(in crate::db) fn primary_key_field_names(&self) -> Vec<&str> {
+        self.primary_key_fields()
+            .iter()
+            .map(|field| field.name())
+            .collect()
     }
 
     /// Borrow one accepted field snapshot by its persisted field name.
@@ -191,10 +198,26 @@ pub(in crate::db) struct PersistedSchemaSnapshot {
     version: SchemaVersion,
     entity_path: String,
     entity_name: String,
-    primary_key_field_id: FieldId,
+    primary_key_field_ids: Vec<FieldId>,
     row_layout: SchemaRowLayout,
     fields: Vec<PersistedFieldSnapshot>,
     indexes: Vec<PersistedIndexSnapshot>,
+}
+
+pub(in crate::db) trait IntoPrimaryKeyFieldIds {
+    fn into_primary_key_field_ids(self) -> Vec<FieldId>;
+}
+
+impl IntoPrimaryKeyFieldIds for FieldId {
+    fn into_primary_key_field_ids(self) -> Vec<FieldId> {
+        vec![self]
+    }
+}
+
+impl IntoPrimaryKeyFieldIds for Vec<FieldId> {
+    fn into_primary_key_field_ids(self) -> Vec<FieldId> {
+        self
+    }
 }
 
 impl PersistedSchemaSnapshot {
@@ -204,19 +227,19 @@ impl PersistedSchemaSnapshot {
         dead_code,
         reason = "owner-local tests build field-only snapshots while production now preserves accepted index contracts through new_with_indexes"
     )]
-    pub(in crate::db) const fn new(
+    pub(in crate::db) fn new(
         version: SchemaVersion,
         entity_path: String,
         entity_name: String,
-        primary_key_field_id: FieldId,
+        primary_key_field_ids: impl IntoPrimaryKeyFieldIds,
         row_layout: SchemaRowLayout,
         fields: Vec<PersistedFieldSnapshot>,
     ) -> Self {
-        Self::new_with_indexes(
+        Self::new_with_primary_key_fields_and_indexes(
             version,
             entity_path,
             entity_name,
-            primary_key_field_id,
+            primary_key_field_ids.into_primary_key_field_ids(),
             row_layout,
             fields,
             Vec::new(),
@@ -225,11 +248,35 @@ impl PersistedSchemaSnapshot {
 
     /// Build one persisted schema snapshot with accepted index contracts.
     #[must_use]
-    pub(in crate::db) const fn new_with_indexes(
+    #[cfg(test)]
+    pub(in crate::db) fn new_with_indexes(
         version: SchemaVersion,
         entity_path: String,
         entity_name: String,
-        primary_key_field_id: FieldId,
+        primary_key_field_ids: impl IntoPrimaryKeyFieldIds,
+        row_layout: SchemaRowLayout,
+        fields: Vec<PersistedFieldSnapshot>,
+        indexes: Vec<PersistedIndexSnapshot>,
+    ) -> Self {
+        Self::new_with_primary_key_fields_and_indexes(
+            version,
+            entity_path,
+            entity_name,
+            primary_key_field_ids.into_primary_key_field_ids(),
+            row_layout,
+            fields,
+            indexes,
+        )
+    }
+
+    /// Build one persisted schema snapshot with ordered accepted primary-key
+    /// field identities and accepted index contracts.
+    #[must_use]
+    pub(in crate::db) fn new_with_primary_key_fields_and_indexes(
+        version: SchemaVersion,
+        entity_path: String,
+        entity_name: String,
+        primary_key_field_ids: impl IntoPrimaryKeyFieldIds,
         row_layout: SchemaRowLayout,
         fields: Vec<PersistedFieldSnapshot>,
         indexes: Vec<PersistedIndexSnapshot>,
@@ -238,7 +285,7 @@ impl PersistedSchemaSnapshot {
             version,
             entity_path,
             entity_name,
-            primary_key_field_id,
+            primary_key_field_ids: primary_key_field_ids.into_primary_key_field_ids(),
             row_layout,
             fields,
             indexes,
@@ -263,10 +310,20 @@ impl PersistedSchemaSnapshot {
         self.entity_name.as_str()
     }
 
-    /// Return the stored primary-key field identity.
+    /// Return the first stored primary-key field identity.
+    ///
+    /// This accessor exists for scalar-only execution paths that have not yet
+    /// admitted composite row identity. Composite-aware code must use
+    /// `primary_key_field_ids`.
     #[must_use]
-    pub(in crate::db) const fn primary_key_field_id(&self) -> FieldId {
-        self.primary_key_field_id
+    pub(in crate::db) fn primary_key_field_id(&self) -> FieldId {
+        self.primary_key_field_ids[0]
+    }
+
+    /// Borrow ordered stored primary-key field identities.
+    #[must_use]
+    pub(in crate::db) const fn primary_key_field_ids(&self) -> &[FieldId] {
+        self.primary_key_field_ids.as_slice()
     }
 
     /// Borrow the live row-layout mapping for this snapshot.
@@ -1464,7 +1521,7 @@ mod tests {
 
         assert_eq!(snapshot.entity_path(), "schema::snapshot::tests::Asset");
         assert_eq!(snapshot.entity_name(), "Asset");
-        assert_eq!(snapshot.primary_key_field_name(), Some("id"));
+        assert_eq!(snapshot.primary_key_field_names(), ["id"]);
         assert_eq!(
             snapshot.field_kind_by_name("id"),
             Some(&PersistedFieldKind::Ulid)
@@ -1474,6 +1531,52 @@ mod tests {
             Some(&PersistedFieldKind::Blob { max_len: None }),
         );
         assert_eq!(snapshot.field_kind_by_name("missing"), None);
+    }
+
+    #[test]
+    fn accepted_schema_snapshot_exposes_ordered_primary_key_field_names() {
+        let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "schema::snapshot::tests::Placement".to_string(),
+            "Placement".to_string(),
+            vec![FieldId::new(2), FieldId::new(1)],
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "entity_id".to_string(),
+                    SchemaFieldSlot::new(0),
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "battle_id".to_string(),
+                    SchemaFieldSlot::new(1),
+                    PersistedFieldKind::Nat,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Nat64),
+                ),
+            ],
+        ));
+
+        assert_eq!(
+            snapshot.primary_key_field_names(),
+            ["battle_id", "entity_id"]
+        );
     }
 
     #[test]
@@ -1516,6 +1619,40 @@ mod tests {
             err.message()
                 .contains("accepted schema snapshot primary key field missing from row layout"),
             "accepted schema construction should report the integrity failure"
+        );
+    }
+
+    #[test]
+    fn accepted_schema_snapshot_try_new_rejects_duplicate_primary_key_fields() {
+        let snapshot = PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "schema::snapshot::tests::DuplicatePk".to_string(),
+            "DuplicatePk".to_string(),
+            vec![FieldId::new(1), FieldId::new(1)],
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![(FieldId::new(1), SchemaFieldSlot::new(0))],
+            ),
+            vec![PersistedFieldSnapshot::new(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                PersistedFieldKind::Ulid,
+                Vec::new(),
+                false,
+                SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Ulid),
+            )],
+        );
+
+        let err = AcceptedSchemaSnapshot::try_new(snapshot)
+            .expect_err("accepted schema construction should reject duplicate primary-key ids");
+
+        assert!(
+            err.message()
+                .contains("accepted schema snapshot duplicate primary key field"),
+            "accepted schema construction should report duplicate primary-key fields"
         );
     }
 

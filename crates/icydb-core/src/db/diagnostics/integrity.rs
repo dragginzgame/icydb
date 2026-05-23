@@ -7,9 +7,10 @@ use crate::{
     db::{
         Db,
         commit::CommitRowOp,
-        data::{DecodedDataStoreKey, StorageKey, decode_structural_row_payload},
+        data::{DecodedDataStoreKey, decode_structural_row_payload},
         diagnostics::{IntegrityReport, IntegrityStoreSnapshot, IntegrityTotals},
         index::IndexKey,
+        key_taxonomy::PrimaryKeyValue,
         registry::StoreHandle,
         schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
     },
@@ -69,8 +70,8 @@ fn build_integrity_report<C: CanisterKind>(db: &Db<C>) -> Result<IntegrityReport
 // Build one global map of live data keys grouped by entity across all stores.
 fn collect_global_live_keys_by_entity<C: CanisterKind>(
     db: &Db<C>,
-) -> Result<BTreeMap<EntityTag, BTreeSet<StorageKey>>, InternalError> {
-    let mut keys = BTreeMap::<EntityTag, BTreeSet<StorageKey>>::new();
+) -> Result<BTreeMap<EntityTag, BTreeSet<PrimaryKeyValue>>, InternalError> {
+    let mut keys = BTreeMap::<EntityTag, BTreeSet<PrimaryKeyValue>>::new();
 
     db.with_store_registry(|reg| {
         for (_, store_handle) in reg.iter() {
@@ -79,7 +80,7 @@ fn collect_global_live_keys_by_entity<C: CanisterKind>(
                     if let Ok(data_key) = DecodedDataStoreKey::try_from_raw(entry.key()) {
                         keys.entry(data_key.entity_tag())
                             .or_default()
-                            .insert(data_key.storage_key());
+                            .insert(data_key.primary_key_value());
                     }
                 }
             });
@@ -189,7 +190,7 @@ fn scan_store_forward_integrity<C: CanisterKind>(
 // Run reverse (index -> data) integrity checks for one store.
 fn scan_store_reverse_integrity(
     store_handle: StoreHandle,
-    live_keys_by_entity: &BTreeMap<EntityTag, BTreeSet<StorageKey>>,
+    live_keys_by_entity: &BTreeMap<EntityTag, BTreeSet<PrimaryKeyValue>>,
     snapshot: &mut IntegrityStoreSnapshot,
 ) {
     store_handle.with_index(|index_store| {
@@ -203,15 +204,16 @@ fn scan_store_reverse_integrity(
 
             let index_entity_tag = data_entity_tag_for_index_key(&decoded_index_key);
 
-            let Ok(primary_key) = index_entry_value.decode_storage_key(&raw_index_store_key) else {
+            let Ok(row_witness) = index_entry_value.decode_row_witness(&raw_index_store_key) else {
                 snapshot.corrupted_index_entries =
                     snapshot.corrupted_index_entries.saturating_add(1);
                 continue;
             };
+            let primary_key = row_witness.primary_key_value();
 
             let exists = live_keys_by_entity
                 .get(&index_entity_tag)
-                .is_some_and(|entity_keys| entity_keys.contains(&primary_key));
+                .is_some_and(|entity_keys| entity_keys.contains(primary_key));
             if !exists {
                 snapshot.orphan_index_references =
                     snapshot.orphan_index_references.saturating_add(1);
