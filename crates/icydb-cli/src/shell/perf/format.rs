@@ -5,6 +5,13 @@
 
 use crate::shell::perf::{ShellLocalRenderAttribution, ShellPerfAttribution};
 
+const PERF_PHASE_ORDER: [char; 6] = ['c', 'p', 's', 'e', 'd', '?'];
+const INSTRUCTIONS_PER_KI: u64 = 1_000;
+const INSTRUCTIONS_PER_MI: u64 = 1_000_000;
+const PERF_BAR_BASE_WIDTH: usize = 10;
+const PERF_BAR_MAX_WIDTH: usize = 50;
+const PERF_BAR_WIDTH_STEP: usize = 5;
+
 pub(in crate::shell) fn render_perf_suffix(
     attribution: Option<&ShellPerfAttribution>,
 ) -> Option<String> {
@@ -76,14 +83,7 @@ fn format_render_duration(render_micros: u128) -> String {
 
 // Render one compact fixed-order composition bar for compiler/planner/store/executor/decode shares.
 fn render_perf_composition_bar(attribution: &ShellPerfAttribution) -> Option<String> {
-    let phases = [
-        ('c', attribution.compiler),
-        ('p', attribution.planner),
-        ('s', attribution.store),
-        ('e', attribution.executor),
-        ('d', attribution.decode),
-        ('?', attribution.residual_total()),
-    ];
+    let phases = perf_phase_values(attribution);
     let phase_total = phases.iter().map(|(_, value)| *value).sum::<u64>();
     if phase_total == 0 {
         return None;
@@ -119,15 +119,7 @@ fn render_perf_composition_bar(attribution: &ShellPerfAttribution) -> Option<Str
     }
 
     // Phase 2: restore the canonical c/p/s/e/d order in the rendered shell surface.
-    allocated.sort_by_key(|bucket| match bucket.label {
-        'c' => 0,
-        'p' => 1,
-        's' => 2,
-        'e' => 3,
-        'd' => 4,
-        '?' => 5,
-        _ => 6,
-    });
+    allocated.sort_by_key(|bucket| perf_phase_order(bucket.label));
 
     let mut rendered = String::with_capacity(width.saturating_add(2));
     rendered.push('[');
@@ -141,13 +133,33 @@ fn render_perf_composition_bar(attribution: &ShellPerfAttribution) -> Option<Str
     Some(rendered)
 }
 
+const fn perf_phase_values(attribution: &ShellPerfAttribution) -> [(char, u64); 6] {
+    [
+        ('c', attribution.compiler),
+        ('p', attribution.planner),
+        ('s', attribution.store),
+        ('e', attribution.executor),
+        ('d', attribution.decode),
+        ('?', attribution.residual_total()),
+    ]
+}
+
+fn perf_phase_order(label: char) -> usize {
+    PERF_PHASE_ORDER
+        .iter()
+        .position(|phase| *phase == label)
+        .unwrap_or(PERF_PHASE_ORDER.len())
+}
+
 // Scale the composition bar by powers of ten so larger queries get a little
 // more resolution without letting the footer sprawl indefinitely.
 fn perf_composition_bar_width(total_instructions: u64) -> usize {
-    let mut width = 10usize;
-    let mut threshold = 1_000_000u64;
-    while total_instructions >= threshold && width < 50 {
-        width = width.saturating_add(5).min(50);
+    let mut width = PERF_BAR_BASE_WIDTH;
+    let mut threshold = INSTRUCTIONS_PER_MI;
+    while total_instructions >= threshold && width < PERF_BAR_MAX_WIDTH {
+        width = width
+            .saturating_add(PERF_BAR_WIDTH_STEP)
+            .min(PERF_BAR_MAX_WIDTH);
         threshold = threshold.saturating_mul(10);
     }
 
@@ -189,12 +201,12 @@ impl PerfBarBucket {
 }
 
 fn format_instructions(instructions: u64) -> String {
-    if instructions >= 1_000_000 {
-        return format_scaled_instructions(instructions, 1_000_000, "Mi");
+    if instructions >= INSTRUCTIONS_PER_MI {
+        return format_scaled_instructions(instructions, INSTRUCTIONS_PER_MI, "Mi");
     }
 
-    if instructions >= 1_000 {
-        return format_scaled_instructions(instructions, 1_000, "Ki");
+    if instructions >= INSTRUCTIONS_PER_KI {
+        return format_scaled_instructions(instructions, INSTRUCTIONS_PER_KI, "Ki");
     }
 
     format!("{instructions}i")

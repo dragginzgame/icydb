@@ -4,7 +4,7 @@
 //! Boundary: exposes the top-level parsed-command runner used by `main`.
 
 use crate::{
-    cli::{CanisterCommand, CliArgs, CliCommand, ConfigCommand, SchemaCommand},
+    cli::{CanisterCommand, CanisterTarget, CliArgs, CliCommand, ConfigCommand, SchemaCommand},
     config::{check_config, init_config, show_config},
     icp::{deploy_canister, list_canisters, refresh_canister, status_canister, upgrade_canister},
     observability::{
@@ -13,6 +13,8 @@ use crate::{
     },
     shell::run_sql_command,
 };
+
+type TargetCommand = fn(&str, &str) -> Result<(), String>;
 
 /// Dispatch a parsed CLI invocation to the owning command family.
 pub(crate) fn run_cli(args: CliArgs) -> Result<(), String> {
@@ -44,19 +46,17 @@ fn run_config_command(command: ConfigCommand) -> Result<(), String> {
 fn run_canister_command(command: CanisterCommand) -> Result<(), String> {
     match command {
         CanisterCommand::List(args) => list_canisters(args.environment()),
-        CanisterCommand::Deploy(target) => {
-            deploy_canister(target.environment(), target.canister_name())
-        }
-        CanisterCommand::Refresh(target) => {
-            refresh_canister(target.environment(), target.canister_name())
-        }
+        CanisterCommand::Deploy(target) => run_target_command(&target, deploy_canister),
+        CanisterCommand::Refresh(target) => run_target_command(&target, refresh_canister),
         CanisterCommand::Upgrade(args) => upgrade_canister(
             args.target().environment(),
             args.target().canister_name(),
             args.wasm(),
         ),
-        CanisterCommand::Status(target) => {
-            status_canister(target.environment(), target.canister_name())
-        }
+        CanisterCommand::Status(target) => run_target_command(&target, status_canister),
     }
+}
+
+fn run_target_command(target: &CanisterTarget, command: TargetCommand) -> Result<(), String> {
+    command(target.environment(), target.canister_name())
 }

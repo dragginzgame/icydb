@@ -607,9 +607,12 @@ fn describe_entity_fields_with_slot_lookup(
     mut slot_for_field: impl FnMut(usize, &FieldModel) -> Option<u16>,
 ) -> Vec<EntityFieldDescription> {
     let mut fields = Vec::with_capacity(model.fields.len());
+    let primary_key_fields = primary_key_field_names_from_model(model);
 
     for (slot, field) in model.fields.iter().enumerate() {
-        let primary_key = field.name == model.primary_key.name;
+        let primary_key = primary_key_fields
+            .iter()
+            .any(|primary_key_field| primary_key_field == field.name);
         describe_field_recursive(
             &mut fields,
             field.name,
@@ -1058,7 +1061,7 @@ mod tests {
             },
         },
         model::{
-            entity::EntityModel,
+            entity::{EntityModel, PrimaryKeyModel},
             field::{
                 FieldDatabaseDefault, FieldKind, FieldModel, FieldStorageDecode, LeafCodec,
                 RelationStrength, ScalarCodec,
@@ -1108,6 +1111,23 @@ mod tests {
         &DESCRIBE_RELATION_FIELDS[0],
         0,
         &DESCRIBE_RELATION_FIELDS,
+        &DESCRIBE_RELATION_INDEXES,
+    );
+    static DESCRIBE_COMPOSITE_PK_FIELDS: [FieldModel; 3] = [
+        FieldModel::generated("tenant_id", FieldKind::Nat),
+        FieldModel::generated("local_id", FieldKind::Nat),
+        FieldModel::generated("label", FieldKind::Text { max_len: None }),
+    ];
+    static DESCRIBE_COMPOSITE_PK_FIELD_REFS: [&FieldModel; 2] = [
+        &DESCRIBE_COMPOSITE_PK_FIELDS[0],
+        &DESCRIBE_COMPOSITE_PK_FIELDS[1],
+    ];
+    static DESCRIBE_COMPOSITE_PK_MODEL: EntityModel = EntityModel::generated_with_primary_key_model(
+        "entities::Composite",
+        "Composite",
+        PrimaryKeyModel::ordered(&DESCRIBE_COMPOSITE_PK_FIELD_REFS),
+        0,
+        &DESCRIBE_COMPOSITE_PK_FIELDS,
         &DESCRIBE_RELATION_INDEXES,
     );
 
@@ -1275,6 +1295,24 @@ mod tests {
         assert_eq!(payload.fields().len(), 1);
         assert_eq!(payload.indexes().len(), 1);
         assert_eq!(payload.relations().len(), 1);
+    }
+
+    #[test]
+    fn describe_entity_model_marks_all_composite_primary_key_fields() {
+        let described = describe_entity_model(&DESCRIBE_COMPOSITE_PK_MODEL);
+        let primary_key_fields = described
+            .fields()
+            .iter()
+            .filter(|field| field.primary_key())
+            .map(EntityFieldDescription::name)
+            .collect::<Vec<_>>();
+
+        assert_eq!(described.primary_key(), "tenant_id, local_id");
+        assert_eq!(
+            described.primary_key_fields(),
+            ["tenant_id".to_string(), "local_id".to_string()].as_slice(),
+        );
+        assert_eq!(primary_key_fields, ["tenant_id", "local_id"]);
     }
 
     #[test]

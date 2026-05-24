@@ -86,8 +86,50 @@ fn validate_pk_literal(
     model: &EntityModel,
     key: &Value,
 ) -> Result<(), AccessPlanError> {
-    let field = model.primary_key.name;
+    let primary_key_names = schema.primary_key_names();
+    if primary_key_names.len() > 1 {
+        return validate_composite_pk_literal(schema, primary_key_names, key);
+    }
 
+    let field = primary_key_names
+        .first()
+        .map_or(model.primary_key.name, String::as_str);
+
+    validate_pk_literal_component(schema, field, key, key)
+}
+
+fn validate_composite_pk_literal(
+    schema: &SchemaInfo,
+    primary_key_names: &[String],
+    key: &Value,
+) -> Result<(), AccessPlanError> {
+    let field = composite_primary_key_field_label(primary_key_names);
+    let Value::List(values) = key else {
+        return Err(AccessPlanError::PrimaryKeyMismatch {
+            field,
+            key: key.clone(),
+        });
+    };
+    if values.len() != primary_key_names.len() {
+        return Err(AccessPlanError::PrimaryKeyMismatch {
+            field,
+            key: key.clone(),
+        });
+    }
+
+    for (field, value) in primary_key_names.iter().zip(values) {
+        validate_pk_literal_component(schema, field, value, key)?;
+    }
+
+    Ok(())
+}
+
+fn validate_pk_literal_component(
+    schema: &SchemaInfo,
+    field: &str,
+    value: &Value,
+    reported_key: &Value,
+) -> Result<(), AccessPlanError> {
     let field_type = schema
         .field(field)
         .ok_or_else(|| AccessPlanError::PrimaryKeyNotKeyable {
@@ -100,14 +142,18 @@ fn validate_pk_literal(
         });
     }
 
-    if !literal_matches_type(key, field_type) {
+    if !literal_matches_type(value, field_type) {
         return Err(AccessPlanError::PrimaryKeyMismatch {
             field: field.to_string(),
-            key: key.clone(),
+            key: reported_key.clone(),
         });
     }
 
     Ok(())
+}
+
+fn composite_primary_key_field_label(primary_key_names: &[String]) -> String {
+    primary_key_names.join(", ")
 }
 
 /// Validate that an index prefix is valid for execution.
@@ -510,4 +556,104 @@ fn validate_index_range_runtime(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        model::{EntityModel, FieldKind, FieldModel, IndexModel, PrimaryKeyModel},
+        testing::entity_model_from_static,
+    };
+
+    static SCALAR_FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("id", FieldKind::Nat),
+        FieldModel::generated("name", FieldKind::Text { max_len: None }),
+    ];
+    static EMPTY_INDEXES: [&IndexModel; 0] = [];
+    static SCALAR_MODEL: EntityModel = entity_model_from_static(
+        "access::validate::tests::ScalarEntity",
+        "ScalarEntity",
+        &SCALAR_FIELDS[0],
+        0,
+        &SCALAR_FIELDS,
+        &EMPTY_INDEXES,
+    );
+
+    static COMPOSITE_FIELDS: [FieldModel; 3] = [
+        FieldModel::generated("tenant_id", FieldKind::Nat),
+        FieldModel::generated("local_id", FieldKind::Nat),
+        FieldModel::generated("label", FieldKind::Text { max_len: None }),
+    ];
+    static COMPOSITE_PK_FIELDS: [&FieldModel; 2] = [&COMPOSITE_FIELDS[0], &COMPOSITE_FIELDS[1]];
+    static COMPOSITE_MODEL: EntityModel = EntityModel::generated_with_primary_key_model(
+        "access::validate::tests::CompositeEntity",
+        "CompositeEntity",
+        PrimaryKeyModel::ordered(&COMPOSITE_PK_FIELDS),
+        0,
+        &COMPOSITE_FIELDS,
+        &EMPTY_INDEXES,
+    );
+
+    #[test]
+    fn validate_pk_literal_keeps_scalar_key_validation() {
+        let schema = SchemaInfo::cached_for_generated_entity_model(&SCALAR_MODEL);
+
+        validate_access_structure_model(schema, &SCALAR_MODEL, &AccessPlan::by_key(Value::Nat(7)))
+            .expect("scalar primary-key literal should validate");
+
+        let err = validate_access_structure_model(
+            schema,
+            &SCALAR_MODEL,
+            &AccessPlan::by_key(Value::List(vec![Value::Nat(7)])),
+        )
+        .expect_err("scalar primary-key validation should reject list literals");
+
+        assert!(matches!(err, AccessPlanError::PrimaryKeyMismatch { .. }));
+    }
+
+    #[test]
+    fn validate_pk_literal_accepts_ordered_composite_key_value_list() {
+        let schema = SchemaInfo::cached_for_generated_entity_model(&COMPOSITE_MODEL);
+        let key = Value::List(vec![Value::Nat(7), Value::Nat(11)]);
+
+        validate_access_structure_model(schema, &COMPOSITE_MODEL, &AccessPlan::by_key(key))
+            .expect("ordered composite primary-key literal should validate");
+    }
+
+    #[test]
+    fn validate_pk_literal_accepts_composite_by_keys() {
+        let schema = SchemaInfo::cached_for_generated_entity_model(&COMPOSITE_MODEL);
+        let keys = vec![
+            Value::List(vec![Value::Nat(7), Value::Nat(11)]),
+            Value::List(vec![Value::Nat(7), Value::Nat(12)]),
+        ];
+
+        validate_access_structure_model(schema, &COMPOSITE_MODEL, &AccessPlan::by_keys(keys))
+            .expect("ordered composite primary-key list should validate");
+    }
+
+    #[test]
+    fn validate_pk_literal_rejects_composite_key_with_wrong_arity() {
+        let schema = SchemaInfo::cached_for_generated_entity_model(&COMPOSITE_MODEL);
+        let key = Value::List(vec![Value::Nat(7)]);
+
+        let err =
+            validate_access_structure_model(schema, &COMPOSITE_MODEL, &AccessPlan::by_key(key))
+                .expect_err("composite primary-key validation should reject wrong arity");
+
+        assert!(matches!(err, AccessPlanError::PrimaryKeyMismatch { .. }));
+    }
+
+    #[test]
+    fn validate_pk_literal_rejects_composite_key_component_type_mismatch() {
+        let schema = SchemaInfo::cached_for_generated_entity_model(&COMPOSITE_MODEL);
+        let key = Value::List(vec![Value::Nat(7), Value::Text("wrong".to_string())]);
+
+        let err =
+            validate_access_structure_model(schema, &COMPOSITE_MODEL, &AccessPlan::by_key(key))
+                .expect_err("composite primary-key validation should reject component mismatch");
+
+        assert!(matches!(err, AccessPlanError::PrimaryKeyMismatch { .. }));
+    }
 }

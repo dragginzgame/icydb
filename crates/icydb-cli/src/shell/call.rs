@@ -34,9 +34,7 @@ pub(super) fn icp_query(
         method,
         candid_arg.as_str(),
         |stderr| {
-            let error = format!(
-                "IcyDB SQL query method '{method}' failed on canister '{canister}' in environment '{environment}': {stderr}",
-            );
+            let error = sql_query_error(environment, canister, method, stderr);
             sql_error_with_recovery_hint(error.as_str(), environment, canister)
         },
     )
@@ -62,6 +60,12 @@ fn sql_candid_arg(escaped_sql: &str) -> String {
     format!("(\"{escaped_sql}\")")
 }
 
+fn sql_query_error(environment: &str, canister: &str, method: &str, stderr: &str) -> String {
+    format!(
+        "IcyDB SQL query method '{method}' failed on canister '{canister}' in environment '{environment}': {stderr}",
+    )
+}
+
 pub(super) fn sql_error_with_recovery_hint(
     error: &str,
     environment: &str,
@@ -75,10 +79,17 @@ pub(super) fn sql_error_with_recovery_hint(
 }
 
 fn looks_like_stale_demo_sql_surface(error: &str) -> bool {
+    stale_sql_method_missing(error) || stale_startup_index_rebuild(error)
+}
+
+fn stale_sql_method_missing(error: &str) -> bool {
     error.contains("has no query method '__icydb_query'")
-        || (error.contains("startup index rebuild failed")
-            && error.contains("store '")
-            && error.contains("' not found"))
+}
+
+fn stale_startup_index_rebuild(error: &str) -> bool {
+    error.contains("startup index rebuild failed")
+        && error.contains("store '")
+        && error.contains("' not found")
 }
 
 fn sql_recovery_hint(environment: &str, canister: &str) -> String {

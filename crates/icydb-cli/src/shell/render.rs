@@ -158,7 +158,7 @@ fn append_perf_suffix(
         suffixes.push(render_suffix);
     }
 
-    *last = format!("{last} {}", suffixes.join(" "));
+    append_suffix_to_line(last, suffixes.join(" ").as_str());
 }
 
 fn append_shell_render_suffix(
@@ -172,7 +172,12 @@ fn append_shell_render_suffix(
     let Some(last) = lines.last_mut() else {
         return rendered;
     };
-    *last = format!("{last} {render_suffix}");
+    append_suffix_to_line(last, render_suffix.as_str());
 
     lines.join("\n")
+}
+
+fn append_suffix_to_line(line: &mut String, suffix: &str) {
+    line.push(' ');
+    line.push_str(suffix);
 }

@@ -7,6 +7,9 @@ use std::collections::VecDeque;
 
 use rustyline::{DefaultEditor, error::ReadlineError};
 
+const SHELL_PROMPT: &str = "icydb> ";
+const SHELL_CONTINUATION_PROMPT: &str = "    -> ";
+
 ///
 /// ShellInput
 ///
@@ -83,7 +86,7 @@ pub(super) fn read_statement(
                         // Ignore top-level blank input so pressing Enter on an
                         // empty prompt simply reprompts instead of executing empty SQL.
                         ShellTopLevelInput::Blank => {
-                            prompt = "icydb> ";
+                            prompt = SHELL_PROMPT;
                             continue;
                         }
                         ShellTopLevelInput::Exit => return Ok(ShellInput::Exit),
@@ -102,24 +105,13 @@ pub(super) fn read_statement(
                     return Ok(ShellInput::Sql(sql));
                 }
 
-                prompt = "    -> ";
+                prompt = SHELL_CONTINUATION_PROMPT;
             }
             Err(ReadlineError::Interrupted) => {
-                partial_statement.clear();
-                pending_sql.clear();
+                clear_shell_input_state(pending_sql, partial_statement);
                 prompt = shell_prompt(partial_statement);
             }
-            Err(ReadlineError::Eof) => {
-                if partial_statement.trim().is_empty() {
-                    println!();
-                    return Ok(ShellInput::Exit);
-                }
-
-                let sql = partial_statement.trim().to_string();
-                partial_statement.clear();
-
-                return Ok(ShellInput::Sql(sql));
-            }
+            Err(ReadlineError::Eof) => return Ok(shell_input_at_eof(partial_statement)),
             Err(err) => return Err(err.to_string()),
         }
     }
@@ -131,9 +123,9 @@ fn partial_statement_is_empty(partial_statement: &str) -> bool {
 
 fn shell_prompt(partial_statement: &str) -> &'static str {
     if partial_statement_is_empty(partial_statement) {
-        "icydb> "
+        SHELL_PROMPT
     } else {
-        "    -> "
+        SHELL_CONTINUATION_PROMPT
     }
 }
 
@@ -142,6 +134,23 @@ fn append_shell_statement_line(partial_statement: &mut String, line: &str) {
         partial_statement.push('\n');
     }
     partial_statement.push_str(line);
+}
+
+fn clear_shell_input_state(pending_sql: &mut VecDeque<String>, partial_statement: &mut String) {
+    partial_statement.clear();
+    pending_sql.clear();
+}
+
+fn shell_input_at_eof(partial_statement: &mut String) -> ShellInput {
+    if partial_statement_is_empty(partial_statement) {
+        println!();
+        return ShellInput::Exit;
+    }
+
+    let sql = partial_statement.trim().to_string();
+    partial_statement.clear();
+
+    ShellInput::Sql(sql)
 }
 
 fn top_level_shell_input(line: &str) -> ShellTopLevelInput {

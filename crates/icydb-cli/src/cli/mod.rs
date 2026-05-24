@@ -8,6 +8,10 @@ use std::path::{Path, PathBuf};
 use clap::{ArgAction, Args, Parser, Subcommand};
 
 pub(crate) const DEFAULT_ENVIRONMENT: &str = "demo";
+const ICP_ENVIRONMENT_ENV: &str = "ICP_ENVIRONMENT";
+const SQL_HISTORY_FILE: &str = ".cache/sql_history";
+
+pub(crate) type SqlShellFields = (String, String, PathBuf, Option<String>, Vec<String>);
 
 ///
 /// CliArgs
@@ -89,11 +93,11 @@ pub(crate) struct SqlArgs {
     canister: String,
 
     /// Target icp-cli environment.
-    #[arg(short, long, env = "ICP_ENVIRONMENT", default_value = DEFAULT_ENVIRONMENT)]
+    #[arg(short, long, env = ICP_ENVIRONMENT_ENV, default_value = DEFAULT_ENVIRONMENT)]
     environment: String,
 
     /// Interactive shell history file.
-    #[arg(long, default_value = ".cache/sql_history")]
+    #[arg(long, default_value = SQL_HISTORY_FILE)]
     history_file: PathBuf,
 
     /// Execute one SQL statement, including supported DDL, and exit.
@@ -106,9 +110,7 @@ pub(crate) struct SqlArgs {
 }
 
 impl SqlArgs {
-    pub(crate) fn into_shell_fields(
-        self,
-    ) -> (String, String, PathBuf, Option<String>, Vec<String>) {
+    pub(crate) fn into_shell_fields(self) -> SqlShellFields {
         (
             self.canister,
             self.environment,
@@ -134,7 +136,7 @@ pub(crate) struct CanisterTarget {
     canister: String,
 
     /// Target icp-cli environment.
-    #[arg(short, long, env = "ICP_ENVIRONMENT", default_value = DEFAULT_ENVIRONMENT)]
+    #[arg(short, long, env = ICP_ENVIRONMENT_ENV, default_value = DEFAULT_ENVIRONMENT)]
     environment: String,
 }
 
@@ -167,7 +169,7 @@ pub(crate) enum SchemaCommand {
 #[derive(Args, Clone, Debug)]
 pub(crate) struct EnvironmentTarget {
     /// Target icp-cli environment.
-    #[arg(short, long, env = "ICP_ENVIRONMENT", default_value = DEFAULT_ENVIRONMENT)]
+    #[arg(short, long, env = ICP_ENVIRONMENT_ENV, default_value = DEFAULT_ENVIRONMENT)]
     environment: String,
 }
 
@@ -246,7 +248,7 @@ pub(crate) struct ConfigArgs {
     start_dir: Option<PathBuf>,
 
     /// Optional icp-cli environment used for sync checks.
-    #[arg(short, long, env = "ICP_ENVIRONMENT")]
+    #[arg(short, long, env = ICP_ENVIRONMENT_ENV)]
     environment: Option<String>,
 }
 

@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.162.md](docs/changelog/0.162.md)
 
+- `0.162.10` moves exact-key routing, typed save validation, and schema
+  index/describe output onto ordered composite primary-key fields.
+
 - `0.162.9` moves aggregate/page executor decode paths behind scalar
   fail-closed bridges and makes schema observability compare ordered composite
   primary-key fields structurally.

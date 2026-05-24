@@ -7,12 +7,12 @@
 
 use crate::{
     db::key_taxonomy::{
-        COMPOSITE_PRIMARY_KEY_MAX_SIZE, CompactStoreKeyDecodeError, DataStoreKey,
-        EncodedPrimaryKey, PrimaryKeyComponent, PrimaryKeyValue, RawDataStoreKey,
-        RawDataStoreKeyRange,
+        COMPOSITE_PRIMARY_KEY_MAX_SIZE, CompactStoreKeyDecodeError, CompositePrimaryKeyValue,
+        CompositePrimaryKeyValueError, DataStoreKey, EncodedPrimaryKey, MAX_PRIMARY_KEY_FIELDS,
+        PrimaryKeyComponent, PrimaryKeyValue, RawDataStoreKey, RawDataStoreKeyRange,
     },
     error::InternalError,
-    traits::{EntityKind, PrimaryKeyCodec, PrimaryKeyDecode, Storable},
+    traits::{EntityKind, PrimaryKeyCodec, PrimaryKeyDecode, PrimaryKeyEncodeError, Storable},
     types::EntityTag,
     value::{
         StorageKey, StorageKeyDecodeError, StorageKeyEncodeError, Value,
@@ -188,9 +188,9 @@ impl DecodedDataStoreKey {
         entity: EntityTag,
         key: &Value,
     ) -> Result<Self, InternalError> {
-        let key = storage_key_from_runtime_value(key)?;
+        let key = primary_key_value_from_structural_value(key)?;
 
-        Ok(Self::new(entity, key))
+        Ok(Self::new_primary_key_value(entity, &key))
     }
 
     /// Decode a raw entity key from this data key.
@@ -377,6 +377,59 @@ fn scalar_storage_key_from_primary_key_value(
             "composite primary key cannot be viewed as scalar StorageKey",
         )
     })
+}
+
+fn primary_key_value_from_structural_value(
+    value: &Value,
+) -> Result<PrimaryKeyValue, InternalError> {
+    match value {
+        Value::List(values) => composite_primary_key_value_from_structural_values(values),
+        _ => storage_key_from_runtime_value(value)
+            .map(PrimaryKeyValue::from)
+            .map_err(InternalError::from),
+    }
+}
+
+fn composite_primary_key_value_from_structural_values(
+    values: &[Value],
+) -> Result<PrimaryKeyValue, InternalError> {
+    let count = values.len();
+    if count < 2 {
+        return Err(
+            PrimaryKeyEncodeError::from(CompositePrimaryKeyValueError::TooFewComponents {
+                count,
+                min: 2,
+            })
+            .into(),
+        );
+    }
+    if count > MAX_PRIMARY_KEY_FIELDS {
+        return Err(PrimaryKeyEncodeError::from(
+            CompositePrimaryKeyValueError::TooManyComponents {
+                count,
+                max: MAX_PRIMARY_KEY_FIELDS,
+            },
+        )
+        .into());
+    }
+
+    let mut components = [PrimaryKeyComponent::Unit; MAX_PRIMARY_KEY_FIELDS];
+    for (index, value) in values.iter().enumerate() {
+        components[index] = primary_key_component_from_structural_value(value)?;
+    }
+
+    let composite = CompositePrimaryKeyValue::try_from_components(&components[..count])
+        .map_err(PrimaryKeyEncodeError::from)?;
+
+    Ok(PrimaryKeyValue::Composite(composite))
+}
+
+fn primary_key_component_from_structural_value(
+    value: &Value,
+) -> Result<PrimaryKeyComponent, InternalError> {
+    storage_key_from_runtime_value(value)
+        .map(PrimaryKeyComponent::from)
+        .map_err(InternalError::from)
 }
 
 impl Clone for DecodedDataStoreKey {
@@ -601,6 +654,25 @@ mod tests {
         assert_eq!(decoded, key);
     }
 
+    fn composite_value_list_fixture() -> Value {
+        Value::List(vec![
+            Value::Nat(7),
+            Value::Ulid(Ulid::from_u128(42)),
+            Value::Principal(Principal::from_slice(&[1, 2, 3])),
+        ])
+    }
+
+    fn composite_primary_key_value_fixture() -> PrimaryKeyValue {
+        let composite = CompositePrimaryKeyValue::try_from_components(&[
+            PrimaryKeyComponent::Nat(7),
+            PrimaryKeyComponent::Ulid(Ulid::from_u128(42)),
+            PrimaryKeyComponent::Principal(Principal::from_slice(&[1, 2, 3])),
+        ])
+        .expect("composite fixture should build");
+
+        PrimaryKeyValue::Composite(composite)
+    }
+
     fn taxonomy_range_contains_raw_key(
         range: &RawDataStoreKeyRange,
         key: &RawDataStoreKey,
@@ -711,6 +783,42 @@ mod tests {
             ),
         );
         assert_constructor_equivalence(entity, ());
+    }
+
+    #[test]
+    fn data_key_structural_constructor_accepts_composite_value_list() {
+        let entity = EntityTag::new(19);
+        let expected = DecodedDataStoreKey::new_primary_key_value(
+            entity,
+            &composite_primary_key_value_fixture(),
+        );
+        let structural =
+            DecodedDataStoreKey::try_from_structural_key(entity, &composite_value_list_fixture())
+                .expect("composite value-list key should encode");
+
+        assert_eq!(structural, expected);
+        assert_eq!(
+            structural.to_raw().unwrap().as_bytes(),
+            expected.to_raw().unwrap().as_bytes(),
+        );
+    }
+
+    #[test]
+    fn data_key_structural_constructor_rejects_malformed_composite_value_lists() {
+        let entity = EntityTag::new(21);
+        let malformed = [
+            Value::List(vec![]),
+            Value::List(vec![Value::Nat(1)]),
+            Value::List(vec![Value::Nat(1), Value::Unit]),
+            Value::List(vec![Value::Nat(1), Value::List(vec![Value::Nat(2)])]),
+        ];
+
+        for value in malformed {
+            let err = DecodedDataStoreKey::try_from_structural_key(entity, &value)
+                .expect_err("malformed composite value-list key should reject");
+
+            assert_eq!(err.class(), ErrorClass::Unsupported);
+        }
     }
 
     #[test]

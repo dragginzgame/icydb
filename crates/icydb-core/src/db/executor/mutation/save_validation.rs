@@ -181,44 +181,25 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         schema: &SchemaInfo,
     ) -> Result<(), InternalError> {
         let accepted_contract = self.accepted_row_decode_contract();
-        let (primary_key_name, pk_field_index) =
-            Self::accepted_primary_key_field(accepted_contract)?;
-
-        // Phase 1: validate primary key field presence and *shape*.
-        let pk_value = entity.get_value_by_index(pk_field_index).ok_or_else(|| {
-            InternalError::mutation_entity_primary_key_missing(E::PATH, primary_key_name)
-        })?;
-
-        // Primary key must not be Null.
-        // Unit is valid for singleton entities and is enforced by schema shape checks below.
-        if matches!(pk_value, Value::Null) {
-            return Err(InternalError::mutation_entity_primary_key_invalid_value(
-                E::PATH,
-                primary_key_name,
-                &pk_value,
-            ));
-        }
-
-        // If schema knows the PK type, enforce literal shape compatibility.
-        if let Some(pk_type) = schema.field(primary_key_name)
-            && !literal_matches_type(&pk_value, pk_type)
-        {
-            return Err(InternalError::mutation_entity_primary_key_type_mismatch(
-                E::PATH,
-                primary_key_name,
-                &pk_value,
-            ));
-        }
-
-        // The declared PK field value must exactly match the runtime identity key.
-        let identity_pk = crate::traits::KeyValueCodec::to_key_value(&entity.id().key());
-        if pk_value != identity_pk {
-            return Err(InternalError::mutation_entity_primary_key_mismatch(
-                E::PATH,
-                primary_key_name,
-                &pk_value,
-                &identity_pk,
-            ));
+        let primary_key_slots = accepted_contract.primary_key_slot_indices();
+        if primary_key_slots.len() > 1 {
+            Self::validate_composite_entity_primary_key_invariants(
+                entity,
+                schema,
+                accepted_contract,
+                primary_key_slots,
+            )?;
+        } else {
+            let primary_key_slot = primary_key_slots
+                .first()
+                .copied()
+                .unwrap_or_else(|| accepted_contract.primary_key_slot_index());
+            Self::validate_scalar_entity_primary_key_invariants(
+                entity,
+                schema,
+                accepted_contract,
+                primary_key_slot,
+            )?;
         }
 
         // Phase 2: validate field presence and runtime value shapes.
@@ -231,17 +212,139 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         Ok(())
     }
 
-    // Resolve the primary-key name and physical slot from the accepted row
+    fn validate_scalar_entity_primary_key_invariants(
+        entity: &E,
+        schema: &SchemaInfo,
+        accepted_contract: &AcceptedRowDecodeContract,
+        primary_key_slot: usize,
+    ) -> Result<(), InternalError> {
+        let (primary_key_name, pk_field_index) =
+            Self::accepted_primary_key_field_at_slot(accepted_contract, primary_key_slot)?;
+
+        let pk_value = entity.get_value_by_index(pk_field_index).ok_or_else(|| {
+            InternalError::mutation_entity_primary_key_missing(E::PATH, primary_key_name)
+        })?;
+
+        if matches!(pk_value, Value::Null) {
+            return Err(InternalError::mutation_entity_primary_key_invalid_value(
+                E::PATH,
+                primary_key_name,
+                &pk_value,
+            ));
+        }
+
+        if let Some(pk_type) = schema.field(primary_key_name)
+            && !literal_matches_type(&pk_value, pk_type)
+        {
+            return Err(InternalError::mutation_entity_primary_key_type_mismatch(
+                E::PATH,
+                primary_key_name,
+                &pk_value,
+            ));
+        }
+
+        let identity_pk = crate::traits::KeyValueCodec::to_key_value(&entity.id().key());
+        if pk_value != identity_pk {
+            return Err(InternalError::mutation_entity_primary_key_mismatch(
+                E::PATH,
+                primary_key_name,
+                &pk_value,
+                &identity_pk,
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn validate_composite_entity_primary_key_invariants(
+        entity: &E,
+        schema: &SchemaInfo,
+        accepted_contract: &AcceptedRowDecodeContract,
+        primary_key_slots: &[usize],
+    ) -> Result<(), InternalError> {
+        let identity_pk = crate::traits::KeyValueCodec::to_key_value(&entity.id().key());
+        let Value::List(identity_components) = &identity_pk else {
+            return Err(InternalError::executor_invariant(format!(
+                "composite primary key identity did not encode as a value list: {}",
+                E::PATH,
+            )));
+        };
+
+        if identity_components.len() != primary_key_slots.len() {
+            return Err(InternalError::mutation_entity_primary_key_mismatch(
+                E::PATH,
+                &Self::accepted_primary_key_field_label(accepted_contract, primary_key_slots)?,
+                &Value::List(Vec::new()),
+                &identity_pk,
+            ));
+        }
+
+        for (slot, identity_component) in primary_key_slots
+            .iter()
+            .copied()
+            .zip(identity_components.iter())
+        {
+            let (primary_key_name, pk_field_index) =
+                Self::accepted_primary_key_field_at_slot(accepted_contract, slot)?;
+            let pk_value = entity.get_value_by_index(pk_field_index).ok_or_else(|| {
+                InternalError::mutation_entity_primary_key_missing(E::PATH, primary_key_name)
+            })?;
+
+            if matches!(pk_value, Value::Null) {
+                return Err(InternalError::mutation_entity_primary_key_invalid_value(
+                    E::PATH,
+                    primary_key_name,
+                    &pk_value,
+                ));
+            }
+
+            if let Some(pk_type) = schema.field(primary_key_name)
+                && !literal_matches_type(&pk_value, pk_type)
+            {
+                return Err(InternalError::mutation_entity_primary_key_type_mismatch(
+                    E::PATH,
+                    primary_key_name,
+                    &pk_value,
+                ));
+            }
+
+            if pk_value != *identity_component {
+                return Err(InternalError::mutation_entity_primary_key_mismatch(
+                    E::PATH,
+                    primary_key_name,
+                    &pk_value,
+                    identity_component,
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    // Resolve one primary-key name and physical slot from the accepted row
     // contract. Accepted save lanes use this instead of reopening generated
     // row layout metadata after schema compatibility has already been proven.
-    fn accepted_primary_key_field(
+    fn accepted_primary_key_field_at_slot(
         accepted_contract: &AcceptedRowDecodeContract,
+        primary_key_slot: usize,
     ) -> Result<(&str, usize), InternalError> {
-        let primary_key_slot = accepted_contract.primary_key_slot_index();
         let primary_key_field =
             accepted_contract.required_field_for_slot(E::PATH, primary_key_slot)?;
 
         Ok((primary_key_field.field_name(), primary_key_slot))
+    }
+
+    fn accepted_primary_key_field_label(
+        accepted_contract: &AcceptedRowDecodeContract,
+        primary_key_slots: &[usize],
+    ) -> Result<String, InternalError> {
+        let mut names = Vec::with_capacity(primary_key_slots.len());
+        for slot in primary_key_slots {
+            let field = accepted_contract.required_field_for_slot(E::PATH, *slot)?;
+            names.push(field.field_name());
+        }
+
+        Ok(names.join(", "))
     }
 
     // Validate typed entity field values against accepted schema field facts

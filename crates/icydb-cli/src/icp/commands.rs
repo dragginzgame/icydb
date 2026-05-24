@@ -155,9 +155,8 @@ pub(super) fn fixtures_load_command(environment: &str, canister: &str) -> Comman
         .arg("call")
         .arg(canister)
         .arg(FIXTURES_LOAD_ENDPOINT.method())
-        .arg("()")
-        .arg("--environment")
-        .arg(environment);
+        .arg("()");
+    append_environment_args(&mut command, environment);
 
     command
 }
@@ -189,6 +188,13 @@ pub(super) fn upgrade_canister(
     }
 
     eprintln!("[icydb] upgrading canister '{canister}' without demo data reset");
+    run_external_command(
+        install_upgrade_command(environment, canister, wasm_path),
+        "icp canister install --mode upgrade",
+    )
+}
+
+fn install_upgrade_command(environment: &str, canister: &str, wasm_path: PathBuf) -> Command {
     let mut command = Command::new("icp");
     command
         .arg("canister")
@@ -197,11 +203,10 @@ pub(super) fn upgrade_canister(
         .arg("--mode")
         .arg("upgrade")
         .arg("--wasm")
-        .arg(wasm_path)
-        .arg("--environment")
-        .arg(environment);
+        .arg(wasm_path);
+    append_environment_args(&mut command, environment);
 
-    run_external_command(command, "icp canister install --mode upgrade")
+    command
 }
 
 /// Show icp-cli status for one local canister without changing lifecycle state.

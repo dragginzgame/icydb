@@ -11,6 +11,13 @@ use crate::shell::perf::{ShellPerfAttribution, ShellPerfAttributionInput};
 pub(in crate::shell) fn parse_perf_result(
     value: &Value,
 ) -> Result<(SqlQueryResult, ShellPerfAttribution), String> {
+    Ok((
+        parse_perf_sql_result(value)?,
+        parse_perf_attribution(value)?,
+    ))
+}
+
+fn parse_perf_sql_result(value: &Value) -> Result<SqlQueryResult, String> {
     let result_value = value
         .get("result")
         .ok_or_else(|| "perf result missing result payload".to_string())?;
@@ -18,10 +25,7 @@ pub(in crate::shell) fn parse_perf_result(
 
     normalize_grouped_next_cursor_json(&mut result_value);
 
-    let result =
-        serde_json::from_value::<SqlQueryResult>(result_value).map_err(|err| err.to_string())?;
-
-    Ok((result, parse_perf_attribution(value)?))
+    serde_json::from_value::<SqlQueryResult>(result_value).map_err(|err| err.to_string())
 }
 
 pub(in crate::shell) fn normalize_grouped_next_cursor_json(value: &mut Value) {
@@ -35,12 +39,16 @@ pub(in crate::shell) fn normalize_grouped_next_cursor_json(value: &mut Value) {
         return;
     };
 
-    match next_cursor {
-        Value::Array(values) if values.is_empty() => *next_cursor = Value::Null,
-        Value::Array(values) if values.len() == 1 => {
-            *next_cursor = values.pop().unwrap_or(Value::Null);
-        }
-        _ => {}
+    if let Some(normalized) = normalized_candid_option_json(next_cursor) {
+        *next_cursor = normalized;
+    }
+}
+
+fn normalized_candid_option_json(value: &mut Value) -> Option<Value> {
+    match value {
+        Value::Array(values) if values.is_empty() => Some(Value::Null),
+        Value::Array(values) if values.len() == 1 => values.pop(),
+        _ => None,
     }
 }
 

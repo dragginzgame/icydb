@@ -4,7 +4,10 @@
 //! Boundary: converts schema index contracts into user-readable lines.
 
 use super::{SchemaExpressionIndexKeyItemInfo, SchemaInfo};
-use crate::{db::IndexState, model::entity::EntityModel};
+use crate::{
+    db::IndexState,
+    model::{entity::EntityModel, field::FieldModel},
+};
 use std::fmt::Write;
 
 /// Build one stable SQL-style index listing for an entity model.
@@ -25,7 +28,7 @@ pub(in crate::db) fn show_indexes_for_model_with_runtime_state(
     indexes.push(render_index_listing_line(
         "PRIMARY KEY",
         None,
-        &[model.primary_key.name],
+        &primary_key_fields_from_model(model),
         None,
         runtime_state,
         Some("generated"),
@@ -64,11 +67,12 @@ pub(in crate::db) fn show_indexes_for_schema_info_with_runtime_state(
             .saturating_add(1),
     );
 
-    if let Some(primary_key) = schema.primary_key_name() {
+    if !schema.primary_key_names().is_empty() {
+        let primary_key_fields = primary_key_fields_from_schema(schema);
         indexes.push(render_index_listing_line(
             "PRIMARY KEY",
             None,
-            &[primary_key],
+            &primary_key_fields,
             None,
             runtime_state,
             Some("generated"),
@@ -133,6 +137,23 @@ pub(in crate::db) fn show_indexes_for_schema_info_with_runtime_state(
     indexes
 }
 
+fn primary_key_fields_from_model(model: &EntityModel) -> Vec<&'static str> {
+    model
+        .primary_key_model()
+        .fields()
+        .iter()
+        .map(FieldModel::name)
+        .collect()
+}
+
+fn primary_key_fields_from_schema(schema: &SchemaInfo) -> Vec<&str> {
+    schema
+        .primary_key_names()
+        .iter()
+        .map(String::as_str)
+        .collect()
+}
+
 // Build one stable SQL-style index line without intermediate formatted strings
 // so metadata surfaces keep their tiny payload cost tiny too.
 fn render_index_listing_line(
@@ -175,4 +196,66 @@ fn render_index_listing_line(
     }
 
     rendered
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        model::{EntityModel, FieldKind, FieldModel, IndexModel, PrimaryKeyModel},
+        testing::entity_model_from_static,
+    };
+
+    static SCALAR_FIELDS: [FieldModel; 1] = [FieldModel::generated("id", FieldKind::Nat)];
+    static COMPOSITE_FIELDS: [FieldModel; 3] = [
+        FieldModel::generated("tenant_id", FieldKind::Nat),
+        FieldModel::generated("local_id", FieldKind::Nat),
+        FieldModel::generated("label", FieldKind::Text { max_len: None }),
+    ];
+    static EMPTY_INDEXES: [&IndexModel; 0] = [];
+    static SCALAR_MODEL: EntityModel = entity_model_from_static(
+        "schema::format::tests::ScalarEntity",
+        "ScalarEntity",
+        &SCALAR_FIELDS[0],
+        0,
+        &SCALAR_FIELDS,
+        &EMPTY_INDEXES,
+    );
+    static COMPOSITE_PK_FIELDS: [&FieldModel; 2] = [&COMPOSITE_FIELDS[0], &COMPOSITE_FIELDS[1]];
+    static COMPOSITE_MODEL: EntityModel = EntityModel::generated_with_primary_key_model(
+        "schema::format::tests::CompositeEntity",
+        "CompositeEntity",
+        PrimaryKeyModel::ordered(&COMPOSITE_PK_FIELDS),
+        0,
+        &COMPOSITE_FIELDS,
+        &EMPTY_INDEXES,
+    );
+
+    #[test]
+    fn show_indexes_for_model_keeps_scalar_primary_key_format() {
+        let indexes = show_indexes_for_model(&SCALAR_MODEL);
+
+        assert_eq!(indexes[0], "PRIMARY KEY (id) [origin=generated]");
+    }
+
+    #[test]
+    fn show_indexes_for_model_lists_composite_primary_key_fields() {
+        let indexes = show_indexes_for_model(&COMPOSITE_MODEL);
+
+        assert_eq!(
+            indexes[0],
+            "PRIMARY KEY (tenant_id, local_id) [origin=generated]",
+        );
+    }
+
+    #[test]
+    fn show_indexes_for_schema_info_lists_composite_primary_key_fields() {
+        let schema = SchemaInfo::cached_for_generated_entity_model(&COMPOSITE_MODEL);
+        let indexes = show_indexes_for_schema_info_with_runtime_state(schema, None);
+
+        assert_eq!(
+            indexes[0],
+            "PRIMARY KEY (tenant_id, local_id) [origin=generated]",
+        );
+    }
 }

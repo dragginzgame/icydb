@@ -75,10 +75,7 @@ pub(crate) fn run_sql_command(args: SqlArgs) -> Result<(), String> {
 
 fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, String> {
     let call_kind = route::sql_shell_call_kind(sql)?;
-    let endpoint = match call_kind {
-        route::SqlShellCallKind::Query => SQL_QUERY_ENDPOINT,
-        route::SqlShellCallKind::Ddl => SQL_DDL_ENDPOINT,
-    };
+    let endpoint = sql_endpoint(call_kind);
     require_configured_endpoint(canister, endpoint)?;
     require_created_canister(environment, canister)?;
 
@@ -90,6 +87,13 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
         route::SqlShellCallKind::Ddl => {
             execute_sql_ddl(environment, canister, endpoint, &escaped_sql)
         }
+    }
+}
+
+const fn sql_endpoint(call_kind: route::SqlShellCallKind) -> ConfiguredEndpoint {
+    match call_kind {
+        route::SqlShellCallKind::Query => SQL_QUERY_ENDPOINT,
+        route::SqlShellCallKind::Ddl => SQL_DDL_ENDPOINT,
     }
 }
 
@@ -138,6 +142,8 @@ fn render_sql_error(err: icydb::Error, environment: &str, canister: &str) -> Str
 #[cfg(test)]
 pub(crate) mod test_support {
     pub(crate) use super::{perf::ShellPerfAttribution, route::SqlShellCallKind};
+
+    pub(crate) type SqlConfigParts = (String, String, std::path::PathBuf, Option<String>);
 
     pub(crate) fn drain_complete_shell_statements(
         statement: &mut String,
@@ -221,9 +227,7 @@ pub(crate) mod test_support {
         super::render::render_projection_shell_text(rows, attribution, None)
     }
 
-    pub(crate) fn sql_config_parts(
-        args: super::SqlArgs,
-    ) -> (String, String, std::path::PathBuf, Option<String>) {
+    pub(crate) fn sql_config_parts(args: super::SqlArgs) -> SqlConfigParts {
         let config = super::ShellConfig::from_sql_args(args);
 
         (

@@ -41,10 +41,14 @@ pub(crate) fn append_indented_table<const N: usize>(
     let table = render_table(headers, rows, alignments);
 
     for line in table.lines() {
-        output.push_str(indent);
-        output.push_str(line);
-        output.push('\n');
+        append_indented_line(output, indent, line);
     }
+}
+
+fn append_indented_line(output: &mut String, indent: &str, line: &str) {
+    output.push_str(indent);
+    output.push_str(line);
+    output.push('\n');
 }
 
 #[must_use]
