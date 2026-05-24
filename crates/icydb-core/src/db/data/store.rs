@@ -10,7 +10,9 @@ use crate::{
     },
     types::EntityTag,
 };
-use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, btreemap::Iter, memory::VirtualMemory};
+use ic_memory::stable_structures::{
+    BTreeMap, DefaultMemoryImpl, btreemap::Iter, memory_manager::VirtualMemory,
+};
 #[cfg(feature = "diagnostics")]
 use std::cell::Cell;
 use std::ops::RangeBounds;
@@ -90,7 +92,7 @@ impl DataStore {
     /// Clear all stored rows from the data store.
     #[cfg(test)]
     pub(in crate::db) fn clear(&mut self) {
-        self.map.clear();
+        self.map.clear_new();
     }
 
     /// Return the number of stored rows without exposing the backing map.

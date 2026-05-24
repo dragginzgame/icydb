@@ -6,7 +6,7 @@
 use crate::db::index::{IndexEntryValue, key::RawIndexStoreKey};
 
 use candid::CandidType;
-use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
+use ic_memory::stable_structures::{BTreeMap, DefaultMemoryImpl, memory_manager::VirtualMemory};
 use serde::Deserialize;
 
 //
@@ -124,7 +124,7 @@ impl IndexStore {
     }
 
     pub fn clear(&mut self) {
-        self.map.clear();
+        self.map.clear_new();
         self.bump_generation();
     }
 

@@ -12,7 +12,8 @@ use crate::{
     traits::Storable,
     types::EntityTag,
 };
-use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory, storable::Bound};
+use canic_cdk::structures::storable::Bound;
+use ic_memory::stable_structures::{BTreeMap, DefaultMemoryImpl, memory_manager::VirtualMemory};
 use std::borrow::Cow;
 
 const SCHEMA_KEY_BYTES_USIZE: usize = 12;
@@ -366,7 +367,7 @@ impl SchemaStore {
     /// Clear all schema metadata entries from the store.
     #[cfg(test)]
     pub(in crate::db) fn clear(&mut self) {
-        self.map.clear();
+        self.map.clear_new();
     }
 }
 
