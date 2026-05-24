@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Moved covering projection primary-key sources onto ordered primary-key
+  components, tightened composite primary-key null-planning to fail closed, and
+  kept secondary-order ranking and storage snapshot diagnostics on ordered
+  composite primary-key suffix contracts.
+
 ## [0.162.x] 🔑 - 2026-05-23 - Composite Primary Keys
 
 Detailed notes: [docs/changelog/0.162.md](docs/changelog/0.162.md)

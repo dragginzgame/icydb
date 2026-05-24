@@ -390,7 +390,7 @@ where
     if !covering.fields.iter().all(|field| {
         matches!(
             field.source,
-            CoveringReadFieldSource::PrimaryKey | CoveringReadFieldSource::Constant(_)
+            CoveringReadFieldSource::PrimaryKey { .. } | CoveringReadFieldSource::Constant(_)
         )
     }) {
         return Ok(None);

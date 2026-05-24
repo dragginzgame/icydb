@@ -20,6 +20,7 @@ const CONFIG_PATH_ENV: &str = "ICYDB_CONFIG_PATH";
 
 type CanisterConfigRow = [String; 5];
 type CheckedCanisterConfigRow = [String; 6];
+type ResolvedConfig = icydb_config_build::ResolvedIcydbConfig;
 
 const CANISTER_CONFIG_HEADERS: [&str; 5] =
     ["canister", "SQL surfaces", "metrics", "snapshot", "schema"];
@@ -137,7 +138,7 @@ struct ConfigContext {
     environment: Option<String>,
     known_canisters: Vec<String>,
     start_dir: PathBuf,
-    resolved: icydb_config_build::ResolvedIcydbConfig,
+    resolved: ResolvedConfig,
 }
 
 /// Create a default IcyDB config file at the repository/workspace config root.
@@ -201,9 +202,7 @@ pub(crate) fn configured_endpoint_enabled(
     canister: &str,
     endpoint: ConfiguredEndpoint,
 ) -> Result<bool, String> {
-    let start_dir = resolve_start_dir(None)?;
-    let resolved = icydb_config_build::load_resolved_icydb_toml(start_dir.as_path(), &[])
-        .map_err(|err| err.to_string())?;
+    let (_, resolved) = load_resolved_config(None)?;
 
     Ok(configured_endpoint_enabled_for_resolved(
         &resolved, canister, endpoint,
@@ -215,9 +214,7 @@ pub(crate) fn require_configured_endpoint(
     canister: &str,
     endpoint: ConfiguredEndpoint,
 ) -> Result<(), String> {
-    let start_dir = resolve_start_dir(None)?;
-    let resolved = icydb_config_build::load_resolved_icydb_toml(start_dir.as_path(), &[])
-        .map_err(|err| err.to_string())?;
+    let (_, resolved) = load_resolved_config(None)?;
 
     let surface = endpoint.surface();
     if config_surface_enabled_for_resolved(&resolved, canister, surface) {
@@ -230,7 +227,7 @@ pub(crate) fn require_configured_endpoint(
 }
 
 fn disabled_config_surface_message(
-    resolved: &icydb_config_build::ResolvedIcydbConfig,
+    resolved: &ResolvedConfig,
     canister: &str,
     surface: ConfigSurface,
 ) -> String {
@@ -271,7 +268,7 @@ fn config_check_failed_message(issues: &[String]) -> String {
 }
 
 fn config_surface_enabled_for_resolved(
-    resolved: &icydb_config_build::ResolvedIcydbConfig,
+    resolved: &ResolvedConfig,
     canister: &str,
     surface: ConfigSurface,
 ) -> bool {
@@ -288,7 +285,7 @@ fn config_surface_enabled_for_resolved(
 }
 
 fn configured_endpoint_enabled_for_resolved(
-    resolved: &icydb_config_build::ResolvedIcydbConfig,
+    resolved: &ResolvedConfig,
     canister: &str,
     endpoint: ConfiguredEndpoint,
 ) -> bool {
@@ -302,9 +299,7 @@ fn load_config_context(args: ConfigArgs) -> Result<ConfigContext, String> {
     } else {
         Vec::new()
     };
-    let start_dir = resolve_start_dir(args.start_dir())?;
-    let resolved = icydb_config_build::load_resolved_icydb_toml(start_dir.as_path(), &[])
-        .map_err(|err| err.to_string())?;
+    let (start_dir, resolved) = load_resolved_config(args.start_dir())?;
 
     Ok(ConfigContext {
         environment,
@@ -312,6 +307,14 @@ fn load_config_context(args: ConfigArgs) -> Result<ConfigContext, String> {
         start_dir,
         resolved,
     })
+}
+
+fn load_resolved_config(start_dir: Option<&Path>) -> Result<(PathBuf, ResolvedConfig), String> {
+    let start_dir = resolve_start_dir(start_dir)?;
+    let resolved = icydb_config_build::load_resolved_icydb_toml(start_dir.as_path(), &[])
+        .map_err(|err| err.to_string())?;
+
+    Ok((start_dir, resolved))
 }
 
 fn resolve_start_dir(start_dir: Option<&Path>) -> Result<PathBuf, String> {
@@ -389,7 +392,7 @@ fn render_config_report(
     start_dir: &Path,
     environment: Option<&str>,
     known_canisters: &[String],
-    resolved: &icydb_config_build::ResolvedIcydbConfig,
+    resolved: &ResolvedConfig,
 ) -> String {
     let known = known_canister_set(known_canisters);
     let config = resolved.config();
@@ -451,7 +454,7 @@ fn append_configured_canisters(
 fn config_sync_issues(
     environment: Option<&str>,
     known_canisters: &[String],
-    resolved: &icydb_config_build::ResolvedIcydbConfig,
+    resolved: &ResolvedConfig,
 ) -> Vec<String> {
     let known = known_canister_set(known_canisters);
     let config = resolved.config();

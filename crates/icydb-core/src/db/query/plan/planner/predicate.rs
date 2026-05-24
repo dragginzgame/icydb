@@ -52,7 +52,7 @@ pub(super) fn plan_predicate(
             // Primary keys are always keyable and therefore never representable
             // as `Value::Null`; lower this impossible shape to an empty access
             // contract instead of scanning all rows.
-            if schema.primary_key_name().is_some_and(|name| field == name)
+            if schema.primary_key_names().iter().any(|name| name == field)
                 && matches!(schema.field(field), Some(field_type) if field_type.is_keyable())
             {
                 PlannedAccessSelection::new(

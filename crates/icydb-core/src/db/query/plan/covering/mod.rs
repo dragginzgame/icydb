@@ -67,7 +67,7 @@ pub(in crate::db) struct CoveringProjectionContext {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum CoveringReadFieldSource {
     IndexComponent { component_index: usize },
-    PrimaryKey,
+    PrimaryKey { component_index: usize },
     Constant(Value),
     RowField,
 }
@@ -236,10 +236,11 @@ pub(in crate::db) fn covering_read_plan_with_schema_info(
     primary_key_name: &'static str,
     strict_predicate_compatible: bool,
 ) -> Option<CoveringReadPlan> {
+    let primary_key_names = primary_key_names_from_schema_or_scalar(schema, primary_key_name);
     covering_index_projection_plan(
         |field_name| resolve_covering_field_slot_with_schema(schema, field_name),
         plan,
-        primary_key_name,
+        primary_key_names.as_slice(),
         strict_predicate_compatible,
         CoveringProjectionFieldSourcePolicy::StrictCovering,
         false,
@@ -284,10 +285,11 @@ pub(in crate::db) fn covering_hybrid_projection_plan_with_schema_info(
     plan: &AccessPlannedQuery,
     primary_key_name: &'static str,
 ) -> Option<CoveringReadPlan> {
+    let primary_key_names = primary_key_names_from_schema_or_scalar(schema, primary_key_name);
     covering_index_projection_plan(
         |field_name| resolve_covering_field_slot_with_schema(schema, field_name),
         plan,
-        primary_key_name,
+        primary_key_names.as_slice(),
         false,
         CoveringProjectionFieldSourcePolicy::HybridRowFallback,
         true,
@@ -367,11 +369,12 @@ pub(in crate::db) fn covering_index_projection_context<K>(
         .coverable_component_fields
         .iter()
         .position(|field| field.as_deref().is_some_and(|field| field == target_field))?;
+    let primary_key_names = [primary_key_name];
     let order_contract = covering_projection_order_contract(
         order,
         order_terms.as_slice(),
         metadata.prefix_len,
-        primary_key_name,
+        &primary_key_names,
         metadata.path_kind_is_range,
     )?;
 
@@ -418,13 +421,13 @@ fn covering_projection_order_contract(
     order: Option<&OrderSpec>,
     index_order_terms: &[&str],
     prefix_len: usize,
-    primary_key_name: &'static str,
+    primary_key_names: &[&str],
     path_kind_is_range: bool,
 ) -> Option<CoveringProjectionOrder> {
     let Some(order) = order else {
         return Some(CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc));
     };
-    if let Some(direction) = order.primary_key_only_direction(primary_key_name) {
+    if let Some(direction) = order.primary_key_only_direction_fields(primary_key_names) {
         let direction = match direction {
             OrderDirection::Asc => Direction::Asc,
             OrderDirection::Desc => Direction::Desc,
@@ -433,7 +436,7 @@ fn covering_projection_order_contract(
         return Some(CoveringProjectionOrder::PrimaryKeyOrder(direction));
     }
 
-    let order_contract = order.deterministic_secondary_order_contract(primary_key_name)?;
+    let order_contract = order.deterministic_secondary_order_contract_fields(primary_key_names)?;
     let direction = match order_contract.direction() {
         OrderDirection::Asc => Direction::Asc,
         OrderDirection::Desc => Direction::Desc,
@@ -476,7 +479,7 @@ fn covering_read_execution_plan(
 fn primary_store_covering_plan(
     mut resolve_field_slot: impl FnMut(&str) -> Option<FieldSlot>,
     plan: &AccessPlannedQuery,
-    primary_key_name: &'static str,
+    primary_key_names: &[&str],
 ) -> Option<(CoveringReadPlan, CoveringExistingRowMode)> {
     // Phase 1: keep primary-store covering admission narrow and explicit.
     if plan.grouped_plan().is_some()
@@ -495,13 +498,13 @@ fn primary_store_covering_plan(
         plan.scalar_plan().order.as_ref(),
         &[],
         0,
-        primary_key_name,
+        primary_key_names,
         false,
     )?;
     let source_context = CoveringProjectionSourceContext {
         coverable_component_fields: &[],
         prefix_values: &[],
-        primary_key_name,
+        primary_key_names,
         source_policy: CoveringProjectionFieldSourcePolicy::StrictCovering,
     };
     let fields = covering_projection_fields_from_projection(
@@ -514,7 +517,7 @@ fn primary_store_covering_plan(
     }
     if fields
         .iter()
-        .any(|field| !matches!(field.source, CoveringReadFieldSource::PrimaryKey))
+        .any(|field| !matches!(field.source, CoveringReadFieldSource::PrimaryKey { .. }))
     {
         return None;
     }
@@ -537,10 +540,11 @@ fn primary_store_covering_plan_from_fields(
     plan: &AccessPlannedQuery,
     primary_key_name: &'static str,
 ) -> Option<(CoveringReadPlan, CoveringExistingRowMode)> {
+    let primary_key_names = [primary_key_name];
     primary_store_covering_plan(
         |field_name| resolve_covering_field_slot(fields, field_name),
         plan,
-        primary_key_name,
+        &primary_key_names,
     )
 }
 
@@ -549,10 +553,11 @@ fn primary_store_covering_plan_with_schema_info(
     plan: &AccessPlannedQuery,
     primary_key_name: &'static str,
 ) -> Option<(CoveringReadPlan, CoveringExistingRowMode)> {
+    let primary_key_names = primary_key_names_from_schema_or_scalar(schema, primary_key_name);
     primary_store_covering_plan(
         |field_name| resolve_covering_field_slot_with_schema(schema, field_name),
         plan,
-        primary_key_name,
+        primary_key_names.as_slice(),
     )
 }
 
@@ -626,7 +631,7 @@ impl CoveringAccessMetadata<'_> {
 // hybrid covering planners do not each restate the same access/order setup.
 fn prepare_covering_index_projection_plan<'a>(
     plan: &'a AccessPlannedQuery,
-    primary_key_name: &'static str,
+    primary_key_names: &[&str],
     residual_filter_predicate_supported: bool,
 ) -> Option<(CoveringAccessMetadata<'a>, CoveringProjectionOrder)> {
     if plan.grouped_plan().is_some() || !plan.scalar_plan().mode.is_load() {
@@ -645,7 +650,7 @@ fn prepare_covering_index_projection_plan<'a>(
         plan.scalar_plan().order.as_ref(),
         order_terms.as_slice(),
         metadata.prefix_len,
-        primary_key_name,
+        primary_key_names,
         metadata.path_kind_is_range,
     )?;
 
@@ -657,7 +662,7 @@ fn prepare_covering_index_projection_plan<'a>(
 fn covering_index_projection_plan(
     mut resolve_field_slot: impl FnMut(&str) -> Option<FieldSlot>,
     plan: &AccessPlannedQuery,
-    primary_key_name: &'static str,
+    primary_key_names: &[&str],
     residual_filter_predicate_supported: bool,
     source_policy: CoveringProjectionFieldSourcePolicy,
     require_row_field: bool,
@@ -666,7 +671,7 @@ fn covering_index_projection_plan(
     // index-backed covering contract once for the whole projection.
     let (metadata, order_contract) = prepare_covering_index_projection_plan(
         plan,
-        primary_key_name,
+        primary_key_names,
         residual_filter_predicate_supported,
     )?;
 
@@ -676,7 +681,7 @@ fn covering_index_projection_plan(
     let source_context = CoveringProjectionSourceContext {
         coverable_component_fields: metadata.coverable_component_fields.as_slice(),
         prefix_values: metadata.prefix_values,
-        primary_key_name,
+        primary_key_names,
         source_policy,
     };
     let fields = covering_projection_fields_from_projection(
@@ -710,10 +715,11 @@ fn covering_index_projection_plan_from_fields(
     source_policy: CoveringProjectionFieldSourcePolicy,
     require_row_field: bool,
 ) -> Option<CoveringReadPlan> {
+    let primary_key_names = [primary_key_name];
     covering_index_projection_plan(
         |field_name| resolve_covering_field_slot(fields, field_name),
         plan,
-        primary_key_name,
+        &primary_key_names,
         residual_filter_predicate_supported,
         source_policy,
         require_row_field,
@@ -813,7 +819,7 @@ enum CoveringProjectionFieldSourcePolicy {
 struct CoveringProjectionSourceContext<'a> {
     coverable_component_fields: &'a [Option<String>],
     prefix_values: &'a [Value],
-    primary_key_name: &'static str,
+    primary_key_names: &'a [&'a str],
     source_policy: CoveringProjectionFieldSourcePolicy,
 }
 
@@ -872,8 +878,12 @@ fn covering_projection_field_source(
     field_name: &str,
     source_context: CoveringProjectionSourceContext<'_>,
 ) -> Option<CoveringReadFieldSource> {
-    if field_name == source_context.primary_key_name {
-        return Some(CoveringReadFieldSource::PrimaryKey);
+    if let Some(component_index) = source_context
+        .primary_key_names
+        .iter()
+        .position(|primary_key_name| *primary_key_name == field_name)
+    {
+        return Some(CoveringReadFieldSource::PrimaryKey { component_index });
     }
     if let Some(value) = constant_covering_projection_value_from_prefix(
         source_context.coverable_component_fields,
@@ -895,6 +905,18 @@ fn covering_projection_field_source(
             )
             .then_some(CoveringReadFieldSource::RowField)
         })
+}
+
+fn primary_key_names_from_schema_or_scalar<'a>(
+    schema: &'a SchemaInfo,
+    primary_key_name: &'a str,
+) -> Vec<&'a str> {
+    let primary_key_names = schema.primary_key_names();
+    if primary_key_names.is_empty() {
+        return vec![primary_key_name];
+    }
+
+    primary_key_names.iter().map(String::as_str).collect()
 }
 
 // Project one component-field layout that preserves only directly recoverable

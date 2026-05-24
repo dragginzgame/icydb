@@ -239,6 +239,19 @@ impl DecodedDataStoreKey {
         self.key.as_runtime_value()
     }
 
+    pub(in crate::db) fn primary_key_component_runtime_value(
+        &self,
+        component_index: usize,
+    ) -> Result<Value, InternalError> {
+        self.key
+            .component_runtime_value(component_index)
+            .ok_or_else(|| {
+                InternalError::query_executor_invariant(
+                    "primary-key component projection index out of bounds",
+                )
+            })
+    }
+
     /// Compute the maximum on-disk entry size from value length.
     #[must_use]
     pub(in crate::db) const fn entry_size_bytes(value_len: u64) -> u64 {
@@ -763,6 +776,26 @@ mod tests {
                 Value::Nat(7),
                 Value::Principal(Principal::from_slice(&[1, 2, 3])),
             ]),
+        );
+    }
+
+    #[test]
+    fn data_key_primary_key_component_runtime_value_projects_composite_components() {
+        let key = composite_data_key_fixture();
+
+        assert_eq!(
+            key.primary_key_component_runtime_value(0)
+                .expect("first composite component should project"),
+            Value::Nat(7),
+        );
+        assert_eq!(
+            key.primary_key_component_runtime_value(1)
+                .expect("second composite component should project"),
+            Value::Principal(Principal::from_slice(&[1, 2, 3])),
+        );
+        assert!(
+            key.primary_key_component_runtime_value(2).is_err(),
+            "out-of-bounds composite component projection should fail closed",
         );
     }
 

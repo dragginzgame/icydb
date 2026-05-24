@@ -25,6 +25,7 @@ use crate::{
             IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexState, IndexStore,
             RawIndexStoreKey,
         },
+        key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
         registry::StoreRegistry,
         relation::validate_delete_strong_relations_for_source,
         schema::{
@@ -218,6 +219,24 @@ fn insert_data_row(path: &'static str, entity_name: &str, key: StorageKey, row_l
     let entity = diagnostics_entity_tag(entity_name);
     let raw_key = DecodedDataStoreKey::raw_from_parts(entity, key)
         .expect("diagnostics test data key should encode from valid parts");
+    insert_raw_data_row(path, raw_key, row_len);
+}
+
+fn insert_composite_data_row(
+    path: &'static str,
+    entity_name: &str,
+    key: &CompositePrimaryKeyValue,
+    row_len: usize,
+) {
+    let entity = diagnostics_entity_tag(entity_name);
+    let primary_key = PrimaryKeyValue::Composite(*key);
+    let raw_key = DecodedDataStoreKey::new_primary_key_value(entity, &primary_key)
+        .to_raw()
+        .expect("diagnostics test composite data key should encode from valid parts");
+    insert_raw_data_row(path, raw_key, row_len);
+}
+
+fn insert_raw_data_row(path: &'static str, raw_key: RawDataStoreKey, row_len: usize) {
     let row_bytes = vec![0xAB; row_len.max(1)];
     let raw_row = RawRow::try_new(row_bytes).expect("diagnostics test row should encode");
 
@@ -511,6 +530,34 @@ fn storage_report_single_entity_multiple_rows() {
         .expect("single-entity snapshot should exist");
 
     assert_eq!(entity_snapshot.entries(), 3);
+}
+
+#[test]
+fn storage_report_accepts_composite_primary_key_data_keys() {
+    reset_stores();
+
+    let first_key = CompositePrimaryKeyValue::try_from_components(&[
+        PrimaryKeyComponent::Nat(1),
+        PrimaryKeyComponent::Ulid(Ulid::from_parts(1, 2)),
+    ])
+    .expect("first composite diagnostics key should construct");
+    let second_key = CompositePrimaryKeyValue::try_from_components(&[
+        PrimaryKeyComponent::Nat(1),
+        PrimaryKeyComponent::Ulid(Ulid::from_parts(1, 3)),
+    ])
+    .expect("second composite diagnostics key should construct");
+    insert_composite_data_row(STORE_A_PATH, SINGLE_ENTITY_NAME, &first_key, 1);
+    insert_composite_data_row(STORE_A_PATH, SINGLE_ENTITY_NAME, &second_key, 2);
+
+    let report = diagnostics_report(&[(SINGLE_ENTITY_NAME, SINGLE_ENTITY_PATH)]);
+    let entity_snapshot = report
+        .entity_storage()
+        .iter()
+        .find(|snapshot| snapshot.store() == STORE_A_PATH && snapshot.path() == SINGLE_ENTITY_PATH)
+        .expect("composite-key entity snapshot should exist");
+
+    assert_eq!(report.corrupted_keys(), 0);
+    assert_eq!(entity_snapshot.entries(), 2);
 }
 
 #[test]

@@ -196,6 +196,23 @@ fn plan_access_primary_key_is_null_lowers_to_empty_by_keys() {
 }
 
 #[test]
+fn plan_access_composite_primary_key_component_is_null_lowers_to_empty_by_keys() {
+    let model = model_with_composite_primary_key();
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
+    let predicate = Predicate::IsNull {
+        field: "local_id".to_string(),
+    };
+
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::path(AccessPath::ByKeys(Vec::new())),
+        "composite primary-key component IS NULL is unsatisfiable and should lower to explicit empty access shape",
+    );
+}
+
+#[test]
 fn plan_access_secondary_is_null_retains_full_scan_fallback() {
     let model = model_with_index();
     let schema = SchemaInfo::cached_for_generated_entity_model(model);

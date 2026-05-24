@@ -141,7 +141,7 @@ fn route_plan_load_terminal_covering_read_contract_marks_pk_only_full_scan_as_pl
     assert_eq!(covering.fields[0].field_slot.field(), "id");
     assert_eq!(
         covering.fields[0].source,
-        CoveringReadFieldSource::PrimaryKey
+        CoveringReadFieldSource::PrimaryKey { component_index: 0 }
     );
     assert_eq!(
         covering.existing_row_mode,
@@ -174,7 +174,7 @@ fn route_plan_load_terminal_covering_read_contract_marks_pk_only_key_range_as_pl
     assert_eq!(covering.fields[0].field_slot.field(), "id");
     assert_eq!(
         covering.fields[0].source,
-        CoveringReadFieldSource::PrimaryKey
+        CoveringReadFieldSource::PrimaryKey { component_index: 0 }
     );
     assert_eq!(
         covering.existing_row_mode,
@@ -205,7 +205,7 @@ fn route_plan_execution_route_plan_retains_pk_only_planner_proven_covering_contr
     assert_eq!(covering.fields[0].field_slot.field(), "id");
     assert_eq!(
         covering.fields[0].source,
-        CoveringReadFieldSource::PrimaryKey
+        CoveringReadFieldSource::PrimaryKey { component_index: 0 }
     );
     assert_eq!(
         covering.existing_row_mode,
@@ -241,7 +241,7 @@ fn route_plan_execution_route_plan_retains_pk_only_key_range_covering_contract()
     assert_eq!(covering.fields[0].field_slot.field(), "id");
     assert_eq!(
         covering.fields[0].source,
-        CoveringReadFieldSource::PrimaryKey
+        CoveringReadFieldSource::PrimaryKey { component_index: 0 }
     );
     assert_eq!(
         covering.existing_row_mode,
@@ -271,7 +271,7 @@ fn route_plan_load_terminal_covering_read_contract_marks_pk_only_by_key_as_row_c
     assert_eq!(covering.fields[0].field_slot.field(), "id");
     assert_eq!(
         covering.fields[0].source,
-        CoveringReadFieldSource::PrimaryKey
+        CoveringReadFieldSource::PrimaryKey { component_index: 0 }
     );
     assert_eq!(
         covering.existing_row_mode,
@@ -304,7 +304,7 @@ fn route_plan_load_terminal_covering_read_contract_marks_pk_only_by_keys_as_row_
     assert_eq!(covering.fields[0].field_slot.field(), "id");
     assert_eq!(
         covering.fields[0].source,
-        CoveringReadFieldSource::PrimaryKey
+        CoveringReadFieldSource::PrimaryKey { component_index: 0 }
     );
     assert_eq!(
         covering.existing_row_mode,

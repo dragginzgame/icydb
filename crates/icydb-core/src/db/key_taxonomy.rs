@@ -321,6 +321,18 @@ impl PrimaryKeyValue {
             ),
         }
     }
+
+    #[must_use]
+    pub(in crate::db) fn component_runtime_value(&self, component_index: usize) -> Option<Value> {
+        match self {
+            Self::Scalar(component) => (component_index == 0).then(|| component.as_runtime_value()),
+            Self::Composite(composite) => composite
+                .components()
+                .get(component_index)
+                .copied()
+                .map(PrimaryKeyComponent::as_runtime_value),
+        }
+    }
 }
 
 impl From<PrimaryKeyComponent> for PrimaryKeyValue {

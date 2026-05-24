@@ -419,7 +419,27 @@ fn covering_read_plan_accepts_primary_key_projection() {
     assert_eq!(covering.fields[0].field_slot.field(), "id");
     assert_eq!(
         covering.fields[0].source,
-        super::CoveringReadFieldSource::PrimaryKey
+        super::CoveringReadFieldSource::PrimaryKey { component_index: 0 }
+    );
+}
+
+#[test]
+fn covering_projection_source_resolves_ordered_composite_primary_key_components() {
+    let primary_key_names = ["tenant_id", "local_id"];
+    let context = super::CoveringProjectionSourceContext {
+        coverable_component_fields: &[],
+        prefix_values: &[],
+        primary_key_names: &primary_key_names,
+        source_policy: super::CoveringProjectionFieldSourcePolicy::StrictCovering,
+    };
+
+    assert_eq!(
+        super::covering_projection_field_source("tenant_id", context),
+        Some(super::CoveringReadFieldSource::PrimaryKey { component_index: 0 }),
+    );
+    assert_eq!(
+        super::covering_projection_field_source("local_id", context),
+        Some(super::CoveringReadFieldSource::PrimaryKey { component_index: 1 }),
     );
 }
 
@@ -483,7 +503,7 @@ fn covering_read_plan_accepts_pk_plus_constant_projection_on_expression_suffix_o
     assert_eq!(covering.fields[0].field_slot.field(), "id");
     assert_eq!(
         covering.fields[0].source,
-        super::CoveringReadFieldSource::PrimaryKey
+        super::CoveringReadFieldSource::PrimaryKey { component_index: 0 }
     );
     assert_eq!(covering.fields[1].field_slot.field(), "group");
     assert_eq!(

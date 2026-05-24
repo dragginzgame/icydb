@@ -206,8 +206,14 @@ pub(in crate::db::query::plan) fn selected_index_contract_satisfies_secondary_or
         );
     }
 
+    let primary_key_names: Vec<&str> = model
+        .primary_key_model()
+        .fields()
+        .iter()
+        .map(crate::model::field::FieldModel::name)
+        .collect();
     let Some(order_contract) = order
-        .and_then(|order| order.deterministic_secondary_order_contract(model.primary_key.name))
+        .and_then(|order| order.deterministic_secondary_order_contract_fields(&primary_key_names))
     else {
         return false;
     };

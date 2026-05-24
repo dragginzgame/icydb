@@ -4,7 +4,7 @@
 //! Boundary: exposes the top-level parsed-command runner used by `main`.
 
 use crate::{
-    cli::{CanisterCommand, CliArgs, CliCommand, ConfigCommand, SchemaCommand},
+    cli::{CanisterCommand, CanisterTarget, CliArgs, CliCommand, ConfigCommand, SchemaCommand},
     config::{check_config, init_config, show_config},
     icp::{deploy_canister, list_canisters, refresh_canister, status_canister, upgrade_canister},
     observability::{
@@ -44,19 +44,20 @@ fn run_config_command(command: ConfigCommand) -> Result<(), String> {
 fn run_canister_command(command: CanisterCommand) -> Result<(), String> {
     match command {
         CanisterCommand::List(args) => list_canisters(args.environment()),
-        CanisterCommand::Deploy(target) => {
-            deploy_canister(target.environment(), target.canister_name())
+        CanisterCommand::Deploy(target) => run_canister_target(&target, deploy_canister),
+        CanisterCommand::Refresh(target) => run_canister_target(&target, refresh_canister),
+        CanisterCommand::Upgrade(args) => {
+            run_canister_target(args.target(), |environment, canister| {
+                upgrade_canister(environment, canister, args.wasm())
+            })
         }
-        CanisterCommand::Refresh(target) => {
-            refresh_canister(target.environment(), target.canister_name())
-        }
-        CanisterCommand::Upgrade(args) => upgrade_canister(
-            args.target().environment(),
-            args.target().canister_name(),
-            args.wasm(),
-        ),
-        CanisterCommand::Status(target) => {
-            status_canister(target.environment(), target.canister_name())
-        }
+        CanisterCommand::Status(target) => run_canister_target(&target, status_canister),
     }
+}
+
+fn run_canister_target(
+    target: &CanisterTarget,
+    command: impl FnOnce(&str, &str) -> Result<(), String>,
+) -> Result<(), String> {
+    command(target.environment(), target.canister_name())
 }

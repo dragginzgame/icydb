@@ -759,7 +759,7 @@ const fn covering_read_order_contract_label(
 const fn covering_read_field_source_label(source: &CoveringReadFieldSource) -> &'static str {
     match source {
         CoveringReadFieldSource::IndexComponent { .. } => "index_component",
-        CoveringReadFieldSource::PrimaryKey => "primary_key",
+        CoveringReadFieldSource::PrimaryKey { .. } => "primary_key",
         CoveringReadFieldSource::Constant(_) => "constant",
         CoveringReadFieldSource::RowField => "row_field",
     }

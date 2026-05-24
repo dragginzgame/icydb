@@ -157,6 +157,31 @@ crate::test_entity! {
     indexes = [&RANGE_INDEX_MODEL],
 }
 
+struct PlanCompositePrimaryKeyEntity;
+
+impl PlanCompositePrimaryKeyEntity {
+    const FIELD_MODELS: [crate::model::field::FieldModel; 3] = [
+        crate::model::field::FieldModel::generated("tenant_id", FieldKind::Nat),
+        crate::model::field::FieldModel::generated("local_id", FieldKind::Nat),
+        crate::model::field::FieldModel::generated("tag", FieldKind::Text { max_len: None }),
+    ];
+    const PRIMARY_KEY_FIELDS: [&'static crate::model::field::FieldModel; 2] =
+        [&Self::FIELD_MODELS[0], &Self::FIELD_MODELS[1]];
+    const INDEXES_DEF: [&'static IndexModel; 0] = [];
+    const MODEL_DEF: EntityModel = EntityModel::generated_with_primary_key_model(
+        concat!(
+            module_path!(),
+            "::",
+            stringify!(PlanCompositePrimaryKeyEntity)
+        ),
+        "PlanCompositePrimaryKeyEntity",
+        crate::model::entity::PrimaryKeyModel::ordered(&Self::PRIMARY_KEY_FIELDS),
+        0,
+        &Self::FIELD_MODELS,
+        &Self::INDEXES_DEF,
+    );
+}
+
 crate::test_entity! {
     ident = PlanFilteredEntity,
     id = Ulid,
@@ -238,6 +263,10 @@ fn model_with_index() -> &'static EntityModel {
 
 fn model_with_range_index() -> &'static EntityModel {
     <PlanRangeEntity as EntitySchema>::MODEL
+}
+
+fn model_with_composite_primary_key() -> &'static EntityModel {
+    &PlanCompositePrimaryKeyEntity::MODEL_DEF
 }
 
 fn model_with_filtered_index() -> &'static EntityModel {

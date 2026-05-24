@@ -302,7 +302,9 @@ fn project_hybrid_covering_row(
                     "hybrid projection missing decoded covering component",
                 )?
             }
-            CoveringReadFieldSource::PrimaryKey => data_key.primary_key_runtime_value(),
+            CoveringReadFieldSource::PrimaryKey { component_index } => {
+                data_key.primary_key_component_runtime_value(*component_index)?
+            }
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {
                 metrics.record_hybrid_row_field_access();
