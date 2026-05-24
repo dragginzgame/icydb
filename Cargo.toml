@@ -27,14 +27,14 @@ members = [
     "schema/demo/rpg",
     "schema/test/fixtures",
     "schema/test/sql",
+    "testing/ic-testkit",
     "testing/macro-tests",
-    "testing/pocket-ic",
     "testing/wasm-helpers",
 ]
 resolver = "2"
 
 [workspace.package]
-rust-version = "1.91.0"
+rust-version = "1.88.0"
 edition = "2024"
 version = "0.162.10"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
@@ -45,8 +45,7 @@ repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
 candid = "0.10"
-canic-cdk = "0.41.11"
-canic-testkit = "0.41.11"
+canic-cdk = "0.42.11"
 convert_case = "0.11"
 ctor = "1.0.0"
 darling = "0.23"
@@ -60,6 +59,7 @@ derive_more = { version = "2.0", default-features = false, features = [
 ] }
 getrandom = "0.4"
 ic-memory = "0.6.2"
+ic-testkit = "0.0.6"
 icydb = { path = "crates/icydb", version = "0.162.10" }
 icydb-build = { path = "crates/icydb-build", version = "0.162.10" }
 icydb-config-build = { path = "crates/icydb-config-build", version = "0.162.10" }

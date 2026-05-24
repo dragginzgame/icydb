@@ -180,6 +180,16 @@ impl StructuralRowContract {
         self.primary_key_slot
     }
 
+    /// Borrow ordered primary-key physical slots in key order.
+    #[must_use]
+    pub(in crate::db) fn primary_key_slot_indices(&self) -> Cow<'_, [usize]> {
+        if let Some(contract) = &self.accepted_decode_contract {
+            return Cow::Borrowed(contract.primary_key_slot_indices());
+        }
+
+        Cow::Owned(vec![self.primary_key_slot])
+    }
+
     pub(in crate::db) fn required_accepted_field_decode_contract(
         &self,
         slot: usize,

@@ -5,7 +5,7 @@ use std::{
 };
 
 use candid::CandidType;
-use canic_testkit::pic::{StandaloneCanisterFixture, install_prebuilt_canister};
+use ic_testkit::pic::{StandaloneCanisterFixture, install_prebuilt_canister};
 use icydb::{Error, db::QueryExecutionAttribution};
 use icydb_testing_integration::build_canister;
 use serde::{Deserialize, Serialize};
@@ -324,7 +324,7 @@ fn average_u64(samples: &[u64]) -> u64 {
 
 fn install_sql_perf_canister_fixture() -> StandaloneCanisterFixture {
     let wasm_path =
-        build_canister("sql_perf").expect("sql_perf canister should build for PocketIC tests");
+        build_canister("sql_perf").expect("sql_perf canister should build for IC testkit tests");
     let wasm = fs::read(&wasm_path)
         .unwrap_or_else(|err| panic!("failed to read built sql_perf canister wasm: {err}"));
 

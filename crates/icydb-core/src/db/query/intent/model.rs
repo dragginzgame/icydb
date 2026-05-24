@@ -236,7 +236,7 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
 
     /// Select one explicit scalar field projection list for internal SQL and
     /// planning tests that compare fluent and structural query shapes.
-    #[cfg(all(test, feature = "sql"))]
+    #[cfg(feature = "sql")]
     #[must_use]
     pub(in crate::db::query) fn select_fields<I, S>(mut self, fields: I) -> Self
     where
@@ -249,20 +249,6 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
             .collect::<Vec<_>>();
         self.intent
             .set_projection_selection(ProjectionSelection::Fields(fields));
-
-        self
-    }
-
-    /// Select one scalar field projection by canonical field id.
-    ///
-    /// SQL mutation selectors use this to ask the query-intent owner for a
-    /// primary-key-only projection without reconstructing projection-selection
-    /// variants in the session execution layer.
-    #[cfg(feature = "sql")]
-    #[must_use]
-    pub(in crate::db::query) fn select_field_id(mut self, field: impl Into<String>) -> Self {
-        self.intent
-            .set_projection_selection(ProjectionSelection::Fields(vec![FieldId::new(field)]));
 
         self
     }

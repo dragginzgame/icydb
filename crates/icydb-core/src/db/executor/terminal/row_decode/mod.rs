@@ -13,9 +13,9 @@ use crate::types::Ulid;
 use crate::{
     db::{
         data::{
-            CanonicalRow, CanonicalSlotReader, DataRow, RawRow, ScalarSlotValueRef, ScalarValueRef,
-            StorageKey, StructuralRowContract, StructuralSlotReader,
-            canonical_row_from_raw_row_with_structural_contract,
+            CanonicalRow, CanonicalSlotReader, DataRow, DecodedDataStoreKey, RawRow,
+            ScalarSlotValueRef, ScalarValueRef, SlotReader, StorageKey, StructuralRowContract,
+            StructuralSlotReader, canonical_row_from_raw_row_with_structural_contract,
             decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,
             decode_sparse_raw_row_with_contract, decode_sparse_required_slot_with_contract,
         },
@@ -120,6 +120,28 @@ impl RowLayout {
         )
     }
 
+    pub(in crate::db) fn decode_indexed_values_from_data_key(
+        &self,
+        row: &RawRow,
+        data_key: &DecodedDataStoreKey,
+        required_slots: &[usize],
+    ) -> Result<Vec<Option<Value>>, InternalError> {
+        if let Ok(expected_key) = data_key.try_storage_key() {
+            return self.decode_indexed_values(row, expected_key, required_slots);
+        }
+
+        let mut reader =
+            StructuralSlotReader::from_raw_row_with_validated_contract(row, self.contract.clone())?;
+        reader.validate_primary_key(data_key)?;
+
+        let mut values = Vec::with_capacity(required_slots.len());
+        for &slot in required_slots {
+            values.push(reader.get_value(slot)?);
+        }
+
+        Ok(values)
+    }
+
     /// Decode one required structural slot directly through the frozen row
     /// contract without constructing a sparse slot buffer.
     pub(in crate::db) fn decode_required_value(
@@ -136,23 +158,26 @@ impl RowLayout {
         )
     }
 
-    /// Decode one full structural row into a caller-owned reusable value buffer.
-    pub(in crate::db) fn decode_full_value_row_into(
+    /// Decode one full structural row through the scalar-or-composite row-key
+    /// boundary. Composite-key callers use this path so row validation and
+    /// primary-key component materialization do not reopen the scalar
+    /// `StorageKey` accessor.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn decode_full_value_row_from_data_key_into(
         &self,
-        expected_key: StorageKey,
+        data_key: &DecodedDataStoreKey,
         row: &RawRow,
         values: &mut Vec<Value>,
     ) -> Result<(), InternalError> {
         values.clear();
 
-        let decoded = decode_dense_raw_row_with_contract(row, self.contract.clone(), expected_key)?;
-        values.reserve(decoded.len());
+        let mut slots =
+            StructuralSlotReader::from_raw_row_with_validated_contract(row, self.contract.clone())?;
+        slots.validate_primary_key(data_key)?;
+        values.reserve(slots.field_count());
 
-        // Phase 1: dense row decode should produce every declared slot, but
-        // keep the persisted-row error taxonomy explicit if a malformed row
-        // ever reaches this boundary.
-        for (slot, value) in decoded.into_iter().enumerate() {
-            let value = value.ok_or_else(|| {
+        for slot in 0..slots.field_count() {
+            let value = slots.get_value(slot)?.ok_or_else(|| {
                 let field = self
                     .contract
                     .field_name(slot)
@@ -258,6 +283,23 @@ impl RowDecoder {
         ))
     }
 
+    pub(in crate::db::executor) fn decode_retained_slots_from_data_key(
+        layout: &RowLayout,
+        data_key: &DecodedDataStoreKey,
+        row: &RawRow,
+        retained_slot_layout: &RetainedSlotLayout,
+    ) -> Result<RetainedSlotRow, InternalError> {
+        Ok(RetainedSlotRow::from_indexed_values(
+            retained_slot_layout,
+            Self::decode_indexed_slot_values_from_data_key(
+                layout,
+                data_key,
+                row,
+                retained_slot_layout,
+            )?,
+        ))
+    }
+
     /// Decode one compact retained-slot value buffer without constructing one
     /// retained-row wrapper or field-count-sized slot image.
     pub(in crate::db::executor) fn decode_indexed_slot_values(
@@ -290,6 +332,45 @@ impl RowDecoder {
             expected_key,
             retained_slot_layout.required_slots(),
         )
+    }
+
+    pub(in crate::db::executor) fn decode_indexed_slot_values_from_data_key(
+        layout: &RowLayout,
+        data_key: &DecodedDataStoreKey,
+        row: &RawRow,
+        retained_slot_layout: &RetainedSlotLayout,
+    ) -> Result<Vec<Option<Value>>, InternalError> {
+        if let Ok(expected_key) = data_key.try_storage_key() {
+            return Self::decode_indexed_slot_values(
+                layout,
+                expected_key,
+                row,
+                retained_slot_layout,
+            );
+        }
+
+        let mut reader = StructuralSlotReader::from_raw_row_with_validated_contract(
+            row,
+            layout.contract.clone(),
+        )?;
+        reader.validate_primary_key(data_key)?;
+        let required_slots = retained_slot_layout.required_slots();
+        let mut values = Vec::with_capacity(required_slots.len());
+
+        for (&slot, mode) in required_slots
+            .iter()
+            .zip(retained_slot_layout.value_modes())
+        {
+            let value = match mode {
+                RetainedSlotValueMode::Normal => reader.get_value(slot)?,
+                RetainedSlotValueMode::ScalarOctetLength => {
+                    Some(decode_scalar_octet_length_value(&reader, slot)?)
+                }
+            };
+            values.push(value);
+        }
+
+        Ok(values)
     }
 }
 
@@ -378,9 +459,40 @@ fn decode_kernel_row_structural(
     layout: &RowLayout,
     data_row: DataRow,
 ) -> Result<KernelRow, InternalError> {
-    let slots = decode_structural_slots(layout, data_row.0.try_storage_key()?, &data_row.1, None)?;
+    let slots = decode_structural_slots_from_data_key(layout, &data_row.0, &data_row.1, None)?;
 
     Ok(KernelRow::new(data_row, slots))
+}
+
+fn decode_structural_slots_from_data_key(
+    layout: &RowLayout,
+    data_key: &DecodedDataStoreKey,
+    row: &RawRow,
+    required_slots: Option<&[usize]>,
+) -> Result<Vec<Option<Value>>, InternalError> {
+    if let Ok(expected_key) = data_key.try_storage_key() {
+        return decode_structural_slots(layout, expected_key, row, required_slots);
+    }
+
+    let mut reader =
+        StructuralSlotReader::from_raw_row_with_validated_contract(row, layout.contract.clone())?;
+    reader.validate_primary_key(data_key)?;
+
+    let mut values = vec![None; layout.field_count()];
+    match required_slots {
+        Some(required_slots) => {
+            for &slot in required_slots {
+                values[slot] = reader.get_value(slot)?;
+            }
+        }
+        None => {
+            for (slot, value) in values.iter_mut().enumerate() {
+                *value = reader.get_value(slot)?;
+            }
+        }
+    }
+
+    Ok(values)
 }
 
 // Decode one persisted row directly into slot-indexed structural values while

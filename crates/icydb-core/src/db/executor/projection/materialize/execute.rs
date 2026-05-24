@@ -144,7 +144,7 @@ pub(super) fn visit_identity_data_row_views(
 
     // Phase 1: decode each raw row through the dense full-row contract once.
     for (data_key, raw_row) in rows {
-        row_layout.decode_full_value_row_into(data_key.try_storage_key()?, raw_row, &mut values)?;
+        row_layout.decode_full_value_row_from_data_key_into(data_key, raw_row, &mut values)?;
         for _ in 0..values.len() {
             metrics.record_data_rows_slot_access(true);
         }

@@ -5,7 +5,7 @@ use std::{
 };
 
 use candid::CandidType;
-use canic_testkit::pic::{StandaloneCanisterFixture, install_prebuilt_canister};
+use ic_testkit::pic::{StandaloneCanisterFixture, install_prebuilt_canister};
 use icydb::{
     Error,
     db::{SqlQueryExecutionAttribution, sql::SqlQueryResult},
@@ -13,7 +13,7 @@ use icydb::{
 use icydb_testing_integration::build_canister;
 use serde::{Deserialize, Serialize};
 
-// Mirror the dedicated perf-audit query envelope so PocketIC can decode the
+// Mirror the dedicated perf-audit query envelope so the testkit can decode the
 // query result plus the compile/execute instruction split from the canister.
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 struct SqlQueryPerfResult {
@@ -178,7 +178,7 @@ const fn parity_scenario(
 
 fn install_sql_perf_canister_fixture() -> StandaloneCanisterFixture {
     let wasm_path =
-        build_canister("sql_perf").expect("sql_perf canister should build for PocketIC tests");
+        build_canister("sql_perf").expect("sql_perf canister should build for IC testkit tests");
     let wasm = fs::read(&wasm_path)
         .unwrap_or_else(|err| panic!("failed to read built sql_perf canister wasm: {err}"));
 
@@ -1448,7 +1448,7 @@ fn repeated_query_baseline_scenarios() -> Vec<SqlPerfScenario> {
     ];
 
     // The 100-run SQL repeat rows are useful for manual deep-cache audits, but
-    // they can exceed PocketIC's single-message instruction cap as the runtime
+    // they can exceed the IC test runner's single-message instruction cap as the runtime
     // schema authority surface grows. Keep default CI on the 10-run cache story
     // and require an explicit opt-in for the long-loop rows.
     if std::env::var_os("SQL_PERF_AUDIT_LONG_REPEAT").is_some() {
@@ -1643,7 +1643,7 @@ fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
 }
 
 // RepeatCacheContractCase keeps one representative repeated-SELECT contract
-// case together so the PocketIC audit can assert the final two-layer repeat
+// case together so the IC testkit audit can assert the final two-layer repeat
 // path directly instead of relying only on printed report inspection.
 struct RepeatCacheContractCase {
     scenario_key: &'static str,
@@ -1653,7 +1653,7 @@ struct RepeatCacheContractCase {
 }
 
 // WarmCacheContractCase keeps one update-then-query cache contract case
-// together so the PocketIC audit can prove that a warm update call feeds the
+// together so the IC testkit audit can prove that a warm update call feeds the
 // later compiled-plus-shared query cache path across more than one query family.
 struct WarmCacheContractCase {
     scenario_key: &'static str,

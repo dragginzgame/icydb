@@ -19,11 +19,11 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - `schema/audit/*`: audit schema fixtures.
 - `schema/test/*`: shared macro/e2e and SQL fixtures.
 - `testing/macro-tests`: macro and schema contract tests.
-- `testing/pocket-ic`: Pocket-IC integration tests.
+- `testing/ic-testkit`: IC testkit integration tests.
 - `assets/`: images and docs assets.
 - `scripts/`: release/version helpers.
 - `Makefile`: common tasks.
-- `Cargo.toml`: workspace manifest; edition 2024, rust-version 1.95.0.
+- `Cargo.toml`: workspace manifest; edition 2024, MSRV/rust-version 1.88.0.
 
 ## Workflow
 
@@ -138,8 +138,8 @@ struct TypeName;
 - Leave one blank line before and after that test banner.
 - Run focused tests for changed code; use `make test` for full validation when appropriate.
 - If `make test` fails during a Codex run, do not rerun it in that same run unless asked.
-- PocketIC-backed tests and perf probes must run outside the sandbox by default.
-- If PocketIC appears stuck before the test body or fixture loading, treat it as an environment execution problem first.
+- IC testkit-backed tests and perf probes must run outside the sandbox by default.
+- If the IC testkit runner appears stuck before the test body or fixture loading, treat it as an environment execution problem first.
 - If tests fail due to environment-specific build/linker issues, report and stop retrying.
 
 ## Changelog And Release

@@ -165,7 +165,7 @@ impl StructuralQuery {
         self
     }
 
-    #[cfg(all(test, feature = "sql"))]
+    #[cfg(feature = "sql")]
     #[must_use]
     pub(in crate::db) fn select_fields<I, S>(mut self, fields: I) -> Self
     where
@@ -180,17 +180,6 @@ impl StructuralQuery {
     #[must_use]
     pub(in crate::db) fn projection_selection(mut self, selection: ProjectionSelection) -> Self {
         self.intent = self.intent.projection_selection(selection);
-        self
-    }
-
-    /// Select one scalar field projection by canonical field id.
-    ///
-    /// This keeps SQL mutation execution from reconstructing projection shape
-    /// variants after lowering has already selected the mutation target query.
-    #[cfg(feature = "sql")]
-    #[must_use]
-    pub(in crate::db) fn select_field_id(mut self, field: impl Into<String>) -> Self {
-        self.intent = self.intent.select_field_id(field);
         self
     }
 

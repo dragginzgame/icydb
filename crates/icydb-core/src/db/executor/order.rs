@@ -420,9 +420,9 @@ fn cache_order_values_from_data_row(
     // Phase 1: pure direct-field ORDER BY terms can stay on the sparse
     // contract path and decode only the ordered slots in field order.
     if let Some(required_slots) = resolved_order.direct_field_slots() {
-        let values = row_layout.decode_indexed_values(
+        let values = row_layout.decode_indexed_values_from_data_key(
             &row.1,
-            row.0.try_storage_key()?,
+            &row.0,
             required_slots.as_slice(),
         )?;
         let mut cached_values = CachedOrderValues::with_capacity(values.len());

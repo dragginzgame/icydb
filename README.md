@@ -1,4 +1,5 @@
-![MSRV](https://img.shields.io/badge/rustc-1.95.0-blue.svg)
+![Declared MSRV](https://img.shields.io/badge/declared%20MSRV-1.88.0-blue.svg)
+![Internal Toolchain](https://img.shields.io/badge/internal%20rustc-1.95.0-4c1.svg)
 [![CI](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml/badge.svg)](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml)
 [![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE-APACHE)
 
@@ -12,6 +13,9 @@ indexes, fluent queries, reduced SQL, pagination, aggregate/grouped execution,
 and explain/metrics surfaces.
 
 Current workspace version: `0.162.10`
+
+IcyDB's declared minimum supported Rust version is `1.88.0`. Repository
+development, formatting, Clippy, CI, and release builds use Rust `1.95.0`.
 
 For local development setup, test prerequisites, and troubleshooting, see
 [INSTALLING.md](INSTALLING.md). Safety notes for host-touching commands live in
@@ -275,13 +279,13 @@ icydb metrics <canister> --reset
   lifecycle helpers, and observability reports.
 - `schema/*` — demo, audit, and test schemas.
 - `canisters/*` — demo, audit, and integration canisters.
-- `testing/*` — macro, wasm, and Pocket-IC test support.
+- `testing/*` — macro, wasm, and IC testkit support.
 - `docs/contracts/*` — behavior contracts.
 - `docs/changelog/*` — detailed release notes.
 
 ## Development
 
-Local workstation setup, common checks, PocketIC test setup, wasm audit commands,
+Local workstation setup, common checks, IC test setup, wasm audit commands,
 and troubleshooting are in [INSTALLING.md](INSTALLING.md).
 
 ## More Docs

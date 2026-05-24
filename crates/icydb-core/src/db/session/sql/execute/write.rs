@@ -43,25 +43,81 @@ fn sql_write_key_from_literal<E>(
 where
     E: EntityKind,
 {
+    if descriptor.primary_key_names().len() > 1 {
+        let Value::List(values) = value else {
+            return Err(QueryError::unsupported_query(format!(
+                "SQL write primary key literal for '{}' must contain all composite key components",
+                primary_key_label(descriptor),
+            )));
+        };
+
+        return sql_write_key_from_component_literals::<E>(descriptor, values.as_slice());
+    }
+
     if let Some(key) = <E::Key as KeyValueCodec>::from_key_value(value) {
         return Ok(key);
     }
 
     let pk_name = descriptor.primary_key_name();
     let primary_key_kind = descriptor.primary_key_kind();
-    let Some(normalized) =
-        canonicalize_strict_sql_literal_for_persisted_kind(primary_key_kind, value)
-    else {
-        return Err(QueryError::unsupported_query(format!(
-            "SQL write primary key literal for '{pk_name}' is not compatible with entity key type"
-        )));
-    };
+    let normalized = canonicalize_strict_sql_literal_for_persisted_kind(primary_key_kind, value)
+        .unwrap_or_else(|| value.clone());
 
     <E::Key as KeyValueCodec>::from_key_value(&normalized).ok_or_else(|| {
         QueryError::unsupported_query(format!(
             "SQL write primary key literal for '{pk_name}' is not compatible with entity key type"
         ))
     })
+}
+
+fn sql_write_key_from_component_literals<E>(
+    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    values: &[Value],
+) -> Result<E::Key, QueryError>
+where
+    E: EntityKind,
+{
+    let primary_key_names = descriptor.primary_key_names();
+    let primary_key_kinds = descriptor.primary_key_kinds();
+    if values.len() != primary_key_names.len() {
+        return Err(QueryError::unsupported_query(format!(
+            "SQL write primary key literal for '{}' must contain {} component(s)",
+            primary_key_label(descriptor),
+            primary_key_names.len(),
+        )));
+    }
+
+    let mut normalized = Vec::with_capacity(values.len());
+    for ((_field_name, kind), value) in primary_key_names
+        .iter()
+        .zip(primary_key_kinds.iter())
+        .zip(values.iter())
+    {
+        let value = canonicalize_strict_sql_literal_for_persisted_kind(kind, value)
+            .unwrap_or_else(|| value.clone());
+
+        normalized.push(value);
+    }
+
+    let key_value = if normalized.len() == 1 {
+        normalized
+            .into_iter()
+            .next()
+            .expect("primary key normalization preserves one scalar value")
+    } else {
+        Value::List(normalized)
+    };
+
+    <E::Key as KeyValueCodec>::from_key_value(&key_value).ok_or_else(|| {
+        QueryError::unsupported_query(format!(
+            "SQL write primary key literal for '{}' is not compatible with entity key type",
+            primary_key_label(descriptor),
+        ))
+    })
+}
+
+fn primary_key_label(descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>) -> String {
+    descriptor.primary_key_names().join(", ")
 }
 
 fn checked_accepted_write_descriptor<E>(
@@ -201,7 +257,6 @@ const fn sql_insert_accepted_field_is_omittable(field: &AcceptedRowLayoutRuntime
 
 fn ensure_sql_insert_required_fields(
     descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
-    pk_name: &str,
     columns: &[String],
 ) -> Result<(), QueryError> {
     let mut missing_required_fields = Vec::new();
@@ -220,9 +275,21 @@ fn ensure_sql_insert_required_fields(
         return Ok(());
     }
 
-    if missing_required_fields.len() == 1 && missing_required_fields[0] == pk_name {
+    let primary_key_names = descriptor.primary_key_names();
+    let missing_only_primary_key_fields = missing_required_fields
+        .iter()
+        .all(|field| primary_key_names.contains(field));
+    if missing_only_primary_key_fields {
+        if primary_key_names.len() == 1 {
+            let pk_name = primary_key_names[0];
+            return Err(QueryError::unsupported_query(format!(
+                "SQL INSERT requires primary key column '{pk_name}' in this release",
+            )));
+        }
+
         return Err(QueryError::unsupported_query(format!(
-            "SQL INSERT requires primary key column '{pk_name}' in this release",
+            "SQL INSERT requires primary key columns '{}' in this release",
+            missing_required_fields.join(", "),
         )));
     }
 
@@ -343,24 +410,9 @@ impl<C: CanisterKind> DbSession<C> {
                 ));
             }
         }
-        let pk_name = descriptor.primary_key_name();
-        let key = if let Some(pk_index) = columns.iter().position(|field| field == pk_name) {
-            let pk_value = values.get(pk_index).ok_or_else(|| {
-                QueryError::invariant(
-                    "INSERT primary key column must align with one VALUES literal",
-                )
-            })?;
-            sql_write_key_from_literal::<E>(descriptor, pk_value)?
-        } else if let Some((_, pk_value)) = generated_fields
-            .iter()
-            .find(|(field_name, _)| *field_name == pk_name)
-        {
-            sql_write_key_from_literal::<E>(descriptor, pk_value)?
-        } else {
-            return Err(QueryError::unsupported_query(format!(
-                "SQL INSERT requires primary key column '{pk_name}' in this release"
-            )));
-        };
+        let key_values =
+            sql_insert_primary_key_values(descriptor, columns, values, &generated_fields)?;
+        let key = sql_write_key_from_component_literals::<E>(descriptor, key_values.as_slice())?;
 
         let mut patch = StructuralPatch::new();
         for (field_name, generated_value) in &generated_fields {
@@ -385,12 +437,12 @@ impl<C: CanisterKind> DbSession<C> {
         descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
         statement: &SqlUpdateStatement,
     ) -> Result<StructuralPatch, QueryError> {
-        let pk_name = descriptor.primary_key_name();
         let mut patch = StructuralPatch::new();
         for assignment in &statement.assignments {
-            if assignment.field == pk_name {
+            if descriptor.is_primary_key_field_name(assignment.field.as_str()) {
                 return Err(QueryError::unsupported_query(format!(
-                    "SQL UPDATE does not allow primary key mutation for '{pk_name}' in this release"
+                    "SQL UPDATE does not allow primary key mutation for '{}' in this release",
+                    assignment.field,
                 )));
             }
             reject_explicit_sql_write_to_generated_field(
@@ -428,11 +480,16 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let schema_info = SchemaInfo::from_accepted_snapshot_for_model(E::MODEL, schema);
-        let pk_name = schema_info.primary_key_name().ok_or_else(|| {
-            QueryError::invariant(
+        if schema_info.primary_key_names().is_empty() {
+            return Err(QueryError::invariant(
                 "SQL UPDATE selector must resolve the primary key from accepted schema metadata",
-            )
-        })?;
+            ));
+        }
+        let primary_key_names = schema_info
+            .primary_key_names()
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
         let selector = bind_sql_update_selector_query_structural_with_schema(
             E::MODEL,
             statement,
@@ -441,27 +498,34 @@ impl<C: CanisterKind> DbSession<C> {
         )
         .map_err(QueryError::from_sql_lowering_error)?;
 
-        Ok(selector.select_field_id(pk_name))
+        Ok(selector.select_fields(primary_key_names))
     }
 
     fn sql_insert_select_source_statement(
         schema: &AcceptedSchemaSnapshot,
-        pk_name: &str,
+        primary_key_names: &[&str],
         statement: &SqlInsertStatement,
     ) -> Result<SqlSelectStatement, QueryError> {
+        if primary_key_names.is_empty() {
+            return Err(QueryError::invariant(
+                "SQL INSERT SELECT must resolve the primary key from accepted schema metadata",
+            ));
+        }
         let statement = SqlStatement::Insert(statement.clone());
         let prepared = prepare_sql_statement(&statement, schema.entity_name())
             .map_err(QueryError::from_sql_lowering_error)?;
         let mut select = extract_prepared_sql_insert_select_source(prepared)
             .map_err(QueryError::from_sql_lowering_error)?;
-        if select.order_by.is_empty()
-            || !select
-                .order_by
-                .iter()
-                .any(|term| matches!(&term.field, SqlExpr::Field(field) if field == pk_name))
-        {
+
+        for primary_key_name in primary_key_names {
+            if select.order_by.iter().any(
+                |term| matches!(&term.field, SqlExpr::Field(field) if field == primary_key_name),
+            ) {
+                continue;
+            }
+
             select.order_by.push(SqlOrderTerm {
-                field: SqlExpr::Field(pk_name.to_string()),
+                field: SqlExpr::Field((*primary_key_name).to_string()),
                 direction: SqlOrderDirection::Asc,
             });
         }
@@ -469,6 +533,69 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(select)
     }
 
+    fn sql_write_key_from_projected_row<E>(
+        descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+        row: &[Value],
+    ) -> Result<E::Key, QueryError>
+    where
+        E: EntityKind,
+    {
+        let primary_key_names = descriptor.primary_key_names();
+        if primary_key_names.len() == 1 {
+            let Some(value) = row.first() else {
+                return Err(QueryError::invariant(
+                    "SQL UPDATE target selector emitted an empty primary-key projection row",
+                ));
+            };
+
+            return sql_write_key_from_literal::<E>(descriptor, value);
+        }
+
+        if row.len() != primary_key_names.len() {
+            return Err(QueryError::invariant(
+                "SQL UPDATE target selector emitted a primary-key projection row with the wrong width",
+            ));
+        }
+
+        sql_write_key_from_component_literals::<E>(descriptor, row)
+    }
+}
+
+fn sql_insert_primary_key_values(
+    descriptor: &AcceptedRowLayoutRuntimeDescriptor<'_>,
+    columns: &[String],
+    values: &[Value],
+    generated_fields: &[(&str, Value)],
+) -> Result<Vec<Value>, QueryError> {
+    let mut key_values = Vec::with_capacity(descriptor.primary_key_names().len());
+    for primary_key_name in descriptor.primary_key_names() {
+        if let Some(pk_index) = columns.iter().position(|field| field == primary_key_name) {
+            let pk_value = values.get(pk_index).ok_or_else(|| {
+                QueryError::invariant(
+                    "INSERT primary key column must align with one VALUES literal",
+                )
+            })?;
+            key_values.push(pk_value.clone());
+            continue;
+        }
+
+        if let Some((_, pk_value)) = generated_fields
+            .iter()
+            .find(|(field_name, _)| *field_name == *primary_key_name)
+        {
+            key_values.push(pk_value.clone());
+            continue;
+        }
+
+        return Err(QueryError::unsupported_query(format!(
+            "SQL INSERT requires primary key column '{primary_key_name}' in this release"
+        )));
+    }
+
+    Ok(key_values)
+}
+
+impl<C: CanisterKind> DbSession<C> {
     // Execute the SELECT source for `INSERT ... SELECT` and consume the
     // projected rows directly into the structural mutation batch. SQL
     // projection still owns row materialization, but write execution no longer
@@ -546,9 +673,8 @@ impl<C: CanisterKind> DbSession<C> {
             .ensure_accepted_schema_snapshot::<E>()
             .map_err(QueryError::execute)?;
         let descriptor = checked_accepted_write_descriptor::<E>(&schema)?;
-        let pk_name = descriptor.primary_key_name();
         let columns = sql_insert_columns(&descriptor, statement);
-        ensure_sql_insert_required_fields(&descriptor, pk_name, columns.as_slice())?;
+        ensure_sql_insert_required_fields(&descriptor, columns.as_slice())?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Insert, Timestamp::now());
         let mut rows = Vec::new();
 
@@ -573,7 +699,11 @@ impl<C: CanisterKind> DbSession<C> {
                 }
             }
             SqlInsertSource::Select(_) => {
-                let source = Self::sql_insert_select_source_statement(&schema, pk_name, statement)?;
+                let source = Self::sql_insert_select_source_statement(
+                    &schema,
+                    descriptor.primary_key_names(),
+                    statement,
+                )?;
                 self.execute_sql_insert_select_source_patches::<E>(
                     &schema,
                     &descriptor,
@@ -646,12 +776,7 @@ impl<C: CanisterKind> DbSession<C> {
         let mut rows = Vec::with_capacity(projected_rows.len());
 
         for row in projected_rows {
-            let Some(value) = row.first() else {
-                return Err(QueryError::invariant(
-                    "SQL UPDATE target selector emitted an empty primary-key projection row",
-                ));
-            };
-            let key = sql_write_key_from_literal::<E>(&descriptor, value)?;
+            let key = Self::sql_write_key_from_projected_row::<E>(&descriptor, row.as_slice())?;
 
             rows.push((key, patch.clone()));
         }

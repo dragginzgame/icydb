@@ -584,17 +584,18 @@ impl SchemaInfo {
         self.entity_path.as_deref()
     }
 
-    /// Borrow the schema-owned primary-key field name when this schema view
-    /// was built from an entity model or accepted persisted snapshot.
+    /// Borrow the schema-owned primary-key field name for scalar primary-key
+    /// entities. Composite entities return `None` so scalar access-planning
+    /// helpers cannot silently treat the first component as a complete key.
     #[must_use]
     pub(in crate::db) fn primary_key_name(&self) -> Option<&str> {
-        self.primary_key_names.first().map(String::as_str)
+        (self.primary_key_names.len() == 1).then(|| self.primary_key_names[0].as_str())
     }
 
     /// Borrow schema-owned primary-key field names in accepted key order.
     ///
-    /// Scalar-only consumers may still use `primary_key_name`; composite-aware
-    /// admission and deterministic ordering must use the full ordered slice.
+    /// Callers that need deterministic ordering or composite identity must use
+    /// the full ordered slice.
     #[must_use]
     pub(in crate::db) const fn primary_key_names(&self) -> &[String] {
         self.primary_key_names.as_slice()

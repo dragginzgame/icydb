@@ -108,9 +108,10 @@ Hooks are optional. When installed, the pre-commit hook formats and stages
 tracked formatting changes, and the pre-push hook runs invariant checks plus
 clippy.
 
-## PocketIC Tests
+## IC Testkit Tests
 
-Some tests need a PocketIC server binary. The helper checks in this order:
+Some integration tests need the IC testkit server binary. The helper checks in
+this order:
 
 1. `POCKET_IC_BIN`, when it points at an executable.
 2. A cached binary for the pinned `pocket-ic` crate version.
@@ -163,12 +164,12 @@ Ubuntu, `python3` plus `python-is-python3` provides the expected shape.
 
 Install `ripgrep` with your system package manager.
 
-### `make test` cannot find PocketIC
+### `make test` cannot find the IC testkit runner
 
 Set `POCKET_IC_BIN=/path/to/pocket-ic`, or run with
 `ICYDB_ALLOW_POCKET_IC_DOWNLOAD=1` to allow the pinned GitHub release download.
 
-### PocketIC checksum verification fails
+### IC testkit runner checksum verification fails
 
 The executable bytes do not match `POCKET_IC_SERVER_SHA256`. Recheck the digest
 source, remove the cached binary if it is stale, or point `POCKET_IC_BIN` at the

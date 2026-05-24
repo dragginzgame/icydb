@@ -5,13 +5,13 @@ rust-version = { workspace = true }
 version = { workspace = true }
 publish = false
 license = { workspace = true }
-description = "canic-testkit-backed PocketIC integration tests for IcyDB test canisters"
+description = "ic-testkit-backed integration tests for IcyDB test canisters"
 repository = { workspace = true }
 authors = { workspace = true }
 
 [dependencies]
 candid = { workspace = true }
-canic-testkit = { workspace = true }
+ic-testkit = { workspace = true }
 icydb = { workspace = true, features = ["diagnostics"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

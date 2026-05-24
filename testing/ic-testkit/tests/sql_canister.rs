@@ -1,7 +1,7 @@
 use std::fs;
 
 use candid::CandidType;
-use canic_testkit::pic::{StandaloneCanisterFixture, install_prebuilt_canister};
+use ic_testkit::pic::{StandaloneCanisterFixture, install_prebuilt_canister};
 use icydb::{
     Error, ErrorKind, ErrorOrigin, RuntimeErrorKind,
     db::{
@@ -29,8 +29,8 @@ struct SqlQueryPerfResult {
 
 fn install_sql_canister_fixture() -> StandaloneCanisterFixture {
     // Build the dedicated SQL smoke canister once, then install that wasm into
-    // a fresh standalone PocketIC instance with empty init args.
-    let wasm_path = build_canister("sql").expect("sql canister should build for PocketIC tests");
+    // a fresh standalone IC testkit instance with empty init args.
+    let wasm_path = build_canister("sql").expect("sql canister should build for IC testkit tests");
     let wasm = fs::read(&wasm_path)
         .unwrap_or_else(|err| panic!("failed to read built sql canister wasm: {err}"));
 
@@ -44,7 +44,7 @@ fn install_demo_rpg_canister_fixture() -> StandaloneCanisterFixture {
     // The demo RPG canister has one generated entity, making it a useful
     // boundary fixture for proving generated DDL still requires explicit targets.
     let wasm_path =
-        build_canister("demo_rpg").expect("demo RPG canister should build for PocketIC tests");
+        build_canister("demo_rpg").expect("demo RPG canister should build for IC testkit tests");
     let wasm = fs::read(&wasm_path)
         .unwrap_or_else(|err| panic!("failed to read built demo RPG canister wasm: {err}"));
 

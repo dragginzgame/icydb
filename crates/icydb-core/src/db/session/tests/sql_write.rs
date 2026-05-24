@@ -170,6 +170,15 @@ fn persisted_write_rows(session: &DbSession<SessionSqlCanister>) -> Vec<Vec<Valu
     .expect("post-write SQL projection should succeed")
 }
 
+fn persisted_composite_write_rows(session: &DbSession<SessionSqlCanister>) -> Vec<Vec<Value>> {
+    statement_projection_rows::<SessionSqlCompositeWriteEntity>(
+        session,
+        "SELECT tenant_id, local_id, name, age FROM SessionSqlCompositeWriteEntity \
+         ORDER BY tenant_id ASC, local_id ASC",
+    )
+    .expect("post-write composite SQL projection should succeed")
+}
+
 // Execute one `SessionSqlWriteEntity` UPDATE statement and assert both the
 // returned count payload and the persisted ordered row surface stay stable.
 fn assert_write_update_count_and_rows(
@@ -514,6 +523,106 @@ fn execute_sql_statement_multi_row_insert_matrix_returns_count_without_returning
             );
         }
     }
+}
+
+#[test]
+fn execute_sql_insert_update_supports_composite_primary_key_fields() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_statement_returning_rows::<SessionSqlCompositeWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlCompositeWriteEntity \
+         (tenant_id, local_id, name, age) \
+         VALUES (1, 10, 'Ada', 21), (1, 11, 'Bea', 22) \
+         RETURNING tenant_id, local_id, name, age",
+        &[
+            vec![
+                Value::Nat(1),
+                Value::Nat(10),
+                Value::Text("Ada".to_string()),
+                Value::Nat(21),
+            ],
+            vec![
+                Value::Nat(1),
+                Value::Nat(11),
+                Value::Text("Bea".to_string()),
+                Value::Nat(22),
+            ],
+        ],
+        "composite primary-key SQL INSERT",
+    );
+
+    assert_statement_returning_rows::<SessionSqlCompositeWriteEntity>(
+        &session,
+        "UPDATE SessionSqlCompositeWriteEntity \
+         SET age = 30 \
+         WHERE tenant_id = 1 AND local_id = 10 \
+         RETURNING tenant_id, local_id, name, age",
+        &[vec![
+            Value::Nat(1),
+            Value::Nat(10),
+            Value::Text("Ada".to_string()),
+            Value::Nat(30),
+        ]],
+        "composite primary-key SQL UPDATE",
+    );
+
+    assert_eq!(
+        persisted_composite_write_rows(&session),
+        vec![
+            vec![
+                Value::Nat(1),
+                Value::Nat(10),
+                Value::Text("Ada".to_string()),
+                Value::Nat(30),
+            ],
+            vec![
+                Value::Nat(1),
+                Value::Nat(11),
+                Value::Text("Bea".to_string()),
+                Value::Nat(22),
+            ],
+        ],
+    );
+}
+
+#[test]
+fn execute_sql_insert_rejects_missing_composite_primary_key_component() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_statement_error_contains::<SessionSqlCompositeWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlCompositeWriteEntity \
+         (tenant_id, name, age) \
+         VALUES (1, 'Ada', 21)",
+        "SQL INSERT requires primary key columns 'local_id'",
+        "composite primary-key SQL INSERT missing component",
+    );
+}
+
+#[test]
+fn execute_sql_update_rejects_composite_primary_key_mutation() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_statement_count::<SessionSqlCompositeWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlCompositeWriteEntity \
+         (tenant_id, local_id, name, age) \
+         VALUES (1, 10, 'Ada', 21)",
+        1,
+        "composite primary-key SQL INSERT setup",
+    );
+    assert_statement_error_contains::<SessionSqlCompositeWriteEntity>(
+        &session,
+        "UPDATE SessionSqlCompositeWriteEntity \
+         SET local_id = 12 \
+         WHERE tenant_id = 1 AND local_id = 10",
+        "SQL UPDATE does not allow primary key mutation for 'local_id'",
+        "composite primary-key SQL UPDATE mutation",
+    );
 }
 
 #[test]

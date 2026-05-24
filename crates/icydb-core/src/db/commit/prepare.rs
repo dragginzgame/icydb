@@ -309,11 +309,12 @@ where
         (decoded, forward_index_ops)
     };
 
+    let source_primary_key = structural.data_key.primary_key_value();
     let reverse_index_ops = prepare_reverse_relation_index_mutations_for_source_slot_readers(
         db,
         authority.relation_source,
         schema_contracts.row_contract.clone(),
-        structural.data_key.storage_key(),
+        &source_primary_key,
         decoded.old_slots.as_ref(),
         decoded.new_slots.as_ref(),
     )?;

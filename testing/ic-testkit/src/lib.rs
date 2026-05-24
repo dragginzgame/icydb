@@ -1,4 +1,4 @@
-//! Shared canic-testkit-backed PocketIC integration harness helpers.
+//! Shared ic-testkit-backed integration harness helpers.
 
 use std::{
     env, fs,
@@ -105,7 +105,7 @@ fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
-        .expect("integration crate should live under testing/pocket-ic")
+        .expect("integration crate should live under testing/ic-testkit")
         .to_path_buf()
 }
 
@@ -148,7 +148,7 @@ fn run_checked(mut command: Command, context: &str) -> Result<(), String> {
 }
 
 // Format a failed child-process result with captured output. Successful
-// Pocket-IC canister builds stay quiet, while cargo/rustc diagnostics are still
+// Fixture canister builds stay quiet, while cargo/rustc diagnostics are still
 // visible when a nested build actually fails.
 fn format_failed_process_output(context: &str, output: &Output) -> String {
     let stdout = String::from_utf8_lossy(&output.stdout);

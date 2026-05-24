@@ -18,6 +18,7 @@ use crate::{
             RawIndexStoreKey, encode_canonical_index_component_from_primary_key_value,
             raw_keys_for_component_prefix_with_kind,
         },
+        key_taxonomy::PrimaryKeyValue,
         relation::{RelationTargetDecodeContext, RelationTargetMismatchPolicy},
         schema::{PersistedFieldKind, PersistedRelationStrength},
     },
@@ -787,7 +788,7 @@ pub(crate) fn prepare_reverse_relation_index_mutations_for_source_slot_readers<C
     db: &Db<C>,
     source: ReverseRelationSourceInfo,
     source_row_contract: StructuralRowContract,
-    source_storage_key: StorageKey,
+    source_primary_key: &PrimaryKeyValue,
     old_row_fields: Option<&StructuralSlotReader<'_>>,
     new_row_fields: Option<&StructuralSlotReader<'_>>,
 ) -> Result<Vec<PreparedIndexMutation>, InternalError>
@@ -803,7 +804,7 @@ where
     prepare_reverse_relation_index_mutations_for_source_rows_impl(
         db,
         source,
-        source_storage_key,
+        source_primary_key,
         source_rows,
     )
 }
@@ -813,7 +814,7 @@ where
 fn prepare_reverse_relation_index_mutations_for_source_rows_impl<C>(
     db: &Db<C>,
     source: ReverseRelationSourceInfo,
-    source_storage_key: StorageKey,
+    source_primary_key: &PrimaryKeyValue,
     source_rows: ReverseRelationSourceTransition<'_, '_>,
 ) -> Result<Vec<PreparedIndexMutation>, InternalError>
 where
@@ -823,13 +824,26 @@ where
     // commit marker key instead of recomputing it through typed entity ids.
     let mut ops = Vec::new();
 
-    // Phase 2: evaluate each strong relation independently and derive index deltas
-    // directly from persisted row payloads.
-    for relation in accepted_strong_relations_for_row_contract(
+    let relations = accepted_strong_relations_for_row_contract(
         source.path,
         &source_rows.source_row_contract,
         None,
-    )? {
+    )?;
+    if relations.is_empty() {
+        return Ok(ops);
+    }
+
+    let Some(source_component) = source_primary_key.scalar_component() else {
+        return Err(InternalError::serialize_unsupported(format!(
+            "reverse relation index maintenance does not support composite source primary keys yet: source={}",
+            source.path,
+        )));
+    };
+    let source_storage_key = StorageKey::from(source_component);
+
+    // Phase 2: evaluate each strong relation independently and derive index deltas
+    // directly from persisted row payloads.
+    for relation in relations {
         let old_targets = relation_target_keys_for_transition_side(
             source_rows.old_row_fields,
             source,

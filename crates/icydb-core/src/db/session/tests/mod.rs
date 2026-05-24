@@ -934,6 +934,93 @@ struct SessionSqlWriteEntity {
     age: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct SessionSqlCompositeWriteEntityKey {
+    tenant_id: u64,
+    local_id: u64,
+}
+
+impl crate::traits::KeyValueCodec for SessionSqlCompositeWriteEntityKey {
+    fn to_key_value(&self) -> Value {
+        Value::List(vec![Value::Nat(self.tenant_id), Value::Nat(self.local_id)])
+    }
+
+    fn from_key_value(value: &Value) -> Option<Self> {
+        let Value::List(values) = value else {
+            return None;
+        };
+        let [Value::Nat(tenant_id), Value::Nat(local_id)] = values.as_slice() else {
+            return None;
+        };
+
+        Some(Self {
+            tenant_id: *tenant_id,
+            local_id: *local_id,
+        })
+    }
+}
+
+impl crate::traits::PrimaryKeyCodec for SessionSqlCompositeWriteEntityKey {
+    fn to_primary_key_value(
+        &self,
+    ) -> Result<crate::db::PrimaryKeyValue, crate::traits::PrimaryKeyEncodeError> {
+        let composite = crate::db::CompositePrimaryKeyValue::try_from_components(&[
+            crate::db::PrimaryKeyComponent::Nat(self.tenant_id),
+            crate::db::PrimaryKeyComponent::Nat(self.local_id),
+        ])?;
+
+        Ok(crate::db::PrimaryKeyValue::Composite(composite))
+    }
+}
+
+impl crate::traits::PrimaryKeyDecode for SessionSqlCompositeWriteEntityKey {
+    fn from_primary_key_value(key: &crate::db::PrimaryKeyValue) -> Result<Self, InternalError> {
+        let crate::db::PrimaryKeyValue::Composite(composite) = key else {
+            return Err(InternalError::store_corruption(
+                "session SQL composite key decode expected composite primary key",
+            ));
+        };
+        let [
+            crate::db::PrimaryKeyComponent::Nat(tenant_id),
+            crate::db::PrimaryKeyComponent::Nat(local_id),
+        ] = composite.components()
+        else {
+            return Err(InternalError::store_corruption(
+                "session SQL composite key decode expected two nat components",
+            ));
+        };
+
+        Ok(Self {
+            tenant_id: *tenant_id,
+            local_id: *local_id,
+        })
+    }
+}
+
+impl crate::traits::EntityKeyBytes for SessionSqlCompositeWriteEntityKey {
+    const BYTE_LEN: usize = 16;
+
+    fn write_bytes(&self, out: &mut [u8]) {
+        out[..8].copy_from_slice(&self.tenant_id.to_be_bytes());
+        out[8..16].copy_from_slice(&self.local_id.to_be_bytes());
+    }
+}
+
+///
+/// SessionSqlCompositeWriteEntity
+///
+/// Composite-key SQL write fixture used to prove reduced SQL write lanes bind
+/// all ordered primary-key components at insert/update target boundaries.
+///
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct SessionSqlCompositeWriteEntity {
+    tenant_id: u64,
+    local_id: u64,
+    name: String,
+    age: u64,
+}
+
 ///
 /// SessionSqlBlobEntity
 ///
@@ -1624,6 +1711,58 @@ crate::test_entity_schema! {
     indexes = [],
     store = SessionSqlStore,
     canister = SessionSqlCanister,
+}
+
+crate::impl_test_entity_markers!(SessionSqlCompositeWriteEntity);
+
+impl SessionSqlCompositeWriteEntity {
+    const FIELD_MODELS: [FieldModel; 4] = [
+        FieldModel::generated("tenant_id", FieldKind::Nat),
+        FieldModel::generated("local_id", FieldKind::Nat),
+        FieldModel::generated("name", FieldKind::Text { max_len: None }),
+        FieldModel::generated("age", FieldKind::Nat),
+    ];
+    const PRIMARY_KEY_FIELDS: [&'static FieldModel; 2] =
+        [&Self::FIELD_MODELS[0], &Self::FIELD_MODELS[1]];
+    const INDEXES_DEF: [&'static IndexModel; 0] = [];
+    const MODEL_DEF: crate::model::entity::EntityModel =
+        crate::model::entity::EntityModel::generated_with_primary_key_model(
+            concat!(
+                module_path!(),
+                "::",
+                stringify!(SessionSqlCompositeWriteEntity)
+            ),
+            "SessionSqlCompositeWriteEntity",
+            crate::model::entity::PrimaryKeyModel::ordered(&Self::PRIMARY_KEY_FIELDS),
+            0,
+            &Self::FIELD_MODELS,
+            &Self::INDEXES_DEF,
+        );
+}
+
+crate::impl_test_entity_runtime_surface!(
+    SessionSqlCompositeWriteEntity,
+    SessionSqlCompositeWriteEntityKey,
+    "SessionSqlCompositeWriteEntity",
+    MODEL_DEF
+);
+
+impl crate::traits::EntityPlacement for SessionSqlCompositeWriteEntity {
+    type Store = SessionSqlStore;
+    type Canister = SessionSqlCanister;
+}
+
+impl crate::traits::EntityKind for SessionSqlCompositeWriteEntity {
+    const ENTITY_TAG: EntityTag = EntityTag::new(0x1059);
+}
+
+impl crate::traits::EntityValue for SessionSqlCompositeWriteEntity {
+    fn id(&self) -> Id<Self> {
+        Id::from_key(SessionSqlCompositeWriteEntityKey {
+            tenant_id: self.tenant_id,
+            local_id: self.local_id,
+        })
+    }
 }
 
 crate::test_entity_schema! {

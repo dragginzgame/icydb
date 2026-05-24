@@ -20,11 +20,15 @@ use crate::{
                         materialize_validated_scalar_slot_value,
                         scalar_slot_value_ref_from_validated, validated_scalar_slot_value,
                     },
-                    primary_key::validate_primary_key_value_from_slot_bytes_with_contract,
+                    primary_key::{
+                        validate_primary_key_component_from_slot_bytes_with_contract,
+                        validate_primary_key_value_from_slot_bytes_with_contract,
+                    },
                 },
                 types::{CanonicalSlotReader, SlotReader},
             },
         },
+        key_taxonomy::PrimaryKeyValue,
         schema::{AcceptedFieldDecodeContract, PersistedFieldKind},
     },
     error::InternalError,
@@ -149,35 +153,75 @@ impl<'a> StructuralSlotReader<'a> {
         &self,
         data_key: &DecodedDataStoreKey,
     ) -> Result<(), InternalError> {
-        self.validate_primary_key_value(data_key.storage_key())
+        self.validate_primary_key_value(&data_key.primary_key_value())
     }
 
     // Validate the decoded primary-key slot against one authoritative
     // primary-key value without rebuilding a full `DecodedDataStoreKey`
     // wrapper at the call site.
-    fn validate_primary_key_value(&self, expected_key: StorageKey) -> Result<(), InternalError> {
-        let primary_key_slot = self.contract.primary_key_slot();
+    fn validate_primary_key_value(
+        &self,
+        expected_key: &PrimaryKeyValue,
+    ) -> Result<(), InternalError> {
+        match *expected_key {
+            PrimaryKeyValue::Scalar(component) => {
+                let primary_key_slot = self.contract.primary_key_slot();
 
-        // Preserve the reader's scalar validation/cache side effect before the
-        // shared row-contract validator performs the authoritative key check.
-        if matches!(
-            self.contract.field_leaf_codec(primary_key_slot)?,
-            LeafCodec::Scalar(_)
-        ) && let Some(CachedSlotValue::Scalar { validated, .. }) =
-            self.cached_values.get(primary_key_slot)
-        {
-            let _ =
-                self.required_validated_scalar_slot_value_for_slot(primary_key_slot, validated)?;
+                // Preserve the reader's scalar validation/cache side effect before the
+                // shared row-contract validator performs the authoritative key check.
+                if matches!(
+                    self.contract.field_leaf_codec(primary_key_slot)?,
+                    LeafCodec::Scalar(_)
+                ) && let Some(CachedSlotValue::Scalar { validated, .. }) =
+                    self.cached_values.get(primary_key_slot)
+                {
+                    let _ = self.required_validated_scalar_slot_value_for_slot(
+                        primary_key_slot,
+                        validated,
+                    )?;
+                }
+
+                let field_name = self.contract.field_name(primary_key_slot)?;
+                let raw_value = self.required_field_bytes(primary_key_slot, field_name)?;
+
+                validate_primary_key_value_from_slot_bytes_with_contract(
+                    &self.contract,
+                    raw_value,
+                    StorageKey::from(component),
+                )
+            }
+            PrimaryKeyValue::Composite(composite) => {
+                let slots = self.contract.primary_key_slot_indices();
+                if slots.len() != composite.len() {
+                    return Err(InternalError::persisted_row_decode_failed(format!(
+                        "composite primary-key slot count mismatch: expected {} slots, row contract has {}",
+                        composite.len(),
+                        slots.len(),
+                    )));
+                }
+
+                for (&slot, &component) in slots.iter().zip(composite.components()) {
+                    if matches!(self.contract.field_leaf_codec(slot)?, LeafCodec::Scalar(_))
+                        && let Some(CachedSlotValue::Scalar { validated, .. }) =
+                            self.cached_values.get(slot)
+                    {
+                        let _ =
+                            self.required_validated_scalar_slot_value_for_slot(slot, validated)?;
+                    }
+
+                    let field_name = self.contract.field_name(slot)?;
+                    let raw_value = self.required_field_bytes(slot, field_name)?;
+                    validate_primary_key_component_from_slot_bytes_with_contract(
+                        &self.contract,
+                        slot,
+                        raw_value,
+                        component,
+                    )?;
+                }
+
+                Ok(())
+            }
         }
-
-        let field_name = self.contract.field_name(primary_key_slot)?;
-        let raw_value = self.required_field_bytes(primary_key_slot, field_name)?;
-
-        validate_primary_key_value_from_slot_bytes_with_contract(
-            &self.contract,
-            raw_value,
-            expected_key,
-        )
     }
 
     // Resolve one generated-compatible field model by stable slot index for
