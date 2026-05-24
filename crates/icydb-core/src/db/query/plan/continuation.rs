@@ -363,7 +363,6 @@ impl PlannedContinuationContract {
         &self,
         entity_path: &'static str,
         entity_tag: crate::types::EntityTag,
-        entity_model: &crate::model::entity::EntityModel,
         schema_info: &SchemaInfo,
         bytes: Option<&[u8]>,
     ) -> Result<PlannedCursor, CursorPlanError> {
@@ -377,7 +376,6 @@ impl PlannedContinuationContract {
             self.access_plan().executable_contract().as_path().cloned(),
             entity_path,
             entity_tag,
-            entity_model,
             schema_info,
             self.order_contract.order_spec(),
             self.order_contract.direction(),
@@ -428,7 +426,6 @@ impl PlannedContinuationContract {
     pub(in crate::db) fn revalidate_scalar_cursor(
         &self,
         entity_tag: crate::types::EntityTag,
-        entity_model: &crate::model::entity::EntityModel,
         schema_info: &SchemaInfo,
         cursor: PlannedCursor,
     ) -> Result<PlannedCursor, CursorPlanError> {
@@ -441,7 +438,6 @@ impl PlannedContinuationContract {
         crate::db::cursor::revalidate_cursor(
             self.access_plan().executable_contract().as_path().cloned(),
             entity_tag,
-            entity_model,
             schema_info,
             self.order_contract.order_spec(),
             self.order_contract.direction(),

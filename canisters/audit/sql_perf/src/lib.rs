@@ -20,7 +20,7 @@ use icydb::{
     prelude::*,
     traits::EntityFor,
 };
-use icydb_testing_audit_sql_perf_fixtures::{
+use icydb_testing_audit_sql_perf_fixtures::sql_perf::{
     PerfAuditAccount, PerfAuditBlob, PerfAuditCanister, PerfAuditUser,
 };
 

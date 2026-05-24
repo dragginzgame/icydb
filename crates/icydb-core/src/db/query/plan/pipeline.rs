@@ -130,12 +130,13 @@ where
     let (access_plan_value, planned_non_index_reason) = access_selection.into_parts();
     let logical_inputs = query.planning_logical_inputs();
     let redundant_primary_key_filter = normalized_predicate.as_ref().is_some_and(|predicate| {
-        ExactPrimaryKeyAccess::from_access(&access_plan_value).is_some_and(|access| {
-            access.matches_predicate(predicate, query.model().primary_key.name)
+        scalar_primary_key_name(&schema_info).is_some_and(|primary_key_name| {
+            ExactPrimaryKeyAccess::from_access(&access_plan_value)
+                .is_some_and(|access| access.matches_predicate(predicate, primary_key_name))
         })
     });
     let normalized_predicate = strip_redundant_primary_key_predicate_for_exact_access(
-        query.model(),
+        &schema_info,
         &access_plan_value,
         normalized_predicate,
     );
@@ -151,7 +152,7 @@ where
         normalized_predicate,
         query.consistency(),
     );
-    let logical = build_logical_plan(query.model(), logical_query);
+    let logical = build_logical_plan(&schema_info, logical_query);
     let mut plan = AccessPlannedQuery::from_planned_parts_with_projection(
         logical,
         access_plan_value,
@@ -187,7 +188,7 @@ where
     // Phase 4: freeze the planner-owned route profile before validation so
     // policy gates that depend on finalized access/order contracts, such as
     // expression ORDER BY support, see the accepted route semantics.
-    plan.finalize_planner_route_profile_for_model(query.model());
+    plan.finalize_planner_route_profile_for_model_with_schema(&schema_info);
 
     // Phase 5: validate the assembled plan against schema, access-shape, and
     // planner-policy contracts before projecting explain metadata.
@@ -227,7 +228,7 @@ where
 {
     // Phase 1: keep this path deliberately narrow so it only bypasses work the
     // general planner would do for a full-scan primary-order scalar load.
-    if !query.trivial_scalar_load_fast_path_eligible() {
+    if !query.trivial_scalar_load_fast_path_eligible_with_schema(&schema_info) {
         return Ok(None);
     }
 
@@ -244,7 +245,7 @@ where
     );
     let logical_query =
         logical_query_from_logical_inputs(logical_inputs, None, query.consistency());
-    let logical = build_logical_plan(query.model(), logical_query);
+    let logical = build_logical_plan(&schema_info, logical_query);
     let mut plan = AccessPlannedQuery::from_planned_parts_with_projection(
         logical,
         AccessPlan::<Value>::full_scan(),
@@ -254,7 +255,7 @@ where
 
     // Phase 3: preserve the finalized planner/executor contracts produced by
     // the general pipeline for this same simple shape.
-    plan.finalize_planner_route_profile_for_model(query.model());
+    plan.finalize_planner_route_profile_for_model_with_schema(&schema_info);
     plan.finalize_static_planning_shape_for_model_with_schema(query.model(), &schema_info)
         .map_err(QueryError::execute)?;
 
@@ -362,19 +363,24 @@ fn validate_plan_semantics(
 // resolved the exact same authoritative PK access path. This prevents duplicate
 // predicate evaluation and unlocks downstream PK fast paths.
 fn strip_redundant_primary_key_predicate_for_exact_access(
-    model: &EntityModel,
+    schema_info: &SchemaInfo,
     access: &AccessPlan<Value>,
     normalized_predicate: Option<Predicate>,
 ) -> Option<Predicate> {
     let predicate = normalized_predicate?;
 
-    if ExactPrimaryKeyAccess::from_access(access)
-        .is_some_and(|access| access.matches_predicate(&predicate, model.primary_key.name))
-    {
+    if scalar_primary_key_name(schema_info).is_some_and(|primary_key_name| {
+        ExactPrimaryKeyAccess::from_access(access)
+            .is_some_and(|access| access.matches_predicate(&predicate, primary_key_name))
+    }) {
         return None;
     }
 
     Some(predicate)
+}
+
+fn scalar_primary_key_name(schema_info: &SchemaInfo) -> Option<&str> {
+    schema_info.primary_key_name()
 }
 
 ///

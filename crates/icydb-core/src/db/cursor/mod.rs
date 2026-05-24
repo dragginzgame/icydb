@@ -85,7 +85,6 @@ pub(in crate::db) fn prepare_cursor<K: KeyValueCodec>(
     access: Option<ExecutionPathPayload<'_, K>>,
     entity_path: &'static str,
     entity_tag: EntityTag,
-    model: &crate::model::entity::EntityModel,
     schema: &SchemaInfo,
     order: Option<&OrderSpec>,
     direction: Direction,
@@ -100,7 +99,6 @@ pub(in crate::db) fn prepare_cursor<K: KeyValueCodec>(
         access,
         entity_path,
         entity_tag,
-        model,
         schema,
         order,
         continuation_signature,
@@ -110,11 +108,9 @@ pub(in crate::db) fn prepare_cursor<K: KeyValueCodec>(
 }
 
 /// Revalidate executor-provided cursor state through the canonical cursor spine.
-#[expect(clippy::too_many_arguments)]
 pub(in crate::db) fn revalidate_cursor<K: KeyValueCodec>(
     access: Option<ExecutionPathPayload<'_, K>>,
     entity_tag: EntityTag,
-    model: &crate::model::entity::EntityModel,
     schema: &SchemaInfo,
     order: Option<&OrderSpec>,
     direction: Direction,
@@ -131,7 +127,6 @@ pub(in crate::db) fn revalidate_cursor<K: KeyValueCodec>(
         cursor,
         access,
         entity_tag,
-        model,
         schema,
         order,
         direction,

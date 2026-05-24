@@ -11,6 +11,7 @@ use crate::{
             deterministic_secondary_index_order_terms_satisfied,
             grouped_index_order_terms_satisfied, index_key_item_order_terms,
         },
+        schema::SchemaInfo,
     },
     model::entity::EntityModel,
     value::Value,
@@ -68,7 +69,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_for_generated_
 /// Select one whole-index range scan from accepted runtime index contracts.
 #[must_use]
 pub(in crate::db::query::plan::planner) fn index_range_from_order_with_accepted_indexes(
-    model: &EntityModel,
+    schema: &SchemaInfo,
     candidate_indexes: &[SemanticIndexAccessContract],
     accepted_field_path_indexes: &[AcceptedPlannerFieldPathIndex],
     order: Option<&OrderSpec>,
@@ -79,7 +80,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_with_accepted_
         .flatten()
         .and_then(OrderSpec::grouped_index_order_contract);
     let scalar_order_contract = (!grouped).then_some(order).flatten().and_then(|order| {
-        let primary_key_names = ordered_primary_key_names(model);
+        let primary_key_names = ordered_primary_key_names_from_schema(schema);
         order.deterministic_secondary_order_contract_fields(primary_key_names.as_slice())
     });
 
@@ -155,6 +156,14 @@ fn ordered_primary_key_names(model: &EntityModel) -> Vec<&str> {
         .fields()
         .iter()
         .map(crate::model::field::FieldModel::name)
+        .collect()
+}
+
+fn ordered_primary_key_names_from_schema(schema: &SchemaInfo) -> Vec<&str> {
+    schema
+        .primary_key_names()
+        .iter()
+        .map(String::as_str)
         .collect()
 }
 

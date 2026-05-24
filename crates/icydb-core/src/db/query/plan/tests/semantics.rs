@@ -1128,7 +1128,8 @@ fn planner_build_logical_plan_appends_primary_key_tie_break_for_non_unique_order
         None,
     );
     let logical_query = logical_query_from_logical_inputs(inputs, None, MissingRowPolicy::Ignore);
-    let logical_plan = build_logical_plan(model, logical_query);
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
+    let logical_plan = build_logical_plan(schema, logical_query);
     let order = logical_plan
         .scalar_semantics()
         .order
@@ -1174,7 +1175,8 @@ fn planner_build_logical_plan_preserves_grouped_order_without_primary_key_tie_br
         None,
     );
     let logical_query = logical_query_from_logical_inputs(inputs, None, MissingRowPolicy::Ignore);
-    let LogicalPlan::Grouped(grouped) = build_logical_plan(model, logical_query) else {
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
+    let LogicalPlan::Grouped(grouped) = build_logical_plan(schema, logical_query) else {
         panic!("grouped logical inputs should assemble one grouped logical plan");
     };
     let order = grouped

@@ -53,6 +53,10 @@ pub enum AccessPlanError {
     /// Key range has invalid ordering.
     #[error("key range start is greater than end")]
     InvalidKeyRange,
+
+    /// Primary-key range scans are currently scalar-primary-key only.
+    #[error("primary-key range access is not supported for composite primary key '{fields}'")]
+    CompositePrimaryKeyRangeUnsupported { fields: String },
 }
 
 impl AccessPlanError {
@@ -81,19 +85,17 @@ pub(in crate::db) fn validate_access_runtime_invariants_with_schema(
 }
 
 // Validate that a primary-key literal matches the entity primary-key schema.
-fn validate_pk_literal(
-    schema: &SchemaInfo,
-    model: &EntityModel,
-    key: &Value,
-) -> Result<(), AccessPlanError> {
+fn validate_pk_literal(schema: &SchemaInfo, key: &Value) -> Result<(), AccessPlanError> {
     let primary_key_names = schema.primary_key_names();
     if primary_key_names.len() > 1 {
         return validate_composite_pk_literal(schema, primary_key_names, key);
     }
 
-    let field = primary_key_names
-        .first()
-        .map_or(model.primary_key.name, String::as_str);
+    let Some(field) = primary_key_names.first().map(String::as_str) else {
+        return Err(AccessPlanError::PrimaryKeyNotKeyable {
+            field: "<missing>".to_string(),
+        });
+    };
 
     validate_pk_literal_component(schema, field, key, key)
 }
@@ -150,6 +152,21 @@ fn validate_pk_literal_component(
     }
 
     Ok(())
+}
+
+fn validate_pk_literal_runtime(schema: &SchemaInfo, key: &Value) -> Result<(), AccessPlanError> {
+    let primary_key_names = schema.primary_key_names();
+    if primary_key_names.len() > 1 {
+        return validate_composite_pk_literal(schema, primary_key_names, key);
+    }
+
+    let Some(field) = primary_key_names.first().map(String::as_str) else {
+        return Err(AccessPlanError::PrimaryKeyNotKeyable {
+            field: "<missing>".to_string(),
+        });
+    };
+
+    validate_pk_literal_component(schema, field, key, key)
 }
 
 fn composite_primary_key_field_label(primary_key_names: &[String]) -> String {
@@ -375,12 +392,18 @@ fn validate_index_range_bound_value(
 // Validate that primary-key range endpoints match schema and preserve canonical order.
 fn validate_pk_range(
     schema: &SchemaInfo,
-    model: &EntityModel,
     start: &Value,
     end: &Value,
 ) -> Result<(), AccessPlanError> {
-    validate_pk_literal(schema, model, start)?;
-    validate_pk_literal(schema, model, end)?;
+    let primary_key_names = schema.primary_key_names();
+    if primary_key_names.len() > 1 {
+        return Err(AccessPlanError::CompositePrimaryKeyRangeUnsupported {
+            fields: composite_primary_key_field_label(primary_key_names),
+        });
+    }
+
+    validate_pk_literal(schema, start)?;
+    validate_pk_literal(schema, end)?;
     let ordering = Value::canonical_cmp(start, end);
     if ordering == std::cmp::Ordering::Greater {
         return Err(AccessPlanError::InvalidKeyRange);
@@ -423,19 +446,19 @@ impl AccessPath<Value> {
     // Validate this concrete value-keyed access path.
     fn validate(&self, schema: &SchemaInfo, model: &EntityModel) -> Result<(), AccessPlanError> {
         match self {
-            Self::ByKey(key) => validate_pk_literal(schema, model, key),
+            Self::ByKey(key) => validate_pk_literal(schema, key),
             Self::ByKeys(keys) => {
                 // Empty key lists are a valid no-op.
                 if keys.is_empty() {
                     return Ok(());
                 }
                 for key in keys {
-                    validate_pk_literal(schema, model, key)?;
+                    validate_pk_literal(schema, key)?;
                 }
 
                 Ok(())
             }
-            Self::KeyRange { start, end } => validate_pk_range(schema, model, start, end),
+            Self::KeyRange { start, end } => validate_pk_range(schema, start, end),
             Self::IndexPrefix { index, values } => {
                 validate_index_prefix(schema, model, index.clone(), values)
             }
@@ -450,8 +473,16 @@ impl AccessPath<Value> {
     // Validate concrete path invariants through accepted schema facts.
     fn validate_runtime_invariants(&self, schema: &SchemaInfo) -> Result<(), AccessPlanError> {
         match self {
-            Self::ByKey(_) | Self::ByKeys(_) | Self::FullScan => Ok(()),
-            Self::KeyRange { start, end } => validate_pk_range_runtime(start, end),
+            Self::ByKey(key) => validate_pk_literal_runtime(schema, key),
+            Self::ByKeys(keys) => {
+                for key in keys {
+                    validate_pk_literal_runtime(schema, key)?;
+                }
+
+                Ok(())
+            }
+            Self::FullScan => Ok(()),
+            Self::KeyRange { start, end } => validate_pk_range_runtime(schema, start, end),
             Self::IndexPrefix { index, values } => {
                 validate_index_reference_with_schema(schema, index)?;
                 validate_index_prefix_shape(index, values.len())
@@ -468,7 +499,18 @@ impl AccessPath<Value> {
     }
 }
 
-fn validate_pk_range_runtime(start: &Value, end: &Value) -> Result<(), AccessPlanError> {
+fn validate_pk_range_runtime(
+    schema: &SchemaInfo,
+    start: &Value,
+    end: &Value,
+) -> Result<(), AccessPlanError> {
+    let primary_key_names = schema.primary_key_names();
+    if primary_key_names.len() > 1 {
+        return Err(AccessPlanError::CompositePrimaryKeyRangeUnsupported {
+            fields: composite_primary_key_field_label(primary_key_names),
+        });
+    }
+
     let ordering = Value::canonical_cmp(start, end);
     if ordering == std::cmp::Ordering::Greater {
         return Err(AccessPlanError::InvalidKeyRange);
@@ -634,6 +676,48 @@ mod tests {
     }
 
     #[test]
+    fn runtime_invariants_validate_composite_by_key_shape() {
+        let schema = SchemaInfo::cached_for_generated_entity_model(&COMPOSITE_MODEL);
+
+        validate_access_runtime_invariants_with_schema(
+            schema,
+            &AccessPlan::by_key(Value::List(vec![Value::Nat(7), Value::Nat(11)])),
+        )
+        .expect("runtime access validation should accept ordered composite keys");
+
+        let err = validate_access_runtime_invariants_with_schema(
+            schema,
+            &AccessPlan::by_key(Value::Nat(7)),
+        )
+        .expect_err("runtime access validation should reject scalar value for composite key");
+
+        assert!(matches!(err, AccessPlanError::PrimaryKeyMismatch { .. }));
+    }
+
+    #[test]
+    fn runtime_invariants_validate_composite_by_keys_shape() {
+        let schema = SchemaInfo::cached_for_generated_entity_model(&COMPOSITE_MODEL);
+        let valid_keys = vec![
+            Value::List(vec![Value::Nat(7), Value::Nat(11)]),
+            Value::List(vec![Value::Nat(7), Value::Nat(12)]),
+        ];
+        validate_access_runtime_invariants_with_schema(schema, &AccessPlan::by_keys(valid_keys))
+            .expect("runtime access validation should accept ordered composite key lists");
+
+        let invalid_keys = vec![
+            Value::List(vec![Value::Nat(7), Value::Nat(11)]),
+            Value::List(vec![Value::Nat(7)]),
+        ];
+        let err = validate_access_runtime_invariants_with_schema(
+            schema,
+            &AccessPlan::by_keys(invalid_keys),
+        )
+        .expect_err("runtime access validation should reject malformed composite key lists");
+
+        assert!(matches!(err, AccessPlanError::PrimaryKeyMismatch { .. }));
+    }
+
+    #[test]
     fn validate_pk_literal_rejects_composite_key_with_wrong_arity() {
         let schema = SchemaInfo::cached_for_generated_entity_model(&COMPOSITE_MODEL);
         let key = Value::List(vec![Value::Nat(7)]);
@@ -655,5 +739,39 @@ mod tests {
                 .expect_err("composite primary-key validation should reject component mismatch");
 
         assert!(matches!(err, AccessPlanError::PrimaryKeyMismatch { .. }));
+    }
+
+    #[test]
+    fn validate_pk_range_rejects_composite_primary_key_ranges() {
+        let schema = SchemaInfo::cached_for_generated_entity_model(&COMPOSITE_MODEL);
+        let range = AccessPlan::key_range(
+            Value::List(vec![Value::Nat(7), Value::Nat(11)]),
+            Value::List(vec![Value::Nat(7), Value::Nat(12)]),
+        );
+
+        let err = validate_access_structure_model(schema, &COMPOSITE_MODEL, &range)
+            .expect_err("composite primary-key range access is deferred and should reject");
+
+        assert!(matches!(
+            err,
+            AccessPlanError::CompositePrimaryKeyRangeUnsupported { .. }
+        ));
+    }
+
+    #[test]
+    fn runtime_invariants_reject_composite_primary_key_ranges() {
+        let schema = SchemaInfo::cached_for_generated_entity_model(&COMPOSITE_MODEL);
+        let range = AccessPlan::key_range(
+            Value::List(vec![Value::Nat(7), Value::Nat(11)]),
+            Value::List(vec![Value::Nat(7), Value::Nat(12)]),
+        );
+
+        let err = validate_access_runtime_invariants_with_schema(schema, &range)
+            .expect_err("runtime access validation should also reject composite key ranges");
+
+        assert!(matches!(
+            err,
+            AccessPlanError::CompositePrimaryKeyRangeUnsupported { .. }
+        ));
     }
 }

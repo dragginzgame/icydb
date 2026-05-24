@@ -7,19 +7,16 @@ mod prefix;
 mod range;
 mod ranking;
 
-use crate::{
-    db::{
-        access::SemanticIndexAccessContract,
-        predicate::Predicate,
-        query::plan::{
-            OrderSpec,
-            access_choice::model::{
-                AccessChoiceFamily, AccessChoiceRejectedReason, CandidateEvaluation,
-            },
+use crate::db::{
+    access::SemanticIndexAccessContract,
+    predicate::Predicate,
+    query::plan::{
+        OrderSpec,
+        access_choice::model::{
+            AccessChoiceFamily, AccessChoiceRejectedReason, CandidateEvaluation,
         },
-        schema::SchemaInfo,
     },
-    model::entity::EntityModel,
+    schema::SchemaInfo,
 };
 
 #[cfg(test)]
@@ -48,7 +45,6 @@ struct CandidateScoringIndex {
 pub(super) fn evaluate_index_candidate(
     family: AccessChoiceFamily,
     index: SemanticIndexAccessContract,
-    model: &EntityModel,
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
@@ -59,7 +55,7 @@ pub(super) fn evaluate_index_candidate(
     };
 
     if matches!(family, AccessChoiceFamily::Range) && predicate.is_none() && order.is_some() {
-        return evaluate_order_only_range_candidate(scoring_index, model, order, grouped);
+        return evaluate_order_only_range_candidate(scoring_index, schema, order, grouped);
     }
 
     let Some(predicate) = predicate else {
@@ -69,7 +65,7 @@ pub(super) fn evaluate_index_candidate(
     match family {
         AccessChoiceFamily::Prefix => augment_candidate_with_order_compatibility(
             prefix::evaluate_prefix_candidate(&index, schema, predicate),
-            model,
+            schema,
             order,
             scoring_index,
             grouped,
@@ -79,7 +75,7 @@ pub(super) fn evaluate_index_candidate(
         }
         AccessChoiceFamily::Range => augment_candidate_with_order_compatibility(
             range::evaluate_range_candidate_from_contract(index, schema, predicate),
-            model,
+            schema,
             order,
             scoring_index,
             grouped,
@@ -96,12 +92,12 @@ pub(super) fn evaluate_index_candidate(
 // can report why one visible index won the fallback.
 fn evaluate_order_only_range_candidate(
     scoring_index: CandidateScoringIndex,
-    model: &EntityModel,
+    schema: &SchemaInfo,
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> CandidateEvaluation {
     CandidateEvaluation::Eligible(candidate_score_with_order_compatibility(
-        model,
+        schema,
         order,
         scoring_index,
         0,
@@ -113,7 +109,7 @@ fn evaluate_order_only_range_candidate(
 
 fn augment_candidate_with_order_compatibility(
     evaluation: CandidateEvaluation,
-    model: &EntityModel,
+    schema: &SchemaInfo,
     order: Option<&OrderSpec>,
     scoring_index: CandidateScoringIndex,
     grouped: bool,
@@ -121,7 +117,7 @@ fn augment_candidate_with_order_compatibility(
     match evaluation {
         CandidateEvaluation::Eligible(score) => {
             CandidateEvaluation::Eligible(candidate_score_with_order_compatibility(
-                model,
+                schema,
                 order,
                 scoring_index,
                 score.prefix_len,
@@ -138,7 +134,7 @@ fn augment_candidate_with_order_compatibility(
 // from the visible order contract so order-only fallback and normal eligible
 // candidate augmentation stay on the same scoring path.
 fn candidate_score_with_order_compatibility(
-    model: &EntityModel,
+    schema: &SchemaInfo,
     order: Option<&OrderSpec>,
     scoring_index: CandidateScoringIndex,
     prefix_len: usize,
@@ -147,7 +143,7 @@ fn candidate_score_with_order_compatibility(
     grouped: bool,
 ) -> crate::db::query::plan::planner::AccessCandidateScore {
     crate::db::query::plan::planner::access_candidate_score_from_index_contract(
-        model,
+        schema,
         order,
         scoring_index.contract,
         prefix_len,

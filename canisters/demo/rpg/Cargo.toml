@@ -26,6 +26,7 @@ icydb-testing-demo-rpg-fixtures = { workspace = true }
 icydb = { path = "../../../crates/icydb", default-features = false }
 icydb-config-build = { workspace = true }
 icydb-testing-demo-rpg-fixtures = { workspace = true }
+icydb-testing-wasm-helpers = { workspace = true }
 
 [lints]
 workspace = true

@@ -108,6 +108,6 @@ pub(super) fn pk_order_stream_fast_path_shape_supported(plan: &AccessPlannedQuer
     logical.mode.is_load()
         && has_primary_key_stream_window
         && order
-            .primary_key_only_direction_fields(plan.primary_key_names())
+            .primary_key_only_direction_fields(&plan.primary_key_names())
             .is_some()
 }

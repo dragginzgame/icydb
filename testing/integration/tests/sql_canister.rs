@@ -1,7 +1,5 @@
-use std::fs;
-
 use candid::CandidType;
-use ic_testkit::pic::{StandaloneCanisterFixture, install_prebuilt_canister};
+use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error, ErrorKind, ErrorOrigin, RuntimeErrorKind,
     db::{
@@ -9,7 +7,7 @@ use icydb::{
         sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput},
     },
 };
-use icydb_testing_integration::build_canister;
+use icydb_testing_integration::{install_fixture_canister, reset_icydb_fixtures};
 use serde::Deserialize;
 
 // Mirror the generated IcyDB SQL query envelope so these boundary tests can
@@ -30,44 +28,19 @@ struct SqlQueryPerfResult {
 fn install_sql_canister_fixture() -> StandaloneCanisterFixture {
     // Build the dedicated SQL smoke canister once, then install that wasm into
     // a fresh standalone IC testkit instance with empty init args.
-    let wasm_path = build_canister("sql").expect("sql canister should build for IC testkit tests");
-    let wasm = fs::read(&wasm_path)
-        .unwrap_or_else(|err| panic!("failed to read built sql canister wasm: {err}"));
-
-    install_prebuilt_canister(
-        wasm,
-        candid::encode_args(()).expect("encode empty init args"),
-    )
+    install_fixture_canister("sql")
 }
 
 fn install_demo_rpg_canister_fixture() -> StandaloneCanisterFixture {
     // The demo RPG canister has one generated entity, making it a useful
     // boundary fixture for proving generated DDL still requires explicit targets.
-    let wasm_path =
-        build_canister("demo_rpg").expect("demo RPG canister should build for IC testkit tests");
-    let wasm = fs::read(&wasm_path)
-        .unwrap_or_else(|err| panic!("failed to read built demo RPG canister wasm: {err}"));
-
-    install_prebuilt_canister(
-        wasm,
-        candid::encode_args(()).expect("encode empty init args"),
-    )
+    install_fixture_canister("demo_rpg")
 }
 
 fn reset_sql_fixtures(fixture: &StandaloneCanisterFixture) {
     // Keep each test isolated by resetting and then loading the deterministic
     // baseline fixture set through the live canister update surface.
-    let reset: Result<(), Error> = fixture
-        .pic()
-        .update_call(fixture.canister_id(), "__icydb_fixtures_reset", ())
-        .expect("__icydb_fixtures_reset should decode");
-    reset.expect("__icydb_fixtures_reset should succeed");
-
-    let load: Result<(), Error> = fixture
-        .pic()
-        .update_call(fixture.canister_id(), "__icydb_fixtures_load", ())
-        .expect("__icydb_fixtures_load should decode");
-    load.expect("__icydb_fixtures_load should succeed");
+    reset_icydb_fixtures(fixture);
 }
 
 fn query_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {

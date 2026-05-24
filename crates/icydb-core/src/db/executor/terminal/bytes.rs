@@ -94,7 +94,7 @@ where
             prepared.consistency(),
             prepared.has_predicate(),
             target_field,
-            prepared.logical_plan().primary_key_names(),
+            &prepared.logical_plan().primary_key_names(),
         )
     }
 
@@ -111,7 +111,7 @@ where
             None => Direction::Asc,
             Some(order) => {
                 match order
-                    .primary_key_only_direction_fields(prepared.logical_plan().primary_key_names())
+                    .primary_key_only_direction_fields(&prepared.logical_plan().primary_key_names())
                 {
                     Some(OrderDirection::Asc) => Direction::Asc,
                     Some(OrderDirection::Desc) => Direction::Desc,
@@ -278,7 +278,7 @@ where
             &prepared.logical_plan().access,
             prepared.order_spec(),
             target_field.field(),
-            prepared.logical_plan().primary_key_names(),
+            &prepared.logical_plan().primary_key_names(),
         ) else {
             return Ok(None);
         };

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Tightened composite primary-key fail-closed planner guards and row-decode
+  validation so partial component predicates cannot masquerade as scalar key
+  access, composite exact-key literals are checked by schema-only runtime
+  validation, composite key ranges reject at validation, ORDER BY tie-breaks
+  and cursor boundaries use accepted primary-key fields, planner order
+  preference, static planning metadata, and accepted-index scoring use
+  accepted primary-key suffixes, trivial-load fast paths check accepted schema,
+  covering plans fail closed on accepted schema, aggregate scalar-primary-key
+  shortcuts read accepted schema, and composite row identity is checked on
+  retained-slot decode paths.
+
 ## [0.162.x] 🔑 - 2026-05-23 - Composite Primary Keys
 
 Detailed notes: [docs/changelog/0.162.md](docs/changelog/0.162.md)

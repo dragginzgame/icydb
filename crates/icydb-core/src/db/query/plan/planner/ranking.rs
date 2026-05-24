@@ -3,15 +3,13 @@
 //! Does not own: predicate eligibility derivation or execution semantics.
 //! Boundary: shared ranking contract consumed by planner selection and planner-choice explain.
 
-use crate::{
-    db::{
-        access::SemanticIndexAccessContract,
-        query::plan::{
-            OrderSpec, deterministic_secondary_index_order_terms_satisfied,
-            grouped_index_order_terms_satisfied, index_key_item_order_terms,
-        },
+use crate::db::{
+    access::SemanticIndexAccessContract,
+    query::plan::{
+        OrderSpec, deterministic_secondary_index_order_terms_satisfied,
+        grouped_index_order_terms_satisfied, index_key_item_order_terms,
     },
-    model::entity::EntityModel,
+    schema::SchemaInfo,
 };
 use std::ops::Bound;
 
@@ -186,7 +184,7 @@ pub(in crate::db::query::plan) const fn range_bound_count<T>(
 /// deterministic secondary ordering contract after consumed prefix items.
 #[must_use]
 pub(in crate::db::query::plan) fn selected_index_contract_satisfies_secondary_order(
-    model: &EntityModel,
+    schema: &SchemaInfo,
     order: Option<&OrderSpec>,
     index: SemanticIndexAccessContract,
     prefix_len: usize,
@@ -206,11 +204,10 @@ pub(in crate::db::query::plan) fn selected_index_contract_satisfies_secondary_or
         );
     }
 
-    let primary_key_names: Vec<&str> = model
-        .primary_key_model()
-        .fields()
+    let primary_key_names: Vec<&str> = schema
+        .primary_key_names()
         .iter()
-        .map(crate::model::field::FieldModel::name)
+        .map(String::as_str)
         .collect();
     let Some(order_contract) = order
         .and_then(|order| order.deterministic_secondary_order_contract_fields(&primary_key_names))
@@ -229,7 +226,7 @@ pub(in crate::db::query::plan) fn selected_index_contract_satisfies_secondary_or
 /// when candidate eligibility still carries a temporary generated bridge.
 #[must_use]
 pub(in crate::db::query::plan) fn access_candidate_score_from_index_contract(
-    model: &EntityModel,
+    schema: &SchemaInfo,
     order: Option<&OrderSpec>,
     index: SemanticIndexAccessContract,
     prefix_len: usize,
@@ -242,6 +239,8 @@ pub(in crate::db::query::plan) fn access_candidate_score_from_index_contract(
         exact,
         index.is_filtered(),
         range_bound_count,
-        selected_index_contract_satisfies_secondary_order(model, order, index, prefix_len, grouped),
+        selected_index_contract_satisfies_secondary_order(
+            schema, order, index, prefix_len, grouped,
+        ),
     )
 }

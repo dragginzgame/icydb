@@ -3,15 +3,13 @@
 //! Does not own: access-path planning heuristics or runtime executor routing.
 //! Boundary: emits planner-domain logical plan structures prior to access planning.
 
-use crate::{
-    db::{
-        predicate::{MissingRowPolicy, Predicate},
-        query::plan::{
-            DeleteLimitSpec, GroupPlan, GroupSpec, LogicalPlan, OrderDirection, OrderSpec,
-            PageSpec, QueryMode, ScalarPlan, expr::Expr,
-        },
+use crate::db::{
+    predicate::{MissingRowPolicy, Predicate},
+    query::plan::{
+        DeleteLimitSpec, GroupPlan, GroupSpec, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
+        QueryMode, ScalarPlan, expr::Expr,
     },
-    model::entity::EntityModel,
+    schema::SchemaInfo,
 };
 
 ///
@@ -120,7 +118,7 @@ pub(in crate::db::query) fn logical_query_from_logical_inputs(
 /// Build a logical plan from intent-owned scalar and grouped plan inputs.
 #[must_use]
 pub(in crate::db::query) fn build_logical_plan(
-    model: &EntityModel,
+    schema: &SchemaInfo,
     query: LogicalQuery,
 ) -> LogicalPlan {
     let LogicalQuery {
@@ -143,7 +141,7 @@ pub(in crate::db::query) fn build_logical_plan(
         filter_expr,
         predicate_covers_filter_expr,
         predicate: normalized_predicate,
-        order: canonicalize_order_spec_for_grouping(model, order, grouped_order),
+        order: canonicalize_order_spec_for_grouping(schema, order, grouped_order),
         distinct,
         delete_limit: match mode {
             QueryMode::Delete(spec) if spec.limit.is_some() || spec.offset() > 0 => {
@@ -191,18 +189,18 @@ pub(in crate::db::query) fn build_logical_plan(
 /// remain unchanged.
 #[must_use]
 pub(in crate::db::query) fn canonicalize_order_spec_for_grouping(
-    model: &EntityModel,
+    schema: &SchemaInfo,
     order: Option<OrderSpec>,
     grouped: bool,
 ) -> Option<OrderSpec> {
-    canonicalize_order_spec_with_primary_key_tie_break(model, order, !grouped)
+    canonicalize_order_spec_with_primary_key_tie_break(schema, order, !grouped)
 }
 
 // Normalize one ORDER BY shape into the planner-owned deterministic form, with
 // the scalar row-level primary-key tie-break appended only when that contract
 // is actually required by the calling plan family.
 fn canonicalize_order_spec_with_primary_key_tie_break(
-    model: &EntityModel,
+    schema: &SchemaInfo,
     order: Option<OrderSpec>,
     append_primary_key_tie_break: bool,
 ) -> Option<OrderSpec> {
@@ -211,11 +209,10 @@ fn canonicalize_order_spec_with_primary_key_tie_break(
         return Some(order);
     }
 
-    let primary_key_names: Vec<&str> = model
-        .primary_key_model()
-        .fields()
+    let primary_key_names: Vec<&str> = schema
+        .primary_key_names()
         .iter()
-        .map(crate::model::field::FieldModel::name)
+        .map(String::as_str)
         .collect();
     let mut pk_direction = None;
 

@@ -7,6 +7,8 @@ use std::{
 };
 
 use ic_testkit::artifacts::wasm_path;
+use ic_testkit::pic::{StandaloneCanisterFixture, install_prebuilt_canister};
+use icydb::Error;
 
 const WASM_TARGET_TRIPLE: &str = "wasm32-unknown-unknown";
 
@@ -292,10 +294,44 @@ fn build_canister_package(
 ///
 /// build_canister
 ///
-/// Build one supported SQL canister WASM with default debug options and return
-/// the built wasm path.
+/// Build one supported canister WASM with default debug options and return the
+/// built wasm path.
 pub fn build_canister(canister_name: &str) -> Result<PathBuf, String> {
     build_canister_with_options(canister_name, CanisterBuildOptions::default())
+}
+
+/// Build one supported canister and install it into a fresh standalone fixture
+/// with empty init args.
+#[must_use]
+pub fn install_fixture_canister(canister_name: &str) -> StandaloneCanisterFixture {
+    let wasm_path = build_canister(canister_name)
+        .unwrap_or_else(|err| panic!("{canister_name} canister should build: {err}"));
+    let wasm = fs::read(&wasm_path).unwrap_or_else(|err| {
+        panic!(
+            "failed to read built {canister_name} canister wasm at {}: {err}",
+            wasm_path.display()
+        )
+    });
+
+    install_prebuilt_canister(
+        wasm,
+        candid::encode_args(()).expect("encode empty init args"),
+    )
+}
+
+/// Reset and reload the generated IcyDB fixture set on one installed canister.
+pub fn reset_icydb_fixtures(fixture: &StandaloneCanisterFixture) {
+    let reset: Result<(), Error> = fixture
+        .pic()
+        .update_call(fixture.canister_id(), "__icydb_fixtures_reset", ())
+        .expect("__icydb_fixtures_reset should decode");
+    reset.expect("__icydb_fixtures_reset should succeed");
+
+    let load: Result<(), Error> = fixture
+        .pic()
+        .update_call(fixture.canister_id(), "__icydb_fixtures_load", ())
+        .expect("__icydb_fixtures_load should decode");
+    load.expect("__icydb_fixtures_load should succeed");
 }
 
 /// Build one supported SQL canister WASM with explicit options and return the

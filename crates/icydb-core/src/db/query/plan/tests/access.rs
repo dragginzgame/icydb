@@ -316,6 +316,26 @@ fn plan_access_uses_primary_key_lookup() {
 }
 
 #[test]
+fn plan_access_composite_primary_key_component_eq_stays_full_scan() {
+    let model = model_with_composite_primary_key();
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "tenant_id",
+        CompareOp::Eq,
+        Value::Nat(7),
+        CoercionId::Strict,
+    ));
+
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::full_scan(),
+        "a single composite primary-key component predicate must not lower to scalar ByKey access",
+    );
+}
+
+#[test]
 fn plan_access_primary_key_half_open_bounds_lower_to_key_range() {
     let model = model_with_index();
     let schema = SchemaInfo::cached_for_generated_entity_model(model);
@@ -345,6 +365,34 @@ fn plan_access_primary_key_half_open_bounds_lower_to_key_range() {
             end: Value::Ulid(upper),
         }),
         "strict primary-key half-open bounds should lower to one explicit key-range access path",
+    );
+}
+
+#[test]
+fn plan_access_composite_primary_key_component_bounds_stay_full_scan() {
+    let model = model_with_composite_primary_key();
+    let schema = SchemaInfo::cached_for_generated_entity_model(model);
+    let predicate = Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "tenant_id",
+            CompareOp::Gte,
+            Value::Nat(7),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "tenant_id",
+            CompareOp::Lt,
+            Value::Nat(9),
+            CoercionId::Strict,
+        )),
+    ]);
+
+    let plan = plan_access_for_test(model, schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::full_scan(),
+        "composite primary-key component ranges are deferred and must not lower to scalar KeyRange access",
     );
 }
 

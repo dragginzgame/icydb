@@ -276,6 +276,7 @@ fn plan_access_selection_with_order_from_authority(
         return Ok(order_fallback_selection(
             model,
             eligible_indexes.as_slice(),
+            schema,
             order,
             grouped,
             order_fallback_authority,
@@ -313,6 +314,7 @@ fn plan_access_selection_with_order_from_authority(
     Ok(index_range_from_order_with_authority(
         model,
         eligible_indexes.as_slice(),
+        schema,
         order,
         grouped,
         order_fallback_authority,
@@ -333,6 +335,7 @@ fn plan_access_selection_with_order_from_authority(
 fn order_fallback_selection(
     model: &EntityModel,
     eligible_indexes: &[SemanticIndexAccessContract],
+    schema: &SchemaInfo,
     order: Option<&OrderSpec>,
     grouped: bool,
     order_fallback_authority: OrderFallbackIndexAuthority<'_>,
@@ -340,6 +343,7 @@ fn order_fallback_selection(
     index_range_from_order_with_authority(
         model,
         eligible_indexes,
+        schema,
         order,
         grouped,
         order_fallback_authority,
@@ -358,6 +362,7 @@ fn order_fallback_selection(
 fn index_range_from_order_with_authority(
     model: &EntityModel,
     eligible_indexes: &[SemanticIndexAccessContract],
+    schema: &SchemaInfo,
     order: Option<&OrderSpec>,
     grouped: bool,
     order_fallback_authority: OrderFallbackIndexAuthority<'_>,
@@ -373,7 +378,7 @@ fn index_range_from_order_with_authority(
         }
         OrderFallbackIndexAuthority::AcceptedFieldPathIndexes(accepted_field_path_indexes) => {
             order_select::index_range_from_order_with_accepted_indexes(
-                model,
+                schema,
                 eligible_indexes,
                 accepted_field_path_indexes,
                 order,

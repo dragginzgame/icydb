@@ -200,6 +200,7 @@ dependencies = [
  "icydb",
  "icydb-config-build",
  "icydb-testing-audit-minimal-fixtures",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -211,6 +212,7 @@ dependencies = [
  "icydb",
  "icydb-config-build",
  "icydb-testing-audit-one-complex-fixtures",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -222,6 +224,7 @@ dependencies = [
  "icydb",
  "icydb-config-build",
  "icydb-testing-audit-one-simple-fixtures",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -233,6 +236,7 @@ dependencies = [
  "icydb",
  "icydb-config-build",
  "icydb-testing-audit-sql-perf-fixtures",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -244,6 +248,7 @@ dependencies = [
  "icydb",
  "icydb-config-build",
  "icydb-testing-audit-ten-complex-fixtures",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -255,6 +260,7 @@ dependencies = [
  "icydb",
  "icydb-config-build",
  "icydb-testing-audit-ten-simple-fixtures",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -266,6 +272,7 @@ dependencies = [
  "icydb",
  "icydb-config-build",
  "icydb-testing-demo-rpg-fixtures",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -277,6 +284,7 @@ dependencies = [
  "icydb",
  "icydb-config-build",
  "icydb-testing-test-sql-fixtures",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -1293,6 +1301,7 @@ version = "0.162.15"
 dependencies = [
  "candid",
  "icydb",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -1319,6 +1328,7 @@ version = "0.162.15"
 dependencies = [
  "candid",
  "icydb",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -1345,6 +1355,7 @@ version = "0.162.15"
 dependencies = [
  "candid",
  "icydb",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -1373,6 +1384,7 @@ version = "0.162.15"
 dependencies = [
  "candid",
  "icydb",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]

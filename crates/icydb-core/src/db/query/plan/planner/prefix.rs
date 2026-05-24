@@ -43,7 +43,7 @@ fn leading_index_prefix_lookup_value(
     reason = "planner prefix access keeps field/value/order inputs explicit at this boundary"
 )]
 pub(super) fn index_prefix_for_eq(
-    model: &EntityModel,
+    _model: &EntityModel,
     candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     field: &str,
@@ -63,7 +63,7 @@ pub(super) fn index_prefix_for_eq(
         };
 
         let score = access_candidate_score_from_index_contract(
-            model,
+            schema,
             order,
             index.clone(),
             1,
@@ -134,7 +134,7 @@ pub(super) fn index_multi_lookup_for_in(
 }
 
 pub(super) fn index_prefix_from_and(
-    model: &EntityModel,
+    _model: &EntityModel,
     candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     children: &[Predicate],
@@ -180,7 +180,7 @@ pub(super) fn index_prefix_from_and(
         }
 
         let score = access_candidate_score_from_index_contract(
-            model,
+            schema,
             order,
             index.clone(),
             prefix.len(),

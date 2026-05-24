@@ -104,7 +104,10 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     }
 
     #[must_use]
-    pub(in crate::db::query) fn trivial_scalar_load_fast_path_eligible(&self) -> bool {
+    pub(in crate::db::query) fn trivial_scalar_load_fast_path_eligible_with_schema(
+        &self,
+        schema_info: &SchemaInfo,
+    ) -> bool {
         let QueryMode::Load(load_spec) = self.intent.mode() else {
             return false;
         };
@@ -123,19 +126,20 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
             return load_spec.limit().is_none() && load_spec.offset() == 0;
         };
 
-        let primary_key_names = self.model.primary_key_names();
+        let primary_key_names: Vec<&str> = schema_info
+            .primary_key_names()
+            .iter()
+            .map(String::as_str)
+            .collect();
         order
             .primary_key_only_direction_fields(primary_key_names.as_slice())
             .is_some()
     }
 
     #[must_use]
-    pub(in crate::db::query) fn scalar_order_for_trivial_fast_path(&self) -> Option<&OrderSpec> {
-        debug_assert!(
-            self.trivial_scalar_load_fast_path_eligible(),
-            "trivial scalar fast-path order should only be read after eligibility"
-        );
-
+    pub(in crate::db::query) const fn scalar_order_for_trivial_fast_path(
+        &self,
+    ) -> Option<&OrderSpec> {
         self.intent.scalar().order.as_ref()
     }
 

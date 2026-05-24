@@ -1,35 +1,17 @@
 use icydb::design::prelude::*;
-use icydb_testing_wasm_helpers::define_simple_audit_entities;
+use icydb_testing_wasm_helpers::{define_fixture_canister_store, define_simple_audit_entities};
 
-///
-/// TenSimpleCanister
-///
-/// Ten-entity simple canister model used for wasm-footprint auditing.
-///
-
-#[canister(
-    memory_namespace = "ten_simple",
+define_fixture_canister_store!(
+    TenSimpleCanister = "TenSimpleCanister",
+    TenSimpleStore = "TEN_SIMPLE_STORE",
+    namespace = "ten_simple",
     memory_min = 155,
     memory_max = 175,
-    commit_memory_id = 157
-)]
-pub struct TenSimpleCanister {}
-
-///
-/// TenSimpleStore
-///
-/// Shared store used to measure ten repeated simple entity shapes.
-///
-
-#[store(
-    ident = "TEN_SIMPLE_STORE",
-    store_name = "main",
-    canister = "TenSimpleCanister",
+    commit_memory_id = 157,
     data_memory_id = 155,
     index_memory_id = 156,
-    schema_memory_id = 158
-)]
-pub struct TenSimpleStore {}
+    schema_memory_id = 158,
+);
 
 define_simple_audit_entities!(
     "TenSimpleStore";

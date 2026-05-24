@@ -110,7 +110,7 @@ pub(super) fn plan_predicate(
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             let family_choice = choose_best_and_family_access(
-                model,
+                schema,
                 order,
                 grouped,
                 plans.as_slice(),
@@ -169,7 +169,7 @@ pub(super) fn plan_predicate(
     reason = "this helper intentionally freezes the current AND-family comparison inputs in one owner-local entrypoint"
 )]
 fn choose_best_and_family_access(
-    model: &EntityModel,
+    schema: &SchemaInfo,
     order: Option<&OrderSpec>,
     grouped: bool,
     child_plans: &[AccessPlan<Value>],
@@ -221,7 +221,7 @@ fn choose_best_and_family_access(
                 Some(
                     if primary_key_range_access.is_some_and(|candidate| {
                         candidate_outranks_selected_access_on_required_order(
-                            model,
+                            schema,
                             order,
                             grouped,
                             candidate,
@@ -239,7 +239,7 @@ fn choose_best_and_family_access(
             AndFamilyPriorityClass::Ordinary,
             primary_key_range_access.is_some_and(|candidate| {
                 candidate_outranks_selected_access_on_required_order(
-                    model,
+                    schema,
                     order,
                     grouped,
                     candidate,
@@ -380,7 +380,7 @@ fn planned_non_index_reason_for_access(
 // competition framed in terms of the shared ordering contract instead of one
 // special-cased route name.
 fn candidate_outranks_selected_access_on_required_order(
-    model: &EntityModel,
+    schema: &SchemaInfo,
     order: Option<&OrderSpec>,
     grouped: bool,
     candidate_access: &AccessPlan<Value>,
@@ -394,14 +394,14 @@ fn candidate_outranks_selected_access_on_required_order(
         return false;
     };
 
-    access_preserves_required_order(model, order, grouped, candidate_access)
-        && !access_preserves_required_order(model, order, grouped, selected_access)
+    access_preserves_required_order(schema, order, grouped, candidate_access)
+        && !access_preserves_required_order(schema, order, grouped, selected_access)
 }
 
 // Reuse the same planner-owned ordering contract across family competition so
 // secondary candidate ranking and family-level route preference do not drift.
 fn access_preserves_required_order(
-    model: &EntityModel,
+    schema: &SchemaInfo,
     order: &OrderSpec,
     grouped: bool,
     access: &AccessPlan<Value>,
@@ -410,14 +410,18 @@ fn access_preserves_required_order(
         return false;
     }
     if access.as_primary_key_range_path().is_some() {
-        let primary_key_names = model.primary_key_names();
+        let primary_key_names: Vec<&str> = schema
+            .primary_key_names()
+            .iter()
+            .map(String::as_str)
+            .collect();
         return order
             .primary_key_only_direction_fields(primary_key_names.as_slice())
             .is_some();
     }
     if let Some((index, prefix_values)) = access.as_index_prefix_contract_path() {
         return selected_index_contract_satisfies_secondary_order(
-            model,
+            schema,
             Some(order),
             index,
             prefix_values.len(),
@@ -426,7 +430,7 @@ fn access_preserves_required_order(
     }
     if let Some(spec) = access.as_index_range_path() {
         return selected_index_contract_satisfies_secondary_order(
-            model,
+            schema,
             Some(order),
             spec.index(),
             spec.prefix_values().len(),

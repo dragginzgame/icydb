@@ -163,7 +163,6 @@ fn project_access_choice_explain_snapshot_from_authority(
         match evaluate_index_candidate(
             family,
             index.clone(),
-            model,
             schema_info,
             predicate,
             order,
@@ -449,7 +448,7 @@ fn chosen_score_for_visible_indexes(
     family: AccessChoiceFamily,
     chosen_score_hint: crate::db::query::plan::planner::AccessCandidateScore,
     chosen_index_name: &str,
-    model: &EntityModel,
+    _model: &EntityModel,
     visible_indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
     predicate: Option<&Predicate>,
@@ -463,7 +462,6 @@ fn chosen_score_for_visible_indexes(
             match evaluate_index_candidate(
                 family,
                 index.clone(),
-                model,
                 schema_info,
                 predicate,
                 order,
@@ -566,7 +564,6 @@ fn same_score_competing_candidate_plans(
         let self::model::CandidateEvaluation::Eligible(score) = evaluate_index_candidate(
             family,
             index.clone(),
-            model,
             schema_info,
             predicate,
             order,

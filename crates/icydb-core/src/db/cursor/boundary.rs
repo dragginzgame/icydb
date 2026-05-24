@@ -14,7 +14,6 @@ use crate::{
         },
         schema::{FieldType, SchemaInfo, literal_matches_type},
     },
-    model::entity::EntityModel,
     value::Value,
 };
 use serde::Deserialize;
@@ -99,15 +98,14 @@ pub(in crate::db) const fn validate_cursor_boundary_arity(
 
 /// Validate one cursor boundary against canonical order fields and return typed PK key.
 pub(in crate::db) fn validate_cursor_boundary_for_order(
-    model: &EntityModel,
     schema: &SchemaInfo,
     order: &OrderSpec,
     boundary: &CursorBoundary,
 ) -> Result<PrimaryKeyValue, CursorPlanError> {
     validate_cursor_boundary_arity(boundary, order.fields.len())?;
-    validate_cursor_boundary_types(model, schema, order, boundary)?;
+    validate_cursor_boundary_types(schema, order, boundary)?;
 
-    decode_structural_primary_key_cursor_slots(model, order, boundary)
+    decode_structural_primary_key_cursor_slots(schema, order, boundary)
 }
 
 // Resolve one plain order field type from canonical schema info.
@@ -133,7 +131,6 @@ fn primary_key_boundary_index(order: &OrderSpec, pk_field: &str) -> Result<usize
 
 /// Validate cursor boundary slot types against canonical order fields.
 pub(in crate::db) fn validate_cursor_boundary_types(
-    model: &EntityModel,
     schema: &SchemaInfo,
     order: &OrderSpec,
     boundary: &CursorBoundary,
@@ -156,13 +153,7 @@ pub(in crate::db) fn validate_cursor_boundary_types(
 
         match slot {
             CursorBoundarySlot::Missing => {
-                if field.is_some_and(|field| {
-                    model
-                        .primary_key_model()
-                        .fields()
-                        .iter()
-                        .any(|primary_key_field| primary_key_field.name() == field)
-                }) {
+                if field.is_some_and(|field| is_primary_key_field(schema, field)) {
                     return Err(
                         CursorPlanError::continuation_cursor_primary_key_type_mismatch(
                             rendered,
@@ -189,13 +180,7 @@ pub(in crate::db) fn validate_cursor_boundary_types(
                     let expected =
                         boundary_order_expected_type_name(schema, field_type, expression.as_ref());
 
-                    if field.is_some_and(|field| {
-                        model
-                            .primary_key_model()
-                            .fields()
-                            .iter()
-                            .any(|primary_key_field| primary_key_field.name() == field)
-                    }) {
+                    if field.is_some_and(|field| is_primary_key_field(schema, field)) {
                         return Err(
                             CursorPlanError::continuation_cursor_primary_key_type_mismatch(
                                 rendered,
@@ -212,13 +197,8 @@ pub(in crate::db) fn validate_cursor_boundary_types(
                     ));
                 }
 
-                if field.is_some_and(|field| {
-                    model
-                        .primary_key_model()
-                        .fields()
-                        .iter()
-                        .any(|primary_key_field| primary_key_field.name() == field)
-                }) && Value::as_primary_key_value(value).is_none()
+                if field.is_some_and(|field| is_primary_key_field(schema, field))
+                    && Value::as_primary_key_value(value).is_none()
                 {
                     return Err(
                         CursorPlanError::continuation_cursor_primary_key_type_mismatch(
@@ -237,6 +217,13 @@ pub(in crate::db) fn validate_cursor_boundary_types(
     }
 
     Ok(())
+}
+
+fn is_primary_key_field(schema: &SchemaInfo, field: &str) -> bool {
+    schema
+        .primary_key_names()
+        .iter()
+        .any(|primary_key_field| primary_key_field == field)
 }
 
 fn boundary_order_expected_type_name(
@@ -301,15 +288,14 @@ fn boundary_order_expression_value_matches(
 
 /// Decode the structural primary-key cursor slot from one validated cursor boundary.
 pub(in crate::db) fn decode_structural_primary_key_cursor_slots(
-    model: &EntityModel,
+    schema: &SchemaInfo,
     order: &OrderSpec,
     boundary: &CursorBoundary,
 ) -> Result<PrimaryKeyValue, CursorPlanError> {
-    let primary_key_fields: Vec<&str> = model
-        .primary_key_model()
-        .fields()
+    let primary_key_fields: Vec<&str> = schema
+        .primary_key_names()
         .iter()
-        .map(crate::model::field::FieldModel::name)
+        .map(String::as_str)
         .collect();
 
     if let [primary_key_field] = primary_key_fields.as_slice() {
@@ -321,7 +307,7 @@ pub(in crate::db) fn decode_structural_primary_key_cursor_slots(
     }
 
     let mut values = Vec::with_capacity(primary_key_fields.len());
-    for primary_key_field in primary_key_fields {
+    for primary_key_field in &primary_key_fields {
         let index = primary_key_boundary_index(order, primary_key_field)?;
         let slot = &boundary.slots[index];
         match slot {
@@ -340,7 +326,7 @@ pub(in crate::db) fn decode_structural_primary_key_cursor_slots(
 
     primary_key_value_from_structural_value(&Value::List(values)).map_err(|_| {
         CursorPlanError::continuation_cursor_primary_key_type_mismatch(
-            model.primary_key.name.to_string(),
+            primary_key_fields.join(", "),
             "primary key value".to_string(),
             None,
         )

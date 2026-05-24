@@ -20,7 +20,6 @@ use crate::{
         query::plan::OrderSpec,
         schema::SchemaInfo,
     },
-    model::entity::EntityModel,
     traits::KeyValueCodec,
     types::EntityTag,
 };
@@ -34,8 +33,6 @@ use crate::{
 ///
 
 trait CursorPlanSurface<K: KeyValueCodec> {
-    fn entity_model(&self) -> &EntityModel;
-
     fn schema_info(&self) -> &SchemaInfo;
 
     fn order_spec(&self) -> &OrderSpec;
@@ -55,7 +52,6 @@ trait CursorPlanSurface<K: KeyValueCodec> {
 
 struct CursorPlanSurfaceAdapter<'a, K> {
     access: Option<ExecutionPathPayload<'a, K>>,
-    model: &'a EntityModel,
     schema: &'a SchemaInfo,
     order: &'a OrderSpec,
     direction: Direction,
@@ -63,10 +59,6 @@ struct CursorPlanSurfaceAdapter<'a, K> {
 }
 
 impl<K: KeyValueCodec> CursorPlanSurface<K> for CursorPlanSurfaceAdapter<'_, K> {
-    fn entity_model(&self) -> &EntityModel {
-        self.model
-    }
-
     fn schema_info(&self) -> &SchemaInfo {
         self.schema
     }
@@ -95,7 +87,6 @@ pub(in crate::db) fn validate_planned_cursor<K>(
     access: Option<ExecutionPathPayload<'_, K>>,
     entity_path: &'static str,
     entity_tag: EntityTag,
-    model: &EntityModel,
     schema: &SchemaInfo,
     order: &OrderSpec,
     expected_signature: ContinuationSignature,
@@ -111,7 +102,6 @@ where
 
     let surface = CursorPlanSurfaceAdapter {
         access,
-        model,
         schema,
         order,
         direction,
@@ -130,12 +120,10 @@ where
 }
 
 /// Validate an executor-provided cursor state through the canonical cursor spine.
-#[expect(clippy::too_many_arguments)]
 pub(in crate::db) fn validate_planned_cursor_state<K>(
     cursor: PlannedCursor,
     access: Option<ExecutionPathPayload<'_, K>>,
     entity_tag: EntityTag,
-    model: &EntityModel,
     schema: &SchemaInfo,
     order: &OrderSpec,
     direction: Direction,
@@ -150,7 +138,6 @@ where
 
     let surface = CursorPlanSurfaceAdapter {
         access,
-        model,
         schema,
         order,
         direction,
@@ -259,12 +246,8 @@ fn validate_cursor_boundary_anchor_invariants<K: KeyValueCodec, S: CursorPlanSur
         require_index_range_anchor,
     )?;
 
-    let pk_key = validate_cursor_boundary_for_order(
-        surface.entity_model(),
-        surface.schema_info(),
-        surface.order_spec(),
-        boundary,
-    )?;
+    let pk_key =
+        validate_cursor_boundary_for_order(surface.schema_info(), surface.order_spec(), boundary)?;
     validate_index_range_boundary_anchor_consistency(
         validated_index_range_anchor.as_ref(),
         surface.access(),

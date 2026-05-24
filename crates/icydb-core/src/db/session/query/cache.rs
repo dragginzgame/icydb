@@ -226,7 +226,7 @@ impl<C: CanisterKind> DbSession<C> {
             accepted_schema,
             true,
         );
-        if query.trivial_scalar_load_fast_path_eligible() {
+        if query.trivial_scalar_load_fast_path_eligible_with_schema(&schema_info) {
             return self.cached_trivial_scalar_load_plan_for_authority(
                 authority,
                 schema_fingerprint,

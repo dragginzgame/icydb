@@ -36,6 +36,9 @@ pub(super) fn plan_compare(
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> AccessPlan<Value> {
+    // Exact primary-key predicate lowering is scalar-only. Composite primary
+    // keys are addressed through full-key values at typed/structural
+    // boundaries; partial component predicates must not masquerade as ByKey.
     let primary_key_name = schema.primary_key_name();
     if cmp.coercion.id == CoercionId::Strict
         && primary_key_name.is_some_and(|name| cmp.field == name)
@@ -186,7 +189,7 @@ fn plan_pk_compare(
 }
 
 fn plan_starts_with_compare(
-    model: &EntityModel,
+    _model: &EntityModel,
     candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
@@ -234,7 +237,7 @@ fn plan_starts_with_compare(
         )?;
 
         let score = access_candidate_score_from_index_contract(
-            model,
+            schema,
             order,
             index.clone(),
             0,
@@ -266,7 +269,7 @@ fn plan_starts_with_compare(
 }
 
 fn plan_ordered_compare(
-    model: &EntityModel,
+    _model: &EntityModel,
     candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
@@ -331,7 +334,7 @@ fn plan_ordered_compare(
             _ => unreachable!("ordered compare helper must receive one of Gt/Gte/Lt/Lte"),
         };
         let score = access_candidate_score_from_index_contract(
-            model,
+            schema,
             order,
             index.clone(),
             0,

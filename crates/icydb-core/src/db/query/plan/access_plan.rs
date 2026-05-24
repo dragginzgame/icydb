@@ -189,7 +189,7 @@ impl ResolvedOrder {
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct StaticPlanningShape {
-    pub(in crate::db) primary_key_names: Vec<&'static str>,
+    pub(in crate::db) primary_key_names: Vec<String>,
     pub(in crate::db) projection_spec: ProjectionSpec,
     pub(in crate::db) execution_preparation_predicate: Option<Predicate>,
     pub(in crate::db) residual_filter_expr: Option<Expr>,
@@ -608,8 +608,9 @@ impl AccessPlannedQuery {
             return Some(Direction::Asc);
         };
 
+        let primary_key_names = self.primary_key_names();
         order
-            .primary_key_only_direction_fields(self.primary_key_names())
+            .primary_key_only_direction_fields(primary_key_names.as_slice())
             .map(|direction| match direction {
                 OrderDirection::Asc => Direction::Asc,
                 OrderDirection::Desc => Direction::Desc,

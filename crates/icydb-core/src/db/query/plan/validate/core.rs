@@ -131,9 +131,9 @@ where
 
     if let Some(order) = &logical.order {
         validate_order_fn(schema, order)?;
-        validate_no_duplicate_non_pk_order_fields(model, order)?;
+        validate_no_duplicate_non_pk_order_fields(schema, order)?;
         if require_primary_key_tie_break {
-            validate_primary_key_tie_break(model, order)?;
+            validate_primary_key_tie_break(schema, order)?;
         }
         validate_expression_order_support(model, plan, order)?;
     }

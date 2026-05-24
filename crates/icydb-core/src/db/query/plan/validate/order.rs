@@ -4,16 +4,13 @@
 //! Does not own: broader query validation policy outside ordering semantics.
 //! Boundary: keeps order-specific validation rules isolated within query-plan validation.
 
-use crate::{
-    db::{
-        query::plan::{
-            OrderSpec, OrderTerm,
-            expr::{ExprType, infer_expr_type},
-            validate::{OrderPlanError, PlanError},
-        },
-        schema::SchemaInfo,
+use crate::db::{
+    query::plan::{
+        OrderSpec, OrderTerm,
+        expr::{ExprType, infer_expr_type},
+        validate::{OrderPlanError, PlanError},
     },
-    model::entity::EntityModel,
+    schema::SchemaInfo,
 };
 
 /// Validate ORDER BY fields against the schema.
@@ -86,22 +83,17 @@ fn validate_expression_order_term(schema: &SchemaInfo, term: &OrderTerm) -> Resu
 
 /// Reject duplicate non-primary-key fields in ORDER BY.
 pub(in crate::db::query::plan::validate) fn validate_no_duplicate_non_pk_order_fields(
-    model: &EntityModel,
+    schema: &SchemaInfo,
     order: &OrderSpec,
 ) -> Result<(), PlanError> {
     let mut seen = Vec::with_capacity(order.fields.len());
-    let primary_key_names: Vec<&str> = model
-        .primary_key_model()
-        .fields()
-        .iter()
-        .map(crate::model::field::FieldModel::name)
-        .collect();
+    let primary_key_names = schema.primary_key_names();
 
     for term in &order.fields {
         let field = term
             .direct_field()
             .map_or_else(|| term.rendered_label(), str::to_owned);
-        let non_pk_field = !primary_key_names.contains(&field.as_str());
+        let non_pk_field = !primary_key_names.iter().any(|pk_field| pk_field == &field);
         if !non_pk_field {
             continue;
         }
@@ -119,29 +111,109 @@ pub(in crate::db::query::plan::validate) fn validate_no_duplicate_non_pk_order_f
 // Ordered plans must include exactly one terminal primary-key field so ordering is total and
 // deterministic across explain, fingerprint, and executor comparison paths.
 pub(in crate::db::query::plan::validate) fn validate_primary_key_tie_break(
-    model: &EntityModel,
+    schema: &SchemaInfo,
     order: &OrderSpec,
 ) -> Result<(), PlanError> {
     order.fields.is_empty().then_some(()).map_or_else(
         || {
-            let primary_key_names: Vec<&str> = model
-                .primary_key_model()
-                .fields()
-                .iter()
-                .map(crate::model::field::FieldModel::name)
-                .collect();
+            let primary_key_names = schema.primary_key_names();
+            let primary_key_name_refs: Vec<&str> =
+                primary_key_names.iter().map(String::as_str).collect();
             order
-                .has_exact_primary_key_tie_break_fields(primary_key_names.as_slice())
+                .has_exact_primary_key_tie_break_fields(primary_key_name_refs.as_slice())
                 .then_some(())
                 .ok_or_else(|| {
                     PlanError::from(OrderPlanError::missing_primary_key_tie_break(
-                        primary_key_names
+                        primary_key_name_refs
                             .first()
                             .copied()
-                            .unwrap_or(model.primary_key.name),
+                            .unwrap_or("<missing>"),
                     ))
                 })
         },
         |()| Ok(()),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        OrderPlanError, PlanError, validate_no_duplicate_non_pk_order_fields,
+        validate_primary_key_tie_break,
+    };
+    use crate::{
+        db::{
+            query::plan::{OrderDirection, OrderSpec, OrderTerm},
+            schema::SchemaInfo,
+        },
+        model::{
+            entity::{EntityModel, PrimaryKeyModel},
+            field::{FieldKind, FieldModel},
+        },
+    };
+
+    static FIELDS: [FieldModel; 3] = [
+        FieldModel::generated("tenant_id", FieldKind::Nat),
+        FieldModel::generated("local_id", FieldKind::Nat),
+        FieldModel::generated("rank", FieldKind::Nat),
+    ];
+    static PK_FIELDS: [&FieldModel; 2] = [&FIELDS[0], &FIELDS[1]];
+    static MODEL: EntityModel = EntityModel::generated_with_primary_key_model(
+        "query::plan::validate::order::tests::CompositeOrderEntity",
+        "CompositeOrderEntity",
+        PrimaryKeyModel::ordered(&PK_FIELDS),
+        0,
+        &FIELDS,
+        &[],
+    );
+
+    fn schema() -> &'static SchemaInfo {
+        SchemaInfo::cached_for_generated_entity_model(&MODEL)
+    }
+
+    fn order(fields: &[&str]) -> OrderSpec {
+        OrderSpec {
+            fields: fields
+                .iter()
+                .map(|field| OrderTerm::field(*field, OrderDirection::Asc))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn duplicate_order_validation_uses_composite_primary_key_names_from_schema() {
+        validate_no_duplicate_non_pk_order_fields(
+            schema(),
+            &order(&["tenant_id", "tenant_id", "local_id", "local_id"]),
+        )
+        .expect("accepted primary-key fields are exempt from duplicate non-pk validation");
+
+        let err = validate_no_duplicate_non_pk_order_fields(
+            schema(),
+            &order(&["tenant_id", "rank", "rank"]),
+        )
+        .expect_err("duplicate non-primary-key fields should still reject");
+
+        assert!(matches!(
+            err,
+            PlanError::User(inner)
+                if matches!(
+                    inner.as_ref(),
+                    crate::db::query::plan::validate::PlanUserError::Order(order)
+                        if matches!(
+                            order.as_ref(),
+                            OrderPlanError::DuplicateOrderField { field } if field == "rank"
+                        )
+                )
+        ));
+    }
+
+    #[test]
+    fn tie_break_validation_uses_ordered_composite_primary_key_names_from_schema() {
+        validate_primary_key_tie_break(schema(), &order(&["rank", "tenant_id", "local_id"]))
+            .expect("ordered composite primary-key suffix should satisfy deterministic tie-break");
+
+        validate_primary_key_tie_break(schema(), &order(&["rank", "local_id", "tenant_id"]))
+            .expect_err("wrong composite primary-key suffix order should reject");
+    }
 }

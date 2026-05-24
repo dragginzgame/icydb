@@ -5,12 +5,12 @@ use std::{
 };
 
 use candid::CandidType;
-use ic_testkit::pic::{StandaloneCanisterFixture, install_prebuilt_canister};
+use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error,
     db::{SqlQueryExecutionAttribution, sql::SqlQueryResult},
 };
-use icydb_testing_integration::build_canister;
+use icydb_testing_integration::{install_fixture_canister, reset_icydb_fixtures};
 use serde::{Deserialize, Serialize};
 
 // Mirror the dedicated perf-audit query envelope so the testkit can decode the
@@ -177,31 +177,13 @@ const fn parity_scenario(
 }
 
 fn install_sql_perf_canister_fixture() -> StandaloneCanisterFixture {
-    let wasm_path =
-        build_canister("sql_perf").expect("sql_perf canister should build for IC testkit tests");
-    let wasm = fs::read(&wasm_path)
-        .unwrap_or_else(|err| panic!("failed to read built sql_perf canister wasm: {err}"));
-
-    install_prebuilt_canister(
-        wasm,
-        candid::encode_args(()).expect("encode empty init args"),
-    )
+    install_fixture_canister("sql_perf")
 }
 
 fn reset_sql_perf_fixtures(fixture: &StandaloneCanisterFixture) {
-    // Phase 1: clear any retained state from an earlier scenario batch.
-    let reset: Result<(), Error> = fixture
-        .pic()
-        .update_call(fixture.canister_id(), "__icydb_fixtures_reset", ())
-        .expect("__icydb_fixtures_reset should decode");
-    reset.expect("__icydb_fixtures_reset should succeed");
-
-    // Phase 2: reload the deterministic perf fixture window before sampling.
-    let load: Result<(), Error> = fixture
-        .pic()
-        .update_call(fixture.canister_id(), "__icydb_fixtures_load", ())
-        .expect("__icydb_fixtures_load should decode");
-    load.expect("__icydb_fixtures_load should succeed");
+    // Clear retained state from an earlier scenario batch and reload the
+    // deterministic perf fixture window before sampling.
+    reset_icydb_fixtures(fixture);
 }
 
 fn query_surface_with_perf(

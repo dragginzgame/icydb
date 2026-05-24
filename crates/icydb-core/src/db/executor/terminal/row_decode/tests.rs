@@ -16,7 +16,7 @@ use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{
         entity::EntityModel,
-        field::{FieldKind, FieldStorageDecode, LeafCodec},
+        field::{FieldKind, FieldStorageDecode, LeafCodec, ScalarCodec},
     },
     traits::{
         EntitySchema, FieldTypeMeta, PersistedFieldSlotCodec, RuntimeValueDecode,
@@ -172,6 +172,86 @@ fn raw_row_from_encoded_slot_payloads(slot_payloads: &[Vec<u8>]) -> RawRow {
     .expect("row decode test raw row should be bounded")
 }
 
+fn composite_row_decode_layout() -> (RowLayout, crate::types::EntityTag) {
+    let entity_tag = crate::types::EntityTag::new(91_777);
+    let accepted = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "row_decode::tests::CompositeKeyEntity".to_string(),
+        "CompositeKeyEntity".to_string(),
+        vec![FieldId::new(1), FieldId::new(2)],
+        SchemaRowLayout::new(
+            SchemaVersion::initial(),
+            vec![
+                (FieldId::new(1), SchemaFieldSlot::new(0)),
+                (FieldId::new(2), SchemaFieldSlot::new(1)),
+                (FieldId::new(3), SchemaFieldSlot::new(2)),
+            ],
+        ),
+        vec![
+            PersistedFieldSnapshot::new(
+                FieldId::new(1),
+                "tenant_id".to_string(),
+                SchemaFieldSlot::new(0),
+                PersistedFieldKind::Nat,
+                Vec::new(),
+                false,
+                crate::db::schema::SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Nat64),
+            ),
+            PersistedFieldSnapshot::new(
+                FieldId::new(2),
+                "local_id".to_string(),
+                SchemaFieldSlot::new(1),
+                PersistedFieldKind::Nat,
+                Vec::new(),
+                false,
+                crate::db::schema::SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Nat64),
+            ),
+            PersistedFieldSnapshot::new(
+                FieldId::new(3),
+                "label".to_string(),
+                SchemaFieldSlot::new(2),
+                PersistedFieldKind::Text { max_len: Some(64) },
+                Vec::new(),
+                false,
+                crate::db::schema::SchemaFieldDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Text),
+            ),
+        ],
+    ));
+    let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
+        .expect("accepted composite row-decode schema should build");
+    let contract = StructuralRowContract::from_accepted_decode_contract(
+        "row_decode::tests::CompositeKeyEntity",
+        descriptor.row_decode_contract(),
+    );
+
+    (RowLayout { contract }, entity_tag)
+}
+
+fn composite_data_key(
+    entity_tag: crate::types::EntityTag,
+    tenant_id: u64,
+    local_id: u64,
+) -> crate::db::data::DecodedDataStoreKey {
+    use crate::db::key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue};
+
+    let key = CompositePrimaryKeyValue::try_from_components(&[
+        PrimaryKeyComponent::Nat(tenant_id),
+        PrimaryKeyComponent::Nat(local_id),
+    ])
+    .expect("test composite primary key should be valid");
+
+    crate::db::data::DecodedDataStoreKey::new_primary_key_value(
+        entity_tag,
+        &PrimaryKeyValue::Composite(key),
+    )
+}
+
 #[test]
 fn row_layout_can_be_frozen_from_accepted_row_decode_contract() {
     let accepted = accepted_row_decode_schema();
@@ -184,6 +264,33 @@ fn row_layout_can_be_frozen_from_accepted_row_decode_contract() {
     assert_eq!(
         layout.contract().primary_key_slot(),
         RowDecodeEntity::MODEL.primary_key_slot()
+    );
+}
+
+#[test]
+fn row_layout_decodes_required_slot_through_composite_data_key() {
+    let (layout, entity_tag) = composite_row_decode_layout();
+    let raw_row = raw_row_from_encoded_slot_payloads(&[
+        crate::db::encode_persisted_scalar_slot_payload(&7u64, "tenant_id")
+            .expect("tenant_id slot payload should encode"),
+        crate::db::encode_persisted_scalar_slot_payload(&9u64, "local_id")
+            .expect("local_id slot payload should encode"),
+        crate::db::encode_persisted_scalar_slot_payload(&"composite-row".to_string(), "label")
+            .expect("label slot payload should encode"),
+    ]);
+    let matching_key = composite_data_key(entity_tag, 7, 9);
+    let mismatched_key = composite_data_key(entity_tag, 7, 10);
+
+    let decoded = layout
+        .decode_required_value_from_data_key(&raw_row, &matching_key, 2)
+        .expect("composite data-key required-slot decode should succeed");
+
+    assert_eq!(decoded, Some(Value::Text("composite-row".to_string())));
+    assert!(
+        layout
+            .decode_required_value_from_data_key(&raw_row, &mismatched_key, 2)
+            .is_err(),
+        "composite data-key row decode must validate the full primary-key identity",
     );
 }
 

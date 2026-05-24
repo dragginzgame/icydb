@@ -252,10 +252,9 @@ pub(in crate::db) fn covering_read_plan_from_fields_with_primary_key_names(
 pub(in crate::db) fn covering_read_plan_with_schema_info(
     schema: &SchemaInfo,
     plan: &AccessPlannedQuery,
-    primary_key_name: &'static str,
     strict_predicate_compatible: bool,
 ) -> Option<CoveringReadPlan> {
-    let primary_key_names = primary_key_names_from_schema_or_scalar(schema, primary_key_name);
+    let primary_key_names = primary_key_names_from_schema(schema)?;
     covering_index_projection_plan(
         |field_name| resolve_covering_field_slot_with_schema(schema, field_name),
         plan,
@@ -303,9 +302,8 @@ pub(in crate::db) fn covering_hybrid_projection_plan_from_fields(
 pub(in crate::db) fn covering_hybrid_projection_plan_with_schema_info(
     schema: &SchemaInfo,
     plan: &AccessPlannedQuery,
-    primary_key_name: &'static str,
 ) -> Option<CoveringReadPlan> {
-    let primary_key_names = primary_key_names_from_schema_or_scalar(schema, primary_key_name);
+    let primary_key_names = primary_key_names_from_schema(schema)?;
     covering_index_projection_plan(
         |field_name| resolve_covering_field_slot_with_schema(schema, field_name),
         plan,
@@ -379,23 +377,18 @@ pub(in crate::db) fn covering_read_execution_plan_from_fields_with_primary_key_n
 pub(in crate::db) fn covering_read_execution_plan_with_schema_info(
     schema: &SchemaInfo,
     plan: &AccessPlannedQuery,
-    primary_key_name: &'static str,
     strict_predicate_compatible: bool,
 ) -> Option<CoveringReadExecutionPlan> {
-    if let Some(covering) = covering_read_plan_with_schema_info(
-        schema,
-        plan,
-        primary_key_name,
-        strict_predicate_compatible,
-    ) {
+    if let Some(covering) =
+        covering_read_plan_with_schema_info(schema, plan, strict_predicate_compatible)
+    {
         return Some(covering_read_execution_plan(
             covering,
             CoveringExistingRowMode::ProvenByPlanner,
         ));
     }
 
-    let (covering, existing_row_mode) =
-        primary_store_covering_plan_with_schema_info(schema, plan, primary_key_name)?;
+    let (covering, existing_row_mode) = primary_store_covering_plan_with_schema_info(schema, plan)?;
 
     Some(covering_read_execution_plan(covering, existing_row_mode))
 }
@@ -615,9 +608,8 @@ fn primary_store_covering_plan_from_fields_with_primary_key_names(
 fn primary_store_covering_plan_with_schema_info(
     schema: &SchemaInfo,
     plan: &AccessPlannedQuery,
-    primary_key_name: &'static str,
 ) -> Option<(CoveringReadPlan, CoveringExistingRowMode)> {
-    let primary_key_names = primary_key_names_from_schema_or_scalar(schema, primary_key_name);
+    let primary_key_names = primary_key_names_from_schema(schema)?;
     primary_store_covering_plan(
         |field_name| resolve_covering_field_slot_with_schema(schema, field_name),
         plan,
@@ -970,16 +962,13 @@ fn covering_projection_field_source(
         })
 }
 
-fn primary_key_names_from_schema_or_scalar<'a>(
-    schema: &'a SchemaInfo,
-    primary_key_name: &'a str,
-) -> Vec<&'a str> {
+fn primary_key_names_from_schema(schema: &SchemaInfo) -> Option<Vec<&str>> {
     let primary_key_names = schema.primary_key_names();
     if primary_key_names.is_empty() {
-        return vec![primary_key_name];
+        return None;
     }
 
-    primary_key_names.iter().map(String::as_str).collect()
+    Some(primary_key_names.iter().map(String::as_str).collect())
 }
 
 // Project one component-field layout that preserves only directly recoverable

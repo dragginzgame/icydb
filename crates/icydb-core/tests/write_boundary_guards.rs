@@ -1515,6 +1515,41 @@ fn executor_plan_validation_uses_accepted_schema_info() {
 }
 
 #[test]
+fn trivial_load_fast_path_uses_accepted_schema_authority() {
+    let query_intent_model = read_source("src/db/query/intent/model.rs");
+    let query_intent = read_source("src/db/query/intent/query.rs");
+    let query_pipeline = read_source("src/db/query/plan/pipeline.rs");
+    let session_query_cache = read_source("src/db/session/query/cache.rs");
+    let query_semantics = read_source("src/db/query/plan/semantics/logical.rs");
+
+    assert!(
+        query_intent_model.contains("trivial_scalar_load_fast_path_eligible_with_schema(")
+            && query_intent_model.contains("schema_info: &SchemaInfo")
+            && query_intent_model.contains(".primary_key_names()")
+            && !query_intent_model.contains("self.model.primary_key_names()"),
+        "trivial scalar-load fast-path eligibility must compare primary-key ordering against accepted SchemaInfo",
+    );
+    assert!(
+        query_intent.contains("trivial_scalar_load_fast_path_eligible_with_schema(")
+            && query_pipeline
+                .contains(".trivial_scalar_load_fast_path_eligible_with_schema(&schema_info)")
+            && session_query_cache
+                .contains(".trivial_scalar_load_fast_path_eligible_with_schema(&schema_info)")
+            && !query_intent.contains("fn trivial_scalar_load_fast_path_eligible(&self) -> bool")
+            && !query_pipeline.contains(".trivial_scalar_load_fast_path_eligible()")
+            && !session_query_cache.contains(".trivial_scalar_load_fast_path_eligible()"),
+        "runtime trivial scalar-load cache/build paths must thread accepted SchemaInfo instead of reopening generated primary-key metadata",
+    );
+    assert!(
+        query_semantics.contains(
+            "#[cfg(test)]\n    pub(in crate::db) fn finalize_planner_route_profile_for_model("
+        ) && query_semantics.contains("#[cfg(test)]\nfn ordered_primary_key_names(")
+            && query_semantics.contains("project_planner_route_profile_for_schema("),
+        "generated-model route-profile projection must remain test-only while runtime uses schema-owned route-profile projection",
+    );
+}
+
+#[test]
 fn raw_entity_authority_bootstrap_stays_layout_free() {
     let entity_authority = read_source("src/db/executor/authority/entity.rs");
     let executor_explain = read_source("src/db/executor/explain/mod.rs");

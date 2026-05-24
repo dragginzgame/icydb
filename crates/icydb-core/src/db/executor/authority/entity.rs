@@ -43,7 +43,6 @@ use std::sync::Arc;
 pub struct EntityAuthority {
     model: &'static EntityModel,
     row_layout: Option<RowLayout>,
-    primary_key_name: &'static str,
     entity_tag: EntityTag,
     store_path: &'static str,
     accepted_schema_info: Option<Arc<SchemaInfo>>,
@@ -60,7 +59,6 @@ impl EntityAuthority {
         Self {
             model,
             row_layout: None,
-            primary_key_name: model.primary_key.name,
             entity_tag,
             store_path,
             accepted_schema_info: None,
@@ -180,12 +178,6 @@ impl EntityAuthority {
         )
     }
 
-    /// Borrow the frozen structural primary-key field name for this entity.
-    #[must_use]
-    pub const fn primary_key_name(&self) -> &'static str {
-        self.primary_key_name
-    }
-
     /// Return whether `field` is exactly the scalar primary-key field.
     ///
     /// Composite primary keys deliberately return false here because aggregate
@@ -193,7 +185,10 @@ impl EntityAuthority {
     /// whole row identity when the entity has a scalar key.
     #[must_use]
     pub(in crate::db::executor) fn is_scalar_primary_key_field(&self, field: &str) -> bool {
-        self.model.primary_key_model().is_scalar() && self.primary_key_name == field
+        self.accepted_schema_info
+            .as_ref()
+            .and_then(|schema| schema.primary_key_name())
+            .is_some_and(|primary_key_name| primary_key_name == field)
     }
 
     /// Borrow structural entity-tag authority.
@@ -243,7 +238,11 @@ impl EntityAuthority {
         &self,
         plan: &mut AccessPlannedQuery,
     ) {
-        plan.finalize_planner_route_profile_for_model(self.model);
+        let schema_info = self
+            .accepted_schema_info
+            .as_ref()
+            .expect("planner route profile finalization requires accepted schema info");
+        plan.finalize_planner_route_profile_for_model_with_schema(schema_info);
     }
 
     /// Validate one access-planned query against authority-owned structural contracts.
@@ -276,13 +275,7 @@ impl EntityAuthority {
     ) -> Result<PlannedCursor, CursorPlanError> {
         let schema_info = self.cursor_schema_info()?;
 
-        contract.prepare_scalar_cursor(
-            self.entity_path(),
-            self.entity_tag,
-            self.model,
-            schema_info,
-            bytes,
-        )
+        contract.prepare_scalar_cursor(self.entity_path(), self.entity_tag, schema_info, bytes)
     }
 
     /// Revalidate one scalar continuation cursor through authority-owned contracts.
@@ -293,7 +286,7 @@ impl EntityAuthority {
     ) -> Result<PlannedCursor, CursorPlanError> {
         let schema_info = self.cursor_schema_info()?;
 
-        contract.revalidate_scalar_cursor(self.entity_tag, self.model, schema_info, cursor)
+        contract.revalidate_scalar_cursor(self.entity_tag, schema_info, cursor)
     }
 
     fn cursor_schema_info(&self) -> Result<&SchemaInfo, CursorPlanError> {
@@ -338,7 +331,6 @@ impl EntityAuthority {
         covering_read_execution_plan_with_schema_info(
             schema_info,
             plan,
-            self.primary_key_name,
             strict_predicate_compatible,
         )
     }
@@ -351,7 +343,7 @@ impl EntityAuthority {
     ) -> Option<CoveringReadPlan> {
         let schema_info = self.accepted_schema_info.as_ref()?;
 
-        covering_hybrid_projection_plan_with_schema_info(schema_info, plan, self.primary_key_name)
+        covering_hybrid_projection_plan_with_schema_info(schema_info, plan)
     }
 
     /// Build one structural index key from already-materialized row slots

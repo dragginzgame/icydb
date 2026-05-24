@@ -1,35 +1,17 @@
 use icydb::design::prelude::*;
+use icydb_testing_wasm_helpers::define_fixture_canister_store;
 
-///
-/// SqlTestCanister
-///
-/// Small canister model dedicated to lightweight SQL smoke-test coverage.
-///
-
-#[canister(
-    memory_namespace = "test_sql",
+define_fixture_canister_store!(
+    SqlTestCanister = "SqlTestCanister",
+    SqlTestStore = "SQL_TEST_STORE",
+    namespace = "test_sql",
     memory_min = 155,
     memory_max = 165,
-    commit_memory_id = 157
-)]
-pub struct SqlTestCanister {}
-
-///
-/// SqlTestStore
-///
-/// Single-store fixture used to keep the lightweight SQL test canister small
-/// while still exercising one indexed entity surface.
-///
-
-#[store(
-    ident = "SQL_TEST_STORE",
-    store_name = "main",
-    canister = "SqlTestCanister",
+    commit_memory_id = 157,
     data_memory_id = 155,
     index_memory_id = 156,
-    schema_memory_id = 158
-)]
-pub struct SqlTestStore {}
+    schema_memory_id = 158,
+);
 
 ///
 /// SqlTestUser

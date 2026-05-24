@@ -1,32 +1,14 @@
 use icydb::design::prelude::*;
+use icydb_testing_wasm_helpers::define_fixture_canister_store;
 
-///
-/// MinimalCanister
-///
-/// Minimal canister model used for wasm-footprint SQL auditing.
-///
-
-#[canister(
-    memory_namespace = "minimal",
+define_fixture_canister_store!(
+    MinimalCanister = "MinimalCanister",
+    MinimalStore = "MINIMAL_STORE",
+    namespace = "minimal",
     memory_min = 100,
     memory_max = 110,
-    commit_memory_id = 103
-)]
-pub struct MinimalCanister {}
-
-///
-/// MinimalStore
-///
-/// Empty store-only model used to measure the bare database surface with no
-/// entities registered.
-///
-
-#[store(
-    ident = "MINIMAL_STORE",
-    store_name = "main",
-    canister = "MinimalCanister",
+    commit_memory_id = 103,
     data_memory_id = 100,
     index_memory_id = 101,
-    schema_memory_id = 102
-)]
-pub struct MinimalStore {}
+    schema_memory_id = 102,
+);

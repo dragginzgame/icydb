@@ -273,8 +273,17 @@ impl AccessPlannedQuery {
     }
 
     /// Freeze one planner-owned route profile after model validation completes.
+    #[cfg(test)]
     pub(in crate::db) fn finalize_planner_route_profile_for_model(&mut self, model: &EntityModel) {
         self.set_planner_route_profile(project_planner_route_profile_for_model(model, self));
+    }
+
+    /// Freeze one planner-owned route profile from accepted schema authority.
+    pub(in crate::db) fn finalize_planner_route_profile_for_model_with_schema(
+        &mut self,
+        schema_info: &SchemaInfo,
+    ) {
+        self.set_planner_route_profile(project_planner_route_profile_for_schema(schema_info, self));
     }
 
     /// Freeze model-only executor metadata after logical/access planning completes.
@@ -342,8 +351,12 @@ impl AccessPlannedQuery {
 
     /// Borrow the planner-frozen ordered primary-key field names.
     #[must_use]
-    pub(in crate::db) const fn primary_key_names(&self) -> &[&'static str] {
-        self.static_planning_shape().primary_key_names.as_slice()
+    pub(in crate::db) fn primary_key_names(&self) -> Vec<&str> {
+        self.static_planning_shape()
+            .primary_key_names
+            .iter()
+            .map(String::as_str)
+            .collect()
     }
 
     /// Borrow the planner-frozen projection slot reachability set.
@@ -470,11 +483,30 @@ fn derive_continuation_policy_validated(plan: &AccessPlannedQuery) -> Continuati
 
 /// Project one planner-owned route profile from the finalized logical+access plan.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn project_planner_route_profile_for_model(
     model: &EntityModel,
     plan: &AccessPlannedQuery,
 ) -> PlannerRouteProfile {
     let primary_key_names = ordered_primary_key_names(model);
+    let secondary_order_contract = plan.scalar_plan().order.as_ref().and_then(|order| {
+        order.deterministic_secondary_order_contract_fields(primary_key_names.as_slice())
+    });
+
+    PlannerRouteProfile::new(
+        derive_continuation_policy_validated(plan),
+        derive_logical_pushdown_eligibility(plan, secondary_order_contract.as_ref()),
+        secondary_order_contract,
+    )
+}
+
+/// Project one planner-owned route profile from accepted schema authority.
+#[must_use]
+pub(in crate::db) fn project_planner_route_profile_for_schema(
+    schema_info: &SchemaInfo,
+    plan: &AccessPlannedQuery,
+) -> PlannerRouteProfile {
+    let primary_key_names = primary_key_names_from_schema(schema_info);
     let secondary_order_contract = plan.scalar_plan().order.as_ref().and_then(|order| {
         order.deterministic_secondary_order_contract_fields(primary_key_names.as_slice())
     });
@@ -542,7 +574,7 @@ fn project_static_planning_shape_for_model(
     let index_compile_targets = index_compile_targets_for_schema_plan(schema_info, plan);
 
     Ok(StaticPlanningShape {
-        primary_key_names: ordered_primary_key_names(model),
+        primary_key_names: schema_info.primary_key_names().to_vec(),
         projection_spec,
         execution_preparation_predicate,
         residual_filter_expr,
@@ -564,8 +596,17 @@ fn project_static_planning_shape_for_model(
     })
 }
 
+#[cfg(test)]
 fn ordered_primary_key_names(model: &EntityModel) -> Vec<&'static str> {
     model.primary_key_names()
+}
+
+fn primary_key_names_from_schema(schema_info: &SchemaInfo) -> Vec<&str> {
+    schema_info
+        .primary_key_names()
+        .iter()
+        .map(String::as_str)
+        .collect()
 }
 
 // Compile the executor-owned residual scalar filter contract once from the

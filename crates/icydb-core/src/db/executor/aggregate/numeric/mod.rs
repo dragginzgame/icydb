@@ -224,7 +224,7 @@ where
         if prepared
             .order_spec()
             .and_then(|order| {
-                order.primary_key_only_direction_fields(prepared.logical_plan.primary_key_names())
+                order.primary_key_only_direction_fields(&prepared.logical_plan.primary_key_names())
             })
             .is_none()
         {

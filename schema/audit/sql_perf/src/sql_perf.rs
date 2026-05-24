@@ -1,35 +1,17 @@
 use icydb::design::prelude::*;
+use icydb_testing_wasm_helpers::define_fixture_canister_store;
 
-///
-/// PerfAuditCanister
-///
-/// Dedicated SQL perf audit canister model used only for instruction-sampling
-/// and access-shape coverage.
-///
-
-#[canister(
-    memory_namespace = "sql_perf",
+define_fixture_canister_store!(
+    PerfAuditCanister = "PerfAuditCanister",
+    PerfAuditStore = "PERF_AUDIT_STORE",
+    namespace = "sql_perf",
     memory_min = 180,
     memory_max = 210,
-    commit_memory_id = 182
-)]
-pub struct PerfAuditCanister {}
-
-///
-/// PerfAuditStore
-///
-/// Shared store for the dedicated SQL perf audit entities and index layouts.
-///
-
-#[store(
-    ident = "PERF_AUDIT_STORE",
-    store_name = "main",
-    canister = "PerfAuditCanister",
+    commit_memory_id = 182,
     data_memory_id = 180,
     index_memory_id = 181,
-    schema_memory_id = 183
-)]
-pub struct PerfAuditStore {}
+    schema_memory_id = 183,
+);
 
 ///
 /// PerfAuditUser

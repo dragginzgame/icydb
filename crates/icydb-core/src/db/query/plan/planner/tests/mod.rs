@@ -416,7 +416,7 @@ fn plan_access_for_test_with_order(
         None,
     );
     let logical = build_logical_plan(
-        model,
+        schema,
         logical_query_from_logical_inputs(logical_inputs, normalized, MissingRowPolicy::Ignore),
     );
     let plan = AccessPlannedQuery::from_parts_with_projection(

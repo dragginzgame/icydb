@@ -345,8 +345,12 @@ impl StructuralQuery {
     }
 
     #[must_use]
-    pub(in crate::db) fn trivial_scalar_load_fast_path_eligible(&self) -> bool {
-        self.intent.trivial_scalar_load_fast_path_eligible()
+    pub(in crate::db) fn trivial_scalar_load_fast_path_eligible_with_schema(
+        &self,
+        schema_info: &SchemaInfo,
+    ) -> bool {
+        self.intent
+            .trivial_scalar_load_fast_path_eligible_with_schema(schema_info)
     }
 
     #[must_use]

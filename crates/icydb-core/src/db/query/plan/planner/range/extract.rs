@@ -41,6 +41,9 @@ pub(in crate::db::query::plan::planner) fn primary_key_range_from_and(
     schema: &SchemaInfo,
     children: &[Predicate],
 ) -> Option<AccessPlan<Value>> {
+    // KeyRange access is currently scalar-primary-key only. Composite
+    // component ranges are deferred and must stay residual/full-scan unless a
+    // secondary index can satisfy them.
     let primary_key_name = schema.primary_key_name()?;
     let field_type = schema.field(primary_key_name)?;
     if !field_type.is_keyable() {
@@ -89,7 +92,7 @@ pub(in crate::db::query::plan::planner) fn primary_key_range_from_and(
 // - For a chosen index: slots 0..k must be Eq, slot k must be Range,
 //   slots after k must be unconstrained.
 pub(in crate::db::query::plan::planner) fn index_range_from_and(
-    model: &EntityModel,
+    _model: &EntityModel,
     candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     children: &[Predicate],
@@ -148,7 +151,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
 
         let prefix_len = prefix.len();
         let score = access_candidate_score_from_index_contract(
-            model,
+            schema,
             order,
             index.clone(),
             prefix_len,

@@ -165,7 +165,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
             self.consistency(),
             self.has_predicate(),
             target_field,
-            self.logical_plan().primary_key_names(),
+            &self.logical_plan().primary_key_names(),
         )
     }
 
