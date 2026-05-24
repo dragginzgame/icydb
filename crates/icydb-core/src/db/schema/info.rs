@@ -1498,7 +1498,7 @@ mod tests {
         let snapshot = accepted_schema_with_composite_primary_key();
         let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
 
-        assert_eq!(accepted.primary_key_name(), Some("id"));
+        assert_eq!(accepted.primary_key_name(), None);
         assert_eq!(accepted.primary_key_names(), ["id", "age"]);
     }
 
