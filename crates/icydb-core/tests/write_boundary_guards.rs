@@ -194,7 +194,7 @@ fn accepted_storage_row_contracts_do_not_retain_generated_field_bridge() {
     assert!(
         primary_key_reader_compact.contains("ifcontract.has_accepted_decode_contract(){")
             && primary_key_reader_compact
-                .contains("contract.required_accepted_field_decode_contract(primary_key_slot)?")
+                .contains("contract.required_accepted_field_decode_contract(slot)?")
             && !primary_key_reader_compact
                 .contains(".accepted_field_decode_contract(primary_key_slot).ok_or_else(")
             && !primary_key_reader_compact
@@ -792,8 +792,8 @@ fn reverse_relation_runtime_paths_use_accepted_contracts() {
     );
     assert!(
         commit_prepare
-            .contains("row_contract.clone(),\n        structural.data_key.storage_key(),"),
-        "commit reverse-index preparation must receive the accepted structural row contract",
+            .contains("schema_contracts.row_contract.clone(),\n        &source_primary_key,"),
+        "commit reverse-index preparation must receive the accepted structural row contract and scalar-or-composite row identity",
     );
 }
 
