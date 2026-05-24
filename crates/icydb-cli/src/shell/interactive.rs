@@ -20,8 +20,8 @@ pub(super) fn run_interactive_shell(config: &ShellConfig) -> Result<(), String> 
     let mut partial_statement = String::new();
 
     eprintln!(
-        "[icydb sql] interactive mode on '{}:{}' (terminate statements with ';', use \\q, exit, or Ctrl-D to quit)",
-        config.environment, config.canister
+        "{}",
+        interactive_start_message(config.environment.as_str(), config.canister.as_str())
     );
 
     // Phase 2: collect one semicolon-terminated statement, then execute it.
@@ -80,4 +80,10 @@ fn record_history_entry(
 
 fn print_successful_command_output(output: &str) {
     print!("{}", render::finalize_successful_command_output(output));
+}
+
+pub(super) fn interactive_start_message(environment: &str, canister: &str) -> String {
+    format!(
+        "[icydb sql] interactive mode on '{environment}:{canister}' (terminate statements with ';', use \\q, exit, or Ctrl-D to quit)"
+    )
 }

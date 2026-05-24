@@ -7,6 +7,7 @@ use crate::{
     db::{
         data::{DataStore, DecodedDataStoreKey, RawRow},
         index::IndexStore,
+        key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
         predicate::MissingRowPolicy,
         registry::StoreHandle,
         schema::SchemaStore,
@@ -29,6 +30,18 @@ thread_local! {
 
 fn test_key() -> DecodedDataStoreKey {
     DecodedDataStoreKey::new(EntityTag::new(17), StorageKey::Nat(41))
+}
+
+fn composite_test_key() -> DecodedDataStoreKey {
+    let composite = CompositePrimaryKeyValue::try_from_components(&[
+        PrimaryKeyComponent::Nat(41),
+        PrimaryKeyComponent::Nat(7),
+    ])
+    .expect("test composite key should encode");
+    DecodedDataStoreKey::new_primary_key_value(
+        EntityTag::new(17),
+        &PrimaryKeyValue::Composite(composite),
+    )
 }
 
 fn reset_test_store() {
@@ -102,8 +115,9 @@ fn fused_secondary_covering_authority_tracks_candidate_and_probe_metrics() {
 
     let (row_exists, metrics) = with_row_check_metrics(|| {
         TEST_RUNTIME_CONTEXT_DATA_STORE.with_borrow(|store| {
+            let primary_key = PrimaryKeyValue::from(StorageKey::Nat(41));
             FusedSecondaryCoveringAuthority::new(store, EntityTag::new(17), MissingRowPolicy::Error)
-                .admits_primary_key_value(StorageKey::Nat(41))
+                .admits_primary_key_value(&primary_key)
                 .expect("fused secondary covering probe should succeed")
         })
     });
@@ -111,6 +125,39 @@ fn fused_secondary_covering_authority_tracks_candidate_and_probe_metrics() {
     assert!(
         row_exists,
         "fused secondary covering probe should find the inserted row"
+    );
+    assert_eq!(metrics.row_check_covering_candidates_seen, 1);
+    assert_eq!(metrics.row_presence_probe_count, 1);
+    assert_eq!(metrics.row_presence_probe_hits, 1);
+    assert_eq!(metrics.row_presence_probe_misses, 0);
+    assert_eq!(metrics.row_presence_probe_borrowed_data_store_count, 1);
+    assert_eq!(metrics.row_presence_probe_store_handle_count, 0);
+    assert_eq!(metrics.row_presence_key_to_raw_encodes, 1);
+}
+
+#[test]
+fn fused_secondary_covering_authority_accepts_composite_primary_key_values() {
+    let key = composite_test_key();
+    let raw_key = key.to_raw().expect("test composite key should encode");
+    let raw_row = RawRow::try_new(vec![0xBB]).expect("test raw row should encode");
+
+    TEST_RUNTIME_CONTEXT_DATA_STORE.with_borrow_mut(|store| {
+        store.clear();
+        let _ = store.insert_raw_for_test(raw_key, raw_row);
+    });
+
+    let primary_key = key.primary_key_value();
+    let (row_exists, metrics) = with_row_check_metrics(|| {
+        TEST_RUNTIME_CONTEXT_DATA_STORE.with_borrow(|store| {
+            FusedSecondaryCoveringAuthority::new(store, EntityTag::new(17), MissingRowPolicy::Error)
+                .admits_primary_key_value(&primary_key)
+                .expect("fused secondary covering composite probe should succeed")
+        })
+    });
+
+    assert!(
+        row_exists,
+        "fused secondary covering probe should find the inserted composite-key row"
     );
     assert_eq!(metrics.row_check_covering_candidates_seen, 1);
     assert_eq!(metrics.row_presence_probe_count, 1);

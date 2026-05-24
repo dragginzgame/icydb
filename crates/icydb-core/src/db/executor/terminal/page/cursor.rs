@@ -73,12 +73,9 @@ fn resolve_last_cursor_row(
             })?
             .0;
         let mut read_slot = |slot| row.slot_ref(slot);
+        let primary_key = data_key.primary_key_value();
         authority
-            .index_range_anchor_key_from_slot_ref_reader(
-                data_key.try_storage_key()?,
-                spec,
-                &mut read_slot,
-            )?
+            .index_range_anchor_key_from_slot_ref_reader(&primary_key, spec, &mut read_slot)?
             .map(|key| key.to_raw())
     } else {
         None

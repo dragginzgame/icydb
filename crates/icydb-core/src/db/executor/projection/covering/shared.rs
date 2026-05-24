@@ -59,7 +59,7 @@ pub(super) fn project_covering_row_from_decoded_values(
                     )
                 })?
             }
-            CoveringReadFieldSource::PrimaryKey => data_key.try_primary_key_runtime_value()?,
+            CoveringReadFieldSource::PrimaryKey => data_key.primary_key_runtime_value(),
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {
                 return Err(InternalError::query_executor_invariant(
@@ -110,7 +110,7 @@ pub(super) fn project_covering_row_from_owned_decoded_values(
                     "covering projection decoded component position out of bounds",
                 )?
             }
-            CoveringReadFieldSource::PrimaryKey => data_key.try_primary_key_runtime_value()?,
+            CoveringReadFieldSource::PrimaryKey => data_key.primary_key_runtime_value(),
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {
                 return Err(InternalError::query_executor_invariant(
@@ -177,7 +177,7 @@ pub(super) fn project_covering_row_from_single_decoded_value(
                     })?
                 }
             }
-            CoveringReadFieldSource::PrimaryKey => data_key.try_primary_key_runtime_value()?,
+            CoveringReadFieldSource::PrimaryKey => data_key.primary_key_runtime_value(),
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {
                 return Err(InternalError::query_executor_invariant(

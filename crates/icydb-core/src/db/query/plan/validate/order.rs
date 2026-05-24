@@ -90,13 +90,18 @@ pub(in crate::db::query::plan::validate) fn validate_no_duplicate_non_pk_order_f
     order: &OrderSpec,
 ) -> Result<(), PlanError> {
     let mut seen = Vec::with_capacity(order.fields.len());
-    let pk_field = model.primary_key.name;
+    let primary_key_names: Vec<&str> = model
+        .primary_key_model()
+        .fields()
+        .iter()
+        .map(crate::model::field::FieldModel::name)
+        .collect();
 
     for term in &order.fields {
         let field = term
             .direct_field()
             .map_or_else(|| term.rendered_label(), str::to_owned);
-        let non_pk_field = field != pk_field;
+        let non_pk_field = !primary_key_names.contains(&field.as_str());
         if !non_pk_field {
             continue;
         }
@@ -119,12 +124,22 @@ pub(in crate::db::query::plan::validate) fn validate_primary_key_tie_break(
 ) -> Result<(), PlanError> {
     order.fields.is_empty().then_some(()).map_or_else(
         || {
-            let pk_field = model.primary_key.name;
+            let primary_key_names: Vec<&str> = model
+                .primary_key_model()
+                .fields()
+                .iter()
+                .map(crate::model::field::FieldModel::name)
+                .collect();
             order
-                .has_exact_primary_key_tie_break(pk_field)
+                .has_exact_primary_key_tie_break_fields(primary_key_names.as_slice())
                 .then_some(())
                 .ok_or_else(|| {
-                    PlanError::from(OrderPlanError::missing_primary_key_tie_break(pk_field))
+                    PlanError::from(OrderPlanError::missing_primary_key_tie_break(
+                        primary_key_names
+                            .first()
+                            .copied()
+                            .unwrap_or(model.primary_key.name),
+                    ))
                 })
         },
         |()| Ok(()),

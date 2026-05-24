@@ -17,12 +17,12 @@ use crate::{
                 extract_orderable_field_value_from_decoded_slot,
             },
             pipeline::contracts::LoadExecutor,
-            terminal::{RowDecoder, RowLayout},
+            terminal::RowLayout,
         },
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
-    value::{StorageKey, Value},
+    value::Value,
 };
 use std::cmp::Ordering;
 
@@ -136,10 +136,9 @@ fn rank_k_rows_from_materialized_structural(
     // retain one `(primary_key, row_index)` locator instead of cloning full
     // `DataRow` payloads through the bounded ranking window.
     for (row_index, (data_key, raw_row)) in rows.iter().enumerate() {
-        let storage_key = data_key.try_storage_key()?;
         let value = decode_ranked_field_value_from_materialized_row(
             &row_layout,
-            storage_key,
+            data_key,
             raw_row,
             target_field,
             field_slot,
@@ -184,10 +183,9 @@ fn rank_k_values_from_materialized_structural(
     // Phase 1: decode only the ranked target slot and retain primary-key
     // tie-break data plus the projected value.
     for (data_key, raw_row) in rows {
-        let storage_key = data_key.try_storage_key()?;
         let value = decode_ranked_field_value_from_materialized_row(
             &row_layout,
-            storage_key,
+            data_key,
             raw_row,
             target_field,
             field_slot,
@@ -214,7 +212,7 @@ fn rank_k_values_from_materialized_structural(
 // just to read one comparable field.
 fn decode_ranked_field_value_from_materialized_row(
     row_layout: &RowLayout,
-    expected_key: StorageKey,
+    data_key: &crate::db::data::DecodedDataStoreKey,
     raw_row: &crate::db::data::RawRow,
     target_field: &str,
     field_slot: FieldSlot,
@@ -222,10 +220,10 @@ fn decode_ranked_field_value_from_materialized_row(
     extract_orderable_field_value_from_decoded_slot(
         target_field,
         field_slot,
-        RowDecoder::decode_required_slot_value(
+        RowLayout::decode_required_value_from_data_key(
             row_layout,
-            expected_key,
             raw_row,
+            data_key,
             field_slot.index,
         )?,
     )

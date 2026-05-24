@@ -25,14 +25,15 @@ use crate::{
             pipeline::runtime::ExecutionAttemptKernel,
             plan_metrics::record_rows_scanned_for_path,
             read_owned_data_row_with_consistency_from_store,
-            terminal::{RowDecoder, RowLayout},
+            terminal::RowLayout,
         },
         index::IndexCompilePolicy,
+        key_taxonomy::PrimaryKeyValue,
         predicate::MissingRowPolicy,
         registry::StoreHandle,
     },
     error::InternalError,
-    value::{StorageKey, Value},
+    value::Value,
 };
 use std::cmp::Ordering;
 
@@ -110,10 +111,10 @@ impl FieldExtremaFoldSpec<'_> {
     // Build the final extrema output payload for the selected winning key.
     fn finalize_output(
         &self,
-        selected_key: Option<StorageKey>,
+        selected_key: Option<&PrimaryKeyValue>,
     ) -> Result<ScalarAggregateOutput, InternalError> {
         self.kind
-            .extrema_output(selected_key)
+            .extrema_output_primary_key(selected_key)
             .ok_or_else(Self::fold_reached_non_extrema)
     }
 }
@@ -135,13 +136,13 @@ impl ExecutionKernel {
             .extrema_direction()
             .ok_or_else(FieldExtremaFoldSpec::materialized_reduction_reached_non_extrema)?;
 
-        let mut selected: Option<(StorageKey, Value)> = None;
+        let mut selected: Option<(PrimaryKeyValue, Value)> = None;
         for (data_key, raw_row) in rows {
-            let candidate_key = data_key.try_storage_key()?;
-            let candidate_value = RowDecoder::decode_required_slot_value(
+            let candidate_key = data_key.primary_key_value();
+            let candidate_value = RowLayout::decode_required_value_from_data_key(
                 row_layout,
-                candidate_key,
                 &raw_row,
+                &data_key,
                 field_slot.index,
             )?;
             let candidate_value = extract_orderable_field_value_from_decoded_slot(
@@ -175,7 +176,7 @@ impl ExecutionKernel {
 
         let selected_key = selected.map(|(key, _)| key);
 
-        kind.extrema_output(selected_key)
+        kind.extrema_output_primary_key(selected_key.as_ref())
             .ok_or_else(FieldExtremaFoldSpec::materialized_reduction_reached_non_extrema)
     }
 
@@ -308,7 +309,7 @@ impl ExecutionKernel {
         }
 
         let mut keys_scanned = 0usize;
-        let mut selected: Option<(StorageKey, Value)> = None;
+        let mut selected: Option<(PrimaryKeyValue, Value)> = None;
 
         while let Some(key) = key_stream.next_key()? {
             match Self::fold_streaming_field_extrema_key(
@@ -326,7 +327,7 @@ impl ExecutionKernel {
         }
 
         let selected_key = selected.map(|(key, _)| key);
-        let output = spec.finalize_output(selected_key)?;
+        let output = spec.finalize_output(selected_key.as_ref())?;
 
         Ok((output, keys_scanned))
     }
@@ -340,18 +341,22 @@ impl ExecutionKernel {
         data_key: DecodedDataStoreKey,
         spec: &FieldExtremaFoldSpec<'_>,
         keys_scanned: &mut usize,
-        selected: &mut Option<(StorageKey, Value)>,
+        selected: &mut Option<(PrimaryKeyValue, Value)>,
     ) -> Result<KeyStreamLoopControl, InternalError> {
         *keys_scanned = keys_scanned.saturating_add(1);
-        let key = data_key.try_storage_key()?;
+        let key = data_key.primary_key_value();
         let Some(row) =
-            read_owned_data_row_with_consistency_from_store(store, data_key, consistency)?
+            read_owned_data_row_with_consistency_from_store(store, data_key.clone(), consistency)?
         else {
             return Ok(KeyStreamLoopControl::Emit);
         };
 
-        let value =
-            RowDecoder::decode_required_slot_value(row_layout, key, &row.1, spec.field_slot.index)?;
+        let value = RowLayout::decode_required_value_from_data_key(
+            row_layout,
+            &row.1,
+            &data_key,
+            spec.field_slot.index,
+        )?;
         let value = extract_orderable_field_value_from_decoded_slot(
             spec.target_field,
             spec.field_slot,

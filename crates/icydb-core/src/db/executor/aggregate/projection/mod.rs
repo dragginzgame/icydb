@@ -39,7 +39,7 @@ use crate::{
             record_row_check_covering_candidate_seen, record_row_check_row_emitted,
             reorder_covering_projection_pairs,
             resolve_covering_projection_components_from_lowered_specs, saturating_u32_len,
-            terminal::{RowDecoder, RowLayout},
+            terminal::RowLayout,
         },
         predicate::MissingRowPolicy,
         query::builder::aggregate::{
@@ -472,7 +472,7 @@ where
             return Ok(None);
         };
 
-        let key = DecodedDataStoreKey::new(entity_tag, selected_key);
+        let key = DecodedDataStoreKey::new_primary_key_value(entity_tag, &selected_key);
         let Some(value) = Self::read_field_value_for_aggregate(
             store,
             &row_layout,
@@ -516,10 +516,10 @@ where
     ) -> Result<ValueProjection, InternalError> {
         rows.into_iter()
             .map(|(data_key, raw_row)| {
-                let value = RowDecoder::decode_required_slot_value(
+                let value = RowLayout::decode_required_value_from_data_key(
                     row_layout,
-                    data_key.try_storage_key()?,
                     &raw_row,
+                    &data_key,
                     field_slot.index,
                 )?;
 
@@ -547,10 +547,10 @@ where
     ) -> Result<Vec<Value>, InternalError> {
         rows.into_iter()
             .map(|(data_key, raw_row)| {
-                let value = RowDecoder::decode_required_slot_value(
+                let value = RowLayout::decode_required_value_from_data_key(
                     row_layout,
-                    data_key.try_storage_key()?,
                     &raw_row,
+                    &data_key,
                     field_slot.index,
                 )?;
 
@@ -582,10 +582,10 @@ where
         // Phase 1: decode each projected field value and retain only the
         // first canonical DISTINCT admission in response order.
         for (data_key, raw_row) in rows {
-            let value = RowDecoder::decode_required_slot_value(
+            let value = RowLayout::decode_required_value_from_data_key(
                 row_layout,
-                data_key.try_storage_key()?,
                 &raw_row,
+                &data_key,
                 field_slot.index,
             )?;
             let value =
@@ -616,10 +616,10 @@ where
         // Phase 1: decode each projected field value and count canonical
         // DISTINCT admissions in response order.
         for (data_key, raw_row) in rows {
-            let value = RowDecoder::decode_required_slot_value(
+            let value = RowLayout::decode_required_value_from_data_key(
                 row_layout,
-                data_key.try_storage_key()?,
                 &raw_row,
+                &data_key,
                 field_slot.index,
             )?;
             let value =

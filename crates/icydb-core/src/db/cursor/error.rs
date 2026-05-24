@@ -217,6 +217,7 @@ impl CursorPlanError {
     }
 
     /// Construct one boundary-primary-key decode failure payload error.
+    #[cfg(test)]
     pub(in crate::db) fn index_range_boundary_primary_key_decode_failed(
         reason: impl std::fmt::Display,
     ) -> Self {

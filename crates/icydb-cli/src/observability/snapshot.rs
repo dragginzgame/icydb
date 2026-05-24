@@ -13,7 +13,7 @@ use crate::{
     table::{ColumnAlign, append_indented_table},
 };
 
-use super::call_query;
+use super::{call_query, endpoint_result_error};
 
 /// Read and print the generated storage snapshot endpoint.
 pub(super) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String> {
@@ -25,11 +25,7 @@ pub(super) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String>
         SNAPSHOT_ENDPOINT.method(),
         "()",
     )?;
-    let response = Decode!(
-        candid_bytes.as_slice(),
-        Result<icydb::db::StorageReport, icydb::Error>
-    )
-    .map_err(|err| err.to_string())?;
+    let response = decode_snapshot_report(candid_bytes.as_slice())?;
 
     match response {
         Ok(report) => {
@@ -37,13 +33,23 @@ pub(super) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String>
 
             Ok(())
         }
-        Err(err) => Err(format!(
-            "IcyDB snapshot method '{}' failed on canister '{}' in environment '{}': {err}",
+        Err(err) => Err(endpoint_result_error(
+            "snapshot",
+            &target,
             SNAPSHOT_ENDPOINT.method(),
-            target.canister_name(),
-            target.environment(),
+            err,
         )),
     }
+}
+
+pub(super) fn decode_snapshot_report(
+    candid_bytes: &[u8],
+) -> Result<Result<icydb::db::StorageReport, icydb::Error>, String> {
+    Decode!(
+        candid_bytes,
+        Result<icydb::db::StorageReport, icydb::Error>
+    )
+    .map_err(|err| err.to_string())
 }
 
 pub(super) fn render_snapshot_report(report: &StorageReport) -> String {
@@ -51,39 +57,26 @@ pub(super) fn render_snapshot_report(report: &StorageReport) -> String {
     let data_rows = report
         .storage_data()
         .iter()
-        .map(|row| {
-            [
-                row.path().to_string(),
-                row.entries().to_string(),
-                row.memory_bytes().to_string(),
-            ]
-        })
+        .map(|row| data_store_row(row.path(), row.entries(), row.memory_bytes()))
         .collect::<Vec<_>>();
     let index_rows = report
         .storage_index()
         .iter()
         .map(|row| {
-            [
-                row.path().to_string(),
-                row.entries().to_string(),
-                row.user_entries().to_string(),
-                row.system_entries().to_string(),
-                row.memory_bytes().to_string(),
+            index_store_row(
+                row.path(),
+                row.entries(),
+                row.user_entries(),
+                row.system_entries(),
+                row.memory_bytes(),
                 format!("{:?}", row.state()),
-            ]
+            )
         })
         .collect::<Vec<_>>();
     let entity_rows = report
         .entity_storage()
         .iter()
-        .map(|row| {
-            [
-                row.path().to_string(),
-                row.store().to_string(),
-                row.entries().to_string(),
-                row.memory_bytes().to_string(),
-            ]
-        })
+        .map(|row| entity_storage_row(row.path(), row.store(), row.entries(), row.memory_bytes()))
         .collect::<Vec<_>>();
 
     output.push_str("IcyDB storage snapshot\n");
@@ -106,6 +99,41 @@ pub(super) fn render_snapshot_report(report: &StorageReport) -> String {
     append_entity_table(&mut output, entity_rows.as_slice());
 
     output
+}
+
+fn data_store_row(path: &str, entries: u64, memory_bytes: u64) -> [String; 3] {
+    [
+        path.to_string(),
+        entries.to_string(),
+        memory_bytes.to_string(),
+    ]
+}
+
+fn index_store_row(
+    path: &str,
+    entries: u64,
+    user_entries: u64,
+    system_entries: u64,
+    memory_bytes: u64,
+    state: String,
+) -> [String; 6] {
+    [
+        path.to_string(),
+        entries.to_string(),
+        user_entries.to_string(),
+        system_entries.to_string(),
+        memory_bytes.to_string(),
+        state,
+    ]
+}
+
+fn entity_storage_row(path: &str, store: &str, entries: u64, memory_bytes: u64) -> [String; 4] {
+    [
+        path.to_string(),
+        store.to_string(),
+        entries.to_string(),
+        memory_bytes.to_string(),
+    ]
 }
 
 fn append_data_store_table(output: &mut String, rows: &[[String; 3]]) {

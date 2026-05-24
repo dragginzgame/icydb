@@ -7,6 +7,8 @@ mod index_readers;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+use crate::{db::key_taxonomy::PrimaryKeyValue, types::EntityTag};
 use crate::{
     db::{
         Db,
@@ -19,8 +21,6 @@ use crate::{
     error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue, Path},
 };
-#[cfg(test)]
-use crate::{types::EntityTag, value::StorageKey};
 #[cfg(any(test, feature = "diagnostics"))]
 use std::cell::RefCell;
 use std::ops::Bound;
@@ -197,14 +197,15 @@ impl<'a> FusedSecondaryCoveringAuthority<'a> {
     /// fail-closed stale-row contract.
     pub(in crate::db::executor) fn admits_primary_key_value(
         self,
-        primary_key_value: StorageKey,
+        primary_key_value: &PrimaryKeyValue,
     ) -> Result<bool, InternalError> {
         // Phase 1: account for the candidate and encode one authoritative
         // row-store key directly from the entity tag plus primary key value.
         record_row_check_covering_candidate_seen();
         record_row_presence_probe_source(RowPresenceProbeSource::BorrowedDataStore);
         record_row_presence_key_to_raw_encode();
-        let raw_key = DecodedDataStoreKey::raw_from_parts(self.entity_tag, primary_key_value)?;
+        let key = DecodedDataStoreKey::new_primary_key_value(self.entity_tag, primary_key_value);
+        let raw_key = key.to_raw()?;
 
         // Phase 2: probe the borrowed data-store authority and preserve the
         // current missing-row policy exactly.
@@ -216,11 +217,7 @@ impl<'a> FusedSecondaryCoveringAuthority<'a> {
                 if row_exists {
                     Ok(true)
                 } else {
-                    Err(ExecutorError::missing_row(&DecodedDataStoreKey::new(
-                        self.entity_tag,
-                        primary_key_value,
-                    ))
-                    .into())
+                    Err(ExecutorError::missing_row(&key).into())
                 }
             }
             MissingRowPolicy::Ignore => Ok(row_exists),

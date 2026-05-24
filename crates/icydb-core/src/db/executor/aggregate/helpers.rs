@@ -22,12 +22,13 @@ use crate::{
             terminal::{RowDecoder, RowLayout, page::KernelRow},
         },
         index::predicate::IndexPredicateExecution,
+        key_taxonomy::PrimaryKeyValue,
         predicate::MissingRowPolicy,
         registry::StoreHandle,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
-    value::{StorageKey, Value},
+    value::Value,
 };
 use std::cmp::Ordering;
 
@@ -35,12 +36,12 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    // Select one key from an already ordered `(storage_key, value)` projection
+    // Select one key from an already ordered `(primary_key, value)` projection
     // by caller-provided ordinal policy.
     fn select_ordered_field_projection_key(
-        ordered_rows: Vec<(StorageKey, Value)>,
+        ordered_rows: Vec<(PrimaryKeyValue, Value)>,
         select_index: impl FnOnce(usize) -> Option<usize>,
-    ) -> Option<StorageKey> {
+    ) -> Option<PrimaryKeyValue> {
         let selected_index = select_index(ordered_rows.len())?;
 
         ordered_rows
@@ -54,15 +55,15 @@ where
     // aggregate lookups.
     fn decode_projected_field_value(
         row_layout: &RowLayout,
-        storage_key: StorageKey,
+        data_key: &DecodedDataStoreKey,
         raw_row: &RawRow,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Value, InternalError> {
-        let value = RowDecoder::decode_required_slot_value(
+        let value = RowLayout::decode_required_value_from_data_key(
             row_layout,
-            storage_key,
             raw_row,
+            data_key,
             field_slot.index,
         )?;
         extract_orderable_field_value_from_decoded_slot(target_field, field_slot, value)
@@ -73,9 +74,9 @@ where
     // field ordering with primary-key ascending tie-break.
     fn field_projection_candidate_precedes(
         target_field: &str,
-        candidate_key: &StorageKey,
+        candidate_key: &PrimaryKeyValue,
         candidate_value: &Value,
-        current_key: &StorageKey,
+        current_key: &PrimaryKeyValue,
         current_value: &Value,
         field_preference: Ordering,
     ) -> Result<bool, InternalError> {
@@ -97,7 +98,7 @@ where
         target_field: &str,
         field_slot: FieldSlot,
         nth: usize,
-    ) -> Result<Option<StorageKey>, InternalError> {
+    ) -> Result<Option<PrimaryKeyValue>, InternalError> {
         let (rows, row_layout) = self.load_materialized_aggregate_rows(prepared)?;
 
         Self::aggregate_nth_field_from_materialized(
@@ -117,7 +118,7 @@ where
         prepared: PreparedAggregateStreamingInputs<'_>,
         target_field: &str,
         field_slot: FieldSlot,
-    ) -> Result<Option<StorageKey>, InternalError> {
+    ) -> Result<Option<PrimaryKeyValue>, InternalError> {
         let (rows, row_layout) = self.load_materialized_aggregate_rows(prepared)?;
 
         Self::aggregate_median_field_from_materialized(rows, &row_layout, target_field, field_slot)
@@ -131,7 +132,7 @@ where
         prepared: PreparedAggregateStreamingInputs<'_>,
         target_field: &str,
         field_slot: FieldSlot,
-    ) -> Result<Option<(StorageKey, StorageKey)>, InternalError> {
+    ) -> Result<Option<(PrimaryKeyValue, PrimaryKeyValue)>, InternalError> {
         let (rows, row_layout) = self.load_materialized_aggregate_rows(prepared)?;
 
         Self::aggregate_min_max_field_from_materialized(rows, &row_layout, target_field, field_slot)
@@ -145,7 +146,7 @@ where
         target_field: &str,
         field_slot: FieldSlot,
         nth: usize,
-    ) -> Result<Option<StorageKey>, InternalError> {
+    ) -> Result<Option<PrimaryKeyValue>, InternalError> {
         let ordered_rows = Self::ordered_field_projection_from_materialized(
             rows,
             row_layout,
@@ -167,7 +168,7 @@ where
         row_layout: &RowLayout,
         target_field: &str,
         field_slot: FieldSlot,
-    ) -> Result<Option<StorageKey>, InternalError> {
+    ) -> Result<Option<PrimaryKeyValue>, InternalError> {
         let ordered_rows = Self::ordered_field_projection_from_materialized(
             rows,
             row_layout,
@@ -192,9 +193,9 @@ where
         row_layout: &RowLayout,
         target_field: &str,
         field_slot: FieldSlot,
-    ) -> Result<Option<(StorageKey, StorageKey)>, InternalError> {
-        let mut min_candidate: Option<(StorageKey, Value)> = None;
-        let mut max_candidate: Option<(StorageKey, Value)> = None;
+    ) -> Result<Option<(PrimaryKeyValue, PrimaryKeyValue)>, InternalError> {
+        let mut min_candidate: Option<(PrimaryKeyValue, Value)> = None;
+        let mut max_candidate: Option<(PrimaryKeyValue, Value)> = None;
         Self::for_each_projected_field_from_materialized(
             rows,
             row_layout,
@@ -265,8 +266,8 @@ where
         row_layout: &RowLayout,
         target_field: &str,
         field_slot: FieldSlot,
-    ) -> Result<Vec<(StorageKey, Value)>, InternalError> {
-        let mut ordered_rows: Vec<(StorageKey, Value)> = Vec::new();
+    ) -> Result<Vec<(PrimaryKeyValue, Value)>, InternalError> {
+        let mut ordered_rows: Vec<(PrimaryKeyValue, Value)> = Vec::new();
 
         // Decode each projected field value directly into the ordered
         // candidate set. `nth(field)` and `median(field)` still need the
@@ -310,18 +311,17 @@ where
         row_layout: &RowLayout,
         target_field: &str,
         field_slot: FieldSlot,
-        mut visit_projected: impl FnMut(StorageKey, Value) -> Result<(), InternalError>,
+        mut visit_projected: impl FnMut(PrimaryKeyValue, Value) -> Result<(), InternalError>,
     ) -> Result<(), InternalError> {
         for (data_key, raw_row) in rows {
-            let storage_key = data_key.try_storage_key()?;
             let value = Self::decode_projected_field_value(
                 row_layout,
-                storage_key,
+                &data_key,
                 &raw_row,
                 target_field,
                 field_slot,
             )?;
-            visit_projected(storage_key, value)?;
+            visit_projected(data_key.primary_key_value(), value)?;
         }
 
         Ok(())
@@ -354,18 +354,13 @@ where
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Option<Value>, InternalError> {
-        let storage_key = key.try_storage_key()?;
-        let Some(row) = read_owned_data_row_with_consistency_from_store(store, key, consistency)?
+        let Some(row) =
+            read_owned_data_row_with_consistency_from_store(store, key.clone(), consistency)?
         else {
             return Ok(None);
         };
-        let value = Self::decode_projected_field_value(
-            row_layout,
-            storage_key,
-            &row.1,
-            target_field,
-            field_slot,
-        )?;
+        let value =
+            Self::decode_projected_field_value(row_layout, &key, &row.1, target_field, field_slot)?;
 
         Ok(Some(value))
     }

@@ -22,12 +22,13 @@ use crate::{
             pipeline::runtime::RowView,
             projection::ProjectionEvalError,
         },
+        key_taxonomy::PrimaryKeyValue,
         query::plan::FieldSlot,
         query::plan::expr::{CompiledExpr, collapse_true_only_boolean_admission},
     },
     error::InternalError,
     types::Decimal,
-    value::{StorageKey, Value, storage_key_as_runtime_value},
+    value::Value,
 };
 use std::borrow::Cow;
 
@@ -366,22 +367,21 @@ impl GroupedTerminalAggregateState {
     ) -> Result<FoldControl, InternalError> {
         let primary_key_value = self
             .requires_primary_key_value
-            .then(|| key.try_storage_key())
-            .transpose()?;
+            .then(|| key.primary_key_value());
         match self.kind {
-            AggregateKind::Count => self.apply_count(primary_key_value, row_view),
+            AggregateKind::Count => self.apply_count(primary_key_value.as_ref(), row_view),
             AggregateKind::Sum | AggregateKind::Avg => {
-                self.apply_sum_like(primary_key_value, row_view)
+                self.apply_sum_like(primary_key_value.as_ref(), row_view)
             }
-            AggregateKind::Exists => self.apply_exists(primary_key_value, row_view),
+            AggregateKind::Exists => self.apply_exists(primary_key_value.as_ref(), row_view),
             AggregateKind::Min => {
-                self.apply_extremum(ExtremumKind::Min, primary_key_value, row_view)
+                self.apply_extremum(ExtremumKind::Min, primary_key_value.as_ref(), row_view)
             }
             AggregateKind::Max => {
-                self.apply_extremum(ExtremumKind::Max, primary_key_value, row_view)
+                self.apply_extremum(ExtremumKind::Max, primary_key_value.as_ref(), row_view)
             }
-            AggregateKind::First => self.apply_first(primary_key_value, row_view),
-            AggregateKind::Last => self.apply_last(primary_key_value, row_view),
+            AggregateKind::First => self.apply_first(primary_key_value.as_ref(), row_view),
+            AggregateKind::Last => self.apply_last(primary_key_value.as_ref(), row_view),
         }
     }
 
@@ -430,7 +430,7 @@ impl GroupedTerminalAggregateState {
     // Apply one COUNT grouped terminal update.
     fn apply_count(
         &mut self,
-        _key: Option<StorageKey>,
+        _key: Option<&PrimaryKeyValue>,
         row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
         if (self.grouped_input_expr.is_some() || self.target_field.is_some())
@@ -449,7 +449,7 @@ impl GroupedTerminalAggregateState {
     // Apply one EXISTS grouped terminal update.
     fn apply_exists(
         &mut self,
-        _key: Option<StorageKey>,
+        _key: Option<&PrimaryKeyValue>,
         _row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
         self.reducer.set_exists_true()?;
@@ -461,7 +461,7 @@ impl GroupedTerminalAggregateState {
     // row-view boundary.
     fn apply_sum_like(
         &mut self,
-        _key: Option<StorageKey>,
+        _key: Option<&PrimaryKeyValue>,
         row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
         let Some(sum_like_kind) = SumLikeKind::from_aggregate_kind(self.kind) else {
@@ -483,7 +483,7 @@ impl GroupedTerminalAggregateState {
     fn apply_extremum(
         &mut self,
         kind: ExtremumKind,
-        key: Option<StorageKey>,
+        key: Option<&PrimaryKeyValue>,
         row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
         if self.grouped_input_expr.is_some() {
@@ -541,7 +541,7 @@ impl GroupedTerminalAggregateState {
                     kind.primary_key_value_label(),
                 ));
             };
-            let value = storage_key_as_runtime_value(&key);
+            let value = key.as_runtime_value();
             match kind {
                 ExtremumKind::Min => self.reducer.update_min_value(value)?,
                 ExtremumKind::Max => self.reducer.update_max_value(value)?,
@@ -554,7 +554,7 @@ impl GroupedTerminalAggregateState {
     // Apply one FIRST grouped terminal update.
     fn apply_first(
         &mut self,
-        key: Option<StorageKey>,
+        key: Option<&PrimaryKeyValue>,
         _row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
@@ -568,7 +568,7 @@ impl GroupedTerminalAggregateState {
     // Apply one LAST grouped terminal update.
     fn apply_last(
         &mut self,
-        key: Option<StorageKey>,
+        key: Option<&PrimaryKeyValue>,
         _row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {

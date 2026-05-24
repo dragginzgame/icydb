@@ -59,7 +59,7 @@ derive_more = { version = "2.0", default-features = false, features = [
 ] }
 getrandom = "0.4"
 ic-memory = "0.6.2"
-ic-testkit = "0.0.6"
+ic-testkit = "0.1.0"
 icydb = { path = "crates/icydb", version = "0.162.11" }
 icydb-build = { path = "crates/icydb-build", version = "0.162.11" }
 icydb-config-build = { path = "crates/icydb-config-build", version = "0.162.11" }

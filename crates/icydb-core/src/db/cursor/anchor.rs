@@ -11,10 +11,11 @@ use crate::{
         index::{
             IndexBoundsSpec, IndexId, IndexKey, IndexKeyKind, IndexRangeBoundEncodeError,
             KeyEnvelope, PrimaryKeyEquivalenceError, RawIndexStoreKey,
-            build_index_bounds_for_arity, primary_key_matches_value,
+            build_index_bounds_for_arity, primary_key_matches_primary_key_value,
         },
+        key_taxonomy::PrimaryKeyValue,
     },
-    traits::{KeyValueCodec, Storable},
+    traits::Storable,
     types::EntityTag,
 };
 use std::borrow::Cow;
@@ -266,10 +267,10 @@ pub(in crate::db) fn validate_index_range_anchor<K>(
 }
 
 // Enforce that boundary and raw anchor identify the same ordered row position.
-pub(in crate::db) fn validate_index_range_boundary_anchor_consistency<K: KeyValueCodec>(
+pub(in crate::db) fn validate_index_range_boundary_anchor_consistency<K>(
     anchor: Option<&ValidatedInEnvelopeIndexRangeCursorAnchor>,
     access: Option<&ExecutionPathPayload<'_, K>>,
-    boundary_pk_key: K,
+    boundary_primary_key: &PrimaryKeyValue,
 ) -> Result<(), CursorPlanError> {
     let Some(anchor) = anchor else {
         return Ok(());
@@ -282,12 +283,13 @@ pub(in crate::db) fn validate_index_range_boundary_anchor_consistency<K: KeyValu
     }
 
     let matches_boundary =
-        primary_key_matches_value(anchor.decoded_key(), &boundary_pk_key.to_key_value()).map_err(
+        primary_key_matches_primary_key_value(anchor.decoded_key(), boundary_primary_key).map_err(
             |err| match err {
                 PrimaryKeyEquivalenceError::AnchorDecode { source } => {
                     CursorPlanError::index_range_anchor_primary_key_decode_failed(source)
                 }
-                PrimaryKeyEquivalenceError::BoundaryEncode { source } => {
+                #[cfg(test)]
+                PrimaryKeyEquivalenceError::BoundaryDecode { source } => {
                     CursorPlanError::index_range_boundary_primary_key_decode_failed(source)
                 }
             },

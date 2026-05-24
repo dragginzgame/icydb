@@ -34,7 +34,7 @@ pub(in crate::db) use anchor::{
 };
 pub(crate) use boundary::{CursorBoundary, CursorBoundarySlot};
 pub(in crate::db) use boundary::{
-    apply_order_direction, decode_pk_cursor_boundary_storage_key_for_name,
+    apply_order_direction, decode_pk_cursor_boundary_primary_key_value_for_name,
     validate_cursor_boundary_for_order, validate_cursor_direction, validate_cursor_window_offset,
 };
 pub(in crate::db) use continuation::{

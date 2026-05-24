@@ -57,15 +57,96 @@ fn canister_call_error(
     method: &str,
     stderr: &str,
 ) -> String {
+    method_error(call_kind, environment, canister, method, stderr)
+}
+
+fn endpoint_result_error(
+    label: &str,
+    target: &CanisterTarget,
+    method: &str,
+    err: icydb::Error,
+) -> String {
+    let detail = err.to_string();
+
+    method_error(
+        label,
+        target.environment(),
+        target.canister_name(),
+        method,
+        detail.as_str(),
+    )
+}
+
+fn method_error(
+    label: &str,
+    environment: &str,
+    canister: &str,
+    method: &str,
+    detail: &str,
+) -> String {
     format!(
-        "IcyDB {call_kind} method '{method}' failed on canister '{canister}' in environment '{environment}': {stderr}",
+        "IcyDB {label} method '{method}' failed on canister '{canister}' in environment '{environment}': {detail}",
     )
 }
 
 #[cfg(test)]
 pub(crate) mod test_support {
+    pub(crate) fn canister_call_error(
+        call_kind: &str,
+        environment: &str,
+        canister: &str,
+        method: &str,
+        stderr: &str,
+    ) -> String {
+        super::canister_call_error(call_kind, environment, canister, method, stderr)
+    }
+
+    pub(crate) fn method_error(
+        label: &str,
+        environment: &str,
+        canister: &str,
+        method: &str,
+        detail: &str,
+    ) -> String {
+        super::method_error(label, environment, canister, method, detail)
+    }
+
     pub(crate) fn metrics_candid_arg(window_start_ms: Option<u64>) -> String {
         super::metrics::metrics_candid_arg(window_start_ms)
+    }
+
+    pub(crate) fn decode_metrics_report(
+        candid_bytes: &[u8],
+    ) -> Result<Result<icydb::metrics::EventReport, icydb::Error>, String> {
+        super::metrics::decode_metrics_report(candid_bytes)
+    }
+
+    pub(crate) fn decode_metrics_reset_response(
+        candid_bytes: &[u8],
+    ) -> Result<Result<(), icydb::Error>, String> {
+        super::metrics::decode_metrics_reset_response(candid_bytes)
+    }
+
+    pub(crate) fn decode_schema_report(
+        candid_bytes: &[u8],
+    ) -> Result<Result<Vec<icydb::db::EntitySchemaDescription>, icydb::Error>, String> {
+        super::schema::decode_schema_report(candid_bytes)
+    }
+
+    pub(crate) fn decode_schema_check_report(
+        candid_bytes: &[u8],
+    ) -> Result<Result<Vec<icydb::db::EntitySchemaCheckDescription>, icydb::Error>, String> {
+        super::schema_check::decode_schema_check_report(candid_bytes)
+    }
+
+    pub(crate) fn decode_snapshot_report(
+        candid_bytes: &[u8],
+    ) -> Result<Result<icydb::db::StorageReport, icydb::Error>, String> {
+        super::snapshot::decode_snapshot_report(candid_bytes)
+    }
+
+    pub(crate) fn render_field_list(fields: &[String]) -> String {
+        super::render::render_field_list(fields)
     }
 
     pub(crate) fn render_metrics_report(report: &icydb::metrics::EventReport) -> String {
@@ -84,5 +165,9 @@ pub(crate) mod test_support {
 
     pub(crate) fn render_snapshot_report(report: &icydb::db::StorageReport) -> String {
         super::snapshot::render_snapshot_report(report)
+    }
+
+    pub(crate) const fn yes_no(value: bool) -> &'static str {
+        super::render::yes_no(value)
     }
 }

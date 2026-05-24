@@ -9,14 +9,15 @@ mod error;
 mod scalar;
 mod tuple;
 
+#[cfg(test)]
+use crate::value::{StorageKey, StorageKeyDecodeError};
 use crate::{
     MAX_INDEX_FIELDS,
     db::{
-        data::{StorageKey, StorageKeyDecodeError},
         index::key::IndexId,
         key_taxonomy::{
             CompactPrimaryKeyDecodeError, EncodedIndexComponent, EncodedPrimaryKey, IndexStoreKey,
-            IndexStoreKeyKind, PrimaryKeyComponent, PrimaryKeyValue,
+            IndexStoreKeyKind, PrimaryKeyValue,
         },
     },
 };
@@ -202,6 +203,7 @@ impl IndexKey {
         EncodedPrimaryKey::try_from(self.primary_key.as_slice())?.decode()
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn primary_key_storage_key(
         &self,
     ) -> Result<StorageKey, StorageKeyDecodeError> {
@@ -221,12 +223,6 @@ impl IndexKey {
             .as_bytes()
             .to_vec()
     }
-
-    pub(in crate::db) fn compact_primary_key_bytes(primary_key: StorageKey) -> Vec<u8> {
-        Self::compact_primary_key_value_bytes(&PrimaryKeyValue::Scalar(PrimaryKeyComponent::from(
-            primary_key,
-        )))
-    }
 }
 
 const fn index_key_kind_to_store_key_kind(kind: IndexKeyKind) -> IndexStoreKeyKind {
@@ -236,6 +232,7 @@ const fn index_key_kind_to_store_key_kind(kind: IndexKeyKind) -> IndexStoreKeyKi
     }
 }
 
+#[cfg(test)]
 const fn primary_key_decode_error_to_storage_key_decode_error(
     err: CompactPrimaryKeyDecodeError,
 ) -> StorageKeyDecodeError {

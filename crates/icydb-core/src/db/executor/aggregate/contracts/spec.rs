@@ -9,7 +9,7 @@
 // This module must remain execution-agnostic.
 // No imports from executor load/kernel/route are allowed.
 
-use crate::{error::InternalError, value::StorageKey};
+use crate::{db::key_taxonomy::PrimaryKeyValue, error::InternalError};
 
 pub(in crate::db::executor) use crate::db::query::plan::AggregateKind;
 
@@ -25,10 +25,10 @@ pub(in crate::db::executor) use crate::db::query::plan::AggregateKind;
 pub(in crate::db::executor) enum ScalarAggregateOutput {
     Count(u32),
     Exists(bool),
-    Min(Option<StorageKey>),
-    Max(Option<StorageKey>),
-    First(Option<StorageKey>),
-    Last(Option<StorageKey>),
+    Min(Option<PrimaryKeyValue>),
+    Max(Option<PrimaryKeyValue>),
+    First(Option<PrimaryKeyValue>),
+    Last(Option<PrimaryKeyValue>),
 }
 
 ///
@@ -84,7 +84,7 @@ impl ScalarAggregateOutput {
         self,
         kind: AggregateKind,
         mismatch_context: &'static str,
-    ) -> Result<Option<StorageKey>, InternalError> {
+    ) -> Result<Option<PrimaryKeyValue>, InternalError> {
         match (kind, self) {
             (AggregateKind::Min, Self::Min(value))
             | (AggregateKind::Max, Self::Max(value))
@@ -149,13 +149,19 @@ impl ScalarTerminalKind {
 impl AggregateKind {
     /// Build a structural extrema output payload when this kind is MIN or MAX.
     #[must_use]
-    pub(in crate::db::executor) const fn extrema_output(
+    pub(in crate::db::executor) const fn extrema_output_primary_key(
         self,
-        key: Option<StorageKey>,
+        key: Option<&PrimaryKeyValue>,
     ) -> Option<ScalarAggregateOutput> {
         match self {
-            Self::Min => Some(ScalarAggregateOutput::Min(key)),
-            Self::Max => Some(ScalarAggregateOutput::Max(key)),
+            Self::Min => Some(ScalarAggregateOutput::Min(match key {
+                Some(key) => Some(*key),
+                None => None,
+            })),
+            Self::Max => Some(ScalarAggregateOutput::Max(match key {
+                Some(key) => Some(*key),
+                None => None,
+            })),
             Self::Count | Self::Sum | Self::Avg | Self::Exists | Self::First | Self::Last => None,
         }
     }

@@ -158,6 +158,23 @@ impl RowLayout {
         )
     }
 
+    pub(in crate::db) fn decode_required_value_from_data_key(
+        &self,
+        row: &RawRow,
+        data_key: &DecodedDataStoreKey,
+        required_slot: usize,
+    ) -> Result<Option<Value>, InternalError> {
+        if let Ok(expected_key) = data_key.try_storage_key() {
+            return self.decode_required_value(row, expected_key, required_slot);
+        }
+
+        let mut reader =
+            StructuralSlotReader::from_raw_row_with_validated_contract(row, self.contract.clone())?;
+        reader.validate_primary_key(data_key)?;
+
+        reader.get_value(required_slot)
+    }
+
     /// Decode one full structural row through the scalar-or-composite row-key
     /// boundary. Composite-key callers use this path so row validation and
     /// primary-key component materialization do not reopen the scalar
@@ -248,39 +265,6 @@ impl RowDecoder {
         required_slots: Option<&[usize]>,
     ) -> Result<Vec<Option<Value>>, InternalError> {
         (self.decode_slots)(layout, expected_key, row, required_slots)
-    }
-
-    /// Decode one retained structural slot value without constructing one
-    /// full kernel-row envelope or returning the surrounding slot vector.
-    pub(in crate::db::executor) fn decode_required_slot_value(
-        layout: &RowLayout,
-        expected_key: StorageKey,
-        row: &RawRow,
-        required_slot: usize,
-    ) -> Result<Option<Value>, InternalError> {
-        decode_sparse_required_slot_with_contract(
-            row,
-            layout.contract.clone(),
-            expected_key,
-            required_slot,
-        )
-    }
-
-    /// Decode one retained structural slot-row without materializing a dense
-    /// field-count-sized slot vector.
-    pub(in crate::db::executor) fn decode_retained_slots(
-        layout: &RowLayout,
-        expected_key: StorageKey,
-        row: &RawRow,
-        retained_slot_layout: &RetainedSlotLayout,
-    ) -> Result<RetainedSlotRow, InternalError> {
-        // Reuse the canonical indexed retained-slot decode for both sparse and
-        // dense layouts so the retained row always stays on the shared indexed
-        // representation instead of rebuilding a separate sparse wrapper.
-        Ok(RetainedSlotRow::from_indexed_values(
-            retained_slot_layout,
-            Self::decode_indexed_slot_values(layout, expected_key, row, retained_slot_layout)?,
-        ))
     }
 
     pub(in crate::db::executor) fn decode_retained_slots_from_data_key(

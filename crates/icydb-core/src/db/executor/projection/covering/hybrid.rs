@@ -245,10 +245,9 @@ fn read_hybrid_projection_row_fields_from_store(
     let Some(raw_row) = data_store.get(&raw_key) else {
         return Ok(None);
     };
-    let storage_key = data_key.try_storage_key()?;
     if let [required_slot] = row_field_slots {
         let Some(value) =
-            row_layout.decode_required_value(&raw_row, storage_key, *required_slot)?
+            row_layout.decode_required_value_from_data_key(&raw_row, data_key, *required_slot)?
         else {
             return Err(InternalError::query_executor_invariant(
                 "hybrid projection sparse row decode expected declared direct field value",
@@ -260,7 +259,8 @@ fn read_hybrid_projection_row_fields_from_store(
         return Ok(Some(row_fields));
     }
 
-    let decoded = row_layout.decode_indexed_values(&raw_row, storage_key, row_field_slots)?;
+    let decoded =
+        row_layout.decode_indexed_values_from_data_key(&raw_row, data_key, row_field_slots)?;
 
     // Phase 4: rebuild the field-slot map expected by the hybrid projection
     // row shaper from the compact executor-owned selective decode result.
@@ -302,7 +302,7 @@ fn project_hybrid_covering_row(
                     "hybrid projection missing decoded covering component",
                 )?
             }
-            CoveringReadFieldSource::PrimaryKey => data_key.try_primary_key_runtime_value()?,
+            CoveringReadFieldSource::PrimaryKey => data_key.primary_key_runtime_value(),
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {
                 metrics.record_hybrid_row_field_access();

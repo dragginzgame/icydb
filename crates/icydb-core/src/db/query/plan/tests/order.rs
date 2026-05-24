@@ -311,3 +311,35 @@ fn deterministic_secondary_order_compatibility_classifies_suffix_and_none() {
     );
     assert!(!mismatch_compatibility.is_satisfied());
 }
+
+#[test]
+fn deterministic_secondary_order_contract_accepts_ordered_composite_primary_key_suffix() {
+    let order = OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("age", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("tenant_id", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("local_id", OrderDirection::Asc),
+        ],
+    };
+    let contract = order
+        .deterministic_secondary_order_contract_fields(&["tenant_id", "local_id"])
+        .expect("ordered composite primary-key suffix should be deterministic");
+
+    assert_eq!(contract.non_primary_key_terms(), ["age"]);
+    assert_eq!(contract.direction(), OrderDirection::Asc);
+    assert_eq!(
+        order.primary_key_only_direction_fields(&["tenant_id", "local_id"]),
+        None,
+    );
+
+    let pk_order = OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("tenant_id", OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("local_id", OrderDirection::Desc),
+        ],
+    };
+    assert_eq!(
+        pk_order.primary_key_only_direction_fields(&["tenant_id", "local_id"]),
+        Some(OrderDirection::Desc),
+    );
+}

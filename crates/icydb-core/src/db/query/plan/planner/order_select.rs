@@ -30,10 +30,10 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_for_generated_
         .then_some(order)
         .flatten()
         .and_then(OrderSpec::grouped_index_order_contract);
-    let scalar_order_contract = (!grouped)
-        .then_some(order)
-        .flatten()
-        .and_then(|order| order.deterministic_secondary_order_contract(model.primary_key.name));
+    let scalar_order_contract = (!grouped).then_some(order).flatten().and_then(|order| {
+        let primary_key_names = ordered_primary_key_names(model);
+        order.deterministic_secondary_order_contract_fields(primary_key_names.as_slice())
+    });
 
     for index_contract in candidate_indexes {
         let index_order_terms = index_key_item_order_terms(index_contract.key_items());
@@ -78,10 +78,10 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_with_accepted_
         .then_some(order)
         .flatten()
         .and_then(OrderSpec::grouped_index_order_contract);
-    let scalar_order_contract = (!grouped)
-        .then_some(order)
-        .flatten()
-        .and_then(|order| order.deterministic_secondary_order_contract(model.primary_key.name));
+    let scalar_order_contract = (!grouped).then_some(order).flatten().and_then(|order| {
+        let primary_key_names = ordered_primary_key_names(model);
+        order.deterministic_secondary_order_contract_fields(primary_key_names.as_slice())
+    });
 
     // Order-driven access fallback is only valid when the canonical ORDER BY
     // already carries one uniform-direction `..., primary_key` tie-break
@@ -147,6 +147,15 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_with_accepted_
     }
 
     None
+}
+
+fn ordered_primary_key_names(model: &EntityModel) -> Vec<&str> {
+    model
+        .primary_key_model()
+        .fields()
+        .iter()
+        .map(crate::model::field::FieldModel::name)
+        .collect()
 }
 
 fn whole_index_ordered_range_scan_from_contract(

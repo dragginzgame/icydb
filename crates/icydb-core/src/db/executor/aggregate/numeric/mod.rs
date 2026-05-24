@@ -13,7 +13,7 @@ mod tests;
 use crate::{
     db::{
         access::LoweredAccess,
-        data::{DataRow, RawRow},
+        data::{DataRow, DecodedDataStoreKey, RawRow},
         direction::Direction,
         executor::{
             PreparedAggregatePlan, PreparedExecutionPlan,
@@ -33,7 +33,7 @@ use crate::{
                 paged_primary_key_numeric_fold_shape_supported,
                 streaming_numeric_fold_shape_supported,
             },
-            terminal::{RowDecoder, RowLayout},
+            terminal::RowLayout,
         },
         numeric::{NumericEvalError, add_decimal_terms_checked, average_decimal_terms_checked},
         query::{
@@ -44,7 +44,7 @@ use crate::{
     error::InternalError,
     traits::{EntityKind, EntityValue},
     types::Decimal,
-    value::{StorageKey, Value},
+    value::Value,
 };
 
 impl ScalarNumericFieldBoundaryRequest {
@@ -175,7 +175,7 @@ where
         for (data_key, raw_row) in rows {
             accumulator.add(Self::decode_numeric_materialized_row_decimal(
                 row_layout,
-                data_key.try_storage_key()?,
+                &data_key,
                 &raw_row,
                 target_field,
                 field_slot,
@@ -313,15 +313,15 @@ where
     // field-target contract that the streaming fold path applies per row.
     fn decode_numeric_materialized_row_decimal(
         row_layout: &RowLayout,
-        storage_key: StorageKey,
+        data_key: &DecodedDataStoreKey,
         raw_row: &RawRow,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Decimal, InternalError> {
-        let value = RowDecoder::decode_required_slot_value(
+        let value = RowLayout::decode_required_value_from_data_key(
             row_layout,
-            storage_key,
             raw_row,
+            data_key,
             field_slot.index,
         )?;
         extract_numeric_field_decimal_from_decoded_slot(target_field, field_slot, value)

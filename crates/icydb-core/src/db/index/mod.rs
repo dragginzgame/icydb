@@ -26,7 +26,11 @@ pub(in crate::db) use key::{
     EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey, derive_index_expression_value,
     encode_canonical_index_component_from_primary_key_value,
 };
-pub(in crate::db) use pk_equivalence::{PrimaryKeyEquivalenceError, primary_key_matches_value};
+#[cfg(test)]
+pub(in crate::db) use pk_equivalence::primary_key_matches_value;
+pub(in crate::db) use pk_equivalence::{
+    PrimaryKeyEquivalenceError, primary_key_matches_primary_key_value,
+};
 pub(in crate::db) use plan::{
     IndexDelta, IndexDeltaGroup, IndexMembershipDelta, IndexMutationPlan, IndexPlanReadView,
     plan_index_mutation_for_slot_reader_structural,

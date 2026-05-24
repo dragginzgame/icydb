@@ -211,12 +211,19 @@ fn canonicalize_order_spec_with_primary_key_tie_break(
         return Some(order);
     }
 
-    let pk = model.primary_key.name;
-
+    let primary_key_names: Vec<&str> = model
+        .primary_key_model()
+        .fields()
+        .iter()
+        .map(crate::model::field::FieldModel::name)
+        .collect();
     let mut pk_direction = None;
 
     order.fields.retain(|term| {
-        if term.direct_field() == Some(pk) {
+        if term
+            .direct_field()
+            .is_some_and(|field| primary_key_names.contains(&field))
+        {
             pk_direction.get_or_insert_with(|| term.direction());
             false
         } else {
@@ -224,10 +231,12 @@ fn canonicalize_order_spec_with_primary_key_tie_break(
         }
     });
 
-    order.fields.push(crate::db::query::plan::OrderTerm::field(
-        pk,
-        pk_direction.unwrap_or(OrderDirection::Asc),
-    ));
+    let direction = pk_direction.unwrap_or(OrderDirection::Asc);
+    order.fields.extend(
+        primary_key_names
+            .into_iter()
+            .map(|field| crate::db::query::plan::OrderTerm::field(field, direction)),
+    );
 
     Some(order)
 }

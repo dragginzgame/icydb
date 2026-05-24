@@ -7,12 +7,13 @@
 use crate::{
     db::{
         data::DecodedDataStoreKey,
+        key_taxonomy::PrimaryKeyValue,
         query::plan::{AggregateKind, FieldSlot, expr::Expr},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue, KeyValueCodec},
     types::Id,
-    value::{StorageKey, Value, storage_key_as_runtime_value},
+    value::Value,
 };
 
 /// Typed optional `(min_id, max_id)` style aggregate terminal output.
@@ -56,11 +57,15 @@ pub(in crate::db) enum ScalarTerminalBoundaryRequest {
 /// concrete IDs and counters without depending on executor internals.
 ///
 
+#[expect(
+    clippy::large_enum_variant,
+    reason = "aggregate boundary keeps primary-key values inline to avoid heap allocation in terminal output plumbing"
+)]
 pub(in crate::db) enum ScalarTerminalBoundaryOutput {
     Count(u32),
     Exists(bool),
-    Id(Option<StorageKey>),
-    IdPair(Option<(StorageKey, StorageKey)>),
+    Id(Option<PrimaryKeyValue>),
+    IdPair(Option<(PrimaryKeyValue, PrimaryKeyValue)>),
 }
 
 impl ScalarTerminalBoundaryOutput {
@@ -95,7 +100,9 @@ impl ScalarTerminalBoundaryOutput {
         E: EntityKind + EntityValue,
     {
         match self {
-            Self::Id(value) => value.map(decode_primary_key_value_to_id::<E>).transpose(),
+            Self::Id(value) => value
+                .map(|key| decode_primary_key_value_to_id::<E>(&key))
+                .transpose(),
             _ => Err(Self::output_kind_mismatch(
                 "scalar terminal boundary id output kind mismatch",
             )),
@@ -111,8 +118,8 @@ impl ScalarTerminalBoundaryOutput {
             Self::IdPair(value) => value
                 .map(|(left, right)| {
                     Ok((
-                        decode_primary_key_value_to_id::<E>(left)?,
-                        decode_primary_key_value_to_id::<E>(right)?,
+                        decode_primary_key_value_to_id::<E>(&left)?,
+                        decode_primary_key_value_to_id::<E>(&right)?,
                     ))
                 })
                 .transpose(),
@@ -124,11 +131,11 @@ impl ScalarTerminalBoundaryOutput {
 }
 
 // Re-enter typed identity only at the terminal API boundary.
-fn decode_primary_key_value_to_id<E>(key: StorageKey) -> Result<Id<E>, InternalError>
+fn decode_primary_key_value_to_id<E>(key: &PrimaryKeyValue) -> Result<Id<E>, InternalError>
 where
     E: EntityKind + EntityValue,
 {
-    let value = storage_key_as_runtime_value(&key);
+    let value = key.as_runtime_value();
     let decoded = <E::Key as KeyValueCodec>::from_key_value(&value).ok_or_else(|| {
         InternalError::store_corruption(format!(
             "scalar aggregate output primary key decode failed: {value:?}"

@@ -259,7 +259,7 @@ fn validate_cursor_boundary_anchor_invariants<K: KeyValueCodec, S: CursorPlanSur
         require_index_range_anchor,
     )?;
 
-    let pk_key = validate_cursor_boundary_for_order::<K>(
+    let pk_key = validate_cursor_boundary_for_order(
         surface.entity_model(),
         surface.schema_info(),
         surface.order_spec(),
@@ -268,7 +268,7 @@ fn validate_cursor_boundary_anchor_invariants<K: KeyValueCodec, S: CursorPlanSur
     validate_index_range_boundary_anchor_consistency(
         validated_index_range_anchor.as_ref(),
         surface.access(),
-        pk_key,
+        &pk_key,
     )?;
 
     Ok(validated_index_range_anchor)

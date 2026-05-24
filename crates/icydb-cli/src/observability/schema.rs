@@ -17,7 +17,7 @@ use crate::{
 };
 
 use super::{
-    call_query,
+    call_query, endpoint_result_error,
     render::{render_field_list, yes_no},
 };
 
@@ -36,11 +36,7 @@ pub(super) fn run_schema_show_command(target: CanisterTarget) -> Result<(), Stri
         SCHEMA_ENDPOINT.method(),
         "()",
     )?;
-    let response = Decode!(
-        candid_bytes.as_slice(),
-        Result<Vec<icydb::db::EntitySchemaDescription>, icydb::Error>
-    )
-    .map_err(|err| err.to_string())?;
+    let response = decode_schema_report(candid_bytes.as_slice())?;
 
     match response {
         Ok(report) => {
@@ -48,13 +44,23 @@ pub(super) fn run_schema_show_command(target: CanisterTarget) -> Result<(), Stri
 
             Ok(())
         }
-        Err(err) => Err(format!(
-            "IcyDB schema method '{}' failed on canister '{}' in environment '{}': {err}",
+        Err(err) => Err(endpoint_result_error(
+            "schema",
+            &target,
             SCHEMA_ENDPOINT.method(),
-            target.canister_name(),
-            target.environment(),
+            err,
         )),
     }
+}
+
+pub(super) fn decode_schema_report(
+    candid_bytes: &[u8],
+) -> Result<Result<Vec<icydb::db::EntitySchemaDescription>, icydb::Error>, String> {
+    Decode!(
+        candid_bytes,
+        Result<Vec<icydb::db::EntitySchemaDescription>, icydb::Error>
+    )
+    .map_err(|err| err.to_string())
 }
 
 pub(super) fn render_schema_report(report: &[EntitySchemaDescription]) -> String {
@@ -252,15 +258,6 @@ fn append_schema_table<const N: usize>(
 ) {
     output.push_str(title);
     output.push('\n');
-    append_schema_table_body(output, headers, rows, alignments);
-}
-
-fn append_schema_table_body<const N: usize>(
-    output: &mut String,
-    headers: &[&str; N],
-    rows: &[[String; N]],
-    alignments: &[ColumnAlign; N],
-) {
     if rows.is_empty() {
         output.push_str("  None\n");
         return;

@@ -16,7 +16,7 @@ use crate::{
     types::EntityTag,
     value::{
         StorageKey, StorageKeyDecodeError, StorageKeyEncodeError, Value,
-        storage_key_as_runtime_value, storage_key_from_runtime_value,
+        storage_key_from_runtime_value,
     },
 };
 use canic_cdk::structures::storable::Bound as StorableBound;
@@ -235,10 +235,8 @@ impl DecodedDataStoreKey {
         scalar_storage_key_from_primary_key_value(&self.key)
     }
 
-    pub(in crate::db) fn try_primary_key_runtime_value(&self) -> Result<Value, InternalError> {
-        let key = self.try_storage_key()?;
-
-        Ok(storage_key_as_runtime_value(&key))
+    pub(in crate::db) fn primary_key_runtime_value(&self) -> Value {
+        self.key.as_runtime_value()
     }
 
     /// Compute the maximum on-disk entry size from value length.
@@ -379,7 +377,7 @@ fn scalar_storage_key_from_primary_key_value(
     })
 }
 
-fn primary_key_value_from_structural_value(
+pub(in crate::db) fn primary_key_value_from_structural_value(
     value: &Value,
 ) -> Result<PrimaryKeyValue, InternalError> {
     match value {
@@ -756,13 +754,16 @@ mod tests {
     }
 
     #[test]
-    fn data_key_primary_key_runtime_value_rejects_composite_primary_key() {
-        let err = composite_data_key_fixture()
-            .try_primary_key_runtime_value()
-            .expect_err("composite key cannot be projected through scalar runtime values yet");
+    fn data_key_primary_key_runtime_value_projects_composite_primary_key() {
+        let value = composite_data_key_fixture().primary_key_runtime_value();
 
-        assert_eq!(err.class(), ErrorClass::Unsupported);
-        assert_eq!(err.origin(), ErrorOrigin::Store);
+        assert_eq!(
+            value,
+            Value::List(vec![
+                Value::Nat(7),
+                Value::Principal(Principal::from_slice(&[1, 2, 3])),
+            ]),
+        );
     }
 
     #[test]

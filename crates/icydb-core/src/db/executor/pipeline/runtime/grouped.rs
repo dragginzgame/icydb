@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::{DecodedDataStoreKey, RawRow, StorageKey},
+        data::{DecodedDataStoreKey, RawRow},
         executor::{
             ExecutionOptimization, ExecutionPreparation,
             aggregate::field::{
@@ -378,16 +378,13 @@ impl StructuralGroupedRowRuntime {
         row: RawRow,
     ) -> Result<RowView, InternalError> {
         match self.row_decode_path() {
-            GroupedRowDecodePath::Single(single_grouped_slot_decode) => self
-                .single_slot_row_view_from_data_row(
-                    key.try_storage_key()?,
-                    row,
-                    single_grouped_slot_decode,
-                ),
+            GroupedRowDecodePath::Single(single_grouped_slot_decode) => {
+                self.single_slot_row_view_from_data_row(key, row, single_grouped_slot_decode)
+            }
             GroupedRowDecodePath::Indexed => {
-                let retained_slots = RowDecoder::decode_retained_slots(
+                let retained_slots = RowDecoder::decode_retained_slots_from_data_key(
                     &self.row_layout,
-                    key.try_storage_key()?,
+                    key,
                     &row,
                     &self.grouped_slot_layout,
                 )?;
@@ -401,12 +398,12 @@ impl StructuralGroupedRowRuntime {
     // allocating the shared indexed row-view wrapper.
     fn single_slot_row_view_from_data_row(
         &self,
-        expected_key: StorageKey,
+        key: &DecodedDataStoreKey,
         row: RawRow,
         single_grouped_slot_decode: &SingleGroupedSlotDecode,
     ) -> Result<RowView, InternalError> {
         let value = self.decode_single_grouped_slot_value_from_raw_row(
-            expected_key,
+            key,
             &row,
             single_grouped_slot_decode,
         )?;
@@ -429,14 +426,14 @@ impl StructuralGroupedRowRuntime {
     // share the same data-layer sparse required-slot decoder.
     fn decode_single_grouped_slot_value_from_raw_row(
         &self,
-        expected_key: StorageKey,
+        key: &DecodedDataStoreKey,
         row: &RawRow,
         single_grouped_slot_decode: &SingleGroupedSlotDecode,
     ) -> Result<Option<Value>, InternalError> {
-        RowDecoder::decode_required_slot_value(
+        RowLayout::decode_required_value_from_data_key(
             &self.row_layout,
-            expected_key,
             row,
+            key,
             single_grouped_slot_decode.slot,
         )
     }
@@ -496,7 +493,7 @@ impl StructuralGroupedRowRuntime {
             self.matching_single_grouped_slot_decode(required_slot)
         {
             return self.decode_single_grouped_slot_value_from_raw_row(
-                key.try_storage_key()?,
+                key,
                 &row,
                 single_grouped_slot_decode,
             );

@@ -14,7 +14,7 @@ use crate::{
 use candid::Decode;
 
 use self::{analysis::analyze_schema_check, render::render_schema_check_report_from_summary};
-use super::call_query;
+use super::{call_query, endpoint_result_error};
 
 /// Read and print the generated-vs-accepted schema check endpoint.
 pub(super) fn run_schema_check_command(target: CanisterTarget) -> Result<(), String> {
@@ -26,11 +26,7 @@ pub(super) fn run_schema_check_command(target: CanisterTarget) -> Result<(), Str
         SCHEMA_CHECK_ENDPOINT.method(),
         "()",
     )?;
-    let response = Decode!(
-        candid_bytes.as_slice(),
-        Result<Vec<icydb::db::EntitySchemaCheckDescription>, icydb::Error>
-    )
-    .map_err(|err| err.to_string())?;
+    let response = decode_schema_check_report(candid_bytes.as_slice())?;
 
     match response {
         Ok(report) => {
@@ -47,13 +43,23 @@ pub(super) fn run_schema_check_command(target: CanisterTarget) -> Result<(), Str
                 ))
             }
         }
-        Err(err) => Err(format!(
-            "IcyDB schema check method '{}' failed on canister '{}' in environment '{}': {err}",
+        Err(err) => Err(endpoint_result_error(
+            "schema check",
+            &target,
             SCHEMA_CHECK_ENDPOINT.method(),
-            target.canister_name(),
-            target.environment(),
+            err,
         )),
     }
+}
+
+pub(super) fn decode_schema_check_report(
+    candid_bytes: &[u8],
+) -> Result<Result<Vec<icydb::db::EntitySchemaCheckDescription>, icydb::Error>, String> {
+    Decode!(
+        candid_bytes,
+        Result<Vec<icydb::db::EntitySchemaCheckDescription>, icydb::Error>
+    )
+    .map_err(|err| err.to_string())
 }
 
 #[cfg(test)]

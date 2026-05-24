@@ -20,27 +20,34 @@ use crate::{
         CanisterCommand, CliArgs, CliCommand, ConfigCommand, DEFAULT_ENVIRONMENT, SchemaCommand,
     },
     config::{
-        FIXTURES_LOAD_ENDPOINT, METRICS_ENDPOINT, METRICS_RESET_ENDPOINT, SCHEMA_CHECK_ENDPOINT,
-        SCHEMA_ENDPOINT, SNAPSHOT_ENDPOINT, SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, init_config,
+        ConfigSurface, FIXTURES_LOAD_ENDPOINT, METRICS_ENDPOINT, METRICS_RESET_ENDPOINT,
+        SCHEMA_CHECK_ENDPOINT, SCHEMA_ENDPOINT, SNAPSHOT_ENDPOINT, SQL_DDL_ENDPOINT,
+        SQL_QUERY_ENDPOINT, init_config,
         test_support::{
-            ConfigSurface, config_surface_enabled_for_resolved, config_sync_issues,
+            config_surface_enabled_for_resolved, config_sync_issues,
             configured_endpoint_enabled_for_resolved, disabled_config_surface_message,
             render_config_report,
         },
     },
     icp::test_support::{
+        build_command, canister_status_check_command, canister_status_id_command, deploy_command,
         fixtures_load_command, hex_response_bytes, icp_query_command, icp_update_command,
+        install_upgrade_command, parse_manifest_canisters, status_command,
+        unreachable_network_hint,
     },
     observability::test_support::{
-        metrics_candid_arg, render_metrics_report, render_schema_check_report,
-        render_schema_report, render_snapshot_report,
+        canister_call_error, decode_metrics_report, decode_metrics_reset_response,
+        decode_schema_check_report, decode_schema_report, decode_snapshot_report, method_error,
+        metrics_candid_arg, render_field_list, render_metrics_report, render_schema_check_report,
+        render_schema_report, render_snapshot_report, yes_no,
     },
     shell::test_support::{
-        SqlShellCallKind, drain_complete_shell_statements, finalize_successful_command_output,
-        is_shell_help_command, normalize_grouped_next_cursor_json, normalize_shell_statement_line,
-        parse_perf_result, render_grouped_shell_text, render_perf_suffix,
-        render_projection_shell_text, shell_help_text, shell_perf_attribution, sql_config_parts,
-        sql_error_with_recovery_hint, sql_shell_call_kind,
+        SqlShellCallKind, candid_escape_string, drain_complete_shell_statements,
+        finalize_successful_command_output, interactive_start_message, is_shell_help_command,
+        normalize_grouped_next_cursor_json, normalize_shell_statement_line, parse_perf_result,
+        render_grouped_shell_text, render_perf_suffix, render_projection_shell_text,
+        shell_help_text, shell_perf_attribution, sql_config_parts, sql_error_with_recovery_hint,
+        sql_shell_call_kind,
     },
 };
 
@@ -71,6 +78,33 @@ fn parse_perf_result_accepts_candid_option_none_for_grouped_next_cursor() {
     };
 
     assert_eq!(grouped.next_cursor, None);
+}
+
+#[test]
+fn parse_perf_result_defaults_optional_instruction_fields() {
+    let value = json!({
+        "result": {
+            "Projection": {
+                "entity": "Character",
+                "columns": ["name"],
+                "rows": [["Ada"]],
+                "row_count": 1
+            }
+        },
+        "instructions": "3",
+        "planner_instructions": "1",
+        "executor_instructions": "1",
+        "compiler_instructions": "1"
+    });
+
+    let (_, attribution) =
+        parse_perf_result(&value).expect("perf result should decode without optional fields");
+
+    assert_eq!(
+        render_perf_suffix(Some(&attribution)),
+        Some("3i [ccccpppeee]".to_string()),
+        "missing optional instruction fields should default to zero",
+    );
 }
 
 #[test]
@@ -264,6 +298,21 @@ fn drain_complete_shell_statements_preserves_semicolons_inside_strings() {
 }
 
 #[test]
+fn drain_complete_shell_statements_preserves_semicolons_after_escaped_quote() {
+    let mut statement = String::from("SELECT 'it\\'s; ok' AS marker;\nSELECT 2;");
+    let drained = drain_complete_shell_statements(&mut statement);
+
+    assert_eq!(
+        drained.into_iter().collect::<Vec<_>>(),
+        vec![
+            "SELECT 'it\\'s; ok' AS marker;".to_string(),
+            "SELECT 2;".to_string()
+        ],
+    );
+    assert!(statement.is_empty());
+}
+
+#[test]
 fn drain_complete_shell_statements_keeps_incomplete_remainder() {
     let mut statement = String::from("SELECT 1;\nSELECT");
     let drained = drain_complete_shell_statements(&mut statement);
@@ -294,6 +343,15 @@ fn shell_help_text_mentions_current_perf_legend() {
     assert!(help.contains("SHOW INDEXES FROM character;"));
     assert!(help.contains("DESCRIBE character;"));
     assert!(help.contains("DROP INDEX character_level_idx ON character;"));
+}
+
+#[test]
+fn interactive_start_message_names_target_and_exit_controls() {
+    let message = interactive_start_message("test", "demo_rpg");
+
+    assert!(message.contains("'test:demo_rpg'"));
+    assert!(message.contains("terminate statements with ';'"));
+    assert!(message.contains("\\q, exit, or Ctrl-D"));
 }
 
 #[test]
@@ -575,6 +633,56 @@ fn cli_args_group_canister_list_under_canister_keyword() {
     };
 
     assert_eq!(target.environment(), "test");
+}
+
+#[test]
+fn manifest_canister_fallback_matches_environment_names_exactly() {
+    let manifest = r"
+environments:
+  - name: demo-extra
+    canisters: [wrong]
+  - name: demo
+    canisters: [demo_rpg, minimal]
+";
+
+    assert_eq!(
+        parse_manifest_canisters(manifest, "demo"),
+        vec!["demo_rpg".to_string(), "minimal".to_string()],
+    );
+}
+
+#[test]
+fn manifest_canister_fallback_accepts_quoted_inline_names() {
+    let manifest = r#"
+environments:
+  - name: test
+    canisters: ["ten_complex", 'one_simple']
+"#;
+
+    assert_eq!(
+        parse_manifest_canisters(manifest, "test"),
+        vec!["one_simple".to_string(), "ten_complex".to_string()],
+    );
+}
+
+#[test]
+fn manifest_canister_fallback_accepts_quoted_environment_names() {
+    let manifest = r#"
+environments:
+  - name: "test"
+    canisters: [test_sql]
+  - name: 'demo'
+    canisters: [demo_rpg]
+"#;
+
+    assert_eq!(
+        parse_manifest_canisters(manifest, "demo"),
+        vec!["demo_rpg".to_string()],
+    );
+    assert_eq!(
+        parse_manifest_canisters(manifest, "test"),
+        vec!["test_sql".to_string()],
+    );
 }
 
 #[test]
@@ -899,6 +1007,43 @@ fn cli_args_group_canister_refresh_under_canister_keyword() {
 }
 
 #[test]
+fn cli_args_group_canister_deploy_under_canister_keyword() {
+    let args = CliArgs::try_parse_from(["icydb", "canister", "deploy", "demo", "-e", "test"])
+        .expect("canister deploy should parse");
+    let CliCommand::Canister(CanisterCommand::Deploy(target)) = args.into_command() else {
+        panic!("expected canister deploy command");
+    };
+
+    assert_eq!(target.canister_name(), "demo");
+    assert_eq!(target.environment(), "test");
+}
+
+#[test]
+fn cli_args_group_canister_upgrade_under_canister_keyword() {
+    let args = CliArgs::try_parse_from([
+        "icydb",
+        "canister",
+        "upgrade",
+        "demo",
+        "-e",
+        "test",
+        "--wasm",
+        ".icp/local/canisters/demo/demo.wasm",
+    ])
+    .expect("canister upgrade should parse");
+    let CliCommand::Canister(CanisterCommand::Upgrade(args)) = args.into_command() else {
+        panic!("expected canister upgrade command");
+    };
+
+    assert_eq!(args.target().canister_name(), "demo");
+    assert_eq!(args.target().environment(), "test");
+    assert_eq!(
+        args.wasm(),
+        Some(Path::new(".icp/local/canisters/demo/demo.wasm")),
+    );
+}
+
+#[test]
 fn icp_query_command_targets_environment_and_hex_query_output() {
     let command = icp_query_command(
         "demo",
@@ -945,6 +1090,99 @@ fn configured_endpoint_methods_match_generated_endpoint_names() {
 fn metrics_candid_arg_renders_optional_window() {
     assert_eq!(metrics_candid_arg(None), "(null)");
     assert_eq!(metrics_candid_arg(Some(123)), "(opt (123 : nat64))");
+}
+
+#[test]
+fn decode_metrics_report_accepts_generated_response_shape() {
+    let response: Result<icydb::metrics::EventReport, icydb::Error> =
+        Ok(icydb::metrics::EventReport::default());
+    let candid_bytes = Encode!(&response).expect("metrics response should encode");
+    let decoded = decode_metrics_report(candid_bytes.as_slice())
+        .expect("metrics response should decode")
+        .expect("metrics response should be ok");
+
+    assert_eq!(decoded.entity_counters().len(), 0);
+    assert_eq!(decoded.requested_window_start_ms(), None);
+}
+
+#[test]
+fn decode_metrics_reset_response_accepts_generated_response_shape() {
+    let response: Result<(), icydb::Error> = Ok(());
+    let candid_bytes = Encode!(&response).expect("metrics reset response should encode");
+
+    decode_metrics_reset_response(candid_bytes.as_slice())
+        .expect("metrics reset response should decode")
+        .expect("metrics reset response should be ok");
+}
+
+#[test]
+fn decode_snapshot_report_accepts_generated_response_shape() {
+    let response: Result<icydb::db::StorageReport, icydb::Error> =
+        Ok(icydb::db::StorageReport::default());
+    let candid_bytes = Encode!(&response).expect("snapshot response should encode");
+    let decoded = decode_snapshot_report(candid_bytes.as_slice())
+        .expect("snapshot response should decode")
+        .expect("snapshot response should be ok");
+
+    assert_eq!(decoded.storage_data().len(), 0);
+    assert_eq!(decoded.storage_index().len(), 0);
+}
+
+#[test]
+fn decode_schema_report_accepts_generated_response_shape() {
+    let response: Result<Vec<EntitySchemaDescription>, icydb::Error> = Ok(Vec::new());
+    let candid_bytes = Encode!(&response).expect("schema response should encode");
+    let decoded = decode_schema_report(candid_bytes.as_slice())
+        .expect("schema response should decode")
+        .expect("schema response should be ok");
+
+    assert_eq!(decoded.len(), 0);
+}
+
+#[test]
+fn decode_schema_check_report_accepts_generated_response_shape() {
+    let response: Result<Vec<EntitySchemaCheckDescription>, icydb::Error> = Ok(Vec::new());
+    let candid_bytes = Encode!(&response).expect("schema check response should encode");
+    let decoded = decode_schema_check_report(candid_bytes.as_slice())
+        .expect("schema check response should decode")
+        .expect("schema check response should be ok");
+
+    assert_eq!(decoded.len(), 0);
+}
+
+#[test]
+fn observability_render_helpers_format_common_values() {
+    assert_eq!(render_field_list(&[]), "-");
+    assert_eq!(
+        render_field_list(&["id".to_string(), "tenant".to_string()]),
+        "id, tenant",
+    );
+    assert_eq!(yes_no(true), "yes");
+    assert_eq!(yes_no(false), "no");
+}
+
+#[test]
+fn observability_call_errors_include_call_target_context() {
+    assert_eq!(
+        canister_call_error(
+            "query",
+            "demo",
+            "demo_rpg",
+            "__icydb_schema",
+            "method not found",
+        ),
+        "IcyDB query method '__icydb_schema' failed on canister 'demo_rpg' in environment 'demo': method not found",
+    );
+    assert_eq!(
+        method_error(
+            "schema check",
+            "demo",
+            "demo_rpg",
+            "__icydb_schema_check",
+            "schema drift",
+        ),
+        "IcyDB schema check method '__icydb_schema_check' failed on canister 'demo_rpg' in environment 'demo': schema drift",
+    );
 }
 
 #[test]
@@ -1193,6 +1431,19 @@ fn schema_check_report_renders_generated_accepted_drift() {
         "action: add DDL-owned fields to Rust schema only when an explicit adoption flow exists"
     ));
     assert!(text.contains("ok: DDL-owned accepted indexes remain planner-visible catalog drift"));
+}
+
+#[test]
+fn schema_check_report_renders_empty_report_sections() {
+    let text = render_schema_check_report(&[]);
+
+    assert!(text.contains("IcyDB schema check"));
+    assert!(text.contains("status: ok"));
+    assert!(text.contains("entities: 0"));
+    assert!(text.contains("entities\n  None"));
+    assert!(text.contains("accepted drift\n  None"));
+    assert!(text.contains("mismatches\n  None"));
+    assert!(text.contains("recommendations\n  ok: generated and accepted schema are aligned"));
 }
 
 #[test]
@@ -1476,6 +1727,46 @@ fn schema_check_report_recommends_explicit_flows_for_generated_index_drift() {
 }
 
 #[test]
+fn schema_check_report_treats_generated_index_origin_drift_as_mismatch() {
+    let generated = EntitySchemaDescription::new(
+        "demo::Character".to_string(),
+        "Character".to_string(),
+        "id".to_string(),
+        Vec::new(),
+        vec![EntityIndexDescription::new(
+            "idx_character__name".to_string(),
+            false,
+            vec!["name".to_string()],
+            "ddl".to_string(),
+        )],
+        Vec::new(),
+    );
+    let accepted = EntitySchemaDescription::new(
+        "demo::Character".to_string(),
+        "Character".to_string(),
+        "id".to_string(),
+        Vec::new(),
+        vec![EntityIndexDescription::new(
+            "idx_character__name".to_string(),
+            false,
+            vec!["name".to_string()],
+            "generated".to_string(),
+        )],
+        Vec::new(),
+    );
+
+    let text =
+        render_schema_check_report(&[EntitySchemaCheckDescription::new(generated, accepted)]);
+
+    assert!(text.contains("status: mismatch"));
+    assert!(text.contains("idx_character__name:name:no:ddl"));
+    assert!(text.contains("idx_character__name:name:no:generated"));
+    assert!(text.contains(
+        "fix: index contract drift requires explicit index replacement, not same-name mutation"
+    ));
+}
+
+#[test]
 fn schema_check_report_renders_readable_default_mismatch() {
     let generated = EntitySchemaDescription::new(
         "demo::Character".to_string(),
@@ -1582,6 +1873,110 @@ fn fixtures_load_command_targets_fixed_generated_endpoint() {
 }
 
 #[test]
+fn install_upgrade_command_preserves_stable_memory() {
+    let command = install_upgrade_command(
+        "demo",
+        "demo_rpg",
+        Path::new(".icp/local/canisters/demo_rpg/demo_rpg.wasm").to_path_buf(),
+    );
+    let args = command
+        .get_args()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+
+    assert_eq!(command.get_program().to_string_lossy(), "icp");
+    assert_eq!(
+        args,
+        vec![
+            "canister",
+            "install",
+            "demo_rpg",
+            "--mode",
+            "upgrade",
+            "--wasm",
+            ".icp/local/canisters/demo_rpg/demo_rpg.wasm",
+            "--environment",
+            "demo",
+        ],
+    );
+}
+
+#[test]
+fn lifecycle_commands_target_selected_environment() {
+    for (command, expected) in [
+        (
+            deploy_command("demo", "demo_rpg"),
+            vec!["deploy", "demo_rpg", "--environment", "demo"],
+        ),
+        (
+            build_command("demo", "demo_rpg"),
+            vec!["build", "demo_rpg", "--environment", "demo"],
+        ),
+        (
+            status_command("demo", "demo_rpg"),
+            vec!["canister", "status", "demo_rpg", "--environment", "demo"],
+        ),
+    ] {
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(command.get_program().to_string_lossy(), "icp");
+        assert_eq!(args, expected);
+    }
+}
+
+#[test]
+fn canister_status_probe_commands_target_selected_environment() {
+    for (command, expected) in [
+        (
+            canister_status_check_command("demo", "demo_rpg"),
+            vec!["canister", "status", "demo_rpg", "--environment", "demo"],
+        ),
+        (
+            canister_status_id_command("demo", "demo_rpg"),
+            vec![
+                "canister",
+                "status",
+                "demo_rpg",
+                "--id-only",
+                "--environment",
+                "demo",
+            ],
+        ),
+    ] {
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(command.get_program().to_string_lossy(), "icp");
+        assert_eq!(args, expected);
+    }
+}
+
+#[test]
+fn unreachable_network_hint_recognizes_local_icp_connection_failures() {
+    for message in [
+        "connection refused while calling local replica",
+        "failed to connect to local network",
+        "PocketIC transport is unavailable",
+        "network is not running",
+    ] {
+        assert!(
+            unreachable_network_hint(message).is_some(),
+            "local ICP network failure should produce guidance: {message}",
+        );
+    }
+
+    assert!(
+        unreachable_network_hint("canister demo_rpg not found").is_none(),
+        "ordinary canister lifecycle errors should not be reported as network reachability",
+    );
+}
+
+#[test]
 fn sql_recovery_hint_points_stale_canister_to_targeted_refresh() {
     let message = sql_error_with_recovery_hint(
         "Canister has no query method '__icydb_query'.",
@@ -1606,6 +2001,14 @@ fn sql_recovery_hint_leaves_unrelated_errors_unchanged() {
 }
 
 #[test]
+fn candid_escape_string_escapes_sql_for_wire_arg() {
+    assert_eq!(
+        candid_escape_string("SELECT \"name\\path\"\nFROM Character\tWHERE note = 'a\rb'"),
+        "SELECT \\\"name\\\\path\\\"\\nFROM Character\\tWHERE note = 'a\\rb'",
+    );
+}
+
+#[test]
 fn sql_shell_call_kind_routes_supported_ddl_to_update_method() {
     for sql in [
         "CREATE INDEX name_idx ON Character (name);",
@@ -1625,7 +2028,13 @@ fn sql_shell_call_kind_routes_supported_ddl_to_update_method() {
         );
     }
 
-    for sql in ["SELECT * FROM Character", "SHOW INDEXES FROM Character"] {
+    for sql in [
+        "SELECT * FROM Character",
+        "SHOW INDEXES FROM Character",
+        "INSERT INTO Character (id, name) VALUES (1, 'Ada')",
+        "UPDATE Character SET name = 'Ada' WHERE id = 1",
+        "DELETE FROM Character WHERE id = 1",
+    ] {
         assert_eq!(
             sql_shell_call_kind(sql).expect("SQL should parse"),
             SqlShellCallKind::Query,
@@ -1700,6 +2109,16 @@ fn hex_response_bytes_accepts_plain_or_labeled_icp_hex_output() {
 }
 
 #[test]
+fn hex_response_bytes_rejects_malformed_icp_hex_output() {
+    for output in ["", "response (hex):", "123", "12 zz"] {
+        assert!(
+            hex_response_bytes(output).is_err(),
+            "malformed hex output should fail: {output:?}",
+        );
+    }
+}
+
+#[test]
 fn projection_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
     let rendered = render_projection_shell_text(
         SqlQueryRowsOutput {
@@ -1714,6 +2133,28 @@ fn projection_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
     assert!(
         rendered.ends_with("1 row,"),
         "projection shell output should leave footer formatting to the command boundary: {rendered:?}",
+    );
+}
+
+#[test]
+fn projection_shell_text_renders_null_cells_as_sql_null() {
+    let rendered = render_projection_shell_text(
+        SqlQueryRowsOutput {
+            entity: "Character".to_string(),
+            columns: vec!["nickname".to_string()],
+            rows: vec![vec!["null".to_string()]],
+            row_count: 1,
+        },
+        None,
+    );
+
+    assert!(
+        rendered.contains("NULL"),
+        "projection shell output should render SQL NULL in uppercase: {rendered:?}",
+    );
+    assert!(
+        !rendered.contains("null"),
+        "projection shell output should not leak lowercase transport null cells: {rendered:?}",
     );
 }
 
@@ -1733,5 +2174,28 @@ fn grouped_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
     assert!(
         rendered.ends_with("1 row,"),
         "grouped shell output should leave footer formatting to the command boundary: {rendered:?}",
+    );
+}
+
+#[test]
+fn grouped_shell_text_renders_null_cells_as_sql_null() {
+    let rendered = render_grouped_shell_text(
+        SqlGroupedRowsOutput {
+            entity: "Character".to_string(),
+            columns: vec!["class_name".to_string(), "COUNT(*)".to_string()],
+            rows: vec![vec!["null".to_string(), "5".to_string()]],
+            row_count: 1,
+            next_cursor: None,
+        },
+        None,
+    );
+
+    assert!(
+        rendered.contains("NULL"),
+        "grouped shell output should render SQL NULL in uppercase: {rendered:?}",
+    );
+    assert!(
+        !rendered.contains("null"),
+        "grouped shell output should not leak lowercase transport null cells: {rendered:?}",
     );
 }

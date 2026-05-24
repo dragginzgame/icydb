@@ -15,7 +15,7 @@ use crate::{
     },
     traits::Storable,
     types::{Decimal, EntityTag, Float32, Float64, Int, Principal},
-    value::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError, Value, ValueEnum},
+    value::{StorageKey, Value, ValueEnum},
 };
 use std::{borrow::Cow, cmp::Ordering, mem::size_of, ops::Bound as RangeBound};
 
@@ -66,7 +66,7 @@ fn make_pk(byte: u8) -> Vec<u8> {
 }
 
 fn compact_pk(key: StorageKey) -> Vec<u8> {
-    IndexKey::compact_primary_key_bytes(key)
+    IndexKey::compact_primary_key_value_bytes(&PrimaryKeyValue::from(key))
 }
 
 fn next_random_u64(state: &mut u64) -> u64 {
@@ -1020,7 +1020,7 @@ fn index_key_primary_key_equivalence_fails_closed_on_corrupted_anchor_payload() 
     assert!(matches!(
         err,
         PrimaryKeyEquivalenceError::AnchorDecode {
-            source: StorageKeyDecodeError::InvalidTag
+            source: crate::db::key_taxonomy::CompactPrimaryKeyDecodeError::UnknownKind { .. }
         }
     ));
 }
@@ -1039,9 +1039,7 @@ fn index_key_primary_key_equivalence_rejects_non_storage_key_boundary_values() {
         .expect_err("non-storage-key boundary values must fail closed");
     assert!(matches!(
         err,
-        PrimaryKeyEquivalenceError::BoundaryEncode {
-            source: StorageKeyEncodeError::UnsupportedValueKind { kind: "Text" }
-        }
+        PrimaryKeyEquivalenceError::BoundaryDecode { .. }
     ));
 }
 
@@ -1114,7 +1112,7 @@ fn index_key_partial_truncation_cases_fail_closed() {
     assert!(matches!(
         missing_pk_err,
         PrimaryKeyEquivalenceError::AnchorDecode {
-            source: StorageKeyDecodeError::InvalidSize
+            source: crate::db::key_taxonomy::CompactPrimaryKeyDecodeError::InvalidLength { .. }
         }
     ));
 

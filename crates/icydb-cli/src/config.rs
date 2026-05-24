@@ -48,7 +48,7 @@ const CHECKED_CANISTER_CONFIG_ALIGNMENTS: [ColumnAlign; 6] = [
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ConfigSurface {
+pub(crate) enum ConfigSurface {
     SqlReadonly,
     SqlDdl,
     SqlFixtures,
@@ -561,45 +561,20 @@ const fn enabled_status(enabled: bool) -> &'static str {
 
 #[cfg(test)]
 pub(crate) mod test_support {
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    pub(crate) enum ConfigSurface {
-        SqlReadonly,
-        SqlDdl,
-        SqlFixtures,
-        Metrics,
-        MetricsReset,
-        Snapshot,
-        Schema,
-    }
-
-    impl ConfigSurface {
-        const fn into_inner(self) -> super::ConfigSurface {
-            match self {
-                Self::SqlReadonly => super::ConfigSurface::SqlReadonly,
-                Self::SqlDdl => super::ConfigSurface::SqlDdl,
-                Self::SqlFixtures => super::ConfigSurface::SqlFixtures,
-                Self::Metrics => super::ConfigSurface::Metrics,
-                Self::MetricsReset => super::ConfigSurface::MetricsReset,
-                Self::Snapshot => super::ConfigSurface::Snapshot,
-                Self::Schema => super::ConfigSurface::Schema,
-            }
-        }
-    }
-
     pub(crate) fn disabled_config_surface_message(
         resolved: &icydb_config_build::ResolvedIcydbConfig,
         canister: &str,
-        surface: ConfigSurface,
+        surface: super::ConfigSurface,
     ) -> String {
-        super::disabled_config_surface_message(resolved, canister, surface.into_inner())
+        super::disabled_config_surface_message(resolved, canister, surface)
     }
 
     pub(crate) fn config_surface_enabled_for_resolved(
         resolved: &icydb_config_build::ResolvedIcydbConfig,
         canister: &str,
-        surface: ConfigSurface,
+        surface: super::ConfigSurface,
     ) -> bool {
-        super::config_surface_enabled_for_resolved(resolved, canister, surface.into_inner())
+        super::config_surface_enabled_for_resolved(resolved, canister, surface)
     }
 
     pub(crate) fn configured_endpoint_enabled_for_resolved(

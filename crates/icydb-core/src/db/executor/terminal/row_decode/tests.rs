@@ -714,7 +714,7 @@ fn accepted_row_layout_decode_matches_generated_layout_for_value_storage_field()
         .decode(&generated_layout, (key.clone(), raw_row.clone()))
         .expect("generated value-storage full-row decode should succeed");
     let accepted_full = RowDecoder::structural()
-        .decode(&accepted_layout, (key, raw_row.clone()))
+        .decode(&accepted_layout, (key.clone(), raw_row.clone()))
         .expect("accepted value-storage full-row decode should succeed");
     assert_eq!(accepted_full.slot(1), generated_full.slot(1));
 
@@ -742,12 +742,12 @@ fn accepted_row_layout_decode_matches_generated_layout_for_value_storage_field()
     // Phase 3: the narrow single-slot direct path must use the same accepted
     // contract as the sparse slot-vector path so grouped/projection fast paths
     // cannot fall back to generated-only value-storage semantics.
-    let generated_required =
-        RowDecoder::decode_required_slot_value(&generated_layout, storage_key, &raw_row, 1)
-            .expect("generated value-storage required-slot decode should succeed");
-    let accepted_required =
-        RowDecoder::decode_required_slot_value(&accepted_layout, storage_key, &raw_row, 1)
-            .expect("accepted value-storage required-slot decode should succeed");
+    let generated_required = generated_layout
+        .decode_required_value_from_data_key(&raw_row, &key, 1)
+        .expect("generated value-storage required-slot decode should succeed");
+    let accepted_required = accepted_layout
+        .decode_required_value_from_data_key(&raw_row, &key, 1)
+        .expect("accepted value-storage required-slot decode should succeed");
     assert_eq!(accepted_required, generated_required);
 
     let mut generated_reader = generated_layout

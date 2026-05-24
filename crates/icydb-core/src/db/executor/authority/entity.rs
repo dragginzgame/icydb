@@ -4,9 +4,9 @@ use crate::{
     db::{
         access::{SemanticIndexRangeSpec, validate_access_runtime_invariants_with_schema},
         cursor::{CursorPlanError, PlannedCursor},
-        data::StorageKey,
         executor::{planning::route::AggregateRouteShape, terminal::RowLayout},
         index::IndexKey,
+        key_taxonomy::PrimaryKeyValue,
         query::plan::{
             AccessPlannedQuery, AggregateKind, CoveringReadExecutionPlan, CoveringReadPlan,
             PlannedContinuationContract, covering_hybrid_projection_plan_with_schema_info,
@@ -348,7 +348,7 @@ impl EntityAuthority {
     /// without cloning field values back out of the row cache first.
     pub(in crate::db::executor) fn index_range_anchor_key_from_slot_ref_reader<'a>(
         &self,
-        storage_key: StorageKey,
+        primary_key: &PrimaryKeyValue,
         index_range: &SemanticIndexRangeSpec,
         read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
     ) -> Result<Option<IndexKey>, InternalError> {
@@ -358,7 +358,7 @@ impl EntityAuthority {
         if index.has_expression_key_items() {
             return IndexKey::new_from_slot_ref_reader_with_access_contract(
                 self.entity_tag,
-                storage_key,
+                primary_key,
                 schema_info,
                 index,
                 read_slot,
@@ -377,7 +377,7 @@ impl EntityAuthority {
 
         IndexKey::new_from_slot_ref_reader_with_accepted_field_path_index(
             self.entity_tag,
-            storage_key,
+            primary_key,
             accepted_index,
             read_slot,
         )

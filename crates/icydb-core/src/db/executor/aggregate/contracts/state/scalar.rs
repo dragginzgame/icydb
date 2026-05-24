@@ -11,9 +11,9 @@ use crate::{
             },
             group::GroupKeySet,
         },
+        key_taxonomy::PrimaryKeyValue,
     },
     error::InternalError,
-    value::StorageKey,
 };
 
 ///
@@ -78,27 +78,36 @@ impl ScalarTerminalAggregateState {
     ) -> Result<FoldControl, InternalError> {
         let primary_key_value = self
             .requires_primary_key_value
-            .then(|| key.try_storage_key())
-            .transpose()?;
+            .then(|| key.primary_key_value());
         match self.kind {
-            ScalarTerminalKind::Count => self.apply_count(primary_key_value),
-            ScalarTerminalKind::Exists => self.apply_exists(primary_key_value),
-            ScalarTerminalKind::Min => self.apply_extremum(ExtremumKind::Min, primary_key_value),
-            ScalarTerminalKind::Max => self.apply_extremum(ExtremumKind::Max, primary_key_value),
-            ScalarTerminalKind::First => self.apply_first(primary_key_value),
-            ScalarTerminalKind::Last => self.apply_last(primary_key_value),
+            ScalarTerminalKind::Count => self.apply_count(primary_key_value.as_ref()),
+            ScalarTerminalKind::Exists => self.apply_exists(primary_key_value.as_ref()),
+            ScalarTerminalKind::Min => {
+                self.apply_extremum(ExtremumKind::Min, primary_key_value.as_ref())
+            }
+            ScalarTerminalKind::Max => {
+                self.apply_extremum(ExtremumKind::Max, primary_key_value.as_ref())
+            }
+            ScalarTerminalKind::First => self.apply_first(primary_key_value.as_ref()),
+            ScalarTerminalKind::Last => self.apply_last(primary_key_value.as_ref()),
         }
     }
 
     // Apply one COUNT scalar terminal update.
-    fn apply_count(&mut self, _key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
+    fn apply_count(
+        &mut self,
+        _key: Option<&PrimaryKeyValue>,
+    ) -> Result<FoldControl, InternalError> {
         self.reducer.increment_count()?;
 
         Ok(FoldControl::Continue)
     }
 
     // Apply one EXISTS scalar terminal update.
-    fn apply_exists(&mut self, _key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
+    fn apply_exists(
+        &mut self,
+        _key: Option<&PrimaryKeyValue>,
+    ) -> Result<FoldControl, InternalError> {
         self.reducer.set_exists_true()?;
 
         Ok(FoldControl::Break)
@@ -109,7 +118,7 @@ impl ScalarTerminalAggregateState {
     fn apply_extremum(
         &mut self,
         kind: ExtremumKind,
-        key: Option<StorageKey>,
+        key: Option<&PrimaryKeyValue>,
     ) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
             return Err(Self::primary_key_value_required(
@@ -125,7 +134,7 @@ impl ScalarTerminalAggregateState {
     }
 
     // Apply one FIRST scalar terminal update.
-    fn apply_first(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
+    fn apply_first(&mut self, key: Option<&PrimaryKeyValue>) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
             return Err(Self::primary_key_value_required("FIRST"));
         };
@@ -135,7 +144,7 @@ impl ScalarTerminalAggregateState {
     }
 
     // Apply one LAST scalar terminal update.
-    fn apply_last(&mut self, key: Option<StorageKey>) -> Result<FoldControl, InternalError> {
+    fn apply_last(&mut self, key: Option<&PrimaryKeyValue>) -> Result<FoldControl, InternalError> {
         let Some(key) = key else {
             return Err(Self::primary_key_value_required("LAST"));
         };

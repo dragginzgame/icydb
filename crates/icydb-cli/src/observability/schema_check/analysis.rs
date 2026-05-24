@@ -12,6 +12,9 @@ use icydb::db::{
 
 use crate::observability::render::{render_field_list, yes_no};
 
+const DDL_ORIGIN: &str = "ddl";
+const GENERATED_ORIGIN: &str = "generated";
+
 #[derive(Debug)]
 pub(super) struct SchemaCheckSummary {
     pub(super) status: &'static str,
@@ -267,7 +270,7 @@ fn analyze_entity_schema_fields(
                     field_signature(accepted_field).as_str(),
                 ));
             }
-            None if accepted_field.origin() == "ddl" => {
+            None if accepted_field.origin() == DDL_ORIGIN => {
                 accepted_only += 1;
                 drift_rows.push(schema_check_detail_row(
                     entity_name,
@@ -349,7 +352,7 @@ fn analyze_entity_schema_indexes(
                     index_signature(accepted_index).as_str(),
                 ));
             }
-            None if accepted_index.origin() == "ddl" => {
+            None if accepted_index.origin() == DDL_ORIGIN => {
                 accepted_ddl += 1;
                 drift_rows.push(schema_check_detail_row(
                     entity_name,
@@ -496,7 +499,8 @@ fn schema_check_detail_row(
 fn indexes_match(generated: &EntityIndexDescription, accepted: &EntityIndexDescription) -> bool {
     generated.unique() == accepted.unique()
         && generated.fields() == accepted.fields()
-        && accepted.origin() == "generated"
+        && generated.origin() == GENERATED_ORIGIN
+        && accepted.origin() == GENERATED_ORIGIN
 }
 
 fn field_signature(field: &EntityFieldDescription) -> String {

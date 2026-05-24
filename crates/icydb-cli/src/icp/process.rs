@@ -62,6 +62,26 @@ fn canister_status_output(
     canister: &str,
     output: CanisterStatusOutput,
 ) -> Result<Output, String> {
+    canister_status_command(environment, canister, output)
+        .stdin(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|err| err.to_string())
+}
+
+pub(super) fn canister_status_check_command(environment: &str, canister: &str) -> Command {
+    canister_status_command(environment, canister, CanisterStatusOutput::Discard)
+}
+
+pub(super) fn canister_status_id_command(environment: &str, canister: &str) -> Command {
+    canister_status_command(environment, canister, CanisterStatusOutput::IdOnly)
+}
+
+fn canister_status_command(
+    environment: &str,
+    canister: &str,
+    output: CanisterStatusOutput,
+) -> Command {
     let mut command = Command::new("icp");
     command.arg("canister").arg("status").arg(canister);
     match output {
@@ -73,13 +93,9 @@ fn canister_status_output(
         }
     }
 
+    command.arg("--environment").arg(environment);
+
     command
-        .arg("--environment")
-        .arg(environment)
-        .stdin(Stdio::null())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|err| err.to_string())
 }
 
 fn output_stderr(stderr: &[u8]) -> String {

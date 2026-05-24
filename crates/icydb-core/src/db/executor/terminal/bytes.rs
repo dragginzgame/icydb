@@ -31,7 +31,7 @@ use crate::{
             sum_row_payload_bytes_from_ordered_key_stream_with_store,
             sum_row_payload_bytes_full_scan_window_with_store,
             sum_row_payload_bytes_key_range_window_with_store,
-            terminal::{RowDecoder, RowLayout},
+            terminal::RowLayout,
         },
         query::plan::{
             CoveringProjectionOrder, FieldSlot as PlannedFieldSlot, OrderDirection,
@@ -250,10 +250,10 @@ where
         // Fold serialized field payload sizes over the effective response
         // window without rebuilding typed entity responses.
         for (data_key, raw_row) in rows {
-            let value = RowDecoder::decode_required_slot_value(
+            let value = RowLayout::decode_required_value_from_data_key(
                 row_layout,
-                data_key.try_storage_key()?,
                 raw_row,
+                data_key,
                 field_slot.index,
             )?;
             let value =

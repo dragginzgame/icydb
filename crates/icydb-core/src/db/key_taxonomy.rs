@@ -18,7 +18,7 @@ use crate::{
     db::index::IndexId,
     traits::Repr,
     types::{Account, EntityTag, Principal, Subaccount, Timestamp, Ulid},
-    value::StorageKey,
+    value::{StorageKey, Value, storage_key_as_runtime_value},
 };
 use std::cmp::Ordering;
 use thiserror::Error as ThisError;
@@ -138,6 +138,11 @@ impl PrimaryKeyComponent {
             Self::Account(_) => PrimaryKeyKind::Account,
             Self::Unit => PrimaryKeyKind::Unit,
         }
+    }
+
+    #[must_use]
+    pub(in crate::db) fn as_runtime_value(self) -> Value {
+        storage_key_as_runtime_value(&StorageKey::from(self))
     }
 }
 
@@ -299,6 +304,21 @@ impl PrimaryKeyValue {
         match self {
             Self::Scalar(value) => Some(value),
             Self::Composite(_) => None,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) fn as_runtime_value(&self) -> Value {
+        match self {
+            Self::Scalar(component) => component.as_runtime_value(),
+            Self::Composite(composite) => Value::List(
+                composite
+                    .components()
+                    .iter()
+                    .copied()
+                    .map(PrimaryKeyComponent::as_runtime_value)
+                    .collect(),
+            ),
         }
     }
 }

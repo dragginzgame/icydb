@@ -1043,9 +1043,9 @@ dependencies = [
 
 [[package]]
 name = "ic-testkit"
-version = "0.0.6"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "817e99423d92dd9d3b16efa8d6f6dc67e5d55ea9babcdf9fd07efc49e86449ec"
+checksum = "4cefb8413e0a21d5ddb0a957f7e28b672712181cd3e783101739d474d5e4ae41"
 dependencies = [
  "candid",
  "pocket-ic",

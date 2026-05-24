@@ -91,4 +91,40 @@ pub(crate) mod test_support {
     pub(crate) fn fixtures_load_command(environment: &str, canister: &str) -> Command {
         super::commands::fixtures_load_command(environment, canister)
     }
+
+    pub(crate) fn deploy_command(environment: &str, canister: &str) -> Command {
+        super::commands::deploy_command(environment, canister)
+    }
+
+    pub(crate) fn build_command(environment: &str, canister: &str) -> Command {
+        super::commands::build_command(environment, canister)
+    }
+
+    pub(crate) fn install_upgrade_command(
+        environment: &str,
+        canister: &str,
+        wasm_path: std::path::PathBuf,
+    ) -> Command {
+        super::commands::install_upgrade_command(environment, canister, wasm_path)
+    }
+
+    pub(crate) fn status_command(environment: &str, canister: &str) -> Command {
+        super::commands::status_command(environment, canister)
+    }
+
+    pub(crate) fn canister_status_check_command(environment: &str, canister: &str) -> Command {
+        super::process::canister_status_check_command(environment, canister)
+    }
+
+    pub(crate) fn canister_status_id_command(environment: &str, canister: &str) -> Command {
+        super::process::canister_status_id_command(environment, canister)
+    }
+
+    pub(crate) fn parse_manifest_canisters(contents: &str, environment: &str) -> Vec<String> {
+        super::project::parse_manifest_canisters(contents, environment)
+    }
+
+    pub(crate) fn unreachable_network_hint(message: &str) -> Option<&'static str> {
+        super::process::unreachable_network_hint(message)
+    }
 }

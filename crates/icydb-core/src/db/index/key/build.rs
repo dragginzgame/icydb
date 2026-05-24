@@ -311,14 +311,14 @@ impl IndexKey {
     /// reduced selected access contract.
     pub(crate) fn new_from_slot_ref_reader_with_access_contract<'a>(
         entity_tag: EntityTag,
-        storage_key: StorageKey,
+        primary_key: &PrimaryKeyValue,
         schema_info: &SchemaInfo,
         index: SemanticIndexAccessContract,
         read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
     ) -> Result<Option<Self>, InternalError> {
         build_index_key_from_access_contract(
             entity_tag,
-            storage_key,
+            primary_key,
             schema_info,
             &index,
             read_slot,
@@ -329,11 +329,11 @@ impl IndexKey {
     /// using accepted index-contract slot authority.
     pub(crate) fn new_from_slot_ref_reader_with_accepted_field_path_index<'a>(
         entity_tag: EntityTag,
-        storage_key: StorageKey,
+        primary_key: &PrimaryKeyValue,
         accepted_index: &SchemaIndexInfo,
         read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
     ) -> Result<Option<Self>, InternalError> {
-        build_accepted_field_path_index_key(entity_tag, storage_key, accepted_index, read_slot)
+        build_accepted_field_path_index_key(entity_tag, primary_key, accepted_index, read_slot)
     }
 
     /// Build an index key from a typed entity for test-only parity checks.
@@ -974,14 +974,13 @@ fn build_expression_rebuild_target_key(
 
 fn build_accepted_field_path_index_key<'a>(
     entity_tag: EntityTag,
-    storage_key: StorageKey,
+    primary_key: &PrimaryKeyValue,
     accepted_index: &SchemaIndexInfo,
     read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
 ) -> Result<Option<IndexKey>, InternalError> {
-    let primary_key = PrimaryKeyValue::from(storage_key);
     build_accepted_field_path_index_key_from_components(
         entity_tag,
-        &primary_key,
+        primary_key,
         accepted_index,
         &mut |accepted_index, field| {
             accepted_field_path_component_bytes(accepted_index, field, read_slot)
@@ -1114,7 +1113,8 @@ fn build_index_key(
     }
 
     // Phase 3: encode the primary key once and assemble the final user key.
-    let primary_key = IndexKey::compact_primary_key_bytes(storage_key);
+    let primary_key =
+        IndexKey::compact_primary_key_value_bytes(&PrimaryKeyValue::from(storage_key));
 
     Ok(Some(IndexKey {
         key_kind: IndexKeyKind::User,
@@ -1126,7 +1126,7 @@ fn build_index_key(
 
 fn build_index_key_from_access_contract<'a>(
     entity_tag: EntityTag,
-    storage_key: StorageKey,
+    primary_key: &PrimaryKeyValue,
     schema_info: &SchemaInfo,
     index: &SemanticIndexAccessContract,
     read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
@@ -1230,13 +1230,11 @@ fn build_index_key_from_access_contract<'a>(
         }
     }
 
-    let primary_key = IndexKey::compact_primary_key_bytes(storage_key);
-
     Ok(Some(IndexKey {
         key_kind: IndexKeyKind::User,
         index_id: IndexId::new(entity_tag, index.ordinal()),
         components,
-        primary_key,
+        primary_key: IndexKey::compact_primary_key_value_bytes(primary_key),
     }))
 }
 

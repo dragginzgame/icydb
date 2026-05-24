@@ -155,6 +155,10 @@ pub(crate) mod test_support {
         super::input::is_shell_help_command(input)
     }
 
+    pub(crate) fn interactive_start_message(environment: &str, canister: &str) -> String {
+        super::interactive::interactive_start_message(environment, canister)
+    }
+
     pub(crate) fn normalize_shell_statement_line(line: &str) -> String {
         super::input::normalize_shell_statement_line(line)
     }
@@ -207,6 +211,10 @@ pub(crate) mod test_support {
         canister: &str,
     ) -> String {
         super::call::sql_error_with_recovery_hint(error, environment, canister)
+    }
+
+    pub(crate) fn candid_escape_string(sql: &str) -> String {
+        super::call::candid_escape_string(sql)
     }
 
     pub(crate) fn finalize_successful_command_output(rendered: &str) -> String {

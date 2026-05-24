@@ -69,34 +69,32 @@ fn known_canisters_from_manifest(environment: &str) -> Result<Vec<String>, Strin
     let contents = std::fs::read_to_string(ICP_YAML_PATH)
         .map_err(|err| format!("read {ICP_YAML_PATH}: {err}"))?;
 
-    let Some(environment_body) = environment_manifest_body(contents.as_str(), environment) else {
-        return Ok(Vec::new());
-    };
-    let Some(line) = environment_body
-        .lines()
-        .map(str::trim)
-        .find(|line| line.starts_with("canisters:"))
-    else {
-        return Ok(Vec::new());
-    };
-    let Some((_, value)) = line.split_once(':') else {
-        return Ok(Vec::new());
-    };
+    Ok(parse_manifest_canisters(contents.as_str(), environment))
+}
 
-    let trimmed = value.trim();
-    if !trimmed.starts_with('[') || !trimmed.ends_with(']') {
-        return Ok(Vec::new());
+pub(super) fn parse_manifest_canisters(contents: &str, environment: &str) -> Vec<String> {
+    let mut in_target_environment = false;
+    for line in contents.lines().map(str::trim) {
+        if let Some(name) = environment_name(line) {
+            if in_target_environment {
+                return Vec::new();
+            }
+            in_target_environment = name == environment;
+            continue;
+        }
+
+        if !in_target_environment {
+            continue;
+        }
+
+        let Some(value) = line.strip_prefix("canisters:") else {
+            continue;
+        };
+
+        return parse_inline_canister_list(value);
     }
 
-    Ok(sorted_canister_names(
-        trimmed
-            .trim_start_matches('[')
-            .trim_end_matches(']')
-            .split(',')
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-            .map(str::to_string),
-    ))
+    Vec::new()
 }
 
 fn sorted_canister_names(names: impl Iterator<Item = String>) -> Vec<String> {
@@ -110,13 +108,34 @@ fn output_stderr(stderr: &[u8]) -> String {
     String::from_utf8_lossy(stderr).trim().to_string()
 }
 
-fn environment_manifest_body<'a>(contents: &'a str, environment: &str) -> Option<&'a str> {
-    let marker = format!("- name: {environment}");
-    let start = contents.find(marker.as_str())?;
-    let body = &contents[start + marker.len()..];
-    let end = body.find("\n  - name:").unwrap_or(body.len());
+fn environment_name(line: &str) -> Option<&str> {
+    let name = line
+        .strip_prefix("- name:")?
+        .trim()
+        .trim_matches(['"', '\'']);
 
-    Some(&body[..end])
+    (!name.is_empty()).then_some(name)
+}
+
+fn parse_inline_canister_list(value: &str) -> Vec<String> {
+    let trimmed = value.trim();
+    if !trimmed.starts_with('[') || !trimmed.ends_with(']') {
+        return Vec::new();
+    }
+
+    sorted_canister_names(
+        trimmed
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .split(',')
+            .filter_map(parse_manifest_name),
+    )
+}
+
+fn parse_manifest_name(value: &str) -> Option<String> {
+    let name = value.trim().trim_matches(['"', '\'']);
+
+    (!name.is_empty()).then(|| name.to_string())
 }
 
 fn missing_canister_message(environment: &str, canister: &str) -> String {

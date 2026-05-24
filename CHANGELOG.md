@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.162.md](docs/changelog/0.162.md)
 
+- `0.162.12` moves id-returning terminals, materialized row decode, index-range
+  cursor validation, and deterministic ORDER BY tie-breaks onto
+  scalar-or-composite primary-key identity.
+
 - `0.162.11` moves SQL write admission, row decoding, ordering, and
   retained-slot projection onto scalar-or-composite row identity boundaries.
 

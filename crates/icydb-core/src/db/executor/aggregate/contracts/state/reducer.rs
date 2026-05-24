@@ -3,10 +3,11 @@ use crate::{
         contracts::spec::{AggregateKind, ScalarAggregateOutput, ScalarTerminalKind},
         reducer_core::{ValueReducerState, finalize_count},
     },
+    db::key_taxonomy::PrimaryKeyValue,
     db::numeric::{NumericEvalError, add_decimal_terms_checked, average_decimal_terms_checked},
     error::InternalError,
     types::Decimal,
-    value::{StorageKey, Value, storage_key_as_runtime_value},
+    value::Value,
 };
 
 ///
@@ -20,10 +21,10 @@ use crate::{
 pub(in crate::db::executor) enum ScalarAggregateReducerState {
     Count(u32),
     Exists(bool),
-    Min(Option<StorageKey>),
-    Max(Option<StorageKey>),
-    First(Option<StorageKey>),
-    Last(Option<StorageKey>),
+    Min(Option<PrimaryKeyValue>),
+    Max(Option<PrimaryKeyValue>),
+    First(Option<PrimaryKeyValue>),
+    Last(Option<PrimaryKeyValue>),
 }
 
 impl ScalarAggregateReducerState {
@@ -76,16 +77,16 @@ impl ScalarAggregateReducerState {
     // Apply one MIN reducer update.
     pub(in crate::db::executor::aggregate::contracts::state) fn update_min_value(
         &mut self,
-        key: StorageKey,
+        key: &PrimaryKeyValue,
     ) -> Result<(), InternalError> {
         match self {
             Self::Min(min_key) => {
                 let replace = match min_key.as_ref() {
-                    Some(current) => key < *current,
+                    Some(current) => key < current,
                     None => true,
                 };
                 if replace {
-                    *min_key = Some(key);
+                    *min_key = Some(*key);
                 }
 
                 Ok(())
@@ -97,16 +98,16 @@ impl ScalarAggregateReducerState {
     // Apply one MAX reducer update.
     pub(in crate::db::executor::aggregate::contracts::state) fn update_max_value(
         &mut self,
-        key: StorageKey,
+        key: &PrimaryKeyValue,
     ) -> Result<(), InternalError> {
         match self {
             Self::Max(max_key) => {
                 let replace = match max_key.as_ref() {
-                    Some(current) => key > *current,
+                    Some(current) => key > current,
                     None => true,
                 };
                 if replace {
-                    *max_key = Some(key);
+                    *max_key = Some(*key);
                 }
 
                 Ok(())
@@ -118,11 +119,11 @@ impl ScalarAggregateReducerState {
     // Apply one FIRST reducer update.
     pub(in crate::db::executor::aggregate::contracts::state) fn set_first(
         &mut self,
-        key: StorageKey,
+        key: &PrimaryKeyValue,
     ) -> Result<(), InternalError> {
         match self {
             Self::First(first_key) => {
-                *first_key = Some(key);
+                *first_key = Some(*key);
                 Ok(())
             }
             _ => Err(Self::state_mismatch("FIRST")),
@@ -132,11 +133,11 @@ impl ScalarAggregateReducerState {
     // Apply one LAST reducer update.
     pub(in crate::db::executor::aggregate::contracts::state) fn set_last(
         &mut self,
-        key: StorageKey,
+        key: &PrimaryKeyValue,
     ) -> Result<(), InternalError> {
         match self {
             Self::Last(last_key) => {
-                *last_key = Some(key);
+                *last_key = Some(*key);
                 Ok(())
             }
             _ => Err(Self::state_mismatch("LAST")),
@@ -367,11 +368,11 @@ impl GroupedAggregateReducerState {
     // Apply one FIRST reducer update.
     pub(in crate::db::executor::aggregate::contracts::state) fn set_first(
         &mut self,
-        key: StorageKey,
+        key: &PrimaryKeyValue,
     ) -> Result<(), InternalError> {
         match self {
             Self::First(first_key) => {
-                *first_key = Some(storage_key_as_runtime_value(&key));
+                *first_key = Some(key.as_runtime_value());
                 Ok(())
             }
             _ => Err(Self::state_mismatch("FIRST")),
@@ -381,11 +382,11 @@ impl GroupedAggregateReducerState {
     // Apply one LAST reducer update.
     pub(in crate::db::executor::aggregate::contracts::state) fn set_last(
         &mut self,
-        key: StorageKey,
+        key: &PrimaryKeyValue,
     ) -> Result<(), InternalError> {
         match self {
             Self::Last(last_key) => {
-                *last_key = Some(storage_key_as_runtime_value(&key));
+                *last_key = Some(key.as_runtime_value());
                 Ok(())
             }
             _ => Err(Self::state_mismatch("LAST")),

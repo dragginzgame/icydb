@@ -194,7 +194,11 @@ pub(super) fn upgrade_canister(
     )
 }
 
-fn install_upgrade_command(environment: &str, canister: &str, wasm_path: PathBuf) -> Command {
+pub(super) fn install_upgrade_command(
+    environment: &str,
+    canister: &str,
+    wasm_path: PathBuf,
+) -> Command {
     let mut command = Command::new("icp");
     command
         .arg("canister")
@@ -216,7 +220,7 @@ pub(super) fn status_canister(environment: &str, canister: &str) -> Result<(), S
     run_external_command(status_command(environment, canister), "icp canister status")
 }
 
-fn deploy_command(environment: &str, canister: &str) -> Command {
+pub(super) fn deploy_command(environment: &str, canister: &str) -> Command {
     let mut command = Command::new("icp");
     command.arg("deploy").arg(canister);
     append_environment_args(&mut command, environment);
@@ -224,7 +228,7 @@ fn deploy_command(environment: &str, canister: &str) -> Command {
     command
 }
 
-fn build_command(environment: &str, canister: &str) -> Command {
+pub(super) fn build_command(environment: &str, canister: &str) -> Command {
     let mut command = Command::new("icp");
     command.arg("build").arg(canister);
     append_environment_args(&mut command, environment);
@@ -232,7 +236,7 @@ fn build_command(environment: &str, canister: &str) -> Command {
     command
 }
 
-fn status_command(environment: &str, canister: &str) -> Command {
+pub(super) fn status_command(environment: &str, canister: &str) -> Command {
     let mut command = Command::new("icp");
     command.arg("canister").arg("status").arg(canister);
     append_environment_args(&mut command, environment);

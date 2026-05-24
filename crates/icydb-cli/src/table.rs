@@ -11,26 +11,6 @@ pub(crate) enum ColumnAlign {
     Right,
 }
 
-/// Render a whitespace-aligned table with an underlined header row.
-#[must_use]
-fn render_table<const N: usize>(
-    headers: &[&str; N],
-    rows: &[[String; N]],
-    alignments: &[ColumnAlign; N],
-) -> String {
-    let widths = table_widths(headers, rows);
-    let mut lines = Vec::with_capacity(rows.len() + 2);
-
-    lines.push(render_table_row(headers, &widths, alignments));
-    lines.push(render_separator(&widths));
-    lines.extend(
-        rows.iter()
-            .map(|row| render_table_row(row, &widths, alignments)),
-    );
-
-    lines.join("\n")
-}
-
 pub(crate) fn append_indented_table<const N: usize>(
     output: &mut String,
     indent: &str,
@@ -38,11 +18,27 @@ pub(crate) fn append_indented_table<const N: usize>(
     rows: &[[String; N]],
     alignments: &[ColumnAlign; N],
 ) {
-    let table = render_table(headers, rows, alignments);
+    let widths = table_widths(headers, rows);
 
-    for line in table.lines() {
-        append_indented_line(output, indent, line);
+    append_indented_table_row(output, indent, headers, &widths, alignments);
+    append_indented_line(output, indent, render_separator(&widths).as_str());
+    for row in rows {
+        append_indented_table_row(output, indent, row, &widths, alignments);
     }
+}
+
+fn append_indented_table_row<const N: usize>(
+    output: &mut String,
+    indent: &str,
+    row: &[impl AsRef<str>; N],
+    widths: &[usize; N],
+    alignments: &[ColumnAlign; N],
+) {
+    append_indented_line(
+        output,
+        indent,
+        render_table_row(row, widths, alignments).as_str(),
+    );
 }
 
 fn append_indented_line(output: &mut String, indent: &str, line: &str) {

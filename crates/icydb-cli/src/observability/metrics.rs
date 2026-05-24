@@ -15,7 +15,7 @@ use crate::{
     table::{ColumnAlign, append_indented_table},
 };
 
-use super::{call_query, call_update, render::yes_no};
+use super::{call_query, call_update, endpoint_result_error, render::yes_no};
 
 type MetricsEntityRow = [String; 6];
 
@@ -56,7 +56,12 @@ pub(super) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
 
             Ok(())
         }
-        Err(err) => Err(metrics_method_error("metrics", endpoint, target, err)),
+        Err(err) => Err(endpoint_result_error(
+            "metrics",
+            target,
+            endpoint.method(),
+            err,
+        )),
     }
 }
 
@@ -75,8 +80,7 @@ fn run_metrics_reset(target: &CanisterTarget) -> Result<(), String> {
         METRICS_RESET_ENDPOINT.method(),
         "()",
     )?;
-    let response = Decode!(candid_bytes.as_slice(), Result<(), icydb::Error>)
-        .map_err(|err| err.to_string())?;
+    let response = decode_metrics_reset_response(candid_bytes.as_slice())?;
 
     match response {
         Ok(()) => {
@@ -88,16 +92,16 @@ fn run_metrics_reset(target: &CanisterTarget) -> Result<(), String> {
 
             Ok(())
         }
-        Err(err) => Err(metrics_method_error(
+        Err(err) => Err(endpoint_result_error(
             "metrics reset",
-            METRICS_RESET_ENDPOINT,
             target,
+            METRICS_RESET_ENDPOINT.method(),
             err,
         )),
     }
 }
 
-fn decode_metrics_report(
+pub(super) fn decode_metrics_report(
     candid_bytes: &[u8],
 ) -> Result<Result<icydb::metrics::EventReport, icydb::Error>, String> {
     Decode!(
@@ -107,18 +111,10 @@ fn decode_metrics_report(
     .map_err(|err| err.to_string())
 }
 
-fn metrics_method_error(
-    label: &str,
-    endpoint: ConfiguredEndpoint,
-    target: &CanisterTarget,
-    err: icydb::Error,
-) -> String {
-    format!(
-        "IcyDB {label} method '{}' failed on canister '{}' in environment '{}': {err}",
-        endpoint.method(),
-        target.canister_name(),
-        target.environment(),
-    )
+pub(super) fn decode_metrics_reset_response(
+    candid_bytes: &[u8],
+) -> Result<Result<(), icydb::Error>, String> {
+    Decode!(candid_bytes, Result<(), icydb::Error>).map_err(|err| err.to_string())
 }
 
 pub(super) fn metrics_candid_arg(window_start_ms: Option<u64>) -> String {
@@ -143,20 +139,22 @@ pub(super) fn render_metrics_report(report: &EventReport) -> String {
     let entity_rows = report
         .entity_counters()
         .iter()
-        .map(|entity| {
-            [
-                entity.path().to_string(),
-                entity.load_calls().to_string(),
-                entity.save_calls().to_string(),
-                entity.delete_calls().to_string(),
-                entity.exec_success().to_string(),
-                entity_exec_errors(entity).to_string(),
-            ]
-        })
+        .map(metrics_entity_row)
         .collect::<Vec<_>>();
     append_metrics_entity_table(&mut output, entity_rows.as_slice());
 
     output
+}
+
+fn metrics_entity_row(entity: &icydb::metrics::EntitySummary) -> MetricsEntityRow {
+    [
+        entity.path().to_string(),
+        entity.load_calls().to_string(),
+        entity.save_calls().to_string(),
+        entity.delete_calls().to_string(),
+        entity.exec_success().to_string(),
+        entity_exec_errors(entity).to_string(),
+    ]
 }
 
 fn append_metrics_report_header(output: &mut String, report: &EventReport) {

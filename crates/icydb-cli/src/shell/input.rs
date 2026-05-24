@@ -178,6 +178,11 @@ pub(super) fn drain_complete_shell_statements(statement: &mut String) -> VecDequ
 
     while index < chars.len() {
         let (offset, ch) = chars[index];
+        if in_single_quote && ch == '\\' {
+            index += 2;
+            continue;
+        }
+
         if ch == '\'' {
             let next_is_quote = chars.get(index + 1).is_some_and(|(_, next)| *next == '\'');
             if in_single_quote && next_is_quote {

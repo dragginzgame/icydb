@@ -3,6 +3,7 @@
 //! Does not own: planner query validation policy or access-path execution routing.
 //! Boundary: defines cursor-boundary domain types shared by cursor planning/runtime paths.
 
+use crate::db::{data::primary_key_value_from_structural_value, key_taxonomy::PrimaryKeyValue};
 use crate::{
     db::{
         cursor::CursorPlanError,
@@ -14,8 +15,7 @@ use crate::{
         schema::{FieldType, SchemaInfo, literal_matches_type},
     },
     model::entity::EntityModel,
-    traits::KeyValueCodec,
-    value::{StorageKey, Value},
+    value::Value,
 };
 use serde::Deserialize;
 use std::cmp::Ordering;
@@ -98,16 +98,16 @@ pub(in crate::db) const fn validate_cursor_boundary_arity(
 }
 
 /// Validate one cursor boundary against canonical order fields and return typed PK key.
-pub(in crate::db) fn validate_cursor_boundary_for_order<K: KeyValueCodec>(
+pub(in crate::db) fn validate_cursor_boundary_for_order(
     model: &EntityModel,
     schema: &SchemaInfo,
     order: &OrderSpec,
     boundary: &CursorBoundary,
-) -> Result<K, CursorPlanError> {
+) -> Result<PrimaryKeyValue, CursorPlanError> {
     validate_cursor_boundary_arity(boundary, order.fields.len())?;
     validate_cursor_boundary_types(model, schema, order, boundary)?;
 
-    decode_typed_primary_key_cursor_slot::<K>(model, schema, order, boundary)
+    decode_structural_primary_key_cursor_slots(model, order, boundary)
 }
 
 // Resolve one plain order field type from canonical schema info.
@@ -156,7 +156,13 @@ pub(in crate::db) fn validate_cursor_boundary_types(
 
         match slot {
             CursorBoundarySlot::Missing => {
-                if field == Some(model.primary_key.name) {
+                if field.is_some_and(|field| {
+                    model
+                        .primary_key_model()
+                        .fields()
+                        .iter()
+                        .any(|primary_key_field| primary_key_field.name() == field)
+                }) {
                     return Err(
                         CursorPlanError::continuation_cursor_primary_key_type_mismatch(
                             rendered,
@@ -183,7 +189,13 @@ pub(in crate::db) fn validate_cursor_boundary_types(
                     let expected =
                         boundary_order_expected_type_name(schema, field_type, expression.as_ref());
 
-                    if field == Some(model.primary_key.name) {
+                    if field.is_some_and(|field| {
+                        model
+                            .primary_key_model()
+                            .fields()
+                            .iter()
+                            .any(|primary_key_field| primary_key_field.name() == field)
+                    }) {
                         return Err(
                             CursorPlanError::continuation_cursor_primary_key_type_mismatch(
                                 rendered,
@@ -200,8 +212,13 @@ pub(in crate::db) fn validate_cursor_boundary_types(
                     ));
                 }
 
-                if field == Some(model.primary_key.name)
-                    && Value::as_primary_key_value(value).is_none()
+                if field.is_some_and(|field| {
+                    model
+                        .primary_key_model()
+                        .fields()
+                        .iter()
+                        .any(|primary_key_field| primary_key_field.name() == field)
+                }) && Value::as_primary_key_value(value).is_none()
                 {
                     return Err(
                         CursorPlanError::continuation_cursor_primary_key_type_mismatch(
@@ -282,42 +299,60 @@ fn boundary_order_expression_value_matches(
     })
 }
 
-/// Decode the typed primary-key cursor slot from one validated cursor boundary.
-pub(in crate::db) fn decode_typed_primary_key_cursor_slot<K: KeyValueCodec>(
+/// Decode the structural primary-key cursor slot from one validated cursor boundary.
+pub(in crate::db) fn decode_structural_primary_key_cursor_slots(
     model: &EntityModel,
-    schema: &SchemaInfo,
     order: &OrderSpec,
     boundary: &CursorBoundary,
-) -> Result<K, CursorPlanError> {
-    let pk_field = model.primary_key.name;
-    let pk_index = primary_key_boundary_index(order, pk_field)?;
-    let expected = boundary_order_field_type(schema, pk_field)?.to_string();
-    let pk_slot = &boundary.slots[pk_index];
+) -> Result<PrimaryKeyValue, CursorPlanError> {
+    let primary_key_fields: Vec<&str> = model
+        .primary_key_model()
+        .fields()
+        .iter()
+        .map(crate::model::field::FieldModel::name)
+        .collect();
 
-    match pk_slot {
-        CursorBoundarySlot::Missing => Err(
-            CursorPlanError::continuation_cursor_primary_key_type_mismatch(
-                pk_field.to_string(),
-                expected,
-                None,
-            ),
-        ),
-        CursorBoundarySlot::Present(value) => K::from_key_value(value).ok_or_else(|| {
-            CursorPlanError::continuation_cursor_primary_key_type_mismatch(
-                pk_field.to_string(),
-                expected,
-                Some(value.clone()),
-            )
-        }),
+    if let [primary_key_field] = primary_key_fields.as_slice() {
+        return decode_structural_primary_key_cursor_slot_from_name(
+            primary_key_field,
+            order,
+            boundary,
+        );
     }
+
+    let mut values = Vec::with_capacity(primary_key_fields.len());
+    for primary_key_field in primary_key_fields {
+        let index = primary_key_boundary_index(order, primary_key_field)?;
+        let slot = &boundary.slots[index];
+        match slot {
+            CursorBoundarySlot::Missing => {
+                return Err(
+                    CursorPlanError::continuation_cursor_primary_key_type_mismatch(
+                        primary_key_field.to_string(),
+                        "primary key value".to_string(),
+                        None,
+                    ),
+                );
+            }
+            CursorBoundarySlot::Present(value) => values.push(value.clone()),
+        }
+    }
+
+    primary_key_value_from_structural_value(&Value::List(values)).map_err(|_| {
+        CursorPlanError::continuation_cursor_primary_key_type_mismatch(
+            model.primary_key.name.to_string(),
+            "primary key value".to_string(),
+            None,
+        )
+    })
 }
 
-/// Decode the structural primary-key cursor slot from one validated cursor boundary.
+/// Decode one scalar structural primary-key cursor slot from one validated cursor boundary.
 pub(in crate::db) fn decode_structural_primary_key_cursor_slot_from_name(
     pk_field: &str,
     order: &OrderSpec,
     boundary: &CursorBoundary,
-) -> Result<StorageKey, CursorPlanError> {
+) -> Result<PrimaryKeyValue, CursorPlanError> {
     let pk_index = primary_key_boundary_index(order, pk_field)?;
     let expected = "primary key value".to_string();
     let pk_slot = &boundary.slots[pk_index];
@@ -330,21 +365,22 @@ pub(in crate::db) fn decode_structural_primary_key_cursor_slot_from_name(
                 None,
             ),
         ),
-        CursorBoundarySlot::Present(value) => value.as_primary_key_value().ok_or_else(|| {
-            CursorPlanError::continuation_cursor_primary_key_type_mismatch(
-                pk_field.to_string(),
-                expected,
-                Some(value.clone()),
-            )
-        }),
+        CursorBoundarySlot::Present(value) => primary_key_value_from_structural_value(value)
+            .map_err(|_| {
+                CursorPlanError::continuation_cursor_primary_key_type_mismatch(
+                    pk_field.to_string(),
+                    expected,
+                    Some(value.clone()),
+                )
+            }),
     }
 }
 
 /// Decode one structural primary-key boundary for PK-ordered executor paths.
-pub(in crate::db) fn decode_pk_cursor_boundary_storage_key_for_name(
+pub(in crate::db) fn decode_pk_cursor_boundary_primary_key_value_for_name(
     boundary: Option<&CursorBoundary>,
     primary_key_name: &str,
-) -> Result<Option<StorageKey>, CursorPlanError> {
+) -> Result<Option<PrimaryKeyValue>, CursorPlanError> {
     let Some(boundary) = boundary else {
         return Ok(None);
     };

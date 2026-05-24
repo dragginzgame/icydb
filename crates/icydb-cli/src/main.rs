@@ -12,13 +12,17 @@ mod shell;
 mod table;
 
 use clap::Parser;
+use std::process::ExitCode;
 
 use crate::{cli::CliArgs, commands::run_cli};
 
-fn main() {
-    if let Err(err) = run_cli(CliArgs::parse()) {
-        eprintln!("ERROR: {err}");
-        std::process::exit(1);
+fn main() -> ExitCode {
+    match run_cli(CliArgs::parse()) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("ERROR: {err}");
+            ExitCode::FAILURE
+        }
     }
 }
 

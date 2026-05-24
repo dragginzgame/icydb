@@ -34,7 +34,7 @@ pub(super) fn icp_query(
         method,
         candid_arg.as_str(),
         |stderr| {
-            let error = sql_query_error(environment, canister, method, stderr);
+            let error = sql_call_error("query", environment, canister, method, stderr);
             sql_error_with_recovery_hint(error.as_str(), environment, canister)
         },
     )
@@ -52,7 +52,10 @@ pub(super) fn icp_update(
         canister,
         method,
         candid_arg.as_str(),
-        |stderr| sql_error_with_recovery_hint(stderr, environment, canister),
+        |stderr| {
+            let error = sql_call_error("DDL", environment, canister, method, stderr);
+            sql_error_with_recovery_hint(error.as_str(), environment, canister)
+        },
     )
 }
 
@@ -60,9 +63,15 @@ fn sql_candid_arg(escaped_sql: &str) -> String {
     format!("(\"{escaped_sql}\")")
 }
 
-fn sql_query_error(environment: &str, canister: &str, method: &str, stderr: &str) -> String {
+fn sql_call_error(
+    call_kind: &str,
+    environment: &str,
+    canister: &str,
+    method: &str,
+    stderr: &str,
+) -> String {
     format!(
-        "IcyDB SQL query method '{method}' failed on canister '{canister}' in environment '{environment}': {stderr}",
+        "IcyDB SQL {call_kind} method '{method}' failed on canister '{canister}' in environment '{environment}': {stderr}",
     )
 }
 

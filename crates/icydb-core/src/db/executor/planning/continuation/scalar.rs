@@ -8,7 +8,7 @@ use crate::{
         access::LoweredKey,
         cursor::{
             ContinuationSignature, CursorBoundary, PlannedCursor,
-            decode_pk_cursor_boundary_storage_key_for_name,
+            decode_pk_cursor_boundary_primary_key_value_for_name,
             effective_keep_count_for_limit as continuation_keep_count_for_limit,
             effective_page_offset_for_window as continuation_page_offset_for_window,
         },
@@ -98,7 +98,7 @@ impl ScalarContinuationContext {
         &self,
         primary_key_name: &str,
     ) -> Result<(), InternalError> {
-        let _ = decode_pk_cursor_boundary_storage_key_for_name(
+        let _ = decode_pk_cursor_boundary_primary_key_value_for_name(
             self.cursor_boundary(),
             primary_key_name,
         )

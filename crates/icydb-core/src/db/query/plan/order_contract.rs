@@ -14,9 +14,10 @@ use crate::{db::query::plan::order_term::index_order_terms, model::index::IndexM
 ///
 /// DeterministicSecondaryOrderContract
 ///
-/// Planner-owned shared `..., primary_key` order contract with one uniform
-/// direction. The non-primary-key term list may be empty, which represents the
-/// primary-key-only order shape under the same normalized contract.
+/// Planner-owned shared `..., primary_key_fields` order contract with one
+/// uniform direction. The non-primary-key term list may be empty, which
+/// represents the primary-key-only order shape under the same normalized
+/// contract.
 ///
 
 ///
@@ -133,15 +134,25 @@ pub(in crate::db) struct DeterministicSecondaryOrderContract {
 }
 
 impl DeterministicSecondaryOrderContract {
-    /// Build one normalized deterministic `..., primary_key` order contract
-    /// from one executor-facing ORDER BY spec.
+    /// Build one normalized deterministic `..., primary_key_fields` order
+    /// contract from one executor-facing ORDER BY spec.
     #[must_use]
     pub(in crate::db) fn from_order_spec(
         order: &OrderSpec,
         primary_key_name: &str,
     ) -> Option<Self> {
+        Self::from_order_spec_fields(order, &[primary_key_name])
+    }
+
+    /// Build one normalized deterministic order contract with an ordered
+    /// primary-key field suffix.
+    #[must_use]
+    pub(in crate::db) fn from_order_spec_fields(
+        order: &OrderSpec,
+        primary_key_names: &[&str],
+    ) -> Option<Self> {
         let direction = order.fields.last()?.direction();
-        has_exact_primary_key_tie_break_fields(order.fields.as_slice(), primary_key_name)
+        has_exact_ordered_primary_key_tie_break_fields(order.fields.as_slice(), primary_key_names)
             .then_some(())?;
         if order
             .fields
@@ -155,7 +166,7 @@ impl DeterministicSecondaryOrderContract {
             non_primary_key_terms: order
                 .fields
                 .iter()
-                .take(order.fields.len().saturating_sub(1))
+                .take(order.fields.len().saturating_sub(primary_key_names.len()))
                 .map(crate::db::query::plan::OrderTerm::rendered_label)
                 .collect(),
             direction,
@@ -458,24 +469,34 @@ pub(in crate::db) fn grouped_index_order_terms_satisfied(
 }
 
 impl OrderSpec {
-    /// Return the single ordered field when `ORDER BY` has exactly one element.
-    #[must_use]
-    pub(in crate::db) fn single_field(&self) -> Option<(&str, OrderDirection)> {
-        let [term] = self.fields.as_slice() else {
-            return None;
-        };
-
-        Some((term.direct_field()?, term.direction()))
-    }
-
     /// Return ordering direction when `ORDER BY` is primary-key-only.
     #[must_use]
     pub(in crate::db) fn primary_key_only_direction(
         &self,
         primary_key_name: &str,
     ) -> Option<OrderDirection> {
-        let (field, direction) = self.single_field()?;
-        (field == primary_key_name).then_some(direction)
+        self.primary_key_only_direction_fields(&[primary_key_name])
+    }
+
+    /// Return ordering direction when `ORDER BY` is exactly the ordered
+    /// primary-key field list and every term has the same direction.
+    #[must_use]
+    pub(in crate::db) fn primary_key_only_direction_fields(
+        &self,
+        primary_key_names: &[&str],
+    ) -> Option<OrderDirection> {
+        if primary_key_names.is_empty() || self.fields.len() != primary_key_names.len() {
+            return None;
+        }
+
+        let direction = self.fields.first()?.direction();
+        self.fields
+            .iter()
+            .zip(primary_key_names.iter())
+            .all(|(term, primary_key_name)| {
+                term.direct_field() == Some(*primary_key_name) && term.direction() == direction
+            })
+            .then_some(direction)
     }
 
     /// Return true when `ORDER BY` is exactly one primary-key field.
@@ -484,11 +505,14 @@ impl OrderSpec {
         self.primary_key_only_direction(primary_key_name).is_some()
     }
 
-    /// Return true when ORDER BY includes exactly one primary-key tie-break
-    /// and that tie-break is the terminal sort component.
+    /// Return true when ORDER BY has exactly the ordered primary-key fields as
+    /// the terminal deterministic tie-break.
     #[must_use]
-    pub(in crate::db) fn has_exact_primary_key_tie_break(&self, primary_key_name: &str) -> bool {
-        has_exact_primary_key_tie_break_fields(self.fields.as_slice(), primary_key_name)
+    pub(in crate::db) fn has_exact_primary_key_tie_break_fields(
+        &self,
+        primary_key_names: &[&str],
+    ) -> bool {
+        has_exact_ordered_primary_key_tie_break_fields(self.fields.as_slice(), primary_key_names)
     }
 
     /// Return the normalized deterministic `..., primary_key` order contract,
@@ -499,6 +523,16 @@ impl OrderSpec {
         primary_key_name: &str,
     ) -> Option<DeterministicSecondaryOrderContract> {
         DeterministicSecondaryOrderContract::from_order_spec(self, primary_key_name)
+    }
+
+    /// Return the normalized deterministic `..., primary_key_fields` order
+    /// contract, if one exists for this ORDER BY shape.
+    #[must_use]
+    pub(in crate::db) fn deterministic_secondary_order_contract_fields(
+        &self,
+        primary_key_names: &[&str],
+    ) -> Option<DeterministicSecondaryOrderContract> {
+        DeterministicSecondaryOrderContract::from_order_spec_fields(self, primary_key_names)
     }
 
     /// Return the grouped order contract when grouped ORDER BY stays on one
@@ -608,17 +642,26 @@ fn primary_scan_direction(order: Option<&OrderSpec>) -> Direction {
     }
 }
 
-fn has_exact_primary_key_tie_break_fields(
+fn has_exact_ordered_primary_key_tie_break_fields(
     fields: &[crate::db::query::plan::OrderTerm],
-    primary_key_name: &str,
+    primary_key_names: &[&str],
 ) -> bool {
-    let pk_count = fields
-        .iter()
-        .filter(|term| term.direct_field() == Some(primary_key_name))
-        .count();
-    let trailing_pk = fields
-        .last()
-        .is_some_and(|term| term.direct_field() == Some(primary_key_name));
+    if primary_key_names.is_empty() || fields.len() < primary_key_names.len() {
+        return false;
+    }
 
-    pk_count == 1 && trailing_pk
+    let split = fields.len() - primary_key_names.len();
+    let (prefix, suffix) = fields.split_at(split);
+    if !suffix
+        .iter()
+        .zip(primary_key_names.iter())
+        .all(|(term, primary_key_name)| term.direct_field() == Some(*primary_key_name))
+    {
+        return false;
+    }
+
+    !prefix.iter().any(|term| {
+        term.direct_field()
+            .is_some_and(|field| primary_key_names.contains(&field))
+    })
 }

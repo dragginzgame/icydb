@@ -268,6 +268,41 @@ fn seed_generated_timestamp_entity(
         .expect("generated timestamp setup insert should succeed");
 }
 
+fn seed_composite_key_terminal_entities(
+    session: &DbSession<SessionSqlCanister>,
+) -> (
+    SessionSqlCompositeWriteEntityKey,
+    SessionSqlCompositeWriteEntityKey,
+) {
+    let first_key = SessionSqlCompositeWriteEntityKey {
+        tenant_id: 7,
+        local_id: 1,
+    };
+    let second_key = SessionSqlCompositeWriteEntityKey {
+        tenant_id: 7,
+        local_id: 2,
+    };
+
+    session
+        .insert_many_atomic([
+            SessionSqlCompositeWriteEntity {
+                tenant_id: first_key.tenant_id,
+                local_id: first_key.local_id,
+                name: "Ada".to_string(),
+                age: 21,
+            },
+            SessionSqlCompositeWriteEntity {
+                tenant_id: second_key.tenant_id,
+                local_id: second_key.local_id,
+                name: "Bea".to_string(),
+                age: 22,
+            },
+        ])
+        .expect("typed composite-key setup insert should succeed");
+
+    (first_key, second_key)
+}
+
 // Build one structural insert/replace patch that explicitly writes the
 // generated timestamp field so generated-field rejection matrices can share it.
 fn generated_timestamp_insert_patch(
@@ -584,6 +619,190 @@ fn execute_sql_insert_update_supports_composite_primary_key_fields() {
                 Value::Nat(22),
             ],
         ],
+    );
+}
+
+#[test]
+fn fluent_exact_key_paths_support_composite_primary_keys() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let (first_key, second_key) = seed_composite_key_terminal_entities(&session);
+
+    let first = session
+        .load::<SessionSqlCompositeWriteEntity>()
+        .by_id(Id::from_key(first_key))
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
+        .expect("composite by_id load should succeed");
+    assert_eq!(first.len(), 1);
+    assert_eq!(first.as_slice()[0].id(), Id::from_key(first_key));
+    assert_eq!(first.as_slice()[0].entity_ref().name, "Ada");
+
+    let both = session
+        .load::<SessionSqlCompositeWriteEntity>()
+        .by_ids([Id::from_key(second_key), Id::from_key(first_key)])
+        .execute()
+        .and_then(crate::db::LoadQueryResult::into_rows)
+        .expect("composite by_ids load should succeed");
+    assert_eq!(both.len(), 2);
+    assert!(both.contains_id(&Id::from_key(first_key)));
+    assert!(both.contains_id(&Id::from_key(second_key)));
+
+    let deleted = session
+        .delete::<SessionSqlCompositeWriteEntity>()
+        .by_id(Id::from_key(first_key))
+        .execute()
+        .expect("composite by_id delete should succeed");
+    assert_eq!(deleted, 1);
+    assert_eq!(
+        persisted_composite_write_rows(&session),
+        vec![vec![
+            Value::Nat(second_key.tenant_id),
+            Value::Nat(second_key.local_id),
+            Value::Text("Bea".to_string()),
+            Value::Nat(22),
+        ]],
+    );
+}
+
+#[test]
+fn fluent_id_terminals_support_composite_primary_keys() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let (first_key, second_key) = seed_composite_key_terminal_entities(&session);
+
+    assert_eq!(
+        session
+            .load::<SessionSqlCompositeWriteEntity>()
+            .min()
+            .expect("composite min id terminal should succeed"),
+        Some(Id::from_key(first_key)),
+    );
+    assert_eq!(
+        session
+            .load::<SessionSqlCompositeWriteEntity>()
+            .max()
+            .expect("composite max id terminal should succeed"),
+        Some(Id::from_key(second_key)),
+    );
+    assert_eq!(
+        session
+            .load::<SessionSqlCompositeWriteEntity>()
+            .min_by("age")
+            .expect("composite min_by id terminal should succeed"),
+        Some(Id::from_key(first_key)),
+    );
+    assert_eq!(
+        session
+            .load::<SessionSqlCompositeWriteEntity>()
+            .max_by("age")
+            .expect("composite max_by id terminal should succeed"),
+        Some(Id::from_key(second_key)),
+    );
+    assert_eq!(
+        session
+            .load::<SessionSqlCompositeWriteEntity>()
+            .nth_by("age", 1)
+            .expect("composite nth_by id terminal should succeed"),
+        Some(Id::from_key(second_key)),
+    );
+    assert_eq!(
+        session
+            .load::<SessionSqlCompositeWriteEntity>()
+            .median_by("age")
+            .expect("composite median_by id terminal should succeed"),
+        Some(Id::from_key(first_key)),
+    );
+    assert_eq!(
+        session
+            .load::<SessionSqlCompositeWriteEntity>()
+            .min_max_by("age")
+            .expect("composite min_max_by id terminal should succeed"),
+        Some((Id::from_key(first_key), Id::from_key(second_key))),
+    );
+    assert_eq!(
+        session
+            .load::<SessionSqlCompositeWriteEntity>()
+            .order_term(crate::db::asc("local_id"))
+            .values_by_with_ids("age")
+            .expect("composite values_by_with_ids terminal should succeed"),
+        outputs_with_ids::<SessionSqlCompositeWriteEntity>(vec![
+            (Id::from_key(first_key), Value::Nat(21)),
+            (Id::from_key(second_key), Value::Nat(22)),
+        ]),
+    );
+    assert_eq!(
+        session
+            .load::<SessionSqlCompositeWriteEntity>()
+            .top_k_by_with_ids("age", 1)
+            .expect("composite top_k_by_with_ids terminal should succeed"),
+        outputs_with_ids::<SessionSqlCompositeWriteEntity>(vec![(
+            Id::from_key(second_key),
+            Value::Nat(22),
+        )]),
+    );
+    assert_eq!(
+        session
+            .load::<SessionSqlCompositeWriteEntity>()
+            .bottom_k_by_with_ids("age", 1)
+            .expect("composite bottom_k_by_with_ids terminal should succeed"),
+        outputs_with_ids::<SessionSqlCompositeWriteEntity>(vec![(
+            Id::from_key(first_key),
+            Value::Nat(21),
+        )]),
+    );
+}
+
+#[test]
+fn fluent_paged_load_resumes_composite_primary_key_rows_without_duplicates() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let (first_key, second_key) = seed_composite_key_terminal_entities(&session);
+
+    session
+        .insert(SessionSqlCompositeWriteEntity {
+            tenant_id: first_key.tenant_id,
+            local_id: 3,
+            name: "Cid".to_string(),
+            age: 22,
+        })
+        .expect("third composite-key setup insert should succeed");
+
+    let first_page = session
+        .load::<SessionSqlCompositeWriteEntity>()
+        .order_term(crate::db::asc("age"))
+        .limit(2)
+        .execute_paged()
+        .expect("first composite-key page should execute");
+    assert_eq!(
+        first_page.response().ids().collect::<Vec<_>>(),
+        vec![Id::from_key(first_key), Id::from_key(second_key)],
+        "first composite-key page should preserve ordered row identity",
+    );
+    let cursor = crate::db::encode_cursor(
+        first_page
+            .continuation_cursor()
+            .expect("first composite-key page should emit a cursor"),
+    );
+
+    let second_page = session
+        .load::<SessionSqlCompositeWriteEntity>()
+        .order_term(crate::db::asc("age"))
+        .limit(2)
+        .cursor(cursor)
+        .execute_paged()
+        .expect("second composite-key page should resume after the first page");
+    assert_eq!(
+        second_page.response().ids().collect::<Vec<_>>(),
+        vec![Id::from_key(SessionSqlCompositeWriteEntityKey {
+            tenant_id: first_key.tenant_id,
+            local_id: 3,
+        })],
+        "second composite-key page should not repeat rows from the first page",
+    );
+    assert!(
+        second_page.continuation_cursor().is_none(),
+        "second composite-key page should exhaust the ordered result set",
     );
 }
 
