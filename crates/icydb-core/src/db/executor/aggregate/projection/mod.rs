@@ -164,12 +164,14 @@ where
         target_field: &str,
         op: &PreparedScalarProjectionOp,
     ) -> PreparedScalarProjectionStrategy {
+        let primary_key_names = prepared.authority.primary_key_names();
+
         if !prepared.has_predicate()
             && let Some(context) = covering_index_projection_context(
                 &prepared.logical_plan.access,
                 prepared.order_spec(),
                 target_field,
-                prepared.authority.primary_key_name(),
+                primary_key_names.as_slice(),
             )
         {
             let (offset, limit) = page_window_state(prepared.page_spec());

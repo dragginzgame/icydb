@@ -186,6 +186,20 @@ impl EntityAuthority {
         self.primary_key_name
     }
 
+    /// Return ordered structural primary-key field names for this entity.
+    ///
+    /// Composite primary-key execution paths use this list when comparing
+    /// deterministic order contracts against the full row-identity suffix.
+    #[must_use]
+    pub(in crate::db::executor) fn primary_key_names(&self) -> Vec<&'static str> {
+        self.model
+            .primary_key_model()
+            .fields()
+            .iter()
+            .map(crate::model::field::FieldModel::name)
+            .collect()
+    }
+
     /// Borrow structural entity-tag authority.
     #[must_use]
     pub const fn entity_tag(&self) -> EntityTag {

@@ -211,16 +211,35 @@ pub(in crate::db) fn index_covering_existing_rows_terminal_eligible(
 /// Derive one planner-owned scalar covering-read plan from generated field-table
 /// authority plus the frozen projection contract on the plan.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn covering_read_plan_from_fields(
     fields: &[FieldModel],
     plan: &AccessPlannedQuery,
     primary_key_name: &'static str,
     strict_predicate_compatible: bool,
 ) -> Option<CoveringReadPlan> {
+    let primary_key_names = [primary_key_name];
+    covering_read_plan_from_fields_with_primary_key_names(
+        fields,
+        plan,
+        &primary_key_names,
+        strict_predicate_compatible,
+    )
+}
+
+/// Derive one planner-owned covering-read plan from generated field-table
+/// authority plus an ordered primary-key field contract.
+#[must_use]
+pub(in crate::db) fn covering_read_plan_from_fields_with_primary_key_names(
+    fields: &[FieldModel],
+    plan: &AccessPlannedQuery,
+    primary_key_names: &[&str],
+    strict_predicate_compatible: bool,
+) -> Option<CoveringReadPlan> {
     covering_index_projection_plan_from_fields(
         fields,
         plan,
-        primary_key_name,
+        primary_key_names,
         strict_predicate_compatible,
         CoveringProjectionFieldSourcePolicy::StrictCovering,
         false,
@@ -267,10 +286,11 @@ pub(in crate::db) fn covering_hybrid_projection_plan_from_fields(
     plan: &AccessPlannedQuery,
     primary_key_name: &'static str,
 ) -> Option<CoveringReadPlan> {
+    let primary_key_names = [primary_key_name];
     covering_index_projection_plan_from_fields(
         fields,
         plan,
-        primary_key_name,
+        &primary_key_names,
         false,
         CoveringProjectionFieldSourcePolicy::HybridRowFallback,
         true,
@@ -299,19 +319,41 @@ pub(in crate::db) fn covering_hybrid_projection_plan_with_schema_info(
 /// Derive one execution-grade scalar covering-read plan from generated field-table
 /// authority plus the planner-owned projection contract.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn covering_read_execution_plan_from_fields(
     fields: &[FieldModel],
     plan: &AccessPlannedQuery,
     primary_key_name: &'static str,
     strict_predicate_compatible: bool,
 ) -> Option<CoveringReadExecutionPlan> {
+    let primary_key_names = [primary_key_name];
+    covering_read_execution_plan_from_fields_with_primary_key_names(
+        fields,
+        plan,
+        &primary_key_names,
+        strict_predicate_compatible,
+    )
+}
+
+/// Derive one execution-grade covering-read plan from generated field-table
+/// authority plus an ordered primary-key field contract.
+#[must_use]
+pub(in crate::db) fn covering_read_execution_plan_from_fields_with_primary_key_names(
+    fields: &[FieldModel],
+    plan: &AccessPlannedQuery,
+    primary_key_names: &[&str],
+    strict_predicate_compatible: bool,
+) -> Option<CoveringReadExecutionPlan> {
     // Phase 1: secondary covering routes now inherit planner-owned authority
     // directly. Once a secondary index-backed covering shape is admitted at
     // planning time, execution may trust that visible index path without a
     // separate executor-side authority resolver.
-    if let Some(covering) =
-        covering_read_plan_from_fields(fields, plan, primary_key_name, strict_predicate_compatible)
-    {
+    if let Some(covering) = covering_read_plan_from_fields_with_primary_key_names(
+        fields,
+        plan,
+        primary_key_names,
+        strict_predicate_compatible,
+    ) {
         return Some(covering_read_execution_plan(
             covering,
             CoveringExistingRowMode::ProvenByPlanner,
@@ -322,7 +364,11 @@ pub(in crate::db) fn covering_read_execution_plan_from_fields(
     // first planner-proven existing-row cohort. These keys come from the row
     // store itself, so they do not inherit secondary-index stale-entry risk.
     let (covering, existing_row_mode) =
-        primary_store_covering_plan_from_fields(fields, plan, primary_key_name)?;
+        primary_store_covering_plan_from_fields_with_primary_key_names(
+            fields,
+            plan,
+            primary_key_names,
+        )?;
 
     Some(covering_read_execution_plan(covering, existing_row_mode))
 }
@@ -357,11 +403,31 @@ pub(in crate::db) fn covering_read_execution_plan_with_schema_info(
 /// Derive one covering projection context from one access shape + scalar order
 /// contract and target field.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn covering_index_projection_context<K>(
     access: &AccessPlan<K>,
     order: Option<&OrderSpec>,
     target_field: &str,
     primary_key_name: &'static str,
+) -> Option<CoveringProjectionContext> {
+    let primary_key_names = [primary_key_name];
+
+    covering_index_projection_context_with_primary_key_names(
+        access,
+        order,
+        target_field,
+        &primary_key_names,
+    )
+}
+
+/// Derive one covering projection context from one access shape + scalar order
+/// contract, target field, and ordered primary-key field list.
+#[must_use]
+pub(in crate::db) fn covering_index_projection_context_with_primary_key_names<K>(
+    access: &AccessPlan<K>,
+    order: Option<&OrderSpec>,
+    target_field: &str,
+    primary_key_names: &[&str],
 ) -> Option<CoveringProjectionContext> {
     let metadata = covering_access_metadata(access)?;
     let order_terms = metadata.order_terms();
@@ -369,12 +435,11 @@ pub(in crate::db) fn covering_index_projection_context<K>(
         .coverable_component_fields
         .iter()
         .position(|field| field.as_deref().is_some_and(|field| field == target_field))?;
-    let primary_key_names = [primary_key_name];
     let order_contract = covering_projection_order_contract(
         order,
         order_terms.as_slice(),
         metadata.prefix_len,
-        &primary_key_names,
+        primary_key_names,
         metadata.path_kind_is_range,
     )?;
 
@@ -535,16 +600,15 @@ fn primary_store_covering_plan(
     ))
 }
 
-fn primary_store_covering_plan_from_fields(
+fn primary_store_covering_plan_from_fields_with_primary_key_names(
     fields: &[FieldModel],
     plan: &AccessPlannedQuery,
-    primary_key_name: &'static str,
+    primary_key_names: &[&str],
 ) -> Option<(CoveringReadPlan, CoveringExistingRowMode)> {
-    let primary_key_names = [primary_key_name];
     primary_store_covering_plan(
         |field_name| resolve_covering_field_slot(fields, field_name),
         plan,
-        &primary_key_names,
+        primary_key_names,
     )
 }
 
@@ -710,16 +774,15 @@ fn covering_index_projection_plan(
 fn covering_index_projection_plan_from_fields(
     fields: &[FieldModel],
     plan: &AccessPlannedQuery,
-    primary_key_name: &'static str,
+    primary_key_names: &[&str],
     residual_filter_predicate_supported: bool,
     source_policy: CoveringProjectionFieldSourcePolicy,
     require_row_field: bool,
 ) -> Option<CoveringReadPlan> {
-    let primary_key_names = [primary_key_name];
     covering_index_projection_plan(
         |field_name| resolve_covering_field_slot(fields, field_name),
         plan,
-        &primary_key_names,
+        primary_key_names,
         residual_filter_predicate_supported,
         source_policy,
         require_row_field,

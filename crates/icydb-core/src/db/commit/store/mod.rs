@@ -23,8 +23,8 @@ use crate::{
     },
     error::InternalError,
 };
-use canic_cdk::structures::{
-    Cell as StableCell, DefaultMemoryImpl, Storable, memory::VirtualMemory, storable::Bound,
+use ic_memory::stable_structures::{
+    Cell as StableCell, DefaultMemoryImpl, Storable, memory_manager::VirtualMemory, storable::Bound,
 };
 use std::{
     borrow::Cow,

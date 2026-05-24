@@ -2,8 +2,6 @@
 //! Character-only RPG demo canister used by local demos and fixture loading.
 //!
 
-extern crate canic_cdk as ic_cdk;
-
 use icydb_testing_demo_rpg_fixtures::fixtures;
 
 icydb::start!();
@@ -15,4 +13,4 @@ fn icydb_fixtures_load() -> Result<(), icydb::Error> {
     Ok(())
 }
 
-canic_cdk::export_candid!();
+ic_cdk::export_candid!();

@@ -11,7 +11,7 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use canic_cdk::types::Account as LedgerAccount;
+use icrc_ledger_types::icrc1::account::Account as LedgerAccount;
 use serde::Deserialize;
 use std::{
     fmt::{self, Display},

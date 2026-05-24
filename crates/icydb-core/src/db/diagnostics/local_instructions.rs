@@ -13,7 +13,7 @@
 pub(in crate::db) fn read_local_instruction_counter() -> u64 {
     #[cfg(all(feature = "diagnostics", target_arch = "wasm32"))]
     {
-        canic_cdk::api::performance_counter(1)
+        crate::runtime::performance_counter(1)
     }
 
     #[cfg(not(all(feature = "diagnostics", target_arch = "wasm32")))]

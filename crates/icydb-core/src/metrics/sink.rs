@@ -2170,7 +2170,7 @@ pub(crate) struct PathSpan {
 fn read_perf_counter() -> u64 {
     #[cfg(target_arch = "wasm32")]
     {
-        canic_cdk::api::performance_counter(1)
+        crate::runtime::performance_counter(1)
     }
     #[cfg(not(target_arch = "wasm32"))]
     {

@@ -2,8 +2,6 @@
 //! Small SQL canister used for lightweight SQL fixture smoke tests.
 //!
 
-extern crate canic_cdk as ic_cdk;
-
 use icydb::types::{Decimal, Float32, Float64, Timestamp, Ulid};
 use icydb_testing_test_sql_fixtures::sql::{SqlTestNumericTypes, SqlTestUser};
 
@@ -89,4 +87,4 @@ fn sql_numeric_type_rows() -> Vec<SqlTestNumericTypes> {
     ]
 }
 
-canic_cdk::export_candid!();
+ic_cdk::export_candid!();

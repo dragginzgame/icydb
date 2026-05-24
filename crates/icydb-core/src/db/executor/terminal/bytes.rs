@@ -35,7 +35,8 @@ use crate::{
         },
         query::plan::{
             CoveringProjectionOrder, FieldSlot as PlannedFieldSlot, OrderDirection,
-            constant_covering_projection_value_from_access, covering_index_projection_context,
+            constant_covering_projection_value_from_access,
+            covering_index_projection_context_with_primary_key_names as covering_index_projection_context,
         },
     },
     error::InternalError,
@@ -87,13 +88,15 @@ where
         prepared: &PreparedScalarMaterializedBoundary<'_>,
         target_field: &str,
     ) -> BytesByProjectionMode {
+        let primary_key_names = prepared.authority.primary_key_names();
+
         classify_bytes_by_projection_mode(
             &prepared.logical_plan().access,
             prepared.order_spec(),
             prepared.consistency(),
             prepared.has_predicate(),
             target_field,
-            prepared.authority.primary_key_name(),
+            primary_key_names.as_slice(),
         )
     }
 
@@ -271,11 +274,12 @@ where
         prepared: &PreparedScalarMaterializedBoundary<'_>,
         target_field: &PlannedFieldSlot,
     ) -> Result<Option<u64>, InternalError> {
+        let primary_key_names = prepared.authority.primary_key_names();
         let Some(context) = covering_index_projection_context(
             &prepared.logical_plan().access,
             prepared.order_spec(),
             target_field.field(),
-            prepared.authority.primary_key_name(),
+            primary_key_names.as_slice(),
         ) else {
             return Ok(None);
         };

@@ -2,6 +2,7 @@
 //! Defines the millisecond-native timestamp type used by typed values,
 //! arithmetic with durations, and RFC3339 wire conversion.
 
+use crate::runtime::now_millis;
 use crate::{
     traits::{
         EntityKeyBytes, NumericValue, Repr, RuntimeValueDecode, RuntimeValueEncode,
@@ -15,7 +16,6 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use canic_cdk::utils::time::now_millis;
 use serde::{Deserialize, Deserializer};
 use std::{
     fmt,

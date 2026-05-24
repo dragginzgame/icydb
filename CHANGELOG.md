@@ -7,14 +7,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- Moved covering projection primary-key sources onto ordered primary-key
-  components, tightened composite primary-key null-planning to fail closed, and
-  kept secondary-order ranking and storage snapshot diagnostics on ordered
-  composite primary-key suffix contracts.
-
 ## [0.162.x] 🔑 - 2026-05-23 - Composite Primary Keys
 
 Detailed notes: [docs/changelog/0.162.md](docs/changelog/0.162.md)
+
+- `0.162.14` moves model-only EXPLAIN and bytes/distinct covering-index fast
+  paths onto ordered composite primary-key suffix contracts, and removes the
+  live `canic-cdk` dependency in favor of direct IC crates.
+
+- `0.162.13` moves covering projection primary-key sources, null planning, and
+  storage diagnostics onto ordered composite primary-key component contracts.
 
 - `0.162.12` moves id-returning terminals, materialized row decode, index-range
   cursor validation, and deterministic ORDER BY tie-breaks onto

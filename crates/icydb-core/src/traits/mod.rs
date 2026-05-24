@@ -28,7 +28,7 @@ pub use visitor::*;
 // Standard re-exports for `traits::X` ergonomics
 // -----------------------------------------------------------------------------
 
-pub use canic_cdk::structures::storable::Storable;
+pub use ic_memory::stable_structures::storable::Storable;
 pub use serde::{Deserialize, Serialize, de::DeserializeOwned};
 pub use std::{
     cmp::{Eq, Ordering, PartialEq},

@@ -3,12 +3,10 @@
 //! access-shape coverage.
 //!
 
-extern crate canic_cdk as ic_cdk;
-
 use candid::CandidType;
 #[cfg(feature = "sql")]
-use canic_cdk::query;
-use canic_cdk::update;
+use ic_cdk::query;
+use ic_cdk::update;
 use icydb::types::Timestamp;
 #[cfg(feature = "sql")]
 use icydb::{
@@ -1292,4 +1290,4 @@ fn perf_audit_accounts() -> Vec<PerfAuditAccount> {
     ]
 }
 
-canic_cdk::export_candid!();
+ic_cdk::export_candid!();

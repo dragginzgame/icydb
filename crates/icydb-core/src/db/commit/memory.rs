@@ -4,9 +4,9 @@
 //! Boundary: commit::{recovery,store} -> commit::memory (one-way).
 
 use crate::error::InternalError;
-use canic_cdk::structures::{DefaultMemoryImpl, memory::VirtualMemory};
 #[cfg(not(test))]
 use ic_memory::runtime;
+use ic_memory::stable_structures::{DefaultMemoryImpl, memory_manager::VirtualMemory};
 use std::sync::OnceLock;
 
 static COMMIT_STORE_ALLOCATION: OnceLock<CommitMemoryAllocation> = OnceLock::new();

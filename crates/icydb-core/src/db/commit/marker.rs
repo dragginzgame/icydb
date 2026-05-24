@@ -11,8 +11,9 @@ use crate::{
         index::{IndexEntryValue, IndexStore, RawIndexStoreKey},
     },
     error::InternalError,
+    runtime::now_millis,
 };
-use canic_cdk::{structures::Storable, utils::time::now_millis};
+use ic_memory::stable_structures::Storable;
 use std::{
     borrow::Cow,
     cell::RefCell,

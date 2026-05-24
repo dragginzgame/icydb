@@ -17,6 +17,7 @@ pub mod db;
 pub mod error;
 pub mod metrics;
 pub mod model;
+pub(crate) mod runtime;
 pub mod sanitize;
 pub mod traits;
 pub mod types;

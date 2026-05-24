@@ -11,6 +11,7 @@ use crate::{
         query::plan::{
             AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder, OrderDirection,
             OrderSpec, covering_read_execution_plan_from_fields,
+            covering_read_execution_plan_from_fields_with_primary_key_names,
             expr::{FieldId, ProjectionSelection},
             index_covering_existing_rows_terminal_eligible,
         },
@@ -200,6 +201,48 @@ fn covering_read_execution_plan_marks_primary_store_pk_projection_as_planner_pro
     );
     assert_eq!(covering.fields.len(), 1);
     assert_eq!(covering.fields[0].field_slot.field(), "id");
+}
+
+#[test]
+fn covering_read_execution_plan_uses_ordered_model_primary_key_components() {
+    let mut plan = AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
+    plan.projection_selection =
+        ProjectionSelection::Fields(vec![FieldId::new("id"), FieldId::new("rank")]);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+        ],
+    });
+    let mut finalized = plan.clone();
+    finalized
+        .finalize_static_planning_shape_for_model_only(covering_read_model())
+        .expect("covering tests require planner-frozen projection metadata");
+    let primary_key_names = ["id", "rank"];
+
+    let covering = covering_read_execution_plan_from_fields_with_primary_key_names(
+        covering_read_model().fields(),
+        &finalized,
+        &primary_key_names,
+        true,
+    )
+    .expect("ordered model primary-key projection should derive a covering plan");
+
+    assert_eq!(
+        covering.order_contract,
+        CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc),
+    );
+    assert_eq!(covering.fields.len(), 2);
+    assert_eq!(covering.fields[0].field_slot.field(), "id");
+    assert_eq!(
+        covering.fields[0].source,
+        crate::db::query::plan::CoveringReadFieldSource::PrimaryKey { component_index: 0 },
+    );
+    assert_eq!(covering.fields[1].field_slot.field(), "rank");
+    assert_eq!(
+        covering.fields[1].source,
+        crate::db::query::plan::CoveringReadFieldSource::PrimaryKey { component_index: 1 },
+    );
 }
 
 #[test]

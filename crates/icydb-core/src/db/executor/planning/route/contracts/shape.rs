@@ -98,7 +98,7 @@ impl<'a> AggregateRouteShape<'a> {
         kind: AggregateKind,
         target_field: Option<&'a str>,
         fields: &[FieldModel],
-        primary_key_name: &str,
+        primary_key_names: &[&str],
     ) -> Self {
         let target_field_known = target_field.is_none_or(|target_field| {
             fields
@@ -114,7 +114,7 @@ impl<'a> AggregateRouteShape<'a> {
                 })
         });
         let target_field_is_primary_key =
-            target_field.is_some_and(|target_field| target_field == primary_key_name);
+            target_field.is_some_and(|target_field| primary_key_names == [target_field]);
 
         Self::new_resolved(
             kind,

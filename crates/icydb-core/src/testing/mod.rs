@@ -6,9 +6,9 @@
 mod entity_tags;
 mod fixtures;
 
-use canic_cdk::structures::{
+use ic_memory::stable_structures::{
     DefaultMemoryImpl,
-    memory::{MemoryId, MemoryManager, VirtualMemory},
+    memory_manager::{MemoryId, MemoryManager, VirtualMemory},
 };
 
 pub(crate) use entity_tags::*;

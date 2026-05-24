@@ -194,9 +194,9 @@ pub mod __macro {
 #[doc(hidden)]
 pub mod __reexports {
     pub use candid;
-    pub use canic_cdk;
     pub use ctor;
     pub use derive_more;
+    pub use ic_cdk;
     pub use ic_memory;
     pub use icydb_derive;
     pub use remain;

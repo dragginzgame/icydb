@@ -197,12 +197,12 @@ fn usize_to_u64(value: usize) -> u64 {
 
 #[cfg(target_arch = "wasm32")]
 fn start_operator_timer() -> u64 {
-    canic_cdk::utils::time::now_millis()
+    crate::runtime::now_millis()
 }
 
 #[cfg(target_arch = "wasm32")]
 fn elapsed_operator_micros(started_at_ms: u64) -> u64 {
-    canic_cdk::utils::time::now_millis()
+    crate::runtime::now_millis()
         .saturating_sub(started_at_ms)
         .saturating_mul(1_000)
 }

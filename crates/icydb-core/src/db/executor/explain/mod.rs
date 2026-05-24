@@ -25,6 +25,7 @@ use crate::{
             plan::{AccessPlannedQuery, VisibleIndexes, explain_access_kind_label},
         },
     },
+    model::entity::EntityModel,
     traits::{EntityKind, EntityValue},
     value::Value,
 };
@@ -98,9 +99,10 @@ impl StructuralQuery {
         &self,
         plan: &AccessPlannedQuery,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
+        let primary_key_names = model_primary_key_names(self.model());
         let route_facts = freeze_load_execution_route_facts_for_model_only(
             self.model().fields(),
-            self.model().primary_key().name(),
+            primary_key_names.as_slice(),
             plan,
         )
         .map_err(QueryError::execute)?;
@@ -136,9 +138,10 @@ impl StructuralQuery {
         plan: &AccessPlannedQuery,
         reuse: Option<TraceReuseEvent>,
     ) -> Result<FinalizedQueryDiagnostics, QueryError> {
+        let primary_key_names = model_primary_key_names(self.model());
         let route_facts = freeze_load_execution_route_facts_for_model_only(
             self.model().fields(),
-            self.model().primary_key().name(),
+            primary_key_names.as_slice(),
             plan,
         )
         .map_err(QueryError::execute)?;
@@ -498,10 +501,19 @@ where
                     aggregate.kind(),
                     aggregate.target_field(),
                     E::MODEL.fields(),
-                    E::MODEL.primary_key().name(),
+                    model_primary_key_names(E::MODEL).as_slice(),
                 ),
             )
     }
+}
+
+fn model_primary_key_names(model: &EntityModel) -> Vec<&'static str> {
+    model
+        .primary_key_model()
+        .fields()
+        .iter()
+        .map(crate::model::field::FieldModel::name)
+        .collect()
 }
 
 // Render the logical ORDER pushdown label for verbose execution diagnostics.

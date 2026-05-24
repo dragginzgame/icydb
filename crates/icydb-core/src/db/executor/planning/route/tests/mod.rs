@@ -355,6 +355,7 @@ fn build_aggregate_spec_route(
     let finalized = finalized_plan_for_authority(authority.clone(), plan);
     let execution_preparation =
         ExecutionPreparation::from_plan(&finalized, slot_map_for_model_plan(&finalized));
+    let primary_key_names = [authority.primary_key_name()];
 
     build_execution_route_plan(
         &finalized,
@@ -363,7 +364,7 @@ fn build_aggregate_spec_route(
                 aggregate_expr.kind(),
                 aggregate_expr.target_field(),
                 authority.fields(),
-                authority.primary_key_name(),
+                &primary_key_names,
             ),
             execution_preparation: &execution_preparation,
         },

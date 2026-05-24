@@ -9,7 +9,7 @@ use crate::{
     },
     value::Value,
 };
-use canic_cdk::candid::{CandidType, Principal as WrappedPrincipal};
+use candid::{CandidType, Principal as WrappedPrincipal};
 use serde::Deserialize;
 use std::{fmt, str::FromStr};
 use thiserror::Error as ThisError;

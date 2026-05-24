@@ -7,8 +7,8 @@
 //! Query-side instrumentation is intentionally not surfaced by `report`, so
 //! query metrics are non-existent by design under IC query semantics.
 
+use crate::runtime::now_millis;
 use candid::CandidType;
-use canic_cdk::utils::time::now_millis;
 use serde::Deserialize;
 use std::{cell::RefCell, collections::BTreeMap};
 

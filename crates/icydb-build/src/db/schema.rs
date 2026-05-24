@@ -30,8 +30,8 @@ impl quote::ToTokens for SchemaSurfaceTokens {
 
         tokens.extend(quote! {
             fn icydb_schema_surface_require_controller() -> Result<(), ::icydb::Error> {
-                let caller = ::icydb::__reexports::canic_cdk::api::msg_caller();
-                if !::icydb::__reexports::canic_cdk::api::is_controller(&caller) {
+                let caller = ::icydb::__reexports::ic_cdk::api::msg_caller();
+                if !::icydb::__reexports::ic_cdk::api::is_controller(&caller) {
                     return Err(::icydb::Error::new(
                         ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
                         ::icydb::ErrorOrigin::Interface,
@@ -42,7 +42,7 @@ impl quote::ToTokens for SchemaSurfaceTokens {
                 Ok(())
             }
 
-            #[::icydb::__reexports::canic_cdk::query]
+            #[::icydb::__reexports::ic_cdk::query]
             fn __icydb_schema() -> Result<Vec<::icydb::db::EntitySchemaDescription>, ::icydb::Error> {
                 icydb_schema_surface_require_controller()?;
 
@@ -51,7 +51,7 @@ impl quote::ToTokens for SchemaSurfaceTokens {
                 ])
             }
 
-            #[::icydb::__reexports::canic_cdk::query]
+            #[::icydb::__reexports::ic_cdk::query]
             fn __icydb_schema_check() -> Result<Vec<::icydb::db::EntitySchemaCheckDescription>, ::icydb::Error> {
                 icydb_schema_surface_require_controller()?;
 

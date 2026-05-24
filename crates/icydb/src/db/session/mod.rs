@@ -147,7 +147,7 @@ pub struct DbSession<C: CanisterKind> {
 fn read_sql_response_decode_local_instruction_counter() -> u64 {
     #[cfg(target_arch = "wasm32")]
     {
-        canic_cdk::api::performance_counter(1)
+        ic_cdk::api::performance_counter(1)
     }
 
     #[cfg(not(target_arch = "wasm32"))]

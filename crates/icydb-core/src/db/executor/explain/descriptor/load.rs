@@ -24,8 +24,9 @@ use crate::{
                 AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot,
                 AccessChoiceResidualBurden, AccessPlannedQuery, CoveringExistingRowMode,
                 CoveringProjectionOrder, CoveringReadFieldSource, access_plan_label,
-                covering_read_execution_plan_from_fields, covering_read_reason_code_for_load_plan,
-                covering_strict_predicate_compatible, grouped_executor_handoff,
+                covering_read_execution_plan_from_fields_with_primary_key_names,
+                covering_read_reason_code_for_load_plan, covering_strict_predicate_compatible,
+                grouped_executor_handoff,
             },
         },
     },
@@ -169,8 +170,9 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor(
     primary_key_name: &'static str,
     plan: &AccessPlannedQuery,
 ) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
+    let primary_key_names = [primary_key_name];
     let route_facts =
-        freeze_load_execution_route_facts_for_model_only(fields, primary_key_name, plan)?;
+        freeze_load_execution_route_facts_for_model_only(fields, &primary_key_names, plan)?;
 
     Ok(assemble_load_execution_node_descriptor_from_route_facts(
         plan,
@@ -523,7 +525,7 @@ fn candidate_residual_burden_label(candidate: &AccessChoiceCandidateExplainSumma
 /// consumers that do not have accepted executor authority.
 pub(in crate::db) fn freeze_load_execution_route_facts_for_model_only(
     fields: &'static [FieldModel],
-    primary_key_name: &'static str,
+    primary_key_names: &[&str],
     plan: &AccessPlannedQuery,
 ) -> Result<LoadExecutionRouteFacts, InternalError> {
     let explain_preparation = LoadExplainPreparation::from_plan(plan);
@@ -546,10 +548,10 @@ pub(in crate::db) fn freeze_load_execution_route_facts_for_model_only(
     // Scalar explain derives covering-read eligibility from the same field
     // table and PK identity that planner/runtime authority paths use.
     let load_terminal_fast_path = if plan.scalar_plan().mode.is_load() {
-        covering_read_execution_plan_from_fields(
+        covering_read_execution_plan_from_fields_with_primary_key_names(
             fields,
             plan,
-            primary_key_name,
+            primary_key_names,
             explain_preparation.strict_predicate_compatible,
         )
         .map(LoadTerminalFastPathContract::CoveringRead)

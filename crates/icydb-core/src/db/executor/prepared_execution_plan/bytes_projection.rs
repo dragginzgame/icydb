@@ -4,7 +4,7 @@ use crate::{
         predicate::MissingRowPolicy,
         query::plan::{
             OrderSpec, constant_covering_projection_value_from_access,
-            covering_index_projection_context,
+            covering_index_projection_context_with_primary_key_names as covering_index_projection_context,
         },
     },
     value::Value,
@@ -33,7 +33,7 @@ pub(in crate::db::executor) fn classify_bytes_by_projection_mode(
     consistency: MissingRowPolicy,
     has_predicate: bool,
     target_field: &str,
-    primary_key_name: &'static str,
+    primary_key_names: &[&str],
 ) -> BytesByProjectionMode {
     if !matches!(consistency, MissingRowPolicy::Ignore) {
         return BytesByProjectionMode::Materialized;
@@ -47,7 +47,7 @@ pub(in crate::db::executor) fn classify_bytes_by_projection_mode(
         return BytesByProjectionMode::Materialized;
     }
 
-    if covering_index_projection_context(access, order_spec, target_field, primary_key_name)
+    if covering_index_projection_context(access, order_spec, target_field, primary_key_names)
         .is_some()
     {
         return BytesByProjectionMode::CoveringIndex;

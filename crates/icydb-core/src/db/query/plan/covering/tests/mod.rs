@@ -160,6 +160,45 @@ fn covering_projection_context_accepts_suffix_index_order() {
 }
 
 #[test]
+fn covering_projection_context_accepts_composite_primary_key_suffix_order() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::IndexPrefix {
+            index: crate::db::access::SemanticIndexAccessContract::model_only_from_generated_index(
+                crate::model::index::IndexModel::generated(
+                    "idx",
+                    "tests::Entity",
+                    &INDEX_FIELDS_GROUP_RANK,
+                    false,
+                ),
+            ),
+            values: vec![Value::Nat(7)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("tenant_id", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("local_id", OrderDirection::Asc),
+        ],
+    });
+
+    let context = super::covering_index_projection_context_with_primary_key_names(
+        &plan.access,
+        plan.scalar_plan().order.as_ref(),
+        "rank",
+        &["tenant_id", "local_id"],
+    )
+    .expect("composite primary-key suffix should satisfy deterministic index order");
+
+    assert_eq!(context.component_index, 1);
+    assert_eq!(
+        context.order_contract,
+        super::CoveringProjectionOrder::IndexOrder(Direction::Asc)
+    );
+}
+
+#[test]
 fn covering_projection_context_accepts_primary_key_order() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {

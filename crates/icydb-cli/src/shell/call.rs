@@ -33,10 +33,7 @@ pub(super) fn icp_query(
         canister,
         method,
         candid_arg.as_str(),
-        |stderr| {
-            let error = sql_call_error("query", environment, canister, method, stderr);
-            sql_error_with_recovery_hint(error.as_str(), environment, canister)
-        },
+        sql_call_error_mapper("query", environment, canister, method),
     )
 }
 
@@ -52,10 +49,7 @@ pub(super) fn icp_update(
         canister,
         method,
         candid_arg.as_str(),
-        |stderr| {
-            let error = sql_call_error("DDL", environment, canister, method, stderr);
-            sql_error_with_recovery_hint(error.as_str(), environment, canister)
-        },
+        sql_call_error_mapper("DDL", environment, canister, method),
     )
 }
 
@@ -73,6 +67,19 @@ fn sql_call_error(
     format!(
         "IcyDB SQL {call_kind} method '{method}' failed on canister '{canister}' in environment '{environment}': {stderr}",
     )
+}
+
+fn sql_call_error_mapper<'a>(
+    call_kind: &'a str,
+    environment: &'a str,
+    canister: &'a str,
+    method: &'a str,
+) -> impl FnOnce(&str) -> String + 'a {
+    move |stderr| {
+        let error = sql_call_error(call_kind, environment, canister, method, stderr);
+
+        sql_error_with_recovery_hint(error.as_str(), environment, canister)
+    }
 }
 
 pub(super) fn sql_error_with_recovery_hint(

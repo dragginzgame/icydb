@@ -8,7 +8,7 @@ use crate::db::{
     query::plan::{
         CoveringProjectionContext, OrderSpec,
         covering_index_adjacent_distinct_eligible as plan_adjacent,
-        covering_index_projection_context as plan_covering_context,
+        covering_index_projection_context_with_primary_key_names as plan_covering_context,
     },
 };
 
@@ -18,9 +18,9 @@ pub(super) fn covering_index_projection_context<K>(
     access: &AccessPlan<K>,
     order: Option<&OrderSpec>,
     target_field: &str,
-    primary_key_name: &'static str,
+    primary_key_names: &[&str],
 ) -> Option<CoveringProjectionContext> {
-    plan_covering_context(access, order, target_field, primary_key_name)
+    plan_covering_context(access, order, target_field, primary_key_names)
 }
 
 // Return whether adjacent dedupe is safe for one covering context.

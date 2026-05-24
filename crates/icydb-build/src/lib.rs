@@ -253,7 +253,7 @@ impl ActorBuilder {
 fn generate_snapshot(builder: &ActorBuilder) -> TokenStream {
     if builder.options.snapshot_enabled() {
         quote! {
-        #[::icydb::__reexports::canic_cdk::query]
+        #[::icydb::__reexports::ic_cdk::query]
         pub fn __icydb_snapshot() -> Result<::icydb::db::StorageReport, ::icydb::Error> {
             ::icydb::__macro::execute_generated_storage_report(&db())
         }
@@ -268,7 +268,7 @@ fn generate_snapshot(builder: &ActorBuilder) -> TokenStream {
 fn generate_metrics(builder: &ActorBuilder) -> TokenStream {
     let metrics_endpoint = builder.options.metrics_enabled().then(|| {
         quote! {
-        #[::icydb::__reexports::canic_cdk::query]
+        #[::icydb::__reexports::ic_cdk::query]
         pub fn __icydb_metrics(window_start_ms: Option<u64>) -> Result<::icydb::metrics::EventReport, ::icydb::Error> {
             Ok(::icydb::metrics::metrics_report(window_start_ms))
         }
@@ -277,7 +277,7 @@ fn generate_metrics(builder: &ActorBuilder) -> TokenStream {
 
     let metrics_reset_endpoint = builder.options.metrics_reset_enabled().then(|| {
         quote! {
-        #[::icydb::__reexports::canic_cdk::update]
+        #[::icydb::__reexports::ic_cdk::update]
         pub fn __icydb_metrics_reset() -> Result<(), ::icydb::Error> {
             ::icydb::metrics::metrics_reset_all();
 

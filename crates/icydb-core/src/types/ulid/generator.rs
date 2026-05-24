@@ -2,10 +2,10 @@
 //! Owns the process-local monotonic ULID generator used by runtime key
 //! generation.
 
+use crate::runtime::now_millis;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::types::random;
 use crate::types::{Ulid, UlidError};
-use canic_cdk::utils::time::now_millis;
 use std::cell::RefCell;
 
 thread_local! {

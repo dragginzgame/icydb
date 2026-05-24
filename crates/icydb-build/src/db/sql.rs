@@ -160,8 +160,8 @@ fn sql_surface_controller_guard() -> TokenStream {
     quote! {
         #[cfg(feature = "sql")]
         fn icydb_sql_surface_require_controller(action: &str) -> Result<(), ::icydb::Error> {
-            let caller = ::icydb::__reexports::canic_cdk::api::msg_caller();
-            if !::icydb::__reexports::canic_cdk::api::is_controller(&caller) {
+            let caller = ::icydb::__reexports::ic_cdk::api::msg_caller();
+            if !::icydb::__reexports::ic_cdk::api::is_controller(&caller) {
                 return Err(::icydb::Error::new(
                     ::icydb::ErrorKind::Runtime(::icydb::RuntimeErrorKind::Unsupported),
                     ::icydb::ErrorOrigin::Interface,
@@ -226,7 +226,7 @@ fn sql_surface_endpoint_exports(
     let query_endpoint = readonly_enabled.then(|| {
         quote! {
         #[cfg(feature = "sql")]
-        #[::icydb::__reexports::canic_cdk::query]
+        #[::icydb::__reexports::ic_cdk::query]
         fn __icydb_query(
             sql: String,
         ) -> Result<IcydbSqlQueryPerfResult, ::icydb::Error> {
@@ -245,7 +245,7 @@ fn sql_surface_endpoint_exports(
     let ddl_endpoint = ddl_enabled.then(|| {
         quote! {
         #[cfg(feature = "sql")]
-        #[::icydb::__reexports::canic_cdk::update]
+        #[::icydb::__reexports::ic_cdk::update]
         fn __icydb_ddl(sql: String) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
             icydb_sql_surface_require_controller("DDL")?;
 
@@ -257,7 +257,7 @@ fn sql_surface_endpoint_exports(
     let fixture_endpoints = fixtures_enabled.then(|| {
         quote! {
         #[cfg(feature = "sql")]
-        #[::icydb::__reexports::canic_cdk::update]
+        #[::icydb::__reexports::ic_cdk::update]
         fn __icydb_fixtures_reset() -> Result<(), ::icydb::Error> {
             icydb_sql_surface_require_controller("lifecycle reset")?;
 
@@ -265,7 +265,7 @@ fn sql_surface_endpoint_exports(
         }
 
         #[cfg(feature = "sql")]
-        #[::icydb::__reexports::canic_cdk::update]
+        #[::icydb::__reexports::ic_cdk::update]
         fn __icydb_fixtures_load() -> Result<(), ::icydb::Error> {
             icydb_sql_surface_require_controller("lifecycle load")?;
             let hook: fn() -> Result<(), ::icydb::Error> = crate::icydb_fixtures_load;

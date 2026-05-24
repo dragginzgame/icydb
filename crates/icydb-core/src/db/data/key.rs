@@ -19,7 +19,7 @@ use crate::{
         storage_key_from_runtime_value,
     },
 };
-use canic_cdk::structures::storable::Bound as StorableBound;
+use ic_memory::stable_structures::storable::Bound as StorableBound;
 use std::{
     borrow::Cow,
     cell::OnceCell,

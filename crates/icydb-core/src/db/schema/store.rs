@@ -12,7 +12,7 @@ use crate::{
     traits::Storable,
     types::EntityTag,
 };
-use canic_cdk::structures::storable::Bound;
+use ic_memory::stable_structures::storable::Bound;
 use ic_memory::stable_structures::{BTreeMap, DefaultMemoryImpl, memory_manager::VirtualMemory};
 use std::borrow::Cow;
 

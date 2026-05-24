@@ -3,6 +3,7 @@
         test test-bump build check clippy fmt fmt-check clean install install-all install-canister-deps update-dev ensure-python3 \
         test-watch all ensure-clean security-check check-versioning \
         ensure-hooks install-hooks check-index-range-spec-invariants \
+        check-dependency-graph-invariants \
         wasm-size-report wasm-audit-report test-sql-parity \
 	check-architecture-text-scan-invariants check-invariants \
         check-sql-branch-ownership-invariants \
@@ -251,7 +252,11 @@ check-architecture-text-scan-invariants:
 check-sql-branch-ownership-invariants:
 	bash scripts/ci/check-sql-branch-ownership-invariants.sh
 
+check-dependency-graph-invariants:
+	bash scripts/ci/check-dependency-graph-invariants.sh
+
 check-invariants:
+	bash scripts/ci/check-dependency-graph-invariants.sh
 	bash scripts/ci/check-index-range-spec-invariants.sh
 	bash scripts/ci/check-layer-authority-invariants.sh
 	bash scripts/ci/check-architecture-text-scan-invariants.sh
