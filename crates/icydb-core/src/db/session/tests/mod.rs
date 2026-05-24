@@ -3023,7 +3023,9 @@ fn inspect_filtered_expression_order_only_raw_scan(
                         .expect("filtered expression index range scan entry");
                     keys.push(DecodedDataStoreKey::new(
                         FilteredIndexedSessionSqlEntity::ENTITY_TAG,
-                        entry.storage_key(),
+                        entry
+                            .storage_key()
+                            .expect("filtered expression row identity should be scalar"),
                     ));
                     if keys.len() == 4 {
                         return Ok(true);

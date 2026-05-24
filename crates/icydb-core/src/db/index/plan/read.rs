@@ -5,8 +5,9 @@
 
 use crate::{
     db::{
-        data::{DecodedDataStoreKey, RawRow, StorageKey},
+        data::{DecodedDataStoreKey, RawRow},
         index::{IndexEntryValue, IndexReadContract, RawIndexStoreKey},
+        key_taxonomy::PrimaryKeyValue,
     },
     error::InternalError,
     types::EntityTag,
@@ -42,5 +43,5 @@ pub(in crate::db) trait IndexPlanReadView {
         index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
-    ) -> Result<Vec<StorageKey>, InternalError>;
+    ) -> Result<Vec<PrimaryKeyValue>, InternalError>;
 }

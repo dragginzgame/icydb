@@ -20,6 +20,13 @@ pub(super) enum ShellInput {
     Exit,
 }
 
+enum ShellTopLevelInput {
+    Blank,
+    Help,
+    Exit,
+    Sql,
+}
+
 pub(super) fn is_shell_help_command(input: &str) -> bool {
     matches!(
         input.trim().trim_end_matches(';').trim(),
@@ -75,24 +82,18 @@ pub(super) fn read_statement(
                 // the statement buffer so history recall does not reintroduce
                 // trailing spaces or duplicate terminators.
                 let normalized_line = normalize_shell_statement_line(line.as_str());
-
-                // Ignore top-level blank input so pressing Enter on an empty
-                // prompt simply reprompts instead of executing empty SQL.
-                if partial_statement.trim().is_empty() && normalized_line.is_empty() {
-                    prompt = "icydb> ";
-                    continue;
-                }
-
-                if partial_statement.trim().is_empty()
-                    && matches!(normalized_line.as_str(), "\\q" | "quit" | "exit")
-                {
-                    return Ok(ShellInput::Exit);
-                }
-
-                if partial_statement.trim().is_empty()
-                    && is_shell_help_command(normalized_line.as_str())
-                {
-                    return Ok(ShellInput::Help);
+                if partial_statement_is_empty(partial_statement) {
+                    match top_level_shell_input(normalized_line.as_str()) {
+                        // Ignore top-level blank input so pressing Enter on an
+                        // empty prompt simply reprompts instead of executing empty SQL.
+                        ShellTopLevelInput::Blank => {
+                            prompt = "icydb> ";
+                            continue;
+                        }
+                        ShellTopLevelInput::Exit => return Ok(ShellInput::Exit),
+                        ShellTopLevelInput::Help => return Ok(ShellInput::Help),
+                        ShellTopLevelInput::Sql => {}
+                    }
                 }
 
                 if !partial_statement.is_empty() {
@@ -130,6 +131,24 @@ pub(super) fn read_statement(
             Err(err) => return Err(err.to_string()),
         }
     }
+}
+
+fn partial_statement_is_empty(partial_statement: &str) -> bool {
+    partial_statement.trim().is_empty()
+}
+
+fn top_level_shell_input(line: &str) -> ShellTopLevelInput {
+    if line.is_empty() {
+        return ShellTopLevelInput::Blank;
+    }
+    if matches!(line, "\\q" | "quit" | "exit") {
+        return ShellTopLevelInput::Exit;
+    }
+    if is_shell_help_command(line) {
+        return ShellTopLevelInput::Help;
+    }
+
+    ShellTopLevelInput::Sql
 }
 
 // Split every complete top-level SQL statement from one shell buffer while

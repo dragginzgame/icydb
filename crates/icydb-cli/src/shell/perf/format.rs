@@ -54,12 +54,12 @@ pub(in crate::shell) fn render_executor_residual_suffix(
     attribution: Option<&ShellPerfAttribution>,
 ) -> Option<String> {
     let attribution = attribution?;
-    let residual = attribution.pure_covering_executor_residual();
-    if residual == 0 {
-        return None;
-    }
 
-    Some(format!("{{er={}}}", format_instructions(residual)))
+    render_instruction_suffix("er", attribution.pure_covering_executor_residual())
+}
+
+fn render_instruction_suffix(label: &str, instructions: u64) -> Option<String> {
+    (instructions > 0).then(|| format!("{{{label}={}}}", format_instructions(instructions)))
 }
 
 fn format_render_duration(render_micros: u128) -> String {

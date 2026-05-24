@@ -10,7 +10,6 @@ use crate::{
         key_taxonomy::{IndexEntryValue, PrimaryKeyValue},
     },
     traits::Storable,
-    value::{Value, storage_key_as_runtime_value},
 };
 use canic_cdk::structures::storable::Bound;
 use std::borrow::Cow;
@@ -46,19 +45,19 @@ pub(crate) enum IndexEntryCorruption {
     #[error("index entry contains zero keys")]
     EmptyEntry,
 
-    #[error("index entry missing expected entity key: {entity_key:?} (index {index_key:?})")]
+    #[error("index entry missing expected entity key: {entity_key} (index {index_key:?})")]
     MissingKey {
         index_key: Box<RawIndexStoreKey>,
-        entity_key: Value,
+        entity_key: String,
     },
 }
 
 impl IndexEntryCorruption {
     #[must_use]
-    pub(crate) fn missing_key(index_key: RawIndexStoreKey, entity_key: StorageKey) -> Self {
+    pub(crate) fn missing_key(index_key: RawIndexStoreKey, entity_key: &PrimaryKeyValue) -> Self {
         Self::MissingKey {
             index_key: Box::new(index_key),
-            entity_key: storage_key_as_runtime_value(&entity_key),
+            entity_key: format!("{entity_key:?}"),
         }
     }
 }
@@ -79,7 +78,7 @@ pub(crate) enum IndexEntryValueEncodeError {
 
 #[derive(Clone, Debug)]
 pub(crate) struct IndexRowIdentity {
-    id: StorageKey,
+    primary_key_value: PrimaryKeyValue,
 }
 
 ///
@@ -144,6 +143,7 @@ impl IndexEntryRowWitness {
         &self.primary_key_value
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn storage_key(&self) -> Result<StorageKey, IndexEntryCorruption> {
         storage_key_from_primary_key_value(&self.primary_key_value)
     }
@@ -156,18 +156,19 @@ impl IndexEntryRowWitness {
 
 impl IndexRowIdentity {
     #[must_use]
-    pub(crate) const fn new(id: StorageKey) -> Self {
-        Self { id }
+    pub(crate) const fn new(primary_key_value: &PrimaryKeyValue) -> Self {
+        Self {
+            primary_key_value: *primary_key_value,
+        }
+    }
+
+    pub(crate) fn storage_key(&self) -> Result<StorageKey, IndexEntryCorruption> {
+        storage_key_from_primary_key_value(&self.primary_key_value)
     }
 
     #[must_use]
-    pub(crate) const fn storage_key(&self) -> StorageKey {
-        self.id
-    }
-
-    #[must_use]
-    pub(crate) fn contains(&self, id: StorageKey) -> bool {
-        self.id == id
+    pub(crate) fn contains(&self, primary_key_value: &PrimaryKeyValue) -> bool {
+        &self.primary_key_value == primary_key_value
     }
 }
 
@@ -190,24 +191,21 @@ impl IndexEntryValue {
         &self,
         raw_key: &RawIndexStoreKey,
     ) -> Result<IndexRowIdentity, IndexEntryCorruption> {
-        self.decode_storage_key(raw_key).map(IndexRowIdentity::new)
+        self.decode_row_witness(raw_key)
+            .map(|witness| IndexRowIdentity::new(witness.primary_key_value()))
     }
 
-    /// Decode this key-owned raw entry and append its primary-key value if
-    /// `limit` has not been reached.
-    ///
-    /// The raw index key owns row identity; the raw value only validates the
-    /// existence witness. This helper exists for structural preflight readers
-    /// that do not need the witness itself.
-    pub(in crate::db) fn push_row_identity_keys_limited<E>(
+    /// Decode this key-owned raw entry and append its scalar-or-composite
+    /// primary-key value if `limit` has not been reached.
+    pub(in crate::db) fn push_row_identity_primary_key_values_limited<E>(
         &self,
         raw_key: &RawIndexStoreKey,
-        out: &mut Vec<StorageKey>,
+        out: &mut Vec<PrimaryKeyValue>,
         limit: usize,
         map_corruption: impl FnOnce(IndexEntryCorruption) -> E,
     ) -> Result<bool, E> {
-        let storage_key = self.decode_storage_key(raw_key).map_err(map_corruption)?;
-        out.push(storage_key);
+        let row_witness = self.decode_row_witness(raw_key).map_err(map_corruption)?;
+        out.push(*row_witness.primary_key_value());
         if out.len() >= limit {
             return Ok(true);
         }
@@ -235,6 +233,7 @@ impl IndexEntryValue {
 
     // Decode the key-owned raw entry row identity without allocating a
     // temporary vector or exposing a stale multi-key value surface.
+    #[cfg(test)]
     pub(in crate::db) fn decode_storage_key(
         &self,
         raw_key: &RawIndexStoreKey,

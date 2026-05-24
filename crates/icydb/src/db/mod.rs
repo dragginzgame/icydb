@@ -40,9 +40,6 @@ pub use session::generated::execute_generated_storage_report;
 
 // Diagnostics payloads stay feature-gated so normal canister builds do not
 // retain observability surfaces they did not request.
-#[cfg(feature = "sql")]
-#[doc(hidden)]
-pub use icydb_core::db::sql_statement_entity_name;
 #[cfg(feature = "diagnostics")]
 #[doc(hidden)]
 pub use icydb_core::db::{
@@ -65,3 +62,6 @@ pub use icydb_core::db::{
 pub use icydb_core::db::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
 };
+#[cfg(feature = "sql")]
+#[doc(hidden)]
+pub use icydb_core::db::{SqlStatementSurface, sql_statement_entity_name, sql_statement_surface};

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.162.md](docs/changelog/0.162.md)
 
+- `0.162.8` moves index mutation planning, unique-index preflight,
+  commit index deltas, ordered key streams, and materialized executor read
+  paths onto scalar-or-composite row identity boundaries.
+
 - `0.162.7` moves accepted schema authority, runtime descriptors, schema
   fingerprints, SQL admission, and index rebuild/read diagnostics onto ordered
   scalar-or-composite primary-key identity.

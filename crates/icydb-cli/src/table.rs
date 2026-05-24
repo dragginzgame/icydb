@@ -62,7 +62,7 @@ fn table_widths<const N: usize>(headers: &[&str; N], rows: &[[String; N]]) -> [u
 
 #[must_use]
 fn render_table_row<const N: usize>(
-    row: &[impl AsRef<str>],
+    row: &[impl AsRef<str>; N],
     widths: &[usize; N],
     alignments: &[ColumnAlign; N],
 ) -> String {
@@ -71,7 +71,7 @@ fn render_table_row<const N: usize>(
         .zip(alignments)
         .enumerate()
         .map(|(index, (width, alignment))| {
-            let value = row.get(index).map_or("", AsRef::as_ref);
+            let value = row[index].as_ref();
             match alignment {
                 ColumnAlign::Left => format!("{value:<width$}"),
                 ColumnAlign::Right => format!("{value:>width$}"),

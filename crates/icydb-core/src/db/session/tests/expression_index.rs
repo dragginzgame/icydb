@@ -330,7 +330,9 @@ fn execute_sql_expression_order_index_range_scan_preserves_lower_name_order() {
                         .expect("expression-order index range scan entry");
                     keys.push(DecodedDataStoreKey::new(
                         ExpressionIndexedSessionSqlEntity::ENTITY_TAG,
-                        entry.storage_key(),
+                        entry
+                            .storage_key()
+                            .expect("expression-order row identity should be scalar"),
                     ));
                     if keys.len() == 3 {
                         return Ok(true);

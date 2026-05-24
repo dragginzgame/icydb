@@ -809,7 +809,8 @@ fn indexed_ids_for(entity: &RecoveryIndexedEntity) -> Option<BTreeSet<Ulid>> {
                 let storage_key = entry
                     .decode_row_identity(&index_key)
                     .expect("index entry decode should succeed")
-                    .storage_key();
+                    .storage_key()
+                    .expect("decoded index row identity should be scalar");
                 let Value::Ulid(value) = storage_key_as_runtime_value(&storage_key) else {
                     panic!("decoded index key should be a Ulid");
                 };
@@ -832,7 +833,8 @@ fn nullable_indexed_ids_for(entity: &RecoveryNullableIndexedEntity) -> Option<BT
                 let storage_key = entry
                     .decode_row_identity(&index_key)
                     .expect("nullable index entry decode should succeed")
-                    .storage_key();
+                    .storage_key()
+                    .expect("decoded nullable index row identity should be scalar");
                 let Value::Ulid(value) = storage_key_as_runtime_value(&storage_key) else {
                     panic!("decoded nullable index key should be a Ulid");
                 };
@@ -933,7 +935,8 @@ fn conditional_indexed_ids_for(entity: &RecoveryConditionalEntity) -> Option<BTr
                 let storage_key = entry
                     .decode_row_identity(&index_key)
                     .expect("conditional index entry decode should succeed")
-                    .storage_key();
+                    .storage_key()
+                    .expect("decoded conditional index row identity should be scalar");
                 let Value::Ulid(value) = storage_key_as_runtime_value(&storage_key) else {
                     panic!("decoded conditional index key should be a Ulid");
                 };

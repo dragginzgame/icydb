@@ -21,25 +21,7 @@ pub(in crate::shell) fn parse_perf_result(
     let result =
         serde_json::from_value::<SqlQueryResult>(result_value).map_err(|err| err.to_string())?;
 
-    Ok((
-        result,
-        ShellPerfAttribution::new(ShellPerfAttributionInput {
-            total: parse_perf_u64(value, "instructions")?,
-            planner: parse_perf_u64(value, "planner_instructions")?,
-            store: parse_perf_u64_or_default(value, "store_instructions")?,
-            executor: parse_perf_u64(value, "executor_instructions")?,
-            pure_covering_decode: parse_perf_u64_or_default(
-                value,
-                "pure_covering_decode_instructions",
-            )?,
-            pure_covering_row_assembly: parse_perf_u64_or_default(
-                value,
-                "pure_covering_row_assembly_instructions",
-            )?,
-            decode: parse_perf_u64_or_default(value, "decode_instructions")?,
-            compiler: parse_perf_u64(value, "compiler_instructions")?,
-        }),
-    ))
+    Ok((result, parse_perf_attribution(value)?))
 }
 
 pub(in crate::shell) fn normalize_grouped_next_cursor_json(value: &mut Value) {
@@ -60,6 +42,25 @@ pub(in crate::shell) fn normalize_grouped_next_cursor_json(value: &mut Value) {
         }
         _ => {}
     }
+}
+
+fn parse_perf_attribution(value: &Value) -> Result<ShellPerfAttribution, String> {
+    Ok(ShellPerfAttribution::new(ShellPerfAttributionInput {
+        total: parse_perf_u64(value, "instructions")?,
+        planner: parse_perf_u64(value, "planner_instructions")?,
+        store: parse_perf_u64_or_default(value, "store_instructions")?,
+        executor: parse_perf_u64(value, "executor_instructions")?,
+        pure_covering_decode: parse_perf_u64_or_default(
+            value,
+            "pure_covering_decode_instructions",
+        )?,
+        pure_covering_row_assembly: parse_perf_u64_or_default(
+            value,
+            "pure_covering_row_assembly_instructions",
+        )?,
+        decode: parse_perf_u64_or_default(value, "decode_instructions")?,
+        compiler: parse_perf_u64(value, "compiler_instructions")?,
+    }))
 }
 
 fn parse_perf_u64(value: &Value, field: &str) -> Result<u64, String> {

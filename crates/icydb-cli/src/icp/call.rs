@@ -11,20 +11,13 @@ pub(super) fn icp_query_command(
     method: &str,
     candid_arg: &str,
 ) -> Command {
-    let mut command = Command::new("icp");
-    command
-        .arg("canister")
-        .arg("call")
-        .arg(canister)
-        .arg(method)
-        .arg(candid_arg)
-        .arg("--query")
-        .arg("--output")
-        .arg("hex")
-        .arg("--environment")
-        .arg(environment);
-
-    command
+    icp_call_command(
+        environment,
+        canister,
+        method,
+        candid_arg,
+        IcpCallKind::Query,
+    )
 }
 
 pub(super) fn icp_update_command(
@@ -33,13 +26,41 @@ pub(super) fn icp_update_command(
     method: &str,
     candid_arg: &str,
 ) -> Command {
+    icp_call_command(
+        environment,
+        canister,
+        method,
+        candid_arg,
+        IcpCallKind::Update,
+    )
+}
+
+enum IcpCallKind {
+    Query,
+    Update,
+}
+
+fn icp_call_command(
+    environment: &str,
+    canister: &str,
+    method: &str,
+    candid_arg: &str,
+    kind: IcpCallKind,
+) -> Command {
     let mut command = Command::new("icp");
     command
         .arg("canister")
         .arg("call")
         .arg(canister)
         .arg(method)
-        .arg(candid_arg)
+        .arg(candid_arg);
+    match kind {
+        IcpCallKind::Query => {
+            command.arg("--query");
+        }
+        IcpCallKind::Update => {}
+    }
+    command
         .arg("--output")
         .arg("hex")
         .arg("--environment")

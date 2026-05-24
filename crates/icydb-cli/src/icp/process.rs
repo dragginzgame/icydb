@@ -3,7 +3,7 @@
 //! Does not own: high-level canister workflows, project discovery, or generated endpoint calls.
 //! Boundary: exposes process primitives to sibling ICP modules.
 
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
 
 /// Run one icp-cli command as a client call. This never starts or stops a local network.
 pub(super) fn run_external_command(mut command: Command, label: &str) -> Result<(), String> {
@@ -20,25 +20,13 @@ pub(super) fn run_external_command(mut command: Command, label: &str) -> Result<
 
 /// Return whether icp-cli reports an installed canister in the selected environment.
 pub(super) fn canister_is_installed(environment: &str, canister: &str) -> Result<bool, String> {
-    let output = Command::new("icp")
-        .arg("canister")
-        .arg("status")
-        .arg(canister)
-        .arg("--environment")
-        .arg(environment)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|err| err.to_string())?;
+    let output = canister_status_output(environment, canister, CanisterStatusOutput::Discard)?;
     if output.status.success() {
         return Ok(true);
     }
 
-    let stderr = String::from_utf8_lossy(output.stderr.as_slice())
-        .trim()
-        .to_string();
-    if unreachable_network_hint(stderr.as_str()).is_some() {
+    let stderr = output_stderr(output.stderr.as_slice());
+    if is_unreachable_network_error(stderr.as_str()) {
         return Err(stderr);
     }
 
@@ -47,23 +35,10 @@ pub(super) fn canister_is_installed(environment: &str, canister: &str) -> Result
 
 /// Resolve an icp-cli canister id without treating absent local ids as fatal.
 pub(super) fn canister_id(environment: &str, canister: &str) -> Result<Option<String>, String> {
-    let output = Command::new("icp")
-        .arg("canister")
-        .arg("status")
-        .arg(canister)
-        .arg("--id-only")
-        .arg("--environment")
-        .arg(environment)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|err| err.to_string())?;
+    let output = canister_status_output(environment, canister, CanisterStatusOutput::IdOnly)?;
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(output.stderr.as_slice())
-            .trim()
-            .to_string();
-        if unreachable_network_hint(stderr.as_str()).is_some() {
+        let stderr = output_stderr(output.stderr.as_slice());
+        if is_unreachable_network_error(stderr.as_str()) {
             return Err(stderr);
         }
 
@@ -75,6 +50,44 @@ pub(super) fn canister_id(environment: &str, canister: &str) -> Result<Option<St
         .to_string();
 
     Ok((!id.is_empty()).then_some(id))
+}
+
+enum CanisterStatusOutput {
+    Discard,
+    IdOnly,
+}
+
+fn canister_status_output(
+    environment: &str,
+    canister: &str,
+    output: CanisterStatusOutput,
+) -> Result<Output, String> {
+    let mut command = Command::new("icp");
+    command.arg("canister").arg("status").arg(canister);
+    match output {
+        CanisterStatusOutput::Discard => {
+            command.stdout(Stdio::null());
+        }
+        CanisterStatusOutput::IdOnly => {
+            command.arg("--id-only").stdout(Stdio::piped());
+        }
+    }
+
+    command
+        .arg("--environment")
+        .arg(environment)
+        .stdin(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|err| err.to_string())
+}
+
+fn output_stderr(stderr: &[u8]) -> String {
+    String::from_utf8_lossy(stderr).trim().to_string()
+}
+
+fn is_unreachable_network_error(message: &str) -> bool {
+    unreachable_network_hint(message).is_some()
 }
 
 /// Recognize common icp-cli connection failures and return explicit lifecycle guidance.

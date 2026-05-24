@@ -13,7 +13,7 @@ use crate::{
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
             rollback_prepared_row_ops_reverse,
         },
-        data::{DecodedDataStoreKey, RawDataStoreKey, RawRow, StorageKey},
+        data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
         direction::Direction,
         index::{
             IndexEntryReader, IndexEntryValue, IndexReadContract, IndexStore, PrimaryRowReader,
@@ -21,6 +21,7 @@ use crate::{
             SealedStructuralIndexEntryReader, SealedStructuralPrimaryRowReader,
             StructuralIndexEntryReader, StructuralPrimaryRowReader, key_within_envelope,
         },
+        key_taxonomy::PrimaryKeyValue,
         registry::StoreHandle,
         schema::{accepted_commit_schema_fingerprint, ensure_accepted_schema_snapshot},
     },
@@ -338,7 +339,7 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
         index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
-    ) -> Result<Vec<StorageKey>, InternalError> {
+    ) -> Result<Vec<PrimaryKeyValue>, InternalError> {
         // Phase 1: untouched stores can use the canonical index-store range
         // reader directly instead of materializing one merged entry map first.
         let store_id = index_store_id(index_store);
@@ -470,7 +471,7 @@ where
         index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
-    ) -> Result<Vec<StorageKey>, InternalError> {
+    ) -> Result<Vec<PrimaryKeyValue>, InternalError> {
         self.read_index_keys_in_raw_range_structural(
             E::PATH,
             E::ENTITY_TAG,
@@ -491,7 +492,7 @@ fn push_optional_index_entry_primary_key_values(
     index: IndexReadContract<'_>,
     raw_key: &RawIndexStoreKey,
     raw_entry: Option<&IndexEntryValue>,
-    out: &mut Vec<StorageKey>,
+    out: &mut Vec<PrimaryKeyValue>,
     limit: usize,
     entity_path: &'static str,
 ) -> Result<bool, InternalError> {
@@ -508,11 +509,11 @@ fn push_index_entry_primary_key_values(
     index: IndexReadContract<'_>,
     raw_key: &RawIndexStoreKey,
     raw_entry: &IndexEntryValue,
-    out: &mut Vec<StorageKey>,
+    out: &mut Vec<PrimaryKeyValue>,
     limit: usize,
     entity_path: &'static str,
 ) -> Result<bool, InternalError> {
-    raw_entry.push_row_identity_keys_limited(raw_key, out, limit, |err| {
+    raw_entry.push_row_identity_primary_key_values_limited(raw_key, out, limit, |err| {
         InternalError::index_plan_index_corruption(format!(
             "index corrupted: {entity_path} ({}) -> {err}",
             index.fields(),

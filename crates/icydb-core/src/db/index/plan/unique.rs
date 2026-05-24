@@ -6,11 +6,12 @@
 
 use crate::{
     db::{
-        data::{DecodedDataStoreKey, StorageKey, StructuralRowContract, StructuralSlotReader},
+        data::{DecodedDataStoreKey, StructuralRowContract, StructuralSlotReader},
         index::{
             IndexId, IndexKey, IndexPlanReadView, IndexReadContract,
             plan::{accepted_expression_key_item_label, error::IndexPlanError},
         },
+        key_taxonomy::PrimaryKeyValue,
         schema::{SchemaExpressionIndexInfo, SchemaIndexFieldPathInfo, SchemaIndexInfo},
     },
     error::InternalError,
@@ -34,22 +35,22 @@ impl UniqueKeyAuthority<'_> {
     fn build_index_key_from_row_slots(
         &self,
         entity_tag: EntityTag,
-        storage_key: StorageKey,
+        primary_key: &PrimaryKeyValue,
         row_fields: &StructuralSlotReader<'_>,
     ) -> Result<Option<IndexKey>, InternalError> {
         match self {
             Self::AcceptedFieldPath(index) => {
-                IndexKey::new_from_slots_with_accepted_field_path_index(
+                IndexKey::new_from_slots_with_accepted_field_path_index_primary_key_value(
                     entity_tag,
-                    storage_key,
+                    primary_key,
                     index,
                     row_fields,
                 )
             }
             Self::AcceptedExpression(index) => {
-                IndexKey::new_from_slots_with_accepted_expression_index(
+                IndexKey::new_from_slots_with_accepted_expression_index_primary_key_value(
                     entity_tag,
-                    storage_key,
+                    primary_key,
                     index,
                     row_fields,
                 )
@@ -90,7 +91,7 @@ pub(super) fn validate_unique_constraint_accepted_field_path_structural(
     accepted_index: &SchemaIndexInfo,
     read_contract: IndexReadContract<'_>,
     index_fields: &str,
-    new_storage_key: Option<StorageKey>,
+    new_primary_key: Option<&PrimaryKeyValue>,
     new_index_key: Option<&IndexKey>,
 ) -> Result<(), IndexPlanError> {
     validate_unique_constraint_structural_impl(
@@ -101,7 +102,7 @@ pub(super) fn validate_unique_constraint_accepted_field_path_structural(
         UniqueKeyAuthority::AcceptedFieldPath(accepted_index),
         read_contract,
         index_fields,
-        new_storage_key,
+        new_primary_key,
         new_index_key,
     )
 }
@@ -116,7 +117,7 @@ pub(super) fn validate_unique_constraint_accepted_expression_structural(
     accepted_index: &SchemaExpressionIndexInfo,
     read_contract: IndexReadContract<'_>,
     index_fields: &str,
-    new_storage_key: Option<StorageKey>,
+    new_primary_key: Option<&PrimaryKeyValue>,
     new_index_key: Option<&IndexKey>,
 ) -> Result<(), IndexPlanError> {
     validate_unique_constraint_structural_impl(
@@ -127,7 +128,7 @@ pub(super) fn validate_unique_constraint_accepted_expression_structural(
         UniqueKeyAuthority::AcceptedExpression(accepted_index),
         read_contract,
         index_fields,
-        new_storage_key,
+        new_primary_key,
         new_index_key,
     )
 }
@@ -141,7 +142,7 @@ fn validate_unique_constraint_structural_impl(
     key_authority: UniqueKeyAuthority<'_>,
     read_contract: IndexReadContract<'_>,
     index_fields: &str,
-    new_storage_key: Option<StorageKey>,
+    new_primary_key: Option<&PrimaryKeyValue>,
     new_index_key: Option<&IndexKey>,
 ) -> Result<(), IndexPlanError> {
     // Phase 1: fast exits for non-unique or non-insert/update paths.
@@ -154,7 +155,7 @@ fn validate_unique_constraint_structural_impl(
         return Ok(());
     };
 
-    let Some(new_storage_key) = new_storage_key else {
+    let Some(new_primary_key) = new_primary_key else {
         return Err(InternalError::index_unique_validation_entity_key_required().into());
     };
 
@@ -174,7 +175,7 @@ fn validate_unique_constraint_structural_impl(
     // Unique validation only needs to distinguish 0, 1, or "more than 1".
     // Capping this probe avoids scanning large corrupted buckets.
     let unique_probe_limit = 2usize;
-    let matching_storage_keys = read_view.read_index_keys_in_raw_range(
+    let matching_primary_keys = read_view.read_index_keys_in_raw_range(
         entity_path,
         entity_tag,
         read_contract,
@@ -182,27 +183,27 @@ fn validate_unique_constraint_structural_impl(
         unique_probe_limit,
     )?;
 
-    if matching_storage_keys.is_empty() {
+    if matching_primary_keys.is_empty() {
         return Ok(());
     }
 
-    if matching_storage_keys.len() > 1 {
+    if matching_primary_keys.len() > 1 {
         return Err(InternalError::index_unique_validation_corruption(
             entity_path,
             index_fields,
-            format_args!("{} keys", matching_storage_keys.len()),
+            format_args!("{} keys", matching_primary_keys.len()),
         )
         .into());
     }
 
-    let existing_key = matching_storage_keys[0];
-    if existing_key == new_storage_key {
+    let existing_key = matching_primary_keys[0];
+    if &existing_key == new_primary_key {
         return Ok(());
     }
 
     // Phase 3: prove that the stored row still belongs to this key and value
     // through the structural persisted-row decode path only.
-    let data_key = DecodedDataStoreKey::new(entity_tag, existing_key);
+    let data_key = DecodedDataStoreKey::new_primary_key_value(entity_tag, &existing_key);
     let row = read_view
         .read_primary_row(&data_key)?
         .ok_or_else(|| InternalError::index_unique_validation_row_required(&data_key))?;
@@ -212,7 +213,7 @@ fn validate_unique_constraint_structural_impl(
         entity_tag,
         entity_path,
         &data_key,
-        existing_key,
+        &existing_key,
         &row_fields,
         &key_authority,
     )?
@@ -263,11 +264,11 @@ fn build_unique_index_key_from_row_slots(
     entity_tag: EntityTag,
     entity_path: &'static str,
     data_key: &DecodedDataStoreKey,
-    storage_key: StorageKey,
+    primary_key: &PrimaryKeyValue,
     row_fields: &StructuralSlotReader<'_>,
     key_authority: &UniqueKeyAuthority<'_>,
 ) -> Result<Option<IndexKey>, InternalError> {
-    let key = key_authority.build_index_key_from_row_slots(entity_tag, storage_key, row_fields);
+    let key = key_authority.build_index_key_from_row_slots(entity_tag, primary_key, row_fields);
 
     key.map_err(|err| {
         InternalError::index_unique_validation_key_rebuild_failed(data_key, entity_path, err)

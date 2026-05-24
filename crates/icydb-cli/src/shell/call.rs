@@ -27,7 +27,7 @@ pub(super) fn icp_query(
     method: &str,
     escaped_sql: &str,
 ) -> Result<Vec<u8>, String> {
-    let candid_arg = format!("(\"{escaped_sql}\")");
+    let candid_arg = sql_candid_arg(escaped_sql);
     call_query_hex(
         environment,
         canister,
@@ -48,7 +48,7 @@ pub(super) fn icp_update(
     method: &str,
     escaped_sql: &str,
 ) -> Result<Vec<u8>, String> {
-    let candid_arg = format!("(\"{escaped_sql}\")");
+    let candid_arg = sql_candid_arg(escaped_sql);
     call_update_hex(
         environment,
         canister,
@@ -56,6 +56,10 @@ pub(super) fn icp_update(
         candid_arg.as_str(),
         |stderr| sql_error_with_recovery_hint(stderr, environment, canister),
     )
+}
+
+fn sql_candid_arg(escaped_sql: &str) -> String {
+    format!("(\"{escaped_sql}\")")
 }
 
 pub(super) fn sql_error_with_recovery_hint(

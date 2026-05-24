@@ -3,7 +3,7 @@
 //! Does not own: SQL execution semantics, call routing, or shell text rendering rules.
 //! Boundary: coordinates shell input, history persistence, and command output.
 
-use std::collections::VecDeque;
+use std::{collections::VecDeque, path::Path};
 
 use rustyline::DefaultEditor;
 
@@ -15,17 +15,9 @@ use crate::shell::{
 
 pub(super) fn run_interactive_shell(config: &ShellConfig) -> Result<(), String> {
     // Phase 1: prepare the line editor and persistent history file.
-    let mut editor = DefaultEditor::new().map_err(|err| err.to_string())?;
+    let mut editor = prepare_editor(config.history_file.as_path())?;
     let mut pending_sql = VecDeque::<String>::new();
     let mut partial_statement = String::new();
-    if let Some(parent) = config.history_file.parent() {
-        std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
-    }
-    if config.history_file.exists() {
-        editor
-            .load_history(config.history_file.as_path())
-            .map_err(|err| err.to_string())?;
-    }
 
     eprintln!(
         "[icydb sql] interactive mode on '{}:{}' (terminate statements with ';', use \\q, exit, or Ctrl-D to quit)",
@@ -37,18 +29,10 @@ pub(super) fn run_interactive_shell(config: &ShellConfig) -> Result<(), String> 
         match read_statement(&mut editor, &mut pending_sql, &mut partial_statement)? {
             ShellInput::Exit => break,
             ShellInput::Help => {
-                print!(
-                    "{}",
-                    render::finalize_successful_command_output(input::shell_help_text())
-                );
+                print_successful_command_output(input::shell_help_text());
             }
             ShellInput::Sql(sql) => {
-                editor
-                    .add_history_entry(sql.as_str())
-                    .map_err(|err| err.to_string())?;
-                editor
-                    .append_history(config.history_file.as_path())
-                    .map_err(|err| err.to_string())?;
+                record_history_entry(&mut editor, config.history_file.as_path(), sql.as_str())?;
 
                 match execute_sql(
                     config.environment.as_str(),
@@ -56,10 +40,7 @@ pub(super) fn run_interactive_shell(config: &ShellConfig) -> Result<(), String> 
                     sql.as_str(),
                 ) {
                     Ok(output) => {
-                        print!(
-                            "{}",
-                            render::finalize_successful_command_output(output.as_str())
-                        );
+                        print_successful_command_output(output.as_str());
                     }
                     Err(err) => println!("ERROR: {err}"),
                 }
@@ -68,4 +49,35 @@ pub(super) fn run_interactive_shell(config: &ShellConfig) -> Result<(), String> 
     }
 
     Ok(())
+}
+
+fn prepare_editor(history_file: &Path) -> Result<DefaultEditor, String> {
+    let mut editor = DefaultEditor::new().map_err(|err| err.to_string())?;
+    if let Some(parent) = history_file.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    if history_file.exists() {
+        editor
+            .load_history(history_file)
+            .map_err(|err| err.to_string())?;
+    }
+
+    Ok(editor)
+}
+
+fn record_history_entry(
+    editor: &mut DefaultEditor,
+    history_file: &Path,
+    sql: &str,
+) -> Result<(), String> {
+    editor
+        .add_history_entry(sql)
+        .map_err(|err| err.to_string())?;
+    editor
+        .append_history(history_file)
+        .map_err(|err| err.to_string())
+}
+
+fn print_successful_command_output(output: &str) {
+    print!("{}", render::finalize_successful_command_output(output));
 }

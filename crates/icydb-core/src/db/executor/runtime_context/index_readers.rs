@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        data::{DecodedDataStoreKey, RawRow, StorageKey},
+        data::{DecodedDataStoreKey, RawRow},
         direction::Direction,
         executor::Context,
         index::{
@@ -14,6 +14,7 @@ use crate::{
             SealedStructuralIndexEntryReader, SealedStructuralPrimaryRowReader,
             StructuralIndexEntryReader, StructuralPrimaryRowReader,
         },
+        key_taxonomy::PrimaryKeyValue,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -68,7 +69,7 @@ where
         index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
-    ) -> Result<Vec<StorageKey>, InternalError> {
+    ) -> Result<Vec<PrimaryKeyValue>, InternalError> {
         read_index_primary_key_values_in_raw_range(E::ENTITY_TAG, index_store, index, bounds, limit)
     }
 }
@@ -95,7 +96,7 @@ where
         index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
-    ) -> Result<Vec<StorageKey>, InternalError> {
+    ) -> Result<Vec<PrimaryKeyValue>, InternalError> {
         read_index_primary_key_values_in_raw_range(entity_tag, index_store, index, bounds, limit)
     }
 }
@@ -110,7 +111,7 @@ fn read_index_primary_key_values_in_raw_range(
     index: IndexReadContract<'_>,
     bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
     limit: usize,
-) -> Result<Vec<StorageKey>, InternalError> {
+) -> Result<Vec<PrimaryKeyValue>, InternalError> {
     let mut out = Vec::with_capacity(limit.min(32));
     index_store.with_borrow(|store| {
         store.visit_raw_entries_in_range(bounds, Direction::Asc, |raw_key, raw_entry| {
@@ -127,10 +128,10 @@ fn push_index_entry_primary_key_values(
     index: IndexReadContract<'_>,
     raw_key: &RawIndexStoreKey,
     raw_entry: &IndexEntryValue,
-    out: &mut Vec<StorageKey>,
+    out: &mut Vec<PrimaryKeyValue>,
     limit: usize,
 ) -> Result<bool, InternalError> {
-    raw_entry.push_row_identity_keys_limited(raw_key, out, limit, |err| {
+    raw_entry.push_row_identity_primary_key_values_limited(raw_key, out, limit, |err| {
         InternalError::index_plan_index_corruption(format!(
             "index corrupted: ({}) -> {err}",
             index.fields()

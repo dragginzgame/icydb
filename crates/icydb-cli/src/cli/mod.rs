@@ -333,31 +333,35 @@ impl ConfigInitArgs {
     }
 
     pub(crate) const fn ddl(&self) -> bool {
-        self.ddl || self.all
+        self.surface_enabled(self.ddl)
     }
 
     pub(crate) const fn fixtures(&self) -> bool {
-        self.fixtures || self.all
+        self.surface_enabled(self.fixtures)
     }
 
     pub(crate) const fn metrics(&self) -> bool {
-        self.metrics || self.all
+        self.surface_enabled(self.metrics)
     }
 
     pub(crate) const fn metrics_reset(&self) -> bool {
-        self.metrics_reset || self.all
+        self.surface_enabled(self.metrics_reset)
     }
 
     pub(crate) const fn snapshot(&self) -> bool {
-        self.snapshot || self.all
+        self.surface_enabled(self.snapshot)
     }
 
     pub(crate) const fn schema(&self) -> bool {
-        self.schema || self.all
+        self.surface_enabled(self.schema)
     }
 
     pub(crate) const fn force(&self) -> bool {
         self.force
+    }
+
+    const fn surface_enabled(&self, enabled: bool) -> bool {
+        enabled || self.all
     }
 }
 

@@ -16,7 +16,7 @@ use crate::{
     types::EntityTag,
     value::{
         StorageKey, StorageKeyDecodeError, StorageKeyEncodeError, Value,
-        storage_key_from_runtime_value,
+        storage_key_as_runtime_value, storage_key_from_runtime_value,
     },
 };
 use canic_cdk::structures::storable::Bound as StorableBound;
@@ -233,6 +233,12 @@ impl DecodedDataStoreKey {
 
     pub(in crate::db) fn try_storage_key(&self) -> Result<StorageKey, InternalError> {
         scalar_storage_key_from_primary_key_value(&self.key)
+    }
+
+    pub(in crate::db) fn try_primary_key_runtime_value(&self) -> Result<Value, InternalError> {
+        let key = self.try_storage_key()?;
+
+        Ok(storage_key_as_runtime_value(&key))
     }
 
     /// Compute the maximum on-disk entry size from value length.
@@ -672,6 +678,16 @@ mod tests {
         let err = composite_data_key_fixture()
             .try_storage_key()
             .expect_err("composite key cannot be viewed as scalar StorageKey");
+
+        assert_eq!(err.class(), ErrorClass::Unsupported);
+        assert_eq!(err.origin(), ErrorOrigin::Store);
+    }
+
+    #[test]
+    fn data_key_primary_key_runtime_value_rejects_composite_primary_key() {
+        let err = composite_data_key_fixture()
+            .try_primary_key_runtime_value()
+            .expect_err("composite key cannot be projected through scalar runtime values yet");
 
         assert_eq!(err.class(), ErrorClass::Unsupported);
         assert_eq!(err.origin(), ErrorOrigin::Store);

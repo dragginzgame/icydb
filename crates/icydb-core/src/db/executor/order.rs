@@ -422,7 +422,7 @@ fn cache_order_values_from_data_row(
     if let Some(required_slots) = resolved_order.direct_field_slots() {
         let values = row_layout.decode_indexed_values(
             &row.1,
-            row.0.storage_key(),
+            row.0.try_storage_key()?,
             required_slots.as_slice(),
         )?;
         let mut cached_values = CachedOrderValues::with_capacity(values.len());

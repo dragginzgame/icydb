@@ -12,7 +12,7 @@ use crate::{
         },
         data::{
             CanonicalRow, CanonicalSlotReader, DataStore, DecodedDataStoreKey, RawDataStoreKey,
-            RawRow, StorageKey, StructuralRowContract, StructuralSlotReader,
+            RawRow, StructuralRowContract, StructuralSlotReader,
             canonical_row_from_structural_slot_reader_with_accepted_contract,
         },
         index::{
@@ -21,6 +21,7 @@ use crate::{
             StructuralIndexEntryReader, StructuralPrimaryRowReader,
             plan_index_mutation_for_slot_reader_structural,
         },
+        key_taxonomy::PrimaryKeyValue,
         relation::{
             ReverseRelationSourceInfo,
             prepare_reverse_relation_index_mutations_for_source_slot_readers,
@@ -169,7 +170,7 @@ where
         index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
-    ) -> Result<Vec<StorageKey>, InternalError> {
+    ) -> Result<Vec<PrimaryKeyValue>, InternalError> {
         let index_store = self.index_store(index.store_path())?;
 
         self.index_reader.read_index_keys_in_raw_range_structural(
@@ -351,7 +352,7 @@ fn prepare_forward_index_commit_leaf<C>(
 where
     C: crate::traits::CanisterKind,
 {
-    let storage_key = data_key.storage_key();
+    let primary_key = data_key.primary_key_value();
 
     let read_view = CommitIndexPlanReadView {
         db,
@@ -365,12 +366,12 @@ where
         &schema_contracts.schema_info,
         &read_view,
         &schema_contracts.row_contract,
-        decoded.old_slots.as_ref().map(|_| storage_key),
+        decoded.old_slots.as_ref().map(|_| &primary_key),
         decoded
             .old_slots
             .as_mut()
             .map(|slots| slots as &mut dyn CanonicalSlotReader),
-        decoded.new_slots.as_ref().map(|_| storage_key),
+        decoded.new_slots.as_ref().map(|_| &primary_key),
         decoded
             .new_slots
             .as_mut()
@@ -624,7 +625,7 @@ fn build_commit_ops_for_index_delta_pair(
                 commit_ops,
                 store,
                 insert_delta.key.to_raw(),
-                Some(IndexRowIdentity::new(insert_delta.primary_key)),
+                Some(IndexRowIdentity::new(&insert_delta.primary_key)),
                 CommitIndexOp::unchanged,
             );
         }
@@ -660,7 +661,7 @@ fn build_commit_ops_for_index_delta_pair(
             &mut first,
             &mut second,
             insert_delta.key.to_raw(),
-            Some(IndexRowIdentity::new(insert_delta.primary_key)),
+            Some(IndexRowIdentity::new(&insert_delta.primary_key)),
             CommitIndexOp::index_insert,
         );
     }

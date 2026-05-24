@@ -77,13 +77,8 @@ pub(super) fn render_projection_shell_text(
 
     let mut lines =
         icydb::db::sql::render_projection_lines(rows.entity.as_str(), &rows.as_projection_rows());
-    append_perf_suffix(
-        lines.as_mut_slice(),
-        attribution.as_ref(),
-        render_attribution.as_ref(),
-    );
 
-    lines.join("\n")
+    render_shell_lines(&mut lines, attribution, render_attribution)
 }
 
 pub(super) fn render_grouped_shell_text(
@@ -94,11 +89,16 @@ pub(super) fn render_grouped_shell_text(
     uppercase_null_cells(rows.rows.as_mut_slice());
 
     let mut lines = render_grouped_lines(&rows);
-    append_perf_suffix(
-        lines.as_mut_slice(),
-        attribution.as_ref(),
-        render_attribution.as_ref(),
-    );
+
+    render_shell_lines(&mut lines, attribution, render_attribution)
+}
+
+fn render_shell_lines(
+    lines: &mut [String],
+    attribution: Option<ShellPerfAttribution>,
+    render_attribution: Option<ShellLocalRenderAttribution>,
+) -> String {
+    append_perf_suffix(lines, attribution.as_ref(), render_attribution.as_ref());
 
     lines.join("\n")
 }

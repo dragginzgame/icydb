@@ -10,8 +10,9 @@ mod unique;
 
 use crate::{
     db::{
-        data::{CanonicalSlotReader, StorageKey, StructuralRowContract},
+        data::{CanonicalSlotReader, StructuralRowContract},
         index::{IndexEntryCorruption, IndexKey, IndexReadContract, IndexRowIdentity},
+        key_taxonomy::PrimaryKeyValue,
         predicate::{Predicate, PredicateProgram, normalize, parse_sql_predicate},
         schema::{
             SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo, SchemaIndexInfo,
@@ -109,7 +110,7 @@ fn accepted_field_path_index_key_for_slot_reader_with_membership_structural(
     entity_tag: EntityTag,
     accepted_index: &SchemaIndexInfo,
     predicate_program: Option<&PredicateProgram>,
-    storage_key: StorageKey,
+    primary_key: &PrimaryKeyValue,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<IndexKey>, InternalError> {
     if let Some(predicate_program) = predicate_program {
@@ -119,9 +120,9 @@ fn accepted_field_path_index_key_for_slot_reader_with_membership_structural(
         }
     }
 
-    IndexKey::new_from_slots_with_accepted_field_path_index(
+    IndexKey::new_from_slots_with_accepted_field_path_index_primary_key_value(
         entity_tag,
-        storage_key,
+        primary_key,
         accepted_index,
         slots,
     )
@@ -131,7 +132,7 @@ fn accepted_expression_index_key_for_slot_reader_with_membership_structural(
     entity_tag: EntityTag,
     accepted_index: &SchemaExpressionIndexInfo,
     predicate_program: Option<&PredicateProgram>,
-    storage_key: StorageKey,
+    primary_key: &PrimaryKeyValue,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<IndexKey>, InternalError> {
     if let Some(predicate_program) = predicate_program {
@@ -141,9 +142,9 @@ fn accepted_expression_index_key_for_slot_reader_with_membership_structural(
         }
     }
 
-    IndexKey::new_from_slots_with_accepted_expression_index(
+    IndexKey::new_from_slots_with_accepted_expression_index_primary_key_value(
         entity_tag,
-        storage_key,
+        primary_key,
         accepted_index,
         slots,
     )
@@ -154,10 +155,10 @@ fn load_structural_accepted_field_path_index_key(
     entity_tag: EntityTag,
     accepted_index: &SchemaIndexInfo,
     predicate_program: Option<&PredicateProgram>,
-    storage_key: Option<StorageKey>,
+    primary_key: Option<&PrimaryKeyValue>,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<IndexKey>, InternalError> {
-    let Some(storage_key) = storage_key else {
+    let Some(primary_key) = primary_key else {
         return Err(lane.missing_entity_key_error());
     };
 
@@ -165,7 +166,7 @@ fn load_structural_accepted_field_path_index_key(
         entity_tag,
         accepted_index,
         predicate_program,
-        storage_key,
+        primary_key,
         slots,
     )
 }
@@ -175,10 +176,10 @@ fn load_structural_accepted_expression_index_key(
     entity_tag: EntityTag,
     accepted_index: &SchemaExpressionIndexInfo,
     predicate_program: Option<&PredicateProgram>,
-    storage_key: Option<StorageKey>,
+    primary_key: Option<&PrimaryKeyValue>,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<IndexKey>, InternalError> {
-    let Some(storage_key) = storage_key else {
+    let Some(primary_key) = primary_key else {
         return Err(lane.missing_entity_key_error());
     };
 
@@ -186,7 +187,7 @@ fn load_structural_accepted_expression_index_key(
         entity_tag,
         accepted_index,
         predicate_program,
-        storage_key,
+        primary_key,
         slots,
     )
 }
@@ -197,7 +198,7 @@ fn validate_existing_old_index_membership(
     entity_path: &'static str,
     index_fields: &str,
     _index_is_unique: bool,
-    old_storage_key: Option<StorageKey>,
+    old_primary_key: Option<&PrimaryKeyValue>,
     old_key: Option<&IndexKey>,
     old_entry: Option<&IndexRowIdentity>,
 ) -> Result<(), InternalError> {
@@ -205,7 +206,7 @@ fn validate_existing_old_index_membership(
         return Ok(());
     };
 
-    let Some(old_storage_key) = old_storage_key else {
+    let Some(old_primary_key) = old_primary_key else {
         return Err(InternalError::structural_index_removal_entity_key_required());
     };
 
@@ -213,15 +214,15 @@ fn validate_existing_old_index_membership(
         InternalError::structural_index_entry_corruption(
             entity_path,
             index_fields,
-            IndexEntryCorruption::missing_key(old_key.to_raw(), old_storage_key),
+            IndexEntryCorruption::missing_key(old_key.to_raw(), old_primary_key),
         )
     })?;
 
-    if !entry.contains(old_storage_key) {
+    if !entry.contains(old_primary_key) {
         return Err(InternalError::structural_index_entry_corruption(
             entity_path,
             index_fields,
-            IndexEntryCorruption::missing_key(old_key.to_raw(), old_storage_key),
+            IndexEntryCorruption::missing_key(old_key.to_raw(), old_primary_key),
         ));
     }
 
@@ -237,9 +238,9 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
     schema_info: &SchemaInfo,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
-    old_storage_key: Option<StorageKey>,
+    old_primary_key: Option<&PrimaryKeyValue>,
     old_slots: Option<&mut dyn CanonicalSlotReader>,
-    new_storage_key: Option<StorageKey>,
+    new_primary_key: Option<&PrimaryKeyValue>,
     new_slots: Option<&mut dyn CanonicalSlotReader>,
 ) -> Result<IndexMutationPlan, IndexPlanError> {
     plan_index_mutation_for_slot_reader_structural_impl(
@@ -248,9 +249,9 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
         schema_info,
         read_view,
         row_contract,
-        old_storage_key,
+        old_primary_key,
         old_slots,
-        new_storage_key,
+        new_primary_key,
         new_slots,
     )
 }
@@ -264,9 +265,9 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
     schema_info: &SchemaInfo,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
-    old_storage_key: Option<StorageKey>,
+    old_primary_key: Option<&PrimaryKeyValue>,
     mut old_slots: Option<&mut dyn CanonicalSlotReader>,
-    new_storage_key: Option<StorageKey>,
+    new_primary_key: Option<&PrimaryKeyValue>,
     mut new_slots: Option<&mut dyn CanonicalSlotReader>,
 ) -> Result<IndexMutationPlan, IndexPlanError> {
     let accepted_expression_indexes = schema_info.expression_indexes();
@@ -285,11 +286,11 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
             row_contract,
             accepted_index,
             predicate_program.as_ref(),
-            old_storage_key,
+            old_primary_key,
             old_slots
                 .as_mut()
                 .map(|slots| &mut **slots as &mut dyn CanonicalSlotReader),
-            new_storage_key,
+            new_primary_key,
             new_slots
                 .as_mut()
                 .map(|slots| &mut **slots as &mut dyn CanonicalSlotReader),
@@ -307,11 +308,11 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
             row_contract,
             accepted_index,
             predicate_program.as_ref(),
-            old_storage_key,
+            old_primary_key,
             old_slots
                 .as_mut()
                 .map(|slots| &mut **slots as &mut dyn CanonicalSlotReader),
-            new_storage_key,
+            new_primary_key,
             new_slots
                 .as_mut()
                 .map(|slots| &mut **slots as &mut dyn CanonicalSlotReader),
@@ -330,9 +331,9 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
     row_contract: &StructuralRowContract,
     accepted_index: &SchemaIndexInfo,
     predicate_program: Option<&PredicateProgram>,
-    old_storage_key: Option<StorageKey>,
+    old_primary_key: Option<&PrimaryKeyValue>,
     old_slots: Option<&mut dyn CanonicalSlotReader>,
-    new_storage_key: Option<StorageKey>,
+    new_primary_key: Option<&PrimaryKeyValue>,
     new_slots: Option<&mut dyn CanonicalSlotReader>,
 ) -> Result<(), IndexPlanError> {
     let index_fields = accepted_index_fields_csv(accepted_index);
@@ -345,7 +346,7 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
             entity_tag,
             accepted_index,
             predicate_program,
-            old_storage_key,
+            old_primary_key,
             slots,
         )?,
         None => None,
@@ -356,7 +357,7 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
             entity_tag,
             accepted_index,
             predicate_program,
-            new_storage_key,
+            new_primary_key,
             slots,
         )?,
         None => None,
@@ -374,7 +375,7 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
         entity_path,
         &index_fields,
         index_is_unique,
-        old_storage_key,
+        old_primary_key,
         old_key.as_ref(),
         old_entry.as_ref(),
     )?;
@@ -387,11 +388,7 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
         accepted_index,
         read_contract,
         &index_fields,
-        if new_key.is_some() {
-            new_storage_key
-        } else {
-            None
-        },
+        new_key.as_ref().and(new_primary_key),
         new_key.as_ref(),
     )?;
 
@@ -400,8 +397,8 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
         index_store,
         old_key,
         new_key,
-        old_storage_key,
-        new_storage_key,
+        old_primary_key,
+        new_primary_key,
     )?;
 
     Ok(())
@@ -416,9 +413,9 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
     row_contract: &StructuralRowContract,
     accepted_index: &SchemaExpressionIndexInfo,
     predicate_program: Option<&PredicateProgram>,
-    old_storage_key: Option<StorageKey>,
+    old_primary_key: Option<&PrimaryKeyValue>,
     old_slots: Option<&mut dyn CanonicalSlotReader>,
-    new_storage_key: Option<StorageKey>,
+    new_primary_key: Option<&PrimaryKeyValue>,
     new_slots: Option<&mut dyn CanonicalSlotReader>,
 ) -> Result<(), IndexPlanError> {
     let index_fields = accepted_expression_index_fields_csv(accepted_index);
@@ -432,7 +429,7 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
             entity_tag,
             accepted_index,
             predicate_program,
-            old_storage_key,
+            old_primary_key,
             slots,
         )?,
         None => None,
@@ -443,7 +440,7 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
             entity_tag,
             accepted_index,
             predicate_program,
-            new_storage_key,
+            new_primary_key,
             slots,
         )?,
         None => None,
@@ -461,7 +458,7 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
         entity_path,
         &index_fields,
         index_is_unique,
-        old_storage_key,
+        old_primary_key,
         old_key.as_ref(),
         old_entry.as_ref(),
     )?;
@@ -474,11 +471,7 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
         accepted_index,
         read_contract,
         &index_fields,
-        if new_key.is_some() {
-            new_storage_key
-        } else {
-            None
-        },
+        new_key.as_ref().and(new_primary_key),
         new_key.as_ref(),
     )?;
 
@@ -487,8 +480,8 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
         index_store,
         old_key,
         new_key,
-        old_storage_key,
-        new_storage_key,
+        old_primary_key,
+        new_primary_key,
     )?;
 
     Ok(())
@@ -502,23 +495,23 @@ fn push_index_delta_group(
     index_store: &str,
     old_key: Option<IndexKey>,
     new_key: Option<IndexKey>,
-    old_storage_key: Option<StorageKey>,
-    new_storage_key: Option<StorageKey>,
+    old_primary_key: Option<&PrimaryKeyValue>,
+    new_primary_key: Option<&PrimaryKeyValue>,
 ) -> Result<(), InternalError> {
     let mut deltas = Vec::with_capacity(2);
 
     if let Some(old_key) = old_key {
-        let Some(old_storage_key) = old_storage_key else {
+        let Some(old_primary_key) = old_primary_key else {
             return Err(InternalError::index_commit_op_old_entity_key_required());
         };
-        deltas.push(IndexDelta::remove(old_key, old_storage_key));
+        deltas.push(IndexDelta::remove(old_key, old_primary_key));
     }
 
     if let Some(new_key) = new_key {
-        let Some(new_storage_key) = new_storage_key else {
+        let Some(new_primary_key) = new_primary_key else {
             return Err(InternalError::index_commit_op_new_entity_key_required());
         };
-        deltas.push(IndexDelta::insert(new_key, new_storage_key));
+        deltas.push(IndexDelta::insert(new_key, new_primary_key));
     }
 
     if !deltas.is_empty() {

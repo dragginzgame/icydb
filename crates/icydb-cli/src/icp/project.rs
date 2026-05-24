@@ -3,6 +3,8 @@
 //! Does not own: canister lifecycle commands, generic process execution, or endpoint config.
 //! Boundary: exposes project-local canister discovery and setup checks to CLI command surfaces.
 
+use std::process::{Command, Output, Stdio};
+
 use serde_json::Value;
 
 use crate::icp::process::{canister_id, unreachable_network_hint};
@@ -26,37 +28,41 @@ pub(super) fn known_canisters(environment: &str) -> Result<Vec<String>, String> 
 }
 
 fn known_canisters_from_icp(environment: &str) -> Result<Vec<String>, String> {
-    let output = std::process::Command::new("icp")
+    let output = icp_canister_list_output(environment)?;
+    if !output.status.success() {
+        return Err(output_stderr(output.stderr.as_slice()));
+    }
+
+    parse_icp_canister_list(output.stdout.as_slice())
+}
+
+fn icp_canister_list_output(environment: &str) -> Result<Output, String> {
+    Command::new("icp")
         .arg("canister")
         .arg("list")
         .arg("--json")
         .arg("--environment")
         .arg(environment)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .output()
-        .map_err(|err| err.to_string())?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(output.stderr.as_slice())
-            .trim()
-            .to_string());
-    }
+        .map_err(|err| err.to_string())
+}
 
-    let value = serde_json::from_slice::<Value>(output.stdout.as_slice())
+fn parse_icp_canister_list(output: &[u8]) -> Result<Vec<String>, String> {
+    let value = serde_json::from_slice::<Value>(output)
         .map_err(|err| format!("parse icp canister list --json: {err}"))?;
     let Some(canisters) = value.get("canisters").and_then(Value::as_array) else {
         return Ok(Vec::new());
     };
 
-    let mut names = canisters
-        .iter()
-        .filter_map(Value::as_str)
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    names.sort();
-
-    Ok(names)
+    Ok(sorted_canister_names(
+        canisters
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string),
+    ))
 }
 
 fn known_canisters_from_manifest(environment: &str) -> Result<Vec<String>, String> {
@@ -82,17 +88,26 @@ fn known_canisters_from_manifest(environment: &str) -> Result<Vec<String>, Strin
         return Ok(Vec::new());
     }
 
-    let mut names = trimmed
-        .trim_start_matches('[')
-        .trim_end_matches(']')
-        .split(',')
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map(str::to_string)
-        .collect::<Vec<_>>();
+    Ok(sorted_canister_names(
+        trimmed
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_string),
+    ))
+}
+
+fn sorted_canister_names(names: impl Iterator<Item = String>) -> Vec<String> {
+    let mut names = names.collect::<Vec<_>>();
     names.sort();
 
-    Ok(names)
+    names
+}
+
+fn output_stderr(stderr: &[u8]) -> String {
+    String::from_utf8_lossy(stderr).trim().to_string()
 }
 
 fn environment_manifest_body<'a>(contents: &'a str, environment: &str) -> Option<&'a str> {

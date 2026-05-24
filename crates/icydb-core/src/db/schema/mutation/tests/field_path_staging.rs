@@ -167,6 +167,7 @@ fn field_path_rebuild_stages_sorted_entries_without_publication() {
                 .decode_row_identity(entry.key())
                 .expect("staged entry should decode")
                 .storage_key()
+                .expect("staged row identity should be scalar")
         })
         .collect::<Vec<_>>();
 

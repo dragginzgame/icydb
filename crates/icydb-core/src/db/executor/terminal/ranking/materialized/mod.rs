@@ -136,14 +136,15 @@ fn rank_k_rows_from_materialized_structural(
     // retain one `(primary_key, row_index)` locator instead of cloning full
     // `DataRow` payloads through the bounded ranking window.
     for (row_index, (data_key, raw_row)) in rows.iter().enumerate() {
+        let storage_key = data_key.try_storage_key()?;
         let value = decode_ranked_field_value_from_materialized_row(
             &row_layout,
-            data_key.storage_key(),
+            storage_key,
             raw_row,
             target_field,
             field_slot,
         )?;
-        ranked_rows.push(((data_key.storage_key(), row_index), value));
+        ranked_rows.push(((data_key.primary_key_value(), row_index), value));
     }
 
     // Phase 2: validate the comparable value domain once, then retain only the
@@ -183,7 +184,7 @@ fn rank_k_values_from_materialized_structural(
     // Phase 1: decode only the ranked target slot and retain primary-key
     // tie-break data plus the projected value.
     for (data_key, raw_row) in rows {
-        let storage_key = data_key.storage_key();
+        let storage_key = data_key.try_storage_key()?;
         let value = decode_ranked_field_value_from_materialized_row(
             &row_layout,
             storage_key,
@@ -191,7 +192,7 @@ fn rank_k_values_from_materialized_structural(
             target_field,
             field_slot,
         )?;
-        ranked_rows.push(((storage_key, ()), value));
+        ranked_rows.push(((data_key.primary_key_value(), ()), value));
     }
 
     // Phase 2: apply the same bounded ranking window and final deterministic

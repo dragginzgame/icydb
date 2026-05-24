@@ -378,7 +378,7 @@ fn decode_kernel_row_structural(
     layout: &RowLayout,
     data_row: DataRow,
 ) -> Result<KernelRow, InternalError> {
-    let slots = decode_structural_slots(layout, data_row.0.storage_key(), &data_row.1, None)?;
+    let slots = decode_structural_slots(layout, data_row.0.try_storage_key()?, &data_row.1, None)?;
 
     Ok(KernelRow::new(data_row, slots))
 }

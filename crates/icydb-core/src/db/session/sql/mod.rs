@@ -67,6 +67,16 @@ pub(in crate::db::session::sql) use compile::{
 pub(in crate::db) use compiled::{CompiledSqlCommand, SqlProjectionContract};
 pub use result::SqlStatementResult;
 
+/// Parsed SQL endpoint surface used by generated SQL helper dispatch.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
+pub enum SqlStatementSurface {
+    /// SQL handled by the readonly query endpoint.
+    Query,
+    /// SQL handled by the DDL/update endpoint.
+    Ddl,
+}
+
 #[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use crate::db::session::sql::projection::with_sql_projection_materialization_metrics;
 #[cfg(feature = "diagnostics")]
@@ -91,6 +101,30 @@ pub fn sql_statement_entity_name(sql: &str) -> Result<Option<String>, QueryError
         parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)?;
 
     Ok(sql_statement_entity_name_from_statement(&statement).map(str::to_string))
+}
+
+/// Return the generated endpoint surface required by one reduced SQL statement.
+#[doc(hidden)]
+pub fn sql_statement_surface(sql: &str) -> Result<SqlStatementSurface, QueryError> {
+    let (statement, _) =
+        parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)?;
+
+    Ok(sql_statement_surface_from_statement(&statement))
+}
+
+const fn sql_statement_surface_from_statement(statement: &SqlStatement) -> SqlStatementSurface {
+    match statement {
+        SqlStatement::Ddl(_) => SqlStatementSurface::Ddl,
+        SqlStatement::Select(_)
+        | SqlStatement::Delete(_)
+        | SqlStatement::Insert(_)
+        | SqlStatement::Update(_)
+        | SqlStatement::Explain(_)
+        | SqlStatement::Describe(_)
+        | SqlStatement::ShowIndexes(_)
+        | SqlStatement::ShowColumns(_)
+        | SqlStatement::ShowEntities(_) => SqlStatementSurface::Query,
+    }
 }
 
 const fn sql_statement_entity_name_from_statement(statement: &SqlStatement) -> Option<&str> {

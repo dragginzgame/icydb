@@ -3,7 +3,7 @@
 //! Does not own: commit-op materialization, executor context wiring, or apply sequencing.
 //! Boundary: index planning emits these deltas; commit preparation lowers them to store writes.
 
-use crate::db::{data::StorageKey, index::IndexKey};
+use crate::db::{index::IndexKey, key_taxonomy::PrimaryKeyValue};
 
 ///
 /// IndexMutationPlan
@@ -69,14 +69,20 @@ pub(in crate::db) enum IndexDelta {
 impl IndexDelta {
     /// Build one removal membership delta.
     #[must_use]
-    pub(in crate::db) const fn remove(key: IndexKey, primary_key: StorageKey) -> Self {
-        Self::Remove(IndexMembershipDelta { key, primary_key })
+    pub(in crate::db) const fn remove(key: IndexKey, primary_key: &PrimaryKeyValue) -> Self {
+        Self::Remove(IndexMembershipDelta {
+            key,
+            primary_key: *primary_key,
+        })
     }
 
     /// Build one insertion membership delta.
     #[must_use]
-    pub(in crate::db) const fn insert(key: IndexKey, primary_key: StorageKey) -> Self {
-        Self::Insert(IndexMembershipDelta { key, primary_key })
+    pub(in crate::db) const fn insert(key: IndexKey, primary_key: &PrimaryKeyValue) -> Self {
+        Self::Insert(IndexMembershipDelta {
+            key,
+            primary_key: *primary_key,
+        })
     }
 }
 
@@ -91,5 +97,5 @@ impl IndexDelta {
 #[derive(Debug)]
 pub(in crate::db) struct IndexMembershipDelta {
     pub(in crate::db) key: IndexKey,
-    pub(in crate::db) primary_key: StorageKey,
+    pub(in crate::db) primary_key: PrimaryKeyValue,
 }

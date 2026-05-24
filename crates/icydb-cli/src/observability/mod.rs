@@ -35,9 +35,7 @@ fn call_query(
     candid_arg: &str,
 ) -> Result<Vec<u8>, String> {
     call_query_hex(environment, canister, method, candid_arg, |stderr| {
-        format!(
-            "IcyDB query method '{method}' failed on canister '{canister}' in environment '{environment}': {stderr}",
-        )
+        canister_call_error("query", environment, canister, method, stderr)
     })
 }
 
@@ -48,10 +46,20 @@ fn call_update(
     candid_arg: &str,
 ) -> Result<Vec<u8>, String> {
     call_update_hex(environment, canister, method, candid_arg, |stderr| {
-        format!(
-            "IcyDB update method '{method}' failed on canister '{canister}' in environment '{environment}': {stderr}",
-        )
+        canister_call_error("update", environment, canister, method, stderr)
     })
+}
+
+fn canister_call_error(
+    call_kind: &str,
+    environment: &str,
+    canister: &str,
+    method: &str,
+    stderr: &str,
+) -> String {
+    format!(
+        "IcyDB {call_kind} method '{method}' failed on canister '{canister}' in environment '{environment}': {stderr}",
+    )
 }
 
 #[cfg(test)]

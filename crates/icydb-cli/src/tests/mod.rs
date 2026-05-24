@@ -1537,54 +1537,30 @@ fn sql_recovery_hint_leaves_unrelated_errors_unchanged() {
 
 #[test]
 fn sql_shell_call_kind_routes_supported_ddl_to_update_method() {
-    assert_eq!(
-        sql_shell_call_kind("CREATE INDEX name_idx ON Character (name);"),
-        SqlShellCallKind::Ddl,
-    );
-    assert_eq!(
-        sql_shell_call_kind("  create   index name_idx ON Character (name)  ; "),
-        SqlShellCallKind::Ddl,
-    );
-    assert_eq!(
-        sql_shell_call_kind("CREATE INDEX IF NOT EXISTS name_idx ON Character (name);"),
-        SqlShellCallKind::Ddl,
-    );
-    assert_eq!(
-        sql_shell_call_kind("DROP INDEX name_idx ON Character;"),
-        SqlShellCallKind::Ddl,
-    );
-    assert_eq!(
-        sql_shell_call_kind("DROP INDEX name_idx;"),
-        SqlShellCallKind::Ddl,
-    );
-    assert_eq!(
-        sql_shell_call_kind("  drop   index name_idx ON Character  ; "),
-        SqlShellCallKind::Ddl,
-    );
-    assert_eq!(
-        sql_shell_call_kind("DROP INDEX IF EXISTS name_idx ON Character;"),
-        SqlShellCallKind::Ddl,
-    );
-    assert_eq!(
-        sql_shell_call_kind("CREATE UNIQUE INDEX name_idx ON Character (name)"),
-        SqlShellCallKind::Ddl,
-    );
-    assert_eq!(
-        sql_shell_call_kind("ALTER TABLE Character ADD COLUMN nickname text"),
-        SqlShellCallKind::Ddl,
-    );
-    assert_eq!(
-        sql_shell_call_kind("ALTER TABLE Character ALTER COLUMN score SET DEFAULT 7"),
-        SqlShellCallKind::Ddl,
-    );
-    assert_eq!(
-        sql_shell_call_kind("SELECT * FROM Character"),
-        SqlShellCallKind::Query,
-    );
-    assert_eq!(
-        sql_shell_call_kind("CREATE UNIQUE TABLE Character (name text)"),
-        SqlShellCallKind::Query,
-    );
+    for sql in [
+        "CREATE INDEX name_idx ON Character (name);",
+        "  create   index name_idx ON Character (name)  ; ",
+        "CREATE INDEX IF NOT EXISTS name_idx ON Character (name);",
+        "DROP INDEX name_idx ON Character;",
+        "DROP INDEX name_idx;",
+        "  drop   index name_idx ON Character  ; ",
+        "DROP INDEX IF EXISTS name_idx ON Character;",
+        "CREATE UNIQUE INDEX name_idx ON Character (name)",
+        "ALTER TABLE Character ADD COLUMN nickname text",
+        "ALTER TABLE Character ALTER COLUMN score SET DEFAULT 7",
+    ] {
+        assert_eq!(
+            sql_shell_call_kind(sql).expect("SQL should parse"),
+            SqlShellCallKind::Ddl,
+        );
+    }
+
+    for sql in ["SELECT * FROM Character", "SHOW INDEXES FROM Character"] {
+        assert_eq!(
+            sql_shell_call_kind(sql).expect("SQL should parse"),
+            SqlShellCallKind::Query,
+        );
+    }
 }
 
 #[test]

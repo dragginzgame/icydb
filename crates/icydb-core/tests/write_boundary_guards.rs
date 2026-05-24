@@ -875,8 +875,12 @@ fn forward_index_write_keys_use_accepted_row_contract_slots() {
             && index_plan.contains("accepted_index: &SchemaExpressionIndexInfo")
             && !index_plan.contains("accepted_index: Option<&SchemaIndexInfo>")
             && !index_plan.contains("predicate_bridge: Option<&IndexModel>")
-            && index_plan.contains("IndexKey::new_from_slots_with_accepted_field_path_index(")
-            && index_plan.contains("IndexKey::new_from_slots_with_accepted_expression_index(")
+            && index_plan.contains(
+                "IndexKey::new_from_slots_with_accepted_field_path_index_primary_key_value("
+            )
+            && index_plan.contains(
+                "IndexKey::new_from_slots_with_accepted_expression_index_primary_key_value("
+            )
             && index_plan.contains("fn accepted_index_fields_csv(")
             && index_plan.contains("fn accepted_expression_index_fields_csv(")
             && index_plan.contains("let index_store = accepted_index.store();")
@@ -958,8 +962,12 @@ fn unique_index_validation_splits_accepted_and_generated_authority() {
                 .contains("fn validate_unique_constraint_accepted_expression_structural(")
             && unique_plan.contains("read_contract: IndexReadContract<'_>")
             && unique_plan.contains("read_contract.unique()")
-            && unique_plan.contains("IndexKey::new_from_slots_with_accepted_field_path_index(")
-            && unique_plan.contains("IndexKey::new_from_slots_with_accepted_expression_index(")
+            && unique_plan.contains(
+                "IndexKey::new_from_slots_with_accepted_field_path_index_primary_key_value("
+            )
+            && unique_plan.contains(
+                "IndexKey::new_from_slots_with_accepted_expression_index_primary_key_value("
+            )
             && unique_plan.contains("row_contract,")
             && !unique_plan.contains("GeneratedExpression(")
             && !unique_plan.contains("GeneratedExpressionIndex")
@@ -1003,7 +1011,9 @@ fn recovery_rebuild_expression_indexes_uses_accepted_commit_preflight() {
         index_plan.contains("for accepted_index in accepted_expression_indexes")
             && index_plan
                 .contains("plan_accepted_expression_index_mutation_for_slot_reader_structural(")
-            && index_plan.contains("IndexKey::new_from_slots_with_accepted_expression_index(")
+            && index_plan.contains(
+                "IndexKey::new_from_slots_with_accepted_expression_index_primary_key_value("
+            )
             && !index_plan.contains("GeneratedExpressionIndex")
             && !index_plan
                 .contains("plan_generated_expression_index_mutation_for_slot_reader_structural("),

@@ -17,7 +17,9 @@ use icydb::db::sql::SqlQueryResult;
 
 use crate::{
     cli::SqlArgs,
-    config::{SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, require_configured_endpoint},
+    config::{
+        ConfiguredEndpoint, SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, require_configured_endpoint,
+    },
     icp::require_created_canister,
     shell::render::{ShellSqlQueryPerfResult, render_shell_text_from_perf_result},
 };
@@ -72,7 +74,7 @@ pub(crate) fn run_sql_command(args: SqlArgs) -> Result<(), String> {
 }
 
 fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, String> {
-    let call_kind = route::sql_shell_call_kind(sql);
+    let call_kind = route::sql_shell_call_kind(sql)?;
     let endpoint = match call_kind {
         route::SqlShellCallKind::Query => SQL_QUERY_ENDPOINT,
         route::SqlShellCallKind::Ddl => SQL_DDL_ENDPOINT,
@@ -83,45 +85,54 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
     let escaped_sql = call::candid_escape_string(sql);
     match call_kind {
         route::SqlShellCallKind::Query => {
-            let candid_bytes = call::icp_query(
-                environment,
-                canister,
-                endpoint.method(),
-                escaped_sql.as_str(),
-            )?;
-            let response = Decode!(
-                candid_bytes.as_slice(),
-                Result<ShellSqlQueryPerfResult, icydb::Error>
-            )
-            .map_err(|err| err.to_string())?;
-
-            match response {
-                Ok(result) => Ok(render_shell_text_from_perf_result(result)),
-                Err(err) => Ok(format!(
-                    "ERROR: {}",
-                    call::sql_error_with_recovery_hint(&err.to_string(), environment, canister)
-                )),
-            }
+            execute_sql_query(environment, canister, endpoint, &escaped_sql)
         }
         route::SqlShellCallKind::Ddl => {
-            let candid_bytes = call::icp_update(
-                environment,
-                canister,
-                endpoint.method(),
-                escaped_sql.as_str(),
-            )?;
-            let response = Decode!(candid_bytes.as_slice(), Result<SqlQueryResult, icydb::Error>)
-                .map_err(|err| err.to_string())?;
-
-            match response {
-                Ok(result) => Ok(result.render_text()),
-                Err(err) => Ok(format!(
-                    "ERROR: {}",
-                    call::sql_error_with_recovery_hint(&err.to_string(), environment, canister)
-                )),
-            }
+            execute_sql_ddl(environment, canister, endpoint, &escaped_sql)
         }
     }
+}
+
+fn execute_sql_query(
+    environment: &str,
+    canister: &str,
+    endpoint: ConfiguredEndpoint,
+    escaped_sql: &str,
+) -> Result<String, String> {
+    let candid_bytes = call::icp_query(environment, canister, endpoint.method(), escaped_sql)?;
+    let response = Decode!(
+        candid_bytes.as_slice(),
+        Result<ShellSqlQueryPerfResult, icydb::Error>
+    )
+    .map_err(|err| err.to_string())?;
+
+    match response {
+        Ok(result) => Ok(render_shell_text_from_perf_result(result)),
+        Err(err) => Ok(render_sql_error(err, environment, canister)),
+    }
+}
+
+fn execute_sql_ddl(
+    environment: &str,
+    canister: &str,
+    endpoint: ConfiguredEndpoint,
+    escaped_sql: &str,
+) -> Result<String, String> {
+    let candid_bytes = call::icp_update(environment, canister, endpoint.method(), escaped_sql)?;
+    let response = Decode!(candid_bytes.as_slice(), Result<SqlQueryResult, icydb::Error>)
+        .map_err(|err| err.to_string())?;
+
+    match response {
+        Ok(result) => Ok(result.render_text()),
+        Err(err) => Ok(render_sql_error(err, environment, canister)),
+    }
+}
+
+fn render_sql_error(err: icydb::Error, environment: &str, canister: &str) -> String {
+    format!(
+        "ERROR: {}",
+        call::sql_error_with_recovery_hint(&err.to_string(), environment, canister)
+    )
 }
 
 #[cfg(test)]
@@ -180,7 +191,7 @@ pub(crate) mod test_support {
         super::input::shell_help_text()
     }
 
-    pub(crate) fn sql_shell_call_kind(sql: &str) -> SqlShellCallKind {
+    pub(crate) fn sql_shell_call_kind(sql: &str) -> Result<SqlShellCallKind, String> {
         super::route::sql_shell_call_kind(sql)
     }
 

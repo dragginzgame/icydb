@@ -4,7 +4,7 @@ use crate::{
         query::plan::{CoveringReadField, CoveringReadFieldSource},
     },
     error::InternalError,
-    value::{Value, storage_key_as_runtime_value},
+    value::Value,
 };
 use std::collections::BTreeMap;
 
@@ -59,9 +59,7 @@ pub(super) fn project_covering_row_from_decoded_values(
                     )
                 })?
             }
-            CoveringReadFieldSource::PrimaryKey => {
-                storage_key_as_runtime_value(&data_key.storage_key())
-            }
+            CoveringReadFieldSource::PrimaryKey => data_key.try_primary_key_runtime_value()?,
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {
                 return Err(InternalError::query_executor_invariant(
@@ -112,9 +110,7 @@ pub(super) fn project_covering_row_from_owned_decoded_values(
                     "covering projection decoded component position out of bounds",
                 )?
             }
-            CoveringReadFieldSource::PrimaryKey => {
-                storage_key_as_runtime_value(&data_key.storage_key())
-            }
+            CoveringReadFieldSource::PrimaryKey => data_key.try_primary_key_runtime_value()?,
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {
                 return Err(InternalError::query_executor_invariant(
@@ -181,9 +177,7 @@ pub(super) fn project_covering_row_from_single_decoded_value(
                     })?
                 }
             }
-            CoveringReadFieldSource::PrimaryKey => {
-                storage_key_as_runtime_value(&data_key.storage_key())
-            }
+            CoveringReadFieldSource::PrimaryKey => data_key.try_primary_key_runtime_value()?,
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {
                 return Err(InternalError::query_executor_invariant(

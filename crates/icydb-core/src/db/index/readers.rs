@@ -5,8 +5,9 @@
 
 use crate::{
     db::{
-        data::{DecodedDataStoreKey, RawRow, StorageKey},
+        data::{DecodedDataStoreKey, RawRow},
         index::{IndexEntryValue, IndexStore, RawIndexStoreKey},
+        key_taxonomy::PrimaryKeyValue,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -146,7 +147,7 @@ pub(in crate::db) trait IndexEntryReader<E: EntityKind + EntityValue>:
         index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
-    ) -> Result<Vec<StorageKey>, InternalError>;
+    ) -> Result<Vec<PrimaryKeyValue>, InternalError>;
 }
 
 ///
@@ -176,7 +177,7 @@ pub(in crate::db) trait StructuralIndexEntryReader:
         index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
-    ) -> Result<Vec<StorageKey>, InternalError>;
+    ) -> Result<Vec<PrimaryKeyValue>, InternalError>;
 }
 
 impl<E> StructuralIndexEntryReader for dyn IndexEntryReader<E> + '_
@@ -199,7 +200,7 @@ where
         index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
-    ) -> Result<Vec<StorageKey>, InternalError> {
+    ) -> Result<Vec<PrimaryKeyValue>, InternalError> {
         self.read_index_keys_in_raw_range(index_store, index, bounds, limit)
     }
 }

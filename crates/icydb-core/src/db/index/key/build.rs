@@ -196,16 +196,17 @@ fn index_component_bytes_from_slot_ref_reader_with_access_contract<'a>(
 
 impl IndexKey {
     /// Build a field-path index key from one canonical slot reader using
-    /// accepted index-contract slot authority.
-    pub(crate) fn new_from_slots_with_accepted_field_path_index(
+    /// accepted index-contract slot authority and scalar-or-composite row
+    /// identity.
+    pub(crate) fn new_from_slots_with_accepted_field_path_index_primary_key_value(
         entity_tag: EntityTag,
-        storage_key: StorageKey,
+        primary_key: &PrimaryKeyValue,
         accepted_index: &SchemaIndexInfo,
         slots: &dyn CanonicalSlotReader,
     ) -> Result<Option<Self>, InternalError> {
         build_accepted_field_path_index_key_from_slots(
             entity_tag,
-            storage_key,
+            primary_key,
             accepted_index,
             slots,
         )
@@ -250,16 +251,17 @@ impl IndexKey {
     }
 
     /// Build an expression index key from one canonical slot reader using
-    /// accepted expression-index contract authority.
-    pub(crate) fn new_from_slots_with_accepted_expression_index(
+    /// accepted expression-index contract authority and scalar-or-composite row
+    /// identity.
+    pub(crate) fn new_from_slots_with_accepted_expression_index_primary_key_value(
         entity_tag: EntityTag,
-        storage_key: StorageKey,
+        primary_key: &PrimaryKeyValue,
         accepted_index: &SchemaExpressionIndexInfo,
         slots: &dyn CanonicalSlotReader,
     ) -> Result<Option<Self>, InternalError> {
         build_accepted_expression_index_key_from_slots(
             entity_tag,
-            storage_key,
+            primary_key,
             accepted_index,
             slots,
         )
@@ -854,13 +856,13 @@ fn expression_rebuild_key_item_label(key_item: &SchemaExpressionIndexRebuildKey)
 
 fn build_accepted_field_path_index_key_from_slots(
     entity_tag: EntityTag,
-    storage_key: StorageKey,
+    primary_key: &PrimaryKeyValue,
     accepted_index: &SchemaIndexInfo,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<IndexKey>, InternalError> {
     build_accepted_field_path_index_key_from_components(
         entity_tag,
-        storage_key,
+        primary_key,
         accepted_index,
         &mut |accepted_index, field| {
             accepted_field_path_component_bytes_from_slots(accepted_index, field, slots)
@@ -870,13 +872,13 @@ fn build_accepted_field_path_index_key_from_slots(
 
 fn build_accepted_expression_index_key_from_slots(
     entity_tag: EntityTag,
-    storage_key: StorageKey,
+    primary_key: &PrimaryKeyValue,
     accepted_index: &SchemaExpressionIndexInfo,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<IndexKey>, InternalError> {
     build_accepted_expression_index_key_from_components(
         entity_tag,
-        storage_key,
+        primary_key,
         accepted_index,
         &mut |key_item| {
             accepted_expression_component_bytes_from_slots(accepted_index, key_item, slots)
@@ -976,9 +978,10 @@ fn build_accepted_field_path_index_key<'a>(
     accepted_index: &SchemaIndexInfo,
     read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
 ) -> Result<Option<IndexKey>, InternalError> {
+    let primary_key = PrimaryKeyValue::from(storage_key);
     build_accepted_field_path_index_key_from_components(
         entity_tag,
-        storage_key,
+        &primary_key,
         accepted_index,
         &mut |accepted_index, field| {
             accepted_field_path_component_bytes(accepted_index, field, read_slot)
@@ -988,7 +991,7 @@ fn build_accepted_field_path_index_key<'a>(
 
 fn build_accepted_expression_index_key_from_components(
     entity_tag: EntityTag,
-    storage_key: StorageKey,
+    primary_key: &PrimaryKeyValue,
     accepted_index: &SchemaExpressionIndexInfo,
     component_bytes: &mut AcceptedExpressionComponentEncoder<'_>,
 ) -> Result<Option<IndexKey>, InternalError> {
@@ -1021,13 +1024,13 @@ fn build_accepted_expression_index_key_from_components(
         key_kind: IndexKeyKind::User,
         index_id: IndexId::new(entity_tag, accepted_index.ordinal()),
         components,
-        primary_key: IndexKey::compact_primary_key_bytes(storage_key),
+        primary_key: IndexKey::compact_primary_key_value_bytes(primary_key),
     }))
 }
 
 fn build_accepted_field_path_index_key_from_components(
     entity_tag: EntityTag,
-    storage_key: StorageKey,
+    primary_key: &PrimaryKeyValue,
     accepted_index: &SchemaIndexInfo,
     component_bytes: &mut AcceptedFieldPathComponentEncoder<'_>,
 ) -> Result<Option<IndexKey>, InternalError> {
@@ -1060,7 +1063,7 @@ fn build_accepted_field_path_index_key_from_components(
         key_kind: IndexKeyKind::User,
         index_id: IndexId::new(entity_tag, accepted_index.ordinal()),
         components,
-        primary_key: IndexKey::compact_primary_key_bytes(storage_key),
+        primary_key: IndexKey::compact_primary_key_value_bytes(primary_key),
     }))
 }
 

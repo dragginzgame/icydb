@@ -3,10 +3,7 @@
 //! Does not own: stream traversal mechanics or access-path resolution.
 //! Boundary: centralizes ASC/DESC comparison behavior for stream combinators.
 
-use crate::db::{
-    data::{DecodedDataStoreKey, StorageKey},
-    direction::Direction,
-};
+use crate::db::{data::DecodedDataStoreKey, direction::Direction, key_taxonomy::PrimaryKeyValue};
 use std::cmp::Ordering;
 
 ///
@@ -42,7 +39,11 @@ impl KeyOrderComparator {
     }
 
     // Return whether `current` violates stream monotonicity after `previous`.
-    pub(super) fn violates_monotonicity(self, previous: &StorageKey, current: &StorageKey) -> bool {
+    pub(super) fn violates_monotonicity(
+        self,
+        previous: &PrimaryKeyValue,
+        current: &PrimaryKeyValue,
+    ) -> bool {
         match self.direction {
             Direction::Asc => previous > current,
             Direction::Desc => current > previous,

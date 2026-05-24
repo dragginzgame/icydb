@@ -5,21 +5,22 @@
 
 use crate::{
     db::{
-        data::{DecodedDataStoreKey, StorageKey},
+        data::DecodedDataStoreKey,
         executor::stream::key::{KeyOrderComparator, OrderedKeyStream},
+        key_taxonomy::PrimaryKeyValue,
     },
     error::InternalError,
     types::EntityTag,
 };
 
-type RowKeyWitness = (EntityTag, StorageKey);
+type RowKeyWitness = (EntityTag, PrimaryKeyValue);
 
 const fn row_key_witness(key: &DecodedDataStoreKey) -> RowKeyWitness {
-    (key.entity_tag(), key.storage_key())
+    (key.entity_tag(), key.primary_key_value())
 }
 
 fn witness_matches_key(witness: &RowKeyWitness, key: &DecodedDataStoreKey) -> bool {
-    witness.0 == key.entity_tag() && witness.1 == key.storage_key()
+    witness.0 == key.entity_tag() && witness.1 == key.primary_key_value()
 }
 
 ///
@@ -109,8 +110,8 @@ impl StreamSideState {
         stream_kind: &'static str,
         direction_context: &'static str,
         current_entity: EntityTag,
-        previous_key: &StorageKey,
-        current_key: &StorageKey,
+        previous_key: &PrimaryKeyValue,
+        current_key: &PrimaryKeyValue,
     ) -> InternalError {
         InternalError::query_executor_invariant(format!(
             "{stream_kind} stream {} emitted out-of-order key for {} {direction_context} (entity: {:?}, previous key: {:?}, current key: {:?})",
