@@ -313,7 +313,7 @@ where
         mut visit_projected: impl FnMut(StorageKey, Value) -> Result<(), InternalError>,
     ) -> Result<(), InternalError> {
         for (data_key, raw_row) in rows {
-            let storage_key = data_key.storage_key();
+            let storage_key = data_key.try_storage_key()?;
             let value = Self::decode_projected_field_value(
                 row_layout,
                 storage_key,
@@ -354,7 +354,7 @@ where
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Option<Value>, InternalError> {
-        let storage_key = key.storage_key();
+        let storage_key = key.try_storage_key()?;
         let Some(row) = read_owned_data_row_with_consistency_from_store(store, key, consistency)?
         else {
             return Ok(None);

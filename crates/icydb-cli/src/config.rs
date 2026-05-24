@@ -21,6 +21,32 @@ const CONFIG_PATH_ENV: &str = "ICYDB_CONFIG_PATH";
 type CanisterConfigRow = [String; 5];
 type CheckedCanisterConfigRow = [String; 6];
 
+const CANISTER_CONFIG_HEADERS: [&str; 5] =
+    ["canister", "SQL surfaces", "metrics", "snapshot", "schema"];
+const CHECKED_CANISTER_CONFIG_HEADERS: [&str; 6] = [
+    "canister",
+    "SQL surfaces",
+    "metrics",
+    "snapshot",
+    "schema",
+    "ICP environment",
+];
+const CANISTER_CONFIG_ALIGNMENTS: [ColumnAlign; 5] = [
+    ColumnAlign::Left,
+    ColumnAlign::Left,
+    ColumnAlign::Left,
+    ColumnAlign::Left,
+    ColumnAlign::Left,
+];
+const CHECKED_CANISTER_CONFIG_ALIGNMENTS: [ColumnAlign; 6] = [
+    ColumnAlign::Left,
+    ColumnAlign::Left,
+    ColumnAlign::Left,
+    ColumnAlign::Left,
+    ColumnAlign::Left,
+    ColumnAlign::Left,
+];
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ConfigSurface {
     SqlReadonly,
@@ -121,10 +147,7 @@ pub(crate) fn init_config(args: ConfigInitArgs) -> Result<(), String> {
         .unwrap_or_else(|| init_config_path(start_dir.as_path()));
 
     if path.exists() && !args.force() {
-        return Err(format!(
-            "IcyDB config already exists at '{}'; pass --force to replace it",
-            path.display()
-        ));
+        return Err(config_exists_message(path.as_path()));
     }
 
     if let Some(parent) = path.parent() {
@@ -165,21 +188,12 @@ pub(crate) fn check_config(args: ConfigArgs) -> Result<(), String> {
         &context.resolved,
     );
     if issues.is_empty() {
-        println!("IcyDB config check passed");
-        if context.environment.is_none() {
-            println!("ICP sync check not run; pass --environment <name>");
-        }
+        print_config_check_passed(context.environment.as_deref());
 
         return Ok(());
     }
 
-    let mut message = String::from("IcyDB config check failed");
-    for issue in issues {
-        message.push_str("\n- ");
-        message.push_str(issue.as_str());
-    }
-
-    Err(message)
+    Err(config_check_failed_message(issues.as_slice()))
 }
 
 /// Return whether the current `icydb.toml` enables one generated endpoint family.
@@ -230,6 +244,30 @@ fn disabled_config_surface_message(
         surface.label(),
         surface.key(),
     )
+}
+
+fn config_exists_message(path: &Path) -> String {
+    format!(
+        "IcyDB config already exists at '{}'; pass --force to replace it",
+        path.display()
+    )
+}
+
+fn print_config_check_passed(environment: Option<&str>) {
+    println!("IcyDB config check passed");
+    if environment.is_none() {
+        println!("ICP sync check not run; pass --environment <name>");
+    }
+}
+
+fn config_check_failed_message(issues: &[String]) -> String {
+    let mut message = String::from("IcyDB config check failed");
+    for issue in issues {
+        message.push_str("\n- ");
+        message.push_str(issue.as_str());
+    }
+
+    message
 }
 
 fn config_surface_enabled_for_resolved(
@@ -353,15 +391,24 @@ fn render_config_report(
     known_canisters: &[String],
     resolved: &icydb_config_build::ResolvedIcydbConfig,
 ) -> String {
-    let known = known_canisters
-        .iter()
-        .map(String::as_str)
-        .collect::<BTreeSet<_>>();
+    let known = known_canister_set(known_canisters);
     let config = resolved.config();
     let mut report = String::new();
 
+    append_config_report_header(&mut report, start_dir, environment, resolved.config_path());
+    append_configured_canisters(&mut report, config, environment, &known);
+
+    report
+}
+
+fn append_config_report_header(
+    report: &mut String,
+    start_dir: &Path,
+    environment: Option<&str>,
+    config_path: Option<&Path>,
+) {
     report.push_str("IcyDB config summary\n");
-    match resolved.config_path() {
+    match config_path {
         Some(path) => report.push_str(format!("Config file: {}\n", path.display()).as_str()),
         None => report.push_str("Config file: not found\n"),
     }
@@ -373,7 +420,14 @@ fn render_config_report(
         None => report.push_str("ICP sync check: not run; pass --environment <name>\n"),
     }
     report.push('\n');
+}
 
+fn append_configured_canisters(
+    report: &mut String,
+    config: &icydb_config_build::GeneratedIcydbConfig,
+    environment: Option<&str>,
+    known: &BTreeSet<&str>,
+) {
     report.push_str("Configured canisters\n");
     if config.canisters().is_empty() {
         report.push_str("  None\n");
@@ -381,19 +435,17 @@ fn render_config_report(
         let rows = config
             .canisters()
             .iter()
-            .map(|(name, canister)| checked_canister_config_row(name, *canister, &known))
+            .map(|(name, canister)| checked_canister_config_row(name, *canister, known))
             .collect::<Vec<_>>();
-        append_checked_canister_table(&mut report, rows.as_slice());
+        append_checked_canister_table(report, rows.as_slice());
     } else {
         let rows = config
             .canisters()
             .iter()
             .map(|(name, canister)| canister_config_row(name, *canister))
             .collect::<Vec<_>>();
-        append_canister_table(&mut report, rows.as_slice());
+        append_canister_table(report, rows.as_slice());
     }
-
-    report
 }
 
 fn config_sync_issues(
@@ -401,10 +453,7 @@ fn config_sync_issues(
     known_canisters: &[String],
     resolved: &icydb_config_build::ResolvedIcydbConfig,
 ) -> Vec<String> {
-    let known = known_canisters
-        .iter()
-        .map(String::as_str)
-        .collect::<BTreeSet<_>>();
+    let known = known_canister_set(known_canisters);
     let config = resolved.config();
     let mut issues = Vec::new();
 
@@ -425,6 +474,10 @@ fn config_sync_issues(
     }
 
     issues
+}
+
+fn known_canister_set(known_canisters: &[String]) -> BTreeSet<&str> {
+    known_canisters.iter().map(String::as_str).collect()
 }
 
 fn canister_config_row(
@@ -460,15 +513,9 @@ fn append_canister_table(report: &mut String, rows: &[CanisterConfigRow]) {
     append_indented_table(
         report,
         "  ",
-        &["canister", "SQL surfaces", "metrics", "snapshot", "schema"],
+        &CANISTER_CONFIG_HEADERS,
         rows,
-        &[
-            ColumnAlign::Left,
-            ColumnAlign::Left,
-            ColumnAlign::Left,
-            ColumnAlign::Left,
-            ColumnAlign::Left,
-        ],
+        &CANISTER_CONFIG_ALIGNMENTS,
     );
 }
 
@@ -476,23 +523,9 @@ fn append_checked_canister_table(report: &mut String, rows: &[CheckedCanisterCon
     append_indented_table(
         report,
         "  ",
-        &[
-            "canister",
-            "SQL surfaces",
-            "metrics",
-            "snapshot",
-            "schema",
-            "ICP environment",
-        ],
+        &CHECKED_CANISTER_CONFIG_HEADERS,
         rows,
-        &[
-            ColumnAlign::Left,
-            ColumnAlign::Left,
-            ColumnAlign::Left,
-            ColumnAlign::Left,
-            ColumnAlign::Left,
-            ColumnAlign::Left,
-        ],
+        &CHECKED_CANISTER_CONFIG_ALIGNMENTS,
     );
 }
 

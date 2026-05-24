@@ -137,7 +137,7 @@ impl ExecutionKernel {
 
         let mut selected: Option<(StorageKey, Value)> = None;
         for (data_key, raw_row) in rows {
-            let candidate_key = data_key.storage_key();
+            let candidate_key = data_key.try_storage_key()?;
             let candidate_value = RowDecoder::decode_required_slot_value(
                 row_layout,
                 candidate_key,
@@ -343,7 +343,7 @@ impl ExecutionKernel {
         selected: &mut Option<(StorageKey, Value)>,
     ) -> Result<KeyStreamLoopControl, InternalError> {
         *keys_scanned = keys_scanned.saturating_add(1);
-        let key = data_key.storage_key();
+        let key = data_key.try_storage_key()?;
         let Some(row) =
             read_owned_data_row_with_consistency_from_store(store, data_key, consistency)?
         else {

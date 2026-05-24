@@ -380,14 +380,14 @@ impl StructuralGroupedRowRuntime {
         match self.row_decode_path() {
             GroupedRowDecodePath::Single(single_grouped_slot_decode) => self
                 .single_slot_row_view_from_data_row(
-                    key.storage_key(),
+                    key.try_storage_key()?,
                     row,
                     single_grouped_slot_decode,
                 ),
             GroupedRowDecodePath::Indexed => {
                 let retained_slots = RowDecoder::decode_retained_slots(
                     &self.row_layout,
-                    key.storage_key(),
+                    key.try_storage_key()?,
                     &row,
                     &self.grouped_slot_layout,
                 )?;
@@ -496,7 +496,7 @@ impl StructuralGroupedRowRuntime {
             self.matching_single_grouped_slot_decode(required_slot)
         {
             return self.decode_single_grouped_slot_value_from_raw_row(
-                key.storage_key(),
+                key.try_storage_key()?,
                 &row,
                 single_grouped_slot_decode,
             );

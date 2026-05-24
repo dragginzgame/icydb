@@ -76,7 +76,10 @@ impl ScalarTerminalAggregateState {
         &mut self,
         key: &DecodedDataStoreKey,
     ) -> Result<FoldControl, InternalError> {
-        let primary_key_value = self.requires_primary_key_value.then_some(key.storage_key());
+        let primary_key_value = self
+            .requires_primary_key_value
+            .then(|| key.try_storage_key())
+            .transpose()?;
         match self.kind {
             ScalarTerminalKind::Count => self.apply_count(primary_key_value),
             ScalarTerminalKind::Exists => self.apply_exists(primary_key_value),

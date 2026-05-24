@@ -69,11 +69,7 @@ pub(super) fn read_statement(
         return Ok(ShellInput::Sql(sql));
     }
 
-    let mut prompt = if partial_statement.trim().is_empty() {
-        "icydb> "
-    } else {
-        "    -> "
-    };
+    let mut prompt = shell_prompt(partial_statement);
 
     loop {
         match editor.readline(prompt) {
@@ -96,14 +92,10 @@ pub(super) fn read_statement(
                     }
                 }
 
-                if !partial_statement.is_empty() {
-                    partial_statement.push('\n');
-                }
-                partial_statement.push_str(normalized_line.as_str());
-
                 // Split one pasted batch into every complete top-level
                 // semicolon-terminated statement while preserving any trailing
                 // incomplete remainder for the continuation prompt.
+                append_shell_statement_line(partial_statement, normalized_line.as_str());
                 pending_sql.extend(drain_complete_shell_statements(partial_statement));
 
                 if let Some(sql) = pending_sql.pop_front() {
@@ -115,7 +107,7 @@ pub(super) fn read_statement(
             Err(ReadlineError::Interrupted) => {
                 partial_statement.clear();
                 pending_sql.clear();
-                prompt = "icydb> ";
+                prompt = shell_prompt(partial_statement);
             }
             Err(ReadlineError::Eof) => {
                 if partial_statement.trim().is_empty() {
@@ -135,6 +127,21 @@ pub(super) fn read_statement(
 
 fn partial_statement_is_empty(partial_statement: &str) -> bool {
     partial_statement.trim().is_empty()
+}
+
+fn shell_prompt(partial_statement: &str) -> &'static str {
+    if partial_statement_is_empty(partial_statement) {
+        "icydb> "
+    } else {
+        "    -> "
+    }
+}
+
+fn append_shell_statement_line(partial_statement: &mut String, line: &str) {
+    if !partial_statement.is_empty() {
+        partial_statement.push('\n');
+    }
+    partial_statement.push_str(line);
 }
 
 fn top_level_shell_input(line: &str) -> ShellTopLevelInput {

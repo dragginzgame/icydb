@@ -75,7 +75,7 @@ fn resolve_last_cursor_row(
         let mut read_slot = |slot| row.slot_ref(slot);
         authority
             .index_range_anchor_key_from_slot_ref_reader(
-                data_key.storage_key(),
+                data_key.try_storage_key()?,
                 spec,
                 &mut read_slot,
             )?

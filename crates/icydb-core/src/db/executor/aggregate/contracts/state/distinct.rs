@@ -4,7 +4,6 @@ use crate::{
         executor::group::{CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError},
     },
     error::InternalError,
-    value::storage_key_as_runtime_value,
 };
 
 ///
@@ -64,7 +63,7 @@ pub(in crate::db::executor::aggregate::contracts::state) fn record_distinct_key(
 pub(in crate::db::executor::aggregate::contracts::state) fn canonical_key_from_data_key(
     key: &DecodedDataStoreKey,
 ) -> Result<GroupKey, InternalError> {
-    storage_key_as_runtime_value(&key.storage_key())
+    key.try_primary_key_runtime_value()?
         .canonical_key()
         .map_err(KeyCanonicalError::into_internal_error)
 }

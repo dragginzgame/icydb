@@ -109,15 +109,9 @@ pub(super) fn render_snapshot_report(report: &StorageReport) -> String {
 }
 
 fn append_data_store_table(output: &mut String, rows: &[[String; 3]]) {
-    output.push_str("data stores\n");
-    if rows.is_empty() {
-        output.push_str("  None\n");
-        return;
-    }
-
-    append_indented_table(
+    append_snapshot_table(
         output,
-        "  ",
+        "data stores",
         &["path", "entries", "bytes"],
         rows,
         &[ColumnAlign::Left, ColumnAlign::Right, ColumnAlign::Right],
@@ -125,15 +119,9 @@ fn append_data_store_table(output: &mut String, rows: &[[String; 3]]) {
 }
 
 fn append_index_store_table(output: &mut String, rows: &[[String; 6]]) {
-    output.push_str("index stores\n");
-    if rows.is_empty() {
-        output.push_str("  None\n");
-        return;
-    }
-
-    append_indented_table(
+    append_snapshot_table(
         output,
-        "  ",
+        "index stores",
         &["path", "entries", "user", "system", "bytes", "state"],
         rows,
         &[
@@ -148,15 +136,9 @@ fn append_index_store_table(output: &mut String, rows: &[[String; 6]]) {
 }
 
 fn append_entity_table(output: &mut String, rows: &[[String; 4]]) {
-    output.push_str("entities\n");
-    if rows.is_empty() {
-        output.push_str("  None\n");
-        return;
-    }
-
-    append_indented_table(
+    append_snapshot_table(
         output,
-        "  ",
+        "entities",
         &["entity", "store", "entries", "bytes"],
         rows,
         &[
@@ -166,4 +148,21 @@ fn append_entity_table(output: &mut String, rows: &[[String; 4]]) {
             ColumnAlign::Right,
         ],
     );
+}
+
+fn append_snapshot_table<const N: usize>(
+    output: &mut String,
+    title: &str,
+    headers: &[&str; N],
+    rows: &[[String; N]],
+    alignments: &[ColumnAlign; N],
+) {
+    output.push_str(title);
+    output.push('\n');
+    if rows.is_empty() {
+        output.push_str("  None\n");
+        return;
+    }
+
+    append_indented_table(output, "  ", headers, rows, alignments);
 }

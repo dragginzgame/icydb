@@ -518,7 +518,7 @@ where
             .map(|(data_key, raw_row)| {
                 let value = RowDecoder::decode_required_slot_value(
                     row_layout,
-                    data_key.storage_key(),
+                    data_key.try_storage_key()?,
                     &raw_row,
                     field_slot.index,
                 )?;
@@ -549,7 +549,7 @@ where
             .map(|(data_key, raw_row)| {
                 let value = RowDecoder::decode_required_slot_value(
                     row_layout,
-                    data_key.storage_key(),
+                    data_key.try_storage_key()?,
                     &raw_row,
                     field_slot.index,
                 )?;
@@ -584,7 +584,7 @@ where
         for (data_key, raw_row) in rows {
             let value = RowDecoder::decode_required_slot_value(
                 row_layout,
-                data_key.storage_key(),
+                data_key.try_storage_key()?,
                 &raw_row,
                 field_slot.index,
             )?;
@@ -618,7 +618,7 @@ where
         for (data_key, raw_row) in rows {
             let value = RowDecoder::decode_required_slot_value(
                 row_layout,
-                data_key.storage_key(),
+                data_key.try_storage_key()?,
                 &raw_row,
                 field_slot.index,
             )?;

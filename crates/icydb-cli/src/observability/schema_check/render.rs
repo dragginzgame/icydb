@@ -43,15 +43,9 @@ fn append_schema_check_recommendations(output: &mut String, recommendations: &[S
 }
 
 fn append_schema_check_entity_table(output: &mut String, rows: &[[String; 8]]) {
-    output.push_str("entities\n");
-    if rows.is_empty() {
-        output.push_str("  None\n");
-        return;
-    }
-
-    append_indented_table(
+    append_schema_check_table(
         output,
-        "  ",
+        "entities",
         &[
             "entity",
             "status",
@@ -77,16 +71,9 @@ fn append_schema_check_entity_table(output: &mut String, rows: &[[String; 8]]) {
 }
 
 fn append_schema_check_detail_table(output: &mut String, title: &str, rows: &[[String; 4]]) {
-    output.push_str(title);
-    output.push('\n');
-    if rows.is_empty() {
-        output.push_str("  None\n");
-        return;
-    }
-
-    append_indented_table(
+    append_schema_check_table(
         output,
-        "  ",
+        title,
         &["entity", "kind", "generated", "accepted"],
         rows,
         &[
@@ -96,4 +83,21 @@ fn append_schema_check_detail_table(output: &mut String, title: &str, rows: &[[S
             ColumnAlign::Left,
         ],
     );
+}
+
+fn append_schema_check_table<const N: usize>(
+    output: &mut String,
+    title: &str,
+    headers: &[&str; N],
+    rows: &[[String; N]],
+    alignments: &[ColumnAlign; N],
+) {
+    output.push_str(title);
+    output.push('\n');
+    if rows.is_empty() {
+        output.push_str("  None\n");
+        return;
+    }
+
+    append_indented_table(output, "  ", headers, rows, alignments);
 }

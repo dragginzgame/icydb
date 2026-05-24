@@ -35,6 +35,7 @@ pub struct EntitySchemaDescription {
     pub(crate) entity_path: String,
     pub(crate) entity_name: String,
     pub(crate) primary_key: String,
+    pub(crate) primary_key_fields: Vec<String>,
     pub(crate) fields: Vec<EntityFieldDescription>,
     pub(crate) indexes: Vec<EntityIndexDescription>,
     pub(crate) relations: Vec<EntityRelationDescription>,
@@ -77,12 +78,35 @@ impl EntitySchemaCheckDescription {
 }
 
 impl EntitySchemaDescription {
-    /// Construct one entity schema description payload.
+    /// Construct one scalar-compatible entity schema description payload.
     #[must_use]
-    pub const fn new(
+    pub fn new(
         entity_path: String,
         entity_name: String,
         primary_key: String,
+        fields: Vec<EntityFieldDescription>,
+        indexes: Vec<EntityIndexDescription>,
+        relations: Vec<EntityRelationDescription>,
+    ) -> Self {
+        Self::new_with_primary_key_fields(
+            entity_path,
+            entity_name,
+            primary_key.clone(),
+            vec![primary_key],
+            fields,
+            indexes,
+            relations,
+        )
+    }
+
+    /// Construct one entity schema description payload with ordered
+    /// primary-key fields.
+    #[must_use]
+    pub const fn new_with_primary_key_fields(
+        entity_path: String,
+        entity_name: String,
+        primary_key: String,
+        primary_key_fields: Vec<String>,
         fields: Vec<EntityFieldDescription>,
         indexes: Vec<EntityIndexDescription>,
         relations: Vec<EntityRelationDescription>,
@@ -91,6 +115,7 @@ impl EntitySchemaDescription {
             entity_path,
             entity_name,
             primary_key,
+            primary_key_fields,
             fields,
             indexes,
             relations,
@@ -109,10 +134,16 @@ impl EntitySchemaDescription {
         self.entity_name.as_str()
     }
 
-    /// Borrow the primary-key field name.
+    /// Borrow the rendered primary-key field list.
     #[must_use]
     pub const fn primary_key(&self) -> &str {
         self.primary_key.as_str()
+    }
+
+    /// Borrow ordered primary-key field names.
+    #[must_use]
+    pub const fn primary_key_fields(&self) -> &[String] {
+        self.primary_key_fields.as_slice()
     }
 
     /// Borrow field description entries.
@@ -370,11 +401,14 @@ pub enum EntityRelationCardinality {
 #[must_use]
 pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaDescription {
     let fields = describe_entity_fields(model);
+    let primary_key_fields = primary_key_field_names_from_model(model);
+    let primary_key = render_primary_key_fields(primary_key_fields.as_slice());
 
     describe_entity_model_with_parts(
         model.path,
         model.entity_name,
-        model.primary_key.name,
+        primary_key.as_str(),
+        primary_key_fields,
         fields,
         describe_entity_indexes_from_model(model),
         model,
@@ -391,17 +425,22 @@ pub(in crate::db) fn describe_entity_model_with_persisted_schema(
     schema: &AcceptedSchemaSnapshot,
 ) -> EntitySchemaDescription {
     let fields = describe_entity_fields_with_persisted_schema(schema);
-    let primary_key_names = schema.primary_key_field_names();
-    let primary_key = if primary_key_names.is_empty() {
-        model.primary_key.name.to_string()
+    let primary_key_fields = schema.primary_key_field_names();
+    let primary_key_fields = if primary_key_fields.is_empty() {
+        vec![model.primary_key.name.to_string()]
     } else {
-        primary_key_names.join(", ")
+        primary_key_fields
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>()
     };
+    let primary_key = render_primary_key_fields(primary_key_fields.as_slice());
 
     describe_entity_model_with_parts(
         schema.entity_path(),
         schema.entity_name(),
         primary_key.as_str(),
+        primary_key_fields,
         fields,
         describe_entity_indexes_with_persisted_schema(schema),
         model,
@@ -415,6 +454,7 @@ fn describe_entity_model_with_parts(
     entity_path: &str,
     entity_name: &str,
     primary_key: &str,
+    primary_key_fields: Vec<String>,
     fields: Vec<EntityFieldDescription>,
     indexes: Vec<EntityIndexDescription>,
     model: &EntityModel,
@@ -423,14 +463,28 @@ fn describe_entity_model_with_parts(
         .map(relation_description_from_descriptor)
         .collect();
 
-    EntitySchemaDescription::new(
+    EntitySchemaDescription::new_with_primary_key_fields(
         entity_path.to_string(),
         entity_name.to_string(),
         primary_key.to_string(),
+        primary_key_fields,
         fields,
         indexes,
         relations,
     )
+}
+
+fn primary_key_field_names_from_model(model: &EntityModel) -> Vec<String> {
+    model
+        .primary_key_model()
+        .fields()
+        .iter()
+        .map(|field| field.name.to_string())
+        .collect()
+}
+
+fn render_primary_key_fields(fields: &[String]) -> String {
+    fields.join(", ")
 }
 
 fn describe_entity_indexes_from_model(model: &EntityModel) -> Vec<EntityIndexDescription> {
@@ -1104,6 +1158,7 @@ mod tests {
             "entity_path",
             "entity_name",
             "primary_key",
+            "primary_key_fields",
             "fields",
             "indexes",
             "relations",
@@ -1215,6 +1270,8 @@ mod tests {
         );
 
         assert_eq!(payload.entity_name(), "User");
+        assert_eq!(payload.primary_key(), "id");
+        assert_eq!(payload.primary_key_fields(), ["id".to_string()].as_slice());
         assert_eq!(payload.fields().len(), 1);
         assert_eq!(payload.indexes().len(), 1);
         assert_eq!(payload.relations().len(), 1);

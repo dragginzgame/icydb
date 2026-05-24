@@ -120,26 +120,24 @@ fn environment_manifest_body<'a>(contents: &'a str, environment: &str) -> Option
 }
 
 fn missing_canister_message(environment: &str, canister: &str) -> String {
-    let mut message =
-        format!("canister '{canister}' is not created in the '{environment}' ICP environment.");
-    message.push_str("\nRun `icydb canister refresh ");
-    message.push_str(canister);
-    message.push_str(" --environment ");
-    message.push_str(environment);
-    message.push_str("` to rebuild and refresh that canister.");
-    message.push_str("\nRun `icydb canister list --environment ");
-    message.push_str(environment);
-    message.push_str("` to see known local canisters.");
-    message.push_str(
-        "\nThe CLI never starts or stops the ICP network; manage that lifecycle outside icydb.",
-    );
+    let mut message = missing_canister_base_message(environment, canister);
 
     if let Ok(canisters) = known_canisters(environment)
         && !canisters.is_empty()
     {
-        message.push_str("\nKnown canisters from icp-cli: ");
-        message.push_str(canisters.join(", ").as_str());
+        append_known_canisters(&mut message, canisters.as_slice());
     }
 
     message
+}
+
+fn missing_canister_base_message(environment: &str, canister: &str) -> String {
+    format!(
+        "canister '{canister}' is not created in the '{environment}' ICP environment.\nRun `icydb canister refresh {canister} --environment {environment}` to rebuild and refresh that canister.\nRun `icydb canister list --environment {environment}` to see known local canisters.\nThe CLI never starts or stops the ICP network; manage that lifecycle outside icydb."
+    )
+}
+
+fn append_known_canisters(message: &mut String, canisters: &[String]) {
+    message.push_str("\nKnown canisters from icp-cli: ");
+    message.push_str(canisters.join(", ").as_str());
 }

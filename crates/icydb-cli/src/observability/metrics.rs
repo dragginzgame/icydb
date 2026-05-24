@@ -8,21 +8,32 @@ use icydb::metrics::{EventCounters, EventReport};
 
 use crate::{
     cli::{CanisterTarget, MetricsArgs},
-    config::{METRICS_ENDPOINT, METRICS_RESET_ENDPOINT, require_configured_endpoint},
+    config::{
+        ConfiguredEndpoint, METRICS_ENDPOINT, METRICS_RESET_ENDPOINT, require_configured_endpoint,
+    },
     icp::require_created_canister,
     table::{ColumnAlign, append_indented_table},
 };
 
 use super::{call_query, call_update, render::yes_no};
 
+type MetricsEntityRow = [String; 6];
+
+const METRICS_ENTITY_HEADERS: [&str; 6] = ["entity", "load", "save", "delete", "success", "errors"];
+const METRICS_ENTITY_ALIGNMENTS: [ColumnAlign; 6] = [
+    ColumnAlign::Left,
+    ColumnAlign::Right,
+    ColumnAlign::Right,
+    ColumnAlign::Right,
+    ColumnAlign::Right,
+    ColumnAlign::Right,
+];
+
 /// Read or reset the generated metrics endpoints.
 pub(super) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
     let target = args.target();
-    let endpoint = if args.reset() {
-        METRICS_RESET_ENDPOINT
-    } else {
-        METRICS_ENDPOINT
-    };
+    let endpoint = metrics_endpoint(args.reset());
+
     require_configured_endpoint(target.canister_name(), endpoint)?;
     require_created_canister(target.environment(), target.canister_name())?;
 
@@ -37,11 +48,7 @@ pub(super) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
         endpoint.method(),
         candid_arg.as_str(),
     )?;
-    let response = Decode!(
-        candid_bytes.as_slice(),
-        Result<icydb::metrics::EventReport, icydb::Error>
-    )
-    .map_err(|err| err.to_string())?;
+    let response = decode_metrics_report(candid_bytes.as_slice())?;
 
     match response {
         Ok(report) => {
@@ -49,12 +56,15 @@ pub(super) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
 
             Ok(())
         }
-        Err(err) => Err(format!(
-            "IcyDB metrics method '{}' failed on canister '{}' in environment '{}': {err}",
-            endpoint.method(),
-            target.canister_name(),
-            target.environment(),
-        )),
+        Err(err) => Err(metrics_method_error("metrics", endpoint, target, err)),
+    }
+}
+
+const fn metrics_endpoint(reset: bool) -> ConfiguredEndpoint {
+    if reset {
+        METRICS_RESET_ENDPOINT
+    } else {
+        METRICS_ENDPOINT
     }
 }
 
@@ -78,13 +88,37 @@ fn run_metrics_reset(target: &CanisterTarget) -> Result<(), String> {
 
             Ok(())
         }
-        Err(err) => Err(format!(
-            "IcyDB metrics reset method '{}' failed on canister '{}' in environment '{}': {err}",
-            METRICS_RESET_ENDPOINT.method(),
-            target.canister_name(),
-            target.environment(),
+        Err(err) => Err(metrics_method_error(
+            "metrics reset",
+            METRICS_RESET_ENDPOINT,
+            target,
+            err,
         )),
     }
+}
+
+fn decode_metrics_report(
+    candid_bytes: &[u8],
+) -> Result<Result<icydb::metrics::EventReport, icydb::Error>, String> {
+    Decode!(
+        candid_bytes,
+        Result<icydb::metrics::EventReport, icydb::Error>
+    )
+    .map_err(|err| err.to_string())
+}
+
+fn metrics_method_error(
+    label: &str,
+    endpoint: ConfiguredEndpoint,
+    target: &CanisterTarget,
+    err: icydb::Error,
+) -> String {
+    format!(
+        "IcyDB {label} method '{}' failed on canister '{}' in environment '{}': {err}",
+        endpoint.method(),
+        target.canister_name(),
+        target.environment(),
+    )
 }
 
 pub(super) fn metrics_candid_arg(window_start_ms: Option<u64>) -> String {
@@ -97,17 +131,7 @@ pub(super) fn metrics_candid_arg(window_start_ms: Option<u64>) -> String {
 pub(super) fn render_metrics_report(report: &EventReport) -> String {
     let mut output = String::new();
 
-    output.push_str("IcyDB metrics\n");
-    output.push_str(
-        format!(
-            "  active window start ms: {}\n  requested window start ms: {}\n  window filter matched: {}\n  entities: {}\n",
-            report.active_window_start_ms(),
-            optional_u64(report.requested_window_start_ms()),
-            yes_no(report.window_filter_matched()),
-            report.entity_counters().len(),
-        )
-        .as_str(),
-    );
+    append_metrics_report_header(&mut output, report);
 
     if let Some(counters) = report.counters() {
         append_metrics_counters(&mut output, counters);
@@ -133,6 +157,20 @@ pub(super) fn render_metrics_report(report: &EventReport) -> String {
     append_metrics_entity_table(&mut output, entity_rows.as_slice());
 
     output
+}
+
+fn append_metrics_report_header(output: &mut String, report: &EventReport) {
+    output.push_str("IcyDB metrics\n");
+    output.push_str(
+        format!(
+            "  active window start ms: {}\n  requested window start ms: {}\n  window filter matched: {}\n  entities: {}\n",
+            report.active_window_start_ms(),
+            optional_u64(report.requested_window_start_ms()),
+            yes_no(report.window_filter_matched()),
+            report.entity_counters().len(),
+        )
+        .as_str(),
+    );
 }
 
 fn append_metrics_counters(output: &mut String, counters: &EventCounters) {
@@ -175,7 +213,7 @@ fn optional_u64(value: Option<u64>) -> String {
     value.map_or_else(|| "none".to_string(), |value| value.to_string())
 }
 
-fn append_metrics_entity_table(output: &mut String, rows: &[[String; 6]]) {
+fn append_metrics_entity_table(output: &mut String, rows: &[MetricsEntityRow]) {
     output.push_str("entities\n");
     if rows.is_empty() {
         output.push_str("  None\n");
@@ -185,16 +223,9 @@ fn append_metrics_entity_table(output: &mut String, rows: &[[String; 6]]) {
     append_indented_table(
         output,
         "  ",
-        &["entity", "load", "save", "delete", "success", "errors"],
+        &METRICS_ENTITY_HEADERS,
         rows,
-        &[
-            ColumnAlign::Left,
-            ColumnAlign::Right,
-            ColumnAlign::Right,
-            ColumnAlign::Right,
-            ColumnAlign::Right,
-            ColumnAlign::Right,
-        ],
+        &METRICS_ENTITY_ALIGNMENTS,
     );
 }
 

@@ -205,13 +205,15 @@ fn analyze_entity_schema_identity(
             accepted.entity_path(),
         ));
     }
-    if generated.primary_key() != accepted.primary_key() {
+    if generated.primary_key_fields() != accepted.primary_key_fields() {
         mismatches += 1;
+        let generated_primary_key = render_field_list(generated.primary_key_fields());
+        let accepted_primary_key = render_field_list(accepted.primary_key_fields());
         mismatch_rows.push(schema_check_detail_row(
             entity_name,
             "primary key",
-            generated.primary_key(),
-            accepted.primary_key(),
+            generated_primary_key.as_str(),
+            accepted_primary_key.as_str(),
         ));
     }
 

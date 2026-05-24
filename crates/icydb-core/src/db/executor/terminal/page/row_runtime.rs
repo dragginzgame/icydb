@@ -138,9 +138,10 @@ impl ScalarRowRuntimeState {
         let Some(row) = self.read_row(consistency, &key)? else {
             return Ok(None);
         };
+        let storage_key = key.try_storage_key()?;
         let retained_slots = RowDecoder::decode_retained_slots(
             &self.row_layout,
-            key.storage_key(),
+            storage_key,
             &row,
             retained_slot_layout,
         )?;
@@ -167,9 +168,10 @@ impl ScalarRowRuntimeState {
         if !self.raw_row_matches_filter_program(&row, filter_program)? {
             return Ok(None);
         }
+        let storage_key = key.try_storage_key()?;
         let retained_values = RowDecoder::decode_indexed_slot_values(
             &self.row_layout,
-            key.storage_key(),
+            storage_key,
             &row,
             retained_slot_layout,
         )?;
@@ -190,9 +192,10 @@ impl ScalarRowRuntimeState {
         let Some(row) = self.read_row(consistency, key)? else {
             return Ok(None);
         };
+        let storage_key = key.try_storage_key()?;
         let slots = RowDecoder::decode_retained_slots(
             &self.row_layout,
-            key.storage_key(),
+            storage_key,
             &row,
             retained_slot_layout,
         )?;
@@ -215,9 +218,10 @@ impl ScalarRowRuntimeState {
         if !self.raw_row_matches_filter_program(&row, filter_program)? {
             return Ok(None);
         }
+        let storage_key = key.try_storage_key()?;
         let retained_values = RowDecoder::decode_indexed_slot_values(
             &self.row_layout,
-            key.storage_key(),
+            storage_key,
             &row,
             retained_slot_layout,
         )?;

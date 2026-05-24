@@ -1050,6 +1050,47 @@ fn schema_report_renders_aligned_summary_and_index_tables() {
 }
 
 #[test]
+fn schema_report_renders_composite_primary_key_fields() {
+    let report = [EntitySchemaDescription::new_with_primary_key_fields(
+        "demo::Placement".to_string(),
+        "Placement".to_string(),
+        "tenant_id, local_id".to_string(),
+        vec!["tenant_id".to_string(), "local_id".to_string()],
+        vec![
+            EntityFieldDescription::new(
+                "tenant_id".to_string(),
+                Some(0),
+                "nat".to_string(),
+                false,
+                true,
+                true,
+                "generated".to_string(),
+            ),
+            EntityFieldDescription::new(
+                "local_id".to_string(),
+                Some(1),
+                "ulid".to_string(),
+                false,
+                true,
+                true,
+                "generated".to_string(),
+            ),
+        ],
+        Vec::new(),
+        Vec::new(),
+    )];
+    let text = render_schema_report(&report);
+
+    assert!(text.contains("Placement"));
+    assert!(text.contains("tenant_id, local_id"));
+    assert!(text.lines().any(|line| {
+        line.contains("Placement")
+            && line.contains("tenant_id, local_id")
+            && line.contains("demo::Placement")
+    }));
+}
+
+#[test]
 fn schema_check_report_renders_generated_accepted_drift() {
     let generated = EntitySchemaDescription::new(
         "demo::Character".to_string(),
@@ -1152,6 +1193,35 @@ fn schema_check_report_renders_generated_accepted_drift() {
         "action: add DDL-owned fields to Rust schema only when an explicit adoption flow exists"
     ));
     assert!(text.contains("ok: DDL-owned accepted indexes remain planner-visible catalog drift"));
+}
+
+#[test]
+fn schema_check_report_compares_ordered_primary_key_fields() {
+    let generated = EntitySchemaDescription::new_with_primary_key_fields(
+        "demo::Placement".to_string(),
+        "Placement".to_string(),
+        "tenant_id, local_id".to_string(),
+        vec!["tenant_id".to_string(), "local_id".to_string()],
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    );
+    let accepted = EntitySchemaDescription::new_with_primary_key_fields(
+        "demo::Placement".to_string(),
+        "Placement".to_string(),
+        "tenant_id, local_id".to_string(),
+        vec!["local_id".to_string(), "tenant_id".to_string()],
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    );
+    let text =
+        render_schema_check_report(&[EntitySchemaCheckDescription::new(generated, accepted)]);
+
+    assert!(text.contains("status: mismatch"));
+    assert!(text.contains("primary key"));
+    assert!(text.contains("tenant_id, local_id"));
+    assert!(text.contains("local_id, tenant_id"));
 }
 
 #[test]

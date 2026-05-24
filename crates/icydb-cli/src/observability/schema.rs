@@ -116,7 +116,7 @@ fn schema_entity_row(entity: &EntitySchemaDescription) -> SchemaEntityRow {
         entity.fields().len().to_string(),
         entity.indexes().len().to_string(),
         entity.relations().len().to_string(),
-        entity.primary_key().to_string(),
+        render_field_list(entity.primary_key_fields()),
         entity.entity_path().to_string(),
     ]
 }
@@ -160,15 +160,9 @@ fn schema_relation_row(
 }
 
 fn append_schema_entity_table(output: &mut String, rows: &[SchemaEntityRow]) {
-    output.push_str("entities\n");
-    if rows.is_empty() {
-        output.push_str("  None\n");
-        return;
-    }
-
-    append_indented_table(
+    append_schema_table(
         output,
-        "  ",
+        "entities",
         &[
             "entity",
             "fields",
@@ -190,15 +184,9 @@ fn append_schema_entity_table(output: &mut String, rows: &[SchemaEntityRow]) {
 }
 
 fn append_schema_field_table(output: &mut String, rows: &[SchemaFieldRow]) {
-    output.push_str("fields\n");
-    if rows.is_empty() {
-        output.push_str("  None\n");
-        return;
-    }
-
-    append_indented_table(
+    append_schema_table(
         output,
-        "  ",
+        "fields",
         &[
             "entity",
             "field",
@@ -224,15 +212,9 @@ fn append_schema_field_table(output: &mut String, rows: &[SchemaFieldRow]) {
 }
 
 fn append_schema_index_table(output: &mut String, rows: &[SchemaIndexRow]) {
-    output.push_str("indexes\n");
-    if rows.is_empty() {
-        output.push_str("  None\n");
-        return;
-    }
-
-    append_indented_table(
+    append_schema_table(
         output,
-        "  ",
+        "indexes",
         &["entity", "index", "fields", "unique", "origin"],
         rows,
         &[
@@ -246,15 +228,9 @@ fn append_schema_index_table(output: &mut String, rows: &[SchemaIndexRow]) {
 }
 
 fn append_schema_relation_table(output: &mut String, rows: &[SchemaRelationRow]) {
-    output.push_str("relations\n");
-    if rows.is_empty() {
-        output.push_str("  None\n");
-        return;
-    }
-
-    append_indented_table(
+    append_schema_table(
         output,
-        "  ",
+        "relations",
         &["entity", "field", "target", "strength", "cardinality"],
         rows,
         &[
@@ -265,4 +241,30 @@ fn append_schema_relation_table(output: &mut String, rows: &[SchemaRelationRow])
             ColumnAlign::Left,
         ],
     );
+}
+
+fn append_schema_table<const N: usize>(
+    output: &mut String,
+    title: &str,
+    headers: &[&str; N],
+    rows: &[[String; N]],
+    alignments: &[ColumnAlign; N],
+) {
+    output.push_str(title);
+    output.push('\n');
+    append_schema_table_body(output, headers, rows, alignments);
+}
+
+fn append_schema_table_body<const N: usize>(
+    output: &mut String,
+    headers: &[&str; N],
+    rows: &[[String; N]],
+    alignments: &[ColumnAlign; N],
+) {
+    if rows.is_empty() {
+        output.push_str("  None\n");
+        return;
+    }
+
+    append_indented_table(output, "  ", headers, rows, alignments);
 }

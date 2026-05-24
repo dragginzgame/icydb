@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.162.md](docs/changelog/0.162.md)
 
+- `0.162.9` moves aggregate/page executor decode paths behind scalar
+  fail-closed bridges and makes schema observability compare ordered composite
+  primary-key fields structurally.
+
 - `0.162.8` moves index mutation planning, unique-index preflight,
   commit index deltas, ordered key streams, and materialized executor read
   paths onto scalar-or-composite row identity boundaries.

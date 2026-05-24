@@ -175,7 +175,7 @@ where
         for (data_key, raw_row) in rows {
             accumulator.add(Self::decode_numeric_materialized_row_decimal(
                 row_layout,
-                data_key.storage_key(),
+                data_key.try_storage_key()?,
                 &raw_row,
                 target_field,
                 field_slot,

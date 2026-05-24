@@ -89,14 +89,8 @@ fn table_width<'a>(heading: &str, values: impl Iterator<Item = &'a str>) -> usiz
 /// Deploy a local ICP canister without forcing reinstall mode.
 pub(super) fn deploy_canister(environment: &str, canister: &str) -> Result<(), String> {
     eprintln!("[icydb] deploying canister '{canister}' in environment '{environment}'");
-    let mut command = Command::new("icp");
-    command
-        .arg("deploy")
-        .arg(canister)
-        .arg("--environment")
-        .arg(environment);
 
-    run_external_command(command, "icp deploy")
+    run_external_command(deploy_command(environment, canister), "icp deploy")
 }
 
 /// Deploy a canister and request reinstall mode only when refresh targets an existing install.
@@ -104,12 +98,7 @@ fn reinstall_for_refresh(environment: &str, canister: &str) -> Result<(), String
     eprintln!(
         "[icydb] reinstalling canister '{canister}' when already installed in environment '{environment}'"
     );
-    let mut command = Command::new("icp");
-    command
-        .arg("deploy")
-        .arg(canister)
-        .arg("--environment")
-        .arg(environment);
+    let mut command = deploy_command(environment, canister);
     if canister_is_installed(environment, canister).unwrap_or(false) {
         command.arg("--mode").arg("reinstall").arg("--yes");
     }
@@ -190,13 +179,7 @@ pub(super) fn upgrade_canister(
     eprintln!(
         "[icydb] building canister '{canister}' for stable-memory-preserving upgrade in environment '{environment}'"
     );
-    let mut build = Command::new("icp");
-    build
-        .arg("build")
-        .arg(canister)
-        .arg("--environment")
-        .arg(environment);
-    run_external_command(build, "icp build")?;
+    run_external_command(build_command(environment, canister), "icp build")?;
 
     if !wasm_path.is_file() {
         return Err(format!(
@@ -206,8 +189,8 @@ pub(super) fn upgrade_canister(
     }
 
     eprintln!("[icydb] upgrading canister '{canister}' without demo data reset");
-    let mut install = Command::new("icp");
-    install
+    let mut command = Command::new("icp");
+    command
         .arg("canister")
         .arg("install")
         .arg(canister)
@@ -218,21 +201,42 @@ pub(super) fn upgrade_canister(
         .arg("--environment")
         .arg(environment);
 
-    run_external_command(install, "icp canister install --mode upgrade")
+    run_external_command(command, "icp canister install --mode upgrade")
 }
 
 /// Show icp-cli status for one local canister without changing lifecycle state.
 pub(super) fn status_canister(environment: &str, canister: &str) -> Result<(), String> {
     eprintln!("[icydb] reading canister status for '{canister}' in environment '{environment}'");
-    let mut command = Command::new("icp");
-    command
-        .arg("canister")
-        .arg("status")
-        .arg(canister)
-        .arg("--environment")
-        .arg(environment);
 
-    run_external_command(command, "icp canister status")
+    run_external_command(status_command(environment, canister), "icp canister status")
+}
+
+fn deploy_command(environment: &str, canister: &str) -> Command {
+    let mut command = Command::new("icp");
+    command.arg("deploy").arg(canister);
+    append_environment_args(&mut command, environment);
+
+    command
+}
+
+fn build_command(environment: &str, canister: &str) -> Command {
+    let mut command = Command::new("icp");
+    command.arg("build").arg(canister);
+    append_environment_args(&mut command, environment);
+
+    command
+}
+
+fn status_command(environment: &str, canister: &str) -> Command {
+    let mut command = Command::new("icp");
+    command.arg("canister").arg("status").arg(canister);
+    append_environment_args(&mut command, environment);
+
+    command
+}
+
+fn append_environment_args(command: &mut Command, environment: &str) {
+    command.arg("--environment").arg(environment);
 }
 
 fn default_canister_wasm_path(canister: &str) -> PathBuf {
