@@ -113,11 +113,19 @@ pub(crate) mod test_support {
     }
 
     pub(crate) fn canister_status_check_command(environment: &str, canister: &str) -> Command {
-        super::process::canister_status_check_command(environment, canister)
+        super::process::canister_status_command(
+            environment,
+            canister,
+            super::process::CanisterStatusOutput::Discard,
+        )
     }
 
     pub(crate) fn canister_status_id_command(environment: &str, canister: &str) -> Command {
-        super::process::canister_status_id_command(environment, canister)
+        super::process::canister_status_command(
+            environment,
+            canister,
+            super::process::CanisterStatusOutput::IdOnly,
+        )
     }
 
     pub(crate) fn parse_manifest_canisters(contents: &str, environment: &str) -> Vec<String> {

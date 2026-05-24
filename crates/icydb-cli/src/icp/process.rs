@@ -52,7 +52,7 @@ pub(super) fn canister_id(environment: &str, canister: &str) -> Result<Option<St
     Ok((!id.is_empty()).then_some(id))
 }
 
-enum CanisterStatusOutput {
+pub(super) enum CanisterStatusOutput {
     Discard,
     IdOnly,
 }
@@ -69,15 +69,7 @@ fn canister_status_output(
         .map_err(|err| err.to_string())
 }
 
-pub(super) fn canister_status_check_command(environment: &str, canister: &str) -> Command {
-    canister_status_command(environment, canister, CanisterStatusOutput::Discard)
-}
-
-pub(super) fn canister_status_id_command(environment: &str, canister: &str) -> Command {
-    canister_status_command(environment, canister, CanisterStatusOutput::IdOnly)
-}
-
-fn canister_status_command(
+pub(super) fn canister_status_command(
     environment: &str,
     canister: &str,
     output: CanisterStatusOutput,
