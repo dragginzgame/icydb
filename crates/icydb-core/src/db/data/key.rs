@@ -226,11 +226,6 @@ impl DecodedDataStoreKey {
         self.key
     }
 
-    #[must_use]
-    pub(in crate::db) const fn storage_key(&self) -> StorageKey {
-        self.try_storage_key_const()
-    }
-
     pub(in crate::db) fn try_storage_key(&self) -> Result<StorageKey, InternalError> {
         scalar_storage_key_from_primary_key_value(&self.key)
     }
@@ -343,17 +338,6 @@ impl DecodedDataStoreKey {
     }
 }
 
-impl DecodedDataStoreKey {
-    const fn try_storage_key_const(&self) -> StorageKey {
-        match self.key {
-            PrimaryKeyValue::Scalar(component) => storage_key_from_primary_key_component(component),
-            PrimaryKeyValue::Composite(_) => {
-                panic!("composite primary key reached scalar storage-key accessor")
-            }
-        }
-    }
-}
-
 const fn primary_key_component_from_storage_key(key: StorageKey) -> PrimaryKeyComponent {
     match key {
         StorageKey::Account(value) => PrimaryKeyComponent::Account(value),
@@ -364,19 +348,6 @@ const fn primary_key_component_from_storage_key(key: StorageKey) -> PrimaryKeyCo
         StorageKey::Nat(value) => PrimaryKeyComponent::Nat(value),
         StorageKey::Ulid(value) => PrimaryKeyComponent::Ulid(value),
         StorageKey::Unit => PrimaryKeyComponent::Unit,
-    }
-}
-
-const fn storage_key_from_primary_key_component(component: PrimaryKeyComponent) -> StorageKey {
-    match component {
-        PrimaryKeyComponent::Account(value) => StorageKey::Account(value),
-        PrimaryKeyComponent::Int(value) => StorageKey::Int(value),
-        PrimaryKeyComponent::Principal(value) => StorageKey::Principal(value),
-        PrimaryKeyComponent::Subaccount(value) => StorageKey::Subaccount(value),
-        PrimaryKeyComponent::Timestamp(value) => StorageKey::Timestamp(value),
-        PrimaryKeyComponent::Nat(value) => StorageKey::Nat(value),
-        PrimaryKeyComponent::Ulid(value) => StorageKey::Ulid(value),
-        PrimaryKeyComponent::Unit => StorageKey::Unit,
     }
 }
 

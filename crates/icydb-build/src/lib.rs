@@ -221,7 +221,7 @@ impl ActorBuilder {
     /// All stores belonging to the current canister, keyed by path.
     #[must_use]
     pub fn get_stores(&self) -> Vec<(String, Store)> {
-        let canister_path = self.canister.def().path();
+        let canister_path = self.canister_path();
 
         self.schema
             .filter_nodes::<Store>(|node| node.canister() == canister_path)
@@ -232,7 +232,7 @@ impl ActorBuilder {
     /// All entities belonging to the current canister, keyed by path.
     #[must_use]
     pub fn get_entities(&self) -> Vec<(String, Entity)> {
-        let canister_path = self.canister.def().path();
+        let canister_path = self.canister_path();
 
         self.schema
             .get_nodes::<Entity>()
@@ -245,6 +245,10 @@ impl ActorBuilder {
                 }
             })
             .collect()
+    }
+
+    fn canister_path(&self) -> String {
+        self.canister.def().path()
     }
 }
 

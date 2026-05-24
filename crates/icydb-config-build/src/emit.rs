@@ -5,6 +5,8 @@ use crate::{
     resolve::resolve_config_path,
 };
 
+const CARGO_MANIFEST_DIR_ENV: &str = "CARGO_MANIFEST_DIR";
+
 /// Resolve and validate config for a canister build script.
 ///
 /// Resolution order:
@@ -13,10 +15,7 @@ use crate::{
 /// 3. absent config, treated as defaults
 pub fn emit_config_for_build_script() -> Result<GeneratedIcydbConfig, ConfigBuildError> {
     println!("cargo:rerun-if-env-changed={CONFIG_PATH_ENV}");
-    let manifest_dir = match env::var_os("CARGO_MANIFEST_DIR") {
-        Some(path) => PathBuf::from(path),
-        None => env::current_dir().map_err(|source| ConfigBuildError::CurrentDir { source })?,
-    };
+    let manifest_dir = manifest_dir()?;
     let resolved = resolve_config_path(manifest_dir.as_path());
     if let Some(path) = resolved.config_path() {
         println!("cargo:rerun-if-changed={}", path.display());
@@ -27,4 +26,13 @@ pub fn emit_config_for_build_script() -> Result<GeneratedIcydbConfig, ConfigBuil
         }
         Ok(GeneratedIcydbConfig::default())
     }
+}
+
+fn manifest_dir() -> Result<PathBuf, ConfigBuildError> {
+    env::var_os(CARGO_MANIFEST_DIR_ENV)
+        .map(PathBuf::from)
+        .map_or_else(
+            || env::current_dir().map_err(|source| ConfigBuildError::CurrentDir { source }),
+            Ok,
+        )
 }

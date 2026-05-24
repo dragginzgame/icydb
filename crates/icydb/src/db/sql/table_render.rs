@@ -55,7 +55,7 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
                 ]
             })
             .collect::<Vec<_>>();
-        render_describe_table_section(
+        render_table_section(
             &mut lines,
             &[
                 "name".to_string(),
@@ -85,7 +85,7 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
                 ]
             })
             .collect::<Vec<_>>();
-        render_describe_table_section(
+        render_table_section(
             &mut lines,
             &[
                 "field".to_string(),
@@ -132,7 +132,7 @@ fn render_describe_field_section(lines: &mut Vec<String>, fields: &[EntityFieldD
             ]
         })
         .collect::<Vec<_>>();
-    render_describe_table_section(
+    render_table_section(
         lines,
         &[
             "name".to_string(),
@@ -147,20 +147,10 @@ fn render_describe_field_section(lines: &mut Vec<String>, fields: &[EntityFieldD
     );
 }
 
-// Render one `DESCRIBE` subsection as the same deterministic ASCII table shape
-// used by shell-facing projection output.
-fn render_describe_table_section(
-    lines: &mut Vec<String>,
-    headers: &[String],
-    rows: &[Vec<String>],
-) {
-    let mut widths = headers.iter().map(String::len).collect::<Vec<_>>();
-    for row in rows {
-        for (index, value) in row.iter().enumerate() {
-            widths[index] = widths[index].max(value.len());
-        }
-    }
-
+// Render one subsection using the deterministic ASCII table shape shared by
+// DESCRIBE, SHOW, projection, and grouped output.
+fn render_table_section(lines: &mut Vec<String>, headers: &[String], rows: &[Vec<String>]) {
+    let widths = render_table_widths(headers, rows);
     let separator = render_table_separator(widths.as_slice());
     lines.push(separator.clone());
     lines.push(render_table_row(headers, widths.as_slice()));
@@ -253,7 +243,7 @@ pub fn render_show_entities_lines(entities: &[String]) -> Vec<String> {
         .map(|entity| vec![entity.clone()])
         .collect::<Vec<_>>();
     let mut lines = vec!["tables:".to_string()];
-    render_describe_table_section(&mut lines, &["name".to_string()], rows.as_slice());
+    render_table_section(&mut lines, &["name".to_string()], rows.as_slice());
     lines.push(String::new());
     lines.push(render_result_table_count_line(entities.len()));
 
@@ -294,29 +284,8 @@ fn render_projection_table(
         return lines;
     }
 
-    // Phase 2: compute per-column display widths from headers + row values.
-    let mut widths = columns.iter().map(String::len).collect::<Vec<_>>();
-    for row in rows {
-        for (index, value) in row.iter().enumerate() {
-            if index >= widths.len() {
-                widths.push(value.len());
-            } else {
-                widths[index] = widths[index].max(value.len());
-            }
-        }
-    }
-
-    // Phase 3: render deterministic ASCII table surface.
-    let separator = render_table_separator(widths.as_slice());
-    lines.push(separator.clone());
-    lines.push(render_table_row(columns, widths.as_slice()));
-    lines.push(separator.clone());
-    for row in rows {
-        lines.push(render_table_row(row.as_slice(), widths.as_slice()));
-    }
-    if !rows.is_empty() {
-        lines.push(separator);
-    }
+    // Phase 2: render deterministic ASCII table surface.
+    render_table_section(&mut lines, columns, rows);
     lines.push(String::new());
     lines.push(render_result_row_count_line(row_count));
 
@@ -340,33 +309,13 @@ pub fn render_grouped_lines(grouped: &SqlGroupedRowsOutput) -> Vec<String> {
         return lines;
     }
 
-    // Phase 2: compute per-column display widths from headers + grouped row values.
-    let mut widths = grouped.columns.iter().map(String::len).collect::<Vec<_>>();
-    for row in &grouped.rows {
-        for (index, value) in row.iter().enumerate() {
-            if index >= widths.len() {
-                widths.push(value.len());
-            } else {
-                widths[index] = widths[index].max(value.len());
-            }
-        }
-    }
-
-    // Phase 3: render the grouped page as the same deterministic ASCII table
+    // Phase 2: render the grouped page as the same deterministic ASCII table
     // shape used by projection payloads.
-    let separator = render_table_separator(widths.as_slice());
-    lines.push(separator.clone());
-    lines.push(render_table_row(
+    render_table_section(
+        &mut lines,
         grouped.columns.as_slice(),
-        widths.as_slice(),
-    ));
-    lines.push(separator.clone());
-    for row in &grouped.rows {
-        lines.push(render_table_row(row.as_slice(), widths.as_slice()));
-    }
-    if !grouped.rows.is_empty() {
-        lines.push(separator);
-    }
+        grouped.rows.as_slice(),
+    );
     lines.push(String::new());
     lines.push(render_result_row_count_line(grouped.row_count));
 
@@ -404,6 +353,21 @@ fn render_grouped_decimal_usize(value: usize) -> String {
     }
 
     rendered
+}
+
+fn render_table_widths(headers: &[String], rows: &[Vec<String>]) -> Vec<usize> {
+    let mut widths = headers.iter().map(String::len).collect::<Vec<_>>();
+    for row in rows {
+        for (index, value) in row.iter().enumerate() {
+            if index >= widths.len() {
+                widths.push(value.len());
+            } else {
+                widths[index] = widths[index].max(value.len());
+            }
+        }
+    }
+
+    widths
 }
 
 fn render_table_separator(widths: &[usize]) -> String {

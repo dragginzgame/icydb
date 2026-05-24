@@ -132,7 +132,7 @@ where
             else {
                 continue;
             };
-            let target_storage_key = target_data_key.storage_key();
+            let target_storage_key = target_data_key.try_storage_key()?;
 
             let Some((reverse_start, reverse_end)) =
                 reverse_index_key_bounds_for_target_storage_key(
@@ -163,7 +163,7 @@ where
                             decode_reverse_entry(source_info, &relation, reverse_key, raw_entry)?;
 
                         // Phase 2: verify the key-owned source row before rejecting delete.
-                        let source_key = entry.storage_key().map_err(|err| {
+                        let source_key = entry.try_storage_key().map_err(|err| {
                             InternalError::reverse_index_entry_corrupted(
                                 source_path,
                                 relation.field_name(),
@@ -187,8 +187,7 @@ where
                                     target.path(),
                                     reverse_key,
                                     format!(
-                                        "reverse index points at missing source row: source_id={source_key:?} key={:?}",
-                                        target_data_key.storage_key(),
+                                        "reverse index points at missing source row: source_id={source_key:?} key={target_storage_key:?}",
                                     ),
                                 ));
                             };

@@ -464,13 +464,13 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         })?;
         let identity_key = entity.id().key();
         if identity_key != expected_key {
-            let field_name = Self::primary_key_name_from_schema(schema)?;
+            let field_name = Self::primary_key_label_from_schema(schema)?;
             let field_value = KeyValueCodec::to_key_value(&identity_key);
             let identity_value = KeyValueCodec::to_key_value(&expected_key);
 
             return Err(InternalError::mutation_entity_primary_key_mismatch(
                 E::PATH,
-                field_name,
+                field_name.as_str(),
                 &field_value,
                 &identity_value,
             ));
@@ -511,16 +511,16 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                     data_key,
                     err.to_string(),
                 )
-            })?;
+        })?;
         let identity_key = entity.id().key();
         if identity_key != expected_key {
-            let field_name = Self::primary_key_name_from_schema(schema)?;
+            let field_name = Self::primary_key_label_from_schema(schema)?;
             let field_value = KeyValueCodec::to_key_value(&identity_key);
             let identity_value = KeyValueCodec::to_key_value(&expected_key);
 
             return Err(InternalError::mutation_entity_primary_key_mismatch(
                 E::PATH,
-                field_name,
+                field_name.as_str(),
                 &field_value,
                 &identity_value,
             ));
@@ -537,14 +537,21 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         Ok(entity)
     }
 
-    // Resolve the primary-key field name from the schema boundary for
-    // structural after-image diagnostics. Structural save callers must use a
-    // schema view that carries entity-level primary-key metadata.
-    fn primary_key_name_from_schema(schema: &SchemaInfo) -> Result<&str, InternalError> {
-        schema.primary_key_name().ok_or_else(|| {
-            InternalError::executor_invariant(
+    // Resolve the primary-key field label from the schema boundary for
+    // structural after-image diagnostics. Composite keys use the full ordered
+    // field list so diagnostics do not fall back to scalar-only metadata.
+    fn primary_key_label_from_schema(schema: &SchemaInfo) -> Result<String, InternalError> {
+        let primary_key_names = schema.primary_key_names();
+        if primary_key_names.is_empty() {
+            return Err(InternalError::executor_invariant(
                 "structural save validation requires schema primary-key metadata",
-            )
-        })
+            ));
+        }
+
+        if let Some(name) = schema.primary_key_name() {
+            return Ok(name.to_string());
+        }
+
+        Ok(primary_key_names.join(", "))
     }
 }

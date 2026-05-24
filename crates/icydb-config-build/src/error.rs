@@ -21,8 +21,9 @@ pub enum ConfigBuildError {
     EmptyCanisterName { path: PathBuf },
 
     #[error(
-        "IcyDB config at '{}' has ambiguous canister names '{first}' and '{second}' after normalization"
-    , path.display())]
+        "IcyDB config at '{}' has ambiguous canister names '{first}' and '{second}' after normalization",
+        path.display()
+    )]
     AmbiguousCanisterName {
         path: PathBuf,
         first: String,
@@ -30,8 +31,9 @@ pub enum ConfigBuildError {
     },
 
     #[error(
-        "IcyDB config at '{}' contains canister '{canister}' but the generated schema has no matching canister"
-    , path.display())]
+        "IcyDB config at '{}' contains canister '{canister}' but the generated schema has no matching canister",
+        path.display()
+    )]
     UnknownCanister { path: PathBuf, canister: String },
 
     #[error(

@@ -164,14 +164,12 @@ where
         target_field: &str,
         op: &PreparedScalarProjectionOp,
     ) -> PreparedScalarProjectionStrategy {
-        let primary_key_names = prepared.authority.primary_key_names();
-
         if !prepared.has_predicate()
             && let Some(context) = covering_index_projection_context(
                 &prepared.logical_plan.access,
                 prepared.order_spec(),
                 target_field,
-                primary_key_names.as_slice(),
+                prepared.logical_plan.primary_key_names(),
             )
         {
             let (offset, limit) = page_window_state(prepared.page_spec());
@@ -457,7 +455,7 @@ where
                     field_slot,
                     true,
                     true,
-                    target_field == prepared.authority.primary_key_name(),
+                    prepared.authority.is_scalar_primary_key_field(target_field),
                 ),
             )
         } else {

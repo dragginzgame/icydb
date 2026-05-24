@@ -19,7 +19,7 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - `schema/audit/*`: audit schema fixtures.
 - `schema/test/*`: shared macro/e2e and SQL fixtures.
 - `testing/macro-tests`: macro and schema contract tests.
-- `testing/ic-testkit`: IC testkit integration tests.
+- `testing/integration`: canister integration tests.
 - `assets/`: images and docs assets.
 - `scripts/`: release/version helpers.
 - `Makefile`: common tasks.

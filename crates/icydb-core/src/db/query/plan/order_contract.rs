@@ -137,6 +137,7 @@ impl DeterministicSecondaryOrderContract {
     /// Build one normalized deterministic `..., primary_key_fields` order
     /// contract from one executor-facing ORDER BY spec.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) fn from_order_spec(
         order: &OrderSpec,
         primary_key_name: &str,
@@ -469,15 +470,6 @@ pub(in crate::db) fn grouped_index_order_terms_satisfied(
 }
 
 impl OrderSpec {
-    /// Return ordering direction when `ORDER BY` is primary-key-only.
-    #[must_use]
-    pub(in crate::db) fn primary_key_only_direction(
-        &self,
-        primary_key_name: &str,
-    ) -> Option<OrderDirection> {
-        self.primary_key_only_direction_fields(&[primary_key_name])
-    }
-
     /// Return ordering direction when `ORDER BY` is exactly the ordered
     /// primary-key field list and every term has the same direction.
     #[must_use]
@@ -499,12 +491,6 @@ impl OrderSpec {
             .then_some(direction)
     }
 
-    /// Return true when `ORDER BY` is exactly one primary-key field.
-    #[must_use]
-    pub(in crate::db) fn is_primary_key_only(&self, primary_key_name: &str) -> bool {
-        self.primary_key_only_direction(primary_key_name).is_some()
-    }
-
     /// Return true when ORDER BY has exactly the ordered primary-key fields as
     /// the terminal deterministic tie-break.
     #[must_use]
@@ -518,6 +504,7 @@ impl OrderSpec {
     /// Return the normalized deterministic `..., primary_key` order contract,
     /// if one exists for this ORDER BY shape.
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) fn deterministic_secondary_order_contract(
         &self,
         primary_key_name: &str,

@@ -30,14 +30,14 @@ impl ResolvedConfigPath {
 }
 
 pub(crate) fn resolve_config_path(manifest_dir: &Path) -> ResolvedConfigPath {
-    let candidate_paths = config_search_candidates(manifest_dir);
     if let Some(explicit) = env::var_os(CONFIG_PATH_ENV) {
         return ResolvedConfigPath {
             config_path: Some(PathBuf::from(explicit)),
-            candidate_paths,
+            candidate_paths: Vec::new(),
         };
     }
 
+    let candidate_paths = config_search_candidates(manifest_dir);
     let config_path = candidate_paths
         .iter()
         .find(|candidate| candidate.exists())

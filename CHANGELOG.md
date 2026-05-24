@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.162.md](docs/changelog/0.162.md)
 
+- `0.162.15` moves primary-key order, continuation, DDL preflight, and
+  remaining scalar bridge surfaces further onto ordered composite primary-key
+  contracts.
+
 - `0.162.14` moves model-only EXPLAIN and bytes/distinct covering-index fast
   paths onto ordered composite primary-key suffix contracts, and removes the
   live `canic-cdk` dependency in favor of direct IC crates.

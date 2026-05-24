@@ -7,7 +7,7 @@ use std::process::{Command, Output, Stdio};
 
 use serde_json::Value;
 
-use crate::icp::process::{canister_id, unreachable_network_hint};
+use crate::icp::process::{canister_id, output_stderr, unreachable_network_hint};
 
 const ICP_YAML_PATH: &str = "icp.yaml";
 
@@ -73,8 +73,19 @@ fn known_canisters_from_manifest(environment: &str) -> Result<Vec<String>, Strin
 }
 
 pub(super) fn parse_manifest_canisters(contents: &str, environment: &str) -> Vec<String> {
+    let mut in_environments = false;
     let mut in_target_environment = false;
     for line in contents.lines().map(str::trim) {
+        if line == "environments:" {
+            in_environments = true;
+            in_target_environment = false;
+            continue;
+        }
+
+        if !in_environments {
+            continue;
+        }
+
         if let Some(name) = environment_name(line) {
             if in_target_environment {
                 return Vec::new();
@@ -102,10 +113,6 @@ fn sorted_canister_names(names: impl Iterator<Item = String>) -> Vec<String> {
     names.sort();
 
     names
-}
-
-fn output_stderr(stderr: &[u8]) -> String {
-    String::from_utf8_lossy(stderr).trim().to_string()
 }
 
 fn environment_name(line: &str) -> Option<&str> {

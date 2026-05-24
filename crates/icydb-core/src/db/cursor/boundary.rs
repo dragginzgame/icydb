@@ -377,9 +377,9 @@ pub(in crate::db) fn decode_structural_primary_key_cursor_slot_from_name(
 }
 
 /// Decode one structural primary-key boundary for PK-ordered executor paths.
-pub(in crate::db) fn decode_pk_cursor_boundary_primary_key_value_for_name(
+pub(in crate::db) fn decode_pk_cursor_boundary_primary_key_value_for_names(
     boundary: Option<&CursorBoundary>,
-    primary_key_name: &str,
+    primary_key_names: &[&str],
 ) -> Result<Option<PrimaryKeyValue>, CursorPlanError> {
     let Some(boundary) = boundary else {
         return Ok(None);
@@ -387,17 +387,85 @@ pub(in crate::db) fn decode_pk_cursor_boundary_primary_key_value_for_name(
 
     debug_assert_eq!(
         boundary.slots.len(),
-        1,
+        primary_key_names.len(),
         "pk-ordered continuation boundaries are validated by the cursor spine",
     );
 
     let order = OrderSpec {
-        fields: vec![crate::db::query::plan::OrderTerm::field(
-            primary_key_name,
-            OrderDirection::Asc,
-        )],
+        fields: primary_key_names
+            .iter()
+            .map(|field| crate::db::query::plan::OrderTerm::field(*field, OrderDirection::Asc))
+            .collect(),
     };
 
-    decode_structural_primary_key_cursor_slot_from_name(primary_key_name, &order, boundary)
+    if let [primary_key_name] = primary_key_names {
+        return decode_structural_primary_key_cursor_slot_from_name(
+            primary_key_name,
+            &order,
+            boundary,
+        )
+        .map(Some);
+    }
+
+    let mut values = Vec::with_capacity(primary_key_names.len());
+    for primary_key_name in primary_key_names {
+        let index = primary_key_boundary_index(&order, primary_key_name)?;
+        let slot = &boundary.slots[index];
+        match slot {
+            CursorBoundarySlot::Missing => {
+                return Err(
+                    CursorPlanError::continuation_cursor_primary_key_type_mismatch(
+                        (*primary_key_name).to_string(),
+                        "primary key value".to_string(),
+                        None,
+                    ),
+                );
+            }
+            CursorBoundarySlot::Present(value) => values.push(value.clone()),
+        }
+    }
+
+    primary_key_value_from_structural_value(&Value::List(values))
         .map(Some)
+        .map_err(|_| {
+            CursorPlanError::continuation_cursor_primary_key_type_mismatch(
+                primary_key_names.join(", "),
+                "primary key value".to_string(),
+                None,
+            )
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        CursorBoundary, CursorBoundarySlot, decode_pk_cursor_boundary_primary_key_value_for_names,
+    };
+    use crate::{
+        db::key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
+        value::Value,
+    };
+
+    #[test]
+    fn pk_ordered_boundary_decode_accepts_ordered_composite_primary_key_fields() {
+        let boundary = CursorBoundary {
+            slots: vec![
+                CursorBoundarySlot::Present(Value::Nat(7)),
+                CursorBoundarySlot::Present(Value::Int(-3)),
+            ],
+        };
+        let composite = CompositePrimaryKeyValue::try_from_components(&[
+            PrimaryKeyComponent::Nat(7),
+            PrimaryKeyComponent::Int(-3),
+        ])
+        .expect("fixture components should form composite key");
+
+        let decoded = decode_pk_cursor_boundary_primary_key_value_for_names(
+            Some(&boundary),
+            &["tenant", "id"],
+        )
+        .expect("composite pk cursor boundary should decode");
+
+        assert_eq!(decoded, Some(PrimaryKeyValue::Composite(composite)));
+    }
 }

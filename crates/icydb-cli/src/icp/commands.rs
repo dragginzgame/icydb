@@ -16,13 +16,14 @@ use crate::{
         },
         project::known_canisters,
     },
+    table::{ColumnAlign, append_indented_table},
 };
 
 type CanisterListRow = [String; 3];
 
-const CANISTER_LIST_CANISTER: usize = 0;
-const CANISTER_LIST_CREATED: usize = 1;
-const CANISTER_LIST_PRINCIPAL: usize = 2;
+const CANISTER_LIST_HEADERS: [&str; 3] = ["canister", "created", "principal"];
+const CANISTER_LIST_ALIGNMENTS: [ColumnAlign; 3] =
+    [ColumnAlign::Left, ColumnAlign::Left, ColumnAlign::Left];
 
 /// Print canisters known to the selected local ICP environment and their local id status.
 pub(super) fn list_canisters(environment: &str) -> Result<(), String> {
@@ -57,33 +58,15 @@ fn canister_list_row(environment: &str, canister: String) -> CanisterListRow {
 
 // Print the local canister inventory with principal as the final column.
 fn print_canister_table(environment: &str, rows: &[CanisterListRow]) {
-    let canister_width = table_width(
-        "canister",
-        rows.iter().map(|row| row[CANISTER_LIST_CANISTER].as_str()),
+    let mut output = format!("Known IcyDB canisters in environment '{environment}':\n");
+    append_indented_table(
+        &mut output,
+        "  ",
+        &CANISTER_LIST_HEADERS,
+        rows,
+        &CANISTER_LIST_ALIGNMENTS,
     );
-    let created_width = table_width(
-        "created",
-        rows.iter().map(|row| row[CANISTER_LIST_CREATED].as_str()),
-    );
-    let canister_heading = "canister";
-    let created_heading = "created";
-    let principal_heading = "principal";
-
-    println!("Known IcyDB canisters in environment '{environment}':");
-    println!(
-        "  {canister_heading:<canister_width$}  {created_heading:<created_width$}  {principal_heading}"
-    );
-    for row in rows {
-        let canister = row[CANISTER_LIST_CANISTER].as_str();
-        let created = row[CANISTER_LIST_CREATED].as_str();
-        let principal = row[CANISTER_LIST_PRINCIPAL].as_str();
-        println!("  {canister:<canister_width$}  {created:<created_width$}  {principal}");
-    }
-}
-
-// Keep simple text tables aligned without introducing a formatting dependency.
-fn table_width<'a>(heading: &str, values: impl Iterator<Item = &'a str>) -> usize {
-    values.map(str::len).max().unwrap_or(0).max(heading.len())
+    print!("{output}");
 }
 
 /// Deploy a local ICP canister without forcing reinstall mode.

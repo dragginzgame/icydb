@@ -12,9 +12,9 @@ use syn::parse_str;
 /// Render the generated store/session wiring for one canister actor.
 #[must_use]
 pub fn generate(builder: &ActorBuilder) -> TokenStream {
-    let canister = &builder.canister;
-    let canister_path: syn::Path = parse_str(&canister.def().path())
-        .unwrap_or_else(|_| panic!("invalid canister path: {}", canister.def().path()));
+    let canister_path_source = builder.canister_path();
+    let canister_path: syn::Path = parse_str(&canister_path_source)
+        .unwrap_or_else(|_| panic!("invalid canister path: {canister_path_source}"));
     let entity_runtime_hooks = entity_runtime_hooks(builder, &canister_path);
 
     store::generate_store_wiring(builder, &canister_path, entity_runtime_hooks)

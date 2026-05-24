@@ -1,25 +1,30 @@
 /// Convert text into English-style title case.
 #[must_use]
 pub fn to_title_case(input: &str) -> String {
+    let words: Vec<&str> = input.split_whitespace().collect();
+    let mut output = String::new();
+    let last_index = words.len().saturating_sub(1);
+
+    for (index, word) in words.iter().enumerate() {
+        if index > 0 {
+            output.push(' ');
+        }
+        if index == 0 || index == last_index || !is_small_word(word) {
+            output.push_str(capitalize_first(word).as_str());
+        } else {
+            output.push_str(word.to_lowercase().as_str());
+        }
+    }
+
+    output
+}
+
+fn is_small_word(word: &str) -> bool {
     const SMALL_WORDS: [&str; 14] = [
         "a", "and", "as", "at", "by", "for", "in", "nor", "of", "on", "or", "the", "to", "with",
     ];
 
-    let words: Vec<&str> = input.split_whitespace().collect();
-    let len = words.len();
-    let capitalized_words: Vec<String> = words
-        .iter()
-        .enumerate()
-        .map(|(i, &word)| {
-            if i == 0 || i == len - 1 || !SMALL_WORDS.contains(&word.to_lowercase().as_str()) {
-                capitalize_first(word)
-            } else {
-                word.to_lowercase()
-            }
-        })
-        .collect();
-
-    capitalized_words.join(" ")
+    SMALL_WORDS.contains(&word.to_lowercase().as_str())
 }
 
 // Preserve punctuation while only uppercasing the leading grapheme-ish prefix.

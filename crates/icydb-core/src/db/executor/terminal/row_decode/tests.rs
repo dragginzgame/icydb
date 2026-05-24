@@ -99,7 +99,8 @@ fn decode_required_test_slots_with_metrics(
         RowDecoder::structural()
             .decode_slots(
                 &RowLayout::from_generated_model_for_test(RowDecodeEntity::MODEL),
-                key.storage_key(),
+                key.try_storage_key()
+                    .expect("row-decode fixture key should be scalar"),
                 &row,
                 Some(required_slots),
             )
@@ -196,7 +197,9 @@ fn accepted_row_layout_decode_matches_generated_layout_for_full_and_sparse_rows(
     };
     let key = crate::db::data::DecodedDataStoreKey::try_new::<RowDecodeEntity>(entity.id)
         .expect("test key construction should succeed");
-    let storage_key = key.storage_key();
+    let storage_key = key
+        .try_storage_key()
+        .expect("row-decode fixture key should be scalar");
     let raw_row = CanonicalRow::from_generated_entity_for_test(&entity)
         .expect("test row serialization should succeed")
         .into_raw_row();
@@ -462,9 +465,14 @@ fn retained_slot_decode_can_materialize_scalar_octet_lengths_without_blob_values
     let row_layout = accepted_row_decode_layout(&descriptor)
         .expect("accepted retained-slot row layout should be generated-compatible");
 
-    let values =
-        RowDecoder::decode_indexed_slot_values(&row_layout, key.storage_key(), &row, &layout)
-            .expect("retained scalar length decode should succeed");
+    let values = RowDecoder::decode_indexed_slot_values(
+        &row_layout,
+        key.try_storage_key()
+            .expect("row-decode fixture key should be scalar"),
+        &row,
+        &layout,
+    )
+    .expect("retained scalar length decode should succeed");
 
     assert_eq!(
         values,
@@ -693,7 +701,9 @@ fn accepted_row_layout_decode_matches_generated_layout_for_value_storage_field()
     };
     let key = crate::db::data::DecodedDataStoreKey::try_new::<RowDecodeValueEntity>(entity.id)
         .expect("test key construction should succeed");
-    let storage_key = key.storage_key();
+    let storage_key = key
+        .try_storage_key()
+        .expect("row-decode fixture key should be scalar");
     let raw_row = CanonicalRow::from_generated_entity_for_test(&entity)
         .expect("test row serialization should succeed")
         .into_raw_row();

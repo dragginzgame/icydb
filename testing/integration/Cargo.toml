@@ -5,7 +5,7 @@ rust-version = { workspace = true }
 version = { workspace = true }
 publish = false
 license = { workspace = true }
-description = "ic-testkit-backed integration tests for IcyDB test canisters"
+description = "Integration tests for IcyDB test canisters"
 repository = { workspace = true }
 authors = { workspace = true }
 

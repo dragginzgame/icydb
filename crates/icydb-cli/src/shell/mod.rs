@@ -16,7 +16,7 @@ use candid::Decode;
 use icydb::db::sql::SqlQueryResult;
 
 use crate::{
-    cli::SqlArgs,
+    cli::{SqlArgs, SqlShellFields},
     config::{
         ConfiguredEndpoint, SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, require_configured_endpoint,
     },
@@ -40,7 +40,13 @@ struct ShellConfig {
 
 impl ShellConfig {
     fn from_sql_args(args: SqlArgs) -> Self {
-        let (canister, environment, history_file, sql, trailing_sql) = args.into_shell_fields();
+        let SqlShellFields {
+            canister,
+            environment,
+            history_file,
+            sql,
+            trailing_sql,
+        } = args.into_shell_fields();
         let sql = sql.or_else(|| (!trailing_sql.is_empty()).then(|| trailing_sql.join(" ")));
         Self {
             canister,

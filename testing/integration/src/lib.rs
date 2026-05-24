@@ -1,4 +1,4 @@
-//! Shared ic-testkit-backed integration harness helpers.
+//! Shared integration harness helpers.
 
 use std::{
     env, fs,
@@ -6,23 +6,49 @@ use std::{
     process::{Command, Output},
 };
 
-const DEMO_RPG_CANISTER_NAME: &str = "demo_rpg";
-const DEMO_RPG_CANISTER_PACKAGE: &str = "canister_demo_rpg";
-const TEST_SQL_CANISTER_NAME: &str = "sql";
-const TEST_SQL_CANISTER_PACKAGE: &str = "canister_test_sql";
-const MINIMAL_CANISTER_NAME: &str = "minimal";
-const MINIMAL_CANISTER_PACKAGE: &str = "canister_audit_minimal";
-const ONE_SIMPLE_CANISTER_NAME: &str = "one_simple";
-const ONE_SIMPLE_CANISTER_PACKAGE: &str = "canister_audit_one_simple";
-const SQL_PERF_CANISTER_NAME: &str = "sql_perf";
-const SQL_PERF_CANISTER_PACKAGE: &str = "canister_audit_sql_perf";
-const ONE_COMPLEX_CANISTER_NAME: &str = "one_complex";
-const ONE_COMPLEX_CANISTER_PACKAGE: &str = "canister_audit_one_complex";
-const TEN_SIMPLE_CANISTER_NAME: &str = "ten_simple";
-const TEN_SIMPLE_CANISTER_PACKAGE: &str = "canister_audit_ten_simple";
-const TEN_COMPLEX_CANISTER_NAME: &str = "ten_complex";
-const TEN_COMPLEX_CANISTER_PACKAGE: &str = "canister_audit_ten_complex";
+use ic_testkit::artifacts::wasm_path;
+
 const WASM_TARGET_TRIPLE: &str = "wasm32-unknown-unknown";
+
+struct FixtureCanister {
+    name: &'static str,
+    package: &'static str,
+}
+
+const FIXTURE_CANISTERS: &[FixtureCanister] = &[
+    FixtureCanister {
+        name: "demo_rpg",
+        package: "canister_demo_rpg",
+    },
+    FixtureCanister {
+        name: "sql",
+        package: "canister_test_sql",
+    },
+    FixtureCanister {
+        name: "minimal",
+        package: "canister_audit_minimal",
+    },
+    FixtureCanister {
+        name: "one_simple",
+        package: "canister_audit_one_simple",
+    },
+    FixtureCanister {
+        name: "sql_perf",
+        package: "canister_audit_sql_perf",
+    },
+    FixtureCanister {
+        name: "one_complex",
+        package: "canister_audit_one_complex",
+    },
+    FixtureCanister {
+        name: "ten_simple",
+        package: "canister_audit_ten_simple",
+    },
+    FixtureCanister {
+        name: "ten_complex",
+        package: "canister_audit_ten_complex",
+    },
+];
 
 /// Cargo wasm profile used when building fixture canisters.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -105,7 +131,7 @@ fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
-        .expect("integration crate should live under testing/ic-testkit")
+        .expect("integration crate should live under testing/integration")
         .to_path_buf()
 }
 
@@ -113,27 +139,20 @@ fn target_dir(workspace_root: &Path) -> PathBuf {
     env::var_os("CARGO_TARGET_DIR").map_or_else(|| workspace_root.join("target"), PathBuf::from)
 }
 
-fn canister_wasm_path(workspace_root: &Path, profile: &str, package_name: &str) -> PathBuf {
-    target_dir(workspace_root)
-        .join(WASM_TARGET_TRIPLE)
-        .join(profile)
-        .join(format!("{package_name}.wasm"))
-}
-
 fn package_for_canister_name(canister_name: &str) -> Result<&'static str, String> {
-    match canister_name {
-        DEMO_RPG_CANISTER_NAME => Ok(DEMO_RPG_CANISTER_PACKAGE),
-        TEST_SQL_CANISTER_NAME => Ok(TEST_SQL_CANISTER_PACKAGE),
-        MINIMAL_CANISTER_NAME => Ok(MINIMAL_CANISTER_PACKAGE),
-        ONE_SIMPLE_CANISTER_NAME => Ok(ONE_SIMPLE_CANISTER_PACKAGE),
-        SQL_PERF_CANISTER_NAME => Ok(SQL_PERF_CANISTER_PACKAGE),
-        ONE_COMPLEX_CANISTER_NAME => Ok(ONE_COMPLEX_CANISTER_PACKAGE),
-        TEN_SIMPLE_CANISTER_NAME => Ok(TEN_SIMPLE_CANISTER_PACKAGE),
-        TEN_COMPLEX_CANISTER_NAME => Ok(TEN_COMPLEX_CANISTER_PACKAGE),
-        _ => Err(format!(
-            "unsupported canister '{canister_name}', expected '{DEMO_RPG_CANISTER_NAME}', '{TEST_SQL_CANISTER_NAME}', '{MINIMAL_CANISTER_NAME}', '{ONE_SIMPLE_CANISTER_NAME}', '{SQL_PERF_CANISTER_NAME}', '{ONE_COMPLEX_CANISTER_NAME}', '{TEN_SIMPLE_CANISTER_NAME}', or '{TEN_COMPLEX_CANISTER_NAME}'"
-        )),
-    }
+    FIXTURE_CANISTERS
+        .iter()
+        .find(|fixture| fixture.name == canister_name)
+        .map(|fixture| fixture.package)
+        .ok_or_else(|| {
+            let expected = FIXTURE_CANISTERS
+                .iter()
+                .map(|fixture| fixture.name)
+                .collect::<Vec<_>>()
+                .join("', '");
+
+            format!("unsupported canister '{canister_name}', expected one of '{expected}'")
+        })
 }
 
 fn run_checked(mut command: Command, context: &str) -> Result<(), String> {
@@ -259,15 +278,15 @@ fn build_canister_package(
     run_checked(cargo, context_label)?;
 
     // Phase 3: resolve the built wasm from the configured target directory.
-    let wasm_path = canister_wasm_path(&root, profile, package_name);
-    if !wasm_path.is_file() {
+    let built_wasm_path = wasm_path(&target_dir(&root), package_name, profile);
+    if !built_wasm_path.is_file() {
         return Err(format!(
             "{context_label}: build succeeded but wasm was not found at {}",
-            wasm_path.display()
+            built_wasm_path.display()
         ));
     }
 
-    Ok(wasm_path)
+    Ok(built_wasm_path)
 }
 
 ///

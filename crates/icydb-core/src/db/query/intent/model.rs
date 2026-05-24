@@ -123,8 +123,9 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
             return load_spec.limit().is_none() && load_spec.offset() == 0;
         };
 
+        let primary_key_names = self.model.primary_key_names();
         order
-            .primary_key_only_direction(self.model.primary_key.name)
+            .primary_key_only_direction_fields(primary_key_names.as_slice())
             .is_some()
     }
 

@@ -910,7 +910,7 @@ where
             let Some(reverse_key) = reverse_index_key_for_target_and_source_storage_key(
                 source,
                 &relation,
-                target_data_key.storage_key(),
+                target_data_key.try_storage_key()?,
                 source_storage_key,
             )?
             else {

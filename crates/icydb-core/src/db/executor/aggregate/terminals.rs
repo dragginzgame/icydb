@@ -118,7 +118,9 @@ where
                 *field_slot,
                 true,
                 true,
-                target_field_name.as_str() == prepared.authority.primary_key_name(),
+                prepared
+                    .authority
+                    .is_scalar_primary_key_field(target_field_name.as_str()),
             ),
         ),
     };

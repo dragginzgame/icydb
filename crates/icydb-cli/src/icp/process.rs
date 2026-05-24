@@ -90,7 +90,7 @@ pub(super) fn canister_status_command(
     command
 }
 
-fn output_stderr(stderr: &[u8]) -> String {
+pub(super) fn output_stderr(stderr: &[u8]) -> String {
     String::from_utf8_lossy(stderr).trim().to_string()
 }
 

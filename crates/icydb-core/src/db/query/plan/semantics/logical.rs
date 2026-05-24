@@ -340,10 +340,10 @@ impl AccessPlannedQuery {
         self.static_planning_shape.is_some()
     }
 
-    /// Borrow the planner-frozen primary-key field name.
+    /// Borrow the planner-frozen ordered primary-key field names.
     #[must_use]
-    pub(in crate::db) const fn primary_key_name(&self) -> &'static str {
-        self.static_planning_shape().primary_key_name
+    pub(in crate::db) const fn primary_key_names(&self) -> &[&'static str] {
+        self.static_planning_shape().primary_key_names.as_slice()
     }
 
     /// Borrow the planner-frozen projection slot reachability set.
@@ -474,11 +474,10 @@ pub(in crate::db) fn project_planner_route_profile_for_model(
     model: &EntityModel,
     plan: &AccessPlannedQuery,
 ) -> PlannerRouteProfile {
-    let secondary_order_contract = plan
-        .scalar_plan()
-        .order
-        .as_ref()
-        .and_then(|order| order.deterministic_secondary_order_contract(model.primary_key.name));
+    let primary_key_names = ordered_primary_key_names(model);
+    let secondary_order_contract = plan.scalar_plan().order.as_ref().and_then(|order| {
+        order.deterministic_secondary_order_contract_fields(primary_key_names.as_slice())
+    });
 
     PlannerRouteProfile::new(
         derive_continuation_policy_validated(plan),
@@ -543,7 +542,7 @@ fn project_static_planning_shape_for_model(
     let index_compile_targets = index_compile_targets_for_schema_plan(schema_info, plan);
 
     Ok(StaticPlanningShape {
-        primary_key_name: model.primary_key.name,
+        primary_key_names: ordered_primary_key_names(model),
         projection_spec,
         execution_preparation_predicate,
         residual_filter_expr,
@@ -563,6 +562,10 @@ fn project_static_planning_shape_for_model(
         slot_map,
         index_compile_targets,
     })
+}
+
+fn ordered_primary_key_names(model: &EntityModel) -> Vec<&'static str> {
+    model.primary_key_names()
 }
 
 // Compile the executor-owned residual scalar filter contract once from the

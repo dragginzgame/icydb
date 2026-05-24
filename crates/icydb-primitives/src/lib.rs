@@ -208,7 +208,6 @@ mod tests {
 
     #[test]
     fn all_scalar_kinds_has_expected_length_and_order() {
-        assert_eq!(ALL_SCALAR_KINDS.len(), EXPECTED_SCALAR_KINDS.len());
         assert_eq!(ALL_SCALAR_KINDS, EXPECTED_SCALAR_KINDS);
     }
 
@@ -220,11 +219,8 @@ mod tests {
     }
 
     #[test]
-    fn all_scalar_kinds_covers_every_variant() {
-        let all = ALL_SCALAR_KINDS.into_iter().collect::<HashSet<_>>();
-
+    fn all_scalar_kind_variants_are_audited() {
         for kind in EXPECTED_SCALAR_KINDS {
-            assert!(all.contains(&kind), "ALL_SCALAR_KINDS missing {kind:?}");
             assert_variant_is_known(kind);
         }
     }

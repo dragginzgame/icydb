@@ -11,7 +11,13 @@ pub(crate) const DEFAULT_ENVIRONMENT: &str = "demo";
 const ICP_ENVIRONMENT_ENV: &str = "ICP_ENVIRONMENT";
 const SQL_HISTORY_FILE: &str = ".cache/sql_history";
 
-pub(crate) type SqlShellFields = (String, String, PathBuf, Option<String>, Vec<String>);
+pub(crate) struct SqlShellFields {
+    pub(crate) canister: String,
+    pub(crate) environment: String,
+    pub(crate) history_file: PathBuf,
+    pub(crate) sql: Option<String>,
+    pub(crate) trailing_sql: Vec<String>,
+}
 
 ///
 /// CliArgs
@@ -111,13 +117,13 @@ pub(crate) struct SqlArgs {
 
 impl SqlArgs {
     pub(crate) fn into_shell_fields(self) -> SqlShellFields {
-        (
-            self.canister,
-            self.environment,
-            self.history_file,
-            self.sql,
-            self.trailing_sql,
-        )
+        SqlShellFields {
+            canister: self.canister,
+            environment: self.environment,
+            history_file: self.history_file,
+            sql: self.sql,
+            trailing_sql: self.trailing_sql,
+        }
     }
 }
 

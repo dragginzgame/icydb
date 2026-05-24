@@ -73,13 +73,13 @@ demo-canister dispatch sampling.
 Authoritative current lanes:
 
 * SQL lane:
-  * `testing/ic-testkit/tests/sql_perf_audit.rs`
+  * `testing/integration/tests/sql_perf_audit.rs`
   * `canisters/audit/sql_perf/src/lib.rs`
   * `schema/audit/sql_perf`
   * covers SQL query, update, explain, repeat/cache, projection, grouped, and
     phase-attribution scenarios
 * typed/fluent lane:
-  * `testing/ic-testkit/tests/fluent_perf_audit.rs`
+  * `testing/integration/tests/fluent_perf_audit.rs`
   * covers fluent query/update, repeat/cache, direct-row, grouped, and finalize
     attribution scenarios
 
@@ -451,7 +451,7 @@ Before capturing instruction data:
 
 Recommended current scans:
 
-* `rg -n "sql_perf_scenarios|fluent_perf_scenarios|scenario_key|baseline_path|maybe_write_blessed_baseline" testing/ic-testkit/tests/sql_perf_audit.rs testing/ic-testkit/tests/fluent_perf_audit.rs`
+* `rg -n "sql_perf_scenarios|fluent_perf_scenarios|scenario_key|baseline_path|maybe_write_blessed_baseline" testing/integration/tests/sql_perf_audit.rs testing/integration/tests/fluent_perf_audit.rs`
 * `rg -n "SqlQueryExecutionAttribution|QueryExecutionAttribution|store_get_calls|grouped_stream_local_instructions" crates/icydb-core/src canisters/audit/sql_perf/src`
 * `rg -n "execute_sql_query|execute_sql_update|execute_sql_query_with_attribution|execute_compiled_sql|execute_compiled_sql_with_phase_attribution" crates/icydb-core/src/db/session`
 * `rg -n "compile_sql_command|compile_sql_query|compile_sql_update" crates/icydb-core/src/db`

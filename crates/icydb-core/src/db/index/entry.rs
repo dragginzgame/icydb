@@ -144,7 +144,7 @@ impl IndexEntryRowWitness {
     }
 
     #[cfg(test)]
-    pub(in crate::db) fn storage_key(&self) -> Result<StorageKey, IndexEntryCorruption> {
+    pub(in crate::db) fn try_storage_key(&self) -> Result<StorageKey, IndexEntryCorruption> {
         storage_key_from_primary_key_value(&self.primary_key_value)
     }
 
@@ -162,7 +162,7 @@ impl IndexRowIdentity {
         }
     }
 
-    pub(crate) fn storage_key(&self) -> Result<StorageKey, IndexEntryCorruption> {
+    pub(crate) fn try_storage_key(&self) -> Result<StorageKey, IndexEntryCorruption> {
         storage_key_from_primary_key_value(&self.primary_key_value)
     }
 
@@ -238,7 +238,7 @@ impl IndexEntryValue {
         &self,
         raw_key: &RawIndexStoreKey,
     ) -> Result<StorageKey, IndexEntryCorruption> {
-        self.decode_row_witness(raw_key)?.storage_key()
+        self.decode_row_witness(raw_key)?.try_storage_key()
     }
 
     // Decode the key-owned raw entry row identity plus its storage-owned
@@ -435,7 +435,10 @@ mod tests {
             .decode_row_witness(&raw_key)
             .expect("decode row witness");
 
-        assert_eq!(row_witness.storage_key().expect("scalar row witness"), key);
+        assert_eq!(
+            row_witness.try_storage_key().expect("scalar row witness"),
+            key
+        );
         assert_eq!(
             row_witness.primary_key_value(),
             &PrimaryKeyValue::Scalar(PrimaryKeyComponent::from(key))
@@ -462,7 +465,7 @@ mod tests {
             .expect("decode composite row witness");
         assert_eq!(row_witness.primary_key_value(), &key);
         assert!(matches!(
-            row_witness.storage_key(),
+            row_witness.try_storage_key(),
             Err(IndexEntryCorruption::InvalidKey)
         ));
         assert!(matches!(

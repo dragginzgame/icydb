@@ -123,35 +123,18 @@ fn validate_canisters(
 }
 
 fn generated_canister_config(raw_config: &RawCanisterConfig) -> GeneratedCanisterConfig {
+    let sql = raw_config.sql.as_ref();
+    let metrics = raw_config.metrics.as_ref();
+
     GeneratedCanisterConfig::new(
         GeneratedCanisterSqlConfig::new(
-            raw_config
-                .sql
-                .as_ref()
-                .and_then(|sql| sql.readonly)
-                .unwrap_or(false),
-            raw_config
-                .sql
-                .as_ref()
-                .and_then(|sql| sql.ddl)
-                .unwrap_or(false),
-            raw_config
-                .sql
-                .as_ref()
-                .and_then(|sql| sql.fixtures)
-                .unwrap_or(false),
+            sql.and_then(|sql| sql.readonly).unwrap_or(false),
+            sql.and_then(|sql| sql.ddl).unwrap_or(false),
+            sql.and_then(|sql| sql.fixtures).unwrap_or(false),
         ),
         GeneratedCanisterMetricsConfig::new(
-            raw_config
-                .metrics
-                .as_ref()
-                .and_then(|metrics| metrics.enabled)
-                .unwrap_or(false),
-            raw_config
-                .metrics
-                .as_ref()
-                .and_then(|metrics| metrics.reset)
-                .unwrap_or(false),
+            metrics.and_then(|metrics| metrics.enabled).unwrap_or(false),
+            metrics.and_then(|metrics| metrics.reset).unwrap_or(false),
         ),
         raw_config
             .snapshot

@@ -13,17 +13,9 @@ pub struct RgbHex;
 
 impl Sanitizer<String> for RgbHex {
     fn sanitize(&self, value: &mut String) -> Result<(), String> {
-        let raw = value.trim_start_matches('#');
-        let hex = raw.trim(); // optional: keep or drop; remove if you only want to strip '#'
-
-        let mut normalized = hex.to_ascii_uppercase();
-
-        let ok = normalized.len() == 6 && normalized.chars().all(|c| c.is_ascii_hexdigit());
-        if !ok {
-            normalized = "FFFFFF".to_string();
-        }
-
-        *value = normalized;
+        *value = normalize_hex(value, "FFFFFF", |hex| {
+            is_hex_width(hex, 6).then(|| hex.to_string())
+        });
 
         Ok(())
     }
@@ -43,19 +35,30 @@ pub struct RgbaHex;
 
 impl Sanitizer<String> for RgbaHex {
     fn sanitize(&self, value: &mut String) -> Result<(), String> {
-        let raw = value.trim_start_matches('#');
-        let hex = raw.trim(); // optional: keep or drop; remove if you only want to strip '#'
-
-        let upper = hex.to_ascii_uppercase();
-
-        let normalized = match upper.len() {
-            6 if upper.chars().all(|c| c.is_ascii_hexdigit()) => format!("{upper}FF"),
-            8 if upper.chars().all(|c| c.is_ascii_hexdigit()) => upper,
-            _ => "FFFFFFFF".to_string(),
-        };
-
-        *value = normalized;
+        *value = normalize_hex(value, "FFFFFFFF", |hex| match hex.len() {
+            6 if is_hex(hex) => Some(format!("{hex}FF")),
+            8 if is_hex(hex) => Some(hex.to_string()),
+            _ => None,
+        });
 
         Ok(())
     }
+}
+
+fn normalize_hex(
+    value: &str,
+    fallback: &str,
+    normalize: impl FnOnce(&str) -> Option<String>,
+) -> String {
+    let hex = value.trim_start_matches('#').trim().to_ascii_uppercase();
+
+    normalize(hex.as_str()).unwrap_or_else(|| fallback.to_string())
+}
+
+fn is_hex_width(value: &str, width: usize) -> bool {
+    value.len() == width && is_hex(value)
+}
+
+fn is_hex(value: &str) -> bool {
+    value.chars().all(|c| c.is_ascii_hexdigit())
 }

@@ -410,7 +410,10 @@ fn access_preserves_required_order(
         return false;
     }
     if access.as_primary_key_range_path().is_some() {
-        return order.is_primary_key_only(model.primary_key.name);
+        let primary_key_names = model.primary_key_names();
+        return order
+            .primary_key_only_direction_fields(primary_key_names.as_slice())
+            .is_some();
     }
     if let Some((index, prefix_values)) = access.as_index_prefix_contract_path() {
         return selected_index_contract_satisfies_secondary_order(

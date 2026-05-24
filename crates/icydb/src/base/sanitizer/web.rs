@@ -34,13 +34,13 @@ impl Sanitizer<String> for Url {
     fn sanitize(&self, value: &mut String) -> Result<(), String> {
         let trimmed = value.trim();
 
-        let mut normalized = if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        let normalized = if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
             trimmed.to_owned()
         } else {
             format!("https://{trimmed}")
         };
 
-        *value = std::mem::take(&mut normalized);
+        *value = normalized;
 
         Ok(())
     }

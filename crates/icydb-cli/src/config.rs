@@ -5,7 +5,9 @@
 
 use std::{
     collections::BTreeSet,
-    env, fs,
+    env,
+    fmt::Write as _,
+    fs,
     path::{Path, PathBuf},
 };
 
@@ -412,13 +414,15 @@ fn append_config_report_header(
 ) {
     report.push_str("IcyDB config summary\n");
     match config_path {
-        Some(path) => report.push_str(format!("Config file: {}\n", path.display()).as_str()),
+        Some(path) => {
+            let _ = writeln!(report, "Config file: {}", path.display());
+        }
         None => report.push_str("Config file: not found\n"),
     }
-    report.push_str(format!("Search started at: {}\n", start_dir.display()).as_str());
+    let _ = writeln!(report, "Search started at: {}", start_dir.display());
     match environment {
         Some(environment) => {
-            report.push_str(format!("ICP sync check: environment '{environment}'\n").as_str());
+            let _ = writeln!(report, "ICP sync check: environment '{environment}'");
         }
         None => report.push_str("ICP sync check: not run; pass --environment <name>\n"),
     }

@@ -9,9 +9,7 @@ mod startup_field_path;
 use crate::{
     db::{
         Db, EntityRuntimeHooks,
-        data::{
-            DecodedDataStoreKey, StructuralRowContract, decode_sparse_required_slot_with_contract,
-        },
+        data::{DecodedDataStoreKey, SlotReader, StructuralRowContract, StructuralSlotReader},
         index::{IndexId, IndexKey, IndexState, RawIndexStoreKey},
         registry::StoreHandle,
         schema::{
@@ -533,12 +531,11 @@ fn validate_sql_ddl_set_not_null_rows(
                 continue;
             }
             scanned = scanned.saturating_add(1);
-            let value = decode_sparse_required_slot_with_contract(
-                &entry.value(),
-                contract.clone(),
-                key.storage_key(),
-                required_slot,
-            )?;
+            let raw_row = entry.value();
+            let mut reader =
+                StructuralSlotReader::from_raw_row_with_validated_contract(&raw_row, contract.clone())?;
+            reader.validate_primary_key(&key)?;
+            let value = reader.get_value(required_slot)?;
             if matches!(value, Some(Value::Null) | None) {
                 return Err(InternalError::store_unsupported(format!(
                     "SQL DDL ALTER COLUMN SET NOT NULL found NULL value for entity '{entity_path}' column '{}'",

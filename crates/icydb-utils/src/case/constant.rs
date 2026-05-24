@@ -7,8 +7,8 @@ pub fn to_constant_case(s: &str) -> String {
     let mut constant_case = snake
         .chars()
         .filter(|&c| c.is_ascii_alphanumeric() || c == '_')
-        .collect::<String>()
-        .to_uppercase();
+        .map(|c| c.to_ascii_uppercase())
+        .collect::<String>();
 
     if constant_case
         .chars()

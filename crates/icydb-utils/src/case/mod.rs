@@ -77,7 +77,7 @@ where
             Case::Title => title::to_title_case(s),
             Case::Snake => snake::to_snake_case(s),
             Case::UpperSnake => snake::to_snake_case(s).to_uppercase(),
-            Case::Constant => constant::to_constant_case(s).to_uppercase(),
+            Case::Constant => constant::to_constant_case(s),
             Case::Camel => cc::Casing::to_case(s, cc::Case::Camel),
             Case::Kebab => cc::Casing::to_case(s, cc::Case::Kebab),
             Case::Sentence => cc::Casing::to_case(s, cc::Case::Sentence),

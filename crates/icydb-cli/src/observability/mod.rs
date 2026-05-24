@@ -34,9 +34,13 @@ fn call_query(
     method: &str,
     candid_arg: &str,
 ) -> Result<Vec<u8>, String> {
-    call_query_hex(environment, canister, method, candid_arg, |stderr| {
-        canister_call_error("query", environment, canister, method, stderr)
-    })
+    call_query_hex(
+        environment,
+        canister,
+        method,
+        candid_arg,
+        call_error_mapper("query", environment, canister, method),
+    )
 }
 
 fn call_update(
@@ -45,19 +49,22 @@ fn call_update(
     method: &str,
     candid_arg: &str,
 ) -> Result<Vec<u8>, String> {
-    call_update_hex(environment, canister, method, candid_arg, |stderr| {
-        canister_call_error("update", environment, canister, method, stderr)
-    })
+    call_update_hex(
+        environment,
+        canister,
+        method,
+        candid_arg,
+        call_error_mapper("update", environment, canister, method),
+    )
 }
 
-fn canister_call_error(
-    call_kind: &str,
-    environment: &str,
-    canister: &str,
-    method: &str,
-    stderr: &str,
-) -> String {
-    method_error(call_kind, environment, canister, method, stderr)
+fn call_error_mapper<'a>(
+    label: &'a str,
+    environment: &'a str,
+    canister: &'a str,
+    method: &'a str,
+) -> impl FnOnce(&str) -> String + 'a {
+    move |stderr| method_error(label, environment, canister, method, stderr)
 }
 
 fn endpoint_result_error(
@@ -91,16 +98,6 @@ fn method_error(
 
 #[cfg(test)]
 pub(crate) mod test_support {
-    pub(crate) fn canister_call_error(
-        call_kind: &str,
-        environment: &str,
-        canister: &str,
-        method: &str,
-        stderr: &str,
-    ) -> String {
-        super::canister_call_error(call_kind, environment, canister, method, stderr)
-    }
-
     pub(crate) fn method_error(
         label: &str,
         environment: &str,

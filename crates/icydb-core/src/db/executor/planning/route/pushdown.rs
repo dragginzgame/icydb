@@ -205,8 +205,10 @@ pub(super) fn access_order_satisfied_by_route_contract_with_capabilities(
         || access_capabilities
             .single_path_index_range_details()
             .is_some();
-    let primary_key_order_satisfied =
-        order.is_primary_key_only(plan.primary_key_name()) && !access_uses_index;
+    let primary_key_order_satisfied = order
+        .primary_key_only_direction_fields(plan.primary_key_names())
+        .is_some()
+        && !access_uses_index;
     let secondary_pushdown_eligible = validated_secondary_order_contract(planner_route_profile)
         .is_some_and(|order_contract| {
             access_satisfies_deterministic_secondary_order_contract(

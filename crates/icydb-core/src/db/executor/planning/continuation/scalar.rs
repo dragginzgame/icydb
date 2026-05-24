@@ -8,7 +8,7 @@ use crate::{
         access::LoweredKey,
         cursor::{
             ContinuationSignature, CursorBoundary, PlannedCursor,
-            decode_pk_cursor_boundary_primary_key_value_for_name,
+            decode_pk_cursor_boundary_primary_key_value_for_names,
             effective_keep_count_for_limit as continuation_keep_count_for_limit,
             effective_page_offset_for_window as continuation_page_offset_for_window,
         },
@@ -96,11 +96,11 @@ impl ScalarContinuationContext {
     /// boundary decode authority in continuation runtime.
     pub(in crate::db::executor) fn validate_pk_fast_path_boundary(
         &self,
-        primary_key_name: &str,
+        primary_key_names: &[&str],
     ) -> Result<(), InternalError> {
-        let _ = decode_pk_cursor_boundary_primary_key_value_for_name(
+        let _ = decode_pk_cursor_boundary_primary_key_value_for_names(
             self.cursor_boundary(),
-            primary_key_name,
+            primary_key_names,
         )
         .map_err(crate::db::cursor::CursorPlanError::into_internal_error)?;
 

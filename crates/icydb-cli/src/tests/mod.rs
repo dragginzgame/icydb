@@ -36,10 +36,10 @@ use crate::{
         unreachable_network_hint,
     },
     observability::test_support::{
-        canister_call_error, decode_metrics_report, decode_metrics_reset_response,
-        decode_schema_check_report, decode_schema_report, decode_snapshot_report, method_error,
-        metrics_candid_arg, render_field_list, render_metrics_report, render_schema_check_report,
-        render_schema_report, render_snapshot_report, yes_no,
+        decode_metrics_report, decode_metrics_reset_response, decode_schema_check_report,
+        decode_schema_report, decode_snapshot_report, method_error, metrics_candid_arg,
+        render_field_list, render_metrics_report, render_schema_check_report, render_schema_report,
+        render_snapshot_report, yes_no,
     },
     shell::test_support::{
         SqlShellCallKind, candid_escape_string, drain_complete_shell_statements,
@@ -652,6 +652,23 @@ environments:
 }
 
 #[test]
+fn manifest_canister_fallback_ignores_top_level_canister_names() {
+    let manifest = r"
+canisters:
+  - name: demo
+    type: rust
+environments:
+  - name: demo
+    canisters: [demo_rpg]
+";
+
+    assert_eq!(
+        parse_manifest_canisters(manifest, "demo"),
+        vec!["demo_rpg".to_string()],
+    );
+}
+
+#[test]
 fn manifest_canister_fallback_accepts_quoted_inline_names() {
     let manifest = r#"
 environments:
@@ -1163,16 +1180,6 @@ fn observability_render_helpers_format_common_values() {
 
 #[test]
 fn observability_call_errors_include_call_target_context() {
-    assert_eq!(
-        canister_call_error(
-            "query",
-            "demo",
-            "demo_rpg",
-            "__icydb_schema",
-            "method not found",
-        ),
-        "IcyDB query method '__icydb_schema' failed on canister 'demo_rpg' in environment 'demo': method not found",
-    );
     assert_eq!(
         method_error(
             "schema check",

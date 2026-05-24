@@ -27,7 +27,7 @@ members = [
     "schema/demo/rpg",
     "schema/test/fixtures",
     "schema/test/sql",
-    "testing/ic-testkit",
+    "testing/integration",
     "testing/macro-tests",
     "testing/wasm-helpers",
 ]

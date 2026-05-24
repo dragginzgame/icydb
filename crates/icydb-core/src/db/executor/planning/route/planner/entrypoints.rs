@@ -98,10 +98,8 @@ fn build_load_execution_route_plan(
     authority: Option<EntityAuthority>,
     load_terminal_fast_path: Option<LoadTerminalFastPathContract>,
 ) -> Result<ExecutionPlan, InternalError> {
-    if let Some(ref authority) = authority
-        && pk_order_stream_fast_path_shape_supported(plan)
-    {
-        continuation.validate_pk_fast_path_boundary(authority.primary_key_name())?;
+    if authority.is_some() && pk_order_stream_fast_path_shape_supported(plan) {
+        continuation.validate_pk_fast_path_boundary(plan.primary_key_names())?;
     }
     let load_terminal_fast_path = load_terminal_fast_path.or_else(|| {
         authority

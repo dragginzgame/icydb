@@ -4,7 +4,7 @@ Macro/schema contract test suite for generated IcyDB behavior.
 
 This crate is test-only (`publish = false`) and validates schema contracts and generated behavior across workspace scenarios.
 Shared fixture definitions live in `schema/test/fixtures`.
-IC testkit canister integration tests live in `testing/ic-testkit`.
+Canister integration tests live in `testing/integration`.
 
 Typical command:
 

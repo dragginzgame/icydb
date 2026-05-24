@@ -290,15 +290,10 @@ fn sql_surface_reset_statement(entity_ty: &syn::Path) -> TokenStream {
 }
 
 fn sql_surface_query_dispatch_arm(entity_ty: &syn::Path) -> TokenStream {
+    let entity_matches = sql_surface_entity_match_guard(entity_ty);
+
     quote! {
-            Some(entity)
-                if ::icydb::__macro::identifiers_tail_match(
-                    entity,
-                    <#entity_ty as ::icydb::traits::Path>::PATH
-                ) || ::icydb::__macro::identifiers_tail_match(
-                    entity,
-                    <#entity_ty as ::icydb::traits::EntitySchema>::NAME
-                ) =>
+            Some(entity) if #entity_matches =>
             {
                 db().execute_sql_query_with_perf_attribution::<#entity_ty>(sql)
             }
@@ -306,18 +301,25 @@ fn sql_surface_query_dispatch_arm(entity_ty: &syn::Path) -> TokenStream {
 }
 
 fn sql_surface_ddl_dispatch_arm(entity_ty: &syn::Path) -> TokenStream {
+    let entity_matches = sql_surface_entity_match_guard(entity_ty);
+
     quote! {
-            Some(entity)
-                if ::icydb::__macro::identifiers_tail_match(
-                    entity,
-                    <#entity_ty as ::icydb::traits::Path>::PATH
-                ) || ::icydb::__macro::identifiers_tail_match(
-                    entity,
-                    <#entity_ty as ::icydb::traits::EntitySchema>::NAME
-                ) =>
+            Some(entity) if #entity_matches =>
             {
                 db().execute_sql_ddl::<#entity_ty>(sql)
             }
+    }
+}
+
+fn sql_surface_entity_match_guard(entity_ty: &syn::Path) -> TokenStream {
+    quote! {
+        ::icydb::__macro::identifiers_tail_match(
+            entity,
+            <#entity_ty as ::icydb::traits::Path>::PATH
+        ) || ::icydb::__macro::identifiers_tail_match(
+            entity,
+            <#entity_ty as ::icydb::traits::EntitySchema>::NAME
+        )
     }
 }
 

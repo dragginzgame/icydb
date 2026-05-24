@@ -5,6 +5,8 @@
 
 use std::process::{Command, Stdio};
 
+use super::process::output_stderr;
+
 pub(super) fn icp_query_command(
     environment: &str,
     canister: &str,
@@ -130,8 +132,8 @@ fn call_hex(
         .map_err(|err| err.to_string())?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(error_message(stderr.trim()));
+        let stderr = output_stderr(output.stderr.as_slice());
+        return Err(error_message(stderr.as_str()));
     }
 
     let stdout = String::from_utf8(output.stdout).map_err(|err| err.to_string())?;

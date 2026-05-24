@@ -3163,7 +3163,7 @@ fn inspect_filtered_expression_order_only_raw_scan(
                     keys.push(DecodedDataStoreKey::new(
                         FilteredIndexedSessionSqlEntity::ENTITY_TAG,
                         entry
-                            .storage_key()
+                            .try_storage_key()
                             .expect("filtered expression row identity should be scalar"),
                     ));
                     if keys.len() == 4 {
@@ -3179,11 +3179,16 @@ fn inspect_filtered_expression_order_only_raw_scan(
     });
     let scanned_ids = keys
         .into_iter()
-        .map(|key: DecodedDataStoreKey| match key.storage_key() {
-            StorageKey::Ulid(id) => id,
-            other => panic!(
-                "filtered expression fixture keys should stay on ULID primary keys: {other:?}"
-            ),
+        .map(|key: DecodedDataStoreKey| {
+            match key
+                .try_storage_key()
+                .expect("filtered expression fixture key should be scalar")
+            {
+                StorageKey::Ulid(id) => id,
+                other => panic!(
+                    "filtered expression fixture keys should stay on ULID primary keys: {other:?}"
+                ),
+            }
         })
         .collect::<Vec<_>>();
 

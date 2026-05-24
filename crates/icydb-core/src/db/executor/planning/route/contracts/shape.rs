@@ -139,10 +139,9 @@ impl<'a> AggregateRouteShape<'a> {
                 .field_kind(target_field)
                 .is_some_and(field_kind_supports_aggregate_ordering)
         });
+        let primary_key_names = schema.primary_key_names();
         let target_field_is_primary_key = target_field.is_some_and(|target_field| {
-            schema
-                .primary_key_name()
-                .is_some_and(|primary_key| target_field == primary_key)
+            primary_key_names.len() == 1 && primary_key_names[0] == target_field
         });
 
         Self::new_resolved(

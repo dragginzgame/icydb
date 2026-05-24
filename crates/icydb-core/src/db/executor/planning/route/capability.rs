@@ -254,11 +254,9 @@ pub(in crate::db::executor) fn explain_access_order_satisfied_for_model(
     }
 
     let access_capabilities = plan.access_capabilities();
-    let Some(order_contract) =
-        plan.scalar_plan().order.as_ref().and_then(|order| {
-            order.deterministic_secondary_order_contract(plan.primary_key_name())
-        })
-    else {
+    let Some(order_contract) = plan.scalar_plan().order.as_ref().and_then(|order| {
+        order.deterministic_secondary_order_contract_fields(plan.primary_key_names())
+    }) else {
         return true;
     };
 

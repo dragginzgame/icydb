@@ -293,6 +293,16 @@ impl EntityModel {
         &self.primary_key_model
     }
 
+    /// Return ordered primary-key field names.
+    #[must_use]
+    pub fn primary_key_names(&self) -> Vec<&'static str> {
+        self.primary_key_model()
+            .fields()
+            .iter()
+            .map(crate::model::field::FieldModel::name)
+            .collect()
+    }
+
     /// Return the stable primary-key slot within the ordered field table.
     #[must_use]
     pub const fn primary_key_slot(&self) -> usize {

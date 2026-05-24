@@ -186,18 +186,14 @@ impl EntityAuthority {
         self.primary_key_name
     }
 
-    /// Return ordered structural primary-key field names for this entity.
+    /// Return whether `field` is exactly the scalar primary-key field.
     ///
-    /// Composite primary-key execution paths use this list when comparing
-    /// deterministic order contracts against the full row-identity suffix.
+    /// Composite primary keys deliberately return false here because aggregate
+    /// field-target shortcuts can only treat a single selected field as the
+    /// whole row identity when the entity has a scalar key.
     #[must_use]
-    pub(in crate::db::executor) fn primary_key_names(&self) -> Vec<&'static str> {
-        self.model
-            .primary_key_model()
-            .fields()
-            .iter()
-            .map(crate::model::field::FieldModel::name)
-            .collect()
+    pub(in crate::db::executor) fn is_scalar_primary_key_field(&self, field: &str) -> bool {
+        self.model.primary_key_model().is_scalar() && self.primary_key_name == field
     }
 
     /// Borrow structural entity-tag authority.
