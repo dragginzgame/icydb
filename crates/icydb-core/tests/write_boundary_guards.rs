@@ -1586,7 +1586,8 @@ fn raw_entity_authority_bootstrap_stays_layout_free() {
             && !session_sql_explain.contains("model.fields(),")
             && route_shape.contains("pub(in crate::db) fn new_from_schema_info(")
             && route_shape.contains("schema.field_slot_index(target_field)")
-            && route_shape.contains(".primary_key_name()"),
+            && route_shape.contains("schema.primary_key_names()")
+            && route_shape.contains("primary_key_names.len() == 1"),
         "aggregate execution explain route shapes must use accepted SchemaInfo instead of generated field tables",
     );
 }
