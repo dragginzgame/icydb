@@ -124,7 +124,7 @@ pub(in crate::db) fn encode_decimal(value: Decimal) -> Vec<u8> {
 }
 
 /// Encode one canonical structural value-storage int128 payload.
-pub(in crate::db) fn encode_int128(value: crate::types::Int128) -> Vec<u8> {
+pub(in crate::db) fn encode_int128(value: i128) -> Vec<u8> {
     let mut encoded = Vec::new();
     push_int128_payload(&mut encoded, value);
 
@@ -132,7 +132,7 @@ pub(in crate::db) fn encode_int128(value: crate::types::Int128) -> Vec<u8> {
 }
 
 /// Encode one canonical structural value-storage nat128 payload.
-pub(in crate::db) fn encode_nat128(value: crate::types::Nat128) -> Vec<u8> {
+pub(in crate::db) fn encode_nat128(value: u128) -> Vec<u8> {
     let mut encoded = Vec::new();
     push_nat128_payload(&mut encoded, value);
 
@@ -414,7 +414,7 @@ fn push_float64_payload(out: &mut Vec<u8>, value: Float64) {
     );
 }
 
-fn push_int128_payload(out: &mut Vec<u8>, value: crate::types::Int128) {
+fn push_int128_payload(out: &mut Vec<u8>, value: i128) {
     push_tagged_binary_payload(
         out,
         VALUE_BINARY_TAG_INT128,
@@ -422,7 +422,7 @@ fn push_int128_payload(out: &mut Vec<u8>, value: crate::types::Int128) {
     );
 }
 
-fn push_nat128_payload(out: &mut Vec<u8>, value: crate::types::Nat128) {
+fn push_nat128_payload(out: &mut Vec<u8>, value: u128) {
     push_tagged_binary_payload(
         out,
         VALUE_BINARY_TAG_NAT128,

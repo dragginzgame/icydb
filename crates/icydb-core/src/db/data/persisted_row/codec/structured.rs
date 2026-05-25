@@ -6,8 +6,8 @@ use crate::{
     error::InternalError,
     traits::PersistedStructuredFieldCodec,
     types::{
-        Account, Blob, Date, Decimal, Duration, Float32, Float64, Int128, IntBig, Nat128, NatBig,
-        Principal, Subaccount, Timestamp, Ulid, Unit,
+        Account, Blob, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal,
+        Subaccount, Timestamp, Ulid, Unit,
     },
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -254,7 +254,7 @@ impl PersistedStructuredFieldCodec for Ulid {
     }
 }
 
-impl PersistedStructuredFieldCodec for Int128 {
+impl PersistedStructuredFieldCodec for i128 {
     fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
         Ok(storage_encode::int128(*self))
     }
@@ -264,7 +264,7 @@ impl PersistedStructuredFieldCodec for Int128 {
     }
 }
 
-impl PersistedStructuredFieldCodec for Nat128 {
+impl PersistedStructuredFieldCodec for u128 {
     fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
         Ok(storage_encode::nat128(*self))
     }

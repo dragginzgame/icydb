@@ -1,8 +1,6 @@
-//! Module: types::int_big
-//! Defines the signed integer runtime types used by typed values and numeric
-//! arithmetic helpers.
-
-mod int128;
+//! Module: types::nat_big
+//! Defines the unsigned big-integer runtime types used by typed values and
+//! numeric arithmetic helpers.
 
 use crate::{
     traits::{
@@ -12,9 +10,9 @@ use crate::{
     types::Decimal,
     value::Value,
 };
-use candid::{CandidType, Int as WrappedInt};
+use candid::{CandidType, Nat as WrappedNat};
 use derive_more::{Add, AddAssign, Sub, SubAssign};
-use num_bigint::BigInt;
+use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use std::{
     fmt,
@@ -23,10 +21,8 @@ use std::{
     str::FromStr,
 };
 
-pub use int128::*;
-
 //
-// IntBig
+// NatBig
 //
 
 #[derive(
@@ -46,49 +42,46 @@ pub use int128::*;
     Sub,
     SubAssign,
 )]
-pub struct IntBig(WrappedInt);
+pub struct NatBig(WrappedNat);
 
-impl IntBig {
+impl NatBig {
     #[must_use]
-    pub(crate) const fn from_candid(value: WrappedInt) -> Self {
+    pub(crate) const fn from_candid(value: WrappedNat) -> Self {
         Self(value)
     }
 
     #[must_use]
-    pub(crate) fn from_bigint(value: BigInt) -> Self {
-        Self::from_candid(WrappedInt::from(value))
+    pub(crate) fn from_biguint(value: BigUint) -> Self {
+        Self::from_candid(WrappedNat::from(value))
     }
 
-    /// Return sign and base-2^32 magnitude limbs for decimal key encoding.
+    /// Return base-2^32 limbs for decimal key encoding.
     ///
     /// This allocates for the returned limb vector.
     #[must_use]
-    pub(crate) fn sign_and_u32_digits(&self) -> (bool, Vec<u32>) {
-        (
-            self.0.0.cmp(&0.into()).is_lt(),
-            self.0.0.magnitude().to_u32_digits(),
-        )
+    pub(crate) fn u32_digits(&self) -> Vec<u32> {
+        self.0.0.to_u32_digits()
     }
 
     #[must_use]
-    pub fn to_i128(&self) -> Option<i128> {
+    pub fn to_u128(&self) -> Option<u128> {
         let big = &self.0.0;
 
-        i128::try_from(big).ok()
+        u128::try_from(big).ok()
     }
 
     #[must_use]
-    pub fn to_i64(&self) -> Option<i64> {
+    pub fn to_u64(&self) -> Option<u64> {
         let big = &self.0.0;
 
-        i64::try_from(big).ok()
+        u64::try_from(big).ok()
     }
 
-    /// Serialize this arbitrary-precision integer for internal hash and sort-key framing.
+    /// Serialize this arbitrary-precision natural for internal hash and sort-key framing.
     #[must_use]
     pub(crate) fn to_leb128(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        self.0.encode(&mut out).expect("Int LEB128 encode");
+        self.0.encode(&mut out).expect("Nat LEB128 encode");
 
         out
     }
@@ -99,28 +92,32 @@ impl IntBig {
         Self(self.0 + rhs.0)
     }
 
-    /// Saturating subtraction (unbounded; equivalent to normal subtraction).
+    /// Saturating subtraction; clamps at zero on underflow.
     #[must_use]
     pub fn saturating_sub(self, rhs: Self) -> Self {
+        if rhs > self {
+            return Self::default();
+        }
+
         Self(self.0 - rhs.0)
     }
 }
 
-impl fmt::Display for IntBig {
+impl fmt::Display for NatBig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
 }
 
-impl FromStr for IntBig {
-    type Err = <WrappedInt as FromStr>::Err;
+impl FromStr for NatBig {
+    type Err = <WrappedNat as FromStr>::Err;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        WrappedInt::from_str(s).map(Self::from_candid)
+        WrappedNat::from_str(s).map(Self::from_candid)
     }
 }
 
-impl Div for IntBig {
+impl Div for NatBig {
     type Output = Self;
 
     fn div(self, other: Self) -> Self::Output {
@@ -128,46 +125,46 @@ impl Div for IntBig {
     }
 }
 
-impl DivAssign for IntBig {
+impl DivAssign for NatBig {
     fn div_assign(&mut self, other: Self) {
         self.0 /= other.0;
     }
 }
 
-impl RuntimeValueMeta for IntBig {
+impl RuntimeValueMeta for NatBig {
     fn kind() -> RuntimeValueKind {
         RuntimeValueKind::Atomic
     }
 }
 
-impl RuntimeValueEncode for IntBig {
+impl RuntimeValueEncode for NatBig {
     fn to_value(&self) -> Value {
-        Value::IntBig(self.clone())
+        Value::NatBig(self.clone())
     }
 }
 
-impl RuntimeValueDecode for IntBig {
+impl RuntimeValueDecode for NatBig {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
-            Value::IntBig(v) => Some(v.clone()),
+            Value::NatBig(v) => Some(v.clone()),
             _ => None,
         }
     }
 }
 
-impl From<i32> for IntBig {
-    fn from(n: i32) -> Self {
-        Self::from_candid(WrappedInt::from(n))
+impl From<u64> for NatBig {
+    fn from(n: u64) -> Self {
+        Self::from_candid(WrappedNat::from(n))
     }
 }
 
-impl From<i64> for IntBig {
-    fn from(n: i64) -> Self {
-        Self::from_candid(WrappedInt::from(n))
+impl From<u32> for NatBig {
+    fn from(n: u32) -> Self {
+        Self::from_candid(WrappedNat::from(n))
     }
 }
 
-impl Mul for IntBig {
+impl Mul for NatBig {
     type Output = Self;
 
     fn mul(self, other: Self) -> Self::Output {
@@ -175,34 +172,43 @@ impl Mul for IntBig {
     }
 }
 
-impl MulAssign for IntBig {
+impl MulAssign for NatBig {
     fn mul_assign(&mut self, other: Self) {
         self.0 *= other.0;
     }
 }
 
-impl NumericValue for IntBig {
+impl NumericValue for NatBig {
     fn try_to_decimal(&self) -> Option<Decimal> {
-        self.to_i128().and_then(Decimal::from_i128)
+        self.to_u128().and_then(Decimal::from_u128)
     }
 
     fn try_from_decimal(value: Decimal) -> Option<Self> {
-        value.to_i128().map(WrappedInt::from).map(Self::from_candid)
+        value.to_u128().map(WrappedNat::from).map(Self::from_candid)
     }
 }
 
-impl SanitizeAuto for IntBig {}
+impl SanitizeAuto for NatBig {}
 
-impl SanitizeCustom for IntBig {}
+impl SanitizeCustom for NatBig {}
 
-impl Sum for IntBig {
+impl Sum for NatBig {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
         iter.fold(Self::default(), |acc, x| acc + x)
     }
 }
 
-impl ValidateAuto for IntBig {}
+impl TryFrom<i32> for NatBig {
+    type Error = std::num::TryFromIntError;
 
-impl ValidateCustom for IntBig {}
+    fn try_from(n: i32) -> Result<Self, Self::Error> {
+        let v = Self::from_candid(WrappedNat::from(u32::try_from(n)?));
+        Ok(v)
+    }
+}
 
-impl Visitable for IntBig {}
+impl ValidateAuto for NatBig {}
+
+impl ValidateCustom for NatBig {}
+
+impl Visitable for NatBig {}

@@ -161,13 +161,9 @@ fn direct_compare_orderable_field_values(
             left.get().partial_cmp(&right.get())
         }
         (FieldKind::Int64, Value::Int64(left), Value::Int64(right)) => Some(left.cmp(right)),
-        (FieldKind::Int128, Value::Int128(left), Value::Int128(right)) => {
-            Some(left.get().cmp(&right.get()))
-        }
+        (FieldKind::Int128, Value::Int128(left), Value::Int128(right)) => Some(left.cmp(right)),
         (FieldKind::Nat64, Value::Nat64(left), Value::Nat64(right)) => Some(left.cmp(right)),
-        (FieldKind::Nat128, Value::Nat128(left), Value::Nat128(right)) => {
-            Some(left.get().cmp(&right.get()))
-        }
+        (FieldKind::Nat128, Value::Nat128(left), Value::Nat128(right)) => Some(left.cmp(right)),
         (FieldKind::Relation { key_kind, .. }, left, right) => {
             direct_compare_orderable_field_values(key_kind, left, right)
         }

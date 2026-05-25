@@ -13,8 +13,8 @@ use crate::{
         },
     },
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, Int128, IntBig, Nat128, NatBig,
-        Principal, Subaccount, Timestamp, Ulid,
+        Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
+        Timestamp, Ulid,
     },
     value::{Value, ValueEnum},
 };
@@ -129,7 +129,7 @@ pub(in crate::db::cursor::token) fn write_value(
         }
         Value::Int128(value) => {
             out.push(VALUE_INT128);
-            write_i128(out, value.get());
+            write_i128(out, *value);
             Ok(())
         }
         Value::IntBig(value) => {
@@ -173,7 +173,7 @@ pub(in crate::db::cursor::token) fn write_value(
         }
         Value::Nat128(value) => {
             out.push(VALUE_NAT128);
-            write_u128(out, value.get());
+            write_u128(out, *value);
             Ok(())
         }
         Value::NatBig(value) => {
@@ -271,7 +271,7 @@ pub(in crate::db::cursor::token) fn read_value(
                 .map_err(|err| TokenWireError::decode(err.to_string()))?,
         )),
         VALUE_INT => Ok(Value::Int64(cursor.read_i64()?)),
-        VALUE_INT128 => Ok(Value::Int128(Int128::from(cursor.read_i128()?))),
+        VALUE_INT128 => Ok(Value::Int128(cursor.read_i128()?)),
         VALUE_INT_BIG => Ok(Value::IntBig(read_big_int(cursor)?)),
         VALUE_LIST => Ok(Value::List(read_value_vec(cursor)?)),
         VALUE_MAP => read_map_value(cursor),
@@ -283,7 +283,7 @@ pub(in crate::db::cursor::token) fn read_value(
         VALUE_TEXT => Ok(Value::Text(cursor.read_string()?)),
         VALUE_TIMESTAMP => Ok(Value::Timestamp(Timestamp::from_millis(cursor.read_i64()?))),
         VALUE_NAT => Ok(Value::Nat64(cursor.read_u64()?)),
-        VALUE_NAT128 => Ok(Value::Nat128(Nat128::from(cursor.read_u128()?))),
+        VALUE_NAT128 => Ok(Value::Nat128(cursor.read_u128()?)),
         VALUE_NAT_BIG => Ok(Value::NatBig(read_big_nat(cursor)?)),
         VALUE_ULID => Ok(Value::Ulid(Ulid::from_bytes(cursor.read_array()?))),
         VALUE_UNIT => Ok(Value::Unit),

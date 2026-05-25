@@ -14,10 +14,12 @@ macro_rules! impl_primitive {
         impl $trait for i16 {}
         impl $trait for i32 {}
         impl $trait for i64 {}
+        impl $trait for i128 {}
         impl $trait for u8 {}
         impl $trait for u16 {}
         impl $trait for u32 {}
         impl $trait for u64 {}
+        impl $trait for u128 {}
         impl $trait for f32 {}
         impl $trait for f64 {}
         impl $trait for bool {}

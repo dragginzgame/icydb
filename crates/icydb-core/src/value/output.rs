@@ -1,7 +1,7 @@
 use crate::{
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, Int128, IntBig, Nat128, NatBig,
-        Principal, Subaccount, Timestamp, Ulid,
+        Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
+        Timestamp, Ulid,
     },
     value::{Value, ValueEnum},
 };
@@ -30,7 +30,7 @@ pub enum OutputValue {
     Float64(Float64),
     #[serde(rename = "Int")]
     Int64(i64),
-    Int128(Int128),
+    Int128(i128),
     IntBig(IntBig),
     List(Vec<Self>),
     Map(Vec<(Self, Self)>),
@@ -41,7 +41,7 @@ pub enum OutputValue {
     Timestamp(Timestamp),
     #[serde(rename = "Nat")]
     Nat64(u64),
-    Nat128(Nat128),
+    Nat128(u128),
     NatBig(NatBig),
     Ulid(Ulid),
     Unit,

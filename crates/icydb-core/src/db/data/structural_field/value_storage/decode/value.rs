@@ -184,9 +184,7 @@ pub(in crate::db) fn decode_decimal(raw_bytes: &[u8]) -> Result<Decimal, FieldDe
 }
 
 /// Decode one canonical structural value-storage int128 payload.
-pub(in crate::db) fn decode_int128(
-    raw_bytes: &[u8],
-) -> Result<crate::types::Int128, FieldDecodeError> {
+pub(in crate::db) fn decode_int128(raw_bytes: &[u8]) -> Result<i128, FieldDecodeError> {
     let payload =
         decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_INT128, "int128")?;
     let bytes: [u8; 16] = decode_binary_required_bytes(payload, "int128 bytes")?
@@ -197,9 +195,7 @@ pub(in crate::db) fn decode_int128(
 }
 
 /// Decode one canonical structural value-storage nat128 payload.
-pub(in crate::db) fn decode_nat128(
-    raw_bytes: &[u8],
-) -> Result<crate::types::Nat128, FieldDecodeError> {
+pub(in crate::db) fn decode_nat128(raw_bytes: &[u8]) -> Result<u128, FieldDecodeError> {
     let payload =
         decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_NAT128, "nat128")?;
     let bytes: [u8; 16] = decode_binary_required_bytes(payload, "nat128 bytes")?

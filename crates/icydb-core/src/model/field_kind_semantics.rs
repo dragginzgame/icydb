@@ -5,7 +5,7 @@
 
 use crate::{
     model::field::FieldKind,
-    types::{Account, Decimal, Float32, Float64, Int128, IntBig, Nat128, NatBig, Principal, Ulid},
+    types::{Account, Decimal, Float32, Float64, IntBig, NatBig, Principal, Ulid},
     value::{Value, ValueEnum},
 };
 use std::str::FromStr;
@@ -353,11 +353,7 @@ fn canonicalize_lossless_field_literal_for_kind(
         }
         FieldKind::Int128 => match value {
             Value::Int128(inner) => Some(Value::Int128(*inner)),
-            Value::Text(inner) => inner
-                .parse::<i128>()
-                .ok()
-                .map(Int128::from)
-                .map(Value::Int128),
+            Value::Text(inner) => inner.parse::<i128>().ok().map(Value::Int128),
             _ => None,
         },
         FieldKind::IntBig { .. } => match value {
@@ -392,11 +388,7 @@ fn canonicalize_lossless_field_literal_for_kind(
         FieldKind::Nat32 => canonicalize_nat_literal(value, u64::from(u32::MAX)),
         FieldKind::Nat128 => match value {
             Value::Nat128(inner) => Some(Value::Nat128(*inner)),
-            Value::Text(inner) => inner
-                .parse::<u128>()
-                .ok()
-                .map(Nat128::from)
-                .map(Value::Nat128),
+            Value::Text(inner) => inner.parse::<u128>().ok().map(Value::Nat128),
             _ => None,
         },
         FieldKind::NatBig { .. } => match value {

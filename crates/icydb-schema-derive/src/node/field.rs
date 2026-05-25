@@ -842,7 +842,6 @@ fn date_arg_to_core_date(default: &Arg) -> Result<icydb_core::types::Date, Strin
 fn encode_int128_database_default_payload(value: &ArgNumber) -> Result<Vec<u8>, String> {
     let value = arg_number_to_i128(value)
         .ok_or("default for primitive Int128 requires a signed integer literal")?;
-    let value = icydb_core::types::Int128::from(value);
 
     icydb_core::__macro::encode_persisted_slot_payload_by_kind(
         &value,
@@ -882,7 +881,6 @@ fn encode_int_big_database_default_payload(
 fn encode_nat128_database_default_payload(value: &ArgNumber) -> Result<Vec<u8>, String> {
     let value = arg_number_to_u128(value)
         .ok_or("default for primitive Nat128 requires an unsigned integer literal")?;
-    let value = icydb_core::types::Nat128::from(value);
 
     icydb_core::__macro::encode_persisted_slot_payload_by_kind(
         &value,
@@ -1849,7 +1847,7 @@ mod tests {
         )
         .expect("Int128 default should encode");
         let expected = icydb_core::__macro::encode_persisted_slot_payload_by_kind(
-            &icydb_core::types::Int128::from(i128::MIN),
+            &i128::MIN,
             icydb_core::model::FieldKind::Int128,
             "signed_balance",
         )
@@ -1885,7 +1883,7 @@ mod tests {
         )
         .expect("Nat128 default should encode");
         let expected = icydb_core::__macro::encode_persisted_slot_payload_by_kind(
-            &icydb_core::types::Nat128::from(u128::MAX),
+            &u128::MAX,
             icydb_core::model::FieldKind::Nat128,
             "supply",
         )

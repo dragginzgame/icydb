@@ -4,8 +4,8 @@
 
 use crate::{
     types::{
-        Account, Date, Decimal, Duration, Float32 as F32, Float64 as F64, Int128, IntBig, Nat128,
-        NatBig, Principal, Subaccount, Timestamp, Ulid,
+        Account, Date, Decimal, Duration, Float32 as F32, Float64 as F64, IntBig, NatBig,
+        Principal, Subaccount, Timestamp, Ulid,
     },
     value::{
         CoercionFamily, CoercionFamilyExt, SchemaInvariantError, TextMode, Value, ValueEnum,
@@ -70,7 +70,7 @@ macro_rules! sample_value_for_scalar {
         Value::Int64(-7)
     };
     (Int128) => {
-        Value::Int128(Int128::from(123i128))
+        Value::Int128(123i128)
     };
     (IntBig) => {
         Value::IntBig(IntBig::from(99i32))
@@ -91,7 +91,7 @@ macro_rules! sample_value_for_scalar {
         Value::Nat64(7)
     };
     (Nat128) => {
-        Value::Nat128(Nat128::from(9u128))
+        Value::Nat128(9u128)
     };
     (NatBig) => {
         Value::NatBig(NatBig::from(11u64))
@@ -236,7 +236,7 @@ fn canonical_tag_and_rank_are_stable() {
             9,
         ),
         (Value::Int64(-7), 10),
-        (Value::Int128(Int128::from(123i128)), 11),
+        (Value::Int128(123i128), 11),
         (Value::IntBig(IntBig::from(99i32)), 12),
         (list, 13),
         (map, 14),
@@ -249,7 +249,7 @@ fn canonical_tag_and_rank_are_stable() {
         (Value::Text("example".to_string()), 18),
         (Value::Timestamp(Timestamp::from_secs(1)), 19),
         (Value::Nat64(7), 20),
-        (Value::Nat128(Nat128::from(9u128)), 21),
+        (Value::Nat128(9u128), 21),
         (Value::NatBig(NatBig::from(11u64)), 22),
         (Value::Ulid(Ulid::from_u128(42)), 23),
         (Value::Unit, 24),

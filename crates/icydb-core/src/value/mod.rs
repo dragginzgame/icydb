@@ -180,7 +180,7 @@ pub enum Value {
     Float32(Float32),
     Float64(Float64),
     Int64(i64),
-    Int128(Int128),
+    Int128(i128),
     IntBig(IntBig),
     /// Ordered list of values.
     /// Used for many-cardinality transport.
@@ -199,7 +199,7 @@ pub enum Value {
     Text(String),
     Timestamp(Timestamp),
     Nat64(u64),
-    Nat128(Nat128),
+    Nat128(u128),
     NatBig(NatBig),
     Ulid(Ulid),
     Unit,

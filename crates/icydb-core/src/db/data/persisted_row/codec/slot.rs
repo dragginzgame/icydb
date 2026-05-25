@@ -9,8 +9,8 @@ use crate::{
     model::field::{DEFAULT_BIG_INT_MAX_BYTES, FieldKind},
     traits::{FieldTypeMeta, PersistedByKindCodec, PersistedFieldSlotCodec},
     types::{
-        Account, Blob, Date, Duration, Float32, Float64, Int128, IntBig, Nat128, NatBig, Principal,
-        Subaccount, Timestamp, Ulid, Unit,
+        Account, Blob, Date, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
+        Timestamp, Ulid, Unit,
     },
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -265,11 +265,11 @@ impl_persisted_field_slot_by_kind!(
     IntBig => FieldKind::IntBig {
         max_bytes: DEFAULT_BIG_INT_MAX_BYTES,
     },
-    Int128 => FieldKind::Int128,
+    i128 => FieldKind::Int128,
     NatBig => FieldKind::NatBig {
         max_bytes: DEFAULT_BIG_INT_MAX_BYTES,
     },
-    Nat128 => FieldKind::Nat128,
+    u128 => FieldKind::Nat128,
 );
 
 impl_persisted_field_slot_kind!(
@@ -293,11 +293,11 @@ impl_persisted_field_slot_kind!(
     IntBig => FieldKind::IntBig {
         max_bytes: DEFAULT_BIG_INT_MAX_BYTES,
     },
-    Int128 => FieldKind::Int128,
+    i128 => FieldKind::Int128,
     NatBig => FieldKind::NatBig {
         max_bytes: DEFAULT_BIG_INT_MAX_BYTES,
     },
-    Nat128 => FieldKind::Nat128,
+    u128 => FieldKind::Nat128,
     Principal => FieldKind::Principal,
     Subaccount => FieldKind::Subaccount,
     Timestamp => FieldKind::Timestamp,

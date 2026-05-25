@@ -11,9 +11,7 @@ use crate::{
     },
     db::schema::PersistedFieldKind,
     model::field::{FieldKind, RelationStrength},
-    types::{
-        Account, Decimal, EntityTag, Float32, Float64, Int128, Nat128, Principal, Subaccount, Ulid,
-    },
+    types::{Account, Decimal, EntityTag, Float32, Float64, Principal, Subaccount, Ulid},
     value::{StorageKey, Value, ValueEnum},
 };
 
@@ -276,20 +274,14 @@ fn structural_field_decode_value_storage_roundtrips_nested_bytes_like_variants()
             Value::Text("blob".to_string()),
             Value::Blob(vec![0x10, 0x20, 0x30]),
         ),
-        (
-            Value::Text("i128".to_string()),
-            Value::Int128(Int128::from(-123i128)),
-        ),
-        (
-            Value::Text("u128".to_string()),
-            Value::Nat128(Nat128::from(456u128)),
-        ),
+        (Value::Text("i128".to_string()), Value::Int128(-123i128)),
+        (Value::Text("u128".to_string()), Value::Nat128(456u128)),
         (
             Value::Text("list".to_string()),
             Value::List(vec![
                 Value::Blob(vec![0xAA, 0xBB]),
-                Value::Int128(Int128::from(7i128)),
-                Value::Nat128(Nat128::from(8u128)),
+                Value::Int128(7i128),
+                Value::Nat128(8u128),
             ]),
         ),
         (

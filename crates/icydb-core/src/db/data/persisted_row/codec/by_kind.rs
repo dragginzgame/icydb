@@ -28,8 +28,8 @@ use crate::{
     model::field::FieldKind,
     traits::PersistedByKindCodec,
     types::{
-        Account, Blob, Date, Decimal, Duration, Float32, Float64, Int128, IntBig, Nat128, NatBig,
-        Principal, Subaccount, Timestamp, Ulid, Unit,
+        Account, Blob, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal,
+        Subaccount, Timestamp, Ulid, Unit,
     },
     value::{StorageKey, Value},
 };
@@ -321,8 +321,8 @@ impl_persisted_by_kind_scalar_leaf!(
     bool => { encode: encode_bool_field_by_kind_bytes, decode: decode_bool_field_by_kind_bytes },
     Float32 => { encode: encode_float32_field_by_kind_bytes, decode: decode_float32_field_by_kind_bytes },
     Float64 => { encode: encode_float64_field_by_kind_bytes, decode: decode_float64_field_by_kind_bytes },
-    Int128 => { encode: encode_int128_field_by_kind_bytes, decode: decode_int128_field_by_kind_bytes },
-    Nat128 => { encode: encode_nat128_field_by_kind_bytes, decode: decode_nat128_field_by_kind_bytes }
+    i128 => { encode: encode_int128_field_by_kind_bytes, decode: decode_int128_field_by_kind_bytes },
+    u128 => { encode: encode_nat128_field_by_kind_bytes, decode: decode_nat128_field_by_kind_bytes }
 );
 
 impl_persisted_by_kind_ref_leaf!(

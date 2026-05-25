@@ -54,8 +54,8 @@ use crate::{
         PersistedStructuredFieldCodec, RuntimeValueDecode, RuntimeValueEncode,
     },
     types::{
-        Account, Blob, Date, Decimal, Duration, Float32, Float64, Int128, IntBig, Nat128, NatBig,
-        Principal, Subaccount, Timestamp, Ulid, Unit,
+        Account, Blob, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal,
+        Subaccount, Timestamp, Ulid, Unit,
     },
     value::StorageKey,
     value::{Value, ValueEnum},
@@ -632,14 +632,8 @@ fn representative_value_storage_cases() -> Vec<Value> {
             Value::Text("blob".to_string()),
             Value::Blob(vec![0x10, 0x20, 0x30]),
         ),
-        (
-            Value::Text("i128".to_string()),
-            Value::Int128(Int128::from(-123i128)),
-        ),
-        (
-            Value::Text("u128".to_string()),
-            Value::Nat128(Nat128::from(456u128)),
-        ),
+        (Value::Text("i128".to_string()), Value::Int128(-123i128)),
+        (Value::Text("u128".to_string()), Value::Nat128(456u128)),
         (
             Value::Text("enum".to_string()),
             Value::Enum(
@@ -666,7 +660,7 @@ fn representative_value_storage_cases() -> Vec<Value> {
         Value::Float32(Float32::try_new(1.25).expect("float32 sample should be finite")),
         Value::Float64(Float64::try_new(2.5).expect("float64 sample should be finite")),
         Value::Int64(-7),
-        Value::Int128(Int128::from(123i128)),
+        Value::Int128(123i128),
         Value::IntBig(IntBig::from(99i32)),
         Value::List(vec![
             Value::Blob(vec![0xCC, 0xDD]),
@@ -680,7 +674,7 @@ fn representative_value_storage_cases() -> Vec<Value> {
         Value::Text("example".to_string()),
         Value::Timestamp(Timestamp::from_secs(1)),
         Value::Nat64(7),
-        Value::Nat128(Nat128::from(9u128)),
+        Value::Nat128(9u128),
         Value::NatBig(NatBig::from(11u64)),
         Value::Ulid(Ulid::from_u128(42)),
         Value::Unit,
@@ -729,10 +723,7 @@ fn representative_structured_value_storage_cases() -> Vec<Value> {
             Value::Float64(Float64::try_new(2.5).expect("float64 sample should be finite")),
         ),
         (Value::Text("i64".to_string()), Value::Int64(-7)),
-        (
-            Value::Text("i128".to_string()),
-            Value::Int128(Int128::from(123i128)),
-        ),
+        (Value::Text("i128".to_string()), Value::Int128(123i128)),
         (
             Value::Text("ibig".to_string()),
             Value::IntBig(IntBig::from(99i32)),
@@ -755,10 +746,7 @@ fn representative_structured_value_storage_cases() -> Vec<Value> {
             Value::Timestamp(Timestamp::from_secs(1)),
         ),
         (Value::Text("u64".to_string()), Value::Nat64(7)),
-        (
-            Value::Text("u128".to_string()),
-            Value::Nat128(Nat128::from(9u128)),
-        ),
+        (Value::Text("u128".to_string()), Value::Nat128(9u128)),
         (
             Value::Text("ubig".to_string()),
             Value::NatBig(NatBig::from(11u64)),
@@ -1148,8 +1136,8 @@ fn direct_persisted_structured_scalar_codecs_cover_reachable_leaf_family() {
     assert_direct_persisted_structured_roundtrip(Date::from_days_since_epoch(321));
     assert_direct_persisted_structured_roundtrip(Duration::from_millis(9_876));
     assert_direct_persisted_structured_roundtrip(Ulid::from_parts(77, 3));
-    assert_direct_persisted_structured_roundtrip(Int128::from(-123_i128));
-    assert_direct_persisted_structured_roundtrip(Nat128::from(456_u128));
+    assert_direct_persisted_structured_roundtrip(-123_i128);
+    assert_direct_persisted_structured_roundtrip(456_u128);
     assert_direct_persisted_structured_roundtrip(IntBig::from(-789_i32));
     assert_direct_persisted_structured_roundtrip(NatBig::from(987_u64));
     assert_direct_persisted_structured_roundtrip(Unit);
@@ -1221,8 +1209,8 @@ fn direct_persisted_by_kind_leaf_codecs_cover_tier_two_family() {
         FieldKind::Decimal { scale: 2 },
     );
     assert_direct_persisted_by_kind_roundtrip(Duration::from_secs(5), FieldKind::Duration);
-    assert_direct_persisted_by_kind_roundtrip(Int128::from(-123_i128), FieldKind::Int128);
-    assert_direct_persisted_by_kind_roundtrip(Nat128::from(456_u128), FieldKind::Nat128);
+    assert_direct_persisted_by_kind_roundtrip(-123_i128, FieldKind::Int128);
+    assert_direct_persisted_by_kind_roundtrip(456_u128, FieldKind::Nat128);
     assert_direct_persisted_by_kind_roundtrip(
         IntBig::from(-789_i32),
         FieldKind::IntBig {

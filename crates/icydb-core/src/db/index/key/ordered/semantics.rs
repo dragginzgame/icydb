@@ -6,7 +6,7 @@
 use crate::{
     db::index::key::ordered::OrderedValueEncodeError,
     traits::Repr,
-    types::{Date, Duration, Int128, Nat128, Timestamp},
+    types::{Date, Duration, Timestamp},
 };
 
 ///
@@ -33,16 +33,16 @@ impl OrderedEncode for Duration {
     }
 }
 
-impl OrderedEncode for Int128 {
+impl OrderedEncode for i128 {
     fn encode_ordered(&self, out: &mut Vec<u8>) -> Result<(), OrderedValueEncodeError> {
-        out.extend_from_slice(&ordered_i128_bytes(self.get()));
+        out.extend_from_slice(&ordered_i128_bytes(*self));
         Ok(())
     }
 }
 
-impl OrderedEncode for Nat128 {
+impl OrderedEncode for u128 {
     fn encode_ordered(&self, out: &mut Vec<u8>) -> Result<(), OrderedValueEncodeError> {
-        out.extend_from_slice(&self.get().to_be_bytes());
+        out.extend_from_slice(&self.to_be_bytes());
         Ok(())
     }
 }

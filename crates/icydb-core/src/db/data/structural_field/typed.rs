@@ -6,8 +6,7 @@
 use crate::{
     error::InternalError,
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, Int128, Nat128, Principal, Subaccount,
-        Timestamp, Ulid,
+        Account, Date, Decimal, Duration, Float32, Float64, Principal, Subaccount, Timestamp, Ulid,
     },
 };
 
@@ -138,38 +137,38 @@ pub(in crate::db::data::structural_field) fn decode_float64_payload_bytes(
 
 // Encode one int128 payload into its canonical fixed-width byte form.
 pub(in crate::db::data::structural_field) const fn encode_int128_payload_bytes(
-    value: Int128,
+    value: i128,
 ) -> [u8; 16] {
-    value.get().to_be_bytes()
+    value.to_be_bytes()
 }
 
 // Decode one int128 payload from its canonical fixed-width byte form.
 pub(in crate::db::data::structural_field) fn decode_int128_payload_bytes(
     bytes: &[u8],
-) -> Result<Int128, FieldDecodeError> {
+) -> Result<i128, FieldDecodeError> {
     let bytes: [u8; 16] = bytes
         .try_into()
         .map_err(|_| FieldDecodeError::new("structural binary: invalid int128 length"))?;
 
-    Ok(Int128::from(i128::from_be_bytes(bytes)))
+    Ok(i128::from_be_bytes(bytes))
 }
 
 // Encode one nat128 payload into its canonical fixed-width byte form.
 pub(in crate::db::data::structural_field) const fn encode_nat128_payload_bytes(
-    value: Nat128,
+    value: u128,
 ) -> [u8; 16] {
-    value.get().to_be_bytes()
+    value.to_be_bytes()
 }
 
 // Decode one nat128 payload from its canonical fixed-width byte form.
 pub(in crate::db::data::structural_field) fn decode_nat128_payload_bytes(
     bytes: &[u8],
-) -> Result<Nat128, FieldDecodeError> {
+) -> Result<u128, FieldDecodeError> {
     let bytes: [u8; 16] = bytes
         .try_into()
         .map_err(|_| FieldDecodeError::new("structural binary: invalid nat128 length"))?;
 
-    Ok(Nat128::from(u128::from_be_bytes(bytes)))
+    Ok(u128::from_be_bytes(bytes))
 }
 
 // Encode one date payload into canonical signed day-count form.

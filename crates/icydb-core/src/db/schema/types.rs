@@ -7,7 +7,7 @@ use crate::{
     db::schema::PersistedFieldKind,
     model::field::FieldKind,
     traits::RuntimeValueKind,
-    types::{Int128, IntBig, Nat128, NatBig, Ulid},
+    types::{IntBig, NatBig, Ulid},
     value::{CoercionFamily, Value},
 };
 use std::fmt;
@@ -424,30 +424,30 @@ fn canonicalize_int128_persisted_literal(value: &Value) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => i128::from(*inner),
         Value::Nat64(inner) => i128::from(*inner),
-        Value::Int128(inner) => inner.get(),
-        Value::Nat128(inner) => i128::try_from(inner.get()).ok()?,
+        Value::Int128(inner) => *inner,
+        Value::Nat128(inner) => i128::try_from(*inner).ok()?,
         Value::IntBig(inner) => inner.to_i128()?,
         Value::NatBig(inner) => i128::try_from(inner.to_u128()?).ok()?,
         Value::Text(inner) => inner.parse::<i128>().ok()?,
         _ => return None,
     };
 
-    Some(Value::Int128(Int128::from(value)))
+    Some(Value::Int128(value))
 }
 
 fn canonicalize_nat128_persisted_literal(value: &Value) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => u128::try_from(*inner).ok()?,
         Value::Nat64(inner) => u128::from(*inner),
-        Value::Int128(inner) => u128::try_from(inner.get()).ok()?,
-        Value::Nat128(inner) => inner.get(),
+        Value::Int128(inner) => u128::try_from(*inner).ok()?,
+        Value::Nat128(inner) => *inner,
         Value::IntBig(inner) => inner.to_string().parse::<u128>().ok()?,
         Value::NatBig(inner) => inner.to_u128()?,
         Value::Text(inner) => inner.parse::<u128>().ok()?,
         _ => return None,
     };
 
-    Some(Value::Nat128(Nat128::from(value)))
+    Some(Value::Nat128(value))
 }
 
 fn canonicalize_int_big_persisted_literal(value: &Value, max_bytes: u32) -> Option<Value> {
@@ -531,7 +531,7 @@ mod tests {
                 &PersistedFieldKind::Int128,
                 &Value::Text(i128::MAX.to_string()),
             ),
-            Some(Value::Int128(Int128::from(i128::MAX))),
+            Some(Value::Int128(i128::MAX)),
         );
         assert_eq!(
             canonicalize_strict_sql_literal_for_persisted_kind(
@@ -547,7 +547,7 @@ mod tests {
                 &PersistedFieldKind::Nat128,
                 &Value::Text(u128::MAX.to_string()),
             ),
-            Some(Value::Nat128(Nat128::from(u128::MAX))),
+            Some(Value::Nat128(u128::MAX)),
         );
         assert_eq!(
             canonicalize_strict_sql_literal_for_persisted_kind(

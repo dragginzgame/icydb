@@ -1460,10 +1460,12 @@ impl_runtime_value!(
     i16 => Int64,
     i32 => Int64,
     i64 => Int64,
+    i128 => Int128,
     u8 => Nat64,
     u16 => Nat64,
     u32 => Nat64,
     u64 => Nat64,
+    u128 => Nat128,
     bool => Bool,
 );
 

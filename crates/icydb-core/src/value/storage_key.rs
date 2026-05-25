@@ -333,8 +333,8 @@ mod tests {
     use super::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError};
     use crate::{
         types::{
-            Account, Date, Decimal, Duration, Float32, Float64, Int128, IntBig, Nat128, NatBig,
-            Principal, Subaccount, Timestamp, Ulid,
+            Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal,
+            Subaccount, Timestamp, Ulid,
         },
         value::{Value, ValueEnum, storage_key_from_runtime_value},
     };
@@ -374,7 +374,7 @@ mod tests {
             Value::Int64(-7)
         };
         (Int128) => {
-            Value::Int128(Int128::from(123i128))
+            Value::Int128(123i128)
         };
         (IntBig) => {
             Value::IntBig(IntBig::from(99i32))
@@ -395,7 +395,7 @@ mod tests {
             Value::Nat64(7)
         };
         (Nat128) => {
-            Value::Nat128(Nat128::from(9u128))
+            Value::Nat128(9u128)
         };
         (NatBig) => {
             Value::NatBig(NatBig::from(11u64))

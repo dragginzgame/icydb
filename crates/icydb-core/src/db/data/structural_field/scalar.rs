@@ -23,7 +23,7 @@ use crate::db::data::structural_field::typed::{
 use crate::{
     error::InternalError,
     model::field::FieldKind,
-    types::{Blob, Float32, Float64, Int128, Nat128},
+    types::{Blob, Float32, Float64},
     value::Value,
 };
 
@@ -369,7 +369,7 @@ pub(super) fn decode_float64_fast_path_binary_bytes(
 
 /// Encode one direct int128 leaf through the Structural Binary v1 scalar lane.
 pub(super) fn encode_int128_fast_path_binary_bytes(
-    value: Int128,
+    value: i128,
     kind: FieldKind,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
@@ -389,7 +389,7 @@ pub(super) fn encode_int128_fast_path_binary_bytes(
 pub(super) fn decode_int128_fast_path_binary_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
-) -> Result<Option<Int128>, FieldDecodeError> {
+) -> Result<Option<i128>, FieldDecodeError> {
     match decode_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
         Some(Value::Int128(value)) => Ok(Some(value)),
         Some(Value::Null) => Ok(None),
@@ -404,7 +404,7 @@ pub(super) fn decode_int128_fast_path_binary_bytes(
 
 /// Encode one direct nat128 leaf through the Structural Binary v1 scalar lane.
 pub(super) fn encode_nat128_fast_path_binary_bytes(
-    value: Nat128,
+    value: u128,
     kind: FieldKind,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
@@ -424,7 +424,7 @@ pub(super) fn encode_nat128_fast_path_binary_bytes(
 pub(super) fn decode_nat128_fast_path_binary_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
-) -> Result<Option<Nat128>, FieldDecodeError> {
+) -> Result<Option<u128>, FieldDecodeError> {
     match decode_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
         Some(Value::Nat128(value)) => Ok(Some(value)),
         Some(Value::Null) => Ok(None),

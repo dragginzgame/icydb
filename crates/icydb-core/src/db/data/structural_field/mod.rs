@@ -427,7 +427,7 @@ pub(in crate::db) fn decode_map_field_entries(
 
 /// Encode one direct int128 leaf through the canonical scalar fast path.
 pub(in crate::db) fn encode_int128_field_by_kind_bytes(
-    value: crate::types::Int128,
+    value: i128,
     kind: FieldKind,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
@@ -438,13 +438,13 @@ pub(in crate::db) fn encode_int128_field_by_kind_bytes(
 pub(in crate::db) fn decode_int128_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
-) -> Result<Option<crate::types::Int128>, FieldDecodeError> {
+) -> Result<Option<i128>, FieldDecodeError> {
     decode_scalar_int128_field_by_kind_bytes(raw_bytes, kind)
 }
 
 /// Encode one direct nat128 leaf through the canonical scalar fast path.
 pub(in crate::db) fn encode_nat128_field_by_kind_bytes(
-    value: crate::types::Nat128,
+    value: u128,
     kind: FieldKind,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
@@ -455,7 +455,7 @@ pub(in crate::db) fn encode_nat128_field_by_kind_bytes(
 pub(in crate::db) fn decode_nat128_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
-) -> Result<Option<crate::types::Nat128>, FieldDecodeError> {
+) -> Result<Option<u128>, FieldDecodeError> {
     decode_scalar_nat128_field_by_kind_bytes(raw_bytes, kind)
 }
 

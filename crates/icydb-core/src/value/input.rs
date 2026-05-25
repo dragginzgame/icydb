@@ -1,8 +1,8 @@
 use crate::{
     traits::EntityKey,
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, Id, Int128, IntBig, Nat128, NatBig,
-        Principal, Subaccount, Timestamp, Ulid,
+        Account, Date, Decimal, Duration, Float32, Float64, Id, IntBig, NatBig, Principal,
+        Subaccount, Timestamp, Ulid,
     },
     value::{Value, ValueEnum},
 };
@@ -30,7 +30,7 @@ pub enum InputValue {
     Float64(Float64),
     #[serde(rename = "Int")]
     Int64(i64),
-    Int128(Int128),
+    Int128(i128),
     IntBig(IntBig),
     List(Vec<Self>),
     Map(Vec<(Self, Self)>),
@@ -41,7 +41,7 @@ pub enum InputValue {
     Timestamp(Timestamp),
     #[serde(rename = "Nat")]
     Nat64(u64),
-    Nat128(Nat128),
+    Nat128(u128),
     NatBig(NatBig),
     Ulid(Ulid),
     Unit,
@@ -264,8 +264,8 @@ impl From<IntBig> for InputValue {
     }
 }
 
-impl From<Int128> for InputValue {
-    fn from(value: Int128) -> Self {
+impl From<i128> for InputValue {
+    fn from(value: i128) -> Self {
         Self::Int128(value)
     }
 }
@@ -276,8 +276,8 @@ impl From<NatBig> for InputValue {
     }
 }
 
-impl From<Nat128> for InputValue {
-    fn from(value: Nat128) -> Self {
+impl From<u128> for InputValue {
+    fn from(value: u128) -> Self {
         Self::Nat128(value)
     }
 }

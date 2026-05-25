@@ -12,8 +12,8 @@ use crate::{
         },
     },
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, Int128, IntBig, Nat128, NatBig,
-        Principal, Subaccount, Timestamp, Ulid,
+        Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
+        Timestamp, Ulid,
     },
     value::{StorageKey, Value, ValueEnum, storage_key_as_runtime_value},
 };
@@ -189,17 +189,9 @@ fn primary_key_value_encoder_matches_value_encoder_for_all_primary_key_variants(
 #[test]
 fn canonical_encoder_respects_numeric_order_for_scalars() {
     assert_encoded_order(Value::Int64(-2), Value::Int64(7), Ordering::Less);
-    assert_encoded_order(
-        Value::Int128(Int128::from(-2i128)),
-        Value::Int128(Int128::from(7i128)),
-        Ordering::Less,
-    );
+    assert_encoded_order(Value::Int128(-2i128), Value::Int128(7i128), Ordering::Less);
     assert_encoded_order(Value::Nat64(2), Value::Nat64(7), Ordering::Less);
-    assert_encoded_order(
-        Value::Nat128(Nat128::from(2u128)),
-        Value::Nat128(Nat128::from(7u128)),
-        Ordering::Less,
-    );
+    assert_encoded_order(Value::Nat128(2u128), Value::Nat128(7u128), Ordering::Less);
     assert_encoded_order(
         Value::IntBig(IntBig::from(-20i32)),
         Value::IntBig(IntBig::from(-7i32)),
@@ -624,8 +616,8 @@ fn canonical_encoder_total_order_matches_value_canonical_cmp_for_supported_sampl
         Value::Float64(Float64::try_new(1.0).expect("finite")),
         Value::Int64(-2),
         Value::Int64(7),
-        Value::Int128(Int128::from(-2i128)),
-        Value::Int128(Int128::from(7i128)),
+        Value::Int128(-2i128),
+        Value::Int128(7i128),
         Value::IntBig(IntBig::from(-7i32)),
         Value::IntBig(IntBig::from(7i32)),
         Value::Principal(Principal::from_slice(&[1u8])),
@@ -638,8 +630,8 @@ fn canonical_encoder_total_order_matches_value_canonical_cmp_for_supported_sampl
         Value::Timestamp(Timestamp::from_secs(2)),
         Value::Nat64(1),
         Value::Nat64(2),
-        Value::Nat128(Nat128::from(1u128)),
-        Value::Nat128(Nat128::from(2u128)),
+        Value::Nat128(1u128),
+        Value::Nat128(2u128),
         Value::NatBig(NatBig::from(1u64)),
         Value::NatBig(NatBig::from(2u64)),
         Value::Ulid(Ulid::from_u128(1)),
@@ -706,17 +698,17 @@ fn canonical_encoder_pairwise_cmp_matches_bytes_for_primitive_families() {
         (
             "Int128",
             vec![
-                Value::Int128(Int128::from(-2i128)),
-                Value::Int128(Int128::from(0i128)),
-                Value::Int128(Int128::from(7i128)),
+                Value::Int128(-2i128),
+                Value::Int128(0i128),
+                Value::Int128(7i128),
             ],
         ),
         (
             "Nat128",
             vec![
-                Value::Nat128(Nat128::from(0u128)),
-                Value::Nat128(Nat128::from(1u128)),
-                Value::Nat128(Nat128::from(7u128)),
+                Value::Nat128(0u128),
+                Value::Nat128(1u128),
+                Value::Nat128(7u128),
             ],
         ),
         (

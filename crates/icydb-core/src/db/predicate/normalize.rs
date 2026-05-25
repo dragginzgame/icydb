@@ -13,7 +13,7 @@ use crate::{
         schema::{SchemaInfo, ValidateError},
     },
     model::{classify_field_kind, field::FieldKind},
-    types::{Int128, IntBig, Nat128, NatBig},
+    types::{IntBig, NatBig},
     value::{Value, canonicalize_value_set},
 };
 
@@ -373,7 +373,7 @@ fn normalize_numeric_value_for_kind(
             .map(Value::Int64),
         FieldKind::Int128 => value
             .to_numeric_decimal()
-            .and_then(<Int128 as crate::traits::NumericValue>::try_from_decimal)
+            .and_then(<i128 as crate::traits::NumericValue>::try_from_decimal)
             .map(Value::Int128),
         FieldKind::IntBig { .. } => value
             .to_numeric_decimal()
@@ -385,7 +385,7 @@ fn normalize_numeric_value_for_kind(
             .map(Value::Nat64),
         FieldKind::Nat128 => value
             .to_numeric_decimal()
-            .and_then(<Nat128 as crate::traits::NumericValue>::try_from_decimal)
+            .and_then(<u128 as crate::traits::NumericValue>::try_from_decimal)
             .map(Value::Nat128),
         FieldKind::NatBig { .. } => value
             .to_numeric_decimal()
