@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.162.md](docs/changelog/0.162.md)
 
+- `0.162.19` cleans up post-hard-cut numeric terminology across schema,
+  runtime value, planner, and storage vocabulary boundaries.
+
 - `0.162.18` hard-cuts schema numeric names to explicit fixed-width
   `int*` / `nat*` contracts and bounded `int_big` / `nat_big` contracts.
 
