@@ -2140,6 +2140,153 @@ mod tests {
     }
 
     #[test]
+    fn composite_primary_key_closeout_storage_footprint_is_linear_and_key_owned() {
+        let entity = EntityTag::new(0x162);
+        let index_id = IndexId::new(entity, 7);
+        let index_component =
+            EncodedIndexComponent::encode_primary_overlap(PrimaryKeyComponent::Nat64(99))
+                .expect("index component should encode");
+        let index_entry = IndexEntryValue::presence_only();
+
+        let two_nat64 = PrimaryKeyValue::Composite(
+            CompositePrimaryKeyValue::try_from_components(&[
+                PrimaryKeyComponent::Nat64(7),
+                PrimaryKeyComponent::Nat64(11),
+            ])
+            .expect("two-component composite key should build"),
+        );
+        let three_mixed = PrimaryKeyValue::Composite(
+            CompositePrimaryKeyValue::try_from_components(&[
+                PrimaryKeyComponent::Nat64(7),
+                PrimaryKeyComponent::Int128(i128::MIN),
+                PrimaryKeyComponent::Ulid(Ulid::from_u128(11)),
+            ])
+            .expect("three-component composite key should build"),
+        );
+        let variable_mixed = PrimaryKeyValue::Composite(
+            CompositePrimaryKeyValue::try_from_components(&[
+                PrimaryKeyComponent::Nat64(7),
+                PrimaryKeyComponent::Principal(Principal::from_slice(&[1, 2, 3])),
+            ])
+            .expect("mixed variable-width composite key should build"),
+        );
+
+        let cases = [
+            (
+                "scalar_nat64",
+                PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(7)),
+                9,
+                17,
+                34,
+            ),
+            (
+                "scalar_int128",
+                PrimaryKeyValue::from(PrimaryKeyComponent::Int128(i128::MIN)),
+                17,
+                25,
+                42,
+            ),
+            (
+                "scalar_nat128",
+                PrimaryKeyValue::from(PrimaryKeyComponent::Nat128(u128::MAX)),
+                17,
+                25,
+                42,
+            ),
+            ("composite_nat64_nat64", two_nat64, 20, 28, 45),
+            ("composite_nat64_int128_ulid", three_mixed, 45, 53, 70),
+            ("composite_nat64_principal3", variable_mixed, 16, 24, 41),
+        ];
+
+        for (label, primary_key_value, encoded_len, data_key_len, index_key_len) in cases {
+            let primary_key = EncodedPrimaryKey::encode(primary_key_value)
+                .expect("primary key value should encode");
+            let data_key = DataStoreKey::new(entity, primary_key.clone()).to_raw();
+            let index_key =
+                IndexStoreKey::new(index_id, vec![index_component.clone()], primary_key.clone())
+                    .to_raw()
+                    .expect("index key should encode");
+
+            assert_eq!(
+                primary_key.as_bytes().len(),
+                encoded_len,
+                "{label}: encoded primary-key length"
+            );
+            assert_eq!(
+                data_key.as_bytes().len(),
+                data_key_len,
+                "{label}: raw data-store key length"
+            );
+            assert_eq!(
+                index_key.as_bytes().len(),
+                index_key_len,
+                "{label}: raw index-store key length with one Nat64 component"
+            );
+            assert_eq!(
+                index_key
+                    .decode()
+                    .expect("index key should decode")
+                    .primary_key(),
+                &primary_key,
+                "{label}: row identity should roundtrip from the key suffix"
+            );
+            assert_eq!(
+                index_entry.as_bytes().len(),
+                1,
+                "{label}: index entry value must remain presence-only"
+            );
+        }
+
+        let fixed_128_boundary_cases = [
+            (
+                "int128_min",
+                PrimaryKeyValue::from(PrimaryKeyComponent::Int128(i128::MIN)),
+            ),
+            (
+                "int128_minus_one",
+                PrimaryKeyValue::from(PrimaryKeyComponent::Int128(-1)),
+            ),
+            (
+                "int128_zero",
+                PrimaryKeyValue::from(PrimaryKeyComponent::Int128(0)),
+            ),
+            (
+                "int128_one",
+                PrimaryKeyValue::from(PrimaryKeyComponent::Int128(1)),
+            ),
+            (
+                "int128_max",
+                PrimaryKeyValue::from(PrimaryKeyComponent::Int128(i128::MAX)),
+            ),
+            (
+                "nat128_zero",
+                PrimaryKeyValue::from(PrimaryKeyComponent::Nat128(0)),
+            ),
+            (
+                "nat128_one",
+                PrimaryKeyValue::from(PrimaryKeyComponent::Nat128(1)),
+            ),
+            (
+                "nat128_max",
+                PrimaryKeyValue::from(PrimaryKeyComponent::Nat128(u128::MAX)),
+            ),
+        ];
+        for (label, primary_key_value) in fixed_128_boundary_cases {
+            let primary_key = EncodedPrimaryKey::encode(primary_key_value)
+                .expect("128-bit primary key should encode");
+            let data_key = DataStoreKey::new(entity, primary_key.clone()).to_raw();
+            let index_key =
+                IndexStoreKey::new(index_id, vec![index_component.clone()], primary_key.clone())
+                    .to_raw()
+                    .expect("128-bit index key should encode");
+
+            assert_eq!(primary_key.as_bytes().len(), 17, "{label}: encoded pk");
+            assert_eq!(data_key.as_bytes().len(), 25, "{label}: data key");
+            assert_eq!(index_key.as_bytes().len(), 42, "{label}: index key");
+        }
+    }
+
+    #[test]
     fn raw_data_store_key_decodes_live_compact_shape() {
         let entity = EntityTag::new(0x1590);
         let primary = EncodedPrimaryKey::encode(PrimaryKeyComponent::Int64(-5))

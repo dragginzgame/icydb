@@ -411,12 +411,12 @@ fn primary_key_component_relation_decode_preserves_scalar_null_semantics() {
         &Value::Ulid(target),
         "id",
     )
-    .expect("storage-key relation bytes should encode")
-    .expect("relation kind should use storage-key binary lane");
+    .expect("relation primary-key component bytes should encode")
+    .expect("relation kind should use primary-key component binary lane");
     let null_bytes =
         encode_primary_key_component_binary_value_bytes(STRONG_RELATION_KIND, &Value::Null, "id")
             .expect("null relation bytes should encode")
-            .expect("relation kind should use storage-key binary lane");
+            .expect("relation kind should use primary-key component binary lane");
 
     let decoded = decode_relation_target_primary_key_components_binary_bytes(
         &target_bytes,
@@ -446,7 +446,7 @@ fn primary_key_component_relation_list_decode_skips_null_items() {
         "ids",
     )
     .expect("relation list bytes should encode")
-    .expect("relation list should use storage-key binary lane");
+    .expect("relation list should use primary-key component binary lane");
 
     let decoded = decode_relation_target_primary_key_components_binary_bytes(
         &bytes,

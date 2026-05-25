@@ -24,7 +24,7 @@ pub struct Target;
     pk(fields = ["id"]),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), generated(insert = "Ulid::generate")),
-        // Relation fields must always declare storage key shape explicitly.
+        // Relation fields must always declare scalar target key shape explicitly.
         field(ident = "target_id", value(item(rel = "Target")))
     )
 )]
