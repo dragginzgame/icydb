@@ -670,7 +670,7 @@ fn logical_explain_json_reports_composite_prefix_binding_detail() {
         "prefix explain should expose bound composite fields",
     );
     assert!(
-        json.contains("\"bound_values\":[\"Nat(7)\"]"),
+        json.contains("\"bound_values\":[\"Nat64(7)\"]"),
         "prefix explain should expose bound composite values",
     );
     assert!(
@@ -705,7 +705,7 @@ fn logical_explain_json_reports_composite_range_binding_detail() {
         "range explain should expose equality prefix fields",
     );
     assert!(
-        json.contains("\"equality_prefix_values\":[\"Nat(7)\"]"),
+        json.contains("\"equality_prefix_values\":[\"Nat64(7)\"]"),
         "range explain should expose equality prefix values",
     );
     assert!(
