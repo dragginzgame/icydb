@@ -12,7 +12,7 @@ canisters. It gives Rust canisters typed entities, stable-memory storage,
 indexes, fluent queries, reduced SQL, pagination, aggregate/grouped execution,
 and explain/metrics surfaces.
 
-Current workspace version: `0.162.16`
+Current workspace version: `0.162.17`
 
 IcyDB's declared minimum supported Rust version is `1.88.0`. Repository
 development, formatting, Clippy, CI, and release builds use Rust `1.95.0`.
@@ -38,14 +38,14 @@ Pin IcyDB by tag in downstream canisters:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.162.16" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.162.17" }
 ```
 
 SQL is enabled by default. For typed/fluent-only builds:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.162.16", default-features = false }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.162.17", default-features = false }
 ```
 
 ## Minimal Shape
