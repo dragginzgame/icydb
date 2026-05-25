@@ -165,7 +165,6 @@ impl Primitive {
     #[must_use]
     pub const fn is_primary_key_encodable(self) -> bool {
         primitive_scalar_kind(self).is_primary_key_component_encodable()
-            || matches!(self, Self::Int128 | Self::Nat128)
     }
 
     #[must_use]

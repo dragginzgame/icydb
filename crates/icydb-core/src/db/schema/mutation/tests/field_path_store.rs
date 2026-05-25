@@ -413,8 +413,7 @@ fn field_path_rebuild_isolated_index_store_validation_can_scope_to_target_index(
     let target_index_id = IndexId::new(EntityTag::new(7), target.ordinal());
     let other_index_id = IndexId::new(EntityTag::new(7), target.ordinal() + 1);
     let other_key = IndexKey::empty_with_kind(&other_index_id, IndexKeyKind::User).to_raw();
-    let other_entry = IndexEntryValue::try_from_keys([PrimaryKeyComponent::Nat64(77)])
-        .expect("other entry should encode");
+    let other_entry = IndexEntryValue::presence();
     let mut index_store = initialized_index_store(229);
     let mut writer =
         super::SchemaFieldPathIndexIsolatedIndexStoreWriter::new(buffer.store(), &mut index_store);
@@ -616,8 +615,7 @@ fn field_path_rebuild_published_store_can_scope_to_target_index() {
     let target_index_id = IndexId::new(EntityTag::new(7), target.ordinal());
     let other_index_id = IndexId::new(EntityTag::new(7), target.ordinal() + 1);
     let other_key = IndexKey::empty_with_kind(&other_index_id, IndexKeyKind::User).to_raw();
-    let other_entry = IndexEntryValue::try_from_keys([PrimaryKeyComponent::Nat64(77)])
-        .expect("other entry should encode");
+    let other_entry = IndexEntryValue::presence();
     let mut index_store = initialized_index_store(227);
     let batch;
     let validation;

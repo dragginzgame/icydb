@@ -32,7 +32,7 @@ pub(crate) enum IndexEntryCorruption {
     #[error("index entry exceeds max size")]
     TooLarge { len: usize },
 
-    #[error("index entry length does not match key count")]
+    #[error("index entry value length does not match presence witness shape")]
     LengthMismatch,
 
     #[error("index entry contains invalid key bytes")]
@@ -64,16 +64,6 @@ impl IndexEntryCorruption {
 ///
 /// IndexRowIdentity
 ///
-
-#[cfg(test)]
-#[derive(Debug, ThisError)]
-pub(crate) enum IndexEntryValueEncodeError {
-    #[error("index entry test constructor received more than one key: {keys}")]
-    TooManyKeys { keys: usize },
-
-    #[error("index entry test constructor received no keys")]
-    EmptyEntry,
-}
 
 #[derive(Clone, Debug)]
 pub(crate) struct IndexRowIdentity {
@@ -177,11 +167,6 @@ impl IndexEntryValue {
         Self::from_persisted_bytes(vec![IndexEntryExistenceWitness::Present.to_stored_byte()])
     }
 
-    #[must_use]
-    pub(crate) fn from_row_identity(_entry: &IndexRowIdentity) -> Self {
-        Self::presence()
-    }
-
     pub(crate) fn decode_row_identity(
         &self,
         raw_key: &RawIndexStoreKey,
@@ -206,36 +191,6 @@ impl IndexEntryValue {
         }
 
         Ok(false)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn try_from_primary_key_values<I>(
-        keys: I,
-    ) -> Result<Self, IndexEntryValueEncodeError>
-    where
-        I: IntoIterator,
-        I::Item: Into<PrimaryKeyValue>,
-    {
-        // Phase 1: bound-check key cardinality.
-        let count = keys.into_iter().count();
-
-        if count == 0 {
-            return Err(IndexEntryValueEncodeError::EmptyEntry);
-        }
-        if count > 1 {
-            return Err(IndexEntryValueEncodeError::TooManyKeys { keys: count });
-        }
-
-        Ok(Self::presence())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn try_from_keys<I>(keys: I) -> Result<Self, IndexEntryValueEncodeError>
-    where
-        I: IntoIterator,
-        I::Item: Into<PrimaryKeyValue>,
-    {
-        Self::try_from_primary_key_values(keys)
     }
 
     // Decode the key-owned raw entry row identity plus its storage-owned
@@ -286,12 +241,6 @@ fn primary_key_value_from_raw_index_store_key(
         .map_err(|_| IndexEntryCorruption::InvalidKey)
 }
 
-impl From<&IndexRowIdentity> for IndexEntryValue {
-    fn from(entry: &IndexRowIdentity) -> Self {
-        Self::from_row_identity(entry)
-    }
-}
-
 impl Storable for IndexEntryValue {
     fn to_bytes(&self) -> Cow<'_, [u8]> {
         Cow::Borrowed(self.as_bytes())
@@ -318,8 +267,7 @@ impl Storable for IndexEntryValue {
 #[cfg(test)]
 mod tests {
     use super::{
-        IndexEntryCorruption, IndexEntryExistenceWitness, IndexEntryValue,
-        IndexEntryValueEncodeError, MAX_INDEX_ENTRY_BYTES,
+        IndexEntryCorruption, IndexEntryExistenceWitness, IndexEntryValue, MAX_INDEX_ENTRY_BYTES,
     };
     use crate::{
         db::{
@@ -358,7 +306,7 @@ mod tests {
         let key = PrimaryKeyComponent::Int64(1);
         let raw_key = raw_key_for(key);
 
-        let raw = IndexEntryValue::try_from_keys([key]).expect("encode index entry");
+        let raw = IndexEntryValue::presence();
         let decoded = raw
             .decode_row_witness(&raw_key)
             .expect("decode index entry")
@@ -377,7 +325,7 @@ mod tests {
     fn index_entry_value_decode_primary_key_component_recovers_key_owned_row_identity() {
         let key = PrimaryKeyComponent::Int64(9);
         let raw_key = raw_key_for(key);
-        let raw = IndexEntryValue::try_from_keys([key]).expect("encode index entry");
+        let raw = IndexEntryValue::presence();
 
         assert_eq!(
             raw.decode_row_witness(&raw_key)
@@ -390,11 +338,10 @@ mod tests {
     }
 
     #[test]
-    fn index_entry_value_row_identity_is_owned_by_raw_key_not_value_constructor_input() {
-        let constructor_key = PrimaryKeyComponent::Int64(9);
+    fn index_entry_value_presence_decodes_row_identity_from_raw_key() {
         let raw_key_key = PrimaryKeyComponent::Nat64(42);
         let raw_key = raw_key_for(raw_key_key);
-        let raw = IndexEntryValue::try_from_keys([constructor_key]).expect("encode index entry");
+        let raw = IndexEntryValue::presence();
 
         assert_eq!(
             raw.decode_row_witness(&raw_key)
@@ -412,24 +359,10 @@ mod tests {
     }
 
     #[test]
-    fn index_entry_value_try_from_keys_rejects_multi_key_entries() {
-        let err = IndexEntryValue::try_from_keys([
-            PrimaryKeyComponent::Int64(1),
-            PrimaryKeyComponent::Nat64(2),
-        ])
-        .expect_err("presence-only entries reject duplicated row identity");
-
-        assert!(matches!(
-            err,
-            IndexEntryValueEncodeError::TooManyKeys { keys: 2 }
-        ));
-    }
-
-    #[test]
     fn index_entry_value_decode_row_witness_recovers_present_witness() {
         let key = PrimaryKeyComponent::Int64(9);
         let raw_key = raw_key_for(key);
-        let raw = IndexEntryValue::try_from_keys([key]).expect("encode index entry");
+        let raw = IndexEntryValue::presence();
         let row_witness = raw
             .decode_row_witness(&raw_key)
             .expect("decode row witness");
@@ -473,7 +406,7 @@ mod tests {
         let key = PrimaryKeyComponent::Int64(9);
         let raw_key = raw_key_for(key);
 
-        let raw = IndexEntryValue::try_from_keys([key]).expect("encode index entry");
+        let raw = IndexEntryValue::presence();
         let encoded = Storable::to_bytes(&raw);
         let raw = IndexEntryValue::from_bytes(encoded);
         let decoded = raw
@@ -526,14 +459,6 @@ mod tests {
             raw.decode_row_witness(&invalid_raw_key),
             Err(IndexEntryCorruption::InvalidKey)
         ));
-    }
-
-    #[test]
-    fn index_entry_value_try_from_keys_rejects_empty_row_identity() {
-        let err = IndexEntryValue::try_from_keys(Vec::<PrimaryKeyValue>::new())
-            .expect_err("encoding should reject no keys");
-
-        assert!(matches!(err, IndexEntryValueEncodeError::EmptyEntry));
     }
 
     #[test]

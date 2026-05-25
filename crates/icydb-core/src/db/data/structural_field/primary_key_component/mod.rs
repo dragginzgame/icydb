@@ -34,7 +34,7 @@ type RelationKeyDecodeState = (Vec<PrimaryKeyComponent>, FieldKind);
 type AcceptedRelationKeyDecodeState<'a> = (Vec<PrimaryKeyComponent>, &'a PersistedFieldKind);
 
 /// Return whether this field kind is owned by the Structural Binary v1
-/// storage-key lane.
+/// primary-key-component lane.
 pub(in crate::db) const fn supports_primary_key_component_binary_kind(kind: FieldKind) -> bool {
     match kind {
         FieldKind::Account
@@ -42,6 +42,7 @@ pub(in crate::db) const fn supports_primary_key_component_binary_kind(kind: Fiel
         | FieldKind::Int16
         | FieldKind::Int32
         | FieldKind::Int64
+        | FieldKind::Int128
         | FieldKind::Principal
         | FieldKind::Subaccount
         | FieldKind::Timestamp
@@ -49,6 +50,7 @@ pub(in crate::db) const fn supports_primary_key_component_binary_kind(kind: Fiel
         | FieldKind::Nat16
         | FieldKind::Nat32
         | FieldKind::Nat64
+        | FieldKind::Nat128
         | FieldKind::Ulid
         | FieldKind::Unit => true,
         FieldKind::Relation { key_kind, .. } => {
@@ -62,7 +64,7 @@ pub(in crate::db) const fn supports_primary_key_component_binary_kind(kind: Fiel
     }
 }
 
-/// Decode one strong-relation field payload directly into target storage keys.
+/// Decode one strong-relation field payload directly into target primary-key components.
 ///
 /// This keeps delete validation and reverse-index maintenance on structural
 /// key forms without first rebuilding a runtime `Value` or `Value::List`.
@@ -77,7 +79,7 @@ pub(in crate::db) fn decode_relation_target_primary_key_components_bytes(
 }
 
 /// Decode one accepted strong-relation field payload directly into target
-/// storage keys.
+/// primary-key components.
 pub(in crate::db) fn decode_accepted_relation_target_primary_key_components_bytes(
     raw_bytes: &[u8],
     kind: &PersistedFieldKind,
@@ -87,7 +89,7 @@ pub(in crate::db) fn decode_accepted_relation_target_primary_key_components_byte
     )
 }
 
-/// Decode one optional storage-key-compatible field payload directly into its
+/// Decode one optional primary-key-component field payload directly into its
 /// canonical `PrimaryKeyComponent` form.
 pub(in crate::db) fn decode_optional_primary_key_component_field_bytes(
     raw_bytes: &[u8],
@@ -98,7 +100,7 @@ pub(in crate::db) fn decode_optional_primary_key_component_field_bytes(
     )
 }
 
-/// Encode one storage-key-compatible field payload directly into its
+/// Encode one primary-key-component field payload directly into its
 /// canonical Structural Binary v1 bytes.
 pub(in crate::db) fn encode_primary_key_component_field_bytes(
     key: PrimaryKeyComponent,

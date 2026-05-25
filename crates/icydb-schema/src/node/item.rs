@@ -127,14 +127,17 @@ impl ValidateNode for Item {
 
         // Phase 2: validate relation target compatibility.
         if let Some(relation) = self.relation() {
-            // Step 1: Ensure the relation path exists and is an Entity
             match schema.cast_node::<Entity>(relation) {
                 Ok(entity) => {
-                    // Step 2: Get target of the relation entity (usually from its primary key field)
-                    if let Some(primary_field) = entity.get_pk_field() {
+                    if entity.primary_key().fields().len() != 1 {
+                        err!(
+                            errs,
+                            "relation entity '{relation}' uses composite primary key fields {:?}; relation targets require a scalar primary key in 0.162",
+                            entity.primary_key().fields()
+                        );
+                    } else if let Some(primary_field) = entity.scalar_primary_key_field() {
                         let relation_target = primary_field.value().item().target();
 
-                        // Step 3: Compare declared item target and primitive metadata.
                         let relation_scale = primary_field.value().item().scale();
                         let relation_max_len = primary_field.value().item().max_len();
                         let relation_max_bytes = primary_field.value().item().max_bytes();
@@ -157,10 +160,12 @@ impl ValidateNode for Item {
                             );
                         }
                     } else {
+                        let primary_key_field =
+                            entity.primary_key().scalar_field().unwrap_or("<composite>");
                         err!(
                             errs,
                             "relation entity '{relation}' missing primary key field '{0}'",
-                            entity.primary_key().field()
+                            primary_key_field
                         );
                     }
                 }

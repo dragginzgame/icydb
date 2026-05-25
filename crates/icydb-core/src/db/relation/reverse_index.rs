@@ -965,3 +965,111 @@ fn relation_target_keys_for_transition_side(
         None => Ok(Vec::new()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AcceptedStrongRelationInfo, AcceptedStrongRelationTargetIdentity,
+        ReverseRelationSourceInfo, reverse_index_key_bounds_for_target_primary_key_component,
+        reverse_index_key_for_target_and_source_primary_key,
+    };
+    use crate::db::{
+        index::{IndexId, encode_canonical_index_component_from_primary_key_value},
+        key_taxonomy::{
+            EncodedIndexComponent, IndexStoreKeyKind, PrimaryKeyComponent, PrimaryKeyValue,
+        },
+        schema::{PersistedFieldKind, PersistedRelationStrength},
+    };
+    use crate::types::EntityTag;
+
+    fn relation(field_index: usize, key_kind: PersistedFieldKind) -> AcceptedStrongRelationInfo {
+        AcceptedStrongRelationInfo {
+            field_index,
+            field_name: "target_id".to_string(),
+            field_kind: PersistedFieldKind::Relation {
+                target_path: "Target".to_string(),
+                target_entity_name: "Target".to_string(),
+                target_entity_tag: EntityTag::new(77),
+                target_store_path: "TargetStore".to_string(),
+                key_kind: Box::new(key_kind.clone()),
+                strength: PersistedRelationStrength::Strong,
+            },
+            target: AcceptedStrongRelationTargetIdentity::try_new(
+                "Source",
+                "target_id",
+                "Target",
+                "Target",
+                EntityTag::new(77),
+                "TargetStore",
+                &key_kind,
+            )
+            .expect("target identity should build"),
+        }
+    }
+
+    #[test]
+    fn reverse_relation_keys_accept_128_bit_target_primary_key_components() {
+        let source = ReverseRelationSourceInfo {
+            path: "Source",
+            entity_tag: EntityTag::new(9),
+        };
+        let source_primary_key = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(44));
+
+        for (ordinal, key_kind, target_component) in [
+            (
+                3,
+                PersistedFieldKind::Int128,
+                PrimaryKeyComponent::Int128(i128::MIN + 91),
+            ),
+            (
+                4,
+                PersistedFieldKind::Nat128,
+                PrimaryKeyComponent::Nat128(u128::MAX - 91),
+            ),
+        ] {
+            let relation = relation(ordinal, key_kind);
+            let raw = reverse_index_key_for_target_and_source_primary_key(
+                source,
+                &relation,
+                target_component,
+                &source_primary_key,
+            )
+            .expect("reverse key should build")
+            .expect("128-bit target component should be index encodable");
+            let decoded = raw.decode().expect("reverse key should decode");
+            let expected_component = EncodedIndexComponent::from_canonical_bytes(
+                encode_canonical_index_component_from_primary_key_value(target_component)
+                    .expect("target component should encode as index component"),
+            );
+
+            assert_eq!(
+                decoded.key_kind(),
+                IndexStoreKeyKind::System,
+                "reverse indexes use system key kind",
+            );
+            assert_eq!(
+                decoded.index_id(),
+                IndexId::new(
+                    EntityTag::new(9),
+                    u16::try_from(ordinal).expect("test ordinal fits u16"),
+                )
+            );
+            assert_eq!(decoded.components(), &[expected_component]);
+            assert_eq!(
+                decoded.primary_key().decode().expect("source key decodes"),
+                source_primary_key,
+            );
+
+            let bounds = reverse_index_key_bounds_for_target_primary_key_component(
+                source,
+                &relation,
+                target_component,
+            )
+            .expect("reverse bounds should build");
+            assert!(
+                bounds.is_some(),
+                "128-bit target component should produce reverse index bounds",
+            );
+        }
+    }
+}

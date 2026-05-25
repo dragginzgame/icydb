@@ -1,7 +1,7 @@
 //! Module: data::structural_field::primary_key_component::decode
-//! Responsibility: storage-key-compatible Structural Binary decode and validation.
+//! Responsibility: primary-key-component Structural Binary decode and validation.
 //! Does not own: relation indexing policy, runtime row decode, or generic value-storage envelopes.
-//! Boundary: callers provide field-kind authority; this module returns storage-key/runtime values only.
+//! Boundary: callers provide field-kind authority; this module returns primary-key components/runtime values only.
 
 use crate::{
     db::data::structural_field::{
@@ -33,7 +33,7 @@ use crate::{
 };
 
 /// Decode one strong-relation field payload from Structural Binary v1 directly
-/// into target storage keys.
+/// into target primary-key components.
 #[cfg(test)]
 pub(in crate::db) fn decode_relation_target_primary_key_components_binary_bytes(
     raw_bytes: &[u8],
@@ -56,7 +56,7 @@ pub(in crate::db) fn decode_relation_target_primary_key_components_binary_bytes(
 }
 
 /// Decode one accepted strong-relation field payload from Structural Binary v1
-/// directly into target storage keys.
+/// directly into target primary-key components.
 pub(in crate::db) fn decode_accepted_relation_target_primary_key_components_binary_bytes(
     raw_bytes: &[u8],
     kind: &PersistedFieldKind,
@@ -84,7 +84,7 @@ pub(in crate::db) fn decode_accepted_relation_target_primary_key_components_bina
     }
 }
 
-/// Decode one storage-key-compatible Structural Binary v1 field payload
+/// Decode one primary-key-component Structural Binary v1 field payload
 /// directly into its canonical `PrimaryKeyComponent` form.
 pub(in crate::db) fn decode_primary_key_component_field_binary_bytes(
     raw_bytes: &[u8],
@@ -95,6 +95,9 @@ pub(in crate::db) fn decode_primary_key_component_field_binary_bytes(
         FieldKind::Int8 | FieldKind::Int16 | FieldKind::Int32 | FieldKind::Int64 => {
             decode_int_primary_key_component_binary_bytes(raw_bytes)
         }
+        FieldKind::Int128 => {
+            crate::db::data::structural_field::primary_key_component::scalar::decode_int128_primary_key_component_binary_bytes(raw_bytes)
+        }
         FieldKind::Principal => decode_principal_primary_key_component_binary_bytes(raw_bytes),
         FieldKind::Relation { key_kind, .. } => {
             decode_primary_key_component_field_binary_bytes(raw_bytes, *key_kind)
@@ -104,15 +107,18 @@ pub(in crate::db) fn decode_primary_key_component_field_binary_bytes(
         FieldKind::Nat8 | FieldKind::Nat16 | FieldKind::Nat32 | FieldKind::Nat64 => {
             decode_nat_primary_key_component_binary_bytes(raw_bytes)
         }
+        FieldKind::Nat128 => {
+            crate::db::data::structural_field::primary_key_component::scalar::decode_nat128_primary_key_component_binary_bytes(raw_bytes)
+        }
         FieldKind::Ulid => decode_ulid_primary_key_component_binary_bytes(raw_bytes),
         FieldKind::Unit => decode_unit_primary_key_component_binary_bytes(raw_bytes),
         other => Err(FieldDecodeError::new(format!(
-            "unsupported storage-key field kind during structural binary key decode: {other:?}"
+            "unsupported primary-key component field kind during structural binary key decode: {other:?}"
         ))),
     }
 }
 
-/// Decode one optional storage-key-compatible Structural Binary v1 field
+/// Decode one optional primary-key-component Structural Binary v1 field
 /// payload directly into its canonical `PrimaryKeyComponent` form.
 pub(in crate::db) fn decode_optional_primary_key_component_field_binary_bytes(
     raw_bytes: &[u8],
@@ -125,7 +131,7 @@ pub(in crate::db) fn decode_optional_primary_key_component_field_binary_bytes(
     decode_primary_key_component_field_binary_bytes(raw_bytes, kind).map(Some)
 }
 
-/// Decode one Structural Binary v1 storage-key-compatible field payload
+/// Decode one Structural Binary v1 primary-key-component field payload
 /// directly into its semantic runtime value.
 pub(in crate::db) fn decode_primary_key_component_binary_value_bytes(
     raw_bytes: &[u8],
@@ -154,7 +160,7 @@ pub(in crate::db) fn decode_primary_key_component_binary_value_bytes(
     Ok(Some(value))
 }
 
-/// Validate one Structural Binary v1 storage-key-compatible field payload
+/// Validate one Structural Binary v1 primary-key-component field payload
 /// without routing through the generic structural value lane.
 pub(in crate::db) fn validate_primary_key_component_binary_value_bytes(
     raw_bytes: &[u8],
@@ -235,7 +241,7 @@ fn decode_optional_accepted_relation_primary_key_component_binary_bytes(
 }
 
 // Decode one list/set relation payload from Structural Binary v1 into
-// canonical storage keys while preserving current null-item semantics.
+// canonical primary-key components while preserving current null-item semantics.
 fn decode_relation_primary_key_component_binary_list_bytes(
     raw_bytes: &[u8],
     key_kind: FieldKind,
@@ -267,7 +273,7 @@ fn decode_relation_primary_key_component_binary_list_bytes(
 }
 
 // Decode one accepted list/set relation payload from Structural Binary v1 into
-// canonical storage keys while preserving current null-item semantics.
+// canonical primary-key components while preserving current null-item semantics.
 fn decode_accepted_relation_primary_key_component_binary_list_bytes(
     raw_bytes: &[u8],
     key_kind: &PersistedFieldKind,
@@ -319,6 +325,9 @@ fn decode_accepted_primary_key_component_field_binary_bytes(
         | PersistedFieldKind::Int16
         | PersistedFieldKind::Int32
         | PersistedFieldKind::Int64 => decode_int_primary_key_component_binary_bytes(raw_bytes),
+        PersistedFieldKind::Int128 => {
+            crate::db::data::structural_field::primary_key_component::scalar::decode_int128_primary_key_component_binary_bytes(raw_bytes)
+        }
         PersistedFieldKind::Principal => {
             decode_principal_primary_key_component_binary_bytes(raw_bytes)
         }
@@ -335,6 +344,9 @@ fn decode_accepted_primary_key_component_field_binary_bytes(
         | PersistedFieldKind::Nat16
         | PersistedFieldKind::Nat32
         | PersistedFieldKind::Nat64 => decode_nat_primary_key_component_binary_bytes(raw_bytes),
+        PersistedFieldKind::Nat128 => {
+            crate::db::data::structural_field::primary_key_component::scalar::decode_nat128_primary_key_component_binary_bytes(raw_bytes)
+        }
         PersistedFieldKind::Ulid => decode_ulid_primary_key_component_binary_bytes(raw_bytes),
         PersistedFieldKind::Unit => decode_unit_primary_key_component_binary_bytes(raw_bytes),
         other => Err(FieldDecodeError::new(format!(

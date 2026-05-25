@@ -99,8 +99,7 @@ fn expression_rebuild_writer_reports_staged_write_intents_without_physical_mutat
 #[test]
 fn expression_rebuild_write_batch_snapshots_physical_rollback_without_publication() {
     let buffer = staged_lower_name_expression_store();
-    let previous_entry = IndexEntryValue::try_from_keys([PrimaryKeyComponent::Nat64(99)])
-        .expect("previous entry should encode");
+    let previous_entry = IndexEntryValue::presence();
     let mut read_view = RecordingStagedStoreReadView::default();
     read_view.insert(
         buffer.store(),
@@ -138,8 +137,7 @@ fn expression_rebuild_write_batch_snapshots_physical_rollback_without_publicatio
 #[test]
 fn expression_rebuild_write_batch_derives_reverse_rollback_plan() {
     let buffer = staged_lower_name_expression_store();
-    let previous_entry = IndexEntryValue::try_from_keys([PrimaryKeyComponent::Nat64(99)])
-        .expect("previous entry should encode");
+    let previous_entry = IndexEntryValue::presence();
     let mut read_view = RecordingStagedStoreReadView::default();
     read_view.insert(
         buffer.store(),

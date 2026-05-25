@@ -177,6 +177,7 @@ pub mod __macro {
         PersistedByKindCodec, PersistedFieldMetaCodec, PersistedFieldSlotCodec,
         PersistedStructuredFieldCodec, PrimaryKeyCodec, PrimaryKeyDecode, PrimaryKeyEncodeError,
         RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
+        ScalarRelationTargetKey, ScalarRelationTargetKeyMatchesDeclaredPrimitive,
         runtime_value_btree_map_from_value, runtime_value_btree_set_from_value,
         runtime_value_collection_to_value, runtime_value_from_value, runtime_value_from_vec_into,
         runtime_value_from_vec_into_btree_map, runtime_value_from_vec_into_btree_set,

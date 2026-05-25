@@ -78,10 +78,11 @@ impl Entity {
         &self.ty
     }
 
-    /// Return the primary key field if it exists on the entity.
+    /// Return the scalar primary key field if this entity uses a scalar
+    /// primary-key contract.
     #[must_use]
-    pub fn get_pk_field(&self) -> Option<&Field> {
-        self.fields().get(self.primary_key().field())
+    pub fn scalar_primary_key_field(&self) -> Option<&Field> {
+        self.fields().get(self.primary_key().scalar_field()?)
     }
 
     /// Resolve the entity name used for schema identity.

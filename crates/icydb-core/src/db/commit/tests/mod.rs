@@ -26,7 +26,6 @@ use crate::{
         },
         executor::SaveExecutor,
         index::{IndexEntryValue, IndexKey, IndexStore},
-        key_taxonomy::PrimaryKeyComponent,
         registry::{StoreHandle, StoreRegistry},
         relation::validate_delete_strong_relations_for_source,
         schema::{
@@ -42,8 +41,8 @@ use crate::{
     },
     testing::test_memory,
     traits::{
-        EntityKind, EntitySchema, FieldTypeMeta, Path, PersistedFieldSlotCodec, PrimaryKeyCodec,
-        RuntimeValueDecode, RuntimeValueEncode,
+        EntityKind, EntitySchema, FieldTypeMeta, Path, PersistedFieldSlotCodec, RuntimeValueDecode,
+        RuntimeValueEncode,
     },
     types::{EntityTag, Ulid},
     value::{Value, ValueEnum},
@@ -59,46 +58,6 @@ static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
 
 fn active_true_predicate() -> &'static Predicate {
     &ACTIVE_TRUE_PREDICATE
-}
-
-fn scalar_primary_key_component_for_test<K: PrimaryKeyCodec>(
-    key: &K,
-    context: &'static str,
-) -> PrimaryKeyComponent {
-    let component = key
-        .to_primary_key_value()
-        .expect(context)
-        .scalar_component()
-        .expect("test fixtures use scalar primary keys");
-
-    match component {
-        crate::db::key_taxonomy::PrimaryKeyComponent::Account(value) => {
-            PrimaryKeyComponent::Account(value)
-        }
-        crate::db::key_taxonomy::PrimaryKeyComponent::Int64(value) => {
-            PrimaryKeyComponent::Int64(value)
-        }
-        crate::db::key_taxonomy::PrimaryKeyComponent::Principal(value) => {
-            PrimaryKeyComponent::Principal(value)
-        }
-        crate::db::key_taxonomy::PrimaryKeyComponent::Subaccount(value) => {
-            PrimaryKeyComponent::Subaccount(value)
-        }
-        crate::db::key_taxonomy::PrimaryKeyComponent::Timestamp(value) => {
-            PrimaryKeyComponent::Timestamp(value)
-        }
-        crate::db::key_taxonomy::PrimaryKeyComponent::Nat64(value) => {
-            PrimaryKeyComponent::Nat64(value)
-        }
-        crate::db::key_taxonomy::PrimaryKeyComponent::Ulid(value) => {
-            PrimaryKeyComponent::Ulid(value)
-        }
-        crate::db::key_taxonomy::PrimaryKeyComponent::Unit => PrimaryKeyComponent::Unit,
-        crate::db::key_taxonomy::PrimaryKeyComponent::Int128(_)
-        | crate::db::key_taxonomy::PrimaryKeyComponent::Nat128(_) => {
-            panic!("test storage-key fixture does not support 128-bit primary keys")
-        }
-    }
 }
 
 const fn active_true_predicate_metadata() -> IndexPredicateMetadata {
@@ -3262,12 +3221,7 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_authoritative_rows() {
         .expect("stale key build should succeed")
         .expect("stale key should exist")
         .to_raw();
-    let stale_primary_key_component = scalar_primary_key_component_for_test(
-        &stale.id,
-        "stale primary-key component should encode",
-    );
-    let stale_entry = IndexEntryValue::try_from_keys(vec![stale_primary_key_component])
-        .expect("stale index entry should encode");
+    let stale_entry = IndexEntryValue::presence();
 
     with_recovery_store(|store| {
         store.with_data_mut(|data_store| {
@@ -3362,12 +3316,7 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_old_nullable_rows() {
         .expect("stale nullable key build should succeed")
         .expect("stale nullable key should exist")
         .to_raw();
-    let stale_primary_key_component = scalar_primary_key_component_for_test(
-        &stale.id,
-        "stale nullable primary-key component should encode",
-    );
-    let stale_entry = IndexEntryValue::try_from_keys(vec![stale_primary_key_component])
-        .expect("stale nullable index entry should encode");
+    let stale_entry = IndexEntryValue::presence();
 
     // Phase 1: seed old two-slot rows and intentionally stale secondary index
     // state, then force startup recovery through the empty-marker rebuild gate.
@@ -3457,11 +3406,7 @@ fn recovery_replay_updates_old_nullable_row_before_image_with_accepted_contract(
         .expect("old nullable index key build should succeed")
         .expect("old nullable index key should exist")
         .to_raw();
-    let old_entry = IndexEntryValue::try_from_keys(vec![scalar_primary_key_component_for_test(
-        &old.id,
-        "old nullable primary-key component should encode",
-    )])
-    .expect("old nullable index entry should encode");
+    let old_entry = IndexEntryValue::presence();
 
     // Phase 1: seed an old-layout authoritative row and matching old index
     // entry, then persist a marker that updates the row to current layout.
@@ -3542,17 +3487,8 @@ fn recovery_startup_gate_rebuilds_conditional_indexes_from_authoritative_rows() 
         .expect("stale index key build should succeed")
         .expect("stale index key should exist")
         .to_raw();
-    let inactive_entry =
-        IndexEntryValue::try_from_keys(vec![scalar_primary_key_component_for_test(
-            &inactive.id,
-            "inactive primary-key component should encode",
-        )])
-        .expect("inactive stale index entry should encode");
-    let stale_entry = IndexEntryValue::try_from_keys(vec![scalar_primary_key_component_for_test(
-        &stale.id,
-        "stale primary-key component should encode",
-    )])
-    .expect("stale index entry should encode");
+    let inactive_entry = IndexEntryValue::presence();
+    let stale_entry = IndexEntryValue::presence();
 
     // Phase 1: seed authoritative rows and intentionally stale conditional index state.
     with_recovery_store(|store| {
@@ -3644,11 +3580,7 @@ fn recovery_startup_gate_rebuilds_upper_expression_indexes_from_authoritative_ro
         .expect("stale expression index key build should succeed")
         .expect("stale expression index key should exist")
         .to_raw();
-    let stale_entry = IndexEntryValue::try_from_keys(vec![scalar_primary_key_component_for_test(
-        &stale.id,
-        "stale expression primary-key component",
-    )])
-    .expect("stale expression index entry should encode");
+    let stale_entry = IndexEntryValue::presence();
 
     // Phase 1: seed authoritative rows and intentionally stale expression-index state.
     with_recovery_store(|store| {
@@ -3839,12 +3771,7 @@ fn recovery_startup_rebuild_fail_closed_restores_previous_index_state_on_corrupt
         .expect("sentinel key build should succeed")
         .expect("sentinel key should exist")
         .to_raw();
-    let sentinel_primary_key_component = scalar_primary_key_component_for_test(
-        &sentinel.id,
-        "sentinel primary-key component should encode",
-    );
-    let sentinel_entry = IndexEntryValue::try_from_keys(vec![sentinel_primary_key_component])
-        .expect("sentinel entry should encode");
+    let sentinel_entry = IndexEntryValue::presence();
 
     with_recovery_store(|store| {
         store.with_index_mut(|index_store| {

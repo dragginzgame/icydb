@@ -16,7 +16,10 @@ pub(in crate::db::data::structural_field::primary_key_component) use bytes::{
 };
 pub(in crate::db::data::structural_field::primary_key_component) use encode::encode_scalar_primary_key_component_field_binary_into;
 pub(in crate::db::data::structural_field::primary_key_component) use primitive::{
-    decode_int_primary_key_component_binary_bytes, decode_nat_primary_key_component_binary_bytes,
+    decode_int_primary_key_component_binary_bytes,
+    decode_int128_primary_key_component_binary_bytes,
+    decode_nat_primary_key_component_binary_bytes,
+    decode_nat128_primary_key_component_binary_bytes,
     decode_timestamp_primary_key_component_binary_bytes,
     decode_unit_primary_key_component_binary_bytes,
 };

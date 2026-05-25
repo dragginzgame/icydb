@@ -715,7 +715,7 @@ fn push_commit_op_for_index_entry(
     entry: Option<IndexRowIdentity>,
     build_commit_op: CommitIndexOpBuilder,
 ) {
-    let value = entry.map(|entry| IndexEntryValue::from(&entry));
+    let value = entry.map(|_| IndexEntryValue::presence());
 
     commit_ops.push(build_commit_op(store, raw_key, value));
 }

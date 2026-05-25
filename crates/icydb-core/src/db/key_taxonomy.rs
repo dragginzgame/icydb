@@ -169,7 +169,7 @@ impl PrimaryKeyComponent {
     }
 
     /// Convert one runtime scalar value into an admitted compact primary-key
-    /// component without routing through the legacy `PrimaryKeyComponent` frame.
+    /// component without routing through any legacy scalar-key bridge.
     #[must_use]
     pub(in crate::db) const fn from_runtime_value(value: &Value) -> Option<Self> {
         match value {

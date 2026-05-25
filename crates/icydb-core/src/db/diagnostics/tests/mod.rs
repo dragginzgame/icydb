@@ -508,8 +508,7 @@ fn storage_report_default_matches_empty_alias_snapshot() {
     insert_index_entry(
         STORE_A_PATH,
         index_key(IndexKeyKind::User, "diag_index_entity", "email"),
-        IndexEntryValue::try_from_keys([PrimaryKeyComponent::Int64(1)])
-            .expect("diagnostics test index entry should encode"),
+        IndexEntryValue::presence(),
     );
 
     let default_report = diagnostics_default_report();
@@ -729,10 +728,8 @@ fn storage_report_system_vs_user_namespace_split() {
 
     let user_key = index_key(IndexKeyKind::User, "diag_namespace_entity", "email");
     let system_key = index_key(IndexKeyKind::System, "diag_namespace_entity", "email");
-    let user_entry = IndexEntryValue::try_from_keys([PrimaryKeyComponent::Int64(1)])
-        .expect("user entry should encode");
-    let system_entry = IndexEntryValue::try_from_keys([PrimaryKeyComponent::Int64(2)])
-        .expect("system entry should encode");
+    let user_entry = IndexEntryValue::presence();
+    let system_entry = IndexEntryValue::presence();
     insert_index_entry(STORE_A_PATH, user_key, user_entry);
     insert_index_entry(STORE_A_PATH, system_key, system_entry);
 

@@ -11,8 +11,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.162.md](docs/changelog/0.162.md)
 
-- `0.162.24` renames scalar-only and first-component primary-key helper APIs so
-  they cannot be mistaken for ordered primary-key authority.
+- `0.162.25` closes relation admission gaps, adds scalar `int128` / `nat128`
+  relation key lanes, and removes test-only index-entry key-constructor
+  vocabulary.
+
+- `0.162.24` renames broad `primary_key_*` runtime descriptor helpers that
+  actually mean scalar or first-component primary-key metadata.
 
 - `0.162.23` removes the obsolete `StorageKey` row-identity bridge and makes
   data keys, index suffixes, persisted-row decode, and relation paths route

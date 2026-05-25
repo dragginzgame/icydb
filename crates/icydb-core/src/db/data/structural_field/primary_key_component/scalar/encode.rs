@@ -1,7 +1,7 @@
 //! Module: data::structural_field::primary_key_component::scalar::encode
 //! Responsibility: storage-key scalar payload encode dispatch.
 //! Does not own: full relation collection framing, accepted-schema routing, or row encode.
-//! Boundary: writes one storage-key-compatible scalar payload for a selected field kind.
+//! Boundary: writes one primary-key-component scalar payload for a selected field kind.
 
 use crate::{
     db::data::structural_field::binary::{
@@ -9,8 +9,9 @@ use crate::{
         push_binary_unit,
     },
     db::data::structural_field::typed::{
-        encode_principal_payload_bytes, encode_subaccount_payload_bytes,
-        encode_timestamp_payload_millis, encode_ulid_payload_bytes,
+        encode_int128_payload_bytes, encode_nat128_payload_bytes, encode_principal_payload_bytes,
+        encode_subaccount_payload_bytes, encode_timestamp_payload_millis,
+        encode_ulid_payload_bytes,
     },
     db::key_taxonomy::PrimaryKeyComponent,
     error::InternalError,
@@ -49,6 +50,10 @@ pub(in crate::db::data::structural_field::primary_key_component) fn encode_scala
             push_binary_int64(out, value);
             Ok(())
         }
+        (FieldKind::Int128, PrimaryKeyComponent::Int128(value)) => {
+            push_binary_bytes(out, &encode_int128_payload_bytes(value));
+            Ok(())
+        }
         (FieldKind::Principal, PrimaryKeyComponent::Principal(value)) => {
             push_binary_bytes(out, encode_principal_payload_bytes(value)?.as_slice());
             Ok(())
@@ -75,6 +80,10 @@ pub(in crate::db::data::structural_field::primary_key_component) fn encode_scala
         }
         (FieldKind::Nat32, PrimaryKeyComponent::Nat64(value)) if u32::try_from(value).is_ok() => {
             push_binary_nat64(out, value);
+            Ok(())
+        }
+        (FieldKind::Nat128, PrimaryKeyComponent::Nat128(value)) => {
+            push_binary_bytes(out, &encode_nat128_payload_bytes(value));
             Ok(())
         }
         (FieldKind::Ulid, PrimaryKeyComponent::Ulid(value)) => {

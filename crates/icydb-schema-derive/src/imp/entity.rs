@@ -213,9 +213,24 @@ fn relation_key_type_assertions(node: &Entity) -> Vec<TokenStream> {
             let key_ty = field.value.item.type_expr();
 
             Some(quote! {
-                // Keep relation storage key shape aligned with the related entity key type.
-                const _: fn(<#relation as ::icydb::traits::EntityKey>::Key) -> #key_ty = |key| key;
-                const _: fn(#key_ty) -> <#relation as ::icydb::traits::EntityKey>::Key = |key| key;
+                const _: fn() = || {
+                    fn __icydb_assert_relation_target_key<
+                        TargetKey,
+                        DeclaredKey,
+                    >()
+                    where
+                        TargetKey:
+                            ::icydb::__macro::ScalarRelationTargetKeyMatchesDeclaredPrimitive<
+                                DeclaredKey,
+                            >,
+                    {
+                    }
+
+                    __icydb_assert_relation_target_key::<
+                        <#relation as ::icydb::traits::EntityKey>::Key,
+                        #key_ty,
+                    >();
+                };
             })
         })
         .collect()

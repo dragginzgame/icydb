@@ -1,7 +1,7 @@
 //! Module: data::structural_field::primary_key_component::encode
-//! Responsibility: storage-key-compatible Structural Binary encode.
+//! Responsibility: primary-key-component Structural Binary encode.
 //! Does not own: relation indexing policy, runtime row encode, or generic value-storage envelopes.
-//! Boundary: callers provide field-kind authority; this module writes storage-key-compatible payloads only.
+//! Boundary: callers provide field-kind authority; this module writes primary-key-component payloads only.
 
 use crate::{
     db::data::structural_field::{
@@ -15,7 +15,7 @@ use crate::{
 };
 
 /// Encode strong-relation target keys into the owner-local Structural Binary
-/// v1 storage-key lane.
+/// v1 primary-key-component lane.
 pub(in crate::db) fn encode_relation_target_primary_key_components_binary_bytes(
     keys: &[PrimaryKeyComponent],
     kind: FieldKind,
@@ -33,7 +33,7 @@ pub(in crate::db) fn encode_relation_target_primary_key_components_binary_bytes(
 }
 
 /// Encode one canonical primary-key component into the owner-local Structural Binary v1
-/// storage-key lane.
+/// primary-key-component lane.
 pub(in crate::db) fn encode_primary_key_component_field_binary_bytes(
     key: PrimaryKeyComponent,
     kind: FieldKind,
@@ -45,7 +45,7 @@ pub(in crate::db) fn encode_primary_key_component_field_binary_bytes(
     Ok(encoded)
 }
 
-/// Encode one storage-key-compatible runtime value through the owner-local
+/// Encode one primary-key-component runtime value through the owner-local
 /// Structural Binary v1 lane.
 pub(in crate::db) fn encode_primary_key_component_binary_value_bytes(
     kind: FieldKind,
@@ -96,7 +96,7 @@ pub(in crate::db) fn encode_primary_key_component_binary_value_bytes(
     Ok(Some(encoded))
 }
 
-// Encode one strong-relation field into the storage-key Structural Binary v1
+// Encode one strong-relation field into the primary-key-component Structural Binary v1
 // lane without routing through runtime `Value`.
 fn encode_relation_target_primary_key_components_binary_into(
     out: &mut Vec<u8>,
@@ -136,8 +136,8 @@ fn encode_relation_target_primary_key_components_binary_into(
     }
 }
 
-// Encode one storage-key-compatible field into the owner-local Structural
-// Binary v1 storage-key lane.
+// Encode one primary-key-component field into the owner-local Structural
+// Binary v1 lane.
 fn encode_primary_key_component_field_binary_into(
     out: &mut Vec<u8>,
     key: PrimaryKeyComponent,

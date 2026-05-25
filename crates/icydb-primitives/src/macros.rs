@@ -126,7 +126,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = true,
-                is_primary_key_component_encodable = false
+                is_primary_key_component_encodable = true
             ),
             (
                 IntBig,
@@ -203,7 +203,7 @@ macro_rules! scalar_kind_registry_entries {
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = true,
-                is_primary_key_component_encodable = false
+                is_primary_key_component_encodable = true
             ),
             (
                 NatBig,

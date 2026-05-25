@@ -25,10 +25,15 @@ impl PrimaryKey {
         self.fields
     }
 
-    /// Borrow the scalar primary-key field name used by the current runtime.
+    /// Borrow the scalar primary-key field name, if this primary-key
+    /// declaration is the one-component scalar case.
     #[must_use]
-    pub const fn field(&self) -> &'static str {
-        self.fields[0]
+    pub const fn scalar_field(&self) -> Option<&'static str> {
+        if self.fields.len() == 1 {
+            Some(self.fields[0])
+        } else {
+            None
+        }
     }
 
     /// Borrow the primary-key source declaration.
@@ -57,11 +62,19 @@ mod tests {
     use super::{PrimaryKey, PrimaryKeySource};
 
     #[test]
-    fn primary_key_keeps_ordered_field_list_and_scalar_projection() {
+    fn primary_key_keeps_ordered_field_list_without_scalarizing_composite_keys() {
         let primary_key = PrimaryKey::new(&["tenant_id", "local_id"], PrimaryKeySource::External);
 
         assert_eq!(primary_key.fields(), ["tenant_id", "local_id"]);
-        assert_eq!(primary_key.field(), "tenant_id");
+        assert_eq!(primary_key.scalar_field(), None);
         assert_eq!(primary_key.source(), PrimaryKeySource::External);
+    }
+
+    #[test]
+    fn scalar_primary_key_exposes_scalar_field() {
+        let primary_key = PrimaryKey::new(&["id"], PrimaryKeySource::Internal);
+
+        assert_eq!(primary_key.fields(), ["id"]);
+        assert_eq!(primary_key.scalar_field(), Some("id"));
     }
 }

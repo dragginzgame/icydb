@@ -146,7 +146,7 @@ macro_rules! impl_entity_key_bytes_numeric {
     };
 }
 
-impl_entity_key_bytes_numeric!(i8, i16, i32, i64, u8, u16, u32, u64);
+impl_entity_key_bytes_numeric!(i8, i16, i32, i64, i128, u8, u16, u32, u64, u128);
 
 impl EntityKeyBytes for () {
     const BYTE_LEN: usize = 0;
@@ -155,6 +155,55 @@ impl EntityKeyBytes for () {
         assert_eq!(out.len(), Self::BYTE_LEN);
     }
 }
+
+///
+/// ScalarRelationTargetKey
+///
+/// Marker for scalar entity key types that relation fields may target.
+/// Composite generated key structs deliberately do not implement this marker.
+///
+
+pub trait ScalarRelationTargetKey {}
+
+macro_rules! impl_scalar_relation_target_key {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl ScalarRelationTargetKey for $ty {}
+        )*
+    };
+}
+
+impl_scalar_relation_target_key!(
+    i8,
+    i16,
+    i32,
+    i64,
+    i128,
+    u8,
+    u16,
+    u32,
+    u64,
+    u128,
+    crate::types::Account,
+    crate::types::Principal,
+    crate::types::Subaccount,
+    crate::types::Timestamp,
+    crate::types::Ulid,
+    crate::types::Unit,
+    (),
+);
+
+///
+/// ScalarRelationTargetKeyMatchesDeclaredPrimitive
+///
+/// Generated relation fields use this marker to prove that the target entity
+/// has a scalar key and that the relation field's declared primitive matches
+/// that exact scalar key type.
+///
+
+pub trait ScalarRelationTargetKeyMatchesDeclaredPrimitive<Declared> {}
+
+impl<T> ScalarRelationTargetKeyMatchesDeclaredPrimitive<T> for T where T: ScalarRelationTargetKey {}
 
 ///
 /// KeyValueCodec
