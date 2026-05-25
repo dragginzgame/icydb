@@ -27,6 +27,11 @@ pub(super) fn known_canisters(environment: &str) -> Result<Vec<String>, String> 
     known_canisters_from_icp(environment).or_else(|_| known_canisters_from_manifest(environment))
 }
 
+/// Return whether the selected project environment targets the local ICP network.
+pub(super) fn environment_targets_local(environment: &str) -> bool {
+    environment == "local" || environment_targets_local_from_manifest(environment).unwrap_or(false)
+}
+
 fn known_canisters_from_icp(environment: &str) -> Result<Vec<String>, String> {
     let output = icp_canister_list_output(environment)?;
     if !output.status.success() {
@@ -72,6 +77,16 @@ fn known_canisters_from_manifest(environment: &str) -> Result<Vec<String>, Strin
     Ok(parse_manifest_canisters(contents.as_str(), environment))
 }
 
+fn environment_targets_local_from_manifest(environment: &str) -> Result<bool, String> {
+    let contents = std::fs::read_to_string(ICP_YAML_PATH)
+        .map_err(|err| format!("read {ICP_YAML_PATH}: {err}"))?;
+
+    Ok(
+        parse_manifest_environment_network(contents.as_str(), environment)
+            .is_some_and(|network| network == "local"),
+    )
+}
+
 pub(super) fn parse_manifest_canisters(contents: &str, environment: &str) -> Vec<String> {
     let mut in_environments = false;
     let mut in_target_environment = false;
@@ -106,6 +121,46 @@ pub(super) fn parse_manifest_canisters(contents: &str, environment: &str) -> Vec
     }
 
     Vec::new()
+}
+
+pub(super) fn parse_manifest_environment_network<'a>(
+    contents: &'a str,
+    environment: &str,
+) -> Option<&'a str> {
+    let mut in_environments = false;
+    let mut in_target_environment = false;
+    for line in contents.lines().map(str::trim) {
+        if line == "environments:" {
+            in_environments = true;
+            in_target_environment = false;
+            continue;
+        }
+
+        if !in_environments {
+            continue;
+        }
+
+        if let Some(name) = environment_name(line) {
+            if in_target_environment {
+                return None;
+            }
+            in_target_environment = name == environment;
+            continue;
+        }
+
+        if !in_target_environment {
+            continue;
+        }
+
+        let Some(network) = line.strip_prefix("network:") else {
+            continue;
+        };
+        let network = network.trim().trim_matches(['"', '\'']);
+
+        return (!network.is_empty()).then_some(network);
+    }
+
+    None
 }
 
 fn sorted_canister_names(names: impl Iterator<Item = String>) -> Vec<String> {

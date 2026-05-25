@@ -38,9 +38,17 @@ pub(super) const fn supports_scalar_binary_fast_path(kind: FieldKind) -> bool {
             | FieldKind::Float32
             | FieldKind::Float64
             | FieldKind::Int
+            | FieldKind::Int8
+            | FieldKind::Int16
+            | FieldKind::Int32
+            | FieldKind::Int64
             | FieldKind::Int128
             | FieldKind::Text { .. }
             | FieldKind::Nat
+            | FieldKind::Nat8
+            | FieldKind::Nat16
+            | FieldKind::Nat32
+            | FieldKind::Nat64
             | FieldKind::Nat128
             | FieldKind::Ulid
     )
@@ -90,7 +98,15 @@ pub(super) fn decode_scalar_fast_path_binary_bytes(
         | FieldKind::Float32
         | FieldKind::Float64
         | FieldKind::Int
-        | FieldKind::Nat => {
+        | FieldKind::Int8
+        | FieldKind::Int16
+        | FieldKind::Int32
+        | FieldKind::Int64
+        | FieldKind::Nat
+        | FieldKind::Nat8
+        | FieldKind::Nat16
+        | FieldKind::Nat32
+        | FieldKind::Nat64 => {
             decode_scalar_fast_path_binary_numeric_kind(raw_bytes, kind, tag, len, payload_start)?
         }
         _ => return Ok(None),
@@ -135,12 +151,34 @@ pub(super) fn encode_scalar_fast_path_binary_bytes(
         (FieldKind::Float64, Value::Float64(value)) => {
             push_binary_float64(&mut encoded, value.get());
         }
-        (FieldKind::Int, Value::Int(value)) => push_binary_int64(&mut encoded, *value),
+        (FieldKind::Int | FieldKind::Int64, Value::Int(value)) => {
+            push_binary_int64(&mut encoded, *value);
+        }
+        (FieldKind::Int8, Value::Int(value)) if i8::try_from(*value).is_ok() => {
+            push_binary_int64(&mut encoded, *value);
+        }
+        (FieldKind::Int16, Value::Int(value)) if i16::try_from(*value).is_ok() => {
+            push_binary_int64(&mut encoded, *value);
+        }
+        (FieldKind::Int32, Value::Int(value)) if i32::try_from(*value).is_ok() => {
+            push_binary_int64(&mut encoded, *value);
+        }
         (FieldKind::Int128, Value::Int128(value)) => {
             push_binary_bytes(&mut encoded, &encode_int128_payload_bytes(*value));
         }
         (FieldKind::Text { .. }, Value::Text(value)) => push_binary_text(&mut encoded, value),
-        (FieldKind::Nat, Value::Nat(value)) => push_binary_nat64(&mut encoded, *value),
+        (FieldKind::Nat | FieldKind::Nat64, Value::Nat(value)) => {
+            push_binary_nat64(&mut encoded, *value);
+        }
+        (FieldKind::Nat8, Value::Nat(value)) if u8::try_from(*value).is_ok() => {
+            push_binary_nat64(&mut encoded, *value);
+        }
+        (FieldKind::Nat16, Value::Nat(value)) if u16::try_from(*value).is_ok() => {
+            push_binary_nat64(&mut encoded, *value);
+        }
+        (FieldKind::Nat32, Value::Nat(value)) if u32::try_from(*value).is_ok() => {
+            push_binary_nat64(&mut encoded, *value);
+        }
         (FieldKind::Nat128, Value::Nat128(value)) => {
             push_binary_bytes(&mut encoded, &encode_nat128_payload_bytes(*value));
         }
@@ -436,6 +474,26 @@ fn decode_scalar_fast_path_binary_bytes_kind(
     }
 }
 
+const fn fixed_int_kind_accepts_value(kind: FieldKind, value: i64) -> bool {
+    match kind {
+        FieldKind::Int | FieldKind::Int64 => true,
+        FieldKind::Int8 => value >= i8::MIN as i64 && value <= i8::MAX as i64,
+        FieldKind::Int16 => value >= i16::MIN as i64 && value <= i16::MAX as i64,
+        FieldKind::Int32 => value >= i32::MIN as i64 && value <= i32::MAX as i64,
+        _ => false,
+    }
+}
+
+const fn fixed_nat_kind_accepts_value(kind: FieldKind, value: u64) -> bool {
+    match kind {
+        FieldKind::Nat | FieldKind::Nat64 => true,
+        FieldKind::Nat8 => value <= u8::MAX as u64,
+        FieldKind::Nat16 => value <= u16::MAX as u64,
+        FieldKind::Nat32 => value <= u32::MAX as u64,
+        _ => false,
+    }
+}
+
 // Decode one binary scalar fast-path payload whose persisted shape is text.
 fn decode_scalar_fast_path_binary_text_kind(
     raw_bytes: &[u8],
@@ -508,29 +566,51 @@ fn decode_scalar_fast_path_binary_numeric_kind(
 
             Ok(Value::Float64(value))
         }
-        FieldKind::Int => {
+        FieldKind::Int
+        | FieldKind::Int8
+        | FieldKind::Int16
+        | FieldKind::Int32
+        | FieldKind::Int64 => {
             if tag != TAG_INT64 || len != 8 {
                 return Err(FieldDecodeError::new(
                     "structural binary: expected i64 integer payload",
                 ));
             }
 
-            Ok(Value::Int(decode_i64_payload_bytes(
+            let value = decode_i64_payload_bytes(
                 binary_payload_bytes(raw_bytes, len, payload_start, "integer")?,
                 "i64",
-            )?))
+            )?;
+            if !fixed_int_kind_accepts_value(kind, value) {
+                return Err(FieldDecodeError::new(
+                    "structural binary: integer payload outside fixed-width field range",
+                ));
+            }
+
+            Ok(Value::Int(value))
         }
-        FieldKind::Nat => {
+        FieldKind::Nat
+        | FieldKind::Nat8
+        | FieldKind::Nat16
+        | FieldKind::Nat32
+        | FieldKind::Nat64 => {
             if tag != TAG_NAT64 || len != 8 {
                 return Err(FieldDecodeError::new(
                     "structural binary: expected u64 integer payload",
                 ));
             }
 
-            Ok(Value::Nat(decode_u64_payload_bytes(
+            let value = decode_u64_payload_bytes(
                 binary_payload_bytes(raw_bytes, len, payload_start, "integer")?,
                 "u64",
-            )?))
+            )?;
+            if !fixed_nat_kind_accepts_value(kind, value) {
+                return Err(FieldDecodeError::new(
+                    "structural binary: unsigned integer payload outside fixed-width field range",
+                ));
+            }
+
+            Ok(Value::Nat(value))
         }
         _ => Err(FieldDecodeError::new(
             "scalar field unexpectedly routed to binary numeric fast-path helper",

@@ -33,7 +33,19 @@ pub(in crate::db::data::structural_field::storage_key) fn encode_scalar_storage_
             }
             Ok(())
         }
-        (FieldKind::Int, StorageKey::Int(value)) => {
+        (FieldKind::Int | FieldKind::Int64, StorageKey::Int(value)) => {
+            push_binary_int64(out, value);
+            Ok(())
+        }
+        (FieldKind::Int8, StorageKey::Int(value)) if i8::try_from(value).is_ok() => {
+            push_binary_int64(out, value);
+            Ok(())
+        }
+        (FieldKind::Int16, StorageKey::Int(value)) if i16::try_from(value).is_ok() => {
+            push_binary_int64(out, value);
+            Ok(())
+        }
+        (FieldKind::Int32, StorageKey::Int(value)) if i32::try_from(value).is_ok() => {
             push_binary_int64(out, value);
             Ok(())
         }
@@ -49,7 +61,19 @@ pub(in crate::db::data::structural_field::storage_key) fn encode_scalar_storage_
             push_binary_int64(out, encode_timestamp_payload_millis(value));
             Ok(())
         }
-        (FieldKind::Nat, StorageKey::Nat(value)) => {
+        (FieldKind::Nat | FieldKind::Nat64, StorageKey::Nat(value)) => {
+            push_binary_nat64(out, value);
+            Ok(())
+        }
+        (FieldKind::Nat8, StorageKey::Nat(value)) if u8::try_from(value).is_ok() => {
+            push_binary_nat64(out, value);
+            Ok(())
+        }
+        (FieldKind::Nat16, StorageKey::Nat(value)) if u16::try_from(value).is_ok() => {
+            push_binary_nat64(out, value);
+            Ok(())
+        }
+        (FieldKind::Nat32, StorageKey::Nat(value)) if u32::try_from(value).is_ok() => {
             push_binary_nat64(out, value);
             Ok(())
         }

@@ -806,38 +806,26 @@ fn summarize_field_kind(kind: &FieldKind) -> String {
 // Stream one stable field-kind label directly into the output buffer so
 // describe/sql surfaces do not retain a large recursive `format!` family.
 fn write_field_kind_summary(out: &mut String, kind: &FieldKind) {
+    if let Some(name) = kind.describe_kind_name() {
+        out.push_str(name);
+        return;
+    }
+
     match kind {
-        FieldKind::Account => out.push_str("account"),
         FieldKind::Blob { max_len } => {
             write_length_bounded_field_kind_summary(out, "blob", *max_len);
         }
-        FieldKind::Bool => out.push_str("bool"),
-        FieldKind::Date => out.push_str("date"),
         FieldKind::Decimal { scale } => {
             let _ = write!(out, "decimal(scale={scale})");
         }
-        FieldKind::Duration => out.push_str("duration"),
         FieldKind::Enum { path, .. } => {
             out.push_str("enum(");
             out.push_str(path);
             out.push(')');
         }
-        FieldKind::Float32 => out.push_str("float32"),
-        FieldKind::Float64 => out.push_str("float64"),
-        FieldKind::Int => out.push_str("int"),
-        FieldKind::Int128 => out.push_str("int128"),
-        FieldKind::IntBig => out.push_str("int_big"),
-        FieldKind::Principal => out.push_str("principal"),
-        FieldKind::Subaccount => out.push_str("subaccount"),
         FieldKind::Text { max_len } => {
             write_length_bounded_field_kind_summary(out, "text", *max_len);
         }
-        FieldKind::Timestamp => out.push_str("timestamp"),
-        FieldKind::Nat => out.push_str("nat"),
-        FieldKind::Nat128 => out.push_str("nat128"),
-        FieldKind::NatBig => out.push_str("nat_big"),
-        FieldKind::Ulid => out.push_str("ulid"),
-        FieldKind::Unit => out.push_str("unit"),
         FieldKind::Relation {
             target_entity_name,
             key_kind,
@@ -872,6 +860,76 @@ fn write_field_kind_summary(out: &mut String, kind: &FieldKind) {
         FieldKind::Structured { .. } => {
             out.push_str("structured");
         }
+        FieldKind::Account
+        | FieldKind::Bool
+        | FieldKind::Date
+        | FieldKind::Duration
+        | FieldKind::Float32
+        | FieldKind::Float64
+        | FieldKind::Int
+        | FieldKind::Int8
+        | FieldKind::Int16
+        | FieldKind::Int32
+        | FieldKind::Int64
+        | FieldKind::Int128
+        | FieldKind::IntBig
+        | FieldKind::Principal
+        | FieldKind::Subaccount
+        | FieldKind::Timestamp
+        | FieldKind::Nat
+        | FieldKind::Nat8
+        | FieldKind::Nat16
+        | FieldKind::Nat32
+        | FieldKind::Nat64
+        | FieldKind::Nat128
+        | FieldKind::NatBig
+        | FieldKind::Ulid
+        | FieldKind::Unit => unreachable!("plain field kind labels return before recursive render"),
+    }
+}
+
+trait DescribeKindName {
+    fn describe_kind_name(&self) -> Option<&'static str>;
+}
+
+impl DescribeKindName for FieldKind {
+    fn describe_kind_name(&self) -> Option<&'static str> {
+        Some(match self {
+            Self::Account => "account",
+            Self::Bool => "bool",
+            Self::Date => "date",
+            Self::Duration => "duration",
+            Self::Float32 => "float32",
+            Self::Float64 => "float64",
+            Self::Int => "int",
+            Self::Int8 => "int8",
+            Self::Int16 => "int16",
+            Self::Int32 => "int32",
+            Self::Int64 => "int64",
+            Self::Int128 => "int128",
+            Self::IntBig => "int_big",
+            Self::Principal => "principal",
+            Self::Subaccount => "subaccount",
+            Self::Timestamp => "timestamp",
+            Self::Nat => "nat",
+            Self::Nat8 => "nat8",
+            Self::Nat16 => "nat16",
+            Self::Nat32 => "nat32",
+            Self::Nat64 => "nat64",
+            Self::Nat128 => "nat128",
+            Self::NatBig => "nat_big",
+            Self::Ulid => "ulid",
+            Self::Unit => "unit",
+            Self::Blob { .. }
+            | Self::Decimal { .. }
+            | Self::Enum { .. }
+            | Self::Text { .. }
+            | Self::Relation { .. }
+            | Self::List(_)
+            | Self::Set(_)
+            | Self::Map { .. }
+            | Self::Structured { .. } => return None,
+        })
     }
 }
 
@@ -949,38 +1007,26 @@ fn summarize_persisted_field_kind(kind: &PersistedFieldKind) -> String {
 // generated `FieldKind` summaries. Top-level live-schema metadata can then
 // drive DESCRIBE output without converting back into generated static types.
 fn write_persisted_field_kind_summary(out: &mut String, kind: &PersistedFieldKind) {
+    if let Some(name) = kind.describe_kind_name() {
+        out.push_str(name);
+        return;
+    }
+
     match kind {
-        PersistedFieldKind::Account => out.push_str("account"),
         PersistedFieldKind::Blob { max_len } => {
             write_length_bounded_field_kind_summary(out, "blob", *max_len);
         }
-        PersistedFieldKind::Bool => out.push_str("bool"),
-        PersistedFieldKind::Date => out.push_str("date"),
         PersistedFieldKind::Decimal { scale } => {
             let _ = write!(out, "decimal(scale={scale})");
         }
-        PersistedFieldKind::Duration => out.push_str("duration"),
         PersistedFieldKind::Enum { path, .. } => {
             out.push_str("enum(");
             out.push_str(path);
             out.push(')');
         }
-        PersistedFieldKind::Float32 => out.push_str("float32"),
-        PersistedFieldKind::Float64 => out.push_str("float64"),
-        PersistedFieldKind::Int => out.push_str("int"),
-        PersistedFieldKind::Int128 => out.push_str("int128"),
-        PersistedFieldKind::IntBig => out.push_str("int_big"),
-        PersistedFieldKind::Principal => out.push_str("principal"),
-        PersistedFieldKind::Subaccount => out.push_str("subaccount"),
         PersistedFieldKind::Text { max_len } => {
             write_length_bounded_field_kind_summary(out, "text", *max_len);
         }
-        PersistedFieldKind::Timestamp => out.push_str("timestamp"),
-        PersistedFieldKind::Nat => out.push_str("nat"),
-        PersistedFieldKind::Nat128 => out.push_str("nat128"),
-        PersistedFieldKind::NatBig => out.push_str("nat_big"),
-        PersistedFieldKind::Ulid => out.push_str("ulid"),
-        PersistedFieldKind::Unit => out.push_str("unit"),
         PersistedFieldKind::Relation {
             target_entity_name,
             key_kind,
@@ -1015,6 +1061,74 @@ fn write_persisted_field_kind_summary(out: &mut String, kind: &PersistedFieldKin
         PersistedFieldKind::Structured { .. } => {
             out.push_str("structured");
         }
+        PersistedFieldKind::Account
+        | PersistedFieldKind::Bool
+        | PersistedFieldKind::Date
+        | PersistedFieldKind::Duration
+        | PersistedFieldKind::Float32
+        | PersistedFieldKind::Float64
+        | PersistedFieldKind::Int
+        | PersistedFieldKind::Int8
+        | PersistedFieldKind::Int16
+        | PersistedFieldKind::Int32
+        | PersistedFieldKind::Int64
+        | PersistedFieldKind::Int128
+        | PersistedFieldKind::IntBig
+        | PersistedFieldKind::Principal
+        | PersistedFieldKind::Subaccount
+        | PersistedFieldKind::Timestamp
+        | PersistedFieldKind::Nat
+        | PersistedFieldKind::Nat8
+        | PersistedFieldKind::Nat16
+        | PersistedFieldKind::Nat32
+        | PersistedFieldKind::Nat64
+        | PersistedFieldKind::Nat128
+        | PersistedFieldKind::NatBig
+        | PersistedFieldKind::Ulid
+        | PersistedFieldKind::Unit => {
+            unreachable!("plain persisted field kind labels return before recursive render")
+        }
+    }
+}
+
+impl DescribeKindName for PersistedFieldKind {
+    fn describe_kind_name(&self) -> Option<&'static str> {
+        Some(match self {
+            Self::Account => "account",
+            Self::Bool => "bool",
+            Self::Date => "date",
+            Self::Duration => "duration",
+            Self::Float32 => "float32",
+            Self::Float64 => "float64",
+            Self::Int => "int",
+            Self::Int8 => "int8",
+            Self::Int16 => "int16",
+            Self::Int32 => "int32",
+            Self::Int64 => "int64",
+            Self::Int128 => "int128",
+            Self::IntBig => "int_big",
+            Self::Principal => "principal",
+            Self::Subaccount => "subaccount",
+            Self::Timestamp => "timestamp",
+            Self::Nat => "nat",
+            Self::Nat8 => "nat8",
+            Self::Nat16 => "nat16",
+            Self::Nat32 => "nat32",
+            Self::Nat64 => "nat64",
+            Self::Nat128 => "nat128",
+            Self::NatBig => "nat_big",
+            Self::Ulid => "ulid",
+            Self::Unit => "unit",
+            Self::Blob { .. }
+            | Self::Decimal { .. }
+            | Self::Enum { .. }
+            | Self::Text { .. }
+            | Self::Relation { .. }
+            | Self::List(_)
+            | Self::Set(_)
+            | Self::Map { .. }
+            | Self::Structured { .. } => return None,
+        })
     }
 }
 
@@ -1377,6 +1491,37 @@ mod tests {
     }
 
     #[test]
+    fn schema_describe_preserves_fixed_width_numeric_kind_labels() {
+        static FIELDS: [FieldModel; 5] = [
+            FieldModel::generated("id", FieldKind::Ulid),
+            FieldModel::generated("small_signed", FieldKind::Int8),
+            FieldModel::generated("cell_x", FieldKind::Nat16),
+            FieldModel::generated("large_signed", FieldKind::Int64),
+            FieldModel::generated("large_unsigned", FieldKind::Nat64),
+        ];
+        static INDEXES: [&crate::model::index::IndexModel; 0] = [];
+        static MODEL: EntityModel = EntityModel::generated(
+            "entities::FixedWidthNumbers",
+            "FixedWidthNumbers",
+            &FIELDS[0],
+            0,
+            &FIELDS,
+            &INDEXES,
+        );
+
+        let described = describe_entity_model(&MODEL)
+            .fields()
+            .iter()
+            .map(|field| (field.name().to_string(), field.kind().to_string()))
+            .collect::<Vec<_>>();
+
+        assert!(described.contains(&("small_signed".to_string(), "int8".to_string())));
+        assert!(described.contains(&("cell_x".to_string(), "nat16".to_string())));
+        assert!(described.contains(&("large_signed".to_string(), "int64".to_string())));
+        assert!(described.contains(&("large_unsigned".to_string(), "nat64".to_string())));
+    }
+
+    #[test]
     fn schema_describe_includes_generated_database_default_metadata() {
         static DEFAULT_PAYLOAD: &[u8] = &[0xFF, 0x01, 7, 0, 0, 0, 0, 0, 0, 0];
         static FIELDS: [FieldModel; 2] = [
@@ -1480,6 +1625,54 @@ mod tests {
                 ),
             ],
         );
+    }
+
+    #[test]
+    fn schema_describe_preserves_accepted_fixed_width_numeric_kind_labels() {
+        let id_slot = SchemaFieldSlot::new(0);
+        let x_slot = SchemaFieldSlot::new(1);
+        let snapshot = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "entities::Grid".to_string(),
+            "Grid".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::new(
+                SchemaVersion::initial(),
+                vec![(FieldId::new(1), id_slot), (FieldId::new(2), x_slot)],
+            ),
+            vec![
+                PersistedFieldSnapshot::new(
+                    FieldId::new(1),
+                    "id".to_string(),
+                    id_slot,
+                    PersistedFieldKind::Ulid,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::StructuralFallback,
+                ),
+                PersistedFieldSnapshot::new(
+                    FieldId::new(2),
+                    "x".to_string(),
+                    x_slot,
+                    PersistedFieldKind::Nat16,
+                    Vec::new(),
+                    false,
+                    SchemaFieldDefault::None,
+                    FieldStorageDecode::ByKind,
+                    LeafCodec::Scalar(ScalarCodec::Nat64),
+                ),
+            ],
+        ));
+
+        let described = describe_entity_fields_with_persisted_schema(&snapshot);
+        let x = described
+            .iter()
+            .find(|field| field.name() == "x")
+            .expect("accepted fixed-width field should be described");
+
+        assert_eq!(x.kind(), "nat16");
     }
 
     #[test]

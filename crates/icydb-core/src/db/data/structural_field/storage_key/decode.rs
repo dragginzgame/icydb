@@ -86,14 +86,22 @@ pub(in crate::db) fn decode_storage_key_field_binary_bytes(
 ) -> Result<StorageKey, FieldDecodeError> {
     match kind {
         FieldKind::Account => decode_account_storage_key_binary_bytes(raw_bytes),
-        FieldKind::Int => decode_int_storage_key_binary_bytes(raw_bytes),
+        FieldKind::Int
+        | FieldKind::Int8
+        | FieldKind::Int16
+        | FieldKind::Int32
+        | FieldKind::Int64 => decode_int_storage_key_binary_bytes(raw_bytes),
         FieldKind::Principal => decode_principal_storage_key_binary_bytes(raw_bytes),
         FieldKind::Relation { key_kind, .. } => {
             decode_storage_key_field_binary_bytes(raw_bytes, *key_kind)
         }
         FieldKind::Subaccount => decode_subaccount_storage_key_binary_bytes(raw_bytes),
         FieldKind::Timestamp => decode_timestamp_storage_key_binary_bytes(raw_bytes),
-        FieldKind::Nat => decode_nat_storage_key_binary_bytes(raw_bytes),
+        FieldKind::Nat
+        | FieldKind::Nat8
+        | FieldKind::Nat16
+        | FieldKind::Nat32
+        | FieldKind::Nat64 => decode_nat_storage_key_binary_bytes(raw_bytes),
         FieldKind::Ulid => decode_ulid_storage_key_binary_bytes(raw_bytes),
         FieldKind::Unit => decode_unit_storage_key_binary_bytes(raw_bytes),
         other => Err(FieldDecodeError::new(format!(
@@ -305,14 +313,22 @@ fn decode_accepted_storage_key_field_binary_bytes(
 ) -> Result<StorageKey, FieldDecodeError> {
     match kind {
         PersistedFieldKind::Account => decode_account_storage_key_binary_bytes(raw_bytes),
-        PersistedFieldKind::Int => decode_int_storage_key_binary_bytes(raw_bytes),
+        PersistedFieldKind::Int
+        | PersistedFieldKind::Int8
+        | PersistedFieldKind::Int16
+        | PersistedFieldKind::Int32
+        | PersistedFieldKind::Int64 => decode_int_storage_key_binary_bytes(raw_bytes),
         PersistedFieldKind::Principal => decode_principal_storage_key_binary_bytes(raw_bytes),
         PersistedFieldKind::Relation { key_kind, .. } => {
             decode_accepted_storage_key_field_binary_bytes(raw_bytes, key_kind)
         }
         PersistedFieldKind::Subaccount => decode_subaccount_storage_key_binary_bytes(raw_bytes),
         PersistedFieldKind::Timestamp => decode_timestamp_storage_key_binary_bytes(raw_bytes),
-        PersistedFieldKind::Nat => decode_nat_storage_key_binary_bytes(raw_bytes),
+        PersistedFieldKind::Nat
+        | PersistedFieldKind::Nat8
+        | PersistedFieldKind::Nat16
+        | PersistedFieldKind::Nat32
+        | PersistedFieldKind::Nat64 => decode_nat_storage_key_binary_bytes(raw_bytes),
         PersistedFieldKind::Ulid => decode_ulid_storage_key_binary_bytes(raw_bytes),
         PersistedFieldKind::Unit => decode_unit_storage_key_binary_bytes(raw_bytes),
         other => Err(FieldDecodeError::new(format!(

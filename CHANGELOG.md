@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Documented and guarded the final scalar strong-relation boundary for
+  composite primary keys: relation targets and reverse relation indexes remain
+  scalar-keyed in 0.162 and fail closed for composite source/target identity.
+- Added a 20x20 `Grid` table with a composite `(x, y)` primary key to the demo
+  RPG fixture canister.
+- Made `icydb canister refresh` preflight local fixture cycles and top up
+  sparingly before fixture loading when the local canister is below reserve.
+
 ## [0.162.x] 🔑 - 2026-05-23 - Composite Primary Keys
 
 Detailed notes: [docs/changelog/0.162.md](docs/changelog/0.162.md)

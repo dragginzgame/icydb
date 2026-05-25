@@ -450,14 +450,16 @@ fn generated_item_kind_for_predicate(item: &Item) -> Result<CoreFieldKind, Darli
         Primitive::Float32 => CoreFieldKind::Float32,
         Primitive::Float64 => CoreFieldKind::Float64,
         Primitive::Int => CoreFieldKind::IntBig,
-        Primitive::Int8 | Primitive::Int16 | Primitive::Int32 | Primitive::Int64 => {
-            CoreFieldKind::Int
-        }
+        Primitive::Int8 => CoreFieldKind::Int8,
+        Primitive::Int16 => CoreFieldKind::Int16,
+        Primitive::Int32 => CoreFieldKind::Int32,
+        Primitive::Int64 => CoreFieldKind::Int64,
         Primitive::Int128 => CoreFieldKind::Int128,
         Primitive::Nat => CoreFieldKind::NatBig,
-        Primitive::Nat8 | Primitive::Nat16 | Primitive::Nat32 | Primitive::Nat64 => {
-            CoreFieldKind::Nat
-        }
+        Primitive::Nat8 => CoreFieldKind::Nat8,
+        Primitive::Nat16 => CoreFieldKind::Nat16,
+        Primitive::Nat32 => CoreFieldKind::Nat32,
+        Primitive::Nat64 => CoreFieldKind::Nat64,
         Primitive::Nat128 => CoreFieldKind::Nat128,
         Primitive::Principal => CoreFieldKind::Principal,
         Primitive::Subaccount => CoreFieldKind::Subaccount,

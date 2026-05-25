@@ -324,9 +324,17 @@ fn normalize_value_for_kind(
         | FieldKind::Unit
         | FieldKind::Structured { .. } => Ok(value.clone()),
         FieldKind::Int
+        | FieldKind::Int8
+        | FieldKind::Int16
+        | FieldKind::Int32
+        | FieldKind::Int64
         | FieldKind::Int128
         | FieldKind::IntBig
         | FieldKind::Nat
+        | FieldKind::Nat8
+        | FieldKind::Nat16
+        | FieldKind::Nat32
+        | FieldKind::Nat64
         | FieldKind::Nat128
         | FieldKind::NatBig => Ok(normalize_numeric_value_for_kind(
             value,

@@ -144,14 +144,16 @@ fn model_kind_from_primitive(
         Primitive::Float32 => quote!(::icydb::model::field::FieldKind::Float32),
         Primitive::Float64 => quote!(::icydb::model::field::FieldKind::Float64),
         Primitive::Int => quote!(::icydb::model::field::FieldKind::IntBig),
-        Primitive::Int8 | Primitive::Int16 | Primitive::Int32 | Primitive::Int64 => {
-            quote!(::icydb::model::field::FieldKind::Int)
-        }
+        Primitive::Int8 => quote!(::icydb::model::field::FieldKind::Int8),
+        Primitive::Int16 => quote!(::icydb::model::field::FieldKind::Int16),
+        Primitive::Int32 => quote!(::icydb::model::field::FieldKind::Int32),
+        Primitive::Int64 => quote!(::icydb::model::field::FieldKind::Int64),
         Primitive::Int128 => quote!(::icydb::model::field::FieldKind::Int128),
         Primitive::Nat => quote!(::icydb::model::field::FieldKind::NatBig),
-        Primitive::Nat8 | Primitive::Nat16 | Primitive::Nat32 | Primitive::Nat64 => {
-            quote!(::icydb::model::field::FieldKind::Nat)
-        }
+        Primitive::Nat8 => quote!(::icydb::model::field::FieldKind::Nat8),
+        Primitive::Nat16 => quote!(::icydb::model::field::FieldKind::Nat16),
+        Primitive::Nat32 => quote!(::icydb::model::field::FieldKind::Nat32),
+        Primitive::Nat64 => quote!(::icydb::model::field::FieldKind::Nat64),
         Primitive::Nat128 => quote!(::icydb::model::field::FieldKind::Nat128),
         Primitive::Principal => quote!(::icydb::model::field::FieldKind::Principal),
         Primitive::Subaccount => quote!(::icydb::model::field::FieldKind::Subaccount),

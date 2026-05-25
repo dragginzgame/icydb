@@ -1,6 +1,6 @@
 use icydb::design::prelude::{Decimal, Float64, Principal, Timestamp, Ulid};
 
-use crate::schema::{Character, CharacterMentor};
+use crate::schema::{Character, CharacterMentor, Grid};
 
 const DUNGEON_MASTER_CHARACTERS: [&str; 24] = [
     "Iaido Ruyito Chiburi",
@@ -118,6 +118,10 @@ const RESISTANCES: [&str; 8] = [
     "radiant",
     "force",
 ];
+const GRID_SIZE: u16 = 20;
+const TERRAIN_TYPES: [&str; 8] = [
+    "forest", "ruins", "road", "marsh", "hills", "river", "village", "cavern",
+];
 
 /// Build one deterministic RPG fixture set with one row per named character from
 /// Dungeon Master, Bloodwych, and Baldur's Gate II party rosters.
@@ -219,6 +223,36 @@ pub fn characters() -> Vec<Character> {
         .collect()
 }
 
+/// Build one deterministic 20x20 RPG map grid with `(x, y)` as a composite
+/// primary key.
+#[must_use]
+pub fn grid() -> Vec<Grid> {
+    let row_count = usize::from(GRID_SIZE) * usize::from(GRID_SIZE);
+    let mut cells = Vec::with_capacity(row_count);
+
+    for x in 0..GRID_SIZE {
+        for y in 0..GRID_SIZE {
+            let seed = grid_seed(x, y);
+            let terrain = terrain_for_cell(x, y, seed).to_string();
+            let elevation = elevation_for_cell(x, y, seed);
+            let danger_level = danger_level_for_cell(x, y, terrain.as_str(), seed);
+
+            cells.push(Grid {
+                x,
+                y,
+                terrain,
+                elevation,
+                danger_level,
+                discovered: is_discovered_cell(x, y, danger_level, seed),
+                created_at: Timestamp::default(),
+                updated_at: Timestamp::default(),
+            });
+        }
+    }
+
+    cells
+}
+
 // Hash character identity into one stable seed that can drive the whole row.
 fn character_seed(index: usize, name: &str) -> u64 {
     let mut seed = 0xcbf2_9ce4_8422_2325u64 ^ (u64::try_from(index).unwrap_or(u64::MAX) << 17);
@@ -237,6 +271,60 @@ fn seed_step(seed: u64, salt: u64) -> u64 {
     seed.rotate_left(rotate)
         .wrapping_mul(6_364_136_223_846_793_005)
         .wrapping_add(0x1405_7b7e_f767_814f ^ salt.wrapping_mul(0x9e37_79b9_7f4a_7c15))
+}
+
+fn grid_seed(x: u16, y: u16) -> u64 {
+    let x = u64::from(x);
+    let y = u64::from(y);
+
+    0x6a09_e667_f3bc_c909u64 ^ (x << 32) ^ y.wrapping_mul(0x9e37_79b9_7f4a_7c15)
+}
+
+fn terrain_for_cell(x: u16, y: u16, seed: u64) -> &'static str {
+    if x == 0 || y == 0 || x == GRID_SIZE - 1 || y == GRID_SIZE - 1 {
+        return "hills";
+    }
+    if x == y || x + y == GRID_SIZE - 1 {
+        return "road";
+    }
+    if (8..=11).contains(&x) && (8..=11).contains(&y) {
+        return "ruins";
+    }
+
+    seed_pick(seed, 70, &TERRAIN_TYPES)
+}
+
+fn elevation_for_cell(x: u16, y: u16, seed: u64) -> i16 {
+    let ridge = (i16::try_from(x).unwrap_or(0) - i16::try_from(y).unwrap_or(0)).abs();
+    let noise = seed_range_i16(seed, 71, -12, 18);
+
+    ((ridge * 3) + noise).clamp(-20, 80)
+}
+
+fn danger_level_for_cell(x: u16, y: u16, terrain: &str, seed: u64) -> u8 {
+    let center_distance = u16::abs_diff(x, GRID_SIZE / 2) + u16::abs_diff(y, GRID_SIZE / 2);
+    let terrain_bias = match terrain {
+        "ruins" | "cavern" => 5,
+        "marsh" | "hills" => 3,
+        "forest" | "river" => 2,
+        "road" | "village" => 0,
+        _ => 1,
+    };
+    let seeded = u8::try_from(seed_range_u64(seed, 72, 0, 4)).unwrap_or(0);
+    let distance_bias = u8::try_from(center_distance / 4).unwrap_or(u8::MAX);
+
+    terrain_bias + seeded + distance_bias
+}
+
+fn is_discovered_cell(x: u16, y: u16, danger_level: u8, seed: u64) -> bool {
+    if x <= 2 || y <= 2 {
+        return true;
+    }
+    if danger_level >= 9 {
+        return false;
+    }
+
+    seed_range_u64(seed, 73, 0, 99) < 64
 }
 
 // Produce one inclusive deterministic integer range from the stepped seed.

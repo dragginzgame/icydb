@@ -247,14 +247,22 @@ pub(crate) fn field_type_from_model_kind(kind: &FieldKind) -> FieldType {
         FieldKind::Enum { .. } => FieldType::Scalar(ScalarType::Enum),
         FieldKind::Float32 => FieldType::Scalar(ScalarType::Float32),
         FieldKind::Float64 => FieldType::Scalar(ScalarType::Float64),
-        FieldKind::Int => FieldType::Scalar(ScalarType::Int),
+        FieldKind::Int
+        | FieldKind::Int8
+        | FieldKind::Int16
+        | FieldKind::Int32
+        | FieldKind::Int64 => FieldType::Scalar(ScalarType::Int),
         FieldKind::Int128 => FieldType::Scalar(ScalarType::Int128),
         FieldKind::IntBig => FieldType::Scalar(ScalarType::IntBig),
         FieldKind::Principal => FieldType::Scalar(ScalarType::Principal),
         FieldKind::Subaccount => FieldType::Scalar(ScalarType::Subaccount),
         FieldKind::Text { .. } => FieldType::Scalar(ScalarType::Text),
         FieldKind::Timestamp => FieldType::Scalar(ScalarType::Timestamp),
-        FieldKind::Nat => FieldType::Scalar(ScalarType::Nat),
+        FieldKind::Nat
+        | FieldKind::Nat8
+        | FieldKind::Nat16
+        | FieldKind::Nat32
+        | FieldKind::Nat64 => FieldType::Scalar(ScalarType::Nat),
         FieldKind::Nat128 => FieldType::Scalar(ScalarType::Nat128),
         FieldKind::NatBig => FieldType::Scalar(ScalarType::NatBig),
         FieldKind::Ulid => FieldType::Scalar(ScalarType::Ulid),
@@ -282,14 +290,24 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
         PersistedFieldKind::Relation { key_kind, .. } => {
             canonicalize_strict_sql_literal_for_persisted_kind(key_kind, value)
         }
-        PersistedFieldKind::Int => match value {
-            Value::Nat(inner) => i64::try_from(*inner).ok().map(Value::Int),
-            _ => None,
-        },
-        PersistedFieldKind::Nat => match value {
-            Value::Int(inner) => u64::try_from(*inner).ok().map(Value::Nat),
-            _ => None,
-        },
+        PersistedFieldKind::Int | PersistedFieldKind::Int64 => {
+            canonicalize_int_persisted_literal(value, i64::MIN, i64::MAX)
+        }
+        PersistedFieldKind::Int8 => {
+            canonicalize_int_persisted_literal(value, i64::from(i8::MIN), i64::from(i8::MAX))
+        }
+        PersistedFieldKind::Int16 => {
+            canonicalize_int_persisted_literal(value, i64::from(i16::MIN), i64::from(i16::MAX))
+        }
+        PersistedFieldKind::Int32 => {
+            canonicalize_int_persisted_literal(value, i64::from(i32::MIN), i64::from(i32::MAX))
+        }
+        PersistedFieldKind::Nat | PersistedFieldKind::Nat64 => {
+            canonicalize_nat_persisted_literal(value, u64::MAX)
+        }
+        PersistedFieldKind::Nat8 => canonicalize_nat_persisted_literal(value, u64::from(u8::MAX)),
+        PersistedFieldKind::Nat16 => canonicalize_nat_persisted_literal(value, u64::from(u16::MAX)),
+        PersistedFieldKind::Nat32 => canonicalize_nat_persisted_literal(value, u64::from(u32::MAX)),
         PersistedFieldKind::Ulid => match value {
             Value::Text(inner) => inner.parse::<Ulid>().ok().map(Value::Ulid),
             _ => None,
@@ -336,14 +354,22 @@ pub(in crate::db) fn field_type_from_persisted_kind(kind: &PersistedFieldKind) -
         PersistedFieldKind::Enum { .. } => FieldType::Scalar(ScalarType::Enum),
         PersistedFieldKind::Float32 => FieldType::Scalar(ScalarType::Float32),
         PersistedFieldKind::Float64 => FieldType::Scalar(ScalarType::Float64),
-        PersistedFieldKind::Int => FieldType::Scalar(ScalarType::Int),
+        PersistedFieldKind::Int
+        | PersistedFieldKind::Int8
+        | PersistedFieldKind::Int16
+        | PersistedFieldKind::Int32
+        | PersistedFieldKind::Int64 => FieldType::Scalar(ScalarType::Int),
         PersistedFieldKind::Int128 => FieldType::Scalar(ScalarType::Int128),
         PersistedFieldKind::IntBig => FieldType::Scalar(ScalarType::IntBig),
         PersistedFieldKind::Principal => FieldType::Scalar(ScalarType::Principal),
         PersistedFieldKind::Subaccount => FieldType::Scalar(ScalarType::Subaccount),
         PersistedFieldKind::Text { .. } => FieldType::Scalar(ScalarType::Text),
         PersistedFieldKind::Timestamp => FieldType::Scalar(ScalarType::Timestamp),
-        PersistedFieldKind::Nat => FieldType::Scalar(ScalarType::Nat),
+        PersistedFieldKind::Nat
+        | PersistedFieldKind::Nat8
+        | PersistedFieldKind::Nat16
+        | PersistedFieldKind::Nat32
+        | PersistedFieldKind::Nat64 => FieldType::Scalar(ScalarType::Nat),
         PersistedFieldKind::Nat128 => FieldType::Scalar(ScalarType::Nat128),
         PersistedFieldKind::NatBig => FieldType::Scalar(ScalarType::NatBig),
         PersistedFieldKind::Ulid => FieldType::Scalar(ScalarType::Ulid),
@@ -363,6 +389,26 @@ pub(in crate::db) fn field_type_from_persisted_kind(kind: &PersistedFieldKind) -
             queryable: *queryable,
         },
     }
+}
+
+fn canonicalize_int_persisted_literal(value: &Value, min: i64, max: i64) -> Option<Value> {
+    let value = match value {
+        Value::Int(inner) => *inner,
+        Value::Nat(inner) => i64::try_from(*inner).ok()?,
+        _ => return None,
+    };
+
+    (min..=max).contains(&value).then_some(Value::Int(value))
+}
+
+fn canonicalize_nat_persisted_literal(value: &Value, max: u64) -> Option<Value> {
+    let value = match value {
+        Value::Int(inner) => u64::try_from(*inner).ok()?,
+        Value::Nat(inner) => *inner,
+        _ => return None,
+    };
+
+    (value <= max).then_some(Value::Nat(value))
 }
 
 impl fmt::Display for FieldType {

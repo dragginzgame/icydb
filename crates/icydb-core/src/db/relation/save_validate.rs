@@ -263,6 +263,9 @@ fn validate_save_accepted_relation_value<E>(
 where
     E: EntityKind + EntityValue,
 {
+    // Strong relation targets are scalar-keyed in 0.162. Composite target
+    // identities must fail closed here until reverse relation indexes grow a
+    // composite source/target key shape.
     let storage_key = crate::value::storage_key_from_runtime_value(value).map_err(|err| {
         InternalError::relation_target_raw_key_error(
             crate::db::relation::RelationTargetRawKeyError::StorageKeyEncode(err),

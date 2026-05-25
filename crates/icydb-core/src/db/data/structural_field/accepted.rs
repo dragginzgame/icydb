@@ -58,6 +58,10 @@ pub(in crate::db) fn decode_structural_field_by_accepted_kind_bytes(
         | PersistedFieldKind::Float32
         | PersistedFieldKind::Float64
         | PersistedFieldKind::Int
+        | PersistedFieldKind::Int8
+        | PersistedFieldKind::Int16
+        | PersistedFieldKind::Int32
+        | PersistedFieldKind::Int64
         | PersistedFieldKind::Int128
         | PersistedFieldKind::IntBig
         | PersistedFieldKind::Principal
@@ -66,6 +70,10 @@ pub(in crate::db) fn decode_structural_field_by_accepted_kind_bytes(
         | PersistedFieldKind::Text { .. }
         | PersistedFieldKind::Timestamp
         | PersistedFieldKind::Nat
+        | PersistedFieldKind::Nat8
+        | PersistedFieldKind::Nat16
+        | PersistedFieldKind::Nat32
+        | PersistedFieldKind::Nat64
         | PersistedFieldKind::Nat128
         | PersistedFieldKind::NatBig
         | PersistedFieldKind::Ulid
@@ -125,6 +133,10 @@ pub(in crate::db) fn validate_structural_field_by_accepted_kind_bytes(
         | PersistedFieldKind::Float32
         | PersistedFieldKind::Float64
         | PersistedFieldKind::Int
+        | PersistedFieldKind::Int8
+        | PersistedFieldKind::Int16
+        | PersistedFieldKind::Int32
+        | PersistedFieldKind::Int64
         | PersistedFieldKind::Int128
         | PersistedFieldKind::IntBig
         | PersistedFieldKind::Principal
@@ -133,6 +145,10 @@ pub(in crate::db) fn validate_structural_field_by_accepted_kind_bytes(
         | PersistedFieldKind::Text { .. }
         | PersistedFieldKind::Timestamp
         | PersistedFieldKind::Nat
+        | PersistedFieldKind::Nat8
+        | PersistedFieldKind::Nat16
+        | PersistedFieldKind::Nat32
+        | PersistedFieldKind::Nat64
         | PersistedFieldKind::Nat128
         | PersistedFieldKind::NatBig
         | PersistedFieldKind::Ulid
@@ -147,10 +163,18 @@ pub(in crate::db) fn accepted_kind_supports_storage_key_binary(kind: &PersistedF
     match kind {
         PersistedFieldKind::Account
         | PersistedFieldKind::Int
+        | PersistedFieldKind::Int8
+        | PersistedFieldKind::Int16
+        | PersistedFieldKind::Int32
+        | PersistedFieldKind::Int64
         | PersistedFieldKind::Principal
         | PersistedFieldKind::Subaccount
         | PersistedFieldKind::Timestamp
         | PersistedFieldKind::Nat
+        | PersistedFieldKind::Nat8
+        | PersistedFieldKind::Nat16
+        | PersistedFieldKind::Nat32
+        | PersistedFieldKind::Nat64
         | PersistedFieldKind::Ulid
         | PersistedFieldKind::Unit => true,
         PersistedFieldKind::Relation { key_kind, .. } => {
@@ -182,6 +206,10 @@ const fn generated_compatible_simple_kind_from_accepted_kind(
         PersistedFieldKind::Float32 => Some(FieldKind::Float32),
         PersistedFieldKind::Float64 => Some(FieldKind::Float64),
         PersistedFieldKind::Int => Some(FieldKind::Int),
+        PersistedFieldKind::Int8 => Some(FieldKind::Int8),
+        PersistedFieldKind::Int16 => Some(FieldKind::Int16),
+        PersistedFieldKind::Int32 => Some(FieldKind::Int32),
+        PersistedFieldKind::Int64 => Some(FieldKind::Int64),
         PersistedFieldKind::Int128 => Some(FieldKind::Int128),
         PersistedFieldKind::IntBig => Some(FieldKind::IntBig),
         PersistedFieldKind::Principal => Some(FieldKind::Principal),
@@ -192,6 +220,10 @@ const fn generated_compatible_simple_kind_from_accepted_kind(
         PersistedFieldKind::Text { max_len } => Some(FieldKind::Text { max_len: *max_len }),
         PersistedFieldKind::Timestamp => Some(FieldKind::Timestamp),
         PersistedFieldKind::Nat => Some(FieldKind::Nat),
+        PersistedFieldKind::Nat8 => Some(FieldKind::Nat8),
+        PersistedFieldKind::Nat16 => Some(FieldKind::Nat16),
+        PersistedFieldKind::Nat32 => Some(FieldKind::Nat32),
+        PersistedFieldKind::Nat64 => Some(FieldKind::Nat64),
         PersistedFieldKind::Nat128 => Some(FieldKind::Nat128),
         PersistedFieldKind::NatBig => Some(FieldKind::NatBig),
         PersistedFieldKind::Ulid => Some(FieldKind::Ulid),
@@ -239,6 +271,10 @@ fn encode_accepted_binary_field_into(
         | PersistedFieldKind::Float32
         | PersistedFieldKind::Float64
         | PersistedFieldKind::Int
+        | PersistedFieldKind::Int8
+        | PersistedFieldKind::Int16
+        | PersistedFieldKind::Int32
+        | PersistedFieldKind::Int64
         | PersistedFieldKind::Int128
         | PersistedFieldKind::IntBig
         | PersistedFieldKind::Principal
@@ -247,6 +283,10 @@ fn encode_accepted_binary_field_into(
         | PersistedFieldKind::Text { .. }
         | PersistedFieldKind::Timestamp
         | PersistedFieldKind::Nat
+        | PersistedFieldKind::Nat8
+        | PersistedFieldKind::Nat16
+        | PersistedFieldKind::Nat32
+        | PersistedFieldKind::Nat64
         | PersistedFieldKind::Nat128
         | PersistedFieldKind::NatBig
         | PersistedFieldKind::Ulid

@@ -785,6 +785,10 @@ const fn persisted_field_kind_is_queryable(kind: &PersistedFieldKind) -> bool {
         | PersistedFieldKind::Float32
         | PersistedFieldKind::Float64
         | PersistedFieldKind::Int
+        | PersistedFieldKind::Int8
+        | PersistedFieldKind::Int16
+        | PersistedFieldKind::Int32
+        | PersistedFieldKind::Int64
         | PersistedFieldKind::Int128
         | PersistedFieldKind::IntBig
         | PersistedFieldKind::List(_)
@@ -795,6 +799,10 @@ const fn persisted_field_kind_is_queryable(kind: &PersistedFieldKind) -> bool {
         | PersistedFieldKind::Text { .. }
         | PersistedFieldKind::Timestamp
         | PersistedFieldKind::Nat
+        | PersistedFieldKind::Nat8
+        | PersistedFieldKind::Nat16
+        | PersistedFieldKind::Nat32
+        | PersistedFieldKind::Nat64
         | PersistedFieldKind::Nat128
         | PersistedFieldKind::NatBig
         | PersistedFieldKind::Ulid
@@ -816,19 +824,25 @@ fn persisted_field_kind_accepts_value(kind: &PersistedFieldKind, value: &Value) 
         | (PersistedFieldKind::Enum { .. }, Value::Enum(_))
         | (PersistedFieldKind::Float32, Value::Float32(_))
         | (PersistedFieldKind::Float64, Value::Float64(_))
-        | (PersistedFieldKind::Int, Value::Int(_))
+        | (PersistedFieldKind::Int | PersistedFieldKind::Int64, Value::Int(_))
         | (PersistedFieldKind::Int128, Value::Int128(_))
         | (PersistedFieldKind::IntBig, Value::IntBig(_))
+        | (PersistedFieldKind::Nat | PersistedFieldKind::Nat64, Value::Nat(_))
         | (PersistedFieldKind::Principal, Value::Principal(_))
         | (PersistedFieldKind::Subaccount, Value::Subaccount(_))
         | (PersistedFieldKind::Text { .. }, Value::Text(_))
         | (PersistedFieldKind::Timestamp, Value::Timestamp(_))
-        | (PersistedFieldKind::Nat, Value::Nat(_))
         | (PersistedFieldKind::Nat128, Value::Nat128(_))
         | (PersistedFieldKind::NatBig, Value::NatBig(_))
         | (PersistedFieldKind::Ulid, Value::Ulid(_))
         | (PersistedFieldKind::Unit, Value::Unit)
         | (PersistedFieldKind::Structured { .. }, Value::List(_) | Value::Map(_)) => true,
+        (PersistedFieldKind::Int8, Value::Int(value)) => i8::try_from(*value).is_ok(),
+        (PersistedFieldKind::Int16, Value::Int(value)) => i16::try_from(*value).is_ok(),
+        (PersistedFieldKind::Int32, Value::Int(value)) => i32::try_from(*value).is_ok(),
+        (PersistedFieldKind::Nat8, Value::Nat(value)) => u8::try_from(*value).is_ok(),
+        (PersistedFieldKind::Nat16, Value::Nat(value)) => u16::try_from(*value).is_ok(),
+        (PersistedFieldKind::Nat32, Value::Nat(value)) => u32::try_from(*value).is_ok(),
         (PersistedFieldKind::Relation { key_kind, .. }, value) => {
             persisted_field_kind_accepts_value(key_kind, value)
         }

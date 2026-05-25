@@ -112,6 +112,14 @@ pub(crate) mod test_support {
         super::commands::status_command(environment, canister)
     }
 
+    pub(crate) fn top_up_command(environment: &str, canister: &str, amount: &str) -> Command {
+        super::commands::top_up_command(environment, canister, amount)
+    }
+
+    pub(crate) fn parse_canister_cycles(status: &str) -> Option<u128> {
+        super::commands::parse_canister_cycles(status)
+    }
+
     pub(crate) fn canister_status_check_command(environment: &str, canister: &str) -> Command {
         super::process::canister_status_command(
             environment,
@@ -130,6 +138,13 @@ pub(crate) mod test_support {
 
     pub(crate) fn parse_manifest_canisters(contents: &str, environment: &str) -> Vec<String> {
         super::project::parse_manifest_canisters(contents, environment)
+    }
+
+    pub(crate) fn parse_manifest_environment_network<'a>(
+        contents: &'a str,
+        environment: &str,
+    ) -> Option<&'a str> {
+        super::project::parse_manifest_environment_network(contents, environment)
     }
 
     pub(crate) fn unreachable_network_hint(message: &str) -> Option<&'static str> {

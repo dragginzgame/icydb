@@ -32,7 +32,8 @@ use crate::{
     icp::test_support::{
         build_command, canister_status_check_command, canister_status_id_command, deploy_command,
         fixtures_load_command, hex_response_bytes, icp_query_command, icp_update_command,
-        install_upgrade_command, parse_manifest_canisters, status_command,
+        install_upgrade_command, parse_canister_cycles, parse_manifest_canisters,
+        parse_manifest_environment_network, status_command, top_up_command,
         unreachable_network_hint,
     },
     observability::test_support::{
@@ -1923,6 +1924,18 @@ fn lifecycle_commands_target_selected_environment() {
             status_command("demo", "demo_rpg"),
             vec!["canister", "status", "demo_rpg", "--environment", "demo"],
         ),
+        (
+            top_up_command("demo", "demo_rpg", "1t"),
+            vec![
+                "canister",
+                "top-up",
+                "--amount",
+                "1t",
+                "demo_rpg",
+                "--environment",
+                "demo",
+            ],
+        ),
     ] {
         let args = command
             .get_args()
@@ -1961,6 +1974,46 @@ fn canister_status_probe_commands_target_selected_environment() {
         assert_eq!(command.get_program().to_string_lossy(), "icp");
         assert_eq!(args, expected);
     }
+}
+
+#[test]
+fn canister_status_cycles_parser_accepts_underscored_cycle_balance() {
+    let status = "\
+Canister Status Report:
+  Memory size: 9_515_742
+  Cycles: 1_418_380_664_222
+  Reserved cycles: 0
+";
+
+    assert_eq!(parse_canister_cycles(status), Some(1_418_380_664_222));
+    assert_eq!(parse_canister_cycles("Status: Running"), None);
+}
+
+#[test]
+fn manifest_environment_network_parser_detects_local_targets() {
+    let contents = r"
+environments:
+  - name: demo
+    network: local
+    canisters: [demo_rpg]
+
+  - name: ic
+    network: ic
+    canisters: [demo_rpg]
+";
+
+    assert_eq!(
+        parse_manifest_environment_network(contents, "demo"),
+        Some("local")
+    );
+    assert_eq!(
+        parse_manifest_environment_network(contents, "ic"),
+        Some("ic")
+    );
+    assert_eq!(
+        parse_manifest_environment_network(contents, "missing"),
+        None
+    );
 }
 
 #[test]

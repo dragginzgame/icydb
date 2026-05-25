@@ -50,9 +50,17 @@ pub(super) fn decode_leaf_field_by_kind_bytes(
         | FieldKind::Float32
         | FieldKind::Float64
         | FieldKind::Int
+        | FieldKind::Int8
+        | FieldKind::Int16
+        | FieldKind::Int32
+        | FieldKind::Int64
         | FieldKind::Int128
         | FieldKind::Text { .. }
         | FieldKind::Nat
+        | FieldKind::Nat8
+        | FieldKind::Nat16
+        | FieldKind::Nat32
+        | FieldKind::Nat64
         | FieldKind::Nat128
         | FieldKind::Ulid => {
             return Err(FieldDecodeError::new(
@@ -93,9 +101,17 @@ pub(super) fn encode_leaf_field_binary_bytes(
         | FieldKind::Float32
         | FieldKind::Float64
         | FieldKind::Int
+        | FieldKind::Int8
+        | FieldKind::Int16
+        | FieldKind::Int32
+        | FieldKind::Int64
         | FieldKind::Int128
         | FieldKind::Text { .. }
         | FieldKind::Nat
+        | FieldKind::Nat8
+        | FieldKind::Nat16
+        | FieldKind::Nat32
+        | FieldKind::Nat64
         | FieldKind::Nat128
         | FieldKind::Ulid
         | FieldKind::Enum { .. }

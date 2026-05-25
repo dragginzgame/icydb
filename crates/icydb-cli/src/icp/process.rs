@@ -53,6 +53,7 @@ pub(super) fn canister_id(environment: &str, canister: &str) -> Result<Option<St
 }
 
 pub(super) enum CanisterStatusOutput {
+    Capture,
     Discard,
     IdOnly,
 }
@@ -77,6 +78,9 @@ pub(super) fn canister_status_command(
     let mut command = Command::new("icp");
     command.arg("canister").arg("status").arg(canister);
     match output {
+        CanisterStatusOutput::Capture => {
+            command.stdout(Stdio::piped());
+        }
         CanisterStatusOutput::Discard => {
             command.stdout(Stdio::null());
         }

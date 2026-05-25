@@ -472,12 +472,20 @@ const fn leaf_codec_for(kind: FieldKind, storage_decode: FieldStorageDecode) -> 
         FieldKind::Duration => LeafCodec::Scalar(ScalarCodec::Duration),
         FieldKind::Float32 => LeafCodec::Scalar(ScalarCodec::Float32),
         FieldKind::Float64 => LeafCodec::Scalar(ScalarCodec::Float64),
-        FieldKind::Int => LeafCodec::Scalar(ScalarCodec::Int64),
+        FieldKind::Int
+        | FieldKind::Int8
+        | FieldKind::Int16
+        | FieldKind::Int32
+        | FieldKind::Int64 => LeafCodec::Scalar(ScalarCodec::Int64),
         FieldKind::Principal => LeafCodec::Scalar(ScalarCodec::Principal),
         FieldKind::Subaccount => LeafCodec::Scalar(ScalarCodec::Subaccount),
         FieldKind::Text { .. } => LeafCodec::Scalar(ScalarCodec::Text),
         FieldKind::Timestamp => LeafCodec::Scalar(ScalarCodec::Timestamp),
-        FieldKind::Nat => LeafCodec::Scalar(ScalarCodec::Nat64),
+        FieldKind::Nat
+        | FieldKind::Nat8
+        | FieldKind::Nat16
+        | FieldKind::Nat32
+        | FieldKind::Nat64 => LeafCodec::Scalar(ScalarCodec::Nat64),
         FieldKind::Ulid => LeafCodec::Scalar(ScalarCodec::Ulid),
         FieldKind::Unit => LeafCodec::Scalar(ScalarCodec::Unit),
         FieldKind::Relation { key_kind, .. } => leaf_codec_for(*key_kind, storage_decode),
@@ -540,6 +548,10 @@ pub enum FieldKind {
     Float32,
     Float64,
     Int,
+    Int8,
+    Int16,
+    Int32,
+    Int64,
     Int128,
     IntBig,
     Principal,
@@ -550,6 +562,10 @@ pub enum FieldKind {
     },
     Timestamp,
     Nat,
+    Nat8,
+    Nat16,
+    Nat32,
+    Nat64,
     Nat128,
     NatBig,
     Ulid,
@@ -602,6 +618,10 @@ impl FieldKind {
             | Self::Float32
             | Self::Float64
             | Self::Int
+            | Self::Int8
+            | Self::Int16
+            | Self::Int32
+            | Self::Int64
             | Self::Int128
             | Self::IntBig
             | Self::Principal
@@ -609,6 +629,10 @@ impl FieldKind {
             | Self::Text { .. }
             | Self::Timestamp
             | Self::Nat
+            | Self::Nat8
+            | Self::Nat16
+            | Self::Nat32
+            | Self::Nat64
             | Self::Nat128
             | Self::NatBig
             | Self::Ulid
@@ -670,6 +694,10 @@ impl FieldKind {
             | Self::Float32
             | Self::Float64
             | Self::Int
+            | Self::Int8
+            | Self::Int16
+            | Self::Int32
+            | Self::Int64
             | Self::Int128
             | Self::IntBig
             | Self::Principal
@@ -677,6 +705,10 @@ impl FieldKind {
             | Self::Text { .. }
             | Self::Timestamp
             | Self::Nat
+            | Self::Nat8
+            | Self::Nat16
+            | Self::Nat32
+            | Self::Nat64
             | Self::Nat128
             | Self::NatBig
             | Self::Ulid => true,
@@ -700,19 +732,25 @@ impl FieldKind {
             | (Self::Enum { .. }, Value::Enum(_))
             | (Self::Float32, Value::Float32(_))
             | (Self::Float64, Value::Float64(_))
-            | (Self::Int, Value::Int(_))
+            | (Self::Int | Self::Int64, Value::Int(_))
             | (Self::Int128, Value::Int128(_))
             | (Self::IntBig, Value::IntBig(_))
+            | (Self::Nat | Self::Nat64, Value::Nat(_))
             | (Self::Principal, Value::Principal(_))
             | (Self::Subaccount, Value::Subaccount(_))
             | (Self::Text { .. }, Value::Text(_))
             | (Self::Timestamp, Value::Timestamp(_))
-            | (Self::Nat, Value::Nat(_))
             | (Self::Nat128, Value::Nat128(_))
             | (Self::NatBig, Value::NatBig(_))
             | (Self::Ulid, Value::Ulid(_))
             | (Self::Unit, Value::Unit)
             | (Self::Structured { .. }, Value::List(_) | Value::Map(_)) => true,
+            (Self::Int8, Value::Int(value)) => i8::try_from(*value).is_ok(),
+            (Self::Int16, Value::Int(value)) => i16::try_from(*value).is_ok(),
+            (Self::Int32, Value::Int(value)) => i32::try_from(*value).is_ok(),
+            (Self::Nat8, Value::Nat(value)) => u8::try_from(*value).is_ok(),
+            (Self::Nat16, Value::Nat(value)) => u16::try_from(*value).is_ok(),
+            (Self::Nat32, Value::Nat(value)) => u32::try_from(*value).is_ok(),
             (Self::Relation { key_kind, .. }, value) => key_kind.accepts_value(value),
             (Self::List(inner) | Self::Set(inner), Value::List(items)) => {
                 items.iter().all(|item| inner.accepts_value(item))

@@ -225,14 +225,32 @@ pub(super) fn materialize_primary_key_slot_value_from_expected_key(
 
     match (field.kind(), expected_key) {
         (FieldKind::Account, StorageKey::Account(value)) => Ok(Value::Account(value)),
-        (FieldKind::Int, StorageKey::Int(value)) => Ok(Value::Int(value)),
+        (FieldKind::Int | FieldKind::Int64, StorageKey::Int(value)) => Ok(Value::Int(value)),
+        (FieldKind::Int8, StorageKey::Int(value)) if i8::try_from(value).is_ok() => {
+            Ok(Value::Int(value))
+        }
+        (FieldKind::Int16, StorageKey::Int(value)) if i16::try_from(value).is_ok() => {
+            Ok(Value::Int(value))
+        }
+        (FieldKind::Int32, StorageKey::Int(value)) if i32::try_from(value).is_ok() => {
+            Ok(Value::Int(value))
+        }
         (FieldKind::Principal, StorageKey::Principal(value)) => Ok(Value::Principal(value)),
         (FieldKind::Relation { key_kind, .. }, storage_key) => {
             materialize_primary_key_value_from_kind(*key_kind, storage_key)
         }
         (FieldKind::Subaccount, StorageKey::Subaccount(value)) => Ok(Value::Subaccount(value)),
         (FieldKind::Timestamp, StorageKey::Timestamp(value)) => Ok(Value::Timestamp(value)),
-        (FieldKind::Nat, StorageKey::Nat(value)) => Ok(Value::Nat(value)),
+        (FieldKind::Nat | FieldKind::Nat64, StorageKey::Nat(value)) => Ok(Value::Nat(value)),
+        (FieldKind::Nat8, StorageKey::Nat(value)) if u8::try_from(value).is_ok() => {
+            Ok(Value::Nat(value))
+        }
+        (FieldKind::Nat16, StorageKey::Nat(value)) if u16::try_from(value).is_ok() => {
+            Ok(Value::Nat(value))
+        }
+        (FieldKind::Nat32, StorageKey::Nat(value)) if u32::try_from(value).is_ok() => {
+            Ok(Value::Nat(value))
+        }
         (FieldKind::Ulid, StorageKey::Ulid(value)) => Ok(Value::Ulid(value)),
         (FieldKind::Unit, StorageKey::Unit) => Ok(Value::Unit),
         (kind, storage_key) => Err(InternalError::persisted_row_decode_failed(format!(
@@ -274,14 +292,32 @@ fn materialize_primary_key_value_from_kind(
 ) -> Result<Value, InternalError> {
     match (kind, storage_key) {
         (FieldKind::Account, StorageKey::Account(value)) => Ok(Value::Account(value)),
-        (FieldKind::Int, StorageKey::Int(value)) => Ok(Value::Int(value)),
+        (FieldKind::Int | FieldKind::Int64, StorageKey::Int(value)) => Ok(Value::Int(value)),
+        (FieldKind::Int8, StorageKey::Int(value)) if i8::try_from(value).is_ok() => {
+            Ok(Value::Int(value))
+        }
+        (FieldKind::Int16, StorageKey::Int(value)) if i16::try_from(value).is_ok() => {
+            Ok(Value::Int(value))
+        }
+        (FieldKind::Int32, StorageKey::Int(value)) if i32::try_from(value).is_ok() => {
+            Ok(Value::Int(value))
+        }
         (FieldKind::Principal, StorageKey::Principal(value)) => Ok(Value::Principal(value)),
         (FieldKind::Relation { key_kind, .. }, storage_key) => {
             materialize_primary_key_value_from_kind(*key_kind, storage_key)
         }
         (FieldKind::Subaccount, StorageKey::Subaccount(value)) => Ok(Value::Subaccount(value)),
         (FieldKind::Timestamp, StorageKey::Timestamp(value)) => Ok(Value::Timestamp(value)),
-        (FieldKind::Nat, StorageKey::Nat(value)) => Ok(Value::Nat(value)),
+        (FieldKind::Nat | FieldKind::Nat64, StorageKey::Nat(value)) => Ok(Value::Nat(value)),
+        (FieldKind::Nat8, StorageKey::Nat(value)) if u8::try_from(value).is_ok() => {
+            Ok(Value::Nat(value))
+        }
+        (FieldKind::Nat16, StorageKey::Nat(value)) if u16::try_from(value).is_ok() => {
+            Ok(Value::Nat(value))
+        }
+        (FieldKind::Nat32, StorageKey::Nat(value)) if u32::try_from(value).is_ok() => {
+            Ok(Value::Nat(value))
+        }
         (FieldKind::Ulid, StorageKey::Ulid(value)) => Ok(Value::Ulid(value)),
         (FieldKind::Unit, StorageKey::Unit) => Ok(Value::Unit),
         (kind, storage_key) => Err(InternalError::persisted_row_decode_failed(format!(
@@ -299,7 +335,18 @@ fn materialize_primary_key_value_from_persisted_kind(
 ) -> Result<Value, String> {
     match (kind, storage_key) {
         (PersistedFieldKind::Account, StorageKey::Account(value)) => Ok(Value::Account(value)),
-        (PersistedFieldKind::Int, StorageKey::Int(value)) => Ok(Value::Int(value)),
+        (PersistedFieldKind::Int | PersistedFieldKind::Int64, StorageKey::Int(value)) => {
+            Ok(Value::Int(value))
+        }
+        (PersistedFieldKind::Int8, StorageKey::Int(value)) if i8::try_from(value).is_ok() => {
+            Ok(Value::Int(value))
+        }
+        (PersistedFieldKind::Int16, StorageKey::Int(value)) if i16::try_from(value).is_ok() => {
+            Ok(Value::Int(value))
+        }
+        (PersistedFieldKind::Int32, StorageKey::Int(value)) if i32::try_from(value).is_ok() => {
+            Ok(Value::Int(value))
+        }
         (PersistedFieldKind::Principal, StorageKey::Principal(value)) => {
             Ok(Value::Principal(value))
         }
@@ -312,7 +359,18 @@ fn materialize_primary_key_value_from_persisted_kind(
         (PersistedFieldKind::Timestamp, StorageKey::Timestamp(value)) => {
             Ok(Value::Timestamp(value))
         }
-        (PersistedFieldKind::Nat, StorageKey::Nat(value)) => Ok(Value::Nat(value)),
+        (PersistedFieldKind::Nat | PersistedFieldKind::Nat64, StorageKey::Nat(value)) => {
+            Ok(Value::Nat(value))
+        }
+        (PersistedFieldKind::Nat8, StorageKey::Nat(value)) if u8::try_from(value).is_ok() => {
+            Ok(Value::Nat(value))
+        }
+        (PersistedFieldKind::Nat16, StorageKey::Nat(value)) if u16::try_from(value).is_ok() => {
+            Ok(Value::Nat(value))
+        }
+        (PersistedFieldKind::Nat32, StorageKey::Nat(value)) if u32::try_from(value).is_ok() => {
+            Ok(Value::Nat(value))
+        }
         (PersistedFieldKind::Ulid, StorageKey::Ulid(value)) => Ok(Value::Ulid(value)),
         (PersistedFieldKind::Unit, StorageKey::Unit) => Ok(Value::Unit),
         (kind, storage_key) => Err(format!(

@@ -1566,8 +1566,48 @@ fn persisted_field_contract_for_sql_column_type(
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Int64),
         )),
+        "int8" => Some((
+            PersistedFieldKind::Int8,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Int64),
+        )),
+        "int16" => Some((
+            PersistedFieldKind::Int16,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Int64),
+        )),
+        "int32" => Some((
+            PersistedFieldKind::Int32,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Int64),
+        )),
+        "int64" => Some((
+            PersistedFieldKind::Int64,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Int64),
+        )),
         "nat" | "natural" => Some((
             PersistedFieldKind::Nat,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Nat64),
+        )),
+        "nat8" => Some((
+            PersistedFieldKind::Nat8,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Nat64),
+        )),
+        "nat16" => Some((
+            PersistedFieldKind::Nat16,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Nat64),
+        )),
+        "nat32" => Some((
+            PersistedFieldKind::Nat32,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Nat64),
+        )),
+        "nat64" => Some((
+            PersistedFieldKind::Nat64,
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Nat64),
         )),

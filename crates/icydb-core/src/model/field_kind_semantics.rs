@@ -232,7 +232,11 @@ pub(crate) const fn classify_field_kind(kind: &FieldKind) -> FieldKindSemantics 
         FieldKind::Duration => FieldKindSemantics::new(FieldKindCategory::Scalar(
             FieldKindScalarClass::Numeric(FieldKindNumericClass::DurationLike),
         )),
-        FieldKind::Int => FieldKindSemantics::new(FieldKindCategory::Scalar(
+        FieldKind::Int
+        | FieldKind::Int8
+        | FieldKind::Int16
+        | FieldKind::Int32
+        | FieldKind::Int64 => FieldKindSemantics::new(FieldKindCategory::Scalar(
             FieldKindScalarClass::Numeric(FieldKindNumericClass::Signed64),
         )),
         FieldKind::Int128 | FieldKind::IntBig => {
@@ -243,7 +247,11 @@ pub(crate) const fn classify_field_kind(kind: &FieldKind) -> FieldKindSemantics 
         FieldKind::Timestamp => FieldKindSemantics::new(FieldKindCategory::Scalar(
             FieldKindScalarClass::Numeric(FieldKindNumericClass::TimestampLike),
         )),
-        FieldKind::Nat => FieldKindSemantics::new(FieldKindCategory::Scalar(
+        FieldKind::Nat
+        | FieldKind::Nat8
+        | FieldKind::Nat16
+        | FieldKind::Nat32
+        | FieldKind::Nat64 => FieldKindSemantics::new(FieldKindCategory::Scalar(
             FieldKindScalarClass::Numeric(FieldKindNumericClass::Unsigned64),
         )),
         FieldKind::Nat128 | FieldKind::NatBig => {
@@ -339,12 +347,14 @@ fn canonicalize_lossless_field_literal_for_kind(
         FieldKind::Relation { key_kind, .. } => {
             canonicalize_lossless_field_literal_for_kind(*key_kind, value, allow_text_ulid)
         }
-        FieldKind::Int => match value {
-            Value::Int(inner) => Some(Value::Int(*inner)),
-            Value::Nat(inner) => i64::try_from(*inner).ok().map(Value::Int),
-            Value::Text(inner) => inner.parse::<i64>().ok().map(Value::Int),
-            _ => None,
-        },
+        FieldKind::Int | FieldKind::Int64 => canonicalize_int_literal(value, i64::MIN, i64::MAX),
+        FieldKind::Int8 => canonicalize_int_literal(value, i64::from(i8::MIN), i64::from(i8::MAX)),
+        FieldKind::Int16 => {
+            canonicalize_int_literal(value, i64::from(i16::MIN), i64::from(i16::MAX))
+        }
+        FieldKind::Int32 => {
+            canonicalize_int_literal(value, i64::from(i32::MIN), i64::from(i32::MAX))
+        }
         FieldKind::Int128 => match value {
             Value::Int128(inner) => Some(Value::Int128(*inner)),
             Value::Text(inner) => inner
@@ -380,12 +390,10 @@ fn canonicalize_lossless_field_literal_for_kind(
             Value::Text(inner) => Some(Value::Text(inner.clone())),
             _ => None,
         },
-        FieldKind::Nat => match value {
-            Value::Int(inner) => u64::try_from(*inner).ok().map(Value::Nat),
-            Value::Nat(inner) => Some(Value::Nat(*inner)),
-            Value::Text(inner) => inner.parse::<u64>().ok().map(Value::Nat),
-            _ => None,
-        },
+        FieldKind::Nat | FieldKind::Nat64 => canonicalize_nat_literal(value, u64::MAX),
+        FieldKind::Nat8 => canonicalize_nat_literal(value, u64::from(u8::MAX)),
+        FieldKind::Nat16 => canonicalize_nat_literal(value, u64::from(u16::MAX)),
+        FieldKind::Nat32 => canonicalize_nat_literal(value, u64::from(u32::MAX)),
         FieldKind::Nat128 => match value {
             Value::Nat128(inner) => Some(Value::Nat128(*inner)),
             Value::Text(inner) => inner
@@ -413,6 +421,48 @@ fn canonicalize_lossless_field_literal_for_kind(
     }
 }
 
+fn canonicalize_int_literal(value: &Value, min: i64, max: i64) -> Option<Value> {
+    let value = match value {
+        Value::Int(inner) => *inner,
+        Value::Nat(inner) => i64::try_from(*inner).ok()?,
+        Value::Text(inner) => inner.parse::<i64>().ok()?,
+        _ => return None,
+    };
+
+    (min..=max).contains(&value).then_some(Value::Int(value))
+}
+
+fn canonicalize_nat_literal(value: &Value, max: u64) -> Option<Value> {
+    let value = match value {
+        Value::Int(inner) => u64::try_from(*inner).ok()?,
+        Value::Nat(inner) => *inner,
+        Value::Text(inner) => inner.parse::<u64>().ok()?,
+        _ => return None,
+    };
+
+    (value <= max).then_some(Value::Nat(value))
+}
+
+fn canonicalize_int_strict_literal(value: &Value, min: i64, max: i64) -> Option<Value> {
+    let value = match value {
+        Value::Int(inner) => *inner,
+        Value::Nat(inner) => i64::try_from(*inner).ok()?,
+        _ => return None,
+    };
+
+    (min..=max).contains(&value).then_some(Value::Int(value))
+}
+
+fn canonicalize_nat_strict_literal(value: &Value, max: u64) -> Option<Value> {
+    let value = match value {
+        Value::Int(inner) => u64::try_from(*inner).ok()?,
+        Value::Nat(inner) => *inner,
+        _ => return None,
+    };
+
+    (value <= max).then_some(Value::Nat(value))
+}
+
 // Keep strict SQL literal canonicalization on its original narrow contract:
 // it only upgrades parsed numeric tokens onto exact integer field kinds and
 // adds the explicit text-to-ULID escape hatch that SQL literal syntax needs.
@@ -421,14 +471,22 @@ fn canonicalize_strict_sql_literal_for_kind_impl(kind: FieldKind, value: &Value)
         FieldKind::Relation { key_kind, .. } => {
             canonicalize_strict_sql_literal_for_kind_impl(*key_kind, value)
         }
-        FieldKind::Int => match value {
-            Value::Nat(inner) => i64::try_from(*inner).ok().map(Value::Int),
-            _ => None,
-        },
-        FieldKind::Nat => match value {
-            Value::Int(inner) => u64::try_from(*inner).ok().map(Value::Nat),
-            _ => None,
-        },
+        FieldKind::Int | FieldKind::Int64 => {
+            canonicalize_int_strict_literal(value, i64::MIN, i64::MAX)
+        }
+        FieldKind::Int8 => {
+            canonicalize_int_strict_literal(value, i64::from(i8::MIN), i64::from(i8::MAX))
+        }
+        FieldKind::Int16 => {
+            canonicalize_int_strict_literal(value, i64::from(i16::MIN), i64::from(i16::MAX))
+        }
+        FieldKind::Int32 => {
+            canonicalize_int_strict_literal(value, i64::from(i32::MIN), i64::from(i32::MAX))
+        }
+        FieldKind::Nat | FieldKind::Nat64 => canonicalize_nat_strict_literal(value, u64::MAX),
+        FieldKind::Nat8 => canonicalize_nat_strict_literal(value, u64::from(u8::MAX)),
+        FieldKind::Nat16 => canonicalize_nat_strict_literal(value, u64::from(u16::MAX)),
+        FieldKind::Nat32 => canonicalize_nat_strict_literal(value, u64::from(u32::MAX)),
         FieldKind::Ulid => match value {
             Value::Text(inner) => inner.parse::<Ulid>().ok().map(Value::Ulid),
             _ => None,

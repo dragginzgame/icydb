@@ -748,10 +748,18 @@ fn validate_relation_key_kind(key_kind: &PersistedFieldKind) -> Result<(), Inter
     match key_kind {
         PersistedFieldKind::Account
         | PersistedFieldKind::Int
+        | PersistedFieldKind::Int8
+        | PersistedFieldKind::Int16
+        | PersistedFieldKind::Int32
+        | PersistedFieldKind::Int64
         | PersistedFieldKind::Principal
         | PersistedFieldKind::Subaccount
         | PersistedFieldKind::Timestamp
         | PersistedFieldKind::Nat
+        | PersistedFieldKind::Nat8
+        | PersistedFieldKind::Nat16
+        | PersistedFieldKind::Nat32
+        | PersistedFieldKind::Nat64
         | PersistedFieldKind::Ulid
         | PersistedFieldKind::Unit => Ok(()),
         PersistedFieldKind::Relation { key_kind, .. } => validate_relation_key_kind(key_kind),
@@ -833,6 +841,9 @@ where
         return Ok(ops);
     }
 
+    // Reverse relation indexes are still scalar-keyed in 0.162. Composite
+    // source identity must fail closed instead of choosing one component and
+    // corrupting `target_storage_key -> source_storage_key` membership.
     let Some(source_component) = source_primary_key.scalar_component() else {
         return Err(InternalError::serialize_unsupported(format!(
             "reverse relation index maintenance does not support composite source primary keys yet: source={}",

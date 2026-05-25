@@ -211,6 +211,10 @@ fn sql_capabilities_for_non_scalar(kind: &PersistedFieldKind) -> SqlCapabilities
         | PersistedFieldKind::Float32
         | PersistedFieldKind::Float64
         | PersistedFieldKind::Int
+        | PersistedFieldKind::Int8
+        | PersistedFieldKind::Int16
+        | PersistedFieldKind::Int32
+        | PersistedFieldKind::Int64
         | PersistedFieldKind::Int128
         | PersistedFieldKind::IntBig
         | PersistedFieldKind::Principal
@@ -218,6 +222,10 @@ fn sql_capabilities_for_non_scalar(kind: &PersistedFieldKind) -> SqlCapabilities
         | PersistedFieldKind::Text { .. }
         | PersistedFieldKind::Timestamp
         | PersistedFieldKind::Nat
+        | PersistedFieldKind::Nat8
+        | PersistedFieldKind::Nat16
+        | PersistedFieldKind::Nat32
+        | PersistedFieldKind::Nat64
         | PersistedFieldKind::Nat128
         | PersistedFieldKind::NatBig
         | PersistedFieldKind::Ulid
@@ -243,9 +251,17 @@ fn persisted_sql_scalar_family(kind: &PersistedFieldKind) -> Option<PersistedSql
         | PersistedFieldKind::Float32
         | PersistedFieldKind::Float64
         | PersistedFieldKind::Int
+        | PersistedFieldKind::Int8
+        | PersistedFieldKind::Int16
+        | PersistedFieldKind::Int32
+        | PersistedFieldKind::Int64
         | PersistedFieldKind::Int128
         | PersistedFieldKind::IntBig
         | PersistedFieldKind::Nat
+        | PersistedFieldKind::Nat8
+        | PersistedFieldKind::Nat16
+        | PersistedFieldKind::Nat32
+        | PersistedFieldKind::Nat64
         | PersistedFieldKind::Nat128
         | PersistedFieldKind::NatBig => {
             Some(PersistedSqlScalarFamily::Numeric { arithmetic: true })

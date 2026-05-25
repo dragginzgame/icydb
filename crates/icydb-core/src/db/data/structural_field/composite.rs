@@ -294,6 +294,10 @@ pub(super) fn decode_composite_field_binary_bytes(
         | FieldKind::Float32
         | FieldKind::Float64
         | FieldKind::Int
+        | FieldKind::Int8
+        | FieldKind::Int16
+        | FieldKind::Int32
+        | FieldKind::Int64
         | FieldKind::Int128
         | FieldKind::IntBig
         | FieldKind::Principal
@@ -302,6 +306,10 @@ pub(super) fn decode_composite_field_binary_bytes(
         | FieldKind::Text { .. }
         | FieldKind::Timestamp
         | FieldKind::Nat
+        | FieldKind::Nat8
+        | FieldKind::Nat16
+        | FieldKind::Nat32
+        | FieldKind::Nat64
         | FieldKind::Nat128
         | FieldKind::NatBig
         | FieldKind::Ulid
@@ -335,6 +343,10 @@ pub(super) fn validate_composite_field_binary_bytes(
         | FieldKind::Float32
         | FieldKind::Float64
         | FieldKind::Int
+        | FieldKind::Int8
+        | FieldKind::Int16
+        | FieldKind::Int32
+        | FieldKind::Int64
         | FieldKind::Int128
         | FieldKind::IntBig
         | FieldKind::Principal
@@ -343,6 +355,10 @@ pub(super) fn validate_composite_field_binary_bytes(
         | FieldKind::Text { .. }
         | FieldKind::Timestamp
         | FieldKind::Nat
+        | FieldKind::Nat8
+        | FieldKind::Nat16
+        | FieldKind::Nat32
+        | FieldKind::Nat64
         | FieldKind::Nat128
         | FieldKind::NatBig
         | FieldKind::Ulid
