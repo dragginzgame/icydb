@@ -380,7 +380,7 @@ fn row_layout_rejects_accepted_slot_reorder_at_generated_compatibility_proof() {
         snapshot.version(),
         snapshot.entity_path().to_string(),
         snapshot.entity_name().to_string(),
-        snapshot.primary_key_field_id(),
+        snapshot.first_primary_key_field_id(),
         SchemaRowLayout::new(
             SchemaVersion::initial(),
             vec![
@@ -424,7 +424,7 @@ fn row_layout_rejects_accepted_payload_contract_drift_at_generated_compatibility
         snapshot.version(),
         snapshot.entity_path().to_string(),
         snapshot.entity_name().to_string(),
-        snapshot.primary_key_field_id(),
+        snapshot.first_primary_key_field_id(),
         snapshot.row_layout().clone(),
         fields,
     );

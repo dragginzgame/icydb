@@ -548,7 +548,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             ));
         }
 
-        if let Some(name) = schema.primary_key_name() {
+        if let Some(name) = schema.scalar_primary_key_name() {
             return Ok(name.to_string());
         }
 

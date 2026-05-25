@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.162.md](docs/changelog/0.162.md)
 
+- `0.162.24` renames scalar-only and first-component primary-key helper APIs so
+  they cannot be mistaken for ordered primary-key authority.
+
 - `0.162.23` removes the obsolete `StorageKey` row-identity bridge and makes
   data keys, index suffixes, persisted-row decode, and relation paths route
   through compact primary-key identity.

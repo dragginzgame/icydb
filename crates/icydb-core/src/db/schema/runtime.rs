@@ -334,7 +334,7 @@ impl AcceptedRowDecodeContract {
         Self {
             required_slot_count: descriptor.required_slot_count(),
             max_physical_slot_count: descriptor.max_physical_slot_count(),
-            primary_key_slot_index: descriptor.primary_key_slot_index(),
+            primary_key_slot_index: descriptor.first_primary_key_slot_index(),
             primary_key_slot_indices: descriptor.primary_key_slot_indices().to_vec(),
             fields_by_slot,
         }
@@ -373,7 +373,7 @@ impl AcceptedRowDecodeContract {
 
     /// Return the accepted primary-key physical slot index.
     #[must_use]
-    pub(in crate::db) const fn primary_key_slot_index(&self) -> usize {
+    pub(in crate::db) const fn first_primary_key_slot_index(&self) -> usize {
         self.primary_key_slot_index
     }
 
@@ -435,7 +435,7 @@ impl AcceptedGeneratedCompatibleRowShape {
     /// Return the accepted primary-key physical slot proven generated-compatible.
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db) const fn primary_key_slot_index(self) -> usize {
+    pub(in crate::db) const fn first_primary_key_slot_index(self) -> usize {
         self.primary_key_slot_index
     }
 }
@@ -573,10 +573,10 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
 
     /// Borrow the first accepted primary-key field name carried by this layout.
     ///
-    /// This scalar bridge remains for current scalar-only execution paths.
+    /// This first-component helper remains for scalar-only execution paths.
     /// Composite-aware code must read `primary_key_names`.
     #[must_use]
-    pub(in crate::db) fn primary_key_name(&self) -> &'a str {
+    pub(in crate::db) fn first_primary_key_name(&self) -> &'a str {
         self.primary_key_names[0]
     }
 
@@ -594,17 +594,17 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
 
     /// Borrow the first accepted primary-key persisted field kind.
     ///
-    /// This scalar bridge remains for current scalar-only SQL literal
+    /// This first-component helper remains for scalar-only SQL literal
     /// coercion paths. Composite-aware code must read `primary_key_kinds`.
     #[must_use]
-    pub(in crate::db) fn primary_key_kind(&self) -> &'a PersistedFieldKind {
+    pub(in crate::db) fn first_primary_key_kind(&self) -> &'a PersistedFieldKind {
         self.primary_key_kinds[0]
     }
 
     /// Borrow accepted primary-key persisted field kinds in key order.
     #[allow(
         dead_code,
-        reason = "ordered primary-key kind access becomes live when SQL/composite key literal admission leaves the scalar bridge"
+        reason = "ordered primary-key kind access becomes live when SQL/composite key literal admission leaves the first-component helper"
     )]
     #[must_use]
     pub(in crate::db) const fn primary_key_kinds(&self) -> &[&'a PersistedFieldKind] {
@@ -613,11 +613,11 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
 
     /// Return the first accepted primary-key physical slot index.
     ///
-    /// This scalar bridge remains for row-decode contracts that currently
+    /// This first-component helper remains for row-decode contracts that still
     /// expose one key slot. Composite-aware code must read
     /// `primary_key_slot_indices`.
     #[must_use]
-    pub(in crate::db) fn primary_key_slot_index(&self) -> usize {
+    pub(in crate::db) fn first_primary_key_slot_index(&self) -> usize {
         self.primary_key_slot_indices[0]
     }
 
@@ -790,7 +790,7 @@ impl<'a> AcceptedRowLayoutRuntimeDescriptor<'a> {
 
         Ok(AcceptedGeneratedCompatibleRowShape {
             required_slot_count: self.required_slot_count(),
-            primary_key_slot_index: self.primary_key_slot_index(),
+            primary_key_slot_index: self.first_primary_key_slot_index(),
         })
     }
 }
@@ -1166,9 +1166,9 @@ mod tests {
 
         assert_eq!(descriptor.version(), SchemaVersion::initial());
         assert_eq!(descriptor.required_slot_count(), 10);
-        assert_eq!(descriptor.primary_key_name(), "id");
+        assert_eq!(descriptor.first_primary_key_name(), "id");
         assert_eq!(descriptor.primary_key_names(), ["id"]);
-        assert_eq!(descriptor.primary_key_slot_index(), 0);
+        assert_eq!(descriptor.first_primary_key_slot_index(), 0);
         assert_eq!(descriptor.primary_key_slot_indices(), [0]);
         assert_eq!(descriptor.fields().len(), 2);
 
@@ -1234,12 +1234,12 @@ mod tests {
         let descriptor = AcceptedRowLayoutRuntimeDescriptor::from_accepted_schema(&accepted)
             .expect("accepted composite primary-key schema should build descriptor");
 
-        assert_eq!(descriptor.primary_key_name(), "id");
+        assert_eq!(descriptor.first_primary_key_name(), "id");
         assert_eq!(descriptor.primary_key_names(), ["id", "nickname"]);
-        assert_eq!(descriptor.primary_key_slot_index(), 0);
+        assert_eq!(descriptor.first_primary_key_slot_index(), 0);
         assert_eq!(descriptor.primary_key_slot_indices(), [0, 1]);
         let decode_contract = descriptor.row_decode_contract();
-        assert_eq!(decode_contract.primary_key_slot_index(), 0);
+        assert_eq!(decode_contract.first_primary_key_slot_index(), 0);
         assert_eq!(decode_contract.primary_key_slot_indices(), [0, 1]);
         assert!(descriptor.is_primary_key_field_name("id"));
         assert!(descriptor.is_primary_key_field_name("nickname"));
@@ -1264,7 +1264,7 @@ mod tests {
             .expect("nickname field should be available by accepted row slot");
 
         assert_eq!(contract.required_slot_count(), 10);
-        assert_eq!(contract.primary_key_slot_index(), 0);
+        assert_eq!(contract.first_primary_key_slot_index(), 0);
         assert_eq!(contract.primary_key_slot_indices(), [0]);
         assert_eq!(nickname.field_name(), "nickname");
         assert!(
@@ -1286,7 +1286,7 @@ mod tests {
 
             descriptor.row_decode_contract()
         };
-        assert_eq!(contract.primary_key_slot_index(), 0);
+        assert_eq!(contract.first_primary_key_slot_index(), 0);
         assert_eq!(contract.primary_key_slot_indices(), [0]);
         let nickname_field = contract
             .field_for_slot(1)
@@ -1314,7 +1314,7 @@ mod tests {
             .expect("matching generated model should produce row shape proof");
 
         assert_eq!(shape.required_slot_count(), 2);
-        assert_eq!(shape.primary_key_slot_index(), 0);
+        assert_eq!(shape.first_primary_key_slot_index(), 0);
     }
 
     #[test]
@@ -1327,12 +1327,15 @@ mod tests {
             .expect("generated-compatible schema should build row shape proof");
 
         assert_eq!(descriptor.required_slot_count(), 2);
-        assert_eq!(descriptor.primary_key_slot_index(), 0);
-        assert_eq!(descriptor.primary_key_name(), "id");
+        assert_eq!(descriptor.first_primary_key_slot_index(), 0);
+        assert_eq!(descriptor.first_primary_key_name(), "id");
         assert_eq!(descriptor.primary_key_names(), ["id"]);
-        assert_eq!(descriptor.primary_key_kind(), &PersistedFieldKind::Ulid);
+        assert_eq!(
+            descriptor.first_primary_key_kind(),
+            &PersistedFieldKind::Ulid
+        );
         assert_eq!(shape.required_slot_count(), 2);
-        assert_eq!(shape.primary_key_slot_index(), 0);
+        assert_eq!(shape.first_primary_key_slot_index(), 0);
         assert_eq!(
             descriptor.field_slot_index_by_name("nickname"),
             Some(1),
@@ -1472,7 +1475,7 @@ mod tests {
             snapshot.version(),
             snapshot.entity_path().to_string(),
             snapshot.entity_name().to_string(),
-            snapshot.primary_key_field_id(),
+            snapshot.first_primary_key_field_id(),
             SchemaRowLayout::new(
                 snapshot.row_layout().version(),
                 vec![

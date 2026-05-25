@@ -514,7 +514,7 @@ mod tests {
             base.version(),
             base.entity_path().to_string(),
             base.entity_name().to_string(),
-            base.primary_key_field_id(),
+            base.first_primary_key_field_id(),
             SchemaRowLayout::new(
                 base.version(),
                 vec![
@@ -545,7 +545,7 @@ mod tests {
             base.version(),
             base.entity_path().to_string(),
             base.entity_name().to_string(),
-            base.primary_key_field_id(),
+            base.first_primary_key_field_id(),
             SchemaRowLayout::new(
                 base.version(),
                 vec![
@@ -622,7 +622,7 @@ mod tests {
             base.version(),
             base.entity_path().to_string(),
             base.entity_name().to_string(),
-            base.primary_key_field_id(),
+            base.first_primary_key_field_id(),
             SchemaRowLayout::new(
                 base.version(),
                 vec![
@@ -700,7 +700,7 @@ mod tests {
             base.version(),
             base.entity_path().to_string(),
             base.entity_name().to_string(),
-            base.primary_key_field_id(),
+            base.first_primary_key_field_id(),
             base.row_layout().clone(),
             fields,
         );
@@ -748,7 +748,7 @@ mod tests {
             base.version(),
             base.entity_path().to_string(),
             base.entity_name().to_string(),
-            base.primary_key_field_id(),
+            base.first_primary_key_field_id(),
             base.row_layout().clone(),
             fields,
         );
@@ -802,7 +802,7 @@ mod tests {
             base.version(),
             base.entity_path().to_string(),
             base.entity_name().to_string(),
-            base.primary_key_field_id(),
+            base.first_primary_key_field_id(),
             base.row_layout().clone(),
             fields,
         );

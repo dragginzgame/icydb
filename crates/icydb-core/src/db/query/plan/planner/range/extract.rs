@@ -44,7 +44,7 @@ pub(in crate::db::query::plan::planner) fn primary_key_range_from_and(
     // KeyRange access is currently scalar-primary-key only. Composite
     // component ranges are deferred and must stay residual/full-scan unless a
     // secondary index can satisfy them.
-    let primary_key_name = schema.primary_key_name()?;
+    let primary_key_name = schema.scalar_primary_key_name()?;
     let field_type = schema.field(primary_key_name)?;
     if !field_type.is_keyable() {
         return None;

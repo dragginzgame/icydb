@@ -108,7 +108,7 @@ impl StructuralRowContract {
             generated_fields,
             field_count: accepted_decode_contract.required_slot_count(),
             max_physical_slot_count: accepted_decode_contract.max_physical_slot_count(),
-            primary_key_slot: accepted_decode_contract.primary_key_slot_index(),
+            primary_key_slot: accepted_decode_contract.first_primary_key_slot_index(),
             accepted_decode_contract: Some(Arc::new(accepted_decode_contract)),
         }
     }

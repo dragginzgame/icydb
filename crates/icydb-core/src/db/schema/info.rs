@@ -588,7 +588,7 @@ impl SchemaInfo {
     /// entities. Composite entities return `None` so scalar access-planning
     /// helpers cannot silently treat the first component as a complete key.
     #[must_use]
-    pub(in crate::db) fn primary_key_name(&self) -> Option<&str> {
+    pub(in crate::db) fn scalar_primary_key_name(&self) -> Option<&str> {
         (self.primary_key_names.len() == 1).then(|| self.primary_key_names[0].as_str())
     }
 
@@ -1488,8 +1488,8 @@ mod tests {
         assert_eq!(accepted.field_slot_index("name"), Some(9));
         assert_eq!(generated.entity_name(), Some("Entity"));
         assert_eq!(accepted.entity_name(), Some("Entity"));
-        assert_eq!(generated.primary_key_name(), Some("id"));
-        assert_eq!(accepted.primary_key_name(), Some("id"));
+        assert_eq!(generated.scalar_primary_key_name(), Some("id"));
+        assert_eq!(accepted.scalar_primary_key_name(), Some("id"));
         assert_eq!(generated.primary_key_names(), ["id"]);
         assert_eq!(accepted.primary_key_names(), ["id"]);
     }
@@ -1499,7 +1499,7 @@ mod tests {
         let snapshot = accepted_schema_with_composite_primary_key();
         let accepted = SchemaInfo::from_accepted_snapshot_for_model(&MODEL, &snapshot);
 
-        assert_eq!(accepted.primary_key_name(), None);
+        assert_eq!(accepted.scalar_primary_key_name(), None);
         assert_eq!(accepted.primary_key_names(), ["id", "age"]);
     }
 

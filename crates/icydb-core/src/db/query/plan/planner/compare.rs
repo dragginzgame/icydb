@@ -39,7 +39,7 @@ pub(super) fn plan_compare(
     // Exact primary-key predicate lowering is scalar-only. Composite primary
     // keys are addressed through full-key values at typed/structural
     // boundaries; partial component predicates must not masquerade as ByKey.
-    let primary_key_name = schema.primary_key_name();
+    let primary_key_name = schema.scalar_primary_key_name();
     if cmp.coercion.id == CoercionId::Strict
         && primary_key_name.is_some_and(|name| cmp.field == name)
         && let Some(field_type) = primary_key_name.and_then(|name| schema.field(name))

@@ -1012,7 +1012,7 @@ fn install_unique_email_old_accepted_schema_prefix() {
         expected.version(),
         expected.entity_path().to_string(),
         expected.entity_name().to_string(),
-        expected.primary_key_field_id(),
+        expected.first_primary_key_field_id(),
         stored_prefix_row_layout,
         vec![expected.fields()[0].clone()],
     );

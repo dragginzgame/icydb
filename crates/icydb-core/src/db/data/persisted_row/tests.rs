@@ -929,7 +929,7 @@ fn accepted_defaulted_required_score_row_decode_contract_for_tests(
         expected.version(),
         expected.entity_path().to_string(),
         expected.entity_name().to_string(),
-        expected.primary_key_field_id(),
+        expected.first_primary_key_field_id(),
         expected.row_layout().clone(),
         fields,
     );
@@ -976,7 +976,7 @@ fn generated_default_model_with_no_accepted_default_contract_for_tests() -> Stru
         expected.version(),
         expected.entity_path().to_string(),
         expected.entity_name().to_string(),
-        expected.primary_key_field_id(),
+        expected.first_primary_key_field_id(),
         expected.row_layout().clone(),
         fields,
     );

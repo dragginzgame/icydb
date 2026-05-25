@@ -1022,7 +1022,7 @@ mod tests {
             expected.version(),
             expected.entity_path().to_string(),
             "ChangedSchemaReconcileEntity".to_string(),
-            expected.primary_key_field_id(),
+            expected.first_primary_key_field_id(),
             expected.row_layout().clone(),
             expected.fields().to_vec(),
         )
@@ -1065,7 +1065,7 @@ mod tests {
             snapshot.version(),
             snapshot.entity_path().to_string(),
             snapshot.entity_name().to_string(),
-            snapshot.primary_key_field_id(),
+            snapshot.first_primary_key_field_id(),
             snapshot.row_layout().clone(),
             snapshot.fields().to_vec(),
             indexes,
@@ -1222,7 +1222,7 @@ mod tests {
             generated.version(),
             generated.entity_path().to_string(),
             generated.entity_name().to_string(),
-            generated.primary_key_field_id(),
+            generated.first_primary_key_field_id(),
             SchemaRowLayout::new(
                 SchemaVersion::initial(),
                 vec![
@@ -1270,7 +1270,7 @@ mod tests {
             stored.version(),
             stored.entity_path().to_string(),
             stored.entity_name().to_string(),
-            stored.primary_key_field_id(),
+            stored.first_primary_key_field_id(),
             SchemaRowLayout::new(
                 SchemaVersion::initial(),
                 vec![
@@ -1322,7 +1322,7 @@ mod tests {
             stored.version(),
             stored.entity_path().to_string(),
             stored.entity_name().to_string(),
-            stored.primary_key_field_id(),
+            stored.first_primary_key_field_id(),
             SchemaRowLayout::new(
                 SchemaVersion::initial(),
                 vec![
@@ -1366,7 +1366,7 @@ mod tests {
             stored.version(),
             stored.entity_path().to_string(),
             stored.entity_name().to_string(),
-            stored.primary_key_field_id(),
+            stored.first_primary_key_field_id(),
             SchemaRowLayout::new(
                 SchemaVersion::initial(),
                 vec![
@@ -1404,7 +1404,7 @@ mod tests {
             expected.version(),
             expected.entity_path().to_string(),
             expected.entity_name().to_string(),
-            expected.primary_key_field_id(),
+            expected.first_primary_key_field_id(),
             SchemaRowLayout::new(
                 SchemaVersion::initial(),
                 vec![
@@ -1492,7 +1492,7 @@ mod tests {
             expected.version(),
             expected.entity_path().to_string(),
             expected.entity_name().to_string(),
-            expected.primary_key_field_id(),
+            expected.first_primary_key_field_id(),
             expected.row_layout().clone(),
             changed_fields,
         );
@@ -1534,7 +1534,7 @@ mod tests {
             stored.version(),
             stored.entity_path().to_string(),
             stored.entity_name().to_string(),
-            stored.primary_key_field_id(),
+            stored.first_primary_key_field_id(),
             stored.row_layout().clone(),
             generated_fields,
         );
@@ -1625,7 +1625,7 @@ mod tests {
             stored.version(),
             stored.entity_path().to_string(),
             stored.entity_name().to_string(),
-            stored.primary_key_field_id(),
+            stored.first_primary_key_field_id(),
             stored.row_layout().clone(),
             generated_fields,
         );
@@ -1680,7 +1680,7 @@ mod tests {
             expected.version(),
             expected.entity_path().to_string(),
             expected.entity_name().to_string(),
-            expected.primary_key_field_id(),
+            expected.first_primary_key_field_id(),
             SchemaRowLayout::new(
                 SchemaVersion::initial(),
                 vec![
@@ -1730,7 +1730,7 @@ mod tests {
             stored.version(),
             stored.entity_path().to_string(),
             stored.entity_name().to_string(),
-            stored.primary_key_field_id(),
+            stored.first_primary_key_field_id(),
             SchemaRowLayout::new(
                 SchemaVersion::initial(),
                 vec![

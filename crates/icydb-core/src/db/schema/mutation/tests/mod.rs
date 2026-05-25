@@ -404,7 +404,7 @@ fn append_fields_snapshot(
         SchemaVersion::new(snapshot.version().get() + 1),
         snapshot.entity_path().to_string(),
         snapshot.entity_name().to_string(),
-        snapshot.primary_key_field_id(),
+        snapshot.first_primary_key_field_id(),
         SchemaRowLayout::new(
             SchemaVersion::new(snapshot.row_layout().version().get() + 1),
             next_layout_entries,
@@ -421,7 +421,7 @@ fn snapshot_with_indexes(
         SchemaVersion::new(snapshot.version().get() + 1),
         snapshot.entity_path().to_string(),
         snapshot.entity_name().to_string(),
-        snapshot.primary_key_field_id(),
+        snapshot.first_primary_key_field_id(),
         SchemaRowLayout::new(
             SchemaVersion::new(snapshot.row_layout().version().get() + 1),
             snapshot.row_layout().field_to_slot().to_vec(),

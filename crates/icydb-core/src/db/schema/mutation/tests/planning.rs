@@ -581,7 +581,7 @@ fn runner_input_rejects_cross_entity_snapshot_pairs() {
         before.version(),
         "test::OtherEntity".to_string(),
         before.entity_name().to_string(),
-        before.primary_key_field_id(),
+        before.first_primary_key_field_id(),
         before.row_layout().clone(),
         before.fields().to_vec(),
     );
@@ -589,7 +589,7 @@ fn runner_input_rejects_cross_entity_snapshot_pairs() {
         before.version(),
         before.entity_path().to_string(),
         "OtherEntity".to_string(),
-        before.primary_key_field_id(),
+        before.first_primary_key_field_id(),
         before.row_layout().clone(),
         before.fields().to_vec(),
     );
@@ -1053,7 +1053,7 @@ fn snapshot_delta_classifier_names_append_only_fields() {
         stored.version(),
         stored.entity_path().to_string(),
         stored.entity_name().to_string(),
-        stored.primary_key_field_id(),
+        stored.first_primary_key_field_id(),
         SchemaRowLayout::new(
             SchemaVersion::initial(),
             vec![
@@ -1084,7 +1084,7 @@ fn snapshot_delta_request_lowers_append_only_fields_to_mutation_plan() {
         stored.version(),
         stored.entity_path().to_string(),
         stored.entity_name().to_string(),
-        stored.primary_key_field_id(),
+        stored.first_primary_key_field_id(),
         SchemaRowLayout::new(
             SchemaVersion::initial(),
             vec![
@@ -1187,7 +1187,7 @@ fn snapshot_delta_classifier_rejects_non_prefix_field_changes() {
         stored.version(),
         stored.entity_path().to_string(),
         stored.entity_name().to_string(),
-        stored.primary_key_field_id(),
+        stored.first_primary_key_field_id(),
         stored.row_layout().clone(),
         generated_fields,
     );

@@ -187,7 +187,7 @@ impl EntityAuthority {
     pub(in crate::db::executor) fn is_scalar_primary_key_field(&self, field: &str) -> bool {
         self.accepted_schema_info
             .as_ref()
-            .and_then(|schema| schema.primary_key_name())
+            .and_then(|schema| schema.scalar_primary_key_name())
             .is_some_and(|primary_key_name| primary_key_name == field)
     }
 

@@ -380,7 +380,7 @@ fn strip_redundant_primary_key_predicate_for_exact_access(
 }
 
 fn scalar_primary_key_name(schema_info: &SchemaInfo) -> Option<&str> {
-    schema_info.primary_key_name()
+    schema_info.scalar_primary_key_name()
 }
 
 ///

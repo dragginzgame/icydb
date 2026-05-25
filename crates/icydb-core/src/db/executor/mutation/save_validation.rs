@@ -193,7 +193,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             let primary_key_slot = primary_key_slots
                 .first()
                 .copied()
-                .unwrap_or_else(|| accepted_contract.primary_key_slot_index());
+                .unwrap_or_else(|| accepted_contract.first_primary_key_slot_index());
             Self::validate_scalar_entity_primary_key_invariants(
                 entity,
                 schema,

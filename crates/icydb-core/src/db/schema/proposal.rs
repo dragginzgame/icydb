@@ -51,7 +51,7 @@ impl CompiledSchemaProposal {
 
     /// Return the schema field ID assigned to the generated primary key.
     #[must_use]
-    pub(in crate::db) const fn primary_key_field_id(&self) -> FieldId {
+    pub(in crate::db) const fn first_primary_key_field_id(&self) -> FieldId {
         self.primary_key_field_id
     }
 
@@ -496,12 +496,12 @@ fn debug_assert_compiled_schema_proposal_invariants(
     proposal: &CompiledSchemaProposal,
 ) {
     debug_assert_eq!(
-        proposal.primary_key_field_id(),
+        proposal.first_primary_key_field_id(),
         FieldId::from_initial_slot(model.primary_key_slot())
     );
     debug_assert_eq!(
         proposal.primary_key_field_ids().first().copied(),
-        Some(proposal.primary_key_field_id())
+        Some(proposal.first_primary_key_field_id())
     );
 
     let layout = proposal.initial_row_layout();
@@ -513,8 +513,8 @@ fn debug_assert_compiled_schema_proposal_invariants(
     debug_assert_eq!(snapshot.entity_path(), proposal.entity_path());
     debug_assert_eq!(snapshot.entity_name(), proposal.entity_name());
     debug_assert_eq!(
-        snapshot.primary_key_field_id(),
-        proposal.primary_key_field_id()
+        snapshot.first_primary_key_field_id(),
+        proposal.first_primary_key_field_id()
     );
     debug_assert_eq!(snapshot.row_layout(), &layout);
     debug_assert_eq!(snapshot.fields().len(), proposal.fields().len());
@@ -889,7 +889,7 @@ mod tests {
 
         assert_eq!(proposal.entity_path(), "schema::proposal::tests::Entity");
         assert_eq!(proposal.entity_name(), "Entity");
-        assert_eq!(proposal.primary_key_field_id(), FieldId::new(1));
+        assert_eq!(proposal.first_primary_key_field_id(), FieldId::new(1));
         assert_eq!(proposal.primary_key_field_ids(), &[FieldId::new(1)]);
         assert_eq!(proposal.fields().len(), 4);
         assert_eq!(
@@ -918,7 +918,7 @@ mod tests {
     fn compiled_schema_proposal_preserves_ordered_primary_key_field_ids() {
         let proposal = compiled_schema_proposal_for_model(&COMPOSITE_MODEL);
 
-        assert_eq!(proposal.primary_key_field_id(), FieldId::new(1));
+        assert_eq!(proposal.first_primary_key_field_id(), FieldId::new(1));
         assert_eq!(
             proposal.primary_key_field_ids(),
             &[FieldId::new(1), FieldId::new(3)],
@@ -964,7 +964,7 @@ mod tests {
         assert_eq!(snapshot.version(), SchemaVersion::initial());
         assert_eq!(snapshot.entity_path(), "schema::proposal::tests::Entity");
         assert_eq!(snapshot.entity_name(), "Entity");
-        assert_eq!(snapshot.primary_key_field_id(), FieldId::new(1));
+        assert_eq!(snapshot.first_primary_key_field_id(), FieldId::new(1));
         assert_eq!(snapshot.fields().len(), 4);
         assert_eq!(snapshot.indexes().len(), 3);
 

@@ -316,7 +316,7 @@ impl PersistedSchemaSnapshot {
     /// admitted composite row identity. Composite-aware code must use
     /// `primary_key_field_ids`.
     #[must_use]
-    pub(in crate::db) fn primary_key_field_id(&self) -> FieldId {
+    pub(in crate::db) fn first_primary_key_field_id(&self) -> FieldId {
         self.primary_key_field_ids[0]
     }
 

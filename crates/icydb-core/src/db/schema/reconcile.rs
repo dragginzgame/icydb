@@ -2443,7 +2443,7 @@ mod tests {
             expected.version(),
             expected.entity_path().to_string(),
             expected.entity_name().to_string(),
-            expected.primary_key_field_id(),
+            expected.first_primary_key_field_id(),
             expected.row_layout().clone(),
             stored_fields,
         );
@@ -2503,7 +2503,7 @@ mod tests {
             expected.version(),
             expected.entity_path().to_string(),
             "ChangedSchemaReconcileEntity".to_string(),
-            expected.primary_key_field_id(),
+            expected.first_primary_key_field_id(),
             expected.row_layout().clone(),
             expected.fields().to_vec(),
         );

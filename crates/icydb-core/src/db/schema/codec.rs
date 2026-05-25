@@ -1295,9 +1295,9 @@ mod tests {
             "accepted schema codec must preserve composite primary-key arity and order",
         );
         assert_eq!(
-            decoded.primary_key_field_id(),
+            decoded.first_primary_key_field_id(),
             FieldId::new(1),
-            "scalar bridge accessor remains the first primary-key field only",
+            "first-primary-key-field helper remains explicitly first-component only",
         );
     }
 

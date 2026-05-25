@@ -132,7 +132,7 @@ fn install_nullable_sql_old_accepted_schema_prefix() {
         expected.version(),
         expected.entity_path().to_string(),
         expected.entity_name().to_string(),
-        expected.primary_key_field_id(),
+        expected.first_primary_key_field_id(),
         SchemaRowLayout::new(
             expected.row_layout().version(),
             vec![
@@ -2691,7 +2691,7 @@ fn sql_ddl_alter_table_drop_column_rejects_any_composite_primary_key_field() {
             before.version(),
             before.entity_path().to_string(),
             before.entity_name().to_string(),
-            vec![before.primary_key_field_id(), nickname.id()],
+            vec![before.first_primary_key_field_id(), nickname.id()],
             before.row_layout().clone(),
             before.fields().to_vec(),
             before.indexes().to_vec(),

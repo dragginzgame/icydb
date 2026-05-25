@@ -934,7 +934,7 @@ fn install_nullable_indexed_old_accepted_schema_prefix() {
         expected.version(),
         expected.entity_path().to_string(),
         expected.entity_name().to_string(),
-        expected.primary_key_field_id(),
+        expected.first_primary_key_field_id(),
         SchemaRowLayout::new(
             expected.row_layout().version(),
             vec![
@@ -3777,7 +3777,7 @@ fn recovery_reconciles_schema_before_rebuilding_indexes_from_rows() {
         expected.version(),
         expected.entity_path().to_string(),
         "ChangedRecoveryIndexedEntity".to_string(),
-        expected.primary_key_field_id(),
+        expected.first_primary_key_field_id(),
         SchemaRowLayout::new(
             SchemaVersion::initial(),
             expected.row_layout().field_to_slot().to_vec(),

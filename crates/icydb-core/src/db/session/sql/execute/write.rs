@@ -58,8 +58,8 @@ where
         return Ok(key);
     }
 
-    let pk_name = descriptor.primary_key_name();
-    let primary_key_kind = descriptor.primary_key_kind();
+    let pk_name = descriptor.first_primary_key_name();
+    let primary_key_kind = descriptor.first_primary_key_kind();
     let normalized = canonicalize_strict_sql_literal_for_persisted_kind(primary_key_kind, value)
         .unwrap_or_else(|| value.clone());
 
