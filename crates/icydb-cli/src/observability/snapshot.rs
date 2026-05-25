@@ -73,6 +73,18 @@ pub(super) fn render_snapshot_report(report: &StorageReport) -> String {
             )
         })
         .collect::<Vec<_>>();
+    let schema_rows = report
+        .schema_storage()
+        .iter()
+        .map(|row| {
+            schema_store_row(
+                row.path(),
+                row.schema_version(),
+                row.schema_fingerprint(),
+                row.entity_count(),
+            )
+        })
+        .collect::<Vec<_>>();
     let entity_rows = report
         .entity_storage()
         .iter()
@@ -82,9 +94,10 @@ pub(super) fn render_snapshot_report(report: &StorageReport) -> String {
     output.push_str("IcyDB storage snapshot\n");
     output.push_str(
         format!(
-            "  data stores: {}\n  index stores: {}\n  entities: {}\n  corrupted keys: {}\n  corrupted entries: {}\n",
+            "  data stores: {}\n  index stores: {}\n  schema stores: {}\n  entities: {}\n  corrupted keys: {}\n  corrupted entries: {}\n",
             report.storage_data().len(),
             report.storage_index().len(),
+            report.schema_storage().len(),
             report.entity_storage().len(),
             report.corrupted_keys(),
             report.corrupted_entries(),
@@ -95,6 +108,8 @@ pub(super) fn render_snapshot_report(report: &StorageReport) -> String {
     append_data_store_table(&mut output, data_rows.as_slice());
     output.push('\n');
     append_index_store_table(&mut output, index_rows.as_slice());
+    output.push('\n');
+    append_schema_store_table(&mut output, schema_rows.as_slice());
     output.push('\n');
     append_entity_table(&mut output, entity_rows.as_slice());
 
@@ -124,6 +139,20 @@ fn index_store_row(
         system_entries.to_string(),
         memory_bytes.to_string(),
         state,
+    ]
+}
+
+fn schema_store_row(
+    path: &str,
+    schema_version: Option<u32>,
+    schema_fingerprint: Option<&str>,
+    entity_count: u64,
+) -> [String; 4] {
+    [
+        path.to_string(),
+        schema_version.map_or_else(|| "-".to_string(), |version| version.to_string()),
+        schema_fingerprint.unwrap_or("-").to_string(),
+        entity_count.to_string(),
     ]
 }
 
@@ -159,6 +188,21 @@ fn append_index_store_table(output: &mut String, rows: &[[String; 6]]) {
             ColumnAlign::Right,
             ColumnAlign::Right,
             ColumnAlign::Left,
+        ],
+    );
+}
+
+fn append_schema_store_table(output: &mut String, rows: &[[String; 4]]) {
+    append_snapshot_table(
+        output,
+        "schema stores",
+        &["path", "version", "fingerprint", "entities"],
+        rows,
+        &[
+            ColumnAlign::Left,
+            ColumnAlign::Right,
+            ColumnAlign::Left,
+            ColumnAlign::Right,
         ],
     );
 }

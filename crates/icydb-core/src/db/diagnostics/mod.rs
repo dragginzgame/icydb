@@ -22,6 +22,6 @@ pub(in crate::db) use local_instructions::measure_local_instruction_delta;
 pub(in crate::db) use local_instructions::read_local_instruction_counter;
 pub use model::{
     DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, IntegrityReport, IntegrityStoreSnapshot,
-    IntegrityTotals, StorageReport,
+    IntegrityTotals, SchemaStoreSnapshot, StorageReport,
 };
 pub(crate) use storage_report::{storage_report, storage_report_default};

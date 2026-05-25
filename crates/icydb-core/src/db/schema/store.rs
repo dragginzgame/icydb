@@ -4,9 +4,13 @@
 //! Boundary: provides the third per-store stable memory alongside row and index stores.
 
 use crate::{
-    db::schema::{
-        PersistedSchemaSnapshot, SchemaVersion, decode_persisted_schema_snapshot,
-        encode_persisted_schema_snapshot, schema_snapshot_integrity_detail,
+    db::{
+        codec::{finalize_hash_sha256, new_hash_sha256},
+        commit::CommitSchemaFingerprint,
+        schema::{
+            PersistedSchemaSnapshot, SchemaVersion, decode_persisted_schema_snapshot,
+            encode_persisted_schema_snapshot, schema_snapshot_integrity_detail,
+        },
     },
     error::InternalError,
     traits::Storable,
@@ -14,11 +18,14 @@ use crate::{
 };
 use ic_memory::stable_structures::storable::Bound;
 use ic_memory::stable_structures::{BTreeMap, DefaultMemoryImpl, memory_manager::VirtualMemory};
+use sha2::Digest;
 use std::borrow::Cow;
+use std::collections::BTreeMap as StdBTreeMap;
 
 const SCHEMA_KEY_BYTES_USIZE: usize = 12;
 const SCHEMA_KEY_BYTES: u32 = 12;
 const MAX_SCHEMA_SNAPSHOT_BYTES: u32 = 512 * 1024;
+const SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION: u8 = 1;
 
 ///
 /// RawSchemaKey
@@ -191,6 +198,55 @@ pub(in crate::db) struct SchemaStoreFootprint {
     latest_snapshot_bytes: u64,
 }
 
+///
+/// SchemaStoreCatalogMetadata
+///
+/// Accepted schema-store catalog metadata derived from latest persisted
+/// snapshots. This is diagnostic allocation metadata, not allocation identity.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct SchemaStoreCatalogMetadata {
+    schema_version: SchemaVersion,
+    schema_fingerprint: CommitSchemaFingerprint,
+    entity_count: u64,
+}
+
+impl SchemaStoreCatalogMetadata {
+    /// Build catalog metadata from already-derived accepted schema facts.
+    #[must_use]
+    const fn new(
+        schema_version: SchemaVersion,
+        schema_fingerprint: CommitSchemaFingerprint,
+        entity_count: u64,
+    ) -> Self {
+        Self {
+            schema_version,
+            schema_fingerprint,
+            entity_count,
+        }
+    }
+
+    /// Return the maximum latest schema version represented in the catalog.
+    #[must_use]
+    pub(in crate::db) const fn schema_version(self) -> SchemaVersion {
+        self.schema_version
+    }
+
+    /// Return the deterministic catalog fingerprint for latest accepted
+    /// snapshots.
+    #[must_use]
+    pub(in crate::db) const fn schema_fingerprint(self) -> CommitSchemaFingerprint {
+        self.schema_fingerprint
+    }
+
+    /// Return number of entity schemas represented in this catalog metadata.
+    #[must_use]
+    pub(in crate::db) const fn entity_count(self) -> u64 {
+        self.entity_count
+    }
+}
+
 impl SchemaStoreFootprint {
     /// Build one schema-store footprint from already-counted raw payload facts.
     #[must_use]
@@ -325,6 +381,67 @@ impl SchemaStore {
             encoded_bytes,
             latest.map_or(0, |(_, snapshot_bytes)| snapshot_bytes),
         )
+    }
+
+    /// Derive accepted catalog metadata from latest persisted schema snapshots.
+    ///
+    /// This function intentionally reads only the persisted schema store. It
+    /// does not reconstruct metadata from generated models when the store has
+    /// no accepted snapshots.
+    pub(in crate::db) fn catalog_metadata(
+        &self,
+    ) -> Result<Option<SchemaStoreCatalogMetadata>, InternalError> {
+        let mut latest_by_entity =
+            StdBTreeMap::<EntityTag, (SchemaVersion, RawSchemaSnapshot)>::new();
+
+        for entry in self.map.iter() {
+            let (key, snapshot) = entry.into_pair();
+            let version = SchemaVersion::new(key.version());
+            match latest_by_entity.get_mut(&key.entity_tag()) {
+                Some((latest_version, latest_snapshot)) if version > *latest_version => {
+                    *latest_version = version;
+                    *latest_snapshot = snapshot;
+                }
+                None => {
+                    latest_by_entity.insert(key.entity_tag(), (version, snapshot));
+                }
+                Some(_) => {}
+            }
+        }
+
+        if latest_by_entity.is_empty() {
+            return Ok(None);
+        }
+
+        let mut max_version = SchemaVersion::initial();
+        let mut hasher = new_hash_sha256();
+        hasher.update([SCHEMA_STORE_CATALOG_FINGERPRINT_VERSION]);
+
+        for (entity, (version, snapshot)) in &latest_by_entity {
+            let persisted = snapshot.decode_persisted_snapshot()?;
+            if persisted.version() > max_version {
+                max_version = persisted.version();
+            }
+
+            hasher.update(entity.value().to_be_bytes());
+            hasher.update(version.get().to_be_bytes());
+            hasher.update(
+                u64::try_from(snapshot.as_bytes().len())
+                    .unwrap_or(u64::MAX)
+                    .to_be_bytes(),
+            );
+            hasher.update(snapshot.as_bytes());
+        }
+
+        let digest = finalize_hash_sha256(hasher);
+        let mut schema_fingerprint = [0u8; 16];
+        schema_fingerprint.copy_from_slice(&digest[..16]);
+
+        Ok(Some(SchemaStoreCatalogMetadata::new(
+            max_version,
+            schema_fingerprint,
+            u64::try_from(latest_by_entity.len()).unwrap_or(u64::MAX),
+        )))
     }
 
     /// Insert or replace one raw schema snapshot.
@@ -484,6 +601,84 @@ mod tests {
         assert_eq!(footprint.snapshots(), 2);
         assert_eq!(footprint.encoded_bytes(), 7);
         assert_eq!(footprint.latest_snapshot_bytes(), 4);
+    }
+
+    #[test]
+    fn schema_store_catalog_metadata_is_absent_without_accepted_snapshots() {
+        let store = SchemaStore::init(test_memory(241));
+
+        assert_eq!(
+            store
+                .catalog_metadata()
+                .expect("empty schema catalog metadata should derive"),
+            None
+        );
+    }
+
+    #[test]
+    fn schema_store_catalog_metadata_uses_latest_persisted_snapshots() {
+        let mut store = SchemaStore::init(test_memory(240));
+        let initial = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "Initial");
+        let newer = persisted_schema_snapshot_for_test(SchemaVersion::new(2), "Newer");
+        let other = persisted_schema_snapshot_for_test(SchemaVersion::new(3), "Other");
+
+        store
+            .insert_persisted_snapshot(EntityTag::new(81), &initial)
+            .expect("initial schema snapshot should encode");
+        let initial_metadata = store
+            .catalog_metadata()
+            .expect("initial schema catalog metadata should derive")
+            .expect("initial schema catalog metadata should be present");
+
+        store
+            .insert_persisted_snapshot(EntityTag::new(81), &newer)
+            .expect("newer schema snapshot should encode");
+        store
+            .insert_persisted_snapshot(EntityTag::new(82), &other)
+            .expect("other schema snapshot should encode");
+        let updated_metadata = store
+            .catalog_metadata()
+            .expect("updated schema catalog metadata should derive")
+            .expect("updated schema catalog metadata should be present");
+
+        assert_eq!(initial_metadata.schema_version(), SchemaVersion::initial());
+        assert_eq!(initial_metadata.entity_count(), 1);
+        assert_eq!(updated_metadata.schema_version(), SchemaVersion::new(3));
+        assert_eq!(updated_metadata.entity_count(), 2);
+        assert_ne!(
+            initial_metadata.schema_fingerprint(),
+            updated_metadata.schema_fingerprint(),
+            "catalog fingerprint must change when latest accepted schema catalog changes"
+        );
+    }
+
+    #[test]
+    fn schema_store_catalog_metadata_is_independent_of_insertion_order() {
+        let first = persisted_schema_snapshot_for_test(SchemaVersion::new(2), "First");
+        let second = persisted_schema_snapshot_for_test(SchemaVersion::new(3), "Second");
+
+        let mut left = SchemaStore::init(test_memory(239));
+        left.insert_persisted_snapshot(EntityTag::new(91), &first)
+            .expect("first schema snapshot should encode");
+        left.insert_persisted_snapshot(EntityTag::new(92), &second)
+            .expect("second schema snapshot should encode");
+
+        let mut right = SchemaStore::init(test_memory(238));
+        right
+            .insert_persisted_snapshot(EntityTag::new(92), &second)
+            .expect("second schema snapshot should encode");
+        right
+            .insert_persisted_snapshot(EntityTag::new(91), &first)
+            .expect("first schema snapshot should encode");
+
+        let left_metadata = left
+            .catalog_metadata()
+            .expect("left schema catalog metadata should derive");
+        let right_metadata = right
+            .catalog_metadata()
+            .expect("right schema catalog metadata should derive");
+
+        assert_eq!(left_metadata, right_metadata);
     }
 
     #[test]

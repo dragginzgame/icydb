@@ -78,7 +78,7 @@ pub(crate) use data::{StructuralReadMetrics, with_structural_read_metrics};
 pub use diagnostics::{
     DataStoreSnapshot, EntitySnapshot, ExecutionAccessPathVariant, ExecutionMetrics,
     ExecutionOptimization, ExecutionStats, ExecutionTrace, IndexStoreSnapshot, IntegrityReport,
-    IntegrityStoreSnapshot, IntegrityTotals, StorageReport,
+    IntegrityStoreSnapshot, IntegrityTotals, SchemaStoreSnapshot, StorageReport,
 };
 #[doc(hidden)]
 pub use executor::EntityAuthority;

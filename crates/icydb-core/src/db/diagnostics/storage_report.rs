@@ -6,8 +6,12 @@
 use crate::{
     db::{
         Db, EntityRuntimeHooks,
+        codec::hex::encode_hex_lower,
         data::DecodedDataStoreKey,
-        diagnostics::{DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, StorageReport},
+        diagnostics::{
+            DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, SchemaStoreSnapshot,
+            StorageReport,
+        },
         index::IndexKey,
     },
     error::InternalError,
@@ -250,6 +254,7 @@ fn build_storage_report<C: CanisterKind>(
 ) -> StorageReport {
     let mut data = Vec::new();
     let mut index = Vec::new();
+    let mut schema = Vec::new();
     let mut entity_storage: Vec<EntitySnapshot> = Vec::new();
     let mut corrupted_keys = 0u64;
     let mut corrupted_entries = 0u64;
@@ -316,10 +321,24 @@ fn build_storage_report<C: CanisterKind>(
                     store.state(),
                 ));
             });
+
+            // Phase 3: collect schema-store allocation metadata diagnostics.
+            store_handle.with_schema(|store| {
+                let metadata = store.catalog_metadata().ok().flatten();
+                schema.push(match metadata {
+                    Some(metadata) => SchemaStoreSnapshot::new(
+                        path.to_string(),
+                        Some(metadata.schema_version().get()),
+                        Some(encode_hex_lower(&metadata.schema_fingerprint())),
+                        metadata.entity_count(),
+                    ),
+                    None => SchemaStoreSnapshot::new(path.to_string(), None, None, 0),
+                });
+            });
         }
     });
 
-    // Phase 3: enforce deterministic entity snapshot emission order.
+    // Phase 4: enforce deterministic entity snapshot emission order.
     // This remains stable even if outer store traversal internals change.
     entity_storage
         .sort_by(|left, right| (left.store(), left.path()).cmp(&(right.store(), right.path())));
@@ -327,6 +346,7 @@ fn build_storage_report<C: CanisterKind>(
     StorageReport::new(
         data,
         index,
+        schema,
         entity_storage,
         corrupted_keys,
         corrupted_entries,

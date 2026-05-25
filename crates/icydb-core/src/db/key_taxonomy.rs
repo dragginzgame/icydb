@@ -2140,6 +2140,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "0.162 closeout evidence intentionally keeps scalar/composite footprint cases together"
+    )]
     fn composite_primary_key_closeout_storage_footprint_is_linear_and_key_owned() {
         let entity = EntityTag::new(0x162);
         let index_id = IndexId::new(entity, 7);

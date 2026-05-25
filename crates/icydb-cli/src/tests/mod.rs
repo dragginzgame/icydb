@@ -1200,6 +1200,7 @@ fn snapshot_report_rendering_uses_human_tables() {
     assert!(text.contains("IcyDB storage snapshot"));
     assert!(text.contains("data stores\n  None"));
     assert!(text.contains("index stores\n  None"));
+    assert!(text.contains("schema stores\n  None"));
     assert!(text.contains("entities\n  None"));
 }
 

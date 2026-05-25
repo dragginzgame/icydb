@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- Started 0.163 stable allocation metadata by separating durable allocation
+  identity from diagnostic schema metadata in the schema node model, with
+  explicit absent and accepted-schema metadata construction paths.
+- Added schema-store catalog metadata to storage snapshots, derived from
+  accepted persisted schema snapshots rather than generated models.
+
 ## [0.162.x] 🔑 - 2026-05-23 - Composite Primary Keys
 
 Detailed notes: [docs/changelog/0.162.md](docs/changelog/0.162.md)

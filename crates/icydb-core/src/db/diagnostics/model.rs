@@ -12,6 +12,7 @@ use serde::Deserialize;
 pub struct StorageReport {
     pub(crate) storage_data: Vec<DataStoreSnapshot>,
     pub(crate) storage_index: Vec<IndexStoreSnapshot>,
+    pub(crate) schema_storage: Vec<SchemaStoreSnapshot>,
     pub(crate) entity_storage: Vec<EntitySnapshot>,
     pub(crate) corrupted_keys: u64,
     pub(crate) corrupted_entries: u64,
@@ -260,6 +261,7 @@ impl StorageReport {
     pub(crate) const fn new(
         storage_data: Vec<DataStoreSnapshot>,
         storage_index: Vec<IndexStoreSnapshot>,
+        schema_storage: Vec<SchemaStoreSnapshot>,
         entity_storage: Vec<EntitySnapshot>,
         corrupted_keys: u64,
         corrupted_entries: u64,
@@ -267,6 +269,7 @@ impl StorageReport {
         Self {
             storage_data,
             storage_index,
+            schema_storage,
             entity_storage,
             corrupted_keys,
             corrupted_entries,
@@ -285,6 +288,12 @@ impl StorageReport {
         self.storage_index.as_slice()
     }
 
+    /// Borrow schema-store snapshots.
+    #[must_use]
+    pub const fn schema_storage(&self) -> &[SchemaStoreSnapshot] {
+        self.schema_storage.as_slice()
+    }
+
     /// Borrow entity-level storage snapshots.
     #[must_use]
     pub const fn entity_storage(&self) -> &[EntitySnapshot] {
@@ -301,6 +310,60 @@ impl StorageReport {
     #[must_use]
     pub const fn corrupted_entries(&self) -> u64 {
         self.corrupted_entries
+    }
+}
+
+#[cfg_attr(doc, doc = "SchemaStoreSnapshot\n\nSchema-store diagnostic row.")]
+#[derive(CandidType, Clone, Debug, Default, Deserialize)]
+pub struct SchemaStoreSnapshot {
+    pub(crate) path: String,
+    pub(crate) schema_version: Option<u32>,
+    pub(crate) schema_fingerprint: Option<String>,
+    pub(crate) entity_count: u64,
+}
+
+impl SchemaStoreSnapshot {
+    /// Construct one schema-store diagnostic row.
+    #[must_use]
+    pub(crate) const fn new(
+        path: String,
+        schema_version: Option<u32>,
+        schema_fingerprint: Option<String>,
+        entity_count: u64,
+    ) -> Self {
+        Self {
+            path,
+            schema_version,
+            schema_fingerprint,
+            entity_count,
+        }
+    }
+
+    /// Borrow store path.
+    #[must_use]
+    pub const fn path(&self) -> &str {
+        self.path.as_str()
+    }
+
+    /// Return accepted schema/catalog version, when known.
+    #[must_use]
+    pub const fn schema_version(&self) -> Option<u32> {
+        self.schema_version
+    }
+
+    /// Return accepted schema/catalog fingerprint, when known.
+    #[must_use]
+    pub const fn schema_fingerprint(&self) -> Option<&str> {
+        match &self.schema_fingerprint {
+            Some(value) => Some(value.as_str()),
+            None => None,
+        }
+    }
+
+    /// Return number of entity schemas represented in this schema catalog.
+    #[must_use]
+    pub const fn entity_count(&self) -> u64 {
+        self.entity_count
     }
 }
 

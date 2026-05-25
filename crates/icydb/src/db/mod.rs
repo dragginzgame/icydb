@@ -24,8 +24,8 @@ pub use icydb_core::db::{
     EntityRelationDescription, EntityRelationStrength, EntitySchemaCheckDescription,
     EntitySchemaDescription, ExplainAggregateTerminalPlan, ExplainExecutionDescriptor,
     ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-    ExplainExecutionOrderingSource, QueryTracePlan, Row, StorageReport, TraceExecutionFamily,
-    TraceReuseArtifactClass, TraceReuseEvent,
+    ExplainExecutionOrderingSource, QueryTracePlan, Row, SchemaStoreSnapshot, StorageReport,
+    TraceExecutionFamily, TraceReuseArtifactClass, TraceReuseEvent,
 };
 
 // Hidden core wiring used by generated code and advanced diagnostics.

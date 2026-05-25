@@ -7,7 +7,8 @@ mod execution_trace;
 
 use super::{
     DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, IntegrityReport, IntegrityStoreSnapshot,
-    IntegrityTotals, StorageReport, integrity_report, storage_report, storage_report_default,
+    IntegrityTotals, SchemaStoreSnapshot, StorageReport, integrity_report, storage_report,
+    storage_report_default,
 };
 use crate::{
     db::{
@@ -402,6 +403,14 @@ fn index_paths(report: &StorageReport) -> Vec<&str> {
         .collect()
 }
 
+fn schema_paths(report: &StorageReport) -> Vec<&str> {
+    report
+        .schema_storage()
+        .iter()
+        .map(SchemaStoreSnapshot::path)
+        .collect()
+}
+
 fn entity_store_paths(report: &StorageReport) -> Vec<(&str, &str)> {
     report
         .entity_storage()
@@ -433,6 +442,14 @@ fn index_snapshot_rows(report: &StorageReport) -> Vec<(&str, u64, u64, u64, u64,
             )
         })
         .collect()
+}
+
+fn schema_snapshot<'a>(report: &'a StorageReport, path: &str) -> &'a SchemaStoreSnapshot {
+    report
+        .schema_storage()
+        .iter()
+        .find(|snapshot| snapshot.path() == path)
+        .expect("schema snapshot should contain target store path")
 }
 
 fn entity_snapshot_rows(report: &StorageReport) -> Vec<(&str, &str, u64, u64)> {
@@ -475,6 +492,7 @@ fn storage_report_empty_store_snapshot() {
 
     assert_eq!(data_paths(&report), vec![STORE_A_PATH, STORE_Z_PATH]);
     assert_eq!(index_paths(&report), vec![STORE_A_PATH, STORE_Z_PATH]);
+    assert_eq!(schema_paths(&report), vec![STORE_A_PATH, STORE_Z_PATH]);
     assert!(
         report
             .storage_data()
@@ -487,6 +505,15 @@ fn storage_report_empty_store_snapshot() {
             .iter()
             .all(|snapshot| snapshot.entries() == 0)
     );
+
+    let populated_schema = schema_snapshot(&report, STORE_A_PATH);
+    let empty_schema = schema_snapshot(&report, STORE_Z_PATH);
+    assert_eq!(populated_schema.schema_version(), Some(1));
+    assert!(populated_schema.schema_fingerprint().is_some());
+    assert!(populated_schema.entity_count() > 0);
+    assert_eq!(empty_schema.schema_version(), None);
+    assert_eq!(empty_schema.schema_fingerprint(), None);
+    assert_eq!(empty_schema.entity_count(), 0);
 }
 
 #[test]
@@ -530,6 +557,7 @@ fn storage_report_default_matches_empty_alias_snapshot() {
         index_snapshot_rows(&default_report),
         index_snapshot_rows(&aliased_report)
     );
+    assert_eq!(schema_paths(&default_report), schema_paths(&aliased_report));
     assert_eq!(
         entity_snapshot_rows(&default_report),
         entity_snapshot_rows(&aliased_report)
@@ -855,6 +883,7 @@ fn storage_report_candid_shape_is_stable() {
     for field in [
         "storage_data",
         "storage_index",
+        "schema_storage",
         "entity_storage",
         "corrupted_keys",
         "corrupted_entries",
@@ -893,6 +922,23 @@ fn index_store_snapshot_candid_shape_is_stable() {
         assert!(
             fields.iter().any(|candidate| candidate == field),
             "IndexStoreSnapshot must keep `{field}` as Candid field key",
+        );
+    }
+}
+
+#[test]
+fn schema_store_snapshot_candid_shape_is_stable() {
+    let fields = expect_record_fields(SchemaStoreSnapshot::ty());
+
+    for field in [
+        "path",
+        "schema_version",
+        "schema_fingerprint",
+        "entity_count",
+    ] {
+        assert!(
+            fields.iter().any(|candidate| candidate == field),
+            "SchemaStoreSnapshot must keep `{field}` as Candid field key",
         );
     }
 }
